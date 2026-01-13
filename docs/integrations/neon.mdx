@@ -5,7 +5,7 @@ description: Drop-in replacement for @neondatabase/serverless backed by Durable 
 
 # Neon Integration
 
-Drop-in replacement for `@neondatabase/serverless` backed by Durable Object SQLite. Same API, your code works unchanged.
+Drop-in replacement for `@neondatabase/serverless`. Your existing `@neondatabase/serverless` code works unchanged - just swap the import.
 
 ```typescript
 import { neon, Pool } from '@dotdo/neon'
@@ -19,7 +19,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 const { rows } = await pool.query('SELECT * FROM users')
 ```
 
-## Why neon.do?
+## Why @dotdo/neon?
 
 | @neondatabase/serverless | @dotdo/neon |
 |--------------------------|-------------|

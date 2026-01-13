@@ -411,3 +411,13 @@ export {
   type SubscriptionHandle,
   type ChannelStats,
 } from './pubsub-broker'
+
+// TransactionContext - Redis MULTI/EXEC style atomic transactions
+export {
+  TransactionContext,
+  createTransactionContext,
+  type TransactionContextOptions,
+  type WatchError,
+  type QueuedCommand,
+  type TransactionResult,
+} from './transaction-context'

@@ -7,6 +7,10 @@ import { Callout } from 'fumadocs-ui/components/callout'
 
 # Cap'n Web RPC
 
+<Callout type="info">
+**New to RPC?** If you're just getting started, you can safely skip this section. Promise pipelining happens automatically—you don't need to understand it to use dotdo effectively. Just write natural code and the system optimizes it for you.
+</Callout>
+
 This is how dotdo achieves impossible performance. Cap'n Web is an object-capability RPC protocol with **promise pipelining**—the ability to pass unawaited promises as parameters, batching entire call graphs into single network round trips.
 
 ```typescript
@@ -43,6 +47,17 @@ When you pass `spec` to Ralph without awaiting, the system doesn't need to send 
 <Callout type="info" title="The Core Insight">
 A promise is just a reference to a future value. If the server knows what to do with that value, why send it back to the client first?
 </Callout>
+
+### Real-World Latency Impact
+
+With typical 100ms network round-trip latency:
+
+| Approach | Round Trips | Total Latency |
+|----------|-------------|---------------|
+| **Traditional REST** | 3 sequential requests | ~300ms |
+| **Promise pipelining** | 1 batched request | ~100ms |
+
+That's a **3x improvement** for a simple 3-step operation. For complex pipelines with 5-10 agent calls, the difference becomes even more dramatic—1000ms vs 100ms.
 
 ## RpcPromise vs Promise
 
@@ -98,6 +113,46 @@ This entire graph is sent in **one request**. The server:
 4. Returns only the final result to the client
 
 No intermediate values cross the network.
+
+## Start Here
+
+<Cards>
+  <Card title="Understanding Promise Pipelining" href="/docs/rpc/understanding-promise-pipelining">
+    **The essential guide.** Mental model, visual diagrams, and why unawaited promises eliminate network round trips.
+  </Card>
+</Cards>
+
+## Learning Path
+
+Choose your level based on your goals:
+
+### Level 1: Just Use It (Automatic)
+
+You don't need to understand pipelining to benefit from it. Write natural code:
+
+```typescript
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+await app
+```
+
+The system automatically pipelines your calls. Move on to building your product.
+
+### Level 2: Understanding Pipelining Basics
+
+Learn when pipelining helps and when you need to await:
+
+1. Read [Understanding Promise Pipelining](/docs/rpc/understanding-promise-pipelining) for the mental model
+2. Review [Await Patterns](/docs/rpc/await-patterns) for practical rules
+3. Practice identifying where pipelines break
+
+### Level 3: Advanced Optimization
+
+Master the full toolkit for maximum performance:
+
+1. [Proxy Chaining](/docs/rpc/proxy-chaining) for method calls on unresolved values
+2. [Magic Map](/docs/rpc/magic-map) for server-side collection transforms
+3. [Pipeline Inspection](/docs/rpc/pipelines#pipeline-inspection) for debugging complex graphs
 
 ## Key Concepts
 
@@ -168,6 +223,59 @@ if (analysis.opportunity === 'high') {
 Here the `await` is necessary—the client needs to inspect `analysis.opportunity` to decide which branch to take. The server can't know this in advance.
 
 See [Await Patterns](/docs/rpc/await-patterns) for the complete rules.
+
+## Common Anti-Patterns
+
+Avoid these mistakes that break pipelining:
+
+### Awaiting Every Call
+
+```typescript title="Anti-Pattern: Sequential Awaits"
+const spec = await priya`define the MVP`      // Round trip 1
+const app = await ralph`build ${spec}`         // Round trip 2
+const deployed = await tom`ship ${app}`        // Round trip 3
+// 3 round trips = ~300ms
+```
+
+```typescript title="Fix: Pipeline Until Final Result"
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const deployed = await tom`ship ${app}`        // 1 round trip = ~100ms
+```
+
+### Await-Then-Pass
+
+```typescript title="Anti-Pattern: Unnecessary Await"
+const spec = await priya`define the MVP`  // Why await here?
+const app = ralph`build ${spec}`           // spec is now resolved value
+```
+
+If you're just passing `spec` to another call, don't await it.
+
+### Async Map Callbacks
+
+```typescript title="Anti-Pattern: Await in Map"
+const tasks = await priya`list tasks`
+const results = await Promise.all(
+  tasks.map(async task => await ralph`implement ${task}`)  // N round trips!
+)
+```
+
+```typescript title="Fix: Use Magic Map"
+const tasks = priya`list tasks`
+const results = await tasks.map(task => ralph`implement ${task}`)  // 1 round trip
+```
+
+### How to Identify Issues
+
+Watch for these warning signs:
+
+1. **Multiple `await` keywords in sequence** without local branching between them
+2. **Async functions that immediately await** then pass to another call
+3. **`Promise.all` with async callbacks** that await inside the callback
+4. **Round-trip counts** higher than expected in performance profiling
+
+Use `.describe()` on any RpcPromise to visualize the pipeline graph before execution.
 
 ## Object Capabilities
 

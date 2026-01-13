@@ -26,7 +26,7 @@ const conn = connect({
 const { rows } = await conn.execute('SELECT * FROM users WHERE id = ?', [1])
 ```
 
-## Why planetscale.do?
+## Why @dotdo/planetscale?
 
 | @planetscale/database | @dotdo/planetscale |
 |-----------------------|--------------------|
@@ -40,20 +40,20 @@ const { rows } = await conn.execute('SELECT * FROM users WHERE id = ?', [1])
 ## Features
 
 - **Serverless MySQL** - HTTP-based query execution with `?` placeholder parameters
-- **Edge-compatible** - Runs natively on Cloudflare Workers, no external connections needed
+- **Edge-compatible (Cloudflare Workers)** - Runs natively on Cloudflare Workers, no external connections needed
 - **MySQL syntax** - AUTO_INCREMENT, backtick identifiers, ON DUPLICATE KEY UPDATE
 - **Transactions** - Atomic multi-statement execution with automatic rollback
 - **Type safety** - Generic type parameters for typed query results
 - **Cast helpers** - `hex()`, `datetime()`, `json()` for type formatting
 - **DO sharding** - Optional sharding and replica configuration for scale
 
-## Installation
+## Quick Start
+
+### Install
 
 ```bash
 npm install @dotdo/planetscale
 ```
-
-## Quick Start
 
 ### Basic Queries
 

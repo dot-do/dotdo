@@ -147,15 +147,31 @@ interface StoredContact extends Omit<Contact, 'tags' | 'notes' | 'companies' | '
  */
 interface StoredConversation {
   id: string
-  contactId: string
+  contactIds: string[]
   state: 'open' | 'closed' | 'snoozed'
   adminAssigneeId: string | null
   teamAssigneeId: string | null
   snoozedUntil: number | null
+  waitingSince: number | null
   priority: 'priority' | 'not_priority'
   customAttributes: CustomAttributes
   createdAt: number
   updatedAt: number
+  statistics: {
+    time_to_assignment: number | null
+    time_to_admin_reply: number | null
+    time_to_first_close: number | null
+    time_to_last_close: number | null
+    first_assignment_at: number | null
+    first_admin_reply_at: number | null
+    first_close_at: number | null
+    last_admin_reply_at: number | null
+    last_close_at: number | null
+    count_reopens: number
+    count_assignments: number
+    count_conversation_parts: number
+  }
+  tags: string[]
 }
 
 /**
@@ -423,11 +439,22 @@ class LocalContactsResource {
 // Local Conversations Resource (with TemporalStore)
 // =============================================================================
 
+/**
+ * Extended list params with filtering
+ */
+interface ExtendedConversationListParams extends ConversationListParams {
+  state?: 'open' | 'closed' | 'snoozed'
+  assigned_to?: string
+  unassigned?: boolean
+}
+
 class LocalConversationsResource {
   private conversations: Map<string, StoredConversation> = new Map()
   private conversationStore: TemporalStore<ConversationPart>
   private workspaceId: string
   private contacts: LocalContactsResource
+  private emailIndex: Map<string, string> = new Map() // email -> contactId
+  private externalIdIndex: Map<string, string> = new Map() // external_id -> contactId
 
   constructor(
     workspaceId: string,
@@ -437,6 +464,23 @@ class LocalConversationsResource {
     this.workspaceId = workspaceId
     this.contacts = contacts
     this.conversationStore = createTemporalStore<ConversationPart>(storeOptions)
+  }
+
+  private createInitialStatistics(): StoredConversation['statistics'] {
+    return {
+      time_to_assignment: null,
+      time_to_admin_reply: null,
+      time_to_first_close: null,
+      time_to_last_close: null,
+      first_assignment_at: null,
+      first_admin_reply_at: null,
+      first_close_at: null,
+      last_admin_reply_at: null,
+      last_close_at: null,
+      count_reopens: 0,
+      count_assignments: 0,
+      count_conversation_parts: 1, // Initial message
+    }
   }
 
   async create(params: ConversationCreateParams): Promise<Conversation> {
@@ -457,15 +501,18 @@ class LocalConversationsResource {
 
     const stored: StoredConversation = {
       id,
-      contactId,
+      contactIds: [contactId],
       state: 'open',
       adminAssigneeId: null,
       teamAssigneeId: null,
       snoozedUntil: null,
+      waitingSince: null,
       priority: 'not_priority',
       customAttributes: {},
       createdAt: now,
       updatedAt: now,
+      statistics: this.createInitialStatistics(),
+      tags: [],
     }
 
     this.conversations.set(id, stored)
@@ -500,12 +547,33 @@ class LocalConversationsResource {
     return this.buildConversation(stored, parts)
   }
 
-  async list(params?: ConversationListParams): Promise<ConversationListResponse> {
+  async list(params?: ExtendedConversationListParams): Promise<ConversationListResponse> {
     const perPage = params?.per_page ?? 20
-    const conversations = Array.from(this.conversations.values())
+    let conversations = Array.from(this.conversations.values())
 
+    // Apply filters
+    if (params?.state) {
+      conversations = conversations.filter((c) => c.state === params.state)
+    }
+    if (params?.assigned_to) {
+      conversations = conversations.filter((c) => c.adminAssigneeId === params.assigned_to)
+    }
+    if (params?.unassigned) {
+      conversations = conversations.filter((c) => c.adminAssigneeId === null && c.teamAssigneeId === null)
+    }
+
+    // Apply starting_after pagination
+    let startIndex = 0
+    if (params?.starting_after) {
+      const idx = conversations.findIndex((c) => c.id === params.starting_after)
+      if (idx !== -1) {
+        startIndex = idx + 1
+      }
+    }
+
+    const page = conversations.slice(startIndex, startIndex + perPage)
     const result: Conversation[] = []
-    for (const stored of conversations.slice(0, perPage)) {
+    for (const stored of page) {
       const parts = await this.getConversationParts(stored.id)
       result.push(this.buildConversation(stored, parts))
     }
@@ -525,6 +593,48 @@ class LocalConversationsResource {
     }
 
     const now = Math.floor(Date.now() / 1000)
+
+    // Resolve author ID for user replies
+    let authorId = params.admin_id ?? params.intercom_user_id ?? stored.contactIds[0]
+    if (params.type === 'user') {
+      if (params.email) {
+        const contact = await this.contacts.findByEmail(params.email)
+        if (contact) authorId = contact.id
+      } else if (params.user_id) {
+        // Look up by external_id
+        try {
+          const contacts = await this.contacts.search({
+            query: { field: 'external_id', operator: '=', value: params.user_id },
+          })
+          if (contacts.data.length > 0) {
+            authorId = contacts.data[0].id
+          }
+        } catch {
+          // Keep default authorId
+        }
+      }
+    }
+
+    // Build attachments from URLs or files
+    let attachments: ConversationAttachment[] | undefined
+    if (params.attachment_urls && params.attachment_urls.length > 0) {
+      attachments = params.attachment_urls.map((url) => ({
+        type: 'upload' as const,
+        name: url.split('/').pop() || 'file',
+        url,
+        content_type: 'application/octet-stream',
+        filesize: 0,
+      }))
+    } else if (params.attachment_files && params.attachment_files.length > 0) {
+      attachments = params.attachment_files.map((f) => ({
+        type: 'upload' as const,
+        name: f.name,
+        url: `data:${f.content_type};base64,${f.data}`,
+        content_type: f.content_type,
+        filesize: f.data.length,
+      }))
+    }
+
     const part: ConversationPart = {
       type: 'conversation_part',
       id: generateId('part'),
@@ -535,12 +645,36 @@ class LocalConversationsResource {
       notified_at: now,
       author: {
         type: params.type,
-        id: params.admin_id ?? params.intercom_user_id ?? stored.contactId,
+        id: authorId,
       },
+      attachments,
     }
 
     // Store in TemporalStore
     await this.conversationStore.put(`${params.id}:${part.id}`, part, now)
+
+    // Update statistics
+    stored.statistics.count_conversation_parts++
+
+    // Handle waiting_since and auto-reopen
+    if (params.type === 'user') {
+      // User reply sets waiting_since
+      stored.waitingSince = now
+      // Auto-reopen closed conversations on user reply
+      if (stored.state === 'closed') {
+        stored.state = 'open'
+        stored.statistics.count_reopens++
+      }
+    } else if (params.type === 'admin') {
+      // Admin reply clears waiting_since
+      stored.waitingSince = null
+      // Track first admin reply time
+      if (!stored.statistics.first_admin_reply_at) {
+        stored.statistics.first_admin_reply_at = now
+        stored.statistics.time_to_admin_reply = now - stored.createdAt
+      }
+      stored.statistics.last_admin_reply_at = now
+    }
 
     // Update conversation
     stored.updatedAt = now
@@ -558,12 +692,24 @@ class LocalConversationsResource {
 
     const now = Math.floor(Date.now() / 1000)
 
+    // Handle unassignment (assignee_id = '0')
+    const isUnassign = params.assignee_id === '0'
+
     if (params.type === 'admin') {
-      stored.adminAssigneeId = params.assignee_id
+      stored.adminAssigneeId = isUnassign ? null : params.assignee_id
     } else {
-      stored.teamAssigneeId = params.assignee_id
+      stored.teamAssigneeId = isUnassign ? null : params.assignee_id
     }
     stored.updatedAt = now
+
+    // Update statistics
+    if (!isUnassign) {
+      stored.statistics.count_assignments++
+      if (!stored.statistics.first_assignment_at) {
+        stored.statistics.first_assignment_at = now
+        stored.statistics.time_to_assignment = now - stored.createdAt
+      }
+    }
 
     // Record assignment part
     const part: ConversationPart = {
@@ -575,10 +721,11 @@ class LocalConversationsResource {
       updated_at: now,
       notified_at: now,
       author: { type: 'admin', id: params.admin_id },
-      assigned_to: { type: params.type as 'admin' | 'team', id: params.assignee_id },
+      assigned_to: isUnassign ? null : { type: params.type as 'admin' | 'team', id: params.assignee_id },
     }
 
     await this.conversationStore.put(`${params.id}:${part.id}`, part, now)
+    stored.statistics.count_conversation_parts++
     this.conversations.set(params.id, stored)
 
     const parts = await this.getConversationParts(params.id)
@@ -593,7 +740,16 @@ class LocalConversationsResource {
 
     const now = Math.floor(Date.now() / 1000)
     stored.state = 'closed'
+    stored.waitingSince = null
     stored.updatedAt = now
+
+    // Track close statistics
+    if (!stored.statistics.first_close_at) {
+      stored.statistics.first_close_at = now
+      stored.statistics.time_to_first_close = now - stored.createdAt
+    }
+    stored.statistics.last_close_at = now
+    stored.statistics.time_to_last_close = now - stored.createdAt
 
     const part: ConversationPart = {
       type: 'conversation_part',
@@ -607,6 +763,7 @@ class LocalConversationsResource {
     }
 
     await this.conversationStore.put(`${params.id}:${part.id}`, part, now)
+    stored.statistics.count_conversation_parts++
     this.conversations.set(params.id, stored)
 
     const parts = await this.getConversationParts(params.id)
@@ -620,9 +777,15 @@ class LocalConversationsResource {
     }
 
     const now = Math.floor(Date.now() / 1000)
+    const wasNotOpen = stored.state !== 'open'
     stored.state = 'open'
     stored.snoozedUntil = null
     stored.updatedAt = now
+
+    // Track reopens
+    if (wasNotOpen) {
+      stored.statistics.count_reopens++
+    }
 
     const part: ConversationPart = {
       type: 'conversation_part',
@@ -636,6 +799,7 @@ class LocalConversationsResource {
     }
 
     await this.conversationStore.put(`${params.id}:${part.id}`, part, now)
+    stored.statistics.count_conversation_parts++
     this.conversations.set(params.id, stored)
 
     const parts = await this.getConversationParts(params.id)
@@ -665,6 +829,7 @@ class LocalConversationsResource {
     }
 
     await this.conversationStore.put(`${params.id}:${part.id}`, part, now)
+    stored.statistics.count_conversation_parts++
     this.conversations.set(params.id, stored)
 
     const parts = await this.getConversationParts(params.id)
@@ -672,12 +837,41 @@ class LocalConversationsResource {
   }
 
   async search(params: ConversationSearchParams): Promise<ConversationListResponse> {
-    // Simple search implementation
-    const conversations = Array.from(this.conversations.values())
+    let conversations = Array.from(this.conversations.values())
     const perPage = params.pagination?.per_page ?? 20
 
+    // Filter by query
+    const filtered: StoredConversation[] = []
+    for (const stored of conversations) {
+      if (this.matchesQuery(stored, params.query)) {
+        filtered.push(stored)
+      }
+    }
+
+    // Sort results
+    if (params.sort) {
+      filtered.sort((a, b) => {
+        let aVal: number
+        let bVal: number
+        switch (params.sort!.field) {
+          case 'created_at':
+            aVal = a.createdAt
+            bVal = b.createdAt
+            break
+          case 'updated_at':
+            aVal = a.updatedAt
+            bVal = b.updatedAt
+            break
+          default:
+            aVal = a.createdAt
+            bVal = b.createdAt
+        }
+        return params.sort!.order === 'ascending' ? aVal - bVal : bVal - aVal
+      })
+    }
+
     const result: Conversation[] = []
-    for (const stored of conversations.slice(0, perPage)) {
+    for (const stored of filtered.slice(0, perPage)) {
       const parts = await this.getConversationParts(stored.id)
       result.push(this.buildConversation(stored, parts))
     }
@@ -685,8 +879,241 @@ class LocalConversationsResource {
     return {
       type: 'conversation.list',
       conversations: result,
-      total_count: conversations.length,
-      pages: createPages(1, perPage, conversations.length),
+      total_count: filtered.length,
+      pages: createPages(1, perPage, filtered.length),
+    }
+  }
+
+  private matchesQuery(stored: StoredConversation, query: any): boolean {
+    if ('operator' in query && (query.operator === 'AND' || query.operator === 'OR')) {
+      const results = query.value.map((q: any) => this.matchesQuery(stored, q))
+      return query.operator === 'AND' ? results.every(Boolean) : results.some(Boolean)
+    }
+
+    const { field, operator, value } = query
+    const fieldValue = this.getFieldValue(stored, field)
+
+    switch (operator) {
+      case '=':
+        return fieldValue === value
+      case '!=':
+        return fieldValue !== value
+      case '>':
+        return typeof fieldValue === 'number' && fieldValue > value
+      case '<':
+        return typeof fieldValue === 'number' && fieldValue < value
+      case '~':
+      case 'contains':
+        return typeof fieldValue === 'string' && fieldValue.includes(String(value))
+      case 'IN':
+        return Array.isArray(value) && value.includes(fieldValue)
+      default:
+        return false
+    }
+  }
+
+  private getFieldValue(stored: StoredConversation, field: string): unknown {
+    switch (field) {
+      case 'state':
+        return stored.state
+      case 'admin_assignee_id':
+        return stored.adminAssigneeId
+      case 'team_assignee_id':
+        return stored.teamAssigneeId
+      case 'contact_ids':
+        // Return first contact ID for simple equality check
+        return stored.contactIds[0]
+      case 'created_at':
+        return stored.createdAt
+      case 'updated_at':
+        return stored.updatedAt
+      case 'priority':
+        return stored.priority
+      default:
+        if (field.startsWith('custom_attributes.')) {
+          const key = field.slice('custom_attributes.'.length)
+          return stored.customAttributes[key]
+        }
+        return undefined
+    }
+  }
+
+  /**
+   * Run assignment rules for a conversation
+   */
+  async runAssignmentRules(conversationId: string): Promise<Conversation> {
+    const stored = this.conversations.get(conversationId)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${conversationId}`)
+    }
+    // In a real implementation, this would run through assignment rules
+    // For now, just return the conversation
+    const parts = await this.getConversationParts(conversationId)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Add a tag to a conversation
+   */
+  async addTag(params: { id: string; admin_id: string; tag_id: string }): Promise<Conversation> {
+    const stored = this.conversations.get(params.id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.id}`)
+    }
+    if (!stored.tags.includes(params.tag_id)) {
+      stored.tags.push(params.tag_id)
+    }
+    stored.updatedAt = Math.floor(Date.now() / 1000)
+    this.conversations.set(params.id, stored)
+    const parts = await this.getConversationParts(params.id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Remove a tag from a conversation
+   */
+  async removeTag(params: { id: string; admin_id: string; tag_id: string }): Promise<Conversation> {
+    const stored = this.conversations.get(params.id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.id}`)
+    }
+    stored.tags = stored.tags.filter((t) => t !== params.tag_id)
+    stored.updatedAt = Math.floor(Date.now() / 1000)
+    this.conversations.set(params.id, stored)
+    const parts = await this.getConversationParts(params.id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Add a note to a conversation
+   */
+  async addNote(params: { id: string; admin_id: string; body: string }): Promise<Conversation> {
+    const stored = this.conversations.get(params.id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.id}`)
+    }
+
+    const now = Math.floor(Date.now() / 1000)
+    const part: ConversationPart = {
+      type: 'conversation_part',
+      id: generateId('part'),
+      part_type: 'note',
+      body: params.body,
+      created_at: now,
+      updated_at: now,
+      notified_at: now,
+      author: { type: 'admin', id: params.admin_id },
+    }
+
+    await this.conversationStore.put(`${params.id}:${part.id}`, part, now)
+    stored.statistics.count_conversation_parts++
+    stored.updatedAt = now
+    this.conversations.set(params.id, stored)
+
+    const parts = await this.getConversationParts(params.id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Redact a conversation part
+   */
+  async redact(params: { conversation_id: string; conversation_part_id?: string }): Promise<Conversation> {
+    const stored = this.conversations.get(params.conversation_id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.conversation_id}`)
+    }
+    // In a real implementation, we would mark the part as redacted
+    const parts = await this.getConversationParts(params.conversation_id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Set conversation priority
+   */
+  async setPriority(params: { id: string; admin_id: string; priority: 'priority' | 'not_priority' }): Promise<Conversation> {
+    const stored = this.conversations.get(params.id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.id}`)
+    }
+    stored.priority = params.priority
+    stored.updatedAt = Math.floor(Date.now() / 1000)
+    this.conversations.set(params.id, stored)
+    const parts = await this.getConversationParts(params.id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Attach a contact to a conversation
+   */
+  async attachContact(params: { id: string; admin_id: string; contact_id?: string; email?: string }): Promise<Conversation> {
+    const stored = this.conversations.get(params.id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.id}`)
+    }
+
+    let contactId = params.contact_id
+    if (!contactId && params.email) {
+      const contact = await this.contacts.findByEmail(params.email)
+      if (contact) contactId = contact.id
+    }
+    if (!contactId) {
+      throw new Error('Contact not found')
+    }
+
+    if (!stored.contactIds.includes(contactId)) {
+      stored.contactIds.push(contactId)
+    }
+    stored.updatedAt = Math.floor(Date.now() / 1000)
+    this.conversations.set(params.id, stored)
+
+    const parts = await this.getConversationParts(params.id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Detach a contact from a conversation
+   */
+  async detachContact(params: { id: string; admin_id: string; contact_id: string }): Promise<Conversation> {
+    const stored = this.conversations.get(params.id)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${params.id}`)
+    }
+
+    // Cannot remove the last contact
+    if (stored.contactIds.length <= 1) {
+      throw new Error('Cannot remove the last contact from a conversation')
+    }
+
+    stored.contactIds = stored.contactIds.filter((id) => id !== params.contact_id)
+    stored.updatedAt = Math.floor(Date.now() / 1000)
+    this.conversations.set(params.id, stored)
+
+    const parts = await this.getConversationParts(params.id)
+    return this.buildConversation(stored, parts)
+  }
+
+  /**
+   * Get conversation parts with pagination
+   */
+  async listParts(conversationId: string, params?: { per_page?: number; page?: number }): Promise<{
+    parts: ConversationPart[]
+    total_count: number
+    pages: Pages
+  }> {
+    const stored = this.conversations.get(conversationId)
+    if (!stored) {
+      throw new Error(`Conversation not found: ${conversationId}`)
+    }
+
+    const parts = await this.getConversationParts(conversationId)
+    const perPage = params?.per_page ?? 20
+    const page = params?.page ?? 1
+    const startIndex = (page - 1) * perPage
+
+    return {
+      parts: parts.slice(startIndex, startIndex + perPage),
+      total_count: parts.length,
+      pages: createPages(page, perPage, parts.length),
     }
   }
 
@@ -724,6 +1151,8 @@ class LocalConversationsResource {
 
   private buildConversation(stored: StoredConversation, parts: ConversationPart[]): Conversation {
     const firstPart = parts[0]
+    const primaryContactId = stored.contactIds[0]
+
     return {
       type: 'conversation',
       id: stored.id,
@@ -735,33 +1164,50 @@ class LocalConversationsResource {
       open: stored.state === 'open',
       state: stored.state,
       read: true,
-      waiting_since: null,
+      waiting_since: stored.waitingSince,
       snoozed_until: stored.snoozedUntil,
       source: {
         type: 'conversation',
         id: firstPart?.id ?? stored.id,
         delivered_as: 'customer_initiated',
         body: firstPart?.body ?? '',
-        author: firstPart?.author ?? { type: 'user', id: stored.contactId },
+        author: firstPart?.author ?? { type: 'user', id: primaryContactId },
       },
       contacts: {
         type: 'contact.list',
-        contacts: [{ type: 'contact', id: stored.contactId }],
+        contacts: stored.contactIds.map((id) => ({ type: 'contact' as const, id })),
       },
       teammates: {
         type: 'admin.list',
-        admins: stored.adminAssigneeId ? [{ type: 'admin', id: stored.adminAssigneeId }] : [],
+        admins: stored.adminAssigneeId ? [{ type: 'admin' as const, id: stored.adminAssigneeId }] : [],
       },
       conversation_parts: {
         type: 'conversation_part.list',
         conversation_parts: parts,
         total_count: parts.length,
       },
-      tags: { type: 'tag.list', tags: [] },
+      tags: {
+        type: 'tag.list',
+        tags: stored.tags.map((id) => ({ type: 'tag' as const, id })),
+      },
       first_contact_reply: null,
       priority: stored.priority,
       sla_applied: null,
-      statistics: null,
+      statistics: {
+        type: 'conversation_statistics',
+        time_to_assignment: stored.statistics.time_to_assignment,
+        time_to_admin_reply: stored.statistics.time_to_admin_reply,
+        time_to_first_close: stored.statistics.time_to_first_close,
+        time_to_last_close: stored.statistics.time_to_last_close,
+        first_assignment_at: stored.statistics.first_assignment_at,
+        first_admin_reply_at: stored.statistics.first_admin_reply_at,
+        first_close_at: stored.statistics.first_close_at,
+        last_admin_reply_at: stored.statistics.last_admin_reply_at,
+        last_close_at: stored.statistics.last_close_at,
+        count_reopens: stored.statistics.count_reopens,
+        count_assignments: stored.statistics.count_assignments,
+        count_conversation_parts: stored.statistics.count_conversation_parts,
+      },
       conversation_rating: null,
       custom_attributes: stored.customAttributes,
     }

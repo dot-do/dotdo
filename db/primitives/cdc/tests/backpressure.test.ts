@@ -583,17 +583,20 @@ describe('AdaptiveBatcher', () => {
         initialBatchSize: 10,
         minBatchSize: 1,
         maxBatchSize: 100,
-        onBatch: async () => {},
+        onBatch: async () => {
+          // Small delay to ensure time passes for events/second calculation
+          await delay(5)
+        },
       })
 
-      const startTime = Date.now()
       for (let i = 0; i < 100; i++) {
         await batcher.add(createTestEvent(`${i}`))
       }
       await batcher.flush()
-      const elapsedSeconds = (Date.now() - startTime) / 1000
 
       const stats = batcher.getStats()
+      // With processing delay, we should have a measurable events/second rate
+      expect(stats.totalEventsProcessed).toBe(100)
       expect(stats.eventsPerSecond).toBeGreaterThan(0)
     })
 
@@ -932,6 +935,7 @@ describe('Backpressure Integration', () => {
   it('should handle slow consumer with fast producer', async () => {
     const consumed: TestEvent[] = []
     const dropped: TestEvent[] = []
+    let producerDone = false
 
     const controller = createFlowController<TestEvent>({
       highWatermark: 10,
@@ -941,24 +945,28 @@ describe('Backpressure Integration', () => {
       onDrop: (event) => dropped.push(event),
     })
 
-    // Fast producer
+    // Fast producer - produces 100 events quickly
     const producer = async () => {
       for (let i = 0; i < 100; i++) {
         await controller.push(createTestEvent(`${i}`))
         await delay(1) // Very fast
       }
+      producerDone = true
     }
 
-    // Slow consumer
+    // Slow consumer - consumes until producer is done and buffer is empty
     const consumer = async () => {
-      while (consumed.length < 50) {
+      // Consume until producer is done and buffer is drained
+      while (!producerDone || controller.getBufferSize() > 0) {
         const event = await controller.pull()
         if (event) {
           consumed.push(event)
-          await delay(10) // Slow
+          await delay(5) // Slower than producer
         } else {
-          await delay(5)
+          await delay(2)
         }
+        // Safety: don't loop forever
+        if (consumed.length >= 50) break
       }
     }
 
@@ -967,7 +975,7 @@ describe('Backpressure Integration', () => {
     // Should have consumed some events
     expect(consumed.length).toBeGreaterThan(0)
 
-    // Should have dropped some due to backpressure
+    // Should have paused due to buffer filling up
     const stats = controller.getStats()
     expect(stats.pauseCount).toBeGreaterThan(0)
   })
@@ -977,24 +985,30 @@ describe('Backpressure Integration', () => {
 
     const batcher = createAdaptiveBatcher<TestEvent>({
       initialBatchSize: 10,
-      minBatchSize: 1,
+      minBatchSize: 5,
       maxBatchSize: 50,
       targetLatencyMs: 50,
       onBatch: async (batch) => {
         processedBatches.push(batch.length)
-        // Variable processing time
+        // Variable processing time based on batch size
+        // Small batches process fast (< 40ms = 80% of 50ms), should trigger increase
+        // Large batches process slow (> 60ms = 120% of 50ms), should trigger decrease
         await delay(batch.length * 2)
       },
     })
 
-    // Send burst of events
-    for (let i = 0; i < 200; i++) {
+    // Send burst of events - enough to trigger multiple batch size adjustments
+    for (let i = 0; i < 300; i++) {
       await batcher.add(createTestEvent(`${i}`))
     }
     await batcher.flush()
 
-    // Batch sizes should vary based on throughput
-    const uniqueSizes = new Set(processedBatches)
+    // Batch sizes should vary based on throughput adjustments
+    // Filter out partial batches from the final flush
+    const fullBatches = processedBatches.filter((size) => size >= 5)
+    const uniqueSizes = new Set(fullBatches)
+
+    // With adaptive algorithm, batch sizes should change over time
     expect(uniqueSizes.size).toBeGreaterThan(1)
   })
 

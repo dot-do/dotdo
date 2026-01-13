@@ -58,7 +58,55 @@
  * })
  * ```
  *
+ * @example Custom Database Connection
+ * ```typescript
+ * import { ConnectionsManager } from '@dotdo/auth0'
+ *
+ * const connections = new ConnectionsManager({
+ *   domain: 'tenant.auth0.com',
+ * })
+ *
+ * // Create a custom database connection with scripts
+ * connections.create({
+ *   name: 'my-legacy-db',
+ *   strategy: 'auth0',
+ *   options: {
+ *     import_mode: true, // Enable lazy migration
+ *     customScripts: {
+ *       login: async (email, password, context) => {
+ *         const user = await myDb.findByEmail(email)
+ *         if (!user || !await verifyPassword(password, user.hash)) {
+ *           throw new Error('Invalid credentials')
+ *         }
+ *         return { user_id: user.id, email: user.email }
+ *       },
+ *       getUser: async (email, context) => {
+ *         const user = await myDb.findByEmail(email)
+ *         return user ? { user_id: user.id, email: user.email } : null
+ *       },
+ *       create: async (user, context) => {
+ *         const newUser = await myDb.create(user)
+ *         return { user_id: newUser.id, email: newUser.email }
+ *       },
+ *       verify: async (email, context) => {
+ *         await myDb.markEmailVerified(email)
+ *       },
+ *       changePassword: async (email, newPassword, context) => {
+ *         await myDb.updatePassword(email, newPassword)
+ *       },
+ *       delete: async (userId, context) => {
+ *         await myDb.deleteUser(userId)
+ *       },
+ *     },
+ *   },
+ * })
+ *
+ * // Execute custom scripts
+ * const user = await connections.executeLogin('my-legacy-db', 'user@example.com', 'password')
+ * ```
+ *
  * @see https://auth0.com/docs/api/management/v2
+ * @see https://auth0.com/docs/authenticate/database-connections/custom-db
  * @module
  */
 
@@ -72,6 +120,7 @@ export { TicketsManager } from './tickets-manager'
 export { JobsManager } from './jobs-manager'
 export { RulesEngine } from './rules-engine'
 export { ActionsEngine } from './actions-engine'
+export { ConnectionsManager } from './custom-database'
 
 // ============================================================================
 // TYPE EXPORTS
@@ -167,3 +216,23 @@ export type { ChangePasswordTicketParams, VerifyEmailTicketParams, TicketsManage
 export type { VerifyEmailJobParams, JobResponse, UsersImportJobParams, UsersExportJobParams, JobsManagerOptions } from './jobs-manager'
 export type { RulesEngineOptions, RulesPipelineResult } from './rules-engine'
 export type { ActionsEngineOptions, TriggerBinding, FlowExecutionResult } from './actions-engine'
+export type {
+  // Custom database types
+  ConnectionsManagerOptions,
+  CustomDatabaseContext,
+  CustomDatabaseUser,
+  CustomDatabaseScripts,
+  LoginScript,
+  GetUserScript,
+  CreateScript,
+  DeleteScript,
+  VerifyScript,
+  ChangePasswordScript,
+  // Connection types
+  Connection,
+  ConnectionStrategy,
+  ConnectionOptions,
+  CreateConnectionParams,
+  UpdateConnectionParams,
+  PasswordPolicy,
+} from './custom-database'

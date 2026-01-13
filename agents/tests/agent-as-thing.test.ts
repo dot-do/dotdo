@@ -1194,8 +1194,8 @@ describe('Agent as Thing', () => {
       // Agent should have Thing-like properties
       expect(agent.$id).toBeDefined()
       expect(agent.$type).toBe('Agent')
-      expect(agent.$createdAt).toBeInstanceOf(Number)
-      expect(agent.$updatedAt).toBeInstanceOf(Number)
+      expect(typeof agent.$createdAt).toBe('number')
+      expect(typeof agent.$updatedAt).toBe('number')
       expect(agent.$deletedAt).toBeNull()
     })
   })

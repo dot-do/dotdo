@@ -17,12 +17,18 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useAuth } from '~/src/admin/auth'
 import { useDashboardMetrics, formatMetricValue } from '~/lib/hooks/use-dashboard-metrics'
+import { useReducedMotion } from '~/lib/hooks/use-reduced-motion'
 import {
   DashboardGrid,
   KPICard,
   ActivityFeed,
   AgentStatus,
-  AreaChart,
+  LazyAreaChartWrapper,
+  DashboardErrorBoundary,
+  KPICardSkeleton,
+  ActivityFeedSkeleton,
+  AgentStatusSkeleton,
+  ChartSkeleton,
 } from '~/components/cockpit'
 import { Button } from '~/components/ui/button'
 
@@ -32,19 +38,47 @@ export const Route = createFileRoute('/admin/_admin/')({
 
 /**
  * Loading skeleton for the dashboard
+ * Uses specialized skeleton components for each section
  */
 function DashboardSkeleton() {
   return (
-    <div data-testid="dashboard-skeleton" className="animate-pulse">
-      <div className="h-8 bg-muted rounded w-48 mb-6" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-32 bg-muted rounded-lg" />
-        ))}
+    <div data-testid="dashboard-skeleton">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="h-8 bg-muted rounded w-48 animate-pulse" />
+        <div className="flex items-center gap-4">
+          <div className="h-4 bg-muted rounded w-32 animate-pulse" />
+          <div className="h-9 bg-muted rounded w-24 animate-pulse" />
+        </div>
       </div>
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="h-64 bg-muted rounded-lg" />
-        <div className="h-64 bg-muted rounded-lg" />
+
+      {/* KPI Grid skeleton */}
+      <DashboardGrid cols={4} testId="dashboard-kpi-grid-skeleton">
+        {[1, 2, 3, 4].map((i) => (
+          <KPICardSkeleton key={i} testId={`kpi-skeleton-${i}`} />
+        ))}
+      </DashboardGrid>
+
+      {/* Chart skeleton */}
+      <div className="my-6">
+        <ChartSkeleton
+          height={200}
+          title="API Usage"
+          description="Calls over the last 7 days"
+          testId="dashboard-chart-skeleton"
+        />
+      </div>
+
+      {/* Two column layout skeleton */}
+      <div className="grid md:grid-cols-2 gap-6 mt-6">
+        <div>
+          <div className="h-6 bg-muted rounded w-32 mb-4 animate-pulse" />
+          <ActivityFeedSkeleton itemCount={3} />
+        </div>
+        <div>
+          <div className="h-6 bg-muted rounded w-32 mb-4 animate-pulse" />
+          <AgentStatusSkeleton agentCount={6} />
+        </div>
       </div>
     </div>
   )
@@ -68,9 +102,16 @@ function DashboardError({ error, onRetry }: { error: Error; onRetry: () => void 
 
 /**
  * Dashboard content with real metrics data
+ *
+ * Performance optimizations:
+ * - Lazy-loaded charts with Suspense and skeleton fallback
+ * - Error boundaries isolate section failures
+ * - useReducedMotion for accessibility
+ * - Smooth loading transitions
  */
 function DashboardWithMetrics() {
   const { metrics, isLoading, error, refresh } = useDashboardMetrics()
+  const prefersReducedMotion = useReducedMotion()
 
   if (isLoading && !metrics) {
     return <DashboardSkeleton />
@@ -118,16 +159,21 @@ function DashboardWithMetrics() {
   // Format last updated time
   const lastUpdatedText = new Date().toLocaleTimeString()
 
+  // Animation class based on reduced motion preference
+  const animationClass = prefersReducedMotion ? '' : 'transition-opacity duration-200'
+
   return (
     <>
-      {/* Loading indicator during refresh */}
+      {/* Loading indicator during refresh - respects reduced motion */}
       <div
         data-testid="dashboard-loading"
-        className={`fixed top-0 left-0 right-0 h-1 bg-primary transition-opacity duration-200 ${
+        className={`fixed top-0 left-0 right-0 h-1 bg-primary z-50 ${animationClass} ${
           isLoading ? 'opacity-100' : 'opacity-0'
         }`}
         style={{ display: isLoading ? 'block' : 'none' }}
         aria-hidden={!isLoading}
+        role="progressbar"
+        aria-label="Loading dashboard data"
       />
 
       <div className="flex items-center justify-between mb-6">
@@ -151,30 +197,50 @@ function DashboardWithMetrics() {
         </div>
       </div>
 
+      {/* KPI Cards with error boundaries for isolation */}
       <DashboardGrid cols={4} testId="dashboard-kpi-grid">
         {kpis.map((kpi) => (
-          <KPICard key={kpi.title} {...kpi} />
+          <DashboardErrorBoundary
+            key={kpi.title}
+            sectionTitle={kpi.title}
+            compact
+          >
+            <KPICard {...kpi} />
+          </DashboardErrorBoundary>
         ))}
       </DashboardGrid>
 
-      {/* API Usage Chart */}
+      {/* Lazy-loaded API Usage Chart with error boundary */}
       <div className="my-6">
-        <AreaChart
-          data={metrics.chartData.apiUsage}
-          title="API Usage"
-          description="Calls over the last 7 days"
-          testId="dashboard-chart-api-usage"
-        />
+        <DashboardErrorBoundary sectionTitle="API Usage Chart">
+          <LazyAreaChartWrapper
+            data={metrics.chartData.apiUsage}
+            xKey="date"
+            yKey="calls"
+            title="API Usage"
+            description="Calls over the last 7 days"
+            height={200}
+            testId="dashboard-chart-api-usage"
+            animate={!prefersReducedMotion}
+          />
+        </DashboardErrorBoundary>
       </div>
 
       <div data-testid="dashboard-two-column" className="grid md:grid-cols-2 gap-6 mt-6">
+        {/* Activity Feed with error boundary */}
         <div data-testid="activity-feed">
           <h2 data-testid="activity-feed-heading" className="text-lg font-semibold mb-4">Recent Activity</h2>
-          <ActivityFeed items={metrics.recentActivity} />
+          <DashboardErrorBoundary sectionTitle="Recent Activity">
+            <ActivityFeed items={metrics.recentActivity} />
+          </DashboardErrorBoundary>
         </div>
+
+        {/* Agent Status with error boundary */}
         <div data-testid="agent-status-grid">
           <h2 data-testid="agent-status-heading" className="text-lg font-semibold mb-4">Agent Status</h2>
-          <AgentStatus agents={metrics.agentStatuses} />
+          <DashboardErrorBoundary sectionTitle="Agent Status">
+            <AgentStatus agents={metrics.agentStatuses} />
+          </DashboardErrorBoundary>
         </div>
       </div>
     </>

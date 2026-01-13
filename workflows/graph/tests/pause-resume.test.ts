@@ -168,30 +168,32 @@ interface PauseResumeStore {
   queryWaitingInstances(eventName?: string): Promise<WaitForEventRelationship[]>
 }
 
+// Import the actual implementation (GREEN phase)
+import { createPauseResumeStore as createPauseResumeStoreImpl } from '../pause-resume-store'
+
 /**
  * Factory function to create PauseResumeStore.
- * This will fail until the implementation exists.
+ * GREEN phase: Uses the actual implementation.
  */
 function createPauseResumeStore(graphStore: SQLiteGraphStore): PauseResumeStore {
-  // This will throw an error - the implementation doesn't exist yet (RED phase)
-  throw new Error('PauseResumeStore not yet implemented - this is the RED phase')
+  return createPauseResumeStoreImpl(graphStore) as unknown as PauseResumeStore
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-/** Type ID for WorkflowInstance Things */
-const WORKFLOW_INSTANCE_TYPE_ID = 101
+/** Type ID for WorkflowInstance Things - matches NOUN_REGISTRY.WorkflowInstance.rowid */
+const WORKFLOW_INSTANCE_TYPE_ID = 400
 
 /** Type name for WorkflowInstance Things */
 const WORKFLOW_INSTANCE_TYPE_NAME = 'WorkflowInstance'
 
-/** Type ID for Event Things */
-const EVENT_TYPE_ID = 104
+/** Type ID for Event Things - use HumanFunction.rowid (103) as Event type since there's no dedicated Event noun */
+const EVENT_TYPE_ID = 103
 
 /** Type name for Event Things */
-const EVENT_TYPE_NAME = 'Event'
+const EVENT_TYPE_NAME = 'HumanFunction'
 
 // ============================================================================
 // TEST FIXTURES
@@ -1022,19 +1024,20 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
   })
 
   // ==========================================================================
-  // Test Case 8: PauseResumeStore API (RED Phase - NOT YET IMPLEMENTED)
+  // Test Case 8: PauseResumeStore API (GREEN Phase - IMPLEMENTED)
   // ==========================================================================
 
-  describe('PauseResumeStore API [RED]', () => {
-    it('createPauseResumeStore throws - not yet implemented', () => {
-      expect(() => createPauseResumeStore(store)).toThrow(
-        'PauseResumeStore not yet implemented - this is the RED phase'
-      )
+  describe('PauseResumeStore API [GREEN]', () => {
+    it('createPauseResumeStore returns a PauseResumeStore instance', () => {
+      const pauseStore = createPauseResumeStore(store)
+      expect(pauseStore).toBeDefined()
+      expect(typeof pauseStore.initiatePause).toBe('function')
+      expect(typeof pauseStore.completePause).toBe('function')
     })
 
-    // These tests will fail until PauseResumeStore is implemented
+    // These tests now pass with the implementation
     describe('PauseResumeStore.initiatePause()', () => {
-      it.fails('creates pause relationship with proper structure', async () => {
+      it('creates pause relationship with proper structure', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         const pauseRel = await pauseStore.initiatePause({
@@ -1050,7 +1053,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.completePause()', () => {
-      it.fails('transitions through pause lifecycle to paused', async () => {
+      it('transitions through pause lifecycle to paused', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         await pauseStore.initiatePause({
@@ -1066,7 +1069,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.initiateResume()', () => {
-      it.fails('creates resume relationship with proper structure', async () => {
+      it('creates resume relationship with proper structure', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         // First pause the instance
@@ -1088,7 +1091,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.completeResume()', () => {
-      it.fails('transitions through resume lifecycle to resumed', async () => {
+      it('transitions through resume lifecycle to resumed', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         // Pause first
@@ -1107,7 +1110,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.registerWaitFor()', () => {
-      it.fails('creates waitFor relationship for event', async () => {
+      it('creates waitFor relationship for event', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         const waitRel = await pauseStore.registerWaitFor({
@@ -1123,7 +1126,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.completeWaitFor()', () => {
-      it.fails('transitions through wait lifecycle with payload', async () => {
+      it('transitions through wait lifecycle with payload', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         await pauseStore.registerWaitFor({
@@ -1145,7 +1148,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.getPauseState()', () => {
-      it.fails('returns pending for pause verb', async () => {
+      it('returns pending for pause verb', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         await pauseStore.initiatePause({ instanceId: testInstanceId, reason: 'test' })
@@ -1154,7 +1157,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
         expect(state).toBe('pending')
       })
 
-      it.fails('returns in_progress for pausing verb', async () => {
+      it('returns in_progress for pausing verb', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         await pauseStore.initiatePause({ instanceId: testInstanceId, reason: 'test' })
@@ -1164,7 +1167,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
         expect(state).toBe('in_progress')
       })
 
-      it.fails('returns completed for paused verb', async () => {
+      it('returns completed for paused verb', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         await pauseStore.initiatePause({ instanceId: testInstanceId, reason: 'test' })
@@ -1177,7 +1180,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.queryPausedInstances()', () => {
-      it.fails('returns all instances in paused state', async () => {
+      it('returns all instances in paused state', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         // Create and pause multiple instances
@@ -1201,7 +1204,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
     })
 
     describe('PauseResumeStore.queryWaitingInstances()', () => {
-      it.fails('returns all instances waiting for events', async () => {
+      it('returns all instances waiting for events', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         // Create instances waiting for different events
@@ -1229,7 +1232,7 @@ describe('Workflow Pause/Resume via Verb Form Relationships', () => {
         expect(waitingInstances.every((r) => r.verb === 'waitingFor')).toBe(true)
       })
 
-      it.fails('filters by event name', async () => {
+      it('filters by event name', async () => {
         const pauseStore = createPauseResumeStore(store)
 
         // Create instances waiting for different events

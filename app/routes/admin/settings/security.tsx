@@ -17,6 +17,7 @@ import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Label } from '~/components/ui/label'
 import { ConfirmDialog } from '~/components/ui/confirm-dialog'
+import { useToast } from '~/components/ui/toast'
 
 export const Route = createFileRoute('/admin/settings/security')({
   component: SecuritySettingsPage,
@@ -98,6 +99,8 @@ function getPasswordStrength(password: string): { score: number; label: string; 
 // =============================================================================
 
 function SecuritySettingsPage() {
+  const toast = useToast()
+
   // Password form state
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -207,6 +210,7 @@ function SecuritySettingsPage() {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1000))
       setPasswordStatus('success')
+      toast.success('Your password has been updated successfully.')
       // Reset form on success
       setCurrentPassword('')
       setNewPassword('')
@@ -217,10 +221,11 @@ function SecuritySettingsPage() {
       setTimeout(() => setPasswordStatus('idle'), 3000)
     } catch (error) {
       setPasswordStatus('error')
+      toast.error('Failed to update password. Please try again.')
     } finally {
       setIsPasswordSubmitting(false)
     }
-  }, [currentPassword, newPassword, confirmPassword])
+  }, [currentPassword, newPassword, confirmPassword, toast])
 
   const handlePasswordReset = useCallback(() => {
     setCurrentPassword('')
@@ -243,11 +248,13 @@ function SecuritySettingsPage() {
   const confirmRevokeSession = useCallback(async () => {
     if (!revokingSessionId) return
 
+    const sessionDevice = sessions.find((s) => s.id === revokingSessionId)?.device
     // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 500))
     setSessions((prev) => prev.filter((s) => s.id !== revokingSessionId))
     setRevokingSessionId(null)
-  }, [revokingSessionId])
+    toast.success(`Session on "${sessionDevice}" has been revoked.`)
+  }, [revokingSessionId, sessions, toast])
 
   const handleRevokeAllSessions = useCallback(() => {
     setShowRevokeAllDialog(true)
@@ -258,11 +265,13 @@ function SecuritySettingsPage() {
     try {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1000))
+      const revokedCount = sessions.filter((s) => !s.isCurrent).length
       setSessions((prev) => prev.filter((s) => s.isCurrent))
+      toast.success(`${revokedCount} session${revokedCount !== 1 ? 's' : ''} revoked successfully.`)
     } finally {
       setIsRevokingAll(false)
     }
-  }, [])
+  }, [sessions, toast])
 
   // ==========================================================================
   // 2FA handlers
@@ -274,14 +283,16 @@ function SecuritySettingsPage() {
     } else {
       // In real app, this would open 2FA setup flow
       setIs2FAEnabled(true)
+      toast.success('Two-factor authentication has been enabled.')
     }
-  }, [is2FAEnabled])
+  }, [is2FAEnabled, toast])
 
   const confirm2FADisable = useCallback(async () => {
     // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 500))
     setIs2FAEnabled(false)
-  }, [])
+    toast.warning('Two-factor authentication has been disabled.')
+  }, [toast])
 
   // Helper to get session to revoke
   const sessionToRevoke = sessions.find((s) => s.id === revokingSessionId)

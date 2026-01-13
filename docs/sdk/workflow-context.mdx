@@ -1,14 +1,32 @@
 ---
-title: WorkflowContext
-description: The $ proxy - unified interface for all DO operations
+title: WorkflowContext Reference
+description: Complete reference for the $ proxy - unified interface for all DO operations
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
 import { AutoTypeTable } from 'fumadocs-typescript/ui'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
 
-# WorkflowContext ($)
+# WorkflowContext ($) Reference
 
-The `$` proxy is THE primary API in dotdo. One interface for durability, events, scheduling, AI, and cross-DO communication.
+The `$` proxy is THE primary API in dotdo. One interface for durability, events, scheduling, AI, and cross-DO communication. This reference covers every aspect of the WorkflowContext API.
+
+## Quick Reference
+
+| Category | API | Description |
+|----------|-----|-------------|
+| **Durability** | `$.track()` | Fire-and-forget telemetry |
+| | `$.send()` | Durable event emission |
+| | `$.try()` | Single attempt, fallible |
+| | `$.do()` | Durable with retries |
+| **Events** | `$.on.Noun.verb()` | Subscribe to events |
+| | `send.Noun.verb()` | Emit events (DSL) |
+| **Scheduling** | `$.every.*` | Fluent cron schedules |
+| **Cross-DO** | `$.Noun(id)` | RPC to other DOs |
+| **AI** | `$.ai`, `$.write`, etc. | Template literal AI |
+| **Control Flow** | `when()`, `waitFor()` | Conditionals and human-in-the-loop |
+| **State** | `$.state`, `$.log()` | State management |
+| **User** | `$.user` | Authenticated user context |
 
 ## Getting the $ Context
 
@@ -27,7 +45,7 @@ export class MyStartup extends DO {
     // Option 2: Destructure for cleaner code
     const $ = this.$
 
-    $.every.monday.at('9am')(async () => {
+    $.every.Monday.at9am(async () => {
       await generateWeeklyReport()
     })
 
@@ -46,45 +64,65 @@ Throughout the docs, standalone `$` in code examples assumes you've set `const $
 // $ is the WorkflowContext, available as this.$ in DO methods
 const $ = this.$
 
-// Three durability levels
-$.send(event)   // Fire-and-forget
-$.try(action)   // Single attempt
-$.do(action)    // Durable with retries
+// Four execution modes (two fire-and-forget, two durable)
+$.track('event', data)  // Fire-and-forget telemetry
+$.send('event', data)   // Durable event with EventId
+await $.try(action)     // Single attempt, fallible
+await $.do(action)      // Durable with retries
 
 // Infinite event combinations
 $.on.Customer.signup(handler)
 $.on.Payment.failed(handler)
+$.on['*'].created(handler)  // Wildcards
 
 // Human-readable scheduling
-$.every.monday.at('9am')(handler)
+$.every.Monday.at9am(handler)
+$.every('daily at 6am', handler)
 
-// Cross-DO RPC
+// Cross-DO RPC with promise pipelining
 await $.Customer(id).notify()
+const city = await $.Order(id).shipping.address.city
+
+// Control flow
+when(condition, { then: () => A, else: () => B })
+await waitFor('approval', { timeout: '24h' })
 
 // AI as primitives
 await $.write`blog post about ${topic}`
+const isSpam = await $.is`Is this spam? ${message}`
+
+// Authenticated user context
+if ($.user) {
+  console.log(`Request from: ${$.user.email}`)
+}
 ```
 
 <AutoTypeTable type="WorkflowContext" />
 
 ## Durability Levels
 
-Three execution modes for different reliability requirements. Choose based on what happens if it fails.
+Four execution modes organized by durability and blocking behavior:
 
-### $.send() - Fire-and-Forget
+|  | Fire & Forget | Durable |
+|---|---------------|---------|
+| **Event** | `track()` -> void | `send()` -> EventId |
+| **Action** | `try()` -> T | `do()` -> T |
 
-Best-effort, non-blocking. Use when you want to emit an event but don't care about confirmation.
+Choose based on what happens if it fails and whether you need confirmation.
+
+### $.track() - Fire-and-Forget Telemetry
+
+Best-effort telemetry. Non-blocking, no confirmation, errors swallowed. Use for analytics, logging, and metrics where loss is acceptable.
 
 ```typescript
-// Emit notification - don't wait, don't retry
-$.send('notification', { userId: 'abc', message: 'Welcome!' })
+// Analytics events - no waiting, no retries
+$.track('pageview', { path: '/dashboard', userId })
+$.track('user.activity', { action: 'login' })
+$.track('metrics.counter', { name: 'logins', value: 1 })
 
-// Analytics event - best effort is fine
-$.send('pageview', { path: '/dashboard', userId })
-
-// Fire multiple events without blocking
-$.send('user.activity', { action: 'login' })
-$.send('metrics.counter', { name: 'logins', value: 1 })
+// Telemetry in hot paths
+$.track('api.latency', { endpoint: '/users', ms: 45 })
+$.track('cache.hit', { key: 'user:123' })
 ```
 
 | Property | Value |
@@ -93,10 +131,38 @@ $.send('metrics.counter', { name: 'logins', value: 1 })
 | Durable | No |
 | Retries | No |
 | Returns | `void` |
-| Use case | Analytics, notifications, logging |
+| Use case | Analytics, telemetry, non-critical logging |
 
 <Callout type="info">
-Uses `queueMicrotask` for async execution. Errors are swallowed silently - that's the point.
+Uses `queueMicrotask` for async execution. Errors are swallowed silently - that's the point. Perfect for high-throughput telemetry where you don't want to slow down the critical path.
+</Callout>
+
+### $.send() - Durable Event Emission
+
+Guaranteed delivery with retries. Returns a trackable EventId. Use for important domain events that must not be lost.
+
+```typescript
+// Emit notification - guaranteed delivery
+const eventId = $.send('notification', { userId: 'abc', message: 'Welcome!' })
+
+// Domain events - must not be lost
+$.send('order.placed', { orderId: 'ord-123', total: 99.99 })
+$.send('payment.captured', { orderId: 'ord-123', amount: 99.99 })
+
+// Track the event if needed
+console.log(`Event emitted with ID: ${eventId}`)
+```
+
+| Property | Value |
+|----------|-------|
+| Blocking | No (returns immediately) |
+| Durable | Yes |
+| Retries | Yes (internal) |
+| Returns | `string` (EventId) |
+| Use case | Domain events, notifications, webhooks |
+
+<Callout type="info">
+Unlike `track()`, `send()` guarantees eventual delivery. Events are persisted and retried until acknowledged. Use this for domain events that drive business logic.
 </Callout>
 
 ### $.try() - Single Attempt
@@ -106,7 +172,7 @@ Blocking but not durable. Use for operations that should fail fast without retri
 ```typescript
 // Try to fetch - fail immediately if it doesn't work
 const data = await $.try<ApiResponse>('fetch', {
-  url: 'https://api.example.com.ai/data'
+  url: 'https://api.example.com/data'
 })
 
 // Quick validation check
@@ -146,7 +212,7 @@ const result = await $.do<PaymentResult>('processPayment', {
 
 // Create user - retry on failure
 const user = await $.do<User>('createUser', {
-  email: 'alice@example.com.ai',
+  email: 'alice@example.com',
   name: 'Alice'
 })
 
@@ -229,6 +295,43 @@ $.on.Invoice.overdue(async (event) => {
 Infinite combinations. `Customer.signup`, `Payment.failed`, `Inventory.low`, `Report.generated` - any noun, any verb.
 </Callout>
 
+### Emitting Events with send Proxy
+
+Use the `send` proxy DSL to emit events with `Noun.verb` syntax:
+
+```typescript
+import { send } from 'dotdo/workflows'
+
+// Emit order shipped event
+send.Order.shipped({
+  orderId: '12345',
+  carrier: 'UPS',
+  trackingNumber: '1Z999AA10123456784'
+})
+
+// Emit customer created event
+send.Customer.created({
+  id: 'cust_123',
+  email: 'user@example.com',
+  name: 'John Doe'
+})
+
+// In workflow context
+async function processOrder(order: Order) {
+  await validateOrder(order)
+
+  // Fire-and-forget notification
+  send.Order.validated({ orderId: order.id })
+
+  await chargePayment(order)
+  send.Payment.captured({ orderId: order.id, amount: order.total })
+
+  return order
+}
+```
+
+The `send` proxy creates pipeline expressions for deferred execution, integrating with Cap'n Web RPC promise pipelining.
+
 ### Wildcards
 
 Match patterns across nouns or verbs:
@@ -274,6 +377,28 @@ $.on.Order.placed(
 | `filter` | `(event) => boolean` | - | Skip if returns false |
 | `name` | `string` | auto | Handler identifier |
 | `maxRetries` | `number` | 3 | Max DLQ retry attempts |
+
+### Handler Cleanup and Unsubscribe
+
+Event handlers return an unsubscribe function and support context-based cleanup:
+
+```typescript
+import { on, clearHandlersByContext, unregisterHandler } from 'dotdo/workflows'
+
+// Subscribe with context for grouped cleanup
+const unsubscribe = on.Order.created((order) => {
+  processOrder(order)
+}, { context: 'order-processor' })
+
+// Manual unsubscribe
+unsubscribe()
+
+// Clean up all handlers for a context (e.g., when a DO is destroyed)
+const removedCount = clearHandlersByContext('order-processor')
+console.log(`Removed ${removedCount} handlers`)
+```
+
+This is essential for proper resource management in long-running Durable Objects.
 
 ### Event Payload
 
@@ -359,25 +484,52 @@ $.every.minute(async () => {
 })
 ```
 
+### Dynamic Time with .at()
+
+For custom times not covered by preset properties:
+
+```typescript
+// Dynamic time string using .at() method
+$.every.day.at('9:30am')(async () => {
+  await handleMeeting()
+})
+
+$.every.weekday.at('17:00')(async () => {
+  await endOfDayReport()
+})
+
+// Supports multiple time formats
+$.every.Monday.at('14:30')(handler)  // 24-hour format
+$.every.day.at('9am')(handler)       // 12-hour format
+$.every.Friday.at('noon')(handler)   // Special names
+$.every.day.at('midnight')(handler)
+```
+
 ### Days Available
 
-| Property | Maps to |
-|----------|---------|
-| `Monday` | 1 |
-| `Tuesday` | 2 |
-| `Wednesday` | 3 |
-| `Thursday` | 4 |
-| `Friday` | 5 |
-| `Saturday` | 6 |
-| `Sunday` | 0 |
-| `day` | Every day |
-| `weekday` | Mon-Fri |
-| `weekend` | Sat-Sun |
+| Property | Maps to | CRON Day |
+|----------|---------|----------|
+| `Monday` | 1 | `* * * * 1` |
+| `Tuesday` | 2 | `* * * * 2` |
+| `Wednesday` | 3 | `* * * * 3` |
+| `Thursday` | 4 | `* * * * 4` |
+| `Friday` | 5 | `* * * * 5` |
+| `Saturday` | 6 | `* * * * 6` |
+| `Sunday` | 0 | `* * * * 0` |
+| `day` | Every day | `* * * * *` |
+| `weekday` | Mon-Fri | `* * * * 1-5` |
+| `weekend` | Sat-Sun | `* * * * 0,6` |
 
 ### Times Available
 
 | Property | CRON |
 |----------|------|
+| `at12am` | 0 0 * * * |
+| `at1am` | 0 1 * * * |
+| `at2am` | 0 2 * * * |
+| `at3am` | 0 3 * * * |
+| `at4am` | 0 4 * * * |
+| `at5am` | 0 5 * * * |
 | `at6am` | 0 6 * * * |
 | `at7am` | 0 7 * * * |
 | `at8am` | 0 8 * * * |
@@ -391,6 +543,11 @@ $.every.minute(async () => {
 | `at4pm` | 0 16 * * * |
 | `at5pm` | 0 17 * * * |
 | `at6pm` | 0 18 * * * |
+| `at7pm` | 0 19 * * * |
+| `at8pm` | 0 20 * * * |
+| `at9pm` | 0 21 * * * |
+| `at10pm` | 0 22 * * * |
+| `at11pm` | 0 23 * * * |
 | `atnoon` | 0 12 * * * |
 | `atmidnight` | 0 0 * * * |
 
@@ -404,21 +561,90 @@ $.every('daily at 6am', async () => {
   await runBackup()
 })
 
-$.every('first monday of month', async () => {
+$.every('first of month at 9am', async () => {
   await generateMonthlyReport()
 })
 
-$.every('15 minutes', async () => {
+$.every('15th of month', async () => {
+  await generateBiweeklyReport()
+})
+
+$.every('every 5 minutes', async () => {
   await syncData()
 })
 
 $.every('every 2 hours', async () => {
   await cleanupCache()
 })
+
+$.every('weekdays at 8:30am', async () => {
+  await sendDailyBriefing()
+})
+
+$.every('weekends at 10am', async () => {
+  await weekendDigest()
+})
+```
+
+### Common Pattern Reference
+
+These natural language patterns are pre-cached for fast parsing:
+
+| Pattern | CRON |
+|---------|------|
+| `every minute` | `* * * * *` |
+| `every hour` / `hourly` | `0 * * * *` |
+| `every 5 minutes` | `*/5 * * * *` |
+| `every 10 minutes` | `*/10 * * * *` |
+| `every 15 minutes` | `*/15 * * * *` |
+| `every 30 minutes` | `*/30 * * * *` |
+| `every 2 hours` | `0 */2 * * *` |
+| `every 6 hours` | `0 */6 * * *` |
+| `every 12 hours` | `0 */12 * * *` |
+| `daily at 6am` | `0 6 * * *` |
+| `daily at 9am` | `0 9 * * *` |
+| `daily at noon` | `0 12 * * *` |
+| `daily at midnight` | `0 0 * * *` |
+| `first of month` | `0 0 1 * *` |
+| `15th of month` | `0 0 15 * *` |
+| `weekdays at 9am` | `0 9 * * 1-5` |
+| `weekends at 10am` | `0 10 * * 0,6` |
+
+### AI-Powered Parsing
+
+When AI environment bindings are available, complex schedules are parsed using Claude:
+
+```typescript
+// These work with regex fallback
+$.every('every 5 minutes', handler)
+$.every('daily at 9am', handler)
+
+// These require AI for accurate parsing
+$.every('every second Tuesday at 3pm', handler)
+$.every('last Friday of month', handler)  // Not supported - standard cron limitation
 ```
 
 <Callout type="info">
-Natural language schedules are parsed at registration time. Invalid schedules throw immediately.
+Natural language schedules are parsed at registration time. Invalid schedules throw immediately. Standard cron does not support "last day of month" - use day 28 or implement custom logic.
+</Callout>
+
+### Timezone Handling
+
+Schedules use UTC by default. The Durable Object alarm API handles timezone-aware execution:
+
+```typescript
+// All times are in UTC
+$.every.Monday.at9am(handler)  // 9am UTC
+
+// For local time, calculate offset in your handler
+$.every.day.at('14:00')(async () => {
+  // 14:00 UTC = 9:00 EST / 6:00 PST
+  await sendLocalTimeReminder()
+})
+```
+
+<Callout type="warn">
+Cloudflare Workers and Durable Objects operate in UTC. Account for timezone offsets in your business logic or use explicit UTC times.
 </Callout>
 
 ## Cross-DO RPC
@@ -763,6 +989,317 @@ if (hasGit($)) {
 }
 ```
 
+## Control Flow
+
+Declarative conditionals and human-in-the-loop workflows.
+
+### when() - Declarative Conditional
+
+Create pipeline expressions for conditional branching:
+
+```typescript
+import { when } from 'dotdo/workflows'
+
+// Basic conditional
+const result = when(order.total > 100, {
+  then: () => applyDiscount(order, 0.1),
+  else: () => order
+})
+
+// With pipeline promise condition
+const status = $.Inventory(product).check()
+
+const result = when(status.available, {
+  then: () => $.Order(order).fulfill(),
+  else: () => $.Order(order).backorder()
+})
+
+// Without else branch (only run if true)
+when(user.isVIP, {
+  then: () => send.Notification.vipWelcome({ userId: user.id })
+})
+```
+
+The `when()` function creates pipeline expressions that are evaluated during workflow execution. Both the condition and branches can be pipeline promises for deferred execution.
+
+### waitFor() - Human-in-the-Loop
+
+Suspend workflow execution until an external event is received:
+
+```typescript
+import { waitFor } from 'dotdo/workflows'
+
+// Wait for human approval
+const approval = await waitFor('manager.approval', {
+  timeout: '24 hours',
+  type: 'approval'
+})
+
+if (approval.approved) {
+  processRefund(order)
+}
+
+// Wait for external webhook
+const paymentResult = await waitFor('payment.completed', {
+  timeout: '30 minutes'
+})
+
+if (paymentResult.success) {
+  send.Order.paid({ orderId: order.id })
+}
+```
+
+Use `waitFor()` for:
+- Human approval workflows
+- External system callbacks
+- Long-running asynchronous operations
+- Multi-step onboarding flows
+
+```typescript
+// Complete approval workflow example
+async function processLargeRefund(refund: Refund) {
+  // Escalate to manager
+  send.Approval.requested({
+    type: 'refund',
+    amount: refund.amount,
+    customerId: refund.customerId
+  })
+
+  // Workflow hibernates until approval event
+  const decision = await waitFor('refund.decision')
+
+  return decision.approved
+    ? executeRefund(refund)
+    : rejectRefund(refund, decision.reason)
+}
+```
+
+<Callout type="info">
+The workflow hibernates during `waitFor()` - the DO can be evicted and restored when the event arrives. State is preserved across hibernation.
+</Callout>
+
+## Domain Factory
+
+Create callable domain objects that encapsulate business logic:
+
+```typescript
+import { Domain } from 'dotdo/workflows'
+
+// Define a domain with handlers
+const CRM = Domain('CRM', {
+  createAccount: (customer) => ({
+    id: generateId(),
+    ...customer,
+    createdAt: new Date()
+  }),
+  sendWelcome: (account) => {
+    return sendEmail({
+      to: account.email,
+      template: 'welcome'
+    })
+  }
+})
+
+// Use in workflows - returns PipelinePromise
+const account = CRM(customer).createAccount()
+const emailResult = CRM(account).sendWelcome()
+
+// Can be awaited when needed
+const result = await account
+```
+
+### Composing Domains
+
+```typescript
+const Inventory = Domain('Inventory', {
+  check: (product) => getStock(product.id),
+  reserve: (product, quantity) => reserveStock(product.id, quantity),
+  release: (reservation) => releaseStock(reservation.id)
+})
+
+const Shipping = Domain('Shipping', {
+  calculate: (order) => calculateRates(order),
+  create: (order, rate) => createShipment(order, rate)
+})
+
+// Compose in workflows
+async function fulfillOrder(order: Order) {
+  const stock = await Inventory(order.product).check()
+  if (stock.available >= order.quantity) {
+    const reservation = await Inventory(order.product).reserve(order.quantity)
+    const rates = await Shipping(order).calculate()
+    return Shipping(order).create(rates[0])
+  }
+}
+```
+
+### Handler Function Signature
+
+Domain handlers receive context, args, and the $ workflow API:
+
+```typescript
+type HandlerFunction<TContext, TArgs, TResult> = (
+  context: TContext,
+  args: TArgs,
+  $: WorkflowContext
+) => TResult | Promise<TResult>
+
+// Example with typed parameters
+const Payment = Domain('Payment', {
+  charge: async (card: Card, { amount }: { amount: number }, $) => {
+    const result = await stripeClient.charges.create({
+      amount,
+      currency: 'usd',
+      source: card.token
+    })
+    $.track('payment.charged', { amount, chargeId: result.id })
+    return { chargeId: result.id, status: 'succeeded' }
+  }
+})
+```
+
+## User Context
+
+Access the authenticated user from incoming requests:
+
+```typescript
+// $.user contains the authenticated user (or null if unauthenticated)
+if ($.user) {
+  console.log(`User ID: ${$.user.id}`)
+  console.log(`Email: ${$.user.email}`)
+  console.log(`Role: ${$.user.role}`)
+}
+
+// Use in event handlers
+$.on.Customer.created(async (event) => {
+  if ($.user) {
+    console.log(`Customer created by: ${$.user.id}`)
+    await audit.log({
+      action: 'customer.created',
+      actor: $.user.id,
+      target: event.data.id
+    })
+  }
+})
+
+// Authorization based on role
+$.on.Refund.requested(async (event) => {
+  if ($.user?.role !== 'manager' && event.data.amount > 1000) {
+    throw new Error('Large refunds require manager approval')
+  }
+  await processRefund(event.data)
+})
+```
+
+### UserContext Interface
+
+```typescript
+interface UserContext {
+  /** Unique user identifier */
+  id: string
+  /** User's email address (optional) */
+  email?: string
+  /** User's role for authorization (optional) */
+  role?: string
+}
+```
+
+<Callout type="info">
+User context is extracted from `X-User-*` headers by the RPC auth middleware before forwarding requests to Durable Objects. The context is request-scoped and updated on each incoming request.
+</Callout>
+
+## Noun Registration
+
+Register custom domain nouns with typed payloads for full type safety:
+
+```typescript
+// In your domain types file:
+declare module '@dotdo/types' {
+  interface NounRegistry {
+    Customer: { id: string; email: string; name: string }
+    Invoice: { id: string; amount: number; status: string }
+    Order: { id: string; items: string[]; total: number }
+    Product: { id: string; sku: string; price: number }
+  }
+}
+
+// Now $.Customer, $.Invoice, $.Order are properly typed
+const customer = $.Customer('cust-123')  // Returns DomainProxy
+await customer.notify({ message: 'Hello!' })
+await customer.updateProfile({ name: 'Alice' })
+
+// Type-safe noun access
+import { getNoun, isValidNoun } from '@dotdo/types'
+
+const maybeNoun: string = 'Customer'
+if (isValidNoun(maybeNoun)) {
+  $[maybeNoun](id)  // Type-safe access
+}
+```
+
+## Error Handling Patterns
+
+### Durable Execution Errors
+
+When `$.do()` exhausts retries:
+
+```typescript
+import { WorkflowStepError } from 'dotdo/workflows'
+
+try {
+  await $.do('Payment.charge', { amount: 100 })
+} catch (error) {
+  if (error instanceof WorkflowStepError) {
+    console.error(`Step ${error.stepId} failed after ${error.attempts} attempts`)
+    console.error(`Cause: ${error.cause?.message}`)
+
+    // Send to dead-letter queue or alert
+    await $.send('dlq.payment', {
+      stepId: error.stepId,
+      attempts: error.attempts,
+      error: error.message
+    })
+  }
+}
+```
+
+### Handler Not Found
+
+```typescript
+import { HandlerNotFoundError } from 'dotdo/workflows'
+
+try {
+  await $.do('Unknown.method', data)
+} catch (error) {
+  if (error instanceof HandlerNotFoundError) {
+    console.error(`Handler not found: ${error.path.join('.')}`)
+  }
+}
+```
+
+### Event Handler Errors
+
+Failed event handlers are automatically sent to the dead-letter queue:
+
+```typescript
+$.on.Order.placed(
+  async (event) => {
+    // If this throws, it goes to DLQ
+    await processOrder(event.data)
+  },
+  {
+    maxRetries: 3,  // Retry from DLQ up to 3 times
+    name: 'order-processor'
+  }
+)
+
+// Handle DLQ events
+$.on['dlq'].Order.placed(async (dlqEvent) => {
+  console.error(`Order processing failed: ${dlqEvent.data.error}`)
+  await alertOps(dlqEvent)
+})
+```
+
 ## Related
 
 - [Thing](/docs/sdk/thing) - Base entity type
@@ -770,3 +1307,5 @@ if (hasGit($)) {
 - [Functions](/docs/sdk/functions) - DOFunction type
 - [Capabilities](/docs/sdk/capabilities) - Capability modules
 - [Proxy Chaining](/docs/rpc/proxy-chaining) - RPC proxy patterns
+- [Workflow Runtime](/docs/sdk/workflow-runtime) - Durable execution engine
+- [Rate Limiting](/docs/sdk/rate-limit) - Rate limit configuration

@@ -1,0 +1,532 @@
+---
+title: Salesforce
+description: Drop-in replacement for jsforce with edge compatibility, Einstein AI integration, and workflow automation.
+---
+
+# Salesforce
+
+Drop-in replacement for the jsforce SDK. Your existing Salesforce code works unchanged - just swap the import.
+
+```typescript
+// Before: jsforce SDK
+import jsforce from 'jsforce'
+
+// After: dotdo
+import jsforce from '@dotdo/salesforce'
+
+// Code stays the same
+const conn = new jsforce.Connection({
+  loginUrl: 'https://login.salesforce.com',
+})
+
+await conn.login('user@example.com', 'password+securitytoken')
+
+const result = await conn.query("SELECT Id, Name FROM Account WHERE Industry = 'Technology'")
+console.log(result.records)
+```
+
+## Why @dotdo/salesforce?
+
+| jsforce | @dotdo/salesforce |
+|---------|-------------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Connection management complexity | Stateless HTTP requests |
+| No built-in workflow support | Workflow and Process Builder integration |
+| Separate Einstein SDK | Unified Einstein AI services |
+| Single request mode | Batch operations with automatic retry |
+
+**This is a compatibility layer.** It maintains full API compatibility with jsforce while adding edge-native performance and extended features like Einstein AI and workflow automation.
+
+## Features
+
+### Implemented
+
+**Authentication**
+- `conn.login()` - Username/password login
+- `conn.logout()` - Logout
+- OAuth2 flow support
+- Session refresh handling
+
+**SOQL Queries**
+- `conn.query()` - Execute SOQL queries
+- `conn.queryMore()` - Fetch next page
+- `conn.queryAll()` - Query including deleted records
+- Query builder with fluent API
+
+**CRUD Operations**
+- `conn.sobject()` - Get SObject API
+- `sobject.create()` - Create records
+- `sobject.retrieve()` - Retrieve by ID
+- `sobject.update()` - Update records
+- `sobject.upsert()` - Upsert by external ID
+- `sobject.delete()` - Delete records
+
+**Bulk API**
+- `conn.bulk.createJob()` - Create bulk job
+- `job.createBatch()` - Create batch
+- `batch.execute()` - Execute batch
+- `conn.bulk.query()` - Bulk query
+
+**Analytics**
+- `conn.analytics.report()` - Get report
+- `report.execute()` - Execute report
+- `conn.analytics.dashboard()` - Get dashboard
+
+**Metadata**
+- `conn.metadata.describe()` - Describe metadata
+- `conn.metadata.read()` - Read metadata
+- `conn.metadata.create()` - Create metadata
+- `conn.metadata.update()` - Update metadata
+- `conn.metadata.deploy()` - Deploy metadata
+
+**Einstein AI** (Extended)
+- Predictions
+- Next Best Action
+- Vision (image classification)
+- Language (sentiment, intent)
+- Einstein GPT
+- Bots
+
+**Workflows** (Extended)
+- Workflow Rules
+- Process Builder
+- Criteria evaluation
+
+### Not Yet Implemented
+
+- Chatter API
+- Streaming API
+- Tooling API
+- Apex REST/SOAP
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({
+  loginUrl: 'https://login.salesforce.com',
+})
+
+// Login
+await conn.login(env.SF_USERNAME, env.SF_PASSWORD + env.SF_SECURITY_TOKEN)
+
+// Query accounts
+const result = await conn.query(`
+  SELECT Id, Name, Industry, AnnualRevenue
+  FROM Account
+  WHERE Industry = 'Technology'
+  ORDER BY AnnualRevenue DESC
+  LIMIT 10
+`)
+
+for (const account of result.records) {
+  console.log(`${account.Name}: $${account.AnnualRevenue}`)
+}
+```
+
+### OAuth2 Authentication
+
+```typescript
+import { Connection, OAuth2 } from '@dotdo/salesforce'
+
+const oauth2 = new OAuth2({
+  clientId: env.SF_CLIENT_ID,
+  clientSecret: env.SF_CLIENT_SECRET,
+  redirectUri: 'https://your-app.com/oauth/callback',
+})
+
+// Get authorization URL
+const authUrl = oauth2.getAuthorizationUrl({
+  scope: 'api refresh_token',
+})
+
+// After user authorizes, exchange code for tokens
+const conn = new Connection({ oauth2 })
+await conn.authorize(code)
+
+// Access token is now available
+console.log('Access Token:', conn.accessToken)
+```
+
+### CRUD Operations
+
+```typescript
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({ accessToken: env.SF_ACCESS_TOKEN })
+
+// Create a record
+const account = await conn.sobject('Account').create({
+  Name: 'Acme Inc',
+  Industry: 'Technology',
+  Website: 'https://acme.com',
+})
+
+console.log('Created Account ID:', account.id)
+
+// Retrieve a record
+const retrieved = await conn.sobject('Account').retrieve(account.id)
+
+// Update a record
+await conn.sobject('Account').update({
+  Id: account.id,
+  Description: 'Updated description',
+})
+
+// Upsert by external ID
+await conn.sobject('Account').upsert({
+  ExternalId__c: 'EXT-001',
+  Name: 'Updated Name',
+}, 'ExternalId__c')
+
+// Delete a record
+await conn.sobject('Account').delete(account.id)
+```
+
+### Query Builder
+
+```typescript
+import { Connection, QueryBuilder } from '@dotdo/salesforce'
+
+const conn = new Connection({ accessToken: env.SF_ACCESS_TOKEN })
+
+// Fluent query builder
+const query = new QueryBuilder('Account')
+  .select('Id', 'Name', 'Industry', 'AnnualRevenue')
+  .where({ Industry: 'Technology' })
+  .where('AnnualRevenue', '>', 1000000)
+  .orderBy('AnnualRevenue', 'DESC')
+  .limit(10)
+
+const result = await conn.query(query.build())
+```
+
+## Bulk API
+
+Process large data volumes:
+
+```typescript
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({ accessToken: env.SF_ACCESS_TOKEN })
+
+// Create bulk job
+const job = conn.bulk.createJob('Account', 'insert')
+const batch = job.createBatch()
+
+// Execute with array of records
+batch.execute([
+  { Name: 'Account 1', Industry: 'Technology' },
+  { Name: 'Account 2', Industry: 'Finance' },
+  { Name: 'Account 3', Industry: 'Healthcare' },
+])
+
+// Wait for completion
+await new Promise((resolve) => {
+  batch.on('queue', () => {
+    batch.poll(1000, 60000) // Poll every 1s, timeout 60s
+  })
+  batch.on('response', resolve)
+})
+
+// Get results
+const results = batch.getResult()
+console.log(`Created ${results.filter((r) => r.success).length} records`)
+
+// Close job
+await job.close()
+```
+
+### Bulk Query
+
+```typescript
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({ accessToken: env.SF_ACCESS_TOKEN })
+
+// Bulk query for large datasets
+const records = []
+
+conn.bulk.query("SELECT Id, Name FROM Account WHERE CreatedDate > LAST_YEAR")
+  .on('record', (record) => {
+    records.push(record)
+  })
+  .on('end', () => {
+    console.log(`Retrieved ${records.length} records`)
+  })
+  .on('error', (err) => {
+    console.error('Bulk query error:', err)
+  })
+```
+
+## Analytics (Reports & Dashboards)
+
+```typescript
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({ accessToken: env.SF_ACCESS_TOKEN })
+
+// Execute a report
+const report = conn.analytics.report('00Oxx000000xxxxxxx')
+const result = await report.execute({
+  details: true,
+  metadata: {
+    reportFilters: [{
+      column: 'CREATED_DATE',
+      operator: 'greaterThan',
+      value: '2024-01-01',
+    }],
+  },
+})
+
+console.log('Report results:', result.factMap)
+
+// List dashboards
+const dashboards = await conn.analytics.dashboards()
+```
+
+## Einstein AI Services
+
+### Predictions
+
+```typescript
+import { createEinstein } from '@dotdo/salesforce'
+
+const einstein = createEinstein({
+  accessToken: env.SF_ACCESS_TOKEN,
+  instanceUrl: env.SF_INSTANCE_URL,
+})
+
+// Get prediction
+const prediction = await einstein.predictions.get({
+  modelId: 'lead-scoring-model',
+  record: {
+    Company: 'Acme Inc',
+    Industry: 'Technology',
+    AnnualRevenue: 1000000,
+  },
+})
+
+console.log('Score:', prediction.probability)
+console.log('Factors:', prediction.factors)
+```
+
+### Next Best Action
+
+```typescript
+import { createEinstein } from '@dotdo/salesforce'
+
+const einstein = createEinstein({
+  accessToken: env.SF_ACCESS_TOKEN,
+  instanceUrl: env.SF_INSTANCE_URL,
+})
+
+// Get recommendations
+const recommendations = await einstein.nextBestAction.getRecommendations({
+  strategyId: 'engagement-strategy',
+  recordId: '001xx000003xxxxx',
+  maxResults: 5,
+})
+
+for (const rec of recommendations.recommendations) {
+  console.log(`${rec.name}: ${rec.description}`)
+}
+```
+
+### Einstein GPT
+
+```typescript
+import { createEinstein } from '@dotdo/salesforce'
+
+const einstein = createEinstein({
+  accessToken: env.SF_ACCESS_TOKEN,
+  instanceUrl: env.SF_INSTANCE_URL,
+})
+
+// Generate content
+const result = await einstein.gpt.generate({
+  prompt: 'Write a follow-up email for a sales opportunity',
+  context: {
+    opportunity: {
+      name: 'Enterprise Deal',
+      amount: 500000,
+      stage: 'Proposal',
+    },
+  },
+  maxTokens: 500,
+})
+
+console.log(result.text)
+```
+
+## Workflow Automation
+
+### Workflow Rules
+
+```typescript
+import { WorkflowRule, WorkflowEngine } from '@dotdo/salesforce'
+
+// Define workflow rule
+const highValueLeadRule = new WorkflowRule({
+  name: 'High Value Lead Assignment',
+  object: 'Lead',
+  evaluationCriteria: 'created',
+  criteria: {
+    filterLogic: 'AND',
+    filters: [
+      { field: 'AnnualRevenue', operator: 'greaterThan', value: 1000000 },
+      { field: 'Industry', operator: 'equals', value: 'Technology' },
+    ],
+  },
+  actions: [
+    {
+      type: 'fieldUpdate',
+      field: 'OwnerId',
+      value: '005xx000001xxxxx',
+    },
+    {
+      type: 'emailAlert',
+      template: 'High_Value_Lead_Notification',
+      recipients: ['sales-team@company.com'],
+    },
+  ],
+})
+
+// Create workflow engine
+const engine = new WorkflowEngine()
+engine.addRule(highValueLeadRule)
+
+// Evaluate record
+const result = engine.evaluate('Lead', {
+  Id: '00Qxx000000xxxxx',
+  AnnualRevenue: 2000000,
+  Industry: 'Technology',
+}, 'insert')
+
+console.log('Actions to execute:', result.actions)
+```
+
+### Process Builder
+
+```typescript
+import { ProcessBuilder } from '@dotdo/salesforce'
+
+const process = new ProcessBuilder({
+  name: 'Opportunity Won Process',
+  object: 'Opportunity',
+  triggerType: 'RecordChange',
+})
+
+process
+  .addCriteria('Stage is Closed Won', {
+    field: 'StageName',
+    operator: 'equals',
+    value: 'Closed Won',
+  })
+  .addAction('Update Account', {
+    type: 'recordUpdate',
+    object: 'Account',
+    recordId: '{!Opportunity.AccountId}',
+    fields: {
+      Customer_Status__c: 'Active',
+    },
+  })
+  .addAction('Send Email', {
+    type: 'emailAlert',
+    template: 'Opportunity_Won',
+    recipients: ['{!Opportunity.Owner.Email}'],
+  })
+
+const result = await process.evaluate(opportunityRecord)
+```
+
+## Error Handling
+
+```typescript
+import { Connection, SalesforceError } from '@dotdo/salesforce'
+
+const conn = new Connection({ accessToken: env.SF_ACCESS_TOKEN })
+
+try {
+  await conn.sobject('Account').create({ Name: '' })
+} catch (error) {
+  if (error instanceof SalesforceError) {
+    console.error('Error code:', error.errorCode)
+    console.error('Message:', error.message)
+    console.error('Fields:', error.fields)
+  }
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Core types
+  SObject,
+  QueryResult,
+  SaveResult,
+  UserInfo,
+
+  // Connection types
+  ConnectionConfig,
+  OAuth2Config,
+
+  // Describe types
+  DescribeSObjectResult,
+  DescribeField,
+
+  // Bulk types
+  BulkJob,
+  BulkBatch,
+  BulkResult,
+
+  // Analytics types
+  Report,
+  ReportResult,
+
+  // Standard objects
+  Account,
+  Contact,
+  Lead,
+  Opportunity,
+  Case,
+} from '@dotdo/salesforce'
+```
+
+## Migration from jsforce
+
+### 1. Update imports
+
+```typescript
+// Before
+import jsforce from 'jsforce'
+
+// After
+import jsforce from '@dotdo/salesforce'
+```
+
+### 2. Code changes
+
+Most code works unchanged. Check for:
+
+- **Streaming API**: Not yet supported
+- **Tooling API**: Not yet supported
+- **Chatter API**: Not yet supported
+
+## Next Steps
+
+<Cards>
+  <Card title="HubSpot Integration" href="/docs/integrations/hubspot">
+    HubSpot CRM for marketing automation.
+  </Card>
+  <Card title="Zendesk Integration" href="/docs/integrations/zendesk">
+    Zendesk for customer support.
+  </Card>
+  <Card title="CRM SDKs" href="/docs/compat/crm">
+    Overview of all CRM compatibility layers.
+  </Card>
+</Cards>

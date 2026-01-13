@@ -802,3 +802,593 @@ export async function findExpiredEscalations(
 
   return results
 }
+
+// ============================================================================
+// HUMAN DO STORE - SQLite-backed implementation via GraphStore
+// ============================================================================
+
+import type { SQLiteGraphStore } from '../../db/graph/stores/sqlite'
+import type { GraphRelationship } from '../../db/graph/types'
+
+/**
+ * Human escalation relationship format for Human DO integration.
+ * Uses proper DO URLs for from/to fields.
+ */
+export interface HumanEscalationRelationship {
+  id: string
+  verb: 'escalate' | 'escalating' | 'escalated'
+  /** Source: WorkflowInstance DO URL */
+  from: string // e.g., 'do://tenant/WorkflowInstance/instance-123'
+  /** Target: Human DO URL */
+  to: string // e.g., 'do://tenant/Human/ceo'
+  data: {
+    reason: string
+    sla?: string // ISO duration or human-readable string
+    priority?: number
+    channel?: string
+    startedAt?: number
+    completedAt?: number
+    result?: Record<string, unknown>
+  }
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * Human approval relationship format for Human DO integration.
+ */
+export interface HumanApprovalRelationship {
+  id: string
+  verb: 'approve' | 'approving' | 'approved' | 'rejected'
+  /** Source: WorkflowInstance DO URL */
+  from: string
+  /** Target: Human DO URL */
+  to: string
+  data: {
+    document?: {
+      type: string
+      description: string
+      data: Record<string, unknown>
+    }
+    sla?: string
+    decision?: 'approved' | 'rejected'
+    comment?: string
+    reason?: string
+    decidedAt?: number
+    decidedBy?: string
+  }
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * Human DO Store interface for approval workflows.
+ * This wraps GraphStore and provides Human-specific operations.
+ */
+export interface HumanDOStore {
+  /**
+   * Create an escalation to a Human DO.
+   * Creates 'escalate' relationship using proper DO URLs.
+   */
+  createEscalation(
+    instanceUrl: string,
+    humanUrl: string,
+    options: { reason: string; sla?: string; priority?: number; channel?: string }
+  ): Promise<HumanEscalationRelationship>
+
+  /**
+   * Start working on an escalation.
+   * Transitions from 'escalate' to 'escalating'.
+   */
+  startEscalation(escalationId: string): Promise<HumanEscalationRelationship>
+
+  /**
+   * Complete an escalation.
+   * Transitions from 'escalating' to 'escalated'.
+   */
+  completeEscalation(
+    escalationId: string,
+    result?: Record<string, unknown>
+  ): Promise<HumanEscalationRelationship>
+
+  /**
+   * Request approval from a Human DO.
+   * Creates 'approve' relationship.
+   */
+  requestApproval(
+    instanceUrl: string,
+    humanUrl: string,
+    document: { type: string; description: string; data: Record<string, unknown> },
+    options?: { sla?: string }
+  ): Promise<HumanApprovalRelationship>
+
+  /**
+   * Human starts reviewing an approval.
+   * Transitions from 'approve' to 'approving'.
+   */
+  startReview(approvalId: string, reviewerId: string): Promise<HumanApprovalRelationship>
+
+  /**
+   * Record approval decision.
+   * Transitions from 'approving' to 'approved' or 'rejected'.
+   */
+  recordDecision(
+    approvalId: string,
+    decision: { approved: boolean; comment?: string; reason?: string }
+  ): Promise<HumanApprovalRelationship>
+
+  /**
+   * Query pending approvals by Human DO URL.
+   * Filters by 'approve' action verb.
+   */
+  queryPendingApprovals(humanUrl: string): Promise<HumanApprovalRelationship[]>
+
+  /**
+   * Query pending escalations by Human DO URL.
+   */
+  queryPendingEscalations(humanUrl: string): Promise<HumanEscalationRelationship[]>
+
+  /**
+   * Check SLA status for an approval or escalation.
+   * Uses relationship timestamps for calculation.
+   */
+  checkSLA(relationshipId: string): Promise<{
+    hasExpired: boolean
+    timeRemaining: number
+    sla: string | null
+    createdAt: number
+  }>
+}
+
+// ============================================================================
+// SLA PARSING UTILITIES
+// ============================================================================
+
+/**
+ * Parse an SLA string (human-readable or ISO 8601 duration) to milliseconds.
+ *
+ * Supports:
+ * - ISO 8601 duration: 'PT4H' (4 hours), 'PT30M' (30 minutes), 'P1D' (1 day)
+ * - Human-readable: '4 hours', '30 minutes', '1 hour', '24 hours', '1 day', '48 hours'
+ *
+ * @param sla - SLA string
+ * @returns Milliseconds, or null if cannot parse
+ */
+function parseSLAToMs(sla: string): number | null {
+  // ISO 8601 duration format
+  const isoMatch = sla.match(/^PT?(\d+)([DHMS])$/i)
+  if (isoMatch) {
+    const value = parseInt(isoMatch[1]!, 10)
+    const unit = isoMatch[2]!.toUpperCase()
+    switch (unit) {
+      case 'D':
+        return value * 24 * 60 * 60 * 1000
+      case 'H':
+        return value * 60 * 60 * 1000
+      case 'M':
+        return value * 60 * 1000
+      case 'S':
+        return value * 1000
+    }
+  }
+
+  // Handle P1D format for days
+  const dayMatch = sla.match(/^P(\d+)D$/i)
+  if (dayMatch) {
+    return parseInt(dayMatch[1]!, 10) * 24 * 60 * 60 * 1000
+  }
+
+  // Human-readable format: '4 hours', '1 hour', '30 minutes', etc.
+  const humanMatch = sla.match(/^(\d+)\s*(hour|hours|minute|minutes|day|days)$/i)
+  if (humanMatch) {
+    const value = parseInt(humanMatch[1]!, 10)
+    const unit = humanMatch[2]!.toLowerCase()
+    switch (unit) {
+      case 'hour':
+      case 'hours':
+        return value * 60 * 60 * 1000
+      case 'minute':
+      case 'minutes':
+        return value * 60 * 1000
+      case 'day':
+      case 'days':
+        return value * 24 * 60 * 60 * 1000
+    }
+  }
+
+  return null
+}
+
+// ============================================================================
+// HUMAN DO STORE IMPLEMENTATION
+// ============================================================================
+
+/**
+ * In-memory storage for relationship ID to full relationship mapping.
+ * This is needed because GraphStore doesn't provide a getRelationship(id) method.
+ */
+interface HumanDOStoreState {
+  escalations: Map<string, HumanEscalationRelationship>
+  approvals: Map<string, HumanApprovalRelationship>
+}
+
+/**
+ * Create a HumanDOStore wrapping a SQLiteGraphStore.
+ *
+ * @param graphStore - The underlying SQLite graph store
+ * @returns HumanDOStore implementation
+ */
+export function createHumanDOStore(graphStore: SQLiteGraphStore): HumanDOStore {
+  // Internal state for tracking relationships by ID
+  const state: HumanDOStoreState = {
+    escalations: new Map(),
+    approvals: new Map(),
+  }
+
+  let idCounter = 0
+
+  /**
+   * Generate a unique escalation ID
+   */
+  function generateEscalationId(): string {
+    idCounter++
+    return `esc-${Date.now().toString(36)}-${idCounter.toString(36)}`
+  }
+
+  /**
+   * Generate a unique approval ID
+   */
+  function generateApprovalId(): string {
+    idCounter++
+    return `apr-${Date.now().toString(36)}-${idCounter.toString(36)}`
+  }
+
+  /**
+   * Convert a GraphRelationship to HumanEscalationRelationship
+   */
+  function graphToEscalation(rel: GraphRelationship): HumanEscalationRelationship {
+    return {
+      id: rel.id,
+      verb: rel.verb as 'escalate' | 'escalating' | 'escalated',
+      from: rel.from,
+      to: rel.to,
+      data: (rel.data as HumanEscalationRelationship['data']) ?? { reason: '' },
+      createdAt: rel.createdAt.getTime(),
+      updatedAt: (rel.data as Record<string, unknown>)?.updatedAt as number ?? rel.createdAt.getTime(),
+    }
+  }
+
+  /**
+   * Convert a GraphRelationship to HumanApprovalRelationship
+   */
+  function graphToApproval(rel: GraphRelationship): HumanApprovalRelationship {
+    return {
+      id: rel.id,
+      verb: rel.verb as 'approve' | 'approving' | 'approved' | 'rejected',
+      from: rel.from,
+      to: rel.to,
+      data: (rel.data as HumanApprovalRelationship['data']) ?? {},
+      createdAt: rel.createdAt.getTime(),
+      updatedAt: (rel.data as Record<string, unknown>)?.updatedAt as number ?? rel.createdAt.getTime(),
+    }
+  }
+
+  return {
+    async createEscalation(instanceUrl, humanUrl, options) {
+      const id = generateEscalationId()
+      const now = Date.now()
+
+      const data: HumanEscalationRelationship['data'] = {
+        reason: options.reason,
+        sla: options.sla,
+        priority: options.priority,
+        channel: options.channel,
+      }
+
+      // Create the relationship in SQLite
+      await graphStore.createRelationship({
+        id,
+        verb: 'escalate',
+        from: instanceUrl,
+        to: humanUrl,
+        data: { ...data, updatedAt: now },
+      })
+
+      const escalation: HumanEscalationRelationship = {
+        id,
+        verb: 'escalate',
+        from: instanceUrl,
+        to: humanUrl,
+        data,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      state.escalations.set(id, escalation)
+      return escalation
+    },
+
+    async startEscalation(escalationId) {
+      // Get the escalation from our state
+      const escalation = state.escalations.get(escalationId)
+      if (!escalation) {
+        throw new Error(`Escalation not found: ${escalationId}`)
+      }
+
+      if (escalation.verb !== 'escalate') {
+        throw new Error(`Cannot start escalation in ${escalation.verb} state`)
+      }
+
+      const now = Date.now()
+
+      // Delete old relationship and create new one with updated verb
+      await graphStore.deleteRelationship(escalationId)
+
+      const newData = {
+        ...escalation.data,
+        startedAt: now,
+        updatedAt: now,
+      }
+
+      await graphStore.createRelationship({
+        id: escalationId,
+        verb: 'escalating',
+        from: escalation.from,
+        to: escalation.to,
+        data: newData,
+      })
+
+      const updated: HumanEscalationRelationship = {
+        ...escalation,
+        verb: 'escalating',
+        data: newData,
+        updatedAt: now,
+      }
+
+      state.escalations.set(escalationId, updated)
+      return updated
+    },
+
+    async completeEscalation(escalationId, result) {
+      const escalation = state.escalations.get(escalationId)
+      if (!escalation) {
+        throw new Error(`Escalation not found: ${escalationId}`)
+      }
+
+      if (escalation.verb !== 'escalating') {
+        throw new Error(`Cannot complete escalation in ${escalation.verb} state (must be in pending state)`)
+      }
+
+      const now = Date.now()
+
+      // Delete old relationship and create new one with updated verb
+      await graphStore.deleteRelationship(escalationId)
+
+      const newData = {
+        ...escalation.data,
+        completedAt: now,
+        result,
+        updatedAt: now,
+      }
+
+      await graphStore.createRelationship({
+        id: escalationId,
+        verb: 'escalated',
+        from: escalation.from,
+        to: escalation.to,
+        data: newData,
+      })
+
+      const updated: HumanEscalationRelationship = {
+        ...escalation,
+        verb: 'escalated',
+        data: newData,
+        updatedAt: now,
+      }
+
+      state.escalations.set(escalationId, updated)
+      return updated
+    },
+
+    async requestApproval(instanceUrl, humanUrl, document, options) {
+      const id = generateApprovalId()
+      const now = Date.now()
+
+      const data: HumanApprovalRelationship['data'] = {
+        document,
+        sla: options?.sla,
+      }
+
+      // Create the relationship in SQLite
+      await graphStore.createRelationship({
+        id,
+        verb: 'approve',
+        from: instanceUrl,
+        to: humanUrl,
+        data: { ...data, updatedAt: now },
+      })
+
+      const approval: HumanApprovalRelationship = {
+        id,
+        verb: 'approve',
+        from: instanceUrl,
+        to: humanUrl,
+        data,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      state.approvals.set(id, approval)
+      return approval
+    },
+
+    async startReview(approvalId, reviewerId) {
+      const approval = state.approvals.get(approvalId)
+      if (!approval) {
+        throw new Error(`Approval not found: ${approvalId}`)
+      }
+
+      if (approval.verb !== 'approve') {
+        throw new Error(`Cannot start review in ${approval.verb} state`)
+      }
+
+      const now = Date.now()
+
+      // Delete old relationship and create new one with updated verb
+      await graphStore.deleteRelationship(approvalId)
+
+      const newData = {
+        ...approval.data,
+        decidedBy: reviewerId,
+        updatedAt: now,
+      }
+
+      await graphStore.createRelationship({
+        id: approvalId,
+        verb: 'approving',
+        from: approval.from,
+        to: approval.to,
+        data: newData,
+      })
+
+      const updated: HumanApprovalRelationship = {
+        ...approval,
+        verb: 'approving',
+        data: newData,
+        updatedAt: now,
+      }
+
+      state.approvals.set(approvalId, updated)
+      return updated
+    },
+
+    async recordDecision(approvalId, decision) {
+      const approval = state.approvals.get(approvalId)
+      if (!approval) {
+        throw new Error(`Approval not found: ${approvalId}`)
+      }
+
+      if (approval.verb !== 'approving') {
+        throw new Error(`Cannot record decision in ${approval.verb} state (must be in pending state)`)
+      }
+
+      const now = Date.now()
+      const newVerb = decision.approved ? 'approved' : 'rejected'
+
+      // Delete old relationship and create new one with updated verb
+      await graphStore.deleteRelationship(approvalId)
+
+      const newData = {
+        ...approval.data,
+        decision: newVerb as 'approved' | 'rejected',
+        comment: decision.comment,
+        reason: decision.reason,
+        decidedAt: now,
+        updatedAt: now,
+      }
+
+      await graphStore.createRelationship({
+        id: approvalId,
+        verb: newVerb,
+        from: approval.from,
+        to: approval.to,
+        data: newData,
+      })
+
+      const updated: HumanApprovalRelationship = {
+        ...approval,
+        verb: newVerb,
+        data: newData,
+        updatedAt: now,
+      }
+
+      state.approvals.set(approvalId, updated)
+      return updated
+    },
+
+    async queryPendingApprovals(humanUrl) {
+      // Query from SQLite for 'approve' verb relationships to the human
+      const rels = await graphStore.queryRelationshipsTo(humanUrl, { verb: 'approve' })
+
+      // Convert to HumanApprovalRelationship format
+      return rels.map(graphToApproval)
+    },
+
+    async queryPendingEscalations(humanUrl) {
+      // Query from SQLite for 'escalate' verb relationships to the human
+      const rels = await graphStore.queryRelationshipsTo(humanUrl, { verb: 'escalate' })
+
+      // Convert to HumanEscalationRelationship format
+      return rels.map(graphToEscalation)
+    },
+
+    async checkSLA(relationshipId) {
+      // Check escalations first, then approvals
+      const escalation = state.escalations.get(relationshipId)
+      if (escalation) {
+        const sla = escalation.data.sla
+        if (!sla) {
+          return {
+            hasExpired: false,
+            timeRemaining: Number.MAX_SAFE_INTEGER,
+            sla: null,
+            createdAt: escalation.createdAt,
+          }
+        }
+
+        const slaMs = parseSLAToMs(sla)
+        if (slaMs === null) {
+          return {
+            hasExpired: false,
+            timeRemaining: Number.MAX_SAFE_INTEGER,
+            sla,
+            createdAt: escalation.createdAt,
+          }
+        }
+
+        const expiresAt = escalation.createdAt + slaMs
+        const now = Date.now()
+        return {
+          hasExpired: now > expiresAt,
+          timeRemaining: expiresAt - now,
+          sla,
+          createdAt: escalation.createdAt,
+        }
+      }
+
+      const approval = state.approvals.get(relationshipId)
+      if (approval) {
+        const sla = approval.data.sla
+        if (!sla) {
+          return {
+            hasExpired: false,
+            timeRemaining: Number.MAX_SAFE_INTEGER,
+            sla: null,
+            createdAt: approval.createdAt,
+          }
+        }
+
+        const slaMs = parseSLAToMs(sla)
+        if (slaMs === null) {
+          return {
+            hasExpired: false,
+            timeRemaining: Number.MAX_SAFE_INTEGER,
+            sla,
+            createdAt: approval.createdAt,
+          }
+        }
+
+        const expiresAt = approval.createdAt + slaMs
+        const now = Date.now()
+        return {
+          hasExpired: now > expiresAt,
+          timeRemaining: expiresAt - now,
+          sla,
+          createdAt: approval.createdAt,
+        }
+      }
+
+      throw new Error(`Relationship not found: ${relationshipId}`)
+    },
+  }
+}

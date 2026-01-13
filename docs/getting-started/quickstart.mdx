@@ -3,6 +3,10 @@ title: Quickstart
 description: Build and deploy your first AI-powered startup in 5 minutes
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
 # Quickstart
 
 Five minutes. One startup. Let's go.
@@ -26,7 +30,7 @@ Unlike typical async code, you pass promises directly to other agents: `ralph`bu
 <Callout type="info">
 **The $ Context**
 
-`$` is your workflow context, available as `this.$` inside DO methods. It provides event handlers (`$.on.Customer.signup`), scheduling (`$.every.monday.at('9am')`), and durability levels (`$.do()`, `$.try()`, `$.send()`). In code examples, we typically use `const $ = this.$` for cleaner syntax.
+`$` is your workflow context, available as `this.$` inside DO methods. It provides event handlers (`$.on.Customer.signup`), scheduling (`$.every.Monday.at9am`), and durability levels (`$.do()`, `$.try()`, `$.send()`). In code examples, we typically use `const $ = this.$` for cleaner syntax.
 </Callout>
 
 These patterns will make more sense as you see them in action below.
@@ -204,7 +208,7 @@ The server receives all four operations at once. It knows `ralph` depends on `pr
 
 AI does the work. Humans make the hard decisions.
 
-```typescript title="src/startup.ts"
+```typescript title="src/index.ts"
 import { Startup } from 'dotdo'
 import { priya, ralph, tom, mark, sally } from 'agents.do'
 import { ceo, legal } from 'humans.do'
@@ -248,7 +252,7 @@ The `ceo` import comes from `humans.do`. When called, it:
 
 Your startup can react to events:
 
-```typescript title="src/startup.ts"
+```typescript title="src/index.ts"
 import { Startup } from 'dotdo'
 import { priya, ralph, sally } from 'agents.do'
 
@@ -270,7 +274,7 @@ export class SaasIdea extends Startup {
     })
 
     // Weekly product review
-    $.every.monday.at('9am')(async () => {
+    $.every.Monday.at9am(async () => {
       const feedback = await $.Customer.all().getFeedback()
       priya`analyze ${feedback} and update the roadmap`
     })

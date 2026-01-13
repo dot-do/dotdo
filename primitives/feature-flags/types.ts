@@ -76,6 +76,8 @@ export interface RolloutConfig {
   schedule?: Schedule
   /** Sticky bucketing key (default: userId) */
   bucketBy?: string
+  /** Salt for hashing - changing salt rebuckets all users */
+  salt?: string
 }
 
 /**

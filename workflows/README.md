@@ -288,14 +288,21 @@ const accountId = crm.accountId  // Returns PipelinePromise, not actual value
 ### Customer Onboarding
 
 ```typescript
-const CRM = Domain('CRM', { createAccount: () => {} })
-const Billing = Domain('Billing', { setupSubscription: () => {} })
-const Email = Domain('Email', { sendWelcome: () => {} })
+const CRM = Domain('CRM', {
+  createAccount: (customer) => ({ accountId: `crm_${customer.id}`, ...customer }),
+})
+const Billing = Domain('Billing', {
+  setupSubscription: (customer) => ({ subscriptionId: `sub_${customer.id}`, portalUrl: `https://billing.example.com/${customer.id}` }),
+})
+const Email = Domain('Email', {
+  sendWelcome: (customer, data) => ({ sent: true, to: customer.email }),
+})
 
 on.Customer.signup((customer) => {
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
 
+  // Property access on unresolved PipelinePromises - values resolve at execution time
   Email(customer).sendWelcome({
     crmId: CRM(customer).createAccount().accountId,
     portalUrl: Billing(customer).setupSubscription().portalUrl,
@@ -306,9 +313,15 @@ on.Customer.signup((customer) => {
 ### Weekly Reports
 
 ```typescript
-const Analytics = Domain('Analytics', { weeklyMetrics: () => {} })
-const AI = Domain('AI', { generateInsights: () => {} })
-const Slack = Domain('Slack', { post: () => {} })
+const Analytics = Domain('Analytics', {
+  weeklyMetrics: (team) => ({ revenue: 50000, growth: 0.15, team }),
+})
+const AI = Domain('AI', {
+  generateInsights: (context, data) => ({ summary: 'Revenue up 15%', recommendations: [] }),
+})
+const Slack = Domain('Slack', {
+  post: (channel, message) => ({ posted: true, channel, ts: Date.now() }),
+})
 
 every.Monday.at9am(() => {
   const metrics = Analytics('sales').weeklyMetrics()
@@ -320,10 +333,19 @@ every.Monday.at9am(() => {
 ### Expense Approval with Human-in-Loop
 
 ```typescript
-const Expenses = Domain('Expenses', { validate: () => {} })
-const Finance = Domain('Finance', { reimburse: () => {}, autoApprove: () => {} })
-const Slack = Domain('Slack', { requestApproval: () => {} })
-const Email = Domain('Email', { reject: () => {} })
+const Expenses = Domain('Expenses', {
+  validate: (expense) => ({ valid: true, requiresApproval: expense.amount > 1000 }),
+})
+const Finance = Domain('Finance', {
+  reimburse: (expense) => ({ processed: true, amount: expense.amount }),
+  autoApprove: (expense) => ({ approved: true, automated: true }),
+})
+const Slack = Domain('Slack', {
+  requestApproval: (approver, data) => ({ sent: true, channel: approver }),
+})
+const Email = Domain('Email', {
+  reject: (recipient, data) => ({ sent: true, to: recipient }),
+})
 
 on.Expense.submitted((expense) => {
   const validation = Expenses(expense).validate()

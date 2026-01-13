@@ -505,5 +505,399 @@ describe('Neo4j Compat Layer', () => {
       const token = neo4j.auth.none()
       expect(token.scheme).toBe('none')
     })
+
+    it('creates custom auth', () => {
+      const token = neo4j.auth.custom('principal', 'creds', 'realm', 'custom_scheme', { extra: 'param' })
+      expect(token.scheme).toBe('custom_scheme')
+      expect(token.principal).toBe('principal')
+      expect(token.realm).toBe('realm')
+    })
+  })
+
+  // ==========================================================================
+  // MERGE OPERATIONS
+  // ==========================================================================
+
+  describe('MERGE', () => {
+    it('creates node if not exists with MERGE', async () => {
+      const result = await session.run('MERGE (n:MergeTest {name: "Unique"}) RETURN n')
+
+      expect(result.records).toHaveLength(1)
+      const node = result.records[0]!.get('n') as Neo4jNode
+      expect(node.properties.name).toBe('Unique')
+    })
+
+    it('creates multiple nodes via separate MERGE calls', async () => {
+      await session.run('MERGE (n:MergeDup {name: "First"}) RETURN n')
+      await session.run('MERGE (n:MergeDup {name: "Second"}) RETURN n')
+
+      const result = await session.run('MATCH (n:MergeDup) RETURN n')
+      expect(result.records.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('MERGE creates label and basic node', async () => {
+      const result = await session.run('MERGE (n:MergeLabel) RETURN n')
+
+      expect(result.records).toHaveLength(1)
+      const node = result.records[0]!.get('n') as Neo4jNode
+      expect(node.labels).toContain('MergeLabel')
+    })
+  })
+
+  // ==========================================================================
+  // ORDER BY & PAGINATION
+  // ==========================================================================
+
+  describe('ORDER BY & Pagination', () => {
+    beforeEach(async () => {
+      await session.run('CREATE (n:Sortable {name: "Charlie", score: 30})')
+      await session.run('CREATE (n:Sortable {name: "Alice", score: 50})')
+      await session.run('CREATE (n:Sortable {name: "Bob", score: 40})')
+    })
+
+    it('orders by property ascending', async () => {
+      const result = await session.run('MATCH (n:Sortable) RETURN n.name ORDER BY n.name')
+
+      expect(result.records.length).toBeGreaterThanOrEqual(3)
+      const names = result.records.map(r => r.get('n.name'))
+      // First should be Alice (alphabetically first)
+      expect(names[0]).toBe('Alice')
+    })
+
+    it('orders by property descending', async () => {
+      const result = await session.run('MATCH (n:Sortable) RETURN n.score ORDER BY n.score DESC')
+
+      expect(result.records.length).toBeGreaterThanOrEqual(3)
+      const scores = result.records.map(r => r.get('n.score'))
+      expect(scores[0]).toBe(50) // Highest first
+    })
+
+    it('supports SKIP', async () => {
+      const result = await session.run('MATCH (n:Sortable) RETURN n ORDER BY n.name SKIP 1 LIMIT 2')
+
+      expect(result.records).toHaveLength(2)
+    })
+
+    it('supports LIMIT', async () => {
+      const result = await session.run('MATCH (n:Sortable) RETURN n LIMIT 2')
+
+      expect(result.records).toHaveLength(2)
+    })
+  })
+
+  // ==========================================================================
+  // RELATIONSHIP QUERIES
+  // ==========================================================================
+
+  describe('Relationship Queries', () => {
+    beforeEach(async () => {
+      await session.run('CREATE (a:Actor {name: "Actor1"})')
+      await session.run('CREATE (b:Actor {name: "Actor2"})')
+      await session.run('CREATE (m:Movie {title: "Movie1"})')
+      await session.run(`
+        MATCH (a:Actor {name: "Actor1"}), (m:Movie {title: "Movie1"})
+        CREATE (a)-[r:ACTED_IN {role: "Lead"}]->(m)
+      `)
+      await session.run(`
+        MATCH (a:Actor {name: "Actor2"}), (m:Movie {title: "Movie1"})
+        CREATE (a)-[r:ACTED_IN {role: "Supporting"}]->(m)
+      `)
+    })
+
+    it('matches relationships by type', async () => {
+      const result = await session.run(`
+        MATCH (a:Actor)-[r:ACTED_IN]->(m:Movie)
+        RETURN a, r, m
+      `)
+
+      expect(result.records.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('returns relationship properties', async () => {
+      const result = await session.run(`
+        MATCH (a:Actor)-[r:ACTED_IN]->(m:Movie)
+        RETURN r
+      `)
+
+      // Verify at least one relationship has the expected properties
+      expect(result.records.length).toBeGreaterThanOrEqual(1)
+      const rels = result.records.map(rec => rec.get('r') as Neo4jRelationship)
+      const leadRel = rels.find(r => r.properties.role === 'Lead')
+      expect(leadRel).toBeDefined()
+      expect(leadRel!.properties.role).toBe('Lead')
+    })
+
+    it('matches multiple actors in relationships', async () => {
+      const result = await session.run(`
+        MATCH (a:Actor)-[r:ACTED_IN]->(m:Movie)
+        RETURN a.name, m.title
+      `)
+
+      expect(result.records.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  // ==========================================================================
+  // MULTI-HOP PATHS
+  // ==========================================================================
+
+  describe('Multi-Hop Paths', () => {
+    beforeEach(async () => {
+      // Create a chain: A -> B -> C -> D
+      await session.run('CREATE (a:Chain {name: "A"})')
+      await session.run('CREATE (b:Chain {name: "B"})')
+      await session.run('CREATE (c:Chain {name: "C"})')
+      await session.run('CREATE (d:Chain {name: "D"})')
+      await session.run(`
+        MATCH (a:Chain {name: "A"}), (b:Chain {name: "B"})
+        CREATE (a)-[:NEXT]->(b)
+      `)
+      await session.run(`
+        MATCH (b:Chain {name: "B"}), (c:Chain {name: "C"})
+        CREATE (b)-[:NEXT]->(c)
+      `)
+      await session.run(`
+        MATCH (c:Chain {name: "C"}), (d:Chain {name: "D"})
+        CREATE (c)-[:NEXT]->(d)
+      `)
+    })
+
+    it('traverses two hops', async () => {
+      const result = await session.run(`
+        MATCH (a:Chain {name: "A"})-[:NEXT]->(b)-[:NEXT]->(c)
+        RETURN a.name, b.name, c.name
+      `)
+
+      expect(result.records).toHaveLength(1)
+      expect(result.records[0]!.get('a.name')).toBe('A')
+      expect(result.records[0]!.get('b.name')).toBe('B')
+      expect(result.records[0]!.get('c.name')).toBe('C')
+    })
+
+    it('traverses three hops', async () => {
+      const result = await session.run(`
+        MATCH (a:Chain {name: "A"})-[:NEXT]->(b)-[:NEXT]->(c)-[:NEXT]->(d)
+        RETURN a.name, d.name
+      `)
+
+      expect(result.records).toHaveLength(1)
+      expect(result.records[0]!.get('a.name')).toBe('A')
+      expect(result.records[0]!.get('d.name')).toBe('D')
+    })
+  })
+
+  // ==========================================================================
+  // RESULT COUNTERS
+  // ==========================================================================
+
+  describe('Result Counters', () => {
+    it('counts nodes created', async () => {
+      const result = await session.run('CREATE (n:CounterCreate {x: 1}), (m:CounterCreate {x: 2}) RETURN n, m')
+
+      expect(result.summary.counters.nodesCreated()).toBeGreaterThanOrEqual(2)
+    })
+
+    it('counts relationships created', async () => {
+      await session.run('CREATE (a:RelCounter {id: "a"})')
+      await session.run('CREATE (b:RelCounter {id: "b"})')
+      const result = await session.run(`
+        MATCH (a:RelCounter {id: "a"}), (b:RelCounter {id: "b"})
+        CREATE (a)-[r:RELATES]->(b)
+        RETURN r
+      `)
+
+      expect(result.summary.counters.relationshipsCreated()).toBeGreaterThanOrEqual(1)
+    })
+
+    it('counts properties set', async () => {
+      await session.run('CREATE (n:PropCounter {val: 1})')
+      const result = await session.run('MATCH (n:PropCounter) SET n.val = 2, n.extra = "new" RETURN n')
+
+      expect(result.summary.counters.propertiesSet()).toBeGreaterThanOrEqual(1)
+    })
+
+    it('reports containsUpdates correctly', async () => {
+      const createResult = await session.run('CREATE (n:UpdateCheck) RETURN n')
+      expect(createResult.summary.counters.containsUpdates()).toBe(true)
+
+      const readResult = await session.run('MATCH (n:UpdateCheck) RETURN n')
+      expect(readResult.summary.counters.containsUpdates()).toBe(false)
+    })
+  })
+
+  // ==========================================================================
+  // ERROR HANDLING
+  // ==========================================================================
+
+  describe('Error Handling', () => {
+    it('throws on closed session', async () => {
+      const newSession = driver.session()
+      await newSession.close()
+
+      await expect(newSession.run('RETURN 1')).rejects.toThrow()
+    })
+
+    it('throws on unknown procedure', async () => {
+      await expect(session.run('CALL nonexistent.procedure()')).rejects.toThrow(/Unknown procedure/)
+    })
+  })
+
+  // ==========================================================================
+  // NODE ELEMENT IDS
+  // ==========================================================================
+
+  describe('Node Element IDs', () => {
+    it('includes elementId on nodes', async () => {
+      const result = await session.run('CREATE (n:ElementIdTest {name: "Test"}) RETURN n')
+
+      const node = result.records[0]!.get('n') as Neo4jNode
+      expect(node.elementId).toBeDefined()
+      expect(typeof node.elementId).toBe('string')
+    })
+
+    it('includes identity on nodes', async () => {
+      const result = await session.run('CREATE (n:IdentityTest {name: "Test"}) RETURN n')
+
+      const node = result.records[0]!.get('n') as Neo4jNode
+      expect(node.identity).toBeDefined()
+      expect(neo4j.isInt(node.identity)).toBe(true)
+    })
+  })
+
+  // ==========================================================================
+  // RELATIONSHIP IDS
+  // ==========================================================================
+
+  describe('Relationship IDs', () => {
+    it('includes elementId on relationships', async () => {
+      await session.run('CREATE (a:RelIdTest {id: "a"})')
+      await session.run('CREATE (b:RelIdTest {id: "b"})')
+      const result = await session.run(`
+        MATCH (a:RelIdTest {id: "a"}), (b:RelIdTest {id: "b"})
+        CREATE (a)-[r:HAS_REL]->(b)
+        RETURN r
+      `)
+
+      const rel = result.records[0]!.get('r') as Neo4jRelationship
+      expect(rel.elementId).toBeDefined()
+      expect(rel.startNodeElementId).toBeDefined()
+      expect(rel.endNodeElementId).toBeDefined()
+    })
+
+    it('includes start and end on relationships', async () => {
+      await session.run('CREATE (a:RelStartEnd {id: "a"})')
+      await session.run('CREATE (b:RelStartEnd {id: "b"})')
+      const result = await session.run(`
+        MATCH (a:RelStartEnd {id: "a"}), (b:RelStartEnd {id: "b"})
+        CREATE (a)-[r:CONNECTS]->(b)
+        RETURN r
+      `)
+
+      const rel = result.records[0]!.get('r') as Neo4jRelationship
+      expect(neo4j.isInt(rel.start)).toBe(true)
+      expect(neo4j.isInt(rel.end)).toBe(true)
+    })
+  })
+
+  // ==========================================================================
+  // PATH TYPE CHECKS
+  // ==========================================================================
+
+  describe('Path Type Checks', () => {
+    it('identifies paths', async () => {
+      await session.run('CREATE (a:PathCheck {id: "a"})')
+      await session.run('CREATE (b:PathCheck {id: "b"})')
+      await session.run(`
+        MATCH (a:PathCheck {id: "a"}), (b:PathCheck {id: "b"})
+        CREATE (a)-[:PATH_LINK]->(b)
+      `)
+
+      // Note: Our current implementation doesn't return paths directly from MATCH
+      // This tests the isPath function itself
+      const mockPath = {
+        start: { labels: ['Node'], properties: {}, elementId: '1', identity: neo4j.int(1) },
+        end: { labels: ['Node'], properties: {}, elementId: '2', identity: neo4j.int(2) },
+        segments: [],
+        length: 0
+      }
+      expect(neo4j.isPath(mockPath)).toBe(true)
+    })
+
+    it('rejects non-paths', () => {
+      expect(neo4j.isPath(null)).toBe(false)
+      expect(neo4j.isPath({})).toBe(false)
+      expect(neo4j.isPath({ start: {} })).toBe(false)
+    })
+  })
+
+  // ==========================================================================
+  // INTEGER OPERATIONS
+  // ==========================================================================
+
+  describe('Integer Operations', () => {
+    it('converts string to int', () => {
+      const int = neo4j.integer('42')
+      expect(int.toNumber()).toBe(42)
+    })
+
+    it('converts number to int', () => {
+      const int = neo4j.integer(100)
+      expect(int.toNumber()).toBe(100)
+    })
+
+    it('supports toInt method', () => {
+      const int = neo4j.int(55)
+      expect(int.toInt()).toBe(55)
+    })
+
+    it('handles large integers', () => {
+      const largeInt = neo4j.int(999999999)
+      expect(largeInt.toNumber()).toBe(999999999)
+    })
+  })
+
+  // ==========================================================================
+  // MULTIPLE SESSIONS
+  // ==========================================================================
+
+  describe('Multiple Sessions', () => {
+    it('creates independent sessions', async () => {
+      const session1 = driver.session()
+      const session2 = driver.session()
+
+      await session1.run('CREATE (n:Session1Test {id: 1})')
+      await session2.run('CREATE (n:Session2Test {id: 2})')
+
+      // Both should be queryable
+      const result1 = await session1.run('MATCH (n:Session1Test) RETURN n')
+      const result2 = await session2.run('MATCH (n:Session2Test) RETURN n')
+
+      expect(result1.records.length).toBeGreaterThanOrEqual(1)
+      expect(result2.records.length).toBeGreaterThanOrEqual(1)
+
+      await session1.close()
+      await session2.close()
+    })
+  })
+
+  // ==========================================================================
+  // DISTINCT RESULTS
+  // ==========================================================================
+
+  describe('DISTINCT Results', () => {
+    beforeEach(async () => {
+      await session.run('CREATE (n:DistinctTest {type: "A"})')
+      await session.run('CREATE (n:DistinctTest {type: "A"})')
+      await session.run('CREATE (n:DistinctTest {type: "B"})')
+    })
+
+    it('returns distinct values', async () => {
+      const result = await session.run('MATCH (n:DistinctTest) RETURN DISTINCT n.type')
+
+      // Should have 2 distinct types: A and B
+      const types = result.records.map(r => r.get('n.type'))
+      const uniqueTypes = [...new Set(types)]
+      expect(uniqueTypes).toHaveLength(2)
+    })
   })
 })

@@ -1,22 +1,21 @@
 ---
 title: Vector
-description: API-compatible vector database SDKs for Pinecone, Qdrant, Weaviate, and Chroma.
+description: API-compatible vector database SDK for Pinecone, backed by edge-native HNSW.
 ---
 
 # Vector Compat SDKs
 
-Four vector database APIs, rebuilt on Durable Objects. Embeddings that scale with your agents.
+Pinecone-compatible vector API, rebuilt on Durable Objects with edge-native HNSW. Embeddings that scale with your agents.
 
 ## The Problem
 
 When 10,000 AI agents start generating and querying embeddings:
 
 - **Pinecone** rate limits per namespace
-- **Qdrant** memory pressure on large indices
-- **Weaviate** JVM GC pauses during heavy load
-- **Chroma** single-node limitations
+- Cloud vector databases add latency at the edge
+- Cold starts on serverless vector services
 
-The solution: tiered vector storage. Hot vectors in libsql (F32_BLOB), warm in Cloudflare Vectorize, cold in ClickHouse/Parquet. Automatic promotion and demotion based on access patterns.
+The solution: edge-native vector storage using HNSW (Hierarchical Navigable Small World) graphs backed by SQLite. Hot vectors in libsql (F32_BLOB), with optional tiering to Cloudflare Vectorize or Parquet for cold storage.
 
 ## Quick Start
 
@@ -44,11 +43,11 @@ const results = await index.query({
 })
 ```
 
-## Available SDKs
+## Available SDK
 
 ### @dotdo/pinecone
 
-Pinecone SDK compatible.
+Drop-in replacement for `@pinecone-database/pinecone`, backed by dotdo's edgevec HNSW implementation.
 
 ```typescript
 import { Pinecone } from '@dotdo/pinecone'
@@ -121,238 +120,6 @@ Filter operators:
 - `$gt`, `$gte`, `$lt`, `$lte` - Comparison
 - `$in`, `$nin` - Set membership
 - `$and`, `$or` - Boolean
-
-### @dotdo/qdrant
-
-Qdrant client compatible.
-
-```typescript
-import { QdrantClient } from '@dotdo/qdrant'
-
-const client = new QdrantClient({
-  url: process.env.QDRANT_URL,
-  apiKey: process.env.QDRANT_KEY,
-})
-
-// Create collection
-await client.createCollection('articles', {
-  vectors: {
-    size: 1536,
-    distance: 'Cosine',
-  },
-})
-
-// Upsert points
-await client.upsert('articles', {
-  points: [
-    {
-      id: 'article-1',
-      vector: embedding,
-      payload: {
-        title: 'Introduction to Vector Search',
-        author: 'Alice',
-        tags: ['search', 'ml', 'vectors'],
-        published: '2024-01-15',
-      },
-    },
-  ],
-})
-
-// Search with filtering
-const results = await client.search('articles', {
-  vector: queryEmbedding,
-  limit: 10,
-  filter: {
-    must: [
-      { key: 'tags', match: { value: 'ml' } },
-      { key: 'published', range: { gte: '2024-01-01' } },
-    ],
-  },
-  with_payload: true,
-  with_vectors: false,
-})
-
-// Scroll through all points
-const scrollResults = await client.scroll('articles', {
-  limit: 100,
-  with_payload: true,
-  filter: { must: [{ key: 'author', match: { value: 'Alice' } }] },
-})
-
-// Batch search
-const batchResults = await client.searchBatch('articles', {
-  searches: [
-    { vector: embedding1, limit: 5 },
-    { vector: embedding2, limit: 5 },
-  ],
-})
-
-// Recommend similar
-const recommendations = await client.recommend('articles', {
-  positive: ['article-1', 'article-2'],
-  negative: ['article-3'],
-  limit: 10,
-})
-
-// Delete points
-await client.delete('articles', {
-  filter: { must: [{ key: 'author', match: { value: 'Alice' } }] },
-})
-```
-
-### @dotdo/weaviate
-
-Weaviate client compatible.
-
-```typescript
-import weaviate from '@dotdo/weaviate'
-
-const client = weaviate.client({
-  scheme: 'https',
-  host: process.env.WEAVIATE_HOST,
-  apiKey: new weaviate.ApiKey(process.env.WEAVIATE_KEY),
-})
-
-// Create class
-await client.schema.classCreator().withClass({
-  class: 'Article',
-  vectorizer: 'none', // Using external embeddings
-  properties: [
-    { name: 'title', dataType: ['text'] },
-    { name: 'content', dataType: ['text'] },
-    { name: 'author', dataType: ['text'] },
-    { name: 'wordCount', dataType: ['int'] },
-  ],
-}).do()
-
-// Add objects
-await client.data.creator()
-  .withClassName('Article')
-  .withId('article-uuid-1')
-  .withVector(embedding)
-  .withProperties({
-    title: 'Vector Databases Explained',
-    content: 'A comprehensive guide to vector search...',
-    author: 'Bob',
-    wordCount: 2500,
-  })
-  .do()
-
-// Batch import
-const batch = client.batch.objectsBatcher()
-for (const article of articles) {
-  batch.withObject({
-    class: 'Article',
-    id: article.id,
-    vector: article.embedding,
-    properties: article,
-  })
-}
-await batch.do()
-
-// Vector search with GraphQL
-const results = await client.graphql.get()
-  .withClassName('Article')
-  .withFields('title content author _additional { certainty distance }')
-  .withNearVector({ vector: queryEmbedding, certainty: 0.7 })
-  .withWhere({
-    operator: 'And',
-    operands: [
-      { path: ['author'], operator: 'Equal', valueText: 'Bob' },
-      { path: ['wordCount'], operator: 'GreaterThan', valueInt: 1000 },
-    ],
-  })
-  .withLimit(10)
-  .do()
-
-// Hybrid search (vector + BM25)
-const hybrid = await client.graphql.get()
-  .withClassName('Article')
-  .withFields('title content')
-  .withHybrid({
-    query: 'vector database tutorial',
-    vector: queryEmbedding,
-    alpha: 0.5, // Balance between vector and keyword
-  })
-  .withLimit(10)
-  .do()
-```
-
-### @dotdo/chroma
-
-ChromaDB client compatible.
-
-```typescript
-import { ChromaClient } from '@dotdo/chroma'
-
-const client = new ChromaClient({
-  path: process.env.CHROMA_URL,
-})
-
-// Create collection
-const collection = await client.createCollection({
-  name: 'documents',
-  metadata: { 'hnsw:space': 'cosine' },
-})
-
-// Add documents with embeddings
-await collection.add({
-  ids: ['doc-1', 'doc-2', 'doc-3'],
-  embeddings: [embedding1, embedding2, embedding3],
-  metadatas: [
-    { source: 'wiki', topic: 'science' },
-    { source: 'blog', topic: 'tech' },
-    { source: 'wiki', topic: 'tech' },
-  ],
-  documents: [
-    'The theory of relativity...',
-    'Modern web development...',
-    'Quantum computing basics...',
-  ],
-})
-
-// Query
-const results = await collection.query({
-  queryEmbeddings: [queryEmbedding],
-  nResults: 5,
-  where: { topic: 'tech' },
-  whereDocument: { $contains: 'development' },
-  include: ['embeddings', 'documents', 'metadatas', 'distances'],
-})
-
-// Get by ID
-const docs = await collection.get({
-  ids: ['doc-1', 'doc-2'],
-  include: ['embeddings', 'metadatas'],
-})
-
-// Update
-await collection.update({
-  ids: ['doc-1'],
-  metadatas: [{ source: 'wiki', topic: 'physics', updated: true }],
-})
-
-// Delete
-await collection.delete({
-  ids: ['doc-3'],
-})
-
-// With auto-embedding (text-embedding-3-small)
-const autoCollection = await client.createCollection({
-  name: 'auto-embed',
-  embeddingFunction: 'openai', // Auto-embed documents
-})
-
-await autoCollection.add({
-  ids: ['doc-1'],
-  documents: ['This will be automatically embedded'],
-})
-
-const autoResults = await autoCollection.query({
-  queryTexts: ['search query'], // Auto-embedded
-  nResults: 5,
-})
-```
 
 ## Architecture
 

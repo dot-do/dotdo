@@ -1,0 +1,602 @@
+---
+title: State Machines
+description: XState v5 integration and durable state machines for complex workflow orchestration
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# State Machines
+
+dotdo provides two state machine primitives: a lightweight `WorkflowStateMachine` built for durable workflows, and full XState v5 integration through the `Machine` primitive for complex state management.
+
+## Overview
+
+| Primitive | Use Case | XState | Persistence | Complexity |
+|-----------|----------|--------|-------------|------------|
+| `WorkflowStateMachine` | Workflow states with verb forms | No | Checkpoint-based | Low |
+| `Machine` | Complex statecharts | XState v5 | DO storage | Medium |
+
+<Callout type="info">
+State machines in dotdo follow the verb form convention where states are expressed as verbs: pending/awaiting (base), running/processing (active -ing), completed/succeeded (past -ed), and failed/cancelled (terminal).
+</Callout>
+
+## WorkflowStateMachine
+
+A lightweight state machine optimized for workflow orchestration with built-in compensation support.
+
+### Basic Usage
+
+```typescript
+import { createWorkflowStateMachine } from 'db/primitives/workflow-state-machine'
+
+const workflow = createWorkflowStateMachine({
+  id: 'order-123',
+  states: {
+    pending: { on: { START: 'running' } },
+    running: { on: { COMPLETE: 'completed', FAIL: 'failed' } },
+    completed: { type: 'final' },
+    failed: { type: 'final' },
+  },
+  initial: 'pending',
+})
+
+// Send events to trigger transitions
+await workflow.send({ type: 'START' })
+console.log(workflow.state) // 'running'
+
+await workflow.send({ type: 'COMPLETE', result: { orderId: '123' } })
+console.log(workflow.state) // 'completed'
+```
+
+### Verb Form Categories
+
+States automatically infer their verb form from naming patterns:
+
+```typescript
+import { createWorkflowStateMachine, type VerbFormCategory } from 'db/primitives/workflow-state-machine'
+
+const machine = createWorkflowStateMachine({
+  id: 'payment-flow',
+  states: {
+    // Pending states (base form)
+    pending: { verbForm: 'pending', on: { PROCESS: 'processing' } },
+    queued: { verbForm: 'pending', on: { START: 'processing' } },
+
+    // Active states (-ing form)
+    processing: { verbForm: 'active', on: { SUCCESS: 'completed', FAIL: 'failed' } },
+    retrying: { verbForm: 'active', on: { SUCCESS: 'completed', FAIL: 'failed' } },
+
+    // Completed states (-ed form)
+    completed: { type: 'final', verbForm: 'completed' },
+    succeeded: { type: 'final', verbForm: 'completed' },
+
+    // Failed states
+    failed: { type: 'final', verbForm: 'failed' },
+    cancelled: { type: 'final', verbForm: 'failed' },
+  },
+  initial: 'pending',
+})
+
+// Check verb form at runtime
+console.log(machine.getVerbForm()) // 'pending'
+await machine.send({ type: 'PROCESS' })
+console.log(machine.getVerbForm()) // 'active'
+```
+
+### Guards and Actions
+
+Add conditional transitions and side effects:
+
+```typescript
+const machine = createWorkflowStateMachine({
+  id: 'checkout',
+  states: {
+    pending: {
+      on: { CHECKOUT: 'validating' },
+    },
+    validating: {
+      on: { VALID: 'processing', INVALID: 'failed' },
+      // Guard conditions
+      guards: {
+        VALID: (ctx) => ctx.data.cartTotal > 0,
+      },
+      // Entry actions
+      onEntry: [
+        async (ctx) => {
+          console.log('Starting validation for', ctx.id)
+        },
+      ],
+    },
+    processing: {
+      on: { SUCCESS: 'completed', FAIL: 'failed' },
+      onExit: [
+        async (ctx) => {
+          console.log('Exiting processing state')
+        },
+      ],
+    },
+    completed: { type: 'final' },
+    failed: { type: 'final' },
+  },
+  initial: 'pending',
+  context: { cartTotal: 0, items: [] },
+})
+
+// Update context data
+machine.updateContext({ cartTotal: 99.99 })
+```
+
+### State Timeouts
+
+Automatically transition after a timeout:
+
+```typescript
+const machine = createWorkflowStateMachine({
+  id: 'approval-flow',
+  states: {
+    awaiting_approval: {
+      on: { APPROVE: 'approved', REJECT: 'rejected', TIMEOUT: 'escalated' },
+      // Auto-send TIMEOUT event after 24 hours
+      timeout: {
+        after: 24 * 60 * 60 * 1000, // 24 hours
+        send: { type: 'TIMEOUT' },
+      },
+    },
+    escalated: {
+      on: { APPROVE: 'approved', REJECT: 'rejected' },
+      timeout: {
+        after: 4 * 60 * 60 * 1000, // 4 hours
+        send: { type: 'TIMEOUT' },
+      },
+    },
+    approved: { type: 'final' },
+    rejected: { type: 'final' },
+  },
+  initial: 'awaiting_approval',
+})
+```
+
+### Compensation (Saga Integration)
+
+Register compensations for saga-style rollbacks:
+
+```typescript
+const machine = createWorkflowStateMachine({
+  id: 'order-fulfillment',
+  states: {
+    pending: { on: { START: 'reserving_inventory' } },
+    reserving_inventory: { on: { RESERVED: 'charging_payment', FAIL: 'failed' } },
+    charging_payment: { on: { CHARGED: 'shipping', FAIL: 'compensating' } },
+    shipping: { on: { SHIPPED: 'completed', FAIL: 'compensating' } },
+    compensating: { on: { COMPENSATED: 'failed' } },
+    completed: { type: 'final' },
+    failed: { type: 'final' },
+  },
+  initial: 'pending',
+})
+
+// Register compensations as you complete steps
+machine.registerCompensation('reserve-inventory', async () => {
+  await inventoryService.release(reservationId)
+})
+
+machine.registerCompensation('charge-payment', async () => {
+  await paymentService.refund(paymentId)
+})
+
+// If something fails, run compensations in reverse order
+if (machine.state === 'compensating') {
+  await machine.compensate() // Refunds payment, then releases inventory
+  await machine.send({ type: 'COMPENSATED' })
+}
+```
+
+### Persistence and Recovery
+
+Checkpoint and restore state for durability:
+
+```typescript
+// Create a checkpoint
+const checkpoint = machine.checkpoint()
+// {
+//   id: 'order-123',
+//   state: 'processing',
+//   previousState: 'pending',
+//   data: { orderId: '123' },
+//   history: [...],
+//   version: 2,
+// }
+
+// Store in DO storage
+await state.storage.put('workflow:order-123', JSON.stringify(checkpoint))
+
+// Later: restore from checkpoint
+const saved = await state.storage.get('workflow:order-123')
+if (saved) {
+  machine.restore(JSON.parse(saved))
+}
+
+// Or use serialize/hydrate helpers
+const serialized = machine.serialize()
+machine.hydrate(serialized)
+```
+
+### Subscribing to State Changes
+
+```typescript
+// Subscribe to all transitions
+const unsubscribe = machine.onTransition((from, to, event) => {
+  console.log(`Transitioned from ${from} to ${to} via ${event.type}`)
+  metrics.recordTransition(machine.id, from, to)
+})
+
+// Subscribe to specific state entry
+machine.onStateEnter('completed', (ctx) => {
+  sendCompletionNotification(ctx.data)
+})
+
+// Subscribe to specific state exit
+machine.onStateExit('processing', (ctx) => {
+  console.log('Processing finished')
+})
+
+// Cleanup when done
+unsubscribe()
+```
+
+## Machine (XState v5)
+
+Full XState v5 integration for complex statecharts with DO persistence.
+
+### Basic Usage
+
+```typescript
+import { Machine } from 'primitives/machine'
+
+// Define the machine configuration
+const paymentMachine = Machine.define({
+  id: 'payment',
+  initial: 'idle',
+  context: {
+    amount: 0,
+    paymentId: null,
+    error: null,
+  },
+  states: {
+    idle: {
+      on: {
+        INITIATE: {
+          target: 'processing',
+          actions: [(ctx, event) => ({ ...ctx, amount: event.amount })],
+        },
+      },
+    },
+    processing: {
+      on: {
+        SUCCESS: {
+          target: 'completed',
+          actions: [(ctx, event) => ({ ...ctx, paymentId: event.paymentId })],
+        },
+        FAILURE: {
+          target: 'failed',
+          actions: [(ctx, event) => ({ ...ctx, error: event.error })],
+        },
+      },
+    },
+    completed: { type: 'final' },
+    failed: {
+      on: {
+        RETRY: { target: 'processing' },
+      },
+    },
+  },
+})
+
+// Create an instance with optional initial context override
+const payment = paymentMachine.create({ amount: 99.99 })
+
+// Send events
+await payment.send({ type: 'INITIATE', amount: 149.99 })
+console.log(payment.state)   // 'processing'
+console.log(payment.context) // { amount: 149.99, paymentId: null, error: null }
+```
+
+### Guards for Conditional Transitions
+
+```typescript
+const checkoutMachine = Machine.define({
+  id: 'checkout',
+  initial: 'cart',
+  context: {
+    items: [],
+    total: 0,
+    paymentMethod: null,
+  },
+  states: {
+    cart: {
+      on: {
+        CHECKOUT: {
+          target: 'payment',
+          // Guard: only transition if cart has items
+          guard: (ctx) => ctx.items.length > 0,
+        },
+      },
+    },
+    payment: {
+      on: {
+        PAY: {
+          target: 'processing',
+          // Guard: validate payment method
+          guard: (ctx, event) => {
+            return ctx.paymentMethod !== null && event.amount >= ctx.total
+          },
+        },
+        BACK: { target: 'cart' },
+      },
+    },
+    processing: {
+      on: {
+        SUCCESS: { target: 'completed' },
+        FAILURE: { target: 'payment' },
+      },
+    },
+    completed: { type: 'final' },
+  },
+})
+
+const checkout = checkoutMachine.create()
+
+// Check if transition is allowed
+console.log(checkout.can({ type: 'CHECKOUT' })) // false (no items)
+checkout.context.items.push({ id: 1, price: 29.99 })
+console.log(checkout.can({ type: 'CHECKOUT' })) // true
+```
+
+### Entry and Exit Actions
+
+```typescript
+const callSessionMachine = Machine.define({
+  id: 'call-session',
+  initial: 'idle',
+  context: {
+    callId: null,
+    startedAt: null,
+    duration: 0,
+  },
+  states: {
+    idle: {
+      on: { START: { target: 'ringing' } },
+    },
+    ringing: {
+      entry: [
+        (ctx) => {
+          console.log('Call ringing...')
+          return { ...ctx, callId: crypto.randomUUID() }
+        },
+      ],
+      on: {
+        ANSWER: { target: 'connected' },
+        TIMEOUT: { target: 'idle' },
+      },
+    },
+    connected: {
+      entry: [
+        (ctx) => {
+          console.log('Call connected')
+          return { ...ctx, startedAt: Date.now() }
+        },
+      ],
+      exit: [
+        (ctx) => {
+          const duration = Date.now() - (ctx.startedAt || 0)
+          console.log(`Call ended after ${duration}ms`)
+          return { ...ctx, duration }
+        },
+      ],
+      on: {
+        HANGUP: { target: 'ended' },
+        HOLD: { target: 'on_hold' },
+      },
+    },
+    on_hold: {
+      on: {
+        RESUME: { target: 'connected' },
+        HANGUP: { target: 'ended' },
+      },
+    },
+    ended: { type: 'final' },
+  },
+})
+```
+
+### DO Persistence
+
+Persist machine state to Durable Object storage:
+
+```typescript
+import { Machine } from 'primitives/machine'
+
+class PaymentDO extends DurableObject {
+  private machine: IMachine<PaymentState, PaymentEvent, PaymentContext>
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+
+    // Create machine with DO storage adapter
+    const storage = {
+      get: async (key: string) => state.storage.get(key),
+      put: async (key: string, value: unknown) => state.storage.put(key, value),
+    }
+
+    this.machine = paymentMachine.create({}, storage)
+  }
+
+  async fetch(request: Request) {
+    // Restore state on each request
+    await this.machine.restore(this.ctx.id.toString())
+
+    const { action, ...data } = await request.json()
+
+    // Process action
+    await this.machine.send({ type: action, ...data })
+
+    // Persist after state change
+    await this.machine.persist()
+
+    return Response.json({
+      state: this.machine.state,
+      context: this.machine.context,
+    })
+  }
+}
+```
+
+### Subscribing to State Changes
+
+```typescript
+const machine = checkoutMachine.create()
+
+// Subscribe to all transitions
+const unsubscribeTransition = machine.onTransition((from, to, event) => {
+  analytics.track('state_transition', {
+    machineId: 'checkout',
+    from,
+    to,
+    event: event.type,
+  })
+})
+
+// Subscribe to specific state
+const unsubscribeState = machine.onState('completed', (ctx) => {
+  sendOrderConfirmation(ctx)
+})
+
+// Cleanup
+unsubscribeTransition()
+unsubscribeState()
+
+// Stop the machine when done
+machine.stop()
+```
+
+## Standard Workflow States
+
+dotdo provides predefined state constants following verb form conventions:
+
+```typescript
+import { WorkflowStates, WorkflowEvents } from 'db/primitives/workflow-state-machine'
+
+// Pending states (awaiting)
+WorkflowStates.PENDING    // 'pending'
+WorkflowStates.QUEUED     // 'queued'
+WorkflowStates.AWAITING   // 'awaiting'
+WorkflowStates.SCHEDULED  // 'scheduled'
+
+// Active states (-ing)
+WorkflowStates.RUNNING    // 'running'
+WorkflowStates.PROCESSING // 'processing'
+WorkflowStates.EXECUTING  // 'executing'
+WorkflowStates.RETRYING   // 'retrying'
+
+// Completed states (-ed)
+WorkflowStates.COMPLETED  // 'completed'
+WorkflowStates.SUCCEEDED  // 'succeeded'
+WorkflowStates.FINISHED   // 'finished'
+
+// Failed states
+WorkflowStates.FAILED     // 'failed'
+WorkflowStates.ERRORED    // 'errored'
+WorkflowStates.CANCELLED  // 'cancelled'
+WorkflowStates.TIMED_OUT  // 'timed_out'
+
+// Standard events
+WorkflowEvents.START      // 'START'
+WorkflowEvents.COMPLETE   // 'COMPLETE'
+WorkflowEvents.FAIL       // 'FAIL'
+WorkflowEvents.RETRY      // 'RETRY'
+WorkflowEvents.CANCEL     // 'CANCEL'
+WorkflowEvents.TIMEOUT    // 'TIMEOUT'
+WorkflowEvents.RESUME     // 'RESUME'
+WorkflowEvents.PAUSE      // 'PAUSE'
+```
+
+## Best Practices
+
+### 1. Use Verb Forms Consistently
+
+Name states as verbs to clearly indicate lifecycle:
+
+```typescript
+// Good: Clear verb forms
+states: {
+  awaiting_payment: { ... },  // pending
+  processing_payment: { ... }, // active
+  payment_completed: { ... },  // completed
+  payment_failed: { ... },     // failed
+}
+
+// Less clear
+states: {
+  payment_step_1: { ... },
+  payment_step_2: { ... },
+  done: { ... },
+}
+```
+
+### 2. Keep State Machines Focused
+
+One machine per workflow concern:
+
+```typescript
+// Good: Separate machines for separate concerns
+const orderStateMachine = createWorkflowStateMachine({ /* order lifecycle */ })
+const paymentStateMachine = createWorkflowStateMachine({ /* payment lifecycle */ })
+const shippingStateMachine = createWorkflowStateMachine({ /* shipping lifecycle */ })
+
+// Less ideal: One giant machine
+const everythingMachine = createWorkflowStateMachine({
+  // 50+ states mixing order, payment, and shipping
+})
+```
+
+### 3. Register Compensations Early
+
+Register compensations as soon as you complete side effects:
+
+```typescript
+// Good: Register immediately after side effect
+const reservation = await inventoryService.reserve(items)
+machine.registerCompensation('inventory', async () => {
+  await inventoryService.release(reservation.id)
+})
+
+// Then continue with next steps...
+```
+
+### 4. Use Guards for Business Logic
+
+Keep transition logic in guards, not in event handlers:
+
+```typescript
+// Good: Business logic in guard
+states: {
+  pending: {
+    on: { APPROVE: 'approved' },
+    guards: {
+      APPROVE: (ctx) => ctx.data.amount < 10000 || ctx.data.hasManagerApproval,
+    },
+  },
+}
+
+// Less ideal: Check in handler before sending event
+if (amount < 10000 || hasManagerApproval) {
+  await machine.send({ type: 'APPROVE' })
+}
+```
+
+## Related
+
+- [Workflows Overview](/docs/workflows) - The $ context DSL and durability levels
+- [Workflow Steps](/docs/workflows/steps) - Conditional, parallel, and saga patterns
+- [Pipeline Promises](/docs/workflows/pipelines) - Deferred execution with promise pipelining
+- [Temporal Integration](/docs/integrations/temporal) - Temporal workflow compatibility

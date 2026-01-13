@@ -1,0 +1,440 @@
+---
+title: Autonomous Business
+description: Deploy businesses that run autonomously with AI agents operating and humans escalating - the final phase
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
+# Autonomous Business
+
+The Autonomous Business phase is where your validated hypothesis becomes a profitable operation. AI agents run the business, humans only handle sensitive decisions.
+
+<Callout type="info">
+This isn't science fiction - it's the logical conclusion of Business-as-Code. You've proven the model in experimentation; now you scale it with agents.
+</Callout>
+
+## The Vision
+
+An Autonomous Business is:
+- **Managed by AI agents** - Operations, support, marketing, sales
+- **Profitable without active work** - Revenue flows while you sleep
+- **Human-escalated for sensitive decisions** - Not a fallback, but deliberate oversight
+- **Scalable to millions of customers** - Agent instances, not hiring
+
+```typescript
+export class TaxPrepAI extends Startup {
+  // AI agents handle operations
+  async operate() {
+    $.on.Customer.signup(customer => agents.onboarding.welcome(customer))
+    $.on.TaxReturn.submitted(taxReturn => agents.tax.process(taxReturn))
+    $.on.Support.ticket(ticket => agents.support.resolve(ticket))
+    $.on.Invoice.overdue(invoice => agents.collections.followUp(invoice))
+
+    // Humans only for sensitive decisions
+    $.escalate.when('refund > $10000', cfo)
+    $.escalate.when('audit_risk > 0.8', cpa)
+    $.escalate.when('customer.ltv > $50000', ceo)
+  }
+}
+```
+
+## Agent Architecture
+
+### Agent Teams
+
+Autonomous Businesses are run by agent teams, not individual agents:
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+const team = {
+  product: priya,      // Product specs, roadmaps, customer research
+  engineering: ralph,  // Build, deploy, maintain
+  techLead: tom,       // Architecture, code review, quality gates
+  marketing: mark,     // Content, campaigns, launches
+  sales: sally,        // Outreach, demos, closing
+  qa: quinn,           // Testing, quality assurance
+}
+
+// Each agent operates autonomously within their domain
+$.on.Feature.requested(feature => {
+  const spec = await team.product`spec out ${feature}`
+  const code = await team.engineering`build ${spec}`
+  const reviewed = await team.techLead`review ${code}`
+  const tested = await team.qa`test ${reviewed}`
+  await team.marketing`announce ${tested}`
+})
+```
+
+### Agent Memory
+
+Agents have persistent memory across interactions:
+
+```typescript
+// Long-term memory - facts and knowledge
+await tom.memory.store({
+  type: 'knowledge',
+  content: 'TaxPrepAI uses Drizzle ORM with SQLite',
+  context: 'codebase',
+})
+
+// Episodic memory - specific interactions
+await tom.memory.store({
+  type: 'episode',
+  content: 'Reviewed PR #234, found SQL injection vulnerability',
+  timestamp: Date.now(),
+})
+
+// Semantic memory - learned patterns
+await tom.memory.store({
+  type: 'pattern',
+  content: 'User auth should use jose library, not jsonwebtoken',
+  confidence: 0.95,
+})
+
+// Recall relevant context
+const context = await tom.memory.recall('authentication patterns')
+```
+
+### Agent Observability
+
+Track what agents are doing:
+
+```typescript
+// Agent activity logs
+const activity = await $.agents.activity({
+  agent: 'tom',
+  timeframe: '24h',
+})
+
+// {
+//   actions: [
+//     { type: 'code_review', target: 'PR #234', duration: '4m', outcome: 'approved' },
+//     { type: 'architecture_decision', target: 'auth-refactor', duration: '12m', outcome: 'documented' },
+//   ],
+//   tokens: { input: 45000, output: 12000 },
+//   cost: 0.84,
+// }
+
+// Set guardrails
+$.agents.configure({
+  maxTokensPerHour: 100000,
+  maxCostPerDay: 50,
+  requireApprovalFor: ['deployment', 'database-migration'],
+})
+```
+
+## HumanFunction: Deliberate Escalation
+
+HumanFunction is not a fallback for when AI fails - it's **deliberate human oversight** designed into the system.
+
+### When to Escalate
+
+Escalate for:
+- **High-stakes decisions** - Large refunds, legal issues, major customers
+- **Edge cases** - Unusual situations the AI hasn't seen
+- **Regulatory requirements** - Compliance, audits, legal sign-offs
+- **Brand-critical moments** - PR crises, executive communications
+
+Do NOT escalate for:
+- **AI uncertainty** - Train better models instead
+- **Common exceptions** - Build rules to handle them
+- **Scale problems** - Hire more agents, not humans
+
+### Defining Escalation Policies
+
+```typescript
+export class TaxPrepAI extends Startup {
+  // Financial escalation
+  financialReview = this.HumanFunction({
+    trigger: 'refund > $10000 OR adjustment > $5000',
+    role: 'senior-accountant',
+    sla: '4 hours',
+    channels: ['slack', 'email'],
+    context: ['customer_history', 'refund_reason', 'ai_recommendation'],
+  })
+
+  // Compliance escalation
+  complianceReview = this.HumanFunction({
+    trigger: 'audit_risk > 0.8 OR irs_inquiry',
+    role: 'cpa',
+    sla: '2 hours',
+    channels: ['slack', 'phone'],
+    escalateTo: 'tax-attorney',
+    escalateAfter: '4 hours',
+  })
+
+  // VIP escalation
+  vipSupport = this.HumanFunction({
+    trigger: 'customer.ltv > $50000 OR customer.tier === "enterprise"',
+    role: 'account-manager',
+    sla: '30 minutes',
+    channels: ['slack'],
+  })
+}
+```
+
+### Escalation Workflow
+
+```typescript
+$.on.Support.ticket(async (ticket) => {
+  // AI attempts resolution
+  const resolution = await agents.support.resolve(ticket)
+
+  if (resolution.confidence > 0.9 && resolution.riskLevel === 'low') {
+    // AI handles directly
+    await ticket.resolve(resolution)
+  } else if (resolution.needsHuman) {
+    // Escalate to human
+    await $.escalate(ticket, {
+      reason: resolution.escalationReason,
+      context: resolution.context,
+      suggestedAction: resolution.recommendation,
+    })
+  }
+})
+
+// Human receives notification with full context
+// {
+//   ticket: { id: 'TKT-1234', customer: 'Acme Corp', issue: 'Tax filing rejected' },
+//   aiAnalysis: { rootCause: 'Missing Schedule C', confidence: 0.85 },
+//   recommendation: 'Request updated P&L from customer',
+//   customerHistory: [...],
+//   similarCases: [...],
+// }
+```
+
+## Services-as-Software
+
+Autonomous Businesses can deliver **professional services as software** - previously human-only services automated by AI.
+
+### Service Delivery Patterns
+
+```typescript
+// Tax preparation as a service
+export class TaxPrepService extends Service {
+  async deliver(customer: Customer, taxYear: number) {
+    // 1. Collect information
+    const documents = await this.collectDocuments(customer)
+    const expenses = await this.categorizeExpenses(documents)
+
+    // 2. AI prepares return
+    const draft = await agents.tax.prepare({
+      customer,
+      taxYear,
+      documents,
+      expenses,
+    })
+
+    // 3. Quality check
+    const reviewed = await agents.tax.review(draft)
+
+    // 4. Human review for edge cases
+    if (reviewed.needsCpaReview) {
+      const cpaApproval = await $.escalate(cpa, 'Review complex return', reviewed)
+      if (!cpaApproval.approved) {
+        return this.handleRejection(cpaApproval)
+      }
+    }
+
+    // 5. Customer review
+    await customer.notify('Your tax return is ready for review')
+    const customerApproval = await customer.approve(reviewed)
+
+    // 6. File
+    if (customerApproval) {
+      await agents.tax.file(reviewed)
+    }
+  }
+}
+```
+
+### Quality Gates
+
+Services need quality checkpoints:
+
+```typescript
+const qualityGates = {
+  // Automated checks
+  automated: [
+    'All required forms present',
+    'Math checks pass',
+    'No duplicate deductions',
+    'State/federal consistency',
+  ],
+
+  // AI verification
+  aiVerification: [
+    'Deductions reasonable for income level',
+    'No audit red flags',
+    'Matches historical patterns',
+  ],
+
+  // Human checkpoints
+  humanReview: {
+    trigger: 'complex_situation OR high_value OR first_return',
+    reviewer: 'cpa',
+    checklist: [
+      'Business expense legitimacy',
+      'Entity structure optimization',
+      'Estimated payment accuracy',
+    ],
+  },
+}
+```
+
+## SLA Management
+
+Autonomous Businesses need SLA tracking and enforcement:
+
+```typescript
+export class TaxPrepAI extends Startup {
+  slas = {
+    taxPrepTime: {
+      target: '24 hours',
+      warning: '18 hours',
+      escalate: '22 hours',
+    },
+    supportResponse: {
+      target: '1 hour',
+      warning: '30 minutes',
+      escalate: '45 minutes',
+    },
+    refundProcessing: {
+      target: '48 hours',
+      warning: '36 hours',
+      escalate: '42 hours',
+    },
+  }
+
+  // Auto-escalate on SLA risk
+  $.on.SLA.warning(({ sla, item }) => {
+    agents.ops.prioritize(item)
+    agents.ops.notify(`SLA warning: ${sla.name} for ${item.id}`)
+  })
+
+  $.on.SLA.breach(({ sla, item }) => {
+    $.escalate(ops, `SLA breach: ${sla.name}`, item)
+  })
+}
+```
+
+## Business Formation {#formation}
+
+dotdo integrates with legal infrastructure for business formation:
+
+```typescript
+// Form a new business entity
+const entity = await $.legal.incorporate({
+  type: 'llc',
+  name: 'TaxPrepAI LLC',
+  state: 'delaware',
+  members: [{ name: 'Founder', ownership: 100 }],
+})
+
+// Get EIN
+const ein = await $.legal.getEIN(entity)
+
+// Set up banking
+const account = await $.banking.open({
+  entity,
+  provider: 'mercury',
+})
+
+// Connect Stripe
+const stripe = await $.payments.connect({
+  entity,
+  provider: 'stripe',
+  account,
+})
+```
+
+### Stripe Connect Integration
+
+Revenue flows through Stripe Connect:
+
+```typescript
+// Platform receives payments, splits with entity
+const payment = await $.payments.process({
+  amount: 499,
+  customer: customerId,
+  splits: [
+    { account: 'platform', percentage: 10 },  // dotdo takes 10%
+    { account: entity.stripeId, percentage: 90 },  // Entity gets 90%
+  ],
+})
+```
+
+## Scaling the Business
+
+Once autonomous, scale without adding human headcount:
+
+```typescript
+// Scale agent capacity
+await $.agents.scale({
+  support: { instances: 100, maxConcurrent: 50 },
+  tax: { instances: 200, maxConcurrent: 100 },
+  marketing: { instances: 10, maxConcurrent: 5 },
+})
+
+// Monitor unit economics at scale
+const economics = await $.analytics.unitEconomics()
+// {
+//   revenue: 50000,
+//   agentCosts: 2000,       // AI compute
+//   platformCosts: 5000,    // dotdo fees
+//   humanCosts: 1000,       // Escalation handling
+//   margin: 84%,
+// }
+
+// Auto-adjust pricing based on economics
+await $.pricing.optimize({
+  targetMargin: 0.7,
+  constraints: {
+    minPrice: 299,
+    maxPrice: 999,
+    competitorPrices: await $.market.competitorPricing(),
+  },
+})
+```
+
+## From Autonomous to Exit
+
+The endgame for an Autonomous Business:
+
+```typescript
+// Track business metrics
+const metrics = await $.business.metrics()
+// {
+//   arr: 1200000,           // $1.2M ARR
+//   growth: 0.15,           // 15% MoM
+//   churn: 0.02,            // 2% monthly
+//   margin: 0.75,           // 75% gross margin
+//   ltv_cac: 8,             // 8x LTV/CAC
+// }
+
+// Ready for acquisition or IPO?
+const readiness = await $.business.exitReadiness()
+// {
+//   score: 0.85,
+//   strengths: ['Strong unit economics', 'Low churn', 'Defensible moat'],
+//   gaps: ['Need SOC2 certification', 'Board diversity'],
+//   recommendations: ['Complete SOC2 audit', 'Add independent board members'],
+// }
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Business-as-Code Primitives" href="/docs/roadmap/primitives">
+    Understand the building blocks that make autonomous businesses possible.
+  </Card>
+  <Card title="Platform Services" href="/docs/roadmap/platform-services">
+    Learn about the cross-cutting services that support autonomous operations.
+  </Card>
+  <Card title="Foundation Sprint" href="/docs/roadmap/foundation-sprint">
+    Starting fresh? Begin with the Foundation Sprint.
+  </Card>
+</Cards>

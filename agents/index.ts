@@ -555,3 +555,78 @@ export {
   type DeliveryReceipt,
   type GraphMessageBusConfig,
 } from './communication'
+
+// ============================================================================
+// Handoff Protocol
+// ============================================================================
+
+export {
+  // Core class
+  HandoffProtocol,
+  // Factory functions
+  createHandoffProtocol,
+  createHandoffRequest,
+  createHandoffContext,
+  createCompleteHandoffContext,
+  createProtocolHandoffTool,
+  // Message factory functions (Acknowledgment Protocol)
+  generateHandoffId,
+  generateCorrelationId,
+  createInitiateMessage,
+  createAckMessage,
+  createAcceptMessage,
+  createRejectMessage,
+  createProgressMessage,
+  createCompleteMessage,
+  createErrorMessage,
+  // State preservation utilities
+  createPreservedState,
+  validatePreservedState,
+  mergePreservedStates,
+  extractPreservedState,
+  // Context transfer utilities
+  serializeContext,
+  deserializeContext,
+  // Types
+  type HandoffReason,
+  type HandoffState,
+  type HandoffMessageType,
+  type HandoffMessageBase,
+  type HandoffInitiateMessage,
+  type HandoffAckMessage,
+  type HandoffAcceptMessage,
+  type HandoffRejectMessage,
+  type HandoffProgressMessage,
+  type HandoffCompleteMessage,
+  type HandoffErrorMessage,
+  type HandoffMessage,
+  type PreservedState,
+  type HandoffContext,
+  type HandoffRequest,
+  type HandoffResult,
+  type HandoffChainEntry,
+  type HandoffHooks,
+  type HandoffProtocolConfig,
+} from './handoff'
+
+// ============================================================================
+// Handoff Chain (Graph-backed)
+// ============================================================================
+
+export {
+  HANDED_OFF_TO,
+  createHandoffRelationship,
+  getHandoffChain,
+  checkCircularHandoff,
+  getHandoffAnalytics,
+  getHandoffsBetweenAgents,
+  createGraphBackedHandoffHooks,
+  extractAgentId,
+  type CreateHandoffRelationshipInput,
+  type HandoffRelationship,
+  type HandoffChainEntry as GraphHandoffChainEntry,
+  type CircularHandoffCheckResult,
+  type HandoffAnalytics,
+  type GetHandoffChainOptions,
+  type GetHandoffAnalyticsOptions,
+} from './handoff-chain'

@@ -4,6 +4,7 @@
   "root": true,
   "pages": [
     "index",
+    "understanding-promise-pipelining",
     "client",
     "server",
     "pipelines",

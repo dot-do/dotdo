@@ -44,21 +44,58 @@ export interface PipelineStats {
 /** Mapping function type */
 export type MapFn<I, O> = (record: I) => O | Promise<O>
 
+/** Sync mapping function type */
+export type SyncMapFn<I, O> = (record: I) => O
+
 /**
- * Create a map transformer that transforms record fields
+ * Create a map transformer that transforms record fields.
+ * Supports both sync and async mapping functions.
  */
 export function map<I, O>(fn: MapFn<I, O>): Transformer<I, O> {
   return {
     name: 'map',
-    async transform(event: ChangeEvent<I>): Promise<ChangeEvent<O> | null> {
-      const transformedEvent: ChangeEvent<O> = {
-        ...event,
-        before: event.before ? await fn(event.before) : null,
-        after: event.after ? await fn(event.after) : null,
+    transform(event: ChangeEvent<I>): Promise<ChangeEvent<O> | null> {
+      const beforeResult = event.before ? fn(event.before) : null
+      const afterResult = event.after ? fn(event.after) : null
+
+      // Check if results are promises
+      if (beforeResult instanceof Promise || afterResult instanceof Promise) {
+        return Promise.all([
+          beforeResult instanceof Promise ? beforeResult : Promise.resolve(beforeResult),
+          afterResult instanceof Promise ? afterResult : Promise.resolve(afterResult),
+        ]).then(([before, after]) => ({
+          ...event,
+          before,
+          after,
+        }))
       }
-      return transformedEvent
+
+      // Sync path - return resolved promise for interface compatibility
+      return Promise.resolve({
+        ...event,
+        before: beforeResult,
+        after: afterResult,
+      })
     },
   }
+}
+
+/**
+ * Create a synchronous map transformer (for use with transformSync).
+ * Only accepts synchronous mapping functions.
+ * Note: Cast to unknown first to satisfy TypeScript's strict type checking.
+ */
+export function mapSync<I, O>(fn: SyncMapFn<I, O>): Transformer<I, O> {
+  return {
+    name: 'mapSync',
+    transform(event: ChangeEvent<I>): ChangeEvent<O> | null {
+      return {
+        ...event,
+        before: event.before ? fn(event.before) : null,
+        after: event.after ? fn(event.after) : null,
+      }
+    },
+  } as unknown as Transformer<I, O>
 }
 
 // ============================================================================
@@ -68,17 +105,41 @@ export function map<I, O>(fn: MapFn<I, O>): Transformer<I, O> {
 /** Filter predicate type */
 export type FilterPredicate<T> = (event: ChangeEvent<T>) => boolean | Promise<boolean>
 
+/** Sync filter predicate type */
+export type SyncFilterPredicate<T> = (event: ChangeEvent<T>) => boolean
+
 /**
- * Create a filter transformer
+ * Create a filter transformer.
+ * Supports both sync and async predicates.
  */
 export function filter<T>(predicate: FilterPredicate<T>): Transformer<T, T> {
   return {
     name: 'filter',
-    async transform(event: ChangeEvent<T>): Promise<ChangeEvent<T> | null> {
-      const shouldPass = await predicate(event)
-      return shouldPass ? event : null
+    transform(event: ChangeEvent<T>): Promise<ChangeEvent<T> | null> {
+      const result = predicate(event)
+
+      if (result instanceof Promise) {
+        return result.then((shouldPass) => (shouldPass ? event : null))
+      }
+
+      // Sync path - return resolved promise for interface compatibility
+      return Promise.resolve(result ? event : null)
     },
   }
+}
+
+/**
+ * Create a synchronous filter transformer (for use with transformSync).
+ * Only accepts synchronous predicates.
+ * Note: Cast to unknown first to satisfy TypeScript's strict type checking.
+ */
+export function filterSync<T>(predicate: SyncFilterPredicate<T>): Transformer<T, T> {
+  return {
+    name: 'filterSync',
+    transform(event: ChangeEvent<T>): ChangeEvent<T> | null {
+      return predicate(event) ? event : null
+    },
+  } as unknown as Transformer<T, T>
 }
 
 // ============================================================================
@@ -916,7 +977,7 @@ export function mask<T>(fields: string[], options?: MaskOptions): Transformer<T,
 
   return {
     name: 'mask',
-    transform(event: ChangeEvent<T>): ChangeEvent<T> | null | Promise<ChangeEvent<T> | null> {
+    async transform(event: ChangeEvent<T>): Promise<ChangeEvent<T> | null> {
       return {
         ...event,
         before: maskRecord(event.before),
@@ -969,20 +1030,21 @@ export function derive<I, O extends I>(
 
   return {
     name: 'derive',
-    transform(event: ChangeEvent<I>): ChangeEvent<O> | null | Promise<ChangeEvent<O> | null> {
+    async transform(event: ChangeEvent<I>): Promise<ChangeEvent<O> | null> {
       const beforeResult = deriveRecordSync(event.before)
       const afterResult = deriveRecordSync(event.after)
 
-      // If either result is a promise, we need to return a promise
+      // If either result is a promise, we need to resolve them
       if (beforeResult instanceof Promise || afterResult instanceof Promise) {
-        return Promise.all([
+        const [before, after] = await Promise.all([
           beforeResult instanceof Promise ? beforeResult : Promise.resolve(beforeResult),
           afterResult instanceof Promise ? afterResult : Promise.resolve(afterResult),
-        ]).then(([before, after]) => ({
+        ])
+        return {
           ...event,
           before,
           after,
-        }))
+        }
       }
 
       return {

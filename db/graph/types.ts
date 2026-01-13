@@ -120,6 +120,28 @@ export interface GraphStore {
   deleteThing(id: string): Promise<GraphThing | null>
 
   // -------------------------------------------------------------------------
+  // BATCH THINGS OPERATIONS (N+1 elimination)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get multiple Things by their IDs in a single query.
+   * Returns a Map for O(1) lookup by ID.
+   *
+   * @param ids - Array of Thing IDs to fetch
+   * @returns Map of ID to GraphThing (missing IDs are not in the map)
+   */
+  getThings(ids: string[]): Promise<Map<string, GraphThing>>
+
+  /**
+   * Get multiple Things by their IDs, preserving order.
+   * Returns an array in the same order as input IDs.
+   *
+   * @param ids - Array of Thing IDs to fetch
+   * @returns Array of GraphThings in same order as input (nulls for missing)
+   */
+  getThingsByIds(ids: string[]): Promise<(GraphThing | null)[]>
+
+  // -------------------------------------------------------------------------
   // RELATIONSHIPS OPERATIONS
   // -------------------------------------------------------------------------
 
@@ -165,6 +187,20 @@ export interface GraphStore {
    * @returns true if deleted, false if not found
    */
   deleteRelationship(id: string): Promise<boolean>
+
+  // -------------------------------------------------------------------------
+  // BATCH RELATIONSHIPS OPERATIONS (N+1 elimination)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Query relationships from multiple source URLs in a single query.
+   * Eliminates N+1 queries when traversing from multiple nodes.
+   *
+   * @param urls - Array of source URLs to query from
+   * @param options - Optional verb filter
+   * @returns Array of all relationships originating from any of the URLs
+   */
+  queryRelationshipsFromMany(urls: string[], options?: RelationshipQueryOptions): Promise<GraphRelationship[]>
 }
 
 // ============================================================================

@@ -1722,3 +1722,682 @@ describe('Integration', () => {
     await client.quit()
   })
 })
+
+// ============================================================================
+// STREAM COMMAND TESTS
+// ============================================================================
+
+describe('Stream Commands', () => {
+  let client: ReturnType<typeof createClient>
+
+  beforeEach(() => {
+    client = createClient()
+  })
+
+  afterEach(async () => {
+    await client.flushdb()
+    await client.quit()
+  })
+
+  // ==========================================================================
+  // XADD TESTS
+  // ==========================================================================
+
+  describe('xadd', () => {
+    it('should add entry with auto-generated ID', async () => {
+      const id = await client.xadd('mystream', '*', 'field1', 'value1')
+      expect(id).toMatch(/^\d+-\d+$/)
+    })
+
+    it('should add entry with multiple fields', async () => {
+      const id = await client.xadd('mystream', '*', 'name', 'Alice', 'age', '30', 'city', 'NYC')
+      expect(id).toBeDefined()
+
+      const entries = await client.xrange('mystream', '-', '+')
+      expect(entries).toHaveLength(1)
+      expect(entries[0][1]).toEqual(['name', 'Alice', 'age', '30', 'city', 'NYC'])
+    })
+
+    it('should add entry with specific ID', async () => {
+      const specificId = '1526919030474-0'
+      const id = await client.xadd('mystream', specificId, 'field1', 'value1')
+      expect(id).toBe(specificId)
+    })
+
+    it('should fail when adding ID lower than last ID', async () => {
+      await client.xadd('mystream', '1000-0', 'field1', 'value1')
+      await expect(
+        client.xadd('mystream', '500-0', 'field1', 'value1')
+      ).rejects.toThrow()
+    })
+
+    it('should create stream on first xadd', async () => {
+      await client.xadd('newstream', '*', 'key', 'value')
+      const len = await client.xlen('newstream')
+      expect(len).toBe(1)
+    })
+
+    it('should respect NOMKSTREAM option', async () => {
+      const result = await client.xadd('nonexistent', { NOMKSTREAM: true, id: '*' }, 'k', 'v')
+      expect(result).toBeNull()
+    })
+
+    it('should auto-increment sequence for same timestamp', async () => {
+      const id1 = await client.xadd('mystream', '1000-0', 'field', 'v1')
+      const id2 = await client.xadd('mystream', '1000-*', 'field', 'v2')
+      expect(id1).toBe('1000-0')
+      expect(id2).toBe('1000-1')
+    })
+
+    it('should trim with MAXLEN option', async () => {
+      // Add 10 entries
+      for (let i = 0; i < 10; i++) {
+        await client.xadd('mystream', '*', 'i', String(i))
+      }
+      // Add with MAXLEN=5
+      await client.xadd('mystream', { id: '*', MAXLEN: 5 }, 'i', '10')
+      const len = await client.xlen('mystream')
+      expect(len).toBeLessThanOrEqual(6) // May have a few extra due to approximate
+    })
+  })
+
+  // ==========================================================================
+  // XLEN TESTS
+  // ==========================================================================
+
+  describe('xlen', () => {
+    it('should return 0 for non-existent stream', async () => {
+      const len = await client.xlen('nonexistent')
+      expect(len).toBe(0)
+    })
+
+    it('should return correct length', async () => {
+      await client.xadd('mystream', '*', 'k1', 'v1')
+      await client.xadd('mystream', '*', 'k2', 'v2')
+      await client.xadd('mystream', '*', 'k3', 'v3')
+      const len = await client.xlen('mystream')
+      expect(len).toBe(3)
+    })
+  })
+
+  // ==========================================================================
+  // XRANGE / XREVRANGE TESTS
+  // ==========================================================================
+
+  describe('xrange', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xadd('mystream', '3-0', 'f', 'v3')
+      await client.xadd('mystream', '4-0', 'f', 'v4')
+      await client.xadd('mystream', '5-0', 'f', 'v5')
+    })
+
+    it('should return all entries with - and +', async () => {
+      const entries = await client.xrange('mystream', '-', '+')
+      expect(entries).toHaveLength(5)
+      expect(entries[0][0]).toBe('1-0')
+      expect(entries[4][0]).toBe('5-0')
+    })
+
+    it('should return range between IDs', async () => {
+      const entries = await client.xrange('mystream', '2-0', '4-0')
+      expect(entries).toHaveLength(3)
+      expect(entries[0][0]).toBe('2-0')
+      expect(entries[2][0]).toBe('4-0')
+    })
+
+    it('should respect COUNT option', async () => {
+      const entries = await client.xrange('mystream', '-', '+', 'COUNT', 2)
+      expect(entries).toHaveLength(2)
+    })
+
+    it('should return empty array for out-of-range', async () => {
+      const entries = await client.xrange('mystream', '100-0', '200-0')
+      expect(entries).toHaveLength(0)
+    })
+
+    it('should work with exclusive ranges', async () => {
+      const entries = await client.xrange('mystream', '(2-0', '(5-0')
+      expect(entries).toHaveLength(2) // 3-0 and 4-0
+    })
+  })
+
+  describe('xrevrange', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xadd('mystream', '3-0', 'f', 'v3')
+    })
+
+    it('should return entries in reverse order', async () => {
+      const entries = await client.xrevrange('mystream', '+', '-')
+      expect(entries).toHaveLength(3)
+      expect(entries[0][0]).toBe('3-0')
+      expect(entries[2][0]).toBe('1-0')
+    })
+
+    it('should respect COUNT', async () => {
+      const entries = await client.xrevrange('mystream', '+', '-', 'COUNT', 1)
+      expect(entries).toHaveLength(1)
+      expect(entries[0][0]).toBe('3-0')
+    })
+  })
+
+  // ==========================================================================
+  // XREAD TESTS
+  // ==========================================================================
+
+  describe('xread', () => {
+    it('should read new entries from single stream', async () => {
+      await client.xadd('mystream', '1-0', 'field', 'value1')
+      await client.xadd('mystream', '2-0', 'field', 'value2')
+
+      const result = await client.xread('STREAMS', 'mystream', '0-0')
+      expect(result).not.toBeNull()
+      expect(result).toHaveLength(1)
+      expect(result![0][0]).toBe('mystream')
+      expect(result![0][1]).toHaveLength(2)
+    })
+
+    it('should read from multiple streams', async () => {
+      await client.xadd('stream1', '1-0', 'f', 'v1')
+      await client.xadd('stream2', '1-0', 'f', 'v2')
+
+      const result = await client.xread('STREAMS', 'stream1', 'stream2', '0-0', '0-0')
+      expect(result).toHaveLength(2)
+    })
+
+    it('should return null when no new entries', async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v')
+      const result = await client.xread('STREAMS', 'mystream', '1-0')
+      expect(result).toBeNull()
+    })
+
+    it('should respect COUNT option', async () => {
+      for (let i = 1; i <= 10; i++) {
+        await client.xadd('mystream', `${i}-0`, 'f', `v${i}`)
+      }
+
+      const result = await client.xread({ COUNT: 3 }, 'STREAMS', 'mystream', '0-0')
+      expect(result![0][1]).toHaveLength(3)
+    })
+
+    it('should use $ for new entries only', async () => {
+      await client.xadd('mystream', '1-0', 'f', 'old')
+      // With $ we should get null since we're only looking for new entries
+      const result = await client.xread('STREAMS', 'mystream', '$')
+      expect(result).toBeNull()
+    })
+  })
+
+  // ==========================================================================
+  // XDEL TESTS
+  // ==========================================================================
+
+  describe('xdel', () => {
+    it('should delete single entry', async () => {
+      const id = await client.xadd('mystream', '*', 'f', 'v')
+      const deleted = await client.xdel('mystream', id)
+      expect(deleted).toBe(1)
+      expect(await client.xlen('mystream')).toBe(0)
+    })
+
+    it('should delete multiple entries', async () => {
+      const id1 = await client.xadd('mystream', '*', 'f', 'v1')
+      const id2 = await client.xadd('mystream', '*', 'f', 'v2')
+      await client.xadd('mystream', '*', 'f', 'v3')
+
+      const deleted = await client.xdel('mystream', id1, id2)
+      expect(deleted).toBe(2)
+      expect(await client.xlen('mystream')).toBe(1)
+    })
+
+    it('should return 0 for non-existent IDs', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      const deleted = await client.xdel('mystream', '999-0')
+      expect(deleted).toBe(0)
+    })
+  })
+
+  // ==========================================================================
+  // XTRIM TESTS
+  // ==========================================================================
+
+  describe('xtrim', () => {
+    beforeEach(async () => {
+      for (let i = 1; i <= 10; i++) {
+        await client.xadd('mystream', `${i}-0`, 'f', `v${i}`)
+      }
+    })
+
+    it('should trim to MAXLEN', async () => {
+      const deleted = await client.xtrim('mystream', 'MAXLEN', 5)
+      expect(deleted).toBe(5)
+      expect(await client.xlen('mystream')).toBe(5)
+    })
+
+    it('should trim with approximate MAXLEN', async () => {
+      const deleted = await client.xtrim('mystream', 'MAXLEN', '~', 3)
+      expect(await client.xlen('mystream')).toBeLessThanOrEqual(5) // Approximate
+    })
+
+    it('should trim by MINID', async () => {
+      const deleted = await client.xtrim('mystream', 'MINID', '6-0')
+      expect(deleted).toBe(5) // Remove IDs < 6-0
+      expect(await client.xlen('mystream')).toBe(5)
+    })
+  })
+
+  // ==========================================================================
+  // XINFO TESTS
+  // ==========================================================================
+
+  describe('xinfo', () => {
+    it('should return stream info', async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+
+      const info = await client.xinfo('STREAM', 'mystream')
+      expect(info.length).toBe(2)
+      expect(info.lastGeneratedId).toBe('2-0')
+      expect(info.firstEntry).toBeDefined()
+      expect(info.lastEntry).toBeDefined()
+    })
+
+    it('should return groups info', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+
+      const groups = await client.xinfo('GROUPS', 'mystream')
+      expect(groups).toHaveLength(1)
+      expect(groups[0].name).toBe('mygroup')
+    })
+
+    it('should return consumers info', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+
+      const consumers = await client.xinfo('CONSUMERS', 'mystream', 'mygroup')
+      expect(consumers).toHaveLength(1)
+      expect(consumers[0].name).toBe('consumer1')
+    })
+  })
+
+  // ==========================================================================
+  // XGROUP TESTS
+  // ==========================================================================
+
+  describe('xgroup', () => {
+    it('should create consumer group', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      const result = await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      expect(result).toBe('OK')
+    })
+
+    it('should create group with MKSTREAM', async () => {
+      const result = await client.xgroup('CREATE', 'newstream', 'mygroup', '$', 'MKSTREAM')
+      expect(result).toBe('OK')
+      const type = await client.type('newstream')
+      expect(type).toBe('stream')
+    })
+
+    it('should fail creating duplicate group', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await expect(
+        client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      ).rejects.toThrow('BUSYGROUP')
+    })
+
+    it('should destroy consumer group', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+
+      const deleted = await client.xgroup('DESTROY', 'mystream', 'mygroup')
+      expect(deleted).toBe(1)
+    })
+
+    it('should delete consumer from group', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+
+      const pending = await client.xgroup('DELCONSUMER', 'mystream', 'mygroup', 'consumer1')
+      expect(typeof pending).toBe('number')
+    })
+
+    it('should set group ID', async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '2-0')
+
+      const result = await client.xgroup('SETID', 'mystream', 'mygroup', '0')
+      expect(result).toBe('OK')
+    })
+  })
+
+  // ==========================================================================
+  // XREADGROUP TESTS
+  // ==========================================================================
+
+  describe('xreadgroup', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xadd('mystream', '3-0', 'f', 'v3')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+    })
+
+    it('should read entries for consumer', async () => {
+      const result = await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+      expect(result).toHaveLength(1)
+      expect(result![0][1]).toHaveLength(3)
+    })
+
+    it('should only return undelivered entries with >', async () => {
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+      const result = await client.xreadgroup('GROUP', 'mygroup', 'consumer2', 'STREAMS', 'mystream', '>')
+      expect(result).toBeNull()
+    })
+
+    it('should return pending entries with 0', async () => {
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+      const result = await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '0')
+      expect(result![0][1]).toHaveLength(3) // All pending for this consumer
+    })
+
+    it('should respect COUNT option', async () => {
+      const result = await client.xreadgroup('GROUP', 'mygroup', 'consumer1', { COUNT: 1 }, 'STREAMS', 'mystream', '>')
+      expect(result![0][1]).toHaveLength(1)
+    })
+
+    it('should work with NOACK option', async () => {
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', { NOACK: true }, 'STREAMS', 'mystream', '>')
+
+      // With NOACK, entries shouldn't be added to pending
+      const pending = await client.xpending('mystream', 'mygroup')
+      expect(pending[0]).toBe(0) // No pending entries
+    })
+
+    it('should read from multiple streams', async () => {
+      await client.xadd('stream2', '*', 'f', 'v')
+      await client.xgroup('CREATE', 'stream2', 'mygroup', '0')
+
+      const result = await client.xreadgroup(
+        'GROUP', 'mygroup', 'consumer1',
+        'STREAMS', 'mystream', 'stream2', '>', '>'
+      )
+      expect(result).toHaveLength(2)
+    })
+  })
+
+  // ==========================================================================
+  // XACK TESTS
+  // ==========================================================================
+
+  describe('xack', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+    })
+
+    it('should acknowledge single entry', async () => {
+      const acked = await client.xack('mystream', 'mygroup', '1-0')
+      expect(acked).toBe(1)
+    })
+
+    it('should acknowledge multiple entries', async () => {
+      const acked = await client.xack('mystream', 'mygroup', '1-0', '2-0')
+      expect(acked).toBe(2)
+    })
+
+    it('should return 0 for non-pending entries', async () => {
+      await client.xack('mystream', 'mygroup', '1-0') // First ack
+      const acked = await client.xack('mystream', 'mygroup', '1-0') // Double ack
+      expect(acked).toBe(0)
+    })
+
+    it('should remove entry from pending list', async () => {
+      const pendingBefore = await client.xpending('mystream', 'mygroup')
+      expect(pendingBefore[0]).toBe(2)
+
+      await client.xack('mystream', 'mygroup', '1-0')
+
+      const pendingAfter = await client.xpending('mystream', 'mygroup')
+      expect(pendingAfter[0]).toBe(1)
+    })
+  })
+
+  // ==========================================================================
+  // XPENDING TESTS
+  // ==========================================================================
+
+  describe('xpending', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xadd('mystream', '3-0', 'f', 'v3')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+    })
+
+    it('should return summary for group', async () => {
+      const pending = await client.xpending('mystream', 'mygroup')
+      expect(pending[0]).toBe(3) // count
+      expect(pending[1]).toBe('1-0') // smallest ID
+      expect(pending[2]).toBe('3-0') // greatest ID
+      expect(pending[3]).toHaveLength(1) // [consumer, count] pairs
+      expect(pending[3]![0][0]).toBe('consumer1')
+      expect(pending[3]![0][1]).toBe(3)
+    })
+
+    it('should return empty summary when no pending', async () => {
+      await client.xack('mystream', 'mygroup', '1-0', '2-0', '3-0')
+      const pending = await client.xpending('mystream', 'mygroup')
+      expect(pending[0]).toBe(0)
+      expect(pending[1]).toBeNull()
+      expect(pending[2]).toBeNull()
+    })
+
+    it('should return detailed info with range', async () => {
+      const entries = await client.xpending('mystream', 'mygroup', '-', '+', 10)
+      expect(entries).toHaveLength(3)
+      expect(entries[0].id).toBe('1-0')
+      expect(entries[0].consumer).toBe('consumer1')
+      expect(entries[0].deliveryCount).toBe(1)
+    })
+
+    it('should filter by consumer', async () => {
+      const entries = await client.xpending('mystream', 'mygroup', '-', '+', 10, 'consumer1')
+      expect(entries).toHaveLength(3)
+    })
+
+    it('should respect COUNT in detailed view', async () => {
+      const entries = await client.xpending('mystream', 'mygroup', '-', '+', 1)
+      expect(entries).toHaveLength(1)
+    })
+  })
+
+  // ==========================================================================
+  // XCLAIM TESTS
+  // ==========================================================================
+
+  describe('xclaim', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+    })
+
+    it('should claim pending entries', async () => {
+      // Wait a bit for idle time
+      await new Promise(r => setTimeout(r, 10))
+
+      const claimed = await client.xclaim('mystream', 'mygroup', 'consumer2', 0, '1-0')
+      expect(claimed).toHaveLength(1)
+      expect(claimed[0][0]).toBe('1-0')
+    })
+
+    it('should claim multiple entries', async () => {
+      await new Promise(r => setTimeout(r, 10))
+
+      const claimed = await client.xclaim('mystream', 'mygroup', 'consumer2', 0, '1-0', '2-0')
+      expect(claimed).toHaveLength(2)
+    })
+
+    it('should respect minIdleTime', async () => {
+      // Without waiting, should not claim
+      const claimed = await client.xclaim('mystream', 'mygroup', 'consumer2', 100000, '1-0')
+      expect(claimed).toHaveLength(0)
+    })
+
+    it('should update delivery count', async () => {
+      await new Promise(r => setTimeout(r, 10))
+      await client.xclaim('mystream', 'mygroup', 'consumer2', 0, '1-0')
+
+      const pending = await client.xpending('mystream', 'mygroup', '-', '+', 10)
+      const entry = pending.find(e => e.id === '1-0')
+      expect(entry!.deliveryCount).toBe(2) // incremented from 1 to 2
+    })
+
+    it('should return just IDs with JUSTID option', async () => {
+      await new Promise(r => setTimeout(r, 10))
+      const ids = await client.xclaim('mystream', 'mygroup', 'consumer2', 0, ['1-0'], { JUSTID: true })
+      expect(ids).toEqual(['1-0'])
+    })
+  })
+
+  // ==========================================================================
+  // XAUTOCLAIM TESTS
+  // ==========================================================================
+
+  describe('xautoclaim', () => {
+    beforeEach(async () => {
+      await client.xadd('mystream', '1-0', 'f', 'v1')
+      await client.xadd('mystream', '2-0', 'f', 'v2')
+      await client.xadd('mystream', '3-0', 'f', 'v3')
+      await client.xgroup('CREATE', 'mystream', 'mygroup', '0')
+      await client.xreadgroup('GROUP', 'mygroup', 'consumer1', 'STREAMS', 'mystream', '>')
+    })
+
+    it('should auto-claim pending entries', async () => {
+      await new Promise(r => setTimeout(r, 10))
+
+      const [cursor, claimed, deleted] = await client.xautoclaim(
+        'mystream', 'mygroup', 'consumer2', 0, '0-0'
+      )
+      expect(claimed).toHaveLength(3)
+      expect(cursor).toBe('0-0') // No more to claim
+      expect(deleted).toHaveLength(0)
+    })
+
+    it('should respect COUNT option', async () => {
+      await new Promise(r => setTimeout(r, 10))
+
+      const [cursor, claimed] = await client.xautoclaim(
+        'mystream', 'mygroup', 'consumer2', 0, '0-0', { COUNT: 1 }
+      )
+      expect(claimed).toHaveLength(1)
+      expect(cursor).not.toBe('0-0') // More to claim
+    })
+
+    it('should return cursor for pagination', async () => {
+      await new Promise(r => setTimeout(r, 10))
+
+      const [cursor1, claimed1] = await client.xautoclaim(
+        'mystream', 'mygroup', 'consumer2', 0, '0-0', { COUNT: 2 }
+      )
+      expect(claimed1).toHaveLength(2)
+
+      const [cursor2, claimed2] = await client.xautoclaim(
+        'mystream', 'mygroup', 'consumer2', 0, cursor1, { COUNT: 2 }
+      )
+      expect(claimed2).toHaveLength(1)
+      expect(cursor2).toBe('0-0')
+    })
+  })
+
+  // ==========================================================================
+  // STREAM TYPE TESTS
+  // ==========================================================================
+
+  describe('stream type', () => {
+    it('should report type as stream', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      const type = await client.type('mystream')
+      expect(type).toBe('stream')
+    })
+
+    it('should fail WRONGTYPE operations', async () => {
+      await client.xadd('mystream', '*', 'f', 'v')
+      await expect(client.lpush('mystream', 'value')).rejects.toThrow('WRONGTYPE')
+    })
+  })
+
+  // ==========================================================================
+  // REAL-WORLD PATTERN TESTS
+  // ==========================================================================
+
+  describe('real-world patterns', () => {
+    it('should work as event log', async () => {
+      // Add events
+      await client.xadd('events', '*', 'type', 'user.created', 'userId', '123')
+      await client.xadd('events', '*', 'type', 'user.updated', 'userId', '123', 'field', 'email')
+      await client.xadd('events', '*', 'type', 'order.placed', 'orderId', '456')
+
+      // Query recent events
+      const events = await client.xrevrange('events', '+', '-', 'COUNT', 10)
+      expect(events).toHaveLength(3)
+      expect(events[0][1]).toContain('order.placed') // Most recent
+    })
+
+    it('should work as task queue with consumer groups', async () => {
+      // Producer adds tasks
+      await client.xadd('tasks', '*', 'task', 'process-image', 'url', 'https://example.com/img.jpg')
+      await client.xadd('tasks', '*', 'task', 'send-email', 'to', 'user@example.com')
+
+      // Create consumer group
+      await client.xgroup('CREATE', 'tasks', 'workers', '0', 'MKSTREAM')
+
+      // Worker1 claims tasks
+      const tasks = await client.xreadgroup('GROUP', 'workers', 'worker1', { COUNT: 1 }, 'STREAMS', 'tasks', '>')
+      expect(tasks![0][1]).toHaveLength(1)
+
+      // Worker processes and acks
+      const taskId = tasks![0][1][0][0]
+      await client.xack('tasks', 'workers', taskId)
+
+      // Verify task is no longer pending
+      const pending = await client.xpending('tasks', 'workers')
+      expect(pending[0]).toBe(1) // Only 1 task left pending (second one)
+    })
+
+    it('should handle failed consumer recovery', async () => {
+      // Setup
+      await client.xadd('jobs', '1-0', 'job', 'process')
+      await client.xgroup('CREATE', 'jobs', 'processors', '0')
+
+      // Consumer1 takes job but crashes (doesn't ack)
+      await client.xreadgroup('GROUP', 'processors', 'consumer1', 'STREAMS', 'jobs', '>')
+
+      // Wait for idle time
+      await new Promise(r => setTimeout(r, 10))
+
+      // Consumer2 claims dead consumer's work
+      const claimed = await client.xclaim('jobs', 'processors', 'consumer2', 0, '1-0')
+      expect(claimed).toHaveLength(1)
+
+      // Consumer2 processes and acks
+      await client.xack('jobs', 'processors', '1-0')
+
+      // Verify cleaned up
+      const pending = await client.xpending('jobs', 'processors')
+      expect(pending[0]).toBe(0)
+    })
+  })
+})

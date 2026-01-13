@@ -6,12 +6,12 @@ description: Drop-in replacement for Ably Realtime SDK, self-hosted on Durable O
 import { Callout } from 'fumadocs-ui/components/callout'
 
 <Callout type="info">
-  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Track progress](#) or [contribute](https://github.com/dot-do/dotdo).
+  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Contribute](https://github.com/dot-do/dotdo) to help build it.
 </Callout>
 
 # Ably
 
-Drop-in replacement for `ably`. Same API, self-hosted on Durable Objects.
+Drop-in replacement for `ably`. Your existing `ably` code works unchanged - just swap the import.
 
 ```typescript
 // Before
@@ -23,18 +23,18 @@ import Ably from '@dotdo/ably'
 
 Your existing Ably code works unchanged. No migration required.
 
-## Why ably.do?
+## Why @dotdo/ably?
 
-| Feature | Ably | ably.do |
-|---------|------|---------|
-| **Connections/channel** | 200 (Free), Custom (Enterprise) | Unlimited |
-| **Per-connection fees** | Yes ($0.0015/peak connection/day) | No |
-| **Per-message fees** | Yes ($2.50/million messages) | No |
-| **Channel limit** | 200 per app (Free) | Unlimited |
-| **Message size** | 64KB | 128KB |
-| **Latency** | Multi-region | Edge (300+ cities) |
-| **Cold start** | N/A (hosted) | 0ms (V8 isolates) |
-| **Self-hosted** | No | Yes |
+| Feature | @dotdo/ably | Ably |
+|---------|-------------|------|
+| **Connections/channel** | Unlimited | 200 (Free), Custom (Enterprise) |
+| **Per-connection fees** | No | Yes ($0.0015/peak connection/day) |
+| **Per-message fees** | No | Yes ($2.50/million messages) |
+| **Channel limit** | Unlimited | 200 per app (Free) |
+| **Message size** | 128KB | 64KB |
+| **Latency** | Edge (300+ cities) | Multi-region |
+| **Cold start** | 0ms (V8 isolates) | N/A (hosted) |
+| **Self-hosted** | Yes | No |
 
 The math: 10,000 peak connections for 30 days on Ably = $450/month minimum. On dotdo, it's included.
 
@@ -55,13 +55,13 @@ The math: 10,000 peak connections for 30 days on Ably = $450/month minimum. On d
 | Push notifications | Planned |
 | Webhooks | Planned |
 
-## Installation
+## Quick Start
+
+### Install
 
 ```bash
 npm install @dotdo/ably
 ```
-
-## Quick Start
 
 ### Realtime Client
 

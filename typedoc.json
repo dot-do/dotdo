@@ -1,0 +1,62 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "./types/index.ts",
+    "./objects/index.ts",
+    "./workflows/index.ts",
+    "./agents/index.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "./docs/reference/generated",
+  "json": "./docs/reference/generated/api.json",
+  "name": "dotdo API Reference",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "includeVersion": true,
+  "disableSources": false,
+  "hideGenerator": true,
+  "tsconfig": "./tsconfig.json",
+  "skipErrorChecking": true,
+  "treatWarningsAsErrors": false,
+  "validation": {
+    "notExported": false,
+    "invalidLink": false,
+    "notDocumented": false
+  },
+  "sort": ["kind", "alphabetical"],
+  "kindSortOrder": [
+    "Module",
+    "Namespace",
+    "Class",
+    "Interface",
+    "TypeAlias",
+    "Function",
+    "Variable",
+    "Enum"
+  ],
+  "groupOrder": [
+    "Classes",
+    "Interfaces",
+    "Type Aliases",
+    "Functions",
+    "Variables",
+    "Enumerations"
+  ],
+  "categoryOrder": [
+    "Core",
+    "Types",
+    "Workflows",
+    "Agents",
+    "Utilities",
+    "*"
+  ],
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true,
+    "includeFolders": true
+  },
+  "plugin": ["typedoc-plugin-markdown"]
+}

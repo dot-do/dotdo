@@ -1,0 +1,338 @@
+---
+title: Experimentation Machine
+description: Find product-market fit through systematic experimentation - the second phase of building an Autonomous Business
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
+# Experimentation Machine
+
+The Experimentation Machine helps you find product-market fit through systematic testing. Based on Jeff Bussgang's framework, it treats AI as a 10x accelerant for running and learning from experiments.
+
+<Callout type="info">
+Finding PMF is often luck. The Experimentation Machine makes it systematic - you either find fit or learn why faster.
+</Callout>
+
+## The HUNCH Metrics Framework
+
+Product-market fit isn't a binary state - it's measurable. The HUNCH framework gives you concrete signals:
+
+| Metric | Question | PMF Signal | How to Measure |
+|--------|----------|------------|----------------|
+| **H**air-on-Fire | Is this a must-have? | >40% "very disappointed" | Sean Ellis test |
+| **U**sage | Are they using it? | >40% weekly active | DAU/WAU ratio |
+| **N**PS | Would they recommend? | >50 NPS | Survey |
+| **C**hurn | Are they staying? | <5% monthly | Cohort analysis |
+| **H**LTV/CAC | Is it profitable? | >3x ratio | Unit economics |
+
+### Measuring HUNCH in Code
+
+```typescript
+// Configure HUNCH tracking for your business
+const pmf = await $.measure({
+  hairOnFire: metrics.seanEllis,     // % who'd be "very disappointed"
+  usage: metrics.weeklyActive,       // WAU/MAU ratio
+  nps: metrics.netPromoterScore,     // Survey results
+  churn: metrics.monthlyChurn,       // Monthly churn rate
+  ltv_cac: metrics.lifetimeValue / metrics.acquisitionCost,
+})
+
+// Check PMF status
+if (pmf.score > 0.7) {
+  console.log('Strong PMF signal - ready to scale')
+} else if (pmf.score > 0.4) {
+  console.log('Weak PMF - more experimentation needed')
+} else {
+  console.log('No PMF - pivot or iterate on hypothesis')
+}
+```
+
+### HUNCH Dashboard
+
+dotdo provides a real-time HUNCH dashboard for every Startup:
+
+```typescript
+export class TaxPrepAI extends Startup {
+  // Dashboard auto-populates at /dashboard/hunch
+  hunch = {
+    hairOnFire: $.survey('How disappointed would you be if you could no longer use TaxPrepAI?'),
+    usage: $.analytics.weeklyActive,
+    nps: $.survey('How likely are you to recommend TaxPrepAI?'),
+    churn: $.billing.churnRate,
+    ltv: $.billing.lifetimeValue,
+    cac: $.marketing.acquisitionCost,
+  }
+}
+```
+
+## Running Experiments
+
+The Experimentation Machine provides infrastructure for systematic A/B testing:
+
+### Experiment API
+
+```typescript
+// Define an experiment
+const pricingTest = await $.experiment('pricing-2024-q1', {
+  hypothesis: '$499/year converts better than $299/year for serious users',
+  variants: [
+    { id: 'control', value: 299, description: 'Current price' },
+    { id: 'premium', value: 499, description: 'Higher price point' },
+    { id: 'enterprise', value: 799, description: 'Enterprise positioning' },
+  ],
+  metric: 'conversion_rate',
+  secondaryMetrics: ['revenue_per_visitor', 'trial_completion'],
+  sampleSize: 1000,
+  confidence: 0.95,
+  duration: '2 weeks',
+})
+
+// Get variant for a user
+const variant = await pricingTest.getVariant(userId)
+
+// Track conversion
+await pricingTest.track(userId, 'converted', { revenue: variant.value })
+
+// Check results
+const results = await pricingTest.results()
+// { winner: 'premium', confidence: 0.97, lift: '+23%' }
+```
+
+### Experiment Types
+
+<Steps>
+  <Step>
+    ### Landing Page Tests
+
+    Test positioning, pricing, and value props before building.
+
+    ```typescript
+    const landingTest = await $.experiment('landing-value-prop', {
+      variants: [
+        { id: 'speed', headline: 'Taxes done in 15 minutes' },
+        { id: 'savings', headline: 'Save $2000 on CPA fees' },
+        { id: 'peace', headline: 'Never worry about taxes again' },
+      ],
+      metric: 'waitlist_signup',
+    })
+    ```
+  </Step>
+  <Step>
+    ### Feature Tests
+
+    Test which features drive engagement and retention.
+
+    ```typescript
+    const featureTest = await $.experiment('expense-categorization', {
+      variants: [
+        { id: 'manual', description: 'User categorizes expenses' },
+        { id: 'ai-suggest', description: 'AI suggests, user confirms' },
+        { id: 'ai-auto', description: 'AI auto-categorizes' },
+      ],
+      metric: 'completion_rate',
+      secondaryMetrics: ['accuracy', 'user_satisfaction'],
+    })
+    ```
+  </Step>
+  <Step>
+    ### Pricing Tests
+
+    Find the optimal price point.
+
+    ```typescript
+    const priceTest = await $.experiment('pricing-elasticity', {
+      variants: [
+        { id: 'low', price: 199 },
+        { id: 'mid', price: 399 },
+        { id: 'high', price: 599 },
+      ],
+      metric: 'revenue_per_visitor',
+      secondaryMetrics: ['conversion_rate', 'refund_rate'],
+    })
+    ```
+  </Step>
+  <Step>
+    ### Onboarding Tests
+
+    Optimize the path to value.
+
+    ```typescript
+    const onboardingTest = await $.experiment('onboarding-flow', {
+      variants: [
+        { id: 'guided', steps: ['connect-bank', 'review-expenses', 'generate-return'] },
+        { id: 'quick', steps: ['upload-csv', 'generate-return'] },
+        { id: 'demo', steps: ['see-demo', 'connect-bank', 'generate-return'] },
+      ],
+      metric: 'activation_rate',
+      secondaryMetrics: ['time_to_value', 'support_tickets'],
+    })
+    ```
+  </Step>
+</Steps>
+
+## Learning Loops
+
+The real power of the Experimentation Machine is **learning loops** - insights that compound across experiments.
+
+### Pooled Insights
+
+Experiments generate insights that apply across your entire business:
+
+```typescript
+// After running pricing experiments
+const insights = await $.insights.pricing()
+
+// {
+//   finding: 'Users with >$200K revenue convert 3x better at $599 than $199',
+//   confidence: 0.94,
+//   implication: 'Segment pricing by revenue tier',
+//   suggestedExperiment: 'Test tiered pricing: $199/$399/$599 by revenue',
+// }
+
+// After running feature experiments
+const featureInsights = await $.insights.features()
+
+// {
+//   finding: 'AI auto-categorization increases completion but decreases trust',
+//   confidence: 0.89,
+//   implication: 'Show AI reasoning to build trust',
+//   suggestedExperiment: 'Test AI with explanations vs without',
+// }
+```
+
+### Experiment Journal
+
+Every experiment adds to your knowledge base:
+
+```typescript
+// View experiment history
+const journal = await $.experiments.journal()
+
+// [
+//   { date: '2024-01-15', experiment: 'pricing-v1', result: '$299 > $199', learning: 'Higher price signals quality' },
+//   { date: '2024-01-29', experiment: 'pricing-v2', result: '$499 > $299', learning: 'Ceiling not reached' },
+//   { date: '2024-02-12', experiment: 'pricing-v3', result: '$499 = $599', learning: '$499 optimal for SMB' },
+// ]
+
+// Generate next experiment suggestions
+const nextExperiments = await priya`suggest experiments based on ${journal}`
+```
+
+### Cross-Platform Learning
+
+With permission, dotdo pools anonymized learnings across all startups:
+
+```typescript
+// See what works for similar businesses
+const benchmarks = await $.benchmarks({
+  category: 'b2b-saas',
+  stage: 'pre-pmf',
+  metric: 'pricing',
+})
+
+// {
+//   finding: 'Annual pricing converts 2.3x better than monthly for B2B tools',
+//   confidence: 0.92,
+//   sample: 847,
+//   recommendation: 'Test annual-only vs monthly option',
+// }
+```
+
+## Hypothesis Validation Workflow
+
+The complete flow from hypothesis to validated learning:
+
+```typescript
+export class TaxPrepAI extends Startup {
+  async validate() {
+    // 1. State your hypothesis
+    const hypothesis = await $.hypothesis({
+      assumption: 'Freelancers will pay $500/year for AI tax prep',
+      metric: 'conversion_rate',
+      threshold: 0.03,  // 3% conversion is viable
+    })
+
+    // 2. Design the experiment
+    const experiment = await hypothesis.design({
+      method: 'landing-page',
+      variants: ['$299', '$499', '$699'],
+      traffic: 1000,
+    })
+
+    // 3. Run the experiment
+    await experiment.run()
+
+    // 4. Analyze results
+    const results = await experiment.analyze()
+
+    // 5. Learn and iterate
+    if (results.validated) {
+      await $.log.learning('Price point validated at $499')
+      return { next: 'test-feature-set' }
+    } else {
+      await $.log.learning(`Price point failed: ${results.insight}`)
+      return { next: 'test-lower-price' }
+    }
+  }
+}
+```
+
+## Integration with Named Agents
+
+Named agents accelerate experimentation:
+
+```typescript
+// Priya designs experiments
+const experiment = await priya`design experiment to test ${hypothesis}`
+
+// Ralph builds experiment infrastructure
+const implementation = await ralph`build ${experiment}`
+
+// Quinn validates experiment integrity
+const validation = await quinn`validate statistical significance of ${results}`
+
+// Mark creates variants for copy tests
+const variants = await mark`create 3 headline variants for ${landingPage}`
+
+// Tom reviews experiment design
+const approved = await tom`review experiment design: ${experiment}`
+```
+
+## From Experimentation to Autonomous Business
+
+Once HUNCH metrics signal PMF, you're ready to scale:
+
+```typescript
+async function checkReadiness() {
+  const hunch = await $.measure.hunch()
+
+  if (
+    hunch.hairOnFire > 0.4 &&
+    hunch.usage > 0.4 &&
+    hunch.nps > 50 &&
+    hunch.churn < 0.05 &&
+    hunch.ltv_cac > 3
+  ) {
+    console.log('PMF achieved - ready for Autonomous Business phase')
+    return true
+  }
+
+  console.log('Continue experimenting:', hunch.weakest)
+  return false
+}
+```
+
+When all signals are green, move to the [Autonomous Business](/docs/roadmap/autonomous-business) phase where AI agents take over operations and you scale.
+
+## Next Steps
+
+<Cards>
+  <Card title="Autonomous Business" href="/docs/roadmap/autonomous-business">
+    Learn how to deploy businesses that run autonomously once you've found PMF.
+  </Card>
+  <Card title="Foundation Sprint" href="/docs/roadmap/foundation-sprint">
+    Go back and refine your hypothesis if experiments aren't working.
+  </Card>
+</Cards>

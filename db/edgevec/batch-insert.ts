@@ -1,13 +1,97 @@
 /**
- * Batch Insert Optimization
+ * Batch Insert Optimization - High-performance bulk vector insertion
  *
- * Optimized batch insertion for HNSW indices with:
- * - Chunked processing
- * - Parallel insertion
- * - Progress reporting
- * - Memory management
- * - Error handling modes
- * - Pre-computed vector norms for faster search
+ * This module provides optimized batch insertion for HNSW indices, designed
+ * for efficiently loading large datasets into EdgeVec. It handles memory
+ * management, error recovery, and progress tracking automatically.
+ *
+ * ## Key Features
+ *
+ * - **Chunked Processing**: Process vectors in configurable chunks to manage memory
+ * - **Parallel Insertion**: Optional parallel processing for multi-core environments
+ * - **Progress Reporting**: Callback-based progress tracking for UI feedback
+ * - **Error Handling**: Skip errors, fail fast, or transactional rollback modes
+ * - **Pre-normalization**: Optionally pre-normalize vectors for cosine similarity
+ * - **Norm Caching**: Populate norm cache during insert for faster subsequent searches
+ *
+ * ## Memory Management
+ *
+ * Cloudflare Workers have a 128MB memory limit. To safely insert large datasets:
+ *
+ * | Dataset Size | Recommended Chunk Size | Estimated Memory |
+ * |--------------|------------------------|------------------|
+ * | 1K vectors   | 100                    | ~30MB            |
+ * | 10K vectors  | 100                    | ~50MB            |
+ * | 100K vectors | 50                     | ~80MB            |
+ *
+ * ## Error Handling Modes
+ *
+ * - **skipOnError** (default): Continue inserting, track failures
+ * - **failFast**: Stop on first error, report which vector failed
+ * - **transactional**: Rollback all inserts on any error
+ *
+ * @example Basic batch insertion
+ * ```typescript
+ * import { BatchInserter } from 'db/edgevec/batch-insert'
+ *
+ * const inserter = new BatchInserter(index, {
+ *   chunkSize: 100,
+ *   onProgress: (p) => console.log(`${(p * 100).toFixed(1)}% complete`)
+ * })
+ *
+ * const vectors = documents.map(doc => ({
+ *   id: doc.id,
+ *   vector: doc.embedding,
+ *   metadata: { source: doc.source }
+ * }))
+ *
+ * const result = await inserter.insertBatch(vectors)
+ * console.log(`Inserted: ${result.inserted}, Failed: ${result.failed}`)
+ * console.log(`Duration: ${result.durationMs}ms`)
+ * ```
+ *
+ * @example Streaming insertion from an iterator
+ * ```typescript
+ * async function* generateVectors() {
+ *   for await (const doc of documentStream) {
+ *     yield {
+ *       id: doc.id,
+ *       vector: await embed(doc.content),
+ *       metadata: { title: doc.title }
+ *     }
+ *   }
+ * }
+ *
+ * const result = await inserter.insertFromIterator(generateVectors())
+ * ```
+ *
+ * @example Transactional insertion (all-or-nothing)
+ * ```typescript
+ * const inserter = new BatchInserter(index, {
+ *   transactional: true  // Rollback all on any error
+ * })
+ *
+ * try {
+ *   await inserter.insertBatch(vectors)
+ * } catch (error) {
+ *   // All vectors rolled back
+ *   console.error('Batch failed:', error.message)
+ * }
+ * ```
+ *
+ * @example With norm caching for faster search
+ * ```typescript
+ * import { VectorNormCache } from 'db/edgevec/vector-ops'
+ *
+ * const normCache = new VectorNormCache()
+ * const inserter = new BatchInserter(index, {
+ *   normCache,        // Populate cache during insert
+ *   preNormalize: true  // Pre-normalize for cosine similarity
+ * })
+ *
+ * await inserter.insertBatch(vectors)
+ * // normCache now contains norms for fast cosine similarity search
+ * ```
  *
  * @module db/edgevec/batch-insert
  */
@@ -34,6 +118,11 @@ export interface VectorInput {
 }
 
 /**
+ * Insert mode for handling duplicates
+ */
+export type InsertMode = 'insert' | 'upsert' | 'replace' | 'skip' | 'strict'
+
+/**
  * Batch insert options
  */
 export interface BatchInsertOptions {
@@ -57,6 +146,24 @@ export interface BatchInsertOptions {
   embeddingCache?: EmbeddingCache
   /** Pre-normalize vectors for cosine similarity (default: false) */
   preNormalize?: boolean
+  /** Insert mode for handling duplicates (default: 'insert') */
+  insertMode?: InsertMode
+  /** Detect duplicates within the batch (default: false) */
+  detectDuplicates?: boolean
+  /** Strategy for duplicates within batch: 'first' or 'last' (default: 'first') */
+  duplicateStrategy?: 'first' | 'last'
+  /** JSON Schema for metadata validation */
+  metadataSchema?: Record<string, unknown>
+  /** Index metadata on insert (default: false) */
+  indexMetadata?: boolean
+  /** Maximum retries for failed inserts (default: 0) */
+  maxRetries?: number
+  /** Delay between retries in ms (default: 100) */
+  retryDelayMs?: number
+  /** Timeout for entire batch in ms */
+  timeoutMs?: number
+  /** Abort signal for cancellation */
+  signal?: AbortSignal
 }
 
 /**
@@ -73,6 +180,22 @@ export interface BatchInsertResult {
   durationMs: number
   /** Error details by ID */
   errors?: Record<string, string>
+  /** Number of updated vectors (upsert mode) */
+  updated?: number
+  /** Number of replaced vectors (replace mode) */
+  replaced?: number
+  /** Number of skipped duplicates (skip mode) */
+  skipped?: number
+  /** Number of retried insertions */
+  retried?: number
+  /** Number of vectors with metadata validation errors */
+  metadataValidationErrors?: number
+  /** Peak memory usage estimate in bytes */
+  peakMemoryBytes?: number
+  /** Whether batch was cancelled */
+  cancelled?: boolean
+  /** Duplicate IDs found within the batch */
+  duplicateIds?: string[]
 }
 
 // ============================================================================
@@ -81,10 +204,12 @@ export interface BatchInsertResult {
 
 export class BatchInserter {
   private index: HNSWIndex | FilteredHNSWIndex
-  private options: Required<Omit<BatchInsertOptions, 'onProgress' | 'normCache' | 'embeddingCache'>> & {
+  private options: Required<Omit<BatchInsertOptions, 'onProgress' | 'normCache' | 'embeddingCache' | 'metadataSchema' | 'signal'>> & {
     onProgress?: (progress: number) => void
     normCache?: VectorNormCache
     embeddingCache?: EmbeddingCache
+    metadataSchema?: Record<string, unknown>
+    signal?: AbortSignal
   }
 
   constructor(index: HNSWIndex | FilteredHNSWIndex, options: BatchInsertOptions = {}) {
@@ -100,6 +225,15 @@ export class BatchInserter {
       normCache: options.normCache,
       embeddingCache: options.embeddingCache,
       preNormalize: options.preNormalize ?? false,
+      insertMode: options.insertMode ?? 'insert',
+      detectDuplicates: options.detectDuplicates ?? false,
+      duplicateStrategy: options.duplicateStrategy ?? 'first',
+      metadataSchema: options.metadataSchema,
+      indexMetadata: options.indexMetadata ?? false,
+      maxRetries: options.maxRetries ?? 0,
+      retryDelayMs: options.retryDelayMs ?? 100,
+      timeoutMs: options.timeoutMs ?? Infinity,
+      signal: options.signal,
     }
   }
 
@@ -110,20 +244,60 @@ export class BatchInserter {
     const startTime = performance.now()
     let inserted = 0
     let failed = 0
+    let updated = 0
+    let replaced = 0
+    let skipped = 0
+    let retried = 0
+    let metadataValidationErrors = 0
     let chunks = 0
     const errors: Record<string, string> = {}
     const insertedIds: string[] = []
+    const duplicateIds: string[] = []
+
+    // Check for cancellation
+    if (this.options.signal?.aborted) {
+      return {
+        inserted: 0,
+        failed: 0,
+        chunks: 0,
+        durationMs: performance.now() - startTime,
+        cancelled: true,
+      }
+    }
+
+    // Detect duplicates within batch if requested
+    let processedVectors = vectors
+    if (this.options.detectDuplicates) {
+      const seen = new Map<string, number>()
+      const uniqueVectors: VectorInput[] = []
+
+      for (let i = 0; i < vectors.length; i++) {
+        const v = vectors[i]!
+        if (seen.has(v.id)) {
+          duplicateIds.push(v.id)
+          if (this.options.duplicateStrategy === 'last') {
+            // Replace the earlier one
+            uniqueVectors[seen.get(v.id)!] = v
+          }
+          // 'first' strategy: just skip this one
+        } else {
+          seen.set(v.id, uniqueVectors.length)
+          uniqueVectors.push(v)
+        }
+      }
+      processedVectors = uniqueVectors.filter(Boolean)
+    }
 
     // Validate all vectors first if transactional
     if (this.options.transactional) {
-      const validationErrors = this.validateVectors(vectors)
+      const validationErrors = this.validateVectors(processedVectors)
       if (Object.keys(validationErrors).length > 0) {
         throw new Error(`Validation failed: ${JSON.stringify(validationErrors)}`)
       }
     }
 
     // Split into chunks
-    const chunkedVectors = this.chunkArray(vectors, this.options.chunkSize)
+    const chunkedVectors = this.chunkArray(processedVectors, this.options.chunkSize)
     const totalChunks = chunkedVectors.length
 
     try {
@@ -133,6 +307,11 @@ export class BatchInserter {
         for (const result of results) {
           inserted += result.inserted
           failed += result.failed
+          updated += result.updated ?? 0
+          replaced += result.replaced ?? 0
+          skipped += result.skipped ?? 0
+          retried += result.retried ?? 0
+          metadataValidationErrors += result.metadataValidationErrors ?? 0
           chunks += result.chunks
           if (result.errors) {
             Object.assign(errors, result.errors)
@@ -142,11 +321,31 @@ export class BatchInserter {
       } else {
         // Sequential processing
         for (let i = 0; i < chunkedVectors.length; i++) {
+          // Check for cancellation
+          if (this.options.signal?.aborted) {
+            return {
+              inserted,
+              failed,
+              updated: updated > 0 ? updated : undefined,
+              replaced: replaced > 0 ? replaced : undefined,
+              skipped: skipped > 0 ? skipped : undefined,
+              chunks,
+              durationMs: performance.now() - startTime,
+              errors: Object.keys(errors).length > 0 ? errors : undefined,
+              cancelled: true,
+            }
+          }
+
           const chunk = chunkedVectors[i]!
           const result = await this.processChunk(chunk, insertedIds)
 
           inserted += result.inserted
           failed += result.failed
+          updated += result.updated ?? 0
+          replaced += result.replaced ?? 0
+          skipped += result.skipped ?? 0
+          retried += result.retried ?? 0
+          metadataValidationErrors += result.metadataValidationErrors ?? 0
           chunks++
           if (result.errors) {
             Object.assign(errors, result.errors)
@@ -184,6 +383,12 @@ export class BatchInserter {
       chunks,
       durationMs: performance.now() - startTime,
       errors: Object.keys(errors).length > 0 ? errors : undefined,
+      updated: updated > 0 ? updated : undefined,
+      replaced: replaced > 0 ? replaced : undefined,
+      skipped: skipped > 0 ? skipped : undefined,
+      retried: retried > 0 ? retried : undefined,
+      metadataValidationErrors: metadataValidationErrors > 0 ? metadataValidationErrors : undefined,
+      duplicateIds: duplicateIds.length > 0 ? duplicateIds : undefined,
     }
   }
 

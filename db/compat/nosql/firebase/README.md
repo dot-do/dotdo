@@ -394,16 +394,16 @@ await updateDoc(doc(db, 'posts', 'post1'), {
 
 ## Comparison
 
-| Feature | Firebase Admin SDK | @dotdo/firebase |
-|---------|-------------------|-----------------|
-| Connection | HTTPS to Google Cloud | None needed |
-| Cold starts | ~200ms+ | 0ms |
-| Edge deployment | Cloud Run/Functions | Global (300+ cities) |
-| Scaling | Firestore limits | Automatic |
-| Per-agent isolation | Complex rules | Built-in |
-| Real-time listeners | Full support | DO WebSockets |
-| Batch writes | 500 operations | Unlimited |
-| Transactions | 20 documents | Per-DO |
+| Feature | @dotdo/firebase | Firebase Admin SDK |
+|---------|-----------------|-------------------|
+| Connection | None needed | HTTPS to Google Cloud |
+| Cold starts | 0ms | ~200ms+ |
+| Edge deployment | Global (300+ cities) | Cloud Run/Functions |
+| Scaling | Automatic | Firestore limits |
+| Per-agent isolation | Built-in | Complex rules |
+| Real-time listeners | DO WebSockets | Full support |
+| Batch writes | Unlimited | 500 operations |
+| Transactions | Per-DO | 20 documents |
 
 ## Durable Object Integration
 
@@ -553,7 +553,7 @@ const allComments = await getDocs(
 
 MIT
 
-## Links
+## Related
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://firebase.do)

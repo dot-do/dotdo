@@ -967,3 +967,65 @@ export interface LimitInfo {
   Max: number
   Remaining: number
 }
+
+// =============================================================================
+// Lead Conversion Types
+// =============================================================================
+
+/**
+ * Options for converting a Lead
+ */
+export interface ConvertLeadOptions {
+  /** The ID of the Lead to convert */
+  leadId: string
+  /** The converted status to assign to the Lead */
+  convertedStatus: string
+  /** Optional: ID of an existing Account to merge into */
+  accountId?: string
+  /** Optional: ID of an existing Contact to merge into */
+  contactId?: string
+  /** Optional: Name for the Opportunity to create */
+  opportunityName?: string
+  /** Optional: If true, don't create an Opportunity */
+  doNotCreateOpportunity?: boolean
+  /** Optional: If true, overwrite the lead source on the new records */
+  overwriteLeadSource?: boolean
+  /** Optional: If true, send notification emails */
+  sendNotificationEmail?: boolean
+  /** Optional: ID of the owner for the new records */
+  ownerId?: string
+}
+
+/**
+ * Result of converting a single Lead
+ */
+export interface ConvertLeadResult {
+  /** ID of the Account created or merged into */
+  accountId: string | null
+  /** ID of the Contact created or merged into */
+  contactId: string | null
+  /** ID of the Opportunity created (if any) */
+  opportunityId: string | null
+  /** Whether the conversion was successful */
+  success: boolean
+  /** Any errors that occurred */
+  errors: SaveError[]
+}
+
+/**
+ * Result of converting a Lead in a batch operation
+ */
+export interface ConvertLeadBatchResult {
+  /** Name of the action */
+  actionName: string
+  /** Output values from the conversion */
+  outputValues: {
+    accountId: string | null
+    contactId: string | null
+    opportunityId: string | null
+  }
+  /** Whether the conversion was successful */
+  isSuccess: boolean
+  /** Any errors that occurred */
+  errors: SaveError[]
+}

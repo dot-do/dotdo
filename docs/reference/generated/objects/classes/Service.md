@@ -1,0 +1,4181 @@
+[**dotdo API Reference v0.1.1**](../../README.md)
+
+***
+
+[dotdo API Reference](../../README.md) / [objects](../README.md) / Service
+
+# Class: Service
+
+Defined in: [objects/Service.ts:179](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L179)
+
+Durable Object Class Hierarchy
+
+```
+                                ┌─────────────────┐
+                                │       DO        │
+                                │   (Base Class)  │
+                                └────────┬────────┘
+                                         │
+         ┌───────────────┬───────────────┼───────────────┬───────────────┐
+         │               │               │               │               │
+   ┌─────┴─────┐   ┌─────┴─────┐   ┌─────┴─────┐   ┌─────┴─────┐  ┌──────┴──────┐
+   │  Business │   │    App    │   │   Site    │   │  Worker   │  │   Entity    │
+   │           │   │           │   │           │   │           │  │             │
+   └─────┬─────┘   └───────────┘   └───────────┘   └─────┬─────┘  └──────┬──────┘
+         │                                               │               │
+   ┌─────┴──────────┐                              ┌─────┴─────┐   ┌─────┴─────┐
+   │DigitalBusiness │                              │           │   │           │
+   └─────┬──────────┘                          ┌───┴───┐   ┌───┴───┐  (Collection, Directory, etc.)
+         │                                     │ Agent │   │ Human │
+   ┌─────┴─────┐                               └───────┘   └───────┘
+   │   SaaS    │
+   └───────────┘
+```
+
+## Extends
+
+- [`Business`](Business.md)
+
+## Accessors
+
+### $type
+
+#### Get Signature
+
+> **get** **$type**(): `string`
+
+Defined in: [objects/DOTiny.ts:212](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L212)
+
+Instance getter that delegates to the static $type property.
+This allows TypeScript to recognize `this.$type` on instances.
+
+##### Returns
+
+`string`
+
+#### Inherited from
+
+[`Business`](Business.md).[`$type`](Business.md#type-1)
+
+***
+
+### actions
+
+#### Get Signature
+
+> **get** **actions**(): `ActionsStore`
+
+Defined in: [objects/DOBase.ts:815](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L815)
+
+ActionsStore - Action logging and lifecycle
+
+##### Returns
+
+`ActionsStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`actions`](Business.md#actions)
+
+***
+
+### capnWebOptions
+
+#### Get Signature
+
+> **get** `protected` **capnWebOptions**(): `CapnWebOptions`
+
+Defined in: [objects/DOBase.ts:3443](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3443)
+
+Cap'n Web RPC options. Override in subclasses to customize.
+
+##### Returns
+
+`CapnWebOptions`
+
+#### Inherited from
+
+[`Business`](Business.md).[`capnWebOptions`](Business.md#capnweboptions)
+
+***
+
+### currentFencingToken
+
+#### Get Signature
+
+> **get** `protected` **currentFencingToken**(): `string` \| `undefined`
+
+Defined in: [objects/DOBase.ts:2108](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2108)
+
+Get the current fencing token if held.
+Returns undefined if no token is held.
+
+##### Returns
+
+`string` \| `undefined`
+
+#### Inherited from
+
+[`Business`](Business.md).[`currentFencingToken`](Business.md#currentfencingtoken)
+
+***
+
+### dlq
+
+#### Get Signature
+
+> **get** **dlq**(): `DLQStore`
+
+Defined in: [objects/DOBase.ts:855](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L855)
+
+DLQStore - Dead Letter Queue for failed events
+
+##### Returns
+
+`DLQStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`dlq`](Business.md#dlq)
+
+***
+
+### events
+
+#### Get Signature
+
+> **get** **events**(): `EventsStore`
+
+Defined in: [objects/DOBase.ts:825](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L825)
+
+EventsStore - Event emission and streaming
+
+##### Returns
+
+`EventsStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`events`](Business.md#events)
+
+***
+
+### hasFencingToken
+
+#### Get Signature
+
+> **get** `protected` **hasFencingToken**(): `boolean`
+
+Defined in: [objects/DOBase.ts:2100](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2100)
+
+Check if this instance currently holds a fencing token.
+
+##### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`hasFencingToken`](Business.md#hasfencingtoken)
+
+***
+
+### lastCheckpointTimestamp
+
+#### Get Signature
+
+> **get** `protected` **lastCheckpointTimestamp**(): `number`
+
+Defined in: [objects/DOBase.ts:1992](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1992)
+
+Get the timestamp of the last successful checkpoint.
+Returns 0 if no checkpoint has been created yet.
+
+##### Returns
+
+`number`
+
+#### Inherited from
+
+[`Business`](Business.md).[`lastCheckpointTimestamp`](Business.md#lastcheckpointtimestamp)
+
+***
+
+### objects
+
+#### Get Signature
+
+> **get** **objects**(): `ObjectsStore`
+
+Defined in: [objects/DOBase.ts:845](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L845)
+
+ObjectsStore - DO registry and resolution
+
+##### Returns
+
+`ObjectsStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`objects`](Business.md#objects)
+
+***
+
+### pendingChanges
+
+#### Get Signature
+
+> **get** `protected` **pendingChanges**(): `number`
+
+Defined in: [objects/DOBase.ts:1984](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1984)
+
+Get the current count of pending (unsaved) changes.
+Useful for debugging or deciding whether to force a checkpoint.
+
+##### Returns
+
+`number`
+
+#### Inherited from
+
+[`Business`](Business.md).[`pendingChanges`](Business.md#pendingchanges)
+
+***
+
+### relationships
+
+#### Get Signature
+
+> **get** `protected` **relationships**(): `RelationshipsAccessor`
+
+Defined in: [objects/DOBase.ts:2292](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2292)
+
+Relationships table accessor
+
+##### Returns
+
+`RelationshipsAccessor`
+
+#### Inherited from
+
+[`Business`](Business.md).[`relationships`](Business.md#relationships)
+
+***
+
+### rels
+
+#### Get Signature
+
+> **get** **rels**(): `RelationshipsStore`
+
+Defined in: [objects/DOBase.ts:805](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L805)
+
+RelationshipsStore - Relationship management
+
+##### Returns
+
+`RelationshipsStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`rels`](Business.md#rels)
+
+***
+
+### scheduleManager
+
+#### Get Signature
+
+> **get** `protected` **scheduleManager**(): [`ScheduleManager`](ScheduleManager.md)
+
+Defined in: [objects/DOBase.ts:747](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L747)
+
+Get the schedule manager (lazy initialized)
+
+##### Returns
+
+[`ScheduleManager`](ScheduleManager.md)
+
+#### Inherited from
+
+[`Business`](Business.md).[`scheduleManager`](Business.md#schedulemanager)
+
+***
+
+### search
+
+#### Get Signature
+
+> **get** **search**(): `SearchStore`
+
+Defined in: [objects/DOBase.ts:835](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L835)
+
+SearchStore - Full-text and semantic search
+
+##### Returns
+
+`SearchStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`search`](Business.md#search)
+
+***
+
+### shardModule
+
+#### Get Signature
+
+> **get** `protected` **shardModule**(): `ShardModule`
+
+Defined in: [objects/DOFull.ts:444](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L444)
+
+##### Returns
+
+`ShardModule`
+
+#### Inherited from
+
+[`Business`](Business.md).[`shardModule`](Business.md#shardmodule)
+
+***
+
+### storage
+
+#### Get Signature
+
+> **get** `protected` **storage**(): `DurableObjectStorage`
+
+Defined in: [objects/DOTiny.ts:334](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L334)
+
+Access to the raw DurableObjectStorage
+
+##### Returns
+
+`DurableObjectStorage`
+
+#### Inherited from
+
+[`Business`](Business.md).[`storage`](Business.md#storage)
+
+***
+
+### syncEngine
+
+#### Get Signature
+
+> **get** **syncEngine**(): `SyncEngine`
+
+Defined in: [objects/DOBase.ts:670](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L670)
+
+Get the SyncEngine instance.
+Creates the engine on first access.
+
+##### Returns
+
+`SyncEngine`
+
+#### Inherited from
+
+[`Business`](Business.md).[`syncEngine`](Business.md#syncengine)
+
+***
+
+### things
+
+#### Get Signature
+
+> **get** **things**(): `ThingsStore`
+
+Defined in: [objects/DOBase.ts:766](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L766)
+
+ThingsStore - CRUD operations for Things
+
+Automatically wires onMutation callback to SyncEngine for real-time sync.
+When things.create/update/delete succeeds, subscribers receive broadcasts.
+
+##### Returns
+
+`ThingsStore`
+
+#### Inherited from
+
+[`Business`](Business.md).[`things`](Business.md#things)
+
+## Constructors
+
+### Constructor
+
+> **new Service**(`ctx`, `env`): `Service`
+
+Defined in: [objects/Service.ts:192](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L192)
+
+#### Parameters
+
+##### ctx
+
+`DurableObjectState`
+
+##### env
+
+[`CloudflareEnv`](../../types/interfaces/CloudflareEnv.md)
+
+#### Returns
+
+`Service`
+
+#### Overrides
+
+[`Business`](Business.md).[`constructor`](Business.md#constructor)
+
+## Methods
+
+### \_detectLocation()
+
+> **\_detectLocation**(): `Promise`\<`DOLocation`\>
+
+Defined in: [objects/DOBase.ts:986](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L986)
+
+Internal method to detect location from Cloudflare's trace endpoint.
+Override in tests to provide mock location data.
+
+#### Returns
+
+`Promise`\<`DOLocation`\>
+
+Promise resolving to detected DOLocation
+
+#### Inherited from
+
+[`Business`](Business.md).[`_detectLocation`](Business.md#_detectlocation)
+
+***
+
+### \_initializeEagerFeatures()
+
+> `protected` **\_initializeEagerFeatures**(`features`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:448](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L448)
+
+Initialize features that are configured for eager initialization.
+Called during DO construction when using DO.with().
+
+#### Parameters
+
+##### features
+
+`DOFeatureConfig`
+
+Feature configuration from DO.with()
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`_initializeEagerFeatures`](Business.md#_initializeeagerfeatures)
+
+***
+
+### \_resetTestState()
+
+> `static` **\_resetTestState**(): `void`
+
+Defined in: [objects/DOBase.ts:2691](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2691)
+
+Reset all static state - ONLY for testing.
+This clears accumulated static Maps that persist across test runs.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`_resetTestState`](Business.md#_resetteststate)
+
+***
+
+### $introspect()
+
+> **$introspect**(`authContext?`): `Promise`\<[`DOSchema`](../../types/interfaces/DOSchema.md)\>
+
+Defined in: [objects/DOBase.ts:3573](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3573)
+
+Introspect the DO schema, filtered by user role.
+
+Returns information about:
+- Available classes and their methods
+- MCP tools from static $mcp config
+- REST endpoints from static $rest config
+- Available stores (filtered by role)
+- Storage capabilities (filtered by role)
+- Registered nouns and verbs
+
+#### Parameters
+
+##### authContext?
+
+`AuthContext`
+
+Optional auth context for role-based filtering
+
+#### Returns
+
+`Promise`\<[`DOSchema`](../../types/interfaces/DOSchema.md)\>
+
+DOSchema object with introspection data
+
+#### Inherited from
+
+[`Business`](Business.md).[`$introspect`](Business.md#introspect)
+
+***
+
+### abortClone()
+
+> **abortClone**(`token`, `reason?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOFull.ts:1018](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L1018)
+
+Abort a staged clone
+
+#### Parameters
+
+##### token
+
+`string`
+
+##### reason?
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`abortClone`](Business.md#abortclone)
+
+***
+
+### acquireFencingToken()
+
+> **acquireFencingToken**(): `Promise`\<`string`\>
+
+Defined in: [objects/DOBase.ts:2019](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2019)
+
+Acquire a fencing token for single-writer semantics.
+Provides consistency guard to prevent concurrent writes from multiple instances.
+
+The fencing token is stored in R2 with conditional write semantics:
+- Only succeeds if no lock exists (ifNoneMatch: '*')
+- Subsequent calls will fail until the lock is released
+
+#### Returns
+
+`Promise`\<`string`\>
+
+The fencing token if acquired successfully
+
+#### Throws
+
+Error if lock already held by another instance or R2 operation fails
+
+#### Example
+
+```typescript
+try {
+  const token = await this.acquireFencingToken()
+  // Safe to write - we hold the lock
+  await this.saveToIceberg()
+  await this.releaseFencingToken(token)
+} catch (error) {
+  console.log('Could not acquire lock - another instance is active')
+}
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`acquireFencingToken`](Business.md#acquirefencingtoken)
+
+***
+
+### addMember()
+
+> **addMember**(`workerId`, `workerClass`, `role`): `Promise`\<`void`\>
+
+Defined in: [objects/Business.ts:141](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Business.ts#L141)
+
+Add a member to this business
+
+#### Parameters
+
+##### workerId
+
+`string`
+
+##### workerClass
+
+`"Agent"` | `"Human"`
+
+##### role
+
+`string` = `'member'`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`addMember`](Business.md#addmember)
+
+***
+
+### alarm()
+
+> **alarm**(): `Promise`\<`void`\>
+
+Defined in: [objects/DOFull.ts:2003](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2003)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`alarm`](Business.md#alarm)
+
+***
+
+### assertCanView()
+
+> `protected` **assertCanView**(`thing`, `message?`): `void`
+
+Defined in: [objects/DOBase.ts:3059](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3059)
+
+#### Parameters
+
+##### thing
+
+[`Thing`](../../types/interfaces/Thing.md) | `ThingEntity` | `null` | `undefined`
+
+##### message?
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`assertCanView`](Business.md#assertcanview)
+
+***
+
+### assertType()
+
+> **assertType**(`expectedType`): `void`
+
+Defined in: [objects/DOTiny.ts:259](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L259)
+
+Assert that this instance is of the expected type, throw otherwise
+
+#### Parameters
+
+##### expectedType
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`assertType`](Business.md#asserttype)
+
+***
+
+### assignAgent()
+
+> **assignAgent**(`assignment`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:382](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L382)
+
+Assign an agent to this service
+
+#### Parameters
+
+##### assignment
+
+[`AgentAssignment`](../interfaces/AgentAssignment.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### branch()
+
+> **branch**(`name`): `Promise`\<`BranchResult`\>
+
+Defined in: [objects/DOFull.ts:1750](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L1750)
+
+Create a new branch at current HEAD
+
+#### Parameters
+
+##### name
+
+`string`
+
+#### Returns
+
+`Promise`\<`BranchResult`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`branch`](Business.md#branch)
+
+***
+
+### calculateBackoffDelay()
+
+> `protected` **calculateBackoffDelay**(`attempt`, `policy`): `number`
+
+Defined in: [objects/DOBase.ts:1336](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1336)
+
+#### Parameters
+
+##### attempt
+
+`number`
+
+##### policy
+
+[`RetryPolicy`](../../types/interfaces/RetryPolicy.md)
+
+#### Returns
+
+`number`
+
+#### Inherited from
+
+[`Business`](Business.md).[`calculateBackoffDelay`](Business.md#calculatebackoffdelay)
+
+***
+
+### calculateTaskCost()
+
+> **calculateTaskCost**(`taskId`): `Promise`\<`number`\>
+
+Defined in: [objects/Service.ts:533](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L533)
+
+Calculate the cost for a specific task
+
+#### Parameters
+
+##### taskId
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### canViewThing()
+
+> `protected` **canViewThing**(`thing`): `boolean`
+
+Defined in: [objects/DOBase.ts:3034](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3034)
+
+#### Parameters
+
+##### thing
+
+[`Thing`](../../types/interfaces/Thing.md) | `ThingEntity` | `null` | `undefined`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`canViewThing`](Business.md#canviewthing)
+
+***
+
+### checkout()
+
+> **checkout**(`ref`): `Promise`\<`CheckoutResult`\>
+
+Defined in: [objects/DOFull.ts:1801](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L1801)
+
+Switch to a branch or version
+
+#### Parameters
+
+##### ref
+
+`string`
+
+#### Returns
+
+`Promise`\<`CheckoutResult`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`checkout`](Business.md#checkout)
+
+***
+
+### clearActor()
+
+> `protected` **clearActor**(): `void`
+
+Defined in: [objects/DOBase.ts:697](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L697)
+
+Clear the current actor.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`clearActor`](Business.md#clearactor)
+
+***
+
+### clearActorContext()
+
+> `protected` **clearActorContext**(): `void`
+
+Defined in: [objects/DOBase.ts:3030](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3030)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`clearActorContext`](Business.md#clearactorcontext)
+
+***
+
+### clearCrossDoCache()
+
+> `protected` **clearCrossDoCache**(`ns?`): `void`
+
+Defined in: [objects/DOFull.ts:2303](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2303)
+
+#### Parameters
+
+##### ns?
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`clearCrossDoCache`](Business.md#clearcrossdocache)
+
+***
+
+### clone()
+
+> **clone**(`target`, `options?`): `Promise`\<`CloneResult` \| `EventualCloneHandle` \| `ResumableCloneHandle` \| `StagedPrepareResult`\>
+
+Defined in: [objects/DOFull.ts:750](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L750)
+
+Clone this DO's state to another DO
+
+#### Parameters
+
+##### target
+
+`string`
+
+##### options?
+
+`CloneOptions`
+
+#### Returns
+
+`Promise`\<`CloneResult` \| `EventualCloneHandle` \| `ResumableCloneHandle` \| `StagedPrepareResult`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`clone`](Business.md#clone)
+
+***
+
+### collection()
+
+> `protected` **collection**\<`T`\>(`noun`): `ThingsCollection`\<`T`\>
+
+Defined in: [objects/DOBase.ts:2209](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2209)
+
+#### Type Parameters
+
+##### T
+
+`T` *extends* [`Thing`](../../types/interfaces/Thing.md) = [`Thing`](../../types/interfaces/Thing.md)
+
+#### Parameters
+
+##### noun
+
+`string`
+
+#### Returns
+
+`ThingsCollection`\<`T`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`collection`](Business.md#collection)
+
+***
+
+### commitClone()
+
+> **commitClone**(`token`): `Promise`\<\{ `targetNs`: `string`; `thingsCloned`: `number`; \}\>
+
+Defined in: [objects/DOFull.ts:958](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L958)
+
+Commit a staged clone
+
+#### Parameters
+
+##### token
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `targetNs`: `string`; `thingsCloned`: `number`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`commitClone`](Business.md#commitclone)
+
+***
+
+### compact()
+
+> **compact**(): `Promise`\<\{ `actionsArchived`: `number`; `eventsArchived`: `number`; `thingsCompacted`: `number`; \}\>
+
+Defined in: [objects/DOFull.ts:562](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L562)
+
+Squash history to current state (same identity)
+
+#### Returns
+
+`Promise`\<\{ `actionsArchived`: `number`; `eventsArchived`: `number`; `thingsCompacted`: `number`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`compact`](Business.md#compact)
+
+***
+
+### completeAction()
+
+> `protected` **completeAction**(`actionId`, `output`, `fields?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1459](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1459)
+
+#### Parameters
+
+##### actionId
+
+`string`
+
+##### output
+
+`unknown`
+
+##### fields?
+
+###### attempts?
+
+`number`
+
+###### completedAt?
+
+`Date`
+
+###### duration?
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`completeAction`](Business.md#completeaction)
+
+***
+
+### completeTask()
+
+> **completeTask**(`taskId`, `options`): `Promise`\<[`ServiceTaskResult`](../interfaces/ServiceTaskResult.md)\>
+
+Defined in: [objects/Service.ts:331](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L331)
+
+Complete a task with results
+
+#### Parameters
+
+##### taskId
+
+`string`
+
+##### options
+
+[`TaskCompletionOptions`](../interfaces/TaskCompletionOptions.md)
+
+#### Returns
+
+`Promise`\<[`ServiceTaskResult`](../interfaces/ServiceTaskResult.md)\>
+
+***
+
+### configure()
+
+> **configure**(`config`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:662](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L662)
+
+Configure the service
+
+#### Parameters
+
+##### config
+
+[`ServiceConfig`](../interfaces/ServiceConfig.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### configureIceberg()
+
+> `protected` **configureIceberg**(`options`): `void`
+
+Defined in: [objects/DOBase.ts:1914](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1914)
+
+Configure Iceberg state persistence options.
+Enables auto-checkpoint, debounced saves, and consistency guards.
+
+#### Parameters
+
+##### options
+
+`IcebergOptions`
+
+#### Returns
+
+`void`
+
+#### Example
+
+```typescript
+this.configureIceberg({
+  autoCheckpoint: true,
+  checkpointIntervalMs: 30000,      // 30 seconds
+  minChangesBeforeCheckpoint: 5,    // Wait for at least 5 changes
+})
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`configureIceberg`](Business.md#configureiceberg)
+
+***
+
+### createAction()
+
+> `protected` **createAction**(`data`): `Promise`\<\{ `id`: `string`; \}\>
+
+Defined in: [objects/DOBase.ts:2996](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2996)
+
+#### Parameters
+
+##### data
+
+###### actor
+
+`string`
+
+###### data?
+
+`Record`\<`string`, `unknown`\>
+
+###### target
+
+`string`
+
+###### type
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `id`: `string`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`createAction`](Business.md#createaction)
+
+***
+
+### createApp()
+
+> **createApp**(`appId`, `name`): `Promise`\<`void`\>
+
+Defined in: [objects/Business.ts:106](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Business.ts#L106)
+
+Create an App within this business
+
+#### Parameters
+
+##### appId
+
+`string`
+
+##### name
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`createApp`](Business.md#createapp)
+
+***
+
+### createDomainProxy()
+
+> `protected` **createDomainProxy**(`noun`, `id`): [`DomainProxy`](../../types/interfaces/DomainProxy.md)
+
+Defined in: [objects/DOBase.ts:2391](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2391)
+
+#### Parameters
+
+##### noun
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+[`DomainProxy`](../../types/interfaces/DomainProxy.md)
+
+#### Inherited from
+
+[`Business`](Business.md).[`createDomainProxy`](Business.md#createdomainproxy)
+
+***
+
+### createOnProxy()
+
+> `protected` **createOnProxy**(): [`OnProxy`](../../types/interfaces/OnProxy.md)
+
+Defined in: [objects/DOBase.ts:2331](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2331)
+
+#### Returns
+
+[`OnProxy`](../../types/interfaces/OnProxy.md)
+
+#### Inherited from
+
+[`Business`](Business.md).[`createOnProxy`](Business.md#createonproxy)
+
+***
+
+### createScheduleBuilder()
+
+> `protected` **createScheduleBuilder**(): [`ScheduleBuilder`](../../types/interfaces/ScheduleBuilder.md)
+
+Defined in: [objects/DOBase.ts:2375](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2375)
+
+#### Returns
+
+[`ScheduleBuilder`](../../types/interfaces/ScheduleBuilder.md)
+
+#### Inherited from
+
+[`Business`](Business.md).[`createScheduleBuilder`](Business.md#createschedulebuilder)
+
+***
+
+### createThing()
+
+> `protected` **createThing**(`data`): `Promise`\<\{ `id`: `string`; \}\>
+
+Defined in: [objects/DOBase.ts:2980](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2980)
+
+#### Parameters
+
+##### data
+
+###### data?
+
+`Record`\<`string`, `unknown`\>
+
+###### name
+
+`string`
+
+###### type
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `id`: `string`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`createThing`](Business.md#creatething)
+
+***
+
+### createWorkflowContext()
+
+> `protected` **createWorkflowContext**(): [`WorkflowContext`](../../types/interfaces/WorkflowContext.md)
+
+Defined in: [objects/DOBase.ts:1073](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1073)
+
+#### Returns
+
+[`WorkflowContext`](../../types/interfaces/WorkflowContext.md)
+
+#### Inherited from
+
+[`Business`](Business.md).[`createWorkflowContext`](Business.md#createworkflowcontext)
+
+***
+
+### defineOKR()
+
+> **defineOKR**(`definition`): `OKR`
+
+Defined in: [objects/DOBase.ts:558](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L558)
+
+Define an OKR (Objective and Key Results) with progress tracking.
+
+#### Parameters
+
+##### definition
+
+`OKRDefinition`
+
+The OKR definition with objective and key results
+
+#### Returns
+
+`OKR`
+
+A typed OKR object with progress() and isComplete() methods
+
+#### Example
+
+```typescript
+const revenueOKR = this.defineOKR({
+  objective: 'Grow monthly revenue',
+  keyResults: [
+    { name: 'MRR', target: 10000, current: 2500 },
+    { name: 'Customers', target: 100, current: 25, unit: 'count' },
+  ],
+})
+
+console.log(revenueOKR.progress()) // 25 (average of 25% and 25%)
+console.log(revenueOKR.isComplete()) // false
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`defineOKR`](Business.md#defineokr)
+
+***
+
+### demote()
+
+> **demote**(`targetNs`, `options?`): `Promise`\<`DemoteResult`\>
+
+Defined in: [objects/DOFull.ts:1614](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L1614)
+
+Demote this DO back into a parent DO as a Thing
+
+#### Parameters
+
+##### targetNs
+
+`string`
+
+##### options?
+
+###### compress?
+
+`boolean`
+
+###### force?
+
+`boolean`
+
+###### mode?
+
+`"atomic"` \| `"staged"`
+
+###### preserveHistory?
+
+`boolean`
+
+###### preserveId?
+
+`boolean`
+
+###### thingId?
+
+`string`
+
+###### type?
+
+`string`
+
+#### Returns
+
+`Promise`\<`DemoteResult`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`demote`](Business.md#demote)
+
+***
+
+### deriveIdentityFromRequest()
+
+> `protected` **deriveIdentityFromRequest**(`request`): `void`
+
+Defined in: [objects/DOTiny.ts:425](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L425)
+
+Derive identity (ns) from the incoming request URL if not already set.
+The ns is the first subdomain from the request URL's hostname.
+
+Examples:
+- https://acme.api.dotdo.dev/foo → ns = 'acme'
+- https://localhost:8787/bar → ns = 'localhost'
+- https://single-domain.dev/bar → ns = 'single-domain'
+
+#### Parameters
+
+##### request
+
+`Request`
+
+The incoming request
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`deriveIdentityFromRequest`](Business.md#deriveidentityfromrequest)
+
+***
+
+### discoverShards()
+
+> **discoverShards**(): `Promise`\<\{ `health`: `object`[]; `registry`: \{ `createdAt`: `Date`; `endpoints`: `object`[]; `id`: `string`; `shardCount`: `number`; `shardKey`: `string`; `strategy`: `ShardStrategy`; \}; \}\>
+
+Defined in: [objects/DOFull.ts:2424](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2424)
+
+Discover shards in this shard set
+
+#### Returns
+
+`Promise`\<\{ `health`: `object`[]; `registry`: \{ `createdAt`: `Date`; `endpoints`: `object`[]; `id`: `string`; `shardCount`: `number`; `shardKey`: `string`; `strategy`: `ShardStrategy`; \}; \}\>
+
+Registry and health status of all shards
+
+#### Inherited from
+
+[`Business`](Business.md).[`discoverShards`](Business.md#discovershards)
+
+***
+
+### dispatchEventToHandlers()
+
+> **dispatchEventToHandlers**(`event`): `Promise`\<[`EnhancedDispatchResult`](../../types/interfaces/EnhancedDispatchResult.md)\>
+
+Defined in: [objects/DOBase.ts:2749](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2749)
+
+#### Parameters
+
+##### event
+
+[`DomainEvent`](../../types/interfaces/DomainEvent.md)
+
+#### Returns
+
+`Promise`\<[`EnhancedDispatchResult`](../../types/interfaces/EnhancedDispatchResult.md)\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`dispatchEventToHandlers`](Business.md#dispatcheventtohandlers)
+
+***
+
+### do()
+
+> `protected` **do**\<`T`\>(`action`, `data`, `options?`): `Promise`\<`T`\>
+
+Defined in: [objects/DOBase.ts:1272](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1272)
+
+Durable execution with retries (blocking, durable)
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### action
+
+`string`
+
+##### data
+
+`unknown`
+
+##### options?
+
+[`DoOptions`](../../types/interfaces/DoOptions.md)
+
+#### Returns
+
+`Promise`\<`T`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`do`](Business.md#do)
+
+***
+
+### emit()
+
+> `protected` **emit**(`verb`, `data?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1627](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1627)
+
+Emit an event (public wrapper for emitEvent)
+
+#### Parameters
+
+##### verb
+
+`string`
+
+##### data?
+
+`unknown`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`emit`](Business.md#emit)
+
+***
+
+### emitEvent()
+
+> `protected` **emitEvent**(`verb`, `data`): `Promise`\<`void`\>
+
+Defined in: [objects/DOFull.ts:2317](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2317)
+
+#### Parameters
+
+##### verb
+
+`string`
+
+##### data
+
+`unknown`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`emitEvent`](Business.md#emitevent)
+
+***
+
+### escalateTask()
+
+> **escalateTask**(`taskId`, `options`): `Promise`\<[`ServiceTaskResult`](../interfaces/ServiceTaskResult.md)\>
+
+Defined in: [objects/Service.ts:477](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L477)
+
+Escalate a task to human review
+
+#### Parameters
+
+##### taskId
+
+`string`
+
+##### options
+
+[`EscalationOptions`](../interfaces/EscalationOptions.md)
+
+#### Returns
+
+`Promise`\<[`ServiceTaskResult`](../interfaces/ServiceTaskResult.md)\>
+
+***
+
+### executeAction()
+
+> `protected` **executeAction**(`action`, `data`): `Promise`\<`unknown`\>
+
+Defined in: [objects/DOBase.ts:1530](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1530)
+
+Execute an action - override in subclasses to handle specific actions
+
+#### Parameters
+
+##### action
+
+`string`
+
+##### data
+
+`unknown`
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`executeAction`](Business.md#executeaction)
+
+***
+
+### extendsType()
+
+> **extendsType**(`type`): `boolean`
+
+Defined in: [objects/DOTiny.ts:252](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L252)
+
+Check if this type extends the given type (includes exact match)
+
+#### Parameters
+
+##### type
+
+`string`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`extendsType`](Business.md#extendstype)
+
+***
+
+### extractBearerTokenFromProtocol()
+
+> `protected` **extractBearerTokenFromProtocol**(`protocols`): `string` \| `null`
+
+Defined in: [objects/DOBase.ts:3205](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3205)
+
+Extract bearer token from Sec-WebSocket-Protocol header.
+Format: "capnp-rpc, bearer.{token}" or "bearer.{token}, capnp-rpc"
+
+#### Parameters
+
+##### protocols
+
+The Sec-WebSocket-Protocol header value
+
+`string` | `null`
+
+#### Returns
+
+`string` \| `null`
+
+The extracted token or null if not found
+
+#### Inherited from
+
+[`Business`](Business.md).[`extractBearerTokenFromProtocol`](Business.md#extractbearertokenfromprotocol)
+
+***
+
+### failAction()
+
+> `protected` **failAction**(`actionId`, `error`, `fields?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1493](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1493)
+
+#### Parameters
+
+##### actionId
+
+`string`
+
+##### error
+
+[`ActionError`](../../types/interfaces/ActionError.md)
+
+##### fields?
+
+###### attempts?
+
+`number`
+
+###### completedAt?
+
+`Date`
+
+###### duration?
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`failAction`](Business.md#failaction)
+
+***
+
+### fetch()
+
+> **fetch**(`request`): `Promise`\<`Response`\>
+
+Defined in: [objects/Service.ts:701](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L701)
+
+Handle incoming HTTP requests.
+Derives identity from request URL, extracts user context from X-User-* headers,
+then delegates to handleFetch.
+
+#### Parameters
+
+##### request
+
+`Request`
+
+#### Returns
+
+`Promise`\<`Response`\>
+
+#### Overrides
+
+[`Business`](Business.md).[`fetch`](Business.md#fetch)
+
+***
+
+### filterVisibleThings()
+
+> `protected` **filterVisibleThings**\<`T`\>(`things`): `T`[]
+
+Defined in: [objects/DOBase.ts:3081](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3081)
+
+#### Type Parameters
+
+##### T
+
+`T` *extends* [`Thing`](../../types/interfaces/Thing.md) \| `ThingEntity`
+
+#### Parameters
+
+##### things
+
+`T`[]
+
+#### Returns
+
+`T`[]
+
+#### Inherited from
+
+[`Business`](Business.md).[`filterVisibleThings`](Business.md#filtervisiblethings)
+
+***
+
+### fork()
+
+> **fork**(`options`): `Promise`\<\{ `doId`: `string`; `ns`: `string`; \}\>
+
+Defined in: [objects/DOFull.ts:492](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L492)
+
+Fork current state to a new DO (new identity, fresh history)
+
+#### Parameters
+
+##### options
+
+###### branch?
+
+`string`
+
+###### to
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `doId`: `string`; `ns`: `string`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`fork`](Business.md#fork)
+
+***
+
+### generateStepId()
+
+> `protected` **generateStepId**(`action`, `data`): `string`
+
+Defined in: [objects/DOBase.ts:1348](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1348)
+
+#### Parameters
+
+##### action
+
+`string`
+
+##### data
+
+`unknown`
+
+#### Returns
+
+`string`
+
+#### Inherited from
+
+[`Business`](Business.md).[`generateStepId`](Business.md#generatestepid)
+
+***
+
+### getActorContext()
+
+> `protected` **getActorContext**(): `object`
+
+Defined in: [objects/DOBase.ts:3026](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3026)
+
+#### Returns
+
+`object`
+
+##### orgId?
+
+> `optional` **orgId**: `string`
+
+##### userId?
+
+> `optional` **userId**: `string`
+
+#### Inherited from
+
+[`Business`](Business.md).[`getActorContext`](Business.md#getactorcontext)
+
+***
+
+### getAssignedAgents()
+
+> **getAssignedAgents**(): `Promise`\<[`AgentAssignment`](../interfaces/AgentAssignment.md)[]\>
+
+Defined in: [objects/Service.ts:399](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L399)
+
+Get all assigned agents
+
+#### Returns
+
+`Promise`\<[`AgentAssignment`](../interfaces/AgentAssignment.md)[]\>
+
+***
+
+### getAvailableAgent()
+
+> **getAvailableAgent**(): `Promise`\<[`AgentAssignment`](../interfaces/AgentAssignment.md) \| `null`\>
+
+Defined in: [objects/Service.ts:423](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L423)
+
+Get the agent with the lowest current load
+
+#### Returns
+
+`Promise`\<[`AgentAssignment`](../interfaces/AgentAssignment.md) \| `null`\>
+
+***
+
+### getConfig()
+
+> **getConfig**(): `Promise`\<[`ServiceConfig`](../interfaces/ServiceConfig.md) \| `null`\>
+
+Defined in: [objects/Service.ts:690](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L690)
+
+Get service configuration
+Overrides Business.getConfig to return ServiceConfig
+
+#### Returns
+
+`Promise`\<[`ServiceConfig`](../interfaces/ServiceConfig.md) \| `null`\>
+
+#### Overrides
+
+[`Business`](Business.md).[`getConfig`](Business.md#getconfig)
+
+***
+
+### getCurrentActor()
+
+> `protected` **getCurrentActor**(): `string`
+
+Defined in: [objects/DOBase.ts:704](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L704)
+
+Get the current actor for action logging.
+
+#### Returns
+
+`string`
+
+#### Inherited from
+
+[`Business`](Business.md).[`getCurrentActor`](Business.md#getcurrentactor)
+
+***
+
+### getEscalationConfig()
+
+> **getEscalationConfig**(): `Promise`\<[`ServiceEscalationConfig`](../interfaces/ServiceEscalationConfig.md) \| `null`\>
+
+Defined in: [objects/Service.ts:467](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L467)
+
+Get escalation configuration
+
+#### Returns
+
+`Promise`\<[`ServiceEscalationConfig`](../interfaces/ServiceEscalationConfig.md) \| `null`\>
+
+***
+
+### getEventHandlers()
+
+> **getEventHandlers**(`eventKey`): `Function`[]
+
+Defined in: [objects/DOBase.ts:2699](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2699)
+
+#### Parameters
+
+##### eventKey
+
+`string`
+
+#### Returns
+
+`Function`[]
+
+#### Inherited from
+
+[`Business`](Business.md).[`getEventHandlers`](Business.md#geteventhandlers)
+
+***
+
+### getHandlerMetadata()
+
+> **getHandlerMetadata**(`eventKey`, `handlerName`): [`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\> \| `undefined`
+
+Defined in: [objects/DOBase.ts:2709](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2709)
+
+#### Parameters
+
+##### eventKey
+
+`string`
+
+##### handlerName
+
+`string`
+
+#### Returns
+
+[`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\> \| `undefined`
+
+#### Inherited from
+
+[`Business`](Business.md).[`getHandlerMetadata`](Business.md#gethandlermetadata)
+
+***
+
+### getHandlerRegistrations()
+
+> **getHandlerRegistrations**(`eventKey`): [`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\>[]
+
+Defined in: [objects/DOBase.ts:2714](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2714)
+
+#### Parameters
+
+##### eventKey
+
+`string`
+
+#### Returns
+
+[`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\>[]
+
+#### Inherited from
+
+[`Business`](Business.md).[`getHandlerRegistrations`](Business.md#gethandlerregistrations)
+
+***
+
+### getHandlersByPriority()
+
+> **getHandlersByPriority**(`eventKey`): `object`[]
+
+Defined in: [objects/DOBase.ts:2704](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2704)
+
+#### Parameters
+
+##### eventKey
+
+`string`
+
+#### Returns
+
+`object`[]
+
+#### Inherited from
+
+[`Business`](Business.md).[`getHandlersByPriority`](Business.md#gethandlersbypriority)
+
+***
+
+### getLinkedObjects()
+
+> `protected` **getLinkedObjects**(`relationType?`): `Promise`\<`object`[]\>
+
+Defined in: [objects/DOBase.ts:2965](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2965)
+
+#### Parameters
+
+##### relationType?
+
+`string`
+
+#### Returns
+
+`Promise`\<`object`[]\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`getLinkedObjects`](Business.md#getlinkedobjects)
+
+***
+
+### getLocation()
+
+> **getLocation**(): `Promise`\<`DOLocation`\>
+
+Defined in: [objects/DOBase.ts:912](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L912)
+
+Get the DO's location (with caching).
+
+On first call, detects location via Cloudflare's trace endpoint,
+caches it in storage, and calls the onLocationDetected hook.
+Subsequent calls return the cached location immediately.
+
+#### Returns
+
+`Promise`\<`DOLocation`\>
+
+Promise resolving to the DO's location
+
+#### Inherited from
+
+[`Business`](Business.md).[`getLocation`](Business.md#getlocation)
+
+***
+
+### getPricingModel()
+
+> **getPricingModel**(): `Promise`\<[`PricingModel`](../interfaces/PricingModel.md) \| `null`\>
+
+Defined in: [objects/Service.ts:523](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L523)
+
+Get the current pricing model
+
+#### Returns
+
+`Promise`\<[`PricingModel`](../interfaces/PricingModel.md) \| `null`\>
+
+***
+
+### getRegisteredNouns()
+
+> `protected` **getRegisteredNouns**(): `object`[]
+
+Defined in: [objects/DOBase.ts:3152](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3152)
+
+Get list of registered nouns for the index.
+Override in subclasses to provide custom noun list.
+
+#### Returns
+
+`object`[]
+
+#### Inherited from
+
+[`Business`](Business.md).[`getRegisteredNouns`](Business.md#getregisterednouns)
+
+***
+
+### getRestRouterContext()
+
+> `protected` **getRestRouterContext**(): `RestRouterContext`
+
+Defined in: [objects/DOBase.ts:3134](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3134)
+
+Get REST router context for handling REST API requests.
+Provides the things store and namespace for CRUD operations.
+
+#### Returns
+
+`RestRouterContext`
+
+#### Inherited from
+
+[`Business`](Business.md).[`getRestRouterContext`](Business.md#getrestroutercontext)
+
+***
+
+### getServiceMetrics()
+
+> **getServiceMetrics**(): `Promise`\<[`ServiceMetrics`](../interfaces/ServiceMetrics.md)\>
+
+Defined in: [objects/Service.ts:574](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L574)
+
+Get comprehensive service metrics
+
+#### Returns
+
+`Promise`\<[`ServiceMetrics`](../interfaces/ServiceMetrics.md)\>
+
+***
+
+### getTask()
+
+> **getTask**(`taskId`): `Promise`\<`TaskRecord` \| `null`\>
+
+Defined in: [objects/Service.ts:291](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L291)
+
+Get a task by ID
+
+#### Parameters
+
+##### taskId
+
+`string`
+
+#### Returns
+
+`Promise`\<`TaskRecord` \| `null`\>
+
+***
+
+### getTypeHierarchy()
+
+> **getTypeHierarchy**(): `string`[]
+
+Defined in: [objects/DOTiny.ts:220](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L220)
+
+Get the full type hierarchy for this instance
+Returns an array from most specific to most general (e.g., ['Agent', 'Worker', 'DO'])
+
+#### Returns
+
+`string`[]
+
+#### Inherited from
+
+[`Business`](Business.md).[`getTypeHierarchy`](Business.md#gettypehierarchy)
+
+***
+
+### getVisibility()
+
+> `protected` **getVisibility**(`thing`): `"public"` \| `"unlisted"` \| `"org"` \| `"user"`
+
+Defined in: [objects/DOBase.ts:3093](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3093)
+
+#### Parameters
+
+##### thing
+
+[`Thing`](../../types/interfaces/Thing.md) | `ThingEntity` | `null` | `undefined`
+
+#### Returns
+
+`"public"` \| `"unlisted"` \| `"org"` \| `"user"`
+
+#### Inherited from
+
+[`Business`](Business.md).[`getVisibility`](Business.md#getvisibility)
+
+***
+
+### getVisibleThing()
+
+> `protected` **getVisibleThing**(`id`): `Promise`\<`ThingEntity` \| `null`\>
+
+Defined in: [objects/DOBase.ts:3085](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3085)
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`Promise`\<`ThingEntity` \| `null`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`getVisibleThing`](Business.md#getvisiblething)
+
+***
+
+### handleFetch()
+
+> `protected` **handleFetch**(`request`): `Promise`\<`Response`\>
+
+Defined in: [objects/DOBase.ts:3333](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3333)
+
+Core fetch handler - override in subclasses for custom routing.
+DOBase overrides this to add /resolve endpoint and Hono routing.
+
+#### Parameters
+
+##### request
+
+`Request`
+
+#### Returns
+
+`Promise`\<`Response`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`handleFetch`](Business.md#handlefetch)
+
+***
+
+### handleMcp()
+
+> **handleMcp**(`request`): `Promise`\<`Response`\>
+
+Defined in: [objects/DOBase.ts:3179](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3179)
+
+Handle MCP (Model Context Protocol) requests.
+This method is exposed for direct MCP access and is also routed from /mcp path.
+
+#### Parameters
+
+##### request
+
+`Request`
+
+The incoming HTTP request
+
+#### Returns
+
+`Promise`\<`Response`\>
+
+Response with JSON-RPC 2.0 formatted result
+
+#### Inherited from
+
+[`Business`](Business.md).[`handleMcp`](Business.md#handlemcp)
+
+***
+
+### handleSyncWebSocket()
+
+> `protected` **handleSyncWebSocket**(`request`): `Promise`\<`Response`\>
+
+Defined in: [objects/DOBase.ts:3268](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3268)
+
+Handle WebSocket sync requests for TanStack DB integration.
+Requires authentication via Sec-WebSocket-Protocol: "capnp-rpc, bearer.{token}"
+
+Returns:
+- 426 Upgrade Required for non-WebSocket requests
+- 401 Unauthorized for missing or invalid auth token
+- 101 Switching Protocols for successful WebSocket upgrade
+
+#### Parameters
+
+##### request
+
+`Request`
+
+The incoming HTTP request
+
+#### Returns
+
+`Promise`\<`Response`\>
+
+Response (101 for WebSocket upgrade, 401 for auth failure, 426 for non-WebSocket)
+
+#### Inherited from
+
+[`Business`](Business.md).[`handleSyncWebSocket`](Business.md#handlesyncwebsocket)
+
+***
+
+### hasCapability()
+
+> **hasCapability**(`name`): `boolean`
+
+Defined in: [objects/DOBase.ts:508](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L508)
+
+Check if this DO instance has a specific capability.
+Capabilities are added via mixins and registered in the static capabilities array.
+
+#### Parameters
+
+##### name
+
+`string`
+
+Capability name to check (e.g., 'fs', 'git', 'bash')
+
+#### Returns
+
+`boolean`
+
+true if the capability is registered on this class
+
+#### Example
+
+```typescript
+if (this.hasCapability('fs')) {
+  await this.$.fs.read('/config.json')
+}
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`hasCapability`](Business.md#hascapability)
+
+***
+
+### initialize()
+
+> **initialize**(`config`): `Promise`\<`void`\>
+
+Defined in: [objects/DOTiny.ts:363](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L363)
+
+#### Parameters
+
+##### config
+
+###### ns
+
+`string`
+
+###### parent?
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`initialize`](Business.md#initialize)
+
+***
+
+### invokeCrossDOMethod()
+
+> `protected` **invokeCrossDOMethod**(`noun`, `id`, `method`, `args`, `options?`): `Promise`\<`unknown`\>
+
+Defined in: [objects/DOBase.ts:2453](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2453)
+
+#### Parameters
+
+##### noun
+
+`string`
+
+##### id
+
+`string`
+
+##### method
+
+`string`
+
+##### args
+
+`unknown`[]
+
+##### options?
+
+###### timeout?
+
+`number`
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`invokeCrossDOMethod`](Business.md#invokecrossdomethod)
+
+***
+
+### invokeDomainMethod()
+
+> `protected` **invokeDomainMethod**(`noun`, `id`, `method`, `args`): `Promise`\<`unknown`\>
+
+Defined in: [objects/DOBase.ts:2407](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2407)
+
+#### Parameters
+
+##### noun
+
+`string`
+
+##### id
+
+`string`
+
+##### method
+
+`string`
+
+##### args
+
+`unknown`[]
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`invokeDomainMethod`](Business.md#invokedomainmethod)
+
+***
+
+### isInstanceOfType()
+
+> **isInstanceOfType**(`type`): `boolean`
+
+Defined in: [objects/DOTiny.ts:238](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L238)
+
+Check if this instance is of or extends the given type
+
+#### Parameters
+
+##### type
+
+`string`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`isInstanceOfType`](Business.md#isinstanceoftype)
+
+***
+
+### isInThingOrg()
+
+> `protected` **isInThingOrg**(`thing`): `boolean`
+
+Defined in: [objects/DOBase.ts:3113](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3113)
+
+#### Parameters
+
+##### thing
+
+[`Thing`](../../types/interfaces/Thing.md) | `ThingEntity` | `null` | `undefined`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`isInThingOrg`](Business.md#isinthingorg)
+
+***
+
+### isOwner()
+
+> `protected` **isOwner**(`thing`): `boolean`
+
+Defined in: [objects/DOBase.ts:3100](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3100)
+
+#### Parameters
+
+##### thing
+
+[`Thing`](../../types/interfaces/Thing.md) | `ThingEntity` | `null` | `undefined`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`isOwner`](Business.md#isowner)
+
+***
+
+### isRpcExposed()
+
+> **isRpcExposed**(`method`): `boolean`
+
+Defined in: [objects/DOBase.ts:652](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L652)
+
+Check if a method is exposed via RPC.
+Uses capnweb's isInternalMember to determine if a method should be hidden.
+
+#### Parameters
+
+##### method
+
+`string`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`isRpcExposed`](Business.md#isrpcexposed)
+
+***
+
+### isSharded()
+
+> **isSharded**(): `Promise`\<`boolean`\>
+
+Defined in: [objects/DOFull.ts:2415](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2415)
+
+Check if this DO is sharded
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+True if the DO is sharded
+
+#### Inherited from
+
+[`Business`](Business.md).[`isSharded`](Business.md#issharded)
+
+***
+
+### isType()
+
+> **isType**(`type`): `boolean`
+
+Defined in: [objects/DOTiny.ts:245](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L245)
+
+Check for exact type match
+
+#### Parameters
+
+##### type
+
+`string`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`isType`](Business.md#istype)
+
+***
+
+### link()
+
+> `protected` **link**(`target`, `relationType`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:2949](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2949)
+
+#### Parameters
+
+##### target
+
+`string` | \{ `data?`: `Record`\<`string`, `unknown`\>; `doClass`: `string`; `doId`: `string`; `role?`: `string`; \}
+
+##### relationType
+
+`string` = `'related'`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`link`](Business.md#link)
+
+***
+
+### listAllHandlers()
+
+> **listAllHandlers**(): `Map`\<`string`, [`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\>[]\>
+
+Defined in: [objects/DOBase.ts:2718](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2718)
+
+#### Returns
+
+`Map`\<`string`, [`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\>[]\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`listAllHandlers`](Business.md#listallhandlers)
+
+***
+
+### listApps()
+
+> **listApps**(): `Promise`\<`object`[]\>
+
+Defined in: [objects/Business.ts:119](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Business.ts#L119)
+
+List all Apps in this business
+
+#### Returns
+
+`Promise`\<`object`[]\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`listApps`](Business.md#listapps)
+
+***
+
+### listMembers()
+
+> **listMembers**(): `Promise`\<`object`[]\>
+
+Defined in: [objects/Business.ts:127](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Business.ts#L127)
+
+Get business members (Workers: Agents and Humans)
+
+#### Returns
+
+`Promise`\<`object`[]\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`listMembers`](Business.md#listmembers)
+
+***
+
+### listTasks()
+
+> **listTasks**(`filter?`): `Promise`\<`TaskRecord`[]\>
+
+Defined in: [objects/Service.ts:308](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L308)
+
+List all tasks with optional filtering
+
+#### Parameters
+
+##### filter?
+
+###### status?
+
+`string`
+
+#### Returns
+
+`Promise`\<`TaskRecord`[]\>
+
+***
+
+### loadFromIceberg()
+
+> **loadFromIceberg**(`jwt?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1671](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1671)
+
+Load state from Iceberg snapshot on cold start.
+Uses JWT claims to determine R2 path.
+
+#### Parameters
+
+##### jwt?
+
+`string`
+
+Optional JWT token (if not provided, will try to get from context)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`loadFromIceberg`](Business.md#loadfromiceberg)
+
+***
+
+### loadPersistedSteps()
+
+> `protected` **loadPersistedSteps**(): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1371](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1371)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`loadPersistedSteps`](Business.md#loadpersistedsteps)
+
+***
+
+### log()
+
+> `protected` **log**(`message`, `data?`): `void`
+
+Defined in: [objects/DOTiny.ts:388](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L388)
+
+#### Parameters
+
+##### message
+
+`string`
+
+##### data?
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`log`](Business.md#log)
+
+***
+
+### logAction()
+
+> `protected` **logAction**(`durability`, `verb`, `input`): `Promise`\<\{ `id`: `string`; `rowid`: `number`; \}\>
+
+Defined in: [objects/DOBase.ts:1392](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1392)
+
+#### Parameters
+
+##### durability
+
+`"send"` | `"try"` | `"do"`
+
+##### verb
+
+`string`
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`Promise`\<\{ `id`: `string`; `rowid`: `number`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`logAction`](Business.md#logaction)
+
+***
+
+### merge()
+
+> **merge**(`branch`): `Promise`\<`MergeResult`\>
+
+Defined in: [objects/DOFull.ts:1870](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L1870)
+
+Merge a branch into current
+
+#### Parameters
+
+##### branch
+
+`string`
+
+#### Returns
+
+`Promise`\<`MergeResult`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`merge`](Business.md#merge)
+
+***
+
+### moveTo()
+
+> **moveTo**(`colo`): `Promise`\<\{ `newDoId`: `string`; `region`: `string`; \}\>
+
+Defined in: [objects/DOFull.ts:685](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L685)
+
+Move this DO to a specific colo (data center location)
+
+#### Parameters
+
+##### colo
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `newDoId`: `string`; `region`: `string`; \}\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`moveTo`](Business.md#moveto)
+
+***
+
+### on()
+
+> **on**(`event`, `callback`): `void`
+
+Defined in: [objects/DOBase.ts:1640](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1640)
+
+Register a listener for lifecycle events (stateLoaded, checkpointed, etc.)
+
+#### Parameters
+
+##### event
+
+`string`
+
+Event name (e.g., 'stateLoaded', 'checkpointed')
+
+##### callback
+
+(`data`) => `void`
+
+Callback function to invoke when event fires
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`on`](Business.md#on)
+
+***
+
+### onDataChange()
+
+> `protected` **onDataChange**(): `void`
+
+Defined in: [objects/DOBase.ts:1976](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1976)
+
+Track data changes for smart checkpointing.
+Call this method after any mutation to state that should be persisted.
+Auto-checkpoint will use this count to decide when to save.
+
+#### Returns
+
+`void`
+
+#### Example
+
+```typescript
+// After creating/updating/deleting entities
+await this.things.create({ type: 'Customer', data: { name: 'Alice' } })
+this.onDataChange()
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`onDataChange`](Business.md#ondatachange)
+
+***
+
+### onLocationDetected()
+
+> `protected` **onLocationDetected**(`location`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1047](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1047)
+
+Lifecycle hook called when location is first detected.
+Override in subclasses to perform custom actions.
+
+#### Parameters
+
+##### location
+
+`DOLocation`
+
+The detected DO location
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`onLocationDetected`](Business.md#onlocationdetected)
+
+***
+
+### persistStepResult()
+
+> `protected` **persistStepResult**(`stepId`, `result`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1359](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1359)
+
+#### Parameters
+
+##### stepId
+
+`string`
+
+##### result
+
+`unknown`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`persistStepResult`](Business.md#persiststepresult)
+
+***
+
+### promote()
+
+> **promote**(`thingId`, `options?`): `Promise`\<`PromoteResult`\>
+
+Defined in: [objects/DOFull.ts:1512](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L1512)
+
+Promote a Thing to its own DO
+
+#### Parameters
+
+##### thingId
+
+`string`
+
+##### options?
+
+###### mode?
+
+`"atomic"` \| `"staged"`
+
+###### preserveHistory?
+
+`boolean`
+
+###### targetNs?
+
+`string`
+
+#### Returns
+
+`Promise`\<`PromoteResult`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`promote`](Business.md#promote)
+
+***
+
+### queryShards()
+
+> **queryShards**\<`T`\>(`options`): `Promise`\<\{ `data`: `T`[]; `shardResults`: `object`[]; `totalItems`: `number`; \}\>
+
+Defined in: [objects/DOFull.ts:2454](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2454)
+
+Query across all shards
+
+#### Type Parameters
+
+##### T
+
+`T` = `unknown`
+
+#### Parameters
+
+##### options
+
+Query configuration
+
+###### aggregation?
+
+`"merge"` \| `"concat"` \| `"sum"` \| `"count"` \| `"avg"`
+
+###### continueOnError?
+
+`boolean`
+
+###### query
+
+`string`
+
+###### timeout?
+
+`number`
+
+#### Returns
+
+`Promise`\<\{ `data`: `T`[]; `shardResults`: `object`[]; `totalItems`: `number`; \}\>
+
+Aggregated results from all shards
+
+#### Inherited from
+
+[`Business`](Business.md).[`queryShards`](Business.md#queryshards)
+
+***
+
+### rebalanceShards()
+
+> **rebalanceShards**(`options`): `Promise`\<\{ `duration`: `number`; `itemsMoved`: `number`; `modifiedShards`: `number`[]; `newStats`: \{ `avgPerShard`: `number`; `maxPerShard`: `number`; `minPerShard`: `number`; `skewRatio`: `number`; `stdDev`: `number`; `totalThings`: `number`; \}; \}\>
+
+Defined in: [objects/DOFull.ts:2478](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2478)
+
+Rebalance shards (add/remove shards or redistribute data)
+
+#### Parameters
+
+##### options
+
+Rebalance configuration
+
+###### maxSkew?
+
+`number`
+
+###### strategy?
+
+`"incremental"` \| `"full"`
+
+###### targetCount?
+
+`number`
+
+#### Returns
+
+`Promise`\<\{ `duration`: `number`; `itemsMoved`: `number`; `modifiedShards`: `number`[]; `newStats`: \{ `avgPerShard`: `number`; `maxPerShard`: `number`; `minPerShard`: `number`; `skewRatio`: `number`; `stdDev`: `number`; `totalThings`: `number`; \}; \}\>
+
+Rebalance result with stats
+
+#### Inherited from
+
+[`Business`](Business.md).[`rebalanceShards`](Business.md#rebalanceshards)
+
+***
+
+### recordQualityRating()
+
+> **recordQualityRating**(`taskId`, `rating`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:629](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L629)
+
+Record a quality rating for a completed task
+
+#### Parameters
+
+##### taskId
+
+`string`
+
+##### rating
+
+[`QualityRatingOptions`](../interfaces/QualityRatingOptions.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### registerNoun()
+
+> `protected` **registerNoun**(`noun`, `config?`): `Promise`\<`number`\>
+
+Defined in: [objects/DOBase.ts:2148](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2148)
+
+#### Parameters
+
+##### noun
+
+`string`
+
+##### config?
+
+###### description?
+
+`string`
+
+###### doClass?
+
+`string`
+
+###### plural?
+
+`string`
+
+###### schema?
+
+`unknown`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`registerNoun`](Business.md#registernoun)
+
+***
+
+### releaseFencingToken()
+
+> **releaseFencingToken**(`token`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:2070](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2070)
+
+Release a previously acquired fencing token.
+Only succeeds if the provided token matches the current lock.
+
+#### Parameters
+
+##### token
+
+`string`
+
+The fencing token to release
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Throws
+
+Error if token doesn't match or R2 operation fails
+
+#### Inherited from
+
+[`Business`](Business.md).[`releaseFencingToken`](Business.md#releasefencingtoken)
+
+***
+
+### resolve()
+
+> **resolve**(`url`): `Promise`\<[`Thing`](../../types/interfaces/Thing.md)\>
+
+Defined in: [objects/DOBase.ts:2828](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2828)
+
+Resolve any URL to a Thing (local, cross-DO, or external)
+
+#### Parameters
+
+##### url
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Thing`](../../types/interfaces/Thing.md)\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`resolve`](Business.md#resolve)
+
+***
+
+### resolveCrossDO()
+
+> `protected` **resolveCrossDO**(`ns`, `path`, `ref`): `Promise`\<[`Thing`](../../types/interfaces/Thing.md)\>
+
+Defined in: [objects/DOFull.ts:2169](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2169)
+
+#### Parameters
+
+##### ns
+
+`string`
+
+##### path
+
+`string`
+
+##### ref
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Thing`](../../types/interfaces/Thing.md)\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`resolveCrossDO`](Business.md#resolvecrossdo)
+
+***
+
+### resolveLocal()
+
+> `protected` **resolveLocal**(`path`, `ref`): `Promise`\<[`Thing`](../../types/interfaces/Thing.md)\>
+
+Defined in: [objects/DOBase.ts:2841](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2841)
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### ref
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Thing`](../../types/interfaces/Thing.md)\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`resolveLocal`](Business.md#resolvelocal)
+
+***
+
+### resolveNounToFK()
+
+> `protected` **resolveNounToFK**(`noun`): `Promise`\<`number`\>
+
+Defined in: [objects/DOBase.ts:2116](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2116)
+
+#### Parameters
+
+##### noun
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`resolveNounToFK`](Business.md#resolvenountofk)
+
+***
+
+### saveToIceberg()
+
+> **saveToIceberg**(): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1803](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1803)
+
+Save current state to Iceberg snapshot on R2.
+Creates metadata, manifests, and Parquet data files.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Throws
+
+Error if no JWT is available for storage authorization
+
+#### Throws
+
+Error if R2 operations fail
+
+#### Inherited from
+
+[`Business`](Business.md).[`saveToIceberg`](Business.md#savetoiceberg)
+
+***
+
+### send()
+
+> `protected` **send**(`event`, `data`): `void`
+
+Defined in: [objects/DOBase.ts:1166](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1166)
+
+Fire-and-forget event emission (non-blocking, non-durable)
+Errors are logged but don't propagate (by design for fire-and-forget)
+
+#### Parameters
+
+##### event
+
+`string`
+
+##### data
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`send`](Business.md#send)
+
+***
+
+### setActor()
+
+> `protected` **setActor**(`actor`): `void`
+
+Defined in: [objects/DOBase.ts:690](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L690)
+
+Set the current actor for subsequent action logging.
+
+#### Parameters
+
+##### actor
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`setActor`](Business.md#setactor)
+
+***
+
+### setActorContext()
+
+> `protected` **setActorContext**(`actor`): `void`
+
+Defined in: [objects/DOBase.ts:3022](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3022)
+
+#### Parameters
+
+##### actor
+
+###### orgId?
+
+`string`
+
+###### userId?
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`setActorContext`](Business.md#setactorcontext)
+
+***
+
+### setConfig()
+
+> **setConfig**(`config`): `Promise`\<`void`\>
+
+Defined in: [objects/Business.ts:97](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Business.ts#L97)
+
+Set business configuration
+
+#### Parameters
+
+##### config
+
+[`BusinessConfig`](../interfaces/BusinessConfig.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`setConfig`](Business.md#setconfig)
+
+***
+
+### setEscalationConfig()
+
+> **setEscalationConfig**(`config`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:458](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L458)
+
+Set escalation configuration
+
+#### Parameters
+
+##### config
+
+[`ServiceEscalationConfig`](../interfaces/ServiceEscalationConfig.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### setPricingModel()
+
+> **setPricingModel**(`model`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:514](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L514)
+
+Set the pricing model for this service
+
+#### Parameters
+
+##### model
+
+[`PricingModel`](../interfaces/PricingModel.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### shard()
+
+> **shard**(`options`): `Promise`\<`ShardResult` & `object`\>
+
+Defined in: [objects/DOFull.ts:2357](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2357)
+
+Shard this DO into multiple DOs for horizontal scaling
+
+#### Parameters
+
+##### options
+
+`ShardOptions` & `object`
+
+Sharding configuration
+
+#### Returns
+
+`Promise`\<`ShardResult` & `object`\>
+
+Shard result with shard endpoints and distribution stats
+
+#### Inherited from
+
+[`Business`](Business.md).[`shard`](Business.md#shard)
+
+***
+
+### sleep()
+
+> `protected` **sleep**(`ms`): `Promise`\<`void`\>
+
+Defined in: [objects/DOTiny.ts:400](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L400)
+
+#### Parameters
+
+##### ms
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`sleep`](Business.md#sleep)
+
+***
+
+### stopAutoCheckpoint()
+
+> `protected` **stopAutoCheckpoint**(): `void`
+
+Defined in: [objects/DOBase.ts:1956](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1956)
+
+Stop automatic checkpointing.
+Clears the checkpoint timer if running.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Business`](Business.md).[`stopAutoCheckpoint`](Business.md#stopautocheckpoint)
+
+***
+
+### submitTask()
+
+> **submitTask**(`task`): `Promise`\<\{ `taskId`: `string`; \}\>
+
+Defined in: [objects/Service.ts:269](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L269)
+
+Submit a new task for processing
+
+#### Parameters
+
+##### task
+
+[`ServiceTask`](../interfaces/ServiceTask.md)
+
+#### Returns
+
+`Promise`\<\{ `taskId`: `string`; \}\>
+
+***
+
+### toJSON()
+
+> **toJSON**(): `Record`\<`string`, `unknown`\>
+
+Defined in: [objects/DOTiny.ts:268](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L268)
+
+Serialize this DO to JSON including $type
+
+#### Returns
+
+`Record`\<`string`, `unknown`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`toJSON`](Business.md#tojson)
+
+***
+
+### try()
+
+> `protected` **try**\<`T`\>(`action`, `data`, `options?`): `Promise`\<`T`\>
+
+Defined in: [objects/DOBase.ts:1226](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1226)
+
+Quick attempt without durability (blocking, non-durable)
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### action
+
+`string`
+
+##### data
+
+`unknown`
+
+##### options?
+
+[`TryOptions`](../../types/interfaces/TryOptions.md)
+
+#### Returns
+
+`Promise`\<`T`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`try`](Business.md#try)
+
+***
+
+### unassignAgent()
+
+> **unassignAgent**(`agentId`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:414](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L414)
+
+Unassign an agent from this service
+
+#### Parameters
+
+##### agentId
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### unregisterEventHandler()
+
+> **unregisterEventHandler**(`eventKey`, `handler`): `boolean`
+
+Defined in: [objects/DOBase.ts:2808](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L2808)
+
+#### Parameters
+
+##### eventKey
+
+`string`
+
+##### handler
+
+`Function`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Business`](Business.md).[`unregisterEventHandler`](Business.md#unregistereventhandler)
+
+***
+
+### unshard()
+
+> **unshard**(`options?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOFull.ts:2406](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L2406)
+
+Unshard (merge) sharded DOs back into one
+
+#### Parameters
+
+##### options?
+
+`UnshardOptions`
+
+Unshard configuration
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`unshard`](Business.md#unshard)
+
+***
+
+### updateActionAttempts()
+
+> `protected` **updateActionAttempts**(`actionId`, `attempts`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1444](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1444)
+
+#### Parameters
+
+##### actionId
+
+`string`
+
+##### attempts
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`updateActionAttempts`](Business.md#updateactionattempts)
+
+***
+
+### updateActionStatus()
+
+> `protected` **updateActionStatus**(`actionId`, `status`, `fields?`): `Promise`\<`void`\>
+
+Defined in: [objects/DOBase.ts:1416](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1416)
+
+#### Parameters
+
+##### actionId
+
+`string`
+
+##### status
+
+[`ActionStatus`](../../types/type-aliases/ActionStatus.md)
+
+##### fields?
+
+###### attempts?
+
+`number`
+
+###### startedAt?
+
+`Date`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`Business`](Business.md).[`updateActionStatus`](Business.md#updateactionstatus)
+
+***
+
+### updateAgentLoad()
+
+> **updateAgentLoad**(`agentId`, `load`): `Promise`\<`void`\>
+
+Defined in: [objects/Service.ts:440](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L440)
+
+Update an agent's current load
+
+#### Parameters
+
+##### agentId
+
+`string`
+
+##### load
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### validateSyncAuthToken()
+
+> `protected` **validateSyncAuthToken**(`token`): `Promise`\<\{ `user`: [`UserContext`](../../types/interfaces/UserContext.md); \} \| `null`\>
+
+Defined in: [objects/DOBase.ts:3234](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L3234)
+
+Validate a sync auth token and return user context.
+Override this method in subclasses to implement custom validation.
+
+By default, this method requires a token but does not validate it.
+Production implementations should:
+- Verify JWT tokens with a secret/JWKS
+- Validate session tokens against a database
+- Return user context from the validated token
+
+#### Parameters
+
+##### token
+
+`string`
+
+The bearer token to validate
+
+#### Returns
+
+`Promise`\<\{ `user`: [`UserContext`](../../types/interfaces/UserContext.md); \} \| `null`\>
+
+Promise resolving to { user: UserContext } on success, null on failure
+
+#### Inherited from
+
+[`Business`](Business.md).[`validateSyncAuthToken`](Business.md#validatesyncauthtoken)
+
+***
+
+### with()
+
+> `static` **with**\<`E`\>(`features`): *typeof* `DO`
+
+Defined in: [objects/DOBase.ts:419](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L419)
+
+Create a DO subclass with specified features eagerly initialized.
+
+By default, all DO features (search, vectors, relationships, events, etc.)
+are available but initialized lazily - their tables are created on first access.
+Use `DO.with()` to eagerly initialize specific features when the DO starts.
+
+#### Type Parameters
+
+##### E
+
+`E` *extends* [`CloudflareEnv`](../../types/interfaces/CloudflareEnv.md) = [`CloudflareEnv`](../../types/interfaces/CloudflareEnv.md)
+
+#### Parameters
+
+##### features
+
+`DOFeatureConfig`
+
+Features to eagerly initialize on DO creation
+
+#### Returns
+
+*typeof* `DO`
+
+A class that extends DO with eager initialization for specified features
+
+#### Example
+
+```typescript
+// Base DO - everything available, all lazy init
+class MyDO extends DO { }
+
+// Eager init for specific features
+class SearchableDO extends DO.with({ search: true, vectors: true }) { }
+
+// Configure multiple features
+class FullFeaturedDO extends DO.with({
+  search: true,
+  vectors: true,
+  relationships: true,
+  events: true,
+  actions: true,
+  things: true,
+}) { }
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`with`](Business.md#with)
+
+## Properties
+
+### \_eagerFeatures
+
+> `static` **\_eagerFeatures**: `DOFeatureConfig` = `{}`
+
+Defined in: [objects/DOBase.ts:388](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L388)
+
+Configuration for features that should be eagerly initialized.
+When features are specified here, their tables are created on DO start
+rather than lazily on first access.
+
+#### Inherited from
+
+[`Business`](Business.md).[`_eagerFeatures`](Business.md#_eagerfeatures)
+
+***
+
+### \_eventHandlers
+
+> `protected` **\_eventHandlers**: `Map`\<`string`, [`HandlerRegistration`](../../types/interfaces/HandlerRegistration.md)\<`unknown`\>[]\>
+
+Defined in: [objects/DOBase.ts:722](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L722)
+
+#### Inherited from
+
+[`Business`](Business.md).[`_eventHandlers`](Business.md#_eventhandlers)
+
+***
+
+### \_scheduleHandlers
+
+> `protected` **\_scheduleHandlers**: `Map`\<`string`, [`ScheduleHandler`](../../types/type-aliases/ScheduleHandler.md)\>
+
+Defined in: [objects/DOBase.ts:726](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L726)
+
+#### Inherited from
+
+[`Business`](Business.md).[`_scheduleHandlers`](Business.md#_schedulehandlers)
+
+***
+
+### $
+
+> `readonly` **$**: [`WorkflowContext`](../../types/interfaces/WorkflowContext.md)
+
+Defined in: [objects/DOBase.ts:1056](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1056)
+
+#### Inherited from
+
+[`Business`](Business.md).[`$`](Business.md#)
+
+***
+
+### $mcp?
+
+> `static` `optional` **$mcp**: [`McpConfig`](../../types/interfaces/McpConfig.md)
+
+Defined in: [objects/DOBase.ts:370](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L370)
+
+Static MCP configuration for exposing methods as MCP tools and data as resources.
+Override in subclasses to expose tools and resources.
+
+#### Example
+
+```typescript
+static $mcp = {
+  tools: {
+    search: {
+      description: 'Search items',
+      inputSchema: { query: { type: 'string' } },
+      required: ['query'],
+    },
+  },
+  resources: ['items', 'users'],
+}
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`$mcp`](Business.md#mcp)
+
+***
+
+### $type
+
+> `readonly` `static` **$type**: `string` = `'Service'`
+
+Defined in: [objects/Service.ts:180](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L180)
+
+Static $type property - the class type discriminator
+Must be overridden in subclasses
+
+#### Overrides
+
+[`Business`](Business.md).[`$type`](Business.md#type)
+
+***
+
+### app?
+
+> `protected` `optional` **app**: `Hono`\<`BlankEnv`, `BlankSchema`, `"/"`\>
+
+Defined in: [objects/DOBase.ts:628](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L628)
+
+Optional Hono app for HTTP routing.
+Subclasses can create and configure this for custom routes.
+
+#### Inherited from
+
+[`Business`](Business.md).[`app`](Business.md#app)
+
+***
+
+### capabilities
+
+> `static` **capabilities**: `string`[] = `[]`
+
+Defined in: [objects/DOBase.ts:381](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L381)
+
+Static array of capability names supported by this class.
+Populated by capability mixins (e.g., withFS, withGit, withBash).
+Empty by default in base DO class.
+
+#### Inherited from
+
+[`Business`](Business.md).[`capabilities`](Business.md#capabilities)
+
+***
+
+### CHECKPOINT\_PREFIX
+
+> `protected` `readonly` `static` **CHECKPOINT\_PREFIX**: `"checkpoint:"` = `'checkpoint:'`
+
+Defined in: [objects/DOFull.ts:478](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L478)
+
+#### Inherited from
+
+[`Business`](Business.md).[`CHECKPOINT_PREFIX`](Business.md#checkpoint_prefix)
+
+***
+
+### currentBranch
+
+> `protected` **currentBranch**: `string` = `'main'`
+
+Defined in: [objects/DOTiny.ts:288](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L288)
+
+Current branch (default: 'main')
+
+#### Inherited from
+
+[`Business`](Business.md).[`currentBranch`](Business.md#currentbranch)
+
+***
+
+### currentColo
+
+> `protected` **currentColo**: `string` \| `null` = `null`
+
+Defined in: [objects/DOFull.ts:671](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L671)
+
+Current colo (for tracking move operations)
+
+#### Inherited from
+
+[`Business`](Business.md).[`currentColo`](Business.md#currentcolo)
+
+***
+
+### currentVersion
+
+> `protected` **currentVersion**: `number` \| `null` = `null`
+
+Defined in: [objects/DOFull.ts:436](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L436)
+
+#### Inherited from
+
+[`Business`](Business.md).[`currentVersion`](Business.md#currentversion)
+
+***
+
+### db
+
+> `protected` **db**: `DrizzleSqliteDODatabase`\<`any`\>
+
+Defined in: [objects/DOTiny.ts:329](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L329)
+
+#### Inherited from
+
+[`Business`](Business.md).[`db`](Business.md#db)
+
+***
+
+### DEFAULT\_ACK\_TIMEOUT
+
+> `protected` `readonly` `static` **DEFAULT\_ACK\_TIMEOUT**: `10000` = `10000`
+
+Defined in: [objects/DOFull.ts:482](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L482)
+
+#### Inherited from
+
+[`Business`](Business.md).[`DEFAULT_ACK_TIMEOUT`](Business.md#default_ack_timeout)
+
+***
+
+### DEFAULT\_COORDINATOR\_TIMEOUT
+
+> `protected` `readonly` `static` **DEFAULT\_COORDINATOR\_TIMEOUT**: `30000` = `30000`
+
+Defined in: [objects/DOFull.ts:481](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L481)
+
+#### Inherited from
+
+[`Business`](Business.md).[`DEFAULT_COORDINATOR_TIMEOUT`](Business.md#default_coordinator_timeout)
+
+***
+
+### DEFAULT\_MAX\_RETRIES
+
+> `protected` `readonly` `static` **DEFAULT\_MAX\_RETRIES**: `3` = `3`
+
+Defined in: [objects/DOFull.ts:483](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L483)
+
+#### Inherited from
+
+[`Business`](Business.md).[`DEFAULT_MAX_RETRIES`](Business.md#default_max_retries)
+
+***
+
+### DEFAULT\_RETRY\_POLICY
+
+> `protected` `readonly` `static` **DEFAULT\_RETRY\_POLICY**: [`RetryPolicy`](../../types/interfaces/RetryPolicy.md)
+
+Defined in: [objects/DOBase.ts:1150](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1150)
+
+Default retry policy for durable execution
+
+#### Inherited from
+
+[`Business`](Business.md).[`DEFAULT_RETRY_POLICY`](Business.md#default_retry_policy)
+
+***
+
+### DEFAULT\_TOKEN\_TIMEOUT
+
+> `protected` `readonly` `static` **DEFAULT\_TOKEN\_TIMEOUT**: `number`
+
+Defined in: [objects/DOFull.ts:479](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L479)
+
+#### Inherited from
+
+[`Business`](Business.md).[`DEFAULT_TOKEN_TIMEOUT`](Business.md#default_token_timeout)
+
+***
+
+### DEFAULT\_TRY\_TIMEOUT
+
+> `protected` `readonly` `static` **DEFAULT\_TRY\_TIMEOUT**: `30000` = `30000`
+
+Defined in: [objects/DOBase.ts:1158](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOBase.ts#L1158)
+
+#### Inherited from
+
+[`Business`](Business.md).[`DEFAULT_TRY_TIMEOUT`](Business.md#default_try_timeout)
+
+***
+
+### ns
+
+> `readonly` **ns**: `string`
+
+Defined in: [objects/DOTiny.ts:283](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L283)
+
+Namespace URL - the DO's identity
+e.g., 'https://startups.studio'
+
+#### Inherited from
+
+[`Business`](Business.md).[`ns`](Business.md#ns)
+
+***
+
+### okrs
+
+> **okrs**: `Record`\<`string`, `OKR`\>
+
+Defined in: [objects/Service.ts:203](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/Service.ts#L203)
+
+Service-specific OKRs for tracking performance
+
+#### Overrides
+
+[`Business`](Business.md).[`okrs`](Business.md#okrs)
+
+***
+
+### parent?
+
+> `protected` `optional` **parent**: `string`
+
+Defined in: [objects/DOTiny.ts:295](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L295)
+
+Parent namespace URL (optional)
+Used as $context in root responses
+e.g., 'https://Startups.Studio'
+
+#### Inherited from
+
+[`Business`](Business.md).[`parent`](Business.md#parent)
+
+***
+
+### STAGING\_PREFIX
+
+> `protected` `readonly` `static` **STAGING\_PREFIX**: `"staging:"` = `'staging:'`
+
+Defined in: [objects/DOFull.ts:477](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L477)
+
+#### Inherited from
+
+[`Business`](Business.md).[`STAGING_PREFIX`](Business.md#staging_prefix)
+
+***
+
+### TWO\_PC\_PREFIX
+
+> `protected` `readonly` `static` **TWO\_PC\_PREFIX**: `"2pc:"` = `'2pc:'`
+
+Defined in: [objects/DOFull.ts:480](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L480)
+
+#### Inherited from
+
+[`Business`](Business.md).[`TWO_PC_PREFIX`](Business.md#two_pc_prefix)
+
+***
+
+### user
+
+> **user**: [`UserContext`](../../types/interfaces/UserContext.md) \| `null` = `null`
+
+Defined in: [objects/DOTiny.ts:321](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOTiny.ts#L321)
+
+Current authenticated user context.
+Extracted from X-User-* headers on each incoming request.
+Set by the RPC auth middleware before forwarding to the DO.
+
+- `null` if the request is unauthenticated (no X-User-ID header)
+- Contains `id`, optional `email`, and optional `role`
+
+#### Example
+
+```typescript
+async fetch(request: Request) {
+  // user is automatically extracted from headers
+  if (this.user) {
+    console.log(`Request from: ${this.user.id}`)
+  } else {
+    console.log('Unauthenticated request')
+  }
+}
+```
+
+#### Inherited from
+
+[`Business`](Business.md).[`user`](Business.md#user)
+
+***
+
+### VALID\_COLOS
+
+> `readonly` `static` **VALID\_COLOS**: `Set`\<`string`\>
+
+Defined in: [objects/DOFull.ts:676](https://github.com/dot-do/dotdo/blob/133603bf4355865921df6b01abcbf5c1d8e815f0/objects/DOFull.ts#L676)
+
+Valid colo codes (IATA airport codes)
+
+#### Inherited from
+
+[`Business`](Business.md).[`VALID_COLOS`](Business.md#valid_colos)

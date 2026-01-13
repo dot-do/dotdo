@@ -1,0 +1,533 @@
+---
+title: Admin Patterns
+description: Common patterns for building admin panels and back-office applications
+---
+
+# Admin Patterns
+
+Best practices and patterns for building admin panels, back-office applications, and internal tools with MDXUI.
+
+## Authentication and Authorization
+
+### Role-Based Access
+
+```tsx
+import { useAuth, withRole } from 'mdxui/auth'
+
+// Protect routes by role
+const AdminSettings = withRole(['admin'])(function Settings() {
+  return <SettingsForm />
+})
+
+// Check permissions in components
+function DeleteButton({ resource }) {
+  const { hasPermission } = useAuth()
+
+  if (!hasPermission('delete', resource)) {
+    return null
+  }
+
+  return <Button variant="destructive">Delete</Button>
+}
+```
+
+### Permission Gates
+
+```tsx
+import { Can, PermissionGate } from 'mdxui/auth'
+
+// Declarative permission checks
+<Can action="create" resource="users">
+  <Button>Add User</Button>
+</Can>
+
+// With fallback
+<PermissionGate
+  action="edit"
+  resource="settings"
+  fallback={<DisabledSettings />}
+>
+  <SettingsForm />
+</PermissionGate>
+```
+
+### Workspace Context
+
+```tsx
+import { WorkspaceProvider, useWorkspace } from 'mdxui/app'
+
+<WorkspaceProvider workspaceId={params.workspace}>
+  <App>
+    {/* All child components have access to workspace context */}
+  </App>
+</WorkspaceProvider>
+
+function WorkspaceHeader() {
+  const { workspace, switchWorkspace } = useWorkspace()
+  return (
+    <WorkspaceSwitcher
+      current={workspace}
+      onSwitch={switchWorkspace}
+    />
+  )
+}
+```
+
+## CRUD Patterns
+
+### Resource List
+
+Standard list view with search, filters, and bulk actions:
+
+```tsx
+import { ResourceList, useResourceList } from 'mdxui/admin'
+
+function UsersPage() {
+  const { data, loading, filters, pagination, selection } = useResourceList({
+    resource: 'users',
+    defaultSort: { field: 'createdAt', order: 'desc' },
+    defaultFilters: { status: 'active' }
+  })
+
+  return (
+    <ResourceList
+      title="Users"
+      data={data}
+      loading={loading}
+      columns={[
+        { key: 'name', label: 'Name', sortable: true },
+        { key: 'email', label: 'Email' },
+        { key: 'role', label: 'Role', filterable: true },
+        { key: 'status', label: 'Status', render: StatusBadge },
+      ]}
+      filters={filters}
+      pagination={pagination}
+      selection={selection}
+      actions={{
+        create: { label: 'Add User', onClick: openCreateModal },
+        bulk: [
+          { label: 'Activate', onClick: bulkActivate },
+          { label: 'Delete', onClick: bulkDelete, variant: 'destructive' },
+        ]
+      }}
+      rowActions={[
+        { label: 'Edit', onClick: openEditModal },
+        { label: 'Delete', onClick: confirmDelete },
+      ]}
+    />
+  )
+}
+```
+
+### Resource Form
+
+Create and edit forms with validation:
+
+```tsx
+import { ResourceForm, useResourceForm } from 'mdxui/admin'
+import { z } from 'zod'
+
+const userSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email('Invalid email'),
+  role: z.enum(['admin', 'member', 'viewer']),
+  status: z.enum(['active', 'inactive']),
+})
+
+function UserForm({ userId }) {
+  const { form, loading, submit } = useResourceForm({
+    resource: 'users',
+    id: userId,
+    schema: userSchema,
+  })
+
+  return (
+    <ResourceForm
+      form={form}
+      loading={loading}
+      onSubmit={submit}
+      fields={[
+        { name: 'name', label: 'Name', type: 'text' },
+        { name: 'email', label: 'Email', type: 'email' },
+        { name: 'role', label: 'Role', type: 'select', options: roles },
+        { name: 'status', label: 'Status', type: 'switch' },
+      ]}
+      layout="vertical"   // 'vertical' | 'horizontal' | 'grid'
+    />
+  )
+}
+```
+
+### Resource Detail
+
+Detail view with tabs and related resources:
+
+```tsx
+import { ResourceDetail, DetailTabs, RelatedList } from 'mdxui/admin'
+
+function UserDetail({ userId }) {
+  return (
+    <ResourceDetail resource="users" id={userId}>
+      {({ data, loading }) => (
+        <>
+          <DetailHeader
+            title={data.name}
+            subtitle={data.email}
+            avatar={data.avatar}
+            status={data.status}
+            actions={[
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Delete', onClick: confirmDelete },
+            ]}
+          />
+
+          <DetailTabs>
+            <Tab label="Overview">
+              <DetailFields
+                data={data}
+                fields={[
+                  { key: 'email', label: 'Email' },
+                  { key: 'role', label: 'Role' },
+                  { key: 'createdAt', label: 'Created', format: 'date' },
+                ]}
+              />
+            </Tab>
+
+            <Tab label="Orders">
+              <RelatedList
+                resource="orders"
+                filter={{ userId }}
+                columns={['id', 'amount', 'status', 'createdAt']}
+              />
+            </Tab>
+
+            <Tab label="Activity">
+              <ActivityTimeline userId={userId} />
+            </Tab>
+          </DetailTabs>
+        </>
+      )}
+    </ResourceDetail>
+  )
+}
+```
+
+## Navigation Patterns
+
+### Sidebar Navigation
+
+```tsx
+const adminNav = [
+  {
+    section: 'Dashboard',
+    items: [
+      { icon: 'dashboard', label: 'Overview', href: '/admin' },
+      { icon: 'chart', label: 'Analytics', href: '/admin/analytics' },
+    ]
+  },
+  {
+    section: 'Users',
+    items: [
+      { icon: 'users', label: 'All Users', href: '/admin/users' },
+      { icon: 'user-plus', label: 'Invitations', href: '/admin/invitations' },
+      { icon: 'shield', label: 'Roles', href: '/admin/roles' },
+    ]
+  },
+  {
+    section: 'Content',
+    items: [
+      { icon: 'file-text', label: 'Posts', href: '/admin/posts' },
+      { icon: 'image', label: 'Media', href: '/admin/media' },
+    ]
+  },
+  {
+    section: 'Settings',
+    items: [
+      { icon: 'settings', label: 'General', href: '/admin/settings' },
+      { icon: 'credit-card', label: 'Billing', href: '/admin/billing' },
+      { icon: 'key', label: 'API Keys', href: '/admin/api-keys' },
+    ]
+  }
+]
+
+<Sidebar nav={adminNav} />
+```
+
+### Breadcrumbs
+
+```tsx
+import { Breadcrumbs, useBreadcrumbs } from 'mdxui/admin'
+
+// Automatic breadcrumbs from route
+function AdminLayout() {
+  const breadcrumbs = useBreadcrumbs()
+  return (
+    <Header>
+      <Breadcrumbs items={breadcrumbs} />
+    </Header>
+  )
+}
+
+// Manual breadcrumbs
+<Breadcrumbs
+  items={[
+    { label: 'Admin', href: '/admin' },
+    { label: 'Users', href: '/admin/users' },
+    { label: 'John Doe' }
+  ]}
+/>
+```
+
+## Modal Patterns
+
+### Confirmation Modal
+
+```tsx
+import { ConfirmModal, useConfirm } from 'mdxui/admin'
+
+function DeleteButton({ user }) {
+  const confirm = useConfirm()
+
+  const handleDelete = async () => {
+    const confirmed = await confirm({
+      title: 'Delete User',
+      message: `Are you sure you want to delete ${user.name}?`,
+      confirmText: 'Delete',
+      variant: 'destructive'
+    })
+
+    if (confirmed) {
+      await deleteUser(user.id)
+    }
+  }
+
+  return <Button onClick={handleDelete}>Delete</Button>
+}
+```
+
+### Slide-Over Panel
+
+```tsx
+import { SlideOver, useSlideOver } from 'mdxui/admin'
+
+function UsersPage() {
+  const { open, close, isOpen } = useSlideOver()
+
+  return (
+    <>
+      <Button onClick={() => open('create')}>Add User</Button>
+
+      <SlideOver
+        open={isOpen('create')}
+        onClose={close}
+        title="Create User"
+        size="md"          // 'sm' | 'md' | 'lg' | 'xl'
+      >
+        <UserForm onSuccess={close} />
+      </SlideOver>
+    </>
+  )
+}
+```
+
+### Command Palette
+
+```tsx
+import { CommandPalette, useCommandPalette } from 'mdxui/admin'
+
+function AdminApp() {
+  return (
+    <CommandPalette
+      placeholder="Search or run a command..."
+      groups={[
+        {
+          title: 'Navigation',
+          commands: [
+            { label: 'Go to Dashboard', action: () => navigate('/admin') },
+            { label: 'Go to Users', action: () => navigate('/admin/users') },
+          ]
+        },
+        {
+          title: 'Actions',
+          commands: [
+            { label: 'Create User', action: openCreateUser },
+            { label: 'Export Data', action: exportData },
+          ]
+        }
+      ]}
+      hotkey="cmd+k"
+    />
+  )
+}
+```
+
+## Notification Patterns
+
+### Toast Notifications
+
+```tsx
+import { useToast, Toaster } from 'mdxui/admin'
+
+function UserForm() {
+  const { toast } = useToast()
+
+  const handleSubmit = async (data) => {
+    try {
+      await createUser(data)
+      toast({
+        title: 'User created',
+        description: 'The user has been successfully created.',
+        variant: 'success'
+      })
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'error'
+      })
+    }
+  }
+
+  return <Form onSubmit={handleSubmit} />
+}
+
+// Add Toaster to root layout
+<Toaster position="top-right" />
+```
+
+### Notification Center
+
+```tsx
+import { NotificationCenter, useNotifications } from 'mdxui/admin'
+
+function Header() {
+  const { unreadCount, markAllRead } = useNotifications()
+
+  return (
+    <NotificationCenter
+      unreadCount={unreadCount}
+      onMarkAllRead={markAllRead}
+      renderNotification={(notification) => (
+        <NotificationItem
+          title={notification.title}
+          message={notification.message}
+          timestamp={notification.createdAt}
+          read={notification.read}
+        />
+      )}
+    />
+  )
+}
+```
+
+## Error Handling
+
+### Error Boundaries
+
+```tsx
+import { AdminErrorBoundary, ErrorPage } from 'mdxui/admin'
+
+function AdminLayout({ children }) {
+  return (
+    <AdminErrorBoundary
+      fallback={({ error, reset }) => (
+        <ErrorPage
+          title="Something went wrong"
+          message={error.message}
+          action={{ label: 'Try again', onClick: reset }}
+        />
+      )}
+    >
+      {children}
+    </AdminErrorBoundary>
+  )
+}
+```
+
+### Empty States
+
+```tsx
+import { EmptyState } from 'mdxui/admin'
+
+function UsersList({ users }) {
+  if (users.length === 0) {
+    return (
+      <EmptyState
+        icon="users"
+        title="No users yet"
+        description="Get started by inviting your first user."
+        action={{ label: 'Invite User', onClick: openInvite }}
+      />
+    )
+  }
+
+  return <DataTable data={users} />
+}
+```
+
+### Loading States
+
+```tsx
+import { Skeleton, TableSkeleton, CardSkeleton } from 'mdxui/admin'
+
+// Table loading
+<TableSkeleton rows={5} columns={4} />
+
+// Card loading
+<CardSkeleton count={3} />
+
+// Custom skeleton
+<Skeleton className="h-32 w-full" />
+```
+
+## Audit and Activity
+
+### Audit Log
+
+```tsx
+import { AuditLog } from 'mdxui/admin'
+
+<AuditLog
+  resource="users"
+  resourceId={userId}
+  showUser
+  showTimestamp
+  showDetails
+  filter={{
+    actions: ['create', 'update', 'delete'],
+    dateRange: { start: startDate, end: endDate }
+  }}
+/>
+```
+
+### Activity Timeline
+
+```tsx
+import { ActivityTimeline } from 'mdxui/admin'
+
+<ActivityTimeline
+  activities={[
+    {
+      type: 'created',
+      user: { name: 'Alice', avatar: '/alice.jpg' },
+      timestamp: new Date(),
+      description: 'Created the user account'
+    },
+    {
+      type: 'updated',
+      user: { name: 'Bob' },
+      timestamp: new Date(),
+      description: 'Changed role to Admin',
+      changes: { role: { from: 'member', to: 'admin' } }
+    }
+  ]}
+  showChanges
+/>
+```
+
+## Related
+
+- [UI Overview](/docs/ui) - Introduction to MDXUI
+- [Cockpit](/docs/ui/cockpit) - Dashboard components
+- [Components](/docs/ui/components) - Primitive components
+- [Security](/docs/security) - Authentication and authorization

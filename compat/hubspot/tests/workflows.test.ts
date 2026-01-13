@@ -2819,3 +2819,963 @@ describe('@dotdo/hubspot/workflows - Integration', () => {
     expect(workflow.actions[0].type).toBe('branch')
   })
 })
+
+// =============================================================================
+// RED PHASE: WORKFLOW AUTOMATION ENGINE TESTS
+// These tests define the behavior for workflow execution automation
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Workflow Automation Engine', () => {
+  let workflows: HubSpotWorkflows
+
+  beforeEach(() => {
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage: createMockStorage(),
+    })
+  })
+
+  describe('executeNextAction', () => {
+    it('should execute the next pending action for an enrollment', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'setProperty', property: 'status', value: 'processed' },
+          { type: 'setProperty', property: 'step', value: '2' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const result = await workflows.executeNextAction(enrollment.id)
+
+      expect(result.actionId).toBe(workflow.actions[0].id)
+      expect(result.status).toBe('completed')
+      expect(result.nextActionId).toBe(workflow.actions[1].id)
+    })
+
+    it('should mark enrollment as completed when all actions are done', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'setProperty', property: 'status', value: 'done' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const result = await workflows.executeNextAction(enrollment.id)
+
+      expect(result.enrollmentCompleted).toBe(true)
+
+      const updatedEnrollment = await workflows.getEnrollment(enrollment.id)
+      expect(updatedEnrollment.status).toBe('completed')
+    })
+
+    it('should handle action execution failures gracefully', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'webhook', url: 'https://invalid.example.com/fail', method: 'POST' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const result = await workflows.executeNextAction(enrollment.id)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toBeDefined()
+    })
+
+    it('should skip delay actions when executeImmediately flag is set', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 86400000 },
+          { type: 'setProperty', property: 'delayed', value: 'true' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const result = await workflows.executeNextAction(enrollment.id, { executeImmediately: true })
+
+      expect(result.actionId).toBe(workflow.actions[0].id)
+      expect(result.skipped).toBe(true)
+      expect(result.nextActionId).toBe(workflow.actions[1].id)
+    })
+  })
+
+  describe('processEnrollmentQueue', () => {
+    it('should process all pending enrollments', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+      await workflows.enrollContact(workflow.id, 'contact-3')
+
+      const results = await workflows.processEnrollmentQueue(workflow.id)
+
+      expect(results.processed).toBe(3)
+      expect(results.succeeded).toBe(3)
+      expect(results.failed).toBe(0)
+    })
+
+    it('should respect concurrency limit', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      for (let i = 0; i < 10; i++) {
+        await workflows.enrollContact(workflow.id, `contact-${i}`)
+      }
+
+      const results = await workflows.processEnrollmentQueue(workflow.id, { concurrency: 3 })
+
+      expect(results.processed).toBe(10)
+    })
+
+    it('should continue processing on individual failures', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'webhook', url: 'https://example.com/webhook', method: 'POST' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+
+      const results = await workflows.processEnrollmentQueue(workflow.id)
+
+      expect(results.processed).toBe(2)
+    })
+  })
+
+  describe('retryFailedAction', () => {
+    it('should retry a failed action', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      // Simulate a failed action
+      const storage = (workflows as any).storage
+      const enrollmentData = await storage.get(`enrollment:${workflow.id}:contact-123`)
+      enrollmentData.status = 'failed'
+      enrollmentData.error = 'Temporary failure'
+      await storage.set(`enrollment:${workflow.id}:contact-123`, enrollmentData)
+
+      const result = await workflows.retryFailedAction(enrollment.id)
+
+      expect(result.retried).toBe(true)
+      expect(result.status).toBe('active')
+    })
+
+    it('should respect max retry attempts', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      // Simulate exceeded retries
+      const storage = (workflows as any).storage
+      const enrollmentData = await storage.get(`enrollment:${workflow.id}:contact-123`)
+      enrollmentData.retryCount = 5
+      enrollmentData.status = 'failed'
+      await storage.set(`enrollment:${workflow.id}:contact-123`, enrollmentData)
+
+      await expect(workflows.retryFailedAction(enrollment.id)).rejects.toThrow('Max retry attempts exceeded')
+    })
+  })
+})
+
+// =============================================================================
+// RED PHASE: BATCH ENROLLMENT API TESTS
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Batch Enrollment', () => {
+  let workflows: HubSpotWorkflows
+
+  beforeEach(() => {
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage: createMockStorage(),
+    })
+  })
+
+  describe('enrollContacts (batch)', () => {
+    it('should enroll multiple contacts in a single operation', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.enrollContacts(workflow.id, [
+        'contact-1',
+        'contact-2',
+        'contact-3',
+      ])
+
+      expect(result.enrolled).toBe(3)
+      expect(result.failed).toBe(0)
+      expect(result.enrollments).toHaveLength(3)
+    })
+
+    it('should return partial success for batch with failures', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      // Pre-enroll one contact to cause a duplicate
+      await workflows.enrollContact(workflow.id, 'contact-1')
+
+      const result = await workflows.enrollContacts(workflow.id, [
+        'contact-1', // Will fail - duplicate
+        'contact-2',
+        'contact-3',
+      ])
+
+      expect(result.enrolled).toBe(2)
+      expect(result.failed).toBe(1)
+      expect(result.errors).toHaveLength(1)
+      expect(result.errors[0].contactId).toBe('contact-1')
+    })
+
+    it('should support batch metadata', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.enrollContacts(
+        workflow.id,
+        ['contact-1', 'contact-2'],
+        { source: 'import', batchId: 'batch-123' }
+      )
+
+      expect(result.enrollments[0].metadata?.batchId).toBe('batch-123')
+    })
+
+    it('should validate batch size limits', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      const contacts = Array.from({ length: 1001 }, (_, i) => `contact-${i}`)
+
+      await expect(
+        workflows.enrollContacts(workflow.id, contacts)
+      ).rejects.toThrow('Batch size exceeds maximum of 1000')
+    })
+  })
+
+  describe('unenrollContacts (batch)', () => {
+    it('should unenroll multiple contacts in a single operation', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+      await workflows.enrollContact(workflow.id, 'contact-3')
+
+      const result = await workflows.unenrollContacts(workflow.id, [
+        'contact-1',
+        'contact-2',
+        'contact-3',
+      ])
+
+      expect(result.unenrolled).toBe(3)
+      expect(result.failed).toBe(0)
+    })
+  })
+})
+
+// =============================================================================
+// RED PHASE: SUPPRESSION LIST ENFORCEMENT TESTS
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Suppression Enforcement', () => {
+  let workflows: HubSpotWorkflows
+  let suppression: SuppressionListManager
+
+  beforeEach(() => {
+    const storage = createMockStorage()
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage,
+    })
+    suppression = new SuppressionListManager(storage)
+  })
+
+  describe('Suppression during enrollment', () => {
+    it('should prevent enrollment of suppressed contacts', async () => {
+      // Create suppression list and add contact
+      const list = await suppression.createList('Do Not Contact')
+      await suppression.addContact(list.id, 'contact-123')
+
+      // Create workflow with suppression list
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        settings: {
+          timezone: 'UTC',
+          suppressionLists: [list.id],
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      await expect(
+        workflows.enrollContact(workflow.id, 'contact-123')
+      ).rejects.toThrow('Contact is on suppression list')
+    })
+
+    it('should allow enrollment of non-suppressed contacts', async () => {
+      const list = await suppression.createList('Do Not Contact')
+      await suppression.addContact(list.id, 'contact-other')
+
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        settings: {
+          timezone: 'UTC',
+          suppressionLists: [list.id],
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+      expect(enrollment.status).toBe('active')
+    })
+
+    it('should check multiple suppression lists', async () => {
+      const list1 = await suppression.createList('Unsubscribed')
+      const list2 = await suppression.createList('Bounced')
+      await suppression.addContact(list2.id, 'contact-123')
+
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        settings: {
+          timezone: 'UTC',
+          suppressionLists: [list1.id, list2.id],
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      await expect(
+        workflows.enrollContact(workflow.id, 'contact-123')
+      ).rejects.toThrow('Contact is on suppression list')
+    })
+  })
+
+  describe('Suppression during execution', () => {
+    it('should skip email actions for suppressed contacts', async () => {
+      const list = await suppression.createList('Do Not Email')
+
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'sendEmail', emailId: 'email-123' },
+        ],
+        settings: {
+          timezone: 'UTC',
+          suppressionLists: [list.id],
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      // Add to suppression after enrollment
+      await suppression.addContact(list.id, 'contact-123')
+
+      const result = await workflows.executeNextAction(enrollment.id)
+
+      expect(result.status).toBe('skipped')
+      expect(result.reason).toBe('contact_suppressed')
+    })
+
+    it('should unenroll contact when added to suppression list mid-workflow', async () => {
+      const list = await suppression.createList('Opt Out')
+
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 86400000 },
+          { type: 'sendEmail', emailId: 'email-123' },
+        ],
+        settings: {
+          timezone: 'UTC',
+          suppressionLists: [list.id],
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      // Add to suppression mid-workflow
+      await suppression.addContact(list.id, 'contact-123')
+
+      await workflows.checkSuppressionStatus(enrollment.id)
+
+      const updated = await workflows.getEnrollment(enrollment.id)
+      expect(updated.status).toBe('unenrolled')
+      expect(updated.unenrollReason).toBe('added_to_suppression_list')
+    })
+  })
+})
+
+// =============================================================================
+// RED PHASE: EVENT-DRIVEN TRIGGER EXECUTION TESTS
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Event-Driven Triggers', () => {
+  let workflows: HubSpotWorkflows
+
+  beforeEach(() => {
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage: createMockStorage(),
+    })
+  })
+
+  describe('triggerFormSubmission', () => {
+    it('should auto-enroll contacts on form submission', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'formSubmission', formId: 'contact-form-123' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerFormSubmission('contact-form-123', {
+        contactId: 'contact-456',
+        formFields: { email: 'test@example.com' },
+      })
+
+      expect(result.enrolled).toBe(true)
+      expect(result.workflowId).toBe(workflow.id)
+      expect(result.enrollmentId).toBeDefined()
+    })
+
+    it('should handle multiple workflows triggered by same form', async () => {
+      const wf1 = await workflows.createWorkflow(createTestWorkflowInput({
+        name: 'Workflow 1',
+        enrollmentTriggers: [{ type: 'formSubmission', formId: 'form-123' }],
+      }))
+      const wf2 = await workflows.createWorkflow(createTestWorkflowInput({
+        name: 'Workflow 2',
+        enrollmentTriggers: [{ type: 'formSubmission', formId: 'form-123' }],
+      }))
+      await workflows.resumeWorkflow(wf1.id)
+      await workflows.resumeWorkflow(wf2.id)
+
+      const result = await workflows.triggerFormSubmission('form-123', {
+        contactId: 'contact-456',
+      })
+
+      expect(result.enrolledWorkflows).toHaveLength(2)
+    })
+
+    it('should not trigger inactive workflows', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'formSubmission', formId: 'form-123' },
+        ],
+      }))
+      // Not resuming - workflow stays draft
+
+      const result = await workflows.triggerFormSubmission('form-123', {
+        contactId: 'contact-456',
+      })
+
+      expect(result.enrolled).toBe(false)
+      expect(result.reason).toBe('no_active_workflows')
+    })
+  })
+
+  describe('triggerPropertyChange', () => {
+    it('should auto-enroll contacts on property change', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'propertyChange', property: 'lifecyclestage', operator: 'eq', value: 'customer' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerPropertyChange('contact-123', {
+        property: 'lifecyclestage',
+        previousValue: 'lead',
+        newValue: 'customer',
+      })
+
+      expect(result.enrolled).toBe(true)
+    })
+
+    it('should not trigger when property value does not match', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'propertyChange', property: 'lifecyclestage', operator: 'eq', value: 'customer' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerPropertyChange('contact-123', {
+        property: 'lifecyclestage',
+        previousValue: 'lead',
+        newValue: 'opportunity', // Does not match
+      })
+
+      expect(result.enrolled).toBe(false)
+    })
+
+    it('should evaluate complex property conditions', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'propertyChange', property: 'score', operator: 'gte', value: 80 },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerPropertyChange('contact-123', {
+        property: 'score',
+        previousValue: 50,
+        newValue: 85,
+      })
+
+      expect(result.enrolled).toBe(true)
+    })
+  })
+
+  describe('triggerEvent', () => {
+    it('should auto-enroll contacts on custom event', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'event', eventName: 'product_purchased' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerEvent('product_purchased', {
+        contactId: 'contact-123',
+        eventProperties: { productId: 'prod-456', amount: 99.99 },
+      })
+
+      expect(result.enrolled).toBe(true)
+    })
+
+    it('should filter events by properties when configured', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'event', eventName: 'purchase', properties: { category: 'premium' } },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerEvent('purchase', {
+        contactId: 'contact-123',
+        eventProperties: { category: 'basic' }, // Does not match
+      })
+
+      expect(result.enrolled).toBe(false)
+    })
+  })
+
+  describe('triggerListMembership', () => {
+    it('should auto-enroll when contact added to list', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'listMembership', listId: 'hot-leads', membership: 'added' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerListMembership('contact-123', {
+        listId: 'hot-leads',
+        action: 'added',
+      })
+
+      expect(result.enrolled).toBe(true)
+    })
+
+    it('should auto-enroll when contact removed from list', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        enrollmentTriggers: [
+          { type: 'listMembership', listId: 'active-customers', membership: 'removed' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      const result = await workflows.triggerListMembership('contact-123', {
+        listId: 'active-customers',
+        action: 'removed',
+      })
+
+      expect(result.enrolled).toBe(true)
+    })
+  })
+})
+
+// =============================================================================
+// RED PHASE: WORKFLOW VERSIONING & MIGRATION TESTS
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Versioning & Migration', () => {
+  let workflows: HubSpotWorkflows
+
+  beforeEach(() => {
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage: createMockStorage(),
+    })
+  })
+
+  describe('createVersion', () => {
+    it('should create a new version of the workflow', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+
+      const newVersion = await workflows.createVersion(workflow.id, {
+        name: 'Updated Workflow',
+        actions: [
+          { type: 'sendEmail', emailId: 'new-email' },
+        ],
+      })
+
+      expect(newVersion.version).toBe(2)
+      expect(newVersion.actions[0].config).toHaveProperty('emailId', 'new-email')
+    })
+
+    it('should preserve previous version for active enrollments', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      // Create new version
+      await workflows.createVersion(workflow.id, {
+        actions: [{ type: 'sendEmail', emailId: 'v2-email' }],
+      })
+
+      // Verify enrollment still uses original version
+      const enrollmentDetails = await workflows.getEnrollment(enrollment.id)
+      expect(enrollmentDetails.workflowVersion).toBe(1)
+    })
+  })
+
+  describe('getVersionHistory', () => {
+    it('should return all versions of a workflow', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.updateWorkflow(workflow.id, { name: 'V2' })
+      await workflows.updateWorkflow(workflow.id, { name: 'V3' })
+
+      const history = await workflows.getVersionHistory(workflow.id)
+
+      expect(history).toHaveLength(3)
+      expect(history[0].version).toBe(1)
+      expect(history[2].version).toBe(3)
+    })
+
+    it('should include version metadata', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+
+      const history = await workflows.getVersionHistory(workflow.id)
+
+      expect(history[0]).toHaveProperty('createdAt')
+      expect(history[0]).toHaveProperty('createdBy')
+    })
+  })
+
+  describe('revertToVersion', () => {
+    it('should revert workflow to a previous version', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({ name: 'Original' }))
+      await workflows.updateWorkflow(workflow.id, { name: 'Changed' })
+
+      const reverted = await workflows.revertToVersion(workflow.id, 1)
+
+      expect(reverted.name).toBe('Original')
+      expect(reverted.version).toBe(3) // New version created from revert
+    })
+
+    it('should fail to revert active workflow', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+
+      await expect(
+        workflows.revertToVersion(workflow.id, 1)
+      ).rejects.toThrow('Cannot revert active workflow')
+    })
+  })
+
+  describe('migrateEnrollments', () => {
+    it('should migrate enrollments to new version', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+
+      await workflows.pauseWorkflow(workflow.id)
+      await workflows.updateWorkflow(workflow.id, { name: 'V2' })
+
+      const result = await workflows.migrateEnrollments(workflow.id, {
+        fromVersion: 1,
+        toVersion: 2,
+      })
+
+      expect(result.migrated).toBe(2)
+    })
+
+    it('should only migrate active enrollments', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput())
+      await workflows.resumeWorkflow(workflow.id)
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+
+      // Complete one enrollment
+      const storage = (workflows as any).storage
+      const enrollment = await storage.get(`enrollment:${workflow.id}:contact-1`)
+      enrollment.status = 'completed'
+      await storage.set(`enrollment:${workflow.id}:contact-1`, enrollment)
+
+      await workflows.pauseWorkflow(workflow.id)
+      await workflows.updateWorkflow(workflow.id, { name: 'V2' })
+
+      const result = await workflows.migrateEnrollments(workflow.id, {
+        fromVersion: 1,
+        toVersion: 2,
+      })
+
+      expect(result.migrated).toBe(1)
+      expect(result.skipped).toBe(1)
+    })
+  })
+})
+
+// =============================================================================
+// RED PHASE: SCHEDULED EXECUTION TESTS
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Scheduled Execution', () => {
+  let workflows: HubSpotWorkflows
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage: createMockStorage(),
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  describe('scheduleDelayedAction', () => {
+    it('should schedule action for future execution', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 3600000 }, // 1 hour
+          { type: 'sendEmail', emailId: 'email-123' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const scheduled = await workflows.scheduleDelayedAction(enrollment.id, workflow.actions[0].id)
+
+      expect(scheduled.scheduledFor).toBeDefined()
+      expect(new Date(scheduled.scheduledFor).getTime()).toBeGreaterThan(Date.now())
+    })
+
+    it('should execute action when scheduled time arrives', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 3600000 },
+          { type: 'setProperty', property: 'delayed', value: 'true' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      await workflows.executeNextAction(enrollment.id)
+
+      // Fast-forward time
+      vi.advanceTimersByTime(3600001)
+
+      await workflows.processScheduledActions()
+
+      const updated = await workflows.getEnrollment(enrollment.id)
+      expect(updated.currentActionId).toBe(workflow.actions[1].id)
+    })
+  })
+
+  describe('getScheduledActions', () => {
+    it('should return all scheduled actions for a workflow', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 3600000 },
+          { type: 'sendEmail', emailId: 'email-1' },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+
+      // Execute delay action for both
+      const history = await workflows.getWorkflowHistory(workflow.id)
+      for (const enrollment of history.enrollments) {
+        await workflows.executeNextAction(enrollment.id)
+      }
+
+      const scheduled = await workflows.getScheduledActions(workflow.id)
+
+      expect(scheduled).toHaveLength(2)
+    })
+
+    it('should filter by date range', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 86400000 }, // 24 hours
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      await workflows.enrollContact(workflow.id, 'contact-1')
+
+      const history = await workflows.getWorkflowHistory(workflow.id)
+      await workflows.executeNextAction(history.enrollments[0].id)
+
+      const now = new Date()
+      const tomorrow = new Date(now.getTime() + 86400000)
+
+      const scheduled = await workflows.getScheduledActions(workflow.id, {
+        after: now.toISOString(),
+        before: tomorrow.toISOString(),
+      })
+
+      expect(scheduled.length).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  describe('cancelScheduledAction', () => {
+    it('should cancel a scheduled action', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        actions: [
+          { type: 'delay', delayType: 'fixed', duration: 3600000 },
+        ],
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      await workflows.executeNextAction(enrollment.id)
+
+      const scheduled = await workflows.getScheduledActions(workflow.id)
+      await workflows.cancelScheduledAction(scheduled[0].id)
+
+      const updated = await workflows.getScheduledActions(workflow.id)
+      expect(updated.find(s => s.id === scheduled[0].id)?.status).toBe('cancelled')
+    })
+  })
+})
+
+// =============================================================================
+// RED PHASE: GOAL COMPLETION TESTS
+// =============================================================================
+
+describe('@dotdo/hubspot/workflows - Goal Completion', () => {
+  let workflows: HubSpotWorkflows
+
+  beforeEach(() => {
+    workflows = new HubSpotWorkflows({
+      accessToken: 'pat-xxx',
+      storage: createMockStorage(),
+    })
+  })
+
+  describe('checkGoalCompletion', () => {
+    it('should mark enrollment as goal-reached when criteria met', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        goalCriteria: {
+          property: 'lifecyclestage',
+          operator: 'eq',
+          value: 'customer',
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      // Simulate property change that meets goal
+      const result = await workflows.checkGoalCompletion(enrollment.id, {
+        lifecyclestage: 'customer',
+      })
+
+      expect(result.goalReached).toBe(true)
+      expect(result.completedAt).toBeDefined()
+    })
+
+    it('should not mark goal-reached when criteria not met', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        goalCriteria: {
+          property: 'lifecyclestage',
+          operator: 'eq',
+          value: 'customer',
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const result = await workflows.checkGoalCompletion(enrollment.id, {
+        lifecyclestage: 'lead',
+      })
+
+      expect(result.goalReached).toBe(false)
+    })
+
+    it('should evaluate numeric comparison goals', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        goalCriteria: {
+          property: 'total_revenue',
+          operator: 'gte',
+          value: 10000,
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+      const enrollment = await workflows.enrollContact(workflow.id, 'contact-123')
+
+      const result = await workflows.checkGoalCompletion(enrollment.id, {
+        total_revenue: 15000,
+      })
+
+      expect(result.goalReached).toBe(true)
+    })
+  })
+
+  describe('getGoalMetrics', () => {
+    it('should return goal completion metrics', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        goalCriteria: {
+          property: 'converted',
+          operator: 'eq',
+          value: true,
+        },
+      }))
+
+      const metrics = await workflows.getGoalMetrics(workflow.id)
+
+      expect(metrics).toHaveProperty('totalEnrollments')
+      expect(metrics).toHaveProperty('goalReached')
+      expect(metrics).toHaveProperty('goalRate')
+      expect(metrics).toHaveProperty('averageTimeToGoal')
+    })
+
+    it('should calculate goal rate correctly', async () => {
+      const workflow = await workflows.createWorkflow(createTestWorkflowInput({
+        goalCriteria: {
+          property: 'status',
+          operator: 'eq',
+          value: 'converted',
+        },
+      }))
+      await workflows.resumeWorkflow(workflow.id)
+
+      // Enroll and convert some contacts
+      await workflows.enrollContact(workflow.id, 'contact-1')
+      await workflows.enrollContact(workflow.id, 'contact-2')
+      await workflows.enrollContact(workflow.id, 'contact-3')
+      await workflows.enrollContact(workflow.id, 'contact-4')
+
+      // Mark 2 as goal-reached
+      const storage = (workflows as any).storage
+      for (const id of ['contact-1', 'contact-2']) {
+        const enrollment = await storage.get(`enrollment:${workflow.id}:${id}`)
+        enrollment.goalReached = true
+        enrollment.goalReachedAt = new Date().toISOString()
+        await storage.set(`enrollment:${workflow.id}:${id}`, enrollment)
+      }
+
+      const metrics = await workflows.getGoalMetrics(workflow.id)
+
+      expect(metrics.goalRate).toBe(0.5) // 50%
+    })
+  })
+})

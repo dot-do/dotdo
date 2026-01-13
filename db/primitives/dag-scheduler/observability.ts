@@ -65,6 +65,24 @@ export interface DAGMetrics {
   }
 }
 
+/** Percentile calculation result */
+export interface PercentileResult {
+  p50: number
+  p90: number
+  p95: number
+  p99: number
+}
+
+/** Snapshot of all metrics at a point in time */
+export interface MetricsSnapshot {
+  timestamp: number
+  tasks: Record<string, TaskMetrics>
+  dags: Record<string, DAGMetrics>
+}
+
+/** Observer interface (alias for DAGObserver) */
+export type Observer = DAGObserver
+
 /** Options for filtering metrics */
 export interface MetricsFilterOptions {
   windowMs?: number
@@ -735,13 +753,65 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
       logger.info('DAG started', { dagId: dag.id, runId })
     }
 
-    // Call observers
+    // Call observers for DAG start
     for (const obs of allObservers) {
       try {
         await obs.onDAGStart?.(dag, runId)
       } catch {
         // Ignore observer errors
       }
+    }
+
+    // Wrap tasks with instrumented retry policies to capture retry events
+    const instrumentedTasks = new Map<string, TaskNode>()
+    for (const [taskId, task] of dag.tasks) {
+      const wrappedTask = { ...task }
+
+      // If task has a retry policy, wrap its onRetry callback
+      if (task.retryPolicy) {
+        const originalOnRetry = task.retryPolicy.onRetry
+        wrappedTask.retryPolicy = {
+          ...task.retryPolicy,
+          onRetry: (attempt: number, error: Error) => {
+            // Call original callback
+            originalOnRetry?.(attempt, error)
+
+            // Record metrics
+            if (metricsCollector) {
+              metricsCollector.recordRetry(dag.id, runId, task.id, attempt, error)
+            }
+
+            // Log retry
+            if (logger) {
+              logger.warn('Task retrying', {
+                taskId: task.id,
+                dagId: dag.id,
+                runId,
+                attempt,
+                error: error.message,
+              })
+            }
+
+            // Call observers for retry - Note: this is sync because onRetry is sync in the policy
+            for (const obs of allObservers) {
+              try {
+                // We need to call sync because the policy callback is sync
+                const result = obs.onRetry?.(task, attempt, error)
+                // If it returns a promise, we can't await it here, but we call it anyway
+              } catch {
+                // Ignore observer errors
+              }
+            }
+          },
+        }
+      }
+      instrumentedTasks.set(taskId, wrappedTask)
+    }
+
+    // Create instrumented DAG with wrapped tasks
+    const instrumentedDAG: DAG = {
+      ...dag,
+      tasks: instrumentedTasks,
     }
 
     // Create instrumented callbacks
@@ -764,7 +834,7 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
           logger.info('Task started', { taskId: task.id, dagId: dag.id, runId })
         }
 
-        // Call observers
+        // Call observers - await each one in sequence
         for (const obs of allObservers) {
           try {
             await obs.onTaskStart?.(task, runId)
@@ -821,7 +891,7 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
           }
         }
 
-        // Call observers
+        // Call observers - await each one in sequence to ensure ordering
         for (const obs of allObservers) {
           try {
             await obs.onTaskComplete?.(task, runId, result)
@@ -836,8 +906,8 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
     }
 
     try {
-      // Execute the DAG
-      const result = await baseExecutor.execute(dag, instrumentedOptions)
+      // Execute the instrumented DAG
+      const result = await baseExecutor.execute(instrumentedDAG, instrumentedOptions)
 
       const duration = Date.now() - startTime
 
@@ -898,5 +968,261 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
     getSLAMonitor(): SLAMonitor | undefined {
       return slaMonitor
     },
+  }
+}
+
+// ============================================================================
+// HEALTH CHECK INTEGRATION
+// ============================================================================
+
+/** Health check status for DAG scheduler */
+export interface DAGHealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  message: string
+  timestamp: number
+  details: {
+    activeDags: number
+    runningTasks: number
+    slaViolations: number
+    recentFailures: number
+    metricsAvailable: boolean
+  }
+}
+
+/** Options for creating a DAG health check */
+export interface DAGHealthCheckOptions {
+  /** Metrics collector to check */
+  metricsCollector?: MetricsCollector
+  /** SLA monitor to check */
+  slaMonitor?: SLAMonitor
+  /** Failure threshold to consider unhealthy (default: 5) */
+  failureThreshold?: number
+  /** Time window for recent failures in ms (default: 300000 = 5 minutes) */
+  failureWindowMs?: number
+  /** SLA violation threshold to consider degraded (default: 1) */
+  slaViolationThreshold?: number
+}
+
+/** Create a health check function for DAG scheduler */
+export function createDAGHealthCheck(options: DAGHealthCheckOptions = {}): () => DAGHealthStatus {
+  const {
+    metricsCollector,
+    slaMonitor,
+    failureThreshold = 5,
+    failureWindowMs = 300000,
+    slaViolationThreshold = 1,
+  } = options
+
+  return (): DAGHealthStatus => {
+    const timestamp = Date.now()
+    let status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy'
+    let message = 'DAG scheduler is healthy'
+
+    // Count recent failures from metrics
+    let recentFailures = 0
+    let runningTasks = 0
+    let activeDags = 0
+
+    if (metricsCollector) {
+      const events = metricsCollector.getEvents()
+      const cutoff = timestamp - failureWindowMs
+
+      // Count recent task failures
+      recentFailures = events.filter(
+        (e) => e.type === 'task_complete' && e.status === 'failed' && e.timestamp >= cutoff
+      ).length
+
+      // Count currently running tasks (tasks that started but haven't completed)
+      const startedTasks = new Set<string>()
+      const completedTasks = new Set<string>()
+      for (const e of events) {
+        if (e.type === 'task_start' && e.taskId) {
+          startedTasks.add(`${e.runId}:${e.taskId}`)
+        } else if (e.type === 'task_complete' && e.taskId) {
+          completedTasks.add(`${e.runId}:${e.taskId}`)
+        }
+      }
+      runningTasks = [...startedTasks].filter((t) => !completedTasks.has(t)).length
+
+      // Count active DAGs (DAGs that started but haven't completed)
+      const startedDags = new Set<string>()
+      const completedDags = new Set<string>()
+      for (const e of events) {
+        if (e.type === 'dag_start') {
+          startedDags.add(e.runId)
+        } else if (e.type === 'dag_complete') {
+          completedDags.add(e.runId)
+        }
+      }
+      activeDags = [...startedDags].filter((d) => !completedDags.has(d)).length
+    }
+
+    // Check SLA violations
+    let slaViolations = 0
+    if (slaMonitor) {
+      const violations = slaMonitor.getViolationHistory({ since: timestamp - failureWindowMs })
+      slaViolations = violations.length
+    }
+
+    // Determine health status
+    if (recentFailures >= failureThreshold) {
+      status = 'unhealthy'
+      message = `DAG scheduler is unhealthy: ${recentFailures} recent task failures`
+    } else if (slaViolations >= slaViolationThreshold) {
+      status = 'degraded'
+      message = `DAG scheduler is degraded: ${slaViolations} SLA violations in the last ${failureWindowMs / 1000}s`
+    } else if (recentFailures > 0) {
+      status = 'degraded'
+      message = `DAG scheduler has ${recentFailures} recent failures`
+    }
+
+    return {
+      status,
+      message,
+      timestamp,
+      details: {
+        activeDags,
+        runningTasks,
+        slaViolations,
+        recentFailures,
+        metricsAvailable: !!metricsCollector,
+      },
+    }
+  }
+}
+
+/** Health endpoint response format */
+export interface HealthEndpointResponse {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  version: string
+  timestamp: string
+  checks: Array<{
+    name: string
+    status: 'healthy' | 'degraded' | 'unhealthy'
+    message: string
+    duration?: number
+  }>
+  metrics?: {
+    dagRuns: { total: number; completed: number; failed: number }
+    taskRuns: { total: number; success: number; failed: number }
+    slaViolations: number
+  }
+}
+
+/** Options for creating health endpoint handler */
+export interface HealthEndpointOptions {
+  /** Version string to include in response */
+  version?: string
+  /** Observable executor to get health from */
+  executor?: ObservableExecutor
+  /** Additional health check functions */
+  additionalChecks?: Array<{
+    name: string
+    check: () => Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; message: string }>
+  }>
+}
+
+/** Create a health endpoint handler */
+export function createHealthEndpointHandler(
+  options: HealthEndpointOptions = {}
+): () => Promise<HealthEndpointResponse> {
+  const { version = '1.0.0', executor, additionalChecks = [] } = options
+
+  return async (): Promise<HealthEndpointResponse> => {
+    const checks: HealthEndpointResponse['checks'] = []
+    let overallStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy'
+
+    /** Helper to update overall status with proper priority */
+    const updateOverallStatus = (status: 'healthy' | 'degraded' | 'unhealthy') => {
+      if (status === 'unhealthy') {
+        overallStatus = 'unhealthy'
+      } else if (status === 'degraded' && overallStatus === 'healthy') {
+        overallStatus = 'degraded'
+      }
+    }
+
+    // Check DAG scheduler health if executor is provided
+    if (executor) {
+      const metricsCollector = executor.getMetricsCollector()
+      const slaMonitor = executor.getSLAMonitor()
+
+      if (metricsCollector || slaMonitor) {
+        const dagHealth = createDAGHealthCheck({ metricsCollector, slaMonitor })()
+        checks.push({
+          name: 'dag-scheduler',
+          status: dagHealth.status,
+          message: dagHealth.message,
+        })
+        updateOverallStatus(dagHealth.status)
+      }
+    }
+
+    // Run additional checks
+    for (const { name, check } of additionalChecks) {
+      const startTime = Date.now()
+      try {
+        const result = await check()
+        checks.push({
+          name,
+          status: result.status,
+          message: result.message,
+          duration: Date.now() - startTime,
+        })
+        updateOverallStatus(result.status)
+      } catch (error) {
+        checks.push({
+          name,
+          status: 'unhealthy',
+          message: error instanceof Error ? error.message : 'Check failed',
+          duration: Date.now() - startTime,
+        })
+        updateOverallStatus('unhealthy')
+      }
+    }
+
+    // Build metrics summary if available
+    let metrics: HealthEndpointResponse['metrics']
+    if (executor) {
+      const metricsCollector = executor.getMetricsCollector()
+      const slaMonitor = executor.getSLAMonitor()
+
+      if (metricsCollector) {
+        const json = metricsCollector.toJSON()
+        let dagTotal = 0,
+          dagCompleted = 0,
+          dagFailed = 0
+        let taskTotal = 0,
+          taskSuccess = 0,
+          taskFailed = 0
+
+        for (const dagMetrics of Object.values(json.dags)) {
+          dagTotal += dagMetrics.totalRuns
+          dagCompleted += dagMetrics.completedCount
+          dagFailed += dagMetrics.failedCount
+        }
+
+        for (const taskMetrics of Object.values(json.tasks)) {
+          taskTotal += taskMetrics.totalRuns
+          taskSuccess += taskMetrics.successCount
+          taskFailed += taskMetrics.failureCount
+        }
+
+        const slaViolations = slaMonitor?.getViolationHistory().length ?? 0
+
+        metrics = {
+          dagRuns: { total: dagTotal, completed: dagCompleted, failed: dagFailed },
+          taskRuns: { total: taskTotal, success: taskSuccess, failed: taskFailed },
+          slaViolations,
+        }
+      }
+    }
+
+    return {
+      status: overallStatus,
+      version,
+      timestamp: new Date().toISOString(),
+      checks,
+      metrics,
+    }
   }
 }

@@ -1,18 +1,155 @@
 /**
- * API - REST/GraphQL API platform
+ * @module API
+ * @description REST/GraphQL API platform with routing, auth, and rate limiting
  *
- * Extends DigitalBusiness with API-specific OKRs: APICalls, Latency, ErrorRate.
- * Includes routing, rate limiting, authentication, CORS for developer platforms.
+ * API extends DigitalBusiness to provide a complete API platform implementation.
+ * It includes route matching, authentication (API key, Bearer, Basic), rate
+ * limiting, CORS handling, and API-specific OKRs for developer platform metrics.
  *
- * Examples: 'api.acme.com/v1', 'graphql.acme.com'
+ * **Core Features:**
+ * - Express-style route matching with path parameters
+ * - Multiple authentication methods (API key, Bearer, Basic)
+ * - Per-client rate limiting with sliding window
+ * - CORS configuration for cross-origin requests
+ * - OpenAPI spec generation
+ * - API-specific OKRs (APICalls, Latency, ErrorRate)
  *
- * @example
+ * **OKRs (Key Results):**
+ * | OKR | Metrics |
+ * |-----|---------|
+ * | Revenue | TotalRevenue, RevenueGrowthRate |
+ * | Costs | TotalCosts, CostReduction |
+ * | Profit | NetProfit, ProfitMargin |
+ * | Traffic | MonthlyVisitors, UniqueVisitors, PageViews |
+ * | Conversion | VisitorToSignup, SignupToCustomer |
+ * | Engagement | DAU, MAU, SessionDuration |
+ * | APICalls | TotalAPICalls, DailyAPICalls, RequestsPerSecond |
+ * | Latency | AvgLatency, P50, P95, P99 |
+ * | ErrorRate | TotalErrorRate, 4xxRate, 5xxRate, Uptime |
+ *
+ * **Authentication Types:**
+ * | Type | Header | Format |
+ * |------|--------|--------|
+ * | `apiKey` | X-API-Key (customizable) | Raw API key |
+ * | `bearer` | Authorization | Bearer <token> |
+ * | `basic` | Authorization | Basic <base64> |
+ *
+ * **HTTP Endpoints:**
+ * | Method | Path | Description |
+ * |--------|------|-------------|
+ * | GET | `/_config` | Get API configuration |
+ * | PUT | `/_config` | Set API configuration |
+ * | GET | `/_openapi` | Get OpenAPI specification |
+ * | OPTIONS | `*` | CORS preflight handling |
+ *
+ * @example API Configuration
  * ```typescript
  * class MyAPI extends API {
- *   // Inherits: Revenue, Costs, Profit, Traffic, Conversion, Engagement
- *   // Adds: APICalls, Latency, ErrorRate (developer platform metrics)
+ *   static override readonly $type = 'MyAPI'
+ *
+ *   async onStart() {
+ *     await this.configureAPI({
+ *       name: 'My API',
+ *       description: 'Customer management API',
+ *       version: '1.0.0',
+ *       basePath: '/api/v1',
+ *       routes: [
+ *         { method: 'GET', path: '/customers', handler: 'listCustomers' },
+ *         { method: 'GET', path: '/customers/:id', handler: 'getCustomer' },
+ *         { method: 'POST', path: '/customers', handler: 'createCustomer' },
+ *         { method: 'PUT', path: '/customers/:id', handler: 'updateCustomer' },
+ *         { method: 'DELETE', path: '/customers/:id', handler: 'deleteCustomer' }
+ *       ],
+ *       rateLimit: {
+ *         requests: 100,
+ *         window: 60 // 100 requests per minute
+ *       },
+ *       authentication: {
+ *         type: 'bearer'
+ *       },
+ *       cors: {
+ *         origins: ['https://app.example.com'],
+ *         methods: ['GET', 'POST', 'PUT', 'DELETE'],
+ *         headers: ['Content-Type', 'Authorization']
+ *       }
+ *     })
+ *   }
  * }
  * ```
+ *
+ * @example Implementing Handlers
+ * ```typescript
+ * class CustomerAPI extends API {
+ *   protected async executeHandler(handler: string, context: RequestContext): Promise<unknown> {
+ *     switch (handler) {
+ *       case 'listCustomers':
+ *         return this.listCustomers(context.query)
+ *
+ *       case 'getCustomer':
+ *         return this.getCustomer(context.params.id)
+ *
+ *       case 'createCustomer':
+ *         return this.createCustomer(context.body)
+ *
+ *       case 'updateCustomer':
+ *         return this.updateCustomer(context.params.id, context.body)
+ *
+ *       case 'deleteCustomer':
+ *         return this.deleteCustomer(context.params.id)
+ *
+ *       default:
+ *         throw new Error(`Unknown handler: ${handler}`)
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * @example Rate Limiting
+ * ```typescript
+ * // Configure rate limiting
+ * await api.configureAPI({
+ *   // ... other config
+ *   rateLimit: {
+ *     requests: 1000,  // Max requests
+ *     window: 3600     // Per hour (3600 seconds)
+ *   }
+ * })
+ *
+ * // Check rate limit programmatically
+ * const limit = await api.checkRateLimit('client_123')
+ * console.log(limit.allowed)    // true/false
+ * console.log(limit.remaining)  // 42
+ * console.log(limit.resetAt)    // 1234567890
+ * ```
+ *
+ * @example Authentication Validation
+ * ```typescript
+ * class SecureAPI extends API {
+ *   async customAuth(request: Request): Promise<boolean> {
+ *     const authResult = await this.validateAuth(request)
+ *     if (!authResult.valid) {
+ *       console.log('Auth failed:', authResult.error)
+ *       return false
+ *     }
+ *     console.log('Authenticated client:', authResult.clientId)
+ *     return true
+ *   }
+ * }
+ * ```
+ *
+ * @example OpenAPI Generation
+ * ```typescript
+ * // Get auto-generated OpenAPI spec
+ * const spec = await api.getOpenAPISpec()
+ * // Returns OpenAPI 3.0 compliant JSON with paths, operations, etc.
+ *
+ * // Access via HTTP
+ * const response = await fetch('https://api.example.com/_openapi')
+ * const openApiSpec = await response.json()
+ * ```
+ *
+ * @see DigitalBusiness - Parent class with business OKRs
+ * @see DO - Base Durable Object class
  */
 
 import { DigitalBusiness, DigitalBusinessConfig } from './DigitalBusiness'

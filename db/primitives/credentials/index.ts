@@ -65,6 +65,7 @@ export * from './rotation'
 export * from './access'
 export * from './audit'
 export * from './token-refresher'
+export * from './multi-tenant'
 
 // =============================================================================
 // Unified Types
