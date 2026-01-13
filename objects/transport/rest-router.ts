@@ -43,8 +43,7 @@ export interface CollectionResponse {
   $id: string
   $type: 'Collection'
   items: JsonLdResponse[]
-  total: number        // Spec field
-  totalItems: number   // Legacy/compat field
+  count: number  // Total count of items (standardized field name)
 }
 
 /**
@@ -74,10 +73,8 @@ export interface IndexResponse {
 export interface RestRouterContext {
   /** Things store for CRUD operations */
   things: ThingsStore
-  /** Namespace (e.g., 'https://example.com.ai' or 'my-do') */
+  /** Namespace URL (e.g., 'https://example.com.ai') - derived from request origin */
   ns: string
-  /** Base context URL for JSON-LD */
-  contextUrl?: string
   /** Parent namespace URL for root $context (e.g., 'https://Startups.Studio') */
   parent?: string
   /** Available noun types (optional, for index generation) */
