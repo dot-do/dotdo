@@ -818,24 +818,60 @@ export class PushdownOptimizer {
       }
 
       // Handle projection
-      if (query.columns) {
+      if (query.columns || query.join) {
         if (caps.projectionPushdown) {
-          // Get columns for this source
-          const sourceColumns = query.columns.filter((col) => {
-            const parts = col.split('.')
-            if (parts.length === 2) {
-              return parts[0] === tableRef.table || parts[0] === tableRef.source
-            }
-            return true
-          })
+          const columnsToInclude: string[] = []
 
-          // Also include columns needed for predicates
+          // Get columns for this source from query.columns
+          if (query.columns) {
+            for (const col of query.columns) {
+              const parts = col.split('.')
+              if (parts.length === 2) {
+                // Qualified column - check if it belongs to this source/table
+                if (parts[0] === tableRef.table || parts[0] === tableRef.source) {
+                  // Strip the qualifier - the data has unqualified column names
+                  columnsToInclude.push(parts[1]!)
+                }
+              } else {
+                // Unqualified column - include it
+                columnsToInclude.push(col)
+              }
+            }
+          }
+
+          // Include columns needed for predicates
           const predColumns = (pushdown.predicates || [])
             .map((p) => p.column.split('.').pop()!)
-            .filter((c) => !sourceColumns.includes(c))
+            .filter((c) => !columnsToInclude.includes(c))
+          columnsToInclude.push(...predColumns)
 
-          pushdown.columns = [...new Set([...sourceColumns, ...predColumns])]
-        } else {
+          // Include columns needed for joins
+          if (query.join) {
+            const joinDefs = Array.isArray(query.join) ? query.join : [query.join]
+            for (const joinDef of joinDefs) {
+              // Check if this source provides the left or right join key
+              const leftParts = joinDef.on.left.split('.')
+              const rightParts = joinDef.on.right.split('.')
+
+              if (leftParts[0] === tableRef.table || leftParts[0] === tableRef.source) {
+                const joinCol = leftParts.pop()!
+                if (!columnsToInclude.includes(joinCol)) {
+                  columnsToInclude.push(joinCol)
+                }
+              }
+              if (rightParts[0] === tableRef.table || rightParts[0] === tableRef.source) {
+                const joinCol = rightParts.pop()!
+                if (!columnsToInclude.includes(joinCol)) {
+                  columnsToInclude.push(joinCol)
+                }
+              }
+            }
+          }
+
+          if (columnsToInclude.length > 0) {
+            pushdown.columns = [...new Set(columnsToInclude)]
+          }
+        } else if (query.columns) {
           postProjection = query.columns
         }
       }

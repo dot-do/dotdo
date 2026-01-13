@@ -195,6 +195,13 @@ export class FormAnalytics {
       this.interactions.set(interaction.field, [])
     }
     this.interactions.get(interaction.field)!.push(stored)
+
+    // Also add to events for tracking purposes
+    this.events.push({
+      type: `field_${interaction.type}` as SubmissionEvent['type'],
+      timestamp: stored.timestamp,
+      fieldId: interaction.field,
+    })
   }
 
   /**
@@ -545,6 +552,21 @@ export class FormAnalytics {
       }
     }
 
+    // Get step completions
+    const stepOrder = Array.from(stepCompletions.keys()).sort()
+
+    // Calculate the next count for each stage to determine dropOff
+    const getNextCount = (currentStage: 'view' | 'start' | 'step' | 'submit' | 'complete', stepIndex?: number): number => {
+      if (currentStage === 'view') return starts
+      if (currentStage === 'start') return stepOrder.length > 0 ? stepCompletions.get(stepOrder[0])! : submissions
+      if (currentStage === 'step' && stepIndex !== undefined) {
+        if (stepIndex < stepOrder.length - 1) return stepCompletions.get(stepOrder[stepIndex + 1])!
+        return submissions
+      }
+      if (currentStage === 'submit') return completions
+      return 0 // complete stage has no dropOff
+    }
+
     const funnel: FunnelStep[] = [
       {
         step: 'view',
@@ -555,38 +577,36 @@ export class FormAnalytics {
       {
         step: 'start',
         count: starts,
-        dropOff: 0,
+        dropOff: starts - getNextCount('start'),
         conversionRate: views > 0 ? (starts / views) * 100 : 0,
       },
     ]
 
     // Add steps
-    let prevCount = starts
-    const stepOrder = Array.from(stepCompletions.keys()).sort()
-
-    for (const stepId of stepOrder) {
+    for (let i = 0; i < stepOrder.length; i++) {
+      const stepId = stepOrder[i]
       const count = stepCompletions.get(stepId)!
+      const nextCount = getNextCount('step', i)
       funnel.push({
         step: stepId,
         count,
-        dropOff: prevCount - count,
+        dropOff: count - nextCount,
         conversionRate: views > 0 ? (count / views) * 100 : 0,
       })
-      prevCount = count
     }
 
     // Add submit and complete
     funnel.push({
       step: 'submit',
       count: submissions,
-      dropOff: (stepOrder.length > 0 ? stepCompletions.get(stepOrder[stepOrder.length - 1])! : starts) - submissions,
+      dropOff: submissions - completions,
       conversionRate: views > 0 ? (submissions / views) * 100 : 0,
     })
 
     funnel.push({
       step: 'complete',
       count: completions,
-      dropOff: submissions - completions,
+      dropOff: 0, // No one drops off after completing
       conversionRate: views > 0 ? (completions / views) * 100 : 0,
     })
 
