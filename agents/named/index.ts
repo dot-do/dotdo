@@ -59,7 +59,48 @@ export {
   type AgentPersona,
   type AgentRole,
   type AgentConfig,
+  type TypedTemplateLiteral,
+  type TypedInvokeOptions,
 } from './factory'
+
+// ============================================================================
+// Typed Agent Results
+// ============================================================================
+
+export {
+  // Types
+  type AgentResult,
+  type AgentResultMeta,
+  type ToolCallRecord,
+  type AgentSchemaRegistry,
+  type AgentTaskResult,
+  // Schema registration
+  defineAgentSchema,
+  getAgentSchema,
+  hasAgentSchema,
+  // Common schemas
+  SpecSchema,
+  ReviewSchema,
+  ImplementationSchema,
+  TestResultSchema,
+  ContentSchema,
+  FinancialAnalysisSchema,
+  DataAnalysisSchema,
+  // Schema types
+  type Spec,
+  type Review,
+  type Implementation,
+  type TestResult,
+  type Content,
+  type FinancialAnalysis,
+  type DataAnalysis,
+  // Utilities
+  parseAgentResult,
+  createTypedInvoke,
+  createTypedTemplateLiteral,
+  zodToPromptSchema,
+  generateSchemaPrompt,
+} from '../typed-result'
 
 // ============================================================================
 // Composable Persona System (from personas)

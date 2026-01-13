@@ -24,7 +24,15 @@ export {
   manager,
   createHumanTemplate,
   HumanRequest,
+  HumanClient,
+  HumanTimeoutError,
+  configureHumanClient,
+  getHumanClient,
+  parseDuration,
   type HumanTemplate,
+  type ApprovalResult,
+  type HumanClientConfig,
+  type PendingApprovalRecord,
 } from './templates'
 
 // ============================================================================
@@ -38,12 +46,12 @@ export {
   type ApprovalOptions,
   type AskOptions,
   type ReviewOptions,
-  type ApprovalResult,
+  type ApprovalResult as ProxyApprovalResult,  // Renamed to avoid conflict with templates.ts
   type ReviewResult,
   type SLAConfig,
   type EscalationConfig,
-  type NotificationChannel,
-  HumanTimeoutError,
+  type NotificationChannel as ProxyNotificationChannel,  // Renamed to avoid conflict
+  HumanTimeoutError as ProxyHumanTimeoutError,  // Renamed - prefer templates.ts version
   HumanEscalationError,
   HumanNotificationError,
 } from '../../workflows/context/human'

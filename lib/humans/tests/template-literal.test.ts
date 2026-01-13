@@ -26,7 +26,8 @@ describe('Template Literal Syntax', () => {
     const request = ceo`approve the partnership deal`
     expect(request).toHaveProperty('role', 'ceo')
     expect(request).toHaveProperty('message', 'approve the partnership deal')
-    expect(request).toBeInstanceOf(Promise)
+    // HumanRequest implements PromiseLike (has .then method), making it awaitable
+    expect(typeof request.then).toBe('function')
   })
 
   it('should interpolate values in template', async () => {

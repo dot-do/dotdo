@@ -305,3 +305,70 @@ export {
   collectStreamEvents,
   type MockProviderOptions,
 } from './testing'
+
+// ============================================================================
+// Typed Agent Results
+// ============================================================================
+
+export {
+  // Core types
+  type AgentResult as TypedAgentResult,
+  type AgentResultMeta,
+  type ToolCallRecord as TypedToolCallRecord,
+  type AgentSchemaRegistry,
+  type AgentTaskResult,
+  // Schema registration
+  defineAgentSchema,
+  getAgentSchema,
+  hasAgentSchema,
+  // Common schemas
+  SpecSchema,
+  ReviewSchema,
+  ImplementationSchema,
+  TestResultSchema,
+  ContentSchema,
+  FinancialAnalysisSchema,
+  DataAnalysisSchema,
+  // Schema types
+  type Spec,
+  type Review,
+  type Implementation,
+  type TestResult,
+  type Content,
+  type FinancialAnalysis,
+  type DataAnalysis,
+  // Utilities
+  parseAgentResult,
+  createTypedInvoke,
+  createTypedTemplateLiteral,
+  zodToPromptSchema,
+  generateSchemaPrompt,
+} from './typed-result'
+
+// ============================================================================
+// Named Agents
+// ============================================================================
+
+export {
+  priya,
+  ralph,
+  tom,
+  mark,
+  sally,
+  quinn,
+  rae,
+  casey,
+  finn,
+  dana,
+  createNamedAgent,
+  enableMockMode,
+  disableMockMode,
+  setMockResponse,
+  isMockMode,
+  PERSONAS,
+  type NamedAgent,
+  type AgentPersona,
+  type AgentRole,
+  type TypedTemplateLiteral,
+  type TypedInvokeOptions,
+} from './named'

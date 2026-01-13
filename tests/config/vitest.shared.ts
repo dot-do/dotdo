@@ -121,6 +121,9 @@ export const nodeResolveConfig: UserConfig['resolve'] = {
 /**
  * Coverage configuration
  * Only enabled when running with --coverage flag
+ *
+ * In CI, thresholds are enforced to maintain code quality.
+ * Local development runs without threshold enforcement by default.
  */
 export const coverageConfig: UserConfig['test'] = {
   coverage: {
@@ -133,22 +136,50 @@ export const coverageConfig: UserConfig['test'] = {
       '**/node_modules/**',
       '**/dist/**',
       '**/*.test.ts',
+      '**/*.test.tsx',
       '**/tests/**',
       '**/tests/mocks/**',
       '**/*.d.ts',
       '**/vitest.*.ts',
       'app/**', // App has its own test setup
+      // Workspace exemptions (see docs below)
+      'benchmarks/**', // Benchmark code - coverage not meaningful
+      'examples/**', // Example code for documentation
+      'internal/**', // Internal documentation
+      'docs/**', // Documentation
+      'scripts/**', // Build/deploy scripts
     ],
-    // Coverage thresholds (can be enabled for CI)
+    // Coverage thresholds enforced in CI
+    // These ensure code quality doesn't regress
     thresholds: {
-      // Uncomment to enforce coverage thresholds:
-      // statements: 80,
-      // branches: 80,
-      // functions: 80,
-      // lines: 80,
+      statements: 70,
+      branches: 65,
+      functions: 70,
+      lines: 70,
     },
   },
 }
+
+/**
+ * Coverage workspace exemptions documentation:
+ *
+ * The following workspaces are EXEMPT from coverage thresholds:
+ *
+ * 1. benchmarks - Performance benchmarks, not business logic
+ * 2. examples - Sample code for documentation purposes
+ * 3. internal - Internal research/planning documents
+ * 4. docs - Documentation files
+ * 5. scripts - Build/deploy tooling, tested via integration
+ *
+ * Workspaces with coverage applied (70/65/70/70 thresholds):
+ * - api, objects, lib, workflows, agents, compat packages
+ * - db (iceberg, edgevec, parquet, etc.)
+ * - packages/* (SDK packages)
+ * - primitives (fsx, gitx, bashx, npmx, pyx)
+ *
+ * To check current coverage: npm run test:coverage
+ * To run with threshold enforcement: CI=true npm run test:coverage
+ */
 
 /**
  * Common exclude patterns for all test workspaces

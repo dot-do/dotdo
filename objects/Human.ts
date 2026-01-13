@@ -3,6 +3,20 @@
  *
  * Extends Worker with notification channels, approval queues, escalation.
  * Examples: 'john@acme.com', 'support-team'
+ *
+ * Supports blocking approvals via the /request endpoint pattern:
+ * - POST /request - Submit a new approval request
+ * - GET /request/:id - Get request status (for polling)
+ * - POST /request/:id/respond - Submit response to a request
+ *
+ * @example
+ * ```typescript
+ * // From ceo`approve partnership` template literal:
+ * // 1. Client POSTs to /request with message + SLA
+ * // 2. Client polls GET /request/:id until status changes
+ * // 3. Human responds via POST /request/:id/respond
+ * // 4. Client receives ApprovalResult
+ * ```
  */
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult, Channel } from './Worker'
@@ -30,6 +44,27 @@ export interface PendingApproval {
   receivedAt: Date
   remindedAt?: Date
   escalatedTo?: string
+}
+
+/**
+ * Blocking approval request record (for template literal pattern)
+ */
+export interface BlockingApprovalRequest {
+  requestId: string
+  role: string
+  message: string
+  sla?: number
+  channel?: string
+  type: 'approval' | 'question' | 'review'
+  createdAt: string
+  expiresAt?: string
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  result?: {
+    approved: boolean
+    approver?: string
+    reason?: string
+    respondedAt?: string
+  }
 }
 
 export class Human extends Worker {
@@ -257,14 +292,289 @@ export class Human extends Worker {
     })
   }
 
+  // =========================================================================
+  // Blocking Approval Methods (for template literal pattern)
+  // =========================================================================
+
+  /**
+   * Submit a blocking approval request
+   * Used by the HumanClient when ceo`approve something` is awaited
+   */
+  async submitBlockingRequest(params: {
+    requestId: string
+    role: string
+    message: string
+    sla?: number
+    channel?: string
+    type?: 'approval' | 'question' | 'review'
+  }): Promise<BlockingApprovalRequest> {
+    const now = new Date()
+    const record: BlockingApprovalRequest = {
+      requestId: params.requestId,
+      role: params.role,
+      message: params.message,
+      sla: params.sla,
+      channel: params.channel,
+      type: params.type || 'approval',
+      createdAt: now.toISOString(),
+      expiresAt: params.sla ? new Date(now.getTime() + params.sla).toISOString() : undefined,
+      status: 'pending',
+    }
+
+    // Store the request
+    await this.ctx.storage.put(`blocking:${params.requestId}`, record)
+
+    // Notify via channels
+    const channels = await this.getChannels()
+    if (channels.length > 0) {
+      const message = `Approval needed: ${params.message}`
+      for (const channel of channels) {
+        await this.sendToChannel(message, channel)
+      }
+    }
+
+    await this.emit('blocking.request.submitted', { request: record })
+
+    // Schedule expiration alarm if SLA is set
+    if (params.sla) {
+      await this.scheduleExpiration(params.requestId, params.sla)
+    }
+
+    return record
+  }
+
+  /**
+   * Get a blocking request by ID
+   * Used by HumanClient polling
+   */
+  async getBlockingRequest(requestId: string): Promise<BlockingApprovalRequest | null> {
+    const record = await this.ctx.storage.get(`blocking:${requestId}`) as BlockingApprovalRequest | undefined
+
+    if (!record) {
+      return null
+    }
+
+    // Check if expired
+    if (record.expiresAt && record.status === 'pending') {
+      const expiresAt = new Date(record.expiresAt)
+      if (expiresAt <= new Date()) {
+        record.status = 'expired'
+        await this.ctx.storage.put(`blocking:${requestId}`, record)
+        await this.emit('blocking.request.expired', { requestId })
+      }
+    }
+
+    return record
+  }
+
+  /**
+   * Respond to a blocking approval request
+   * Called when a human submits their decision
+   */
+  async respondToBlockingRequest(params: {
+    requestId: string
+    approved: boolean
+    approver?: string
+    reason?: string
+  }): Promise<BlockingApprovalRequest> {
+    const record = await this.ctx.storage.get(`blocking:${params.requestId}`) as BlockingApprovalRequest | undefined
+
+    if (!record) {
+      throw new Error(`Request not found: ${params.requestId}`)
+    }
+
+    if (record.status !== 'pending') {
+      throw new Error(`Request already ${record.status}: ${params.requestId}`)
+    }
+
+    // Update the record with the response
+    record.status = params.approved ? 'approved' : 'rejected'
+    record.result = {
+      approved: params.approved,
+      approver: params.approver || this.ctx.id.toString(),
+      reason: params.reason,
+      respondedAt: new Date().toISOString(),
+    }
+
+    await this.ctx.storage.put(`blocking:${params.requestId}`, record)
+
+    await this.emit('blocking.request.responded', {
+      requestId: params.requestId,
+      result: record.result,
+    })
+
+    return record
+  }
+
+  /**
+   * Schedule expiration for a request using DO alarm
+   */
+  private async scheduleExpiration(requestId: string, delayMs: number): Promise<void> {
+    // Store pending expiration for alarm handling
+    const expirations = await this.ctx.storage.get('pending_expirations') as Record<string, number> || {}
+    expirations[requestId] = Date.now() + delayMs
+    await this.ctx.storage.put('pending_expirations', expirations)
+
+    // Schedule alarm for the nearest expiration
+    const nextExpiration = Math.min(...Object.values(expirations))
+    await this.ctx.storage.setAlarm(nextExpiration)
+  }
+
+  /**
+   * Handle scheduled alarms for request expiration
+   */
+  async alarm(): Promise<void> {
+    const expirations = await this.ctx.storage.get('pending_expirations') as Record<string, number> || {}
+    const now = Date.now()
+    let nextAlarm: number | null = null
+
+    for (const [requestId, expiresAt] of Object.entries(expirations)) {
+      if (expiresAt <= now) {
+        // Expire this request
+        const record = await this.ctx.storage.get(`blocking:${requestId}`) as BlockingApprovalRequest | undefined
+        if (record && record.status === 'pending') {
+          record.status = 'expired'
+          await this.ctx.storage.put(`blocking:${requestId}`, record)
+          await this.emit('blocking.request.expired', { requestId })
+        }
+        delete expirations[requestId]
+      } else {
+        // Track next alarm time
+        nextAlarm = nextAlarm ? Math.min(nextAlarm, expiresAt) : expiresAt
+      }
+    }
+
+    await this.ctx.storage.put('pending_expirations', expirations)
+
+    // Schedule next alarm if there are pending expirations
+    if (nextAlarm) {
+      await this.ctx.storage.setAlarm(nextAlarm)
+    }
+  }
+
+  /**
+   * List all pending blocking requests
+   */
+  async listBlockingRequests(status?: 'pending' | 'approved' | 'rejected' | 'expired'): Promise<BlockingApprovalRequest[]> {
+    const map = await this.ctx.storage.list({ prefix: 'blocking:' })
+    const requests = Array.from(map.values()) as BlockingApprovalRequest[]
+
+    if (status) {
+      return requests.filter(r => r.status === status)
+    }
+
+    return requests
+  }
+
+  // =========================================================================
+  // HTTP Handler
+  // =========================================================================
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
+    const jsonHeaders = { 'Content-Type': 'application/json' }
+
+    // =====================================================================
+    // Blocking Approval Endpoints (for template literal pattern)
+    // =====================================================================
+
+    // POST /request - Submit a new blocking approval request
+    if (url.pathname === '/request' && request.method === 'POST') {
+      const body = await request.json() as {
+        requestId: string
+        role: string
+        message: string
+        sla?: number
+        channel?: string
+        type?: 'approval' | 'question' | 'review'
+      }
+
+      const record = await this.submitBlockingRequest(body)
+      return new Response(JSON.stringify(record), { headers: jsonHeaders })
+    }
+
+    // GET /request/:id - Get request status (for polling)
+    const requestMatch = url.pathname.match(/^\/request\/([^/]+)$/)
+    if (requestMatch && request.method === 'GET') {
+      const requestId = requestMatch[1]!
+      const record = await this.getBlockingRequest(requestId)
+
+      if (!record) {
+        return new Response(JSON.stringify({ error: 'Request not found' }), {
+          status: 404,
+          headers: jsonHeaders,
+        })
+      }
+
+      return new Response(JSON.stringify(record), { headers: jsonHeaders })
+    }
+
+    // DELETE /request/:id - Cancel a pending request
+    if (requestMatch && request.method === 'DELETE') {
+      const requestId = requestMatch[1]!
+      const record = await this.ctx.storage.get(`blocking:${requestId}`) as BlockingApprovalRequest | undefined
+
+      if (!record) {
+        return new Response(JSON.stringify({ error: 'Request not found', cancelled: false }), {
+          status: 404,
+          headers: jsonHeaders,
+        })
+      }
+
+      if (record.status !== 'pending') {
+        return new Response(JSON.stringify({ error: `Request already ${record.status}`, cancelled: false }), {
+          status: 400,
+          headers: jsonHeaders,
+        })
+      }
+
+      await this.ctx.storage.delete(`blocking:${requestId}`)
+      await this.emit('blocking.request.cancelled', { requestId })
+
+      return new Response(JSON.stringify({ cancelled: true }), { headers: jsonHeaders })
+    }
+
+    // POST /request/:id/respond - Submit response to a request
+    const respondMatch = url.pathname.match(/^\/request\/([^/]+)\/respond$/)
+    if (respondMatch && request.method === 'POST') {
+      const requestId = respondMatch[1]!
+      const body = await request.json() as {
+        approved: boolean
+        approver?: string
+        reason?: string
+      }
+
+      try {
+        const record = await this.respondToBlockingRequest({
+          requestId,
+          approved: body.approved,
+          approver: body.approver,
+          reason: body.reason,
+        })
+
+        return new Response(JSON.stringify(record), { headers: jsonHeaders })
+      } catch (error) {
+        return new Response(JSON.stringify({ error: (error as Error).message }), {
+          status: 400,
+          headers: jsonHeaders,
+        })
+      }
+    }
+
+    // GET /requests - List all blocking requests
+    if (url.pathname === '/requests' && request.method === 'GET') {
+      const status = url.searchParams.get('status') as 'pending' | 'approved' | 'rejected' | 'expired' | null
+      const requests = await this.listBlockingRequests(status || undefined)
+      return new Response(JSON.stringify(requests), { headers: jsonHeaders })
+    }
+
+    // =====================================================================
+    // Legacy Endpoints
+    // =====================================================================
 
     if (url.pathname === '/pending') {
       const pending = await this.getPendingApprovals()
-      return new Response(JSON.stringify(pending), {
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return new Response(JSON.stringify(pending), { headers: jsonHeaders })
     }
 
     if (url.pathname === '/approve' && request.method === 'POST') {
@@ -274,24 +584,18 @@ export class Human extends Worker {
         reason?: string
       }
       const result = await this.submitApproval(requestId, approved, reason)
-      return new Response(JSON.stringify(result), {
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return new Response(JSON.stringify(result), { headers: jsonHeaders })
     }
 
     if (url.pathname === '/channels') {
       if (request.method === 'GET') {
         const channels = await this.getChannels()
-        return new Response(JSON.stringify(channels), {
-          headers: { 'Content-Type': 'application/json' },
-        })
+        return new Response(JSON.stringify(channels), { headers: jsonHeaders })
       }
       if (request.method === 'PUT') {
         const channels = (await request.json()) as NotificationChannel[]
         await this.setChannels(channels)
-        return new Response(JSON.stringify({ success: true }), {
-          headers: { 'Content-Type': 'application/json' },
-        })
+        return new Response(JSON.stringify({ success: true }), { headers: jsonHeaders })
       }
     }
 

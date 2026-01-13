@@ -13,6 +13,12 @@
 
 import { AGENT_TOOLS, executeTool, type AgentTool } from '../tools/registry'
 import { generateTestResponse } from './test-responses'
+import { z } from 'zod'
+import {
+  parseAgentResult,
+  generateSchemaPrompt,
+  type AgentResult as TypedAgentResult,
+} from '../typed-result'
 
 // ============================================================================
 // Types
@@ -122,6 +128,25 @@ function createAgentResult(
 }
 
 /**
+ * Typed template literal function that returns AgentResult<T>
+ */
+export interface TypedTemplateLiteral<T> {
+  (strings: TemplateStringsArray, ...values: unknown[]): PipelinePromise<TypedAgentResult<T>>
+}
+
+/**
+ * Options for typed invocation
+ */
+export interface TypedInvokeOptions {
+  /** Enable type coercion for AI output quirks (default: true) */
+  coerce?: boolean
+  /** Allow partial results on parse failure (default: false) */
+  allowPartial?: boolean
+  /** Include JSON schema in prompt to guide AI output (default: true) */
+  includeSchemaInPrompt?: boolean
+}
+
+/**
  * Named agent that can be invoked via template literal or function call
  */
 export interface NamedAgent {
@@ -159,6 +184,46 @@ export interface NamedAgent {
 
   /** Create agent with a different provider */
   withProvider(provider: AgentProvider): NamedAgent
+
+  /**
+   * Create a typed template literal that returns AgentResult<T>
+   *
+   * @typeParam T - The expected structured output type
+   * @param schema - Zod schema for output validation
+   * @param options - Optional configuration for typed invocation
+   * @returns Typed template literal function
+   *
+   * @example
+   * ```typescript
+   * const SpecSchema = z.object({
+   *   features: z.array(z.string()),
+   *   timeline: z.string(),
+   *   cost: z.number(),
+   * })
+   *
+   * const spec = await priya.as(SpecSchema)`define MVP for ${hypothesis}`
+   * // spec.content.features is string[]
+   * // spec.content.cost is number
+   * ```
+   */
+  as<T>(schema: z.ZodType<T>, options?: TypedInvokeOptions): TypedTemplateLiteral<T>
+
+  /**
+   * Invoke agent with typed result
+   *
+   * @typeParam T - The expected structured output type
+   * @param schema - Zod schema for output validation
+   * @param prompt - The prompt string
+   * @param options - Optional configuration
+   * @returns Promise<AgentResult<T>>
+   *
+   * @example
+   * ```typescript
+   * const spec = await priya.invoke(SpecSchema, 'define MVP for our product')
+   * // spec.content.features is string[]
+   * ```
+   */
+  invoke<T>(schema: z.ZodType<T>, prompt: string, options?: TypedInvokeOptions): Promise<TypedAgentResult<T>>
 }
 
 // ============================================================================
@@ -1019,6 +1084,82 @@ export function createNamedAgent(persona: AgentPersona, config: AgentConfig = {}
       const approved = result.toUpperCase().includes('APPROVED')
       return { approved, feedback: result }
     }
+  }
+
+  // Add typed invocation method: agent.as(Schema)`prompt`
+  agent.as = function <T>(
+    schema: z.ZodType<T>,
+    options: TypedInvokeOptions = {}
+  ): TypedTemplateLiteral<T> {
+    const { coerce = true, allowPartial = false, includeSchemaInPrompt = true } = options
+
+    return function (
+      strings: TemplateStringsArray,
+      ...values: unknown[]
+    ): PipelinePromise<TypedAgentResult<T>> {
+      let prompt = interpolate(strings, values)
+
+      // Optionally append schema guidance to help AI produce correct output
+      if (includeSchemaInPrompt) {
+        prompt += generateSchemaPrompt(schema)
+      }
+
+      const promise = (async (): Promise<TypedAgentResult<T>> => {
+        const startTime = Date.now()
+        const rawResult = await executeAgent(persona, prompt, config)
+        const durationMs = Date.now() - startTime
+
+        // Parse and validate the result
+        const typedResult = parseAgentResult(rawResult.toString(), schema, {
+          agent: persona.name,
+          coerce,
+          allowPartial,
+        })
+
+        typedResult.meta = {
+          ...typedResult.meta,
+          durationMs,
+        }
+
+        return typedResult
+      })()
+
+      return createPipelinePromise(promise)
+    }
+  }
+
+  // Add direct invoke method: agent.invoke(Schema, prompt)
+  agent.invoke = async function <T>(
+    schema: z.ZodType<T>,
+    prompt: string,
+    options: TypedInvokeOptions = {}
+  ): Promise<TypedAgentResult<T>> {
+    const { coerce = true, allowPartial = false, includeSchemaInPrompt = true } = options
+
+    let fullPrompt = prompt
+
+    // Optionally append schema guidance
+    if (includeSchemaInPrompt) {
+      fullPrompt += generateSchemaPrompt(schema)
+    }
+
+    const startTime = Date.now()
+    const rawResult = await executeAgent(persona, fullPrompt, config)
+    const durationMs = Date.now() - startTime
+
+    // Parse and validate the result
+    const typedResult = parseAgentResult(rawResult.toString(), schema, {
+      agent: persona.name,
+      coerce,
+      allowPartial,
+    })
+
+    typedResult.meta = {
+      ...typedResult.meta,
+      durationMs,
+    }
+
+    return typedResult
   }
 
   return agent
