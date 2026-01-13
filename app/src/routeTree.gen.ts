@@ -9,10 +9,13 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as AuthLogoutRouteImport } from './routes/auth.logout'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AppAppRouteImport } from './routes/app/_app'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
 import { Route as AdminAdminRouteImport } from './routes/admin/_admin'
@@ -52,6 +55,11 @@ import { Route as AdminAdminLoginRouteImport } from './routes/admin/_admin.login
 import { Route as AdminWorkflowsWorkflowIdRunsRouteImport } from './routes/admin/workflows/$workflowId/runs'
 import { Route as AdminWorkflowsWorkflowIdRunsRunIdRouteImport } from './routes/admin/workflows/$workflowId/runs/$runId'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SplatRoute = SplatRouteImport.update({
   id: '/$',
   path: '/$',
@@ -70,6 +78,16 @@ const DocsIndexRoute = DocsIndexRouteImport.update({
 const DocsSplatRoute = DocsSplatRouteImport.update({
   id: '/docs/$',
   path: '/docs/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthLogoutRoute = AuthLogoutRouteImport.update({
+  id: '/auth/logout',
+  path: '/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppAppRoute = AppAppRouteImport.update({
@@ -272,9 +290,12 @@ const AdminWorkflowsWorkflowIdRunsRunIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
+  '/login': typeof LoginRoute
   '/admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
   '/app': typeof AppAppRouteWithChildren
+  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/logout': typeof AuthLogoutRoute
   '/docs/$': typeof DocsSplatRoute
   '/docs': typeof DocsIndexRoute
   '/admin/login': typeof AdminAdminLoginRoute
@@ -316,7 +337,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
+  '/login': typeof LoginRoute
   '/api/search': typeof ApiSearchRoute
+  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/logout': typeof AuthLogoutRoute
   '/docs/$': typeof DocsSplatRoute
   '/docs': typeof DocsIndexRoute
   '/admin/login': typeof AdminAdminLoginRoute
@@ -359,9 +383,12 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
+  '/login': typeof LoginRoute
   '/admin/_admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
   '/app/_app': typeof AppAppRouteWithChildren
+  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/logout': typeof AuthLogoutRoute
   '/docs/$': typeof DocsSplatRoute
   '/docs/': typeof DocsIndexRoute
   '/admin/_admin/login': typeof AdminAdminLoginRoute
@@ -405,9 +432,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$'
+    | '/login'
     | '/admin'
     | '/api/search'
     | '/app'
+    | '/auth/callback'
+    | '/auth/logout'
     | '/docs/$'
     | '/docs'
     | '/admin/login'
@@ -449,7 +479,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$'
+    | '/login'
     | '/api/search'
+    | '/auth/callback'
+    | '/auth/logout'
     | '/docs/$'
     | '/docs'
     | '/admin/login'
@@ -491,9 +524,12 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$'
+    | '/login'
     | '/admin/_admin'
     | '/api/search'
     | '/app/_app'
+    | '/auth/callback'
+    | '/auth/logout'
     | '/docs/$'
     | '/docs/'
     | '/admin/_admin/login'
@@ -536,9 +572,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SplatRoute: typeof SplatRoute
+  LoginRoute: typeof LoginRoute
   AdminAdminRoute: typeof AdminAdminRouteWithChildren
   ApiSearchRoute: typeof ApiSearchRoute
   AppAppRoute: typeof AppAppRouteWithChildren
+  AuthCallbackRoute: typeof AuthCallbackRoute
+  AuthLogoutRoute: typeof AuthLogoutRoute
   DocsSplatRoute: typeof DocsSplatRoute
   DocsIndexRoute: typeof DocsIndexRoute
   AdminActivityLogIdRoute: typeof AdminActivityLogIdRoute
@@ -573,6 +612,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$': {
       id: '/$'
       path: '/$'
@@ -599,6 +645,20 @@ declare module '@tanstack/react-router' {
       path: '/docs/$'
       fullPath: '/docs/$'
       preLoaderRoute: typeof DocsSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/logout': {
+      id: '/auth/logout'
+      path: '/auth/logout'
+      fullPath: '/auth/logout'
+      preLoaderRoute: typeof AuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/_app': {
@@ -932,9 +992,12 @@ const AdminWorkflowsWorkflowIdRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
+  LoginRoute: LoginRoute,
   AdminAdminRoute: AdminAdminRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
   AppAppRoute: AppAppRouteWithChildren,
+  AuthCallbackRoute: AuthCallbackRoute,
+  AuthLogoutRoute: AuthLogoutRoute,
   DocsSplatRoute: DocsSplatRoute,
   DocsIndexRoute: DocsIndexRoute,
   AdminActivityLogIdRoute: AdminActivityLogIdRoute,
