@@ -1,16 +1,25 @@
 #!/usr/bin/env bun
 /**
- * dotdo CLI Entry Point
+ * dotdo CLI Entry Point (Commander-based)
  *
- * Self-contained CLI for Durable Objects development.
- * Includes embedded runtime with full DO support for local development.
+ * Unified CLI for Durable Objects development and cli.do services.
+ * All commands (dev and service) are registered here.
  *
- * Usage:
+ * Dev Commands:
  *   dotdo start         - Start local development server (main command)
  *   dotdo dev           - Start local development server (legacy)
  *   dotdo do:list       - List Durable Objects
  *   dotdo deploy        - Deploy to production
  *   dotdo tunnel        - Expose local server via CF Tunnel
+ *
+ * Service Commands (cli.do):
+ *   dotdo call          - Make voice calls via calls.do
+ *   dotdo text          - Send SMS/MMS via texts.do
+ *   dotdo email         - Send emails via emails.do
+ *   dotdo charge        - Create charges via payments.do
+ *   dotdo queue         - Queue operations via queue.do
+ *   dotdo llm           - LLM requests via llm.do
+ *   dotdo config        - Manage CLI configuration
  */
 
 import { Command } from 'commander'
@@ -19,7 +28,18 @@ import { doCommand } from './commands/do-ops'
 import { tunnelCommand } from './commands/tunnel'
 import { deployCommand } from './commands/deploy-multi'
 import { startCommand } from './commands/start'
+// Service commands (Commander wrappers)
+import {
+  callCommand,
+  textCommand,
+  emailCommand,
+  chargeCommand,
+  queueCommand,
+  llmCommand,
+  configCommand,
+} from './commands/services'
 import { createLogger } from './utils/logger'
+import { DOTDO_DIR } from './utils/paths'
 
 const logger = createLogger('cli')
 
@@ -30,7 +50,7 @@ const pkg = {
   description: 'Self-contained CLI for Durable Objects development',
 }
 
-const program = new Command()
+export const program = new Command()
   .name('dotdo')
   .description(pkg.description)
   .version(pkg.version, '-v, --version', 'Show version number')
@@ -47,12 +67,21 @@ program.parse = function (argv?: readonly string[], options?: { from: 'node' | '
   return originalParse(argv, options)
 }
 
-// Add commands
+// Add dev commands
 program.addCommand(startCommand)
 program.addCommand(devCommand)
 program.addCommand(doCommand)
 program.addCommand(tunnelCommand)
 program.addCommand(deployCommand)
+
+// Add service commands (cli.do)
+program.addCommand(callCommand)
+program.addCommand(textCommand)
+program.addCommand(emailCommand)
+program.addCommand(chargeCommand)
+program.addCommand(queueCommand)
+program.addCommand(llmCommand)
+program.addCommand(configCommand)
 
 // Init command
 program
@@ -69,7 +98,7 @@ program
     const cwd = process.cwd()
 
     // Create basic structure
-    const dirs = ['.dotdo', 'objects', 'api']
+    const dirs = [DOTDO_DIR, 'objects', 'api']
     for (const dir of dirs) {
       const dirPath = path.join(cwd, dir)
       if (!fs.existsSync(dirPath)) {
@@ -245,5 +274,8 @@ program
     })
   })
 
-// Parse arguments
-program.parse()
+// Parse arguments only when run directly (not when imported)
+// bin.ts will call program.parse() when using this module
+if (import.meta.main) {
+  program.parse()
+}

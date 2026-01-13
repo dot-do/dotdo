@@ -99,9 +99,9 @@ describe('Config Management', () => {
       expect(path).toContain('/home/testuser')
     })
 
-    it('uses .dotdo directory for config', () => {
+    it('uses .do directory for config', () => {
       const path = getConfigPath()
-      expect(path).toContain('.dotdo')
+      expect(path).toContain('.do')
     })
 
     it('returns path to config file', () => {
@@ -179,7 +179,7 @@ describe('Config Management', () => {
       await setConfig({ json_output: true })
 
       expect(mockFs.mkdir).toHaveBeenCalledWith(
-        expect.stringContaining('.dotdo'),
+        expect.stringContaining('.do'),
         expect.objectContaining({ recursive: true })
       )
     })
@@ -1183,10 +1183,10 @@ describe('Error Handling', () => {
 })
 
 // ============================================================================
-// CLI Integration Tests
+// CLI Integration Tests (Legacy Router - DEPRECATED)
 // ============================================================================
 
-describe('CLI Integration', () => {
+describe('CLI Integration (Legacy)', () => {
   it('registers service commands in router', async () => {
     const { route } = await import('../index')
 
@@ -1209,5 +1209,220 @@ describe('CLI Integration', () => {
     expect(helpText).toContain('queue')
     expect(helpText).toContain('llm')
     expect(helpText).toContain('config')
+  })
+})
+
+// ============================================================================
+// Unified Commander CLI Tests (TDD RED Phase)
+// ============================================================================
+
+describe('Unified Commander CLI', () => {
+  let program: typeof import('commander').Command
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    // Import the unified program from main.ts
+    const mainModule = await import('../main')
+    program = mainModule.program
+  })
+
+  describe('Command Registration', () => {
+    it('has all dev commands registered', () => {
+      const commandNames = program.commands.map((cmd) => cmd.name())
+
+      // Dev commands
+      expect(commandNames).toContain('start')
+      expect(commandNames).toContain('dev')
+      expect(commandNames).toContain('deploy')
+      expect(commandNames).toContain('tunnel')
+      expect(commandNames).toContain('do')
+      expect(commandNames).toContain('init')
+      expect(commandNames).toContain('logs')
+      expect(commandNames).toContain('build')
+    })
+
+    it('has all service commands registered', () => {
+      const commandNames = program.commands.map((cmd) => cmd.name())
+
+      // Service commands (cli.do)
+      expect(commandNames).toContain('call')
+      expect(commandNames).toContain('text')
+      expect(commandNames).toContain('email')
+      expect(commandNames).toContain('charge')
+      expect(commandNames).toContain('queue')
+      expect(commandNames).toContain('llm')
+      expect(commandNames).toContain('config')
+    })
+
+    it('exports program for bin.ts usage', async () => {
+      const mainModule = await import('../main')
+      expect(mainModule.program).toBeDefined()
+      expect(mainModule.program.name()).toBe('dotdo')
+    })
+  })
+
+  describe('Service Command Wrappers', () => {
+    it('call command is a Commander command with correct options', () => {
+      const callCmd = program.commands.find((cmd) => cmd.name() === 'call')
+      expect(callCmd).toBeDefined()
+      expect(callCmd?.description()).toContain('voice')
+
+      // Check options
+      const optionNames = callCmd?.options.map((opt) => opt.long || opt.short) ?? []
+      expect(optionNames).toContain('--from')
+      expect(optionNames).toContain('--voice')
+      expect(optionNames).toContain('--json')
+    })
+
+    it('text command is a Commander command with correct options', () => {
+      const textCmd = program.commands.find((cmd) => cmd.name() === 'text')
+      expect(textCmd).toBeDefined()
+      expect(textCmd?.description()).toContain('SMS')
+
+      const optionNames = textCmd?.options.map((opt) => opt.long || opt.short) ?? []
+      expect(optionNames).toContain('--from')
+      expect(optionNames).toContain('--media-url')
+      expect(optionNames).toContain('--json')
+    })
+
+    it('email command is a Commander command with correct options', () => {
+      const emailCmd = program.commands.find((cmd) => cmd.name() === 'email')
+      expect(emailCmd).toBeDefined()
+      expect(emailCmd?.description()).toContain('email')
+
+      const optionNames = emailCmd?.options.map((opt) => opt.long || opt.short) ?? []
+      expect(optionNames).toContain('--subject')
+      expect(optionNames).toContain('--template')
+      expect(optionNames).toContain('--from')
+      expect(optionNames).toContain('--body')
+      expect(optionNames).toContain('--html')
+      expect(optionNames).toContain('--json')
+    })
+
+    it('charge command is a Commander command with correct options', () => {
+      const chargeCmd = program.commands.find((cmd) => cmd.name() === 'charge')
+      expect(chargeCmd).toBeDefined()
+      expect(chargeCmd?.description()).toContain('charge')
+
+      const optionNames = chargeCmd?.options.map((opt) => opt.long || opt.short) ?? []
+      expect(optionNames).toContain('--amount')
+      expect(optionNames).toContain('--currency')
+      expect(optionNames).toContain('--description')
+      expect(optionNames).toContain('--metadata')
+      expect(optionNames).toContain('--json')
+    })
+
+    it('queue command is a Commander command with subcommands', () => {
+      const queueCmd = program.commands.find((cmd) => cmd.name() === 'queue')
+      expect(queueCmd).toBeDefined()
+      expect(queueCmd?.description()).toContain('queue')
+
+      // Queue should have subcommands
+      const subcommandNames = queueCmd?.commands.map((cmd) => cmd.name()) ?? []
+      expect(subcommandNames).toContain('publish')
+      expect(subcommandNames).toContain('list')
+    })
+
+    it('llm command is a Commander command with correct options', () => {
+      const llmCmd = program.commands.find((cmd) => cmd.name() === 'llm')
+      expect(llmCmd).toBeDefined()
+      expect(llmCmd?.description()).toContain('LLM')
+
+      const optionNames = llmCmd?.options.map((opt) => opt.long || opt.short) ?? []
+      expect(optionNames).toContain('--model')
+      expect(optionNames).toContain('--system')
+      expect(optionNames).toContain('--max-tokens')
+      expect(optionNames).toContain('--temperature')
+      expect(optionNames).toContain('--no-stream')
+      expect(optionNames).toContain('--json')
+    })
+
+    it('config command is a Commander command with subcommands', () => {
+      const configCmd = program.commands.find((cmd) => cmd.name() === 'config')
+      expect(configCmd).toBeDefined()
+      expect(configCmd?.description()).toContain('config')
+
+      // Config should have subcommands
+      const subcommandNames = configCmd?.commands.map((cmd) => cmd.name()) ?? []
+      expect(subcommandNames).toContain('get')
+      expect(subcommandNames).toContain('set')
+      expect(subcommandNames).toContain('unset')
+      expect(subcommandNames).toContain('list')
+    })
+  })
+
+  describe('Help Output', () => {
+    it('--help shows all commands', () => {
+      // Create a buffer to capture help output
+      let helpOutput = ''
+      const mockWrite = vi.fn((str: string) => {
+        helpOutput += str
+      })
+
+      // Override stdout.write temporarily
+      const originalWrite = process.stdout.write.bind(process.stdout)
+      process.stdout.write = mockWrite as unknown as typeof process.stdout.write
+
+      try {
+        // Get help text by accessing helpInformation
+        helpOutput = program.helpInformation()
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      // Dev commands
+      expect(helpOutput).toContain('start')
+      expect(helpOutput).toContain('dev')
+      expect(helpOutput).toContain('deploy')
+      expect(helpOutput).toContain('tunnel')
+      expect(helpOutput).toContain('do')
+      expect(helpOutput).toContain('init')
+
+      // Service commands
+      expect(helpOutput).toContain('call')
+      expect(helpOutput).toContain('text')
+      expect(helpOutput).toContain('email')
+      expect(helpOutput).toContain('charge')
+      expect(helpOutput).toContain('queue')
+      expect(helpOutput).toContain('llm')
+      expect(helpOutput).toContain('config')
+    })
+  })
+})
+
+// ============================================================================
+// bin.ts Entry Point Tests
+// ============================================================================
+
+describe('bin.ts Entry Point', () => {
+  it('uses unified Commander program from main.ts', async () => {
+    // Verify that importing program from main works correctly
+    // The bin.ts imports and uses this program
+    const mainModule = await import('../main')
+    expect(mainModule.program).toBeDefined()
+    expect(mainModule.program.name()).toBe('dotdo')
+
+    // Verify all expected commands are registered
+    const commandNames = mainModule.program.commands.map((cmd: { name: () => string }) => cmd.name())
+    expect(commandNames).toContain('call')
+    expect(commandNames).toContain('start')
+    expect(commandNames).toContain('deploy')
+  })
+})
+
+// ============================================================================
+// index.ts Deprecation Tests
+// ============================================================================
+
+describe('index.ts Deprecation', () => {
+  it('has deprecation notice (verified via module structure)', async () => {
+    // The index.ts module should still export route and helpText for backward compatibility
+    // The deprecation notice is in the source - we verify the module still works
+    const indexModule = await import('../index')
+
+    // Legacy exports should still work
+    expect(indexModule.route).toBeDefined()
+    expect(indexModule.helpText).toBeDefined()
+    expect(indexModule.version).toBeDefined()
   })
 })

@@ -2,6 +2,14 @@
  * CLI Router
  *
  * Routes CLI commands to appropriate handlers or AI fallback.
+ *
+ * @deprecated This module is deprecated. Use the unified Commander-based CLI
+ * from main.ts instead. This file is kept for backward compatibility and will
+ * be removed in a future version.
+ *
+ * Migration: Import from './main' instead:
+ *   import { program } from './main'
+ *   program.parse()
  */
 
 import { commands } from './commands/index'

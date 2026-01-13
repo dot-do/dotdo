@@ -4,35 +4,22 @@
  *
  * This file is for direct bun execution (bunx dotdo).
  * For npm/npx, use bin.js which spawns bun.
+ *
+ * Uses the unified Commander-based CLI from main.ts.
  */
 
-import { route, parseArgv, helpText, version } from './index'
-import { commands } from './commands/index'
-import { fallback } from './fallback'
+import { program } from './main'
 
 /**
  * Main CLI function
  */
 export async function main(argv: string[]): Promise<void> {
-  const result = route(argv)
-
-  switch (result.type) {
-    case 'help':
-      console.log(helpText)
-      break
-    case 'version':
-      console.log(version)
-      break
-    case 'command':
-      await commands[result.name].run(result.args)
-      break
-    case 'fallback':
-      await fallback(result.input)
-      break
-  }
+  // Parse with Commander - use 'user' mode to skip automatic process.argv handling
+  program.parse(argv, { from: 'user' })
 }
 
 // Run if executed directly
 if (import.meta.main) {
-  main(parseArgv(Bun.argv))
+  // Parse process.argv directly with Commander
+  program.parse()
 }

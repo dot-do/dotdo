@@ -2,11 +2,15 @@
  * CLI Command Registry
  *
  * Exports all available CLI commands.
+ *
+ * This module provides two interfaces:
+ * 1. `commands` - Legacy command registry (Record<string, Command>)
+ * 2. Commander command exports - For use with the unified CLI in main.ts
  */
 
 import { run as introspectRun } from './introspect'
 
-// Service commands (cli.do)
+// Service commands (cli.do) - legacy run functions
 import { run as callRun } from '../src/commands/call'
 import { run as textRun } from '../src/commands/text'
 import { run as emailRun } from '../src/commands/email'
@@ -14,6 +18,24 @@ import { run as chargeRun } from '../src/commands/charge'
 import { run as queueRun } from '../src/commands/queue'
 import { run as llmRun } from '../src/commands/llm'
 import { run as configRun } from '../src/commands/config'
+
+// Commander-based command exports (for unified CLI)
+export {
+  callCommand,
+  textCommand,
+  emailCommand,
+  chargeCommand,
+  queueCommand,
+  llmCommand,
+  configCommand,
+} from './services'
+
+// Dev command exports (already Commander-based)
+export { startCommand } from './start'
+export { devCommand } from './dev-local'
+export { deployCommand } from './deploy-multi'
+export { tunnelCommand } from './tunnel'
+export { doCommand } from './do-ops'
 
 export type CommandHandler = (args: string[]) => Promise<void> | void
 
