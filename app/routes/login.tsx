@@ -30,6 +30,7 @@ import { Label } from '@mdxui/primitives/label'
 import { Loader2 } from 'lucide-react'
 import { AuthLayout } from '../components/auth/AuthLayout'
 import { getAuthErrorMessage } from '../components/auth/AuthErrorBoundary'
+import { buildAuthorizationUrl, defaultOAuthConfig } from '../lib/auth-config'
 
 // =============================================================================
 // Types
@@ -121,16 +122,16 @@ function LoginComponent() {
     setIsLoading(true)
     setErrorMessage(null)
 
-    // Build OAuth authorization URL
+    // Build OAuth authorization URL using centralized config
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const redirectUri = encodeURIComponent(`${origin}/auth/callback`)
+    const redirectUri = `${origin}/auth/callback`
     const returnToUrl = getReturnTo()
 
-    // Encode returnTo in state parameter for post-auth redirect
-    const state = returnToUrl !== '/' ? encodeURIComponent(returnToUrl) : ''
-    const stateParam = state ? `&state=${state}` : ''
-
-    const authUrl = `https://login.oauth.do/authorize?client_id=dotdo&redirect_uri=${redirectUri}&response_type=code&scope=openid%20profile%20email${stateParam}`
+    // Build URL using auth-config (supports env var overrides)
+    const authUrl = buildAuthorizationUrl(defaultOAuthConfig, {
+      redirectUri,
+      state: returnToUrl !== '/' ? returnToUrl : undefined,
+    })
 
     // Redirect to oauth.do
     window.location.assign(authUrl)

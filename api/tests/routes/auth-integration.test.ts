@@ -20,13 +20,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import {
-  resetMocks,
-  setMockSessionInvalid,
-  setMockBearerTokenInvalid,
-  createAuthMiddleware,
-  authMiddleware,
-} from '../../middleware/oauth-auth'
+import * as oauthAuth from '../../middleware/oauth-auth'
+
+const { createAuthMiddleware, authMiddleware } = oauthAuth
 
 // ============================================================================
 // Test App Setup
@@ -281,12 +277,11 @@ async function post(path: string, body: unknown, options?: Omit<Parameters<typeo
 
 beforeEach(() => {
   vi.clearAllMocks()
-  resetMocks()
+  vi.restoreAllMocks()
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
-  resetMocks()
 })
 
 // ============================================================================
@@ -348,8 +343,8 @@ describe('Protected Route Tests', () => {
     })
 
     it('should return 401 with invalid session cookie', async () => {
-      // Set up mock to reject session
-      await setMockSessionInvalid(true)
+      // Mock validateSession to return null (invalid)
+      vi.spyOn(oauthAuth, 'validateSession').mockResolvedValue(null)
 
       const res = await get('/api/things', {
         cookies: { session: 'invalid-session' },
@@ -359,8 +354,8 @@ describe('Protected Route Tests', () => {
     })
 
     it('should return 401 with invalid Bearer token', async () => {
-      // Set up mock to reject bearer token
-      await setMockBearerTokenInvalid(true)
+      // Mock validateBearerToken to return null (invalid)
+      vi.spyOn(oauthAuth, 'validateBearerToken').mockResolvedValue(null)
 
       const res = await get('/api/things', {
         headers: {
@@ -420,7 +415,7 @@ describe('Public Route Tests', () => {
 
     it('should return 200 regardless of auth state', async () => {
       // Even with invalid session, health should work
-      await setMockSessionInvalid(true)
+      vi.spyOn(oauthAuth, 'validateSession').mockResolvedValue(null)
 
       const res = await get('/api/health', {
         cookies: { session: 'invalid-session' },
@@ -519,7 +514,8 @@ describe('Session Endpoint Tests', () => {
     })
 
     it('should return 401 with invalid session', async () => {
-      await setMockSessionInvalid(true)
+      // Mock validateSession to return null (invalid)
+      vi.spyOn(oauthAuth, 'validateSession').mockResolvedValue(null)
 
       const res = await get('/api/auth/session', {
         cookies: { session: 'invalid-session' },
@@ -656,7 +652,8 @@ describe('Error Response Tests', () => {
     })
 
     it('should provide clear message for invalid token', async () => {
-      await setMockBearerTokenInvalid(true)
+      // Mock validateBearerToken to return null (invalid)
+      vi.spyOn(oauthAuth, 'validateBearerToken').mockResolvedValue(null)
 
       const res = await get('/api/things', {
         headers: {
@@ -692,7 +689,8 @@ describe('Authentication Priority Tests', () => {
   })
 
   it('should fall back to Bearer token when session is invalid', async () => {
-    await setMockSessionInvalid(true)
+    // Mock validateSession to return null for the session, but let Bearer work
+    vi.spyOn(oauthAuth, 'validateSession').mockResolvedValue(null)
 
     const res = await get('/api/things', {
       cookies: { session: 'invalid-session' },

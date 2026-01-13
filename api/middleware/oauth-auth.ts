@@ -75,75 +75,11 @@ export const ERROR_MESSAGES = {
 } as const
 
 // ============================================================================
-// Test Helpers (separate section for clarity)
+// Rate Limiting State
 // ============================================================================
 
-// Mock state for testing
-let mockSessionInvalid = false
-let mockBearerTokenInvalid = false
-let mockServiceError: Error | null = null
-let validationCalls: string[] = []
-
-// Rate limiting state
+// Rate limiting state (production use)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
-
-/**
- * Reset all mocks - called when any mock is set to ensure clean state
- * @internal
- */
-function resetAllMocks(): void {
-  mockSessionInvalid = false
-  mockBearerTokenInvalid = false
-  mockServiceError = null
-  validationCalls = []
-}
-
-/**
- * Set mock session invalid state for testing
- * @internal Test helper - not for production use
- */
-export async function setMockSessionInvalid(invalid: boolean): Promise<void> {
-  resetAllMocks()
-  mockSessionInvalid = invalid
-}
-
-/**
- * Set mock bearer token invalid state for testing
- * @internal Test helper - not for production use
- */
-export async function setMockBearerTokenInvalid(invalid: boolean): Promise<void> {
-  resetAllMocks()
-  mockBearerTokenInvalid = invalid
-}
-
-/**
- * Set mock service error for testing
- * @internal Test helper - not for production use
- */
-export async function setMockServiceError(error: Error | null): Promise<void> {
-  resetAllMocks()
-  mockServiceError = error
-}
-
-/**
- * Get mock validation calls for testing
- * @internal Test helper - not for production use
- */
-export async function getMockValidationCalls(): Promise<string[]> {
-  return [...validationCalls]
-}
-
-/**
- * Reset all mocks to default state
- * @internal Test helper - not for production use
- */
-export function resetMocks(): void {
-  mockSessionInvalid = false
-  mockBearerTokenInvalid = false
-  mockServiceError = null
-  validationCalls = []
-  rateLimitMap.clear()
-}
 
 // ============================================================================
 // Cookie and Token Parsing
@@ -295,29 +231,12 @@ function isValidTokenFormat(token: string): boolean {
  * Validate session token
  *
  * In production, this calls oauth.do to validate the session.
- * Falls back to mock implementation for testing.
+ * Currently returns mock data for development - see TODO for production implementation.
+ *
+ * @param token - The session token to validate
+ * @returns AuthUser if valid, null if invalid
  */
-async function validateSession(token: string): Promise<AuthUser | null> {
-  validationCalls.push(`session:${token}`)
-
-  // Capture error state before auto-reset
-  const error = mockServiceError
-  const invalid = mockSessionInvalid
-
-  // Auto-reset mocks after capturing state (for test isolation)
-  mockServiceError = null
-  mockSessionInvalid = false
-
-  // Check for service error
-  if (error) {
-    throw error
-  }
-
-  // Check for invalid session mock
-  if (invalid) {
-    return null
-  }
-
+export async function validateSession(token: string): Promise<AuthUser | null> {
   // Check for malformed token format
   if (!isValidTokenFormat(token)) {
     return null
@@ -332,7 +251,7 @@ async function validateSession(token: string): Promise<AuthUser | null> {
   // const data = await response.json()
   // return { id: data.sub, email: data.email, name: data.name, role: 'user' }
 
-  // Mock successful validation
+  // Development mock - valid format tokens return mock user
   return {
     id: 'session-user',
     email: 'session@example.com',
@@ -345,26 +264,14 @@ async function validateSession(token: string): Promise<AuthUser | null> {
  * Validate Bearer token
  *
  * In production, this introspects the token via oauth.do.
- * Falls back to mock implementation for testing.
+ * Currently returns mock data for development - see TODO for production implementation.
+ *
+ * @param token - The bearer token to validate
+ * @returns AuthUser if valid, null if invalid
  */
-async function validateBearerToken(token: string): Promise<AuthUser | null> {
-  validationCalls.push(`bearer:${token}`)
-
-  // Capture error state before auto-reset
-  const error = mockServiceError
-  const invalid = mockBearerTokenInvalid
-
-  // Auto-reset mocks after capturing state
-  mockServiceError = null
-  mockBearerTokenInvalid = false
-
-  // Check for service error
-  if (error) {
-    throw error
-  }
-
-  // Check for invalid bearer token mock
-  if (invalid) {
+export async function validateBearerToken(token: string): Promise<AuthUser | null> {
+  // Check for malformed token format
+  if (!isValidTokenFormat(token)) {
     return null
   }
 
@@ -380,7 +287,7 @@ async function validateBearerToken(token: string): Promise<AuthUser | null> {
   // if (!data.active) return null
   // return { id: data.sub, email: data.email, name: data.name, role: 'user' }
 
-  // Mock successful validation
+  // Development mock - valid format tokens return mock user
   return {
     id: 'bearer-user',
     email: 'bearer@example.com',
@@ -393,19 +300,12 @@ async function validateBearerToken(token: string): Promise<AuthUser | null> {
  * Validate API key
  *
  * In production, this validates against stored API keys.
- * Falls back to mock implementation for testing.
+ * Currently returns mock data for development - see TODO for production implementation.
+ *
+ * @param apiKey - The API key to validate
+ * @returns AuthUser if valid, null if invalid
  */
-async function validateApiKey(apiKey: string): Promise<AuthUser | null> {
-  validationCalls.push(`apikey:${apiKey}`)
-
-  // Check for service error (use same mock state as bearer)
-  const error = mockServiceError
-  mockServiceError = null
-
-  if (error) {
-    throw error
-  }
-
+export async function validateApiKey(apiKey: string): Promise<AuthUser | null> {
   // Check for valid API key format
   if (!isValidTokenFormat(apiKey)) {
     return null
@@ -418,7 +318,7 @@ async function validateApiKey(apiKey: string): Promise<AuthUser | null> {
   // const keyData = JSON.parse(storedKey)
   // return { id: keyData.userId, role: keyData.role || 'user' }
 
-  // Mock successful validation for valid-prefixed keys
+  // Development mock - valid format API keys return mock user
   return {
     id: 'apikey-user',
     email: 'apikey@example.com',
