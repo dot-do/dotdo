@@ -266,7 +266,7 @@ state/
 |------|--------|---------|
 | `cli/package.json` | Done | Added `do` bin alias |
 | `cli/commands/start.ts` | Create | New `start` command |
-| `cli/runtime/embedded-db.ts` | Modify | `.dotdo` → `.do`, remove global fallback |
+| `cli/runtime/embedded-db.ts` | Modify | Use `.do` directory, remove global fallback |
 | `cli/utils/scaffold.ts` | Create | Generate default files |
 | `cli/utils/config.ts` | Modify | Support `surfaces` config shape |
 | `cli/utils/discover.ts` | Create | File discovery logic |

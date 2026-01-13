@@ -306,14 +306,106 @@ Access via API:
 curl http://localhost:8787/status
 ```
 
+## CLI Commands
+
+The dotdo CLI provides commands for every stage of development:
+
+### Development
+
+```bash
+# Start local development (recommended)
+do start
+
+# Or with wrangler backend
+do dev
+```
+
+`do start` includes auto-scaffolding, multi-surface support, and hot reload. It's the recommended command for new projects.
+
+### Multi-Surface Development
+
+dotdo supports building complete applications with multiple frontends:
+
+```bash
+# Create surface files
+touch App.tsx       # Main app at /
+touch Admin.tsx     # Admin panel at /admin
+touch Site.mdx      # Landing page at /site
+touch Docs.mdx      # Documentation at /docs
+touch Blog.mdx      # Blog at /blog
+
+# Start and see all surfaces
+do start
+```
+
+Each surface is automatically discovered and routed. See [Surfaces](/docs/cli/surfaces) for details.
+
+### Configuration
+
+Configure your project in `do.config.ts`:
+
+```typescript title="do.config.ts"
+import { defineConfig } from 'dotdo'
+
+export default defineConfig({
+  name: 'my-startup',
+  port: 4000,
+  surfaces: {
+    app: './App.tsx',
+    admin: './Admin.tsx',
+    docs: { shell: './Docs.mdx', content: 'docs/' },
+  },
+})
+```
+
+See [Configuration](/docs/cli/config) for all options.
+
+### Deployment
+
+```bash
+# Deploy to Cloudflare Workers
+do deploy
+
+# Preview deployment
+do deploy --dry-run
+
+# Deploy to staging
+do deploy --env staging
+```
+
+### Other Commands
+
+```bash
+do init my-project     # Initialize new project
+do generate agent foo  # Generate scaffolding
+do logs               # Stream production logs
+do config             # Manage CLI configuration
+```
+
 ## Next Steps
 
 You've built a startup. Here's what to explore next:
 
-- [RPC & Pipelines](/docs/rpc) - Deep dive into Cap'n Web
-- [The $ Context](/docs/sdk/workflow-context) - Event handling, scheduling, durability
-- [Things](/docs/sdk/thing) - Define custom entities
-- [Deployment](/docs/deployment) - Production configuration
+<Cards>
+  <Card title="CLI Reference" href="/docs/cli">
+    Complete command documentation
+  </Card>
+  <Card title="Surfaces" href="/docs/cli/surfaces">
+    Multi-surface architecture
+  </Card>
+  <Card title="RPC & Pipelines" href="/docs/rpc">
+    Deep dive into Cap'n Web
+  </Card>
+  <Card title="The $ Context" href="/docs/sdk/workflow-context">
+    Event handling, scheduling, durability
+  </Card>
+  <Card title="Things" href="/docs/sdk/thing">
+    Define custom entities
+  </Card>
+  <Card title="Deployment" href="/docs/deployment">
+    Production configuration
+  </Card>
+</Cards>
 
 ---
 
