@@ -16,6 +16,7 @@
     // Remove most path aliases for published package, keep stubs for missing deps
     "paths": {
       "fsx.do": ["./types/stubs/fsx.do.d.ts"],
+      "@dotdo/fsx": ["./types/stubs/dotdo-fsx.d.ts"],
       "@dotdo/client": ["./types/stubs/dotdo-client.d.ts"]
     },
 
@@ -68,7 +69,7 @@
     "api/**/*",
     // Missing dependencies
     "do/payments/**/*",
-    "objects/mixins/**/*",
+    // objects/mixins now uses lib/mixins which only imports types from @dotdo/fsx
     // Files depending on @dotdo/client package (runtime not available during build)
     "lib/agent/**/*",
     "sdk/**/*",
