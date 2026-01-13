@@ -447,33 +447,34 @@ export class FunnelAnalyzer {
       const stepCompletions = this.findStepCompletions(userEvents)
 
       if (stepCompletions.length > 0) {
-        // User entered the funnel
-        usersAtStep[0]!.add(userId)
+        // Check conversion window - only count steps that happen within the window
+        const firstStepTime = stepCompletions[0]!.timestamp
 
-        // Check conversion window
-        const firstStepTime = stepCompletions[0]?.timestamp
-        const lastStepTime = stepCompletions[stepCompletions.length - 1]?.timestamp
-
-        if (
-          firstStepTime !== undefined &&
-          lastStepTime !== undefined &&
-          lastStepTime - firstStepTime <= this.config.conversionWindow!
-        ) {
-          // Track each step the user completed
-          for (let i = 0; i < stepCompletions.length; i++) {
-            usersAtStep[i]!.add(userId)
-
-            // Calculate time from previous step
-            if (i > 0) {
-              const timeDiff = stepCompletions[i]!.timestamp - stepCompletions[i - 1]!.timestamp
-              timeFromPrevious[i]!.push(timeDiff)
-            }
+        // Find how many steps are within the conversion window
+        let stepsWithinWindow = 0
+        for (const completion of stepCompletions) {
+          if (completion.timestamp - firstStepTime <= this.config.conversionWindow!) {
+            stepsWithinWindow++
+          } else {
+            break // Steps are in order, so all remaining are also outside window
           }
+        }
 
-          // If user completed all steps, track total conversion time
-          if (stepCompletions.length === steps.length) {
-            conversionTimes.push(lastStepTime - firstStepTime)
+        // Track each step the user completed within the window
+        for (let i = 0; i < stepsWithinWindow; i++) {
+          usersAtStep[stepCompletions[i]!.stepIndex]!.add(userId)
+
+          // Calculate time from previous step
+          if (i > 0) {
+            const timeDiff = stepCompletions[i]!.timestamp - stepCompletions[i - 1]!.timestamp
+            timeFromPrevious[stepCompletions[i]!.stepIndex]!.push(timeDiff)
           }
+        }
+
+        // If user completed all steps within the window, track total conversion time
+        if (stepsWithinWindow === steps.length) {
+          const lastStepTime = stepCompletions[stepsWithinWindow - 1]!.timestamp
+          conversionTimes.push(lastStepTime - firstStepTime)
         }
       }
     }

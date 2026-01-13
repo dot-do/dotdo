@@ -182,7 +182,8 @@ describe('createSyncClient()', () => {
     const { createSyncClient } = await import('../sync-client')
     const client = createSyncClient({ url: 'wss://test.example.com' })
 
-    await client.connect()
+    // Start connecting (don't await, just trigger WebSocket creation)
+    client.connect()
     await vi.waitFor(() => mockWebSocketInstances.length > 0)
 
     expect(mockWebSocketInstances[0].url).toBe('wss://test.example.com/sync')
@@ -192,7 +193,8 @@ describe('createSyncClient()', () => {
     const { createSyncClient } = await import('../sync-client')
     const client = createSyncClient({ url: 'wss://test.example.com/sync' })
 
-    await client.connect()
+    // Start connecting (don't await, just trigger WebSocket creation)
+    client.connect()
     await vi.waitFor(() => mockWebSocketInstances.length > 0)
 
     expect(mockWebSocketInstances[0].url).toBe('wss://test.example.com/sync')
@@ -202,7 +204,8 @@ describe('createSyncClient()', () => {
     const { createSyncClient } = await import('../sync-client')
     const client = createSyncClient({ url: 'wss://test.example.com/' })
 
-    await client.connect()
+    // Start connecting (don't await, just trigger WebSocket creation)
+    client.connect()
     await vi.waitFor(() => mockWebSocketInstances.length > 0)
 
     expect(mockWebSocketInstances[0].url).toBe('wss://test.example.com/sync')

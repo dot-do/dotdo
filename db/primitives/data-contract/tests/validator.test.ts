@@ -2,10 +2,12 @@
  * Runtime Validator tests - Configurable strictness levels
  *
  * Tests the ContractValidator implementation with:
- * - Multiple strictness levels (strict, warn, lenient, sample, off)
+ * - Multiple strictness levels (strict, warn, permissive, lenient, sample, off)
+ * - Custom validation functions for business logic
  * - Type coercion for compatible types
  * - Batch validation with early termination
  * - Dead-letter queue integration
+ * - CDC/Sync pipeline integration
  * - Performance benchmarks
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -20,6 +22,8 @@ import {
   type DeadLetterQueue,
   type RuntimeValidationResult,
   type BatchValidationResult,
+  type CustomValidator,
+  type CustomValidationRule,
 } from '../validator'
 import { createSchema, type DataContract } from '../index'
 
@@ -270,32 +274,30 @@ describe('ContractValidator', () => {
     })
 
     describe('sample mode', () => {
-      it('should validate only a sample of records', () => {
+      it('should validate only a sample of records - invalid data passes when not sampled', () => {
+        // Use a very low sample rate to ensure most records are skipped
         const validator = createValidator(contract, {
           strictness: 'sample',
-          sampleRate: 0.5,
+          sampleRate: 0.01, // Only 1% sampled
         })
 
-        // Run many validations
-        let validatedCount = 0
+        // Run many validations with INVALID data
+        // If validation is skipped, invalid data passes
+        let passedCount = 0
         for (let i = 0; i < 100; i++) {
           const result = validator.validate({
             id: `user-${i}`,
-            email: `user${i}@example.com`,
+            email: 'invalid-email', // Invalid format - would fail if validated
           })
 
-          // All should be valid since data is correct
-          expect(result.valid).toBe(true)
-
-          // Check if validation was actually performed (timing > 0)
-          if (result.timing.validateMs > 0) {
-            validatedCount++
+          if (result.valid) {
+            passedCount++
           }
         }
 
-        // Should validate roughly 50% (with some variance)
-        expect(validatedCount).toBeGreaterThan(20)
-        expect(validatedCount).toBeLessThan(80)
+        // Most should pass because validation was skipped
+        // With 1% sample rate, ~99 should pass, ~1 should fail
+        expect(passedCount).toBeGreaterThan(90)
       })
 
       it('should skip validation when not sampled', () => {
@@ -1458,23 +1460,27 @@ describe('ContractValidator', () => {
       })
 
       // In production, this would be a firehose of CDC events
-      const results = []
+      // Using INVALID data to verify sampling behavior
+      let passedCount = 0
+      let failedCount = 0
       for (let i = 0; i < 1000; i++) {
-        results.push(
-          validator.validate({
-            id: `user-${i}`,
-            email: `user${i}@example.com`,
-          })
-        )
+        const result = validator.validate({
+          id: `user-${i}`,
+          email: 'invalid-email', // Would fail if validated
+        })
+
+        if (result.valid) {
+          passedCount++
+        } else {
+          failedCount++
+        }
       }
 
-      // All should be "valid" (sample mode doesn't fail the non-sampled)
-      expect(results.every((r) => r.valid)).toBe(true)
-
-      // But only ~10% should have non-zero validation time
-      const validatedCount = results.filter((r) => r.timing.validateMs > 0).length
-      expect(validatedCount).toBeGreaterThan(50)
-      expect(validatedCount).toBeLessThan(200)
+      // With 10% sample rate, ~100 should be validated and fail
+      // ~900 should be skipped and pass
+      expect(passedCount).toBeGreaterThan(800)
+      expect(failedCount).toBeGreaterThan(50)
+      expect(failedCount).toBeLessThan(200)
     })
   })
 })

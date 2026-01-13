@@ -7,6 +7,9 @@
  * - Grouping sets: Custom dimension combinations
  * - Unified Analytics API: Fluent builder for all primitives
  * - EventBatcher: Event batching with dead-letter queue and replay
+ * - Funnel Analysis: Define steps, calculate conversion between steps
+ * - Cohort Analysis: Group users by signup date/first action
+ * - Retention Analysis: Track user return rates over time
  *
  * @module db/primitives/analytics
  */
@@ -149,3 +152,61 @@ export {
   between as plannerBetween,
   inList as plannerInList,
 } from './query-planner'
+
+// ============================================================================
+// Funnel and Cohort Analysis
+// ============================================================================
+
+export {
+  // Funnel Analysis
+  funnel,
+  createFunnelAnalyzer,
+  FunnelAnalyzer,
+  FunnelBuilder,
+
+  // Cohort Analysis
+  cohort,
+  createCohortAnalyzer,
+  CohortAnalyzer,
+  CohortBuilder,
+
+  // Retention Analysis
+  retention,
+  createRetentionAnalyzer,
+  RetentionAnalyzer,
+  RetentionBuilder,
+
+  // Filter helpers (funnel/cohort specific)
+  eq as funnelEq,
+  neq as funnelNeq,
+  gt as funnelGt,
+  lt as funnelLt,
+  gte as funnelGte,
+  lte as funnelLte,
+  inList as funnelInList,
+  contains,
+  exists,
+
+  // Types - Funnel
+  type FilterOp,
+  type StepFilter,
+  type FunnelStep,
+  type FunnelConfig,
+  type FunnelStepResult,
+  type FunnelResult,
+
+  // Types - Cohort
+  type CohortGranularity,
+  type CohortConfig,
+  type CohortData,
+  type CohortRetention,
+  type CohortResult,
+
+  // Types - Retention
+  type RetentionConfig,
+  type RetentionResult,
+  type RetentionPeriodResult,
+
+  // Types - Events
+  type AnalyticsEvent,
+} from './funnel-cohort'

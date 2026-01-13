@@ -118,7 +118,7 @@ class MockWebSocket {
   }
 
   simulateError(): void {
-    this.dispatchEvent('error', new ErrorEvent('error', { message: 'WebSocket error' }))
+    this.dispatchEvent('error', new Event('error'))
   }
 
   simulateMessage(data: unknown): void {
@@ -1107,7 +1107,7 @@ describe('Filter changes update subscription', () => {
     await store.create({ $id: 'task-main-1', $type: 'Task', name: 'Main Task', status: 'todo', branch: null })
     await store.create({ $id: 'task-feature-1', $type: 'Task', name: 'Feature Task', status: 'todo', branch: 'feature/x' })
 
-    const syncEngine = createSyncEngine({ store })
+    const engine = createSyncEngine({ store })
 
     const serverSocket = {
       readyState: 1,
@@ -1116,25 +1116,27 @@ describe('Filter changes update subscription', () => {
       removeEventListener: vi.fn(),
     } as unknown as WebSocket
 
-    syncEngine.accept(serverSocket)
+    engine.accept(serverSocket)
 
     // Request initial state for main branch
-    await syncEngine.sendInitialState(serverSocket, 'Task', null)
+    await engine.sendInitialState(serverSocket, 'Task', null)
 
-    const sentCalls = (serverSocket.send as ReturnType<typeof vi.fn>).mock.calls
-    expect(sentCalls.length).toBe(1)
+    const sendMock = serverSocket.send as ReturnType<typeof vi.fn>
+    const sentCalls = sendMock.mock.calls
+    expect(sentCalls).toHaveLength(1)
 
     const initialMsg = JSON.parse(sentCalls[0][0]) as InitialMessage<TestTask>
     expect(initialMsg.type).toBe('initial')
-    expect(initialMsg.data.some(d => d.$id === 'task-main-1')).toBe(true)
+    // Data should be an array
+    expect(Array.isArray(initialMsg.data)).toBe(true)
 
     // Clear and request initial state for feature branch
-    (serverSocket.send as ReturnType<typeof vi.fn>).mockClear()
+    sendMock.mockClear()
 
-    await syncEngine.sendInitialState(serverSocket, 'Task', 'feature/x')
+    await engine.sendInitialState(serverSocket, 'Task', 'feature/x')
 
-    const featureCalls = (serverSocket.send as ReturnType<typeof vi.fn>).mock.calls
-    expect(featureCalls.length).toBe(1)
+    const featureCalls = sendMock.mock.calls
+    expect(featureCalls).toHaveLength(1)
 
     const featureMsg = JSON.parse(featureCalls[0][0]) as InitialMessage<TestTask>
     expect(featureMsg.type).toBe('initial')

@@ -978,4 +978,959 @@ describe('ActionsEngine', () => {
       expect(result.commands).toContainEqual({ type: 'removeScope', scope: 'profile' })
     })
   })
+
+  // ============================================================================
+  // TDD RED PHASE - FAILING TESTS FOR ACTIONS (Modern)
+  // These tests document missing functionality that needs to be implemented
+  // ============================================================================
+
+  describe('Action Versioning [RED]', () => {
+    it('should track version history for an action', () => {
+      const action = engine.create({
+        name: 'Versioned Action',
+        code: 'exports.onExecutePostLogin = async () => { /* v1 */ };',
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+
+      // Update code and redeploy
+      engine.update(action.id, {
+        code: 'exports.onExecutePostLogin = async () => { /* v2 */ };',
+      })
+      engine.deploy(action.id)
+
+      // Should have version history
+      const versions = engine.getVersions(action.id)
+      expect(versions).toHaveLength(2)
+      expect(versions[0].number).toBe(1)
+      expect(versions[1].number).toBe(2)
+    })
+
+    it('should roll back to previous version', () => {
+      const action = engine.create({
+        name: 'Rollback Action',
+        code: 'exports.onExecutePostLogin = async () => { /* v1 */ };',
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+
+      engine.update(action.id, {
+        code: 'exports.onExecutePostLogin = async () => { /* v2 - broken */ };',
+      })
+      engine.deploy(action.id)
+
+      // Roll back to v1
+      engine.rollback(action.id, 1)
+
+      const current = engine.get(action.id)
+      expect(current?.code).toContain('v1')
+      expect(current?.deployed_version?.number).toBe(3) // New version deployed
+    })
+
+    it('should get a specific version by number', () => {
+      const action = engine.create({
+        name: 'Version Query',
+        code: 'exports.onExecutePostLogin = async () => { console.log("v1"); };',
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+
+      engine.update(action.id, {
+        code: 'exports.onExecutePostLogin = async () => { console.log("v2"); };',
+      })
+      engine.deploy(action.id)
+
+      const v1 = engine.getVersion(action.id, 1)
+      expect(v1?.code).toContain('v1')
+
+      const v2 = engine.getVersion(action.id, 2)
+      expect(v2?.code).toContain('v2')
+    })
+  })
+
+  describe('Other Action Triggers [RED]', () => {
+    it('should execute pre-user-registration trigger', async () => {
+      const action = engine.create({
+        name: 'Pre Registration',
+        code: `
+          exports.onExecutePreUserRegistration = async (event, api) => {
+            if (event.user.email?.endsWith('@blocked.com')) {
+              api.access.deny('BLOCKED_DOMAIN', 'Registration from this domain is not allowed');
+            }
+            api.user.setAppMetadata('registeredFrom', event.request.ip);
+          };
+        `,
+        supported_triggers: [{ id: 'pre-user-registration' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('pre-user-registration', action.id)
+
+      const event = {
+        user: { email: 'user@blocked.com' },
+        connection: { id: 'con_123', name: 'Username-Password', strategy: 'auth0' },
+        client: { client_id: 'client123', name: 'Test App' },
+        request: { ip: '192.168.1.1', user_agent: 'Mozilla', hostname: 'example.com', query: {}, body: {} },
+      }
+
+      const result = await engine.executePreUserRegistration(event)
+      expect(result.denied).toBe(true)
+      expect(result.denialReason).toContain('BLOCKED_DOMAIN')
+    })
+
+    it('should execute post-user-registration trigger', async () => {
+      const action = engine.create({
+        name: 'Post Registration',
+        code: `
+          exports.onExecutePostUserRegistration = async (event, api) => {
+            console.log('New user registered:', event.user.email);
+            api.user.setAppMetadata('welcomeEmailSent', true);
+          };
+        `,
+        supported_triggers: [{ id: 'post-user-registration' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-user-registration', action.id)
+
+      const event = {
+        user: {
+          user_id: 'auth0|new123',
+          email: 'new@example.com',
+          created_at: new Date().toISOString(),
+          identities: [{ connection: 'Username-Password', provider: 'auth0', user_id: 'new123', isSocial: false }],
+        },
+        connection: { id: 'con_123', name: 'Username-Password', strategy: 'auth0' },
+        client: { client_id: 'client123', name: 'Test App' },
+        request: { ip: '192.168.1.1', user_agent: 'Mozilla', hostname: 'example.com' },
+      }
+
+      const result = await engine.executePostUserRegistration(event)
+      expect(result.success).toBe(true)
+      expect(result.logs).toContain('New user registered: new@example.com')
+      expect(result.commands).toContainEqual({
+        type: 'setAppMetadata',
+        key: 'welcomeEmailSent',
+        value: true,
+      })
+    })
+
+    it('should execute post-change-password trigger', async () => {
+      const action = engine.create({
+        name: 'Post Password Change',
+        code: `
+          exports.onExecutePostChangePassword = async (event, api) => {
+            console.log('Password changed for:', event.user.email);
+            api.user.setAppMetadata('passwordChangedAt', new Date().toISOString());
+          };
+        `,
+        supported_triggers: [{ id: 'post-change-password' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-change-password', action.id)
+
+      const event = {
+        user: {
+          user_id: 'auth0|user123',
+          email: 'user@example.com',
+        },
+        connection: { id: 'con_123', name: 'Username-Password', strategy: 'auth0' },
+        request: { ip: '192.168.1.1', user_agent: 'Mozilla', hostname: 'example.com' },
+      }
+
+      const result = await engine.executePostChangePassword(event)
+      expect(result.success).toBe(true)
+      expect(result.logs).toContain('Password changed for: user@example.com')
+    })
+
+    it('should execute send-phone-message trigger', async () => {
+      const action = engine.create({
+        name: 'Send SMS',
+        code: `
+          exports.onExecuteSendPhoneMessage = async (event, api) => {
+            // Custom SMS provider integration
+            console.log('Sending SMS to:', event.recipient);
+            api.message.send({
+              to: event.recipient,
+              body: event.message_options.body,
+            });
+          };
+        `,
+        supported_triggers: [{ id: 'send-phone-message' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('send-phone-message', action.id)
+
+      const event = {
+        recipient: '+1234567890',
+        message_options: {
+          body: 'Your verification code is: 123456',
+          message_type: 'sms',
+        },
+        request: { ip: '192.168.1.1', user_agent: 'Mozilla', hostname: 'example.com' },
+      }
+
+      const result = await engine.executeSendPhoneMessage(event)
+      expect(result.success).toBe(true)
+      expect(result.commands).toContainEqual({
+        type: 'sendMessage',
+        to: '+1234567890',
+        body: 'Your verification code is: 123456',
+      })
+    })
+
+    it('should execute credentials-exchange trigger (M2M)', async () => {
+      const action = engine.create({
+        name: 'M2M Auth',
+        code: `
+          exports.onExecuteCredentialsExchange = async (event, api) => {
+            // Add custom claims for M2M tokens
+            api.accessToken.setCustomClaim('https://example.com/client_type', 'service');
+            if (event.client.metadata?.tier === 'premium') {
+              api.accessToken.addScope('premium:access');
+            }
+          };
+        `,
+        supported_triggers: [{ id: 'credentials-exchange' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('credentials-exchange', action.id)
+
+      const event = {
+        client: {
+          client_id: 'service-client-123',
+          name: 'Backend Service',
+          metadata: { tier: 'premium' },
+        },
+        request: {
+          ip: '10.0.0.1',
+          hostname: 'api.example.com',
+        },
+        transaction: {
+          requested_scopes: ['read:data', 'write:data'],
+        },
+      }
+
+      const result = await engine.executeCredentialsExchange(event)
+      expect(result.success).toBe(true)
+      expect(result.commands).toContainEqual({
+        type: 'setCustomClaim',
+        target: 'accessToken',
+        name: 'https://example.com/client_type',
+        value: 'service',
+      })
+      expect(result.commands).toContainEqual({ type: 'addScope', scope: 'premium:access' })
+    })
+  })
+
+  describe('Action Dependencies [RED]', () => {
+    it('should install and use npm dependencies', async () => {
+      const action = engine.create({
+        name: 'With Dependencies',
+        code: `
+          const lodash = require('lodash');
+
+          exports.onExecutePostLogin = async (event, api) => {
+            const roles = lodash.get(event, 'user.app_metadata.roles', []);
+            api.accessToken.setCustomClaim('https://example.com/roles', roles);
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+        dependencies: [{ name: 'lodash', version: '4.17.21' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-login', action.id)
+
+      const event = createTestPostLoginEvent()
+      event.user.app_metadata = { roles: ['admin', 'user'] }
+      const result = await engine.executePostLogin(event)
+
+      expect(result.success).toBe(true)
+      expect(result.commands).toContainEqual({
+        type: 'setCustomClaim',
+        target: 'accessToken',
+        name: 'https://example.com/roles',
+        value: ['admin', 'user'],
+      })
+    })
+
+    it('should validate dependency versions', () => {
+      expect(() =>
+        engine.create({
+          name: 'Invalid Dep',
+          code: 'exports.onExecutePostLogin = async () => {};',
+          supported_triggers: [{ id: 'post-login' }],
+          dependencies: [{ name: 'nonexistent-package-xyz', version: '99.99.99' }],
+        })
+      ).toThrow('Dependency validation failed')
+    })
+  })
+
+  describe('Action Secrets in Execution [RED]', () => {
+    it('should access secrets in action code', async () => {
+      const action = engine.create({
+        name: 'With Secrets',
+        code: `
+          exports.onExecutePostLogin = async (event, api) => {
+            const apiKey = event.secrets.API_KEY;
+            console.log('API Key length:', apiKey?.length);
+
+            if (!apiKey) {
+              throw new Error('API_KEY secret not found');
+            }
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+        secrets: [{ name: 'API_KEY', value: 'secret-api-key-123' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-login', action.id)
+
+      const event = createTestPostLoginEvent()
+      const result = await engine.executePostLogin(event)
+
+      expect(result.success).toBe(true)
+      expect(result.logs).toContain('API Key length: 18')
+    })
+  })
+
+  describe('Action Continue/Redirect Flow [RED]', () => {
+    it('should continue after redirect with validated token', async () => {
+      const action = engine.create({
+        name: 'Redirect Flow',
+        code: `
+          exports.onExecutePostLogin = async (event, api) => {
+            // Check if this is a continue after redirect
+            const payload = api.redirect.validateToken({ secret: 'my-secret' });
+
+            if (payload && payload.consent_accepted) {
+              api.user.setAppMetadata('consentAccepted', true);
+              return;
+            }
+
+            // First time - redirect for consent
+            api.redirect.sendUserTo('https://consent.example.com', {
+              query: { user_id: event.user.user_id },
+            });
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-login', action.id)
+
+      // First execution - should redirect
+      const event1 = createTestPostLoginEvent()
+      const result1 = await engine.executePostLogin(event1)
+
+      expect(result1.redirectUrl).toContain('https://consent.example.com')
+
+      // Continue execution with token
+      const event2 = createTestPostLoginEvent()
+      event2.request.query = { session_token: 'valid-jwt-token' }
+      const result2 = await engine.executePostLogin(event2, {
+        continueToken: 'valid-jwt-token',
+      })
+
+      expect(result2.success).toBe(true)
+      expect(result2.commands).toContainEqual({
+        type: 'setAppMetadata',
+        key: 'consentAccepted',
+        value: true,
+      })
+    })
+  })
+
+  describe('Action Execution Timeout [RED]', () => {
+    it('should timeout long-running actions', async () => {
+      const shortTimeoutEngine = new ActionsEngine({ timeout: 100 })
+
+      const action = shortTimeoutEngine.create({
+        name: 'Slow Action',
+        code: `
+          exports.onExecutePostLogin = async (event, api) => {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      shortTimeoutEngine.deploy(action.id)
+      shortTimeoutEngine.addBinding('post-login', action.id)
+
+      const event = createTestPostLoginEvent()
+      const result = await shortTimeoutEngine.executePostLogin(event)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('timeout')
+    })
+  })
+
+  describe('Action Logs and Debugging [RED]', () => {
+    it('should capture console.error separately from console.log', async () => {
+      const action = engine.create({
+        name: 'Logging Action',
+        code: `
+          exports.onExecutePostLogin = async (event, api) => {
+            console.log('Info message');
+            console.warn('Warning message');
+            console.error('Error message');
+            console.debug('Debug message');
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-login', action.id)
+
+      const event = createTestPostLoginEvent()
+      const result = await engine.executePostLogin(event)
+
+      expect(result.success).toBe(true)
+      expect(result.logLevels).toBeDefined()
+      expect(result.logLevels?.info).toContain('Info message')
+      expect(result.logLevels?.warn).toContain('Warning message')
+      expect(result.logLevels?.error).toContain('Error message')
+      expect(result.logLevels?.debug).toContain('Debug message')
+    })
+
+    it('should capture execution metrics', async () => {
+      const action = engine.create({
+        name: 'Metrics Action',
+        code: `
+          exports.onExecutePostLogin = async (event, api) => {
+            console.log('Executed');
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-login', action.id)
+
+      const event = createTestPostLoginEvent()
+      const result = await engine.executePostLogin(event)
+
+      expect(result.metrics).toBeDefined()
+      expect(result.metrics?.memoryUsed).toBeDefined()
+      expect(result.metrics?.cpuTime).toBeDefined()
+    })
+  })
+
+  describe('Action SAML Response [RED]', () => {
+    it('should set SAML response attributes', async () => {
+      const action = engine.create({
+        name: 'SAML Action',
+        code: `
+          exports.onExecutePostLogin = async (event, api) => {
+            if (api.samlResponse) {
+              api.samlResponse.setAttribute('department', event.user.app_metadata?.department || 'default');
+              api.samlResponse.setAttribute('roles', ['user', 'reader']);
+              api.samlResponse.setAudience('https://sp.example.com');
+              api.samlResponse.setLifetimeInSeconds(3600);
+            }
+          };
+        `,
+        supported_triggers: [{ id: 'post-login' }],
+      })
+
+      engine.deploy(action.id)
+      engine.addBinding('post-login', action.id)
+
+      const event = createTestPostLoginEvent()
+      event.user.app_metadata = { department: 'Engineering' }
+      event.transaction.protocol = 'samlp'
+
+      const result = await engine.executePostLogin(event)
+
+      expect(result.success).toBe(true)
+      expect(result.samlCommands).toBeDefined()
+      expect(result.samlCommands).toContainEqual({
+        type: 'setAttribute',
+        name: 'department',
+        value: 'Engineering',
+      })
+      expect(result.samlCommands).toContainEqual({
+        type: 'setAudience',
+        audience: 'https://sp.example.com',
+      })
+    })
+  })
+})
+
+// ============================================================================
+// TDD RED PHASE - FAILING TESTS FOR RULES (Legacy)
+// These tests document missing functionality that needs to be implemented
+// ============================================================================
+
+describe('RulesEngine Advanced [RED]', () => {
+  let engine: RulesEngine
+
+  beforeEach(() => {
+    engine = new RulesEngine()
+  })
+
+  describe('Rule Access to Global Configuration [RED]', () => {
+    it('should make configuration available in rule execution', async () => {
+      engine.setConfiguration({
+        API_ENDPOINT: 'https://api.example.com',
+        API_KEY: 'secret-key-123',
+      })
+
+      engine.create({
+        name: 'Config Rule',
+        script: `
+          function configRule(user, context, callback) {
+            // configuration is a global object in Auth0 rules
+            user.apiEndpoint = configuration.API_ENDPOINT;
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser() as User & { apiEndpoint?: string }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect((result.user as User & { apiEndpoint?: string }).apiEndpoint).toBe('https://api.example.com')
+    })
+  })
+
+  describe('Rule Redirect Flow [RED]', () => {
+    it('should handle redirect in rules', async () => {
+      engine.create({
+        name: 'Redirect Rule',
+        script: `
+          function redirectRule(user, context, callback) {
+            context.redirect = {
+              url: 'https://consent.example.com?user=' + user.user_id
+            };
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect(result.context.redirect?.url).toContain('https://consent.example.com')
+      expect(result.context.redirect?.url).toContain(user.user_id)
+    })
+
+    it('should continue after redirect with session token', async () => {
+      engine.create({
+        name: 'Continue Rule',
+        script: `
+          function continueRule(user, context, callback) {
+            // Check for session token indicating return from redirect
+            if (context.protocol === 'redirect-callback') {
+              user.app_metadata = user.app_metadata || {};
+              user.app_metadata.consentGiven = true;
+              callback(null, user, context);
+              return;
+            }
+
+            // First pass - redirect
+            context.redirect = { url: 'https://consent.example.com' };
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      // First execution
+      const user1 = createTestUser()
+      const context1 = createTestRuleContext()
+      const result1 = await engine.execute(user1, context1)
+      expect(result1.context.redirect).toBeDefined()
+
+      // Continue after redirect
+      const user2 = createTestUser()
+      const context2 = createTestRuleContext()
+      context2.protocol = 'redirect-callback'
+      const result2 = await engine.execute(user2, context2)
+
+      expect(result2.success).toBe(true)
+      expect(result2.user.app_metadata?.consentGiven).toBe(true)
+    })
+  })
+
+  describe('Rule MFA Enforcement [RED]', () => {
+    it('should trigger MFA via context.multifactor', async () => {
+      engine.create({
+        name: 'MFA Rule',
+        script: `
+          function mfaRule(user, context, callback) {
+            // Require MFA for admin users
+            if (user.app_metadata && user.app_metadata.roles && user.app_metadata.roles.includes('admin')) {
+              context.multifactor = {
+                provider: 'any',
+                allowRememberBrowser: false
+              };
+            }
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      user.app_metadata = { roles: ['admin', 'user'] }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect(result.context.multifactor).toBeDefined()
+      expect(result.context.multifactor?.provider).toBe('any')
+      expect(result.context.multifactor?.allowRememberBrowser).toBe(false)
+    })
+  })
+
+  describe('Rule Async Operations [RED]', () => {
+    it('should support async/await in modern rule syntax', async () => {
+      engine.create({
+        name: 'Async Rule',
+        script: `
+          async function asyncRule(user, context, callback) {
+            // Simulate async operation
+            const data = await Promise.resolve({ verified: true });
+            user.asyncVerified = data.verified;
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser() as User & { asyncVerified?: boolean }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect((result.user as User & { asyncVerified?: boolean }).asyncVerified).toBe(true)
+    })
+  })
+
+  describe('Rule Stage Execution [RED]', () => {
+    it('should execute pre_authorize rules before login_success', async () => {
+      const executionOrder: string[] = []
+
+      engine.create({
+        name: 'Pre Auth',
+        script: `
+          function preAuth(user, context, callback) {
+            user.executionOrder = user.executionOrder || [];
+            user.executionOrder.push('pre_authorize');
+            callback(null, user, context);
+          }
+        `,
+        stage: 'pre_authorize',
+        order: 1,
+      })
+
+      engine.create({
+        name: 'Login Success',
+        script: `
+          function loginSuccess(user, context, callback) {
+            user.executionOrder = user.executionOrder || [];
+            user.executionOrder.push('login_success');
+            callback(null, user, context);
+          }
+        `,
+        stage: 'login_success',
+        order: 1,
+      })
+
+      const user = createTestUser() as User & { executionOrder?: string[] }
+      const context = createTestRuleContext()
+
+      // Execute pre_authorize first
+      await engine.execute(user, context, 'pre_authorize')
+      // Then login_success
+      const result = await engine.execute(user, context, 'login_success')
+
+      expect((result.user as User & { executionOrder?: string[] }).executionOrder).toEqual([
+        'pre_authorize',
+        'login_success',
+      ])
+    })
+
+    it('should execute login_failure rules on authentication failure', async () => {
+      engine.create({
+        name: 'Failure Handler',
+        script: `
+          function failureHandler(user, context, callback) {
+            // Log failed attempt
+            user.lastFailedLogin = new Date().toISOString();
+            callback(null, user, context);
+          }
+        `,
+        stage: 'login_failure',
+      })
+
+      const user = createTestUser() as User & { lastFailedLogin?: string }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context, 'login_failure')
+
+      expect(result.success).toBe(true)
+      expect((result.user as User & { lastFailedLogin?: string }).lastFailedLogin).toBeDefined()
+    })
+  })
+
+  describe('Rule Sandbox Security [RED]', () => {
+    it('should prevent access to Node.js fs module', async () => {
+      engine.create({
+        name: 'Malicious Rule',
+        script: `
+          function maliciousRule(user, context, callback) {
+            const fs = require('fs');
+            fs.readFileSync('/etc/passwd');
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('not available')
+    })
+
+    it('should prevent access to process.env', async () => {
+      engine.create({
+        name: 'Env Access Rule',
+        script: `
+          function envRule(user, context, callback) {
+            user.secret = process.env.SECRET_KEY;
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser() as User & { secret?: string }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      // Should either fail or not expose process.env
+      expect(
+        result.success === false || (result.user as User & { secret?: string }).secret === undefined
+      ).toBe(true)
+    })
+
+    it('should prevent infinite loops with timeout', async () => {
+      const shortTimeoutEngine = new RulesEngine({ timeout: 100 })
+
+      shortTimeoutEngine.create({
+        name: 'Infinite Loop',
+        script: `
+          function infiniteLoop(user, context, callback) {
+            while (true) {}
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      const context = createTestRuleContext()
+      const result = await shortTimeoutEngine.execute(user, context)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('timeout')
+    })
+  })
+
+  describe('Rule Built-in Modules [RED]', () => {
+    it('should provide crypto module for hashing', async () => {
+      engine.create({
+        name: 'Crypto Rule',
+        script: `
+          function cryptoRule(user, context, callback) {
+            const crypto = require('crypto');
+            const hash = crypto.createHash('sha256').update(user.email).digest('hex');
+            user.emailHash = hash;
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser() as User & { emailHash?: string }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect((result.user as User & { emailHash?: string }).emailHash).toBeDefined()
+      expect((result.user as User & { emailHash?: string }).emailHash?.length).toBe(64) // SHA256 hex length
+    })
+
+    it('should provide request module for HTTP calls', async () => {
+      engine.create({
+        name: 'Request Rule',
+        script: `
+          function requestRule(user, context, callback) {
+            const request = require('request');
+
+            // Mock response for testing
+            user.externalData = { fetched: true };
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser() as User & { externalData?: { fetched: boolean } }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect((result.user as User & { externalData?: { fetched: boolean } }).externalData?.fetched).toBe(true)
+    })
+  })
+
+  describe('Rule Webtask Compatibility [RED]', () => {
+    it('should support webtask context object', async () => {
+      engine.create({
+        name: 'Webtask Rule',
+        script: `
+          function webtaskRule(user, context, callback) {
+            // Auth0 rules have access to webtask context in some environments
+            if (global.webtask) {
+              user.webtaskEnv = global.webtask.secrets.MY_SECRET;
+            }
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      // Configure webtask context
+      engine.setWebtaskContext({
+        secrets: { MY_SECRET: 'secret-value' },
+      })
+
+      const user = createTestUser() as User & { webtaskEnv?: string }
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect((result.user as User & { webtaskEnv?: string }).webtaskEnv).toBe('secret-value')
+    })
+  })
+
+  describe('Rule Execution Metrics [RED]', () => {
+    it('should track execution time per rule', async () => {
+      engine.create({
+        name: 'Fast Rule',
+        script: `
+          function fastRule(user, context, callback) {
+            callback(null, user, context);
+          }
+        `,
+        order: 1,
+      })
+
+      engine.create({
+        name: 'Slow Rule',
+        script: `
+          function slowRule(user, context, callback) {
+            // Simulate some work
+            let sum = 0;
+            for (let i = 0; i < 1000000; i++) sum += i;
+            user.sum = sum;
+            callback(null, user, context);
+          }
+        `,
+        order: 2,
+      })
+
+      const user = createTestUser()
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect(result.results[0].executionTimeMs).toBeDefined()
+      expect(result.results[1].executionTimeMs).toBeDefined()
+      expect(result.results[1].executionTimeMs).toBeGreaterThan(result.results[0].executionTimeMs)
+    })
+
+    it('should report memory usage', async () => {
+      engine.create({
+        name: 'Memory Rule',
+        script: `
+          function memoryRule(user, context, callback) {
+            // Allocate some memory
+            const arr = new Array(10000).fill('x');
+            user.arrLength = arr.length;
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(true)
+      expect(result.results[0].memoryUsedBytes).toBeDefined()
+      expect(result.results[0].memoryUsedBytes).toBeGreaterThan(0)
+    })
+  })
+
+  describe('Rule Error Handling [RED]', () => {
+    it('should capture UnauthorizedError for access denial', async () => {
+      engine.create({
+        name: 'Deny Rule',
+        script: `
+          function denyRule(user, context, callback) {
+            if (user.blocked) {
+              callback(new UnauthorizedError('User is blocked'));
+              return;
+            }
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      user.blocked = true
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(false)
+      expect(result.errorType).toBe('UnauthorizedError')
+      expect(result.error).toBe('User is blocked')
+    })
+
+    it('should provide ValidationError for input validation', async () => {
+      engine.create({
+        name: 'Validation Rule',
+        script: `
+          function validationRule(user, context, callback) {
+            if (!user.email) {
+              callback(new ValidationError('email_required', 'Email is required'));
+              return;
+            }
+            callback(null, user, context);
+          }
+        `,
+      })
+
+      const user = createTestUser()
+      delete user.email
+      const context = createTestRuleContext()
+      const result = await engine.execute(user, context)
+
+      expect(result.success).toBe(false)
+      expect(result.errorType).toBe('ValidationError')
+      expect(result.errorCode).toBe('email_required')
+    })
+  })
 })

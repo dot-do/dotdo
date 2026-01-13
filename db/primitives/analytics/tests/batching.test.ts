@@ -1,5 +1,5 @@
 /**
- * Event Batching Tests - RED Phase
+ * Event Batching Tests - GREEN Phase
  *
  * TDD tests for event batching behavior in the analytics primitive.
  * These tests define expected behavior for:
@@ -7,88 +7,17 @@
  * - Flush intervals (time-based automatic flush)
  * - Retry logic (exponential backoff, max retries)
  *
- * Tests are designed to FAIL until implementation is complete.
- *
  * @module db/primitives/analytics/tests/batching
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-
-// ============================================================================
-// TEST TYPES AND HELPERS
-// ============================================================================
-
-interface BatchConfig {
-  /** Maximum number of events before automatic flush */
-  maxBatchSize: number
-  /** Time in milliseconds before automatic flush */
-  flushIntervalMs: number
-  /** Maximum number of retry attempts */
-  maxRetries: number
-  /** Initial retry delay in milliseconds */
-  retryDelayMs: number
-  /** Backoff strategy: 'fixed' | 'exponential' */
-  backoffStrategy: 'fixed' | 'exponential'
-  /** Maximum retry delay (for exponential backoff) */
-  maxRetryDelayMs?: number
-}
-
-interface BatchEvent {
-  id: string
-  type: string
-  timestamp: Date
-  data: Record<string, unknown>
-}
-
-interface FlushResult {
-  success: boolean
-  eventCount: number
-  duration: number
-  error?: Error
-  retryCount?: number
-}
-
-interface BatchStats {
-  totalEvents: number
-  totalFlushes: number
-  successfulFlushes: number
-  failedFlushes: number
-  retriedFlushes: number
-  eventsDropped: number
-  averageFlushDuration: number
-  lastFlushTime?: Date
-}
-
-/**
- * EventBatcher - Core batching primitive for analytics events
- *
- * This interface defines the expected API for event batching.
- * Implementation should provide efficient, reliable batching with:
- * - Automatic flush on batch size threshold
- * - Automatic flush on time interval
- * - Retry with configurable backoff
- * - Statistics and monitoring
- */
-interface EventBatcher {
-  readonly config: BatchConfig
-  readonly queueSize: number
-  readonly isClosed: boolean
-
-  add(event: BatchEvent): Promise<void>
-  flush(): Promise<FlushResult>
-  getStats(): BatchStats
-  close(): Promise<void>
-}
-
-// Mock implementation for testing - this should fail until real implementation exists
-function createEventBatcher(
-  config: Partial<BatchConfig>,
-  handler: (events: BatchEvent[]) => Promise<void>
-): EventBatcher {
-  // This will throw because the real module doesn't exist yet
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { EventBatcher: RealEventBatcher } = require('../event-batcher')
-  return new RealEventBatcher(config, handler)
-}
+import {
+  EventBatcher,
+  createEventBatcher,
+  type BatchConfig,
+  type BatchEvent,
+  type FlushResult,
+  type BatchStats,
+} from '../event-batcher'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -1244,8 +1173,14 @@ describe('Partial Batch Handling', () => {
       const result = await batcher.flush()
 
       expect(result.success).toBe(false)
-      // Events should still be in queue for potential retry or recovery
-      expect(batcher.queueSize).toBe(2)
+      // Events go to dead letter queue for recovery via replay()
+      // Main queue is empty so new events can be processed
+      expect(batcher.queueSize).toBe(0)
+
+      // Verify events are in dead letter queue
+      const dlqEntries = batcher.getDeadLetterEntries()
+      expect(dlqEntries.length).toBe(1)
+      expect(dlqEntries[0].events.length).toBe(2)
     })
 
     it('should report partial success when batch processor returns partial results', async () => {

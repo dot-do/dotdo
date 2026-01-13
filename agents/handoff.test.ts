@@ -1032,36 +1032,35 @@ describe('Edge Cases', () => {
     expect(result.state).toBe('completed')
   })
 
-  it('should handle handoff to self - circular detection depends on chain', async () => {
+  it('should detect circular handoff back to previous source agent', async () => {
     const protocol = createHandoffProtocol({
       provider: mockProvider,
       agents: [
-        createTestAgentConfig('agent', 'Agent'),
-        createTestAgentConfig('other', 'Other Agent'),
+        createTestAgentConfig('agent-a', 'Agent A'),
+        createTestAgentConfig('agent-b', 'Agent B'),
       ],
     })
 
-    // Create a chain that includes the agent
-    const messages: Message[] = [{ role: 'user', content: 'Unique conversation ID test' }]
+    // Create a chain by using the same message content hash
+    const messages: Message[] = [{ role: 'user', content: 'Circular test conversation' }]
 
-    // First handoff: other -> agent
+    // First handoff: A -> B (chain now has: [A])
     await protocol.handoff({
-      sourceAgentId: 'other',
-      targetAgentId: 'agent',
+      sourceAgentId: 'agent-a',
+      targetAgentId: 'agent-b',
       reason: 'routing',
       context: { messages },
     })
 
-    // Second handoff from agent back to itself in same chain should be detected as circular
-    // This depends on chain tracking by message content hash
+    // Second handoff: B -> A (circular - A is already in chain as source)
     const result = await protocol.handoff({
-      sourceAgentId: 'agent',
-      targetAgentId: 'agent',
+      sourceAgentId: 'agent-b',
+      targetAgentId: 'agent-a', // This target was a previous source
       reason: 'completion',
       context: { messages }, // Same messages = same chain
     })
 
-    // Circular detection works when the target is already in the chain
+    // Circular detection catches A being handed back to since A was a source
     expect(result.state).toBe('failed')
     expect(result.error?.message).toContain('Circular')
   })

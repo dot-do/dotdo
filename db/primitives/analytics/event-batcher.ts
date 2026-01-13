@@ -612,11 +612,12 @@ export class EventBatcher {
     this.stats.totalFlushes++
     this.stats.failedFlushes++
 
-    // Add to dead letter queue
+    // Add to dead letter queue for replay
     this.addToDeadLetterQueue(batch, lastError!)
 
-    // Keep events in queue for potential recovery (put them back at the front)
-    this.queue.unshift(...batch)
+    // Note: Events are stored in DLQ for replay, NOT put back in main queue.
+    // Use replay() to re-process failed events. This prevents double-processing
+    // and allows filtering/controlled replay of specific failed batches.
 
     return {
       success: false,

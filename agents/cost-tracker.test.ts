@@ -935,7 +935,7 @@ describe('Agent Integration', () => {
     it('should check budget before running', async () => {
       const provider = createMockProvider({
         responses: [
-          { text: 'Response', usage: createTokenUsage(10000, 5000) },
+          { text: 'Response', usage: createTokenUsage(100, 50) },
           { text: 'Should not reach', usage: createTokenUsage(100, 50) },
         ],
       })
@@ -946,24 +946,32 @@ describe('Agent Integration', () => {
         model: 'gpt-4o',
       })
 
+      // Create a tracker that already has costs exceeding the budget
+      // The pre-check should fail before even running the agent
       const tracker = createCostTracker({
         budget: {
-          maxCost: 0.1,
+          maxCost: 0.01, // $0.01 budget
           hardLimit: true,
         },
       })
+
+      // Pre-exhaust the budget (without hardLimit enabled during this phase)
+      // This simulates a scenario where budget was exhausted by previous runs
+      // gpt-4o pricing: input $0.0025/1K, output $0.01/1K
+      // 5K input = $0.0125, 5K output = $0.05 = $0.0625 total (exceeds $0.01)
+      const tempTracker = createCostTracker()
+      tempTracker.recordUsage({ model: 'gpt-4o', promptTokens: 5000, completionTokens: 5000 })
+      tracker.importState(tempTracker.exportState())
+
       const trackedAgent = withCostTracking(agent, tracker)
 
-      // First run - succeeds
-      await trackedAgent.run({ prompt: 'First' })
-
-      // Manually exhaust budget
-      tracker.recordUsage({ model: 'gpt-4o', promptTokens: 50000, completionTokens: 50000 })
-
-      // Second run should fail pre-check
+      // Should fail pre-check since budget is already exhausted
       await expect(
-        trackedAgent.run({ prompt: 'Second' })
+        trackedAgent.run({ prompt: 'Should fail pre-check' })
       ).rejects.toThrow(BudgetExceededError)
+
+      // Verify the agent's run was never called (no new records added)
+      expect(tracker.getRecords().length).toBe(1) // Only the pre-exhaustion record
     })
 
     it('should track usage in streaming mode', async () => {
@@ -981,8 +989,13 @@ describe('Agent Integration', () => {
       const trackedAgent = withCostTracking(agent, tracker)
 
       const stream = trackedAgent.stream({ prompt: 'Hello' })
-      await stream.result
 
+      // Consume the stream to trigger the result
+      for await (const _event of stream) {
+        // Iterate through events
+      }
+
+      // After streaming, usage should be tracked
       expect(tracker.getRecords().length).toBe(1)
     })
 

@@ -594,11 +594,15 @@ describe('Event Replay', () => {
       await batcher.add(createMockEvent('evt_1'))
       await batcher.flush()
 
+      // Add delay to ensure different timestamps
+      await delay(50)
       const midPoint = new Date()
-      await delay(10)
+      await delay(50)
 
       await batcher.add(createMockEvent('evt_2'))
       await batcher.flush()
+
+      await delay(10)
 
       await batcher.add(createMockEvent('evt_3'))
       await batcher.flush()
@@ -608,6 +612,7 @@ describe('Event Replay', () => {
         since: midPoint,
       })
 
+      // evt_2 and evt_3 are after midPoint
       expect(result.totalEntries).toBe(2)
       expect(result.succeeded).toBe(2)
     })

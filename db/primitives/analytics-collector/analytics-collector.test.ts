@@ -652,21 +652,34 @@ describe('Track Event', () => {
     })
 
     it('should accept ISO 8601 string with timezone offset', async () => {
+      // Use a recent timestamp with timezone offset
+      const now = new Date()
+      // Create a time 1 day ago at noon in +05:30 timezone
+      const baseDate = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      baseDate.setUTCHours(12, 30, 45, 0)
+      // The offset string - 12:30:45+05:30 means UTC time is 07:00:45
+      const year = baseDate.getUTCFullYear()
+      const month = String(baseDate.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(baseDate.getUTCDate()).padStart(2, '0')
+      const offsetString = `${year}-${month}-${day}T12:30:45+05:30`
+      const expectedUtc = `${year}-${month}-${day}T07:00:45.000Z`
+
       await analytics.track({
         event: 'Test Event',
         userId: 'user_123',
-        timestamp: '2025-06-15T12:30:45+05:30',
+        timestamp: offsetString,
       })
 
       await analytics.flush()
       // Should normalize to UTC
       expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
-        '2025-06-15T07:00:45.000Z'
+        expectedUtc
       )
     })
 
     it('should accept Unix timestamp in milliseconds', async () => {
-      const unixMs = 1718452245123 // 2024-06-15T12:30:45.123Z
+      const recentDate = new Date(Date.now() - 10000) // 10 seconds ago
+      const unixMs = recentDate.getTime()
       await analytics.track({
         event: 'Test Event',
         userId: 'user_123',
@@ -675,12 +688,14 @@ describe('Track Event', () => {
 
       await analytics.flush()
       expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
-        '2024-06-15T12:30:45.123Z'
+        recentDate.toISOString()
       )
     })
 
     it('should accept Unix timestamp in seconds', async () => {
-      const unixSec = 1718452245 // 2024-06-15T12:30:45Z
+      const recentDate = new Date(Date.now() - 15000) // 15 seconds ago
+      recentDate.setMilliseconds(0) // Clear milliseconds for clean comparison
+      const unixSec = Math.floor(recentDate.getTime() / 1000)
       await analytics.track({
         event: 'Test Event',
         userId: 'user_123',
@@ -689,7 +704,7 @@ describe('Track Event', () => {
 
       await analytics.flush()
       expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
-        '2024-06-15T12:30:45.000Z'
+        recentDate.toISOString()
       )
     })
 
@@ -726,7 +741,8 @@ describe('Track Event', () => {
     })
 
     it('should preserve millisecond precision', async () => {
-      const preciseDate = new Date('2025-06-15T12:30:45.999Z')
+      const preciseDate = new Date(Date.now() - 20000) // 20 seconds ago with precise milliseconds
+      preciseDate.setMilliseconds(999)
       await analytics.track({
         event: 'Test Event',
         userId: 'user_123',
@@ -735,7 +751,7 @@ describe('Track Event', () => {
 
       await analytics.flush()
       expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
-        '2025-06-15T12:30:45.999Z'
+        preciseDate.toISOString()
       )
     })
 
