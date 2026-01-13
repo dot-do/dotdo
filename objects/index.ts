@@ -70,6 +70,16 @@ export {
 export { App, type AppConfig } from './App'
 export { Site, type SiteConfig } from './Site'
 export { SaaS, type SaaSPlan, type SaaSSubscription, type UsageRecord, type SaaSConfig } from './SaaS'
+export {
+  Marketplace,
+  type MarketplaceSeller,
+  type MarketplaceBuyer,
+  type MarketplaceListing,
+  type MarketplaceTransaction,
+  type MarketplaceReview,
+  type CommissionConfig,
+  type MarketplaceConfig,
+} from './Marketplace'
 
 // Entity hierarchy
 export { Entity, type EntitySchema, type FieldDefinition, type EntityRecord } from './Entity'
