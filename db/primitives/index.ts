@@ -42,7 +42,20 @@ export {
   type CodecType,
   type DataCharacteristics,
   type CodecStats,
+  type StringEncodingType,
+  type ColumnConfig,
+  type ColumnMetadata,
 } from './typed-column-store'
+
+// Dictionary Codec - Efficient string column encoding for analytics
+export {
+  createDictionaryCodec,
+  type DictionaryCodec,
+  type DictionaryEncodeResult,
+  type DictionaryMergeResult,
+  type DictionaryEncodedColumn,
+  type EncodedIndices,
+} from './dictionary-codec'
 
 // =============================================================================
 // STREAMING

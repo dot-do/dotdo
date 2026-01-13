@@ -7,6 +7,24 @@
  * @module db/primitives/inverted-index
  */
 
+// Main InvertedIndex Class
+export {
+  InvertedIndex,
+  createInvertedIndex,
+  loadInvertedIndex,
+  tokenize,
+  tokenizeWithFrequencies,
+  INDEX_MAGIC,
+  POSTINGS_MAGIC,
+  INDEX_VERSION,
+  HEADER_SIZE,
+  MAX_TERM_LENGTH,
+  type DocumentMetadata,
+  type SearchResult,
+  type RangeFetcher,
+  type InvertedIndexOptions,
+} from './inverted-index'
+
 // Posting List
 export {
   PostingList,
