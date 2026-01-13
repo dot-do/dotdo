@@ -227,6 +227,7 @@ export class SubmissionStore {
     }
 
     submission.status = 'submitted'
+    submission.completedAt = new Date()
     submission.updatedAt = new Date()
 
     this.emit('submit', submission)

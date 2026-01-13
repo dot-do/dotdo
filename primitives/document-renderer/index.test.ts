@@ -1098,7 +1098,8 @@ describe('Edge Cases', () => {
 
     it('should handle null values', () => {
       const template = '{{value}}'
-      expect(engine.render(template, { value: null })).toBe('{{value}}')
+      // Null values are rendered as empty string (consistent with undefined behavior)
+      expect(engine.render(template, { value: null })).toBe('')
     })
 
     it('should handle unicode content', () => {

@@ -140,5 +140,14 @@ export type { DiscordChannelConfig } from './discord'
 export { WebhookHumanChannel } from './webhook'
 export type { WebhookChannelConfig } from './webhook'
 
+export { SESNotificationChannel } from './ses'
+export type {
+  SESChannelConfig,
+  SESDeliveryResult,
+  SESDeliveryStatus,
+  SNSBounceEvent,
+  SNSComplaintEvent,
+} from './ses'
+
 export { createChannel } from '../channel-factory'
 export type { ChannelConfig } from '../channel-factory'

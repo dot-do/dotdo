@@ -338,7 +338,7 @@ describe('AWS SES Email Delivery (REAL)', () => {
           bounceSubType: 'General',
           bouncedRecipients: [
             {
-              emailAddress: 'hardbounceFc@example.com',
+              emailAddress: 'hardbounce@example.com',
               action: 'failed',
               status: '5.1.1',
               diagnosticCode: 'smtp; 550 5.1.1 User unknown',
