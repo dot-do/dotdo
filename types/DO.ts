@@ -4,6 +4,95 @@ import type { Thing, ThingData } from './Thing'
 import type { Things, ThingsCollection } from './Things'
 import type { Noun, NounData } from './Noun'
 import type { Verb, VerbData } from './Verb'
+import type { WorkflowContext, ScheduleBuilder, EventHandler } from './WorkflowContext'
+import type {
+  AITemplateLiteralFn,
+  AIPipelinePromise,
+  WriteResult,
+  ExtractResult,
+  DecideFn,
+} from './WorkflowContext'
+
+// ============================================================================
+// AI FUNCTION TYPES (DO-specific, extends WorkflowContext AI functions)
+// ============================================================================
+
+/** General AI completion - template literal */
+export type AIFunction = AITemplateLiteralFn<string>
+
+/** Text generation with structured output */
+export type WriteFunction = AITemplateLiteralFn<WriteResult>
+
+/** Summarization */
+export type SummarizeFunction = AITemplateLiteralFn<string>
+
+/** List generation */
+export type ListFunction = AITemplateLiteralFn<string[]>
+
+/** Data extraction with typed entities */
+export type ExtractFunction = <T = Record<string, unknown>>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => AIPipelinePromise<ExtractResult<T>>
+
+/** Code generation */
+export type CodeFunction = AITemplateLiteralFn<string>
+
+/** Diagram generation (Mermaid, SVG) */
+export type DiagramFunction = AITemplateLiteralFn<string>
+
+/** Binary classification */
+export type IsFunction = AITemplateLiteralFn<boolean>
+
+/** Multi-option classification factory */
+export type DecideFunction = DecideFn
+
+/** Human question - ask for input */
+export type AskFunction = AITemplateLiteralFn<string>
+
+/** Human approval - yes/no decision */
+export type ApproveFunction = AITemplateLiteralFn<boolean>
+
+/** Human review - approval with feedback */
+export type ReviewFunction = AITemplateLiteralFn<{ approved: boolean; feedback: string }>
+
+/** Web research */
+export type ResearchFunction = AITemplateLiteralFn<unknown>
+
+/** URL reading */
+export type ReadFunction = (url: string) => AIPipelinePromise<string>
+
+/** Browser automation */
+export type BrowseFunction = (url: string, instructions: string) => AIPipelinePromise<unknown>
+
+/** Code/test evaluation */
+export type EvaluateFunction = (options: EvaluateOptions) => AIPipelinePromise<EvaluateResult>
+
+/** Options for evaluate function */
+export interface EvaluateOptions {
+  module?: string
+  tests?: string
+  script?: string
+  timeout?: number
+}
+
+/** Result from evaluate function */
+export interface EvaluateResult {
+  success: boolean
+  value?: unknown
+  logs: string[]
+  testResults?: TestResult[]
+  error?: unknown
+  duration: number
+}
+
+/** Individual test result */
+export interface TestResult {
+  name: string
+  passed: boolean
+  error?: string
+  duration: number
+}
 
 // ============================================================================
 // DO - Base Durable Object class (batteries included)
@@ -239,104 +328,9 @@ export interface SearchResult {
 }
 
 // ============================================================================
-// WORKFLOW CONTEXT
+// RE-EXPORT WORKFLOW CONTEXT TYPES
 // ============================================================================
 
-export interface WorkflowContext {
-  // Event subscription: $.on.Customer.created(handler)
-  on: EventSubscriptions
-
-  // Execution modes
-  send(event: string, data: unknown): RpcPromise<void> // Fire and forget
-  do(task: string, data: unknown): RpcPromise<unknown> // Durable execution
-  try(action: string, data: unknown): RpcPromise<unknown> // Non-durable
-
-  // Scheduling: $.every.Monday.at9am(handler)
-  every: ScheduleBuilder
-
-  // DO resolution: $.Startup('acme') → Thing or DO stub
-  // Index signature is compatible with all properties via unknown
-  [noun: string]: unknown
-}
-
-export interface EventSubscriptions {
-  [noun: string]: {
-    [event: string]: (handler: (event: Event) => Promise<void>) => void
-  }
-}
-
-export interface ScheduleBuilder {
-  // Days
-  Monday: ScheduleBuilder
-  Tuesday: ScheduleBuilder
-  Wednesday: ScheduleBuilder
-  Thursday: ScheduleBuilder
-  Friday: ScheduleBuilder
-  Saturday: ScheduleBuilder
-  Sunday: ScheduleBuilder
-  weekday: ScheduleBuilder
-  weekend: ScheduleBuilder
-
-  // Times
-  at6am: ScheduleBuilder
-  at9am: ScheduleBuilder
-  at12pm: ScheduleBuilder
-  at5pm: ScheduleBuilder
-  at9pm: ScheduleBuilder
-  atnoon: ScheduleBuilder
-  atmidnight: ScheduleBuilder
-
-  // Intervals
-  second: () => ScheduleBuilder
-  minute: () => ScheduleBuilder
-  hour: () => ScheduleBuilder
-  day: () => ScheduleBuilder
-  week: () => ScheduleBuilder
-  month: () => ScheduleBuilder
-
-  minutes: (n: number) => ScheduleBuilder
-  hours: (n: number) => ScheduleBuilder;
-
-  // Natural language
-  (expression: string, handler: () => Promise<void>): void
-
-  // Execute
-  (handler: () => Promise<void>): void
-}
-
-// ============================================================================
-// AI FUNCTION TYPES (stubs - implement in ai-functions)
-// ============================================================================
-
-export type AIFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<unknown>
-export type WriteFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<string>
-export type SummarizeFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<string>
-export type ListFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<string[]>
-export type ExtractFunction = <T>(strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<T>
-export type CodeFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<string>
-export type DiagramFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<string>
-export type IsFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<boolean>
-export type DecideFunction = <T extends string>(strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<T>
-export type AskFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<string>
-export type ApproveFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<boolean>
-export type ReviewFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<{ approved: boolean; feedback: string }>
-export type ResearchFunction = (strings: TemplateStringsArray, ...values: unknown[]) => RpcPromise<unknown>
-export type ReadFunction = (url: string) => RpcPromise<string>
-export type BrowseFunction = (url: string, instructions: string) => RpcPromise<unknown>
-export type EvaluateFunction = (options: { module?: string; tests?: string; script?: string; timeout?: number }) => RpcPromise<EvaluateResult>
-
-export interface EvaluateResult {
-  success: boolean
-  value?: unknown
-  logs: string[]
-  testResults?: TestResult[]
-  error?: unknown
-  duration: number
-}
-
-export interface TestResult {
-  name: string
-  passed: boolean
-  error?: string
-  duration: number
-}
+// WorkflowContext and related types are now defined in ./WorkflowContext.ts
+// They extend WorkflowContextType from @org.ai/types with DO-specific features
+export type { WorkflowContext, ScheduleBuilder, EventHandler }

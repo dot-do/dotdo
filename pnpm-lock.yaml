@@ -7,11 +7,17 @@ settings:
 overrides:
   esbuild: '>=0.25.0'
   '@smithy/config-resolver': '>=4.4.0'
+  '@vitest/expect': 3.2.4
+  '@vitest/runner': 3.2.4
+  '@vitest/snapshot': 3.2.4
 
 importers:
 
   .:
     dependencies:
+      '@better-auth/stripe':
+        specifier: ^1.4.12
+        version: 1.4.12(@better-auth/core@1.4.10(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.7(zod@4.3.5))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))(better-auth@1.4.10(@tanstack/react-start@1.146.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vite@7.3.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2)))(better-sqlite3@12.5.0)(drizzle-kit@0.31.7)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@electric-sql/pglite@0.3.14)(@libsql/client@0.14.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@3.2.4(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2)))(stripe@20.1.2(@types/node@25.0.3))
       '@clickhouse/client-web':
         specifier: ^1.8.0
         version: 1.16.0
@@ -39,6 +45,9 @@ importers:
       '@mdxui/themes':
         specifier: ^0.0.1
         version: 0.0.1(@types/react@19.2.7)(immer@11.1.3)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
+      '@org.ai/types':
+        specifier: file:../primitives.org.ai/packages/types
+        version: file:../primitives.org.ai/packages/types
       '@radix-ui/react-checkbox':
         specifier: ^1.3.3
         version: 1.3.3(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -227,10 +236,10 @@ importers:
         specifier: ^4.4.0
         version: 4.7.0(vite@7.3.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2))
       '@vitest/runner':
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4
       '@vitest/snapshot':
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4
       better-sqlite3:
         specifier: ^12.5.0
@@ -1806,6 +1815,13 @@ packages:
       kysely: ^0.28.5
       nanostores: ^1.0.1
 
+  '@better-auth/stripe@1.4.12':
+    resolution: {integrity: sha512-JmJZbrVwRE3GIE/YFRvmkwBGiIdTX+2VG9N0qmKYGOmJziCAsSAmFfgrCQRsmTMms5Afhw6AzDxwygXw7E6IoA==}
+    peerDependencies:
+      '@better-auth/core': 1.4.12
+      better-auth: 1.4.12
+      stripe: ^18 || ^19 || ^20
+
   '@better-auth/telemetry@1.4.10':
     resolution: {integrity: sha512-Dq4XJX6EKsUu0h3jpRagX739p/VMOTcnJYWRrLtDYkqtZFg+sFiFsSWVcfapZoWpRSUGYX9iKwl6nDHn6Ju2oQ==}
     peerDependencies:
@@ -1941,8 +1957,8 @@ packages:
   '@cloudflare/vitest-pool-workers@0.12.1':
     resolution: {integrity: sha512-n3zlxG716/o23a7FWT1FSMXcRcmzw01dqyK24JzrTzJ1NLt5LnkA4LOFnRIznrLESjPxW18wKofMnF/z1iUB2A==}
     peerDependencies:
-      '@vitest/runner': 2.0.x - 3.2.x
-      '@vitest/snapshot': 2.0.x - 3.2.x
+      '@vitest/runner': 3.2.4
+      '@vitest/snapshot': 3.2.4
       vitest: 2.0.x - 3.2.x
 
   '@cloudflare/vitest-pool-workers@0.5.41':
@@ -3695,6 +3711,9 @@ packages:
   '@orama/orama@3.1.18':
     resolution: {integrity: sha512-a61ljmRVVyG5MC/698C8/FfFDw5a8LOIvyOLW5fztgUXqUpc1jOfQzOitSCbge657OgXXThmY3Tk8fpiDb4UcA==}
     engines: {node: '>= 20.0.0'}
+
+  '@org.ai/types@file:../primitives.org.ai/packages/types':
+    resolution: {directory: ../primitives.org.ai/packages/types, type: directory}
 
   '@oven/bun-darwin-aarch64@1.3.5':
     resolution: {integrity: sha512-8GvNtMo0NINM7Emk9cNAviCG3teEgr3BUX9be0+GD029zIagx2Sf54jMui1Eu1IpFm7nWHODuLEefGOQNaJ0gQ==}
@@ -9836,6 +9855,15 @@ packages:
   strip-literal@3.1.0:
     resolution: {integrity: sha512-8r3mkIM/2+PpjHoOtiAW8Rg3jJLHaV7xPwG+YRGrv6FP0wwk/toTpATxWYOW0BKdWwl82VT2tFYi5DlROa0Mxg==}
 
+  stripe@20.1.2:
+    resolution: {integrity: sha512-qU+lQRRJnTxmyvglYBPE24/IepncmywsAg0GDTsTdP2pb+3e3RdREHJZjKgqCmv0phPxN/nmgNPnIPPH8w0P4A==}
+    engines: {node: '>=16'}
+    peerDependencies:
+      '@types/node': '>=16'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+
   strnum@1.1.2:
     resolution: {integrity: sha512-vrN+B7DBIoTTZjnPNewwhx6cBA/H+IS7rfW68n7XxC1y7uoiGQBxaKzqucGUgavX15dJgiGztLJ8vxuEzwqBdA==}
 
@@ -12077,6 +12105,14 @@ snapshots:
       nanostores: 1.1.0
       zod: 4.3.5
 
+  '@better-auth/stripe@1.4.12(@better-auth/core@1.4.10(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.7(zod@4.3.5))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))(better-auth@1.4.10(@tanstack/react-start@1.146.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vite@7.3.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2)))(better-sqlite3@12.5.0)(drizzle-kit@0.31.7)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@electric-sql/pglite@0.3.14)(@libsql/client@0.14.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@3.2.4(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2)))(stripe@20.1.2(@types/node@25.0.3))':
+    dependencies:
+      '@better-auth/core': 1.4.10(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.7(zod@4.3.5))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0)
+      better-auth: 1.4.10(@tanstack/react-start@1.146.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vite@7.3.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2)))(better-sqlite3@12.5.0)(drizzle-kit@0.31.7)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@electric-sql/pglite@0.3.14)(@libsql/client@0.14.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@3.2.4(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2))
+      defu: 6.1.4
+      stripe: 20.1.2(@types/node@25.0.3)
+      zod: 4.3.5
+
   '@better-auth/telemetry@1.4.10(@better-auth/core@1.4.10(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.7(zod@4.3.5))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))':
     dependencies:
       '@better-auth/core': 1.4.10(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.7(zod@4.3.5))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0)
@@ -14074,6 +14110,8 @@ snapshots:
       - web-tree-sitter
 
   '@orama/orama@3.1.18': {}
+
+  '@org.ai/types@file:../primitives.org.ai/packages/types': {}
 
   '@oven/bun-darwin-aarch64@1.3.5':
     optional: true
@@ -17569,8 +17607,8 @@ snapshots:
     dependencies:
       '@drizzle-team/brocli': 0.10.2
       '@esbuild-kit/esm-loader': 2.6.5
-      esbuild: 0.25.12
-      esbuild-register: 3.6.0(esbuild@0.25.12)
+      esbuild: 0.27.2
+      esbuild-register: 3.6.0(esbuild@0.27.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -17695,10 +17733,10 @@ snapshots:
       esast-util-from-estree: 2.0.0
       vfile-message: 4.0.3
 
-  esbuild-register@3.6.0(esbuild@0.25.12):
+  esbuild-register@3.6.0(esbuild@0.27.2):
     dependencies:
       debug: 4.4.3
-      esbuild: 0.25.12
+      esbuild: 0.27.2
     transitivePeerDependencies:
       - supports-color
 
@@ -21162,6 +21200,12 @@ snapshots:
   strip-literal@3.1.0:
     dependencies:
       js-tokens: 9.0.1
+
+  stripe@20.1.2(@types/node@25.0.3):
+    dependencies:
+      qs: 6.14.1
+    optionalDependencies:
+      '@types/node': 25.0.3
 
   strnum@1.1.2: {}
 

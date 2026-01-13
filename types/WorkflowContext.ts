@@ -1,5 +1,23 @@
+import type { WorkflowContextType } from '@org.ai/types'
 import type { RpcPromise } from './fn'
 import type { Thing } from './Thing'
+
+// ============================================================================
+// USER CONTEXT - Authenticated user information from RPC middleware
+// ============================================================================
+
+/**
+ * User context extracted from authentication.
+ * This is passed to Durable Objects via X-User-* headers by the RPC auth middleware.
+ */
+export interface UserContext {
+  /** Unique user identifier */
+  id: string
+  /** User's email address (optional) */
+  email?: string
+  /** User's role for authorization (optional) */
+  role?: string
+}
 
 // ============================================================================
 // NOUN REGISTRY - Extensible registry for domain nouns
@@ -190,20 +208,30 @@ export interface ActionError {
 // WORKFLOW CONTEXT ($) - The unified interface for all DO operations
 // ============================================================================
 
-export interface WorkflowContext extends NounAccessors {
+export interface WorkflowContext extends Omit<WorkflowContextType, 'on' | 'every' | 'set' | 'get'>, NounAccessors {
   // ═══════════════════════════════════════════════════════════════════════════
   // EXECUTION MODES (different durability levels)
+  // Inherited from WorkflowContextType: track, send, try, do
+  // DO-specific overloads with additional options below
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Fire-and-forget event emission
-   * Non-blocking, non-durable, best-effort
+   * Track an event (fire and forget)
+   * Best effort, no confirmation, swallows errors silently
+   * Use for telemetry, analytics, non-critical logging
    *
-   * Uses queueMicrotask/setImmediate for async execution.
-   * Does not await logging or event emission.
-   * Swallows all errors silently (best effort).
+   * Inherited from WorkflowContextType
    */
-  send(event: string, data: unknown): void
+  track: (event: string, data: unknown) => void
+
+  /**
+   * Send an event (durable)
+   * Guaranteed delivery with retries, returns trackable EventId
+   * Use for important domain events that must not be lost
+   *
+   * Inherited from WorkflowContextType, returns EventId (string)
+   */
+  send: <T = unknown>(event: string, data: T) => string
 
   /**
    * Quick attempt without durability
@@ -211,7 +239,7 @@ export interface WorkflowContext extends NounAccessors {
    *
    * @param action - The action to execute
    * @param data - The data to pass to the action
-   * @param options - Optional execution options (timeout)
+   * @param options - Optional execution options (timeout) - DO-specific extension
    */
   try<T>(action: string, data: unknown, options?: TryOptions): Promise<T>
 
@@ -226,7 +254,7 @@ export interface WorkflowContext extends NounAccessors {
    *
    * @param action - The action to execute
    * @param data - The data to pass to the action
-   * @param options - Optional execution options (retry, timeout, stepId)
+   * @param options - Optional execution options (retry, timeout, stepId) - DO-specific extension
    */
   do<T>(action: string, data: unknown, options?: DoOptions): Promise<T>
 
@@ -343,6 +371,29 @@ export interface WorkflowContext extends NounAccessors {
    * Current workflow state
    */
   state: Record<string, unknown>
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // USER CONTEXT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Current authenticated user context.
+   * Extracted from X-User-* headers on each incoming request.
+   * Set by the RPC auth middleware before forwarding to the DO.
+   *
+   * - `null` if the request is unauthenticated (no X-User-ID header)
+   * - Contains `id`, optional `email`, and optional `role`
+   *
+   * @example
+   * ```typescript
+   * $.on.Customer.created(async (event) => {
+   *   if ($.user) {
+   *     console.log(`Event triggered by: ${$.user.id}`)
+   *   }
+   * })
+   * ```
+   */
+  user: UserContext | null
 }
 
 // ============================================================================
