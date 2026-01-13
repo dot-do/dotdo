@@ -197,7 +197,9 @@
     "primitives:dry": "tsx scripts/deploy-primitives.ts --dry",
     "primitives:cf": "tsx scripts/deploy-primitives.ts --cf",
     "primitives:npm": "tsx scripts/deploy-primitives.ts --npm",
-    "submodules": "git submodule update --init --recursive"
+    "submodules": "git submodule update --init --recursive",
+    "build:snippets": "tsx scripts/build-snippets.ts",
+    "build:snippets:check": "tsx scripts/build-snippets.ts --check"
   },
   "dependencies": {
     "@clickhouse/client-web": "^1.8.0",

@@ -245,8 +245,8 @@ export default defineWorkspace([
   // Transport layer tests (auth-layer JWT, RPC, etc.)
   createNodeWorkspace('transport', ['tests/transport/**/*.test.ts']),
 
-  // CLI tests (device auth, config management)
-  createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),
+  // CLI tests (device auth, config management, commands)
+  createNodeWorkspace('cli', ['cli/tests/**/*.test.ts', 'cli/commands/tests/**/*.test.ts']),
 
   // API generators tests (MCP tools, etc.)
   createNodeWorkspace('generators', ['api/generators/tests/**/*.test.ts']),
