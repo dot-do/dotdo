@@ -298,28 +298,3 @@ export class RefundProcessor extends DO {
   }
 }
 ```
-
-## Technical Details
-
-For implementation details and channel adapter documentation:
-
-- **[lib/channels README](https://github.com/dotdo/dotdo/blob/main/lib/channels/README.md)** - Multi-channel notification adapters (Slack BlockKit, Discord, Email, MDXUI Chat), shared types, channel registry, and integration with human escalation
-- **[lib README](https://github.com/dotdo/dotdo/blob/main/lib/README.md)** - Overview of all lib modules including humans/, channels/, executors/
-
-### Channel Adapters
-
-| Channel | Class | Features |
-|---------|-------|----------|
-| **Slack** | `SlackBlockKitChannel` | BlockKit blocks, interactive buttons, forms |
-| **Discord** | `DiscordChannel` | Embeds, action buttons, reaction responses |
-| **Email** | `EmailChannel` | HTML templates, SendGrid/Resend providers |
-| **MDXUI Chat** | `MDXUIChatChannel` | Real-time, forms, MDX content, typing indicators |
-
-### Key Implementation Files
-
-| File | Purpose |
-|------|---------|
-| `lib/humans/templates.ts` | Role templates with template literal syntax |
-| `lib/channels/slack-blockkit.ts` | Slack BlockKit interactive messages |
-| `lib/channels/discord.ts` | Discord webhooks and embeds |
-| `lib/channels/email.ts` | Email via SendGrid/Resend |

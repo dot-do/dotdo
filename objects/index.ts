@@ -51,7 +51,22 @@ export { Human, type NotificationChannel, type EscalationRule, type EscalationPo
 // Organization hierarchy
 export { Business, type BusinessConfig } from './Business'
 export { DigitalBusiness, type DigitalBusinessConfig } from './DigitalBusiness'
-export { Startup } from './Startup'
+export {
+  Startup,
+  type ServiceBinding,
+  type AgentBinding,
+  type EscalationRule as StartupEscalationRule,
+  type StartupEscalationPolicy,
+  type EscalationResult,
+  type FoundingHypothesis,
+  type HunchMetrics,
+  type MetricsHistoryEntry,
+  type FoundationSprintPhase,
+  type StartupConfig,
+  type OperationalStatus,
+  type WorkDispatchRequest,
+  type WorkDispatchResult,
+} from './Startup'
 export { App, type AppConfig } from './App'
 export { Site, type SiteConfig } from './Site'
 export { SaaS, type SaaSPlan, type SaaSSubscription, type UsageRecord, type SaaSConfig } from './SaaS'
@@ -93,17 +108,13 @@ export {
 // Business services
 export {
   Service,
+  type ServiceType,
+  type DeliveryMethod,
+  type ServiceTier,
   type ServiceConfig,
-  type PricingModel,
-  type PricingTier,
-  type ServiceTask,
-  type TaskCompletionOptions,
-  type TaskResult,
-  type AgentAssignment,
-  type ServiceMetrics,
-  type ServiceEscalationConfig,
-  type EscalationOptions,
-  type QualityRatingOptions,
+  type ServiceSubscription,
+  type ServiceRequest,
+  type ServiceDeliverable,
 } from './Service'
 
 // Interface types
@@ -329,25 +340,3 @@ export {
 
 // Sandbox - Code Execution Environment
 export { SandboxDO } from './SandboxDO'
-
-// Cascade Executor - Function type cascade system
-export {
-  CascadeExecutor,
-  CascadeExhaustedError,
-  CascadeTimeoutError,
-  CascadeSkippedError,
-  type FunctionType as CascadeFunctionType,
-  type CodeHandler,
-  type GenerativeHandler,
-  type AgenticHandler,
-  type HumanHandler,
-  type HandlerContext,
-  type CascadeHandlers,
-  type CascadeStep,
-  type CascadePath,
-  type EventContext,
-  type Event5WH,
-  type CascadeResult,
-  type CascadeOptions,
-  type CascadeExecutorOptions,
-} from './CascadeExecutor'

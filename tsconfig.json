@@ -26,7 +26,6 @@
     "paths": {
       "dotdo": ["./index.ts"],
       "dotdo/*": ["./*"],
-      "@dotdo/fsx": ["./packages/fsx/src/index.ts"],
       "fsx.do": ["../fsx/index.ts"]
     },
 

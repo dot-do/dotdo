@@ -143,7 +143,7 @@ Generated entity: Customer
 
   Created src/entities/customer.ts
   Updated src/entities/index.ts
-  Updated wrangler.jsonc
+  Updated wrangler.toml
 
 Next steps:
   1. Edit src/entities/customer.ts to add methods
@@ -202,21 +202,18 @@ export class Customer extends Entity<CustomerState> {
 }
 ```
 
-### Auto-Updated wrangler.jsonc
+### Auto-Updated wrangler.toml
 
-```json title="wrangler.jsonc"
-{
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" },
-      { "name": "CUSTOMER", "class_name": "Customer" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_classes": ["MyStartup"] },
-    { "tag": "v2", "new_classes": ["Customer"] }
-  ]
-}
+```toml title="wrangler.toml"
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" },
+  { name = "CUSTOMER", class_name = "Customer" }
+]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["Customer"]
 ```
 
 ## Generate Workflow
@@ -505,9 +502,9 @@ Check available types:
 npx dotdo generate --help
 ```
 
-### "Failed to update wrangler.jsonc"
+### "Failed to update wrangler.toml"
 
-Ensure your `wrangler.jsonc` is valid:
+Ensure your `wrangler.toml` is valid:
 
 ```bash
 # Validate config

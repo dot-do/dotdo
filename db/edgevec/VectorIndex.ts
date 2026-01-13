@@ -1,97 +1,13 @@
 /**
- * EdgeVec Vector Index - Durable Object for HNSW Vector Index Persistence
+ * VectorIndex - Durable Object for HNSW vector index persistence
  *
- * This module provides a persistent vector database implementation optimized for
- * Cloudflare Durable Objects. It combines HNSW (Hierarchical Navigable Small World)
- * graph indexing with SQLite storage for efficient approximate nearest neighbor search.
- *
- * ## Key Features
- *
- * - **HNSW Index Persistence**: Maintains index state across DO hibernation
- * - **SQLite Vector Storage**: Efficient binary vector storage with metadata
- * - **Index Recovery**: Automatic reconstruction on Durable Object wake
- * - **Background Compaction**: Periodic compaction to R2 Parquet files via alarms
- * - **Incremental Backup**: Point-in-time backups to R2 object storage
- * - **Storage Management**: Pagination, limits, and capacity monitoring
- * - **Performance Optimization**: Norm caching and embedding caching for fast search
- *
- * ## Architecture
- *
- * ```
- * ┌─────────────────────────────────────────────────────────────┐
- * │                       EdgeVecDO                              │
- * │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐ │
- * │  │  HNSW Index  │   │    SQLite    │   │    R2 Backup     │ │
- * │  │   (in-mem)   │   │   (vectors)  │   │   (Parquet)      │ │
- * │  └──────────────┘   └──────────────┘   └──────────────────┘ │
- * │         │                  │                    │           │
- * │         └──────────────────┴────────────────────┘           │
- * │                      DO KV Storage                          │
- * └─────────────────────────────────────────────────────────────┘
- * ```
- *
- * ## Usage
- *
- * @example Basic semantic search usage
- * ```typescript
- * import { EdgeVecDO } from 'db/edgevec'
- *
- * // In your Durable Object
- * const edgevec = new EdgeVecDO(ctx.state, env)
- *
- * // Initialize with configuration
- * await edgevec.initialize({
- *   dimension: 768,       // e.g., OpenAI text-embedding-3-small
- *   metric: 'cosine',     // 'cosine' | 'euclidean' | 'dot'
- *   efConstruction: 200,  // Build-time quality parameter
- *   M: 16,                // Max connections per node
- *   maxElements: 100000,  // Storage limit
- * })
- *
- * // Insert vectors with metadata
- * await edgevec.insert({
- *   id: 'doc-123',
- *   vector: embeddingVector,  // Float32Array or number[]
- *   metadata: { title: 'My Document', category: 'tech' }
- * })
- *
- * // Search for similar vectors
- * const results = await edgevec.search(queryVector, {
- *   k: 10,                           // Number of results
- *   ef: 100,                         // Search-time quality parameter
- *   filter: { category: 'tech' }     // Metadata filter
- * })
- *
- * // Results: [{ id, score, vector, metadata }, ...]
- * ```
- *
- * @example Batch insertion with progress tracking
- * ```typescript
- * const vectors = documents.map(doc => ({
- *   id: doc.id,
- *   vector: await embed(doc.content),
- *   metadata: { source: doc.source }
- * }))
- *
- * await edgevec.insertBatch(vectors, {
- *   chunkSize: 100  // Process in chunks to manage memory
- * })
- * ```
- *
- * @example Backup and restore
- * ```typescript
- * // Manual backup to R2
- * await edgevec.backup()
- *
- * // Restore from latest backup
- * await edgevec.restore()
- *
- * // Restore from specific timestamp
- * await edgevec.restore({ timestamp: 1704067200000 })
- * ```
- *
- * @module db/edgevec/VectorIndex
- * @see {@link https://arxiv.org/abs/1603.09320 | HNSW Paper}
+ * Provides:
+ * - HNSW index persistence to DO KV storage
+ * - Vector storage in SQLite
+ * - Index recovery on DO wake
+ * - Background compaction to R2 Parquet files
+ * - Incremental backup to R2
+ * - Storage limits and pagination
  */
 
 import {
@@ -112,146 +28,67 @@ import { EmbeddingCache } from './embedding-cache'
 // TYPE EXPORTS
 // ============================================================================
 
-/**
- * Configuration for initializing a vector index.
- *
- * @example
- * ```typescript
- * const config: VectorIndexConfig = {
- *   dimension: 1536,          // OpenAI text-embedding-3-large
- *   metric: 'cosine',         // Best for normalized embeddings
- *   efConstruction: 200,      // Higher = better quality, slower build
- *   M: 16,                    // Standard HNSW parameter
- *   maxElements: 100000,      // Storage limit
- *   autoBackup: true,         // Enable automatic backups
- *   backupInterval: 3600000,  // Backup every hour
- *   compactionThreshold: 1000 // Compact after 1000 inserts
- * }
- * ```
- */
 export interface VectorIndexConfig {
-  /** Number of dimensions in each vector (e.g., 768 for OpenAI text-embedding-3-small) */
   dimension: number
-  /** Distance metric for similarity computation */
   metric: 'cosine' | 'euclidean' | 'dot'
-  /** Size of dynamic candidate list during index construction (higher = better quality, slower build) */
   efConstruction: number
-  /** Maximum number of connections per node in the HNSW graph (typically 12-48) */
   M: number
-  /** Maximum number of vectors the index can hold */
   maxElements: number
-  /** Enable automatic backup to R2 on schedule */
   autoBackup?: boolean
-  /** Interval between automatic backups in milliseconds */
   backupInterval?: number
-  /** Number of pending vectors that triggers compaction to Parquet (default: 1000, 0 to disable) */
+  /** Threshold for triggering compaction (default: 1000, 0 to disable) */
   compactionThreshold?: number
-  /** Maximum number of vectors per Parquet file during compaction (default: 10000) */
+  /** Maximum vectors per Parquet file (default: 10000) */
   maxVectorsPerFile?: number
-  /** Interval between compaction checks via alarm in milliseconds (default: 60000 - 1 minute) */
+  /** Alarm check interval in ms (default: 60000 - 1 minute) */
   checkInterval?: number
-  /** Namespace for vectors, used in R2 partition paths for multi-tenant isolation */
+  /** Namespace for vectors (used in partition path) */
   namespace?: string
 }
 
-/**
- * A vector record with its associated data.
- *
- * @example
- * ```typescript
- * const record: VectorRecord = {
- *   id: 'article-42',
- *   vector: await openai.embed('Hello world'),
- *   metadata: { title: 'Hello', category: 'greeting' }
- * }
- * ```
- */
 export interface VectorRecord {
-  /** Unique identifier for the vector */
   id: string
-  /** The vector values as an array of numbers */
   vector: number[]
-  /** Optional metadata associated with the vector for filtering */
   metadata?: Record<string, unknown>
-  /** Unix timestamp when the vector was created */
   createdAt?: number
-  /** Unix timestamp when the vector was last updated */
   updatedAt?: number
 }
 
-/**
- * Statistics about the vector index state.
- */
 export interface IndexStats {
-  /** Total number of vectors currently stored */
   vectorCount: number
-  /** Number of dimensions per vector */
   dimension: number
-  /** Estimated size of the index in bytes */
   indexSize: number
-  /** Unix timestamp of the last modification */
   lastUpdated: number
 }
 
-/**
- * Manifest describing a backup stored in R2.
- * Used for tracking and restoring from point-in-time backups.
- */
 export interface BackupManifest {
-  /** Unix timestamp when the backup was created */
   timestamp: number
-  /** Number of vectors at the time of backup */
   vectorCount: number
-  /** Version of the index format */
   indexVersion: number
-  /** R2 keys for backup files */
   files: {
-    /** R2 key for the index graph data */
     index: string
-    /** R2 key for the vector data */
     vectors: string
   }
 }
 
-/**
- * Storage usage statistics for capacity planning.
- */
 export interface StorageUsage {
-  /** Number of vectors stored */
   vectorCount: number
-  /** Bytes used by the HNSW index structure */
   indexSizeBytes: number
-  /** Bytes used by raw vector data */
   vectorSizeBytes: number
-  /** Total bytes used (index + vectors) */
   totalSizeBytes: number
-  /** Percentage of maxElements capacity used (0.0 - 1.0) */
   percentUsed: number
 }
 
-/**
- * Result from paginated vector listing.
- */
 export interface VectorListResult {
-  /** Array of vector records in this page */
   vectors: VectorRecord[]
-  /** Cursor for fetching the next page, undefined if no more results */
   cursor?: string
-  /** Whether more results are available */
   hasMore: boolean
 }
 
-/**
- * A single search result with similarity score.
- */
 export interface SearchResult {
-  /** Unique identifier of the matched vector */
   id: string
-  /** Similarity score (interpretation depends on metric: higher is better for cosine/dot, lower for euclidean) */
   score: number
-  /** The matched vector values */
   vector: number[]
-  /** Optional metadata associated with the matched vector */
   metadata?: Record<string, unknown>
 }
 
@@ -287,22 +124,6 @@ interface StoredVector {
 // ERROR CLASSES
 // ============================================================================
 
-/**
- * Error thrown when storage operations fail.
- * This includes SQLite errors, serialization errors, and storage limit violations.
- *
- * @example
- * ```typescript
- * try {
- *   await edgevec.insert(vector)
- * } catch (error) {
- *   if (error instanceof VectorIndexStorageError) {
- *     console.error('Storage error:', error.message)
- *     console.error('Cause:', error.cause)
- *   }
- * }
- * ```
- */
 export class VectorIndexStorageError extends Error {
   constructor(
     message: string,
@@ -313,10 +134,6 @@ export class VectorIndexStorageError extends Error {
   }
 }
 
-/**
- * Error thrown when index operations fail.
- * This includes configuration errors, index corruption, and recovery failures.
- */
 export class VectorIndexError extends Error {
   constructor(
     message: string,
@@ -327,10 +144,6 @@ export class VectorIndexError extends Error {
   }
 }
 
-/**
- * Error thrown when backup or restore operations fail.
- * This includes R2 communication errors and manifest parsing failures.
- */
 export class VectorIndexBackupError extends Error {
   constructor(
     message: string,
@@ -354,60 +167,6 @@ interface VectorIndexEnv {
 // EDGEVEC DURABLE OBJECT
 // ============================================================================
 
-/**
- * EdgeVecDO - Durable Object for persistent vector similarity search.
- *
- * This class provides a complete vector database solution running entirely within
- * a Cloudflare Durable Object. It handles vector storage, HNSW index management,
- * automatic compaction to Parquet files, and backup/restore to R2.
- *
- * ## Features
- *
- * - **Persistent Storage**: Vectors stored in SQLite, survives DO hibernation
- * - **HNSW Indexing**: Fast approximate nearest neighbor search
- * - **Metadata Filtering**: Filter search results by metadata fields
- * - **Auto-Compaction**: Background compaction to R2 Parquet files via alarms
- * - **Backup/Restore**: Point-in-time backups to R2 object storage
- * - **Performance Caching**: Norm cache and embedding cache for fast search
- *
- * ## Metrics
- *
- * - **Cosine**: Best for normalized embeddings (OpenAI, Cohere), returns similarity [-1, 1]
- * - **Euclidean**: Best for raw embeddings, returns distance (lower = more similar)
- * - **Dot Product**: Best for embeddings trained with dot product loss
- *
- * @example Basic usage in a Durable Object
- * ```typescript
- * export class MyVectorDB extends DurableObject {
- *   private edgevec: EdgeVecDO
- *
- *   constructor(ctx: DurableObjectState, env: Env) {
- *     super(ctx, env)
- *     this.edgevec = new EdgeVecDO(ctx, env)
- *   }
- *
- *   async init() {
- *     await this.edgevec.initialize({
- *       dimension: 768,
- *       metric: 'cosine',
- *       efConstruction: 200,
- *       M: 16,
- *       maxElements: 50000,
- *     })
- *   }
- *
- *   async addDocument(id: string, text: string) {
- *     const vector = await this.env.AI.run('@cf/baai/bge-base-en-v1.5', { text })
- *     await this.edgevec.insert({ id, vector: vector.data[0] })
- *   }
- *
- *   async search(text: string) {
- *     const query = await this.env.AI.run('@cf/baai/bge-base-en-v1.5', { text })
- *     return this.edgevec.search(query.data[0], { k: 10 })
- *   }
- * }
- * ```
- */
 export class EdgeVecDO {
   private config: VectorIndexConfig | null = null
   private initialized: boolean = false

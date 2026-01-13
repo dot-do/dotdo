@@ -63,29 +63,11 @@
  *   5. Custom domain now works for OAuth
  */
 
-export { createAuth, createAuthWithGraph, exchangeCrossDomainToken, registerCustomDomain, verifyCustomDomain, lookupCustomDomain } from './config'
-export type { AuthConfig, GraphAuthConfig } from './config'
-
-// Graph adapter for DO-based auth storage
-export { graphAuthAdapter, createGraphAuthAdapter } from './adapters'
-export type { GraphAuthAdapter, User as AuthUser, Session as AuthSession, Account as AuthAccount } from './adapters'
+export { createAuth, exchangeCrossDomainToken, registerCustomDomain, verifyCustomDomain, lookupCustomDomain } from './config'
+export type { AuthConfig } from './config'
 
 export { handleAuthRequest, getSessionFromRequest, requireAuth, requireOrgMembership } from './handler'
 export type { AuthEnv } from './handler'
 
 export { validateAuthEnv, isAuthEnvValidated, resetValidationState } from './env-validation'
 export type { RequiredAuthEnvVar } from './env-validation'
-
-// Migration utilities for Drizzle to Graph migration
-export {
-  migrateAuthToGraph,
-  verifyMigration,
-  isMigrationComplete,
-  getMigrationStatus,
-} from './migration'
-export type {
-  MigrationConfig,
-  MigrationProgress,
-  MigrationResult,
-  VerificationResult,
-} from './migration'

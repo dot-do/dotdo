@@ -1,81 +1,15 @@
 /**
- * Window Manager - Unified Stream Windowing Inspired by Apache Flink
+ * Window Manager - Unified windowing primitive inspired by Apache Flink
  *
- * Provides stream windowing capabilities for real-time analytics and event
- * processing. Supports multiple window types, flexible triggers, and late
- * data handling with watermark-based event-time semantics.
- *
- * ## Window Types
- * | Type | Description | Use Case |
- * |------|-------------|----------|
- * | Tumbling | Fixed-size, non-overlapping | Per-minute/hour aggregations |
- * | Sliding | Fixed-size, overlapping | Moving averages |
- * | Session | Gap-based, dynamic size | User sessions, activity bursts |
- * | Global | Single window for all elements | Custom triggers |
- *
- * ## Trigger Types
- * - **EventTimeTrigger** - Fire when watermark passes window end
- * - **CountTrigger** - Fire after N elements
- * - **ProcessingTimeTrigger** - Fire on wall-clock intervals
- * - **Composite** - AND/OR combinations of triggers
- *
- * ## Features
- * - **Watermarks** - Handle out-of-order events with event-time semantics
- * - **Late Data** - Allowed lateness window + side output for late arrivals
- * - **Key Extraction** - Group elements by key before windowing
- * - **Observability** - Metrics for window creation, triggers, late data
- *
- * @example Tumbling Windows
- * ```typescript
- * import { WindowManager, minutes, EventTimeTrigger } from 'dotdo/db/primitives/window-manager'
- *
- * const manager = new WindowManager(WindowManager.tumbling(minutes(5)))
- *   .withTrigger(new EventTimeTrigger())
- *   .allowLateness(minutes(1))
- *
- * manager.onTrigger((window, elements) => {
- *   const sum = elements.reduce((acc, e) => acc + e.value, 0)
- *   console.log(`Window [${window.start}, ${window.end}): sum=${sum}`)
- * })
- *
- * // Process events
- * events.forEach(e => manager.process(e, e.timestamp))
- * manager.advanceWatermark(Date.now())
- * ```
- *
- * @example Session Windows with Key
- * ```typescript
- * const manager = new WindowManager(WindowManager.session(minutes(30)))
- *   .withKeyExtractor(event => event.userId)
- *   .withTrigger(new EventTimeTrigger())
- *
- * // Each user gets their own session windows
- * manager.process({ userId: 'alice', action: 'click' }, timestamp)
- * ```
- *
- * @example Sliding Windows with Count Trigger
- * ```typescript
- * // 10-minute window, sliding every 1 minute, trigger every 100 elements
- * const manager = new WindowManager(WindowManager.sliding(minutes(10), minutes(1)))
- *   .withTrigger(new CountTrigger(100))
- *
- * manager.onTrigger((window, elements) => {
- *   // Called when 100 elements accumulated in any window
- * })
- * ```
- *
- * @example Late Data Handling
- * ```typescript
- * const manager = new WindowManager(WindowManager.tumbling(hours(1)))
- *   .withTrigger(new EventTimeTrigger())
- *   .allowLateness(minutes(5))
- *   .sideOutputLate((element, window) => {
- *     console.log(`Late data for window ${window?.start}: ${element}`)
- *   })
- * ```
+ * Provides stream windowing capabilities including:
+ * - Tumbling windows (non-overlapping, fixed-size)
+ * - Sliding windows (overlapping, fixed-size with slide interval)
+ * - Session windows (gap-based, dynamic size)
+ * - Global windows (single window for all elements)
+ * - Various triggers (event-time, count-based, processing-time)
+ * - Late data handling and side outputs
  *
  * @see https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/operators/windows/
- * @module db/primitives/window-manager
  */
 
 import {

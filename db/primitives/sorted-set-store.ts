@@ -150,27 +150,6 @@ class SkipList<M> {
    * @returns true if new member added, false if updated
    */
   insert(member: M, score: number): boolean {
-    // Check if member already exists and remove first
-    const existing = this.memberMap.get(member)
-    if (existing) {
-      // Build update array based on OLD position for deletion
-      const deleteUpdate: Array<SkipListNode<M>> = new Array(MAX_LEVEL)
-      let x = this.header
-      for (let i = this.level - 1; i >= 0; i--) {
-        while (
-          x.forward[i] !== null &&
-          this.compareNodes(x.forward[i]!.score, x.forward[i]!.member, existing.score, member) < 0
-        ) {
-          x = x.forward[i]!
-        }
-        deleteUpdate[i] = x
-      }
-      this.deleteNode(existing, deleteUpdate)
-      this.memberMap.delete(member)
-      this.length--
-    }
-
-    // Now build update array for NEW position
     const update: Array<SkipListNode<M>> = new Array(MAX_LEVEL)
     const rank: number[] = new Array(MAX_LEVEL).fill(0)
 
@@ -186,6 +165,14 @@ class SkipList<M> {
         x = x.forward[i]!
       }
       update[i] = x
+    }
+
+    // Check if member already exists
+    const existing = this.memberMap.get(member)
+    if (existing) {
+      // Remove old position first
+      this.deleteNode(existing, update)
+      this.length--
     }
 
     const newLevel = this.randomLevel()

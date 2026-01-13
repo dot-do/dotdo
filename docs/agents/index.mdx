@@ -173,29 +173,3 @@ Agents run on the same infrastructure as your business:
 - **300+ edge locations** worldwide
 
 An agent is not a chatbot wrapping an LLM. It's a durable compute primitive with identity, memory, and tools.
-
-## Technical Details
-
-For implementation details and architecture documentation:
-
-- **[lib README](https://github.com/dotdo/dotdo/blob/main/lib/README.md)** - Overview of lib modules including humans/, channels/, executors/, ai/
-
-### Key Implementation Directories
-
-| Directory | Purpose |
-|-----------|---------|
-| `agents/` | Multi-provider agent SDK |
-| `agents/Agent.ts` | Core agent class |
-| `agents/Tool.ts` | Tool definitions |
-| `agents/providers/` | OpenAI, Anthropic, Google providers |
-| `agents/named/` | Priya, Ralph, Tom, Mark, Sally, Quinn implementations |
-| `lib/ai/` | AI gateway and tool loop agent |
-| `lib/executors/` | Code, Generative, Agentic, Human executors |
-
-## Related
-
-- [Agent Tools](/docs/agents/tools) - Give agents capabilities with the unified tool system
-- [Named Agents](/docs/agents/named-agents) - Meet Priya, Ralph, Tom, Mark, Sally, and Quinn
-- [Custom Agents](/docs/agents/custom-agents) - Build domain-specific agents
-- [Concepts: Functions](/docs/concepts/functions) - Function types including agentic functions
-- [Humans](/docs/humans) - Human-in-the-loop escalation and approvals

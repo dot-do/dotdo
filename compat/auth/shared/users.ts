@@ -273,7 +273,7 @@ export class UserManager {
 
       // Remove old index
       if (userRecord.email) {
-        await this.emailIndex.delete(`email:${userRecord.email.toLowerCase()}`, Date.now())
+        await this.emailIndex.put(`email:${userRecord.email.toLowerCase()}`, null as unknown as string, Date.now())
       }
       // Add new index
       if (params.email) {
@@ -295,7 +295,7 @@ export class UserManager {
 
       // Remove old index
       if (userRecord.phone) {
-        await this.phoneIndex.delete(`phone:${userRecord.phone}`, Date.now())
+        await this.phoneIndex.put(`phone:${userRecord.phone}`, null as unknown as string, Date.now())
       }
       // Add new index
       if (params.phone) {
@@ -317,7 +317,7 @@ export class UserManager {
 
       // Remove old index
       if (userRecord.username) {
-        await this.usernameIndex.delete(`username:${userRecord.username.toLowerCase()}`, Date.now())
+        await this.usernameIndex.put(`username:${userRecord.username.toLowerCase()}`, null as unknown as string, Date.now())
       }
       // Add new index
       if (params.username) {
@@ -366,13 +366,13 @@ export class UserManager {
 
     // Remove from indexes
     if (userRecord.email) {
-      await this.emailIndex.delete(`email:${userRecord.email.toLowerCase()}`, Date.now())
+      await this.emailIndex.put(`email:${userRecord.email.toLowerCase()}`, null as unknown as string, Date.now())
     }
     if (userRecord.phone) {
-      await this.phoneIndex.delete(`phone:${userRecord.phone}`, Date.now())
+      await this.phoneIndex.put(`phone:${userRecord.phone}`, null as unknown as string, Date.now())
     }
     if (userRecord.username) {
-      await this.usernameIndex.delete(`username:${userRecord.username.toLowerCase()}`, Date.now())
+      await this.usernameIndex.put(`username:${userRecord.username.toLowerCase()}`, null as unknown as string, Date.now())
     }
 
     // Delete user

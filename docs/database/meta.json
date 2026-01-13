@@ -6,11 +6,8 @@
     "index",
     "things",
     "stores",
-    "graph",
-    "proxy",
     "query-engine",
     "primitives",
-    "domain-primitives",
     "json-indexes",
     "iceberg",
     "edgevec"

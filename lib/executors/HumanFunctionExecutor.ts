@@ -1,306 +1,123 @@
 /**
- * @module lib/executors/HumanFunctionExecutor
+ * HumanFunctionExecutor
  *
- * HumanFunctionExecutor - Execute functions requiring human input and approval.
- *
- * This executor queues tasks for human review and waits for their response. It is
- * the slowest but most reliable execution mode, guaranteeing human judgment for
- * critical decisions. It supports multiple notification channels, structured forms,
- * timeout handling, escalation chains, and complex approval workflows.
- *
- * ## Features
- *
- * - **Multi-Channel Notifications**: Slack, email, in-app, Discord, SMS
- * - **Structured Forms**: Collect rich input with validation
- * - **Action Buttons**: Simple approve/reject or custom actions
- * - **Timeout Handling**: Default responses or escalation on timeout
- * - **Escalation Chains**: Automatic escalation to backup approvers
- * - **Approval Workflows**: Sequential, parallel, or conditional approvals
- * - **Response Validation**: Schema validation and custom validators
- * - **Audit Trail**: Persistent logging of all decisions
- *
- * ## Channel Support
- *
- * Each channel has specific configuration options:
- * - **Slack**: Channel, user mentions, interactive buttons
- * - **Email**: To, subject, HTML/text content, action links
- * - **In-App**: User ID, priority, push notifications
- *
- * ## Approval Workflow Types
- *
- * - **Sequential**: Each level must approve before the next
- * - **Parallel**: All users notified, requires N approvals
- * - **Conditional**: Different approval paths based on input
- *
- * This is a thin wrapper around the shared abstractions in lib/human.
- * All core logic is delegated to the shared modules to eliminate duplication
- * with objects/Human.ts and ensure consistent behavior.
- *
- * @example Basic Human Task
- * ```typescript
- * import { HumanFunctionExecutor } from 'dotdo/lib/executors'
- *
- * // Configure channels
- * const channels = {
- *   slack: {
- *     send: async (payload) => slackClient.postMessage(payload),
- *     waitForResponse: async (opts) => slackClient.waitForAction(opts)
- *   },
- *   email: {
- *     send: async (payload) => emailService.send(payload),
- *     waitForResponse: async (opts) => emailService.waitForClick(opts)
- *   }
- * }
- *
- * // Create executor
- * const executor = new HumanFunctionExecutor({
- *   state: this.state,
- *   env: this.env,
- *   channels,
- *   notificationService,
- *   onEvent: (event, data) => console.log(event, data)
- * })
- *
- * // Request human approval
- * const result = await executor.execute({
- *   prompt: 'Approve refund of ${{amount}} for order {{orderId}}?',
- *   channel: 'slack',
- *   timeout: 3600000, // 1 hour
- *   input: { amount: 150, orderId: 'ORD-123' },
- *   actions: ['approve', 'reject'],
- *   channelOptions: {
- *     slackChannel: '#approvals',
- *     mentionUsers: ['@finance-team']
- *   }
- * })
- *
- * if (result.success && result.response?.action === 'approve') {
- *   await processRefund(result.response.data)
- * }
- * ```
- *
- * @example Structured Form Input
- * ```typescript
- * // Collect structured data from human
- * const result = await executor.execute({
- *   prompt: 'Review and adjust the pricing for {{product}}',
- *   channel: 'in-app',
- *   timeout: 86400000, // 24 hours
- *   input: { product: 'Enterprise Plan' },
- *   form: {
- *     fields: [
- *       {
- *         name: 'price',
- *         label: 'Monthly Price',
- *         type: 'number',
- *         required: true,
- *         validation: { min: 0, max: 10000 }
- *       },
- *       {
- *         name: 'discount',
- *         label: 'Discount %',
- *         type: 'number',
- *         default: 0
- *       },
- *       {
- *         name: 'notes',
- *         label: 'Pricing Rationale',
- *         type: 'textarea'
- *       }
- *     ]
- *   },
- *   applyDefaults: true,
- *   channelOptions: {
- *     userId: 'pricing-manager-123',
- *     priority: 'high'
- *   }
- * })
- *
- * if (result.success) {
- *   const { price, discount, notes } = result.response.data
- *   await updatePricing(price, discount)
- * }
- * ```
- *
- * @example Multi-Level Approval Workflow
- * ```typescript
- * // Sequential approval through multiple levels
- * const result = await executor.execute({
- *   prompt: 'Approve contract for {{vendor}} - ${{amount}}',
- *   channel: 'email',
- *   timeout: 172800000, // 48 hours per level
- *   input: { vendor: 'Acme Corp', amount: 50000 },
- *   approval: {
- *     type: 'sequential',
- *     levels: [
- *       { name: 'manager', users: ['manager@company.com'] },
- *       { name: 'director', users: ['director@company.com'] },
- *       { name: 'cfo', users: ['cfo@company.com'] }
- *     ],
- *     failFast: true // Stop on first rejection
- *   },
- *   channelOptions: {
- *     subject: 'Contract Approval Required: {{vendor}}',
- *     contentType: 'html'
- *   }
- * })
- *
- * console.log('Approval count:', result.response?.approvalCount)
- * console.log('Rejected by:', result.response?.rejectedBy)
- * ```
- *
- * @example Parallel Approval with Quorum
- * ```typescript
- * // Require N of M approvals
- * const result = await executor.execute({
- *   prompt: 'Approve release of v{{version}}',
- *   channel: 'slack',
- *   timeout: 3600000,
- *   input: { version: '2.0.0' },
- *   approval: {
- *     type: 'parallel',
- *     users: ['@alice', '@bob', '@charlie', '@diana'],
- *     requiredApprovals: 2 // Need 2 of 4
- *   }
- * })
- * ```
- *
- * @example Escalation Chain
- * ```typescript
- * // Escalate to backup approvers on timeout
- * const result = await executor.execute({
- *   prompt: 'Urgent: Approve deployment to production',
- *   channel: 'slack',
- *   timeout: 1800000, // 30 minutes
- *   escalation: {
- *     timeout: 1800000,
- *     to: '@tech-lead',
- *     next: {
- *       timeout: 900000, // 15 minutes
- *       to: '@vp-engineering',
- *       next: {
- *         timeout: 300000, // 5 minutes
- *         to: '@cto'
- *       }
- *     }
- *   }
- * })
- *
- * if (result.escalated) {
- *   console.log('Escalated to level:', result.escalationLevel)
- * }
- * ```
- *
- * @example Default Response on Timeout
- * ```typescript
- * // Auto-approve or reject if no response
- * const result = await executor.execute({
- *   prompt: 'Review content for publication',
- *   channel: 'email',
- *   timeout: 86400000, // 24 hours
- *   defaultOnTimeout: {
- *     action: 'approve',
- *     reason: 'Auto-approved due to no response within SLA'
- *   }
- * })
- *
- * if (result.response?.isDefault) {
- *   console.log('Approved by default:', result.response.data.reason)
- * }
- * ```
- *
- * @example Multi-Channel Notification
- * ```typescript
- * // Send to multiple channels, first response wins
- * const result = await executor.execute({
- *   prompt: 'Approve access request for {{user}}',
- *   channel: ['slack', 'email', 'in-app'],
- *   timeout: 7200000, // 2 hours
- *   input: { user: 'new-employee@company.com' },
- *   channelOptions: {
- *     slack: { slackChannel: '#it-approvals' },
- *     email: { to: 'it-admin@company.com' },
- *     'in-app': { userId: 'it-admin-123' }
- *   }
- * })
- *
- * console.log('Responded via:', result.channel)
- * ```
- *
- * @see {@link CascadeExecutor} for automatic fallback to human on AI failure
- * @see {@link lib/human} for shared human workflow abstractions
+ * Execution engine for HumanFunction - a function type that queues tasks for human input.
+ * Supports multiple channels (slack, email, in-app), structured forms,
+ * timeout handling, escalation, and approval workflows.
  */
 
 // ============================================================================
-// RE-EXPORTS FROM SHARED MODULES
+// ERROR CLASSES
 // ============================================================================
 
-// Re-export error classes from shared modules for backward compatibility
-export {
-  HumanChannelError,
-  HumanNotificationFailedError,
-  HumanValidationError,
-  HumanTimeoutError,
-  HumanCancelledError,
-  HumanEscalationError,
-  HumanApprovalRejectedError,
-} from '../human'
+export class HumanTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HumanTimeoutError'
+  }
+}
 
-// Import for internal use
-import {
-  HumanChannelError,
-  HumanNotificationFailedError,
-  HumanValidationError,
-  HumanTimeoutError,
-  HumanCancelledError,
-  buildNotificationPayload as buildPayload,
-  sendWithRetry,
-  interpolatePrompt as sharedInterpolatePrompt,
-  generateTaskId as sharedGenerateTaskId,
-  validateResponse as sharedValidateResponse,
-  validateForm as sharedValidateForm,
-  validateSchema as sharedValidateSchema,
-  executeApprovalWorkflow as sharedExecuteApprovalWorkflow,
-  buildEscalatedTask,
-  hasEscalation,
-  createTimeoutDefaultResponse,
-  createTimeoutPromise,
-  createAbortPromise,
-  type ChannelConfig,
-  type HumanNotificationPayload,
-  type HumanResponse,
-  type FormDefinition,
-  type ApprovalWorkflow,
-  type EscalationConfig,
-  type ValidationSchema,
-  type CustomValidator,
-  type WorkflowContext,
-} from '../human'
+export class HumanChannelError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HumanChannelError'
+  }
+}
 
-// Graph storage imports for unified state persistence
-import {
-  GraphHumanStore,
-  type HumanStore,
-  type HumanRequestType,
-  type HumanRequestStatus,
-  type CreateHumanRequestInput,
-  type CompleteRequestInput,
-} from '../human/graph-store'
+export class HumanValidationError extends Error {
+  fields?: string[]
+  constructor(message: string, fields?: string[]) {
+    super(message)
+    this.name = 'HumanValidationError'
+    this.fields = fields
+  }
+}
 
-import type { GraphStore } from '../../db/graph/types'
+export class HumanEscalationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HumanEscalationError'
+  }
+}
+
+export class HumanApprovalRejectedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HumanApprovalRejectedError'
+  }
+}
+
+export class HumanCancelledError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HumanCancelledError'
+  }
+}
+
+export class HumanNotificationFailedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HumanNotificationFailedError'
+  }
+}
 
 // ============================================================================
-// TYPE RE-EXPORTS
+// TYPE DEFINITIONS
 // ============================================================================
 
-// Re-export types from shared modules for backward compatibility
-export type { FormFieldDefinition, FormDefinition } from '../human/channels'
-export type { ChannelConfig, HumanNotificationPayload as NotificationPayload, HumanResponse } from '../human/channels'
-export type { ApprovalWorkflow, ApprovalLevel, EscalationConfig } from '../human/workflows'
+export interface FormFieldDefinition {
+  name: string
+  type: 'text' | 'number' | 'boolean' | 'select' | 'multiselect'
+  label: string
+  required?: boolean
+  options?: string[]
+  default?: unknown
+  validation?: (value: unknown) => boolean | string | Promise<boolean | string>
+}
 
-// ============================================================================
-// TYPE DEFINITIONS (Executor-specific)
-// ============================================================================
+export interface FormDefinition {
+  fields: FormFieldDefinition[]
+}
+
+export interface ChannelConfig {
+  name: string
+  type: 'slack' | 'email' | 'in-app' | 'custom'
+  send: (payload: NotificationPayload) => Promise<{ messageId: string; delivered: boolean }>
+  waitForResponse: (params: { timeout: number }) => Promise<HumanResponse>
+  updateMessage?: (messageId: string, payload: Partial<NotificationPayload>) => Promise<{ success: boolean }>
+}
+
+export interface NotificationPayload {
+  message: string
+  channel?: string
+  mentions?: string[]
+  actions?: Array<{
+    text: string
+    value: string
+    style?: 'primary' | 'danger' | 'default'
+    url?: string
+  }>
+  form?: FormDefinition
+  to?: string
+  subject?: string
+  contentType?: 'text' | 'html'
+  userId?: string
+  priority?: 'low' | 'normal' | 'high' | 'critical'
+  pushNotification?: boolean
+}
+
+export interface HumanResponse {
+  action: string
+  userId: string
+  timestamp: Date
+  data: Record<string, unknown>
+  isDefault?: boolean
+  approvals?: Array<{ userId: string; action: string; timestamp: Date }>
+  rejectedBy?: string
+  rejectionLevel?: string
+  approvalCount?: number
+  rejectionCount?: number
+}
 
 export interface HumanContext {
   taskId: string
@@ -430,23 +247,22 @@ interface HumanFunctionExecutorOptions {
   channels: Record<string, ChannelConfig>
   notificationService: NotificationService
   onEvent?: (event: string, data: unknown) => void | Promise<void>
-  /**
-   * Optional GraphStore for unified state persistence.
-   * When provided, state will be stored as Things in the graph model,
-   * enabling rich querying and relationship-based audit trails.
-   *
-   * If not provided, falls back to DO storage for backward compatibility.
-   */
-  graphStore?: GraphStore
 }
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
-// Use shared implementations from lib/human
-const generateTaskId = sharedGenerateTaskId
-const interpolatePrompt = sharedInterpolatePrompt
+function generateTaskId(): string {
+  return `task-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+}
+
+function interpolatePrompt(prompt: string, input: Record<string, unknown>): string {
+  return prompt.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    const value = input[key]
+    return value !== undefined ? String(value) : `{{${key}}}`
+  })
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -462,8 +278,6 @@ export class HumanFunctionExecutor {
   private channels: Record<string, ChannelConfig>
   private notificationService: NotificationService
   private onEvent?: (event: string, data: unknown) => void | Promise<void>
-  private graphStore?: GraphStore
-  private humanStore?: GraphHumanStore
 
   constructor(options: HumanFunctionExecutorOptions) {
     this.state = options.state
@@ -471,130 +285,6 @@ export class HumanFunctionExecutor {
     this.channels = options.channels
     this.notificationService = options.notificationService
     this.onEvent = options.onEvent
-    this.graphStore = options.graphStore
-    // Initialize GraphHumanStore if graphStore is provided
-    if (this.graphStore) {
-      this.humanStore = new GraphHumanStore(this.graphStore)
-    }
-  }
-
-  /**
-   * Check if graph-based storage is enabled.
-   * When enabled, state is persisted to GraphHumanStore instead of DO storage.
-   */
-  get isGraphStorageEnabled(): boolean {
-    return !!this.humanStore
-  }
-
-  // ==========================================================================
-  // GRAPH-BASED STATE PERSISTENCE METHODS
-  // ==========================================================================
-
-  /**
-   * Persist task state to either GraphHumanStore or DO storage.
-   * When graphStore is configured, creates a TaskRequest Thing with status and metadata.
-   */
-  private async persistTaskState(
-    taskId: string,
-    status: HumanRequestStatus,
-    task: TaskDefinition,
-    extra?: Record<string, unknown>
-  ): Promise<void> {
-    if (this.humanStore) {
-      // Use graph storage - create or update task request as a Thing
-      try {
-        const existing = await this.humanStore.get(taskId)
-        if (existing) {
-          // Update existing request - use cancel for cancelled/timeout states
-          if (status === 'timeout') {
-            // Graph store doesn't have a direct timeout method, but we can handle via storage
-            await this.state.storage.put(`task:${taskId}`, { status, ...extra })
-          } else if (status === 'cancelled') {
-            await this.humanStore.cancel(taskId, extra?.reason as string)
-          }
-        } else {
-          // Create new task request in graph
-          const message = typeof task.prompt === 'function'
-            ? task.prompt(task.input)
-            : interpolatePrompt(task.prompt, (task.input as Record<string, unknown>) || {})
-
-          await this.humanStore.create({
-            type: 'task' as HumanRequestType,
-            title: message.substring(0, 100),
-            description: message,
-            channel: Array.isArray(task.channel) ? task.channel[0] : task.channel,
-            timeout: task.timeout,
-            metadata: {
-              taskId,
-              status,
-              input: task.input,
-              actions: task.actions,
-              ...extra,
-            },
-          })
-        }
-      } catch {
-        // Fall back to DO storage on graph errors
-        await this.state.storage.put(`task:${taskId}`, { status, ...extra })
-      }
-    } else {
-      // Use DO storage (backward compatible)
-      await this.state.storage.put(`task:${taskId}`, { status, ...extra })
-    }
-  }
-
-  /**
-   * Persist notification info to either GraphHumanStore or DO storage.
-   * When graphStore is configured, stores as metadata on the task request.
-   */
-  private async persistNotificationInfo(
-    taskId: string,
-    messageId: string,
-    channelName: string
-  ): Promise<void> {
-    // Always persist to DO storage for quick lookup
-    await this.state.storage.put(`notification:${taskId}`, {
-      messageId,
-      channel: channelName,
-    })
-
-    // Graph storage is handled via task metadata during creation
-  }
-
-  /**
-   * Persist audit log entry to either GraphHumanStore or DO storage.
-   * When graphStore is configured, creates a 'responded' relationship with audit data.
-   */
-  private async persistAuditLog(
-    taskId: string,
-    response: HumanResponse
-  ): Promise<void> {
-    const auditData = {
-      taskId,
-      action: response.action,
-      userId: response.userId,
-      comment: response.data?.comment || response.data?.reason,
-      timestamp: response.timestamp,
-    }
-
-    if (this.humanStore) {
-      // Use graph storage - complete the request which creates the responded relationship
-      try {
-        await this.humanStore.complete(taskId, {
-          respondedBy: response.userId,
-          reason: (response.data?.comment || response.data?.reason) as string | undefined,
-          // Map action to appropriate response type
-          approved: response.action === 'approve',
-          completed: response.action !== 'reject',
-        })
-      } catch {
-        // Fall back to DO storage on graph errors (e.g., request doesn't exist in graph)
-        await this.state.storage.put(`audit:${taskId}`, auditData)
-      }
-    } else {
-      // Use DO storage (backward compatible)
-      await this.state.storage.put(`audit:${taskId}`, auditData)
-    }
   }
 
   async execute(task: TaskDefinition): Promise<HumanResult> {
@@ -651,8 +341,7 @@ export class HumanFunctionExecutor {
 
       await this.emit('human.error', { taskId, error: err.message })
 
-      // Persist error state - use direct DO storage since 'failed' is not a graph status
-      // When graphStore is enabled, errors are still tracked but not as graph Things
+      // Persist error state
       await this.state.storage.put(`task:${taskId}`, {
         status: 'failed',
         error: err.message,
@@ -718,8 +407,11 @@ export class HumanFunctionExecutor {
         messageId = sendResult.messageId
         metrics.notificationsSent = (metrics.notificationsSent || 0) + 1
 
-        // Store notification info (uses helper for potential graph integration)
-        await this.persistNotificationInfo(taskId, messageId, channelName)
+        // Store notification info
+        await this.state.storage.put(`notification:${taskId}`, {
+          messageId,
+          channel: channelName,
+        })
 
         await this.emit('human.notification.sent', { channel: channelName, messageId })
 
@@ -894,8 +586,14 @@ export class HumanFunctionExecutor {
         })
       }
 
-      // Store audit log (uses GraphHumanStore if configured for relationship-based audit trail)
-      await this.persistAuditLog(taskId, processedResponse)
+      // Store audit log
+      await this.state.storage.put(`audit:${taskId}`, {
+        taskId,
+        action: processedResponse.action,
+        userId: processedResponse.userId,
+        comment: processedResponse.data?.comment || processedResponse.data?.reason,
+        timestamp: processedResponse.timestamp,
+      })
 
       await this.emit('human.decision', { action: processedResponse.action, userId: processedResponse.userId })
 
@@ -932,8 +630,9 @@ export class HumanFunctionExecutor {
       if (error instanceof HumanTimeoutError) {
         metrics.waitTime = Date.now() - waitStart
 
-        // Persist timeout state (uses GraphHumanStore if configured)
-        await this.persistTaskState(taskId, 'timeout', task, {
+        // Persist timeout state
+        await this.state.storage.put(`task:${taskId}`, {
+          status: 'timeout',
           notificationSent: true,
           messageId: messageId!,
         })
@@ -1065,18 +764,12 @@ export class HumanFunctionExecutor {
     }
   }
 
-  /**
-   * Execute approval workflow using shared implementation from lib/human/workflows.
-   *
-   * This method creates the WorkflowContext and delegates to the shared
-   * executeApprovalWorkflow function, eliminating code duplication.
-   */
   private async executeApprovalWorkflow(
     task: TaskDefinition,
     taskId: string,
     startTime: number,
     metrics: HumanResult['metrics'],
-    _context: HumanContext
+    context: HumanContext
   ): Promise<HumanResult> {
     const approval = task.approval!
     const channelName = task.channel as string
@@ -1090,47 +783,241 @@ export class HumanFunctionExecutor {
       ? task.prompt(task.input)
       : interpolatePrompt(task.prompt, (task.input as Record<string, unknown>) || {})
 
-    // Build WorkflowContext for shared workflow functions
-    const workflowContext: WorkflowContext = {
-      channel,
-      buildPayload: (msg: string, mentions?: string[]) => {
-        const payload = this.buildNotificationPayload(task, msg, channelName)
-        if (mentions) {
-          payload.mentions = mentions
-        }
-        return payload
-      },
-      timeout: task.timeout,
-      onNotificationSent: () => {
-        metrics.notificationsSent = (metrics.notificationsSent || 0) + 1
-      },
+    if (approval.type === 'sequential') {
+      return this.executeSequentialApproval(task, taskId, startTime, metrics, channel, message)
+    } else if (approval.type === 'parallel') {
+      return this.executeParallelApproval(task, taskId, startTime, metrics, channel, message)
+    } else if (approval.type === 'conditional') {
+      return this.executeConditionalApproval(task, taskId, startTime, metrics, channel, message)
     }
 
-    // Delegate to shared workflow executor
-    const result = await sharedExecuteApprovalWorkflow(
-      approval,
-      workflowContext,
-      message,
-      task.input
-    )
+    throw new Error(`Unknown approval type: ${approval.type}`)
+  }
 
-    // Convert workflow result to HumanResult
+  private async executeSequentialApproval(
+    task: TaskDefinition,
+    taskId: string,
+    startTime: number,
+    metrics: HumanResult['metrics'],
+    channel: ChannelConfig,
+    message: string
+  ): Promise<HumanResult> {
+    const approval = task.approval!
+    const levels = approval.levels || []
+    const approvals: Array<{ userId: string; action: string; timestamp: Date }> = []
+
+    for (const level of levels) {
+      const payload = this.buildNotificationPayload(task, message, channel.name)
+      payload.mentions = level.users
+
+      await channel.send(payload)
+      metrics.notificationsSent = (metrics.notificationsSent || 0) + 1
+
+      const response = await channel.waitForResponse({ timeout: task.timeout })
+
+      approvals.push({
+        userId: response.userId,
+        action: response.action,
+        timestamp: response.timestamp,
+      })
+
+      if (response.action === 'reject') {
+        return {
+          success: true,
+          response: {
+            ...response,
+            action: 'reject',
+            approvals,
+            rejectedBy: response.userId,
+            rejectionLevel: level.name,
+          },
+          taskId,
+          duration: Date.now() - startTime,
+          channel: channel.name,
+          metrics,
+        }
+      }
+    }
+
     return {
       success: true,
       response: {
-        action: result.action,
-        userId: result.approvals[result.approvals.length - 1]?.userId || '',
+        action: 'approve',
+        userId: approvals[approvals.length - 1]?.userId || '',
         timestamp: new Date(),
         data: {},
-        approvals: result.approvals,
-        approvalCount: result.approvalCount,
-        rejectionCount: result.rejectionCount,
-        rejectedBy: result.rejectedBy,
-        rejectionLevel: result.rejectionLevel,
+        approvals,
       },
       taskId,
       duration: Date.now() - startTime,
-      channel: channelName,
+      channel: channel.name,
+      metrics,
+    }
+  }
+
+  private async executeParallelApproval(
+    task: TaskDefinition,
+    taskId: string,
+    startTime: number,
+    metrics: HumanResult['metrics'],
+    channel: ChannelConfig,
+    message: string
+  ): Promise<HumanResult> {
+    const approval = task.approval!
+    const users = approval.users || []
+    const requiredApprovals = approval.requiredApprovals || users.length
+    const failFast = approval.failFast || false
+
+    const approvals: Array<{ userId: string; action: string; timestamp: Date }> = []
+    let approvalCount = 0
+    let rejectionCount = 0
+
+    // Send to all users
+    for (const _user of users) {
+      const payload = this.buildNotificationPayload(task, message, channel.name)
+      await channel.send(payload)
+      metrics.notificationsSent = (metrics.notificationsSent || 0) + 1
+    }
+
+    // Collect responses
+    for (let i = 0; i < users.length; i++) {
+      // Check if we can fast-fail
+      if (failFast) {
+        const remainingUsers = users.length - i
+        const maxPossibleApprovals = approvalCount + remainingUsers
+        if (maxPossibleApprovals < requiredApprovals) {
+          break
+        }
+      }
+
+      // Check if we already have enough approvals
+      if (approvalCount >= requiredApprovals) {
+        break
+      }
+
+      const response = await channel.waitForResponse({ timeout: task.timeout })
+      approvals.push({
+        userId: response.userId,
+        action: response.action,
+        timestamp: response.timestamp,
+      })
+
+      if (response.action === 'approve') {
+        approvalCount++
+      } else {
+        rejectionCount++
+      }
+    }
+
+    const success = approvalCount >= requiredApprovals
+    return {
+      success: true,
+      response: {
+        action: success ? 'approve' : 'reject',
+        userId: approvals[approvals.length - 1]?.userId || '',
+        timestamp: new Date(),
+        data: {},
+        approvals,
+        approvalCount,
+        rejectionCount,
+      },
+      taskId,
+      duration: Date.now() - startTime,
+      channel: channel.name,
+      metrics,
+    }
+  }
+
+  private async executeConditionalApproval(
+    task: TaskDefinition,
+    taskId: string,
+    startTime: number,
+    metrics: HumanResult['metrics'],
+    channel: ChannelConfig,
+    message: string
+  ): Promise<HumanResult> {
+    const approval = task.approval!
+    const conditions = approval.conditions || []
+    const input = task.input
+
+    // Find matching condition
+    const matchingCondition = conditions.find(c => c.when(input))
+    if (!matchingCondition) {
+      throw new Error('No matching approval condition found')
+    }
+
+    const users = matchingCondition.users
+    const approvals: Array<{ userId: string; action: string; timestamp: Date }> = []
+
+    if (matchingCondition.sequential) {
+      // Sequential approval for matching users
+      for (const user of users) {
+        const payload = this.buildNotificationPayload(task, message, channel.name)
+        payload.mentions = [user]
+        await channel.send(payload)
+        metrics.notificationsSent = (metrics.notificationsSent || 0) + 1
+
+        const response = await channel.waitForResponse({ timeout: task.timeout })
+        approvals.push({
+          userId: response.userId,
+          action: response.action,
+          timestamp: response.timestamp,
+        })
+
+        if (response.action === 'reject') {
+          return {
+            success: true,
+            response: {
+              ...response,
+              action: 'reject',
+              approvals,
+            },
+            taskId,
+            duration: Date.now() - startTime,
+            channel: channel.name,
+            metrics,
+          }
+        }
+      }
+    } else {
+      // Single approval from any matching user
+      const payload = this.buildNotificationPayload(task, message, channel.name)
+      payload.mentions = users
+      await channel.send(payload)
+      metrics.notificationsSent = (metrics.notificationsSent || 0) + 1
+
+      const response = await channel.waitForResponse({ timeout: task.timeout })
+      approvals.push({
+        userId: response.userId,
+        action: response.action,
+        timestamp: response.timestamp,
+      })
+
+      return {
+        success: true,
+        response: {
+          ...response,
+          approvals,
+        },
+        taskId,
+        duration: Date.now() - startTime,
+        channel: channel.name,
+        metrics,
+      }
+    }
+
+    return {
+      success: true,
+      response: {
+        action: 'approve',
+        userId: approvals[approvals.length - 1]?.userId || '',
+        timestamp: new Date(),
+        data: {},
+        approvals,
+      },
+      taskId,
+      duration: Date.now() - startTime,
+      channel: channel.name,
       metrics,
     }
   }
@@ -1209,27 +1096,130 @@ export class HumanFunctionExecutor {
     return payload
   }
 
-  /**
-   * Validate form data using shared implementation from lib/human/validation.
-   * This eliminates code duplication with objects/Human.ts.
-   */
   private async validateForm(
     form: FormDefinition,
     data: Record<string, unknown>,
     applyDefaults?: boolean
   ): Promise<{ valid: boolean; error?: HumanValidationError; data?: Record<string, unknown> }> {
-    return sharedValidateForm(form, data, applyDefaults)
+    const errors: string[] = []
+    const errorFields: string[] = []
+    const processedData = { ...data }
+
+    for (const field of form.fields) {
+      let value = data[field.name]
+
+      // Apply defaults if configured
+      if (applyDefaults && value === undefined && field.default !== undefined) {
+        processedData[field.name] = field.default
+        value = field.default
+      }
+
+      // Required field validation
+      if (field.required) {
+        if (value === undefined || value === null || value === '') {
+          errors.push(`required field ${field.name} is missing or empty`)
+          errorFields.push(field.name)
+          continue
+        }
+      }
+
+      // Skip type validation if no value
+      if (value === undefined || value === null) {
+        continue
+      }
+
+      // Type validation
+      switch (field.type) {
+        case 'number':
+          if (typeof value !== 'number' || isNaN(value)) {
+            errors.push(`Field '${field.name}' must be a number but got type ${typeof value}`)
+            errorFields.push(field.name)
+          }
+          break
+
+        case 'boolean':
+          if (typeof value !== 'boolean') {
+            errors.push(`Field '${field.name}' must be a boolean but got type ${typeof value}`)
+            errorFields.push(field.name)
+          }
+          break
+
+        case 'select':
+          if (field.options && !field.options.includes(value as string)) {
+            errors.push(`Field '${field.name}' has invalid option '${value}'. Must be one of: ${field.options.join(', ')}`)
+            errorFields.push(field.name)
+          }
+          break
+
+        case 'multiselect':
+          if (!Array.isArray(value)) {
+            errors.push(`Field '${field.name}' must be an array`)
+            errorFields.push(field.name)
+          } else if (field.options) {
+            const invalidOptions = (value as string[]).filter(v => !field.options!.includes(v))
+            if (invalidOptions.length > 0) {
+              errors.push(`Field '${field.name}' has invalid options: ${invalidOptions.join(', ')}`)
+              errorFields.push(field.name)
+            }
+          }
+          break
+      }
+
+      // Custom validation
+      if (field.validation && !errorFields.includes(field.name)) {
+        const result = await field.validation(value)
+        if (result !== true) {
+          const message = typeof result === 'string' ? result : `Field '${field.name}' failed validation`
+          errors.push(message)
+          errorFields.push(field.name)
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      return {
+        valid: false,
+        error: new HumanValidationError(errors.join('; '), errorFields),
+      }
+    }
+
+    return { valid: true, data: processedData }
   }
 
-  /**
-   * Validate data against JSON schema using shared implementation from lib/human/validation.
-   * This eliminates code duplication with objects/Human.ts.
-   */
   private validateSchema(
     schema: Record<string, unknown>,
     data: Record<string, unknown>
   ): { valid: boolean; error?: string } {
-    return sharedValidateSchema(schema as ValidationSchema, data)
+    const properties = schema.properties as Record<string, { type: string }> | undefined
+    const required = schema.required as string[] | undefined
+
+    if (!properties) {
+      return { valid: true }
+    }
+
+    // Check required fields
+    if (required) {
+      for (const field of required) {
+        if (data[field] === undefined) {
+          return { valid: false, error: `Required field '${field}' is missing` }
+        }
+      }
+    }
+
+    // Validate types
+    for (const [field, fieldSchema] of Object.entries(properties)) {
+      const value = data[field]
+      if (value === undefined) continue
+
+      const expectedType = fieldSchema.type
+      const actualType = typeof value
+
+      if (expectedType && actualType !== expectedType) {
+        return { valid: false, error: `Field '${field}' should be ${expectedType} but got ${actualType}` }
+      }
+    }
+
+    return { valid: true }
   }
 
   private buildContext(taskId: string, task: TaskDefinition): HumanContext {

@@ -1,90 +1,12 @@
 /**
- * Aggregation Pipeline - MongoDB-Style Stage-Based Data Processing
+ * Aggregation Pipeline - MongoDB-style stage-based data processing
  *
- * A type-safe, composable pipeline framework for data transformations, inspired by
- * MongoDB's aggregation framework. Supports both batch processing and streaming
- * integration with WindowManager for real-time analytics.
- *
- * ## Features
- * - **Type-Safe Stages** - Full TypeScript inference through pipeline
- * - **Fluent Builder API** - Chainable methods for intuitive construction
- * - **MongoDB Compatibility** - Familiar $match, $group, $project, $sort stages
- * - **OLAP Support** - CUBE/ROLLUP for multi-dimensional analytics
- * - **Streaming Integration** - Works with WindowManager for real-time processing
- * - **Extensible** - Custom stages via Stage interface
- *
- * ## Built-in Stages
- * | Stage | Description |
- * |-------|-------------|
- * | $match | Filter documents (MongoDB query syntax) |
- * | $group | Group by fields with accumulators ($sum, $avg, $count, etc.) |
- * | $project | Select/rename fields, compute expressions |
- * | $sort | Sort by multiple fields with null handling |
- * | $limit | Limit output to N documents |
- * | $skip | Skip first N documents |
- * | CUBE | Multi-dimensional grouping (all combinations) |
- * | ROLLUP | Hierarchical grouping (subtotals) |
- *
- * @example Basic Aggregation
- * ```typescript
- * import { PipelineBuilder } from 'dotdo/db/primitives/aggregation-pipeline'
- *
- * interface Order {
- *   customerId: string
- *   amount: number
- *   status: string
- * }
- *
- * const pipeline = new PipelineBuilder<Order>()
- *   .match({ status: 'completed' })
- *   .group({
- *     _id: '$customerId',
- *     totalSpent: { $sum: '$amount' },
- *     orderCount: { $count: {} },
- *   })
- *   .sort({ totalSpent: -1 })
- *   .limit(10)
- *   .build()
- *
- * const topCustomers = pipeline.execute(orders)
- * ```
- *
- * @example Custom Stage
- * ```typescript
- * import { Stage, createPipeline } from 'dotdo/db/primitives/aggregation-pipeline'
- *
- * const deduplicateStage: Stage<Order, Order> = {
- *   name: '$deduplicate',
- *   process(input) {
- *     const seen = new Set<string>()
- *     return input.filter(order => {
- *       if (seen.has(order.id)) return false
- *       seen.add(order.id)
- *       return true
- *     })
- *   }
- * }
- *
- * const pipeline = createPipeline<Order>()
- *   .addStage(deduplicateStage)
- *   .addStage(matchStage)
- * ```
- *
- * @example CUBE Analytics
- * ```typescript
- * import { createCubeStage } from 'dotdo/db/primitives/aggregation-pipeline'
- *
- * // Generates all combinations: (region, product), (region), (product), ()
- * const cubeStage = createCubeStage({
- *   dimensions: ['region', 'product'],
- *   aggregations: {
- *     totalSales: { $sum: '$amount' },
- *     avgPrice: { $avg: '$price' },
- *   },
- * })
- * ```
- *
- * @module db/primitives/aggregation-pipeline
+ * Provides a type-safe, composable pipeline for data transformations with:
+ * - Stage interface for custom transformations
+ * - PipelineBuilder for fluent API construction
+ * - Built-in stages: $match, $group, $project, $sort, $limit, $skip
+ * - CUBE/ROLLUP for multi-dimensional analytics
+ * - Streaming mode integration with WindowManager
  */
 
 // ============================================================================

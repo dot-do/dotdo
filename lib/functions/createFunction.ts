@@ -499,9 +499,8 @@ function createFunctionInstance(
   const invocationHistory: InvocationRecord[] = []
   let registeredRegistry: FunctionRegistry | null = options.registry || null
 
-  // Build base properties first (without methods)
-  type BaseProps = Omit<FunctionInstance, 'execute' | 'register' | 'unregister' | 'toJSON' | 'getMetadata' | 'getInvocationHistory' | 'chain' | 'if' | 'map' | 'contramap' | 'catch' | 'finally'>
-  const baseProps: BaseProps = {
+  // Build base instance properties
+  const instance: FunctionInstance = {
     id,
     name: def.name,
     type: def.type,
@@ -510,11 +509,21 @@ function createFunctionInstance(
     timeout: def.timeout,
     retries: def.retries,
     requiredPermission: def.requiredPermission,
-  }
 
-  // Create a partial instance that will be mutated to add methods
-  // This avoids the need for `null as unknown as Type` by using definite assignment
-  const instance = baseProps as FunctionInstance
+    // Methods will be defined below
+    execute: null as unknown as (input: unknown) => Promise<unknown>,
+    register: null as unknown as (registry: FunctionRegistry) => Promise<void>,
+    unregister: null as unknown as () => Promise<void>,
+    toJSON: null as unknown as () => Record<string, unknown>,
+    getMetadata: null as unknown as () => FunctionMetadata,
+    getInvocationHistory: null as unknown as () => Promise<InvocationRecord[]>,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    if: null as unknown as (predicate: (input: unknown) => boolean) => ConditionalFunction,
+    map: null as unknown as <T, R>(transform: (output: T) => R) => FunctionInstance,
+    contramap: null as unknown as <T, R>(transform: (input: T) => R) => FunctionInstance,
+    catch: null as unknown as (handler: (error: Error) => unknown) => FunctionInstance,
+    finally: null as unknown as (handler: () => void) => FunctionInstance,
+  }
 
   // Add type-specific properties
   if (def.type === 'code') {
@@ -953,8 +962,7 @@ function createComposedFunction(
   const name = functions.map((f) => f.name).join(' -> ')
   const id = crypto.randomUUID()
 
-  // Use Partial to build incrementally, then cast once complete
-  const partial: Partial<ComposedFunction> = {
+  const composed: ComposedFunction = {
     id,
     name,
     type: 'code' as const,
@@ -969,7 +977,7 @@ function createComposedFunction(
     },
 
     register: async (registry: FunctionRegistry): Promise<void> => {
-      await registry.register(partial as ComposedFunction)
+      await registry.register(composed)
     },
 
     unregister: async (): Promise<void> => {
@@ -993,30 +1001,36 @@ function createComposedFunction(
 
     getInvocationHistory: async () => [],
 
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
+
+    if: (predicate: (input: unknown) => boolean): ConditionalFunction => {
+      return createConditionalFunction(composed, predicate, options)
+    },
+
+    map: <T, R>(transform: (output: T) => R): FunctionInstance => {
+      return createMappedFunction(composed, transform, options)
+    },
+
+    contramap: <T, R>(transform: (input: T) => R): FunctionInstance => {
+      return createContramappedFunction(composed, transform, options)
+    },
+
+    catch: (handler: (error: Error) => unknown): FunctionInstance => {
+      return createCatchFunction(composed, handler, options)
+    },
+
+    finally: (handler: () => void): FunctionInstance => {
+      return createFinallyFunction(composed, handler, options)
+    },
+
     describe: () => ({
       type: 'pipeline',
       steps: functions.map((f) => ({ name: f.name, type: f.type })),
     }),
   }
 
-  // Now add methods that reference the composed object
-  const composed = partial as ComposedFunction
+  // Set up the thenable-safe then method
   composed.chain = createChainMethod(composed, (next) => createComposedFunction([...functions, next], options))
-  composed.if = (predicate: (input: unknown) => boolean): ConditionalFunction => {
-    return createConditionalFunction(composed, predicate, options)
-  }
-  composed.map = <T, R>(transform: (output: T) => R): FunctionInstance => {
-    return createMappedFunction(composed, transform, options)
-  }
-  composed.contramap = <T, R>(transform: (input: T) => R): FunctionInstance => {
-    return createContramappedFunction(composed, transform, options)
-  }
-  composed.catch = (handler: (error: Error) => unknown): FunctionInstance => {
-    return createCatchFunction(composed, handler, options)
-  }
-  composed.finally = (handler: () => void): FunctionInstance => {
-    return createFinallyFunction(composed, handler, options)
-  }
 
   return composed
 }
@@ -1028,8 +1042,7 @@ function createConditionalFunction(
 ): ConditionalFunction {
   let elseFn: FunctionInstance | null = null
 
-  // Use Partial to build incrementally, then cast once complete
-  const partial: Partial<ConditionalFunction> = {
+  const conditional: ConditionalFunction = {
     id: crypto.randomUUID(),
     name: `${fn.name} (conditional)`,
     type: fn.type,
@@ -1046,7 +1059,7 @@ function createConditionalFunction(
     },
 
     register: async (registry: FunctionRegistry): Promise<void> => {
-      await registry.register(partial as ConditionalFunction)
+      await registry.register(conditional)
     },
 
     unregister: async (): Promise<void> => {},
@@ -1057,30 +1070,36 @@ function createConditionalFunction(
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
 
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
+
+    if: (pred: (input: unknown) => boolean): ConditionalFunction => {
+      return createConditionalFunction(conditional, pred, options)
+    },
+
+    map: <T, R>(transform: (output: T) => R): FunctionInstance => {
+      return createMappedFunction(conditional, transform, options)
+    },
+
+    contramap: <T, R>(transform: (input: T) => R): FunctionInstance => {
+      return createContramappedFunction(conditional, transform, options)
+    },
+
+    catch: (handler: (error: Error) => unknown): FunctionInstance => {
+      return createCatchFunction(conditional, handler, options)
+    },
+
+    finally: (handler: () => void): FunctionInstance => {
+      return createFinallyFunction(conditional, handler, options)
+    },
+
     else: (elseFunction: FunctionInstance): FunctionInstance => {
       elseFn = elseFunction
-      return partial as ConditionalFunction
+      return conditional
     },
   }
 
-  // Now add methods that reference the conditional object
-  const conditional = partial as ConditionalFunction
+  // Set up thenable-safe then method
   conditional.chain = createChainMethod(conditional, (next) => createComposedFunction([conditional, next], options))
-  conditional.if = (pred: (input: unknown) => boolean): ConditionalFunction => {
-    return createConditionalFunction(conditional, pred, options)
-  }
-  conditional.map = <T, R>(transform: (output: T) => R): FunctionInstance => {
-    return createMappedFunction(conditional, transform, options)
-  }
-  conditional.contramap = <T, R>(transform: (input: T) => R): FunctionInstance => {
-    return createContramappedFunction(conditional, transform, options)
-  }
-  conditional.catch = (handler: (error: Error) => unknown): FunctionInstance => {
-    return createCatchFunction(conditional, handler, options)
-  }
-  conditional.finally = (handler: () => void): FunctionInstance => {
-    return createFinallyFunction(conditional, handler, options)
-  }
 
   return conditional
 }
@@ -1090,8 +1109,7 @@ function createMappedFunction<T, R>(
   transform: (output: T) => R,
   options: CreateFunctionOptions,
 ): FunctionInstance {
-  // Use Partial to build incrementally, then cast once complete
-  const partial: Partial<FunctionInstance> = {
+  const mapped: FunctionInstance = {
     id: crypto.randomUUID(),
     name: `${fn.name} (mapped)`,
     type: fn.type,
@@ -1103,7 +1121,7 @@ function createMappedFunction<T, R>(
     },
 
     register: async (registry: FunctionRegistry): Promise<void> => {
-      await registry.register(partial as FunctionInstance)
+      await registry.register(mapped)
     },
 
     unregister: async (): Promise<void> => {},
@@ -1113,26 +1131,31 @@ function createMappedFunction<T, R>(
     getMetadata: () => fn.getMetadata(),
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
+
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
+
+    if: (pred: (input: unknown) => boolean): ConditionalFunction => {
+      return createConditionalFunction(mapped, pred, options)
+    },
+
+    map: <T2, R2>(transform2: (output: T2) => R2): FunctionInstance => {
+      return createMappedFunction(mapped, transform2, options)
+    },
+
+    contramap: <T2, R2>(transform2: (input: T2) => R2): FunctionInstance => {
+      return createContramappedFunction(mapped, transform2, options)
+    },
+
+    catch: (handler: (error: Error) => unknown): FunctionInstance => {
+      return createCatchFunction(mapped, handler, options)
+    },
+
+    finally: (handler: () => void): FunctionInstance => {
+      return createFinallyFunction(mapped, handler, options)
+    },
   }
 
-  // Now add methods that reference the mapped object
-  const mapped = partial as FunctionInstance
   mapped.chain = createChainMethod(mapped, (next) => createComposedFunction([mapped, next], options))
-  mapped.if = (pred: (input: unknown) => boolean): ConditionalFunction => {
-    return createConditionalFunction(mapped, pred, options)
-  }
-  mapped.map = <T2, R2>(transform2: (output: T2) => R2): FunctionInstance => {
-    return createMappedFunction(mapped, transform2, options)
-  }
-  mapped.contramap = <T2, R2>(transform2: (input: T2) => R2): FunctionInstance => {
-    return createContramappedFunction(mapped, transform2, options)
-  }
-  mapped.catch = (handler: (error: Error) => unknown): FunctionInstance => {
-    return createCatchFunction(mapped, handler, options)
-  }
-  mapped.finally = (handler: () => void): FunctionInstance => {
-    return createFinallyFunction(mapped, handler, options)
-  }
 
   return mapped
 }
@@ -1142,8 +1165,7 @@ function createContramappedFunction<T, R>(
   transform: (input: T) => R,
   options: CreateFunctionOptions,
 ): FunctionInstance {
-  // Use Partial to build incrementally, then cast once complete
-  const partial: Partial<FunctionInstance> = {
+  const contramapped: FunctionInstance = {
     id: crypto.randomUUID(),
     name: `${fn.name} (contramapped)`,
     type: fn.type,
@@ -1155,7 +1177,7 @@ function createContramappedFunction<T, R>(
     },
 
     register: async (registry: FunctionRegistry): Promise<void> => {
-      await registry.register(partial as FunctionInstance)
+      await registry.register(contramapped)
     },
 
     unregister: async (): Promise<void> => {},
@@ -1165,26 +1187,31 @@ function createContramappedFunction<T, R>(
     getMetadata: () => fn.getMetadata(),
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
+
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
+
+    if: (pred: (input: unknown) => boolean): ConditionalFunction => {
+      return createConditionalFunction(contramapped, pred, options)
+    },
+
+    map: <T2, R2>(transform2: (output: T2) => R2): FunctionInstance => {
+      return createMappedFunction(contramapped, transform2, options)
+    },
+
+    contramap: <T2, R2>(transform2: (input: T2) => R2): FunctionInstance => {
+      return createContramappedFunction(contramapped, transform2, options)
+    },
+
+    catch: (handler: (error: Error) => unknown): FunctionInstance => {
+      return createCatchFunction(contramapped, handler, options)
+    },
+
+    finally: (handler: () => void): FunctionInstance => {
+      return createFinallyFunction(contramapped, handler, options)
+    },
   }
 
-  // Now add methods that reference the contramapped object
-  const contramapped = partial as FunctionInstance
   contramapped.chain = createChainMethod(contramapped, (next) => createComposedFunction([contramapped, next], options))
-  contramapped.if = (pred: (input: unknown) => boolean): ConditionalFunction => {
-    return createConditionalFunction(contramapped, pred, options)
-  }
-  contramapped.map = <T2, R2>(transform2: (output: T2) => R2): FunctionInstance => {
-    return createMappedFunction(contramapped, transform2, options)
-  }
-  contramapped.contramap = <T2, R2>(transform2: (input: T2) => R2): FunctionInstance => {
-    return createContramappedFunction(contramapped, transform2, options)
-  }
-  contramapped.catch = (handler: (error: Error) => unknown): FunctionInstance => {
-    return createCatchFunction(contramapped, handler, options)
-  }
-  contramapped.finally = (handler: () => void): FunctionInstance => {
-    return createFinallyFunction(contramapped, handler, options)
-  }
 
   return contramapped
 }

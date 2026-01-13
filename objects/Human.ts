@@ -14,15 +14,6 @@
  * - Status transitions via verb forms (pending -> approved/rejected/expired)
  * - Relationship: Request assignedTo Human
  *
- * Uses shared abstractions from lib/human for:
- * - Channel types and configuration (lib/human/channels)
- * - Escalation configuration (lib/human/workflows)
- * - Validation utilities (lib/human/validation)
- * - Graph-backed storage (lib/human/graph-store)
- *
- * This class is designed to work seamlessly with HumanFunctionExecutor
- * by sharing the same underlying abstractions, eliminating code duplication.
- *
  * @example
  * ```typescript
  * // From ceo`approve partnership` template literal:
@@ -31,26 +22,16 @@
  * // 3. Human responds via POST /request/:id/respond
  * // 4. Client receives ApprovalResult
  * ```
- *
- * @see lib/human - Shared human-in-the-loop abstractions
- * @see lib/executors/HumanFunctionExecutor - Execution engine using same abstractions
  */
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult, Channel } from './Worker'
 import { Env } from './DO'
 import type { ThingEntity } from '../db/stores'
 
-// Import shared types and utilities from lib/human
-import type { NotificationPriority } from '../lib/human'
-
-/**
- * Notification channel configuration for Human DO
- * Uses shared NotificationPriority type from lib/human
- */
 export interface NotificationChannel {
   type: 'email' | 'slack' | 'sms' | 'webhook'
   target: string
-  priority: NotificationPriority
+  priority: 'low' | 'normal' | 'high' | 'urgent'
 }
 
 export interface EscalationRule {
@@ -264,26 +245,13 @@ export class Human extends Worker {
 
   /**
    * Request approval from this human
-   *
-   * Now uses Graph model: creates ApprovalRequest Thing with unified state machine
    */
   async requestApproval(request: ApprovalRequest): Promise<void> {
-    const now = new Date()
-
-    // Create as BlockingApprovalRequest Thing (unified model)
-    const record: BlockingApprovalRequest = {
-      requestId: request.id,
-      role: request.requester,
-      message: request.description,
-      sla: request.deadline ? request.deadline.getTime() - now.getTime() : undefined,
-      type: 'approval',
-      createdAt: now.toISOString(),
-      expiresAt: request.deadline?.toISOString(),
-      status: 'pending',
+    const pending: PendingApproval = {
+      request,
+      receivedAt: new Date(),
     }
-
-    // Store as Thing in graph
-    await this.createApprovalRequestThing(record)
+    await this.ctx.storage.put(`pending:${request.id}`, pending)
 
     // Notify via all channels
     const channels = await this.getChannels()
@@ -298,32 +266,22 @@ export class Human extends Worker {
     // Schedule escalation check if policy exists
     const policy = await this.getEscalationPolicy()
     if (policy && policy.rules.length > 0) {
+      // In production, use Cloudflare alarm or scheduler
+      // For now, just emit an event
       await this.emit('escalation.scheduled', {
         requestId: request.id,
         firstCheck: policy.rules[0]!.afterMinutes,
       })
     }
-
-    // Schedule expiration if deadline is set
-    if (record.sla) {
-      await this.scheduleExpiration(request.id, record.sla)
-    }
   }
 
   /**
    * Submit an approval decision
-   *
-   * Now uses Graph model: updates ApprovalRequest Thing state
    */
   async submitApproval(requestId: string, approved: boolean, reason?: string): Promise<ApprovalResult> {
-    const thing = await this.getApprovalRequestThing(requestId)
-    if (!thing) {
+    const pending = (await this.ctx.storage.get(`pending:${requestId}`)) as PendingApproval | undefined
+    if (!pending) {
       throw new Error(`Approval request not found: ${requestId}`)
-    }
-
-    const record = this.thingToBlockingRequest(thing)
-    if (record.status !== 'pending') {
-      throw new Error(`Request already ${record.status}: ${requestId}`)
     }
 
     const result: ApprovalResult = {
@@ -333,15 +291,11 @@ export class Human extends Worker {
       approvedAt: new Date(),
     }
 
-    // Update Thing state (status transition via verb form)
-    record.status = approved ? 'approved' : 'rejected'
-    record.result = {
-      approved,
-      approver: this.ctx.id.toString(),
-      reason,
-      respondedAt: new Date().toISOString(),
-    }
-    await this.updateApprovalRequestThing(record)
+    // Remove from pending
+    await this.ctx.storage.delete(`pending:${requestId}`)
+
+    // Store result
+    await this.ctx.storage.put(`approved:${requestId}`, result)
 
     await this.emit('approval.submitted', { requestId, result })
     return result
@@ -349,71 +303,38 @@ export class Human extends Worker {
 
   /**
    * Get pending approval requests
-   *
-   * Now uses Graph model: queries ApprovalRequest Things by status
-   * Returns PendingApproval[] for backwards compatibility
    */
   async getPendingApprovals(): Promise<PendingApproval[]> {
-    const things = await this.listApprovalRequestThings('pending')
-
-    // Convert Things to PendingApproval format for backwards compatibility
-    return things.map((thing) => {
-      const record = this.thingToBlockingRequest(thing)
-      return {
-        request: {
-          id: record.requestId,
-          type: record.type,
-          description: record.message,
-          requester: record.role,
-          data: {},
-          deadline: record.expiresAt ? new Date(record.expiresAt) : undefined,
-        } as ApprovalRequest,
-        receivedAt: new Date(record.createdAt),
-        remindedAt: undefined,
-        escalatedTo: undefined, // Will be populated from Thing data if needed
-      }
-    })
+    const map = await this.ctx.storage.list({ prefix: 'pending:' })
+    return Array.from(map.values()) as PendingApproval[]
   }
 
   /**
    * Check for escalations
-   *
-   * Now uses Graph model: queries and updates ApprovalRequest Things
    */
   async checkEscalations(): Promise<void> {
     const policy = await this.getEscalationPolicy()
     if (!policy) return
 
-    const things = await this.listApprovalRequestThings('pending')
+    const pending = await this.getPendingApprovals()
     const now = Date.now()
 
-    for (const thing of things) {
-      const record = this.thingToBlockingRequest(thing)
-      const createdAt = new Date(record.createdAt).getTime()
-      const waitingMinutes = (now - createdAt) / (1000 * 60)
-
-      // Get current escalation level from Thing data
-      const data = thing.data as Record<string, unknown> | null
-      const escalatedTo = data?.escalatedTo as string | undefined
+    for (const approval of pending) {
+      const waitingMinutes = (now - approval.receivedAt.getTime()) / (1000 * 60)
 
       for (const rule of policy.rules) {
-        if (waitingMinutes >= rule.afterMinutes && !escalatedTo) {
-          // Update Thing with escalation info
-          await this.things.update(record.requestId, {
-            data: {
-              ...data,
-              escalatedTo: rule.escalateTo,
-              escalatedAt: new Date().toISOString(),
-            },
-          })
+        if (waitingMinutes >= rule.afterMinutes && !approval.escalatedTo) {
+          // Escalate
+          approval.escalatedTo = rule.escalateTo
+          await this.ctx.storage.put(`pending:${approval.request.id}`, approval)
 
           // Notify escalation target
           for (const channel of rule.notifyChannels) {
-            await this.sendToChannel(`Escalation: ${record.message} (waiting ${Math.round(waitingMinutes)} minutes)`, channel)
+            await this.sendToChannel(`Escalation: ${approval.request.description} (waiting ${Math.round(waitingMinutes)} minutes)`, channel)
           }
 
           await this.emit('approval.escalated', {
-            requestId: record.requestId,
+            requestId: approval.request.id,
             escalatedTo: rule.escalateTo,
           })
           break

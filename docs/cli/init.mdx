@@ -47,7 +47,7 @@ Scaffolding project...
   Created my-startup/src/
   Created my-startup/src/startup.ts
   Created my-startup/src/index.ts
-  Created my-startup/wrangler.jsonc
+  Created my-startup/wrangler.toml
   Created my-startup/package.json
   Created my-startup/tsconfig.json
   Created my-startup/.gitignore
@@ -104,7 +104,7 @@ my-startup/
   src/
     startup.ts      # Your Startup class
     index.ts        # Worker entry point (Hono HTTP router)
-  wrangler.jsonc    # Cloudflare Workers config
+  wrangler.toml     # Cloudflare Workers config
   package.json      # Dependencies
   tsconfig.json     # TypeScript config
   .gitignore        # Git ignore rules
@@ -159,24 +159,23 @@ export default app
 export { MyStartup }
 ```
 
-#### wrangler.jsonc
+#### wrangler.toml
 
 Cloudflare configuration:
 
-```json title="wrangler.jsonc"
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-01-01",
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_classes": ["MyStartup"] }
-  ]
-}
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
 ```
 
 ## Post-Init Setup

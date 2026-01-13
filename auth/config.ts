@@ -8,17 +8,6 @@
  *
  * All OAuth callbacks route through the central auth domain,
  * then redirect to the tenant domain with a one-time token.
- *
- * ## Storage Backend
- *
- * The auth system uses **GraphAuthAdapter** as the primary storage backend.
- * Auth entities (User, Session, Account) are stored as Things in the graph model.
- *
- * @see auth/adapters/graph.ts - GraphAuthAdapter implementation
- * @see db/auth.ts - DEPRECATED Drizzle schema (kept for migration only)
- *
- * To migrate from Drizzle to Graph:
- * @see auth/migration.ts - Migration utilities
  */
 
 import { betterAuth } from 'better-auth'
@@ -31,9 +20,9 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import * as schema from '../db'
 import { validateAuthEnv, isAuthEnvValidated } from './env-validation'
 import { safeJsonParse } from '../lib/safe-stringify'
-// Graph adapter for DO-based auth storage - PRIMARY storage backend
-import { graphAuthAdapter } from './adapters/graph'
-import type { GraphStore } from '../db/graph/types'
+// Graph adapter for DO-based auth storage (alternative to drizzleAdapter)
+// import { graphAuthAdapter } from './adapters/graph'
+// import type { GraphStore } from '../db/graph/types'
 
 // ============================================================================
 // CONFIGURATION
@@ -63,64 +52,10 @@ export interface AuthConfig {
   resolveTenantNs: (domain: string) => Promise<string | null>
 }
 
-/**
- * Configuration for graph-backed auth.
- * Uses GraphStore instead of Drizzle/D1 for storing auth entities.
- */
-export interface GraphAuthConfig {
-  /**
-   * GraphStore instance for storing auth entities as Things.
-   * Auth entities (User, Session, Account) are stored as Things in the graph.
-   */
-  graphStore: GraphStore
-
-  /**
-   * Optional Drizzle database for cross-domain tokens and custom domains.
-   * If not provided, cross-domain functionality will be limited.
-   */
-  db?: DrizzleD1Database<typeof schema>
-
-  stripeClient?: unknown
-  stripeWebhookSecret?: string
-
-  /**
-   * The central auth domain where OAuth callbacks are registered.
-   * e.g., 'auth.headless.ly' or 'crm.headless.ly'
-   */
-  authDomain: string
-
-  /**
-   * Allowed tenant domain patterns.
-   * Used to validate return URLs and prevent open redirects.
-   */
-  allowedDomainPatterns: string[]
-
-  /**
-   * Get the tenant DO namespace for a given domain.
-   * Maps custom domains to tenant namespaces.
-   */
-  resolveTenantNs: (domain: string) => Promise<string | null>
-}
-
 // ============================================================================
-// AUTH INSTANCE FACTORY - LEGACY (Drizzle)
+// AUTH INSTANCE FACTORY
 // ============================================================================
 
-/**
- * Create a better-auth instance backed by Drizzle/D1.
- *
- * @deprecated Use `createAuthWithGraph()` instead. This function is kept for
- * backward compatibility during the migration period. It will be removed in
- * a future release.
- *
- * Migration guide:
- * 1. Switch to `createAuthWithGraph()` which uses GraphAuthAdapter
- * 2. Run migration to copy existing data from Drizzle to Graph
- * 3. Remove usage of `createAuth()`
- *
- * @see createAuthWithGraph - New preferred method using Graph storage
- * @see auth/migration.ts - Migration utilities
- */
 export function createAuth(config: AuthConfig) {
   // Validate OAuth environment variables before using them
   // This provides clear error messages if configuration is missing
@@ -282,212 +217,6 @@ export function createAuth(config: AuthConfig) {
         const returnTo = stateData?.returnTo
 
         if (returnTo) {
-          // Validate return URL against allowed patterns
-          const returnDomain = new URL(returnTo).host
-          const isAllowed = await validateDomain(returnDomain, allowedDomainPatterns, resolveTenantNs)
-
-          if (isAllowed) {
-            // Generate one-time token for cross-domain session
-            const token = await generateCrossDomainToken(db, session.id)
-
-            // Return redirect URL with token
-            const redirectUrl = new URL(returnTo)
-            redirectUrl.searchParams.set('auth_token', token)
-            return { redirect: redirectUrl.toString() }
-          }
-        }
-
-        // Default: stay on auth domain
-        return {}
-      },
-    },
-  })
-}
-
-// ============================================================================
-// GRAPH-BACKED AUTH INSTANCE FACTORY (PREFERRED)
-// ============================================================================
-
-/**
- * Create a better-auth instance backed by GraphStore.
- *
- * **This is the preferred method for creating auth instances.**
- *
- * Uses GraphAuthAdapter to store auth entities (User, Session, Account, etc.)
- * as Things in the graph model. This enables:
- * - Unified storage with other domain entities
- * - Graph relationships between auth and business entities
- * - Query across auth and domain data using graph traversal
- * - Consistency with the rest of the DO architecture
- *
- * Benefits over Drizzle adapter:
- * - Auth entities are Things, just like all other entities in the system
- * - Relationships (Session belongsTo User, Account linkedTo User) are
- *   native graph relationships, enabling graph traversal queries
- * - Single storage model for all data (no separate auth tables)
- * - Better integration with human-in-the-loop workflows
- *
- * @example
- * ```typescript
- * import { createAuthWithGraph } from './auth/config'
- * import { SQLiteGraphStore } from '../db/graph/stores'
- *
- * const store = new SQLiteGraphStore(':memory:')
- * await store.initialize()
- *
- * const auth = createAuthWithGraph({
- *   graphStore: store,
- *   authDomain: 'auth.example.com',
- *   allowedDomainPatterns: ['*.example.com'],
- *   resolveTenantNs: async (domain) => 'default',
- * })
- * ```
- */
-export function createAuthWithGraph(config: GraphAuthConfig) {
-  // Validate OAuth environment variables before using them
-  // This provides clear error messages if configuration is missing
-  if (!isAuthEnvValidated()) {
-    validateAuthEnv()
-  }
-
-  const { graphStore, db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret } = config
-
-  const baseURL = `https://${authDomain}`
-
-  return betterAuth({
-    baseURL,
-
-    // Use GraphAuthAdapter backed by GraphStore
-    database: graphAuthAdapter(graphStore),
-
-    // =========================================================================
-    // SOCIAL PROVIDERS
-    // =========================================================================
-    // All callbacks go to the central auth domain
-
-    socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID!,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirectURI: `${baseURL}/api/auth/callback/google`,
-      },
-      github: {
-        clientId: process.env.GITHUB_CLIENT_ID!,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-        redirectURI: `${baseURL}/api/auth/callback/github`,
-      },
-    },
-
-    // =========================================================================
-    // SESSION CONFIGURATION
-    // =========================================================================
-
-    session: {
-      expiresIn: 60 * 60 * 24 * 7, // 7 days
-      updateAge: 60 * 60 * 24, // Update session every 24 hours
-
-      // Generate cross-domain session tokens
-      // These can be exchanged for session cookies on tenant domains
-      generateSessionToken: () => {
-        return crypto.randomUUID() + '-' + Date.now().toString(36)
-      },
-    },
-
-    // =========================================================================
-    // ADVANCED: Cross-Domain Session Handling
-    // =========================================================================
-
-    advanced: {
-      // Allow cross-origin requests from tenant domains
-      crossSubDomainCookies: {
-        enabled: true,
-        domain: extractRootDomain(authDomain),
-      },
-
-      // Custom redirect handling for cross-domain OAuth
-      generateState: async ({ callbackURL }) => {
-        // Store the return URL in state for cross-domain redirect
-        const state = {
-          id: crypto.randomUUID(),
-          returnTo: callbackURL,
-          timestamp: Date.now(),
-        }
-        return Buffer.from(JSON.stringify(state)).toString('base64url')
-      },
-    },
-
-    // =========================================================================
-    // PLUGINS
-    // =========================================================================
-
-    plugins: [
-      // Organization (multi-tenancy)
-      organization({
-        allowUserToCreateOrganization: true,
-        organizationLimit: 10,
-        creatorRole: 'owner',
-        membershipLimit: 100,
-
-        // Auto-provision tenant DO when org is created
-        async onOrganizationCreate({ organization }) {
-          // This hook would create the tenant DO
-          // Implementation depends on your DO creation logic
-        },
-      }),
-
-      // Admin
-      admin({
-        defaultRole: 'user',
-        adminRoles: ['admin', 'owner'],
-      }),
-
-      // API Keys
-      apiKey({
-        defaultPrefix: 'sk_',
-        rateLimit: {
-          enabled: true,
-          timeWindow: 1000 * 60 * 60, // 1 hour
-          maxRequests: 1000,
-        },
-      }),
-
-      // Stripe (if configured)
-      ...(stripeClient && stripeWebhookSecret
-        ? [
-            stripe({
-              stripeClient: stripeClient as any,
-              stripeWebhookSecret,
-              createCustomerOnSignUp: true,
-              subscription: {
-                enabled: true,
-                plans: [
-                  { name: 'free', priceId: 'price_free', limits: { seats: 1 } },
-                  { name: 'pro', priceId: 'price_pro', limits: { seats: 10 } },
-                  { name: 'enterprise', priceId: 'price_enterprise', limits: { seats: -1 } },
-                ],
-              },
-            }),
-          ]
-        : []),
-    ],
-
-    // =========================================================================
-    // CALLBACKS
-    // =========================================================================
-
-    callbacks: {
-      // After OAuth completes, handle cross-domain redirect
-      async onOAuthSuccess({ user, session, state }) {
-        // Decode state to get return URL (safely parse to prevent crashes from malformed/tampered state)
-        const decodedState = Buffer.from(state || '', 'base64url').toString()
-        const stateData = safeJsonParse<{ id?: string; returnTo?: string; timestamp?: number }>(
-          decodedState,
-          null,
-          { context: 'onOAuthSuccess.state' }
-        )
-        const returnTo = stateData?.returnTo
-
-        if (returnTo && db) {
           // Validate return URL against allowed patterns
           const returnDomain = new URL(returnTo).host
           const isAllowed = await validateDomain(returnDomain, allowedDomainPatterns, resolveTenantNs)

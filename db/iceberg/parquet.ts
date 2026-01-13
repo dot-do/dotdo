@@ -1,54 +1,9 @@
 /**
- * Parquet Reader for Iceberg Data Files
+ * Parquet Reader for IcebergReader
  *
- * Provides efficient Parquet file parsing using parquet-wasm, enabling
- * columnar analytics on Cloudflare Workers. This is a core component of
- * the lakehouse architecture, supporting column projection and predicate
- * pushdown for optimal query performance.
+ * Provides real Parquet file parsing using parquet-wasm.
+ * Supports column projection for efficient data retrieval.
  *
- * ## Lakehouse Integration
- *
- * Parquet is the default storage format for Iceberg data files because:
- *
- * - **Columnar Storage**: Read only the columns you need (column projection)
- * - **Compression**: Efficient encoding reduces storage and network costs
- * - **Statistics**: Per-column min/max values enable predicate pushdown
- * - **Row Groups**: Parallel processing and range requests
- *
- * ## Performance Characteristics
- *
- * - **Cold Start**: ~50ms for WASM module initialization (lazy loaded)
- * - **File Parse**: ~10-50ms depending on file size
- * - **Column Projection**: Reduces I/O by reading only requested columns
- *
- * ## Usage Patterns
- *
- * The ParquetReader integrates with IcebergReader for the complete navigation:
- *
- * ```
- * IcebergReader.getRecord()
- *   └─> findFile() - Navigate metadata to locate file
- *         └─> ParquetReader.findRecord() - Read and filter record
- * ```
- *
- * @example Direct Parquet Reading
- * ```typescript
- * const reader = new ParquetReader(env.R2)
- *
- * // Read all records from a file
- * const result = await reader.readFile('data/file.parquet')
- *
- * // Read specific columns only (column projection)
- * const result = await reader.readFile('data/file.parquet', {
- *   columns: ['id', 'name', 'value']
- * })
- *
- * // Find a specific record by ID
- * const record = await reader.findRecord('data/file.parquet', 'my-id')
- * ```
- *
- * @see https://parquet.apache.org/docs/file-format/ - Parquet format
- * @see https://github.com/kylebarron/parquet-wasm - parquet-wasm library
  * @module db/iceberg/parquet
  */
 

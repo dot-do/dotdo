@@ -101,36 +101,3 @@ export {
 
 // Verb derivation utilities
 export { deriveVerbFromFieldName } from './verb-derivation'
-
-// Parallel cascade utilities for distributed execution
-export {
-  // Types
-  type ParallelismMode,
-  type ShardingStrategy,
-  type CascadeShard,
-  type CascadeBatch,
-  type CascadeOperation,
-  type BatchResult,
-  type BatchError,
-  type BatchMetrics,
-  type ParallelCascadeConfig,
-  type ParallelCascadePlan,
-  type ParallelCascadeResult,
-  type ParallelCascadeMetrics,
-  type CascadeError,
-  type DOInvoker,
-  // Sharding strategies
-  createTypeShardingStrategy,
-  createEntityShardingStrategy,
-  createHybridShardingStrategy,
-  // Planning
-  CascadeBatchPlanner,
-  // Execution
-  ParallelCascadeExecutor,
-  // High-level API
-  ParallelCascadeCoordinator,
-  createParallelCascadeCoordinator,
-  // Utilities
-  estimateShardCount,
-  validateCascadePlan,
-} from './parallel'

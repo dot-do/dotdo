@@ -14,16 +14,12 @@ The `lib/` directory contains the foundational modules that power dotdo's Busine
 | [Functions](/docs/lib/functions) | Function registry, composition, and factory |
 | [Channels](/docs/lib/channels) | Multi-channel notification adapters |
 | [Humans](/docs/lib/humans) | Human escalation with template literals |
-| [Auth](/docs/lib/auth) | JWT storage claims and authentication |
-| [Response](/docs/lib/response) | JSON-LD style API response builders |
-| [Storage](/docs/lib/storage) | JWT-authorized R2 with tenant isolation |
 | [Executors](/docs/lib/executors) | Function execution strategies |
 | [Cloudflare](/docs/lib/cloudflare) | KV, R2, Queues, AI, Vectorize wrappers |
 | [Capabilities](/docs/lib/capabilities) | Lazy-loading capability system |
 | [StateStorage](/docs/lib/state-storage) | Type-safe DO state wrapper |
 | [Auto-Wiring](/docs/lib/auto-wiring) | Reflection-based API exposure |
 | [Mixins](/docs/lib/mixins) | DO capability mixins (fs, git, bash) |
-| [RPC](/docs/lib/rpc) | RPC binding architecture |
 
 ## Architecture
 
@@ -32,9 +28,6 @@ lib/
 ├── functions/       # Function registry and composition
 ├── channels/        # Slack, Discord, Email, MDXUI adapters
 ├── humans/          # Human escalation (humans.do)
-├── auth/            # JWT storage claims extraction
-├── response/        # JSON-LD response builders
-├── storage/         # JWT-authorized R2 client
 ├── executors/       # Code, Generative, Agentic, Human executors
 ├── cloudflare/      # Cloudflare binding wrappers
 ├── mixins/          # DO capability mixins

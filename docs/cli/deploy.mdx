@@ -65,7 +65,7 @@ Deployed successfully!
 npx dotdo deploy
 ```
 
-Uses settings from `wrangler.jsonc`.
+Uses settings from `wrangler.toml`.
 
 ### Staging
 
@@ -73,29 +73,26 @@ Uses settings from `wrangler.jsonc`.
 npx dotdo deploy --env staging
 ```
 
-Requires environment configuration in `wrangler.jsonc`:
+Requires environment configuration in `wrangler.toml`:
 
-```json title="wrangler.jsonc"
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-01-01",
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_classes": ["MyStartup"] }
-  ],
-  // Staging environment
-  "env": {
-    "staging": {
-      "name": "my-startup-staging",
-      "vars": { "ENVIRONMENT": "staging" }
-    }
-  }
-}
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
+
+# Staging environment
+[env.staging]
+name = "my-startup-staging"
+vars = { ENVIRONMENT = "staging" }
 ```
 
 ### Preview
@@ -108,54 +105,54 @@ Creates a unique preview URL for testing.
 
 ## Configuration
 
-### wrangler.jsonc
+### wrangler.toml
 
 The primary configuration file:
 
-```json title="wrangler.jsonc"
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-01-01",
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
 
-  // Account settings (optional, uses wrangler login)
-  // "account_id": "your-account-id",
+# Account settings (optional, uses wrangler login)
+# account_id = "your-account-id"
 
-  // Durable Objects
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" },
-      { "name": "CUSTOMER", "class_name": "Customer" }
-    ]
-  },
+# Durable Objects
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" },
+  { name = "CUSTOMER", class_name = "Customer" }
+]
 
-  // Migrations
-  "migrations": [
-    { "tag": "v1", "new_classes": ["MyStartup"] },
-    { "tag": "v2", "new_classes": ["Customer"] }
-  ],
+# Migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
 
-  // KV Namespaces
-  "kv_namespaces": [
-    { "binding": "CACHE", "id": "abc123" }
-  ],
+[[migrations]]
+tag = "v2"
+new_classes = ["Customer"]
 
-  // R2 Buckets
-  "r2_buckets": [
-    { "binding": "STORAGE", "bucket_name": "my-startup-storage" }
-  ],
+# KV Namespaces
+[[kv_namespaces]]
+binding = "CACHE"
+id = "abc123"
 
-  // D1 Databases
-  "d1_databases": [
-    { "binding": "DB", "database_name": "my-startup-db", "database_id": "xyz789" }
-  ],
+# R2 Buckets
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "my-startup-storage"
 
-  // Environment variables (non-secret)
-  "vars": {
-    "ENVIRONMENT": "production",
-    "LOG_LEVEL": "info"
-  }
-}
+# D1 Databases
+[[d1_databases]]
+binding = "DB"
+database_name = "my-startup-db"
+database_id = "xyz789"
+
+# Environment variables (non-secret)
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
 ```
 
 ### Secrets
@@ -180,17 +177,16 @@ Never commit secrets to git. Use `wrangler secret put` for all sensitive values.
 
 ## Custom Domains
 
-### Configure in wrangler.jsonc
+### Configure in wrangler.toml
 
-```json title="wrangler.jsonc"
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "routes": [
-    { "pattern": "app.mystartup.com", "custom_domain": true },
-    { "pattern": "api.mystartup.com/*", "custom_domain": true }
-  ]
-}
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+
+routes = [
+  { pattern = "app.mystartup.com", custom_domain = true },
+  { pattern = "api.mystartup.com/*", custom_domain = true }
+]
 ```
 
 ### DNS Setup
@@ -207,37 +203,28 @@ When you change DO classes, you need migrations:
 
 ### Adding a New Class
 
-```json title="wrangler.jsonc"
-{
-  "migrations": [
-    { "tag": "v2", "new_classes": ["Customer"] }
-  ]
-}
+```toml title="wrangler.toml"
+[[migrations]]
+tag = "v2"
+new_classes = ["Customer"]
 ```
 
 ### Renaming a Class
 
-```json title="wrangler.jsonc"
-{
-  "migrations": [
-    {
-      "tag": "v3",
-      "renamed_classes": [
-        { "from": "OldName", "to": "NewName" }
-      ]
-    }
-  ]
-}
+```toml title="wrangler.toml"
+[[migrations]]
+tag = "v3"
+renamed_classes = [
+  { from = "OldName", to = "NewName" }
+]
 ```
 
 ### Deleting a Class
 
-```json title="wrangler.jsonc"
-{
-  "migrations": [
-    { "tag": "v4", "deleted_classes": ["DeprecatedClass"] }
-  ]
-}
+```toml title="wrangler.toml"
+[[migrations]]
+tag = "v4"
+deleted_classes = ["DeprecatedClass"]
 ```
 
 <Callout type="warn">
@@ -417,16 +404,13 @@ Ensure you export the class:
 export { MyStartup } from './startup'
 ```
 
-And list it in `wrangler.jsonc`:
+And list it in `wrangler.toml`:
 
-```json
-{
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" }
-    ]
-  }
-}
+```toml
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
 ```
 
 ### "Rate limited"
@@ -448,12 +432,9 @@ Cloudflare API rate limits. Wait a few minutes and try again, or use exponential
 
 Durable Objects automatically geo-replicate. For static assets:
 
-```json title="wrangler.jsonc"
-{
-  "site": {
-    "bucket": "./public"
-  }
-}
+```toml title="wrangler.toml"
+[site]
+bucket = "./public"
 ```
 
 ### Gradual Rollout

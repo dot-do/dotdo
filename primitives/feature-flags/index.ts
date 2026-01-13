@@ -1,23 +1,16 @@
 /**
- * @module feature-flags
+ * Feature Flags Primitive
  *
- * Feature Flags Primitive - Comprehensive feature flag management for the dotdo platform.
+ * A comprehensive feature flag system for the dotdo platform with:
+ * - Boolean flags with default values
+ * - Percentage-based rollouts (deterministic by userId)
+ * - Attribute-based targeting with rich operators
+ * - Multi-variant experiments (A/B testing)
+ * - Scheduled activation/deactivation
+ * - Per-user/session overrides
+ * - Cohort targeting for user segments
  *
- * Provides runtime feature control with percentage rollouts, attribute-based targeting,
- * A/B testing variants, scheduled releases, and user overrides. Designed for zero-latency
- * edge evaluation with deterministic hashing for consistent user experiences.
- *
- * ## Capabilities
- *
- * - **Boolean flags** with default values and enable/disable control
- * - **Percentage rollouts** with deterministic user bucketing
- * - **Attribute targeting** with rich comparison operators
- * - **Multi-variant experiments** for A/B testing
- * - **Scheduled releases** with start/end times
- * - **User/session overrides** for testing and VIP access
- * - **Cohort targeting** for predefined user segments
- *
- * @example Basic Feature Flags
+ * @example
  * ```typescript
  * import { FeatureFlagClient } from 'dotdo/primitives/feature-flags'
  *
@@ -34,87 +27,9 @@
  * })
  *
  * if (client.isEnabled('dark-mode', { userId: 'user-123' })) {
- *   // Show dark mode UI
+ *   // Show dark mode
  * }
  * ```
- *
- * @example Percentage Rollout
- * ```typescript
- * const client = new FeatureFlagClient({
- *   flags: [{
- *     key: 'ai-assistant',
- *     enabled: true,
- *     defaultValue: false,
- *     rollout: {
- *       percentage: 10, // 10% of users
- *       bucketBy: 'userId', // Deterministic by user
- *     },
- *   }],
- * })
- *
- * // Same user always gets same result
- * const enabled = client.isEnabled('ai-assistant', { userId: 'user-456' })
- * ```
- *
- * @example Attribute-Based Targeting
- * ```typescript
- * const client = new FeatureFlagClient({
- *   flags: [{
- *     key: 'premium-features',
- *     enabled: true,
- *     defaultValue: false,
- *     rules: [{
- *       id: 'enterprise-only',
- *       conditions: [
- *         { attribute: 'plan', operator: 'in', values: ['enterprise', 'business'] },
- *         { attribute: 'seats', operator: 'gte', values: [10] },
- *       ],
- *       value: true,
- *     }],
- *   }],
- * })
- *
- * const result = client.evaluate('premium-features', {
- *   attributes: { plan: 'enterprise', seats: 50 },
- * })
- * ```
- *
- * @example A/B Testing with Variants
- * ```typescript
- * const client = new FeatureFlagClient({
- *   flags: [{
- *     key: 'checkout-flow',
- *     enabled: true,
- *     defaultValue: 'control',
- *     variants: [
- *       { key: 'control', value: 'classic', weight: 50 },
- *       { key: 'treatment', value: 'streamlined', weight: 50 },
- *     ],
- *   }],
- * })
- *
- * const variant = client.getVariant('checkout-flow', { userId: 'user-789' })
- * // Returns 'classic' or 'streamlined' based on deterministic bucketing
- * ```
- *
- * @example Scheduled Release
- * ```typescript
- * const client = new FeatureFlagClient({
- *   flags: [{
- *     key: 'holiday-theme',
- *     enabled: true,
- *     defaultValue: false,
- *     rollout: {
- *       schedule: {
- *         start: '2024-12-20T00:00:00Z',
- *         end: '2024-12-26T23:59:59Z',
- *       },
- *     },
- *   }],
- * })
- * ```
- *
- * @packageDocumentation
  */
 
 import type {

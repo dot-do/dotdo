@@ -1,0 +1,173 @@
+---
+title: Redis
+description: Choose between @dotdo/redis (OSS package) and redis.do (managed edge service) for your Redis needs.
+---
+
+# Redis Integration
+
+dotdo provides two ways to work with Redis-compatible APIs:
+
+| | @dotdo/redis | redis.do |
+|---|--------------|----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | In-memory or real Redis | Durable Object SQLite |
+| **Persistence** | Depends on mode | Full durability |
+| **Use case** | Testing, migration, proxy | Production workloads |
+| **Infrastructure** | Your Redis or none | Zero (we manage it) |
+| **Install** | `npm install @dotdo/redis` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/redis - ioredis-compatible, can proxy to real Redis
+import { Redis } from '@dotdo/redis'
+
+const redis = new Redis() // Local mode (in-memory)
+// OR
+const redis = new Redis({
+  host: 'your-instance.upstash.io',
+  port: 6379,
+  password: env.REDIS_PASSWORD,
+  tls: true,
+})
+
+await redis.set('user:123', JSON.stringify({ name: 'Alice' }))
+const user = await redis.get('user:123')
+```
+
+```typescript
+// redis.do - Native edge key-value store
+import { Redis } from 'redis.do'
+
+const redis = new Redis('https://your-worker.workers.dev')
+
+await redis.set('user:123', { name: 'Alice' })
+const user = await redis.get('user:123')
+```
+
+## When to Use Each
+
+### Use @dotdo/redis when:
+
+- **Migrating from ioredis/node-redis** - Drop-in replacement with same API
+- **Proxy to real Redis** - Connect to Upstash, AWS ElastiCache, or self-hosted Redis
+- **Unit testing** - Local mode for tests without infrastructure
+- **Gradual migration** - Keep using real Redis while moving to edge
+
+<Callout type="info">
+@dotdo/redis is an ioredis-compatible library. Use it when you need the familiar ioredis API or want to connect to real Redis servers.
+</Callout>
+
+### Use redis.do when:
+
+- **Edge-native caching** - Built for Cloudflare Workers from the ground up
+- **Zero infrastructure** - No Redis server to manage
+- **Global distribution** - Data stored at the edge, close to users
+- **Native JSON** - Store objects directly without serialization
+- **Time-travel queries** - Built-in historical data access
+
+<Callout type="info">
+redis.do is Redis-compatible storage built natively on Cloudflare. Use it for production edge workloads without managing infrastructure.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/redis | redis.do |
+|---------|--------------|----------|
+| Strings | Full | Full |
+| Hashes | Full | Full |
+| Lists | Full | Full |
+| Sets | Full | Full |
+| Sorted Sets | Full | Full |
+| Pub/Sub | Full | WebSocket-based |
+| Transactions | Full | Full |
+| Pipelines | Full | Batched HTTP |
+| Key expiry (TTL) | Full | Full |
+| Real Redis backend | Yes | No |
+| Time-travel queries | No | Yes |
+| Native JSON values | No | Yes |
+| MCP Protocol | No | Yes |
+| Streams | Not yet | Not yet |
+| Lua scripting | Not yet | Not yet |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/redis/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/redis</h3>
+    <p className="text-sm text-muted-foreground">ioredis-compatible Redis for migration and testing</p>
+  </a>
+  <a href="/docs/integrations/redis/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">redis.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Redis-compatible storage on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/redis` pointing to real Redis, then migrate to `redis.do`:
+
+```typescript
+// Phase 1: Use @dotdo/redis with real Redis (drop-in for ioredis)
+import { Redis } from '@dotdo/redis'
+
+const redis = new Redis({
+  host: 'your-instance.upstash.io',
+  port: 6379,
+  password: env.REDIS_PASSWORD,
+  tls: true,
+})
+
+await redis.set('session:abc', JSON.stringify(session), 'EX', 3600)
+const session = JSON.parse(await redis.get('session:abc'))
+```
+
+```typescript
+// Phase 2: Migrate to redis.do for zero-infrastructure
+import { Redis } from 'redis.do'
+
+const redis = new Redis(env)
+await redis.set('session:abc', session, { EX: 3600 }) // Native JSON
+const session = await redis.get('session:abc')
+```
+
+## Architecture Comparison
+
+### @dotdo/redis
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { Redis } from '@dotdo/redis'   │
+└─────────────────────────────────────────┘
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+        v                       v
+┌───────────────┐     ┌───────────────┐
+│  Local Mode   │     │ Production    │
+│  (In-memory)  │     │ (Real Redis)  │
+└───────────────┘     └───────────────┘
+```
+
+### redis.do
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { Redis } from 'redis.do'       │
+└─────────────────────────────────────────┘
+                    │
+                    v
+┌─────────────────────────────────────────┐
+│            redis.do Worker              │
+├─────────────────────────────────────────┤
+│  KeyspaceDO      │  PubSubChannelDO     │
+├─────────────────────────────────────────┤
+│        Durable Object SQLite            │
+└─────────────────────────────────────────┘
+```
+
+Both approaches support the same Redis patterns (caching, rate limiting, sessions, leaderboards) - choose based on whether you need real Redis compatibility or native edge deployment.

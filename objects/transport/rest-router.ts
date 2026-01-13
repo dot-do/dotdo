@@ -15,36 +15,12 @@
  */
 
 import type { ThingsStore, ThingEntity } from '../../db/stores'
-import { buildResponse, buildErrorResponse, type ErrorCode } from '../../lib/response/linked-data'
+import { buildResponse } from '../../lib/response/linked-data'
 import { buildCollectionResponse as buildCollectionResponseShape } from '../../lib/response/collection'
 import { buildItemLinks } from '../../lib/response/links'
 import { buildItemActionsClickable } from '../../lib/response/actions'
 import { generateEditUI, createEditUIData, type EditUIData } from './edit-ui'
 import { escapeHtml } from '../../lib/utils/html'
-
-// ============================================================================
-// ERROR RESPONSE HELPER
-// ============================================================================
-
-/**
- * Create a JSON Response with JSON-LD formatted error
- *
- * @param code - Error code (e.g., 'NOT_FOUND', 'BAD_REQUEST')
- * @param message - Human-readable error message
- * @param status - HTTP status code
- * @param headers - Optional additional headers
- */
-function errorResponse(
-  code: ErrorCode,
-  message: string,
-  status: number,
-  headers?: Record<string, string>
-): Response {
-  return Response.json(buildErrorResponse(code, message), {
-    status,
-    headers,
-  })
-}
 
 // ============================================================================
 // TYPES
@@ -444,7 +420,10 @@ export async function handleListByType(
 
   // Check if type is registered (if nouns are defined)
   if (!isTypeRegistered(ctx, type)) {
-    return errorResponse('NOT_FOUND', `Unknown type: ${type}`, 404)
+    return Response.json(
+      { $type: 'Error', error: `Unknown type: ${type}`, code: 'NOT_FOUND' },
+      { status: 404 }
+    )
   }
 
   try {
@@ -525,7 +504,10 @@ export async function handleGetById(
     const thing = await ctx.things.get(id)
 
     if (!thing) {
-      return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+      return Response.json(
+        { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+        { status: 404 }
+      )
     }
 
     // Verify type matches
@@ -534,7 +516,10 @@ export async function handleGetById(
       : thing.$type
 
     if (thingType.toLowerCase() !== type.toLowerCase()) {
-      return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+      return Response.json(
+        { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+        { status: 404 }
+      )
     }
 
     // Format with links and actions for GET /:type/:id
@@ -545,7 +530,10 @@ export async function handleGetById(
     })
   } catch {
     // Return 404 for get failures - item not found or DB unavailable
-    return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+    return Response.json(
+      { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+      { status: 404 }
+    )
   }
 }
 
@@ -589,10 +577,16 @@ export async function handleCreate(
 
     // Check for duplicate error
     if (message.includes('already exists') || message.includes('UNIQUE constraint')) {
-      return errorResponse('DUPLICATE', message, 409)
+      return Response.json(
+        { $type: 'Error', error: message, code: 'DUPLICATE' },
+        { status: 409 }
+      )
     }
 
-    return errorResponse('CREATE_FAILED', message, 500)
+    return Response.json(
+      { $type: 'Error', error: message, code: 'CREATE_FAILED' },
+      { status: 500 }
+    )
   }
 }
 
@@ -615,7 +609,10 @@ export async function handleUpdate(
     // Verify item exists
     const existing = await ctx.things.get(id)
     if (!existing) {
-      return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+      return Response.json(
+        { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+        { status: 404 }
+      )
     }
 
     const { $id: _, $type: __, $context: ___, ...restData } = data
@@ -633,7 +630,10 @@ export async function handleUpdate(
     })
   } catch {
     // Return 404 for update failures - item not found or DB unavailable
-    return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+    return Response.json(
+      { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+      { status: 404 }
+    )
   }
 }
 
@@ -649,7 +649,10 @@ export async function handleDelete(
     // Verify item exists
     const existing = await ctx.things.get(id)
     if (!existing) {
-      return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+      return Response.json(
+        { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+        { status: 404 }
+      )
     }
 
     await ctx.things.delete(id)
@@ -657,7 +660,10 @@ export async function handleDelete(
     return new Response(null, { status: 204 })
   } catch {
     // Return 404 for delete failures - item not found or DB unavailable
-    return errorResponse('NOT_FOUND', `${type} not found: ${id}`, 404)
+    return Response.json(
+      { $type: 'Error', error: `${type} not found: ${id}`, code: 'NOT_FOUND' },
+      { status: 404 }
+    )
   }
 }
 
@@ -831,7 +837,10 @@ export async function handleRestRequest(
   // Handle edit action: /:type/:id/edit
   if (action === 'edit' && id) {
     if (method !== 'GET') {
-      return errorResponse('METHOD_NOT_ALLOWED', 'Method not allowed', 405, { 'Allow': 'GET' })
+      return Response.json(
+        { $type: 'Error', error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
+        { status: 405, headers: { 'Allow': 'GET' } }
+      )
     }
     return handleEditUI(ctx, type, id, ns, request)
   }
@@ -856,14 +865,19 @@ export async function handleRestRequest(
       case 'POST': {
         const result = await parseRequestBody(request)
         if (!result.success) {
-          const code = result.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST'
-          return errorResponse(code, result.error, result.status)
+          return Response.json(
+            { $type: 'Error', error: result.error, code: result.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST' },
+            { status: result.status }
+          )
         }
         return handleCreate(ctx, type, result.data, request)
       }
 
       default:
-        return errorResponse('METHOD_NOT_ALLOWED', 'Method not allowed', 405, { 'Allow': 'GET, POST' })
+        return Response.json(
+          { $type: 'Error', error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
+          { status: 405, headers: { 'Allow': 'GET, POST' } }
+        )
     }
   }
 
@@ -875,8 +889,10 @@ export async function handleRestRequest(
     case 'PUT': {
       const result = await parseRequestBody(request)
       if (!result.success) {
-        const code = result.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST'
-        return errorResponse(code, result.error, result.status)
+        return Response.json(
+          { $type: 'Error', error: result.error, code: result.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST' },
+          { status: result.status }
+        )
       }
       return handleUpdate(ctx, type, id, result.data, { merge: false }, request)
     }
@@ -884,8 +900,10 @@ export async function handleRestRequest(
     case 'PATCH': {
       const result = await parseRequestBody(request)
       if (!result.success) {
-        const code = result.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST'
-        return errorResponse(code, result.error, result.status)
+        return Response.json(
+          { $type: 'Error', error: result.error, code: result.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'BAD_REQUEST' },
+          { status: result.status }
+        )
       }
       return handleUpdate(ctx, type, id, result.data, { merge: true }, request)
     }
@@ -894,7 +912,10 @@ export async function handleRestRequest(
       return handleDelete(ctx, type, id)
 
     default:
-      return errorResponse('METHOD_NOT_ALLOWED', 'Method not allowed', 405, { 'Allow': 'GET, PUT, PATCH, DELETE' })
+      return Response.json(
+        { $type: 'Error', error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
+        { status: 405, headers: { 'Allow': 'GET, PUT, PATCH, DELETE' } }
+      )
   }
 }
 

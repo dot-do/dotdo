@@ -49,20 +49,6 @@ function doFetch(
   })
 }
 
-/**
- * Helper to fetch a full URL link (like $id or links.self)
- * Unlike doFetch, this takes a full URL and passes it directly
- */
-function fetchLink(url: string, ns: string, init?: RequestInit): Promise<Response> {
-  return SELF.fetch(url, {
-    ...init,
-    headers: {
-      'X-DO-NS': ns,
-      ...init?.headers,
-    },
-  })
-}
-
 // ============================================================================
 // Index Endpoint Tests
 // ============================================================================
@@ -83,8 +69,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       }
 
       expect(body.$context).toBeDefined()
-      // $type is the namespace URL itself for the root resource (JSON-LD convention)
-      expect(body.$type).toBe('https://test.do')
+      expect(body.$type).toBe('TestDO')
       expect(body.ns).toBeDefined()
       expect(body.collections).toBeDefined()
     })
@@ -138,10 +123,8 @@ describe('REST Router Integration (Real DO Storage)', () => {
         email: string
       }
 
-      // Full URL format for JSON-LD compatibility
-      expect(body.$id).toMatch(/^https:\/\/test\.do\/customers\//)
-      // $type is also a URL for JSON-LD (the collection URL represents the type)
-      expect(body.$type).toBe('https://test.do/customers')
+      expect(body.$id).toMatch(/^\/customers\//)
+      expect(body.$type).toBe('Customer')
       expect(body.name).toBe('Acme Corp')
       expect(body.email).toBe('test@acme.com')
     })
@@ -164,8 +147,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       expect(res.status).toBe(201)
 
       const body = await res.json() as { $id: string }
-      // Full URL format for JSON-LD compatibility
-      expect(body.$id).toBe(`https://test.do/customers/${customId}`)
+      expect(body.$id).toBe(`/customers/${customId}`)
     })
 
     it('returns 201 with Location header', async () => {
@@ -177,8 +159,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       })
 
       expect(res.status).toBe(201)
-      // Location header contains full URL
-      expect(res.headers.get('Location')).toMatch(/^https:\/\/test\.do\/customers\//)
+      expect(res.headers.get('Location')).toMatch(/^\/customers\//)
     })
 
     // KNOWN BUG: Duplicate check depends on ThingsStore.get which has branch query bug
@@ -256,8 +237,8 @@ describe('REST Router Integration (Real DO Storage)', () => {
 
       const created = await createRes.json() as { $id: string }
 
-      // Read by fetching the $id link (full URL)
-      const readRes = await fetchLink(created.$id, ns)
+      // Read - should work once ThingsStore bug is fixed
+      const readRes = await doFetch(ns, created.$id)
       expect(readRes.status).toBe(200)
 
       const read = await readRes.json() as {
@@ -315,11 +296,9 @@ describe('REST Router Integration (Real DO Storage)', () => {
         total: number
       }
 
-      // $type is the collection URL (JSON-LD convention)
-      expect(body.$type).toBe('https://test.do/customers')
+      expect(body.$type).toBe('Collection')
       expect(body.items).toEqual([])
-      // 'count' is the standard field name
-      expect(body.count).toBe(0)
+      expect(body.total).toBe(0)
     })
 
     it('returns created items in collection', async () => {
@@ -347,8 +326,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       }
 
       expect(body.items.length).toBe(2)
-      // 'count' is the standard field name
-      expect(body.count).toBe(2)
+      expect(body.total).toBe(2)
     })
 
     it('supports limit query parameter', async () => {
@@ -390,7 +368,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       const created = await createRes.json() as { $id: string }
 
       // Replace
-      const updateRes = await fetchLink(created.$id, ns, {
+      const updateRes = await doFetch(ns, created.$id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item: 'Widget', qty: 10, status: 'confirmed' }),
@@ -431,7 +409,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       const created = await createRes.json() as { $id: string }
 
       // Patch (only update qty)
-      const patchRes = await fetchLink(created.$id, ns, {
+      const patchRes = await doFetch(ns, created.$id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ qty: 7 }),
@@ -439,7 +417,7 @@ describe('REST Router Integration (Real DO Storage)', () => {
       expect(patchRes.status).toBe(200)
 
       // Verify merge
-      const readRes = await fetchLink(created.$id, ns)
+      const readRes = await doFetch(ns, created.$id)
       const read = await readRes.json() as {
         item: string
         qty: number
@@ -470,11 +448,11 @@ describe('REST Router Integration (Real DO Storage)', () => {
       const created = await createRes.json() as { $id: string }
 
       // Delete
-      const deleteRes = await fetchLink(created.$id, ns, { method: 'DELETE' })
+      const deleteRes = await doFetch(ns, created.$id, { method: 'DELETE' })
       expect(deleteRes.status).toBe(204)
 
       // Verify deleted
-      const readRes = await fetchLink(created.$id, ns)
+      const readRes = await doFetch(ns, created.$id)
       expect(readRes.status).toBe(404)
     })
 
@@ -507,14 +485,14 @@ describe('REST Router Integration (Real DO Storage)', () => {
       expect(created.qty).toBe(5)
 
       // 2. Read
-      const readRes = await fetchLink(created.$id, ns)
+      const readRes = await doFetch(ns, created.$id)
       expect(readRes.status).toBe(200)
 
       const read = await readRes.json() as { qty: number }
       expect(read.qty).toBe(5)
 
       // 3. Update
-      const updateRes = await fetchLink(created.$id, ns, {
+      const updateRes = await doFetch(ns, created.$id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item: 'Widget', qty: 10, status: 'shipped' }),
@@ -526,11 +504,11 @@ describe('REST Router Integration (Real DO Storage)', () => {
       expect(updated.status).toBe('shipped')
 
       // 4. Delete
-      const deleteRes = await fetchLink(created.$id, ns, { method: 'DELETE' })
+      const deleteRes = await doFetch(ns, created.$id, { method: 'DELETE' })
       expect(deleteRes.status).toBe(204)
 
       // 5. Verify deleted
-      const verifyRes = await fetchLink(created.$id, ns)
+      const verifyRes = await doFetch(ns, created.$id)
       expect(verifyRes.status).toBe(404)
     })
 
@@ -557,12 +535,12 @@ describe('REST Router Integration (Real DO Storage)', () => {
       // List customers - should only have 1
       const custListRes = await doFetch(ns, '/customers')
       const custList = await custListRes.json() as { total: number }
-      expect(custList.count).toBe(1)
+      expect(custList.total).toBe(1)
 
       // List orders - should only have 1
       const orderListRes = await doFetch(ns, '/orders')
-      const orderList = await orderListRes.json() as { count: number }
-      expect(orderList.count).toBe(1)
+      const orderList = await orderListRes.json() as { total: number }
+      expect(orderList.total).toBe(1)
     })
   })
 

@@ -275,7 +275,7 @@ try {
     console.log('Customer already has dedicated DO')
   } else if (error.message.includes('DO binding unavailable')) {
     // Configuration issue
-    console.error('Check wrangler.jsonc bindings')
+    console.error('Check wrangler.toml bindings')
   }
 }
 ```

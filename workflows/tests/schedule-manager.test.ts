@@ -364,43 +364,43 @@ describe('Schedule Persistence', () => {
   })
 
   describe('Storage operations', () => {
-    it('persists schedule to graph Things on creation', async () => {
+    it('persists schedule to DO storage on creation', async () => {
       await manager.schedule('0 9 * * *', 'daily-report')
 
-      // Verify schedule can be retrieved (persisted in graph store)
-      const schedule = await manager.getSchedule('daily-report')
-      expect(schedule).toBeDefined()
-      expect(schedule?.name).toBe('daily-report')
+      expect(mockState.storage.put).toHaveBeenCalled()
+      const storedSchedule = await mockState.storage.get('schedule:daily-report')
+      expect(storedSchedule).toBeDefined()
     })
 
-    it('restores schedules from graph store after DO restart', async () => {
+    it('restores schedules from storage after DO restart', async () => {
       // Create a schedule
       await manager.schedule('0 9 * * *', 'daily-report')
 
-      // Get the stored data via public API
-      const schedule = await manager.getSchedule('daily-report')
-      expect(schedule).toBeDefined()
+      // Get the stored data
+      const storedSchedule = await mockState.storage.get('schedule:daily-report')
+      expect(storedSchedule).toBeDefined()
 
       // Verify stored data has required fields
-      expect(schedule?.name).toBe('daily-report')
-      expect(schedule?.cronExpression).toBe('0 9 * * *')
-      expect(schedule?.status).toBe('active')
+      const schedule = storedSchedule as any
+      expect(schedule.name).toBe('daily-report')
+      expect(schedule.cronExpression).toBe('0 9 * * *')
+      expect(schedule.status).toBe('active')
     })
 
     it('removes schedule from storage on deletion', async () => {
       await manager.schedule('0 9 * * *', 'daily-report')
       await manager.deleteSchedule('daily-report')
 
-      const schedule = await manager.getSchedule('daily-report')
-      expect(schedule).toBeNull()
+      const storedSchedule = await mockState.storage.get('schedule:daily-report')
+      expect(storedSchedule).toBeUndefined()
     })
 
     it('updates schedule in storage on modification', async () => {
       await manager.schedule('0 9 * * *', 'daily-report')
       await manager.updateSchedule('daily-report', { enabled: false })
 
-      const schedule = await manager.getSchedule('daily-report')
-      expect(schedule?.status).toBe('paused')
+      const storedSchedule = await mockState.storage.get('schedule:daily-report') as any
+      expect(storedSchedule.status).toBe('paused')
     })
   })
 
@@ -410,8 +410,8 @@ describe('Schedule Persistence', () => {
         metadata: { workflowId: 'wf-123', step: 'send-report' },
       })
 
-      const schedule = await manager.getSchedule('daily-report')
-      expect(schedule?.metadata).toEqual({ workflowId: 'wf-123', step: 'send-report' })
+      const storedSchedule = await mockState.storage.get('schedule:daily-report') as any
+      expect(storedSchedule.metadata).toEqual({ workflowId: 'wf-123', step: 'send-report' })
     })
 
     it('stores timezone with schedule', async () => {
@@ -419,8 +419,8 @@ describe('Schedule Persistence', () => {
         timezone: 'America/New_York',
       })
 
-      const schedule = await manager.getSchedule('daily-report')
-      expect(schedule?.timezone).toBe('America/New_York')
+      const storedSchedule = await mockState.storage.get('schedule:daily-report') as any
+      expect(storedSchedule.timezone).toBe('America/New_York')
     })
   })
 })

@@ -164,57 +164,7 @@ export interface DBPromise<T extends ThingEntity = ThingEntity> extends Promise<
   select<K extends keyof T>(...fields: K[]): DBPromise<T>
 
   /**
-   * Expand relationships (eager loading)
-   *
-   * Fetches related entities and attaches them to the query results.
-   * Supports single relations, multiple relations, and nested expansions.
-   *
-   * **Requirements:**
-   * The data source must implement `resolveRelationship()` for expand to work.
-   * If not implemented, a NotImplementedError will be thrown.
-   *
-   * **Circular Reference Handling:**
-   * The expand operation automatically detects and handles circular references
-   * to prevent infinite loops. When a cycle is detected, the circular reference
-   * is set to `null` in the result.
-   *
-   * @example Single relationship expansion
-   * ```typescript
-   * // Load Lead with Company relationship
-   * const leadsWithCompany = await db.Lead
-   *   .filter(lead => lead.status === 'active')
-   *   .expand('company')
-   * // Each lead now has lead.data.company populated
-   * ```
-   *
-   * @example Multiple relationships
-   * ```typescript
-   * // Load Order with Customer and LineItems
-   * const orders = await db.Order
-   *   .expand('customer', 'lineItems')
-   * ```
-   *
-   * @example Nested expansion via dot notation
-   * ```typescript
-   * // Load Lead with Company and Company's Employees
-   * const leads = await db.Lead
-   *   .expand('company.employees')
-   * // lead.data.company.data.employees is populated
-   * ```
-   *
-   * @example Combining expand with other operations
-   * ```typescript
-   * // Filter, expand, sort, and paginate
-   * const results = await db.Lead
-   *   .filter(lead => lead.status === 'active')
-   *   .expand('company', 'contacts')
-   *   .orderBy('score', 'desc')
-   *   .limit(10)
-   * ```
-   *
-   * @param relations - One or more relationship names to expand.
-   *   Use dot notation for nested relationships (e.g., 'company.employees')
-   * @returns A new DBPromise with expanded relationships attached to results
+   * Expand relationships
    */
   expand(...relations: string[]): DBPromise<T>
 

@@ -24,121 +24,112 @@ wrangler whoami
 
 ### Basic Configuration
 
-Create a `wrangler.jsonc` in your project root:
+Create a `wrangler.toml` in your project root:
 
-```json
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-01-01",
+```toml
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
 
-  // Account and zone configuration
-  "account_id": "your-account-id",
+# Account and zone configuration
+account_id = "your-account-id"
 
-  // Enable Node.js compatibility
-  "node_compat": true,
+# Enable Node.js compatibility
+node_compat = true
 
-  "build": {
-    "command": "npm run build"
-  },
+[build]
+command = "npm run build"
 
-  // Durable Object bindings
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "Startup" }
-    ]
-  },
+# Durable Object bindings
+[[durable_objects.bindings]]
+name = "STARTUP"
+class_name = "Startup"
 
-  // Durable Object migrations
-  "migrations": [
-    { "tag": "v1", "new_classes": ["Startup"] }
-  ]
-}
+# Durable Object migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["Startup"]
 ```
 
 ### Full Configuration Example
 
-```json
-{
-  "name": "my-startup",
-  "main": "dist/worker.js",
-  "compatibility_date": "2024-01-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "account_id": "abc123...",
+```toml
+name = "my-startup"
+main = "dist/worker.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
 
-  "build": {
-    "command": "npm run build",
-    "watch_dir": "src"
-  },
+account_id = "abc123..."
 
-  // KV Namespace bindings
-  "kv_namespaces": [
-    { "binding": "CACHE", "id": "kv-namespace-id" }
-  ],
+[build]
+command = "npm run build"
+watch_dir = "src"
 
-  // R2 bucket bindings
-  "r2_buckets": [
-    { "binding": "STORAGE", "bucket_name": "my-bucket" }
-  ],
+# KV Namespace bindings
+[[kv_namespaces]]
+binding = "CACHE"
+id = "kv-namespace-id"
 
-  // D1 Database bindings
-  "d1_databases": [
-    { "binding": "DB", "database_name": "my-database", "database_id": "d1-database-id" }
-  ],
+# R2 bucket bindings
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "my-bucket"
 
-  // Durable Objects
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "Startup" },
-      { "name": "CUSTOMER", "class_name": "Customer" }
-    ]
-  },
+# D1 Database bindings
+[[d1_databases]]
+binding = "DB"
+database_name = "my-database"
+database_id = "d1-database-id"
 
-  "migrations": [
-    { "tag": "v1", "new_classes": ["Startup", "Customer"] }
-  ],
+# Durable Objects
+[[durable_objects.bindings]]
+name = "STARTUP"
+class_name = "Startup"
 
-  // Vectorize index bindings
-  "vectorize": [
-    { "binding": "EMBEDDINGS", "index_name": "embeddings" }
-  ],
+[[durable_objects.bindings]]
+name = "CUSTOMER"
+class_name = "Customer"
 
-  // AI bindings
-  "ai": {
-    "binding": "AI"
-  },
+[[migrations]]
+tag = "v1"
+new_classes = ["Startup", "Customer"]
 
-  // Analytics Engine
-  "analytics_engine_datasets": [
-    { "binding": "ANALYTICS", "dataset": "my-analytics" }
-  ],
+# Vectorize index bindings
+[[vectorize]]
+binding = "EMBEDDINGS"
+index_name = "embeddings"
 
-  // Queues
-  "queues": {
-    "producers": [
-      { "queue": "my-queue", "binding": "QUEUE" }
-    ],
-    "consumers": [
-      { "queue": "my-queue", "max_batch_size": 10, "max_batch_timeout": 30 }
-    ]
-  }
-}
+# AI bindings
+[ai]
+binding = "AI"
+
+# Analytics Engine
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "my-analytics"
+
+# Queues
+[[queues.producers]]
+queue = "my-queue"
+binding = "QUEUE"
+
+[[queues.consumers]]
+queue = "my-queue"
+max_batch_size = 10
+max_batch_timeout = 30
 ```
 
 ## Environment Variables
 
 ### Plain Text Variables
 
-Set non-sensitive configuration in `wrangler.jsonc`:
+Set non-sensitive configuration in `wrangler.toml`:
 
-```json
-{
-  "vars": {
-    "ENVIRONMENT": "production",
-    "LOG_LEVEL": "info",
-    "API_VERSION": "v1"
-  }
-}
+```toml
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+API_VERSION = "v1"
 ```
 
 ### Accessing Variables
@@ -222,65 +213,57 @@ wrangler secret put DATABASE_URL --env staging
 
 ### Environment Configuration
 
-Define environments in `wrangler.jsonc`:
+Define environments in `wrangler.toml`:
 
-```json
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-01-01",
+```toml
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
 
-  // Shared configuration
-  "vars": {
-    "API_VERSION": "v1"
-  },
+# Shared configuration
+[vars]
+API_VERSION = "v1"
 
-  "env": {
-    // Development environment
-    "development": {
-      "name": "my-startup-dev",
-      "vars": { "ENVIRONMENT": "development", "LOG_LEVEL": "debug" },
-      "kv_namespaces": [
-        { "binding": "CACHE", "id": "dev-kv-id" }
-      ],
-      "durable_objects": {
-        "bindings": [
-          { "name": "STARTUP", "class_name": "Startup" }
-        ]
-      }
-    },
+# Development environment
+[env.development]
+name = "my-startup-dev"
+vars = { ENVIRONMENT = "development", LOG_LEVEL = "debug" }
 
-    // Staging environment
-    "staging": {
-      "name": "my-startup-staging",
-      "vars": { "ENVIRONMENT": "staging", "LOG_LEVEL": "info" },
-      "routes": [{ "pattern": "staging.example.com/*", "zone_name": "example.com" }],
-      "kv_namespaces": [
-        { "binding": "CACHE", "id": "staging-kv-id" }
-      ],
-      "durable_objects": {
-        "bindings": [
-          { "name": "STARTUP", "class_name": "Startup" }
-        ]
-      }
-    },
+[[env.development.kv_namespaces]]
+binding = "CACHE"
+id = "dev-kv-id"
 
-    // Production environment
-    "production": {
-      "name": "my-startup",
-      "vars": { "ENVIRONMENT": "production", "LOG_LEVEL": "warn" },
-      "routes": [{ "pattern": "api.example.com/*", "zone_name": "example.com" }],
-      "kv_namespaces": [
-        { "binding": "CACHE", "id": "prod-kv-id" }
-      ],
-      "durable_objects": {
-        "bindings": [
-          { "name": "STARTUP", "class_name": "Startup" }
-        ]
-      }
-    }
-  }
-}
+[[env.development.durable_objects.bindings]]
+name = "STARTUP"
+class_name = "Startup"
+
+# Staging environment
+[env.staging]
+name = "my-startup-staging"
+vars = { ENVIRONMENT = "staging", LOG_LEVEL = "info" }
+routes = [{ pattern = "staging.example.com/*", zone_name = "example.com" }]
+
+[[env.staging.kv_namespaces]]
+binding = "CACHE"
+id = "staging-kv-id"
+
+[[env.staging.durable_objects.bindings]]
+name = "STARTUP"
+class_name = "Startup"
+
+# Production environment
+[env.production]
+name = "my-startup"
+vars = { ENVIRONMENT = "production", LOG_LEVEL = "warn" }
+routes = [{ pattern = "api.example.com/*", zone_name = "example.com" }]
+
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "prod-kv-id"
+
+[[env.production.durable_objects.bindings]]
+name = "STARTUP"
+class_name = "Startup"
 ```
 
 ### Deploying to Environments

@@ -280,10 +280,3 @@ Registry for managing type definitions.
 
 ### validation.ts
 Input validation utilities.
-
-## Related Documentation
-
-- [Agent System](/docs/agents/) - User-facing documentation for named agents and human escalation
-- [Human Escalation](/docs/humans/escalation) - Triggers, roles, SLAs, and channels
-- [Workflows](/docs/workflows/) - $ context DSL and workflow orchestration
-- [SDK Reference](/docs/sdk/) - Full API reference for dotdo primitives

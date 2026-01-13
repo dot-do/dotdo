@@ -34,15 +34,15 @@ EdgeVec runs as a separate worker to avoid bundle bloat. Access it via Service B
 
 ### Configuration
 
-```json title="wrangler.jsonc"
-{
-  "services": [
-    { "binding": "EDGEVEC", "service": "edgevec-worker" }
-  ],
-  "r2_buckets": [
-    { "binding": "EDGEVEC_R2", "bucket_name": "vectors" }
-  ]
-}
+```typescript
+// wrangler.toml
+[[services]]
+binding = "EDGEVEC"
+service = "edgevec-worker"
+
+[[r2_buckets]]
+binding = "EDGEVEC_R2"
+bucket_name = "vectors"
 ```
 
 ### Create an Index

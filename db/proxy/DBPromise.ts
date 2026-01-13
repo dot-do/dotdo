@@ -12,25 +12,6 @@ import type {
   ForEachResult,
   ForEachProgress,
 } from './types'
-import { getProperty, isRecord } from '../../lib/type-guards'
-
-// ============================================================================
-// ERRORS
-// ============================================================================
-
-/**
- * Error thrown when a DBPromise method is not yet implemented.
- * Provides actionable guidance for workarounds.
- */
-export class NotImplementedError extends Error {
-  readonly method: string
-
-  constructor(method: string, message?: string) {
-    super(message ?? `DBPromise.${method}() is not yet implemented`)
-    this.name = 'NotImplementedError'
-    this.method = method
-  }
-}
 
 // ============================================================================
 // QUERY OPERATION TYPES
@@ -46,59 +27,12 @@ type OrderByOp = { type: 'orderBy'; field: string; direction: 'asc' | 'desc' }
 type LimitOp = { type: 'limit'; n: number }
 type OffsetOp = { type: 'offset'; n: number }
 type AfterOp = { type: 'after'; cursor: string }
-type ExpandOp = { type: 'expand'; relations: string[] }
 
-type QueryOp = FilterOp | WhereOp | WhereOpOp | MapOp | SelectOp | SortOp | OrderByOp | LimitOp | OffsetOp | AfterOp | ExpandOp
+type QueryOp = FilterOp | WhereOp | WhereOpOp | MapOp | SelectOp | SortOp | OrderByOp | LimitOp | OffsetOp | AfterOp
 
 // ============================================================================
 // DATA SOURCE INTERFACE
 // ============================================================================
-
-/**
- * Relationship definition for expand operations
- */
-export interface RelationshipDefinition {
-  /**
-   * The relationship name (e.g., 'company', 'contacts', 'author')
-   */
-  name: string
-
-  /**
-   * The target entity type (e.g., 'Company', 'Contact', 'User')
-   */
-  targetType: string
-
-  /**
-   * The relationship cardinality: 'one' for single entity, 'many' for array
-   */
-  cardinality: 'one' | 'many'
-
-  /**
-   * The field on the source entity that contains the reference.
-   * Can be a direct ID field (e.g., 'companyId') or a path for nested lookup.
-   */
-  foreignKey?: string
-
-  /**
-   * The verb used in the relationships table (e.g., 'belongs_to', 'has_many')
-   */
-  verb?: string
-}
-
-/**
- * Options for relationship expansion
- */
-export interface ExpandOptions {
-  /**
-   * Maximum depth for nested expansions (default: 3)
-   */
-  maxDepth?: number
-
-  /**
-   * Whether to include circular references (default: false, returns null for cycles)
-   */
-  allowCircular?: boolean
-}
 
 /**
  * Interface for the data source that DBPromise queries
@@ -133,26 +67,6 @@ export interface DBPromiseDataSource {
    * Load forEach progress (for resume)
    */
   loadProgress?(runId: string): Promise<{ completedIds: string[]; cursor?: string } | null>
-
-  /**
-   * Get relationship definitions for the entity type.
-   * Returns a map of relationship name to definition.
-   */
-  getRelationships?(): Map<string, RelationshipDefinition>
-
-  /**
-   * Resolve a relationship for a single item.
-   * Returns the related entity or entities.
-   *
-   * @param item - The source entity
-   * @param relationName - The relationship name to expand
-   * @param visited - Set of already-visited entity IDs (for cycle detection)
-   */
-  resolveRelationship?(
-    item: ThingEntity,
-    relationName: string,
-    visited?: Set<string>
-  ): Promise<ThingEntity | ThingEntity[] | null>
 }
 
 // ============================================================================
@@ -229,12 +143,9 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
   // ═══════════════════════════════════════════════════════════════════════════
 
   map<U extends ThingEntity>(mapper: (item: T) => U): DBPromise<U> {
-    // The mapper signature is compatible at runtime since T extends ThingEntity
-    // We use a wrapper function to maintain proper typing through the operation pipeline
-    const wrappedMapper = (item: ThingEntity): ThingEntity => mapper(item as T)
     return new DBPromise<U>(this.dataSource, [
       ...this.operations,
-      { type: 'map', mapper: wrappedMapper },
+      { type: 'map', mapper: mapper as unknown as (item: ThingEntity) => ThingEntity },
     ])
   }
 
@@ -245,18 +156,10 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
     ])
   }
 
-  expand(...relations: string[]): DBPromise<T> {
-    // Validate that relations are provided
-    if (relations.length === 0) {
-      return this as DBPromise<T>
-    }
-
-    // Support nested expansions via dot notation (e.g., 'company.employees')
-    // Each relation in the array will be expanded
-    return new DBPromise<T>(this.dataSource, [
-      ...this.operations,
-      { type: 'expand', relations },
-    ])
+  expand(..._relations: string[]): DBPromise<T> {
+    // Expansion is handled at execution time by joining relationships
+    // For now, return same promise (would need relationship resolution)
+    return new DBPromise<T>(this.dataSource, [...this.operations])
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -540,16 +443,14 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
         case 'where':
           results = results.filter((item) => {
             const data = item.data as Record<string, unknown> | undefined
-            // Check data first, then fall back to item properties using type-safe accessor
-            return data?.[op.field] === op.value || getProperty(item, op.field) === op.value
+            return data?.[op.field] === op.value || (item as unknown as Record<string, unknown>)[op.field] === op.value
           })
           break
 
         case 'whereOp':
           results = results.filter((item) => {
             const data = item.data as Record<string, unknown> | undefined
-            // Check data first, then fall back to item properties using type-safe accessor
-            const fieldValue = data?.[op.field] ?? getProperty(item, op.field)
+            const fieldValue = data?.[op.field] ?? (item as unknown as Record<string, unknown>)[op.field]
             return this.evaluateOp(fieldValue, op.op, op.value)
           })
           break
@@ -562,15 +463,9 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
           results = results.map((item) => {
             const selected: Record<string, unknown> = {}
             for (const field of op.fields) {
-              // Use type-safe property accessor
-              selected[field] = getProperty(item, field)
+              selected[field] = (item as unknown as Record<string, unknown>)[field]
             }
-            // Create minimal ThingEntity with selected fields
-            // $id is required, so ensure it's preserved
-            if (!('$id' in selected) && '$id' in item) {
-              selected['$id'] = item.$id
-            }
-            return selected as ThingEntity
+            return selected as unknown as ThingEntity
           })
           break
 
@@ -582,9 +477,8 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
           results = [...results].sort((a, b) => {
             const aData = a.data as Record<string, unknown> | undefined
             const bData = b.data as Record<string, unknown> | undefined
-            // Check data first, then fall back to item properties using type-safe accessor
-            const aVal = aData?.[op.field] ?? getProperty(a, op.field)
-            const bVal = bData?.[op.field] ?? getProperty(b, op.field)
+            const aVal = aData?.[op.field] ?? (a as unknown as Record<string, unknown>)[op.field]
+            const bVal = bData?.[op.field] ?? (b as unknown as Record<string, unknown>)[op.field]
 
             if (aVal === bVal) return 0
             if (aVal === undefined || aVal === null) return op.direction === 'asc' ? 1 : -1
@@ -608,149 +502,10 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
             results = results.slice(afterIndex + 1)
           }
           break
-
-        case 'expand':
-          // Expand relationships for each result
-          results = await this.expandRelationships(results, op.relations)
-          break
       }
     }
 
     return results as T[]
-  }
-
-  /**
-   * Expand relationships on query results.
-   *
-   * Supports:
-   * - Single relations: expand('company')
-   * - Multiple relations: expand('company', 'contacts')
-   * - Nested relations via dot notation: expand('company.employees')
-   * - Circular reference detection to prevent infinite loops
-   *
-   * @param items - The items to expand relationships on
-   * @param relations - The relation names to expand
-   * @returns Items with expanded relationships attached
-   */
-  private async expandRelationships(
-    items: ThingEntity[],
-    relations: string[]
-  ): Promise<ThingEntity[]> {
-    // Check if data source supports relationship resolution
-    if (!this.dataSource.resolveRelationship) {
-      throw new NotImplementedError(
-        'expand',
-        `DBPromise.expand() requires a data source with resolveRelationship() implemented. ` +
-        'The current data source does not support relationship expansion.'
-      )
-    }
-
-    const expandedItems: ThingEntity[] = []
-
-    for (const item of items) {
-      const expandedItem = await this.expandItemRelationships(
-        item,
-        relations,
-        new Set([item.$id]) // Start visited set with current item to detect self-reference
-      )
-      expandedItems.push(expandedItem)
-    }
-
-    return expandedItems
-  }
-
-  /**
-   * Expand relationships for a single item.
-   *
-   * @param item - The item to expand
-   * @param relations - Relations to expand
-   * @param visited - Set of visited entity IDs for cycle detection
-   * @param depth - Current recursion depth
-   * @returns Item with expanded relations
-   */
-  private async expandItemRelationships(
-    item: ThingEntity,
-    relations: string[],
-    visited: Set<string>,
-    depth: number = 0
-  ): Promise<ThingEntity> {
-    const MAX_DEPTH = 10 // Prevent runaway recursion
-
-    if (depth >= MAX_DEPTH) {
-      return item
-    }
-
-    // Create a shallow copy to avoid mutating the original
-    const expanded: ThingEntity = { ...item }
-    const expandedData: Record<string, unknown> = { ...(item.data ?? {}) }
-
-    for (const relation of relations) {
-      // Handle nested relations (e.g., 'company.employees')
-      const [firstRelation, ...nestedRelations] = relation.split('.')
-
-      if (!firstRelation) continue
-
-      try {
-        // Resolve the first-level relationship
-        const resolved = await this.dataSource.resolveRelationship!(
-          item,
-          firstRelation,
-          visited
-        )
-
-        if (resolved === null) {
-          // Relation not found or circular reference detected
-          expandedData[firstRelation] = null
-          continue
-        }
-
-        // Handle nested expansions
-        if (nestedRelations.length > 0) {
-          const nestedRelationPath = nestedRelations.join('.')
-
-          if (Array.isArray(resolved)) {
-            // For 'many' relationships, expand nested relations on each item
-            const nestedExpanded: ThingEntity[] = []
-            for (const relatedItem of resolved) {
-              // Add to visited set to detect cycles
-              const newVisited = new Set(visited)
-              newVisited.add(relatedItem.$id)
-
-              const nestedItem = await this.expandItemRelationships(
-                relatedItem,
-                [nestedRelationPath],
-                newVisited,
-                depth + 1
-              )
-              nestedExpanded.push(nestedItem)
-            }
-            expandedData[firstRelation] = nestedExpanded
-          } else {
-            // For 'one' relationships, expand nested relations on the single item
-            const newVisited = new Set(visited)
-            newVisited.add(resolved.$id)
-
-            const nestedItem = await this.expandItemRelationships(
-              resolved,
-              [nestedRelationPath],
-              newVisited,
-              depth + 1
-            )
-            expandedData[firstRelation] = nestedItem
-          }
-        } else {
-          // No nested expansion needed, just attach the resolved relation
-          expandedData[firstRelation] = resolved
-        }
-      } catch (error) {
-        // If expansion fails, set to null and continue
-        expandedData[firstRelation] = null
-        console.warn(`Failed to expand relation '${relation}' on item '${item.$id}':`, error)
-      }
-    }
-
-    expanded.data = expandedData
-    return expanded
   }
 
   private evaluateOp(fieldValue: unknown, op: string, value: unknown): boolean {

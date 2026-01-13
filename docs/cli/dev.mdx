@@ -271,16 +271,13 @@ npx wrangler login
 
 ### "Durable Object not found"
 
-Check your `wrangler.jsonc` has the correct class name:
+Check your `wrangler.toml` has the correct class name:
 
-```json title="wrangler.jsonc"
-{
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" }
-    ]
-  }
-}
+```toml title="wrangler.toml"
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
 ```
 
 The `class_name` must match your exported class.
@@ -309,16 +306,13 @@ npx dotdo dev --local
 
 If you have multiple Durable Object classes:
 
-```json title="wrangler.jsonc"
-{
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" },
-      { "name": "CUSTOMER", "class_name": "Customer" },
-      { "name": "ORDER", "class_name": "Order" }
-    ]
-  }
-}
+```toml title="wrangler.toml"
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" },
+  { name = "CUSTOMER", class_name = "Customer" },
+  { name = "ORDER", class_name = "Order" }
+]
 ```
 
 Access each via the dashboard or API.

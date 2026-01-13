@@ -23,7 +23,7 @@
 import type { WorkflowContext } from '../../types/WorkflowContext'
 import type { DO, Env } from '../../objects/DO'
 
-// Import types from @dotdo/fsx for better type safety and re-export for consumers
+// Import types from fsx.do for better type safety and re-export for consumers
 import type {
   ReadOptions as FsxReadOptions,
   WriteOptions as FsxWriteOptions,
@@ -32,7 +32,7 @@ import type {
   Dirent as FsxDirent,
   StorageTier,
   FsCapability as FsxCapability,
-} from '@dotdo/fsx'
+} from 'fsx.do'
 
 // Re-export fsx.do types for consumers who want the full fsx API
 export type { FsxReadOptions, FsxWriteOptions, FsxMkdirOptions, FsxStats, FsxDirent, StorageTier, FsxCapability }

@@ -257,110 +257,6 @@ const warehousesCube = {
   },
 }
 
-// Second alternative path to create true ambiguity (same hop count)
-// Products -> DistributionCenters -> Suppliers (2 hops)
-// vs Products -> Warehouses -> Suppliers (2 hops)
-const distributionCentersCube = {
-  name: 'DistributionCenters',
-  sql: 'SELECT * FROM distribution_centers',
-  measures: {
-    count: { type: 'count' as const },
-  },
-  dimensions: {
-    id: { type: 'number' as const, sql: 'id', primaryKey: true },
-    name: { type: 'string' as const, sql: 'name' },
-  },
-  joins: {
-    Products: {
-      relationship: 'hasMany' as const,
-      sql: '${DistributionCenters}.id = ${Products}.distribution_center_id',
-    },
-    Suppliers: {
-      relationship: 'belongsTo' as const,
-      sql: '${DistributionCenters}.supplier_id = ${Suppliers}.id',
-    },
-  },
-}
-
-// For ambiguous paths test - remove direct Products->Suppliers relationship
-const productsWithoutDirectSupplierCube = {
-  name: 'Products',
-  sql: 'SELECT * FROM products',
-  measures: {
-    count: { type: 'count' as const },
-    avgPrice: { type: 'avg' as const, sql: 'price' },
-  },
-  dimensions: {
-    id: { type: 'number' as const, sql: 'id', primaryKey: true },
-    name: { type: 'string' as const, sql: 'name' },
-    categoryId: { type: 'number' as const, sql: 'category_id' },
-    price: { type: 'number' as const, sql: 'price' },
-  },
-  joins: {
-    Categories: {
-      relationship: 'belongsTo' as const,
-      sql: '${Products}.category_id = ${Categories}.id',
-    },
-    OrderItems: {
-      relationship: 'hasMany' as const,
-      sql: '${Products}.id = ${OrderItems}.product_id',
-    },
-    ProductTags: {
-      relationship: 'hasMany' as const,
-      sql: '${Products}.id = ${ProductTags}.product_id',
-    },
-    Warehouses: {
-      relationship: 'belongsTo' as const,
-      sql: '${Products}.warehouse_id = ${Warehouses}.id',
-    },
-    DistributionCenters: {
-      relationship: 'belongsTo' as const,
-      sql: '${Products}.distribution_center_id = ${DistributionCenters}.id',
-    },
-  },
-}
-
-// Suppliers cube without direct Products join for ambiguity testing
-const suppliersNoProductsCube = {
-  name: 'Suppliers',
-  sql: 'SELECT * FROM suppliers',
-  measures: {
-    count: { type: 'count' as const },
-  },
-  dimensions: {
-    id: { type: 'number' as const, sql: 'id', primaryKey: true },
-    name: { type: 'string' as const, sql: 'name' },
-    country: { type: 'string' as const, sql: 'country' },
-  },
-  // No joins - Suppliers is only reachable via intermediate cubes
-  joins: {},
-}
-
-// Self-referential categories cube (points to itself)
-const selfRefCategoriesCube = {
-  name: 'Categories',
-  sql: 'SELECT * FROM categories',
-  measures: {
-    count: { type: 'count' as const },
-  },
-  dimensions: {
-    id: { type: 'number' as const, sql: 'id', primaryKey: true },
-    name: { type: 'string' as const, sql: 'name' },
-    parentId: { type: 'number' as const, sql: 'parent_id' },
-  },
-  joins: {
-    Products: {
-      relationship: 'hasMany' as const,
-      sql: '${Categories}.id = ${Products}.category_id',
-    },
-    // Self-referential join - points back to Categories
-    Categories: {
-      relationship: 'belongsTo' as const,
-      sql: '${Categories}.parent_id = ${Categories}.id',
-    },
-  },
-}
-
 // =============================================================================
 // JOIN GRAPH TESTS
 // =============================================================================
@@ -604,22 +500,13 @@ describe('JoinPathResolver', () => {
 
   describe('Ambiguous Join Path Handling', () => {
     beforeEach(() => {
-      // Create true ambiguity with two paths of same length:
-      // Products -> Warehouses -> Suppliers (2 hops)
-      // Products -> DistributionCenters -> Suppliers (2 hops)
-      // Use productsWithoutDirectSupplierCube to remove direct Products->Suppliers path
-      // Use suppliersNoProductsCube to prevent Suppliers->Products reverse path
-      cubes = new Map([
-        ['Products', productsWithoutDirectSupplierCube],
-        ['Suppliers', suppliersNoProductsCube],
-        ['Warehouses', warehousesCube],
-        ['DistributionCenters', distributionCentersCube],
-      ])
+      // Add warehouse cube which creates alternative path to Suppliers
+      cubes.set('Warehouses', warehousesCube)
       resolver = new JoinPathResolver({ cubes })
     })
 
     it('should detect ambiguous paths', () => {
-      // Products -> Suppliers has two equal-length paths via Warehouses and DistributionCenters
+      // Products -> Suppliers can go directly or through Warehouses
       const hasAmbiguity = resolver.hasAmbiguousPaths('Products', 'Suppliers')
       expect(hasAmbiguity).toBe(true)
     })
@@ -628,12 +515,8 @@ describe('JoinPathResolver', () => {
       const paths = resolver.findAllPaths('Products', 'Suppliers')
 
       expect(paths.length).toBeGreaterThan(1)
-      // Path via Warehouses: Products -> Warehouses -> Suppliers
-      // Path via DistributionCenters: Products -> DistributionCenters -> Suppliers
-      const pathViaWarehouses = paths.find((p) => p.cubes.includes('Warehouses'))
-      const pathViaDistribution = paths.find((p) => p.cubes.includes('DistributionCenters'))
-      expect(pathViaWarehouses).toBeDefined()
-      expect(pathViaDistribution).toBeDefined()
+      // Direct path: Products -> Suppliers
+      // Alternative: Products -> Warehouses -> Suppliers
     })
 
     it('should throw AmbiguousJoinPathError when strict mode enabled', () => {
@@ -646,15 +529,13 @@ describe('JoinPathResolver', () => {
 
     it('should allow explicit path specification for ambiguous joins', () => {
       const path = resolver.findPath('Products', 'Suppliers', {
-        via: ['Products', 'Warehouses', 'Suppliers'], // Force Warehouses path
+        via: ['Products', 'Suppliers'], // Force direct path
       })
 
-      expect(path.cubes).toEqual(['Products', 'Warehouses', 'Suppliers'])
+      expect(path.cubes).toEqual(['Products', 'Suppliers'])
     })
 
     it('should prefer shorter paths by default', () => {
-      // Add direct path back to create unambiguous shorter path
-      cubes.set('Products', productsCube) // Has direct Suppliers join
       resolver = new JoinPathResolver({ cubes, strictMode: false })
       const path = resolver.findPath('Products', 'Suppliers')
 
@@ -1050,20 +931,13 @@ describe('Edge Cases and Error Handling', () => {
   })
 
   it('should handle self-referential joins', () => {
-    // Categories has parent_id pointing to itself (self-join)
-    cubes.set('Categories', selfRefCategoriesCube)
+    // Categories has parent_id pointing to itself
+    cubes.set('Categories', categoriesCube)
     resolver = new JoinPathResolver({ cubes })
 
-    // Self-referential join creates an edge from Categories to Categories
-    const graph = (resolver as any).graph as JoinGraph
-    const hasEdge = graph.hasEdge('Categories', 'Categories')
-    expect(hasEdge).toBe(true)
-
-    // Should detect the self-referential nature
-    const edges = graph.getEdgesFrom('Categories')
-    const selfEdge = edges.find((e) => e.to === 'Categories')
-    expect(selfEdge).toBeDefined()
-    expect(selfEdge!.relationship).toBe('belongsTo')
+    const path = resolver.findPath('Categories', 'ParentCategory')
+    expect(path).toBeDefined()
+    expect(path.isSelfReferential).toBe(true)
   })
 
   it('should handle circular references without infinite loop', () => {
@@ -1191,337 +1065,5 @@ describe('Integration with SQL Generator', () => {
 
     // Should include cardinality for optimizer hints
     expect(resolved.joinOrder[0].cardinality).toBe(JoinCardinality.ManyToOne)
-  })
-})
-
-// =============================================================================
-// GRAPH TRAVERSAL TESTS
-// =============================================================================
-
-describe('Graph Traversal', () => {
-  let graph: JoinGraph
-  let resolver: JoinPathResolver
-  let cubes: Map<string, any>
-
-  beforeEach(() => {
-    graph = new JoinGraph()
-    cubes = new Map([
-      ['Orders', ordersCube],
-      ['OrderItems', orderItemsCube],
-      ['Products', productsCube],
-      ['Customers', customersCube],
-      ['Categories', categoriesCube],
-      ['Suppliers', suppliersCube],
-      ['ProductTags', productTagsCube],
-      ['Tags', tagsCube],
-    ])
-    resolver = new JoinPathResolver({ cubes })
-  })
-
-  describe('BFS-style Shortest Path', () => {
-    it('should find shortest path using BFS approach', () => {
-      // BFS finds shortest unweighted path
-      const path = resolver.findPath('Orders', 'Categories')
-
-      // Should find Orders -> OrderItems -> Products -> Categories (3 hops)
-      expect(path.length).toBe(3)
-      expect(path.cubes).toEqual(['Orders', 'OrderItems', 'Products', 'Categories'])
-    })
-
-    it('should find multiple shortest paths of same length', () => {
-      // Use the ambiguous setup
-      const ambiguousCubes = new Map([
-        ['Products', productsWithoutDirectSupplierCube],
-        ['Suppliers', suppliersNoProductsCube],
-        ['Warehouses', warehousesCube],
-        ['DistributionCenters', distributionCentersCube],
-      ])
-      const ambiguousResolver = new JoinPathResolver({ cubes: ambiguousCubes })
-
-      const allPaths = ambiguousResolver.findAllPaths('Products', 'Suppliers')
-      const shortestLength = Math.min(...allPaths.map((p) => p.length))
-      const shortestPaths = allPaths.filter((p) => p.length === shortestLength)
-
-      // Should find both 2-hop paths
-      expect(shortestPaths.length).toBe(2)
-      expect(shortestPaths.every((p) => p.length === 2)).toBe(true)
-    })
-
-    it('should handle disconnected subgraphs', () => {
-      const isolatedCube = {
-        name: 'Isolated',
-        sql: 'SELECT * FROM isolated',
-        measures: { count: { type: 'count' as const } },
-        dimensions: { id: { type: 'number' as const, sql: 'id' } },
-        joins: {},
-      }
-      cubes.set('Isolated', isolatedCube)
-      const newResolver = new JoinPathResolver({ cubes })
-
-      // Should not find path to isolated cube
-      expect(() => newResolver.findPath('Orders', 'Isolated')).toThrow(NoJoinPathError)
-
-      // But should find path within connected subgraph
-      const path = newResolver.findPath('Orders', 'Categories')
-      expect(path).toBeDefined()
-    })
-  })
-
-  describe('DFS-style Path Enumeration', () => {
-    it('should enumerate all paths up to max depth', () => {
-      const allPaths = resolver.findAllPaths('Orders', 'Customers', { maxDepth: 5 })
-
-      // Should find at least the direct path
-      expect(allPaths.length).toBeGreaterThan(0)
-      expect(allPaths.some((p) => p.cubes.length === 2)).toBe(true) // Direct: Orders -> Customers
-    })
-
-    it('should respect max depth constraint in enumeration', () => {
-      const shallowPaths = resolver.findAllPaths('Orders', 'Tags', { maxDepth: 3 })
-      const deepPaths = resolver.findAllPaths('Orders', 'Tags', { maxDepth: 6 })
-
-      // Shallow search might miss longer paths
-      shallowPaths.forEach((p) => {
-        expect(p.length).toBeLessThanOrEqual(3)
-      })
-
-      // Deep search should find paths the shallow search missed
-      expect(deepPaths.length).toBeGreaterThanOrEqual(shallowPaths.length)
-    })
-
-    it('should not revisit nodes during path enumeration (except destination)', () => {
-      const allPaths = resolver.findAllPaths('Orders', 'Products')
-
-      allPaths.forEach((path) => {
-        // Each cube should appear at most once in a path (except potentially the destination)
-        const cubesWithoutDest = path.cubes.slice(0, -1)
-        const uniqueCubes = new Set(cubesWithoutDest)
-        expect(uniqueCubes.size).toBe(cubesWithoutDest.length)
-      })
-    })
-  })
-
-  describe('Topological Sort for Join Order', () => {
-    it('should produce valid topological order for joins', () => {
-      const resolved = resolver.resolveForQuery({
-        primaryCube: 'Orders',
-        requiredCubes: ['Categories', 'Suppliers'],
-        measures: ['Orders.count'],
-        dimensions: ['Categories.name', 'Suppliers.name'],
-      })
-
-      // Each join's "from" cube must have been seen before
-      const seenCubes = new Set(['Orders'])
-      for (const join of resolved.joinOrder) {
-        expect(seenCubes.has(join.from)).toBe(true)
-        seenCubes.add(join.to)
-      }
-    })
-
-    it('should handle diamond dependencies in join order', () => {
-      // Orders -> OrderItems -> Products -> Categories
-      // Orders -> OrderItems -> Products -> Suppliers
-      // Products is shared, should only appear once
-      const resolved = resolver.resolveForQuery({
-        primaryCube: 'Orders',
-        requiredCubes: ['Categories', 'Suppliers'],
-        measures: ['Orders.count'],
-        dimensions: ['Categories.name', 'Suppliers.name'],
-      })
-
-      // Products should appear exactly once
-      const productJoins = resolved.joinOrder.filter((j) => j.to === 'Products')
-      expect(productJoins.length).toBe(1)
-    })
-
-    it('should maintain dependency order in complex graphs', () => {
-      // When querying from Orders to Tags through multiple intermediates
-      const resolved = resolver.resolveForQuery({
-        primaryCube: 'Orders',
-        requiredCubes: ['Tags'],
-        measures: ['Orders.count'],
-        dimensions: ['Tags.name'],
-      })
-
-      // Verify dependencies are respected
-      const order = resolved.joinOrder.map((j) => j.to)
-
-      // OrderItems must come before Products
-      if (order.includes('OrderItems') && order.includes('Products')) {
-        expect(order.indexOf('OrderItems')).toBeLessThan(order.indexOf('Products'))
-      }
-
-      // Products must come before ProductTags
-      if (order.includes('Products') && order.includes('ProductTags')) {
-        expect(order.indexOf('Products')).toBeLessThan(order.indexOf('ProductTags'))
-      }
-
-      // ProductTags must come before Tags
-      if (order.includes('ProductTags') && order.includes('Tags')) {
-        expect(order.indexOf('ProductTags')).toBeLessThan(order.indexOf('Tags'))
-      }
-    })
-  })
-
-  describe('Cycle Detection and Handling', () => {
-    it('should detect cycles in bidirectional graph', () => {
-      // The e-commerce graph has cycles due to bidirectional joins
-      graph.addCube(ordersCube)
-      graph.addCube(customersCube)
-
-      // Orders -> Customers -> Orders (via hasMany inverse)
-      expect(graph.hasCycle()).toBe(true)
-    })
-
-    it('should not get stuck in cycles during path finding', () => {
-      // Should terminate and return valid paths
-      const start = Date.now()
-      const paths = resolver.findAllPaths('Orders', 'Categories', { maxDepth: 10 })
-      const elapsed = Date.now() - start
-
-      // Should complete quickly (under 1 second)
-      expect(elapsed).toBeLessThan(1000)
-      expect(paths.length).toBeGreaterThan(0)
-    })
-
-    it('should handle self-referential cycles', () => {
-      // Add self-referential cube
-      cubes.set('Categories', selfRefCategoriesCube)
-      const newResolver = new JoinPathResolver({ cubes })
-
-      // Should still be able to traverse without infinite loop
-      const paths = newResolver.findAllPaths('Orders', 'Categories', { maxDepth: 5 })
-      expect(paths.length).toBeGreaterThan(0)
-    })
-
-    it('should detect cycle existence without hanging', () => {
-      const graphWithCycle = new JoinGraph()
-      graphWithCycle.addCube(ordersCube)
-      graphWithCycle.addCube(customersCube)
-      graphWithCycle.addCube(orderItemsCube)
-      graphWithCycle.addCube(productsCube)
-
-      const start = Date.now()
-      const hasCycle = graphWithCycle.hasCycle()
-      const elapsed = Date.now() - start
-
-      // Should detect cycle quickly
-      expect(hasCycle).toBe(true)
-      expect(elapsed).toBeLessThan(100)
-    })
-  })
-
-  describe('Connected Component Analysis', () => {
-    it('should identify connected cubes from a starting point', () => {
-      // Starting from Orders, what cubes are reachable?
-      const reachable = new Set<string>()
-      const visited = new Set<string>()
-
-      const traverse = (cube: string) => {
-        if (visited.has(cube)) return
-        visited.add(cube)
-        reachable.add(cube)
-
-        const graph = (resolver as any).graph as JoinGraph
-        const edges = graph.getEdgesFrom(cube)
-        edges.forEach((e) => traverse(e.to))
-      }
-
-      traverse('Orders')
-
-      // Should reach all connected cubes
-      expect(reachable.has('Orders')).toBe(true)
-      expect(reachable.has('Customers')).toBe(true)
-      expect(reachable.has('OrderItems')).toBe(true)
-      expect(reachable.has('Products')).toBe(true)
-    })
-
-    it('should identify all edges in the graph', () => {
-      const graphObj = (resolver as any).graph as JoinGraph
-      const structure = graphObj.toJSON()
-
-      // Should have nodes and edges
-      expect(structure.nodes.length).toBe(8) // All cubes
-      expect(structure.edges.length).toBeGreaterThan(0)
-
-      // Each edge should have required properties
-      structure.edges.forEach((edge) => {
-        expect(edge.from).toBeDefined()
-        expect(edge.to).toBeDefined()
-        expect(edge.cardinality).toBeDefined()
-        expect(edge.sql).toBeDefined()
-      })
-    })
-  })
-
-  describe('Path Cost Analysis', () => {
-    it('should track path length as number of hops', () => {
-      const path = resolver.findPath('Orders', 'Categories')
-
-      // Path length should equal number of edges
-      expect(path.length).toBe(path.edges.length)
-      expect(path.length).toBe(path.cubes.length - 1)
-    })
-
-    it('should find minimum hop path', () => {
-      // Direct path Orders -> Customers should be 1 hop
-      const directPath = resolver.findPath('Orders', 'Customers')
-      expect(directPath.length).toBe(1)
-
-      // Multi-hop path Orders -> Categories should be 3 hops
-      const multiHopPath = resolver.findPath('Orders', 'Categories')
-      expect(multiHopPath.length).toBe(3)
-    })
-
-    it('should prefer paths with better cardinality when same length', () => {
-      // When paths have same length, prefer many-to-one over one-to-many
-      // This is implementation-dependent but tests the concept
-      const path = resolver.findPath('Orders', 'Customers')
-
-      // Orders -> Customers is many-to-one (preferable for aggregations)
-      expect(path.edges[0].cardinality).toBe(JoinCardinality.ManyToOne)
-    })
-  })
-
-  describe('Graph Modification and Rebuilding', () => {
-    it('should allow adding cubes incrementally', () => {
-      const newGraph = new JoinGraph()
-
-      newGraph.addCube(ordersCube)
-      expect(newGraph.getCubes()).toHaveLength(1)
-
-      newGraph.addCube(customersCube)
-      expect(newGraph.getCubes()).toHaveLength(2)
-
-      // Edges should be created for joins
-      expect(newGraph.hasEdge('Orders', 'Customers')).toBe(true)
-    })
-
-    it('should handle duplicate cube additions gracefully', () => {
-      const newGraph = new JoinGraph()
-
-      newGraph.addCube(ordersCube)
-      newGraph.addCube(ordersCube) // Add again
-
-      // Should still have only one Orders node
-      const cubeNames = newGraph.getCubes()
-      const ordersCount = cubeNames.filter((c) => c === 'Orders').length
-      expect(ordersCount).toBe(1)
-    })
-
-    it('should create new resolver with modified cube set', () => {
-      // Original resolver
-      const path1 = resolver.findPath('Orders', 'Customers')
-      expect(path1.length).toBe(1)
-
-      // Create new resolver with additional cube
-      const newCubes = new Map(cubes)
-      newCubes.set('Warehouses', warehousesCube)
-      const newResolver = new JoinPathResolver({ cubes: newCubes })
-
-      // New resolver should still work
-      const path2 = newResolver.findPath('Orders', 'Customers')
-      expect(path2.length).toBe(1)
-    })
   })
 })

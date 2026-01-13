@@ -1,87 +1,11 @@
 /**
- * Iceberg Reader for Lakehouse Point Lookups
+ * IcebergReader - Direct Iceberg table navigation for fast point lookups
  *
- * Provides fast point lookups in Iceberg tables stored in R2, achieving
- * 50-150ms latency vs 500ms-2s for R2 SQL queries. This is the primary
- * data access layer for Durable Object state stored in the lakehouse.
+ * Navigates Iceberg metadata to find specific records without R2 SQL.
+ * Achieves 50-150ms latency vs 500ms-2s for R2 SQL queries.
  *
- * ## Role in Lakehouse Architecture
- *
- * The IcebergReader enables efficient random access to lakehouse data:
- *
- * - **Partition Pruning**: Skips manifests using partition summaries
- * - **Column Statistics**: Skips files using min/max bounds on id column
- * - **Column Projection**: Reads only requested columns from Parquet
- * - **Metadata Caching**: Reduces R2 round-trips with TTL-based cache
- *
- * ## Navigation Chain
- *
- * ```
- * ┌─────────────────┐
- * │ metadata.json   │  (cached, ~5ms to parse)
- * └────────┬────────┘
- *          │ currentSnapshotId
- *          ▼
- * ┌─────────────────┐
- * │ manifest-list   │  (partition summary pruning)
- * └────────┬────────┘
- *          │ filter: ns=X, type=Y bounds
- *          ▼
- * ┌─────────────────┐
- * │ manifest-file   │  (column stats pruning)
- * └────────┬────────┘
- *          │ filter: id column bounds
- *          ▼
- * ┌─────────────────┐
- * │ data-file.parquet│ (column projection)
- * └─────────────────┘
- * ```
- *
- * ## Performance Characteristics
- *
- * | Phase | Latency | Optimization |
- * |-------|---------|--------------|
- * | Metadata lookup | <10ms | TTL cache |
- * | Manifest-list parse | <15ms | Partition pruning |
- * | Manifest-file parse | <20ms | Column stats pruning |
- * | Parquet read | 20-100ms | Column projection |
- * | **Total** | **50-150ms** | |
- *
- * vs R2 SQL: 500ms-2s (no pruning, full scans)
- *
- * ## Example Usage
- *
- * ```typescript
- * const reader = new IcebergReader(env.R2)
- *
- * // Point lookup by partition and id
- * const record = await reader.getRecord({
- *   table: 'do_resources',
- *   partition: { ns: 'payments.do', type: 'Function' },
- *   id: 'charge'
- * })
- *
- * // Time travel: read from historical snapshot
- * const historical = await reader.getRecord({
- *   table: 'do_resources',
- *   partition: { ns: 'payments.do', type: 'Function' },
- *   id: 'charge',
- *   snapshotId: 123456789
- * })
- *
- * // Type-safe with column projection
- * interface FunctionRecord extends IcebergRecord {
- *   esm: string
- *   dts: string
- * }
- *
- * const fn = await reader.getRecord<FunctionRecord>({
- *   table: 'do_resources',
- *   partition: { ns: 'payments.do', type: 'Function' },
- *   id: 'charge',
- *   columns: ['id', 'esm', 'dts']  // Only read these columns
- * })
- * ```
+ * Navigation chain:
+ *   metadata.json → manifest-list.avro → manifest-file.avro → data-file.parquet
  *
  * @module db/iceberg/reader
  */

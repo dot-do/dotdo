@@ -1,84 +1,13 @@
 /**
- * @module db/stores
+ * Store Accessors for DO Base Class
  *
- * Store Accessors for DO Base Class - the primary data access layer.
- *
- * This module provides typed store classes that encapsulate all database operations
- * for Durable Objects. Each store manages a specific domain of data with consistent
- * APIs, error handling, and real-time sync support.
- *
- * ## Store Types
- *
- * | Store | Purpose | Key Operations |
- * |-------|---------|----------------|
- * | ThingsStore | Versioned entities | get, list, create, update, delete, versions |
- * | RelationshipsStore | Entity connections | create, list, delete, from, to |
- * | ActionsStore | Action logging | log, complete, fail, retry, pending |
- * | EventsStore | Event emission | emit, stream, replay, list |
- * | SearchStore | Full-text search | index, query, semantic, remove |
- * | ObjectsStore | DO registry | register, resolve, shards, primary |
- * | DLQStore | Dead letter queue | add, replay, replayAll, purge |
- *
- * ## Usage Pattern
- *
- * Stores are instantiated with a StoreContext that provides database access,
- * namespace info, and environment bindings:
- *
- * @example Creating stores in a Durable Object
- * ```ts
- * class MyDO extends DOBase {
- *   private things: ThingsStore
- *   private events: EventsStore
- *
- *   constructor(state: DurableObjectState, env: Env) {
- *     super(state, env)
- *     const ctx: StoreContext = {
- *       db: this.db,
- *       ns: this.ns,
- *       currentBranch: 'main',
- *       env,
- *       typeCache: new Map(),
- *     }
- *     this.things = new ThingsStore(ctx)
- *     this.events = new EventsStore(ctx)
- *   }
- * }
- * ```
- *
- * @example CRUD operations with ThingsStore
- * ```ts
- * // Create a new entity
- * const user = await things.create({
- *   $type: 'User',
- *   name: 'John Doe',
- *   data: { email: 'john@example.com' },
- * })
- *
- * // Update with merge
- * await things.update(user.$id, {
- *   data: { role: 'admin' },
- * }, { merge: true })
- *
- * // Soft delete
- * await things.delete(user.$id)
- *
- * // List all users
- * const users = await things.list({ type: 'User' })
- * ```
- *
- * @example Real-time sync with mutation callbacks
- * ```ts
- * things.onMutation = (type, thing, rowid) => {
- *   syncEngine.broadcast({
- *     type: `thing:${type}`,
- *     data: thing,
- *     version: rowid,
- *   })
- * }
- * ```
- *
- * @see {@link things.ts} for the underlying table schema
- * @see {@link DOBase} for how stores integrate with Durable Objects
+ * Provides typed store accessors for:
+ * - ThingsStore: CRUD operations for Things
+ * - RelationshipsStore: Relationship management
+ * - ActionsStore: Action logging and lifecycle
+ * - EventsStore: Event emission and streaming
+ * - SearchStore: Full-text and semantic search
+ * - ObjectsStore: DO registry and resolution
  */
 
 import { eq, and, or, desc, asc, isNull, sql } from 'drizzle-orm'
@@ -92,21 +21,8 @@ import { safeJsonParse } from '../lib/safe-stringify'
 // ============================================================================
 
 /**
- * Whitelist of columns allowed for orderBy in ThingsStore.list().
- *
- * These are the only column names that can be used in ORDER BY clauses.
- * Any other value will throw an error, preventing SQL injection attacks.
- *
- * @example Valid ordering
- * ```ts
- * // These work
- * await things.list({ orderBy: 'id' })
- * await things.list({ orderBy: 'name', order: 'desc' })
- *
- * // This throws an error
- * await things.list({ orderBy: 'data; DROP TABLE things;--' })
- * // Error: Invalid order column
- * ```
+ * Whitelist of columns allowed for orderBy in ThingsStore.list()
+ * These match the actual columns in the things table schema.
  */
 export const ALLOWED_ORDER_COLUMNS = Object.freeze([
   'id',
@@ -116,24 +32,15 @@ export const ALLOWED_ORDER_COLUMNS = Object.freeze([
   'deleted',
 ] as const)
 
-/** Type representing a valid ORDER BY column name */
 export type AllowedOrderColumn = typeof ALLOWED_ORDER_COLUMNS[number]
 
 /**
  * Validates that an orderBy column name is in the allowed whitelist.
- *
- * This is a security function that prevents SQL injection by ensuring
- * only whitelisted column names can be used in dynamic ORDER BY clauses.
+ * Throws an error if the column is not allowed or contains invalid characters.
  *
  * @param column - The column name to validate
- * @returns The validated column name (type-narrowed to AllowedOrderColumn)
+ * @returns The validated column name
  * @throws Error if the column is not in the whitelist
- *
- * @example
- * ```ts
- * const safeColumn = validateOrderColumn('name') // OK
- * const malicious = validateOrderColumn('id; DROP TABLE') // Throws!
- * ```
  */
 export function validateOrderColumn(column: string): AllowedOrderColumn {
   if (!column || typeof column !== 'string') {
@@ -152,35 +59,21 @@ export function validateOrderColumn(column: string): AllowedOrderColumn {
 
 /**
  * Regular expression for valid JSON paths.
- *
  * Only allows alphanumeric characters, underscores, and dots (for nested paths).
- * Rejects SQL metacharacters and invalid path patterns.
- *
- * Valid: `status`, `config.enabled`, `user_id`
- * Invalid: `.status`, `config..enabled`, `data; DROP TABLE`
+ * Does not allow:
+ * - Starting or ending with dots
+ * - Consecutive dots
+ * - Special characters (quotes, parentheses, semicolons, etc.)
  */
 const VALID_JSON_PATH_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
 
 /**
  * Validates that a JSON path is safe for use in SQL queries.
- *
- * This security function ensures JSON paths used in json_extract() calls
- * cannot contain SQL injection payloads. Paths must:
- * - Start with a letter or underscore
- * - Contain only alphanumeric, underscore, and dot characters
- * - Not have consecutive, leading, or trailing dots
+ * Only allows alphanumeric characters, underscores, and dots.
  *
  * @param path - The JSON path to validate
  * @returns The validated JSON path
  * @throws Error if the path contains invalid characters
- *
- * @example
- * ```ts
- * validateJsonPath('status')        // OK: 'status'
- * validateJsonPath('config.enabled') // OK: 'config.enabled'
- * validateJsonPath('.bad')          // Throws: starts with dot
- * validateJsonPath('a; DROP')       // Throws: contains semicolon
- * ```
  */
 export function validateJsonPath(path: string): string {
   if (!path || typeof path !== 'string') {
@@ -201,13 +94,9 @@ export function validateJsonPath(path: string): string {
 // ============================================================================
 
 /**
- * Type-safe ORDER BY clause builder lookup table.
- *
- * Pre-built SQL fragments for each column/direction combination.
- * This approach completely eliminates the need for sql.raw() by using
- * a static lookup table - no dynamic SQL construction at runtime.
- *
- * @internal Used by buildOrderClause()
+ * Type-safe ORDER BY clause builder.
+ * Returns a pre-built SQL fragment for the ORDER BY clause based on validated column.
+ * This approach completely eliminates the need for sql.raw() by using a lookup table.
  */
 const ORDER_CLAUSE_BUILDERS = {
   id: {
@@ -234,19 +123,11 @@ const ORDER_CLAUSE_BUILDERS = {
 
 /**
  * Builds a type-safe ORDER BY clause without using sql.raw().
- *
  * Uses pre-defined SQL fragments looked up by validated column name.
- * This is the recommended way to add dynamic ordering to queries.
  *
- * @param column - The validated column name (must be in ALLOWED_ORDER_COLUMNS)
- * @param direction - The sort direction ('asc' or 'desc'), defaults to 'asc'
+ * @param column - The validated column name
+ * @param direction - The sort direction ('asc' or 'desc')
  * @returns A safe SQL fragment for the ORDER BY clause
- *
- * @example
- * ```ts
- * const orderClause = buildOrderClause('name', 'desc')
- * const query = sql`SELECT * FROM things ${orderClause}`
- * ```
  */
 export function buildOrderClause(
   column: AllowedOrderColumn,
@@ -258,31 +139,18 @@ export function buildOrderClause(
 /**
  * Builds a safe JSON path string for use with SQLite json_extract().
  *
- * Prepends `$.` to the validated path to create a valid SQLite JSON path.
- * The path is validated against a strict regex before building.
- *
- * ## Security
- *
- * The validation ensures:
- * - Path starts with letter or underscore
+ * Security: The path is validated against a strict regex before building.
+ * The JSON path validation regex ensures:
+ * - Starts with letter or underscore
  * - Contains only alphanumeric chars, underscores, and dots
  * - No consecutive dots, no leading/trailing dots
  * - No SQL metacharacters (quotes, semicolons, parentheses, etc.)
  *
- * The resulting path is used as a parameterized value (not raw SQL),
- * which is safe because SQLite's json_extract() only interprets it
- * as a JSON path selector.
- *
- * @param path - The JSON path to build (e.g., 'status', 'config.enabled')
- * @returns The full SQLite JSON path (e.g., '$.status', '$.config.enabled')
- *
- * @example
- * ```ts
- * const jsonPath = buildSafeJsonPath('config.enabled')
- * // Returns: '$.config.enabled'
- *
- * const query = sql`json_extract(data, ${jsonPath})`
- * ```
+ * The resulting path is then used as a parameterized value (not raw SQL),
+ * which is safe because:
+ * 1. SQLite's json_extract() only interprets the value as a JSON path selector
+ * 2. The validation rejects any SQL metacharacters
+ * 3. Drizzle's sql template tag properly escapes the parameterized string
  */
 export function buildSafeJsonPath(path: string): string {
   const validated = validateJsonPath(path)
@@ -292,27 +160,16 @@ export function buildSafeJsonPath(path: string): string {
 /**
  * Builds a type-safe JSON extract condition using parameterized binding.
  *
- * Creates a SQL condition for filtering on JSON data fields using
- * SQLite's json_extract() function.
+ * Security: Uses buildSafeJsonPath() which validates the path against a strict
+ * regex before constructing the full path string. The path is then passed as
+ * a parameterized value (not sql.raw()), which is safe because:
+ * 1. SQLite's json_extract() only interprets the value as a JSON path selector
+ * 2. The validation rejects any SQL metacharacters
+ * 3. Parameterized binding escapes any special characters
  *
- * ## Security
- *
- * Uses buildSafeJsonPath() which validates the path against a strict regex.
- * Both path and value are parameterized, preventing SQL injection.
- *
- * @param path - The JSON path to validate and use (e.g., 'status', 'config.enabled')
- * @param value - The value to compare against (will be JSON stringified and parameterized)
+ * @param path - The JSON path to validate and use
+ * @param value - The value to compare against (will be parameterized)
  * @returns A safe SQL fragment for the JSON extract condition
- *
- * @example
- * ```ts
- * // Filter things where data.status = 'active'
- * const condition = buildJsonCondition('status', 'active')
- * // Produces: json_extract(t.data, '$.status') = '"active"'
- *
- * // Use in a query
- * const query = sql`SELECT * FROM things t WHERE ${condition}`
- * ```
  */
 export function buildJsonCondition(path: string, value: unknown) {
   const safePath = buildSafeJsonPath(path)
@@ -323,24 +180,6 @@ export function buildJsonCondition(path: string, value: unknown) {
 // THING TYPES
 // ============================================================================
 
-/**
- * Entity representation of a Thing for store operations.
- *
- * This is the application-level representation used by ThingsStore,
- * with semantic field names ($id, $type) rather than database column names.
- *
- * @example
- * ```ts
- * const user: ThingEntity = {
- *   $id: 'user-123',
- *   $type: 'User',
- *   name: 'John Doe',
- *   data: { email: 'john@example.com', role: 'admin' },
- *   version: 5,
- *   deleted: false,
- * }
- * ```
- */
 export interface ThingEntity {
   $id: string
   $type: string
@@ -351,80 +190,21 @@ export interface ThingEntity {
   deleted?: boolean
 }
 
-/**
- * Options for ThingsStore.get() method.
- *
- * @example Get specific version
- * ```ts
- * const v3 = await things.get('doc-123', { version: 3 })
- * ```
- *
- * @example Get on branch including deleted
- * ```ts
- * const staging = await things.get('config', {
- *   branch: 'staging',
- *   includeDeleted: true,
- * })
- * ```
- */
 export interface ThingsGetOptions {
-  /** Branch to read from (default: current branch) */
   branch?: string
-  /** Specific version number to retrieve (for time travel) */
   version?: number
-  /** Include soft-deleted things (default: false) */
   includeDeleted?: boolean
 }
 
-/**
- * Options for ThingsStore.list() method.
- *
- * Provides filtering, pagination, ordering, and JSON field queries.
- *
- * @example Paginated list with type filter
- * ```ts
- * const users = await things.list({
- *   type: 'User',
- *   orderBy: 'name',
- *   order: 'asc',
- *   limit: 20,
- *   offset: 0,
- * })
- * ```
- *
- * @example Cursor-based pagination
- * ```ts
- * const page1 = await things.list({ limit: 20 })
- * const lastId = page1[page1.length - 1]?.$id
- * const page2 = await things.list({ limit: 20, after: lastId })
- * ```
- *
- * @example JSON field filter
- * ```ts
- * const activeUsers = await things.list({
- *   type: 'User',
- *   where: { 'data.status': 'active' },
- * })
- * ```
- */
 export interface ThingsListOptions {
-  /** Filter by type name (e.g., 'User', 'Document') */
   type?: string
-  /** Branch to list from (default: current branch) */
   branch?: string
-  /** Column to order by (must be in ALLOWED_ORDER_COLUMNS) */
   orderBy?: string
-  /** Sort direction */
   order?: 'asc' | 'desc'
-  /** Maximum number of results (default: 100) */
   limit?: number
-  /** Number of results to skip (for offset pagination) */
   offset?: number
-  /** Cursor for cursor-based pagination (return items after this ID) */
   after?: string
-  /** Include soft-deleted things (default: false) */
   includeDeleted?: boolean
-  /** JSON field filters (e.g., { 'data.status': 'active' }) */
   where?: Record<string, unknown>
 }
 
@@ -622,38 +402,10 @@ export interface ObjectsListOptions {
 // STORE CONTEXT
 // ============================================================================
 
-/**
- * Context required by all store classes.
- *
- * Provides database access, namespace identification, and environment bindings
- * needed for store operations. Typically created once per Durable Object and
- * shared across all stores.
- *
- * @example Creating a store context
- * ```ts
- * const ctx: StoreContext = {
- *   db: drizzle(state.storage.sql) as DODatabase<AppSchema>,
- *   ns: 'tenant-123',
- *   currentBranch: 'main',
- *   env: {
- *     DO: env.DO,
- *     PIPELINE: env.PIPELINE,
- *   },
- *   typeCache: new Map(),
- * }
- *
- * const things = new ThingsStore(ctx)
- * const events = new EventsStore(ctx)
- * ```
- */
 export interface StoreContext {
-  /** Drizzle database instance with app schema */
   db: DODatabase<AppSchema>
-  /** Namespace identifier (tenant, org, or DO name) */
   ns: string
-  /** Current branch for read/write operations */
   currentBranch: string
-  /** Environment bindings for CF services */
   env: {
     DO?: {
       idFromName(name: string): { toString(): string }
@@ -676,25 +428,7 @@ export interface StoreContext {
 
 /**
  * Mutation callback type for ThingsStore.
- *
  * Called after successful create, update, or delete operations.
- * Use this to implement real-time sync, audit logging, or cache invalidation.
- *
- * @param type - The mutation type: 'insert', 'update', or 'delete'
- * @param thing - The affected ThingEntity
- * @param rowid - The version number (SQLite rowid) of the new version
- *
- * @example Real-time sync broadcast
- * ```ts
- * things.onMutation = (type, thing, rowid) => {
- *   syncEngine.broadcast({
- *     channel: `things:${thing.$type}`,
- *     event: type,
- *     data: thing,
- *     version: rowid,
- *   })
- * }
- * ```
  */
 export type ThingsMutationCallback = (
   type: 'insert' | 'update' | 'delete',
@@ -702,50 +436,6 @@ export type ThingsMutationCallback = (
   rowid: number
 ) => void
 
-/**
- * ThingsStore - CRUD operations for versioned entities.
- *
- * The primary store for managing Things in a Durable Object. Provides
- * typed operations for creating, reading, updating, and deleting Things
- * with automatic versioning, branch support, and real-time sync hooks.
- *
- * ## Key Features
- *
- * - **Versioning**: All mutations append new versions (never overwrite)
- * - **Branching**: Read/write from specific branches
- * - **Type caching**: Efficient noun type lookups with in-memory cache
- * - **Mutation callbacks**: Hook for real-time sync broadcasts
- * - **Soft delete**: Delete creates a new version with deleted=true
- *
- * @example Basic CRUD operations
- * ```ts
- * const things = new ThingsStore(ctx)
- *
- * // Create
- * const user = await things.create({
- *   $type: 'User',
- *   name: 'John',
- *   data: { email: 'john@example.com' },
- * })
- *
- * // Read
- * const fetched = await things.get(user.$id)
- *
- * // Update (merge by default)
- * await things.update(user.$id, {
- *   data: { role: 'admin' },
- * })
- *
- * // Delete (soft delete)
- * await things.delete(user.$id)
- *
- * // List with filters
- * const users = await things.list({ type: 'User' })
- *
- * // Get version history
- * const versions = await things.versions(user.$id)
- * ```
- */
 export class ThingsStore {
   /**
    * Callback invoked after mutations (create, update, delete).

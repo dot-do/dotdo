@@ -1,5 +1,5 @@
 /**
- * MediaPipeline Presigned URL Tests - TDD GREEN Phase
+ * MediaPipeline Presigned URL Tests - TDD RED Phase
  *
  * Tests for presigned URL generation in the MediaPipeline primitive.
  * Provides secure, time-limited URLs for:
@@ -14,11 +14,174 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import {
-  createPresignedUrlGenerator,
-  type PresignedUrlGenerator,
-  type PresignedUrlGeneratorConfig,
-} from '../presigned-urls'
+
+// =============================================================================
+// Types (to be implemented in presigned-urls.ts)
+// =============================================================================
+
+// Types defined here first - implementation file will use these
+export type PresignedUrlPermission = 'read' | 'write' | 'read-write'
+
+export interface PresignedUrlOptions {
+  /** Object key (path) in the storage bucket */
+  key: string
+  /** Expiration time in seconds (default: 900, max: 604800) */
+  expiresIn?: number
+  /** Expiration time as absolute Date */
+  expiresAt?: Date
+  /** Permission type for the URL */
+  permission?: PresignedUrlPermission
+  /** Content-Type for upload URLs */
+  contentType?: string
+  /** Maximum content length for uploads (bytes) */
+  maxContentLength?: number
+  /** Minimum content length for uploads (bytes) */
+  minContentLength?: number
+  /** Custom metadata to include */
+  metadata?: Record<string, string>
+  /** Custom headers to require in the signed request */
+  requiredHeaders?: Record<string, string>
+  /** Response content disposition for downloads */
+  responseContentDisposition?: string
+  /** Response content type for downloads */
+  responseContentType?: string
+  /** Cache control for the response */
+  responseCacheControl?: string
+}
+
+export interface PresignedUploadUrl {
+  /** The presigned URL for PUT request */
+  url: string
+  /** HTTP method to use */
+  method: 'PUT'
+  /** Required headers for the upload request */
+  headers: Record<string, string>
+  /** URL expiration timestamp */
+  expiresAt: Date
+  /** Maximum file size allowed (if specified) */
+  maxContentLength?: number
+  /** Object key */
+  key: string
+}
+
+export interface PresignedDownloadUrl {
+  /** The presigned URL for GET request */
+  url: string
+  /** HTTP method to use */
+  method: 'GET'
+  /** URL expiration timestamp */
+  expiresAt: Date
+  /** Object key */
+  key: string
+}
+
+export interface ChunkedUploadInit {
+  /** Upload ID for multipart upload */
+  uploadId: string
+  /** Object key */
+  key: string
+  /** Expiration timestamp for the multipart upload */
+  expiresAt: Date
+}
+
+export interface ChunkedUploadPartUrl {
+  /** The presigned URL for uploading this part */
+  url: string
+  /** Part number (1-indexed) */
+  partNumber: number
+  /** Required headers for the upload */
+  headers: Record<string, string>
+  /** Expiration timestamp */
+  expiresAt: Date
+}
+
+export interface PresignedUrlGenerator {
+  /** Generate a presigned URL for file upload */
+  generateUploadUrl(options: PresignedUrlOptions): Promise<PresignedUploadUrl>
+
+  /** Generate a presigned URL for file download */
+  generateDownloadUrl(options: PresignedUrlOptions): Promise<PresignedDownloadUrl>
+
+  /** Initialize a chunked/multipart upload */
+  initChunkedUpload(key: string, options?: Partial<PresignedUrlOptions>): Promise<ChunkedUploadInit>
+
+  /** Generate presigned URL for uploading a specific part */
+  generatePartUploadUrl(
+    uploadId: string,
+    partNumber: number,
+    options?: Partial<PresignedUrlOptions>
+  ): Promise<ChunkedUploadPartUrl>
+
+  /** Complete a chunked upload */
+  completeChunkedUpload(
+    uploadId: string,
+    parts: Array<{ partNumber: number; etag: string }>
+  ): Promise<{ key: string; etag: string }>
+
+  /** Abort a chunked upload */
+  abortChunkedUpload(uploadId: string): Promise<void>
+
+  /** Validate a presigned URL (check signature, expiration) */
+  validateUrl(url: string): Promise<{ valid: boolean; reason?: string }>
+}
+
+export interface PresignedUrlGeneratorConfig {
+  /** R2/S3 bucket name */
+  bucket: string
+  /** Access key ID */
+  accessKeyId: string
+  /** Secret access key */
+  secretAccessKey: string
+  /** Optional custom endpoint (for R2 or S3-compatible storage) */
+  endpoint?: string
+  /** Region (default: 'auto' for R2) */
+  region?: string
+  /** Default expiration time in seconds */
+  defaultExpiry?: number
+  /** Maximum allowed expiration time in seconds */
+  maxExpiry?: number
+  /** Path prefix for all keys */
+  pathPrefix?: string
+}
+
+// Stub implementation for TDD RED phase
+export function createPresignedUrlGenerator(
+  _config: PresignedUrlGeneratorConfig
+): PresignedUrlGenerator {
+  return {
+    async generateUploadUrl(_options: PresignedUrlOptions): Promise<PresignedUploadUrl> {
+      throw new Error('Not implemented: generateUploadUrl')
+    },
+    async generateDownloadUrl(_options: PresignedUrlOptions): Promise<PresignedDownloadUrl> {
+      throw new Error('Not implemented: generateDownloadUrl')
+    },
+    async initChunkedUpload(
+      _key: string,
+      _options?: Partial<PresignedUrlOptions>
+    ): Promise<ChunkedUploadInit> {
+      throw new Error('Not implemented: initChunkedUpload')
+    },
+    async generatePartUploadUrl(
+      _uploadId: string,
+      _partNumber: number,
+      _options?: Partial<PresignedUrlOptions>
+    ): Promise<ChunkedUploadPartUrl> {
+      throw new Error('Not implemented: generatePartUploadUrl')
+    },
+    async completeChunkedUpload(
+      _uploadId: string,
+      _parts: Array<{ partNumber: number; etag: string }>
+    ): Promise<{ key: string; etag: string }> {
+      throw new Error('Not implemented: completeChunkedUpload')
+    },
+    async abortChunkedUpload(_uploadId: string): Promise<void> {
+      throw new Error('Not implemented: abortChunkedUpload')
+    },
+    async validateUrl(_url: string): Promise<{ valid: boolean; reason?: string }> {
+      throw new Error('Not implemented: validateUrl')
+    },
+  }
+}
 
 // =============================================================================
 // Test Helpers

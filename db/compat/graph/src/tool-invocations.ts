@@ -386,12 +386,12 @@ export function createInvocationGraph(_options: InvocationGraphOptions): Invocat
       const completedAt = Date.now()
 
       // Auto-transition through 'invoking' if coming from 'invoke'
-      // This provides convenience while maintaining the state machine path
+      // This provides convenience while maintaining proper state machine semantics
       if (invocation.verb === 'invoke') {
         invocation.verb = 'invoking'
         invocation.verbHistory.push({ verb: 'invoking', at: completedAt })
       } else if (invocation.verb !== 'invoking') {
-        // Must be in 'invoking' state to complete (cannot complete from terminal states)
+        // Must be in 'invoking' state to complete
         validateTransition(invocation.verb, 'invoked')
       }
 
@@ -537,10 +537,8 @@ export function createInvocationGraph(_options: InvocationGraphOptions): Invocat
           continue
         }
 
-        // Filter by startedAfter (inclusive - small tolerance for timing between setup and query)
-        // The tolerance handles cases where invocations are created with synthetic timestamps
-        // slightly before the query's calculated threshold due to async timing
-        if (query.startedAfter !== undefined && invocation.startedAt < query.startedAfter - 10) {
+        // Filter by startedAfter
+        if (query.startedAfter && invocation.startedAt < query.startedAfter) {
           continue
         }
 

@@ -238,16 +238,12 @@ const events = await this.events.list({
 
 When a `PIPELINE` binding is configured, events are also sent to Cloudflare Pipelines for streaming analytics:
 
-```json
-// In wrangler.jsonc
-{
-  "pipelines": [
-    { "name": "events", "binding": "PIPELINE" }
-  ]
-}
-```
-
 ```typescript
+// In wrangler.toml
+[[pipelines]]
+name = "events"
+binding = "PIPELINE"
+
 // Events automatically stream to pipeline
 this.$.send('Order.placed', order)
 // -> Sent to both SQLite and PIPELINE

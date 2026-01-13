@@ -1,151 +1,19 @@
 /**
- * @module lib/executors/AgenticFunctionExecutor
+ * AgenticFunctionExecutor
  *
- * AgenticFunctionExecutor - Execute functions via AI agents with tool loops.
+ * Executes agentic functions that orchestrate multi-step AI tasks with tools.
+ * It runs an AI model in a loop, allowing it to call tools, observe results, and
+ * iterate until a final answer is reached or limits are exceeded.
  *
- * This executor runs AI models in an agentic loop, allowing them to call tools,
- * observe results, and iterate until reaching a final answer or exceeding limits.
- * It is designed for complex, multi-step AI tasks that require dynamic tool usage
- * and reasoning.
- *
- * ## Features
- *
- * - **Agent Runner with Tool Loop**: Iteratively calls AI model and executes requested tools
- * - **Tool Discovery and Execution**: Registers and invokes tools by name with parameter validation
- * - **Iteration Limits**: Configurable maximum iterations to prevent runaway agents
- * - **Convergence Detection**: Detects when agent is stuck in a loop with repeated tool calls
- * - **Step Callbacks**: Observable execution with callbacks for each step type
- * - **State Management**: Persistent state between steps via Durable Object storage
- * - **Error Recovery**: Retry logic for both AI calls and tool executions
- * - **Parallel Tool Execution**: Execute multiple tool calls concurrently with configurable limits
- * - **Conversation History**: Maintain context across multi-turn agent interactions
- *
- * ## Architecture
- *
- * The executor follows a ReAct-style pattern:
- * 1. Send goal and context to AI model
- * 2. Model responds with thought and optional tool calls
- * 3. Execute tool calls and collect results
- * 4. Feed results back to model
- * 5. Repeat until model produces final answer or limits reached
- *
- * @example
- * ```typescript
- * import { AgenticFunctionExecutor } from 'dotdo/lib/executors'
- *
- * // Define tools for the agent
- * const tools = {
- *   search: {
- *     name: 'search',
- *     description: 'Search the knowledge base',
- *     parameters: {
- *       type: 'object',
- *       properties: {
- *         query: { type: 'string', description: 'Search query' }
- *       },
- *       required: ['query']
- *     },
- *     execute: async (params) => {
- *       return await searchKnowledgeBase(params.query)
- *     }
- *   },
- *   calculate: {
- *     name: 'calculate',
- *     description: 'Perform mathematical calculations',
- *     parameters: {
- *       type: 'object',
- *       properties: {
- *         expression: { type: 'string' }
- *       },
- *       required: ['expression']
- *     },
- *     execute: async (params) => eval(params.expression)
- *   }
- * }
- *
- * // Create executor with DO state and AI service
- * const executor = new AgenticFunctionExecutor({
- *   state: this.state,
- *   env: this.env,
- *   ai: aiService,
- *   tools,
- *   onEvent: (event, data) => console.log(event, data)
- * })
- *
- * // Execute an agentic task
- * const result = await executor.execute({
- *   goal: 'Find information about quantum computing and calculate 2^10',
- *   model: 'claude-sonnet-4-20250514',
- *   tools: ['search', 'calculate'],
- *   maxIterations: 5,
- *   systemPrompt: 'You are a helpful research assistant.',
- *   onStep: (step) => console.log(`Step ${step.iteration}: ${step.type}`)
- * })
- *
- * if (result.success) {
- *   console.log('Agent response:', result.result)
- *   console.log('Tool calls made:', result.toolCallCount)
- * }
- * ```
- *
- * @example Parallel Tool Execution
- * ```typescript
- * // Enable parallel tool calls with concurrency limit
- * const result = await executor.execute({
- *   goal: 'Fetch data from multiple APIs simultaneously',
- *   model: 'claude-sonnet-4-20250514',
- *   tools: ['fetchUserData', 'fetchOrders', 'fetchInventory'],
- *   parallelToolCalls: true,
- *   maxConcurrency: 3,
- *   maxIterations: 10
- * })
- * ```
- *
- * @example Loop Detection
- * ```typescript
- * // Detect and prevent infinite tool call loops
- * const result = await executor.execute({
- *   goal: 'Research topic with loop protection',
- *   model: 'claude-sonnet-4-20250514',
- *   tools: ['search'],
- *   detectLoops: true,
- *   loopThreshold: 3, // Fail after 3 identical tool calls
- * })
- *
- * if (result.error instanceof AgentConvergenceError) {
- *   console.log('Agent got stuck in a loop')
- * }
- * ```
- *
- * @example Tool Authorization
- * ```typescript
- * // Require explicit authorization for sensitive tools
- * const tools = {
- *   sendEmail: {
- *     name: 'sendEmail',
- *     description: 'Send an email',
- *     requiresAuthorization: true, // Must be in authorizedTools
- *     parameters: { ... },
- *     execute: async (params, ctx) => {
- *       // ctx.integration provides credentials
- *       return await emailService.send(params)
- *     }
- *   }
- * }
- *
- * const result = await executor.execute({
- *   goal: 'Send a summary email',
- *   model: 'claude-sonnet-4-20250514',
- *   tools: ['sendEmail'],
- *   authorizedTools: ['sendEmail'],
- *   integrations: {
- *     email: { provider: 'sendgrid', credentials: { apiKey: '...' } }
- *   }
- * })
- * ```
- *
- * @see {@link BaseFunctionExecutor} for shared execution patterns
- * @see {@link CascadeExecutor} for automatic fallback between execution modes
+ * Features:
+ * 1. Agent runner with tool loop
+ * 2. Tool discovery and execution
+ * 3. Iteration limits and convergence detection
+ * 4. Step callbacks for observability
+ * 5. State management between steps
+ * 6. Error recovery and retry
+ * 7. Parallel tool execution
+ * 8. Memory/conversation history
  */
 
 // ============================================================================

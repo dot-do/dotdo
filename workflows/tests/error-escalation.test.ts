@@ -697,13 +697,15 @@ describe('Error Escalation Chain', () => {
       })
 
       it('should half-open after cooldown period', async () => {
+        vi.useFakeTimers()
+
         const { createEscalationEngine, CircuitState } = await import('../errors/escalation-engine')
         const engine = createEscalationEngine({
           graph,
           db,
           circuitBreaker: {
             failureThreshold: 1,
-            cooldownPeriod: 50, // Short cooldown for testing
+            cooldownPeriod: 5000,
           },
         })
 
@@ -714,20 +716,22 @@ describe('Error Escalation Chain', () => {
 
         expect(engine.getCircuitState('code')).toBe(CircuitState.OPEN)
 
-        // Wait past cooldown period (real time)
-        await new Promise(resolve => setTimeout(resolve, 60))
+        // Advance past cooldown
+        await vi.advanceTimersByTimeAsync(5001)
 
         expect(engine.getCircuitState('code')).toBe(CircuitState.HALF_OPEN)
       })
 
       it('should close circuit after successful request in half-open', async () => {
+        vi.useFakeTimers()
+
         const { createEscalationEngine, CircuitState } = await import('../errors/escalation-engine')
         const engine = createEscalationEngine({
           graph,
           db,
           circuitBreaker: {
             failureThreshold: 1,
-            cooldownPeriod: 50, // Short cooldown for testing
+            cooldownPeriod: 5000,
             successThreshold: 1,
           },
         })
@@ -737,10 +741,8 @@ describe('Error Escalation Chain', () => {
           handlers: { code: async () => { throw new Error() } },
         }).catch(() => {})
 
-        // Wait for half-open (real time)
-        await new Promise(resolve => setTimeout(resolve, 60))
-
-        expect(engine.getCircuitState('code')).toBe(CircuitState.HALF_OPEN)
+        // Advance to half-open
+        await vi.advanceTimersByTimeAsync(5001)
 
         // Successful request
         await engine.escalate(new Error('Test'), {

@@ -116,7 +116,6 @@
     "dev:app": "cd app && pnpm run dev",
     "build": "tsc -p tsconfig.build.json",
     "build:app": "cd app && pnpm run build",
-    "build:metrics": "tsx scripts/build-metrics.ts",
     "build:clean": "rm -rf dist && pnpm run build",
     "deploy": "pnpm run build:app && wrangler deploy",
     "test": "vitest",

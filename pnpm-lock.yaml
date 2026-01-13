@@ -45,6 +45,9 @@ importers:
       '@mdxui/themes':
         specifier: ^0.0.1
         version: 0.0.1(@types/react@19.2.7)(immer@11.1.3)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
+      '@org.ai/types':
+        specifier: file:../primitives.org.ai/packages/types
+        version: file:../primitives.org.ai/packages/types
       '@radix-ui/react-checkbox':
         specifier: ^1.3.3
         version: 1.3.3(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -1223,8 +1226,8 @@ importers:
   packages/client:
     dependencies:
       capnweb:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       tsup:
         specifier: ^8.5.1
@@ -1385,25 +1388,6 @@ importers:
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@25.0.3)(jsdom@25.0.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)
-
-  packages/fsx:
-    dependencies:
-      pako:
-        specifier: ^2.1.0
-        version: 2.1.0
-    devDependencies:
-      '@types/pako':
-        specifier: ^2.0.3
-        version: 2.0.4
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.4(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/gcs:
     devDependencies:
@@ -4332,6 +4316,9 @@ packages:
     resolution: {integrity: sha512-a61ljmRVVyG5MC/698C8/FfFDw5a8LOIvyOLW5fztgUXqUpc1jOfQzOitSCbge657OgXXThmY3Tk8fpiDb4UcA==}
     engines: {node: '>= 20.0.0'}
 
+  '@org.ai/types@file:../primitives.org.ai/packages/types':
+    resolution: {directory: ../primitives.org.ai/packages/types, type: directory}
+
   '@oven/bun-darwin-aarch64@1.3.5':
     resolution: {integrity: sha512-8GvNtMo0NINM7Emk9cNAviCG3teEgr3BUX9be0+GD029zIagx2Sf54jMui1Eu1IpFm7nWHODuLEefGOQNaJ0gQ==}
     cpu: [arm64]
@@ -6275,9 +6262,6 @@ packages:
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
-
-  '@types/pako@2.0.4':
-    resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
 
   '@types/parse-json@4.0.2':
     resolution: {integrity: sha512-dISoDXWWQwUquiKsyZ4Ng+HX2KsPL7LyHKHQwgGFEA3IaKac4Obd+h2a/a6waisAoepJlBcx9paWqjA8/HVjCw==}
@@ -14753,6 +14737,8 @@ snapshots:
 
   '@orama/orama@3.1.18': {}
 
+  '@org.ai/types@file:../primitives.org.ai/packages/types': {}
+
   '@oven/bun-darwin-aarch64@1.3.5':
     optional: true
 
@@ -17125,8 +17111,6 @@ snapshots:
       undici-types: 7.16.0
 
   '@types/normalize-package-data@2.4.4': {}
-
-  '@types/pako@2.0.4': {}
 
   '@types/parse-json@4.0.2': {}
 

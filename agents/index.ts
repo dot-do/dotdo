@@ -324,13 +324,6 @@ export {
   MEMORY_TYPE_NAME,
   MESSAGE_TYPE_ID,
   MESSAGE_TYPE_NAME,
-
-  // Migration utilities
-  migrateMemory,
-  hasLegacyMemories,
-  countLegacyMemories,
-  type MigrationResult,
-  type MigrationOptions,
 } from './unified-memory'
 
 // ============================================================================

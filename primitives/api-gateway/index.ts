@@ -1,73 +1,7 @@
 /**
- * @module api-gateway
+ * API Gateway Primitive
  *
- * API Gateway Primitive - A comprehensive edge-native API gateway for the dotdo platform.
- *
- * Provides request routing, middleware chains, rate limiting, CORS handling, and
- * authentication for building secure, scalable API endpoints on Cloudflare Workers.
- *
- * ## Features
- *
- * - **Express-style routing** with path parameters and wildcards
- * - **Middleware chains** with before/after hooks for request transformation
- * - **Rate limiting** with sliding window algorithm and per-route configuration
- * - **CORS handling** with configurable origins, methods, and headers
- * - **Authentication** supporting JWT and API key validation
- * - **Route grouping** for modular API organization
- * - **Fluent response builder** for consistent API responses
- *
- * @example Basic API Gateway
- * ```typescript
- * import { APIGateway, ResponseBuilder } from 'dotdo/primitives/api-gateway'
- *
- * const gateway = new APIGateway({
- *   basePath: '/api/v1',
- *   cors: {
- *     origins: ['https://app.example.com'],
- *     methods: ['GET', 'POST', 'PUT', 'DELETE'],
- *     headers: ['Content-Type', 'Authorization'],
- *   },
- * })
- *
- * gateway.route('GET', '/users/:id', async (request) => {
- *   const user = await getUser(request.params.id)
- *   return ResponseBuilder.ok(user)
- * })
- *
- * gateway.route('POST', '/users', createUserHandler, [validationMiddleware], {
- *   requests: 10,
- *   window: 60000, // 10 requests per minute
- * })
- *
- * // Handle incoming request
- * const response = await gateway.handle(request)
- * ```
- *
- * @example Route Groups with Shared Middleware
- * ```typescript
- * gateway.group('/admin', [
- *   { method: 'GET', path: '/users', handler: listUsers },
- *   { method: 'DELETE', path: '/users/:id', handler: deleteUser },
- * ], [adminAuthMiddleware])
- * ```
- *
- * @example Custom Middleware
- * ```typescript
- * const loggingMiddleware: Middleware = {
- *   before: async (request) => {
- *     console.log(`${request.method} ${request.path}`)
- *     return request
- *   },
- *   after: async (request, response) => {
- *     console.log(`Response: ${response.status}`)
- *     return response
- *   },
- * }
- *
- * gateway.use(loggingMiddleware)
- * ```
- *
- * @packageDocumentation
+ * A comprehensive API gateway with routing, middleware, rate limiting, CORS, and authentication.
  */
 
 import type {

@@ -1,118 +1,26 @@
 /**
  * TieredStorage - Hot/Warm/Cold Storage for EdgePostgres
  *
- * Implements an intelligent tiered storage system that balances performance,
- * cost, and durability. Recent data stays in fast hot tier while historical
- * data moves to cost-effective warm/cold tiers automatically.
+ * Implements a tiered storage system with:
+ * - Hot tier: Write-Ahead Log (WAL) in DO storage for immediate durability
+ * - Warm tier: Parquet files in R2 with Iceberg metadata
+ * - Cold tier: R2 Archive (future)
  *
- * ## Storage Tiers
+ * Write Path:
+ * 1. PGLite validates (constraints, triggers, types)
+ * 2. WAL append (FSX hot tier) - durable immediately
+ * 3. Return result (<1ms)
+ * 4. (async) Batch to Parquet at flushThreshold rows or flushIntervalMs
+ * 5. Write to R2 (warm tier)
+ * 6. Update Iceberg manifest
+ * 7. Truncate WAL
  *
- * | Tier | Storage          | Latency  | Cost    | Retention        |
- * |------|------------------|----------|---------|------------------|
- * | Hot  | DO WAL           | <1ms     | High    | configurable     |
- * | Warm | R2 Parquet       | 50-150ms | Medium  | months-years     |
- * | Cold | R2 Archive       | seconds  | Low     | compliance/audit |
- *
- * ## Write Path
- *
- * ```
- * Client Write
- *      │
- *      ▼
- * ┌─────────────────┐
- * │ 1. PGLite       │ ← Validates constraints, triggers, types
- * │    Validation   │
- * └────────┬────────┘
- *          │
- *          ▼
- * ┌─────────────────┐
- * │ 2. WAL Append   │ ← Durable immediately (<1ms)
- * │    (DO Storage) │
- * └────────┬────────┘
- *          │
- *          ▼
- * ┌─────────────────┐
- * │ 3. Return       │ ← Client sees success
- * │    Success      │
- * └────────┬────────┘
- *          │ (async, background)
- *          ▼
- * ┌─────────────────┐
- * │ 4. Batch to     │ ← At threshold or interval
- * │    Parquet      │
- * └────────┬────────┘
- *          │
- *          ▼
- * ┌─────────────────┐
- * │ 5. Write R2 +   │ ← Warm tier durable
- * │    Update Iceberg│
- * └────────┬────────┘
- *          │
- *          ▼
- * ┌─────────────────┐
- * │ 6. Truncate WAL │ ← Reclaim hot tier space
- * └─────────────────┘
- * ```
- *
- * ## Read Path
- *
- * ```
- * Query
- *   │
- *   ▼
- * ┌─────────────────┐     ┌──────────────────┐
- * │ 1. Check Hot    │────►│ Data found?      │
- * │    (WAL Cache)  │ Yes │ Return (<1ms)    │
- * └────────┬────────┘     └──────────────────┘
- *          │ No
- *          ▼
- * ┌─────────────────┐     ┌──────────────────┐
- * │ 2. Check Warm   │────►│ Partition prune, │
- * │    (Iceberg)    │     │ Return (50-150ms)│
- * └────────┬────────┘     └──────────────────┘
- *          │ Not found
- *          ▼
- * ┌─────────────────┐
- * │ 3. Check Cold   │ ← Rare, compliance queries
- * │    (R2 Archive) │
- * └─────────────────┘
- * ```
- *
- * ## Iceberg Integration
- *
- * Data in warm tier is organized using Apache Iceberg table format:
- * - **Partitioning**: By date (year/month/day) for efficient pruning
- * - **Column statistics**: Min/max/null counts for predicate pushdown
- * - **Snapshots**: Time-travel queries to historical states
- *
- * ## Usage
- *
- * ```typescript
- * const storage = new TieredStorage(ctx, env, {
- *   hotRetentionMs: 5 * 60 * 1000,  // 5 minutes hot
- *   flushThreshold: 1000,            // Flush after 1000 writes
- *   flushIntervalMs: 60_000,         // Or every 60 seconds
- * })
- *
- * // Write to WAL (immediate, durable)
- * await storage.appendWAL('INSERT', 'users', { id: 'u1', name: 'Alice' })
- *
- * // Query across all tiers
- * const result = await storage.query(
- *   'SELECT * FROM users WHERE created_at > $1',
- *   [oneWeekAgo]
- * )
- *
- * // Force flush to warm tier
- * await storage.flushToParquet()
- *
- * // Run migration (move old data to warm)
- * await storage.runMigration()
- * ```
+ * Read Path:
+ * 1. Check PGLite (hot tier) - <1ms if recent
+ * 2. Check Iceberg (warm tier) - 50-150ms with partition pruning
+ * 3. Check archive (cold tier) - rare, compliance queries
  *
  * @module db/edge-postgres/tiered-storage
- * @see {@link EdgePostgres} for the main Postgres interface
- * @see {@link IcebergManifest} for metadata structure
  */
 
 // ============================================================================
@@ -120,198 +28,82 @@
 // ============================================================================
 
 /**
- * WAL operation type.
- * Represents the three fundamental data modification operations.
+ * WAL operation type
  */
 export type WALOperation = 'INSERT' | 'UPDATE' | 'DELETE'
 
 /**
- * Write-Ahead Log entry.
- *
- * Each write operation creates a WAL entry that is immediately persisted
- * to DO storage for durability. WAL entries are batched and flushed to
- * Parquet periodically.
- *
- * ## WAL Entry Lifecycle
- *
- * 1. Created on write operation
- * 2. Persisted to DO storage with key `wal:{lsn}`
- * 3. Added to in-memory cache for fast hot tier queries
- * 4. Included in next Parquet flush batch
- * 5. Deleted from DO storage after successful flush
- *
- * @example
- * ```typescript
- * const entry: WALEntry = {
- *   lsn: 42,
- *   operation: 'INSERT',
- *   table: 'users',
- *   row: { id: 'u1', name: 'Alice', email: 'alice@example.com' },
- *   timestamp: Date.now(),
- * }
- * ```
+ * Write-Ahead Log entry
  */
 export interface WALEntry {
-  /**
-   * Log Sequence Number - monotonically increasing.
-   * Used for ordering and conflict resolution.
-   */
+  /** Log Sequence Number - monotonically increasing */
   lsn: number
-  /**
-   * Type of operation performed.
-   * Determines how the entry is applied during replay/merge.
-   */
+  /** Operation type */
   operation: WALOperation
-  /**
-   * Target table name.
-   * Used for partitioning Parquet files by table.
-   */
+  /** Target table name */
   table: string
-  /**
-   * Row data affected by the operation.
-   * For INSERT/UPDATE: the new row values.
-   * For DELETE: the row being deleted (at minimum, the primary key).
-   */
+  /** Row data */
   row: Record<string, unknown>
-  /**
-   * Unix timestamp (ms) when entry was created.
-   * Used for time-based partitioning and retention.
-   */
+  /** Timestamp when entry was created */
   timestamp: number
 }
 
 /**
- * Result of flush to Parquet operation.
- *
- * Returned by `flushToParquet()` with details about the files created
- * and rows processed.
- *
- * @example
- * ```typescript
- * const result = await storage.flushToParquet()
- * if (result.success) {
- *   console.log(`Flushed ${result.rowCount} rows to ${result.parquetPath}`)
- *   console.log('Files by table:', result.filesByTable)
- * }
- * ```
+ * Result of flush to Parquet operation
  */
 export interface FlushResult {
-  /** Whether the flush completed successfully */
+  /** Whether the flush was successful */
   success: boolean
-  /** Path to the main Parquet file (first file if multiple tables) */
+  /** Path to the main Parquet file (or first file if multiple) */
   parquetPath?: string
-  /** Total number of rows flushed across all tables */
+  /** Number of rows flushed */
   rowCount: number
-  /** Map of table names to their Parquet file paths in R2 */
+  /** Map of table names to their Parquet file paths */
   filesByTable?: Record<string, string>
 }
 
 /**
- * Data file entry in Iceberg manifest.
- *
- * Each Parquet file in the warm tier has an entry in the Iceberg manifest
- * with metadata for query planning and partition pruning.
- *
- * ## Partition Path Format
- *
- * Files are stored at: `data/{table}/year={YYYY}/month={MM}/day={DD}/{timestamp}.parquet`
- *
- * ## Column Statistics
- *
- * Min/max/null statistics enable predicate pushdown - queries can skip entire
- * files if the filter value falls outside the file's value range.
- *
- * @example
- * ```typescript
- * const dataFile: IcebergDataFile = {
- *   path: 'data/users/year=2024/month=01/day=15/1705334400000.parquet',
- *   format: 'parquet',
- *   rowCount: 500,
- *   fileSizeBytes: 125000,
- *   table: 'users',
- *   partition: { year: 2024, month: 1, day: 15 },
- *   columnStats: {
- *     id: { min: 'u001', max: 'u500', nullCount: 0 },
- *     age: { min: 18, max: 65, nullCount: 12 },
- *   },
- *   partitionBounds: {
- *     minTimestamp: 1705276800000,
- *     maxTimestamp: 1705363199000,
- *   },
- * }
- * ```
+ * Data file entry in Iceberg manifest
  */
 export interface IcebergDataFile {
-  /** Full R2 path to the Parquet file */
+  /** Path to the Parquet file */
   path: string
-  /** File format identifier (always 'parquet' currently) */
+  /** File format (always 'parquet' for now) */
   format: string
-  /** Number of rows contained in the file */
+  /** Number of rows in the file */
   rowCount: number
-  /** File size in bytes (for cost estimation) */
+  /** File size in bytes */
   fileSizeBytes: number
   /** Table name this file belongs to */
   table: string
-  /**
-   * Partition information for date-based pruning.
-   * Queries can skip entire partitions based on date filters.
-   */
+  /** Partition information */
   partition: {
     year: number
     month: number
     day: number
   }
-  /**
-   * Per-column statistics for predicate pushdown.
-   * Enables skipping files where filter values fall outside column ranges.
-   */
+  /** Column statistics */
   columnStats: Record<string, { min: unknown; max: unknown; nullCount: number }>
-  /**
-   * Partition-level timestamp bounds for fast pruning.
-   * More efficient than column stats for time-range queries (O(1) vs O(columns)).
-   */
+  /** Partition-level timestamp bounds for fast pruning */
   partitionBounds?: {
-    /** Minimum timestamp of any row in this file */
+    /** Minimum timestamp in this partition */
     minTimestamp: number
-    /** Maximum timestamp of any row in this file */
+    /** Maximum timestamp in this partition */
     maxTimestamp: number
   }
 }
 
 /**
- * Iceberg manifest tracking all Parquet files.
- *
- * The manifest is the central metadata structure for the warm tier,
- * tracking all Parquet files and their statistics. It is stored at
- * `metadata/manifest.json` in the Iceberg R2 bucket.
- *
- * ## Time Travel
- *
- * Each manifest update creates a snapshot, enabling queries against
- * historical states of the data.
- *
- * ## Concurrency
- *
- * The manifest is versioned to detect concurrent modifications.
- * Conflicts are resolved by incrementing version and regenerating snapshotId.
- *
- * @example
- * ```typescript
- * const manifest = await storage.getIcebergManifest()
- * console.log(`Version ${manifest.version}, ${manifest.dataFiles.length} files`)
- *
- * // Time travel to previous snapshot
- * const oldManifest = await storage.getIcebergManifest('snap-1705334400000-5')
- * ```
+ * Iceberg manifest tracking all Parquet files
  */
 export interface IcebergManifest {
-  /** Manifest version (incremented atomically on each update) */
+  /** Manifest version (incremented on each update) */
   version: number
-  /** Unique snapshot ID for time-travel (format: snap-{timestamp}-{version}) */
+  /** Unique snapshot ID */
   snapshotId: string
-  /** Unix timestamp (ms) when this manifest version was created */
+  /** Timestamp when manifest was created */
   createdAt: number
-  /** List of all data files in this snapshot */
+  /** List of all data files */
   dataFiles: IcebergDataFile[]
 }
 
@@ -340,123 +132,44 @@ export interface UnifiedQueryResult {
 }
 
 /**
- * Configuration for TieredStorage.
- *
- * Controls timing, thresholds, and resource limits for data movement
- * between tiers.
- *
- * ## Tuning Guidelines
- *
- * | Workload              | hotRetentionMs | flushThreshold | flushIntervalMs |
- * |-----------------------|----------------|----------------|-----------------|
- * | High write volume     | 60_000         | 500            | 30_000          |
- * | Analytics dashboard   | 300_000        | 2000           | 120_000         |
- * | Real-time app         | 600_000        | 5000           | 300_000         |
- *
- * @example
- * ```typescript
- * const config: TieredStorageConfig = {
- *   hotRetentionMs: 5 * 60 * 1000,    // 5 minutes hot
- *   flushThreshold: 1000,              // Flush after 1000 writes
- *   flushIntervalMs: 60_000,           // Or every 60 seconds
- *   r2BucketBinding: 'MY_DATA_BUCKET',
- *   icebergBucketBinding: 'MY_ICEBERG_BUCKET',
- *   flushRetries: 3,
- *   flushRetryDelayMs: 1000,
- *   flushMemoryBudget: 50 * 1024 * 1024, // 50MB
- *   flushBatchSize: 500,
- * }
- * ```
+ * Configuration for TieredStorage
  */
 export interface TieredStorageConfig {
-  /**
-   * How long to keep data in hot tier (milliseconds).
-   * Data older than this is eligible for warm tier migration.
-   * @default 300000 (5 minutes)
-   */
+  /** How long to keep data in hot tier (ms). Default: 5 minutes */
   hotRetentionMs?: number
-  /**
-   * Number of WAL entries before triggering automatic flush.
-   * Lower values reduce WAL size but increase R2 operations.
-   * @default 1000
-   */
+  /** Number of WAL entries before triggering flush. Default: 1000 */
   flushThreshold?: number
-  /**
-   * Interval between automatic flushes (milliseconds).
-   * Acts as a backstop to ensure data moves to warm tier.
-   * @default 60000 (60 seconds)
-   */
+  /** Interval between automatic flushes (ms). Default: 60 seconds */
   flushIntervalMs?: number
-  /**
-   * Cloudflare Worker binding name for the data R2 bucket.
-   * @default 'R2_BUCKET'
-   */
+  /** R2 bucket binding name. Default: 'R2_BUCKET' */
   r2BucketBinding?: string
-  /**
-   * Cloudflare Worker binding name for the Iceberg metadata R2 bucket.
-   * If not specified, falls back to r2BucketBinding.
-   * @default 'ICEBERG_BUCKET'
-   */
+  /** Iceberg bucket binding name. Default: 'ICEBERG_BUCKET' */
   icebergBucketBinding?: string
-  /**
-   * Number of retry attempts for failed flush operations.
-   * Each retry uses exponential backoff.
-   * @default 3
-   */
+  /** Number of retries for flush operations. Default: 3 */
   flushRetries?: number
-  /**
-   * Base delay between flush retry attempts (milliseconds).
-   * Actual delay = flushRetryDelayMs * attemptNumber.
-   * @default 1000
-   */
+  /** Delay between retries (ms). Default: 1000 */
   flushRetryDelayMs?: number
-  /**
-   * Maximum memory budget for flush operations (bytes).
-   * Limits how much data is loaded into memory during flush.
-   * @default 52428800 (50MB)
-   */
+  /** Memory budget for flush operations in bytes. Default: 50MB */
   flushMemoryBudget?: number
-  /**
-   * Batch size for processing WAL entries during flush.
-   * Smaller batches use less memory but may be slower.
-   * @default 500
-   */
+  /** Batch size for processing WAL entries during flush. Default: 500 */
   flushBatchSize?: number
 }
 
 /**
- * Partition index entry for fast lookups.
- *
- * In-memory index structure that enables O(1) partition identification
- * for time-range queries without scanning the full manifest.
- *
- * @example
- * ```typescript
- * const entry: PartitionIndexEntry = {
- *   table: 'orders',
- *   dateKey: '2024-01-15',
- *   minTimestamp: 1705276800000,
- *   maxTimestamp: 1705363199000,
- *   filePaths: [
- *     'data/orders/year=2024/month=01/day=15/1705334400000.parquet',
- *     'data/orders/year=2024/month=01/day=15/1705338000000.parquet',
- *   ],
- *   totalRows: 1500,
- * }
- * ```
+ * Partition index entry for fast lookups
  */
 export interface PartitionIndexEntry {
-  /** Table name this partition belongs to */
+  /** Table name */
   table: string
-  /** Partition date key in ISO format (YYYY-MM-DD) */
+  /** Partition date key (YYYY-MM-DD) */
   dateKey: string
-  /** Minimum timestamp of any row in this partition */
+  /** Minimum timestamp in partition */
   minTimestamp: number
-  /** Maximum timestamp of any row in this partition */
+  /** Maximum timestamp in partition */
   maxTimestamp: number
-  /** R2 paths to all Parquet files in this partition */
+  /** Paths to all files in this partition */
   filePaths: string[]
-  /** Total row count across all files in partition */
+  /** Total row count across all files */
   totalRows: number
 }
 

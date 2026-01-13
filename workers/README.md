@@ -1,293 +1,161 @@
-# [workers.do](https://workers.do)
+# Workers
 
-**The Platform for AI Workers.** Build autonomous businesses with teams of AI agents, human oversight, and business-as-code.
+Proxy workers that route HTTP requests to Durable Objects.
 
-```typescript
-import { Startup } from 'workers.do'
-import { priya, ralph, tom, mark, sally } from 'agents.do'
-
-export class MyStartup extends Startup {
-  async launch() {
-    const spec = priya`define the MVP for ${this.hypothesis}`
-    let app = ralph`build ${spec}`
-
-    do {
-      app = ralph`improve ${app} per ${tom}`
-    } while (!await tom.approve(app))
-
-    mark`announce the launch`
-    sally`start selling`
-  }
-}
-```
-
----
-
-## What is workers.do?
-
-**workers.do** is the hosted platform for running AI-powered businesses. Think of it as **Heroku for AI agents**:
-
-| Layer | Role | Analogy |
-|-------|------|---------|
-| **workers.do** | Platform/Product | Heroku, Vercel |
-| **dotdo** | Runtime/Framework | Node.js, Deno |
-
-**workers.do provides:**
-- Named AI agents with personas (Priya, Ralph, Tom, etc.)
-- Teams and organizational structure
-- Human workers with approval workflows
-- Business-as-Code syntax
-- Platform services (llm.do, payments.do, storage.do)
-- The "Autonomous Startup" product
-
-**dotdo provides:**
-- Durable Object base classes
-- Edge-native primitives (fsx, gitx, bashx)
-- 40+ API-compatible SDKs
-- Cap'n Web RPC
-- Storage tiers (SQLite -> R2 -> Iceberg)
-
----
-
-## Named Agents
-
-AI workers with specific roles and personas:
-
-```typescript
-import { priya, ralph, tom, mark, sally, quinn, rae, casey, finn, dana } from 'agents.do'
-```
-
-| Agent | Role | Capabilities |
-|-------|------|--------------|
-| **Priya** | Product | Specs, roadmaps, prioritization |
-| **Ralph** | Engineering | Code, architecture, implementation |
-| **Tom** | Tech Lead | Review, standards, architecture decisions |
-| **Mark** | Marketing | Content, launches, campaigns |
-| **Sally** | Sales | Outreach, closing, relationships |
-| **Quinn** | QA | Testing, quality, edge cases |
-| **Rae** | Frontend | React, components, design systems |
-| **Casey** | Customer Success | Onboarding, retention, support |
-| **Finn** | Finance | Budgets, forecasting, analysis |
-| **Dana** | Data | Analytics, metrics, insights |
-
-### Template Literal Syntax
-
-Agents are invoked with template literals:
-
-```typescript
-const spec = await priya`define the MVP for ${hypothesis}`
-const code = await ralph`implement ${spec}`
-const review = await tom`review ${code}`
-const tests = await quinn`test ${code} against ${spec}`
-```
-
-### Agent Approvals
-
-Agents can approve or reject work:
-
-```typescript
-if (await tom.approve(pullRequest)) {
-  await ralph`merge ${pullRequest}`
-}
-```
-
----
-
-## Human Workers
-
-Escalate to humans when AI needs oversight:
-
-```typescript
-import { ceo, legal, finance } from 'humans.do'
-
-// Await human approval
-const approved = await ceo`approve the partnership with ${partner}`
-
-// Define escalation triggers
-escalation = this.HumanFunction({
-  trigger: 'refund > $10000',
-  role: 'senior-accountant',
-  sla: '4 hours',
-})
-```
-
-Humans are notified via Slack, Discord, Email, or the MDXUI Chat interface.
-
----
-
-## Teams
-
-Organize agents into functional teams:
-
-```typescript
-import { engineering, product, sales, marketing } from 'teams.do'
-
-// Team-level coordination
-await engineering.standup()
-await product.planSprint(backlog)
-await sales.pipeline.review()
-```
-
----
-
-## Platform Services
-
-workers.do includes managed services for common needs:
-
-| Service | Purpose |
-|---------|---------|
-| [llm.do](https://llm.do) | Multi-provider LLM routing |
-| [payments.do](https://payments.do) | Stripe-compatible payments |
-| [storage.do](https://storage.do) | File storage and CDN |
-| [auth.do](https://auth.do) | Identity and access |
-| [oauth.do](https://oauth.do) | OAuth provider |
-| [email.do](https://email.do) | Transactional email |
-| [sms.do](https://sms.do) | SMS messaging |
-
----
-
-## Business-as-Code
-
-Define your entire business in TypeScript:
-
-```typescript
-import { Startup } from 'workers.do'
-
-export class SaaSBusiness extends Startup {
-  // Define your hypothesis
-  hypothesis = 'Developers need simpler deployment'
-
-  // Configure your team
-  team = {
-    product: priya,
-    engineering: [ralph, rae],
-    techLead: tom,
-    qa: quinn,
-    marketing: mark,
-    sales: sally,
-  }
-
-  // Define your workflows
-  async onCustomerSignup(customer: Customer) {
-    await casey`onboard ${customer}`
-    await mark`add to nurture sequence`
-    await sally`schedule demo if enterprise`
-  }
-
-  async onFeatureRequest(request: FeatureRequest) {
-    const spec = await priya`evaluate ${request}`
-    if (await tom.approve(spec)) {
-      await ralph`implement ${spec}`
-    }
-  }
-}
-```
-
----
-
-## Built on dotdo
-
-workers.do is the product layer built on top of [dotdo](https://github.com/dotdo/dotdo), the edge-native runtime for Durable Objects.
-
-```
-+------------------------------------------------------------------+
-|                         workers.do                                |
-|  Named Agents | Teams | Humans | Business-as-Code | Services     |
-+------------------------------------------------------------------+
-                              |
-                              v
-+------------------------------------------------------------------+
-|                           dotdo                                   |
-|  DOBase | fsx | gitx | bashx | Compat SDKs | Cap'n Web RPC       |
-+------------------------------------------------------------------+
-                              |
-                              v
-+------------------------------------------------------------------+
-|                   Cloudflare Workers + DOs                        |
-|  V8 Isolates | SQLite | R2 | 300+ Cities | 0ms Cold Start        |
-+------------------------------------------------------------------+
-```
-
-### Architecture Relationship
-
-```typescript
-// workers.do imports and extends dotdo
-import { DOBase } from 'dotdo'
-
-export class Agent extends DOBase { /* AI worker capabilities */ }
-export class Human extends DOBase { /* Human approval workflows */ }
-export class Startup extends DOBase { /* Business container */ }
-```
-
-### When to Use Each
-
-| Use Case | Package |
-|----------|---------|
-| Build autonomous businesses | `workers.do`, `agents.do` |
-| Build custom DO applications | `dotdo` |
-| Extend the runtime | `dotdo` |
-| Run AI teams | `workers.do` |
-
----
-
-## Proxy Workers (Infrastructure)
-
-This directory also contains the DO proxy workers that route HTTP requests:
-
-### API() Factory
+## Quick Start
 
 ```typescript
 import { API } from 'dotdo'
 
-export default API()  // Hostname-based routing
+export default API()
 ```
 
-### Routing Modes
+That's it. Requests are routed to DOs based on hostname subdomain.
 
-| Mode | Pattern | URL | DO |
-|------|---------|-----|----|
-| Hostname | `undefined` | `tenant.api.workers.do/users` | `tenant` |
-| Path | `/:org` | `api.workers.do/acme/users` | `acme` |
-| Nested | `/:org/:proj` | `api.workers.do/acme/p1/tasks` | `acme:p1` |
-| Fixed | `main` | `api.workers.do/users` | `main` |
+## API() Factory
 
----
+The `API()` factory creates minimal proxy workers with a clean, declarative API.
 
-## Quick Start
+### Hostname Mode (Default)
 
-```bash
-npm install workers.do agents.do
+Extracts namespace from the hostname subdomain:
 
-# Create your startup
-npx workers.do init my-startup
-npx workers.do dev
+```typescript
+export default API()
+
+// tenant.api.dotdo.dev/users → DO('tenant').fetch('/users')
+// my-org.api.dotdo.dev/data  → DO('my-org').fetch('/data')
+```
+
+**Subdomain detection:** Requires 4+ hostname parts (e.g., `tenant.api.dotdo.dev`). Apex domains like `api.dotdo.dev` return 404.
+
+### Path Param Routing
+
+Extracts namespace from path segments using Express-style patterns:
+
+```typescript
+// Single param
+export default API({ ns: '/:org' })
+
+// api.dotdo.dev/acme/users       → DO('acme').fetch('/users')
+// api.dotdo.dev/acme/users/123   → DO('acme').fetch('/users/123')
+// api.dotdo.dev/acme             → DO('acme').fetch('/')
 ```
 
 ```typescript
-import { Startup } from 'workers.do'
-import { ralph, tom } from 'agents.do'
+// Nested params (joined by colon)
+export default API({ ns: '/:org/:project' })
 
-export default class extends Startup {
-  async build(spec: string) {
-    let app = await ralph`build ${spec}`
-    while (!await tom.approve(app)) {
-      app = await ralph`fix issues from ${tom.feedback}`
-    }
-    return app
+// api.dotdo.dev/acme/proj1/tasks → DO('acme:proj1').fetch('/tasks')
+// api.dotdo.dev/acme/proj1       → DO('acme:proj1').fetch('/')
+```
+
+### Fixed Namespace
+
+Routes all requests to a single DO instance:
+
+```typescript
+export default API({ ns: 'main' })
+
+// api.dotdo.dev/users     → DO('main').fetch('/users')
+// api.dotdo.dev/anything  → DO('main').fetch('/anything')
+```
+
+## Routing Summary
+
+| Mode | Pattern | URL | DO | Path |
+|------|---------|-----|----|----- |
+| Hostname | `undefined` | `tenant.api.dotdo.dev/users` | `tenant` | `/users` |
+| Path | `/:org` | `api.dotdo.dev/acme/users` | `acme` | `/users` |
+| Nested | `/:org/:proj` | `api.dotdo.dev/acme/p1/tasks` | `acme:p1` | `/tasks` |
+| Fixed | `main` | `api.dotdo.dev/users` | `main` | `/users` |
+
+## Request Forwarding
+
+The proxy forwards everything to the DO:
+
+- **Method** - GET, POST, PUT, DELETE, etc.
+- **Headers** - Authorization, Content-Type, custom headers
+- **Body** - JSON, form data, binary
+- **Query params** - Preserved in forwarded URL
+
+```typescript
+// Incoming
+POST https://tenant.api.dotdo.dev/users?notify=true
+Authorization: Bearer token123
+Content-Type: application/json
+{"name": "Alice"}
+
+// Forwarded to DO('tenant')
+POST /users?notify=true
+Authorization: Bearer token123
+Content-Type: application/json
+{"name": "Alice"}
+```
+
+## Error Responses
+
+| Status | Condition |
+|--------|-----------|
+| 404 | Namespace not found (no subdomain, missing path param) |
+| 500 | No DO binding in env |
+| 503 | DO threw an error |
+
+## Advanced: Low-Level API
+
+For more control, use `createProxyHandler` directly:
+
+```typescript
+import { createProxyHandler, type ProxyConfig } from './hostname-proxy'
+
+const config: ProxyConfig = {
+  mode: 'hostname',
+  hostname: {
+    rootDomain: 'api.dotdo.dev',
+    stripLevels: 1  // custom subdomain depth
+  },
+  defaultNs: 'fallback',  // default when no namespace found
+  basepath: '/v1'         // strip basepath prefix
+}
+
+export default {
+  fetch: createProxyHandler(config)
+}
+```
+
+### ProxyConfig Options
+
+```typescript
+interface ProxyConfig {
+  mode: 'hostname' | 'path' | 'fixed'
+  basepath?: string           // Strip prefix from path
+  defaultNs?: string          // Fallback namespace
+  hostname?: {
+    rootDomain: string        // Expected root domain
+    stripLevels?: number      // Subdomain depth to strip
+  }
+  fixed?: {
+    namespace: string         // Fixed namespace for all requests
   }
 }
 ```
 
----
+## Files
 
-## Related
+| File | Description |
+|------|-------------|
+| `api.ts` | Clean `API()` factory |
+| `hostname-proxy.ts` | Configurable proxy implementation |
+| `proxy.ts` | Path-based proxy (thin wrapper) |
 
-- [dotdo](https://github.com/dotdo/dotdo) - Runtime/framework layer
-- [agents.do](https://agents.do) - Named AI agents
-- [teams.do](https://teams.do) - Team coordination
-- [humans.do](https://humans.do) - Human escalation
-- [platform.do](https://platform.do) - Unified platform
+## Testing
 
----
+Tests use `vitest-pool-workers` for real Workers runtime testing:
 
-MIT License
+```bash
+# Run workers tests
+npx vitest run workers/api.test.ts
+
+# Run all workers tests
+npx vitest --project=workers-integration
+```

@@ -725,10 +725,9 @@ export function toAgentMemoryBridge(memory: AgentMemory): AgentMemoryBridge {
  */
 export class InMemoryAgentMemory implements AgentMemory {
   private messages: Message[] = []
-  private memories: Map<string, MemoryThing & { _seq: number }> = new Map()
+  private memories: Map<string, MemoryThing> = new Map()
   private relationships: Map<string, { from: string; to: string; verb: string }[]> = new Map()
   private maxMessages: number
-  private memorySequence: number = 0
 
   constructor(maxMessages: number = 100) {
     this.maxMessages = maxMessages
@@ -760,10 +759,9 @@ export class InMemoryAgentMemory implements AgentMemory {
   }
 
   async remember(content: string, options?: StoreMemoryOptions): Promise<MemoryThing> {
-    const seq = ++this.memorySequence
     const id = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const now = new Date()
-    const memoryWithSeq: MemoryThing & { _seq: number } = {
+    const memory: MemoryThing = {
       id,
       type: options?.type ?? 'short-term',
       content,
@@ -771,9 +769,8 @@ export class InMemoryAgentMemory implements AgentMemory {
       metadata: options?.metadata,
       createdAt: now,
       updatedAt: now,
-      _seq: seq,
     }
-    this.memories.set(id, memoryWithSeq)
+    this.memories.set(id, memory)
 
     if (options?.relatedTo) {
       for (const relatedId of options.relatedTo) {
@@ -781,8 +778,6 @@ export class InMemoryAgentMemory implements AgentMemory {
       }
     }
 
-    // Return without the internal _seq property
-    const { _seq, ...memory } = memoryWithSeq
     return memory
   }
 
@@ -793,35 +788,35 @@ export class InMemoryAgentMemory implements AgentMemory {
       memories = memories.filter((m) => m.type === type)
     }
 
-    // Sort by sequence number descending (most recent first)
-    // This ensures stable ordering even for memories created in the same millisecond
+    // Sort by createdAt descending (most recent first)
+    // Use ID as tiebreaker for stable ordering
     return memories
-      .sort((a, b) => b._seq - a._seq)
+      .sort((a, b) => {
+        const timeDiff = b.createdAt.getTime() - a.createdAt.getTime()
+        if (timeDiff !== 0) return timeDiff
+        return b.id.localeCompare(a.id)
+      })
       .slice(0, limit)
-      .map(({ _seq, ...memory }) => memory)
   }
 
   async searchMemories(query: string, options?: MemorySearchOptions): Promise<MemoryThing[]> {
     const lowerQuery = query.toLowerCase()
     const limit = options?.limit ?? 10
 
-    let memoriesWithSeq = Array.from(this.memories.values())
+    let memories = Array.from(this.memories.values())
 
-    memoriesWithSeq = memoriesWithSeq.filter((m) => {
+    memories = memories.filter((m) => {
       if (options?.type && m.type !== options.type) return false
       if (options?.since && m.createdAt < options.since) return false
       if (options?.before && m.createdAt > options.before) return false
       return m.content.toLowerCase().includes(lowerQuery)
     })
 
-    return memoriesWithSeq.slice(0, limit).map(({ _seq, ...memory }) => memory)
+    return memories.slice(0, limit)
   }
 
   async getMemory(id: string): Promise<MemoryThing | null> {
-    const memoryWithSeq = this.memories.get(id)
-    if (!memoryWithSeq) return null
-    const { _seq, ...memory } = memoryWithSeq
-    return memory
+    return this.memories.get(id) ?? null
   }
 
   async updateMemory(
@@ -831,14 +826,13 @@ export class InMemoryAgentMemory implements AgentMemory {
     const existing = this.memories.get(id)
     if (!existing) return null
 
-    const updated: MemoryThing & { _seq: number } = {
+    const updated: MemoryThing = {
       ...existing,
       ...updates,
       updatedAt: new Date(),
     }
     this.memories.set(id, updated)
-    const { _seq, ...memory } = updated
-    return memory
+    return updated
   }
 
   async deleteMemory(id: string): Promise<boolean> {
@@ -858,11 +852,8 @@ export class InMemoryAgentMemory implements AgentMemory {
 
     const memories: MemoryThing[] = []
     for (const rel of filtered) {
-      const memoryWithSeq = this.memories.get(rel.to)
-      if (memoryWithSeq) {
-        const { _seq, ...memory } = memoryWithSeq
-        memories.push(memory)
-      }
+      const memory = this.memories.get(rel.to)
+      if (memory) memories.push(memory)
     }
     return memories
   }
@@ -906,167 +897,9 @@ export function createInMemoryAgentMemory(maxMessages?: number): AgentMemory {
   return new InMemoryAgentMemory(maxMessages)
 }
 
-// ============================================================================
-// Migration Utilities
-// ============================================================================
-
-/**
- * Legacy memory type from Agent.ts ctx.storage
- */
-interface LegacyMemory {
-  id: string
-  type: 'short-term' | 'long-term' | 'episodic'
-  content: string
-  embedding?: number[]
-  createdAt: Date
-}
-
-/**
- * Migration statistics returned after migration completes
- */
-export interface MigrationResult {
-  /** Number of memories successfully migrated */
-  migratedCount: number
-  /** Number of memories that failed to migrate */
-  failedCount: number
-  /** IDs of successfully migrated memories */
-  migratedIds: string[]
-  /** Errors encountered during migration */
-  errors: Array<{ id: string; error: string }>
-}
-
-/**
- * Options for memory migration
- */
-export interface MigrationOptions {
-  /** Whether to delete source memories after successful migration */
-  deleteAfterMigration?: boolean
-  /** Batch size for migration (default: 50) */
-  batchSize?: number
-  /** Callback for progress updates */
-  onProgress?: (migrated: number, total: number) => void
-}
-
-/**
- * Migrate memories from DurableObjectStorage (ctx.storage) to GraphBackedAgentMemory.
- *
- * This function reads all memories stored with the `memory:` prefix in ctx.storage
- * and migrates them to the unified graph-backed memory system.
- *
- * @example
- * ```typescript
- * // In a Durable Object
- * const graphMemory = createGraphMemory({ store, agentId: this.ctx.id.toString() })
- * const result = await migrateMemory(this.ctx.storage, graphMemory)
- * console.log(`Migrated ${result.migratedCount} memories`)
- * ```
- *
- * @param source - The DurableObjectStorage to read memories from
- * @param target - The AgentMemory to migrate memories to
- * @param options - Migration options
- * @returns Migration result with counts and any errors
- */
-export async function migrateMemory(
-  source: DurableObjectStorage,
-  target: AgentMemory,
-  options: MigrationOptions = {}
-): Promise<MigrationResult> {
-  const { deleteAfterMigration = false, batchSize = 50, onProgress } = options
-
-  const result: MigrationResult = {
-    migratedCount: 0,
-    failedCount: 0,
-    migratedIds: [],
-    errors: [],
-  }
-
-  // Get all memories from ctx.storage
-  const memoryMap = await source.list({ prefix: 'memory:' })
-  const memories = Array.from(memoryMap.entries())
-  const total = memories.length
-
-  // Process in batches
-  for (let i = 0; i < memories.length; i += batchSize) {
-    const batch = memories.slice(i, i + batchSize)
-
-    for (const [key, value] of batch) {
-      try {
-        const legacyMemory = value as LegacyMemory
-
-        // Map legacy type to unified type
-        const memoryType: MemoryType =
-          legacyMemory.type === 'short-term'
-            ? 'short-term'
-            : legacyMemory.type === 'long-term'
-              ? 'long-term'
-              : legacyMemory.type === 'episodic'
-                ? 'episodic'
-                : 'short-term'
-
-        // Migrate to new memory system
-        await target.remember(legacyMemory.content, {
-          type: memoryType,
-          embedding: legacyMemory.embedding,
-          metadata: {
-            migratedFrom: 'ctx.storage',
-            originalId: legacyMemory.id,
-            originalCreatedAt: legacyMemory.createdAt.toISOString(),
-          },
-        })
-
-        result.migratedCount++
-        result.migratedIds.push(legacyMemory.id)
-
-        // Delete from source if requested
-        if (deleteAfterMigration) {
-          await source.delete(key)
-        }
-      } catch (error) {
-        result.failedCount++
-        result.errors.push({
-          id: key.replace('memory:', ''),
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-
-    // Report progress
-    if (onProgress) {
-      onProgress(Math.min(i + batchSize, total), total)
-    }
-  }
-
-  return result
-}
-
-/**
- * Check if a DurableObjectStorage has legacy memories that need migration.
- *
- * @param storage - The DurableObjectStorage to check
- * @returns true if there are memories with the legacy `memory:` prefix
- */
-export async function hasLegacyMemories(storage: DurableObjectStorage): Promise<boolean> {
-  const memoryMap = await storage.list({ prefix: 'memory:', limit: 1 })
-  return memoryMap.size > 0
-}
-
-/**
- * Count the number of legacy memories in DurableObjectStorage.
- *
- * @param storage - The DurableObjectStorage to check
- * @returns The number of memories stored with the `memory:` prefix
- */
-export async function countLegacyMemories(storage: DurableObjectStorage): Promise<number> {
-  const memoryMap = await storage.list({ prefix: 'memory:' })
-  return memoryMap.size
-}
-
 export default {
   createGraphMemory,
   createInMemoryAgentMemory,
   toConversationMemory,
   toAgentMemoryBridge,
-  migrateMemory,
-  hasLegacyMemories,
-  countLegacyMemories,
 }

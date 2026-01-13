@@ -14,7 +14,7 @@
  * - Properties: token, expiresAt, userAgent, ipAddress
  * - belongsTo relationship pointing to auth://users/{userId}
  *
- * @see dotdo-gk7ra - [RED] Session as Thing: Graph storage tests with belongsTo Relationship
+ * @see dotdo-4nwt7 - [RED] Session as Thing: Graph storage tests with belongsTo Relationship
  *
  * Uses real SQLite, NO MOCKS - per project testing philosophy.
  */

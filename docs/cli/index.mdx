@@ -159,20 +159,19 @@ export default defineConfig({
 
 ### Wrangler Configuration
 
-```json title="wrangler.jsonc"
-{
-  "name": "my-startup",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-01-01",
-  "durable_objects": {
-    "bindings": [
-      { "name": "STARTUP", "class_name": "MyStartup" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_classes": ["MyStartup"] }
-  ]
-}
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
 ```
 
 ## Exit Codes
@@ -185,23 +184,6 @@ export default defineConfig({
 | `3` | Authentication required |
 | `4` | Network error |
 | `5` | Configuration error |
-
-## Issue Tracking (bd)
-
-The `bd` (beads) CLI manages issues for development workflows. This is particularly useful for AI coding assistants tracking work across sessions.
-
-```bash
-bd ready                              # Find ready work (no blockers)
-bd update <id> --status in_progress   # Claim an issue
-bd close <id>                         # Complete work
-bd sync                               # Sync to git
-bd list                               # List all issues
-bd show <id>                          # Show issue details
-```
-
-<Callout type="info">
-For comprehensive guidance on using `bd` with AI coding assistants, see the [Contributing Guide](/docs/guides/contributing) and the [`CLAUDE.md`](https://github.com/dotdo/dotdo/blob/main/CLAUDE.md) context file.
-</Callout>
 
 ## Command Reference
 
@@ -229,18 +211,5 @@ For comprehensive guidance on using `bd` with AI coding assistants, see the [Con
   </Card>
   <Card title="Surfaces" href="/docs/cli/surfaces">
     Multi-surface architecture for App, Admin, Site, Docs, Blog.
-  </Card>
-</Cards>
-
-## For AI Contributors
-
-AI coding assistants (Claude Code, Cursor, etc.) should reference the project context files:
-
-<Cards>
-  <Card title="Contributing Guide" href="/docs/guides/contributing">
-    Guidelines for human and AI contributors.
-  </Card>
-  <Card title="CLAUDE.md" href="https://github.com/dotdo/dotdo/blob/main/CLAUDE.md">
-    Context file with architecture, commands, and testing guidelines.
   </Card>
 </Cards>

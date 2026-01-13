@@ -7,15 +7,11 @@
     "functions",
     "channels",
     "humans",
-    "auth",
-    "response",
-    "storage",
     "executors",
     "cloudflare",
     "capabilities",
     "state-storage",
     "auto-wiring",
-    "mixins",
-    "rpc"
+    "mixins"
   ]
 }

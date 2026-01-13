@@ -1,0 +1,61 @@
+{
+  "name": "@dotdo/duckdb",
+  "version": "0.1.0",
+  "description": "DuckDB compat layer for Cloudflare Workers with DO extensions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "duckdb",
+    "wasm",
+    "cloudflare",
+    "workers",
+    "sql",
+    "analytics",
+    "parquet",
+    "durable-objects"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/drivly/dotdo",
+    "directory": "compat/duckdb"
+  },
+  "homepage": "https://github.com/drivly/dotdo/tree/main/compat/duckdb#readme",
+  "bugs": {
+    "url": "https://github.com/drivly/dotdo/issues"
+  },
+  "author": "Drivly <engineering@driv.ly>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@dotdo/duckdb-worker": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "apache-arrow": ">=15.0.0"
+  },
+  "peerDependenciesMeta": {
+    "apache-arrow": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

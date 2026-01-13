@@ -4,89 +4,14 @@
  * PGLite WASM + FSX storage integration for running Postgres in Durable Objects.
  * Provides full Postgres SQL support including pgvector for semantic search.
  *
- * ## Overview
- *
- * EdgePostgres wraps PGLite (a WASM-compiled PostgreSQL) with Cloudflare Durable Object
- * storage for persistence. This enables running full Postgres SQL at the edge with:
- * - 0ms cold starts via V8 isolates
- * - 300+ city global distribution
- * - Automatic checkpointing and recovery
- *
- * ## Features
- *
- * - **Full Postgres SQL parser** via PGLite WASM runtime
- * - **pgvector extension** for vector similarity search (cosine, L2, inner product)
- * - **FSX-backed persistence** with chunked checkpointing for large datasets
- * - **Transaction support** with automatic rollback on errors
- * - **Query options** including timeout, tier selection, and session tokens
- * - **Scalar quantization** for 4x vector memory reduction (float32 -> int8)
- * - **Hybrid search optimization** combining vector search with SQL filters
- *
- * ## Architecture
- *
- * ```
- * ┌─────────────────────────────────────────────────────────────┐
- * │                     EdgePostgres                             │
- * ├─────────────────────────────────────────────────────────────┤
- * │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐ │
- * │  │   PGLite    │    │ Checkpoint  │    │  DO Storage     │ │
- * │  │   (WASM)    │◄──►│   Manager   │◄──►│  (Persistence)  │ │
- * │  └─────────────┘    └─────────────┘    └─────────────────┘ │
- * │         │                                                   │
- * │         ▼                                                   │
- * │  ┌─────────────┐                                           │
- * │  │  pgvector   │ (optional)                                │
- * │  └─────────────┘                                           │
- * └─────────────────────────────────────────────────────────────┘
- * ```
- *
- * ## Usage
- *
- * ```typescript
- * // Basic usage
- * const db = new EdgePostgres(ctx, env, {
- *   pglite: { extensions: ['pgvector'] }
- * })
- *
- * // Create table with vector column
- * await db.exec(`
- *   CREATE TABLE documents (
- *     id TEXT PRIMARY KEY,
- *     content TEXT,
- *     embedding vector(1536)
- *   )
- * `)
- *
- * // Insert with vector
- * await db.query(
- *   'INSERT INTO documents VALUES ($1, $2, $3)',
- *   ['doc-1', 'Hello world', embedding]
- * )
- *
- * // Vector similarity search
- * const similar = await db.query(
- *   `SELECT id, content, embedding <-> $1 AS distance
- *    FROM documents
- *    ORDER BY embedding <-> $1
- *    LIMIT 10`,
- *   [queryEmbedding]
- * )
- *
- * // Checkpoint for durability
- * await db.checkpoint()
- * ```
- *
- * ## Checkpoint Storage
- *
- * Checkpoints are stored in chunked format to handle large databases:
- * - Maximum 100KB per chunk (safe for all DO storage backends)
- * - Dictionary compression for SQL patterns (~30% reduction)
- * - Automatic cleanup of old chunks during checkpoint
+ * Features:
+ * - Full Postgres SQL parser via PGLite WASM
+ * - pgvector extension for vector similarity search
+ * - FSX-backed persistence with checkpointing
+ * - Transaction support with automatic rollback
+ * - Query options (timeout, tier, sessionToken)
  *
  * @module db/edge-postgres
- * @see {@link ShardedPostgres} for distributed sharding across DOs
- * @see {@link ReplicatedPostgres} for multi-region replication
- * @see {@link TieredStorage} for hot/warm/cold storage tiers
  */
 
 import { PGlite } from '@electric-sql/pglite'
@@ -117,319 +42,104 @@ export {
 // ============================================================================
 
 /**
- * Configuration for EdgePostgres tiering behavior.
- *
- * Controls how data moves between hot (in-memory + WAL) and warm (Parquet/R2) tiers.
- * The hot tier provides sub-millisecond reads while the warm tier provides durable,
- * cost-effective storage for historical data.
- *
- * @example
- * ```typescript
- * const config: TieringConfig = {
- *   hotRetentionMs: 5 * 60 * 1000,  // Keep 5 minutes hot
- *   flushThreshold: 1000,            // Flush after 1000 writes
- *   flushIntervalMs: 60_000,         // Or every 60 seconds
- * }
- * ```
+ * Configuration for EdgePostgres tiering behavior
  */
 export interface TieringConfig {
-  /**
-   * How long to keep data in hot tier (milliseconds).
-   * Data older than this threshold will be migrated to warm tier.
-   * @default 300000 (5 minutes)
-   */
+  /** How long to keep data in hot tier (ms). Default: 5 minutes */
   hotRetentionMs?: number
-  /**
-   * Number of writes before triggering automatic flush to warm tier.
-   * Higher values reduce R2 operations but increase memory usage.
-   * @default 1000
-   */
+  /** Number of writes before triggering flush. Default: 1000 */
   flushThreshold?: number
-  /**
-   * Interval between automatic flushes (milliseconds).
-   * Acts as a backstop to ensure data is eventually persisted.
-   * @default 60000 (60 seconds)
-   */
+  /** Interval between automatic flushes (ms). Default: 60 seconds */
   flushIntervalMs?: number
 }
 
 /**
- * Configuration for PGLite WASM runtime.
- *
- * Controls the PGLite WASM instance initialization, including which extensions
- * to load and memory allocation settings.
- *
- * @example
- * ```typescript
- * const config: PGLiteConfig = {
- *   extensions: ['pgvector'],  // Enable vector similarity search
- *   initialMemory: 32 * 1024 * 1024,  // 32MB initial memory
- * }
- * ```
+ * Configuration for PGLite WASM runtime
  */
 export interface PGLiteConfig {
-  /**
-   * Extensions to load with PGLite.
-   * Currently supported: 'pgvector' for vector similarity search.
-   * @example ['pgvector']
-   */
+  /** Extensions to load. 'pgvector' is supported */
   extensions?: string[]
-  /**
-   * Initial WASM memory allocation in bytes.
-   * Increase for large datasets or complex queries.
-   * @default 16777216 (16MB)
-   */
+  /** Initial WASM memory allocation in bytes. Default: 16MB */
   initialMemory?: number
 }
 
 /**
  * Vector quantization configuration for reducing memory usage.
  *
- * Quantization compresses vector embeddings to reduce memory and storage costs
- * while maintaining acceptable similarity search quality. This is essential for
- * large-scale deployments where storing millions of full-precision vectors
- * would be prohibitively expensive.
- *
- * ## Quantization Types
- *
- * | Type     | Compression | Precision | Use Case                           |
- * |----------|-------------|-----------|-------------------------------------|
- * | scalar   | 4x          | ~95%      | Default, balanced trade-off        |
- * | binary   | 32x         | ~80%      | Very large datasets, coarse search |
- * | none     | 1x          | 100%      | Maximum precision required         |
- *
- * ## Memory Impact Example
- *
- * For 1M vectors with 1536 dimensions (OpenAI ada-002):
- * - none: 6.14 GB
- * - scalar: 1.54 GB (4x reduction)
- * - binary: 192 MB (32x reduction)
- *
- * @example
- * ```typescript
- * const config: VectorQuantizationConfig = {
- *   type: 'scalar',
- *   storeOriginal: true,  // Keep originals for reranking
- *   calibrationSamples: 2000,  // More samples = better bounds
- * }
- * ```
+ * Scalar (int8) quantization provides 4x memory reduction:
+ * - float32 (4 bytes) -> int8 (1 byte) per dimension
+ * - Maintains good recall with slight precision loss
+ * - Ideal for large-scale similarity search
  */
 export interface VectorQuantizationConfig {
-  /**
-   * Quantization algorithm to use.
-   * - 'scalar': Maps float32 to int8 using per-dimension min/max bounds (4x compression)
-   * - 'binary': Maps each dimension to 1 bit (32x compression, significant precision loss)
-   * - 'none': No quantization, full float32 precision
-   */
+  /** Quantization type: 'scalar' for int8 (4x compression), 'binary' for 1-bit (32x), 'none' for full precision */
   type: 'scalar' | 'binary' | 'none'
-  /**
-   * Whether to store original float32 vectors alongside quantized.
-   * Enables two-stage search: coarse quantized search, then rerank with originals.
-   * Increases storage but improves result quality.
-   * @default false
-   */
+  /** Whether to store original vectors alongside quantized for reranking */
   storeOriginal?: boolean
-  /**
-   * Number of sample vectors used to compute quantization bounds.
-   * Higher values produce more accurate min/max estimates per dimension.
-   * @default 1000
-   */
+  /** Calibration sample size for scalar quantization min/max bounds (default: 1000) */
   calibrationSamples?: number
 }
 
 /**
  * Hybrid search configuration for combining vector similarity with SQL filters.
  *
- * Real-world vector search often involves additional filtering (e.g., "find similar
- * documents in category X"). Hybrid search optimizes these queries by choosing the
- * best execution strategy based on filter selectivity.
- *
- * ## Strategies
- *
- * - **pre-filter**: Apply SQL filters first, then vector search on filtered set.
- *   Best when filters are highly selective (<10% of data matches).
- *
- * - **post-filter**: Vector search first, then filter results.
- *   Best when filters are loose (>50% of data matches).
- *
- * - **parallel**: Execute filter and vector search in parallel, merge results.
- *   Best for medium selectivity (10-50%).
- *
- * - **auto**: Automatically choose based on estimated selectivity.
- *
- * ## Example Query
- *
- * ```sql
- * SELECT * FROM documents
- * WHERE category = 'tech'
- *   AND published_at > '2024-01-01'
- * ORDER BY embedding <=> $1
- * LIMIT 10
- * ```
- *
- * With pre-filter: First find tech docs from 2024, then vector search.
- * With post-filter: Find 100 most similar, then filter to tech from 2024.
- *
- * @example
- * ```typescript
- * const config: HybridSearchConfig = {
- *   strategy: 'auto',
- *   selectivityThreshold: 0.1,  // Pre-filter if <10% matches
- *   maxCandidates: 1000,        // Consider top 1000 before filtering
- * }
- * ```
+ * Optimizations include:
+ * - Pre-filter pushdown: Apply SQL filters before vector scan when selectivity is low
+ * - Post-filter: Apply filters after vector search when selectivity is high
+ * - Parallel index scan: Use both vector index and filter index simultaneously
  */
 export interface HybridSearchConfig {
-  /**
-   * Strategy for combining vector and filter operations.
-   * 'auto' analyzes query to choose optimal strategy.
-   */
+  /** Strategy for combining vector and filter operations */
   strategy: 'auto' | 'pre-filter' | 'post-filter' | 'parallel'
-  /**
-   * Filter selectivity threshold for auto strategy switching.
-   * Below this threshold, pre-filter is used; above, post-filter.
-   * @default 0.1 (10%)
-   */
+  /** Filter selectivity threshold for switching strategies (0-1, default: 0.1) */
   selectivityThreshold?: number
-  /**
-   * Maximum candidates to retrieve from vector index before filtering.
-   * Higher values improve recall but increase filtering cost.
-   * @default 1000
-   */
+  /** Maximum candidates to consider before applying filters (default: 1000) */
   maxCandidates?: number
 }
 
 /**
- * Configuration for automatic sharding across multiple Durable Objects.
- *
- * Sharding distributes data across multiple EdgePostgres instances for horizontal
- * scaling. Each shard is an independent DO with its own storage, enabling the system
- * to scale beyond single-DO limits (10GB).
- *
- * @see {@link ShardedPostgres} for the full sharding implementation
- *
- * @example
- * ```typescript
- * const config: ShardingConfig = {
- *   key: 'tenant_id',
- *   count: 16,
- *   algorithm: 'consistent',  // Minimal data movement on rebalance
- * }
- * ```
+ * Configuration for sharding (future feature)
  */
 export interface ShardingConfig {
-  /**
-   * Column name used for shard routing.
-   * All queries must include this column for efficient routing.
-   */
+  /** Column to shard on */
   key: string
-  /**
-   * Number of shards to distribute data across.
-   * Maximum: 1000 shards (10TB total capacity).
-   */
+  /** Number of shards */
   count: number
-  /**
-   * Algorithm for mapping keys to shards.
-   * - 'consistent': Consistent hashing with virtual nodes (minimal rebalance impact)
-   * - 'range': Range-based partitioning (efficient range queries)
-   * - 'hash': Simple modulo hashing (fastest but poor rebalance)
-   */
+  /** Sharding algorithm */
   algorithm: 'consistent' | 'range' | 'hash'
 }
 
 /**
- * Configuration for multi-region replication.
- *
- * Replication provides read scalability and data locality by maintaining copies
- * of data in multiple geographic regions. Supports various consistency models
- * from eventual to read-your-writes (RYW).
- *
- * @see {@link ReplicatedPostgres} for the full replication implementation
- *
- * @example
- * ```typescript
- * const config: ReplicationConfig = {
- *   jurisdiction: 'eu',        // Keep data in EU
- *   cities: ['fra', 'ams', 'dub'],
- *   readFrom: 'nearest',       // Low latency reads
- *   writeThrough: false,       // Async replication
- * }
- * ```
+ * Configuration for replication (future feature)
  */
 export interface ReplicationConfig {
-  /**
-   * Data jurisdiction for regulatory compliance.
-   * - 'eu': Data stays in EU cities only
-   * - 'us': Data stays in US cities only
-   * - 'fedramp': FedRAMP-compliant US regions only
-   */
+  /** Data jurisdiction */
   jurisdiction?: 'eu' | 'us' | 'fedramp'
-  /**
-   * AWS-style region names for replica placement.
-   * Mapped to nearest city (e.g., 'eu-west-1' -> 'dub').
-   */
+  /** AWS-style region names */
   regions?: string[]
-  /**
-   * IATA airport codes for explicit city placement.
-   * Overrides region mapping for precise control.
-   */
+  /** IATA airport codes for cities */
   cities?: string[]
-  /**
-   * Read routing strategy.
-   * - 'primary': Always read from primary (strongest consistency)
-   * - 'nearest': Read from geographically nearest replica
-   * - 'session': Read from replica that has session's writes
-   */
+  /** Where to read from */
   readFrom: 'primary' | 'nearest' | 'session'
-  /**
-   * Whether to synchronously replicate writes to all replicas.
-   * True provides stronger consistency but higher latency.
-   * @default false
-   */
+  /** Whether to sync writes to all replicas */
   writeThrough?: boolean
 }
 
 /**
- * Full EdgePostgres configuration.
- *
- * Combines all configuration aspects: WASM runtime, tiering, sharding,
- * replication, and vector optimization settings.
- *
- * @example
- * ```typescript
- * const config: EdgePostgresConfig = {
- *   pglite: {
- *     extensions: ['pgvector'],
- *     initialMemory: 32 * 1024 * 1024,
- *   },
- *   tiering: {
- *     hotRetentionMs: 5 * 60 * 1000,
- *     flushThreshold: 1000,
- *   },
- *   quantization: {
- *     type: 'scalar',
- *     calibrationSamples: 1000,
- *   },
- *   hybridSearch: {
- *     strategy: 'auto',
- *   },
- * }
- *
- * const db = new EdgePostgres(ctx, env, config)
- * ```
+ * Full EdgePostgres configuration
  */
 export interface EdgePostgresConfig {
-  /** Tiering configuration for hot/warm/cold storage */
+  /** Tiering configuration */
   tiering?: TieringConfig
-  /** PGLite WASM runtime configuration */
+  /** PGLite configuration */
   pglite?: PGLiteConfig
-  /** Sharding configuration for horizontal scaling */
+  /** Sharding configuration (future) */
   sharding?: ShardingConfig
-  /** Replication configuration for multi-region deployment */
+  /** Replication configuration (future) */
   replication?: ReplicationConfig
-  /** Vector quantization for memory optimization (4x reduction with scalar) */
+  /** Vector quantization for memory optimization (4x reduction with scalar quantization) */
   quantization?: VectorQuantizationConfig
-  /** Hybrid search optimization for vector + SQL filter queries */
+  /** Hybrid search configuration for vector + filter optimization */
   hybridSearch?: HybridSearchConfig
 }
 

@@ -44,9 +44,6 @@ export const HUMANS_DO = resolve(PROJECT_ROOT, 'lib/humans/index.ts')
 /** fsx.do path for filesystem module (sibling project) */
 export const FSX_DO = resolve(PROJECT_ROOT, '../fsx/index.ts')
 
-/** @dotdo/fsx path for pure filesystem library (packages/fsx) */
-export const DOTDO_FSX = resolve(PROJECT_ROOT, 'packages/fsx/src/index.ts')
-
 /** Global test setup file path for clearing static state between tests */
 export const GLOBAL_SETUP = resolve(PROJECT_ROOT, 'tests/config/global-setup.ts')
 
@@ -124,7 +121,6 @@ export const nodeResolveConfig: UserConfig['resolve'] = {
     '@dotdo/path-utils': DOTDO_PATH_UTILS,
     'humans.do': HUMANS_DO,
     'fsx.do': FSX_DO,
-    '@dotdo/fsx': DOTDO_FSX,
     // capnweb mock for ESM/CJS compatibility in node tests
     capnweb: CAPNWEB_MOCK,
   },

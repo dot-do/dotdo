@@ -1,97 +1,13 @@
 /**
  * ReplicatedPostgres - Multi-region Postgres replication for Durable Objects
  *
- * Provides read scalability and data locality across 35+ global cities using
- * Cloudflare's colo.do API for precise geographic placement. Supports various
- * consistency models from eventual to read-your-writes (RYW).
- *
- * ## Overview
- *
- * ReplicatedPostgres maintains copies of data in multiple geographic regions,
- * enabling low-latency reads from the nearest replica while ensuring writes
- * are durable on the primary.
- *
- * ## Features
- *
- * - **35+ city support** via IATA airport codes (fra, lhr, sfo, etc.)
- * - **Jurisdiction enforcement** for regulatory compliance (EU, US, FedRAMP)
- * - **Read-your-writes (RYW) consistency** via compact session tokens
- * - **Automatic nearest replica selection** with health-aware routing
- * - **Sub-100ms typical replication lag** with batched async sync
- * - **Write-through mode** for strong consistency (higher latency)
- *
- * ## Consistency Models
- *
- * | Mode         | Latency | Consistency   | Use Case                    |
- * |--------------|---------|---------------|------------------------------|
- * | primary      | ~50ms   | Strong        | Financial transactions       |
- * | nearest      | ~5-20ms | Eventual      | Content delivery, dashboards |
- * | session (RYW)| ~5-50ms | Read-your-own | User-facing applications     |
- *
- * ## Architecture
- *
- * ```
- *                         ┌─────────────────┐
- *                         │    Primary      │
- *                         │  (fra or iad)   │
- *                         └────────┬────────┘
- *                                  │ writes
- *          ┌───────────────────────┼───────────────────────┐
- *          │ async replication     │                       │
- *          ▼                       ▼                       ▼
- *    ┌───────────┐          ┌───────────┐          ┌───────────┐
- *    │  Replica  │          │  Replica  │          │  Replica  │
- *    │   (lhr)   │          │   (ams)   │          │   (dub)   │
- *    └───────────┘          └───────────┘          └───────────┘
- *          │                       │                       │
- *          └───────────────────────┼───────────────────────┘
- *                                  │ nearest read
- *                                  ▼
- *                           ┌───────────┐
- *                           │   Client  │
- *                           └───────────┘
- * ```
- *
- * ## Usage
- *
- * ```typescript
- * const db = new ReplicatedPostgres(ctx, env, {
- *   replication: {
- *     jurisdiction: 'eu',
- *     cities: ['fra', 'ams', 'dub', 'lhr'],
- *     readFrom: 'nearest',
- *     writeThrough: false,
- *   },
- * })
- *
- * await db.initialize()
- *
- * // Write returns session token
- * const write = await db.exec(
- *   'INSERT INTO users VALUES ($1, $2)',
- *   ['u1', 'Alice']
- * )
- *
- * // Read with RYW consistency
- * const user = await db.query(
- *   'SELECT * FROM users WHERE id = $1',
- *   ['u1'],
- *   { sessionToken: write.sessionToken }
- * )
- * console.log(user.source) // 'fra' (read from caught-up replica or primary)
- * ```
- *
- * ## Session Token Format
- *
- * Session tokens are compact base62-encoded values (~15 chars) containing:
- * - LSN (Log Sequence Number) - 32 bits
- * - Timestamp delta - 42 bits (ms since 2024-01-01)
- * - City index - 6 bits
- * - Version - 4 bits
+ * Provides read-your-writes (RYW) consistency across 35+ cities with:
+ * - Jurisdiction enforcement (eu/us/fedramp)
+ * - Session tokens for RYW consistency
+ * - Nearest replica selection for optimal latency
+ * - Primary write routing with automatic session token generation
  *
  * @module db/edge-postgres/replication
- * @see {@link EdgePostgres} for single-instance Postgres
- * @see {@link ShardedPostgres} for horizontal sharding
  */
 
 import { EdgePostgres, type EdgePostgresConfig, type QueryOptions, type QueryResult, type Transaction } from './edge-postgres'
@@ -173,89 +89,26 @@ const REGION_TO_CITY: Record<string, City> = {
 // ============================================================================
 
 /**
- * Replica configuration options.
- *
- * Defines how replicas are distributed geographically and how reads/writes
- * are routed between them.
- *
- * @example
- * ```typescript
- * // EU-only deployment with nearest reads
- * const config: ReplicaConfig = {
- *   jurisdiction: 'eu',
- *   cities: ['fra', 'ams', 'dub', 'lhr'],
- *   readFrom: 'nearest',
- *   writeThrough: false,
- *   sessionTokenTTLMs: 3600000,  // 1 hour
- * }
- *
- * // FedRAMP-compliant with strong consistency
- * const fedRampConfig: ReplicaConfig = {
- *   jurisdiction: 'fedramp',
- *   readFrom: 'primary',
- *   writeThrough: true,
- * }
- * ```
+ * Replica configuration options
  */
 export interface ReplicaConfig {
-  /**
-   * Data jurisdiction for regulatory compliance.
-   * Restricts which cities can host replicas.
-   * - 'eu': EU cities only (GDPR compliance)
-   * - 'us': US cities only
-   * - 'fedramp': FedRAMP-compliant US regions (iad, ord, sfo)
-   */
+  /** Data jurisdiction */
   jurisdiction?: Jurisdiction
-  /**
-   * AWS-style region names for replica placement.
-   * Automatically mapped to nearest IATA city codes.
-   * @example ['us-east-1', 'eu-west-1', 'ap-northeast-1']
-   */
+  /** AWS-style region names */
   regions?: string[]
-  /**
-   * IATA airport codes for explicit city placement.
-   * Takes precedence over region mapping.
-   * @example ['fra', 'ams', 'dub', 'lhr']
-   */
+  /** IATA airport codes for cities */
   cities?: City[]
-  /**
-   * Read routing strategy.
-   * - 'primary': Always read from primary (strongest consistency)
-   * - 'nearest': Read from geographically closest replica
-   * - 'secondary': Read from any follower replica
-   * - 'session': Honor session tokens for RYW consistency
-   * @default 'primary'
-   */
+  /** Where to read from */
   readFrom?: ReadFrom
-  /**
-   * Synchronous write replication to all replicas.
-   * Provides strong consistency but increases write latency.
-   * @default false
-   */
+  /** Whether to sync writes to all replicas */
   writeThrough?: boolean
-  /**
-   * Session token expiration time in milliseconds.
-   * After expiration, RYW guarantees no longer apply.
-   * @default 3600000 (1 hour)
-   */
+  /** Session token TTL in milliseconds */
   sessionTokenTTLMs?: number
-  /**
-   * Fall back to primary if RYW timeout waiting for replica catchup.
-   * Ensures reads succeed even with high replication lag.
-   * @default true
-   */
+  /** RYW fallback to primary on timeout */
   rywFallbackToPrimary?: boolean
-  /**
-   * Maximum replication lag (in versions) before marking replica stale.
-   * Stale replicas are deprioritized in nearest selection.
-   * @default 10
-   */
+  /** Maximum lag before marking replica stale */
   maxLagForStale?: number
-  /**
-   * Cache TTL for nearest replica selection in milliseconds.
-   * Higher values reduce latency checks but may use stale replica info.
-   * @default 60000 (1 minute)
-   */
+  /** Cache TTL for nearest replica selection in ms */
   nearestCacheTTLMs?: number
 }
 
@@ -397,40 +250,7 @@ const STORAGE_KEYS = {
 // ============================================================================
 
 /**
- * ReplicatedPostgres - Multi-region Postgres with RYW consistency.
- *
- * Main class for replicated Postgres operations. Manages primary and replica
- * coordination, session token generation, and read routing.
- *
- * ## Lifecycle
- *
- * 1. **Construction**: Validates config, creates underlying EdgePostgres
- * 2. **initialize()**: Restores state, sets up replicas based on config
- * 3. **exec()/query()**: Execute operations with replication handling
- * 4. **close()**: Persist final state, cleanup resources
- *
- * ## Write Path
- *
- * 1. Write executes on primary EdgePostgres
- * 2. LSN incremented, session token generated
- * 3. If writeThrough: sync to all replicas immediately
- * 4. If async: replicas sync on next batch interval (~50ms)
- *
- * ## Read Path with RYW
- *
- * 1. Decode session token to get required LSN
- * 2. Check if nearest replica has caught up
- * 3. If yes: read from nearest (low latency)
- * 4. If no: fallback to primary (guaranteed fresh)
- *
- * ## Replica Health
- *
- * Nearest replica selection considers:
- * - Network latency (estimated from city)
- * - Replication lag (versions behind primary)
- * - Status (active, stale, initializing, unavailable)
- *
- * Formula: effectiveLatency = networkLatency + (lag * 5ms) + statusPenalty
+ * ReplicatedPostgres - Multi-region Postgres with RYW consistency
  *
  * @example
  * ```typescript
@@ -449,16 +269,6 @@ const STORAGE_KEYS = {
  *
  * // Reads with session token guarantee RYW
  * const users = await db.query('SELECT * FROM users', [], { sessionToken: result.sessionToken })
- *
- * // Check replication status
- * const replicas = await db.getReplicas()
- * console.log(replicas.map(r => `${r.city}: lag=${r.lag}, status=${r.status}`))
- *
- * // Get stats
- * const stats = await db.getReplicationStats()
- * console.log(`Batches: ${stats.replicationBatches}, Avg lag: ${stats.averageLag}`)
- *
- * await db.close()
  * ```
  */
 export class ReplicatedPostgres {

@@ -317,7 +317,7 @@ interface RateLimitMiddlewareConfig {
   // Key generator (default: X-User-ID header or 'anonymous')
   keyGenerator?: (c: Context) => string
 
-  // Limit for header display (should match wrangler.jsonc)
+  // Limit for header display (should match wrangler.toml)
   limit?: number
 
   // Custom rate limited response

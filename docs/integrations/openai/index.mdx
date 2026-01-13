@@ -1,0 +1,121 @@
+---
+title: OpenAI
+description: Choose between @dotdo/openai (OSS package) and openai.do (managed edge service) for your OpenAI integration needs.
+---
+
+# OpenAI Integration
+
+dotdo provides two ways to work with OpenAI-compatible APIs:
+
+| | @dotdo/openai | openai.do |
+|---|---------------|-----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Runtime** | Edge-compatible | Edge-native |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/openai` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/openai - Drop-in SDK replacement
+import OpenAI from '@dotdo/openai'
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+// Direct API calls with edge compatibility
+```
+
+```typescript
+// openai.do - Managed edge service with routing
+import { OpenAI } from 'openai.do'
+
+const client = new OpenAI('https://your-worker.workers.dev')
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+// Multi-provider routing, caching, observability
+```
+
+## When to Use Each
+
+### Use @dotdo/openai when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Development** - Quick iteration with direct OpenAI API access
+- **Edge functions** - Need OpenAI SDK in Cloudflare Workers, Deno, Bun
+- **Simple deployments** - Direct API calls without infrastructure
+
+<Callout type="info">
+@dotdo/openai is a drop-in replacement for the official OpenAI SDK, reimplemented for edge compatibility with automatic retries.
+</Callout>
+
+### Use openai.do when:
+
+- **Production applications** - Enterprise-grade reliability and observability
+- **Multi-provider routing** - Automatic failover between OpenAI, Anthropic, etc.
+- **Cost optimization** - Request caching, token tracking, budget controls
+- **Global edge deployment** - Requests routed through Cloudflare's network
+
+<Callout type="info">
+openai.do is a managed AI gateway running on Cloudflare's edge with built-in observability, caching, and multi-provider routing.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/openai | openai.do |
+|---------|---------------|-----------|
+| Chat Completions | Full | Full |
+| Streaming | Full | Full |
+| Function/Tool Calling | Full | Full |
+| Vision (image inputs) | Full | Full |
+| Embeddings | Full | Full |
+| Image Generation | Full | Full |
+| Assistants API | In-memory | Persistent |
+| Edge Compatible | Full | Native |
+| Automatic Retries | Built-in | Built-in |
+| Multi-Provider Routing | Basic | Advanced |
+| Request Caching | - | Built-in |
+| Token Tracking | - | Built-in |
+| Cost Analytics | - | Built-in |
+| Rate Limit Management | - | Built-in |
+| Audit Logging | - | Built-in |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/openai/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/openai</h3>
+    <p className="text-sm text-muted-foreground">Edge-compatible OpenAI SDK for testing and development</p>
+  </a>
+  <a href="/docs/integrations/openai/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">openai.do</h3>
+    <p className="text-sm text-muted-foreground">Managed AI gateway for production deployments</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/openai` for development, then upgrade to `openai.do` for production:
+
+```typescript
+// Development (package)
+import OpenAI from '@dotdo/openai'
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+// Production (service) - same API!
+import { OpenAI } from 'openai.do'
+const client = new OpenAI('https://your-ai-gateway.workers.dev')
+
+// Your application code stays the same
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+```
+
+Both packages share the same OpenAI-compatible API, making migration seamless.

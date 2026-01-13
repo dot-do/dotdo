@@ -499,8 +499,7 @@ describe('HumanFunction Execution', () => {
         expect(mockChannels.slack.updateMessage).toHaveBeenCalledWith(
           expect.any(String), // messageId
           expect.objectContaining({
-            // Note: HumanNotificationPayload uses 'message' field, not 'text'
-            message: expect.stringContaining('approved'),
+            text: expect.stringContaining('approved'),
           })
         )
       })

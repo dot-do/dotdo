@@ -1,43 +1,13 @@
-/**
- * Landing Page Route (/)
- *
- * Renders the landing page from Site.mdx with full MDX component support.
- * Also handles content negotiation for API requests (JSON responses).
- *
- * ## MDX Source
- * Content is loaded from Site.mdx at root via fumadocs-mdx.
- *
- * ## Components Available in Site.mdx
- * - AgentGrid, Agent - Display team agents
- * - FeatureGrid, Feature - Display features
- * - CTA - Call to action buttons
- * - Hero, Section, CodeBlock - Layout components
- */
-
 'use client'
 
 import { createFileRoute, Link } from '@tanstack/react-router'
 import * as React from 'react'
-import { createServerFn } from '@tanstack/react-start'
 import { buildResponse } from '../../lib/response/linked-data'
-import { getSitePage } from '../lib/source'
-import browserCollections from 'fumadocs-mdx:collections/browser'
-import defaultMdxComponents from 'fumadocs-ui/mdx'
-import {
-  AgentGrid,
-  Agent,
-  FeatureGrid,
-  Feature,
-  CTA,
-  Hero,
-  Section,
-  CodeBlock,
-} from '../mdx-components'
 
-// =============================================================================
-// Navigation Component
-// =============================================================================
+// Temporarily remove beacon components to test prerender
+// import { Hero, Features, Pricing, CTA, Testimonials } from '@mdxui/beacon'
 
+// Local Navigation component since @mdxui/beacon doesn't export it
 interface NavItem {
   label: string
   href: string
@@ -80,79 +50,8 @@ function Navigation({ logo, items, cta }: NavigationProps) {
   )
 }
 
-// =============================================================================
-// Server Loader for Site.mdx
-// =============================================================================
-
-const siteLoader = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  try {
-    const page = getSitePage()
-    if (page) {
-      return {
-        path: page.path,
-        frontmatter: page.data,
-        hasMdx: true,
-      }
-    }
-  } catch {
-    // Site.mdx not found, fall back to static content
-  }
-  return {
-    path: '',
-    frontmatter: {
-      title: 'dotdo - Build your 1-Person Unicorn',
-      description: 'Deploy a startup with product, engineering, marketing, and sales.',
-    },
-    hasMdx: false,
-  }
-})
-
-// =============================================================================
-// Site MDX Client Loader
-// =============================================================================
-
-// Create client loader for Site MDX content
-const siteClientLoader = browserCollections.site?.createClientLoader({
-  component(
-    { toc, frontmatter, default: MDX },
-    props: { className?: string },
-  ) {
-    return (
-      <article className={props.className}>
-        <MDX
-          components={{
-            ...defaultMdxComponents,
-            AgentGrid,
-            Agent,
-            FeatureGrid,
-            Feature,
-            CTA,
-            Hero,
-            Section,
-            CodeBlock,
-          }}
-        />
-      </article>
-    )
-  },
-})
-
-// =============================================================================
-// Route Configuration
-// =============================================================================
-
 export const Route = createFileRoute('/')({
   component: Home,
-  loader: async () => {
-    const data = await siteLoader()
-    // Preload MDX content if available
-    if (data.hasMdx && siteClientLoader) {
-      await siteClientLoader.preload(data.path)
-    }
-    return data
-  },
   server: {
     handlers: {
       GET: async ({ request }) => {
@@ -186,33 +85,29 @@ export const Route = createFileRoute('/')({
       },
     },
   },
-  head: ({ loaderData }) => ({
+  head: () => ({
     meta: [
-      { title: loaderData?.frontmatter?.title || 'dotdo - Build your 1-Person Unicorn' },
-      { name: 'description', content: loaderData?.frontmatter?.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
+      { title: 'dotdo - Build your 1-Person Unicorn' },
+      { name: 'description', content: 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
       // OpenGraph tags
-      { property: 'og:title', content: loaderData?.frontmatter?.title || 'dotdo - Build your 1-Person Unicorn' },
-      { property: 'og:description', content: loaderData?.frontmatter?.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
+      { property: 'og:title', content: 'dotdo - Build your 1-Person Unicorn' },
+      { property: 'og:description', content: 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
       { property: 'og:type', content: 'website' },
       { property: 'og:url', content: 'https://dotdo.dev/' },
       { property: 'og:site_name', content: 'dotdo' },
-      { property: 'og:image', content: loaderData?.frontmatter?.ogImage || 'https://dotdo.dev/og-image.png' },
+      { property: 'og:image', content: 'https://dotdo.dev/og-image.png' },
       // Twitter Card tags
       { name: 'twitter:card', content: 'summary_large_image' },
       { name: 'twitter:site', content: '@dotdodev' },
-      { name: 'twitter:title', content: loaderData?.frontmatter?.title || 'dotdo - Build your 1-Person Unicorn' },
-      { name: 'twitter:description', content: loaderData?.frontmatter?.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
-      { name: 'twitter:image', content: loaderData?.frontmatter?.ogImage || 'https://dotdo.dev/og-image.png' },
+      { name: 'twitter:title', content: 'dotdo - Build your 1-Person Unicorn' },
+      { name: 'twitter:description', content: 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
+      { name: 'twitter:image', content: 'https://dotdo.dev/og-image.png' },
       // Additional SEO
       { name: 'robots', content: 'index, follow' },
       { name: 'author', content: 'dotdo' },
     ],
   }),
 })
-
-// =============================================================================
-// Fallback Content (used when Site.mdx is not available)
-// =============================================================================
 
 const features = [
   { title: 'Promise Pipelining', description: 'Multiple agent calls execute in one network round trip. The server receives your entire pipeline and runs it in a single pass.' },
@@ -223,37 +118,65 @@ const features = [
   { title: 'Human Escalation', description: 'AI does the work. Humans make decisions. Route to Slack, email, SMS with full audit trail.' },
 ]
 
-// =============================================================================
-// Footer Component
-// =============================================================================
+const pricingTiers = [
+  {
+    name: 'Free',
+    price: '$0',
+    description: 'For getting started',
+    features: ['10 agents', 'Basic support', '1GB storage', '$0 egress'],
+    cta: { label: 'Start Free', href: '/signup' },
+  },
+  {
+    name: 'Pro',
+    price: '$49/mo',
+    description: 'For growing teams',
+    features: ['Unlimited agents', 'Priority support', '100GB storage', 'Custom integrations'],
+    cta: { label: 'Upgrade to Pro', href: '/upgrade' },
+    highlighted: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    description: 'For large organizations',
+    features: ['Unlimited everything', '24/7 support', 'SLA guarantee', 'On-premise option'],
+    cta: { label: 'Contact Sales', href: '/contact' },
+  },
+]
 
-function Footer() {
+const testimonials = [
+  {
+    quote: 'dotdo completely transformed how we build products.',
+    author: 'Sarah Chen',
+    role: 'CTO',
+    company: 'TechStartup Inc.',
+  },
+  {
+    quote: 'The AI agents are incredibly effective. We shipped in half the time.',
+    author: 'Mike Johnson',
+    role: 'Founder',
+    company: 'SoloFounder Labs',
+  },
+  {
+    quote: 'Best developer experience I have ever had.',
+    author: 'Alex Rivera',
+    role: 'Lead Engineer',
+    company: 'DevShop Co.',
+  },
+]
+
+function Home() {
   return (
-    <footer className="border-t px-6 py-12 mt-20">
-      <div className="container mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="text-sm text-muted-foreground">
-            <a href="https://platform.do" className="hover:text-foreground mr-4">platform.do</a>
-            <a href="https://agents.do" className="hover:text-foreground mr-4">agents.do</a>
-            <a href="https://workers.do" className="hover:text-foreground">workers.do</a>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Built with dotdo
-          </p>
-        </div>
-      </div>
-    </footer>
-  )
-}
+    <div className="min-h-screen bg-background">
+      <Navigation
+        logo={<span>.do</span>}
+        items={[
+          { label: 'Docs', href: '/docs' },
+          { label: 'GitHub', href: 'https://github.com/dot-do/dotdo' },
+        ]}
+        cta={{ label: 'Get Started', href: '/signup' }}
+      />
 
-// =============================================================================
-// Fallback Content Component (when MDX not available)
-// =============================================================================
-
-function FallbackContent() {
-  return (
-    <>
-      {/* Hero section */}
+      {/* Simplified hero for SSR-safe prerender testing */}
       <section className="py-20 px-6">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl font-bold mb-6">Build your 1-Person Unicorn</h1>
@@ -278,7 +201,7 @@ function FallbackContent() {
         </div>
       </section>
 
-      {/* Features section */}
+      {/* Simplified features */}
       <section className="py-16 px-6 bg-muted/50">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Features</h2>
@@ -292,40 +215,6 @@ function FallbackContent() {
           </div>
         </div>
       </section>
-    </>
-  )
-}
-
-// =============================================================================
-// Home Page Component
-// =============================================================================
-
-function Home() {
-  const data = Route.useLoaderData()
-
-  return (
-    <div className="min-h-screen bg-background">
-      <Navigation
-        logo={<span>.do</span>}
-        items={[
-          { label: 'Docs', href: '/docs' },
-          { label: 'GitHub', href: 'https://github.com/dot-do/dotdo' },
-        ]}
-        cta={{ label: 'Get Started', href: '/login' }}
-      />
-
-      <main>
-        {/* Render MDX content if available, otherwise use fallback */}
-        {data.hasMdx && siteClientLoader ? (
-          siteClientLoader.useContent(data.path, {
-            className: 'site-content prose prose-neutral dark:prose-invert max-w-none',
-          })
-        ) : (
-          <FallbackContent />
-        )}
-      </main>
-
-      <Footer />
     </div>
   )
 }

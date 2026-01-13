@@ -1,64 +1,3 @@
-/**
- * @module db/things
- *
- * Core versioned data storage for the dotdo platform.
- *
- * Things are the fundamental data abstraction in dotdo - versioned, typed entities
- * stored in an append-only log. Each row represents a version, with the SQLite rowid
- * serving as the version identifier. This enables time travel, branching, and
- * complete audit trails.
- *
- * ## Key Concepts
- *
- * - **Append-only**: Things are never mutated; new versions are appended
- * - **Version = rowid**: The SQLite rowid serves as the version identifier
- * - **Branching**: Things can exist on multiple branches (null = main branch)
- * - **Soft delete**: Deleted things have deleted=true, enabling undelete
- * - **Visibility**: Access control via public/unlisted/org/user levels
- *
- * ## Usage Patterns
- *
- * @example Get current version of a thing
- * ```ts
- * import { getCurrentThing, things } from 'dotdo/db'
- *
- * const user = await getCurrentThing(db, 'user-123')
- * console.log(user?.name, user?.data)
- * ```
- *
- * @example Time travel to a specific version
- * ```ts
- * import { getThingAtVersion } from 'dotdo/db'
- *
- * const oldVersion = await getThingAtVersion(db, 42)
- * console.log('State at version 42:', oldVersion)
- * ```
- *
- * @example List things with filters
- * ```ts
- * import { getCurrentThings } from 'dotdo/db'
- *
- * const publicFunctions = await getCurrentThings(db, {
- *   type: 1, // Function type ID
- *   visibility: 'public',
- *   limit: 50,
- * })
- * ```
- *
- * @example Branch-aware queries
- * ```ts
- * import { getThingOnBranch, getCurrentThing } from 'dotdo/db'
- *
- * // Get thing on main branch
- * const main = await getCurrentThing(db, 'config', null)
- *
- * // Get thing on experiment branch
- * const experiment = await getThingOnBranch(db, 'config', 'experiment')
- * ```
- *
- * @see {@link stores.ts} for ThingsStore class with CRUD operations
- * @see {@link nouns.ts} for type definitions (Noun → type ID mapping)
- */
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
 import { eq, and, isNull, desc, sql, inArray, type SQL } from 'drizzle-orm'
 
@@ -66,74 +5,23 @@ import { eq, and, isNull, desc, sql, inArray, type SQL } from 'drizzle-orm'
 // VISIBILITY TYPE
 // ============================================================================
 
-/**
- * Valid visibility values for things.
- *
- * Controls who can access a thing:
- * - `'public'` - Visible to everyone, including anonymous users
- * - `'unlisted'` - Not discoverable, but accessible with direct link
- * - `'org'` - Visible only to organization members
- * - `'user'` - Visible only to the owner (most restrictive, default)
- *
- * @example
- * ```ts
- * // Query only public resources
- * const publicApis = await getCurrentThings(db, {
- *   visibility: 'public',
- * })
- *
- * // Query resources visible to org or public
- * const accessibleApis = await getCurrentThings(db, {
- *   visibility: ['public', 'org'],
- * })
- * ```
- */
+/** Valid visibility values for things */
 export type Visibility = 'public' | 'unlisted' | 'org' | 'user'
 
 // ============================================================================
 // THINGS - Version Log (append-only)
 // ============================================================================
+//
+// Things are versioned, not mutated. Each row is a version.
+// The rowid IS the version ID.
+//
+// Time travel: SELECT * FROM things WHERE rowid = ?
+// Current state: SELECT * FROM things WHERE id = ? ORDER BY rowid DESC LIMIT 1
+//
+// No createdAt/updatedAt/createdBy - all derived from the Action that created
+// this version.
+// ============================================================================
 
-/**
- * The things table - core versioned entity storage.
- *
- * Things are versioned, not mutated. Each row is a version.
- * The SQLite rowid IS the version ID.
- *
- * ## SQL Patterns
- *
- * ```sql
- * -- Time travel: Get thing at specific version
- * SELECT * FROM things WHERE rowid = ?
- *
- * -- Current state: Get latest version of a thing
- * SELECT * FROM things WHERE id = ? ORDER BY rowid DESC LIMIT 1
- *
- * -- Version history: Get all versions of a thing
- * SELECT rowid as version, * FROM things WHERE id = ? ORDER BY rowid ASC
- * ```
- *
- * ## Design Notes
- *
- * - No createdAt/updatedAt/createdBy columns - all derived from the Action
- *   that created this version (see actions.ts)
- * - Branch null = main branch (optimized for common case)
- * - Type is FK to nouns.rowid (integer for join performance)
- *
- * @example Direct Drizzle query
- * ```ts
- * import { things } from 'dotdo/db'
- * import { eq, desc } from 'drizzle-orm'
- *
- * // Get latest version of a thing
- * const results = await db
- *   .select()
- *   .from(things)
- *   .where(eq(things.id, 'user-123'))
- *   .orderBy(desc(things.id))
- *   .limit(1)
- * ```
- */
 export const things = sqliteTable(
   'things',
   {
@@ -186,44 +74,10 @@ export const things = sqliteTable(
 // TYPE EXPORTS
 // ============================================================================
 
-/**
- * Type for a selected Thing record (all fields).
- *
- * Inferred from the things table schema. Use this type when working
- * with Things retrieved from the database.
- *
- * @example
- * ```ts
- * import type { Thing } from 'dotdo/db'
- *
- * function processThing(thing: Thing) {
- *   console.log(`ID: ${thing.id}, Type: ${thing.type}`)
- *   if (thing.data) {
- *     console.log('Data:', JSON.stringify(thing.data))
- *   }
- * }
- * ```
- */
+/** Select type for Thing table */
 export type Thing = typeof things.$inferSelect
 
-/**
- * Type for inserting a new Thing record.
- *
- * Inferred from the things table schema with optional fields marked.
- * Use this type when creating new Things.
- *
- * @example
- * ```ts
- * import type { NewThing } from 'dotdo/db'
- *
- * const newUser: NewThing = {
- *   id: 'user-123',
- *   type: 1, // User type ID
- *   name: 'John Doe',
- *   data: { email: 'john@example.com' },
- * }
- * ```
- */
+/** Insert type for Thing table */
 export type NewThing = typeof things.$inferInsert
 
 // ============================================================================
@@ -232,35 +86,7 @@ export type NewThing = typeof things.$inferInsert
 
 /**
  * Database interface required for query helpers.
- *
- * This interface abstracts the database operations needed by the query helpers,
- * allowing them to work with any Drizzle database instance (D1, better-sqlite3,
- * or mock implementations for testing).
- *
- * @example Using with a real database
- * ```ts
- * import { drizzle } from 'drizzle-orm/d1'
- * import { getCurrentThing } from 'dotdo/db'
- *
- * const db = drizzle(env.DB) as ThingsDb
- * const thing = await getCurrentThing(db, 'user-123')
- * ```
- *
- * @example Mock implementation for testing
- * ```ts
- * const mockDb: ThingsDb = {
- *   select: () => ({
- *     from: () => ({
- *       where: () => ({
- *         orderBy: () => ({
- *           limit: async () => [mockThing],
- *         }),
- *       }),
- *     }),
- *   }),
- *   insert: () => ({ values: () => ({ returning: async () => [mockThing] }) }),
- * }
- * ```
+ * This allows the helpers to work with any Drizzle database instance.
  */
 export interface ThingsDb {
   select(): {
@@ -290,60 +116,24 @@ export interface ThingsDb {
 // ============================================================================
 
 /**
- * Options for getCurrentThing query.
- *
- * @example Filter by visibility
- * ```ts
- * // Get only if publicly visible
- * const thing = await getCurrentThing(db, 'api-123', null, {
- *   visibility: 'public',
- * })
- *
- * // Get if visible to org or public
- * const thing = await getCurrentThing(db, 'api-123', null, {
- *   visibility: ['public', 'org'],
- * })
- * ```
+ * Options for getCurrentThing query
  */
 export interface GetCurrentThingOptions {
-  /** Filter by visibility level(s). Can be a single visibility or an array. */
+  /** Filter by visibility level(s) */
   visibility?: Visibility | Visibility[]
 }
 
 /**
  * Get the current version of a thing by ID.
+ * Optionally filter by branch (null = main branch).
  *
- * Returns the latest version of a thing on the specified branch.
- * Uses the rowid ordering to efficiently find the most recent version.
- *
- * ## SQL Pattern
- * ```sql
- * SELECT * FROM things
- * WHERE id = ? AND branch IS NULL
- * ORDER BY rowid DESC
- * LIMIT 1
- * ```
+ * SQL: SELECT * FROM things WHERE id = ? AND branch IS NULL ORDER BY rowid DESC LIMIT 1
  *
  * @param db - Drizzle database instance
  * @param id - The thing ID to look up
  * @param branch - Optional branch name (null = main branch)
  * @param options - Optional query options (visibility filter)
  * @returns The current version of the thing or undefined if not found
- *
- * @example Basic usage
- * ```ts
- * const user = await getCurrentThing(db, 'user-123')
- * if (user) {
- *   console.log(`Found: ${user.name}`)
- * }
- * ```
- *
- * @example With branch and visibility
- * ```ts
- * const config = await getCurrentThing(db, 'app-config', 'staging', {
- *   visibility: ['org', 'public'],
- * })
- * ```
  */
 export async function getCurrentThing(
   db: ThingsDb,
@@ -385,38 +175,13 @@ export async function getCurrentThing(
 
 /**
  * Get a thing at a specific version (rowid).
+ * Used for time travel queries.
  *
- * Used for time travel queries - retrieve the exact state of a thing
- * at a specific point in its version history.
- *
- * ## SQL Pattern
- * ```sql
- * SELECT * FROM things WHERE rowid = ?
- * ```
+ * SQL: SELECT * FROM things WHERE rowid = ?
  *
  * @param db - Drizzle database instance
  * @param rowid - The version (rowid) to retrieve
  * @returns The thing at the specified version or undefined if not found
- *
- * @example Time travel to inspect historical state
- * ```ts
- * // Get the thing as it was at version 42
- * const historicalState = await getThingAtVersion(db, 42)
- * if (historicalState) {
- *   console.log('State at version 42:', historicalState.data)
- * }
- * ```
- *
- * @example Implement undo functionality
- * ```ts
- * // Get previous version and revert
- * const versions = await getThingVersions(db, 'doc-123')
- * const previousVersion = versions[versions.length - 2]
- * if (previousVersion) {
- *   // Revert by copying the previous state
- *   await things.create({ ...previousVersion })
- * }
- * ```
  */
 export async function getThingAtVersion(
   db: ThingsDb,
@@ -435,38 +200,11 @@ export async function getThingAtVersion(
 /**
  * Get all versions of a thing.
  *
- * Returns the complete version history of a thing, ordered from oldest
- * to newest. Useful for auditing, debugging, and implementing version
- * comparison features.
- *
- * ## SQL Pattern
- * ```sql
- * SELECT rowid, * FROM things WHERE id = ? ORDER BY rowid ASC
- * ```
+ * SQL: SELECT rowid, * FROM things WHERE id = ? ORDER BY rowid ASC
  *
  * @param db - Drizzle database instance
  * @param id - The thing ID to get versions for
- * @returns Array of all versions of the thing (oldest first)
- *
- * @example Display version history
- * ```ts
- * const versions = await getThingVersions(db, 'doc-123')
- * console.log(`Document has ${versions.length} versions`)
- *
- * for (const version of versions) {
- *   console.log(`Version ${version.id}: ${version.name}`)
- * }
- * ```
- *
- * @example Diff between versions
- * ```ts
- * const versions = await getThingVersions(db, 'config')
- * const [v1, v2] = [versions[0], versions[1]]
- * if (v1 && v2) {
- *   const diff = computeDiff(v1.data, v2.data)
- *   console.log('Changes:', diff)
- * }
- * ```
+ * @returns Array of all versions of the thing
  */
 export async function getThingVersions(
   db: ThingsDb,
@@ -485,40 +223,12 @@ export async function getThingVersions(
 /**
  * Get the current version of a thing on a specific branch.
  *
- * Used for branch-aware queries when you need to read from a non-main branch.
- * Unlike getCurrentThing with branch parameter, this requires the branch to exist.
- *
- * ## SQL Pattern
- * ```sql
- * SELECT * FROM things WHERE id = ? AND branch = ? ORDER BY rowid DESC LIMIT 1
- * ```
+ * SQL: SELECT * FROM things WHERE id = ? AND branch = ? ORDER BY rowid DESC LIMIT 1
  *
  * @param db - Drizzle database instance
  * @param id - The thing ID to look up
- * @param branch - The branch name (required, use getCurrentThing for main branch)
+ * @param branch - The branch name
  * @returns The current version on the branch or undefined if not found
- *
- * @example Feature branch testing
- * ```ts
- * // Test new config on feature branch
- * const prodConfig = await getCurrentThing(db, 'app-config')
- * const testConfig = await getThingOnBranch(db, 'app-config', 'feature-x')
- *
- * if (testConfig) {
- *   console.log('Testing with:', testConfig.data)
- * } else {
- *   console.log('No override on feature-x, using prod')
- * }
- * ```
- *
- * @example Branch comparison
- * ```ts
- * const branches = ['staging', 'production', 'canary']
- * for (const branch of branches) {
- *   const config = await getThingOnBranch(db, 'config', branch)
- *   console.log(`${branch}: ${config?.data?.version ?? 'not set'}`)
- * }
- * ```
  */
 export async function getThingOnBranch(
   db: ThingsDb,
@@ -536,78 +246,28 @@ export async function getThingOnBranch(
 }
 
 /**
- * Options for getCurrentThings query.
- *
- * Provides filtering, pagination, and visibility control for listing things.
- *
- * @example List public Functions
- * ```ts
- * const publicFunctions = await getCurrentThings(db, {
- *   type: 1, // Function type ID
- *   visibility: 'public',
- *   limit: 50,
- * })
- * ```
- *
- * @example List all things on a branch including deleted
- * ```ts
- * const allThings = await getCurrentThings(db, {
- *   branch: 'staging',
- *   includeDeleted: true,
- *   limit: 1000,
- * })
- * ```
+ * Options for getCurrentThings query
  */
 export interface GetCurrentThingsOptions {
-  /** Filter by type ID (from nouns table rowid) */
+  /** Filter by type */
   type?: number
   /** Filter by branch (null = main branch) */
   branch?: string | null
   /** Include soft-deleted things (default: false) */
   includeDeleted?: boolean
-  /** Maximum number of results (default: 100) */
+  /** Maximum number of results */
   limit?: number
-  /** Filter by visibility level(s). Can be single or array. */
+  /** Filter by visibility level(s) */
   visibility?: Visibility | Visibility[]
 }
 
 /**
  * Get current versions of all things (or filtered subset).
- *
- * Returns the latest version of each thing matching the filter criteria.
- * Uses a subquery pattern to efficiently get only the most recent version
- * per ID.
- *
- * ## Performance
- *
- * This query uses a GROUP BY subquery to find the max rowid per thing ID,
- * then joins back to get full records. Indexes on (id, branch), (type),
- * and (visibility) ensure efficient filtering.
+ * Uses window function pattern to get latest version per ID.
  *
  * @param db - Drizzle database instance
  * @param options - Filter and pagination options
  * @returns Array of current thing versions
- *
- * @example List all public APIs
- * ```ts
- * const publicApis = await getCurrentThings(db, {
- *   type: apiTypeId,
- *   visibility: 'public',
- * })
- * ```
- *
- * @example Paginated listing
- * ```ts
- * const page1 = await getCurrentThings(db, { limit: 20 })
- * const page2 = await getCurrentThings(db, { limit: 20, offset: 20 })
- * ```
- *
- * @example Count all users (use with limit: 0 and inspect length)
- * ```ts
- * // Note: For counting, prefer countVersions() for efficiency
- * const users = await getCurrentThings(db, { type: userTypeId })
- * console.log(`Total users: ${users.length}`)
- * ```
  */
 export async function getCurrentThings(
   db: ThingsDb,
@@ -656,41 +316,9 @@ export async function getCurrentThings(
 /**
  * Soft delete a thing by creating a new version with deleted = true.
  *
- * Implements soft delete by appending a new version with deleted=true.
- * The thing's history is preserved, and it can be restored with undeleteThing().
- *
- * ## Soft Delete Pattern
- *
- * Instead of removing data, we append a new version:
- * ```sql
- * INSERT INTO things (id, type, ..., deleted)
- * SELECT id, type, ..., true FROM things WHERE id = ?
- * ```
- *
  * @param db - Drizzle database instance
  * @param id - The thing ID to soft delete
  * @returns The new version with deleted = true
- * @throws Error if thing not found
- *
- * @example Soft delete a user
- * ```ts
- * try {
- *   const deleted = await softDeleteThing(db, 'user-123')
- *   console.log('Soft deleted:', deleted.id)
- * } catch (error) {
- *   console.error('User not found')
- * }
- * ```
- *
- * @example Delete with audit log
- * ```ts
- * const deleted = await softDeleteThing(db, 'doc-456')
- * await auditLog.record({
- *   action: 'delete',
- *   target: deleted.id,
- *   version: deleted.version,
- * })
- * ```
  */
 export async function softDeleteThing(
   db: ThingsDb,
@@ -725,30 +353,9 @@ export async function softDeleteThing(
 /**
  * Undelete a thing by creating a new version with deleted = false.
  *
- * Restores a soft-deleted thing by appending a new version with deleted=false.
- * The delete operation is preserved in history, maintaining full audit trail.
- *
  * @param db - Drizzle database instance
  * @param id - The thing ID to undelete
  * @returns The new version with deleted = false
- * @throws Error if thing not found
- *
- * @example Restore a deleted document
- * ```ts
- * const restored = await undeleteThing(db, 'doc-456')
- * console.log('Restored document:', restored.name)
- * ```
- *
- * @example Undo accidental delete
- * ```ts
- * // User accidentally deleted, restore within grace period
- * try {
- *   const user = await undeleteThing(db, 'user-123')
- *   console.log('User restored successfully')
- * } catch (error) {
- *   console.error('Cannot restore: user not found or already active')
- * }
- * ```
  */
 export async function undeleteThing(
   db: ThingsDb,
@@ -783,30 +390,19 @@ export async function undeleteThing(
 /**
  * Options for countVersions query.
  *
- * ## Performance Notes
+ * The default safety limit of 10,000 was chosen because:
+ * - It's high enough to handle most legitimate use cases
+ * - It prevents runaway queries in edge cases (e.g., corrupted data, infinite loops)
+ * - SQLite's COUNT(*) is O(n) for unindexed counts, so a limit provides predictable performance
  *
- * The limit option enables "has more than N" checks without counting all rows.
- * This is useful when you only need to know if a threshold is exceeded.
- *
- * ```ts
- * // Check if thing has more than 100 versions (for cleanup)
- * const count = await countVersions(db, 'doc-123', { limit: 101 })
- * if (count > 100) {
- *   console.log('Thing has many versions, consider compaction')
- * }
- * ```
- *
- * @example Count all versions
- * ```ts
- * const versionCount = await countVersions(db, 'user-123')
- * console.log(`User has ${versionCount} versions`)
- * ```
+ * In practice, the COUNT(*) approach is already much more efficient than fetching rows,
+ * but the limit option is retained for API compatibility and edge case protection.
  */
 export interface CountVersionsOptions {
   /**
    * Maximum count to return (default: undefined = no limit).
    * When set, the query will use LIMIT to cap the count.
-   * Useful for "has more than N versions" checks.
+   * This is useful for "has more than N versions" checks.
    */
   limit?: number
 }
@@ -817,43 +413,12 @@ export interface CountVersionsOptions {
  * Uses SQL COUNT(*) for efficiency - returns the count directly without fetching rows.
  * This is O(1) memory and network transfer regardless of how many versions exist.
  *
- * ## SQL Pattern
- * ```sql
- * SELECT COUNT(*) as count FROM things WHERE id = ?
- * ```
- *
- * ## Performance
- *
- * Unlike getThingVersions() which fetches all rows, this query only returns
- * a single integer. Use this when you only need the count, not the actual data.
+ * SQL: SELECT COUNT(*) as count FROM things WHERE id = ?
  *
  * @param db - Drizzle database instance
  * @param id - The thing ID to count versions for
  * @param options - Optional configuration (e.g., limit for "more than N" checks)
  * @returns The number of versions
- *
- * @example Simple version count
- * ```ts
- * const count = await countVersions(db, 'doc-123')
- * console.log(`Document has ${count} versions`)
- * ```
- *
- * @example Check if cleanup needed
- * ```ts
- * const count = await countVersions(db, 'config', { limit: 1001 })
- * if (count > 1000) {
- *   await compactVersions(db, 'config')
- * }
- * ```
- *
- * @example Version count for analytics
- * ```ts
- * const docs = await getCurrentThings(db, { type: docTypeId })
- * for (const doc of docs) {
- *   const versions = await countVersions(db, doc.id)
- *   console.log(`${doc.name}: ${versions} edits`)
- * }
- * ```
  */
 export async function countVersions(
   db: ThingsDb,

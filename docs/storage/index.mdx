@@ -83,26 +83,3 @@ const metrics = await $.analytics(`
 ```
 
 Same data, different access patterns, automatic tier selection.
-
-## Technical Details
-
-For implementation details and architecture documentation:
-
-| Component | README | Description |
-|-----------|--------|-------------|
-| **db/** | [README](https://github.com/dotdo/dotdo/blob/main/db/README.md) | Database architecture overview, columnar storage, query accelerator |
-| **db/iceberg/** | [README](https://github.com/dotdo/dotdo/blob/main/db/iceberg/README.md) | Direct Iceberg navigation for fast point lookups |
-| **db/edge-postgres/** | [README](https://github.com/dotdo/dotdo/blob/main/db/edge-postgres/README.md) | PGLite + FSX + Iceberg for Postgres on edge |
-
-### Key Concepts
-
-- **Columnar storage** - Each column stored as separate SQLite row for 99%+ cost savings
-- **Iceberg navigation** - 50-150ms point lookups vs 500ms-2s R2 SQL
-- **Tiered architecture** - Automatic data flow from hot (DO SQLite) to warm (R2/Iceberg) to cold (ClickHouse)
-
-## Related
-
-- [Database](/docs/database) - SQL, document, vector, and time-series database primitives
-- [Database: Things](/docs/database/things) - Entity storage with append-only versioning
-- [Database: Stores](/docs/database/stores) - Typed store accessors
-- [Database: Iceberg](/docs/database/iceberg) - Apache Iceberg format for cold storage

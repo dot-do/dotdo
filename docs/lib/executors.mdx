@@ -1,171 +1,70 @@
 ---
 title: Function Executors
-description: Execute functions via code, AI agents, generative models, or human input
+description: Execution strategies for code, AI, agent, and human functions
 ---
 
 # Function Executors
 
-Function Executors provide a unified interface for executing functions across different execution strategies. They enable workflows to seamlessly route tasks to code, AI agents, generative models, or human reviewers based on the requirements.
+Executors handle the actual execution of functions. Each executor type provides a specialized strategy for running different kinds of functions.
 
 ## Overview
 
-The executor system follows a common pattern:
-- All executors operate within a Durable Object context
-- They provide retry logic, timeout handling, and event emission
-- Results include success status, duration, and execution metrics
-- They integrate with the `$` workflow context
-
-| Executor | Best For | Speed | Cost |
-|----------|----------|-------|------|
-| `CodeFunctionExecutor` | Deterministic logic, transformations | Fastest | Lowest |
-| `GenerativeFunctionExecutor` | Content generation, structured outputs | Fast | Medium |
-| `AgenticFunctionExecutor` | Multi-step reasoning with tools | Medium | Higher |
-| `HumanFunctionExecutor` | Judgment calls, approvals | Slowest | Highest |
-| `CascadeExecutor` | Automatic escalation on failure | Varies | Optimized |
-| `ParallelStepExecutor` | Concurrent workflow steps | Fast | Varies |
+| Executor | Purpose | Environment |
+|----------|---------|-------------|
+| `CodeFunctionExecutor` | TypeScript/JavaScript code | V8 isolates |
+| `GenerativeFunctionExecutor` | LLM text generation | AI Gateway |
+| `AgenticFunctionExecutor` | Multi-step AI agents | Agent runtime |
+| `HumanFunctionExecutor` | Human-in-the-loop | Notification channels |
+| `CascadeExecutor` | Try multiple executors | Fallback chain |
+| `ParallelStepExecutor` | Concurrent execution | Parallel workflow steps |
 
 ## CodeFunctionExecutor
 
-Executes TypeScript/JavaScript handlers in a controlled environment with sandboxing, timeout handling, and resource limits.
-
-### Features
-
-- Sandboxed execution with restricted globals
-- Timeout and cancellation support
-- Retry logic with configurable backoff strategies
-- Streaming output support
-- Resource limits (memory, CPU time, output size)
-- Input/output schema validation
-
-### Basic Usage
+Executes TypeScript/JavaScript handlers in V8 isolates with timeout and retry support.
 
 ```typescript
 import { CodeFunctionExecutor } from 'lib/executors/CodeFunctionExecutor'
 
 const executor = new CodeFunctionExecutor({
-  state: this.state,
-  env: this.env,
-  services: {
-    ai: this.ai,
-    kv: this.kv,
-    db: this.db,
-    queue: this.queue,
-    fetch: fetch,
-  },
-  logger: console,
-  onEvent: (event, data) => console.log(event, data),
+  timeout: 5000,
+  retries: 2,
+  sandboxed: true
 })
 
-// Execute a handler
-const result = await executor.execute(
-  async (input, ctx) => {
-    ctx.log.info('Processing', { input })
-    const data = await ctx.services.db.query('SELECT * FROM users WHERE id = ?', [input.userId])
-    return { user: data[0] }
+const result = await executor.execute({
+  handler: async (input, ctx) => {
+    const { orderId } = input
+    ctx.log(`Processing order ${orderId}`)
+    return { success: true }
   },
-  { userId: '123' },
-  {
-    timeout: 5000,
-    sandboxed: true,
-    retry: {
-      maxAttempts: 3,
-      delay: 100,
-      backoff: 'exponential',
-    },
-  }
-)
-
-if (result.success) {
-  console.log('User:', result.result.user)
-} else {
-  console.error('Error:', result.error)
-}
-```
-
-### Execution Context
-
-Handlers receive a rich execution context:
-
-```typescript
-interface ExecutionContext {
-  functionId: string
-  invocationId: string
-  env: Record<string, string>  // Read-only environment variables
-  state: {
-    get: <T>(key: string) => Promise<T | null>
-    put: <T>(key: string, value: T) => Promise<void>
-    delete: (key: string) => Promise<boolean>
-    list: (options?: { prefix?: string }) => Promise<Map<string, unknown>>
-  }
-  services: {
-    ai: { generate: (opts) => Promise<{ text: string }> }
-    kv: { get, put }
-    db: { query }
-    queue: { send }
-    fetch: typeof fetch
-  }
-  log: { debug, info, warn, error }
-  emit: (event: string, data: unknown) => Promise<void>
-  signal: AbortSignal
-}
-```
-
-### Streaming Execution
-
-```typescript
-const stream = await executor.executeStreaming(
-  async function* (input, ctx) {
-    for (const item of input.items) {
-      await ctx.emit('stream.chunk', { data: item.name })
-      yield { processed: item.id }
-    }
-    return { total: input.items.length }
-  },
-  { items: [{ id: 1, name: 'A' }, { id: 2, name: 'B' }] }
-)
-
-for await (const chunk of stream) {
-  if (chunk.type === 'chunk') {
-    console.log('Chunk:', chunk.data)
-  } else if (chunk.type === 'result') {
-    console.log('Final:', chunk.value)
-  }
-}
-```
-
-### Retry Strategies
-
-```typescript
-const result = await executor.execute(handler, input, {
-  retry: {
-    maxAttempts: 5,
-    delay: 100,
-    backoff: 'exponential-jitter',  // 'fixed' | 'exponential' | 'exponential-jitter' | 'linear'
-    maxDelay: 10000,
-    retryOnTimeout: false,
-    retryIf: (error) => error.message.includes('transient'),
-    onRetry: ({ attempt, delay, error }) => {
-      console.log(`Retry ${attempt} after ${delay}ms: ${error.message}`)
-    },
-  },
+  input: { orderId: 'ORD-123' },
+  context: functionContext
 })
 ```
 
-### Options Reference
+### Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `timeout` | `number` | `30000` | Max execution time (ms) |
-| `sandboxed` | `boolean` | `true` | Restrict global access |
-| `exposeEnv` | `string[]` | all | Whitelist of env vars to expose |
-| `retry.maxAttempts` | `number` | `1` | Max retry attempts |
-| `retry.delay` | `number` | `1000` | Base delay between retries (ms) |
-| `retry.backoff` | `string` | `'fixed'` | Backoff strategy |
-| `resourceLimits.maxMemory` | `number` | `128MB` | Memory limit |
-| `resourceLimits.maxCpuTime` | `number` | - | CPU time limit (ms) |
-| `resourceLimits.maxOutputSize` | `number` | `10MB` | Max output size |
-| `inputSchema` | `JSONSchema` | - | Validate input against schema |
-| `outputSchema` | `JSONSchema` | - | Validate output against schema |
+| `timeout` | `number` | - | Max execution time (ms) |
+| `retries` | `number` | `0` | Retry attempts on failure |
+| `retryDelay` | `number` | `1000` | Delay between retries (ms) |
+| `sandboxed` | `boolean` | `false` | Restrict global access |
+
+### Execution Context
+
+The handler receives a `FunctionContext`:
+
+```typescript
+interface FunctionContext {
+  functionId: string
+  invocationId: string
+  input: unknown
+  env: Record<string, unknown>
+  emit: (event: string, data: unknown) => Promise<void>
+  log: (message: string, data?: unknown) => void
+}
+```
 
 ## GenerativeFunctionExecutor
 

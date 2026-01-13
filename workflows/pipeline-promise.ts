@@ -1,110 +1,8 @@
 /**
- * @module workflows/pipeline-promise
+ * PipelinePromise - Capnweb-style Lazy Execution
  *
- * PipelinePromise - Cap'n Web-style Lazy Execution for Promise Pipelining
- *
- * This module implements the core promise pipelining mechanism for dotdo workflows,
- * enabling deferred execution and expression capture. Operations are recorded as
- * expressions that can be analyzed, optimized, and batched before network transmission.
- *
- * ## Promise Pipelining Concept
- *
- * Traditional async/await requires waiting for each promise to resolve before
- * using its result. Promise pipelining allows passing unawaited promises directly
- * to subsequent operations, enabling entire pipelines to execute in a single
- * network round trip.
- *
- * @example Traditional vs Pipelined
- * ```typescript
- * // Traditional - 3 round trips
- * const user = await $.User(userId).get()
- * const orders = await $.Order(user.id).list()
- * const total = await $.Analytics(orders).summarize()
- *
- * // Pipelined - 1 round trip (all operations batched)
- * const user = $.User(userId).get()           // Not awaited
- * const orders = $.Order(user.id).list()      // Uses unawaited user
- * const total = await $.Analytics(orders).summarize()  // Await triggers execution
- * ```
- *
- * ## PipelinePromise Mechanics
- *
- * A PipelinePromise is both a Promise (thenable) and a Proxy for property access:
- *
- * @example Expression capture
- * ```typescript
- * const user = $.User(userId).get()  // Creates call expression
- * const name = user.name             // Creates property expression
- * const upper = name.toUpperCase()   // Creates method call expression
- *
- * // All expressions are captured, not executed
- * console.log(user.__expr)
- * // { type: 'call', domain: 'User', method: ['get'], context: userId, args: [] }
- * ```
- *
- * ## Expression Types
- *
- * The module defines several expression types for the workflow AST:
- *
- * | Type | Description | Example |
- * |------|-------------|---------|
- * | `call` | Domain method invocation | `$.User(id).get()` |
- * | `property` | Property access on result | `user.name` |
- * | `map` | Array transformation | `orders.map(o => ...)` |
- * | `conditional` | Branching logic | `$.when(cond, {...})` |
- * | `branch` | Multi-way conditional | `$.branch(val, {...})` |
- * | `match` | Pattern matching | `$.match(val, [...])` |
- * | `waitFor` | External event wait | `$.waitFor('approval')` |
- * | `send` | Event emission | `send.Order.created(...)` |
- * | `literal` | Literal value | Direct values |
- * | `placeholder` | Map callback placeholder | For map recording |
- *
- * ## Workflow Proxy
- *
- * The `createWorkflowProxy` function creates the `$` context for workflows:
- *
- * @example Using the workflow proxy
- * ```typescript
- * const $ = createWorkflowProxy({
- *   execute: async (expr) => {
- *     // Send expression to server for execution
- *     return await rpc.execute(expr)
- *   }
- * })
- *
- * // Domain calls
- * const result = await $.Inventory(product).check()
- *
- * // Conditionals
- * const outcome = await $.when(result.available, {
- *   then: () => $.Order(order).fulfill(),
- *   else: () => $.Order(order).backorder()
- * })
- *
- * // Human-in-the-loop
- * const approval = await $.waitFor('manager.approval', { timeout: '24h' })
- * ```
- *
- * ## Expression Analysis
- *
- * The module provides utilities for analyzing expression dependencies:
- *
- * @example Dependency analysis
- * ```typescript
- * import { collectExpressions, analyzeExpressions } from 'dotdo/workflows'
- *
- * const exprs = collectExpressions(workflowResult)
- * const { independent, dependent } = analyzeExpressions(exprs)
- *
- * // independent: can execute in parallel
- * // dependent: must wait for other expressions
- * ```
- *
- * @see {@link createPipelinePromise} - Create a new pipeline promise
- * @see {@link createWorkflowProxy} - Create the $ workflow context
- * @see {@link isPipelinePromise} - Type guard for pipeline promises
- * @see {@link collectExpressions} - Collect all expressions from a value tree
- * @see {@link analyzeExpressions} - Analyze expression dependencies
+ * Enables no-await workflows by capturing operations as expressions
+ * that can be analyzed and batched before execution.
  */
 
 // ============================================================================
@@ -148,31 +46,7 @@ export interface WorkflowProxyOptions {
 const PIPELINE_PROMISE_MARKER = Symbol.for('__isPipelinePromise')
 
 /**
- * Type guard to check if a value is a PipelinePromise.
- *
- * Use this to determine if a value was created by the pipeline system
- * and contains a captured expression for deferred execution.
- *
- * @param value - The value to check
- * @returns true if the value is a PipelinePromise
- *
- * @example
- * ```typescript
- * const user = $.User(id).get()
- * const plainValue = { name: 'John' }
- *
- * isPipelinePromise(user)       // true
- * isPipelinePromise(plainValue) // false
- *
- * // Use for conditional handling
- * function processValue(val: unknown) {
- *   if (isPipelinePromise(val)) {
- *     console.log('Expression:', val.__expr)
- *   } else {
- *     console.log('Literal:', val)
- *   }
- * }
- * ```
+ * Type guard to check if a value is a PipelinePromise
  */
 export function isPipelinePromise(value: unknown): value is PipelinePromise {
   return value !== null && typeof value === 'object' && '__isPipelinePromise' in value && (value as any).__isPipelinePromise === true
@@ -180,45 +54,7 @@ export function isPipelinePromise(value: unknown): value is PipelinePromise {
 
 /**
  * Creates a PipelinePromise that captures an expression without executing it.
- *
- * The returned promise is both a Thenable (can be awaited) and a Proxy
- * (property access creates new expressions). This dual nature enables
- * the promise pipelining pattern where operations are recorded for
- * later batch execution.
- *
- * @typeParam T - The expected type when the promise resolves
- * @param expr - The pipeline expression to capture
- * @param options - Configuration including the execute function
- * @returns A PipelinePromise that can be awaited or have properties accessed
- *
- * @example Basic creation
- * ```typescript
- * const expr: PipelineExpression = {
- *   type: 'call',
- *   domain: 'User',
- *   method: ['get'],
- *   context: userId,
- *   args: []
- * }
- *
- * const promise = createPipelinePromise(expr, {
- *   execute: async (e) => await rpc.execute(e)
- * })
- *
- * // Property access creates new expression
- * const name = promise.name  // type: 'property', base: expr, property: 'name'
- *
- * // Awaiting triggers execution
- * const result = await promise
- * ```
- *
- * @example With map operation
- * ```typescript
- * const ordersExpr = createPipelinePromise(ordersCallExpr, options)
- *
- * // Map creates a map expression with recorded callback
- * const totals = ordersExpr.map(order => $.Pricing(order).calculate())
- * ```
+ * The promise is both a Thenable (can be awaited) and a Proxy (property access works).
  */
 export function createPipelinePromise<T = unknown>(expr: PipelineExpression, options: WorkflowProxyOptions): PipelinePromise<T> {
   const defaultExecute = async (e: PipelineExpression): Promise<unknown> => {
@@ -474,75 +310,7 @@ function captureExpr(value: unknown, options: WorkflowProxyOptions): PipelineExp
 // ============================================================================
 
 /**
- * Creates the $ workflow proxy for capturing domain method calls.
- *
- * The workflow proxy is the primary interface for writing workflow logic.
- * It captures all operations as expressions for deferred execution and
- * provides special methods for control flow and external events.
- *
- * @param options - Configuration for the workflow proxy
- * @param options.execute - Function called when a PipelinePromise is awaited
- * @param options.onExecute - Optional callback for testing/debugging
- * @returns A proxy object that captures domain calls
- *
- * @example Basic workflow proxy
- * ```typescript
- * const $ = createWorkflowProxy({
- *   execute: async (expr) => {
- *     // In production, send to server
- *     return await rpc.execute(expr)
- *   }
- * })
- *
- * // Domain method calls
- * const user = $.User(userId).get()
- * const orders = $.Order(user).list({ status: 'pending' })
- *
- * // Result is awaited, triggering execution
- * const result = await orders
- * ```
- *
- * @example Conditionals with $.when
- * ```typescript
- * const $ = createWorkflowProxy(options)
- *
- * const result = $.when(stock.available, {
- *   then: () => $.Order(order).fulfill(),
- *   else: () => $.Order(order).backorder()
- * })
- * ```
- *
- * @example Multi-way branching with $.branch
- * ```typescript
- * const result = $.branch(order.status, {
- *   pending: () => $.Order(order).process(),
- *   shipped: () => $.Order(order).track(),
- *   delivered: () => $.Order(order).complete(),
- *   default: () => $.Order(order).review()
- * })
- * ```
- *
- * @example Pattern matching with $.match
- * ```typescript
- * const result = $.match(payment, [
- *   [p => p.amount > 10000, () => $.Approval(payment).escalate()],
- *   [p => p.type === 'refund', () => $.Refund(payment).process()],
- *   [() => true, () => $.Payment(payment).complete()]
- * ])
- * ```
- *
- * @example Human-in-the-loop with $.waitFor
- * ```typescript
- * // Workflow pauses until external event
- * const approval = await $.waitFor('manager.approval', {
- *   timeout: '24 hours',
- *   type: 'approval'
- * })
- *
- * if (approval.approved) {
- *   await $.Refund(refund).process()
- * }
- * ```
+ * Creates the $ workflow proxy that captures domain method calls
  */
 export function createWorkflowProxy(options: WorkflowProxyOptions = {}): any {
   return new Proxy(
@@ -688,29 +456,7 @@ export function createWorkflowProxy(options: WorkflowProxyOptions = {}): any {
 // ============================================================================
 
 /**
- * Collects all PipelinePromises from a value tree.
- *
- * Traverses objects and arrays recursively to find all embedded
- * PipelinePromises, useful for analyzing workflow expressions
- * before execution.
- *
- * @param value - The value tree to traverse
- * @returns Array of all PipelinePromises found
- *
- * @example
- * ```typescript
- * const user = $.User(id).get()
- * const orders = $.Order(user).list()
- *
- * const result = {
- *   user,
- *   orders,
- *   metadata: { timestamp: Date.now() }
- * }
- *
- * const expressions = collectExpressions(result)
- * // Returns [user, orders] (the two PipelinePromises)
- * ```
+ * Collects all PipelinePromises from a value tree
  */
 export function collectExpressions(value: unknown): PipelinePromise[] {
   const collected: PipelinePromise[] = []
@@ -784,42 +530,7 @@ export function collectExpressions(value: unknown): PipelinePromise[] {
 // ============================================================================
 
 /**
- * Analyzes expressions to determine which can run in parallel.
- *
- * Examines the dependencies between expressions to identify which
- * can be executed concurrently (independent) and which must wait
- * for other expressions (dependent).
- *
- * @param expressions - Array of PipelinePromises to analyze
- * @returns Object with `independent` and `dependent` arrays
- *
- * @example
- * ```typescript
- * // These are independent (no shared dependencies)
- * const userA = $.User('a').get()
- * const userB = $.User('b').get()
- *
- * // This depends on userA
- * const orders = $.Order(userA).list()
- *
- * const { independent, dependent } = analyzeExpressions([userA, userB, orders])
- * // independent: [userA, userB] - can run in parallel
- * // dependent: [orders] - must wait for userA
- * ```
- *
- * @example Optimizing batch execution
- * ```typescript
- * const allExprs = collectExpressions(workflowResult)
- * const { independent, dependent } = analyzeExpressions(allExprs)
- *
- * // Execute independent expressions in parallel
- * await Promise.all(independent.map(exec))
- *
- * // Then execute dependent expressions
- * for (const expr of dependent) {
- *   await exec(expr)
- * }
- * ```
+ * Analyzes expressions to determine which can run in parallel
  */
 export function analyzeExpressions(expressions: PipelinePromise[]): {
   independent: PipelinePromise[]

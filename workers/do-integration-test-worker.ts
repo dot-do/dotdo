@@ -535,15 +535,17 @@ export class TestDO extends DO<Env> {
   override async fetch(request: Request): Promise<Response> {
     // Schema is now initialized in constructor via blockConcurrencyWhile
 
-    // Get ns from header - always use if provided (testing pattern)
+    // Get ns from header, falling back to stored value or DO id
     const headerNs = request.headers.get('X-DO-NS')
-    if (headerNs) {
+    if (headerNs && !this.ns) {
       // @ts-expect-error - Setting readonly ns
       this.ns = headerNs
       // Persist for future requests
       await this.ctx.storage.put('ns', headerNs)
-    } else if (!this.ns) {
-      // If no header and no ns, try to load from storage or use DO id
+    }
+
+    // If still no ns, try to load from storage or use DO id
+    if (!this.ns) {
       const storedNs = await this.ctx.storage.get<string>('ns')
       if (storedNs) {
         // @ts-expect-error - Setting readonly ns

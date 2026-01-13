@@ -1,113 +1,9 @@
 /**
- * @module workflows/on
+ * Event-Driven Workflow DSL
  *
- * Event-Driven Workflow DSL for dotdo
- *
- * This module provides the core event system for declarative workflow programming,
- * enabling event subscription, scheduled execution, event emission, and conditional
- * logic through intuitive proxy-based APIs.
- *
- * ## Event Subscription
- *
- * The `on` proxy allows subscribing to domain events using a natural `Entity.verb` pattern:
- *
- * @example
- * ```typescript
- * import { on } from 'dotdo/workflows'
- *
- * // Subscribe to customer signup events
- * on.Customer.signup((customer) => {
- *   console.log('New customer:', customer.name)
- * })
- *
- * // Subscribe with context for cleanup
- * const unsubscribe = on.Order.shipped((order) => {
- *   sendNotification(order.customer)
- * }, { context: 'shipping-service' })
- *
- * // Cleanup when done
- * unsubscribe()
- * ```
- *
- * ## Scheduled Execution
- *
- * The `every` proxy enables declarative scheduling with human-readable syntax:
- *
- * @example
- * ```typescript
- * import { every } from 'dotdo/workflows'
- *
- * // Run every Monday at 9am
- * every.Monday.at9am(() => {
- *   generateWeeklyReport()
- * })
- *
- * // Run daily at 6pm
- * every.day.at6pm(() => {
- *   sendDailySummary()
- * })
- *
- * // Run every hour
- * every.hour(() => {
- *   syncExternalData()
- * })
- *
- * // Natural language scheduling
- * every('Monday at 9am', () => {
- *   weeklyStandup()
- * })
- * ```
- *
- * ## Event Emission
- *
- * The `send` proxy emits events as pipeline expressions for deferred execution:
- *
- * @example
- * ```typescript
- * import { send } from 'dotdo/workflows'
- *
- * // Fire-and-forget event emission
- * send.Order.shipped({ orderId: '123', carrier: 'UPS' })
- * send.Customer.signup({ email: 'user@example.com' })
- * ```
- *
- * ## Conditional Logic
- *
- * The `when` function provides declarative conditionals for workflow branching:
- *
- * @example
- * ```typescript
- * import { when } from 'dotdo/workflows'
- *
- * const result = when(order.total > 1000, {
- *   then: () => applyDiscount(order),
- *   else: () => order
- * })
- * ```
- *
- * ## Domain Factory
- *
- * The `Domain` factory creates callable domain objects for cross-cutting concerns:
- *
- * @example
- * ```typescript
- * import { Domain } from 'dotdo/workflows'
- *
- * const CRM = Domain('CRM', {
- *   createAccount: (customer) => ({ id: '123', ...customer }),
- *   sendWelcome: (account) => sendEmail(account.email)
- * })
- *
- * // Use directly - returns PipelinePromise
- * const account = CRM(customer).createAccount()
- * ```
- *
- * @see {@link on} - Event subscription proxy
- * @see {@link every} - Scheduling proxy
- * @see {@link send} - Event emission proxy
- * @see {@link when} - Conditional branching
- * @see {@link waitFor} - Human-in-the-loop waits
- * @see {@link Domain} - Domain factory
+ * on.Customer.signup(customer => { ... })
+ * every.Monday.at9am(() => { ... })
+ * send.Order.shipped(order)
  */
 
 import { createPipelinePromise, PipelineExpression, isPipelinePromise } from './pipeline-promise'
@@ -327,49 +223,6 @@ type OnProxy = {
   [Entity in string]: OnEntityProxy<Entity>
 }
 
-/**
- * Event subscription proxy for declarative event handling.
- *
- * Supports infinite `Noun.verb` combinations via JavaScript Proxy, enabling
- * natural domain event subscription without pre-defining event types.
- *
- * @example Basic event subscription
- * ```typescript
- * // Subscribe to customer signup events
- * on.Customer.signup((customer) => {
- *   console.log('Welcome', customer.name)
- *   sendWelcomeEmail(customer.email)
- * })
- *
- * // Subscribe to payment events
- * on.Payment.failed((payment) => {
- *   notifyBilling(payment.customerId)
- * })
- * ```
- *
- * @example With context for cleanup
- * ```typescript
- * // Register with context for grouped cleanup
- * on.Order.created((order) => {
- *   processOrder(order)
- * }, { context: 'order-processor' })
- *
- * // Later, clean up all handlers for this context
- * clearHandlersByContext('order-processor')
- * ```
- *
- * @example Unsubscribe pattern
- * ```typescript
- * const unsubscribe = on.User.updated((user) => {
- *   syncToExternalSystem(user)
- * })
- *
- * // Stop listening when no longer needed
- * unsubscribe()
- * ```
- *
- * @returns Unsubscribe function to remove the handler
- */
 export const on: OnProxy = new Proxy({} as OnProxy, {
   get(_, entity: string) {
     return new Proxy({} as OnEntityProxy<typeof entity>, {
@@ -496,65 +349,6 @@ type EveryFunction = {
 /** Schedule handler type for recurring tasks */
 type ScheduleHandlerFn = () => void | Promise<void>
 
-/**
- * Schedule builder proxy for declarative recurring task scheduling.
- *
- * Converts human-readable scheduling expressions to cron and registers
- * handlers for execution at specified times.
- *
- * @example Day and time combinations
- * ```typescript
- * // Every Monday at 9am
- * every.Monday.at9am(() => {
- *   generateWeeklyReport()
- * })
- *
- * // Every Friday at 5pm
- * every.Friday.at5pm(() => {
- *   sendWeeklyNewsletter()
- * })
- * ```
- *
- * @example Daily schedules
- * ```typescript
- * // Every day at noon
- * every.day.at12pm(() => {
- *   runDailyMaintenance()
- * })
- *
- * // Every day at midnight
- * every.day.at12am(() => {
- *   rotateLogFiles()
- * })
- * ```
- *
- * @example Interval schedules
- * ```typescript
- * // Every hour
- * every.hour(() => {
- *   checkSystemHealth()
- * })
- *
- * // Every minute
- * every.minute(() => {
- *   pingMonitoringService()
- * })
- * ```
- *
- * @example Natural language (function call syntax)
- * ```typescript
- * // Natural language parsing
- * every('Monday at 9am', () => {
- *   teamStandup()
- * })
- *
- * every('daily at 6am', () => {
- *   prepareReports()
- * })
- * ```
- *
- * @returns Unsubscribe function to cancel the schedule
- */
 // Create the every proxy with both function and property access
 const everyHandler: ProxyHandler<EveryFunction> = {
   get(_target: EveryFunction, day: string) {
@@ -612,46 +406,6 @@ type SendProxy = {
   [Entity in string]: SendEventProxy<Entity>
 }
 
-/**
- * Event emission proxy for fire-and-forget event dispatch.
- *
- * Creates pipeline expressions for deferred event emission, enabling
- * event-driven workflows with Cap'n Web RPC promise pipelining.
- *
- * @example Basic event emission
- * ```typescript
- * // Emit order shipped event
- * send.Order.shipped({
- *   orderId: '12345',
- *   carrier: 'UPS',
- *   trackingNumber: '1Z999AA10123456784'
- * })
- *
- * // Emit customer created event
- * send.Customer.created({
- *   id: 'cust_123',
- *   email: 'user@example.com',
- *   name: 'John Doe'
- * })
- * ```
- *
- * @example In workflow context
- * ```typescript
- * async function processOrder(order: Order) {
- *   await validateOrder(order)
- *
- *   // Fire-and-forget notification
- *   send.Order.validated({ orderId: order.id })
- *
- *   await chargePayment(order)
- *   send.Payment.captured({ orderId: order.id, amount: order.total })
- *
- *   return order
- * }
- * ```
- *
- * @returns PipelinePromise representing the deferred event emission
- */
 export const send: SendProxy = new Proxy({} as SendProxy, {
   get(_, entity: string) {
     return new Proxy({} as SendEventProxy, {
@@ -674,44 +428,6 @@ export const send: SendProxy = new Proxy({} as SendProxy, {
 // when(condition, { then, else }) - Declarative conditional
 // ============================================================================
 
-/**
- * Declarative conditional for workflow branching.
- *
- * Creates a pipeline expression that evaluates the condition and executes
- * the appropriate branch. Works with both pipeline promises and literal values.
- *
- * @typeParam TThen - Return type of the then branch
- * @typeParam TElse - Return type of the else branch (default: never)
- *
- * @param condition - Condition to evaluate (can be a PipelinePromise or literal)
- * @param branches - Object containing `then` and optional `else` branch functions
- * @returns PipelinePromise representing the conditional expression
- *
- * @example Basic conditional
- * ```typescript
- * const result = when(order.total > 100, {
- *   then: () => applyDiscount(order, 0.1),
- *   else: () => order
- * })
- * ```
- *
- * @example With pipeline promise condition
- * ```typescript
- * const status = $.Inventory(product).check()
- *
- * const result = when(status.available, {
- *   then: () => $.Order(order).fulfill(),
- *   else: () => $.Order(order).backorder()
- * })
- * ```
- *
- * @example Without else branch
- * ```typescript
- * when(user.isVIP, {
- *   then: () => send.Notification.vipWelcome({ userId: user.id })
- * })
- * ```
- */
 export function when<TThen, TElse = never>(
   condition: unknown,
   branches: { then: () => TThen; else?: () => TElse }
@@ -745,60 +461,6 @@ export function when<TThen, TElse = never>(
 // waitFor(eventName, options) - Human-in-the-loop
 // ============================================================================
 
-/**
- * Human-in-the-loop wait for external events or approvals.
- *
- * Suspends workflow execution until the specified event is received,
- * enabling human approval workflows, external system callbacks, and
- * long-running asynchronous operations.
- *
- * @param eventName - Name of the event to wait for
- * @param options - Optional timeout and event type configuration
- * @returns PipelinePromise that resolves when the event is received
- *
- * @example Wait for human approval
- * ```typescript
- * const approval = await waitFor('manager.approval', {
- *   timeout: '24 hours',
- *   type: 'approval'
- * })
- *
- * if (approval.approved) {
- *   processRefund(order)
- * }
- * ```
- *
- * @example Wait for external webhook
- * ```typescript
- * // Workflow pauses until payment provider sends webhook
- * const paymentResult = await waitFor('payment.completed', {
- *   timeout: '30 minutes'
- * })
- *
- * if (paymentResult.success) {
- *   send.Order.paid({ orderId: order.id })
- * }
- * ```
- *
- * @example In approval workflow
- * ```typescript
- * async function processLargeRefund(refund: Refund) {
- *   // Escalate to manager for approval
- *   send.Approval.requested({
- *     type: 'refund',
- *     amount: refund.amount,
- *     customerId: refund.customerId
- *   })
- *
- *   // Workflow hibernates until approval
- *   const decision = await waitFor('refund.decision')
- *
- *   return decision.approved
- *     ? executeRefund(refund)
- *     : rejectRefund(refund, decision.reason)
- * }
- * ```
- */
 export function waitFor(
   eventName: string,
   options: { timeout?: string; type?: string } = {}
@@ -825,66 +487,15 @@ type DomainCallable = {
 }
 
 /**
- * Factory for creating callable domain objects.
+ * Creates a domain that can be called directly without $ prefix.
  *
- * Domains encapsulate related business logic and can be invoked directly
- * in workflow expressions. They integrate with the pipeline promise system
- * for deferred execution and promise pipelining.
- *
- * @param name - Unique identifier for the domain
- * @param handlers - Object mapping method names to handler functions
- * @returns A callable domain object that creates pipeline expressions
- *
- * @example Basic domain definition
- * ```typescript
+ * @example
  * const CRM = Domain('CRM', {
- *   createAccount: (customer) => ({
- *     id: generateId(),
- *     ...customer,
- *     createdAt: new Date()
- *   }),
- *   sendWelcome: (account) => {
- *     return sendEmail({
- *       to: account.email,
- *       template: 'welcome'
- *     })
- *   }
- * })
- * ```
- *
- * @example Using domain in workflows
- * ```typescript
- * // Direct invocation returns PipelinePromise
- * const account = CRM(customer).createAccount()
- * const emailResult = CRM(account).sendWelcome()
- *
- * // Can be awaited when needed
- * const result = await account
- * ```
- *
- * @example Chaining domain calls
- * ```typescript
- * const Inventory = Domain('Inventory', {
- *   check: (product) => getStock(product.id),
- *   reserve: (product, quantity) => reserveStock(product.id, quantity),
- *   release: (reservation) => releaseStock(reservation.id)
+ *   createAccount: (customer) => ({ id: '123' })
  * })
  *
- * const Shipping = Domain('Shipping', {
- *   calculate: (order) => calculateRates(order),
- *   create: (order, rate) => createShipment(order, rate)
- * })
- *
- * // Compose domains in workflows
- * async function fulfillOrder(order: Order) {
- *   const stock = await Inventory(order.product).check()
- *   if (stock.available >= order.quantity) {
- *     const reservation = await Inventory(order.product).reserve(order.quantity)
- *     const rates = await Shipping(order).calculate()
- *     return Shipping(order).create(rates[0])
- *   }
- * }
- * ```
+ * // Use directly - returns PipelinePromise
+ * const result = CRM(customer).createAccount()
  */
 export function Domain(name: string, handlers: Record<string, Function>): DomainCallable {
   // Register with base domain system

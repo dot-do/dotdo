@@ -1,128 +1,13 @@
 /**
- * @module audit-logger
+ * AuditLogger - Comprehensive audit logging system for the dotdo platform
  *
- * Audit Logger Primitive - Tamper-evident audit logging for the dotdo platform.
- *
- * Provides append-only audit event storage with cryptographic signing, chain
- * verification, retention management, and compliance reporting. Built for
- * regulatory requirements (SOC 2, GDPR, HIPAA) and security monitoring.
- *
- * ## Features
- *
- * - **Append-only storage** for immutable audit trail
- * - **Cryptographic signing** using HMAC for tamper detection
- * - **Chain verification** for log integrity validation
- * - **Retention policies** with automatic archival
- * - **Compliance reports** with summary statistics
- * - **Fluent query builder** for log analysis
- * - **State diff tracking** for change auditing
- *
- * @example Basic Audit Logging
- * ```typescript
- * import { AuditLogger, AuditStore } from 'dotdo/primitives/audit-logger'
- *
- * const store = new AuditStore()
- * const logger = new AuditLogger({
- *   store,
- *   config: {
- *     signing: true,
- *     signingKey: process.env.AUDIT_SIGNING_KEY,
- *   },
- * })
- *
- * // Log an event
- * await logger.log({
- *   action: 'update',
- *   actor: { id: 'user-123', type: 'user' },
- *   resource: { id: 'doc-456', type: 'document' },
- *   outcome: 'success',
- *   metadata: { changes: { title: 'New Title' } },
- * })
- * ```
- *
- * @example Query Audit Logs
- * ```typescript
- * import { AuditQueryBuilder } from 'dotdo/primitives/audit-logger'
- *
- * const builder = new AuditQueryBuilder(logger)
- *
- * const result = await builder
- *   .withAction('delete')
- *   .byActorType('user')
- *   .forResourceType('document')
- *   .inDateRange(startDate, endDate)
- *   .sortBy('timestamp', 'desc')
- *   .limit(100)
- *   .execute()
- *
- * console.log(result.events, result.total)
- * ```
- *
- * @example Chain Verification
- * ```typescript
- * import { ChainVerifier } from 'dotdo/primitives/audit-logger'
- *
- * const verifier = new ChainVerifier({ key: signingKey })
- * const result = verifier.verifyChain(events)
- *
- * if (!result.valid) {
- *   console.error(`Chain broken at event ${result.brokenAtEvent}`)
- *   console.error(`Error: ${result.error}`)
- * }
- * ```
- *
- * @example Compliance Reports
- * ```typescript
- * const report = await logger.export({
- *   dateRange: { from: startOfMonth, to: endOfMonth },
- *   includeEvents: true,
- *   verifyChain: true,
- * })
- *
- * console.log('Summary:', report.summary)
- * console.log('Total events:', report.summary.totalEvents)
- * console.log('Events by action:', report.summary.eventsByAction)
- * console.log('Chain integrity:', report.chainIntegrity?.verified)
- * ```
- *
- * @example Retention Policies
- * ```typescript
- * import { RetentionManager } from 'dotdo/primitives/audit-logger'
- *
- * const retentionManager = new RetentionManager({
- *   store,
- *   policy: {
- *     retentionDays: 365,
- *     archiveBeforeDelete: true,
- *   },
- *   archiveStore: archiveStore,
- * })
- *
- * // Run daily to enforce retention
- * await retentionManager.enforce()
- * ```
- *
- * @example Track State Changes
- * ```typescript
- * import { computeDiff } from 'dotdo/primitives/audit-logger'
- *
- * const before = { name: 'Old', status: 'draft' }
- * const after = { name: 'New', status: 'published', author: 'Jane' }
- *
- * const diff = computeDiff(before, after)
- * // diff.changed = { name: { old: 'Old', new: 'New' }, status: { old: 'draft', new: 'published' } }
- * // diff.added = { author: 'Jane' }
- * // diff.removed = {}
- *
- * await logger.log({
- *   action: 'update',
- *   actor: { id: 'user-1', type: 'user' },
- *   resource: { id: 'doc-1', type: 'document' },
- *   metadata: { diff },
- * })
- * ```
- *
- * @packageDocumentation
+ * Features:
+ * - Append-only audit event storage
+ * - Cryptographic signing for tamper detection
+ * - Chain verification for integrity
+ * - Retention policies with archival
+ * - Compliance report generation
+ * - Fluent query builder
  */
 
 export * from './types'

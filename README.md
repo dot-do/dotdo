@@ -1,182 +1,85 @@
-# [dotdo](https://dotdo.dev)
+# [.do](https://platform.do)
 
-**Edge-native runtime for Durable Objects.** The missing Node.js for V8 isolates—extended primitives, graph-based state, and zero cold starts.
+**Build your 1-Person Unicorn.**
 
 ```typescript
-import { DOBase, $ } from 'dotdo'
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
 
-export class MyApp extends DOBase {
-  async onRequest(request: Request) {
-    // Full POSIX filesystem on SQLite
-    await $.fs.write('data/config.json', { version: '1.0' })
+export class MyStartup extends Startup {
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
 
-    // Git operations without shelling out
-    await $.git.commit('feat: initial setup')
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
 
-    // Event-driven architecture
-    $.on.User.created(user => this.onboard(user))
+    mark`announce the launch`
+    sally`start selling`
 
-    // Cross-DO RPC with circuit breakers
-    await $.Tenant(id).notify()
+    // Your business is running. Go back to bed.
   }
 }
 ```
 
----
+You just deployed a startup with a product team, engineering, marketing, and sales.
 
-## What is dotdo?
-
-dotdo is a runtime layer for [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)—V8 isolates with SQLite storage, globally distributed with single-threaded consistency guarantees.
-
-**Think of it as Node.js for the edge:**
-
-| Node.js | dotdo |
-|---------|-------|
-| `fs` module | `fsx` (filesystem on SQLite) |
-| `child_process` | `bashx` (shell without VMs) |
-| `npm` | `npmx` (edge package management) |
-| `require()` | Cap'n Web RPC (promise pipelining) |
-
-V8 isolates lack the primitives developers expect. We built them from scratch, optimized for edge execution.
+It's Tuesday. You're one person.
 
 ---
 
-## The V8 Isolate Runtime
+## How This Actually Works
 
-A Cloudflare Worker is a **V8 isolate**—the same JavaScript engine that runs in Chrome. Think of it as a virtual browser tab:
+dotdo is built on [Cap'n Web](https://github.com/cloudflare/capnweb), an object-capability RPC system with promise pipelining. When you write:
 
-- **0ms cold start** (no container spin-up)
-- **Instant execution** (no process overhead)
-- **Global distribution** (runs in 300+ cities)
-- **Isolated by design** (no shared memory attacks)
+```typescript
+const spec = priya`define the MVP`
+const app = await ralph`build ${spec}`
+```
 
-A Durable Object adds **persistent state** to that isolate:
+You're making **one** network round trip, not two. The unawaited promise from `priya` is passed directly to `ralph`—the server receives the entire pipeline and executes it in one pass. This is **Promise Pipelining**.
 
-- **SQLite storage** (10GB per instance)
-- **Single-threaded consistency** (no locks needed)
-- **Guaranteed delivery** (exactly-once semantics)
-- **Location pinning** (data residency compliance)
+If you `await` each step, you force separate round trips. Only await what you actually need.
 
-dotdo extends this foundation with the primitives edge applications need.
+The template literal syntax (`priya\`...\``) isn't string interpolation—it's a remote procedure call. The agent receives your intent, executes with its tools, and returns structured output.
+
+```typescript
+// This runs as a single batch, not N separate calls
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+```
+
+The `.map()` isn't JavaScript's array method. It's a **Magic Map** that records your callback, sends it to the server, and replays it for each result. Record-replay, not code transfer. All in one network round trip.
 
 ---
 
-## Extended Primitives
+## Meet Your Team
 
-V8 isolates don't have filesystems, Git, or shells. We built them from scratch:
+| Agent | Role |
+|-------|------|
+| **Priya** | Product—specs, roadmaps, priorities |
+| **Ralph** | Engineering—builds what you need |
+| **Tom** | Tech Lead—architecture, code review |
+| **Rae** | Frontend—React, UI, accessibility |
+| **Mark** | Marketing—copy, content, launches |
+| **Sally** | Sales—outreach, demos, closing |
+| **Quinn** | QA—testing, edge cases, quality |
 
-### fsx: Filesystem on SQLite
-
-```typescript
-await $.fs.write('data/report.json', data)
-await $.fs.read('content/index.mdx')
-await $.fs.glob('**/*.ts')
-await $.fs.mkdir('uploads', { recursive: true })
-```
-
-Full POSIX semantics implemented on DO SQLite. Not a wrapper—a complete filesystem:
-
-- **Inodes** stored as rows
-- **Directory trees** as hierarchical queries
-- **Tiered storage**: hot (SQLite) -> warm (R2) -> cold (archive)
-- Works anywhere V8 runs
-
-### gitx: Git on fsx + R2
+Each agent has real identity—email, GitHub account, avatar. When Tom reviews your PR, you'll see `@tom-do` commenting. They're not chatbots. They're workers.
 
 ```typescript
-await $.git.clone('https://github.com/org/repo')
-await $.git.checkout('feature-branch')
-await $.git.commit('feat: add new feature')
-await $.git.push('origin', 'main')
+import { priya, ralph, tom, mark, quinn } from 'agents.do'
+
+priya`what should we build next?`
+ralph`implement the user dashboard`
+tom`review the pull request`
+mark`write a blog post about our launch`
+quinn`test ${feature} thoroughly`
 ```
 
-Complete Git internals reimplemented for edge:
-
-- **Blobs, trees, commits** stored in R2 (content-addressable)
-- **SHA-1 hashing** via `crypto.subtle`
-- **Refs** tracked in DO metadata
-- **Event-driven sync** when repos change
-
-### bashx: Shell Without VMs
-
-```typescript
-const result = await $.bash`npm install && npm run build`
-await $.bash`ffmpeg -i input.mp4 -c:v libx264 output.mp4`
-await $.bash`python analyze.py --input ${data}`
-```
-
-Shell execution without spawning VMs:
-
-- **AST-based safety analysis** (tree-sitter parsing)
-- **Native file ops** (cat, ls, head use fsx directly)
-- **Tiered execution**: pure JS -> Workers -> Containers
-- **Sandboxed per-request** with resource limits
-
-### npmx & pyx
-
-Package management and Python execution on the edge:
-
-```typescript
-await $.npm.install('lodash')
-await $.py`import pandas; df = pandas.read_csv('data.csv')`
-```
-
----
-
-## Graph-Based State Management
-
-dotdo uses a graph model for state—Things connected by Relationships:
-
-```typescript
-// Create entities
-const customer = await $.things.create({ type: 'Customer', name: 'Alice' })
-const order = await $.things.create({ type: 'Order', total: 150 })
-
-// Connect them
-await $.relationships.create({
-  from: customer.id,
-  to: order.id,
-  type: 'placed'
-})
-
-// Traverse the graph
-const orders = await $.things.related(customer.id, 'placed')
-```
-
-### Why Graphs?
-
-Traditional ORMs force you to think in tables. Real applications think in relationships:
-
-- **User** owns **Documents**
-- **Order** contains **LineItems**
-- **Team** includes **Members**
-
-The graph model makes these natural. No foreign keys, no join tables—just Things and Relationships.
-
-### Storage Tiers
-
-```
-+---------------------------------------------------------------------+
-|                    HOT: DO SQLite                                   |
-|  Active working set. 50ms reads. 10GB per shard.                    |
-+-----------------------------+---------------------------------------+
-                              | Cloudflare Pipelines (streaming)
-                              v
-+---------------------------------------------------------------------+
-|                  WARM: R2 + Iceberg/Parquet                         |
-|  Cross-DO queries. 100-150ms. Partitioned by (ns, type, visibility) |
-+-----------------------------+---------------------------------------+
-                              | R2 SQL / ClickHouse
-                              v
-+---------------------------------------------------------------------+
-|                  COLD: ClickHouse + R2 Archive                      |
-|  Analytics, aggregations, time-series. Pennies per TB.              |
-+---------------------------------------------------------------------+
-```
-
-Data flows automatically. Old versions archive to R2. Analytics stream to Iceberg. You query with SQL.
-
-**R2 has $0 egress.** Your analytics cost pennies, not thousands.
+No method names. No parameters. No awaits. Just say what you want.
 
 ---
 
@@ -209,61 +112,152 @@ The event DSL uses Proxies. `$.on.Customer` returns a Proxy. `.signup` returns a
 
 ---
 
-## Cap'n Web RPC
+## Connect From Anywhere
 
-dotdo uses [Cap'n Web](https://github.com/cloudflare/capnweb), an object-capability RPC system with promise pipelining:
-
-```typescript
-// This is ONE network round trip, not two
-const user = $.User(id)
-const orders = user.orders()
-const total = orders.sum('amount')
-const result = await total  // Only await at the end
-```
-
-**Promise Pipelining:** Unawaited promises pass directly to servers. The server receives the entire pipeline and executes it in one pass.
-
-```typescript
-// Magic Map - runs server-side, one round trip
-const results = await $.Users.list()
-  .map(user => user.orders.count())
-```
-
-The `.map()` isn't JavaScript's array method. It records your callback, sends it to the server, and replays it for each result. Record-replay, not code transfer.
-
-### Connect From Anywhere
-
-Your Durable Object is already an API. No routes to define.
+Your Durable Object is already an API. No routes to define. No schemas to maintain.
 
 ```typescript
 import { $Context } from 'dotdo'
 
-const $ = $Context('https://api.example.com')
+const $ = $Context('https://my-startup.example.com.ai')
 await $.Customer('alice').orders.create({ item: 'widget', qty: 5 })
 ```
 
-Works in browsers, Node.js, mobile apps, other Workers. The client is a Proxy that records calls, sends them as a single request, and returns the result.
+The same promise pipelining works over HTTP. One round trip for the entire chain. Your DO methods become your API automatically.
+
+```typescript
+// Local development
+import { $ } from 'dotdo'
+await $.Customer('alice')  // Auto-connects to localhost or do.config.ts
+```
+
+Works in browsers, Node.js, mobile apps, other Workers. The client is just a Proxy—it records your calls, sends them as a single request, and returns the result. No SDK generation. No API versioning headaches. Your code IS your contract.
 
 ---
 
-## 40+ API-Compatible SDKs
+## The DO in .do
+
+dotdo runs on [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)—V8 isolates with SQLite storage, globally distributed with single-threaded consistency guarantees. But we've added layers:
+
+### Sharding
+
+A single DO has a 10GB SQLite limit. We shard automatically:
+
+```typescript
+// Hash-based distribution across 16 shards
+await startup.shard({
+  key: 'customerId',
+  count: 16,
+  strategy: 'hash'  // or 'range', 'round-robin', custom
+})
+```
+
+Maximum 1000 shards per DO. Consistent hashing minimizes redistribution on scale events.
+
+### Geo-Replication
+
+```typescript
+await startup.replicate({
+  primary: 'us-east',
+  secondaries: ['eu-west', 'asia-pacific'],
+  readPreference: 'nearest',  // or 'primary', 'secondary'
+})
+```
+
+Read from the closest replica. Write to primary. Automatic failover.
+
+### City/Colo Targeting
+
+```typescript
+await thing.promote({
+  colo: 'Tokyo',     // IATA code: 'nrt'
+  region: 'asia-pacific',
+  preserveHistory: true
+})
+```
+
+24 IATA codes. 9 geographic regions. Data residency compliance built in.
+
+### Promote/Demote
+
+Scale dynamically. Start as a Thing (row in parent DO), promote to independent DO when it needs isolation:
+
+```typescript
+// Thing → Durable Object
+const newDO = await customer.promote({
+  namespace: 'https://customers.acme.com',
+  colo: 'Frankfurt'  // GDPR compliance
+})
+
+// Durable Object → Thing (fold back in)
+await customer.demote({ preserveHistory: true })
+```
+
+---
+
+## Tiered Storage: Hot → Warm → Cold
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    HOT: DO SQLite                                   │
+│  Active working set. 50ms reads. 10GB per shard.                   │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ Cloudflare Pipelines (streaming)
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                  WARM: R2 + Iceberg/Parquet                         │
+│  Cross-DO queries. 100-150ms. Partitioned by (ns, type, visibility) │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ R2 SQL / ClickHouse
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                  COLD: ClickHouse + R2 Archive                      │
+│  Analytics, aggregations, time-series. Pennies per TB.              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+Data flows automatically. Old versions archive to R2. Analytics stream to Iceberg. You query with SQL.
+
+**Why this matters:** Traditional data warehouses charge per-query compute and massive egress fees. Cloudflare R2 has **$0 egress**. Your analytics cost pennies, not thousands.
+
+---
+
+## Pricing Reality Check
+
+| Service | Egress | Storage | Compute |
+|---------|--------|---------|---------|
+| **Cloudflare R2** | **$0** | $0.015/GB-mo | Operations only |
+| **AWS S3** | $0.09/GB | $0.023/GB-mo | + transfer fees |
+| **Snowflake** | $0.05-0.12/GB | Credit-based | Warehouse costs |
+| **BigQuery** | $0.05-0.12/GB | $0.02/GB-mo | $5/TB queried |
+
+With R2:
+- **10GB free** storage
+- **10M free** Class B operations/month
+- **$0 egress forever**
+
+We're not subsidizing this. Cloudflare's network architecture makes egress free. Your data warehouse runs at a fraction of legacy costs.
+
+---
+
+## 38 API-Compatible SDKs
 
 Use the APIs you already know. We've built edge-native compatibility layers:
 
 **Databases:**
-`@dotdo/postgres` `@dotdo/mysql` `@dotdo/mongo` `@dotdo/supabase` `@dotdo/firebase` `@dotdo/neon` `@dotdo/planetscale` `@dotdo/cockroach` `@dotdo/tidb` `@dotdo/turso` `@dotdo/duckdb` `@dotdo/couchdb`
+`@dotdo/postgres` · `@dotdo/mysql` · `@dotdo/mongo` · `@dotdo/supabase` · `@dotdo/firebase` · `@dotdo/neon` · `@dotdo/planetscale` · `@dotdo/cockroach` · `@dotdo/tidb` · `@dotdo/turso` · `@dotdo/duckdb` · `@dotdo/couchdb`
 
 **Messaging:**
-`@dotdo/kafka` `@dotdo/redis` `@dotdo/nats` `@dotdo/sqs` `@dotdo/pubsub`
+`@dotdo/kafka` · `@dotdo/redis` · `@dotdo/nats` · `@dotdo/sqs` · `@dotdo/pubsub`
 
 **Real-time:**
-`@dotdo/pusher` `@dotdo/ably` `@dotdo/socketio`
+`@dotdo/pusher` · `@dotdo/ably` · `@dotdo/socketio`
 
 **Search:**
-`@dotdo/elasticsearch` `@dotdo/algolia` `@dotdo/meilisearch` `@dotdo/typesense` `@dotdo/orama`
+`@dotdo/elasticsearch` · `@dotdo/algolia` · `@dotdo/meilisearch` · `@dotdo/typesense` · `@dotdo/orama`
 
 **Vector:**
-`@dotdo/pinecone` `@dotdo/qdrant` `@dotdo/weaviate` `@dotdo/chroma`
+`@dotdo/pinecone` · `@dotdo/qdrant` · `@dotdo/weaviate` · `@dotdo/chroma`
 
 **Graph:**
 `@dotdo/neo4j`
@@ -276,11 +270,102 @@ const supabase = createClient(url, key)
 const { data } = await supabase.from('users').select('*')
 ```
 
-Same API. But running on Durable Objects with automatic sharding, geo-replication, and tiered storage.
+Same API. But running on Durable Objects with automatic sharding, geo-replication, and tiered storage. Your existing code works. Your AI agents can use familiar APIs. It scales to millions.
 
-### Why Compat Layers?
+---
 
-Every one of these services breaks under parallel load:
+## Why We Rebuilt Everything
+
+We didn't want to reimplement Git, Bash, MongoDB, Kafka, and Supabase from scratch.
+
+But when we dispatched 10,000 parallel AI agents, everything crumbled:
+- **Databases** hit connection limits and lock contention
+- **Filesystems** couldn't handle concurrent writes
+- **Git** servers choked on parallel clone operations
+- **Message queues** backed up under sustained load
+
+The fundamental problem: traditional infrastructure was built for **thousands of human users**, not **millions of parallel AI agents**.
+
+So we rebuilt everything on a different primitive.
+
+---
+
+## The V8 Isolate: A Virtual Chrome Tab
+
+A Cloudflare Worker is a **V8 isolate**—the same JavaScript engine that runs in Chrome. Think of it as a virtual browser tab:
+
+- **0ms cold start** (no container spin-up)
+- **Instant execution** (no process overhead)
+- **Global distribution** (runs in 300+ cities)
+- **Isolated by design** (no shared memory attacks)
+
+A Durable Object adds **persistent state** to that isolate:
+- **SQLite storage** (10GB per instance)
+- **Single-threaded consistency** (no locks needed)
+- **Guaranteed delivery** (exactly-once semantics)
+- **Location pinning** (data residency compliance)
+
+This is the primitive we built on. Not VMs. Not containers. **V8 isolates with durable state, running on the edge, right next to your users.**
+
+---
+
+## Extended Primitives: What V8 Isolates Can't Do
+
+V8 isolates don't have filesystems, Git, or shells. We built them from scratch:
+
+### fsx: Filesystem on SQLite
+
+```typescript
+await $.fs.write('data/report.json', data)
+await $.fs.read('content/index.mdx')
+await $.fs.glob('**/*.ts')
+await $.fs.mkdir('uploads', { recursive: true })
+```
+
+Full POSIX semantics implemented on DO SQLite. Not a wrapper—a complete filesystem:
+- **Inodes** stored as rows
+- **Directory trees** as hierarchical queries
+- **Tiered storage**: hot (SQLite) → warm (R2) → cold (archive)
+- Works anywhere V8 runs
+
+### gitx: Git on fsx + R2
+
+```typescript
+await $.git.clone('https://github.com/org/repo')
+await $.git.checkout('feature-branch')
+await $.git.commit('feat: add new feature')
+await $.git.push('origin', 'main')
+```
+
+Complete Git internals reimplemented for edge:
+- **Blobs, trees, commits** stored in R2 (content-addressable)
+- **SHA-1 hashing** via `crypto.subtle`
+- **Refs** tracked in DO metadata
+- **Event-driven sync** when repos change
+
+Your agents can version control without shelling out to `git`.
+
+### bashx: Shell Without VMs
+
+```typescript
+const result = await $.bash`npm install && npm run build`
+await $.bash`ffmpeg -i input.mp4 -c:v libx264 output.mp4`
+await $.bash`python analyze.py --input ${data}`
+```
+
+Shell execution without spawning VMs:
+- **AST-based safety analysis** (tree-sitter parsing)
+- **Native file ops** (cat, ls, head use fsx directly)
+- **Tiered execution**: pure JS → Workers → Containers
+- **Sandboxed per-request** with resource limits
+
+Commands are parsed, classified by impact (read/write/delete/network/system), and blocked if dangerous unless explicitly confirmed.
+
+---
+
+## Why the Compat Layer Exists
+
+We built 38 API-compatible SDKs because developers know these APIs—and because every one of them breaks under parallel agent load:
 
 | Original | Problem at Scale | @dotdo Solution |
 |----------|------------------|-----------------|
@@ -290,99 +375,151 @@ Every one of these services breaks under parallel load:
 | **Kafka** | Partition rebalancing storms | DO-native queues |
 | **Postgres** | Connection exhaustion | Per-tenant DO isolation |
 
----
-
-## DO Proxy Workers
-
-Route requests to Durable Objects with the `API()` factory:
-
-```typescript
-import { API } from 'dotdo'
-
-// Hostname mode (default) - subdomain -> DO namespace
-export default API()  // tenant.api.dotdo.dev -> DO('tenant')
-
-// Path param routing (Express-style)
-export default API({ ns: '/:org' })  // api.dotdo.dev/acme/users -> DO('acme')
-
-// Nested path params
-export default API({ ns: '/:org/:project' })  // -> DO('acme:proj1')
-
-// Fixed namespace (singleton DO)
-export default API({ ns: 'main' })
-```
+Each compat package provides the **exact same API** but runs on Durable Objects with automatic sharding, replication, and tiering. Your code doesn't change. It just scales.
 
 ---
 
-## Sharding & Replication
+## Humans When It Matters (humans.do)
 
-### Automatic Sharding
-
-A single DO has a 10GB SQLite limit. We shard automatically:
+AI does the work. Humans make the decisions.
 
 ```typescript
-await app.shard({
-  key: 'customerId',
-  count: 16,
-  strategy: 'hash'  // or 'range', 'round-robin', custom
+import { legal, ceo, cfo } from 'humans.do'
+
+// Same syntax as agents
+const contract = await legal`review this agreement`
+const approved = await ceo`approve the partnership`
+
+// With SLA and channel
+const reviewed = await legal`review contract for ${amount}`
+  .timeout('4 hours')
+  .via('slack')
+
+// Custom roles
+import { createHumanTemplate } from 'humans.do'
+const seniorAccountant = createHumanTemplate('senior-accountant')
+await seniorAccountant`approve refund over ${amount}`
+
+// Or explicit escalation
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000 OR audit_risk > 0.8',
+  role: 'senior-accountant',
+  sla: '4 hours',
 })
 ```
 
-Maximum 1000 shards per DO. Consistent hashing minimizes redistribution on scale events.
+### Two Human APIs
 
-### Geo-Replication
-
-```typescript
-await app.replicate({
-  primary: 'us-east',
-  secondaries: ['eu-west', 'asia-pacific'],
-  readPreference: 'nearest',
-})
-```
-
-Read from the closest replica. Write to primary. Automatic failover.
-
-### City/Colo Targeting
+- **`$.human.*`** — Internal escalation (employees, org roles)
+- **`$.user.*`** — End-user interaction (app users)
 
 ```typescript
-await thing.promote({
-  colo: 'Tokyo',     // IATA code: 'nrt'
-  region: 'asia-pacific',
-})
+// Internal escalation
+await $.human.approve('Approve this expense?', { role: 'cfo' })
+
+// End-user interaction
+const confirmed = await $.user.confirm('Delete this item?')
+const name = await $.user.prompt('Enter your name')
+const size = await $.user.select('Choose size', ['S', 'M', 'L'])
 ```
 
-24 IATA codes. 9 geographic regions. Data residency compliance built in.
+### Multi-Channel Notifications
 
-### Promote/Demote
+| Channel | Description |
+|---------|-------------|
+| **Slack BlockKit** | Interactive messages with approve/reject buttons |
+| **Discord** | Webhook with embeds and reactions |
+| **Email** | HTML templates with action links |
+| **MDXUI Chat** | In-app real-time chat interface |
 
-Scale dynamically. Start as a Thing (row in parent DO), promote to independent DO when it needs isolation:
-
-```typescript
-// Thing -> Durable Object
-const newDO = await customer.promote({
-  namespace: 'https://customers.acme.com',
-  colo: 'Frankfurt'  // GDPR compliance
-})
-
-// Durable Object -> Thing (fold back in)
-await customer.demote({ preserveHistory: true })
-```
+Messages route to Slack, email, SMS. Your workflow waits for response. Full audit trail.
 
 ---
 
-## Base Classes
+## The Journey
+
+### 1. Foundation Sprint
+
+Before you build, get clarity. Define customer, problem, differentiation:
 
 ```typescript
-import { DOBase, Entity } from 'dotdo'
+const hypothesis = await $.foundation({
+  customer: 'Freelance developers who hate tax season',
+  problem: 'Spending 20+ hours on taxes instead of shipping code',
+  differentiation: 'AI does 95%, human CPA reviews edge cases',
+})
 
-// DOBase - full-featured base class
-export class MyApp extends DOBase {
-  // REST router, SQLite, persistence, RPC
-}
+// Output: "If we help freelance developers automate tax preparation
+// with AI-powered analysis and human CPA oversight, they will pay
+// $299/year because it saves them 20+ hours."
+```
 
-// Entity - domain objects with CRUD
-export class Customer extends Entity {
-  // Automatic REST endpoints, validation, events
+### 2. Experimentation Machine
+
+Test your hypothesis with built-in HUNCH metrics:
+
+```typescript
+const pmf = await $.measure({
+  hairOnFire: metrics.urgency,        // Is this a must-have?
+  usage: metrics.weeklyActive,         // Are they using it?
+  nps: metrics.netPromoterScore,       // Would they recommend?
+  churn: metrics.monthlyChurn,         // Are they staying?
+  ltv_cac: metrics.lifetimeValue / metrics.acquisitionCost,
+})
+
+await $.experiment('pricing-test', {
+  variants: ['$199/year', '$299/year', '$29/month'],
+  metric: 'conversion_rate',
+  confidence: 0.95,
+})
+```
+
+### 3. Autonomous Business
+
+When you find PMF, scale. Agents operate. You set policy.
+
+```typescript
+$.on.Customer.signup((customer) => {
+  agents.onboarding.welcome(customer)
+  agents.support.scheduleCheckin(customer, '24h')
+})
+
+$.on.Return.completed(async (return_) => {
+  const review = await agents.qa.review(return_)
+  if (review.confidence > 0.95) {
+    agents.filing.submit(return_)
+  } else {
+    humans.cpa.review(return_)
+  }
+})
+
+$.every.month.on(1).at('9am')(() => {
+  agents.billing.processSubscriptions()
+  agents.reporting.generateMRR()
+})
+```
+
+Revenue flows. Profit compounds. You're one person.
+
+---
+
+## Quick Start
+
+```bash
+npm install dotdo
+npx dotdo init my-startup
+npx dotdo dev
+```
+
+```typescript
+import { Startup } from 'dotdo'
+
+export class MyStartup extends Startup {
+  hypothesis = {
+    customer: 'Who you serve',
+    problem: 'What pain you solve',
+    solution: 'How you solve it',
+  }
 }
 ```
 
@@ -391,84 +528,48 @@ export class Customer extends Entity {
 ## Architecture
 
 ```
-objects/       # Durable Object classes - the core runtime
-  DOBase.ts    # Base class with REST router, SQLite, persistence
-  Entity.ts    # Domain objects with CRUD
-  Workflow*.ts # Workflow runtime, factory, state machines
+api/           # Hono HTTP + middleware
+objects/       # Durable Object classes (DO.ts base, 72K lines)
+├── Agent.ts   # AI worker with tools
+├── Human.ts   # Approval workflows
+├── Entity.ts  # Domain objects
+└── Startup.ts # Business container
 types/         # TypeScript types (Thing, Noun, Verb, WorkflowContext)
 db/            # Drizzle schemas + tiered storage
-  iceberg/     # Parquet navigation (50-150ms)
-  stores.ts    # Things, Actions, Events, Search
+├── iceberg/   # Parquet navigation (50-150ms)
+├── clickhouse.ts  # Analytics queries
+└── stores.ts  # Things, Actions, Events, Search
 workflows/     # $ context DSL
-  on.ts        # Event handlers via two-level proxy
-  proxy.ts     # Pipeline promises
-  context/     # Execution modes
-compat/        # 40+ API-compatible SDKs
-primitives/    # Edge-native implementations
-  fsx/         # Filesystem on SQLite
-  gitx/        # Git on R2
-  bashx/       # Shell without VMs
-  npmx/        # Package management
-  pyx/         # Python execution
-api/           # Hono HTTP + middleware
-workers/       # DO proxy workers
-lib/           # Shared utilities
+├── on.ts      # Event handlers
+├── proxy.ts   # Pipeline promises
+└── context/   # Execution modes
+compat/        # 38 API-compatible SDKs
+agents/        # Multi-provider agent SDK
 ```
 
 ---
 
-## Quick Start
-
-```bash
-npm install dotdo
-npx dotdo init my-app
-npx dotdo dev
-```
-
-```typescript
-import { DOBase } from 'dotdo'
-
-export class MyApp extends DOBase {
-  async fetch(request: Request) {
-    return new Response('Hello from the edge')
-  }
-}
-```
-
----
-
-## Technical Foundation
+## The Technical Foundation
 
 - **Runtime:** Cloudflare Workers (V8 isolates, 0ms cold starts)
 - **Storage:** Durable Objects (SQLite, single-threaded consistency)
 - **Object Storage:** R2 ($0 egress, Iceberg/Parquet)
 - **Analytics:** ClickHouse (time-series, aggregations)
-- **RPC:** Cap'n Web (promise pipelining)
+- **RPC:** Cap'n Web (promise pipelining, magic map)
+- **Agents:** Unified SDK (Claude, OpenAI, Vercel AI)
+- **UI:** [MDXUI](https://mdxui.dev) (Beacon sites, Cockpit apps)
+- **Auth:** [org.ai](https://id.org.ai) (federated identity, AI + humans)
 
 ---
 
-## What You Can Build
+**Solo founders** — Get a team without hiring one.
 
-dotdo provides the infrastructure for:
+**Small teams** — AI does the work, humans decide.
 
-- **Multi-tenant SaaS** with per-tenant isolation
-- **Real-time collaboration** with guaranteed delivery
-- **AI agents** with persistent memory and tool access
-- **E-commerce platforms** with inventory management
-- **IoT backends** with edge processing
-- **Autonomous systems** with durable workflows
-
-The runtime handles the hard parts—state management, sharding, replication, and primitives. You focus on your application logic.
+**Growing startups** — Add humans without changing code.
 
 ---
 
-## Related Projects
-
-- [agents.do](https://agents.do) - AI agents built on dotdo
-- [workers.do](https://workers.do) - Teams of AI workers
-- [workflows.do](https://workflows.do) - Visual workflow builder
-- [platform.do](https://platform.do) - Unified platform
-
----
+[platform.do](https://platform.do) · [agents.do](https://agents.do) · [workers.do](https://workers.do) · [workflows.do](https://workflows.do)
 
 MIT License

@@ -207,7 +207,7 @@ describe('InMemoryAgentMemory', () => {
       expect(updated).not.toBeNull()
       expect(updated?.content).toBe('Updated content')
       expect(updated?.type).toBe('long-term')
-      expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(created.createdAt.getTime())
+      expect(updated?.updatedAt.getTime()).toBeGreaterThan(created.createdAt.getTime())
     })
 
     it('should return null when updating non-existent memory', async () => {
