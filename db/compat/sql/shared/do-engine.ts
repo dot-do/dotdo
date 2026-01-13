@@ -28,22 +28,22 @@
 import {
   ShardManager,
   extractShardKey,
-  type ShardConfig,
-  type ShardQueryResult,
-  DEFAULT_SHARD_CONFIG,
 } from '../../../core/shard'
-import {
-  ReplicaManager,
-  type ReplicaConfig,
-  type WriteResult,
-} from '../../../core/replica'
-import type { TierConfig } from '../../../core/types'
+import type { ShardQueryResult } from '../../../core/shard'
+import { ReplicaManager } from '../../../core/replica'
+import type {
+  ShardConfig,
+  ReplicaConfig,
+  TierConfig,
+} from '../../../core/types'
+import { DEFAULT_SHARD_CONFIG } from '../../../core/types'
 import {
   detectCommand,
   translateDialect,
 } from './parser'
 import type {
   SQLValue,
+  StorageValue,
   ExecutionResult,
   DialectConfig,
   TransactionMode,
@@ -85,7 +85,7 @@ export interface DOSQLEngineConfig {
 interface DOSQLResponse {
   columns: string[]
   columnTypes: string[]
-  rows: SQLValue[][]
+  rows: StorageValue[][]
   affectedRows: number
   lastInsertRowid: number
   changedRows: number

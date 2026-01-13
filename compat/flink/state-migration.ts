@@ -690,9 +690,11 @@ export class VersionedJsonSerializer<T> implements StateSerializer<T> {
   }
 
   createMigrator(fromVersion: number): StateMigrator<unknown, T> | null {
-    // Check for direct migrator
+    // Check for direct migrator that goes directly to target version
     const direct = this.migrators.get(fromVersion)
-    if (direct) return direct
+    if (direct && direct.toVersion === this.version) {
+      return direct
+    }
 
     // Build migration chain
     const chain: StateMigrator<unknown, unknown>[] = []

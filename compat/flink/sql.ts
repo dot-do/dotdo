@@ -2866,28 +2866,3 @@ export class StreamTableEnvironment extends TableEnvironment {
   }
 }
 
-// ===========================================================================
-// Exports
-// ===========================================================================
-
-export {
-  TableEnvironment,
-  StreamTableEnvironment,
-  Table,
-  TableResult,
-  Schema,
-  SchemaBuilder,
-  DataType,
-  DataTypes,
-  SqlParser,
-  SqlParseError,
-  Catalog,
-  Database,
-  EnvironmentSettings,
-  EnvironmentSettingsBuilder,
-  $,
-  lit,
-  ExpressionBuilder,
-  GroupedTable,
-  Row,
-}

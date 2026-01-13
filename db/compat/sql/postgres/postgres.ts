@@ -332,13 +332,21 @@ class PostgresPool extends EventEmitter implements IPool {
     reject: (err: Error) => void
   }> = []
   private _ended = false
-  private sharedEngine: SQLEngine
+  private sharedEngine: AnySQLEngine
 
   constructor(config?: string | PoolConfig | ExtendedPostgresConfig) {
     super()
     this.config = this.parseConfig(config)
     // All pool connections share the same engine for consistent state
-    this.sharedEngine = createSQLEngine(POSTGRES_DIALECT)
+    // Uses DOSQLEngine when DO namespace is configured with shard/replica options
+    this.sharedEngine = createEngineFromConfig(this.config)
+  }
+
+  /**
+   * Check if this pool is using a DO-backed engine
+   */
+  get isDOBacked(): boolean {
+    return isAsyncEngine(this.sharedEngine)
   }
 
   private parseConfig(config?: string | PoolConfig | ExtendedPostgresConfig): ExtendedPostgresConfig {
@@ -481,7 +489,7 @@ class PostgresPool extends EventEmitter implements IPool {
 class PostgresPoolClient extends PostgresClient implements PoolClient {
   private pool: PostgresPool
 
-  constructor(config: ExtendedPostgresConfig, pool: PostgresPool, sharedEngine: SQLEngine) {
+  constructor(config: ExtendedPostgresConfig, pool: PostgresPool, sharedEngine: AnySQLEngine) {
     super(config, sharedEngine)
     this.pool = pool
   }
