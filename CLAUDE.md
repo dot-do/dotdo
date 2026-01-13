@@ -204,6 +204,46 @@ bd close <id>                         # Complete
 bd sync                               # Sync with git
 ```
 
+### CRITICAL: Session Close Protocol
+
+**NEVER end a session without completing this checklist:**
+
+```bash
+# 1. Verify bd sync succeeded (MUST show "Sync complete")
+bd sync
+
+# 2. Verify JSONL was actually updated
+git status .beads/issues.jsonl
+# If modified, the sync worked. If clean but you made changes, SYNC FAILED.
+
+# 3. Check issue count matches expectations
+wc -l .beads/issues.jsonl
+
+# 4. Commit and push everything
+git add .beads/issues.jsonl
+git commit -m "bd sync: <description>"
+git push
+
+# 5. Verify push succeeded
+git status
+```
+
+**WARNING SIGNS that sync failed:**
+- `bd sync` shows "refusing to export" or validation errors
+- `git status .beads/issues.jsonl` shows no changes after creating issues
+- Issue count in JSONL doesn't match `bd stats` total
+
+**If sync fails:**
+1. Run `bd export --force` to force export
+2. If that fails, manually backup the SQLite: `cp .beads/beads.db .beads/beads.db.backup`
+3. Report the error - do NOT end session with unsynced data
+
+**Data lives in TWO places:**
+- `.beads/beads.db` (SQLite) - local working copy, NOT versioned
+- `.beads/issues.jsonl` (JSONL) - git-tracked, THIS is the source of truth
+
+If JSONL isn't updated and pushed, **all issue tracking work is lost** when the SQLite resets.
+
 ## Related
 
 - [MDXUI](https://mdxui.dev) — UI components (Beacon for sites, Cockpit for apps)
