@@ -432,6 +432,133 @@ export interface UsersLookupByEmailResponse extends SlackResponse {
 }
 
 // ============================================================================
+// CHAT EPHEMERAL & SCHEDULED TYPES
+// ============================================================================
+
+export interface ChatPostEphemeralArguments {
+  channel: string
+  user: string
+  text?: string
+  blocks?: Block[]
+  attachments?: Attachment[]
+  thread_ts?: string
+  as_user?: boolean
+  username?: string
+  icon_emoji?: string
+  icon_url?: string
+  link_names?: boolean
+  parse?: 'full' | 'none'
+}
+
+export interface ChatPostEphemeralResponse extends SlackResponse {
+  message_ts?: string
+}
+
+export interface ChatScheduleMessageArguments {
+  channel: string
+  post_at: number | string
+  text?: string
+  blocks?: Block[]
+  attachments?: Attachment[]
+  thread_ts?: string
+  reply_broadcast?: boolean
+  unfurl_links?: boolean
+  unfurl_media?: boolean
+  as_user?: boolean
+  metadata?: MessageMetadata
+}
+
+export interface ChatScheduleMessageResponse extends SlackResponse {
+  channel?: string
+  scheduled_message_id?: string
+  post_at?: number
+  message?: {
+    text?: string
+    username?: string
+    bot_id?: string
+    type?: string
+  }
+}
+
+export interface ChatDeleteScheduledMessageArguments {
+  channel: string
+  scheduled_message_id: string
+  as_user?: boolean
+}
+
+export interface ChatDeleteScheduledMessageResponse extends SlackResponse {}
+
+// ============================================================================
+// REACTIONS API TYPES
+// ============================================================================
+
+export interface ReactionsAddArguments {
+  channel: string
+  name: string
+  timestamp: string
+}
+
+export interface ReactionsAddResponse extends SlackResponse {}
+
+export interface ReactionsRemoveArguments {
+  channel: string
+  name: string
+  timestamp: string
+}
+
+export interface ReactionsRemoveResponse extends SlackResponse {}
+
+export interface ReactionsGetArguments {
+  channel: string
+  timestamp: string
+  full?: boolean
+}
+
+export interface Reaction {
+  name: string
+  count: number
+  users: string[]
+}
+
+export interface ReactionsGetResponse extends SlackResponse {
+  message?: SlackMessage & {
+    reactions?: Reaction[]
+  }
+  type?: string
+  channel?: string
+}
+
+export interface ReactionsListArguments {
+  user?: string
+  count?: number
+  cursor?: string
+  full?: boolean
+  limit?: number
+  page?: number
+  team_id?: string
+}
+
+export interface ReactedItem {
+  type: string
+  channel?: string
+  message?: SlackMessage & {
+    reactions?: Reaction[]
+  }
+  file?: unknown
+  comment?: unknown
+}
+
+export interface ReactionsListResponse extends SlackResponse {
+  items?: ReactedItem[]
+  paging?: {
+    count: number
+    page: number
+    pages: number
+    total: number
+  }
+}
+
+// ============================================================================
 // ERROR CLASS
 // ============================================================================
 
@@ -472,6 +599,7 @@ export class WebClient {
   readonly chat: ChatMethods
   readonly conversations: ConversationsMethods
   readonly users: UsersMethods
+  readonly reactions: ReactionsMethods
 
   constructor(token?: string, options: WebClientOptions = {}) {
     this._token = token
@@ -490,6 +618,7 @@ export class WebClient {
     this.chat = new ChatMethods(this)
     this.conversations = new ConversationsMethods(this)
     this.users = new UsersMethods(this)
+    this.reactions = new ReactionsMethods(this)
   }
 
   /**
@@ -677,12 +806,24 @@ class ChatMethods {
     return this.client._apiCall('chat.postMessage', args)
   }
 
+  async postEphemeral(args: ChatPostEphemeralArguments): Promise<ChatPostEphemeralResponse> {
+    return this.client._apiCall('chat.postEphemeral', args)
+  }
+
   async update(args: ChatUpdateArguments): Promise<ChatUpdateResponse> {
     return this.client._apiCall('chat.update', args)
   }
 
   async delete(args: ChatDeleteArguments): Promise<ChatDeleteResponse> {
     return this.client._apiCall('chat.delete', args)
+  }
+
+  async scheduleMessage(args: ChatScheduleMessageArguments): Promise<ChatScheduleMessageResponse> {
+    return this.client._apiCall('chat.scheduleMessage', args)
+  }
+
+  async deleteScheduledMessage(args: ChatDeleteScheduledMessageArguments): Promise<ChatDeleteScheduledMessageResponse> {
+    return this.client._apiCall('chat.deleteScheduledMessage', args)
   }
 }
 
@@ -783,5 +924,34 @@ class UsersMethods {
 
   async lookupByEmail(args: UsersLookupByEmailArguments): Promise<UsersLookupByEmailResponse> {
     return this.client._apiCall('users.lookupByEmail', args, 'GET')
+  }
+}
+
+// ============================================================================
+// REACTIONS METHODS
+// ============================================================================
+
+class ReactionsMethods {
+  constructor(private client: WebClient) {}
+
+  async add(args: ReactionsAddArguments): Promise<ReactionsAddResponse> {
+    // Strip colons from emoji name if present (e.g., :rocket: -> rocket)
+    const normalizedArgs = {
+      ...args,
+      name: args.name.replace(/^:|:$/g, ''),
+    }
+    return this.client._apiCall('reactions.add', normalizedArgs)
+  }
+
+  async remove(args: ReactionsRemoveArguments): Promise<ReactionsRemoveResponse> {
+    return this.client._apiCall('reactions.remove', args)
+  }
+
+  async get(args: ReactionsGetArguments): Promise<ReactionsGetResponse> {
+    return this.client._apiCall('reactions.get', args, 'GET')
+  }
+
+  async list(args: ReactionsListArguments = {}): Promise<ReactionsListResponse> {
+    return this.client._apiCall('reactions.list', args, 'GET')
   }
 }

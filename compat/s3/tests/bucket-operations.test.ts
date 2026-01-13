@@ -25,6 +25,21 @@ import {
   HeadBucketCommand,
   ListBucketsCommand,
   PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  // CORS commands
+  PutBucketCorsCommand,
+  GetBucketCorsCommand,
+  DeleteBucketCorsCommand,
+  // Lifecycle commands
+  PutBucketLifecycleConfigurationCommand,
+  GetBucketLifecycleConfigurationCommand,
+  DeleteBucketLifecycleCommand,
+  // Versioning commands
+  PutBucketVersioningCommand,
+  GetBucketVersioningCommand,
+  ListObjectVersionsCommand,
+  // Error classes
   NoSuchBucket,
   BucketAlreadyExists,
   BucketAlreadyOwnedByYou,
@@ -2165,138 +2180,3 @@ describe('S3 Bucket Operations (RED Phase)', () => {
   })
 })
 
-// =============================================================================
-// Placeholder Command Classes (to be implemented)
-// These represent commands that don't exist yet in the S3 compat layer
-// =============================================================================
-
-// CORS Commands
-class PutBucketCorsCommand {
-  constructor(readonly input: {
-    Bucket: string
-    CORSConfiguration: {
-      CORSRules: Array<{
-        AllowedOrigins: string[]
-        AllowedMethods: string[]
-        AllowedHeaders?: string[]
-        ExposeHeaders?: string[]
-        MaxAgeSeconds?: number
-      }>
-    }
-  }) {}
-}
-
-class GetBucketCorsCommand {
-  constructor(readonly input: { Bucket: string }) {}
-}
-
-class DeleteBucketCorsCommand {
-  constructor(readonly input: { Bucket: string }) {}
-}
-
-// Lifecycle Commands
-class PutBucketLifecycleConfigurationCommand {
-  constructor(readonly input: {
-    Bucket: string
-    LifecycleConfiguration: {
-      Rules: Array<{
-        ID?: string
-        Status: 'Enabled' | 'Disabled'
-        Filter?: {
-          Prefix?: string
-          Tag?: { Key: string; Value: string }
-          And?: {
-            Prefix?: string
-            Tags?: Array<{ Key: string; Value: string }>
-          }
-        }
-        Expiration?: {
-          Days?: number
-          Date?: Date
-          ExpiredObjectDeleteMarker?: boolean
-        }
-        Transitions?: Array<{
-          Days?: number
-          Date?: Date
-          StorageClass: string
-        }>
-        NoncurrentVersionExpiration?: {
-          NoncurrentDays: number
-          NewerNoncurrentVersions?: number
-        }
-        NoncurrentVersionTransitions?: Array<{
-          NoncurrentDays: number
-          StorageClass: string
-          NewerNoncurrentVersions?: number
-        }>
-        AbortIncompleteMultipartUpload?: {
-          DaysAfterInitiation: number
-        }
-      }>
-    }
-  }) {}
-}
-
-class GetBucketLifecycleConfigurationCommand {
-  constructor(readonly input: { Bucket: string }) {}
-}
-
-class DeleteBucketLifecycleCommand {
-  constructor(readonly input: { Bucket: string }) {}
-}
-
-// Versioning Commands
-class PutBucketVersioningCommand {
-  constructor(readonly input: {
-    Bucket: string
-    VersioningConfiguration: {
-      Status: 'Enabled' | 'Suspended'
-      MFADelete?: 'Enabled' | 'Disabled'
-    }
-  }) {}
-}
-
-class GetBucketVersioningCommand {
-  constructor(readonly input: { Bucket: string }) {}
-}
-
-class ListObjectVersionsCommand {
-  constructor(readonly input: {
-    Bucket: string
-    Prefix?: string
-    Delimiter?: string
-    MaxKeys?: number
-    KeyMarker?: string
-    VersionIdMarker?: string
-  }) {}
-}
-
-// Extended CreateBucket input types
-declare module '../index' {
-  interface CreateBucketCommandInput {
-    ObjectOwnership?: 'BucketOwnerEnforced' | 'BucketOwnerPreferred' | 'ObjectWriter'
-    ObjectLockEnabledForBucket?: boolean
-  }
-  interface ListBucketsCommandInput {
-    MaxBuckets?: number
-    ContinuationToken?: string
-    Prefix?: string
-    BucketRegion?: string
-  }
-  interface ListBucketsCommandOutput {
-    ContinuationToken?: string
-  }
-  interface GetObjectCommandInput {
-    VersionId?: string
-  }
-  interface GetObjectCommandOutput {
-    VersionId?: string
-  }
-  interface DeleteObjectCommandInput {
-    VersionId?: string
-  }
-  interface DeleteObjectCommandOutput {
-    DeleteMarker?: boolean
-    VersionId?: string
-  }
-}

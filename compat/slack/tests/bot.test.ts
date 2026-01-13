@@ -2583,8 +2583,8 @@ describe('RED: Features to Implement', () => {
   })
 
   describe('Scheduled Messages', () => {
-    // RED: Schedule message helpers
-    it.fails('should provide helper to schedule messages', async () => {
+    // GREEN: Schedule message helpers - now implemented
+    it('should provide helper to schedule messages', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({

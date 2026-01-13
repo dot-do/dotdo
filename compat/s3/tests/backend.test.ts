@@ -52,16 +52,16 @@ describe('MemoryBackend', () => {
       await backend.createBucket('bucket-2', 'eu-west-1')
       await backend.createBucket('bucket-3', 'ap-south-1')
 
-      const buckets = await backend.listBuckets()
-      expect(buckets).toHaveLength(3)
-      expect(buckets.map((b) => b.name)).toContain('bucket-1')
-      expect(buckets.map((b) => b.name)).toContain('bucket-2')
-      expect(buckets.map((b) => b.name)).toContain('bucket-3')
+      const result = await backend.listBuckets()
+      expect(result.buckets).toHaveLength(3)
+      expect(result.buckets.map((b) => b.name)).toContain('bucket-1')
+      expect(result.buckets.map((b) => b.name)).toContain('bucket-2')
+      expect(result.buckets.map((b) => b.name)).toContain('bucket-3')
     })
 
     it('should return empty list when no buckets exist', async () => {
-      const buckets = await backend.listBuckets()
-      expect(buckets).toEqual([])
+      const result = await backend.listBuckets()
+      expect(result.buckets).toEqual([])
     })
 
     it('should check if bucket is empty', async () => {

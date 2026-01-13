@@ -776,3 +776,30 @@ export interface InternalBucketExtended extends InternalBucket {
   /** Lifecycle configuration */
   lifecycleConfiguration?: LifecycleConfiguration
 }
+
+// =============================================================================
+// Internal Versioned Object Types
+// =============================================================================
+
+export interface InternalObjectVersion extends InternalObject {
+  /** Unique version ID */
+  versionId: string
+  /** Whether this is the latest version */
+  isLatest: boolean
+  /** Whether this is a delete marker */
+  isDeleteMarker?: boolean
+}
+
+export interface InternalVersionedObjects {
+  /** All versions indexed by versionId */
+  versions: Map<string, InternalObjectVersion>
+  /** The current/latest version ID (null if latest is a delete marker) */
+  currentVersionId: string | null
+}
+
+export interface DeleteMarker {
+  /** Unique version ID for this delete marker */
+  versionId: string
+  /** When the delete marker was created */
+  created: Date
+}

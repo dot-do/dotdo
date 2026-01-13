@@ -67,6 +67,7 @@ import type {
   ViewSubmissionPayload,
   ViewClosedPayload,
   ViewOutput,
+  ViewState,
   ShortcutPayload,
   GlobalShortcutPayload,
   MessageShortcutPayload,
@@ -86,6 +87,21 @@ import {
   type ChatPostMessageArguments,
   type ChatPostMessageResponse,
 } from './client'
+
+import {
+  WorkflowClient,
+  WorkflowStep,
+  type WorkflowEditArgs,
+  type WorkflowSaveArgs,
+  type WorkflowExecuteArgs,
+  type WorkflowStepEditPayload,
+  type WorkflowStepExecutePayload,
+  type WorkflowStepOutput,
+  type ConfigureFn,
+  type UpdateFn,
+  type CompleteFn,
+  type FailFn,
+} from './workflows'
 
 // ============================================================================
 // BOT TYPES
@@ -795,10 +811,10 @@ export interface AuthRevokeResponse {
 
 /**
  * Extended WebClient for bot use
+ * Inherits reactions from parent WebClient
  */
 export class BotWebClient extends WebClient {
   readonly views: ViewsMethods
-  readonly reactions: ReactionsMethods
   readonly auth: AuthMethods
 
   constructor(token?: string, options?: { fetch?: typeof fetch }) {
@@ -811,12 +827,7 @@ export class BotWebClient extends WebClient {
       publish: (args) => this._apiCall('views.publish', args),
     }
 
-    this.reactions = {
-      add: (args) => this._apiCall('reactions.add', args),
-      remove: (args) => this._apiCall('reactions.remove', args),
-      get: (args) => this._apiCall('reactions.get', args, 'GET'),
-      list: (args) => this._apiCall('reactions.list', args, 'GET'),
-    }
+    // reactions is inherited from parent WebClient class
 
     this.auth = {
       test: () => this._apiCall('auth.test', {}),
@@ -1305,6 +1316,7 @@ export class SlackBot {
   private processBeforeResponse: boolean
 
   readonly client: BotWebClient
+  readonly workflows: WorkflowClient
   private socketModeClient?: SocketModeClient
   private oauthFlow?: OAuthFlow
 
@@ -1314,6 +1326,7 @@ export class SlackBot {
   private viewHandlers: ViewHandler[] = []
   private shortcutHandlers: ShortcutHandler[] = []
   private commandHandlers: CommandHandler[] = []
+  private stepHandlers: Map<string, WorkflowStep> = new Map()
   private middleware: Array<(args: BotMiddlewareArgs & { body: unknown }) => Promise<void>> = []
   private errorHandler?: (error: Error, context?: BotContext) => Promise<void>
 
@@ -1337,6 +1350,7 @@ export class SlackBot {
     }
 
     this.client = new BotWebClient(this.token, { fetch: this._fetch })
+    this.workflows = new WorkflowClient(this.token ?? '', { fetch: this._fetch })
 
     // Setup OAuth if configured
     if (options.clientId && options.clientSecret) {
@@ -1457,6 +1471,14 @@ export class SlackBot {
    */
   command(pattern: CommandPattern, handler: (args: BotCommandArgs) => Promise<void>): this {
     this.commandHandlers.push({ pattern, handler })
+    return this
+  }
+
+  /**
+   * Register a custom workflow step
+   */
+  step(workflowStep: WorkflowStep): this {
+    this.stepHandlers.set(workflowStep.callbackId, workflowStep)
     return this
   }
 
@@ -1629,9 +1651,16 @@ export class SlackBot {
         case 'block_actions':
           return await this.handleBlockActions(payload as BlockActionsPayload, context)
         case 'view_submission':
+          // Check if this is a workflow step save
+          if (await this.handleWorkflowStepSave(payload as ViewSubmissionPayload, context)) {
+            return
+          }
           return await this.handleViewSubmission(payload as ViewSubmissionPayload, context)
         case 'view_closed':
           await this.handleViewClosed(payload as ViewClosedPayload, context)
+          break
+        case 'workflow_step_edit':
+          await this.handleWorkflowStepEdit(payload as WorkflowStepEditPayload, context)
           break
         case 'shortcut':
         case 'message_action':
@@ -1710,6 +1739,12 @@ export class SlackBot {
           await handler(messageArgs)
         }
       }
+    }
+
+    // Handle workflow step execute events
+    if (event.type === 'workflow_step_execute') {
+      await this.handleWorkflowStepExecute(event as unknown as WorkflowStepExecutePayload['event'], context)
+      return
     }
 
     // Handle other events
@@ -1918,6 +1953,170 @@ export class SlackBot {
     }
 
     return ackResponse
+  }
+
+  // ============================================================================
+  // WORKFLOW STEP HANDLERS
+  // ============================================================================
+
+  /**
+   * Handle workflow_step_edit event (opening the step configuration modal)
+   */
+  private async handleWorkflowStepEdit(payload: WorkflowStepEditPayload, context: BotContext): Promise<void> {
+    const stepHandler = this.stepHandlers.get(payload.callback_id)
+    if (!stepHandler) {
+      this.logger.warn(`No handler for workflow step: ${payload.callback_id}`)
+      return
+    }
+
+    const ack = async () => {}
+
+    const configure: ConfigureFn = async (config) => {
+      // Open a modal with the configuration blocks
+      await this.client.views.open({
+        trigger_id: payload.trigger_id,
+        view: {
+          type: 'modal',
+          callback_id: payload.callback_id,
+          title: { type: 'plain_text', text: 'Configure step' },
+          blocks: config.blocks,
+          submit: { type: 'plain_text', text: 'Save' },
+          close: { type: 'plain_text', text: 'Cancel' },
+          private_metadata: JSON.stringify({
+            workflow_step_edit_id: payload.workflow_step.workflow_step_edit_id,
+          }),
+        },
+      })
+    }
+
+    const args: WorkflowEditArgs = {
+      ack,
+      configure,
+      step: payload.workflow_step,
+      payload,
+      context,
+    }
+
+    await stepHandler.config.edit(args)
+  }
+
+  /**
+   * Handle view_submission for workflow step save
+   * Returns true if this was a workflow step save, false otherwise
+   */
+  private async handleWorkflowStepSave(body: ViewSubmissionPayload, context: BotContext): Promise<boolean> {
+    const callbackId = body.view.callback_id
+    if (!callbackId) return false
+
+    const stepHandler = this.stepHandlers.get(callbackId)
+    if (!stepHandler) return false
+
+    // Check if this view has workflow step metadata
+    let metadata: { workflow_step_edit_id?: string } = {}
+    if (body.view.private_metadata) {
+      try {
+        metadata = JSON.parse(body.view.private_metadata)
+      } catch {
+        return false
+      }
+    }
+
+    // Also check body for workflow_step
+    const workflowStepEditId = metadata.workflow_step_edit_id ?? (body as any).workflow_step?.workflow_step_edit_id
+    if (!workflowStepEditId) return false
+
+    const ack = async () => {}
+
+    const update: UpdateFn = async (config) => {
+      await this.workflows.updateStep({
+        workflow_step_edit_id: workflowStepEditId,
+        inputs: config.inputs,
+        outputs: config.outputs,
+      })
+    }
+
+    const viewWithState = body.view as ViewOutput & { state: ViewState }
+
+    const args: WorkflowSaveArgs = {
+      ack,
+      update,
+      view: viewWithState,
+      step: { workflow_step_edit_id: workflowStepEditId },
+      payload: body,
+      context,
+    }
+
+    await stepHandler.config.save(args)
+    return true
+  }
+
+  /**
+   * Handle workflow_step_execute event
+   */
+  private async handleWorkflowStepExecute(
+    event: WorkflowStepExecutePayload['event'],
+    context: BotContext
+  ): Promise<void> {
+    if (!event) return
+
+    const callbackId = event.callback_id
+    const stepHandler = this.stepHandlers.get(callbackId)
+    if (!stepHandler) {
+      this.logger.warn(`No handler for workflow step execute: ${callbackId}`)
+      return
+    }
+
+    const workflowStep = event.workflow_step
+    const executeId = workflowStep.workflow_step_execute_id
+
+    const complete: CompleteFn = async (result) => {
+      await this.workflows.stepCompleted({
+        workflow_step_execute_id: executeId,
+        outputs: result.outputs,
+      })
+    }
+
+    const fail: FailFn = async (result) => {
+      await this.workflows.stepFailed({
+        workflow_step_execute_id: executeId,
+        error: { message: result.error },
+      })
+    }
+
+    const inputs = (workflowStep as any).inputs ?? {}
+
+    const executePayload: WorkflowStepExecutePayload = {
+      type: 'workflow_step_execute',
+      callback_id: callbackId,
+      workflow_step: {
+        workflow_step_execute_id: executeId,
+        inputs,
+        outputs: (workflowStep as any).outputs,
+      },
+      event,
+    }
+
+    const args: WorkflowExecuteArgs = {
+      inputs,
+      step: executePayload.workflow_step,
+      complete,
+      fail,
+      payload: executePayload,
+      context,
+    }
+
+    try {
+      await stepHandler.config.execute(args)
+    } catch (error) {
+      // Auto-fail on unhandled exception
+      await this.workflows.stepFailed({
+        workflow_step_execute_id: executeId,
+        error: { message: (error as Error).message ?? 'Unknown error' },
+      })
+      if (this.errorHandler) {
+        await this.errorHandler(error as Error, context)
+      }
+    }
   }
 
   private async runMiddleware(args: BotMiddlewareArgs & { body: unknown }): Promise<void> {

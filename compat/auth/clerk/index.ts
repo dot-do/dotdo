@@ -142,8 +142,20 @@ export type { ClerkClientOptions } from './backend-api'
 export { createClerkClient as clerkClient } from './backend-api'
 
 // Webhooks
-export { Webhook, createWebhook, WebhookVerificationError } from './webhooks'
-export type { WebhookHeaders, WebhookVerifyOptions } from './webhooks'
+export {
+  Webhook,
+  createWebhook,
+  WebhookVerificationError,
+  WebhookHandler,
+  createWebhookHandler,
+} from './webhooks'
+export type {
+  WebhookHeaders,
+  WebhookVerifyOptions,
+  WebhookEventMap,
+  WebhookEventHandler,
+  WebhookHandlerOptions,
+} from './webhooks'
 
 // Standalone verifyToken function
 import { Clerk as ClerkClass, type ClerkClientOptions as ClerkOpts } from './backend-api'

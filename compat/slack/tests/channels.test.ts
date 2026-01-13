@@ -867,8 +867,9 @@ describe('conversations.members', () => {
     })
 
     const fetchCall = (globalThis.fetch as any).mock.calls[0]
-    const body = JSON.parse(fetchCall[1].body)
-    expect(body.cursor).toBe('dXNlcjpVMDYxTkZUVDI=')
+    // GET request sends params in URL, not body
+    const url = new URL(fetchCall[0])
+    expect(url.searchParams.get('cursor')).toBe('dXNlcjpVMDYxTkZUVDI=')
   })
 
   it('should fail with channel_not_found error', async () => {

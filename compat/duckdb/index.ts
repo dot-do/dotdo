@@ -20,8 +20,8 @@
  * const db = await createDuckDB()
  *
  * // Create tables and run queries
- * await db.query('CREATE TABLE users (id INTEGER, name VARCHAR)')
- * await db.query("INSERT INTO users VALUES (1, 'Alice')")
+ * await db.exec('CREATE TABLE users (id INTEGER, name VARCHAR)')
+ * await db.exec("INSERT INTO users VALUES (1, 'Alice')")
  *
  * const result = await db.query('SELECT * FROM users')
  * console.log(result.rows) // [{ id: 1, name: 'Alice' }]
@@ -40,7 +40,7 @@
  * const buffer = await object.arrayBuffer()
  *
  * // Register as virtual file
- * await db.registerBuffer('sales.parquet', buffer)
+ * db.registerFileBuffer('sales.parquet', new Uint8Array(buffer))
  *
  * // Query directly
  * const result = await db.query(`
@@ -53,29 +53,68 @@
  * @see https://duckdb.org/docs/api/nodejs/overview
  */
 
-// Re-export from the core DuckDB WASM implementation
-export {
-  createDuckDB,
-  instantiateDuckDB,
-  clearCache,
-  isCached,
-  getHeapUsage,
-  registerBuffer,
-  dropBuffer,
-} from '../../db/compat/sql/duckdb-wasm/index.js'
+// Import everything from the core DuckDB Worker implementation
+import {
+  createDuckDB as _createDuckDB,
+  instantiateDuckDB as _instantiateDuckDB,
+  clearCache as _clearCache,
+  isCached as _isCached,
+  // File buffer operations
+  FileBufferRegistry as _FileBufferRegistry,
+  registerFileBuffer as _registerFileBuffer,
+  dropFile as _dropFile,
+  getFileBuffer as _getFileBuffer,
+  hasFile as _hasFile,
+  listFiles as _listFiles,
+  getFileSize as _getFileSize,
+  clearAllFiles as _clearAllFiles,
+  getTotalMemoryUsage as _getTotalMemoryUsage,
+  // Module operations
+  loadDuckDBModule as _loadDuckDBModule,
+  createInstanceFromModule as _createInstanceFromModule,
+  clearModuleCache as _clearModuleCache,
+  isModuleCached as _isModuleCached,
+  createDuckDBFromBindings as _createDuckDBFromBindings,
+} from '@dotdo/duckdb-worker'
 
+import type {
+  DuckDBConfig,
+  DuckDBInstance,
+  InstantiationResult,
+  QueryResult,
+  ColumnInfo,
+  LoadDuckDBOptions,
+} from '@dotdo/duckdb-worker'
+
+// Re-export types
 export type {
   DuckDBConfig,
   DuckDBInstance,
-  InstantiateOptions,
   InstantiationResult,
-  InstantiationMetrics,
   QueryResult,
-  QueryOptions,
   ColumnInfo,
-  BufferRegistrationOptions,
-  BufferRegistrationResult,
-} from '../../db/compat/sql/duckdb-wasm/types.js'
+  LoadDuckDBOptions,
+}
+
+// Re-export functions
+export const createDuckDB = _createDuckDB
+export const instantiateDuckDB = _instantiateDuckDB
+export const clearCache = _clearCache
+export const isCached = _isCached
+export const FileBufferRegistry = _FileBufferRegistry
+export const registerFileBuffer = _registerFileBuffer
+export const dropFile = _dropFile
+export const getFileBuffer = _getFileBuffer
+export const hasFile = _hasFile
+export const listFiles = _listFiles
+export const getFileSize = _getFileSize
+export const clearAllFiles = _clearAllFiles
+export const getTotalMemoryUsage = _getTotalMemoryUsage
+export const loadDuckDBModule = _loadDuckDBModule
+export const createInstanceFromModule = _createInstanceFromModule
+export const clearModuleCache = _clearModuleCache
+export const isModuleCached = _isModuleCached
+export const createDuckDBFromBindings = _createDuckDBFromBindings
 
 // Extended config for dotdo-specific features
 export interface DotdoDuckDBConfig {
@@ -159,29 +198,37 @@ export interface DotdoDuckDBConfig {
 }
 
 /**
+ * Extended DuckDB instance with R2 helpers
+ */
+export interface DotdoDuckDBInstance extends DuckDBInstance {
+  /**
+   * Load a Parquet file from R2 and register it
+   */
+  loadFromR2(bucket: R2Bucket, key: string, virtualName?: string): Promise<void>
+}
+
+/**
  * Create a DuckDB instance with dotdo extensions
  *
  * This factory supports both standard DuckDB configuration and
  * extended dotdo options for sharding, streaming, and tiered storage.
  *
  * @param config - Configuration options
- * @returns DuckDB instance
+ * @returns DuckDB instance with dotdo extensions
  */
-export async function createDotdoDuckDB(config?: DotdoDuckDBConfig) {
-  // Import the base createDuckDB
-  const { createDuckDB: baseCreateDuckDB } = await import('../../db/compat/sql/duckdb-wasm/index.js')
-
-  // For now, just create base instance
-  // TODO: Add shard router, stream bridge, tier manager
-  const db = await baseCreateDuckDB({
-    path: config?.path,
+export async function createDotdoDuckDB(config?: DotdoDuckDBConfig): Promise<DotdoDuckDBInstance> {
+  // Map DotdoDuckDBConfig to DuckDBConfig
+  const baseConfig: DuckDBConfig = {
+    maxMemory: config?.maxMemory ? `${config.maxMemory}` : undefined,
     threads: config?.threads,
-    maxMemory: config?.maxMemory,
-    accessMode: config?.accessMode,
-  })
+    accessMode: config?.accessMode === 'read_only' ? 'read_only' : config?.accessMode === 'read_write' ? 'read_write' : undefined,
+  }
 
-  // Return with potential extensions
-  return {
+  // Create base instance
+  const db = await _createDuckDB(baseConfig)
+
+  // Return with extensions
+  const extendedDb: DotdoDuckDBInstance = {
     ...db,
 
     /**
@@ -196,9 +243,11 @@ export async function createDotdoDuckDB(config?: DotdoDuckDBConfig) {
       const buffer = await object.arrayBuffer()
       const name = virtualName ?? key.split('/').pop() ?? key
 
-      await db.registerBuffer(name, buffer)
+      db.registerFileBuffer(name, new Uint8Array(buffer))
     },
   }
+
+  return extendedDb
 }
 
 // Default export for convenience
@@ -208,7 +257,4 @@ export default {
   instantiateDuckDB,
   clearCache,
   isCached,
-  getHeapUsage,
-  registerBuffer,
-  dropBuffer,
 }

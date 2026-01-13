@@ -2122,3 +2122,857 @@ describe('Orders API - Edge Cases', () => {
     })
   })
 })
+
+// =============================================================================
+// Order Webhooks (RED Phase)
+// =============================================================================
+
+describe('Orders API - Webhooks', () => {
+  describe('webhook registration', () => {
+    it('should register orders/create webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12001,
+            address: 'https://myapp.com/webhooks/orders/create',
+            topic: 'orders/create',
+            format: 'json',
+            created_at: '2024-01-15T10:00:00Z',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'orders/create',
+            address: 'https://myapp.com/webhooks/orders/create',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('orders/create')
+    })
+
+    it('should register orders/paid webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12002,
+            address: 'https://myapp.com/webhooks/orders/paid',
+            topic: 'orders/paid',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'orders/paid',
+            address: 'https://myapp.com/webhooks/orders/paid',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('orders/paid')
+    })
+
+    it('should register orders/fulfilled webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12003,
+            topic: 'orders/fulfilled',
+            address: 'https://myapp.com/webhooks/orders/fulfilled',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'orders/fulfilled',
+            address: 'https://myapp.com/webhooks/orders/fulfilled',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('orders/fulfilled')
+    })
+
+    it('should register orders/cancelled webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12004,
+            topic: 'orders/cancelled',
+            address: 'https://myapp.com/webhooks/orders/cancelled',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'orders/cancelled',
+            address: 'https://myapp.com/webhooks/orders/cancelled',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('orders/cancelled')
+    })
+
+    it('should register orders/updated webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12005,
+            topic: 'orders/updated',
+            address: 'https://myapp.com/webhooks/orders/updated',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'orders/updated',
+            address: 'https://myapp.com/webhooks/orders/updated',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('orders/updated')
+    })
+
+    it('should register refunds/create webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12006,
+            topic: 'refunds/create',
+            address: 'https://myapp.com/webhooks/refunds/create',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'refunds/create',
+            address: 'https://myapp.com/webhooks/refunds/create',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('refunds/create')
+    })
+
+    it('should register fulfillments/create webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12007,
+            topic: 'fulfillments/create',
+            address: 'https://myapp.com/webhooks/fulfillments/create',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'fulfillments/create',
+            address: 'https://myapp.com/webhooks/fulfillments/create',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('fulfillments/create')
+    })
+
+    it('should register fulfillments/update webhook', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          webhook: {
+            id: 12008,
+            topic: 'fulfillments/update',
+            address: 'https://myapp.com/webhooks/fulfillments/update',
+            format: 'json',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+
+      const result = await client.post({
+        path: 'webhooks',
+        data: {
+          webhook: {
+            topic: 'fulfillments/update',
+            address: 'https://myapp.com/webhooks/fulfillments/update',
+            format: 'json',
+          },
+        },
+      })
+
+      expect(result.body.webhook.topic).toBe('fulfillments/update')
+    })
+  })
+
+  describe('webhook signature validation', () => {
+    it('should validate order webhook signature', async () => {
+      const shopify = createShopifyClient(vi.fn())
+      const orderPayload = JSON.stringify({
+        id: 1001,
+        email: 'customer@example.com',
+        created_at: '2024-01-15T10:00:00Z',
+        total_price: '199.99',
+      })
+
+      // RED: Should have webhook validation method
+      const hmac = await shopify.webhooks.generateTestHmac(orderPayload)
+      const isValid = await shopify.webhooks.validate({
+        rawBody: orderPayload,
+        hmac,
+      })
+
+      expect(isValid).toBe(true)
+    })
+
+    it('should reject invalid order webhook signature', async () => {
+      const shopify = createShopifyClient(vi.fn())
+      const orderPayload = JSON.stringify({
+        id: 1001,
+        email: 'customer@example.com',
+        total_price: '199.99',
+      })
+
+      const isValid = await shopify.webhooks.validate({
+        rawBody: orderPayload,
+        hmac: 'invalid-hmac-signature',
+      })
+
+      expect(isValid).toBe(false)
+    })
+
+    it('should validate fulfillment webhook payload', async () => {
+      const shopify = createShopifyClient(vi.fn())
+      const fulfillmentPayload = JSON.stringify({
+        id: 6001,
+        order_id: 1001,
+        status: 'success',
+        tracking_company: 'UPS',
+        tracking_number: '1Z999AA10123456784',
+      })
+
+      const hmac = await shopify.webhooks.generateTestHmac(fulfillmentPayload)
+      const isValid = await shopify.webhooks.validate({
+        rawBody: fulfillmentPayload,
+        hmac,
+      })
+
+      expect(isValid).toBe(true)
+    })
+
+    it('should validate refund webhook payload', async () => {
+      const shopify = createShopifyClient(vi.fn())
+      const refundPayload = JSON.stringify({
+        id: 8001,
+        order_id: 1001,
+        created_at: '2024-01-17T10:00:00Z',
+        note: 'Customer return',
+      })
+
+      const hmac = await shopify.webhooks.generateTestHmac(refundPayload)
+      const isValid = await shopify.webhooks.validate({
+        rawBody: refundPayload,
+        hmac,
+      })
+
+      expect(isValid).toBe(true)
+    })
+  })
+
+  describe('webhook handlers (RED - not implemented)', () => {
+    it.skip('should provide typed webhook handler for orders/create', async () => {
+      const shopify = createShopifyClient(vi.fn())
+
+      // RED: Type-safe webhook handler doesn't exist yet
+      const handler = shopify.webhooks.handlers.orders({
+        onCreate: async (order) => {
+          expect(order.id).toBeDefined()
+          expect(order.line_items).toBeDefined()
+        },
+      })
+
+      expect(handler).toBeDefined()
+    })
+
+    it.skip('should provide typed webhook handler for orders/paid', async () => {
+      const shopify = createShopifyClient(vi.fn())
+
+      // RED: Type-safe webhook handler doesn't exist yet
+      const handler = shopify.webhooks.handlers.orders({
+        onPaid: async (order) => {
+          expect(order.id).toBeDefined()
+          expect(order.financial_status).toBe('paid')
+        },
+      })
+
+      expect(handler).toBeDefined()
+    })
+
+    it.skip('should provide typed webhook handler for orders/fulfilled', async () => {
+      const shopify = createShopifyClient(vi.fn())
+
+      // RED: Type-safe webhook handler doesn't exist yet
+      const handler = shopify.webhooks.handlers.orders({
+        onFulfilled: async (order) => {
+          expect(order.id).toBeDefined()
+          expect(order.fulfillment_status).toBe('fulfilled')
+        },
+      })
+
+      expect(handler).toBeDefined()
+    })
+
+    it.skip('should provide typed webhook handler for fulfillments/create', async () => {
+      const shopify = createShopifyClient(vi.fn())
+
+      // RED: Type-safe webhook handler doesn't exist yet
+      const handler = shopify.webhooks.handlers.fulfillments({
+        onCreate: async (fulfillment) => {
+          expect(fulfillment.id).toBeDefined()
+          expect(fulfillment.tracking_number).toBeDefined()
+        },
+      })
+
+      expect(handler).toBeDefined()
+    })
+
+    it.skip('should provide typed webhook handler for refunds/create', async () => {
+      const shopify = createShopifyClient(vi.fn())
+
+      // RED: Type-safe webhook handler doesn't exist yet
+      const handler = shopify.webhooks.handlers.refunds({
+        onCreate: async (refund) => {
+          expect(refund.id).toBeDefined()
+          expect(refund.order_id).toBeDefined()
+        },
+      })
+
+      expect(handler).toBeDefined()
+    })
+  })
+})
+
+// =============================================================================
+// Draft Orders (RED Phase)
+// =============================================================================
+
+describe('Orders API - Draft Orders', () => {
+  describe('list draft orders', () => {
+    it('should list all draft orders', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          draft_orders: [
+            {
+              id: 13001,
+              name: '#D001',
+              status: 'open',
+              email: 'customer@example.com',
+              total_price: '99.99',
+              created_at: '2024-01-15T10:00:00Z',
+            },
+          ],
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.draftOrders.list()
+
+      expect(result.body.draft_orders).toHaveLength(1)
+      expect(result.body.draft_orders[0].status).toBe('open')
+    })
+
+    it('should filter draft orders by status', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: { draft_orders: [] },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      await orders.draftOrders.list({ status: 'invoice_sent' })
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('status=invoice_sent'),
+        expect.any(Object)
+      )
+    })
+  })
+
+  describe('create draft order', () => {
+    it('should create a draft order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          draft_order: {
+            id: 13002,
+            name: '#D002',
+            status: 'open',
+            line_items: [{ title: 'Test Product', quantity: 1 }],
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.draftOrders.create({
+        line_items: [{ title: 'Test Product', quantity: 1, price: '49.99' }],
+      })
+
+      expect(result.body.draft_order.id).toBe(13002)
+    })
+
+    it('should create draft order with discount', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: {
+          draft_order: {
+            id: 13003,
+            applied_discount: {
+              title: '10% Off',
+              value_type: 'percentage',
+              value: '10',
+              amount: '5.00',
+            },
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.draftOrders.create({
+        line_items: [{ title: 'Test', quantity: 1, price: '50.00' }],
+        applied_discount: {
+          description: '10% Off',
+          value: '10',
+          value_type: 'percentage',
+        },
+      })
+
+      expect(result.body.draft_order.applied_discount).toBeDefined()
+    })
+  })
+
+  describe('send invoice', () => {
+    it('should send invoice for draft order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          draft_order_invoice: {
+            to: 'customer@example.com',
+            from: 'shop@example.com',
+            subject: 'Invoice for Draft Order',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.draftOrders.sendInvoice(13001, {
+        to: 'customer@example.com',
+        subject: 'Invoice for Draft Order',
+      })
+
+      expect(result.body.draft_order_invoice.to).toBe('customer@example.com')
+    })
+  })
+
+  describe('complete draft order', () => {
+    it('should complete draft order creating a real order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          draft_order: {
+            id: 13001,
+            order_id: 14001,
+            status: 'completed',
+            completed_at: '2024-01-15T12:00:00Z',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.draftOrders.complete(13001)
+
+      expect(result.body.draft_order.status).toBe('completed')
+      expect(result.body.draft_order.order_id).toBe(14001)
+    })
+
+    it('should complete draft order with payment pending', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          draft_order: {
+            id: 13002,
+            order_id: 14002,
+            status: 'completed',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      await orders.draftOrders.complete(13002, true)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: expect.stringContaining('payment_pending'),
+        })
+      )
+    })
+  })
+
+  describe('delete draft order', () => {
+    it('should delete a draft order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {},
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      await orders.draftOrders.delete(13001)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('draft_orders/13001'),
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    })
+  })
+})
+
+// =============================================================================
+// Fulfillment Orders (RED Phase - Modern Fulfillment API)
+// =============================================================================
+
+describe('Orders API - Fulfillment Orders', () => {
+  describe('list fulfillment orders', () => {
+    it('should list fulfillment orders for an order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          fulfillment_orders: [
+            {
+              id: 15001,
+              order_id: 1001,
+              status: 'open',
+              request_status: 'unsubmitted',
+              line_items: [{ id: 1, quantity: 2 }],
+            },
+          ],
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.list(1001)
+
+      expect(result.body.fulfillment_orders).toHaveLength(1)
+      expect(result.body.fulfillment_orders[0].status).toBe('open')
+    })
+  })
+
+  describe('hold fulfillment order', () => {
+    it('should place a hold on fulfillment order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          fulfillment_order: {
+            id: 15001,
+            status: 'on_hold',
+            fulfillment_holds: [{ reason: 'inventory_out_of_stock' }],
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.hold(15001, {
+        reason: 'inventory_out_of_stock',
+        reason_notes: 'Waiting for restock',
+      })
+
+      expect(result.body.fulfillment_order.status).toBe('on_hold')
+    })
+
+    it('should hold for high fraud risk', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          fulfillment_order: {
+            id: 15002,
+            status: 'on_hold',
+            fulfillment_holds: [{ reason: 'high_risk_of_fraud' }],
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.hold(15002, {
+        reason: 'high_risk_of_fraud',
+        reason_notes: 'Manual review required',
+      })
+
+      expect(result.body.fulfillment_order.fulfillment_holds[0].reason).toBe('high_risk_of_fraud')
+    })
+  })
+
+  describe('release hold', () => {
+    it('should release a fulfillment order hold', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          fulfillment_order: {
+            id: 15001,
+            status: 'open',
+            fulfillment_holds: [],
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.releaseHold(15001)
+
+      expect(result.body.fulfillment_order.status).toBe('open')
+      expect(result.body.fulfillment_order.fulfillment_holds).toHaveLength(0)
+    })
+  })
+
+  describe('move fulfillment order', () => {
+    it('should move fulfillment order to different location', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          original_fulfillment_order: { id: 15001, status: 'closed' },
+          moved_fulfillment_order: {
+            id: 15003,
+            assigned_location_id: 7002,
+            status: 'open',
+          },
+          remaining_fulfillment_order: null,
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.move(15001, {
+        new_location_id: 7002,
+      })
+
+      expect(result.body.moved_fulfillment_order.assigned_location_id).toBe(7002)
+    })
+  })
+
+  describe('cancel fulfillment order', () => {
+    it('should cancel a fulfillment order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          fulfillment_order: {
+            id: 15001,
+            status: 'cancelled',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.cancel(15001)
+
+      expect(result.body.fulfillment_order.status).toBe('cancelled')
+    })
+  })
+
+  describe('reschedule fulfillment order', () => {
+    it('should reschedule fulfillment order', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: {
+          fulfillment_order: {
+            id: 15001,
+            fulfill_at: '2024-01-20T10:00:00Z',
+          },
+        },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+      const client = new shopify.clients.Rest({ session: mockSession })
+      const orders = new OrdersResource(client as any)
+
+      const result = await orders.fulfillmentOrders.reschedule(15001, {
+        new_fulfill_at: '2024-01-20T10:00:00Z',
+      })
+
+      expect(result.body.fulfillment_order.fulfill_at).toBe('2024-01-20T10:00:00Z')
+    })
+  })
+})
+
+// =============================================================================
+// High-Level Orders Resource API (RED Phase)
+// =============================================================================
+
+describe('Orders API - High-Level Resource (RED)', () => {
+  describe('typed resource methods', () => {
+    it.skip('should provide high-level orders.list() method', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: { orders: [] },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+
+      // RED: High-level resource API doesn't exist yet
+      const orders = shopify.resources.orders
+      expect(orders).toBeDefined()
+
+      const result = await orders.list({ session: mockSession })
+      expect(result).toBeDefined()
+    })
+
+    it.skip('should support async iterator pagination', async () => {
+      const mockFetch = createMockFetch([{
+        status: 200,
+        body: { orders: [] },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+
+      // RED: Async iterator doesn't exist yet
+      const allOrders = []
+      for await (const order of shopify.resources.orders.iterate({ session: mockSession })) {
+        allOrders.push(order)
+        if (allOrders.length >= 100) break
+      }
+
+      expect(allOrders.length).toBeGreaterThanOrEqual(0)
+    })
+
+    it.skip('should provide typed order creation', async () => {
+      const mockFetch = createMockFetch([{
+        status: 201,
+        body: { order: { id: 1001 } },
+      }])
+      const shopify = createShopifyClient(mockFetch)
+
+      // RED: High-level typed create doesn't exist yet
+      const order = await shopify.resources.orders.create({
+        session: mockSession,
+        order: {
+          line_items: [{ title: 'Product', quantity: 1 }],
+        },
+      })
+
+      expect(order.id).toBeDefined()
+    })
+  })
+
+  describe('batch operations (RED)', () => {
+    it.skip('should support batch order updates', async () => {
+      const mockFetch = createMockFetch([])
+      const shopify = createShopifyClient(mockFetch)
+
+      // RED: Batch updates don't exist yet
+      const results = await shopify.resources.orders.batchUpdate({
+        session: mockSession,
+        orders: [
+          { id: 1001, tags: 'processed' },
+          { id: 1002, tags: 'processed' },
+          { id: 1003, tags: 'processed' },
+        ],
+      })
+
+      expect(results.succeeded).toHaveLength(3)
+    })
+
+    it.skip('should support batch order fulfillment', async () => {
+      const mockFetch = createMockFetch([])
+      const shopify = createShopifyClient(mockFetch)
+
+      // RED: Batch fulfillment doesn't exist yet
+      const results = await shopify.resources.orders.batchFulfill({
+        session: mockSession,
+        fulfillments: [
+          { order_id: 1001, tracking_number: 'TRACK001' },
+          { order_id: 1002, tracking_number: 'TRACK002' },
+        ],
+      })
+
+      expect(results.succeeded).toHaveLength(2)
+    })
+  })
+})
