@@ -130,6 +130,31 @@ export interface BloomFilter {
 export type CodecType = 'gorilla' | 'delta' | 'rle' | 'zstd'
 
 /**
+ * String encoding type
+ */
+export type StringEncodingType = 'raw' | 'dictionary' | 'auto'
+
+/**
+ * Column configuration options
+ */
+export interface ColumnConfig {
+  /** Encoding type for the column */
+  encoding?: StringEncodingType
+  /** Threshold for auto-switching to dictionary encoding */
+  dictionaryThreshold?: number
+}
+
+/**
+ * Column metadata and configuration info
+ */
+export interface ColumnMetadata {
+  type: ColumnType
+  encoding?: StringEncodingType
+  cardinality?: number
+  dictionaryThreshold?: number
+}
+
+/**
  * Data characteristics for codec selection
  */
 export interface DataCharacteristics {
@@ -192,7 +217,7 @@ export interface TypedColumnStore {
   ): Generator<number[], void, undefined>
 
   // Column operations
-  addColumn(name: string, type: ColumnType): void
+  addColumn(name: string, type: ColumnType, config?: ColumnConfig): void
   append(column: string, values: unknown[]): void
   project(columns: string[]): ColumnBatch
   filter(predicate: Predicate): ColumnBatch
@@ -202,6 +227,10 @@ export interface TypedColumnStore {
   minMax(column: string): { min: number; max: number }
   distinctCount(column: string): number
   bloomFilter(column: string): BloomFilter
+
+  // Column metadata
+  getColumnInfo?(column: string): ColumnMetadata | undefined
+  getDictionaryCardinality?(column: string): number | undefined
 
   // Performance metrics
   getCodecStats(): Map<CodecType, CodecStats>
@@ -1210,9 +1239,18 @@ function arraySum(values: number[]): number {
 // Column Store Implementation
 // ============================================================================
 
+/**
+ * Internal column storage with optional dictionary encoding
+ */
 interface ColumnInfo {
   type: ColumnType
   data: unknown[]
+  /** Column configuration */
+  config?: ColumnConfig
+  /** Dictionary for dictionary-encoded string columns */
+  dictionary?: string[]
+  /** Map for fast dictionary lookups */
+  dictionaryIndex?: Map<string, number>
 }
 
 // ============================================================================
@@ -1593,11 +1631,20 @@ class ColumnStoreImpl implements TypedColumnStore {
   }
 
   // Column operations
-  addColumn(name: string, type: ColumnType): void {
+  addColumn(name: string, type: ColumnType, config?: ColumnConfig): void {
     if (this.columns.has(name)) {
       throw new Error(`Column '${name}' already exists`)
     }
-    this.columns.set(name, { type, data: [] })
+
+    const columnInfo: ColumnInfo = { type, data: [], config }
+
+    // Initialize dictionary encoding for string columns with dictionary/auto encoding
+    if (type === 'string' && config?.encoding && config.encoding !== 'raw') {
+      columnInfo.dictionary = []
+      columnInfo.dictionaryIndex = new Map()
+    }
+
+    this.columns.set(name, columnInfo)
   }
 
   append(column: string, values: unknown[]): void {
@@ -1613,11 +1660,72 @@ class ColumnStoreImpl implements TypedColumnStore {
       }
     }
 
+    // Handle dictionary encoding for string columns
+    if (col.type === 'string' && col.dictionary !== undefined && col.dictionaryIndex !== undefined) {
+      this.appendDictionaryEncoded(col, values as string[])
+      return
+    }
+
     // Use push.apply in chunks to avoid stack overflow for large arrays
     const CHUNK_SIZE = 10000
     for (let i = 0; i < values.length; i += CHUNK_SIZE) {
       const chunk = values.slice(i, i + CHUNK_SIZE)
       col.data.push(...chunk)
+    }
+
+    // Auto-detect dictionary candidates for string columns with 'auto' encoding
+    if (col.type === 'string' && col.config?.encoding === 'auto') {
+      this.checkAutoEncodingSwitch(col)
+    }
+  }
+
+  /**
+   * Append values to a dictionary-encoded string column
+   */
+  private appendDictionaryEncoded(col: ColumnInfo, values: string[]): void {
+    for (const value of values) {
+      let index = col.dictionaryIndex!.get(value)
+
+      if (index === undefined) {
+        // New value - add to dictionary
+        index = col.dictionary!.length
+        col.dictionary!.push(value)
+        col.dictionaryIndex!.set(value, index)
+      }
+
+      col.data.push(index)
+    }
+  }
+
+  /**
+   * Check if a string column should switch to dictionary encoding
+   */
+  private checkAutoEncodingSwitch(col: ColumnInfo): void {
+    const threshold = col.config?.dictionaryThreshold ?? 1000
+
+    // Count unique values
+    const uniqueValues = new Set(col.data)
+    const cardinality = uniqueValues.size
+
+    // If cardinality is below threshold, switch to dictionary encoding
+    if (cardinality < threshold && col.dictionary === undefined) {
+      // Convert existing data to dictionary encoding
+      const strings = col.data as string[]
+      col.dictionary = []
+      col.dictionaryIndex = new Map()
+
+      const newData: number[] = []
+      for (const value of strings) {
+        let index = col.dictionaryIndex.get(value)
+        if (index === undefined) {
+          index = col.dictionary.length
+          col.dictionary.push(value)
+          col.dictionaryIndex.set(value, index)
+        }
+        newData.push(index)
+      }
+
+      col.data = newData
     }
   }
 
@@ -1630,11 +1738,26 @@ class ColumnStoreImpl implements TypedColumnStore {
       if (!col) {
         throw new Error(`Column '${colName}' does not exist`)
       }
-      result.set(colName, [...col.data])
+
+      // Decode dictionary-encoded columns
+      if (col.dictionary !== undefined) {
+        const decoded = this.decodeDictionaryColumn(col)
+        result.set(colName, decoded)
+      } else {
+        result.set(colName, [...col.data])
+      }
       rowCount = col.data.length
     }
 
     return { columns: result, rowCount }
+  }
+
+  /**
+   * Decode a dictionary-encoded column back to strings
+   */
+  private decodeDictionaryColumn(col: ColumnInfo): string[] {
+    const dictionary = col.dictionary!
+    return (col.data as number[]).map((index) => dictionary[index]!)
   }
 
   filter(predicate: Predicate): ColumnBatch {
@@ -1643,22 +1766,95 @@ class ColumnStoreImpl implements TypedColumnStore {
       throw new Error(`Column '${predicate.column}' does not exist`)
     }
 
-    // Find matching row indices
+    // Find matching row indices using dictionary lookup if applicable
     const matchingIndices: number[] = []
-    for (let i = 0; i < col.data.length; i++) {
-      if (this.evaluatePredicate(col.data[i], predicate, col.type)) {
-        matchingIndices.push(i)
+
+    if (col.dictionary !== undefined && col.dictionaryIndex !== undefined) {
+      // Use dictionary-aware filtering for string columns
+      this.filterDictionaryColumn(col, predicate, matchingIndices)
+    } else {
+      // Standard filtering
+      for (let i = 0; i < col.data.length; i++) {
+        if (this.evaluatePredicate(col.data[i], predicate, col.type)) {
+          matchingIndices.push(i)
+        }
       }
     }
 
-    // Project all columns at matching indices
+    // Project all columns at matching indices, decoding dictionary columns
     const result = new Map<string, unknown[]>()
     for (const [colName, colInfo] of this.columns) {
-      const filtered = matchingIndices.map((i) => colInfo.data[i])
-      result.set(colName, filtered)
+      if (colInfo.dictionary !== undefined) {
+        const decoded = matchingIndices.map((i) => colInfo.dictionary![colInfo.data[i] as number]!)
+        result.set(colName, decoded)
+      } else {
+        const filtered = matchingIndices.map((i) => colInfo.data[i])
+        result.set(colName, filtered)
+      }
     }
 
     return { columns: result, rowCount: matchingIndices.length }
+  }
+
+  /**
+   * Filter a dictionary-encoded column using dictionary lookup
+   */
+  private filterDictionaryColumn(col: ColumnInfo, predicate: Predicate, matchingIndices: number[]): void {
+    const { op, value } = predicate
+    const dictionary = col.dictionary!
+    const dictionaryIndex = col.dictionaryIndex!
+    const data = col.data as number[]
+
+    if (op === '=') {
+      // Equality filter - single dictionary lookup
+      const targetIndex = dictionaryIndex.get(value as string)
+      if (targetIndex !== undefined) {
+        for (let i = 0; i < data.length; i++) {
+          if (data[i] === targetIndex) {
+            matchingIndices.push(i)
+          }
+        }
+      }
+      // If targetIndex is undefined, value not in dictionary = no matches
+    } else if (op === '!=') {
+      // Not-equals filter
+      const targetIndex = dictionaryIndex.get(value as string)
+      if (targetIndex !== undefined) {
+        for (let i = 0; i < data.length; i++) {
+          if (data[i] !== targetIndex) {
+            matchingIndices.push(i)
+          }
+        }
+      } else {
+        // Value not in dictionary, all rows match
+        for (let i = 0; i < data.length; i++) {
+          matchingIndices.push(i)
+        }
+      }
+    } else if (op === 'in') {
+      // IN filter - lookup all target values
+      const targetIndices = new Set<number>()
+      for (const v of value as string[]) {
+        const idx = dictionaryIndex.get(v)
+        if (idx !== undefined) {
+          targetIndices.add(idx)
+        }
+      }
+
+      for (let i = 0; i < data.length; i++) {
+        if (targetIndices.has(data[i]!)) {
+          matchingIndices.push(i)
+        }
+      }
+    } else {
+      // For other operators, decode and compare as strings
+      for (let i = 0; i < data.length; i++) {
+        const decodedValue = dictionary[data[i]!]
+        if (this.evaluatePredicate(decodedValue, predicate, 'string')) {
+          matchingIndices.push(i)
+        }
+      }
+    }
   }
 
   aggregate(column: string, fn: AggregateFunction): number {
@@ -1745,6 +1941,11 @@ class ColumnStoreImpl implements TypedColumnStore {
       throw new Error(`Cannot compute distinctCount on column '${column}' (type: ${col.type})`)
     }
 
+    // For dictionary-encoded columns, return dictionary size directly
+    if (col.dictionary !== undefined) {
+      return col.dictionary.length
+    }
+
     const values = col.data
 
     if (values.length === 0) return 0
@@ -1790,6 +1991,42 @@ class ColumnStoreImpl implements TypedColumnStore {
     }
 
     return bloom
+  }
+
+  // Column metadata methods
+  getColumnInfo(column: string): ColumnMetadata | undefined {
+    const col = this.columns.get(column)
+    if (!col) {
+      return undefined
+    }
+
+    const metadata: ColumnMetadata = {
+      type: col.type,
+    }
+
+    if (col.config?.encoding) {
+      metadata.encoding = col.config.encoding
+    }
+
+    if (col.dictionary !== undefined) {
+      metadata.cardinality = col.dictionary.length
+      // If we have a dictionary, the effective encoding is 'dictionary'
+      metadata.encoding = 'dictionary'
+    }
+
+    if (col.config?.dictionaryThreshold) {
+      metadata.dictionaryThreshold = col.config.dictionaryThreshold
+    }
+
+    return metadata
+  }
+
+  getDictionaryCardinality(column: string): number | undefined {
+    const col = this.columns.get(column)
+    if (!col || col.dictionary === undefined) {
+      return undefined
+    }
+    return col.dictionary.length
   }
 
   // Helper methods
