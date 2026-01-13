@@ -877,6 +877,9 @@ function mapSemanticToRelationship(relationship: JoinRelationship): string {
  */
 export function parseCubeJS(content: string): CubeJSSchema {
   try {
+    // Basic syntax validation - check for common syntax errors
+    validateCubeSyntax(content)
+
     const cubes: CubeJSCube[] = []
 
     // Extract cube definitions - handle multiline with nested braces
@@ -894,6 +897,11 @@ export function parseCubeJS(content: string): CubeJSSchema {
         if (char === '{') depth++
         if (char === '}') depth--
         pos++
+      }
+
+      // Check if we didn't find a matching brace (ran out of content)
+      if (depth > 0) {
+        throw new CubeJSParseError(`Malformed cube definition for '${name}': missing closing brace`)
       }
 
       const bodyStr = content.substring(bodyStart, pos - 1)
@@ -923,6 +931,68 @@ export function parseCubeJS(content: string): CubeJSSchema {
     throw new CubeJSParseError(
       `Failed to parse Cube.js schema: ${error instanceof Error ? error.message : String(error)}`
     )
+  }
+}
+
+/**
+ * Validate basic Cube.js syntax before parsing
+ */
+function validateCubeSyntax(content: string): void {
+  // Check for cube() calls
+  const cubeCallRegex = /cube\s*\(\s*['"][^'"]*['"]\s*,\s*\{/g
+  const cubeMatches = content.match(cubeCallRegex)
+
+  if (!cubeMatches) {
+    // Check if there's a cube call with syntax error
+    const maybeCubeRegex = /cube\s*\(/
+    if (maybeCubeRegex.test(content)) {
+      // There's a cube call but it doesn't match the proper format
+      // Check for common syntax errors
+
+      // Check for sql without backticks or quotes
+      const sqlWithoutQuotes = /sql\s*:\s*[A-Z]/
+      if (sqlWithoutQuotes.test(content)) {
+        throw new CubeJSParseError('Syntax error: SQL value must be quoted with backticks or quotes')
+      }
+
+      throw new CubeJSParseError('Malformed cube definition: invalid syntax')
+    }
+    return
+  }
+
+  // Check that each cube call has balanced braces
+  for (const match of cubeMatches) {
+    const startIdx = content.indexOf(match)
+    const bodyStart = startIdx + match.length
+
+    // Count braces to find the end of this cube
+    let depth = 1
+    let pos = bodyStart
+    let foundEnd = false
+
+    while (pos < content.length) {
+      const char = content[pos]
+      if (char === '{') depth++
+      if (char === '}') depth--
+      if (depth === 0) {
+        foundEnd = true
+        break
+      }
+      pos++
+    }
+
+    if (!foundEnd) {
+      throw new CubeJSParseError('Malformed cube definition: missing closing brace')
+    }
+
+    // Check for sql without proper quoting within the cube body
+    const cubeBody = content.substring(bodyStart, pos)
+    // Look for sql: followed by something that's not a quote or backtick
+    // But skip if it's in an arrow function context sql: () =>
+    const sqlValueRegex = /\bsql\s*:\s*(?!\s*\(\s*\)\s*=>)([^'"`\s,{])/
+    if (sqlValueRegex.test(cubeBody)) {
+      throw new CubeJSParseError('Syntax error: SQL value must be quoted with backticks or quotes')
+    }
   }
 }
 
@@ -994,9 +1064,9 @@ function parseCubeBody(name: string, bodyStr: string): CubeJSCube {
     cube.segments = parseCubeSegments(segmentsBlock)
   }
 
-  // Extract preAggregations block
+  // Extract preAggregations block - handle empty blocks as well
   const preAggBlock = extractObjectBlock(bodyStr, 'preAggregations')
-  if (preAggBlock) {
+  if (preAggBlock !== null) {
     cube.preAggregations = parseCubePreAggregations(preAggBlock)
   }
 
@@ -1006,7 +1076,7 @@ function parseCubeBody(name: string, bodyStr: string): CubeJSCube {
     cube.refreshKey = {}
     const everyMatch = refreshKeyBlock.match(/every\s*:\s*['"]([^'"]+)['"]/)
     if (everyMatch) cube.refreshKey.every = everyMatch[1]
-    const sqlMatch = refreshKeyBlock.match(/sql\s*:\s*`([^`]*)`)
+    const sqlMatch = refreshKeyBlock.match(/sql\s*:\s*`([^`]*)`/)
     if (sqlMatch) cube.refreshKey.sql = sqlMatch[1]
   }
 
@@ -1069,24 +1139,36 @@ function extractArrayOfObjects(content: string, key: string): string[] {
 
   const arrayContent = content.substring(startIdx, pos - 1)
 
-  // Now extract individual objects from within the array
+  // Now extract individual top-level objects from within the array
   const objects: string[] = []
-  const objRegex = /\{/g
-  let objMatch
+  let currentPos = 0
 
-  while ((objMatch = objRegex.exec(arrayContent)) !== null) {
-    const objStart = objMatch.index + 1
-    let objDepth = 1
-    let objPos = objStart
-
-    while (objDepth > 0 && objPos < arrayContent.length) {
-      const char = arrayContent[objPos]
-      if (char === '{') objDepth++
-      if (char === '}') objDepth--
-      objPos++
+  while (currentPos < arrayContent.length) {
+    // Skip whitespace and commas
+    while (currentPos < arrayContent.length && /[\s,]/.test(arrayContent[currentPos])) {
+      currentPos++
     }
 
-    objects.push(arrayContent.substring(objStart, objPos - 1))
+    if (currentPos >= arrayContent.length) break
+
+    // Look for the start of an object
+    if (arrayContent[currentPos] === '{') {
+      const objStart = currentPos + 1
+      let objDepth = 1
+      let objPos = objStart
+
+      while (objDepth > 0 && objPos < arrayContent.length) {
+        const char = arrayContent[objPos]
+        if (char === '{') objDepth++
+        if (char === '}') objDepth--
+        objPos++
+      }
+
+      objects.push(arrayContent.substring(objStart, objPos - 1))
+      currentPos = objPos
+    } else {
+      currentPos++
+    }
   }
 
   return objects

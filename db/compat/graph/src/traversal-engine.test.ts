@@ -620,12 +620,12 @@ describe('TraversalEngine', () => {
 
         const result = await engine.$in(['alice'], 1)
 
-        // who follows/likes alice: bob (follows), carol (likes), eve (follows), grace (follows)
+        // who follows/likes alice: bob (follows), carol (likes), grace (follows)
+        // Note: eve does NOT have an edge to alice (eve -> carol, eve -> frank)
         expect(result.ids).toContain('bob')
         expect(result.ids).toContain('carol')
-        expect(result.ids).toContain('eve')
         expect(result.ids).toContain('grace')
-        expect(result.ids).toHaveLength(4)
+        expect(result.ids).toHaveLength(3)
       })
 
       it('should traverse any incoming to depth 2 with $in(2)', async () => {
@@ -670,11 +670,12 @@ describe('TraversalEngine', () => {
         expect(result.ids).toContain('grace')
       })
 
-      it('should get full neighborhood with $expand(2)', async () => {
+      it('should get full neighborhood with $expand({ min: 1, max: 2 })', async () => {
         const index = createBranchingGraph()
         const engine = createTraversalEngine(index)
 
-        const result = await engine.$expand(['node-1'], 2)
+        // Use depth range to get both depth 1 and depth 2 nodes
+        const result = await engine.$expand(['node-1'], { min: 1, max: 2 })
 
         // Depth 1 out: node-1-1, node-1-2
         // Depth 1 in: root
@@ -737,9 +738,12 @@ describe('TraversalEngine', () => {
         const index = createTestGraph()
         const engine = createTraversalEngine(index)
 
-        // alice --follows--> bob --follows--> alice (cycle)
+        // alice --follows--> bob, eve (depth 1)
+        // bob --follows--> carol, alice (depth 2)
+        // eve --follows--> carol (depth 2)
+        // Use depth range to get depths 1-2
         const result = await engine.bfs(['alice'], {
-          depth: 2,
+          depth: { min: 1, max: 2 },
           direction: 'out',
           edgeTypes: ['follows'],
         })

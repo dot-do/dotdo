@@ -5,6 +5,7 @@
  * - CUBE: All dimension combinations (power set)
  * - ROLLUP: Hierarchical subtotals
  * - Grouping sets: Custom dimension combinations
+ * - Unified Analytics API: Fluent builder for all primitives
  *
  * @module db/primitives/analytics
  */
@@ -41,3 +42,55 @@ export {
   type CubeResultRow,
   type CubeOptions,
 } from './cube'
+
+// ============================================================================
+// Unified Analytics API
+// ============================================================================
+
+export {
+  // Factory function
+  createAnalytics,
+
+  // Classes
+  Analytics,
+  AnalyticsBuilder,
+
+  // Predicate helpers
+  eq,
+  neq,
+  gt,
+  lt,
+  gte,
+  lte,
+  between,
+  inList,
+
+  // Aggregate helpers
+  sum,
+  count,
+  avg,
+  min,
+  max,
+  countDistinct,
+  approxPercentile,
+  approxTopK,
+
+  // Order helpers
+  asc,
+  desc,
+
+  // Window helpers
+  tumbling,
+  sliding,
+
+  // Types
+  type AnalyticsConfig,
+  type WindowSpec,
+  type Predicate,
+  type AggregateSpec as UnifiedAggregateSpec,
+  type OrderSpec,
+  type QueryPlan,
+  type PlanOperation,
+  type MaterializedAnalyticsTable,
+  type MaterializeOptions,
+} from './unified-analytics'

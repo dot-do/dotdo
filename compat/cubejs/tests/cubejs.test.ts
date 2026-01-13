@@ -1388,6 +1388,327 @@ describe('@dotdo/cubejs - REST API', () => {
 
       await api.fetch(request)
     })
+
+    // =========================================================================
+    // GET Endpoint Tests
+    // =========================================================================
+
+    it('should handle GET /v1/load with query parameter', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+        dataSource: async (query) => {
+          return [{ 'Orders.count': 100 }]
+        },
+      })
+
+      const query = JSON.stringify({ measures: ['Orders.count'] })
+      const request = new Request(`http://localhost/cubejs-api/v1/load?query=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'test_token',
+        },
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.data).toBeDefined()
+      expect(data.data).toEqual([{ 'Orders.count': 100 }])
+    })
+
+    it('should handle GET /v1/sql with query parameter', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+      })
+
+      const query = JSON.stringify({ measures: ['Orders.count'] })
+      const request = new Request(`http://localhost/cubejs-api/v1/sql?query=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'test_token',
+        },
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.sql).toBeDefined()
+      expect(data.sql.sql).toHaveLength(1)
+    })
+
+    it('should handle GET /v1/dry-run with query parameter', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+      })
+
+      const query = JSON.stringify({ measures: ['Orders.count'] })
+      const request = new Request(`http://localhost/cubejs-api/v1/dry-run?query=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'test_token',
+        },
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.normalizedQueries).toBeDefined()
+      expect(data.queryType).toBe('regularQuery')
+    })
+
+    it('should return 400 for GET /v1/load without query parameter', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+      })
+
+      const request = new Request('http://localhost/cubejs-api/v1/load', {
+        method: 'GET',
+        headers: {
+          'Authorization': 'test_token',
+        },
+      })
+
+      const response = await api.fetch(request)
+
+      expect(response.status).toBe(400)
+    })
+
+    it('should return 400 for GET /v1/load with invalid JSON query', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+      })
+
+      const request = new Request('http://localhost/cubejs-api/v1/load?query=invalid-json', {
+        method: 'GET',
+        headers: {
+          'Authorization': 'test_token',
+        },
+      })
+
+      const response = await api.fetch(request)
+
+      expect(response.status).toBe(400)
+    })
+
+    // =========================================================================
+    // GraphQL Endpoint Tests
+    // =========================================================================
+
+    it('should handle POST /graphql endpoint with cube query', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+        dataSource: async (query) => {
+          return [{ 'Orders.count': 100, 'Orders.status': 'completed' }]
+        },
+      })
+
+      const request = new Request('http://localhost/cubejs-api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'test_token',
+        },
+        body: JSON.stringify({
+          query: `
+            query {
+              cube(measures: ["Orders.count"], dimensions: ["Orders.status"]) {
+                count
+                status
+              }
+            }
+          `,
+        }),
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.data).toBeDefined()
+      expect(data.data.cube).toBeDefined()
+    })
+
+    it('should handle POST /graphql with variables', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+        dataSource: async (query) => {
+          return [{ 'Orders.count': 50 }]
+        },
+      })
+
+      const request = new Request('http://localhost/cubejs-api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'test_token',
+        },
+        body: JSON.stringify({
+          query: `
+            query LoadData($query: CubeQuery!) {
+              load(query: $query) {
+                data
+              }
+            }
+          `,
+          variables: {
+            query: {
+              measures: ['Orders.count'],
+            },
+          },
+        }),
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.data).toBeDefined()
+    })
+
+    it('should handle GET /graphql endpoint', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+        dataSource: async (query) => {
+          return [{ 'Orders.count': 100 }]
+        },
+      })
+
+      const graphqlQuery = 'query { cube(measures: ["Orders.count"]) { count } }'
+      const request = new Request(
+        `http://localhost/cubejs-api/graphql?query=${encodeURIComponent(graphqlQuery)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': 'test_token',
+          },
+        }
+      )
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.data).toBeDefined()
+    })
+
+    it('should return error for missing GraphQL query', async () => {
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+      })
+
+      const request = new Request('http://localhost/cubejs-api/graphql', {
+        method: 'GET',
+        headers: {
+          'Authorization': 'test_token',
+        },
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200) // GraphQL returns 200 with errors
+      expect(data.errors).toBeDefined()
+      expect(data.errors[0].message).toContain('Missing query')
+    })
+
+    it('should handle GraphQL with filters', async () => {
+      let capturedQuery: any = null
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+        dataSource: async (query) => {
+          capturedQuery = query
+          return [{ 'Orders.count': 25 }]
+        },
+      })
+
+      const request = new Request('http://localhost/cubejs-api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'test_token',
+        },
+        body: JSON.stringify({
+          query: `
+            query {
+              cube(
+                measures: ["Orders.count"],
+                dimensions: ["Orders.status"],
+                limit: 10
+              ) {
+                count
+                status
+              }
+            }
+          `,
+        }),
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.data).toBeDefined()
+      expect(capturedQuery?.limit).toBe(10)
+    })
+
+    it('should handle GraphQL with time dimensions', async () => {
+      let capturedQuery: any = null
+      const api = createCubeAPI({
+        cubes: [ordersSchema],
+        apiToken: 'test_token',
+        dataSource: async (query) => {
+          capturedQuery = query
+          return [{ 'Orders.count': 100 }]
+        },
+      })
+
+      const request = new Request('http://localhost/cubejs-api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'test_token',
+        },
+        body: JSON.stringify({
+          query: `
+            query LoadData($query: CubeQuery!) {
+              load(query: $query) {
+                data
+              }
+            }
+          `,
+          variables: {
+            query: {
+              measures: ['Orders.count'],
+              timeDimensions: [{
+                dimension: 'Orders.createdAt',
+                granularity: 'day',
+                dateRange: ['2024-01-01', '2024-12-31'],
+              }],
+            },
+          },
+        }),
+      })
+
+      const response = await api.fetch(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(capturedQuery?.timeDimensions).toHaveLength(1)
+      expect(capturedQuery?.timeDimensions[0].dimension).toBe('Orders.createdAt')
+    })
   })
 })
 

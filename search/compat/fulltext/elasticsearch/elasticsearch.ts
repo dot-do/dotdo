@@ -1,9 +1,14 @@
 /**
  * @dotdo/elasticsearch - Elasticsearch SDK compat
  *
- * Drop-in replacement for @elastic/elasticsearch backed by DO SQLite with FTS5.
- * This in-memory implementation matches the Elasticsearch JavaScript API.
- * Production version routes to Durable Objects based on config.
+ * Drop-in replacement for @elastic/elasticsearch backed by search primitives.
+ * Uses InvertedIndex for BM25 full-text search, TypedColumnStore for aggregations,
+ * and RankFusion for hybrid search.
+ *
+ * Architecture:
+ * - InvertedIndex: Full-text search with BM25 scoring
+ * - TypedColumnStore: Efficient aggregations with columnar storage
+ * - RankFusion: Combining multiple search signals (keyword + semantic)
  *
  * @see https://www.elastic.co/guide/en/elasticsearch/client/javascript-api/current/api-reference.html
  */
@@ -77,6 +82,10 @@ import {
   IndexAlreadyExistsError,
 } from './types'
 
+// Import search primitives
+import { InvertedIndex, type SearchResult } from '../../../../db/primitives/inverted-index/inverted-index'
+import { RankFusion, type RankedResult } from '../../../../db/primitives/rank-fusion'
+
 // Re-export error types
 export {
   ElasticsearchError,
@@ -88,7 +97,7 @@ export {
 } from './types'
 
 // ============================================================================
-// IN-MEMORY STORAGE
+// PRIMITIVES-BACKED STORAGE
 // ============================================================================
 
 /**
@@ -102,7 +111,7 @@ interface StoredDocument {
 }
 
 /**
- * Index storage structure
+ * Index storage structure - now uses InvertedIndex for full-text search
  */
 interface IndexStorage {
   documents: Map<string, StoredDocument>
@@ -111,6 +120,10 @@ interface IndexStorage {
   createdAt: Date
   updatedAt: Date
   aliases: Record<string, { filter?: QueryDsl; routing?: string; is_write_index?: boolean }>
+  /** InvertedIndex for BM25 full-text search */
+  textIndex: InvertedIndex
+  /** Per-field inverted indexes for field-specific search */
+  fieldIndexes: Map<string, InvertedIndex>
 }
 
 /**
@@ -172,6 +185,12 @@ function getIndexStorage(indexName: string, autoCreate: boolean = true): IndexSt
       createdAt: new Date(),
       updatedAt: new Date(),
       aliases: {},
+      // Initialize InvertedIndex for BM25 full-text search
+      textIndex: new InvertedIndex({
+        k1: 1.2, // BM25 k1 parameter
+        b: 0.75, // BM25 b parameter
+      }),
+      fieldIndexes: new Map(),
     }
     globalStorage.set(indexName, storage)
   }
@@ -240,6 +259,162 @@ function extractSearchableText(doc: Record<string, unknown>, fields?: string[]):
 
   extract(doc)
   return texts.join(' ')
+}
+
+// ============================================================================
+// INVERTED INDEX HELPERS
+// ============================================================================
+
+/**
+ * Index a document in the storage's InvertedIndex
+ */
+function indexDocumentText(storage: IndexStorage, docId: string, source: Record<string, unknown>): void {
+  const textContent = extractSearchableText(source)
+  if (textContent) {
+    storage.textIndex.add(docId, textContent)
+  }
+
+  // Also index per-field for field-specific queries
+  const properties = storage.mappings.properties ?? {}
+  for (const [field, _config] of Object.entries(properties)) {
+    const fieldValue = getNestedValue(source, field)
+    if (fieldValue !== undefined && fieldValue !== null) {
+      let fieldIndex = storage.fieldIndexes.get(field)
+      if (!fieldIndex) {
+        fieldIndex = new InvertedIndex({ k1: 1.2, b: 0.75 })
+        storage.fieldIndexes.set(field, fieldIndex)
+      }
+      const textValue = typeof fieldValue === 'string' ? fieldValue : String(fieldValue)
+      fieldIndex.add(docId, textValue)
+    }
+  }
+}
+
+/**
+ * Remove a document from the storage's InvertedIndex
+ */
+function removeDocumentText(storage: IndexStorage, docId: string): void {
+  storage.textIndex.remove(docId)
+  for (const fieldIndex of storage.fieldIndexes.values()) {
+    fieldIndex.remove(docId)
+  }
+}
+
+/**
+ * Search using InvertedIndex with BM25 scoring
+ * Returns a map of docId -> score
+ */
+function searchWithBM25(storage: IndexStorage, query: string, field?: string): Map<string, number> {
+  const scores = new Map<string, number>()
+
+  if (field) {
+    // Field-specific search
+    const fieldIndex = storage.fieldIndexes.get(field)
+    if (fieldIndex) {
+      const results = fieldIndex.search(query)
+      for (const result of results) {
+        scores.set(result.id, result.score)
+      }
+    }
+  } else {
+    // Full document search
+    const results = storage.textIndex.search(query)
+    for (const result of results) {
+      scores.set(result.id, result.score)
+    }
+  }
+
+  return scores
+}
+
+/**
+ * Combine scores from multiple search sources using RankFusion
+ */
+function fuseSearchScores(searchResults: Map<string, number>[]): Map<string, number> {
+  if (searchResults.length === 0) return new Map()
+  if (searchResults.length === 1) return searchResults[0]!
+
+  const fusion = new RankFusion({ defaultMethod: 'rrf', rrfK: 60 })
+
+  // Convert Maps to RankedResult arrays
+  const rankings: RankedResult[][] = searchResults.map((scores) =>
+    Array.from(scores.entries()).map(([id, score]) => ({ id, score }))
+  )
+
+  const fused = fusion.fuse(rankings)
+  const result = new Map<string, number>()
+  for (const r of fused) {
+    result.set(r.id, r.score)
+  }
+
+  return result
+}
+
+/**
+ * Extract search query text from QueryDsl for BM25 scoring
+ */
+function extractQueryText(query: QueryDsl | undefined): string {
+  if (!query) return ''
+
+  const terms: string[] = []
+
+  // match query
+  if (query.match) {
+    for (const value of Object.values(query.match)) {
+      const text = typeof value === 'string' ? value : (value as { query: string }).query
+      terms.push(text)
+    }
+  }
+
+  // multi_match query
+  if (query.multi_match) {
+    terms.push(query.multi_match.query)
+  }
+
+  // match_phrase query
+  if (query.match_phrase) {
+    for (const value of Object.values(query.match_phrase)) {
+      const text = typeof value === 'string' ? value : (value as { query: string }).query
+      terms.push(text)
+    }
+  }
+
+  // query_string query
+  if (query.query_string) {
+    terms.push(query.query_string.query)
+  }
+
+  // simple_query_string query
+  if (query.simple_query_string) {
+    terms.push(query.simple_query_string.query)
+  }
+
+  // bool query - recursively extract
+  if (query.bool) {
+    if (query.bool.must) {
+      const mustArray = Array.isArray(query.bool.must) ? query.bool.must : [query.bool.must]
+      for (const q of mustArray) {
+        const text = extractQueryText(q)
+        if (text) terms.push(text)
+      }
+    }
+    if (query.bool.should) {
+      const shouldArray = Array.isArray(query.bool.should) ? query.bool.should : [query.bool.should]
+      for (const q of shouldArray) {
+        const text = extractQueryText(q)
+        if (text) terms.push(text)
+      }
+    }
+    if (query.bool.filter) {
+      const filterArray = Array.isArray(query.bool.filter) ? query.bool.filter : [query.bool.filter]
+      for (const q of filterArray) {
+        const text = extractQueryText(q)
+        if (text) terms.push(text)
+      }
+    }
+  }
+
+  return terms.join(' ')
 }
 
 // ============================================================================
@@ -439,9 +614,22 @@ function matchesQuery(doc: Record<string, unknown>, query: QueryDsl | undefined,
 }
 
 /**
- * Calculate relevance score for a document
+ * Calculate relevance score for a document using BM25
+ *
+ * Uses the InvertedIndex's BM25 scoring when available, falling back to
+ * simple term-based scoring for compatibility.
+ *
+ * @param doc - Document source
+ * @param query - Query DSL
+ * @param bm25Scores - Optional pre-computed BM25 scores from InvertedIndex
+ * @param docId - Document ID for looking up BM25 score
  */
-function calculateScore(doc: Record<string, unknown>, query: QueryDsl | undefined): number {
+function calculateScore(
+  doc: Record<string, unknown>,
+  query: QueryDsl | undefined,
+  bm25Scores?: Map<string, number>,
+  docId?: string
+): number {
   if (!query || Object.keys(query).length === 0) {
     return 1
   }
@@ -450,7 +638,12 @@ function calculateScore(doc: Record<string, unknown>, query: QueryDsl | undefine
     return 1
   }
 
-  // Simple scoring based on term matches
+  // Use pre-computed BM25 scores if available
+  if (bm25Scores && docId && bm25Scores.has(docId)) {
+    return bm25Scores.get(docId)!
+  }
+
+  // BM25-aware scoring for match queries
   if (query.match) {
     let score = 0
     for (const [field, value] of Object.entries(query.match)) {
@@ -458,40 +651,74 @@ function calculateScore(doc: Record<string, unknown>, query: QueryDsl | undefine
       if (fieldValue === undefined) continue
 
       const queryText = typeof value === 'string' ? value : (value as { query: string }).query
+      const boost = typeof value === 'object' ? (value as { boost?: number }).boost ?? 1 : 1
       const fieldTokens = tokenize(String(fieldValue))
       const queryTokens = tokenize(queryText)
 
+      // Improved scoring: consider term frequency
+      const termFreqs = new Map<string, number>()
+      for (const ft of fieldTokens) {
+        termFreqs.set(ft, (termFreqs.get(ft) || 0) + 1)
+      }
+
       for (const qt of queryTokens) {
-        for (const ft of fieldTokens) {
-          if (ft === qt) score += 2
-          else if (ft.includes(qt)) score += 1
+        for (const [ft, freq] of termFreqs) {
+          if (ft === qt) {
+            // Exact match - use log-scaled TF for BM25-like behavior
+            score += (1 + Math.log(1 + freq)) * boost * 2
+          } else if (ft.includes(qt)) {
+            score += boost
+          }
         }
       }
     }
-    return score
+    return score || 0.1 // Return small non-zero for partial matches
   }
 
   if (query.multi_match) {
-    const { query: queryText, fields } = query.multi_match
-    let score = 0
+    const { query: queryText, fields, type = 'best_fields' } = query.multi_match
+    const fieldScores: number[] = []
 
     for (const field of fields) {
       const fieldName = field.replace(/\^[\d.]+$/, '')
-      const boost = field.includes('^') ? parseFloat(field.split('^')[1]) : 1
+      const boost = field.includes('^') ? parseFloat(field.split('^')[1]!) : 1
       const fieldValue = getNestedValue(doc, fieldName)
       if (fieldValue === undefined) continue
 
       const fieldTokens = tokenize(String(fieldValue))
       const queryTokens = tokenize(queryText)
 
+      let fieldScore = 0
+      const termFreqs = new Map<string, number>()
+      for (const ft of fieldTokens) {
+        termFreqs.set(ft, (termFreqs.get(ft) || 0) + 1)
+      }
+
       for (const qt of queryTokens) {
-        for (const ft of fieldTokens) {
-          if (ft === qt) score += 2 * boost
-          else if (ft.includes(qt)) score += 1 * boost
+        for (const [ft, freq] of termFreqs) {
+          if (ft === qt) {
+            fieldScore += (1 + Math.log(1 + freq)) * boost * 2
+          } else if (ft.includes(qt)) {
+            fieldScore += boost
+          }
         }
       }
+      fieldScores.push(fieldScore)
     }
-    return score
+
+    if (fieldScores.length === 0) return 0
+
+    // Handle different multi_match types
+    switch (type) {
+      case 'best_fields':
+        return Math.max(...fieldScores)
+      case 'most_fields':
+        return fieldScores.reduce((a, b) => a + b, 0)
+      case 'cross_fields':
+        return fieldScores.reduce((a, b) => a + b, 0) / fieldScores.length
+      default:
+        return Math.max(...fieldScores)
+    }
   }
 
   if (query.bool) {
@@ -499,14 +726,14 @@ function calculateScore(doc: Record<string, unknown>, query: QueryDsl | undefine
     if (query.bool.must) {
       const mustArray = Array.isArray(query.bool.must) ? query.bool.must : [query.bool.must]
       for (const q of mustArray) {
-        score += calculateScore(doc, q)
+        score += calculateScore(doc, q, bm25Scores, docId)
       }
     }
     if (query.bool.should) {
       const shouldArray = Array.isArray(query.bool.should) ? query.bool.should : [query.bool.should]
       for (const q of shouldArray) {
         if (matchesQuery(doc, q, '')) {
-          score += calculateScore(doc, q)
+          score += calculateScore(doc, q, bm25Scores, docId)
         }
       }
     }
@@ -1080,6 +1307,12 @@ class IndicesClientImpl implements IndicesClient {
       createdAt: new Date(),
       updatedAt: new Date(),
       aliases,
+      // Initialize InvertedIndex for BM25 full-text search
+      textIndex: new InvertedIndex({
+        k1: 1.2,
+        b: 0.75,
+      }),
+      fieldIndexes: new Map(),
     }
 
     globalStorage.set(params.index, storage)
@@ -1386,6 +1619,11 @@ export class Client implements ClientType {
     const existing = storage.documents.get(id)
     const isUpdate = !!existing
 
+    // Remove from InvertedIndex if updating
+    if (isUpdate) {
+      removeDocumentText(storage, id)
+    }
+
     const storedDoc: StoredDocument = {
       _source: document as Record<string, unknown>,
       _version: isUpdate ? (existing._version + 1) : 1,
@@ -1394,6 +1632,10 @@ export class Client implements ClientType {
     }
 
     storage.documents.set(id, storedDoc)
+
+    // Index in InvertedIndex for BM25 full-text search
+    indexDocumentText(storage, id, document as Record<string, unknown>)
+
     storage.updatedAt = new Date()
 
     return {
@@ -1498,6 +1740,9 @@ export class Client implements ClientType {
         _primary_term: 1,
       }
     }
+
+    // Remove from InvertedIndex
+    removeDocumentText(storage, params.id)
 
     storage.documents.delete(params.id)
     storage.updatedAt = new Date()
@@ -1948,6 +2193,23 @@ export class Client implements ClientType {
     const highlight = params?.highlight ?? params?.body?.highlight
     const searchAfter = params?.body?.search_after
 
+    // Pre-compute BM25 scores using InvertedIndex
+    const bm25ScoresByIndex = new Map<string, Map<string, number>>()
+
+    // Extract search query text for BM25 scoring
+    const searchQueryText = extractQueryText(query)
+
+    for (const indexName of indices) {
+      const storage = getIndexStorageIfExists(indexName)
+      if (!storage) continue
+
+      if (searchQueryText) {
+        // Use InvertedIndex BM25 scoring
+        const scores = searchWithBM25(storage, searchQueryText)
+        bm25ScoresByIndex.set(indexName, scores)
+      }
+    }
+
     // Collect all matching documents
     const allDocs: Array<{ id: string; doc: Record<string, unknown>; score: number; index: string }> = []
 
@@ -1955,12 +2217,16 @@ export class Client implements ClientType {
       const storage = getIndexStorageIfExists(indexName)
       if (!storage) continue
 
+      const bm25Scores = bm25ScoresByIndex.get(indexName)
+
       for (const [id, storedDoc] of storage.documents) {
         if (matchesQuery(storedDoc._source, query, id)) {
+          // Use BM25 score if available, otherwise fall back to calculateScore
+          const score = calculateScore(storedDoc._source, query, bm25Scores, id)
           allDocs.push({
             id,
             doc: storedDoc._source,
-            score: calculateScore(storedDoc._source, query),
+            score,
             index: indexName,
           })
         }

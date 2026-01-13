@@ -563,6 +563,7 @@ export class Cube {
   public readonly measures: Record<string, MetricDefinition>
   public readonly dimensions: Record<string, DimensionDefinition>
   public readonly joins?: JoinDefinition[]
+  public readonly segments: Record<string, { sql: string }>
   public preAggregations: PreAggregationDefinition[] = []
 
   private _metrics: Map<string, Metric> = new Map()
@@ -574,6 +575,7 @@ export class Cube {
     this.measures = definition.measures
     this.dimensions = definition.dimensions
     this.joins = definition.joins
+    this.segments = definition.segments || {}
     this.preAggregations = definition.preAggregations || []
 
     // Build helper instances
@@ -591,6 +593,10 @@ export class Cube {
 
   getDimension(name: string): Dimension | undefined {
     return this._dimensions.get(name)
+  }
+
+  getSegment(name: string): { sql: string } | undefined {
+    return this.segments[name]
   }
 }
 

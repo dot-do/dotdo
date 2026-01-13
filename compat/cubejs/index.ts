@@ -147,9 +147,13 @@ export {
 
 export {
   PreAggregationCache,
+  QueryResultCache,
 
   // Types
   type PreAggregationCacheOptions,
+  type QueryResultCacheOptions,
+  type CacheStatistics,
+  type CachedQueryResult,
 } from './cache'
 
 // =============================================================================
@@ -165,6 +169,11 @@ export {
   type MetaResponse,
   type DryRunResponse,
   type SQLResponse,
+  type GraphQLRequest,
+  type GraphQLResponse,
+  type QueryResult as APIQueryResult,
+  type SecurityContext as APISecurityContext,
+  type CacheOptions,
 } from './api'
 
 // =============================================================================
@@ -186,3 +195,19 @@ export {
   PreAggregationError,
   SQLGenerationError,
 } from './errors'
+
+// =============================================================================
+// Pre-aggregation Engine
+// =============================================================================
+
+export {
+  PreAggregationEngine,
+  createPreAggregationEngine,
+
+  // Types
+  type PreAggregationEngineOptions,
+  type PreAggregationTable,
+  type PreAggregationPartition,
+  type QueryRoutingResult,
+  type SQLExecutor,
+} from './preagg'

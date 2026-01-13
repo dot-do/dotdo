@@ -271,3 +271,28 @@ export {
 
 // MurmurHash3 - Fast non-cryptographic hash function
 export { murmurHash3, murmurHash3_32 } from './utils/murmur3'
+
+// =============================================================================
+// DOCUMENT STORE
+// =============================================================================
+
+// DocumentStore - MongoDB-like document storage primitive
+export {
+  createDocumentStore,
+  type DocumentStore,
+  type Document,
+  type DocumentId,
+  type DocumentStoreOptions,
+  type DocumentStoreSession,
+  type QueryFilter,
+  type FindOptions,
+  type UpdateOperators,
+  type UpdateResult,
+  type DeleteResult,
+  type InsertResult,
+  type InsertManyResult,
+  type IndexSpec,
+  type IndexOptions,
+  type IndexInfo,
+  type AggregationStage,
+} from './document-store'
