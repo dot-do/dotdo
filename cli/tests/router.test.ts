@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { route, parseArgv, helpText, version } from '../index'
 import { commands } from '../commands'
-import * as bin from '../bin'
+// Note: bin.ts is imported dynamically in tests due to Commander dependency chain
 import { fallback } from '../fallback'
 import pkg from '../../package.json'
 
@@ -232,16 +232,32 @@ describe('CLI Router', () => {
     })
   })
 
-  describe('Entry Point (bin.ts)', () => {
-    it('exports a main function', () => {
-      expect(bin.main).toBeDefined()
-      expect(typeof bin.main).toBe('function')
+  describe('Entry Point (main.ts)', () => {
+    it('exports a Commander program', async () => {
+      // main.ts exports the Commander program for CLI usage
+      // bin.ts imports and uses this program
+      const mainModule = await import('../main')
+      expect(mainModule.program).toBeDefined()
+      expect(mainModule.program.name()).toBe('dotdo')
     })
 
-    it('main function is async', () => {
-      // Check if it returns a Promise
-      const result = bin.main(['--help'])
-      expect(result).toBeInstanceOf(Promise)
+    it('program has all expected commands', async () => {
+      const mainModule = await import('../main')
+      const commandNames = mainModule.program.commands.map((cmd: { name: () => string }) => cmd.name())
+
+      // Dev commands
+      expect(commandNames).toContain('start')
+      expect(commandNames).toContain('dev')
+      expect(commandNames).toContain('deploy')
+
+      // Service commands
+      expect(commandNames).toContain('call')
+      expect(commandNames).toContain('text')
+      expect(commandNames).toContain('email')
+      expect(commandNames).toContain('charge')
+      expect(commandNames).toContain('queue')
+      expect(commandNames).toContain('llm')
+      expect(commandNames).toContain('config')
     })
   })
 
@@ -289,6 +305,512 @@ describe('CLI Router', () => {
 
     it('version matches package.json', () => {
       expect(version).toBe(pkg.version)
+    })
+  })
+})
+
+/**
+ * Surface Router Tests (TDD RED Phase)
+ *
+ * Tests for multi-surface HTTP routing.
+ * Routes discovered surfaces to their respective URL paths:
+ * - Site -> / (root)
+ * - App -> /app/*
+ * - Admin -> /admin/*
+ * - Docs -> /docs/*
+ * - Blog -> /blog/*
+ */
+describe('Surface Router', () => {
+  // Import the router factory - this doesn't exist yet (RED phase)
+  let createSurfaceRouter: typeof import('../runtime/surface-router').createSurfaceRouter
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const module = await import('../runtime/surface-router')
+    createSurfaceRouter = module.createSurfaceRouter
+  })
+
+  // Mock render function that returns surface name in response
+  const mockRenderSurface = vi.fn(async (surfacePath: string, _request: Request) => {
+    // Extract surface name from path for easy testing
+    const surfaceName = surfacePath.split('/').pop()?.replace(/\.(tsx|mdx)$/, '') ?? 'unknown'
+    return new Response(`Rendered: ${surfaceName}`, {
+      headers: { 'Content-Type': 'text/html' },
+    })
+  })
+
+  describe('Site surface at root (/)', () => {
+    it('GET / returns Site surface content when Site exists', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Site')
+      expect(mockRenderSurface).toHaveBeenCalledWith('/project/Site.tsx', request)
+    })
+
+    it('GET / returns 404 when no Site surface exists and no App fallback', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+      expect(mockRenderSurface).not.toHaveBeenCalled()
+    })
+
+    it('GET / returns App surface when no Site but App exists', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: '/project/App.tsx',
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: App')
+      expect(mockRenderSurface).toHaveBeenCalledWith('/project/App.tsx', request)
+    })
+  })
+
+  describe('App surface (/app/*)', () => {
+    it('GET /app routes to App surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: '/project/App.tsx',
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/app')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: App')
+      expect(mockRenderSurface).toHaveBeenCalledWith('/project/App.tsx', request)
+    })
+
+    it('GET /app/dashboard routes to App surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: '/project/App.tsx',
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/app/dashboard')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: App')
+    })
+
+    it('GET /app/* returns 404 when App surface not configured', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/app/dashboard')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+    })
+  })
+
+  describe('Admin surface (/admin/*)', () => {
+    it('GET /admin routes to Admin surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: '/project/Admin.tsx',
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/admin')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Admin')
+      expect(mockRenderSurface).toHaveBeenCalledWith('/project/Admin.tsx', request)
+    })
+
+    it('GET /admin/users routes to Admin surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: '/project/Admin.tsx',
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/admin/users')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Admin')
+    })
+
+    it('GET /admin/* returns 404 when Admin surface not configured', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/admin/settings')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+    })
+  })
+
+  describe('Docs surface (/docs/*)', () => {
+    it('GET /docs routes to Docs surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: '/project/Docs.mdx',
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/docs')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Docs')
+      expect(mockRenderSurface).toHaveBeenCalledWith('/project/Docs.mdx', request)
+    })
+
+    it('GET /docs/getting-started routes to Docs surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: '/project/Docs.mdx',
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/docs/getting-started')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Docs')
+    })
+
+    it('GET /docs/* returns 404 when Docs surface not configured', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/docs/api')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+    })
+  })
+
+  describe('Blog surface (/blog/*)', () => {
+    it('GET /blog routes to Blog surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: '/project/Blog.tsx',
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/blog')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Blog')
+      expect(mockRenderSurface).toHaveBeenCalledWith('/project/Blog.tsx', request)
+    })
+
+    it('GET /blog/my-first-post routes to Blog surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: '/project/Blog.tsx',
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/blog/my-first-post')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Blog')
+    })
+
+    it('GET /blog/* returns 404 when Blog surface not configured', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/blog/hello')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+    })
+  })
+
+  describe('Unknown routes (404 fallback)', () => {
+    it('GET /unknown returns 404', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: '/project/App.tsx',
+          Admin: '/project/Admin.tsx',
+          Docs: '/project/Docs.mdx',
+          Blog: '/project/Blog.tsx',
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/unknown')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+      expect(await response.text()).toBe('Not Found')
+    })
+
+    it('GET /api/something returns 404 (not a surface path)', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: '/project/App.tsx',
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/api/something')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+    })
+
+    it('GET /random/nested/path returns 404', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/random/nested/path')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(404)
+    })
+  })
+
+  describe('Site surface at /site/* path', () => {
+    it('GET /site routes to Site surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/site')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Site')
+    })
+
+    it('GET /site/about routes to Site surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: null,
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/site/about')
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Rendered: Site')
+    })
+  })
+
+  describe('All surfaces configured', () => {
+    it('routes all surfaces correctly when all are configured', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: '/project/Site.tsx',
+          App: '/project/App.tsx',
+          Admin: '/project/Admin.tsx',
+          Docs: '/project/Docs.mdx',
+          Blog: '/project/Blog.tsx',
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      // Test each surface route
+      const routes = [
+        { path: '/', expected: 'Site' },
+        { path: '/site/pricing', expected: 'Site' },
+        { path: '/app', expected: 'App' },
+        { path: '/app/settings', expected: 'App' },
+        { path: '/admin', expected: 'Admin' },
+        { path: '/admin/dashboard', expected: 'Admin' },
+        { path: '/docs', expected: 'Docs' },
+        { path: '/docs/api/reference', expected: 'Docs' },
+        { path: '/blog', expected: 'Blog' },
+        { path: '/blog/2024/01/hello', expected: 'Blog' },
+      ]
+
+      for (const { path, expected } of routes) {
+        mockRenderSurface.mockClear()
+        const request = new Request(`http://localhost${path}`)
+        const response = await router.fetch(request)
+        expect(response.status).toBe(200)
+        expect(await response.text()).toBe(`Rendered: ${expected}`)
+      }
+    })
+  })
+
+  describe('HTTP methods', () => {
+    it('handles POST requests to App surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: '/project/App.tsx',
+          Admin: null,
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/app/submit', {
+        method: 'POST',
+        body: JSON.stringify({ data: 'test' }),
+      })
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
+    })
+
+    it('handles PUT requests to Admin surface', async () => {
+      const router = createSurfaceRouter({
+        surfaces: {
+          Site: null,
+          App: null,
+          Admin: '/project/Admin.tsx',
+          Docs: null,
+          Blog: null,
+        },
+        renderSurface: mockRenderSurface,
+      })
+
+      const request = new Request('http://localhost/admin/users/1', {
+        method: 'PUT',
+        body: JSON.stringify({ name: 'Updated' }),
+      })
+      const response = await router.fetch(request)
+
+      expect(response.status).toBe(200)
     })
   })
 })

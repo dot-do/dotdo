@@ -10,6 +10,8 @@ import { Logger, createLogger } from '../utils/logger'
 import { loadConfig, type DotdoConfig } from '../utils/config'
 import { DORegistry } from './do-registry'
 import { EmbeddedDB } from './embedded-db'
+import { createSurfaceRouter, type SurfaceRouterOptions } from './surface-router'
+import { discoverAll, type DiscoveryResult, type Surface } from '../utils/discover'
 
 export interface MiniflareAdapterOptions {
   port?: number
@@ -28,6 +30,11 @@ export interface RunningInstance {
 }
 
 /**
+ * Custom render function type for surface rendering
+ */
+export type SurfaceRenderer = (surfacePath: string, request: Request) => Promise<Response>
+
+/**
  * Creates and configures Miniflare for local DO development
  */
 export class MiniflareAdapter {
@@ -36,6 +43,8 @@ export class MiniflareAdapter {
   private config: DotdoConfig
   private registry: DORegistry
   private db: EmbeddedDB
+  private discoveredSurfaces: DiscoveryResult | null = null
+  private surfaceRenderer: SurfaceRenderer | null = null
 
   constructor(options: MiniflareAdapterOptions = {}) {
     this.logger = options.logger ?? createLogger('miniflare')
@@ -151,6 +160,57 @@ export class MiniflareAdapter {
    */
   getRegistry(): DORegistry {
     return this.registry
+  }
+
+  /**
+   * Discover surface files in the project directory
+   */
+  async discoverSurfaces(rootDir?: string): Promise<DiscoveryResult> {
+    const dir = rootDir ?? this.config.srcDir ?? '.'
+    this.discoveredSurfaces = await discoverAll(dir)
+    this.logger.info('Discovered surfaces', {
+      surfaces: Object.entries(this.discoveredSurfaces.surfaces)
+        .filter(([, path]) => path !== null)
+        .map(([name]) => name),
+    })
+    return this.discoveredSurfaces
+  }
+
+  /**
+   * Get discovered surfaces (calls discoverSurfaces if not already called)
+   */
+  async getSurfaces(rootDir?: string): Promise<DiscoveryResult> {
+    if (!this.discoveredSurfaces) {
+      return this.discoverSurfaces(rootDir)
+    }
+    return this.discoveredSurfaces
+  }
+
+  /**
+   * Set a custom surface renderer function
+   */
+  setSurfaceRenderer(renderer: SurfaceRenderer): void {
+    this.surfaceRenderer = renderer
+  }
+
+  /**
+   * Create a Hono router for discovered surfaces
+   *
+   * @param renderSurface - Optional custom render function. If not provided, uses the renderer set via setSurfaceRenderer()
+   * @returns Hono app configured with surface routes
+   */
+  async createSurfaceRouter(renderSurface?: SurfaceRenderer) {
+    const surfaces = await this.getSurfaces()
+    const renderer = renderSurface ?? this.surfaceRenderer
+
+    if (!renderer) {
+      throw new Error('Surface renderer not configured. Call setSurfaceRenderer() or pass a renderSurface function.')
+    }
+
+    return createSurfaceRouter({
+      surfaces: surfaces.surfaces,
+      renderSurface: renderer,
+    })
   }
 }
 
