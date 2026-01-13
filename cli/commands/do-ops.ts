@@ -13,6 +13,7 @@
 import { Command } from 'commander'
 import { createDB } from '../runtime/embedded-db'
 import { createLogger } from '../utils/logger'
+import { formatKeyValue } from '../utils/output'
 
 const logger = createLogger('do')
 
@@ -65,9 +66,11 @@ doCommand
 
       for (const instance of instances) {
         console.log(`  ${instance.id}`)
-        console.log(`    Class:   ${instance.className}`)
-        console.log(`    Created: ${formatTime(instance.createdAt)}`)
-        console.log(`    Updated: ${formatTime(instance.updatedAt)}`)
+        console.log(formatKeyValue([
+          ['Class:', instance.className],
+          ['Created:', formatTime(instance.createdAt)],
+          ['Updated:', formatTime(instance.updatedAt)],
+        ]))
         console.log()
       }
     } finally {
@@ -103,9 +106,11 @@ doCommand
       console.log()
       console.log(`Durable Object: ${instance.id}`)
       console.log('─'.repeat(40))
-      console.log(`  Class:   ${instance.className}`)
-      console.log(`  Created: ${formatTime(instance.createdAt)}`)
-      console.log(`  Updated: ${formatTime(instance.updatedAt)}`)
+      console.log(formatKeyValue([
+        ['Class:', instance.className],
+        ['Created:', formatTime(instance.createdAt)],
+        ['Updated:', formatTime(instance.updatedAt)],
+      ], 8, 2))
       console.log()
       console.log('State:')
       console.log(formatState(instance.state))
@@ -185,10 +190,11 @@ doCommand
 
         for (const snap of snapshots) {
           console.log(`  ${snap.id}`)
-          console.log(`    Created: ${formatTime(snap.createdAt)}`)
+          const kvPairs: Array<[string, string]> = [['Created:', formatTime(snap.createdAt)]]
           if (snap.label) {
-            console.log(`    Label:   ${snap.label}`)
+            kvPairs.push(['Label:', snap.label])
           }
+          console.log(formatKeyValue(kvPairs))
           console.log()
         }
         return
@@ -303,7 +309,7 @@ doCommand
       for (const snap of snapshots) {
         const label = snap.label ? ` (${snap.label})` : ''
         console.log(`  ${snap.id}${label}`)
-        console.log(`    Created: ${formatTime(snap.createdAt)}`)
+        console.log(formatKeyValue([['Created:', formatTime(snap.createdAt)]]))
         console.log()
       }
     } finally {

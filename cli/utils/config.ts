@@ -10,6 +10,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import { createLogger, type Logger } from './logger'
 
 // Re-export types from types/config.ts
 export type {
@@ -20,7 +21,73 @@ export type {
   SurfacesConfig,
 } from '../../types/config'
 
+// Re-export Logger type for callers
+export type { Logger } from './logger'
+
 import type { DotdoConfig, DotdoConfigInput } from '../../types/config'
+
+// ============================================================================
+// CLI-specific Configuration Types
+// ============================================================================
+
+/**
+ * CLI configuration for OAuth and authentication flows
+ *
+ * Extends the base DotdoConfig with CLI-specific settings for
+ * API endpoints, authentication, and vault access.
+ */
+export interface CLIConfig extends Partial<DotdoConfig> {
+  /** Base URL for the API server (default: https://api.org.ai) */
+  apiUrl?: string
+  /** Base URL for the auth server (default: https://id.org.ai) */
+  authUrl?: string
+  /** Base URL for the vault server */
+  vaultUrl?: string
+  /** Current session token */
+  sessionToken?: string
+  /** Whether to use federated authentication via id.org.ai */
+  federateAuth?: boolean
+  /** Preferred browser for OAuth flows */
+  preferredBrowser?: string
+  /** Request timeout in milliseconds */
+  timeout?: number
+}
+
+/**
+ * Default CLI configuration values
+ */
+export const defaultCLIConfig: CLIConfig = {
+  apiUrl: 'https://api.org.ai',
+  authUrl: 'https://id.org.ai',
+  vaultUrl: 'https://vault.org.ai',
+  timeout: 30000,
+}
+
+/**
+ * Get CLI configuration with defaults
+ */
+export function getCLIConfig(overrides?: Partial<CLIConfig>): CLIConfig {
+  return {
+    ...defaultCLIConfig,
+    ...overrides,
+  }
+}
+
+/**
+ * Set a CLI configuration value
+ * Note: This is a stub for now - in production would persist to file
+ */
+export function setConfig(key: keyof CLIConfig, value: unknown): void {
+  // In a real implementation, this would persist to ~/.org.ai/config.json
+  // For now, it's a no-op since config is loaded fresh each time
+}
+
+/**
+ * Get a CLI configuration value
+ */
+export function getConfig(): CLIConfig {
+  return getCLIConfig()
+}
 
 // Default configuration
 const defaultConfig: DotdoConfig = {
@@ -53,7 +120,7 @@ export function findProjectRoot(startDir: string = process.cwd()): string {
 /**
  * Load wrangler configuration
  */
-function loadWranglerConfig(projectRoot: string): Partial<DotdoConfig> {
+function loadWranglerConfig(projectRoot: string, logger?: Logger): Partial<DotdoConfig> {
   const config: Partial<DotdoConfig> = {}
 
   // Try wrangler.jsonc first
@@ -66,8 +133,11 @@ function loadWranglerConfig(projectRoot: string): Partial<DotdoConfig> {
         .replace(/\/\/.*/g, '')
       const wrangler = JSON.parse(content)
       return extractWranglerConfig(wrangler)
-    } catch {
-      // Ignore parse errors
+    } catch (error) {
+      logger?.debug('Failed to parse config file', {
+        file: jsoncPath,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
@@ -88,8 +158,11 @@ function loadWranglerConfig(projectRoot: string): Partial<DotdoConfig> {
           if (key === 'compatibility_date') config.compatibilityDate = value
         }
       }
-    } catch {
-      // Ignore parse errors
+    } catch (error) {
+      logger?.debug('Failed to parse config file', {
+        file: tomlPath,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
@@ -127,7 +200,7 @@ function extractWranglerConfig(wrangler: Record<string, unknown>): Partial<Dotdo
 /**
  * Load dotdo.config.ts if present
  */
-async function loadDotdoConfig(projectRoot: string): Promise<Partial<DotdoConfig>> {
+async function loadDotdoConfig(projectRoot: string, logger?: Logger): Promise<Partial<DotdoConfig>> {
   const configPath = path.join(projectRoot, 'dotdo.config.ts')
 
   if (!fs.existsSync(configPath)) {
@@ -138,7 +211,11 @@ async function loadDotdoConfig(projectRoot: string): Promise<Partial<DotdoConfig
     // Dynamic import for TypeScript config
     const configModule = await import(configPath)
     return configModule.default ?? configModule
-  } catch {
+  } catch (error) {
+    logger?.debug('Failed to parse config file', {
+      file: configPath,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return {}
   }
 }
@@ -146,7 +223,7 @@ async function loadDotdoConfig(projectRoot: string): Promise<Partial<DotdoConfig
 /**
  * Load config from package.json dotdo field
  */
-function loadPackageJsonConfig(projectRoot: string): Partial<DotdoConfig> {
+function loadPackageJsonConfig(projectRoot: string, logger?: Logger): Partial<DotdoConfig> {
   const pkgPath = path.join(projectRoot, 'package.json')
 
   if (!fs.existsSync(pkgPath)) {
@@ -156,7 +233,11 @@ function loadPackageJsonConfig(projectRoot: string): Partial<DotdoConfig> {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
     return pkg.dotdo ?? {}
-  } catch {
+  } catch (error) {
+    logger?.debug('Failed to parse config file', {
+      file: pkgPath,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return {}
   }
 }
@@ -184,11 +265,12 @@ function loadEnvConfig(): Partial<DotdoConfig> {
  * 4. wrangler.toml / wrangler.jsonc
  * 5. Default values
  */
-export function loadConfig(projectRoot?: string): DotdoConfig {
+export function loadConfig(projectRoot?: string, logger?: Logger): DotdoConfig {
   const root = projectRoot ?? findProjectRoot()
+  const log = logger ?? createLogger('config')
 
-  const wranglerConfig = loadWranglerConfig(root)
-  const pkgConfig = loadPackageJsonConfig(root)
+  const wranglerConfig = loadWranglerConfig(root, log)
+  const pkgConfig = loadPackageJsonConfig(root, log)
   const envConfig = loadEnvConfig()
 
   // Note: dotdo.config.ts loading is async, so we load it synchronously here
@@ -205,12 +287,13 @@ export function loadConfig(projectRoot?: string): DotdoConfig {
 /**
  * Load configuration asynchronously (includes dotdo.config.ts)
  */
-export async function loadConfigAsync(projectRoot?: string): Promise<DotdoConfig> {
+export async function loadConfigAsync(projectRoot?: string, logger?: Logger): Promise<DotdoConfig> {
   const root = projectRoot ?? findProjectRoot()
+  const log = logger ?? createLogger('config')
 
-  const wranglerConfig = loadWranglerConfig(root)
-  const pkgConfig = loadPackageJsonConfig(root)
-  const dotdoConfig = await loadDotdoConfig(root)
+  const wranglerConfig = loadWranglerConfig(root, log)
+  const pkgConfig = loadPackageJsonConfig(root, log)
+  const dotdoConfig = await loadDotdoConfig(root, log)
   const envConfig = loadEnvConfig()
 
   return {
