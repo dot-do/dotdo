@@ -16,6 +16,8 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import type { ScheduleHandler } from '../types/WorkflowContext'
+import { AIGatewayClient, type AIGatewayEnv, type ChatMessage } from '../lib/ai/gateway'
+import type { AIConfig } from '../types/AI'
 
 // ============================================================================
 // CONFIGURATION
@@ -24,6 +26,8 @@ import type { ScheduleHandler } from '../types/WorkflowContext'
 export interface ScheduleBuilderConfig {
   state: DurableObjectState
   onScheduleRegistered?: (cron: string, name: string, handler: ScheduleHandler) => void
+  /** Environment bindings for AI (optional - enables AI-powered natural language parsing) */
+  env?: AIGatewayEnv
 }
 
 // ============================================================================
@@ -122,14 +126,196 @@ function parseTime(timeStr: string): { minute: string; hour: string } {
 // ============================================================================
 
 /**
- * Parse natural language schedule strings
- * - 'every 5 minutes' -> '* /5 * * * *'
- * - 'every hour' -> '0 * * * *'
- * - 'daily at 9am' -> '0 9 * * *'
- * - 'Monday at 9am' -> '0 9 * * 1'
- * - 'weekdays at 8:30am' -> '30 8 * * 1-5'
+ * Cache for AI-generated cron expressions to reduce API calls
+ * Maps normalized schedule strings to their cron expressions
  */
-function parseNaturalSchedule(schedule: string): string {
+const cronCache = new Map<string, string>()
+
+/**
+ * Pre-populated cache with common patterns to reduce AI calls
+ */
+const COMMON_PATTERNS: Record<string, string> = {
+  // Basic intervals
+  'every minute': '* * * * *',
+  'every hour': '0 * * * *',
+  'hourly': '0 * * * *',
+  'every 5 minutes': '*/5 * * * *',
+  'every 10 minutes': '*/10 * * * *',
+  'every 15 minutes': '*/15 * * * *',
+  'every 30 minutes': '*/30 * * * *',
+  'every 2 hours': '0 */2 * * *',
+  'every 3 hours': '0 */3 * * *',
+  'every 4 hours': '0 */4 * * *',
+  'every 6 hours': '0 */6 * * *',
+  'every 8 hours': '0 */8 * * *',
+  'every 12 hours': '0 */12 * * *',
+
+  // Daily patterns
+  'daily at 6am': '0 6 * * *',
+  'daily at 9am': '0 9 * * *',
+  'daily at noon': '0 12 * * *',
+  'daily at midnight': '0 0 * * *',
+  'every day at 6am': '0 6 * * *',
+  'every day at 9am': '0 9 * * *',
+  'everyday at 6am': '0 6 * * *',
+  'everyday at noon': '0 12 * * *',
+
+  // Monthly patterns
+  'first day of month': '0 0 1 * *',
+  'first of month': '0 0 1 * *',
+  '1st of month': '0 0 1 * *',
+  'first of month at 9am': '0 9 1 * *',
+  '1st of month at 6am': '0 6 1 * *',
+  '15th of month': '0 0 15 * *',
+  'last day of month': 'UNSUPPORTED',  // Standard cron doesn't support 'L'
+
+  // Weekly patterns
+  'weekly on monday': '0 0 * * 1',
+  'weekly on friday': '0 0 * * 5',
+  'every week on monday': '0 0 * * 1',
+  'every week on friday at 5pm': '0 17 * * 5',
+
+  // Weekday/weekend patterns
+  'weekdays at 9am': '0 9 * * 1-5',
+  'weekends at 10am': '0 10 * * 0,6',
+  'every weekday at 8:30am': '30 8 * * 1-5',
+}
+
+// Initialize cache with common patterns
+for (const [pattern, cron] of Object.entries(COMMON_PATTERNS)) {
+  cronCache.set(pattern, cron)
+}
+
+/**
+ * Validate that a string is a valid 5-field cron expression
+ */
+function isValidCron(cron: string): boolean {
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) return false
+
+  // Basic validation for each field
+  const minutePattern = /^(\*|\d{1,2}|\*\/\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}(,\d{1,2})*)$/
+  const hourPattern = /^(\*|\d{1,2}|\*\/\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}(,\d{1,2})*)$/
+  const dayOfMonthPattern = /^(\*|\d{1,2}|\*\/\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}(,\d{1,2})*)$/
+  const monthPattern = /^(\*|\d{1,2}|\*\/\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}(,\d{1,2})*)$/
+  const dayOfWeekPattern = /^(\*|\d{1}|\*\/\d{1}|\d{1}-\d{1}|\d{1}(,\d{1})*)$/
+
+  return (
+    minutePattern.test(parts[0]!) &&
+    hourPattern.test(parts[1]!) &&
+    dayOfMonthPattern.test(parts[2]!) &&
+    monthPattern.test(parts[3]!) &&
+    dayOfWeekPattern.test(parts[4]!)
+  )
+}
+
+/**
+ * Parse natural language schedule strings using AI
+ * Falls back to regex parsing if AI is unavailable
+ *
+ * Examples:
+ * - 'every 5 minutes' becomes a cron running every 5 minutes
+ * - 'every hour' becomes hourly cron
+ * - 'daily at 9am' runs daily at 9am
+ * - 'Monday at 9am' runs weekly on Monday at 9am
+ * - 'weekdays at 8:30am' runs Mon-Fri at 8:30am
+ * - 'first day of month' runs on the 1st at midnight
+ * - 'every 2 hours' runs at minute 0 every 2 hours
+ */
+async function parseNaturalScheduleWithAI(
+  schedule: string,
+  env?: AIGatewayEnv
+): Promise<string> {
+  const lower = schedule.toLowerCase().trim()
+
+  // Check cache first (includes common patterns)
+  const cached = cronCache.get(lower)
+  if (cached) {
+    if (cached === 'UNSUPPORTED') {
+      throw new Error('last day of month is not supported in standard cron')
+    }
+    return cached
+  }
+
+  // Try regex fallback first for basic patterns (fast path)
+  try {
+    const regexResult = parseNaturalScheduleRegex(lower)
+    cronCache.set(lower, regexResult)
+    return regexResult
+  } catch {
+    // Regex couldn't handle it, try AI
+  }
+
+  // If AI env is available, use AI to parse
+  if (env?.ANTHROPIC_API_KEY) {
+    try {
+      const aiResult = await parseWithAI(schedule, env)
+      if (aiResult && isValidCron(aiResult)) {
+        cronCache.set(lower, aiResult)
+        return aiResult
+      }
+    } catch {
+      // AI failed, will throw below
+    }
+  }
+
+  throw new Error(`Unrecognized schedule format: ${schedule}`)
+}
+
+/**
+ * Use AI to convert natural language to cron expression
+ */
+async function parseWithAI(schedule: string, env: AIGatewayEnv): Promise<string> {
+  const config: AIConfig = {
+    provider: 'anthropic',
+    model: 'claude-3-5-haiku-20241022',
+    temperature: 0,
+    maxTokens: 50,
+  }
+
+  const client = new AIGatewayClient(config, env)
+
+  const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: `You are a cron expression generator. Convert natural language schedule descriptions to standard 5-field cron expressions.
+
+Rules:
+- Output ONLY the cron expression, nothing else
+- Use standard 5-field format: minute hour dayOfMonth month dayOfWeek
+- Days of week: 0=Sunday, 1=Monday, ..., 6=Saturday
+- For "first day of month" or "1st of month", use day 1: 0 0 1 * *
+- For hour intervals like "every N hours", use */N in hour field: 0 */N * * *
+- Standard cron doesn't support "last day of month" - respond with ERROR if asked
+
+Examples:
+- "every 2 hours" -> 0 */2 * * *
+- "first day of month" -> 0 0 1 * *
+- "every day at 6am" -> 0 6 * * *
+- "15th of month" -> 0 0 15 * *
+- "every week on Friday at 5pm" -> 0 17 * * 5`,
+    },
+    {
+      role: 'user',
+      content: schedule,
+    },
+  ]
+
+  const response = await client.chat(messages)
+  const result = response.content.trim()
+
+  if (result === 'ERROR' || result.includes('ERROR')) {
+    throw new Error(`AI could not parse schedule: ${schedule}`)
+  }
+
+  return result
+}
+
+/**
+ * Synchronous regex-based parsing (fallback for when AI is unavailable)
+ * Handles the most common patterns without AI
+ */
+function parseNaturalScheduleRegex(schedule: string): string {
   const lower = schedule.toLowerCase().trim()
 
   // Match 'every N minutes'
@@ -142,6 +328,16 @@ function parseNaturalSchedule(schedule: string): string {
     return `*/${interval} * * * *`
   }
 
+  // Match 'every N hours'
+  const everyHoursMatch = lower.match(/every\s+(\d+)\s+hours?/)
+  if (everyHoursMatch) {
+    const interval = parseInt(everyHoursMatch[1]!, 10)
+    if (interval < 1 || interval > 23) {
+      throw new Error(`Invalid hour interval: ${interval}`)
+    }
+    return `0 */${interval} * * *`
+  }
+
   // Match 'every hour'
   if (lower === 'every hour' || lower === 'hourly') {
     return '0 * * * *'
@@ -152,15 +348,15 @@ function parseNaturalSchedule(schedule: string): string {
     return '* * * * *'
   }
 
-  // Match 'daily at TIME' or 'everyday at TIME'
-  const dailyMatch = lower.match(/(?:daily|everyday)\s+at\s+(.+)/)
+  // Match 'daily at TIME' or 'everyday at TIME' or 'every day at TIME'
+  const dailyMatch = lower.match(/(?:daily|everyday|every\s+day)\s+at\s+(.+)/)
   if (dailyMatch) {
     const time = parseTime(dailyMatch[1]!)
     return `${time.minute} ${time.hour} * * *`
   }
 
-  // Match 'weekdays at TIME'
-  const weekdaysMatch = lower.match(/weekdays?\s+at\s+(.+)/)
+  // Match 'weekdays at TIME' or 'every weekday at TIME'
+  const weekdaysMatch = lower.match(/(?:every\s+)?weekdays?\s+at\s+(.+)/)
   if (weekdaysMatch) {
     const time = parseTime(weekdaysMatch[1]!)
     return `${time.minute} ${time.hour} * * 1-5`
@@ -182,7 +378,67 @@ function parseNaturalSchedule(schedule: string): string {
     return `${time.minute} ${time.hour} * * ${dayNum}`
   }
 
+  // Match 'weekly on DAY' or 'every week on DAY'
+  const weeklyMatch = lower.match(/(?:every\s+)?week(?:ly)?\s+on\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+at\s+(.+))?/)
+  if (weeklyMatch) {
+    const dayName = weeklyMatch[1]!.charAt(0).toUpperCase() + weeklyMatch[1]!.slice(1)
+    const dayNum = DAYS[dayName]
+    if (weeklyMatch[2]) {
+      const time = parseTime(weeklyMatch[2])
+      return `${time.minute} ${time.hour} * * ${dayNum}`
+    }
+    return `0 0 * * ${dayNum}`
+  }
+
+  // Match 'first day of month' or 'first of month' or '1st of month'
+  const firstOfMonthMatch = lower.match(/^(?:first|1st)\s+(?:day\s+)?of\s+month(?:\s+at\s+(.+))?/)
+  if (firstOfMonthMatch) {
+    if (firstOfMonthMatch[1]) {
+      const time = parseTime(firstOfMonthMatch[1])
+      return `${time.minute} ${time.hour} 1 * *`
+    }
+    return '0 0 1 * *'
+  }
+
+  // Match 'last day of month' - not supported in standard cron
+  if (lower.includes('last day of month') || lower.includes('last of month')) {
+    throw new Error('last day of month is not supported in standard cron')
+  }
+
+  // Match 'Nth of month' (e.g., '15th of month')
+  const nthOfMonthMatch = lower.match(/^(\d+)(?:st|nd|rd|th)\s+(?:day\s+)?of\s+month(?:\s+at\s+(.+))?/)
+  if (nthOfMonthMatch) {
+    const day = parseInt(nthOfMonthMatch[1]!, 10)
+    if (day < 1 || day > 31) {
+      throw new Error(`Invalid day of month: ${day}`)
+    }
+    if (nthOfMonthMatch[2]) {
+      const time = parseTime(nthOfMonthMatch[2])
+      return `${time.minute} ${time.hour} ${day} * *`
+    }
+    return `0 0 ${day} * *`
+  }
+
   throw new Error(`Unrecognized schedule format: ${schedule}`)
+}
+
+/**
+ * Synchronous version for backward compatibility
+ * Uses regex fallback only (no AI)
+ */
+function parseNaturalSchedule(schedule: string): string {
+  const lower = schedule.toLowerCase().trim()
+
+  // Check cache first (includes common patterns)
+  const cached = cronCache.get(lower)
+  if (cached) {
+    if (cached === 'UNSUPPORTED') {
+      throw new Error('last day of month is not supported in standard cron')
+    }
+    return cached
+  }
+
+  return parseNaturalScheduleRegex(lower)
 }
 
 // ============================================================================
@@ -428,6 +684,26 @@ export function createScheduleBuilderProxy(config: ScheduleBuilderConfig): Sched
       return undefined
     },
   })
+}
+
+// Export new parsing functions for testing and external use
+export {
+  parseNaturalSchedule,
+  parseNaturalScheduleRegex,
+  parseNaturalScheduleWithAI,
+  isValidCron,
+  cronCache,
+}
+
+/**
+ * Clear the cron cache (useful for testing)
+ */
+export function clearCronCache(): void {
+  cronCache.clear()
+  // Re-initialize with common patterns
+  for (const [pattern, cron] of Object.entries(COMMON_PATTERNS)) {
+    cronCache.set(pattern, cron)
+  }
 }
 
 export default createScheduleBuilderProxy
