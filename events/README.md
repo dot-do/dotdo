@@ -24,7 +24,7 @@ Every function invocation is an **Action**. Durability is a dial, not a binary.
 │                                                                              │
 │   $.send(event, data)    $.try(action, data)    $.do(action, data)          │
 │   ─────────────────────  ────────────────────   ──────────────────          │
-│   • Fire and forget      • Quick attempt        • Durable execution         │
+│   • Fire-and-forget      • Quick attempt        • Durable execution         │
 │   • Non-blocking         • Blocking             • Blocking                  │
 │   • Non-durable          • Non-durable          • Durable (retries)         │
 │   • Best-effort event    • Emit on complete     • Guaranteed event          │

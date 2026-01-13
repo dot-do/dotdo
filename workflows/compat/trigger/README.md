@@ -128,7 +128,7 @@ export const processOrder = task<OrderPayload, OrderResult>({
 
 Multiple ways to trigger tasks based on your needs:
 
-#### trigger - Fire and Forget
+#### trigger - Fire-and-Forget
 
 ```typescript
 // Trigger without waiting for result
@@ -566,7 +566,7 @@ configure({
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
-| `trigger(payload, opts?)` | `TPayload, TriggerOptions?` | `Promise<TriggerResult>` | Fire and forget |
+| `trigger(payload, opts?)` | `TPayload, TriggerOptions?` | `Promise<TriggerResult>` | Fire-and-forget |
 | `triggerAndWait(payload, opts?)` | `TPayload, TriggerOptions?` | `Promise<TaskRunResult<O>>` | Await completion |
 | `batchTrigger(items, opts?)` | `TPayload[], TriggerOptions?` | `Promise<{ runs: TriggerResult[] }>` | Batch trigger |
 | `batchTriggerAndWait(items, opts?)` | `TPayload[], TriggerOptions?` | `Promise<{ runs: TaskRunResult<O>[] }>` | Batch await |
