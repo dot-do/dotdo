@@ -1,11 +1,114 @@
 /**
- * Entity - Domain object container
+ * @module Entity
+ * @description Domain object container with schema validation and indexed queries
  *
- * Base class for domain entities like Customer, Order, Product.
- * Provides CRUD operations, validation, and lifecycle hooks.
+ * Entity is the base class for domain objects in the dotdo framework, providing
+ * a structured approach to data modeling with validation, lifecycle hooks, and
+ * efficient indexed queries. Extend this class to create domain-specific entities
+ * like Customer, Order, Product, etc.
  *
- * Supports indexed queries via schema.indexes for O(k) lookups
- * instead of O(n) full table scans.
+ * **Core Features:**
+ * - Schema-based field definitions with type validation
+ * - CRUD operations (create, read, update, delete, list)
+ * - Automatic index maintenance for O(k) lookups
+ * - Reference fields for entity relationships
+ * - Lifecycle hooks (beforeCreate, afterCreate, etc.)
+ * - Version tracking for optimistic concurrency
+ *
+ * **Schema Definition:**
+ * | Property | Description |
+ * |----------|-------------|
+ * | `name` | Entity type name (e.g., 'Customer') |
+ * | `fields` | Field definitions with types and validation |
+ * | `indexes` | Fields to index for fast lookups |
+ * | `unique` | Fields with uniqueness constraints |
+ *
+ * **Field Types:**
+ * | Type | Description |
+ * |------|-------------|
+ * | `string` | Text value |
+ * | `number` | Numeric value |
+ * | `boolean` | True/false |
+ * | `date` | Date/time value |
+ * | `json` | Complex nested object |
+ * | `reference` | Foreign key to another entity |
+ *
+ * **Index Performance:**
+ * - Without index: O(n) full scan over all records
+ * - With index: O(k) lookup where k is matching records
+ *
+ * @example Basic Entity Definition
+ * ```typescript
+ * class Customer extends Entity {
+ *   static override readonly $type = 'Customer'
+ *
+ *   async onStart() {
+ *     await this.setSchema({
+ *       name: 'Customer',
+ *       fields: {
+ *         email: { type: 'string', required: true },
+ *         name: { type: 'string', required: true },
+ *         plan: { type: 'string', default: 'free' },
+ *         signupDate: { type: 'date' },
+ *         metadata: { type: 'json' }
+ *       },
+ *       indexes: ['email', 'plan'], // Enable fast lookups
+ *       unique: ['email'] // Enforce uniqueness
+ *     })
+ *   }
+ * }
+ * ```
+ *
+ * @example CRUD Operations
+ * ```typescript
+ * // Create a new record
+ * const customer = await entity.create({
+ *   email: 'john@example.com',
+ *   name: 'John Doe',
+ *   plan: 'pro'
+ * })
+ *
+ * // Read by ID
+ * const record = await entity.get(customer.id)
+ *
+ * // Update
+ * await entity.update(customer.id, { plan: 'enterprise' })
+ *
+ * // Delete
+ * await entity.delete(customer.id)
+ *
+ * // List all
+ * const all = await entity.list()
+ * ```
+ *
+ * @example Indexed Queries (O(k) performance)
+ * ```typescript
+ * // Find customers by indexed field - uses index for O(k) lookup
+ * const proCustomers = await entity.findByIndex('plan', 'pro')
+ *
+ * // Without index - falls back to O(n) scan
+ * const byCity = await entity.findByField('city', 'NYC')
+ * ```
+ *
+ * @example Reference Fields
+ * ```typescript
+ * class Order extends Entity {
+ *   async onStart() {
+ *     await this.setSchema({
+ *       name: 'Order',
+ *       fields: {
+ *         customerId: { type: 'reference', reference: 'Customer', required: true },
+ *         total: { type: 'number', required: true },
+ *         status: { type: 'string', default: 'pending' }
+ *       },
+ *       indexes: ['customerId', 'status']
+ *     })
+ *   }
+ * }
+ * ```
+ *
+ * @see Collection - Groups of related Entity records
+ * @see DO - Base Durable Object class
  */
 
 import { DO, Env } from './DO'

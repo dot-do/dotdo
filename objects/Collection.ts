@@ -1,8 +1,123 @@
 /**
- * Collection - Named collection of entities
+ * @module Collection
+ * @description Named collection of entities with bulk operations and aggregations
  *
- * Groups related Entity records with shared configuration.
- * Examples: 'customers', 'orders', 'products'
+ * Collection extends Entity to provide container semantics for managing groups
+ * of related records. It adds bulk operations, filtering, and aggregation
+ * capabilities on top of Entity's CRUD and indexing features.
+ *
+ * **Core Features:**
+ * - Named collection configuration with shared schema
+ * - Bulk create/delete operations
+ * - Query filtering with field-based predicates
+ * - Aggregation functions (count, sum, avg, min, max)
+ * - Lifecycle hooks for collection-level events
+ *
+ * **HTTP Endpoints:**
+ * | Method | Path | Description |
+ * |--------|------|-------------|
+ * | GET | `/config` | Get collection configuration |
+ * | PUT | `/config` | Set collection configuration |
+ * | GET | `/count` | Count records in collection |
+ * | POST | `/query` | Query with filters |
+ * | POST | `/bulk` | Bulk create records |
+ *
+ * **Aggregation Operations:**
+ * | Operation | Description |
+ * |-----------|-------------|
+ * | `count` | Count records per group |
+ * | `sum` | Sum numeric field values |
+ * | `avg` | Average of numeric field values |
+ * | `min` | Minimum value in field |
+ * | `max` | Maximum value in field |
+ *
+ * @example Collection Configuration
+ * ```typescript
+ * class Orders extends Collection {
+ *   static override readonly $type = 'Orders'
+ *
+ *   async onStart() {
+ *     await this.configure({
+ *       name: 'orders',
+ *       schema: {
+ *         name: 'Order',
+ *         fields: {
+ *           customerId: { type: 'reference', reference: 'Customer' },
+ *           total: { type: 'number', required: true },
+ *           status: { type: 'string', default: 'pending' }
+ *         },
+ *         indexes: ['customerId', 'status']
+ *       },
+ *       hooks: {
+ *         afterCreate: 'onOrderCreated',
+ *         afterUpdate: 'onOrderUpdated'
+ *       }
+ *     })
+ *   }
+ * }
+ * ```
+ *
+ * @example Bulk Operations
+ * ```typescript
+ * // Bulk create multiple records
+ * const orders = await collection.bulkCreate([
+ *   { customerId: 'cust_1', total: 99.99, status: 'pending' },
+ *   { customerId: 'cust_2', total: 149.99, status: 'pending' },
+ *   { customerId: 'cust_1', total: 49.99, status: 'shipped' }
+ * ])
+ *
+ * // Bulk delete by IDs
+ * const deletedCount = await collection.bulkDelete(['ord_1', 'ord_2'])
+ * ```
+ *
+ * @example Query with Filters
+ * ```typescript
+ * // Find all orders for a customer
+ * const customerOrders = await collection.query({ customerId: 'cust_1' })
+ *
+ * // Find pending orders
+ * const pendingOrders = await collection.query({ status: 'pending' })
+ *
+ * // Combine filters (AND logic)
+ * const pendingForCustomer = await collection.query({
+ *   customerId: 'cust_1',
+ *   status: 'pending'
+ * })
+ * ```
+ *
+ * @example Aggregations
+ * ```typescript
+ * // Group by status and calculate totals
+ * const stats = await collection.aggregate('status', [
+ *   { field: 'total', op: 'count' },
+ *   { field: 'total', op: 'sum' },
+ *   { field: 'total', op: 'avg' }
+ * ])
+ *
+ * // Result:
+ * // {
+ * //   pending: { total_count: 15, total_sum: 2500.00, total_avg: 166.67 },
+ * //   shipped: { total_count: 42, total_sum: 8400.00, total_avg: 200.00 },
+ * //   delivered: { total_count: 103, total_sum: 20600.00, total_avg: 200.00 }
+ * // }
+ * ```
+ *
+ * @example HTTP Usage
+ * ```typescript
+ * // Count records
+ * const response = await fetch('https://orders.example.com/count')
+ * const { count } = await response.json()
+ *
+ * // Query via POST
+ * const queryResponse = await fetch('https://orders.example.com/query', {
+ *   method: 'POST',
+ *   body: JSON.stringify({ status: 'pending' })
+ * })
+ * const pendingOrders = await queryResponse.json()
+ * ```
+ *
+ * @see Entity - Base class for individual domain objects
+ * @see DO - Base Durable Object class
  */
 
 import { Entity, EntitySchema, EntityRecord } from './Entity'

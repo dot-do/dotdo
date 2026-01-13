@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { BashCapability, BashResult } from '../../lib/mixins/bash'
-import type { FsCapability } from '../../lib/mixins/fs'
+import type { BashCapability, BashResult } from '../../lib/capabilities/bash'
+import type { FsCapability } from '../../lib/capabilities/fs'
 import type { ToolDefinition, ToolContext } from '../types'
 
 // ============================================================================

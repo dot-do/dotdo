@@ -25,7 +25,7 @@
  */
 
 import { DO } from 'dotdo'
-import { withBash, withFs } from 'dotdo/mixins'
+import { withBash, withFs } from 'dotdo/capabilities'
 
 // ============================================================================
 // TYPES
