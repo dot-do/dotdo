@@ -117,6 +117,8 @@ export class TierNotFoundError extends Error {
 
 /** Error thrown when a migration operation fails */
 export class MigrationError extends Error {
+  override cause?: Error
+
   constructor(key: string, from: StorageTier, to: StorageTier, cause?: Error) {
     super(`Failed to migrate '${key}' from ${from} to ${to}${cause ? `: ${cause.message}` : ''}`)
     this.name = 'MigrationError'

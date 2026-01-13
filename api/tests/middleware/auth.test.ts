@@ -129,8 +129,10 @@ app.get('/public', (c) => c.json({ message: 'public' }))
 app.get('/protected', requireAuth(), (c) => c.json({ message: 'protected', user: c.get('user') }))
 app.get('/admin', requireAuth(), requireRole('admin'), (c) => c.json({ message: 'admin only' }))
 app.get('/user-profile', requireAuth(), (c) => c.json({ message: 'user profile', user: c.get('user') }))
-// POST route just requires auth (users have implicit write permission for basic operations)
-app.post('/api/things', requireAuth(), (c) => c.json({ message: 'created' }))
+// POST route requires 'write' permission for permission-based access tests
+app.post('/api/things', requireAuth(), requirePermission('write'), (c) => c.json({ message: 'created' }))
+// Basic POST route that just needs auth (for other tests)
+app.post('/api/basic', requireAuth(), (c) => c.json({ message: 'created' }))
 
 // ============================================================================
 // Helper Functions
@@ -493,7 +495,7 @@ describe('Protected Routes Return 401 Without Auth', () => {
   })
 
   it('returns 401 for POST to protected API without auth', async () => {
-    const res = await request('POST', '/api/things', {
+    const res = await request('POST', '/api/basic', {
       body: { name: 'Test Thing' },
     })
 
