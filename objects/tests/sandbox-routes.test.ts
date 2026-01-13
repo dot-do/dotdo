@@ -1,9 +1,18 @@
 /**
  * Sandbox DO HTTP Routes Tests
  *
- * RED TDD: Tests for Sandbox Durable Object Hono routes for HTTP API access.
+ * MOCKS REQUIRED: These tests must use mocks because SandboxDO depends on
+ * @cloudflare/sandbox which in turn depends on @cloudflare/containers.
+ * These packages are runtime-only and cannot be loaded in miniflare/vitest.
  *
- * These tests verify the HTTP API for the SandboxDO:
+ * The getSandbox function from ../sandbox imports from @cloudflare/sandbox,
+ * making it impossible to instantiate SandboxDO in a test environment without
+ * mocking. This is a fundamental platform limitation, not a test design choice.
+ *
+ * For true integration testing, SandboxDO must be tested against a real
+ * Cloudflare Workers deployment with container infrastructure enabled.
+ *
+ * Tests verify the HTTP API for the SandboxDO:
  * 1. POST /create - creates sandbox session with options
  * 2. POST /exec - executes command, returns ExecResult
  * 3. POST /exec/stream - returns SSE stream of output

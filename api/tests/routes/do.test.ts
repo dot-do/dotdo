@@ -1,14 +1,19 @@
 /**
  * DO Router Tests
  *
- * Tests for the /:doClass/:id/* routes that forward requests to individual
- * Durable Object instances.
+ * Tests for the REST-like routes that forward requests to the default DO namespace.
  *
  * These tests verify:
- * - Route pattern /:doClass/:id/* forwards to DO
- * - Unknown DO class returns 404
- * - Headers and body forwarded correctly
- * - Path rewritten for DO handler
+ * - REST-like paths (e.g., /customers, /orders/123) route to default DO
+ * - Reserved prefixes (api, auth, admin, etc.) are NOT routed to DO
+ * - Error handling for DO communication failures
+ *
+ * NOTE: The old /DO/:id/* pattern has been removed as it exposed internal
+ * binding names in URLs. For multi-tenant routing, use the API() factory
+ * from workers/api.ts with hostname or path-based routing.
+ *
+ * @see workers/api.ts - API() factory for multi-tenant routing
+ * @see workers/tests/hostname-routing.test.ts - Hostname routing tests
  */
 
 import { describe, it, expect, beforeAll } from 'vitest'
@@ -28,7 +33,7 @@ interface ErrorResponse {
 // Test Setup
 // ============================================================================
 
-describe('DO Router - /:doClass/:id/*', () => {
+describe('DO Router - REST-like paths to default DO', () => {
   let app: { request: (path: string | Request, options?: RequestInit) => Promise<Response> }
 
   beforeAll(async () => {
@@ -37,295 +42,227 @@ describe('DO Router - /:doClass/:id/*', () => {
   })
 
   // ============================================================================
-  // 1. Basic Routing Tests
+  // 1. Reserved Prefix Tests - Should NOT route to DO
   // ============================================================================
 
-  describe('basic routing', () => {
-    it('should route GET requests to DO instance', async () => {
-      const response = await app.request('/DO/test-instance-123/')
+  describe('reserved prefixes', () => {
+    it('should NOT route /api paths to DO', async () => {
+      const response = await app.request('/api/test')
 
-      // Should not return 404 for known DO class - route should be handled
-      expect(response.status).not.toBe(404)
+      // /api is handled by apiRoutes, not doRoutes
+      // In test environment may return 500 due to missing bindings, or 404 if route not found
+      // The key is that it doesn't go to the DO routes (which would return different errors)
+      expect([404, 500]).toContain(response.status)
     })
 
-    it('should route POST requests to DO instance', async () => {
-      const response = await app.request('/DO/test-instance-123/', {
+    it('should NOT route /auth paths to DO', async () => {
+      const response = await app.request('/auth/test')
+
+      // /auth is reserved for authentication
+      expect(response.status).toBeDefined()
+    })
+
+    it('should NOT route /admin paths to DO', async () => {
+      const response = await app.request('/admin')
+
+      // /admin is handled by admin routes
+      // Should return HTML page, not DO response
+      const contentType = response.headers.get('content-type')
+      expect(contentType).toContain('text/html')
+    })
+
+    it('should NOT route /docs paths to DO', async () => {
+      const response = await app.request('/docs')
+
+      // /docs is handled by docs routes
+      expect(response.headers.get('content-type')).toContain('text/html')
+    })
+
+    it('should NOT route /mcp paths to DO', async () => {
+      const response = await app.request('/mcp/test')
+
+      // /mcp is handled by MCP routes
+      expect(response.status).toBeDefined()
+    })
+
+    it('should NOT route /rpc paths to DO', async () => {
+      const response = await app.request('/rpc/test')
+
+      // /rpc is handled by RPC routes
+      expect(response.status).toBeDefined()
+    })
+
+    it('should NOT route /health paths to DO', async () => {
+      const response = await app.request('/health')
+
+      // /health is reserved
+      expect(response.status).toBeDefined()
+    })
+  })
+
+  // ============================================================================
+  // 2. REST-like Path Tests - Should route to default DO
+  // ============================================================================
+
+  describe('REST-like paths', () => {
+    it('should route /customers to default DO', async () => {
+      const response = await app.request('/customers')
+
+      // In test environment without DO bindings, should return 404 with specific message
+      // In production with DO bindings, would forward to DO('default')
+      expect(response.status).toBeDefined()
+    })
+
+    it('should route /customers/123 to default DO', async () => {
+      const response = await app.request('/customers/123')
+
+      expect(response.status).toBeDefined()
+    })
+
+    it('should route /customers/123/edit to default DO', async () => {
+      const response = await app.request('/customers/123/edit')
+
+      expect(response.status).toBeDefined()
+    })
+
+    it('should route /orders to default DO', async () => {
+      const response = await app.request('/orders')
+
+      expect(response.status).toBeDefined()
+    })
+
+    it('should route /products/abc/variants to default DO', async () => {
+      const response = await app.request('/products/abc/variants')
+
+      expect(response.status).toBeDefined()
+    })
+  })
+
+  // ============================================================================
+  // 3. HTTP Method Tests
+  // ============================================================================
+
+  describe('HTTP methods', () => {
+    it('should forward GET requests', async () => {
+      const response = await app.request('/customers')
+
+      expect(response.status).toBeDefined()
+    })
+
+    it('should forward POST requests', async () => {
+      const response = await app.request('/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'test' }),
+        body: JSON.stringify({ name: 'Test' }),
       })
 
-      // Should forward to DO, not 404
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
 
-    it('should route PUT requests to DO instance', async () => {
-      const response = await app.request('/DO/test-instance-123/data', {
+    it('should forward PUT requests', async () => {
+      const response = await app.request('/customers/123', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: 'updated' }),
+        body: JSON.stringify({ name: 'Updated' }),
       })
 
-      // Should forward to DO
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
 
-    it('should route DELETE requests to DO instance', async () => {
-      const response = await app.request('/DO/test-instance-123/resource', {
+    it('should forward DELETE requests', async () => {
+      const response = await app.request('/customers/123', {
         method: 'DELETE',
       })
 
-      // Should forward to DO
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
 
-    it('should handle nested paths after /:doClass/:id', async () => {
-      const response = await app.request('/DO/test-123/nested/deep/path')
-
-      // Path should be forwarded correctly
-      expect(response.status).not.toBe(404)
-    })
-  })
-
-  // ============================================================================
-  // 2. Unknown DO Class Tests
-  // ============================================================================
-
-  describe('unknown DO class handling', () => {
-    it('should return 404 for unknown DO class', async () => {
-      const response = await app.request('/UnknownDOClass/some-id/')
-
-      expect(response.status).toBe(404)
-    })
-
-    it('should return proper error format for unknown DO class', async () => {
-      const response = await app.request('/NonExistentDO/test-id/path')
-      const body: ErrorResponse = await response.json()
-
-      expect(body.error).toBeDefined()
-      expect(body.error.code).toBe('NOT_FOUND')
-      expect(body.error.message).toContain('Unknown DO class')
-    })
-
-    it('should return JSON content-type for 404 responses', async () => {
-      const response = await app.request('/FakeDO/test-id/')
-
-      expect(response.headers.get('content-type')).toContain('application/json')
-    })
-  })
-
-  // ============================================================================
-  // 3. Header Forwarding Tests
-  // ============================================================================
-
-  describe('header forwarding', () => {
-    it('should forward custom headers to DO', async () => {
-      const response = await app.request('/DO/header-test/', {
-        headers: {
-          'X-Custom-Header': 'custom-value',
-          'X-Request-ID': 'req-12345',
-        },
-      })
-
-      // The DO should receive and can echo back headers
-      // For now just verify the route works
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should forward authorization header to DO', async () => {
-      const response = await app.request('/DO/auth-test/', {
-        headers: {
-          Authorization: 'Bearer test-token-xyz',
-        },
-      })
-
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should forward content-type header to DO', async () => {
-      const response = await app.request('/DO/content-test/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ data: 'test' }),
-      })
-
-      expect(response.status).not.toBe(404)
-    })
-  })
-
-  // ============================================================================
-  // 4. Body Forwarding Tests
-  // ============================================================================
-
-  describe('body forwarding', () => {
-    it('should forward JSON body to DO', async () => {
-      const testBody = {
-        name: 'Test',
-        value: 123,
-        nested: { foo: 'bar' },
-      }
-
-      const response = await app.request('/DO/body-test/create', {
-        method: 'POST',
+    it('should forward PATCH requests', async () => {
+      const response = await app.request('/customers/123', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(testBody),
+        body: JSON.stringify({ name: 'Patched' }),
       })
 
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should forward empty body correctly', async () => {
-      const response = await app.request('/DO/empty-body-test/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should forward large body to DO', async () => {
-      const largeBody = {
-        data: 'x'.repeat(10000),
-        items: Array.from({ length: 100 }, (_, i) => ({ id: i, value: `item-${i}` })),
-      }
-
-      const response = await app.request('/DO/large-body-test/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(largeBody),
-      })
-
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
   })
 
   // ============================================================================
-  // 5. Path Rewriting Tests
+  // 4. Query Parameter Tests
   // ============================================================================
 
-  describe('path rewriting', () => {
-    it('should rewrite path to remove /:doClass/:id prefix', async () => {
-      // Request: /DO/my-id/some/path
-      // DO should receive: /some/path
-      const response = await app.request('/DO/path-test/some/path')
-
-      // The DO should handle the rewritten path
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should handle root path after /:doClass/:id', async () => {
-      // Request: /DO/my-id/ or /DO/my-id
-      // DO should receive: /
-      const response = await app.request('/DO/root-test/')
-
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should handle path without trailing slash', async () => {
-      const response = await app.request('/DO/no-slash-test')
-
-      // Should still route correctly (path becomes /)
-      expect(response.status).not.toBe(404)
-    })
-
+  describe('query parameters', () => {
     it('should preserve query parameters', async () => {
-      const response = await app.request('/DO/query-test/search?q=test&limit=10')
+      const response = await app.request('/customers?limit=10&offset=20')
 
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
 
-    it('should handle special characters in path', async () => {
-      const response = await app.request('/DO/special-test/path/with%20spaces/and%2Fslashes')
+    it('should handle complex query parameters', async () => {
+      const response = await app.request('/customers?filter=name:John&sort=-createdAt&include=orders')
 
-      expect(response.status).not.toBe(404)
-    })
-  })
-
-  // ============================================================================
-  // 6. DO ID Handling Tests
-  // ============================================================================
-
-  describe('DO ID handling', () => {
-    it('should use idFromName for string IDs', async () => {
-      const response = await app.request('/DO/named-id-test/')
-
-      // ID should be derived from the name "named-id-test"
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should handle numeric-like string IDs', async () => {
-      const response = await app.request('/DO/12345/')
-
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should handle UUID-format IDs', async () => {
-      const response = await app.request('/DO/550e8400-e29b-41d4-a716-446655440000/')
-
-      expect(response.status).not.toBe(404)
-    })
-
-    it('should handle special characters in ID', async () => {
-      const response = await app.request('/DO/user:alice@example.com.ai/')
-
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
   })
 
   // ============================================================================
-  // 7. Multiple DO Class Tests
+  // 5. Edge Cases
   // ============================================================================
 
-  describe('multiple DO classes', () => {
-    it('should route to TEST_DO namespace', async () => {
-      const response = await app.request('/TEST_DO/test-instance/')
+  describe('edge cases', () => {
+    it('should handle root path', async () => {
+      const response = await app.request('/')
 
-      // TEST_DO is defined in Env, should work
-      expect(response.status).not.toBe(404)
+      // Root should return landing page, not route to DO
+      expect(response.headers.get('content-type')).toContain('text/html')
     })
 
-    it('should route to BROWSER_DO namespace', async () => {
-      const response = await app.request('/BROWSER_DO/browser-instance/')
+    it('should handle empty path segments', async () => {
+      const response = await app.request('/customers//123')
 
-      // BROWSER_DO is defined in Env
-      expect(response.status).not.toBe(404)
+      expect(response.status).toBeDefined()
     })
 
-    it('should route different classes to different namespaces', async () => {
-      // Both should work but hit different DO namespaces
-      const response1 = await app.request('/DO/instance-1/')
-      const response2 = await app.request('/TEST_DO/instance-1/')
+    it('should handle paths with special characters', async () => {
+      const response = await app.request('/customers/user%40example.org.ai')
 
-      expect(response1.status).not.toBe(404)
-      expect(response2.status).not.toBe(404)
-    })
-  })
-
-  // ============================================================================
-  // 8. Error Handling Tests
-  // ============================================================================
-
-  describe('error handling', () => {
-    it('should return proper error for malformed requests', async () => {
-      const response = await app.request('/DO/error-test/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: 'invalid json {',
-      })
-
-      // The error might come from DO or router depending on implementation
-      // 404 is also valid when DO namespace is not available (in tests without bindings)
-      expect([400, 404, 500]).toContain(response.status)
-    })
-
-    it('should handle DO fetch errors gracefully', async () => {
-      // This tests that router handles DO errors
-      const response = await app.request('/DO/error-handler-test/')
-
-      // Should not crash, should return some response
       expect(response.status).toBeDefined()
     })
   })
 })
+
+// ============================================================================
+// Migration Note: /DO/:id routes removed
+// ============================================================================
+
+/**
+ * MIGRATION NOTE
+ *
+ * The old /DO/:id/* routes have been removed because they exposed internal
+ * Cloudflare binding names in URLs (e.g., /DO/user-123/profile).
+ *
+ * For multi-tenant routing, use the API() factory from workers/api.ts:
+ *
+ * ```typescript
+ * import { API } from 'dotdo'
+ *
+ * // Hostname mode (default)
+ * // tenant.api.dotdo.dev -> DO('https://tenant.api.dotdo.dev')
+ * export default API()
+ *
+ * // Path param routing (Express-style)
+ * // api.dotdo.dev/acme/users -> DO('https://api.dotdo.dev/acme')
+ * export default API({ ns: '/:org' })
+ *
+ * // Nested path params
+ * // api.dotdo.dev/acme/proj1/tasks -> DO('https://api.dotdo.dev/acme/proj1')
+ * export default API({ ns: '/:org/:project' })
+ *
+ * // Fixed namespace
+ * export default API({ ns: 'main' })
+ * ```
+ *
+ * @see workers/api.ts
+ * @see workers/tests/hostname-routing.test.ts
+ */

@@ -1,6 +1,21 @@
 /**
  * Browser DO Screencast Tests
  *
+ * @deprecated DEPRECATED - These tests use vi.mock and are superseded by the real DO tests.
+ *
+ * Use the NO MOCKS tests instead:
+ * - Run: npx vitest run --project=browser-do
+ * - File: objects/tests/browser-do-screencast.test.ts
+ *
+ * The new tests use real miniflare DOs via @cloudflare/vitest-pool-workers
+ * with a TestBrowserDO that includes mock CDP session support for testing
+ * screencast behavior without actual browser infrastructure.
+ *
+ * Note: WebSocket upgrade tests are limited in miniflare. The new tests focus on
+ * HTTP routes for screencast control (/screencast/start, /screencast/stop).
+ *
+ * ---
+ * Original description:
  * TDD tests for CDP Screencast functionality:
  * - startScreencast() creates CDP session
  * - startScreencast() sends Page.startScreencast command

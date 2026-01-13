@@ -1,6 +1,18 @@
 /**
  * Browser DO Lifecycle Tests
  *
+ * @deprecated DEPRECATED - These tests use vi.mock and are superseded by the real DO tests.
+ *
+ * Use the NO MOCKS tests instead:
+ * - Run: npx vitest run --project=browser-do
+ * - File: objects/tests/browser-do-lifecycle.test.ts
+ *
+ * The new tests use real miniflare DOs via @cloudflare/vitest-pool-workers
+ * with a TestBrowserDO that includes mock Browse session support for testing
+ * lifecycle behavior without actual browser infrastructure.
+ *
+ * ---
+ * Original description:
  * RED TDD: Tests for Browser Durable Object session management and lifecycle:
  * - Browser DO instantiation
  * - Browser.start() initialization with Cloudflare and Browserbase providers

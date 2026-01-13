@@ -295,14 +295,61 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // IDENTITY DERIVATION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Track whether identity has been derived from a request.
+   * Once set, ns remains stable for the DO's lifetime.
+   */
+  private _identityDerived = false
+
+  /**
+   * Derive identity (ns) from the incoming request URL if not already set.
+   * The ns is the full hostname from the request URL.
+   *
+   * Examples:
+   * - https://acme.api.dotdo.dev/foo → ns = 'acme.api.dotdo.dev'
+   * - https://localhost:8787/bar → ns = 'localhost:8787'
+   *
+   * @param request - The incoming request
+   */
+  protected deriveIdentityFromRequest(request: Request): void {
+    // Only derive once - first request wins
+    if (this._identityDerived) {
+      return
+    }
+
+    try {
+      const url = new URL(request.url)
+      // Use host (hostname:port) for full identity
+      const host = url.host
+
+      // Set ns if it's empty
+      if (!this.ns && host) {
+        // @ts-expect-error - Setting readonly property after construction
+        this.ns = host
+      }
+
+      this._identityDerived = true
+    } catch {
+      // Silently ignore URL parsing errors - ns remains as-is
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HTTP HANDLER
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
    * Handle incoming HTTP requests.
-   * Extracts user context from X-User-* headers before delegating to handleFetch.
+   * Derives identity from request URL, extracts user context from X-User-* headers,
+   * then delegates to handleFetch.
    */
   async fetch(request: Request): Promise<Response> {
+    // Derive identity from request URL (sets ns from hostname subdomain)
+    this.deriveIdentityFromRequest(request)
+
     // Extract user from X-User-* headers (set by RPC auth middleware)
     this.user = extractUserFromRequest(request)
 

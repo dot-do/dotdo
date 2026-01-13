@@ -1,10 +1,18 @@
 /**
  * SandboxDO - Session Lifecycle Tests
  *
- * RED TDD: These tests exercise the SandboxDO session lifecycle management.
- * Tests are written first (RED phase) before implementation.
+ * MOCKS REQUIRED: These tests must use mocks because SandboxDO depends on
+ * @cloudflare/sandbox which in turn depends on @cloudflare/containers.
+ * These packages are runtime-only and cannot be loaded in miniflare/vitest.
  *
- * SandboxDO wraps @cloudflare/sandbox's DotdoSandbox and provides:
+ * The getSandbox function from ../sandbox imports from @cloudflare/sandbox,
+ * making it impossible to instantiate SandboxDO in a test environment without
+ * mocking. This is a fundamental platform limitation, not a test design choice.
+ *
+ * For true integration testing, SandboxDO must be tested against a real
+ * Cloudflare Workers deployment with container infrastructure enabled.
+ *
+ * These tests exercise the SandboxDO session lifecycle management:
  * - Session creation with configuration
  * - Session state persistence in DO storage
  * - Session destruction and cleanup
