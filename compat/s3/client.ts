@@ -114,6 +114,7 @@ import {
   NoSuchBucket,
   NoSuchKey,
   BucketAlreadyExists,
+  BucketAlreadyOwnedByYou,
   BucketNotEmpty,
   NoSuchUpload,
   InternalError,
@@ -428,7 +429,9 @@ export class S3Client {
     // Check if bucket already exists
     const exists = await this.backend.bucketExists(Bucket)
     if (exists) {
-      throw new BucketAlreadyExists()
+      // Since we're a single-owner system, bucket already exists means
+      // it's owned by the same client
+      throw new BucketAlreadyOwnedByYou()
     }
 
     await this.backend.createBucket(
@@ -710,9 +713,10 @@ export class S3Client {
     const { Bucket, Key, CopySource, MetadataDirective, ...options } = command.input
 
     // Parse CopySource (format: /bucket/key or bucket/key)
+    // CopySource may be URL-encoded, so we need to decode it
     const copySource = CopySource.startsWith('/') ? CopySource.slice(1) : CopySource
     const [sourceBucket, ...keyParts] = copySource.split('/')
-    const sourceKey = keyParts.join('/')
+    const sourceKey = decodeURIComponent(keyParts.join('/'))
 
     // Get source object
     const srcObj = await this.backend.getObject(sourceBucket, sourceKey)

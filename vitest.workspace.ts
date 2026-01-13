@@ -79,7 +79,7 @@ export default defineWorkspace([
   ]),
 
   // Database schema tests
-  createNodeWorkspace('schema', ['db/tests/**/*.test.ts', 'db/schema/tests/**/*.test.ts']),
+  createNodeWorkspace('schema', ['db/tests/**/*.test.ts', 'db/schema/tests/**/*.test.ts', 'db/schema/generation/tests/**/*.test.ts']),
 
   // Primitives tests (event-emitter, fsx, bashx, etc.)
   createNodeWorkspace('primitives', ['primitives/**/*.test.ts']),
@@ -114,8 +114,8 @@ export default defineWorkspace([
   // DO transport layer tests (REST router, edit UI, auth layer, RPC, etc.)
   createNodeWorkspace('objects-transport', ['objects/transport/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, storage, auth, namespace, response, triggers, cache, payments, iterators, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts', 'lib/storage/tests/**/*.test.ts', 'lib/auth/tests/**/*.test.ts', 'lib/namespace/tests/**/*.test.ts', 'lib/response/tests/**/*.test.ts', 'lib/triggers/tests/**/*.test.ts', 'lib/cache/tests/**/*.test.ts', 'lib/payments/tests/**/*.test.ts', 'lib/iterators/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, storage, auth, namespace, response, triggers, cache, payments, iterators, tools, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts', 'lib/storage/tests/**/*.test.ts', 'lib/auth/tests/**/*.test.ts', 'lib/namespace/tests/**/*.test.ts', 'lib/response/tests/**/*.test.ts', 'lib/triggers/tests/**/*.test.ts', 'lib/cache/tests/**/*.test.ts', 'lib/payments/tests/**/*.test.ts', 'lib/iterators/tests/**/*.test.ts', 'lib/tools/tests/**/*.test.ts']),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
@@ -406,7 +406,7 @@ export default defineWorkspace([
   createNodeWorkspace('auth', ['packages/auth/tests/**/*.test.ts']),
 
   // Auth module tests (better-auth graph adapter, cross-domain OAuth)
-  createNodeWorkspace('auth-module', ['auth/tests/**/*.test.ts']),
+  createNodeWorkspace('auth-module', ['auth/tests/**/*.test.ts', 'auth/adapters/tests/**/*.test.ts']),
 
   // @dotdo/automation package tests (n8n-compatible workflow automation)
   createNodeWorkspace('automation', ['packages/automation/tests/**/*.test.ts']),

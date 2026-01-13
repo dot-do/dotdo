@@ -146,6 +146,24 @@ export {
   createEscalationTool,
   type ToolOptions,
   type ValidationResult,
+  // Tool Things Integration (Graph Persistence)
+  toolToThing,
+  thingToTool,
+  persistentTool,
+  loadToolFromGraph,
+  listToolsFromGraph,
+  deleteToolFromGraph,
+  registerHandler,
+  getHandler,
+  unregisterHandler,
+  clearHandlerRegistry,
+  getHandlerCount,
+  ToolThingRegistry,
+  createToolThingRegistry,
+  type ToolThingData,
+  type PersistentToolOptions,
+  TOOL_TYPE_NAME,
+  TOOL_TYPE_ID,
 } from './Tool'
 
 // Base Agent
