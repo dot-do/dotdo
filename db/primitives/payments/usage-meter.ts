@@ -21,7 +21,12 @@
 /**
  * Aggregation period
  */
-export type AggregationPeriod = 'hour' | 'day' | 'month' | 'year' | 'billing_cycle'
+export type AggregationPeriod = 'hour' | 'day' | 'week' | 'month' | 'year' | 'billing_cycle'
+
+/**
+ * Billing interval type for defineBillingPeriod
+ */
+export type BillingIntervalType = 'week' | 'month' | 'year'
 
 /**
  * Aggregation type
@@ -318,6 +323,149 @@ export interface MetricDefinition {
   aggregation: AggregationType
 }
 
+/**
+ * Ingest event input (test-compatible API)
+ */
+export interface IngestEventInput {
+  customerId: string
+  metricId: string
+  value: number
+  timestamp?: Date
+  metadata?: Record<string, unknown>
+  idempotencyKey?: string
+}
+
+/**
+ * Test-compatible UsageEvent with value field
+ */
+export interface IngestedEvent {
+  id: string
+  customerId: string
+  metricId: string
+  value: number
+  timestamp: Date
+  metadata: Record<string, unknown>
+  idempotencyKey?: string
+}
+
+/**
+ * Aggregation result
+ */
+export interface AggregationResult {
+  value: number | null
+  aggregation: AggregationType
+  eventCount: number
+  startTime: Date
+  endTime: Date
+}
+
+/**
+ * Aggregate query options
+ */
+export interface AggregateOptions {
+  customerId: string
+  metricId: string
+  aggregation: AggregationType
+  startTime: Date
+  endTime: Date
+  uniqueProperty?: string
+}
+
+/**
+ * Query events options
+ */
+export interface QueryEventsOptions {
+  customerId: string
+  metricId?: string
+  startTime?: Date
+  endTime?: Date
+}
+
+/**
+ * Define billing period options
+ */
+export interface DefineBillingPeriodOptions {
+  customerId: string
+  anchorDate: Date
+  intervalType: BillingIntervalType
+}
+
+/**
+ * Aggregate for billing period options
+ */
+export interface AggregateForBillingPeriodOptions {
+  customerId: string
+  metricId: string
+  aggregation: AggregationType
+  periodIndex: number
+}
+
+/**
+ * Usage rollup
+ */
+export interface UsageRollup {
+  id: string
+  customerId: string
+  periodStart: Date
+  periodEnd: Date
+  metrics: Array<{
+    metricId: string
+    value: number
+    aggregation: AggregationType
+  }>
+  finalized: boolean
+  finalizedAt?: Date
+  createdAt: Date
+}
+
+/**
+ * Generate rollup options
+ */
+export interface GenerateRollupOptions {
+  customerId: string
+  startTime: Date
+  endTime: Date
+}
+
+/**
+ * Metric pricing configuration
+ */
+export interface MetricPricingConfig {
+  metricId: string
+  aggregation: AggregationType
+  pricePerUnit?: number
+  includedUnits?: number
+  tiers?: Array<{
+    upTo: number | null
+    pricePerUnit: number
+  }>
+  displayName?: string
+  unit?: string
+}
+
+/**
+ * Enhanced invoice line item with billing details
+ */
+export interface EnhancedInvoiceLineItem {
+  metricId: string
+  description: string
+  quantity: number
+  billableQuantity: number
+  unitPrice: number
+  amount: number
+  unit?: string
+  tierBreakdown?: TierBreakdownItem[]
+}
+
+/**
+ * Generate invoice line items options
+ */
+export interface GenerateInvoiceLineItemsOptions {
+  customerId: string
+  startTime: Date
+  endTime: Date
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -441,6 +589,12 @@ export class UsageMeter {
   private reportingModes: Map<string, ReportingModeConfig> = new Map() // customerId:metricId -> config
   private pricingConfigs: Map<string, UsagePricingConfig> = new Map() // customerId:metricId -> config
   private metrics: Map<string, MetricDefinition> = new Map()
+
+  // Test-compatible billing period storage
+  private billingPeriodConfigs: Map<string, DefineBillingPeriodOptions> = new Map()
+  private rollups: Map<string, UsageRollup> = new Map()
+  private metricPricingConfigs: Map<string, MetricPricingConfig> = new Map()
+  private finalizedPeriods: Map<string, { start: Date; end: Date }[]> = new Map()
 
   // Last flush timestamps
   private lastFlushTimes: Map<string, Date> = new Map()
@@ -1005,6 +1159,12 @@ export class UsageMeter {
    * Get current billing period
    */
   async getCurrentBillingPeriod(customerId: string): Promise<BillingPeriod> {
+    // Check test-compatible config first (set via defineBillingPeriod)
+    const testConfig = this.billingPeriodConfigs?.get(customerId)
+    if (testConfig) {
+      return this.getBillingPeriod(customerId, 0)
+    }
+
     const config = await this.getBillingCycle(customerId)
     if (!config) {
       const now = new Date()
@@ -1516,67 +1676,6 @@ export class UsageMeter {
   }
 
   /**
-   * Generate invoice line items
-   */
-  async generateInvoiceLineItems(params: {
-    customerId: string
-    startDate: Date
-    endDate: Date
-  }): Promise<InvoiceLineItem[]> {
-    const lineItems: InvoiceLineItem[] = []
-
-    const events = await this.listEvents({
-      customerId: params.customerId,
-      startTime: params.startDate,
-      endTime: new Date(params.endDate.getTime() - 1),
-    })
-
-    // Group by metric
-    const eventsByMetric = new Map<string, UsageEvent[]>()
-    for (const event of events) {
-      const evts = eventsByMetric.get(event.metricId) ?? []
-      evts.push(event)
-      eventsByMetric.set(event.metricId, evts)
-    }
-
-    for (const [metricId, metricEvents] of eventsByMetric) {
-      const quantity = metricEvents.reduce((sum, e) => sum + e.quantity, 0)
-      const pricingConfig = await this.getPricing(params.customerId, metricId)
-      const tierConfig = await this.getTierConfig(params.customerId, metricId)
-
-      let amount = 0
-      let unitPrice = 0
-      let description = metricId
-
-      if (tierConfig) {
-        const priceResult = await this.calculatePrice(params.customerId, metricId, quantity)
-        amount = priceResult.total
-        unitPrice = quantity > 0 ? amount / quantity : 0
-      } else if (pricingConfig) {
-        const priceResult = await this.calculatePeriodPrice({
-          customerId: params.customerId,
-          metricId,
-          period: 'month',
-          date: params.startDate,
-        })
-        amount = priceResult.total
-        unitPrice = pricingConfig.pricePerUnit ?? 0
-        description = pricingConfig.description ?? metricId
-      }
-
-      lineItems.push({
-        description,
-        quantity,
-        unitPrice,
-        amount,
-        metricId,
-      })
-    }
-
-    return lineItems
-  }
-
-  /**
    * Export summary in different formats
    */
   async exportSummary(summary: UsageSummary, format: 'json' | 'csv'): Promise<string> {
@@ -1636,6 +1735,547 @@ export class UsageMeter {
    */
   async deleteMetric(metricId: string): Promise<void> {
     this.metrics.delete(metricId)
+  }
+
+  // =============================================================================
+  // Test-Compatible API Methods (aliases with different signatures)
+  // =============================================================================
+
+  /**
+   * Ingest a single usage event (test-compatible)
+   */
+  async ingest(input: IngestEventInput): Promise<IngestedEvent> {
+    // Check for finalized period
+    if (input.timestamp) {
+      const key = `${input.customerId}:${input.metricId}`
+      const finalized = this.finalizedPeriods.get(key) ?? []
+      for (const period of finalized) {
+        if (input.timestamp >= period.start && input.timestamp < period.end) {
+          throw new Error('Cannot ingest into finalized billing period')
+        }
+      }
+    }
+
+    // Validate value
+    if (input.value < 0) {
+      throw new Error('Value must be non-negative')
+    }
+
+    // Delegate to recordEvent
+    const event = await this.recordEvent({
+      customerId: input.customerId,
+      metricId: input.metricId,
+      quantity: input.value,
+      timestamp: input.timestamp,
+      properties: input.metadata ?? {},
+      idempotencyKey: input.idempotencyKey,
+    })
+
+    return {
+      id: event.id,
+      customerId: event.customerId,
+      metricId: event.metricId,
+      value: event.quantity,
+      timestamp: event.timestamp,
+      metadata: event.properties,
+      idempotencyKey: event.idempotencyKey,
+    }
+  }
+
+  /**
+   * Ingest batch of events (test-compatible)
+   */
+  async ingestBatch(inputs: IngestEventInput[]): Promise<IngestedEvent[]> {
+    const results: IngestedEvent[] = []
+    for (const input of inputs) {
+      const event = await this.ingest(input)
+      results.push(event)
+    }
+    return results
+  }
+
+  /**
+   * Query events (test-compatible)
+   */
+  async queryEvents(options: QueryEventsOptions): Promise<IngestedEvent[]> {
+    const events = await this.listEvents({
+      customerId: options.customerId,
+      metricId: options.metricId,
+      startTime: options.startTime,
+      endTime: options.endTime,
+    })
+
+    return events.map((e) => ({
+      id: e.id,
+      customerId: e.customerId,
+      metricId: e.metricId,
+      value: e.quantity,
+      timestamp: e.timestamp,
+      metadata: e.properties,
+      idempotencyKey: e.idempotencyKey,
+    }))
+  }
+
+  /**
+   * Aggregate usage (test-compatible)
+   */
+  async aggregate(options: AggregateOptions): Promise<AggregationResult> {
+    // Validate unique aggregation requires uniqueProperty
+    if (options.aggregation === 'unique' && !options.uniqueProperty) {
+      throw new Error('uniqueProperty is required for unique aggregation')
+    }
+
+    const events = await this.listEvents({
+      customerId: options.customerId,
+      metricId: options.metricId,
+      startTime: options.startTime,
+      endTime: options.endTime,
+    })
+
+    let value: number | null = null
+    const eventCount = events.length
+
+    if (eventCount === 0) {
+      // Return 0 for sum, null for max and last_during_period
+      if (options.aggregation === 'sum' || options.aggregation === 'unique') {
+        value = 0
+      } else {
+        value = null
+      }
+    } else {
+      switch (options.aggregation) {
+        case 'sum':
+          value = events.reduce((sum, e) => sum + e.quantity, 0)
+          break
+        case 'max':
+          value = Math.max(...events.map((e) => e.quantity))
+          break
+        case 'unique':
+          if (options.uniqueProperty) {
+            const uniqueValues = new Set<unknown>()
+            for (const e of events) {
+              const propValue = this.getNestedProperty(e.properties, options.uniqueProperty)
+              if (propValue !== undefined) {
+                uniqueValues.add(propValue)
+              }
+            }
+            value = uniqueValues.size
+          } else {
+            value = eventCount
+          }
+          break
+        case 'last_during_period':
+          const sorted = [...events].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+          value = sorted[0].quantity
+          break
+      }
+    }
+
+    return {
+      value,
+      aggregation: options.aggregation,
+      eventCount,
+      startTime: options.startTime,
+      endTime: options.endTime,
+    }
+  }
+
+  /**
+   * Get nested property value from object
+   */
+  private getNestedProperty(obj: Record<string, unknown>, path: string): unknown {
+    const parts = path.split('.')
+    let current: unknown = obj
+    for (const part of parts) {
+      if (current === null || current === undefined || typeof current !== 'object') {
+        return undefined
+      }
+      current = (current as Record<string, unknown>)[part]
+    }
+    return current
+  }
+
+  /**
+   * Define billing period (test-compatible)
+   */
+  async defineBillingPeriod(options: DefineBillingPeriodOptions): Promise<void> {
+    this.billingPeriodConfigs.set(options.customerId, options)
+
+    // Also set up the internal billing cycle
+    let period: AggregationPeriod = 'month'
+    if (options.intervalType === 'week') period = 'day' // Use day for week-based
+    else if (options.intervalType === 'year') period = 'year'
+
+    await this.setBillingCycle(options.customerId, {
+      anchorDate: options.anchorDate,
+      period,
+    })
+  }
+
+
+  /**
+   * Get billing period with offset (test-compatible)
+   */
+  async getBillingPeriod(customerId: string, periodOffset: number): Promise<BillingPeriod> {
+    const config = this.billingPeriodConfigs.get(customerId)
+    if (!config) {
+      throw new Error('Billing period not defined for customer')
+    }
+
+    const now = new Date()
+    // Ensure anchor time is UTC midnight using UTC getters
+    let startDate = new Date(Date.UTC(
+      config.anchorDate.getUTCFullYear(),
+      config.anchorDate.getUTCMonth(),
+      config.anchorDate.getUTCDate(),
+      0, 0, 0, 0
+    ))
+    let endDate: Date
+
+    // Find the period containing "now" (or the first period if anchor is in future)
+    while (true) {
+      endDate = this.addIntervalUTC(startDate, config.intervalType)
+      if (endDate > now || startDate >= now) {
+        break
+      }
+      startDate = endDate
+    }
+
+    // Apply offset
+    for (let i = 0; i < Math.abs(periodOffset); i++) {
+      if (periodOffset < 0) {
+        endDate = startDate
+        startDate = this.subtractIntervalUTC(startDate, config.intervalType)
+      } else {
+        startDate = endDate
+        endDate = this.addIntervalUTC(startDate, config.intervalType)
+      }
+    }
+
+    return { startDate, endDate }
+  }
+
+  private addIntervalUTC(date: Date, interval: BillingIntervalType): Date {
+    const year = date.getUTCFullYear()
+    const month = date.getUTCMonth()
+    const day = date.getUTCDate()
+
+    switch (interval) {
+      case 'week':
+        return new Date(Date.UTC(year, month, day + 7, 0, 0, 0, 0))
+      case 'month': {
+        // Handle month-end dates properly (e.g., Jan 31 + 1 month = Feb 28/29)
+        const nextMonth = month + 1
+        const nextYear = nextMonth > 11 ? year + 1 : year
+        const normalizedMonth = nextMonth % 12
+        // Get the last day of the target month
+        const lastDayOfTargetMonth = new Date(Date.UTC(nextYear, normalizedMonth + 1, 0)).getUTCDate()
+        // Use the smaller of the original day or the last day of target month
+        const targetDay = Math.min(day, lastDayOfTargetMonth)
+        return new Date(Date.UTC(nextYear, normalizedMonth, targetDay, 0, 0, 0, 0))
+      }
+      case 'year':
+        return new Date(Date.UTC(year + 1, month, day, 0, 0, 0, 0))
+    }
+  }
+
+  private subtractIntervalUTC(date: Date, interval: BillingIntervalType): Date {
+    const year = date.getUTCFullYear()
+    const month = date.getUTCMonth()
+    const day = date.getUTCDate()
+
+    switch (interval) {
+      case 'week':
+        return new Date(Date.UTC(year, month, day - 7, 0, 0, 0, 0))
+      case 'month':
+        return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))
+      case 'year':
+        return new Date(Date.UTC(year - 1, month, day, 0, 0, 0, 0))
+    }
+  }
+
+  /**
+   * Aggregate for billing period (test-compatible)
+   */
+  async aggregateForBillingPeriod(options: AggregateForBillingPeriodOptions): Promise<AggregationResult> {
+    const period = await this.getBillingPeriod(options.customerId, options.periodIndex)
+
+    return this.aggregate({
+      customerId: options.customerId,
+      metricId: options.metricId,
+      aggregation: options.aggregation,
+      startTime: period.startDate,
+      endTime: period.endDate,
+    })
+  }
+
+  /**
+   * Generate rollup (test-compatible)
+   */
+  async generateRollup(options: GenerateRollupOptions): Promise<UsageRollup> {
+    // Get all events in range
+    const allEvents = await this.listEvents({
+      customerId: options.customerId,
+      startTime: options.startTime,
+      endTime: options.endTime,
+    })
+
+    // Group by metric
+    const metricMap = new Map<string, number>()
+    for (const event of allEvents) {
+      const current = metricMap.get(event.metricId) ?? 0
+      metricMap.set(event.metricId, current + event.quantity)
+    }
+
+    const metrics = Array.from(metricMap.entries()).map(([metricId, value]) => ({
+      metricId,
+      value,
+      aggregation: 'sum' as AggregationType,
+    }))
+
+    const rollup: UsageRollup = {
+      id: generateId('rollup'),
+      customerId: options.customerId,
+      periodStart: options.startTime,
+      periodEnd: options.endTime,
+      metrics,
+      finalized: false,
+      createdAt: new Date(),
+    }
+
+    this.rollups.set(rollup.id, rollup)
+    return rollup
+  }
+
+  /**
+   * Finalize rollup (test-compatible)
+   */
+  async finalizeRollup(rollupId: string): Promise<void> {
+    const rollup = this.rollups.get(rollupId)
+    if (!rollup) {
+      throw new Error('Rollup not found')
+    }
+
+    rollup.finalized = true
+    rollup.finalizedAt = new Date()
+
+    // Mark all metric periods as finalized
+    for (const metric of rollup.metrics) {
+      const key = `${rollup.customerId}:${metric.metricId}`
+      const periods = this.finalizedPeriods.get(key) ?? []
+      periods.push({ start: rollup.periodStart, end: rollup.periodEnd })
+      this.finalizedPeriods.set(key, periods)
+    }
+  }
+
+  /**
+   * Get rollup (test-compatible)
+   */
+  async getRollup(rollupId: string): Promise<UsageRollup | null> {
+    return this.rollups.get(rollupId) ?? null
+  }
+
+  /**
+   * Configure metric pricing (test-compatible)
+   */
+  async configureMetricPricing(config: MetricPricingConfig): Promise<void> {
+    this.metricPricingConfigs.set(config.metricId, config)
+  }
+
+  /**
+   * Generate invoice line items (overloaded for test-compatible API)
+   * This handles the test-compatible API with startTime/endTime returning EnhancedInvoiceLineItem[]
+   */
+  async generateInvoiceLineItems(params: {
+    customerId: string
+    startTime?: Date
+    endTime?: Date
+    startDate?: Date
+    endDate?: Date
+  }): Promise<InvoiceLineItem[] | EnhancedInvoiceLineItem[]> {
+    // Determine which API is being used
+    const startTime = params.startTime ?? params.startDate
+    const endTime = params.endTime ?? params.endDate
+
+    if (!startTime || !endTime) {
+      throw new Error('Either startTime/endTime or startDate/endDate must be provided')
+    }
+
+    // Check if test-compatible API is being used (has metricPricingConfigs)
+    if (this.metricPricingConfigs.size > 0) {
+      return this._generateEnhancedInvoiceLineItems({
+        customerId: params.customerId,
+        startTime,
+        endTime,
+      })
+    }
+
+    // Otherwise use original implementation
+    return this._generateOriginalInvoiceLineItems({
+      customerId: params.customerId,
+      startDate: startTime,
+      endDate: endTime,
+    })
+  }
+
+  /**
+   * Original invoice line item generation
+   */
+  private async _generateOriginalInvoiceLineItems(params: {
+    customerId: string
+    startDate: Date
+    endDate: Date
+  }): Promise<InvoiceLineItem[]> {
+    const lineItems: InvoiceLineItem[] = []
+
+    const events = await this.listEvents({
+      customerId: params.customerId,
+      startTime: params.startDate,
+      endTime: new Date(params.endDate.getTime() - 1),
+    })
+
+    // Group by metric
+    const eventsByMetric = new Map<string, UsageEvent[]>()
+    for (const event of events) {
+      const evts = eventsByMetric.get(event.metricId) ?? []
+      evts.push(event)
+      eventsByMetric.set(event.metricId, evts)
+    }
+
+    for (const [metricId, metricEvents] of eventsByMetric) {
+      const quantity = metricEvents.reduce((sum, e) => sum + e.quantity, 0)
+      const pricingConfig = await this.getPricing(params.customerId, metricId)
+      const tierConfig = await this.getTierConfig(params.customerId, metricId)
+
+      let amount = 0
+      let unitPrice = 0
+      let description = metricId
+
+      if (tierConfig) {
+        const priceResult = await this.calculatePrice(params.customerId, metricId, quantity)
+        amount = priceResult.total
+        unitPrice = quantity > 0 ? amount / quantity : 0
+      } else if (pricingConfig) {
+        const priceResult = await this.calculatePeriodPrice({
+          customerId: params.customerId,
+          metricId,
+          period: 'month',
+          date: params.startDate,
+        })
+        amount = priceResult.total
+        unitPrice = pricingConfig.pricePerUnit ?? 0
+        description = pricingConfig.description ?? metricId
+      }
+
+      lineItems.push({
+        description,
+        quantity,
+        unitPrice,
+        amount,
+        metricId,
+      })
+    }
+
+    return lineItems
+  }
+
+  /**
+   * Generate enhanced invoice line items (test-compatible)
+   */
+  private async _generateEnhancedInvoiceLineItems(options: GenerateInvoiceLineItemsOptions): Promise<EnhancedInvoiceLineItem[]> {
+    const lineItems: EnhancedInvoiceLineItem[] = []
+
+    // Get all events in range
+    const allEvents = await this.listEvents({
+      customerId: options.customerId,
+      startTime: options.startTime,
+      endTime: options.endTime,
+    })
+
+    // Group by metric
+    const metricMap = new Map<string, number>()
+    for (const event of allEvents) {
+      const current = metricMap.get(event.metricId) ?? 0
+      metricMap.set(event.metricId, current + event.quantity)
+    }
+
+    // Generate line items based on pricing config
+    for (const [metricId, quantity] of metricMap) {
+      const config = this.metricPricingConfigs.get(metricId)
+      if (!config) continue
+
+      // Get the actual aggregated value based on aggregation type
+      let aggregatedValue = quantity
+      if (config.aggregation === 'max') {
+        const events = allEvents.filter((e) => e.metricId === metricId)
+        aggregatedValue = events.length > 0 ? Math.max(...events.map((e) => e.quantity)) : 0
+      }
+
+      const includedUnits = config.includedUnits ?? 0
+      const billableQuantity = Math.max(0, aggregatedValue - includedUnits)
+
+      let amount = 0
+      let tierBreakdown: TierBreakdownItem[] | undefined
+
+      if (config.tiers && config.tiers.length > 0) {
+        // Tiered pricing
+        tierBreakdown = []
+        let remaining = aggregatedValue
+        let tierIndex = 0
+        let previousUpTo = 0
+
+        for (const tier of config.tiers) {
+          if (remaining <= 0) break
+
+          const tierCapacity = tier.upTo === null ? remaining : tier.upTo - previousUpTo
+          const tierQuantity = Math.min(remaining, tierCapacity)
+
+          const tierAmount = tierQuantity * tier.pricePerUnit
+          tierBreakdown.push({
+            tier: tierIndex,
+            quantity: tierQuantity,
+            pricePerUnit: tier.pricePerUnit,
+            amount: tierAmount,
+          })
+
+          amount += tierAmount
+          remaining -= tierQuantity
+          previousUpTo = tier.upTo ?? previousUpTo + tierQuantity
+          tierIndex++
+        }
+      } else {
+        // Simple per-unit pricing
+        amount = billableQuantity * (config.pricePerUnit ?? 0)
+      }
+
+      lineItems.push({
+        metricId,
+        description: config.displayName ?? metricId,
+        quantity: aggregatedValue,
+        billableQuantity,
+        unitPrice: config.pricePerUnit ?? 0,
+        amount,
+        unit: config.unit,
+        tierBreakdown,
+      })
+    }
+
+    // If no events but pricing config exists, return empty or zero items
+    if (lineItems.length === 0) {
+      for (const [metricId, config] of this.metricPricingConfigs) {
+        lineItems.push({
+          metricId,
+          description: config.displayName ?? metricId,
+          quantity: 0,
+          billableQuantity: 0,
+          unitPrice: config.pricePerUnit ?? 0,
+          amount: 0,
+          unit: config.unit,
+        })
+      }
+    }
+
+    return lineItems
   }
 }
 

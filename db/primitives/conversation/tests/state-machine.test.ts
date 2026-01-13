@@ -15,132 +15,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-
-// =============================================================================
-// Type Definitions
-// =============================================================================
-
-/**
- * Valid conversation states
- */
-type ConversationState = 'new' | 'active' | 'pending' | 'resolved' | 'closed'
-
-/**
- * Events that trigger state transitions
- */
-type TransitionEvent =
-  | { type: 'START'; actor?: string }
-  | { type: 'AWAIT'; reason: string; timeout?: number }
-  | { type: 'RESUME'; actor?: string }
-  | { type: 'RESOLVE'; reason: string; actor?: string }
-  | { type: 'REOPEN'; reason: string; actor?: string }
-  | { type: 'CLOSE'; reason: string; actor?: string }
-  | { type: 'FORCE_CLOSE'; reason: string; actor?: string }
-  | { type: 'TIMEOUT' }
-  | { type: 'ESCALATE'; to: string; reason: string }
-
-/**
- * Guard context for transition validation
- */
-interface GuardContext {
-  messageCount: number
-  hasAssignee: boolean
-  priority: 'low' | 'normal' | 'high' | 'urgent'
-  slaBreached: boolean
-  customerId?: string
-  lastActivityAt?: Date
-  metadata: Record<string, unknown>
-}
-
-/**
- * State history entry
- */
-interface StateHistoryEntry {
-  from: ConversationState
-  to: ConversationState
-  event: TransitionEvent['type']
-  timestamp: Date
-  actor?: string
-  reason?: string
-}
-
-/**
- * State machine context
- */
-interface StateMachineContext {
-  id: string
-  state: ConversationState
-  previousState?: ConversationState
-  messageCount: number
-  assignee?: string
-  priority: 'low' | 'normal' | 'high' | 'urgent'
-  slaBreached: boolean
-  createdAt: Date
-  updatedAt: Date
-  resolvedAt?: Date
-  closedAt?: Date
-  pendingSince?: Date
-  awaitReason?: string
-  closeReason?: string
-  resolveReason?: string
-  history: StateHistoryEntry[]
-  metadata: Record<string, unknown>
-}
-
-/**
- * Side effect callback type
- */
-type SideEffect = (context: StateMachineContext, event: TransitionEvent) => void | Promise<void>
-
-/**
- * State machine configuration
- */
-interface StateMachineConfig {
-  initialContext?: Partial<StateMachineContext>
-  guards?: {
-    [key: string]: (context: StateMachineContext, event: TransitionEvent) => boolean
-  }
-  actions?: {
-    onEntry?: { [state in ConversationState]?: SideEffect[] }
-    onExit?: { [state in ConversationState]?: SideEffect[] }
-    onTransition?: SideEffect[]
-  }
-}
-
-/**
- * State machine interface
- */
-interface ConversationStateMachine {
-  // Current state
-  readonly state: ConversationState
-  readonly context: StateMachineContext
-
-  // Transition methods
-  send(event: TransitionEvent): Promise<ConversationState>
-  can(event: TransitionEvent): boolean
-
-  // Query methods
-  getValidTransitions(): TransitionEvent['type'][]
-  getHistory(): StateHistoryEntry[]
-  getTimeInState(): number
-
-  // Event subscriptions
-  onTransition(callback: (from: ConversationState, to: ConversationState, event: TransitionEvent) => void): () => void
-  onStateEnter(state: ConversationState, callback: (context: StateMachineContext) => void): () => void
-  onStateExit(state: ConversationState, callback: (context: StateMachineContext) => void): () => void
-
-  // Persistence
-  serialize(): string
-  hydrate(serialized: string): void
-}
-
-/**
- * Factory function - RED phase stub
- */
-function createStateMachine(_config?: StateMachineConfig): ConversationStateMachine {
-  // RED phase: throws to make tests fail
-  throw new Error('createStateMachine not implemented - RED phase')
-}
+import {
+  createStateMachine,
+  type ConversationState,
+  type TransitionEvent,
+  type StateHistoryEntry,
+  type StateMachineContext,
+  type StateMachineConfig,
+  type ConversationStateMachine,
+  type SideEffect,
+} from '../state-machine'
 
 // =============================================================================
 // Test Suite 1: Initial State

@@ -247,7 +247,7 @@ export class DOSQLEngine implements AsyncSQLEngine {
 
     // Use first result for structure
     const first = successful[0]!.data!
-    const mergedRows: SQLValue[][] = []
+    const mergedRows: StorageValue[][] = []
     let totalAffected = 0
     let totalChanged = 0
 

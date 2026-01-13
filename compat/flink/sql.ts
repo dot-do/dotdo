@@ -364,6 +364,10 @@ export interface ParsedStatement {
   viewDefinition?: string
   ifNotExists?: boolean
   ifExists?: boolean
+  // Streaming window support
+  streamingWindow?: StreamingWindow
+  // Join support
+  joins?: JoinSpec[]
 }
 
 /**
@@ -459,6 +463,47 @@ export interface WindowSpec {
 export interface FrameBound {
   type: 'UNBOUNDED_PRECEDING' | 'CURRENT_ROW' | 'UNBOUNDED_FOLLOWING' | 'PRECEDING' | 'FOLLOWING'
   offset?: number
+}
+
+// ===========================================================================
+// Streaming Window SQL Types
+// ===========================================================================
+
+/**
+ * Window type for streaming SQL (TUMBLE, HOP, SESSION)
+ */
+export type StreamingWindowType = 'TUMBLE' | 'HOP' | 'SESSION'
+
+/**
+ * Streaming window specification for Flink SQL
+ */
+export interface StreamingWindow {
+  type: StreamingWindowType
+  timeColumn: string
+  size?: number        // Window size in milliseconds
+  slide?: number       // Slide interval for HOP windows
+  gap?: number         // Gap for SESSION windows
+  alias?: string       // Window alias for reference
+}
+
+/**
+ * Temporal join specification
+ */
+export interface TemporalJoinSpec {
+  type: 'FOR_SYSTEM_TIME_AS_OF'
+  leftTimeColumn: string
+  rightTable: string
+  rightTimeColumn: string
+}
+
+/**
+ * Join specification
+ */
+export interface JoinSpec {
+  type: 'INNER' | 'LEFT' | 'RIGHT' | 'FULL' | 'CROSS'
+  rightTable: string
+  condition?: Expression
+  temporal?: TemporalJoinSpec
 }
 
 /**
@@ -917,9 +962,60 @@ export class SqlParser {
       }
     }
 
-    // Extract table name
-    const fromMatch = sql.match(/FROM\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?/i)
-    const tableName = fromMatch ? fromMatch[1] : undefined
+    // Extract table name (handling TUMBLE, HOP, SESSION table functions)
+    let tableName: string | undefined
+    let streamingWindow: StreamingWindow | undefined
+
+    // Check for TUMBLE window function
+    const tumbleMatch = sql.match(/FROM\s+TUMBLE\s*\(\s*TABLE\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*,\s*DESCRIPTOR\s*\(\s*`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*\)\s*,\s*INTERVAL\s+'(\d+)'\s+(SECOND|MINUTE|HOUR|DAY)S?\s*\)/i)
+    if (tumbleMatch) {
+      tableName = tumbleMatch[1]
+      const intervalValue = parseInt(tumbleMatch[2], 10)
+      const intervalUnit = tumbleMatch[4].toUpperCase()
+      streamingWindow = {
+        type: 'TUMBLE',
+        timeColumn: tumbleMatch[2],
+        size: SqlParser.intervalToMillis(intervalValue, intervalUnit),
+      }
+    }
+
+    // Check for HOP (sliding) window function
+    const hopMatch = sql.match(/FROM\s+HOP\s*\(\s*TABLE\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*,\s*DESCRIPTOR\s*\(\s*`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*\)\s*,\s*INTERVAL\s+'(\d+)'\s+(SECOND|MINUTE|HOUR|DAY)S?\s*,\s*INTERVAL\s+'(\d+)'\s+(SECOND|MINUTE|HOUR|DAY)S?\s*\)/i)
+    if (hopMatch) {
+      tableName = hopMatch[1]
+      const slideValue = parseInt(hopMatch[3], 10)
+      const slideUnit = hopMatch[4].toUpperCase()
+      const sizeValue = parseInt(hopMatch[5], 10)
+      const sizeUnit = hopMatch[6].toUpperCase()
+      streamingWindow = {
+        type: 'HOP',
+        timeColumn: hopMatch[2],
+        slide: SqlParser.intervalToMillis(slideValue, slideUnit),
+        size: SqlParser.intervalToMillis(sizeValue, sizeUnit),
+      }
+    }
+
+    // Check for SESSION window function
+    const sessionMatch = sql.match(/FROM\s+SESSION\s*\(\s*TABLE\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*,\s*DESCRIPTOR\s*\(\s*`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*\)\s*,\s*INTERVAL\s+'(\d+)'\s+(SECOND|MINUTE|HOUR|DAY)S?\s*\)/i)
+    if (sessionMatch) {
+      tableName = sessionMatch[1]
+      const gapValue = parseInt(sessionMatch[3], 10)
+      const gapUnit = sessionMatch[4].toUpperCase()
+      streamingWindow = {
+        type: 'SESSION',
+        timeColumn: sessionMatch[2],
+        gap: SqlParser.intervalToMillis(gapValue, gapUnit),
+      }
+    }
+
+    // Standard table reference if no window function
+    if (!tableName) {
+      const fromMatch = sql.match(/FROM\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?/i)
+      tableName = fromMatch ? fromMatch[1] : undefined
+    }
+
+    // Parse JOINs
+    const joins = SqlParser.parseJoins(sql)
 
     // Extract WHERE clause
     let whereClause: Expression | undefined
@@ -977,7 +1073,79 @@ export class SqlParser {
       havingClause,
       orderByColumns,
       limit,
+      streamingWindow,
+      joins,
     }
+  }
+
+  /**
+   * Convert interval to milliseconds
+   */
+  private static intervalToMillis(value: number, unit: string): number {
+    switch (unit) {
+      case 'SECOND':
+        return value * 1000
+      case 'MINUTE':
+        return value * 60 * 1000
+      case 'HOUR':
+        return value * 60 * 60 * 1000
+      case 'DAY':
+        return value * 24 * 60 * 60 * 1000
+      default:
+        return value * 1000
+    }
+  }
+
+  /**
+   * Parse JOIN clauses from SQL
+   */
+  private static parseJoins(sql: string): JoinSpec[] | undefined {
+    const joins: JoinSpec[] = []
+
+    // Match various JOIN types
+    const joinPatterns = [
+      // INNER JOIN
+      { regex: /INNER\s+JOIN\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+(?:(?:AS\s+)?`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+)?ON\s+(.+?)(?=\s+(?:INNER|LEFT|RIGHT|FULL|CROSS|WHERE|GROUP|ORDER|LIMIT)|$)/gi, type: 'INNER' as const },
+      // LEFT [OUTER] JOIN
+      { regex: /LEFT\s+(?:OUTER\s+)?JOIN\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+(?:(?:AS\s+)?`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+)?ON\s+(.+?)(?=\s+(?:INNER|LEFT|RIGHT|FULL|CROSS|WHERE|GROUP|ORDER|LIMIT)|$)/gi, type: 'LEFT' as const },
+      // RIGHT [OUTER] JOIN
+      { regex: /RIGHT\s+(?:OUTER\s+)?JOIN\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+(?:(?:AS\s+)?`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+)?ON\s+(.+?)(?=\s+(?:INNER|LEFT|RIGHT|FULL|CROSS|WHERE|GROUP|ORDER|LIMIT)|$)/gi, type: 'RIGHT' as const },
+      // FULL [OUTER] JOIN
+      { regex: /FULL\s+(?:OUTER\s+)?JOIN\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+(?:(?:AS\s+)?`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+)?ON\s+(.+?)(?=\s+(?:INNER|LEFT|RIGHT|FULL|CROSS|WHERE|GROUP|ORDER|LIMIT)|$)/gi, type: 'FULL' as const },
+      // CROSS JOIN
+      { regex: /CROSS\s+JOIN\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?/gi, type: 'CROSS' as const },
+      // Simple JOIN (treated as INNER)
+      { regex: /(?<!INNER\s|LEFT\s|RIGHT\s|FULL\s|CROSS\s)JOIN\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+(?:(?:AS\s+)?`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+)?ON\s+(.+?)(?=\s+(?:INNER|LEFT|RIGHT|FULL|CROSS|WHERE|GROUP|ORDER|LIMIT)|$)/gi, type: 'INNER' as const },
+    ]
+
+    for (const { regex, type } of joinPatterns) {
+      let match
+      while ((match = regex.exec(sql)) !== null) {
+        const rightTable = match[1]
+        const conditionStr = match[3]?.trim()
+
+        // Check for temporal join (FOR SYSTEM_TIME AS OF)
+        let temporal: TemporalJoinSpec | undefined
+        const temporalMatch = conditionStr?.match(/FOR\s+SYSTEM_TIME\s+AS\s+OF\s+([a-zA-Z_][a-zA-Z0-9_.]*)/i)
+        if (temporalMatch) {
+          temporal = {
+            type: 'FOR_SYSTEM_TIME_AS_OF',
+            leftTimeColumn: temporalMatch[1],
+            rightTable,
+            rightTimeColumn: '', // Will be inferred from table schema
+          }
+        }
+
+        joins.push({
+          type,
+          rightTable,
+          condition: conditionStr ? SqlParser.parseExpression(conditionStr.replace(/FOR\s+SYSTEM_TIME\s+AS\s+OF\s+[a-zA-Z_][a-zA-Z0-9_.]*/i, '').trim()) : undefined,
+          temporal,
+        })
+      }
+    }
+
+    return joins.length > 0 ? joins : undefined
   }
 
   /**

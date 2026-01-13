@@ -87,6 +87,9 @@ export default defineWorkspace([
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
 
+  // Graph query engine and schema tests (Things + Relationships)
+  createNodeWorkspace('graph', ['db/graph/**/*.test.ts']),
+
   // TanStack DB integration tests (sync engine, collection options, rpc client)
   createNodeWorkspace('tanstack', ['db/tanstack/**/*.test.ts', 'db/tanstack/tests/**/*.test.ts']),
 
@@ -402,6 +405,9 @@ export default defineWorkspace([
   // @dotdo/auth package tests (Multi-provider auth with in-memory backend)
   createNodeWorkspace('auth', ['packages/auth/tests/**/*.test.ts']),
 
+  // Auth module tests (better-auth graph adapter, cross-domain OAuth)
+  createNodeWorkspace('auth-module', ['auth/tests/**/*.test.ts']),
+
   // @dotdo/automation package tests (n8n-compatible workflow automation)
   createNodeWorkspace('automation', ['packages/automation/tests/**/*.test.ts']),
 
@@ -656,6 +662,30 @@ export default defineWorkspace([
           wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
           // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
           // Tests use unique namespaces (uniqueNs()) for isolation instead
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  },
+
+  // Browser DO integration tests (Browser lifecycle, routes, screencast with mock session)
+  // Uses TestBrowserDO with mock Browse session to test DO behavior without real browser
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      globals: sharedTestConfig?.globals,
+      name: 'browser-do',
+      include: [
+        'objects/tests/browser-do-lifecycle.test.ts',
+        'objects/tests/browser-do-routes.test.ts',
+        'objects/tests/browser-do-screencast.test.ts',
+      ],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.browser-do-test.jsonc') },
           isolatedStorage: false,
           singleWorker: true,
         },

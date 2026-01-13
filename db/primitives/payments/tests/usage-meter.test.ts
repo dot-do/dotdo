@@ -713,7 +713,13 @@ describe('UsageMeter', () => {
     let meter: UsageMeter
 
     beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2024-01-20T12:00:00Z'))
       meter = createMeter()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
     })
 
     it('should respect billing period start time (inclusive)', async () => {
@@ -804,10 +810,6 @@ describe('UsageMeter', () => {
       expect(period.endDate.getMonth()).toBe(1) // February
     })
 
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
     it('should aggregate within custom billing period', async () => {
       await meter.defineBillingPeriod({
         customerId: CUSTOMER_ID,
@@ -854,6 +856,9 @@ describe('UsageMeter', () => {
     })
 
     it('should support weekly billing periods', async () => {
+      // Set time within the first week
+      vi.setSystemTime(new Date('2024-01-05T12:00:00Z'))
+
       await meter.defineBillingPeriod({
         customerId: CUSTOMER_ID,
         anchorDate: new Date('2024-01-01'), // Monday

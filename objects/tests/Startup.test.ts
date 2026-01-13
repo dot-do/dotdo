@@ -502,4 +502,420 @@ describe('Startup DO - TDD', () => {
       expect(typeof myStartup.recordUsage).toBe('function')
     })
   })
+
+  // ==========================================================================
+  // TESTS: AGENT COMPOSITION (priya/ralph integration)
+  // ==========================================================================
+
+  describe('Agent Composition', () => {
+    it('Startup has agents property', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup).toHaveProperty('agents')
+      expect(typeof startup.agents).toBe('object')
+    })
+
+    it('has priya agent (product manager)', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup.agents.priya).toBeDefined()
+      expect(startup.agents.priya.role).toBe('product')
+    })
+
+    it('has ralph agent (engineer)', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup.agents.ralph).toBeDefined()
+      expect(startup.agents.ralph.role).toBe('engineering')
+    })
+
+    it('has tom agent (tech lead)', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup.agents.tom).toBeDefined()
+      expect(startup.agents.tom.role).toBe('tech-lead')
+    })
+
+    it('has mark agent (marketing)', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup.agents.mark).toBeDefined()
+      expect(startup.agents.mark.role).toBe('marketing')
+    })
+
+    it('has sally agent (sales)', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup.agents.sally).toBeDefined()
+      expect(startup.agents.sally.role).toBe('sales')
+    })
+
+    it('agents are callable as template literals', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      // Agents should be callable functions (template literal syntax)
+      expect(typeof startup.agents.priya).toBe('function')
+      expect(typeof startup.agents.ralph).toBe('function')
+    })
+
+    it('subclass can add custom agents', async () => {
+      const { Startup } = await import('../Startup')
+
+      class MyStartup extends Startup {
+        initTeam() {
+          this.addAgent('quinn', 'qa')
+        }
+      }
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const myStartup = new MyStartup(mockState, mockEnv)
+      myStartup.initTeam()
+
+      expect(myStartup.agents.quinn).toBeDefined()
+      expect(myStartup.agents.quinn.role).toBe('qa')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: WORKFLOW ORCHESTRATION
+  // ==========================================================================
+
+  describe('Workflow Orchestration', () => {
+    it('Startup has launch() method', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(typeof startup.launch).toBe('function')
+    })
+
+    it('launch() returns a Promise', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      const result = startup.launch()
+      expect(result).toBeInstanceOf(Promise)
+    })
+
+    it('Startup has setHypothesis() method', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(typeof startup.setHypothesis).toBe('function')
+    })
+
+    it('can set hypothesis for launch', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      await startup.setHypothesis('AI-powered code generation will make developers 10x more productive')
+
+      expect(startup.hypothesis).toBe('AI-powered code generation will make developers 10x more productive')
+    })
+
+    it('launch() uses priya to define spec', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test hypothesis')
+
+      // Mock priya's response
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec: feature A, feature B')
+
+      const result = await startup.launch()
+
+      // Launch should have called priya to create spec
+      expect(result.spec).toBeDefined()
+    })
+
+    it('launch() uses ralph to build from spec', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test hypothesis')
+
+      // Mock agents
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec')
+      vi.spyOn(startup.agents.ralph, 'apply').mockImplementation(async () => 'app code')
+
+      const result = await startup.launch()
+
+      expect(result.app).toBeDefined()
+    })
+
+    it('launch() uses tom for code review', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test hypothesis')
+
+      // Mock agents with tom approving
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec')
+      vi.spyOn(startup.agents.ralph, 'apply').mockImplementation(async () => 'app')
+      const tomApprove = vi.fn().mockResolvedValue({ approved: true })
+      startup.agents.tom.approve = tomApprove
+
+      await startup.launch()
+
+      expect(tomApprove).toHaveBeenCalled()
+    })
+
+    it('launch() iterates until tom approves', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test hypothesis')
+
+      // Mock agents with tom rejecting once then approving
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec')
+      const ralphMock = vi.fn()
+        .mockResolvedValueOnce('app v1')
+        .mockResolvedValueOnce('app v2')
+      vi.spyOn(startup.agents.ralph, 'apply').mockImplementation(ralphMock)
+
+      let callCount = 0
+      startup.agents.tom.approve = vi.fn().mockImplementation(async () => {
+        callCount++
+        return { approved: callCount >= 2 }
+      })
+
+      await startup.launch()
+
+      expect(ralphMock).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: STATE PERSISTENCE
+  // ==========================================================================
+
+  describe('State Persistence', () => {
+    it('persists hypothesis to storage', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      await startup.setHypothesis('Test hypothesis')
+
+      // Should be persisted to storage
+      const stored = await mockState.storage.get('startup:hypothesis')
+      expect(stored).toBe('Test hypothesis')
+    })
+
+    it('loads hypothesis from storage on init', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      // Pre-populate storage
+      await mockState.storage.put('startup:hypothesis', 'Loaded hypothesis')
+
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.loadState()
+
+      expect(startup.hypothesis).toBe('Loaded hypothesis')
+    })
+
+    it('persists launch state (launched: boolean)', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      expect(startup.launched).toBe(false)
+
+      // Mock successful launch
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec')
+      vi.spyOn(startup.agents.ralph, 'apply').mockImplementation(async () => 'app')
+      startup.agents.tom.approve = vi.fn().mockResolvedValue({ approved: true })
+      vi.spyOn(startup.agents.mark, 'apply').mockImplementation(async () => 'announcement')
+      vi.spyOn(startup.agents.sally, 'apply').mockImplementation(async () => 'sales started')
+
+      await startup.setHypothesis('Test')
+      await startup.launch()
+
+      expect(startup.launched).toBe(true)
+      const stored = await mockState.storage.get('startup:launched')
+      expect(stored).toBe(true)
+    })
+
+    it('persists team configuration', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      await startup.addAgent('quinn', 'qa')
+
+      const stored = await mockState.storage.get('startup:team')
+      expect(stored).toContain('quinn')
+    })
+
+    it('persists spec after priya generates it', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test')
+
+      // Mock agents
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'Generated spec: feature list')
+      vi.spyOn(startup.agents.ralph, 'apply').mockImplementation(async () => 'app')
+      startup.agents.tom.approve = vi.fn().mockResolvedValue({ approved: true })
+      vi.spyOn(startup.agents.mark, 'apply').mockImplementation(async () => 'announcement')
+      vi.spyOn(startup.agents.sally, 'apply').mockImplementation(async () => 'sales')
+
+      await startup.launch()
+
+      const stored = await mockState.storage.get('startup:spec')
+      expect(stored).toContain('Generated spec')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: ERROR HANDLING
+  // ==========================================================================
+
+  describe('Error Handling', () => {
+    it('throws if launch() called without hypothesis', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      await expect(startup.launch()).rejects.toThrow('hypothesis')
+    })
+
+    it('throws if agent not found when adding invalid role', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+
+      await expect(startup.addAgent('invalid', 'invalid-role' as any)).rejects.toThrow('role')
+    })
+
+    it('handles priya failure gracefully', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test')
+
+      // Mock priya to throw
+      vi.spyOn(startup.agents.priya, 'apply').mockRejectedValue(new Error('AI unavailable'))
+
+      await expect(startup.launch()).rejects.toThrow('AI unavailable')
+    })
+
+    it('handles ralph build failure', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test')
+
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec')
+      vi.spyOn(startup.agents.ralph, 'apply').mockRejectedValue(new Error('Build failed'))
+
+      await expect(startup.launch()).rejects.toThrow('Build failed')
+    })
+
+    it('limits review iterations to maxReviewIterations', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      startup.maxReviewIterations = 3
+      await startup.setHypothesis('Test')
+
+      vi.spyOn(startup.agents.priya, 'apply').mockImplementation(async () => 'spec')
+      vi.spyOn(startup.agents.ralph, 'apply').mockImplementation(async () => 'app')
+
+      // Tom never approves
+      startup.agents.tom.approve = vi.fn().mockResolvedValue({ approved: false, feedback: 'needs work' })
+
+      await expect(startup.launch()).rejects.toThrow(/iteration|limit|review/i)
+    })
+
+    it('emits error event on failure', async () => {
+      const { Startup } = await import('../Startup')
+
+      const mockState = createMockState()
+      const mockEnv = createMockEnv()
+      const startup = new Startup(mockState, mockEnv)
+      await startup.setHypothesis('Test')
+
+      vi.spyOn(startup.agents.priya, 'apply').mockRejectedValue(new Error('AI unavailable'))
+
+      const errorHandler = vi.fn()
+      startup.on('launch:error', errorHandler)
+
+      try {
+        await startup.launch()
+      } catch {
+        // expected
+      }
+
+      expect(errorHandler).toHaveBeenCalled()
+    })
+  })
 })

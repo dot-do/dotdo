@@ -3151,7 +3151,6 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     return {
       things: this.things,
       ns: this.ns,
-      contextUrl: 'https://dotdo.dev/context',
       parent: this.parent,
       nouns: this.getRegisteredNouns(),
       doType,

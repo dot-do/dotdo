@@ -917,105 +917,218 @@ function isZodSchema(value: unknown): value is ZodType<unknown> {
 // ============================================================================
 
 /**
+ * Get the check definition from a Zod v4 check object
+ * In Zod v4, checks store their config in _zod.def
+ */
+function getCheckDef(check: unknown): Record<string, unknown> | undefined {
+  if (check && typeof check === 'object') {
+    const c = check as { _zod?: { def?: Record<string, unknown> } }
+    return c._zod?.def
+  }
+  return undefined
+}
+
+/**
+ * Get the type from a Zod schema definition
+ * Supports both Zod v3 (typeName) and Zod v4 (type)
+ */
+function getZodType(def: Record<string, unknown>): string | undefined {
+  // Zod v4 uses `type` directly
+  if (typeof def.type === 'string') {
+    return def.type
+  }
+  // Zod v3 uses `typeName`
+  if (typeof def.typeName === 'string') {
+    return def.typeName.replace(/^Zod/, '').toLowerCase()
+  }
+  return undefined
+}
+
+/**
  * Convert Zod schema to JSON Schema
+ * Supports both Zod v3 and Zod v4 internal structures
  */
 export function zodToJSONSchema(zodSchema: ZodType<unknown>): JSONSchema {
-  const def = (zodSchema as ZodTypeAny)._def
+  const def = (zodSchema as ZodTypeAny)._def as Record<string, unknown>
+  const zodType = getZodType(def)
 
-  switch (def.typeName) {
+  switch (zodType) {
+    case 'string':
     case 'ZodString': {
       const schema: JSONSchema = { type: 'string' }
-      if (def.checks) {
-        for (const check of def.checks) {
-          switch (check.kind) {
-            case 'min':
-              schema.minLength = check.value
-              break
-            case 'max':
-              schema.maxLength = check.value
-              break
-            case 'email':
-              schema.format = 'email'
-              break
-            case 'url':
-              schema.format = 'uri'
-              break
-            case 'uuid':
-              schema.format = 'uuid'
-              break
-            case 'datetime':
-              schema.format = 'date-time'
-              break
-            case 'regex':
-              schema.pattern = check.regex.source
-              break
+      const checks = def.checks as unknown[] | undefined
+      if (checks) {
+        for (const check of checks) {
+          // Zod v4: check._zod.def
+          const checkDef = getCheckDef(check)
+          if (checkDef) {
+            const checkType = checkDef.check as string | undefined
+            switch (checkType) {
+              case 'min_length':
+                schema.minLength = checkDef.minimum as number
+                break
+              case 'max_length':
+                schema.maxLength = checkDef.maximum as number
+                break
+              case 'string_format':
+                const format = checkDef.format as string | undefined
+                if (format === 'email') schema.format = 'email'
+                else if (format === 'url') schema.format = 'uri'
+                else if (format === 'uuid') schema.format = 'uuid'
+                else if (format === 'datetime') schema.format = 'date-time'
+                else if (format === 'regex' && checkDef.pattern) {
+                  schema.pattern = (checkDef.pattern as RegExp).source
+                }
+                break
+            }
+          }
+          // Zod v3: check.kind
+          const v3Check = check as { kind?: string; value?: number; regex?: RegExp }
+          if (v3Check.kind) {
+            switch (v3Check.kind) {
+              case 'min':
+                schema.minLength = v3Check.value
+                break
+              case 'max':
+                schema.maxLength = v3Check.value
+                break
+              case 'email':
+                schema.format = 'email'
+                break
+              case 'url':
+                schema.format = 'uri'
+                break
+              case 'uuid':
+                schema.format = 'uuid'
+                break
+              case 'datetime':
+                schema.format = 'date-time'
+                break
+              case 'regex':
+                if (v3Check.regex) schema.pattern = v3Check.regex.source
+                break
+            }
           }
         }
       }
       if (def.description) {
-        schema.description = def.description
+        schema.description = def.description as string
       }
       return schema
     }
 
+    case 'number':
     case 'ZodNumber': {
       const schema: JSONSchema = { type: 'number' }
-      if (def.checks) {
-        for (const check of def.checks) {
-          switch (check.kind) {
-            case 'min':
-              if (check.inclusive) {
-                schema.minimum = check.value
-              } else {
-                schema.minimum = check.value
-                schema.exclusiveMinimum = true
-              }
-              break
-            case 'max':
-              if (check.inclusive) {
-                schema.maximum = check.value
-              } else {
-                schema.maximum = check.value
-                schema.exclusiveMaximum = true
-              }
-              break
-            case 'int':
-              schema.type = 'integer'
-              break
+      const checks = def.checks as unknown[] | undefined
+      if (checks) {
+        for (const check of checks) {
+          // Zod v4
+          const checkDef = getCheckDef(check)
+          if (checkDef) {
+            const checkType = checkDef.check as string | undefined
+            switch (checkType) {
+              case 'greater_than':
+                if (checkDef.inclusive) {
+                  schema.minimum = checkDef.value as number
+                } else {
+                  schema.minimum = checkDef.value as number
+                  schema.exclusiveMinimum = true
+                }
+                break
+              case 'less_than':
+                if (checkDef.inclusive) {
+                  schema.maximum = checkDef.value as number
+                } else {
+                  schema.maximum = checkDef.value as number
+                  schema.exclusiveMaximum = true
+                }
+                break
+              case 'number_format':
+                if (checkDef.format === 'safeint' || checkDef.format === 'int') {
+                  schema.type = 'integer'
+                }
+                break
+            }
+          }
+          // Zod v3
+          const v3Check = check as { kind?: string; value?: number; inclusive?: boolean }
+          if (v3Check.kind) {
+            switch (v3Check.kind) {
+              case 'min':
+                if (v3Check.inclusive) {
+                  schema.minimum = v3Check.value
+                } else {
+                  schema.minimum = v3Check.value
+                  schema.exclusiveMinimum = true
+                }
+                break
+              case 'max':
+                if (v3Check.inclusive) {
+                  schema.maximum = v3Check.value
+                } else {
+                  schema.maximum = v3Check.value
+                  schema.exclusiveMaximum = true
+                }
+                break
+              case 'int':
+                schema.type = 'integer'
+                break
+            }
           }
         }
       }
       if (def.description) {
-        schema.description = def.description
+        schema.description = def.description as string
       }
       return schema
     }
 
+    case 'boolean':
     case 'ZodBoolean': {
       const schema: JSONSchema = { type: 'boolean' }
       if (def.description) {
-        schema.description = def.description
+        schema.description = def.description as string
       }
       return schema
     }
 
+    case 'array':
     case 'ZodArray': {
+      // Zod v4 uses 'element', Zod v3 uses 'type'
+      const elementSchema = (def.element || def.type) as ZodType<unknown>
       const schema: JSONSchema = {
         type: 'array',
-        items: zodToJSONSchema(def.type),
+        items: zodToJSONSchema(elementSchema),
       }
-      if (def.minLength) {
-        schema.minItems = def.minLength.value
+      // Zod v4: checks array with min_length/max_length
+      const checks = def.checks as unknown[] | undefined
+      if (checks) {
+        for (const check of checks) {
+          const checkDef = getCheckDef(check)
+          if (checkDef) {
+            if (checkDef.check === 'min_length') {
+              schema.minItems = checkDef.minimum as number
+            } else if (checkDef.check === 'max_length') {
+              schema.maxItems = checkDef.maximum as number
+            }
+          }
+        }
       }
-      if (def.maxLength) {
-        schema.maxItems = def.maxLength.value
+      // Zod v3: minLength/maxLength on def
+      if (def.minLength && typeof def.minLength === 'object') {
+        schema.minItems = (def.minLength as { value: number }).value
+      }
+      if (def.maxLength && typeof def.maxLength === 'object') {
+        schema.maxItems = (def.maxLength as { value: number }).value
       }
       if (def.description) {
-        schema.description = def.description
+        schema.description = def.description as string
       }
       return schema
     }
 
+    case 'object':
     case 'ZodObject': {
       const schema: JSONSchema = {
         type: 'object',
@@ -1023,12 +1136,14 @@ export function zodToJSONSchema(zodSchema: ZodType<unknown>): JSONSchema {
         required: [],
       }
 
-      const shape = def.shape()
-      for (const [key, value] of Object.entries(shape)) {
-        schema.properties![key] = zodToJSONSchema(value as ZodType<unknown>)
+      // Zod v4: shape is a direct object, Zod v3: shape is a function
+      const shape = typeof def.shape === 'function' ? def.shape() : def.shape
+      for (const [key, value] of Object.entries(shape as Record<string, ZodType<unknown>>)) {
+        schema.properties![key] = zodToJSONSchema(value)
         // Check if field is optional
-        const fieldDef = (value as ZodTypeAny)._def
-        if (fieldDef.typeName !== 'ZodOptional' && fieldDef.typeName !== 'ZodDefault') {
+        const fieldDef = (value as ZodTypeAny)._def as Record<string, unknown>
+        const fieldType = getZodType(fieldDef)
+        if (fieldType !== 'optional' && fieldType !== 'default' && fieldType !== 'ZodOptional' && fieldType !== 'ZodDefault') {
           schema.required!.push(key)
         }
       }
@@ -1037,21 +1152,30 @@ export function zodToJSONSchema(zodSchema: ZodType<unknown>): JSONSchema {
         delete schema.required
       }
 
+      // Zod v4: strict mode is indicated by catchall being ZodNever
+      // Zod v3: unknownKeys === 'strict'
       if (def.unknownKeys === 'strict') {
         schema.additionalProperties = false
+      } else if (def.catchall) {
+        const catchallDef = (def.catchall as ZodTypeAny)._def as Record<string, unknown>
+        if (getZodType(catchallDef) === 'never') {
+          schema.additionalProperties = false
+        }
       }
 
       if (def.description) {
-        schema.description = def.description
+        schema.description = def.description as string
       }
       return schema
     }
 
+    case 'optional':
     case 'ZodOptional':
-      return zodToJSONSchema(def.innerType)
+      return zodToJSONSchema(def.innerType as ZodType<unknown>)
 
+    case 'nullable':
     case 'ZodNullable': {
-      const inner = zodToJSONSchema(def.innerType)
+      const inner = zodToJSONSchema(def.innerType as ZodType<unknown>)
       const innerType = inner.type
       if (typeof innerType === 'string') {
         inner.type = [innerType, 'null'] as unknown as 'object'
@@ -1059,20 +1183,37 @@ export function zodToJSONSchema(zodSchema: ZodType<unknown>): JSONSchema {
       return inner
     }
 
-    case 'ZodDefault':
-      const inner = zodToJSONSchema(def.innerType)
-      inner.default = def.defaultValue()
+    case 'default':
+    case 'ZodDefault': {
+      const inner = zodToJSONSchema(def.innerType as ZodType<unknown>)
+      // Zod v4: defaultValue is a getter that returns the value directly
+      // Zod v3: defaultValue is a function
+      if (typeof def.defaultValue === 'function') {
+        inner.default = def.defaultValue()
+      } else {
+        inner.default = def.defaultValue
+      }
       return inner
+    }
 
+    case 'enum':
     case 'ZodEnum': {
+      // Zod v4: entries is an object { a: 'a', b: 'b' }
+      // Zod v3: values is an array
+      const values = def.values || (def.entries ? Object.values(def.entries as Record<string, string>) : [])
       return {
         type: 'string',
-        enum: def.values,
+        enum: values as string[],
       }
     }
 
+    case 'null':
     case 'ZodNull':
       return { type: 'null' }
+
+    case 'never':
+    case 'ZodNever':
+      return {}
 
     default:
       return {}

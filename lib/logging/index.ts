@@ -22,6 +22,8 @@
  * ```
  */
 
+import { safeStringify as baseSafeStringify, serializeError as baseSerializeError } from '../safe-stringify'
+
 /**
  * Log levels for controlling output verbosity.
  * Lower numbers are more verbose.

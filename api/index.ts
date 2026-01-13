@@ -199,8 +199,11 @@ app.route('/mcp', mcpRoutes)
 // Mount RPC routes
 app.route('/rpc', rpcRoutes)
 
-// Mount DO routes for direct DO instance access
-// Pattern: /:doClass/:id/* (e.g., /DO/user-123/profile)
+// Mount DO routes for REST-like paths (e.g., /customers, /orders/123)
+// Routes to the default DO namespace with id 'default'
+// For multi-tenant routing, use the API() factory from workers/api.ts:
+//   - Hostname mode: tenant.api.dotdo.dev -> DO('https://tenant.api.dotdo.dev')
+//   - Path mode: api.dotdo.dev/:org -> DO('https://api.dotdo.dev/org')
 // Must be mounted AFTER specific routes (/api, /mcp, /rpc, /docs, /admin)
 // but BEFORE the catch-all
 app.route('/', doRoutes)

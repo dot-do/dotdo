@@ -746,6 +746,9 @@ export class EventLinker {
     let done = false
     let totalVisited = 0
 
+    // Queue of pending neighbors to process (for resuming after batch fill)
+    let pendingNeighbors: string[] = []
+
     return {
       async next(batchSize = 10): Promise<{ eventIds: string[]; done: boolean }> {
         if (done) {
@@ -753,9 +756,29 @@ export class EventLinker {
         }
 
         const batch: string[] = []
+        const nextLevel: string[] = []
+
+        // First, process any pending neighbors from previous iteration
+        while (pendingNeighbors.length > 0 && batch.length < batchSize) {
+          const neighborId = pendingNeighbors.shift()!
+          if (!visited.has(neighborId)) {
+            visited.add(neighborId)
+            totalVisited++
+            batch.push(neighborId)
+            nextLevel.push(neighborId)
+          }
+        }
+
+        if (batch.length >= batchSize) {
+          // Still have pending neighbors, save nextLevel for later
+          if (nextLevel.length > 0) {
+            currentLevel = [...currentLevel, ...nextLevel]
+          }
+          return { eventIds: batch, done: false }
+        }
 
         while (batch.length < batchSize && currentLevel.length > 0 && depth < maxDepth) {
-          const nextLevel: string[] = []
+          const levelNextLevel: string[] = []
 
           for (const current of currentLevel) {
             let adjacencies: Map<LinkType, Set<string>> | undefined
@@ -772,15 +795,14 @@ export class EventLinker {
                 if (neighbors) {
                   for (const neighborId of neighbors) {
                     if (!visited.has(neighborId)) {
-                      visited.add(neighborId)
-                      totalVisited++
-                      batch.push(neighborId)
-                      nextLevel.push(neighborId)
-
-                      if (batch.length >= batchSize) {
-                        // Save remaining items for next batch
-                        currentLevel = nextLevel
-                        return { eventIds: batch, done: false }
+                      if (batch.length < batchSize) {
+                        visited.add(neighborId)
+                        totalVisited++
+                        batch.push(neighborId)
+                        levelNextLevel.push(neighborId)
+                      } else {
+                        // Batch full, save remaining for next iteration
+                        pendingNeighbors.push(neighborId)
                       }
                     }
                   }
@@ -789,13 +811,18 @@ export class EventLinker {
             }
           }
 
-          currentLevel = nextLevel
-          if (nextLevel.length > 0) {
+          currentLevel = levelNextLevel
+          if (levelNextLevel.length > 0) {
             depth++
+          }
+
+          // If we have pending neighbors, break to return current batch
+          if (pendingNeighbors.length > 0) {
+            break
           }
         }
 
-        done = currentLevel.length === 0 || depth >= maxDepth
+        done = currentLevel.length === 0 && pendingNeighbors.length === 0 || depth >= maxDepth
         return { eventIds: batch, done }
       },
 

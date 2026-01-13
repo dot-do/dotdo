@@ -38,6 +38,7 @@ export interface QuietHoursConfig {
   exceptions?: {
     categories?: NotificationCategory[]
     channels?: ChannelType[]
+    notificationTypes?: NotificationCategory[]
   }
 }
 
@@ -75,6 +76,14 @@ export interface ChannelConfig {
   frequencyCap?: FrequencyConfig
 }
 
+export interface NotificationTypeConfig {
+  enabled: boolean
+  channels?: ChannelType[]
+  frequencyCap?: FrequencyConfig
+}
+
+export type FrequencyCapConfig = FrequencyConfig
+
 export interface DNDConfig {
   enabled: boolean
   expiresAt?: Date
@@ -85,16 +94,25 @@ export interface UserPreference {
   globalOptOutAt?: Date
   globalOptOutReason?: string
   globalOptOutSource?: string
+  // Test-expected aliases
+  globalUnsubscribe: boolean
+  unsubscribedAt?: Date
+  unsubscribeReason?: string
+  unsubscribeSource?: string
   channels: Record<ChannelType, ChannelConfig>
   categories: Record<NotificationCategory, CategoryConfig>
+  // Test-expected alias for categories
+  notificationTypes: Record<NotificationCategory, NotificationTypeConfig>
   channelPriority: ChannelType[]
   quietHours: QuietHoursConfig
   dnd: DNDConfig
+  frequencyCap?: FrequencyConfig
 }
 
 export interface OrgPreference {
   defaultQuietHours?: QuietHoursConfig
   defaultChannelPriority?: ChannelType[]
+  defaultFrequencyCap?: FrequencyConfig
   allowedChannels?: ChannelType[]
   disabledChannels?: ChannelType[]
   disabledCategories?: NotificationCategory[]
@@ -141,6 +159,15 @@ export interface ResolveContext {
 }
 
 export interface PreferenceSourceContext extends ResolveContext {}
+
+// Additional test-expected type aliases
+export type ChannelPreference = ChannelConfig
+export type NotificationTypePreference = NotificationTypeConfig
+export type ChannelPriority = ChannelType[]
+export type InheritedPreference = InheritedPreferences
+export type PreferenceResolutionResult = InheritedPreferences
+export type PreferenceEventType = string
+export type PreferenceEventHandler = EventHandler
 
 // =============================================================================
 // Constants
@@ -225,13 +252,23 @@ export class PreferenceStore {
       }
     }
 
+    const notificationTypes: Record<NotificationCategory, NotificationTypeConfig> = {} as Record<NotificationCategory, NotificationTypeConfig>
+    for (const category of VALID_CATEGORIES) {
+      notificationTypes[category] = {
+        enabled: true,
+      }
+    }
+
     return {
       globalOptOut: false,
+      globalUnsubscribe: false,
       channels,
       categories,
+      notificationTypes,
       channelPriority: [...DEFAULT_CHANNEL_PRIORITY],
-      quietHours: { enabled: false, exceptions: { categories: [], channels: [] } },
+      quietHours: { enabled: false, exceptions: { categories: [], channels: [], notificationTypes: [] } },
       dnd: { enabled: false },
+      frequencyCap: undefined,
     }
   }
 
@@ -276,10 +313,10 @@ export class PreferenceStore {
     const hours = parseInt(match[1], 10)
     const minutes = parseInt(match[2], 10)
     if (hours < 0 || hours > 23) {
-      throw new Error(`Invalid time: ${time}. Hours must be 00-23`)
+      throw new Error(`Invalid time format: ${time}. Hours must be 00-23`)
     }
     if (minutes < 0 || minutes > 59) {
-      throw new Error(`Invalid time: ${time}. Minutes must be 00-59`)
+      throw new Error(`Invalid time format: ${time}. Minutes must be 00-59`)
     }
   }
 
@@ -502,7 +539,16 @@ export class PreferenceStore {
     this.validateChannel(channel)
 
     const prefs = this.ensureUserPreferences(userId)
-    prefs.channels[channel].enabled = !optOut
+    const oldValue = prefs.channels[channel].enabled
+    const newValue = !optOut
+    prefs.channels[channel].enabled = newValue
+
+    this.emit('preference:changed', {
+      userId,
+      preference: `channels.${channel}.enabled`,
+      oldValue,
+      newValue,
+    })
   }
 
   async getEnabledChannels(userId: string): Promise<ChannelType[]> {
@@ -841,6 +887,11 @@ export class PreferenceStore {
         ...config.exceptions,
       },
     }
+
+    this.emit('preference:quietHoursUpdated', {
+      userId,
+      quietHours: prefs.quietHours,
+    })
   }
 
   async isInQuietHours(userId: string): Promise<boolean> {
@@ -872,12 +923,12 @@ export class PreferenceStore {
     return this.isTimeInRange(currentTime, start, end)
   }
 
-  async setQuietHoursExceptions(userId: string, exceptions: { categories?: NotificationCategory[]; channels?: ChannelType[] }): Promise<void> {
+  async setQuietHoursExceptions(userId: string, exceptions: { categories?: NotificationCategory[]; channels?: ChannelType[]; notificationTypes?: NotificationCategory[] }): Promise<void> {
     this.checkDisposed()
     const prefs = this.ensureUserPreferences(userId)
 
     if (!prefs.quietHours.exceptions) {
-      prefs.quietHours.exceptions = { categories: [], channels: [] }
+      prefs.quietHours.exceptions = { categories: [], channels: [], notificationTypes: [] }
     }
 
     if (exceptions.categories) {
@@ -886,6 +937,10 @@ export class PreferenceStore {
 
     if (exceptions.channels) {
       prefs.quietHours.exceptions.channels = [...exceptions.channels]
+    }
+
+    if (exceptions.notificationTypes) {
+      prefs.quietHours.exceptions.notificationTypes = [...exceptions.notificationTypes]
     }
   }
 
@@ -1035,6 +1090,15 @@ export class PreferenceStore {
       }
     }
 
+    // Resolve frequency cap: user > team > org
+    if (!userPrefs.frequencyCap) {
+      if (teamPrefs?.defaultFrequencyCap) {
+        resolved.frequencyCap = { ...teamPrefs.defaultFrequencyCap }
+      } else if (orgPrefs?.defaultFrequencyCap) {
+        resolved.frequencyCap = { ...orgPrefs.defaultFrequencyCap }
+      }
+    }
+
     return resolved
   }
 
@@ -1076,6 +1140,22 @@ export class PreferenceStore {
       }
       // Check org
       if (orgPrefs?.defaultChannelPriority) {
+        return 'org'
+      }
+      return 'default'
+    }
+
+    if (preference === 'frequencyCap') {
+      // Check if user has set frequency cap
+      if (userPrefs?.frequencyCap) {
+        return 'user'
+      }
+      // Check team
+      if (teamPrefs?.defaultFrequencyCap) {
+        return 'team'
+      }
+      // Check org
+      if (orgPrefs?.defaultFrequencyCap) {
         return 'org'
       }
       return 'default'
@@ -1141,6 +1221,505 @@ export class PreferenceStore {
       }
     }
     return users
+  }
+
+  // =========================================================================
+  // Channel Opt-Out Getters (Test-expected)
+  // =========================================================================
+
+  async getChannelOptOut(userId: string, channel: ChannelType): Promise<boolean> {
+    this.checkDisposed()
+    this.validateChannel(channel)
+    const prefs = this.ensureUserPreferences(userId)
+    return !prefs.channels[channel].enabled
+  }
+
+  async isChannelEnabled(
+    userId: string,
+    channel: ChannelType,
+    context?: { notificationType?: NotificationCategory }
+  ): Promise<boolean> {
+    this.checkDisposed()
+    this.validateChannel(channel)
+    const prefs = this.ensureUserPreferences(userId)
+
+    // Check global unsubscribe
+    if (prefs.globalUnsubscribe) {
+      // Mandatory types bypass global unsubscribe
+      if (context?.notificationType && this.isMandatoryCategory(context.notificationType)) {
+        return prefs.channels[channel].enabled
+      }
+      return false
+    }
+
+    return prefs.channels[channel].enabled
+  }
+
+  // =========================================================================
+  // Global Unsubscribe (Test-expected)
+  // =========================================================================
+
+  async setGlobalUnsubscribe(
+    userId: string,
+    unsubscribe: boolean,
+    metadata?: { reason?: string; source?: string }
+  ): Promise<void> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+    prefs.globalUnsubscribe = unsubscribe
+    prefs.globalOptOut = unsubscribe
+
+    if (unsubscribe) {
+      prefs.unsubscribedAt = new Date()
+      prefs.globalOptOutAt = new Date()
+      prefs.unsubscribeReason = metadata?.reason
+      prefs.globalOptOutReason = metadata?.reason
+      prefs.unsubscribeSource = metadata?.source
+      prefs.globalOptOutSource = metadata?.source
+    } else {
+      prefs.unsubscribedAt = undefined
+      prefs.globalOptOutAt = undefined
+      prefs.unsubscribeReason = undefined
+      prefs.globalOptOutReason = undefined
+      prefs.unsubscribeSource = undefined
+      prefs.globalOptOutSource = undefined
+    }
+
+    this.emit('preference:globalUnsubscribe', {
+      userId,
+      unsubscribed: unsubscribe,
+      reason: metadata?.reason,
+    })
+  }
+
+  async isGloballyUnsubscribed(userId: string): Promise<boolean> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+    return prefs.globalUnsubscribe
+  }
+
+  async getMandatoryNotificationTypes(): Promise<NotificationCategory[]> {
+    this.checkDisposed()
+    return [...MANDATORY_CATEGORIES]
+  }
+
+  // =========================================================================
+  // Notification Type Opt-Out (Test-expected)
+  // =========================================================================
+
+  async setNotificationTypeOptOut(
+    userId: string,
+    notificationType: NotificationCategory,
+    optOut: boolean
+  ): Promise<void> {
+    this.checkDisposed()
+    this.validateNotificationType(notificationType)
+
+    const prefs = this.ensureUserPreferences(userId)
+
+    // Cannot opt-out of mandatory types
+    if (this.isMandatoryCategory(notificationType)) {
+      return
+    }
+
+    prefs.notificationTypes[notificationType].enabled = !optOut
+    prefs.categories[notificationType].enabled = !optOut
+  }
+
+  async setNotificationTypeChannels(
+    userId: string,
+    notificationType: NotificationCategory,
+    channels: ChannelType[]
+  ): Promise<void> {
+    this.checkDisposed()
+    this.validateNotificationType(notificationType)
+    for (const channel of channels) {
+      this.validateChannel(channel)
+    }
+
+    const prefs = this.ensureUserPreferences(userId)
+    prefs.notificationTypes[notificationType].channels = [...channels]
+    prefs.categories[notificationType].channels = [...channels]
+  }
+
+  async isNotificationTypeEnabled(userId: string, notificationType: NotificationCategory): Promise<boolean> {
+    this.checkDisposed()
+    this.validateNotificationType(notificationType)
+
+    const prefs = this.ensureUserPreferences(userId)
+
+    // Check global unsubscribe first
+    if (prefs.globalUnsubscribe) {
+      // Mandatory types bypass global unsubscribe
+      return this.isMandatoryCategory(notificationType)
+    }
+
+    return prefs.notificationTypes[notificationType].enabled
+  }
+
+  async getEnabledChannelsForType(userId: string, notificationType: NotificationCategory): Promise<ChannelType[]> {
+    this.checkDisposed()
+    this.validateNotificationType(notificationType)
+
+    const prefs = this.ensureUserPreferences(userId)
+    const typeConfig = prefs.notificationTypes[notificationType]
+
+    // Get configured channels for this type, or all channels if not specified
+    const typeChannels = typeConfig.channels ?? VALID_CHANNELS
+
+    // Filter by globally enabled channels
+    return typeChannels.filter(ch => prefs.channels[ch].enabled)
+  }
+
+  private validateNotificationType(type: string): asserts type is NotificationCategory {
+    if (!VALID_CATEGORIES.includes(type as NotificationCategory)) {
+      throw new Error(`Invalid notification type: ${type}`)
+    }
+  }
+
+  // =========================================================================
+  // Channel Priority Reorder (Test-expected)
+  // =========================================================================
+
+  async reorderChannel(userId: string, channel: ChannelType, newPosition: number): Promise<void> {
+    this.checkDisposed()
+    this.validateChannel(channel)
+
+    const prefs = this.ensureUserPreferences(userId)
+    const currentIndex = prefs.channelPriority.indexOf(channel)
+
+    if (currentIndex === -1) {
+      throw new Error(`Channel ${channel} not found in priority list`)
+    }
+
+    // Remove from current position
+    prefs.channelPriority.splice(currentIndex, 1)
+    // Insert at new position
+    prefs.channelPriority.splice(newPosition, 0, channel)
+  }
+
+  // =========================================================================
+  // Quiet Hours Bypass (Test-expected)
+  // =========================================================================
+
+  async shouldBypassQuietHours(
+    userId: string,
+    context: { notificationType?: NotificationCategory; channel?: ChannelType }
+  ): Promise<boolean> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+    const exceptions = prefs.quietHours.exceptions
+
+    // Check notification type exceptions
+    if (context.notificationType && exceptions?.notificationTypes?.includes(context.notificationType)) {
+      return true
+    }
+
+    // Check category exceptions (fallback for notificationTypes)
+    if (context.notificationType && exceptions?.categories?.includes(context.notificationType)) {
+      return true
+    }
+
+    // Check channel exceptions
+    if (context.channel && exceptions?.channels?.includes(context.channel)) {
+      return true
+    }
+
+    return false
+  }
+
+  // =========================================================================
+  // Frequency Capping (Test-expected)
+  // =========================================================================
+
+  private globalFrequencyTrackers: Map<string, FrequencyTracker> = new Map()
+  private channelFrequencyTrackers: Map<string, Map<ChannelType, FrequencyTracker>> = new Map()
+  private notificationRecords: Map<string, Array<{ channel: ChannelType; notificationType?: NotificationCategory; timestamp: Date }>> = new Map()
+
+  async setFrequencyCap(userId: string, config: FrequencyConfig | null): Promise<void> {
+    this.checkDisposed()
+
+    if (config === null) {
+      const prefs = this.ensureUserPreferences(userId)
+      prefs.frequencyCap = undefined
+      return
+    }
+
+    // Validate positive values
+    if (config.maxPerHour !== undefined && config.maxPerHour <= 0) {
+      throw new Error('Frequency cap values must be positive')
+    }
+    if (config.maxPerDay !== undefined && config.maxPerDay <= 0) {
+      throw new Error('Frequency cap values must be positive')
+    }
+
+    const prefs = this.ensureUserPreferences(userId)
+    prefs.frequencyCap = { ...config }
+  }
+
+  async setChannelFrequencyCap(userId: string, channel: ChannelType, config: FrequencyConfig): Promise<void> {
+    this.checkDisposed()
+    this.validateChannel(channel)
+
+    const prefs = this.ensureUserPreferences(userId)
+    if (!prefs.channels[channel].frequencyCap) {
+      prefs.channels[channel].frequencyCap = {}
+    }
+    Object.assign(prefs.channels[channel].frequencyCap!, config)
+  }
+
+  async setNotificationTypeFrequencyCap(
+    userId: string,
+    notificationType: NotificationCategory,
+    config: FrequencyConfig
+  ): Promise<void> {
+    this.checkDisposed()
+    this.validateNotificationType(notificationType)
+
+    const prefs = this.ensureUserPreferences(userId)
+    if (!prefs.notificationTypes[notificationType].frequencyCap) {
+      prefs.notificationTypes[notificationType].frequencyCap = {}
+    }
+    Object.assign(prefs.notificationTypes[notificationType].frequencyCap!, config)
+  }
+
+  async recordNotification(
+    userId: string,
+    record: { channel?: ChannelType; notificationType?: NotificationCategory; timestamp?: Date }
+  ): Promise<void> {
+    this.checkDisposed()
+
+    if (!this.notificationRecords.has(userId)) {
+      this.notificationRecords.set(userId, [])
+    }
+
+    this.notificationRecords.get(userId)!.push({
+      channel: record.channel ?? 'email',
+      notificationType: record.notificationType,
+      timestamp: record.timestamp ?? new Date(),
+    })
+  }
+
+  async getNotificationCount(
+    userId: string,
+    options: { window: 'hour' | 'day'; channel?: ChannelType }
+  ): Promise<number> {
+    this.checkDisposed()
+
+    const records = this.notificationRecords.get(userId) ?? []
+    const now = Date.now()
+    const windowMs = options.window === 'hour' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+    const cutoff = now - windowMs
+
+    return records.filter(r => {
+      const inWindow = r.timestamp.getTime() > cutoff
+      const matchesChannel = !options.channel || r.channel === options.channel
+      return inWindow && matchesChannel
+    }).length
+  }
+
+  async isWithinFrequencyCap(userId: string): Promise<boolean> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+    const cap = prefs.frequencyCap
+
+    if (!cap) return true
+
+    const hourlyCount = await this.getNotificationCount(userId, { window: 'hour' })
+    const dailyCount = await this.getNotificationCount(userId, { window: 'day' })
+
+    if (cap.maxPerHour && hourlyCount >= cap.maxPerHour) return false
+    if (cap.maxPerDay && dailyCount >= cap.maxPerDay) return false
+
+    return true
+  }
+
+  async isChannelWithinFrequencyCap(userId: string, channel: ChannelType): Promise<boolean> {
+    this.checkDisposed()
+    this.validateChannel(channel)
+
+    const prefs = this.ensureUserPreferences(userId)
+    const cap = prefs.channels[channel].frequencyCap
+
+    if (!cap) return true
+
+    const hourlyCount = await this.getNotificationCount(userId, { window: 'hour', channel })
+    const dailyCount = await this.getNotificationCount(userId, { window: 'day', channel })
+
+    if (cap.maxPerHour && hourlyCount >= cap.maxPerHour) return false
+    if (cap.maxPerDay && dailyCount >= cap.maxPerDay) return false
+
+    return true
+  }
+
+  async getRemainingCapacity(userId: string, window: 'hour' | 'day'): Promise<number> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+    const cap = prefs.frequencyCap
+
+    if (!cap) return Infinity
+
+    const count = await this.getNotificationCount(userId, { window })
+    const maxVal = window === 'hour' ? cap.maxPerHour : cap.maxPerDay
+
+    if (!maxVal) return Infinity
+    return Math.max(0, maxVal - count)
+  }
+
+  // =========================================================================
+  // User Preferences Management (Test-expected)
+  // =========================================================================
+
+  async setUserPreferences(userId: string, partialPrefs: Partial<UserPreference>): Promise<void> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+
+    // Deep merge partial preferences
+    if (partialPrefs.channels) {
+      for (const [channel, config] of Object.entries(partialPrefs.channels)) {
+        Object.assign(prefs.channels[channel as ChannelType], config)
+      }
+    }
+
+    if (partialPrefs.notificationTypes) {
+      for (const [type, config] of Object.entries(partialPrefs.notificationTypes)) {
+        Object.assign(prefs.notificationTypes[type as NotificationCategory], config)
+        // Sync with categories
+        prefs.categories[type as NotificationCategory].enabled = config.enabled
+        if (config.channels) {
+          prefs.categories[type as NotificationCategory].channels = config.channels
+        }
+      }
+    }
+
+    if (partialPrefs.quietHours) {
+      Object.assign(prefs.quietHours, partialPrefs.quietHours)
+    }
+
+    if (partialPrefs.channelPriority) {
+      prefs.channelPriority = [...partialPrefs.channelPriority]
+    }
+
+    if (partialPrefs.frequencyCap !== undefined) {
+      prefs.frequencyCap = partialPrefs.frequencyCap
+    }
+
+    if (partialPrefs.globalUnsubscribe !== undefined) {
+      prefs.globalUnsubscribe = partialPrefs.globalUnsubscribe
+      prefs.globalOptOut = partialPrefs.globalUnsubscribe
+    }
+  }
+
+  async resetUserPreferences(userId: string, options?: { categories?: string[] }): Promise<void> {
+    this.checkDisposed()
+
+    if (!options?.categories || options.categories.length === 0) {
+      // Full reset
+      this.userPreferences.delete(userId)
+      this.notificationRecords.delete(userId)
+      return
+    }
+
+    const prefs = this.ensureUserPreferences(userId)
+    const defaults = this.getDefaultUserPreference()
+
+    for (const category of options.categories) {
+      if (category === 'quietHours') {
+        prefs.quietHours = { ...defaults.quietHours }
+      } else if (category === 'channels') {
+        prefs.channels = { ...defaults.channels }
+      } else if (category === 'frequencyCap') {
+        prefs.frequencyCap = undefined
+      }
+    }
+  }
+
+  async deleteUserPreferences(userId: string): Promise<void> {
+    this.checkDisposed()
+    this.userPreferences.delete(userId)
+    this.notificationRecords.delete(userId)
+  }
+
+  async exportUserPreferences(userId: string): Promise<string> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+    return JSON.stringify(prefs)
+  }
+
+  async importUserPreferences(userId: string, json: string): Promise<void> {
+    this.checkDisposed()
+    const imported = JSON.parse(json)
+
+    // Validate quiet hours if present
+    if (imported.quietHours?.start) {
+      this.validateTimeFormat(imported.quietHours.start)
+    }
+    if (imported.quietHours?.end) {
+      this.validateTimeFormat(imported.quietHours.end)
+    }
+
+    const prefs = this.ensureUserPreferences(userId)
+    await this.setUserPreferences(userId, imported)
+  }
+
+  async listUsersWithPreference(filter: {
+    globalUnsubscribe?: boolean
+    channel?: ChannelType
+    enabled?: boolean
+  }): Promise<string[]> {
+    this.checkDisposed()
+
+    const result: string[] = []
+
+    for (const [userId, prefs] of this.userPreferences.entries()) {
+      if (filter.globalUnsubscribe !== undefined && prefs.globalUnsubscribe === filter.globalUnsubscribe) {
+        result.push(userId)
+        continue
+      }
+
+      if (filter.channel !== undefined) {
+        const channelEnabled = prefs.channels[filter.channel]?.enabled ?? true
+        if (filter.enabled === channelEnabled || filter.enabled === undefined) {
+          result.push(userId)
+        }
+      }
+    }
+
+    return result
+  }
+
+  // =========================================================================
+  // Notification Delivery Decision (Test-expected)
+  // =========================================================================
+
+  async canSendNotification(
+    userId: string,
+    context: { channel: ChannelType; notificationType: NotificationCategory }
+  ): Promise<boolean> {
+    this.checkDisposed()
+    const prefs = this.ensureUserPreferences(userId)
+
+    // Check global unsubscribe (mandatory types bypass)
+    if (prefs.globalUnsubscribe && !this.isMandatoryCategory(context.notificationType)) {
+      return false
+    }
+
+    // Check notification type enabled
+    if (!prefs.notificationTypes[context.notificationType]?.enabled && !this.isMandatoryCategory(context.notificationType)) {
+      return false
+    }
+
+    // Check channel enabled
+    if (!prefs.channels[context.channel]?.enabled) {
+      return false
+    }
+
+    // Check frequency cap
+    if (!(await this.isWithinFrequencyCap(userId))) {
+      return false
+    }
+
+    return true
   }
 
   // =========================================================================

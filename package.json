@@ -25,7 +25,7 @@
   "workspaces": [
     "packages/*"
   ],
-  "main": "./dist/do/index.js",
+  "main": "./dist/do/base.js",
   "bin": {
     "do": "./cli/bin.js",
     "dotdo": "./cli/bin.js"
@@ -34,27 +34,15 @@
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/index.js"
+      "default": "./dist/do/base.js"
     },
     "./tiny": {
       "types": "./dist/types/index.d.ts",
       "default": "./dist/do/tiny.js"
     },
-    "./fs": {
+    "./base": {
       "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/fs.js"
-    },
-    "./git": {
-      "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/git.js"
-    },
-    "./bash": {
-      "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/bash.js"
-    },
-    "./full": {
-      "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/full.js"
+      "default": "./dist/do/base.js"
     },
     "./objects": {
       "types": "./dist/objects/index.d.ts",
@@ -96,45 +84,9 @@
       "types": "./dist/workflows/*.d.ts",
       "default": "./dist/workflows/*.js"
     },
-    "./api": {
-      "types": "./dist/api/index.d.ts",
-      "default": "./dist/api/index.js"
-    },
-    "./api/*": {
-      "types": "./dist/api/*.d.ts",
-      "default": "./dist/api/*.js"
-    },
-    "./testing": {
-      "types": "./dist/tests/harness/index.d.ts",
-      "default": "./dist/tests/harness/index.js"
-    },
-    "./testing/*": {
-      "types": "./dist/tests/harness/*.d.ts",
-      "default": "./dist/tests/harness/*.js"
-    },
     "./hunch": {
       "types": "./dist/metrics/hunch.d.ts",
       "default": "./dist/metrics/hunch.js"
-    },
-    "./sdk": {
-      "types": "./dist/sdk/index.d.ts",
-      "default": "./dist/sdk/index.js"
-    },
-    "./sdk/*": {
-      "types": "./dist/sdk/*.d.ts",
-      "default": "./dist/sdk/*.js"
-    },
-    "./compat/supabase-auth": {
-      "types": "./dist/compat/supabase-auth/index.d.ts",
-      "default": "./dist/compat/supabase-auth/index.js"
-    },
-    "./compat/emails": {
-      "types": "./dist/compat/emails/index.d.ts",
-      "default": "./dist/compat/emails/index.js"
-    },
-    "./primitives": {
-      "types": "./dist/objects/presets/primitives.d.ts",
-      "default": "./dist/objects/presets/primitives.js"
     },
     "./presets": {
       "types": "./dist/objects/presets/index.d.ts",
@@ -212,7 +164,6 @@
     "@mdxui/cockpit": "^0.2.0",
     "@mdxui/primitives": "^0.0.0",
     "@mdxui/themes": "^0.0.1",
-    "@org.ai/types": "file:../primitives.org.ai/packages/types",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

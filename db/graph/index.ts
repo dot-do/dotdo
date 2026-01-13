@@ -1,9 +1,154 @@
 /**
- * Graph Query Engine
+ * Graph Module
  *
- * True graph queries on Things + Relationships with BFS/DFS traversals,
- * path finding, Cypher-like pattern matching, and graph aggregations.
+ * The DO Graph data model provides a unified way to work with Things (nodes)
+ * and Relationships (edges). This module includes:
+ *
+ * - **Things**: Instances of Nouns (types) with JSON data payloads
+ * - **Relationships**: Edges with verb-based predicates connecting Things
+ * - **Verb Forms**: State encoding via verb conjugation (create/creating/created)
+ * - **GraphEngine**: In-memory graph with traversals, path finding, and pattern matching
+ *
+ * @module db/graph
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   createThing, getThing, getThingsByType,
+ *   RelationshipsStore,
+ *   VerbFormStateMachine, parseVerbForm,
+ *   GraphEngine
+ * } from 'db/graph'
+ *
+ * // Create a Thing
+ * const customer = await createThing(db, {
+ *   id: 'customer-alice',
+ *   typeId: 1,
+ *   typeName: 'Customer',
+ *   data: { name: 'Alice' }
+ * })
+ *
+ * // Query verb form state
+ * const state = parseVerbForm('creating') // { type: 'activity', baseVerb: 'create' }
+ * ```
  */
+
+// ============================================================================
+// TYPES - Common types and interfaces
+// ============================================================================
+
+export type {
+  // Type aliases
+  GraphNode,
+  GraphEdge,
+  // GraphStore interface
+  GraphStore,
+  // Graph operation options
+  GraphTraversalOptions,
+  GraphTraversalResult,
+  GraphStatistics,
+} from './types'
+
+// ============================================================================
+// THINGS - Graph nodes (instances of Nouns)
+// ============================================================================
+
+// Schema
+export { graphThings } from './things'
+
+// Types
+export type {
+  GraphThing,
+  NewGraphThing,
+  GetThingsByTypeOptions,
+  UpdateThingInput,
+  GraphThingsDb,
+} from './things'
+
+// CRUD Operations
+export { createThing, getThing, getThingsByType, updateThing, deleteThing } from './things'
+
+// ============================================================================
+// RELATIONSHIPS - Graph edges with verb predicates
+// ============================================================================
+
+// Schema
+export { graphRelationships } from './relationships'
+
+// Types
+export type { GraphRelationship, CreateRelationshipInput, RelationshipQueryOptions } from './relationships'
+
+// Store class
+export { RelationshipsStore } from './relationships'
+
+// ============================================================================
+// VERB FORMS - State encoding via verb conjugation
+// ============================================================================
+
+// Types
+export type {
+  VerbFormType,
+  VerbFormState,
+  VerbFormEdge,
+  VerbConjugation,
+} from './verb-forms'
+
+// Functions
+export {
+  getVerbFormType,
+  parseVerbForm,
+  transitionVerbForm,
+  queryByVerbFormState,
+  getEdgeState,
+  transitionEdge,
+} from './verb-forms'
+
+// State machine class
+export { VerbFormStateMachine } from './verb-forms'
+
+// ============================================================================
+// ACTIONS - Action/Activity/Event lifecycle
+// ============================================================================
+
+// Types
+export type {
+  CreateActionInput,
+  Action,
+  Activity,
+  Event,
+} from './actions'
+
+// Store class
+export { ActionLifecycleStore, createActionLifecycleStore } from './actions'
+
+// ============================================================================
+// STORES - Concrete GraphStore implementations
+// ============================================================================
+
+export { SQLiteGraphStore } from './stores'
+
+// ============================================================================
+// ADAPTERS - Domain-specific interfaces on top of GraphStore
+// ============================================================================
+
+export {
+  createFileGraphAdapter,
+  FileGraphAdapterImpl,
+  InMemoryContentStore,
+} from './adapters'
+
+export type {
+  FileGraphAdapter,
+  FileData,
+  DirectoryData,
+  CreateFileOptions,
+  MkdirOptions,
+  ContentStore,
+} from './adapters'
+
+// ============================================================================
+// GRAPH ENGINE - In-memory graph with traversals and algorithms
+// ============================================================================
 
 // ============================================================================
 // TYPES

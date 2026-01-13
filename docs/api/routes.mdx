@@ -465,28 +465,65 @@ Available RPC methods:
 
 ---
 
-## Durable Object Routes
+## Durable Object Routing
 
-Direct access to Durable Object instances.
+Route requests to Durable Objects using the `API()` factory in `workers/api.ts`.
 
-```http
-/:doClass/:id/*
+### Hostname Mode (Multi-tenant)
+
+```typescript
+import { API } from 'dotdo'
+
+// Subdomain determines the DO namespace
+export default API()
 ```
 
-Path parameters:
-
-| Parameter | Description |
-|-----------|-------------|
-| `doClass` | DO namespace binding name (e.g., `DO`, `BROWSER_DO`) |
-| `id` | Instance identifier for `idFromName()` |
-
-Example:
-
 ```http
-GET /DO/user-123/profile
+GET https://acme.api.dotdo.dev/customers
+-> DO('https://acme.api.dotdo.dev').fetch('/customers')
+
+GET https://beta.api.dotdo.dev/orders/123
+-> DO('https://beta.api.dotdo.dev').fetch('/orders/123')
 ```
 
-This routes to the `DO` namespace, gets the instance with `idFromName('user-123')`, and forwards the request with path `/profile`.
+Each subdomain routes to an isolated Durable Object, providing multi-tenant isolation.
+
+### Path Mode
+
+```typescript
+// Single path param
+export default API({ ns: '/:org' })
+
+// Nested path params
+export default API({ ns: '/:org/:project' })
+```
+
+```http
+GET https://api.dotdo.dev/acme/customers
+-> DO('https://api.dotdo.dev/acme').fetch('/customers')
+
+GET https://api.dotdo.dev/acme/proj1/tasks
+-> DO('https://api.dotdo.dev/acme/proj1').fetch('/tasks')
+```
+
+### Fixed Mode
+
+```typescript
+// All requests to a single DO
+export default API({ ns: 'main' })
+```
+
+### REST-like Routes (Default DO)
+
+The main API app routes REST-like paths to the default DO namespace:
+
+```http
+GET /customers           -> DO('default').fetch('/customers')
+GET /customers/123       -> DO('default').fetch('/customers/123')
+POST /orders            -> DO('default').fetch('/orders')
+```
+
+Reserved prefixes (`/api`, `/auth`, `/admin`, `/docs`, `/mcp`, `/rpc`) are NOT routed to DO.
 
 ---
 

@@ -1,0 +1,25 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "browser-do-integration-test",
+  "main": "./browser-do-test-worker.ts",
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects - TestBrowserDO binding
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_DO",
+        "class_name": "TestBrowserDO"
+      }
+    ]
+  },
+
+  // Migrations - Enable SQLite for TestBrowserDO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TestBrowserDO"]
+    }
+  ]
+}

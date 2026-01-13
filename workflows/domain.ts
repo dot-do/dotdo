@@ -143,6 +143,16 @@ export function resolveHandler(path: string[]): Handler | undefined {
 }
 
 /**
+ * Gets a domain from the registry by name.
+ *
+ * @param name - The domain name to look up
+ * @returns The domain object if found, undefined otherwise
+ */
+export function getDomain(name: string): DomainObjectBase | undefined {
+  return domainRegistry.get(name)
+}
+
+/**
  * Clears the domain registry.
  * Used for test isolation to ensure clean state between tests.
  */

@@ -2,37 +2,39 @@
 
 Hono middleware for Durable Object HTTP API.
 
-## Quick Start
+## Quick Start - Multi-tenant Routing
+
+Use the `API()` factory from `workers/api.ts` for production deployments:
+
+```ts
+import { API } from 'dotdo'
+
+// Hostname mode (default) - subdomain determines tenant
+// tenant.api.dotdo.dev -> DO('https://tenant.api.dotdo.dev')
+export default API()
+
+// Path mode - path segment determines tenant
+// api.dotdo.dev/acme/users -> DO('https://api.dotdo.dev/acme')
+export default API({ ns: '/:org' })
+
+// Fixed namespace - all requests to single DO
+export default API({ ns: 'main' })
+```
+
+## REST Routes (Default DO)
+
+For the main API app, REST-like routes are forwarded to the default DO namespace:
 
 ```ts
 import { Hono } from 'hono'
 import { doRoutes } from 'dotdo/api'
 
 const app = new Hono()
-app.route('/', doRoutes())
+// Routes like /customers, /orders/123 go to DO('default')
+app.route('/', doRoutes)
 ```
 
-## Configuration
-
-```ts
-doRoutes({
-  // Enable/disable route groups
-  webhooks: true,
-  search: true,
-  resources: true,
-  actions: true,
-  workflows: true,
-  auth: true,
-
-  // Middleware
-  cors: { origin: '*' },
-  rateLimit: { limit: 100, window: '1m' },
-
-  // Auth
-  requireAuth: ['resources', 'actions', 'workflows'],
-  publicRoutes: ['/api/auth/*', '/api/webhooks/*'],
-})
-```
+Reserved prefixes (`/api`, `/auth`, `/admin`, `/docs`, `/mcp`, `/rpc`) are NOT routed to DO.
 
 ---
 

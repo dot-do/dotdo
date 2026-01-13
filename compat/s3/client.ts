@@ -546,6 +546,7 @@ export class S3Client {
 
     return {
       ETag: result.etag,
+      VersionId: result.versionId,
       $metadata: metadata,
     }
   }
@@ -648,7 +649,7 @@ export class S3Client {
     command: DeleteObjectCommand,
     metadata: ResponseMetadata
   ): Promise<DeleteObjectCommandOutput> {
-    const { Bucket, Key } = command.input
+    const { Bucket, Key, VersionId } = command.input
 
     // Check if bucket exists
     const exists = await this.backend.bucketExists(Bucket)
@@ -656,9 +657,11 @@ export class S3Client {
       throw new NoSuchBucket()
     }
 
-    await this.backend.deleteObject(Bucket, Key)
+    const result = await this.backend.deleteObject(Bucket, Key, VersionId)
 
     return {
+      DeleteMarker: result.deleteMarker,
+      VersionId: result.versionId,
       $metadata: { ...metadata, httpStatusCode: 204 },
     }
   }
@@ -1158,15 +1161,13 @@ export class S3Client {
       throw new NoSuchBucket()
     }
 
-    // Note: Full versioning requires version-aware object storage
-    // This implementation provides basic structure for future versioning support
-    // Currently returns objects as single "versions" without version ID
-
-    const result = await this.backend.listObjects(Bucket, {
+    // Use the versioning-aware listObjectVersions method
+    const result = await this.backend.listObjectVersions(Bucket, {
       prefix: Prefix,
       delimiter: Delimiter,
       maxKeys: MaxKeys ?? 1000,
-      startAfter: KeyMarker,
+      keyMarker: KeyMarker,
+      versionIdMarker: VersionIdMarker,
     })
 
     return {
@@ -1177,17 +1178,23 @@ export class S3Client {
       IsTruncated: result.isTruncated,
       KeyMarker,
       VersionIdMarker,
-      NextKeyMarker: result.nextContinuationToken,
-      Versions: result.objects.map((obj) => ({
-        Key: obj.key,
-        VersionId: 'null', // Default version ID when versioning is not enabled
-        IsLatest: true,
-        LastModified: obj.lastModified,
-        ETag: obj.etag,
-        Size: obj.size,
-        StorageClass: obj.storageClass,
+      NextKeyMarker: result.nextKeyMarker,
+      NextVersionIdMarker: result.nextVersionIdMarker,
+      Versions: result.versions.map((v) => ({
+        Key: v.key,
+        VersionId: v.versionId,
+        IsLatest: v.isLatest,
+        LastModified: v.lastModified,
+        ETag: v.etag,
+        Size: v.size,
+        StorageClass: v.storageClass,
       })),
-      DeleteMarkers: [],
+      DeleteMarkers: result.deleteMarkers.map((dm) => ({
+        Key: dm.key,
+        VersionId: dm.versionId,
+        IsLatest: dm.isLatest,
+        LastModified: dm.lastModified,
+      })),
       CommonPrefixes: result.commonPrefixes.map((p) => ({ Prefix: p })),
       EncodingType,
       $metadata: metadata,

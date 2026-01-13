@@ -1,23 +1,21 @@
 /**
- * Instance Endpoint Tests
+ * Instance Endpoint Tests [DEPRECATED]
  *
- * Tests for the /DO/:id/* endpoints that provide direct access to
- * Durable Object instances and their state, methods, and lifecycle.
+ * DEPRECATED: The /DO/:id/* endpoints have been removed as they exposed internal
+ * Cloudflare binding names in URLs. For multi-tenant routing, use the API()
+ * factory from workers/api.ts with hostname or path-based routing.
  *
- * These tests verify:
- * - Instance creation and access
- * - State management (get, set, delete)
- * - RPC method invocation on instances
- * - Instance metadata and health
- * - WebSocket connections to instances
- * - Instance lifecycle (hibernation, wake)
- * - Cross-instance communication
- * - Error handling and edge cases
+ * @see workers/api.ts - API() factory for multi-tenant routing
+ * @see workers/tests/hostname-routing.test.ts - Hostname routing tests
+ * @see api/tests/routes/do.test.ts - REST-like routing to default DO
  *
- * These tests are expected to FAIL until the instance endpoint is fully implemented.
+ * The correct routing model:
+ * - Hostname mode: tenant.api.dotdo.dev -> DO('https://tenant.api.dotdo.dev')
+ * - Path mode: api.dotdo.dev/:org -> DO('https://api.dotdo.dev/org')
  *
- * Note: These tests run in the 'api-discovery' workspace (Node environment).
- * For full Workers integration tests, see api/tests/routes/*.test.ts.
+ * These tests are SKIPPED because the underlying /DO/:id/* routes no longer exist.
+ * The functionality they tested (direct DO instance access) should be reimplemented
+ * using hostname-based or path-based routing patterns.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
@@ -93,10 +91,16 @@ async function createInstance(
 }
 
 // ============================================================================
-// 1. Instance Access Tests
+// SKIPPED: /DO/:id/* routes have been removed
 // ============================================================================
 
-describe('Instance Access - GET /:doClass/:id', () => {
+// All tests below are skipped because the /DO/:id/* routes no longer exist.
+// These tests documented the expected behavior of direct DO instance access.
+// For the new routing model, see:
+// - workers/tests/hostname-routing.test.ts - Multi-tenant hostname routing
+// - api/tests/routes/do.test.ts - REST-like routing to default DO
+
+describe.skip('Instance Access - GET /:doClass/:id [DEPRECATED]', () => {
   describe('basic access', () => {
     it('should access an existing instance', async () => {
       const instanceId = generateInstanceId()
@@ -190,7 +194,7 @@ describe('Instance Access - GET /:doClass/:id', () => {
 // 2. Instance Health Endpoint Tests
 // ============================================================================
 
-describe('Instance Health - GET /:doClass/:id/health', () => {
+describe.skip('Instance Health - GET /:doClass/:id/health [DEPRECATED]', () => {
   it('should return health status for instance', async () => {
     const instanceId = generateInstanceId()
     await createInstance('DO', instanceId)
@@ -243,7 +247,7 @@ describe('Instance Health - GET /:doClass/:id/health', () => {
 // 3. Instance State Management Tests
 // ============================================================================
 
-describe('Instance State - /:doClass/:id/state', () => {
+describe.skip('Instance State - /:doClass/:id/state [DEPRECATED]', () => {
   describe('GET /state - retrieve state', () => {
     it('should return empty state for new instance', async () => {
       const instanceId = generateInstanceId()
@@ -447,7 +451,7 @@ describe('Instance State - /:doClass/:id/state', () => {
 // 4. Instance RPC Tests
 // ============================================================================
 
-describe('Instance RPC - POST /:doClass/:id/rpc/:method', () => {
+describe.skip('Instance RPC - POST /:doClass/:id/rpc/:method [DEPRECATED]', () => {
   describe('method invocation', () => {
     it('should invoke method on instance', async () => {
       const instanceId = generateInstanceId()
@@ -601,7 +605,7 @@ describe('Instance RPC - POST /:doClass/:id/rpc/:method', () => {
 // 5. Instance Things Collection Tests
 // ============================================================================
 
-describe('Instance Things - /:doClass/:id/things', () => {
+describe.skip('Instance Things - /:doClass/:id/things [DEPRECATED]', () => {
   describe('GET /things - list things', () => {
     it('should return empty array for new instance', async () => {
       const instanceId = generateInstanceId()
@@ -707,7 +711,7 @@ describe('Instance Things - /:doClass/:id/things', () => {
 // 6. Instance Events Tests
 // ============================================================================
 
-describe('Instance Events - /:doClass/:id/events', () => {
+describe.skip('Instance Events - /:doClass/:id/events [DEPRECATED]', () => {
   describe('GET /events - list events', () => {
     it('should return events from instance', async () => {
       const instanceId = generateInstanceId()
@@ -761,7 +765,7 @@ describe('Instance Events - /:doClass/:id/events', () => {
 // 7. Instance Actions Tests
 // ============================================================================
 
-describe('Instance Actions - /:doClass/:id/actions', () => {
+describe.skip('Instance Actions - /:doClass/:id/actions [DEPRECATED]', () => {
   describe('GET /actions - list actions', () => {
     it('should return actions from instance', async () => {
       const instanceId = generateInstanceId()
@@ -810,7 +814,7 @@ describe('Instance Actions - /:doClass/:id/actions', () => {
 // 8. Instance WebSocket Tests
 // ============================================================================
 
-describe('Instance WebSocket - /:doClass/:id/rpc (WebSocket)', () => {
+describe.skip('Instance WebSocket - /:doClass/:id/rpc (WebSocket) [DEPRECATED]', () => {
   it('should accept WebSocket upgrade', async () => {
     const instanceId = generateInstanceId()
 
@@ -842,7 +846,7 @@ describe('Instance WebSocket - /:doClass/:id/rpc (WebSocket)', () => {
 // 9. Instance Sync WebSocket Tests
 // ============================================================================
 
-describe('Instance Sync - /:doClass/:id/sync (WebSocket)', () => {
+describe.skip('Instance Sync - /:doClass/:id/sync (WebSocket) [DEPRECATED]', () => {
   it('should accept WebSocket upgrade for sync', async () => {
     const instanceId = generateInstanceId()
 
@@ -873,7 +877,7 @@ describe('Instance Sync - /:doClass/:id/sync (WebSocket)', () => {
 // 10. Instance MCP Endpoint Tests
 // ============================================================================
 
-describe('Instance MCP - /:doClass/:id/mcp', () => {
+describe.skip('Instance MCP - /:doClass/:id/mcp [DEPRECATED]', () => {
   it('should accept MCP requests', async () => {
     const instanceId = generateInstanceId()
 
@@ -919,7 +923,7 @@ describe('Instance MCP - /:doClass/:id/mcp', () => {
 // 11. Cross-Instance Communication Tests
 // ============================================================================
 
-describe('Cross-Instance Communication', () => {
+describe.skip('Cross-Instance Communication [DEPRECATED]', () => {
   it('should invoke method on another instance', async () => {
     const sourceId = generateInstanceId()
     const targetId = generateInstanceId()
@@ -964,7 +968,7 @@ describe('Cross-Instance Communication', () => {
 // 12. Instance Metadata Tests
 // ============================================================================
 
-describe('Instance Metadata - /:doClass/:id/meta', () => {
+describe.skip('Instance Metadata - /:doClass/:id/meta [DEPRECATED]', () => {
   it('should return instance metadata', async () => {
     const instanceId = generateInstanceId()
     await createInstance('DO', instanceId)
@@ -1005,7 +1009,7 @@ describe('Instance Metadata - /:doClass/:id/meta', () => {
 // 13. Instance Resolve Endpoint Tests
 // ============================================================================
 
-describe('Instance Resolve - /:doClass/:id/resolve', () => {
+describe.skip('Instance Resolve - /:doClass/:id/resolve [DEPRECATED]', () => {
   it('should resolve local thing by path', async () => {
     const instanceId = generateInstanceId()
 
@@ -1055,7 +1059,7 @@ describe('Instance Resolve - /:doClass/:id/resolve', () => {
 // 14. Multiple DO Class Tests
 // ============================================================================
 
-describe('Multiple DO Classes', () => {
+describe.skip('Multiple DO Classes [DEPRECATED]', () => {
   it('should route to TEST_DO namespace', async () => {
     const instanceId = generateInstanceId()
 
@@ -1113,7 +1117,7 @@ describe('Multiple DO Classes', () => {
 // 15. Headers and CORS Tests
 // ============================================================================
 
-describe('Headers and CORS', () => {
+describe.skip('Headers and CORS [DEPRECATED]', () => {
   it('should include CORS headers in response', async () => {
     const instanceId = generateInstanceId()
 
@@ -1164,7 +1168,7 @@ describe('Headers and CORS', () => {
 // 16. Error Scenarios Tests
 // ============================================================================
 
-describe('Error Scenarios', () => {
+describe.skip('Error Scenarios [DEPRECATED]', () => {
   it('should handle DO fetch timeout gracefully', async () => {
     const instanceId = generateInstanceId()
 
@@ -1233,7 +1237,7 @@ describe('Error Scenarios', () => {
 // 17. Rate Limiting Tests (Future)
 // ============================================================================
 
-describe('Rate Limiting', () => {
+describe.skip('Rate Limiting [DEPRECATED]', () => {
   it.skip('should enforce rate limits per instance', async () => {
     const instanceId = generateInstanceId()
 
@@ -1270,7 +1274,7 @@ describe('Rate Limiting', () => {
 // 18. Instance Lifecycle Tests (Future)
 // ============================================================================
 
-describe('Instance Lifecycle', () => {
+describe.skip('Instance Lifecycle [DEPRECATED]', () => {
   it.skip('should report hibernated status', async () => {
     const instanceId = generateInstanceId()
     await createInstance('DO', instanceId)

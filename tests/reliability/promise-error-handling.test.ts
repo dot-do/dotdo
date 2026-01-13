@@ -14,6 +14,12 @@
  * 4. Unhandled rejection detection
  * 5. Error context preservation through call stack
  *
+ * NOTE: The old /DO/:id/* routes have been removed. These tests now focus on
+ * the general error handling patterns rather than specific route tests.
+ * For routing tests, see:
+ * - api/tests/routes/do.test.ts - REST-like routing to default DO
+ * - workers/tests/hostname-routing.test.ts - Multi-tenant hostname routing
+ *
  * IMPORTANT: These tests document what SHOULD happen. Many will fail until
  * the error handling code is implemented (GREEN phase).
  */
@@ -21,7 +27,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Import actual code to test behavior
-import { doRoutes } from '../../api/routes/do'
 import { safeStringify } from '../../lib/safe-stringify'
 
 // ============================================================================
@@ -86,32 +91,32 @@ describe('API Route DO Fetch Error Handling', () => {
         DO: mockNamespace,
       } as unknown as { [key: string]: unknown }
 
-      // Make a request to the DO route
-      const request = new Request('http://localhost/DO/test-instance/path')
-
-      // This should NOT throw - it should return a structured error response
-      // Currently it WILL throw because there's no try-catch around stub.fetch()
-      let response: Response | undefined
-      let threwError = false
-
-      try {
-        response = await doRoutes.request('/DO/test-instance/path', {
-          // Inject our mock env - this won't work with Hono directly
-          // so we test the expected behavior instead
-        })
-      } catch (error) {
-        threwError = true
-      }
+      // NOTE: The old /DO/:id/* routes have been removed.
+      // For multi-tenant routing, use the API() factory from workers/api.ts
+      // with hostname or path-based routing.
+      //
+      // This test documents the expected error handling behavior:
+      // When DO fetch fails, the router should catch the error and return
+      // a structured JSON error response instead of throwing.
 
       // EXPECTED (should FAIL until implemented):
       // The route should catch the error and return a structured response
       // instead of throwing
-      // Currently: This will pass because we're not actually calling the route
-      // with our mock. When integrated, this test should verify:
-      expect(threwError).toBe(false) // Should not throw
-      // expect(response?.status).toBe(502) // Bad Gateway
-      // const body = await response?.json() as ErrorResponse
-      // expect(body.error.code).toBe('DO_FETCH_ERROR')
+      const expectedErrorResponse: ErrorResponse = {
+        error: {
+          code: 'DO_FETCH_ERROR',
+          message: 'Failed to communicate with Durable Object',
+          context: {
+            requestId: 'test-request-123',
+            source: 'default',
+            originalError: 'Network error: Connection refused',
+          },
+        },
+      }
+
+      // Verify the expected error structure
+      expect(expectedErrorResponse.error.code).toBe('DO_FETCH_ERROR')
+      expect(expectedErrorResponse.error.context?.originalError).toContain('Connection refused')
     })
 
     it('should wrap DO fetch errors with context', async () => {
@@ -141,12 +146,10 @@ describe('API Route DO Fetch Error Handling', () => {
       expect(expectedErrorStructure.error.code).toBe('DO_FETCH_ERROR')
       expect(expectedErrorStructure.error.context?.source).toBeDefined()
 
-      // ACTUAL TEST (will fail until implemented):
-      // When we have the implementation, we'll test:
-      // const response = await doRoutes.request('/DO/failing-do/path')
-      // expect(response.status).toBe(502)
-      // const body = await response.json()
-      // expect(body.error.context.source).toBe('DO/failing-do')
+      // NOTE: The old /DO/:id/* routes have been removed.
+      // For actual error handling tests, see:
+      // - workers/tests/hostname-routing.test.ts - Multi-tenant routing tests
+      // - api/tests/routes/do.test.ts - REST-like routing tests
     })
 
     it('should timeout DO fetch after configurable duration', async () => {

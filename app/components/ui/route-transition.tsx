@@ -298,3 +298,255 @@ export function PrefetchLink({ children, to, prefetchOnRender = false }: Prefetc
 
   return <>{children}</>
 }
+
+// =============================================================================
+// Reduced Motion Hook
+// =============================================================================
+
+/**
+ * Hook to detect user's reduced motion preference.
+ * Returns true if user prefers reduced motion.
+ *
+ * @returns {boolean} Whether reduced motion is preferred
+ */
+export function useReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(false)
+
+  React.useEffect(() => {
+    // Check if window is available (SSR safety)
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setPrefersReducedMotion(mediaQuery.matches)
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      setPrefersReducedMotion(event.matches)
+    }
+
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  return prefersReducedMotion
+}
+
+// =============================================================================
+// Batch Route Prefetching Hook
+// =============================================================================
+
+interface PrefetchOptions {
+  /** Routes to prefetch */
+  routes: string[]
+  /** Delay between prefetch requests (ms) to avoid network congestion */
+  staggerDelay?: number
+  /** Whether prefetching is enabled */
+  enabled?: boolean
+  /** Callback when all routes are prefetched */
+  onComplete?: () => void
+}
+
+/**
+ * Hook to batch prefetch multiple routes on mount.
+ * Staggers requests to avoid network congestion and respects reduced motion.
+ *
+ * @param options - Prefetch configuration
+ *
+ * @example
+ * ```tsx
+ * // Prefetch critical routes on shell mount
+ * usePrefetchRoutes({
+ *   routes: ['/dashboard', '/projects', '/settings'],
+ *   staggerDelay: 100,
+ * })
+ * ```
+ */
+export function usePrefetchRoutes({
+  routes,
+  staggerDelay = 50,
+  enabled = true,
+  onComplete,
+}: PrefetchOptions): void {
+  const router = useRouter()
+  const prefetchedRef = React.useRef<Set<string>>(new Set())
+  const prefersReducedMotion = useReducedMotion()
+
+  React.useEffect(() => {
+    if (!enabled || routes.length === 0) return
+
+    // Use requestIdleCallback if available, otherwise setTimeout
+    const scheduleTask =
+      typeof window !== 'undefined' && 'requestIdleCallback' in window
+        ? (window as any).requestIdleCallback
+        : (cb: () => void) => setTimeout(cb, 1)
+
+    const cancelTask =
+      typeof window !== 'undefined' && 'cancelIdleCallback' in window
+        ? (window as any).cancelIdleCallback
+        : clearTimeout
+
+    let taskIds: number[] = []
+    let completedCount = 0
+
+    routes.forEach((route, index) => {
+      // Skip already prefetched routes
+      if (prefetchedRef.current.has(route)) {
+        completedCount++
+        if (completedCount === routes.length && onComplete) {
+          onComplete()
+        }
+        return
+      }
+
+      const delay = prefersReducedMotion ? 0 : index * staggerDelay
+
+      const taskId = scheduleTask(() => {
+        setTimeout(() => {
+          try {
+            router.preloadRoute({ to: route })
+            prefetchedRef.current.add(route)
+          } catch {
+            // Silently ignore prefetch failures - non-critical
+          }
+          completedCount++
+          if (completedCount === routes.length && onComplete) {
+            onComplete()
+          }
+        }, delay)
+      })
+
+      taskIds.push(taskId)
+    })
+
+    return () => {
+      taskIds.forEach((id) => cancelTask(id))
+    }
+  }, [routes, staggerDelay, enabled, onComplete, router, prefersReducedMotion])
+}
+
+// =============================================================================
+// Route Transition Container
+// =============================================================================
+
+interface RouteTransitionContainerProps {
+  children: React.ReactNode
+  /** Routes to prefetch on mount */
+  prefetchRoutes?: string[]
+  /** Whether to enable fade transitions */
+  enableTransitions?: boolean
+  /** Transition duration in ms */
+  transitionDuration?: number
+}
+
+/**
+ * Container component that provides route transition features.
+ * Combines prefetching, progress bar, and fade transitions.
+ *
+ * @example
+ * ```tsx
+ * <RouteTransitionContainer
+ *   prefetchRoutes={['/dashboard', '/projects']}
+ *   enableTransitions
+ * >
+ *   <Outlet />
+ * </RouteTransitionContainer>
+ * ```
+ */
+export function RouteTransitionContainer({
+  children,
+  prefetchRoutes = [],
+  enableTransitions = true,
+  transitionDuration = 150,
+}: RouteTransitionContainerProps) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const prefersReducedMotion = useReducedMotion()
+
+  // Prefetch routes on mount
+  usePrefetchRoutes({
+    routes: prefetchRoutes,
+    enabled: prefetchRoutes.length > 0,
+  })
+
+  // Disable transitions if user prefers reduced motion
+  const shouldAnimate = enableTransitions && !prefersReducedMotion
+
+  return (
+    <div data-testid="route-transition-container">
+      <RouteProgressBar />
+      {shouldAnimate ? (
+        <FadeTransition transitionKey={pathname} duration={transitionDuration}>
+          {children}
+        </FadeTransition>
+      ) : (
+        children
+      )}
+    </div>
+  )
+}
+
+// =============================================================================
+// Viewport Prefetch Component
+// =============================================================================
+
+interface ViewportPrefetchProps {
+  /** Route to prefetch when visible */
+  to: string
+  /** Threshold for intersection (0-1) */
+  threshold?: number
+  /** Root margin for intersection observer */
+  rootMargin?: string
+  children: React.ReactNode
+}
+
+/**
+ * Prefetches a route when the component enters the viewport.
+ * Uses Intersection Observer for efficient detection.
+ *
+ * @example
+ * ```tsx
+ * <ViewportPrefetch to="/dashboard">
+ *   <Link to="/dashboard">Dashboard</Link>
+ * </ViewportPrefetch>
+ * ```
+ */
+export function ViewportPrefetch({
+  to,
+  threshold = 0.1,
+  rootMargin = '50px',
+  children,
+}: ViewportPrefetchProps) {
+  const router = useRouter()
+  const ref = React.useRef<HTMLDivElement>(null)
+  const prefetchedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!ref.current || prefetchedRef.current) return
+    if (typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !prefetchedRef.current) {
+            prefetchedRef.current = true
+            try {
+              router.preloadRoute({ to })
+            } catch {
+              // Silently ignore prefetch failures
+            }
+            observer.disconnect()
+          }
+        })
+      },
+      { threshold, rootMargin }
+    )
+
+    observer.observe(ref.current)
+
+    return () => observer.disconnect()
+  }, [to, threshold, rootMargin, router])
+
+  return (
+    <div ref={ref} data-testid="viewport-prefetch">
+      {children}
+    </div>
+  )
+}

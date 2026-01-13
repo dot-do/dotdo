@@ -117,7 +117,7 @@ function transformToQueryResult<R>(result: ExecutionResult): QueryResult<R> {
  *
  * Otherwise, creates an in-memory SQL engine for testing/local development.
  */
-function createEngineFromConfig(config: ExtendedPostgresConfig): SQLEngine | Promise<SQLEngine> {
+function createEngineFromConfig(config: ExtendedPostgresConfig): AnySQLEngine {
   // If DO namespace is configured with shard or replica options, use DOSQLEngine
   if (config.doNamespace && (config.shard || config.replica)) {
     return createDOSQLEngine({

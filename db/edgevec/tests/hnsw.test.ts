@@ -17,7 +17,7 @@ import type {
   HNSWStats,
   SearchResult,
 } from '../hnsw'
-import { createHNSWIndex, HNSWIndexImpl } from '../hnsw'
+import { createHNSWIndex, HNSWIndexImpl, validateVectorDimensions } from '../hnsw'
 
 // ============================================================================
 // TEST UTILITIES
@@ -1626,5 +1626,121 @@ describe('HNSW Large Scale', () => {
 
     const avgRecall = totalRecall / numQueries
     expect(avgRecall).toBeGreaterThanOrEqual(0.85)
+  })
+})
+
+// ============================================================================
+// DISTANCE FUNCTION DIMENSION VALIDATION TESTS
+// ============================================================================
+
+describe('HNSW Distance Function Dimension Validation', () => {
+  describe('validateVectorDimensions utility', () => {
+    it('does not throw for matching dimensions', () => {
+      const a = new Float32Array(128)
+      const b = new Float32Array(128)
+      expect(() => validateVectorDimensions(a, b)).not.toThrow()
+    })
+
+    it('throws for mismatched dimensions (a shorter)', () => {
+      const a = new Float32Array(64)
+      const b = new Float32Array(128)
+      expect(() => validateVectorDimensions(a, b)).toThrow(/Vector dimension mismatch: 64 vs 128/)
+    })
+
+    it('throws for mismatched dimensions (a longer)', () => {
+      const a = new Float32Array(256)
+      const b = new Float32Array(128)
+      expect(() => validateVectorDimensions(a, b)).toThrow(/Vector dimension mismatch: 256 vs 128/)
+    })
+
+    it('throws for empty vector vs non-empty', () => {
+      const a = new Float32Array(0)
+      const b = new Float32Array(128)
+      expect(() => validateVectorDimensions(a, b)).toThrow(/Vector dimension mismatch: 0 vs 128/)
+    })
+
+    it('does not throw for both empty vectors', () => {
+      const a = new Float32Array(0)
+      const b = new Float32Array(0)
+      expect(() => validateVectorDimensions(a, b)).not.toThrow()
+    })
+  })
+
+  it('cosineDistance throws on mismatched dimensions', () => {
+    const index = createHNSWIndex({
+      dimensions: 128,
+      metric: 'cosine',
+    })
+
+    // Insert a vector with correct dimensions
+    index.insert('vec-1', randomVector(128))
+
+    // Attempting to search with wrong dimensions should throw
+    const wrongDimQuery = randomVector(64)
+    expect(() => index.search(wrongDimQuery)).toThrow(/dimension mismatch/)
+  })
+
+  it('l2Distance throws on mismatched dimensions', () => {
+    const index = createHNSWIndex({
+      dimensions: 128,
+      metric: 'l2',
+    })
+
+    // Insert a vector with correct dimensions
+    index.insert('vec-1', randomVector(128))
+
+    // Attempting to search with wrong dimensions should throw
+    const wrongDimQuery = randomVector(64)
+    expect(() => index.search(wrongDimQuery)).toThrow(/dimension mismatch/)
+  })
+
+  it('dotDistance throws on mismatched dimensions', () => {
+    const index = createHNSWIndex({
+      dimensions: 128,
+      metric: 'dot',
+    })
+
+    // Insert a vector with correct dimensions
+    index.insert('vec-1', randomVector(128))
+
+    // Attempting to search with wrong dimensions should throw
+    const wrongDimQuery = randomVector(64)
+    expect(() => index.search(wrongDimQuery)).toThrow(/dimension mismatch/)
+  })
+
+  it('insert throws on mismatched dimensions', () => {
+    const index = createHNSWIndex({
+      dimensions: 128,
+      metric: 'cosine',
+    })
+
+    const wrongDimVector = randomVector(64)
+    expect(() => index.insert('wrong', wrongDimVector)).toThrow(/dimension mismatch/)
+  })
+
+  it('handles dimension mismatch when query is longer than stored vectors', () => {
+    const index = createHNSWIndex({
+      dimensions: 128,
+      metric: 'cosine',
+    })
+
+    index.insert('vec-1', randomVector(128))
+
+    // Query with MORE dimensions than expected
+    const longerQuery = randomVector(256)
+    expect(() => index.search(longerQuery)).toThrow(/dimension mismatch/)
+  })
+
+  it('handles dimension mismatch when query is shorter than stored vectors', () => {
+    const index = createHNSWIndex({
+      dimensions: 128,
+      metric: 'cosine',
+    })
+
+    index.insert('vec-1', randomVector(128))
+
+    // Query with FEWER dimensions than expected
+    const shorterQuery = randomVector(32)
+    expect(() => index.search(shorterQuery)).toThrow(/dimension mismatch/)
   })
 })

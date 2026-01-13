@@ -332,5 +332,5 @@ export interface SearchResult {
 // ============================================================================
 
 // WorkflowContext and related types are now defined in ./WorkflowContext.ts
-// They extend WorkflowContextType from @org.ai/types with DO-specific features
+// They extend the base WorkflowContextTypeBase with DO-specific features
 export type { WorkflowContext, ScheduleBuilder, EventHandler }

@@ -268,12 +268,13 @@ class InMemoryFirestore {
     this.notifyListeners(path)
   }
 
-  private setNestedValue(obj: any, path: string, value: unknown): void {
+  private setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
     const parts = path.split('.')
-    let current = obj
+    let current: Record<string, unknown> = obj
     for (let i = 0; i < parts.length - 1; i++) {
-      if (!(parts[i]! in current)) current[parts[i]!] = {}
-      current = current[parts[i]!]
+      const key = parts[i]!
+      if (!(key in current)) current[key] = {}
+      current = current[key] as Record<string, unknown>
     }
     current[parts[parts.length - 1]!] = value
   }
@@ -459,10 +460,11 @@ class InMemoryFirestore {
 
   private getNestedValue(obj: DocumentData, path: string): unknown {
     const parts = path.split('.')
-    let current: any = obj
+    let current: unknown = obj
     for (const part of parts) {
       if (current == null) return undefined
-      current = current[part]
+      if (typeof current !== 'object') return undefined
+      current = (current as Record<string, unknown>)[part]
     }
     return current
   }
@@ -680,10 +682,11 @@ function createDocumentSnapshot<T = DocumentData>(
       if (!data) return undefined
       const path = typeof fieldPath === 'string' ? fieldPath : ''
       const parts = path.split('.')
-      let current: any = data
+      let current: unknown = data
       for (const part of parts) {
         if (current == null) return undefined
-        current = current[part]
+        if (typeof current !== 'object') return undefined
+        current = (current as Record<string, unknown>)[part]
       }
       return current
     },
@@ -1875,10 +1878,11 @@ class DataSnapshotImpl implements DataSnapshot {
   hasChild(path: string): boolean {
     if (!this.value || typeof this.value !== 'object') return false
     const parts = path.split('/')
-    let current: any = this.value
+    let current: unknown = this.value
     for (const part of parts) {
+      if (current == null || typeof current !== 'object') return false
       if (!(part in current)) return false
-      current = current[part]
+      current = (current as Record<string, unknown>)[part]
     }
     return true
   }
@@ -1889,7 +1893,7 @@ class DataSnapshotImpl implements DataSnapshot {
       const parts = path.split('/')
       for (const part of parts) {
         if (value && typeof value === 'object' && part in value) {
-          value = (value as any)[part]
+          value = (value as Record<string, unknown>)[part]
         } else {
           value = null
           break
@@ -2436,10 +2440,11 @@ function applyDatabaseQueryConstraints(snapshot: DataSnapshot, constraints: DBQu
 function getNestedValue(obj: unknown, path: string): unknown {
   if (!obj || typeof obj !== 'object') return undefined
   const parts = path.split('/')
-  let current: any = obj
+  let current: unknown = obj
   for (const part of parts) {
     if (current == null) return undefined
-    current = current[part]
+    if (typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[part]
   }
   return current
 }

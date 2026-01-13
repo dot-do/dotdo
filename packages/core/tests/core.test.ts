@@ -995,6 +995,216 @@ describe('DEFAULT_RETRY_CONFIG', () => {
 })
 
 // =============================================================================
+// Execute/Fetch Retry Parity Tests
+// =============================================================================
+
+describe('Execute/Fetch Retry Parity', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  test('execute and fetch emit the same retry events on failure', async () => {
+    const executeEvents: RetryEvent[] = []
+    const fetchEvents: RetryEvent[] = []
+
+    const config: Partial<RetryConfig> = {
+      maxRetries: 2,
+      initialDelay: 100,
+      maxDelay: 1000,
+      multiplier: 2,
+      jitter: 0, // No jitter for predictable comparison
+      timeoutBudget: 10000,
+    }
+
+    // Test execute
+    const executeHandler = createRetryHandler(config)
+    executeHandler.onRetry(event => executeEvents.push(event))
+
+    const executePromise = executeHandler.execute(async () => {
+      throw new Error('Always fails')
+    }).catch(() => {}) // Suppress unhandled rejection
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await executePromise
+
+    // Test fetch with network errors
+    const fetchHandler = createRetryHandler(config)
+    fetchHandler.onRetry(event => fetchEvents.push(event))
+
+    const fetchMock = vi.fn().mockRejectedValue(new Error('Network error'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetchPromise = fetchHandler.fetch('https://api.example.com/resource').catch(() => {}) // Suppress unhandled rejection
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await fetchPromise
+
+    // Both should have the same number of retry events
+    expect(executeEvents.filter(e => e.type === 'retry').length)
+      .toBe(fetchEvents.filter(e => e.type === 'retry').length)
+
+    // Both should have exhausted event
+    expect(executeEvents.some(e => e.type === 'exhausted')).toBe(true)
+    expect(fetchEvents.some(e => e.type === 'exhausted')).toBe(true)
+  })
+
+  test('execute and fetch use same delay calculation', async () => {
+    const executeDelays: number[] = []
+    const fetchDelays: number[] = []
+
+    const config: Partial<RetryConfig> = {
+      maxRetries: 3,
+      initialDelay: 100,
+      maxDelay: 1000,
+      multiplier: 2,
+      jitter: 0,
+      timeoutBudget: 10000,
+    }
+
+    // Capture delays from execute
+    const executeHandler = createRetryHandler(config)
+    executeHandler.onRetry(event => {
+      if (event.type === 'retry' && event.delay) {
+        executeDelays.push(event.delay)
+      }
+    })
+
+    let executeCallCount = 0
+    const executePromise = executeHandler.execute(async () => {
+      executeCallCount++
+      if (executeCallCount < 4) {
+        throw new Error('Retry me')
+      }
+      return 'success'
+    })
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await executePromise
+
+    // Capture delays from fetch with network errors
+    const fetchHandler = createRetryHandler(config)
+    fetchHandler.onRetry(event => {
+      if (event.type === 'retry' && event.delay) {
+        fetchDelays.push(event.delay)
+      }
+    })
+
+    let fetchCallCount = 0
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      fetchCallCount++
+      if (fetchCallCount < 4) {
+        throw new Error('Network error')
+      }
+      return new Response('OK', { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetchPromise = fetchHandler.fetch('https://api.example.com/resource')
+    await vi.advanceTimersByTimeAsync(5000)
+    await fetchPromise
+
+    // Delays should be identical
+    expect(executeDelays).toEqual(fetchDelays)
+    expect(executeDelays).toEqual([100, 200, 400]) // Exponential backoff
+  })
+
+  test('execute and fetch handle circuit breaker identically', async () => {
+    const circuitBreakerConfig = {
+      failureThreshold: 2,
+      cooldownPeriod: 1000,
+      successThreshold: 1,
+    }
+
+    const config: Partial<RetryConfig> = {
+      maxRetries: 5,
+      initialDelay: 10,
+      maxDelay: 100,
+      multiplier: 2,
+      jitter: 0,
+      timeoutBudget: 10000,
+      circuitBreaker: circuitBreakerConfig,
+    }
+
+    // Test execute with circuit breaker
+    const executeHandler = createRetryHandler(config)
+    const executeCircuitEvents: RetryEvent[] = []
+    executeHandler.onRetry(e => executeCircuitEvents.push(e))
+
+    const executePromise1 = executeHandler.execute(async () => {
+      throw new Error('Fail')
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(executePromise1).rejects.toThrow()
+
+    expect(executeHandler.getCircuitState()).toBe('open')
+
+    // Test fetch with circuit breaker
+    const fetchHandler = createRetryHandler(config)
+    const fetchCircuitEvents: RetryEvent[] = []
+    fetchHandler.onRetry(e => fetchCircuitEvents.push(e))
+
+    const fetchMock = vi.fn().mockRejectedValue(new Error('Network error'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetchPromise1 = fetchHandler.fetch('https://api.example.com')
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(fetchPromise1).rejects.toThrow()
+
+    expect(fetchHandler.getCircuitState()).toBe('open')
+
+    // Both should have circuit-open events
+    expect(executeCircuitEvents.some(e => e.type === 'circuit-open')).toBe(true)
+    expect(fetchCircuitEvents.some(e => e.type === 'circuit-open')).toBe(true)
+  })
+
+  test('execute and fetch respect timeout budget identically', async () => {
+    const config: Partial<RetryConfig> = {
+      maxRetries: 10,
+      initialDelay: 200,
+      maxDelay: 500,
+      multiplier: 2,
+      jitter: 0,
+      timeoutBudget: 500, // Very short budget
+    }
+
+    // Execute should stop early due to timeout budget
+    const executeHandler = createRetryHandler(config)
+    let executeAttempts = 0
+    const executePromise = executeHandler.execute(async () => {
+      executeAttempts++
+      throw new Error('Fail')
+    })
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await expect(executePromise).rejects.toThrow()
+
+    // Fetch should stop early due to timeout budget
+    const fetchHandler = createRetryHandler(config)
+    let fetchAttempts = 0
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      fetchAttempts++
+      throw new Error('Network error')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetchPromise = fetchHandler.fetch('https://api.example.com')
+    await vi.advanceTimersByTimeAsync(5000)
+    await expect(fetchPromise).rejects.toThrow()
+
+    // Both should have stopped before maxRetries due to timeout
+    expect(executeAttempts).toBeLessThan(10)
+    expect(fetchAttempts).toBeLessThan(10)
+    // Both should have approximately the same number of attempts
+    expect(Math.abs(executeAttempts - fetchAttempts)).toBeLessThanOrEqual(1)
+  })
+})
+
+// =============================================================================
 // Edge Cases
 // =============================================================================
 

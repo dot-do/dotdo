@@ -1,25 +1,27 @@
 import { describe, it, expect } from 'vitest'
 
 /**
- * PipelinePromise Runtime Tests (RED Phase)
+ * PipelinePromise Type Safety Tests
  *
- * These tests complement the type-level tests in pipeline-promise.test-d.ts.
- * They serve as markers that the type tests exist and should be run.
+ * These tests complement the type-level tests in pipeline-promise-types.test.ts.
+ * They serve as documentation and runtime verification markers.
  *
  * The actual type safety verification happens at compile time via:
- * - pnpm typecheck (tsc --noEmit)
- * - The .test-d.ts file which uses expectTypeOf assertions
+ * - npm run typecheck (tsc --noEmit)
+ * - The pipeline-promise-types.test.ts file which uses expectTypeOf assertions
+ *
+ * STATUS: Type safety has been fixed - [key: string]: any removed from PipelinePromise
  */
 
 describe('PipelinePromise Type Safety', () => {
   it('should not allow arbitrary property access at type level', () => {
     // This is a compile-time test marker
-    // The actual test is in pipeline-promise.test-d.ts
-    // If that file compiles with the expectTypeOf<...>().not.toBeAny() passing,
-    // then arbitrary property access is correctly disallowed
-
-    // Currently, due to [key: string]: any on line 32 of pipeline-promise.ts,
-    // the type tests will FAIL because arbitrary property access returns 'any'
+    // The actual test is in pipeline-promise-types.test.ts
+    //
+    // The type safety has been FIXED:
+    // - [key: string]: any index signature was removed from PipelinePromise
+    // - Arbitrary property access now causes TS2339 errors
+    // - The type now only exposes: __expr, __isPipelinePromise, then
     expect(true).toBe(true)
   })
 
@@ -53,38 +55,41 @@ describe('PipelinePromise Type Safety', () => {
   })
 })
 
-describe('PipelinePromise Interface Bug Documentation', () => {
-  it('documents the current [key: string]: any type hole', () => {
-    // Current interface (line 29-33 of workflows/pipeline-promise.ts):
+describe('PipelinePromise Interface - Type Safety Fixed', () => {
+  it('documents the fixed type safety', () => {
+    // Fixed interface (line 30-33 of workflows/pipeline-promise.ts):
     //
     // export interface PipelinePromise<T = unknown> extends PromiseLike<T> {
     //   readonly __expr: PipelineExpression
     //   readonly __isPipelinePromise: true
-    //   [key: string]: any  // <-- THIS IS THE BUG
     // }
     //
-    // The index signature [key: string]: any allows:
-    // - Any property access without type error
-    // - Losing all generic type safety
-    // - Assigning any value to any property access result
+    // The [key: string]: any index signature has been REMOVED
+    // This provides proper type safety:
+    // - Arbitrary property access now causes TypeScript errors
+    // - Generic type safety is preserved
+    // - Only defined properties are accessible at type level
     //
-    // Example of broken behavior:
+    // Example of fixed behavior:
     //   declare const p: PipelinePromise<string>
-    //   const x: number = p.anything  // Compiles! Should error.
-    //   const y: object = p.whatever  // Compiles! Should error.
+    //   const x: number = p.anything  // TS2339: Property does not exist
+    //   const y: object = p.whatever  // TS2339: Property does not exist
+    //
+    // The Proxy implementation still supports dynamic property access at runtime,
+    // but the type system now correctly constrains what's accessible.
 
     expect(true).toBe(true)
   })
 
-  it('documents the expected fix', () => {
-    // The fix should either:
-    // 1. Remove [key: string]: any entirely if dynamic access isn't needed
-    // 2. Use a more specific type for dynamic access
-    // 3. Use branded types or mapped types to preserve safety
+  it('verifies the fix approach', () => {
+    // The fix removed [key: string]: any entirely since:
+    // 1. Runtime behavior is handled by the Proxy in createPipelinePromise()
+    // 2. Type-level access should be constrained to known properties
+    // 3. Dynamic property access at runtime returns new PipelinePromise objects
+    //    which is an implementation detail, not a type-level concern
     //
-    // The Proxy implementation in createPipelinePromise() handles
-    // dynamic property access at runtime, returning new PipelinePromise
-    // objects for property chains. The type should reflect this.
+    // For code that needs to capture expressions, the __expr property provides
+    // proper typed access to the underlying PipelineExpression.
 
     expect(true).toBe(true)
   })

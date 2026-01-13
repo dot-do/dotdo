@@ -150,9 +150,20 @@ export interface HNSWIndex {
 // ============================================================================
 
 /**
+ * Validates that two vectors have matching dimensions
+ * @throws Error if dimensions don't match
+ */
+export function validateVectorDimensions(a: Float32Array, b: Float32Array): void {
+  if (a.length !== b.length) {
+    throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`)
+  }
+}
+
+/**
  * Cosine similarity (higher is better)
  */
 function cosineDistance(a: Float32Array, b: Float32Array): number {
+  validateVectorDimensions(a, b)
   let dot = 0
   let normA = 0
   let normB = 0
@@ -168,6 +179,7 @@ function cosineDistance(a: Float32Array, b: Float32Array): number {
  * L2 (Euclidean) distance (lower is better)
  */
 function l2Distance(a: Float32Array, b: Float32Array): number {
+  validateVectorDimensions(a, b)
   let sum = 0
   for (let i = 0; i < a.length; i++) {
     const diff = a[i]! - b[i]!
@@ -180,6 +192,7 @@ function l2Distance(a: Float32Array, b: Float32Array): number {
  * Dot product (higher is better)
  */
 function dotDistance(a: Float32Array, b: Float32Array): number {
+  validateVectorDimensions(a, b)
   let dot = 0
   for (let i = 0; i < a.length; i++) {
     dot += a[i]! * b[i]!

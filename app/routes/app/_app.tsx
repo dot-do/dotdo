@@ -18,17 +18,18 @@
  * - Custom sidebar components for navigation
  * - AppBreadcrumbs for path-based breadcrumbs
  * - User menu in sidebar footer
+ *
+ * ## Keyboard Shortcuts
+ * - Cmd+B: Toggle sidebar
+ * - Cmd+K: Open search
+ * - Alt+D/P/W/S: Navigate to Dashboard/Projects/Workflows/Settings
  */
 
 import { createFileRoute, Outlet, Link, useLocation, useNavigate, Navigate } from '@tanstack/react-router'
-import type { ReactNode, ComponentType } from 'react'
+import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from '~/src/admin/auth'
 import { Button } from '@mdxui/primitives/button'
 import {
-  LayoutDashboard,
-  FolderKanban,
-  Workflow,
-  Settings,
   ChevronsUpDown,
   BadgeCheck,
   CreditCard,
@@ -63,42 +64,20 @@ import {
 } from '@mdxui/primitives/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@mdxui/primitives/avatar'
 
+// Import centralized navigation config
+import {
+  navItems,
+  pageMetadata,
+  generateBreadcrumbs,
+  isNavItemActive,
+  type PageMeta,
+} from '~/config/nav'
+import { usePrefetch, useKeyboardShortcuts, useIsMobile, useSwipeGesture } from '~/hooks'
+import { appShortcuts } from '~/config/shortcuts'
+
 export const Route = createFileRoute('/app/_app')({
   component: AppLayout,
 })
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface NavItem {
-  title: string
-  url: string
-  icon: ComponentType<{ className?: string }>
-  testId: string
-}
-
-interface BreadcrumbItemData {
-  label: string
-  href?: string
-}
-
-interface PageMeta {
-  title?: string
-  description?: string
-  actions?: ReactNode
-}
-
-// ============================================================================
-// Navigation Configuration
-// ============================================================================
-
-const navItems: NavItem[] = [
-  { title: 'Dashboard', url: '/app', icon: LayoutDashboard, testId: 'app-nav-dashboard' },
-  { title: 'Projects', url: '/app/projects', icon: FolderKanban, testId: 'app-nav-projects' },
-  { title: 'Workflows', url: '/app/workflows', icon: Workflow, testId: 'app-nav-workflows' },
-  { title: 'Settings', url: '/app/settings', icon: Settings, testId: 'app-nav-settings' },
-]
 
 // ============================================================================
 // Mock User (replace with real auth)
@@ -109,66 +88,6 @@ const mockUser = {
   fullName: 'John Doe',
   email: 'john@example.com',
   avatar: '',
-}
-
-// ============================================================================
-// Page Metadata by Route
-// ============================================================================
-
-const pageMetadata: Record<string, PageMeta> = {
-  '/app': { title: 'Dashboard', description: 'Overview of your account' },
-  '/app/projects': { title: 'Projects', description: 'Manage your projects' },
-  '/app/workflows': { title: 'Workflows', description: 'Manage your workflows' },
-  '/app/settings': { title: 'Settings', description: 'Account settings' },
-}
-
-// ============================================================================
-// Breadcrumb Generation
-// ============================================================================
-
-const labelMap: Record<string, string> = {
-  app: 'Dashboard',
-  projects: 'Projects',
-  workflows: 'Workflows',
-  settings: 'Settings',
-}
-
-function generateBreadcrumbs(pathname: string): BreadcrumbItemData[] {
-  const segments = pathname.split('/').filter(Boolean)
-  const items: BreadcrumbItemData[] = []
-  let currentPath = ''
-
-  segments.forEach((segment, index) => {
-    currentPath = `${currentPath}/${segment}`
-    const isLast = index === segments.length - 1
-
-    // Get label from mappings or format the segment
-    let label = labelMap[segment]
-    if (!label) {
-      // Check if it's a numeric ID
-      if (/^\d+$/.test(segment)) {
-        label = `#${segment}`
-      } else {
-        // Capitalize and replace dashes with spaces
-        label = segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, ' ')
-      }
-    }
-
-    // For /app root, always label as Dashboard
-    if (segment === 'app' && index === 0) {
-      items.push({
-        label: 'Dashboard',
-        href: isLast ? undefined : '/app',
-      })
-    } else {
-      items.push({
-        label,
-        href: isLast ? undefined : currentPath,
-      })
-    }
-  })
-
-  return items
 }
 
 // ============================================================================
@@ -232,10 +151,8 @@ function AppNavigation() {
       <SidebarGroupLabel>Navigation</SidebarGroupLabel>
       <SidebarMenu data-testid="app-sidebar-nav">
         {navItems.map((item) => {
-          // Check if this nav item is active
-          const isActive =
-            currentPath === item.url ||
-            (item.url !== '/app' && currentPath.startsWith(item.url))
+          // Use centralized active check
+          const isActive = isNavItemActive(item.url, currentPath)
 
           return (
             <SidebarMenuItem key={item.title}>
@@ -508,20 +425,99 @@ function AuthGuard({ children }: { children: ReactNode }) {
 }
 
 // ============================================================================
+// Keyboard Shortcuts Component
+// ============================================================================
+
+function AppKeyboardShortcuts() {
+  const navigate = useNavigate()
+  const { toggleSidebar } = useSidebar()
+
+  // Build shortcuts with their callbacks
+  const shortcuts = appShortcuts.map((shortcut) => {
+    let callback: () => void
+
+    switch (shortcut.id) {
+      case 'toggle-sidebar':
+        callback = () => toggleSidebar()
+        break
+      case 'go-dashboard':
+        callback = () => navigate({ to: '/app' })
+        break
+      case 'go-projects':
+        callback = () => navigate({ to: '/app/projects' })
+        break
+      case 'go-workflows':
+        callback = () => navigate({ to: '/app/workflows' })
+        break
+      case 'go-settings':
+        callback = () => navigate({ to: '/app/settings' })
+        break
+      case 'search':
+        callback = () => {
+          // TODO: Open search dialog
+          console.log('Search shortcut triggered')
+        }
+        break
+      default:
+        callback = () => {}
+    }
+
+    return {
+      key: shortcut.key,
+      meta: shortcut.meta,
+      ctrl: shortcut.ctrl,
+      alt: shortcut.alt,
+      shift: shortcut.shift,
+      callback,
+      allowInInput: shortcut.allowInInput,
+    }
+  })
+
+  useKeyboardShortcuts(shortcuts)
+
+  return null
+}
+
+// ============================================================================
 // App Layout
 // ============================================================================
+
+function AppLayoutInner() {
+  const isMobile = useIsMobile()
+  const { open, setOpen } = useSidebar()
+
+  // Mobile swipe gestures for drawer
+  const swipeHandlers = useSwipeGesture({
+    onSwipeRight: () => {
+      if (isMobile && !open) {
+        setOpen(true)
+      }
+    },
+    onSwipeLeft: () => {
+      if (isMobile && open) {
+        setOpen(false)
+      }
+    },
+    threshold: 50,
+  })
+
+  return (
+    <div data-sidebar-wrapper {...(isMobile ? swipeHandlers : {})}>
+      <AppKeyboardShortcuts />
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </div>
+  )
+}
 
 function AppLayout() {
   return (
     <AuthProvider>
       <AuthGuard>
-        <div data-sidebar-wrapper>
-          <SidebarProvider defaultOpen={true}>
-            <AppShell>
-              <Outlet />
-            </AppShell>
-          </SidebarProvider>
-        </div>
+        <SidebarProvider defaultOpen={true}>
+          <AppLayoutInner />
+        </SidebarProvider>
       </AuthGuard>
     </AuthProvider>
   )

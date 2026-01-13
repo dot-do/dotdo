@@ -94,6 +94,12 @@ export const DOTDO_SHARED = resolve(PROJECT_ROOT, 'packages/shared/src/index.ts'
 /** @dotdo/shared/event-emitter source path for direct imports */
 export const DOTDO_SHARED_EVENT_EMITTER = resolve(PROJECT_ROOT, 'packages/shared/src/event-emitter.ts')
 
+/** @dotdo/path-utils source path for direct imports */
+export const DOTDO_PATH_UTILS = resolve(PROJECT_ROOT, 'packages/path-utils/src/index.ts')
+
+/** @dotdo/path-utils/security source path for direct imports */
+export const DOTDO_PATH_UTILS_SECURITY = resolve(PROJECT_ROOT, 'packages/path-utils/src/security.ts')
+
 /**
  * Shared resolve configuration for Node.js test environments
  * Provides mock for cloudflare:workers module and drizzle-orm/durable-sqlite
@@ -111,6 +117,8 @@ export const nodeResolveConfig: UserConfig['resolve'] = {
     '@dotdo/zapier': DOTDO_ZAPIER,
     '@dotdo/shared/event-emitter': DOTDO_SHARED_EVENT_EMITTER,
     '@dotdo/shared': DOTDO_SHARED,
+    '@dotdo/path-utils/security': DOTDO_PATH_UTILS_SECURITY,
+    '@dotdo/path-utils': DOTDO_PATH_UTILS,
     'humans.do': HUMANS_DO,
     'fsx.do': FSX_DO,
     // capnweb mock for ESM/CJS compatibility in node tests

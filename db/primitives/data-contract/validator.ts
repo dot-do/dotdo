@@ -457,6 +457,196 @@ export class ContractValidator<T = unknown> {
     }
   }
 
+  /**
+   * Streaming validation for large payloads.
+   * Processes records as an async generator for memory-efficient handling.
+   *
+   * @param records - AsyncIterable or Iterable of records to validate
+   * @param options - Optional streaming configuration (chunkSize, signal)
+   * @yields StreamValidationResult for each record (or chunk of records)
+   *
+   * @example
+   * ```typescript
+   * // Process a large stream of records
+   * const validator = createValidator(contract)
+   * for await (const result of validator.validateStream(asyncRecordStream)) {
+   *   if (!result.valid) {
+   *     await deadLetterQueue.send(result.data, result.errors)
+   *   }
+   * }
+   * ```
+   */
+  async *validateStream(
+    records: AsyncIterable<unknown> | Iterable<unknown>,
+    options?: Partial<StreamValidationOptions>
+  ): AsyncGenerator<StreamValidationResult<T>, StreamValidationSummary, undefined> {
+    const startTime = performance.now()
+    let index = 0
+    let validCount = 0
+    let invalidCount = 0
+    let skippedCount = 0
+    let errorCount = 0
+
+    const chunkSize = options?.chunkSize ?? 1
+    const signal = options?.signal
+    const chunk: StreamValidationResult<T>[] = []
+
+    for await (const record of records) {
+      // Check for abort signal
+      if (signal?.aborted) {
+        break
+      }
+
+      // Check max errors for early termination
+      if (this.options.maxErrors && errorCount >= this.options.maxErrors) {
+        break
+      }
+
+      // Handle sample mode
+      if (this.options.strictness === 'sample') {
+        const shouldValidate = Math.random() < (this.options.sampleRate ?? 0.1)
+        if (!shouldValidate) {
+          skippedCount++
+          const skippedResult: StreamValidationResult<T> = {
+            index,
+            valid: true,
+            data: record as T,
+            errors: [],
+            warnings: [],
+            timing: { parseMs: 0, validateMs: 0, totalMs: 0 },
+          }
+          index++
+
+          if (chunkSize === 1) {
+            yield skippedResult
+          } else {
+            chunk.push(skippedResult)
+            if (chunk.length >= chunkSize) {
+              for (const r of chunk) {
+                yield r
+              }
+              chunk.length = 0
+            }
+          }
+          continue
+        }
+      }
+
+      // Validate the record
+      const baseResult = this.validate(record)
+      const result: StreamValidationResult<T> = {
+        ...baseResult,
+        index,
+      }
+
+      if (result.valid) {
+        validCount++
+      } else {
+        invalidCount++
+        errorCount++
+      }
+
+      index++
+
+      // Yield results based on chunk size
+      if (chunkSize === 1) {
+        yield result
+      } else {
+        chunk.push(result)
+        if (chunk.length >= chunkSize) {
+          for (const r of chunk) {
+            yield r
+          }
+          chunk.length = 0
+        }
+      }
+    }
+
+    // Yield any remaining records in the chunk
+    for (const r of chunk) {
+      yield r
+    }
+
+    const endTime = performance.now()
+    const totalMs = endTime - startTime
+    const processedCount = validCount + invalidCount
+
+    // Return summary as the generator's return value
+    return {
+      totalRecords: index,
+      validRecords: validCount,
+      invalidRecords: invalidCount,
+      skippedRecords: skippedCount,
+      timing: {
+        parseMs: 0,
+        validateMs: totalMs,
+        totalMs,
+        avgPerRecordMs: processedCount > 0 ? totalMs / processedCount : 0,
+      },
+    }
+  }
+
+  /**
+   * Streaming validation that collects results and returns a batch result.
+   * Useful when you want streaming memory characteristics but need all results at once.
+   *
+   * @param records - AsyncIterable or Iterable of records to validate
+   * @param options - Optional streaming configuration
+   * @returns Promise<BatchValidationResult<T>>
+   */
+  async validateStreamToBatch(
+    records: AsyncIterable<unknown> | Iterable<unknown>,
+    options?: Partial<StreamValidationOptions>
+  ): Promise<BatchValidationResult<T>> {
+    const results: RuntimeValidationResult<T>[] = []
+    const errors: Array<{ index: number; errors: ValidationError[] }> = []
+    let validCount = 0
+    let invalidCount = 0
+    let skippedCount = 0
+    const startTime = performance.now()
+
+    const stream = this.validateStream(records, options)
+    let iterResult = await stream.next()
+
+    while (!iterResult.done) {
+      const result = iterResult.value
+      results.push(result)
+
+      if (result.valid) {
+        validCount++
+      } else {
+        invalidCount++
+        errors.push({ index: result.index, errors: result.errors })
+      }
+
+      iterResult = await stream.next()
+    }
+
+    // Get summary from generator return value
+    const summary = iterResult.value
+    skippedCount = summary?.skippedRecords ?? 0
+
+    const endTime = performance.now()
+    const totalMs = endTime - startTime
+    const processedCount = results.length - skippedCount
+
+    return {
+      totalRecords: results.length,
+      validRecords: validCount,
+      invalidRecords: invalidCount,
+      skippedRecords: skippedCount,
+      results,
+      errors,
+      timing: {
+        parseMs: 0,
+        validateMs: totalMs,
+        totalMs,
+        avgPerRecordMs: processedCount > 0 ? totalMs / processedCount : 0,
+      },
+      earlyTerminated: false,
+    }
+  }
+
   // ============================================================================
   // PRIVATE METHODS
   // ============================================================================
@@ -1012,6 +1202,38 @@ export class ContractValidator<T = unknown> {
       totalMs: endTime - startTime,
     }
   }
+}
+
+// ============================================================================
+// STREAMING VALIDATION
+// ============================================================================
+
+/**
+ * Streaming validation result yielded for each record
+ */
+export interface StreamValidationResult<T = unknown> extends RuntimeValidationResult<T> {
+  index: number
+}
+
+/**
+ * Summary statistics from streaming validation
+ */
+export interface StreamValidationSummary {
+  totalRecords: number
+  validRecords: number
+  invalidRecords: number
+  skippedRecords: number
+  timing: ValidationTiming & { avgPerRecordMs: number }
+}
+
+/**
+ * Options for streaming validation
+ */
+export interface StreamValidationOptions extends ValidationOptions {
+  /** Yield results in chunks for better performance (default: 1) */
+  chunkSize?: number
+  /** Abort signal to cancel streaming */
+  signal?: AbortSignal
 }
 
 // ============================================================================

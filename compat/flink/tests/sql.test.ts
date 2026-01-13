@@ -96,11 +96,18 @@ describe('@dotdo/flink - SQL and Table API', () => {
     })
 
     it('should handle nullable and notNull', () => {
-      const nullable = DataType.STRING().nullable()
-      expect(nullable.nullable).toBe(true)
+      // DataType.STRING() returns a new DataType with nullable=true by default
+      const defaultType = DataType.STRING()
+      expect(defaultType.nullable).toBe(true)
 
-      const notNull = DataType.STRING().notNull()
+      // Create not null type using instance method
+      const notNull = defaultType.notNull()
       expect(notNull.nullable).toBe(false)
+
+      // notNull() returns a new DataType with nullable property set correctly
+      // We can chain from it to create another nullable type
+      const anotherNotNull = DataType.INT().notNull()
+      expect(anotherNotNull.nullable).toBe(false)
     })
 
     it('should convert to string', () => {
@@ -713,8 +720,8 @@ describe('@dotdo/flink - SQL and Table API', () => {
 
     it('should join tables', () => {
       const orders = [
-        { order_id: 1, customer_id: 100 },
-        { order_id: 2, customer_id: 200 },
+        { order_id: 1, order_customer_id: 100 },
+        { order_id: 2, order_customer_id: 200 },
       ]
       const customers = [
         { customer_id: 100, name: 'Alice' },
@@ -723,7 +730,7 @@ describe('@dotdo/flink - SQL and Table API', () => {
 
       const orderSchema = Schema.newBuilder()
         .column('order_id', DataType.INT())
-        .column('customer_id', DataType.INT())
+        .column('order_customer_id', DataType.INT())
         .build()
 
       const customerSchema = Schema.newBuilder()
@@ -734,11 +741,13 @@ describe('@dotdo/flink - SQL and Table API', () => {
       const orderTable = new Table(tableEnv, orderSchema, orders)
       const customerTable = new Table(tableEnv, customerSchema, customers)
 
-      const result = orderTable.join(customerTable, $('customer_id').isEqual($('customer_id')))
+      // Join where order_customer_id equals customer_id
+      const result = orderTable.join(customerTable, $('order_customer_id').isEqual($('customer_id')))
       const rows = result.execute().collect()
 
       expect(rows).toHaveLength(2)
       expect(rows[0]).toHaveProperty('name')
+      expect(rows[0]).toHaveProperty('order_id')
     })
   })
 
@@ -824,9 +833,23 @@ describe('@dotdo/flink - SQL and Table API', () => {
     })
 
     it('should support aggregate functions', () => {
-      const result = testTable
-        .groupBy(lit(1)) // Group all
+      // Test aggregates in a groupBy with a real column
+      const data = [
+        { category: 'A', amount: 100 },
+        { category: 'A', amount: 200 },
+        { category: 'A', amount: 150 },
+      ]
+
+      const schema = Schema.newBuilder()
+        .column('category', DataType.STRING())
+        .column('amount', DataType.INT())
+        .build()
+
+      const table = new Table(tableEnv, schema, data)
+      const result = table
+        .groupBy('category')
         .select(
+          $('category'),
           $('amount').sum(),
           $('amount').avg(),
           $('amount').min(),
@@ -836,6 +859,8 @@ describe('@dotdo/flink - SQL and Table API', () => {
 
       const rows = result.execute().collect()
       expect(rows).toHaveLength(1)
+      expect(rows[0]['SUM(amount)']).toBe(450)
+      expect(rows[0]['COUNT(amount)']).toBe(3)
     })
 
     it('should support literal values', () => {

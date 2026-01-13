@@ -12,6 +12,8 @@
  * - Type guards and utilities: isCompatError, wrapError
  */
 
+import { safeSerialize } from '../../lib/safe-stringify'
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -93,40 +95,11 @@ export interface ToResponseOptions {
 }
 
 // =============================================================================
-// Safe JSON Serialization Helper
+// Safe JSON Serialization (imported from lib/safe-stringify)
 // =============================================================================
 
-function safeSerialize(obj: unknown): unknown {
-  const seen = new WeakSet()
-
-  function serialize(value: unknown): unknown {
-    if (value === null || value === undefined) {
-      return value
-    }
-
-    if (typeof value !== 'object') {
-      return value
-    }
-
-    if (seen.has(value as object)) {
-      return '[Circular]'
-    }
-
-    seen.add(value as object)
-
-    if (Array.isArray(value)) {
-      return value.map(serialize)
-    }
-
-    const result: Record<string, unknown> = {}
-    for (const key of Object.keys(value as object)) {
-      result[key] = serialize((value as Record<string, unknown>)[key])
-    }
-    return result
-  }
-
-  return serialize(obj)
-}
+// Re-export for backwards compatibility
+export { safeSerialize }
 
 // =============================================================================
 // CompatError Base Class

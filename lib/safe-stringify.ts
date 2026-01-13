@@ -307,4 +307,113 @@ export function serializeError(error: unknown): Record<string, unknown> {
   return { message: String(error) }
 }
 
+/**
+ * Safely serialize a value, handling circular references and non-JSON types.
+ * Unlike safeStringify, this returns the serializable object structure rather than a JSON string.
+ * Useful when you need to prepare data for JSON.stringify() or other serialization.
+ *
+ * Handles:
+ * - Circular references (returns '[Circular]')
+ * - BigInt (converts to string with 'n' suffix)
+ * - Symbol (converts to string representation)
+ * - Functions (returns '[Function]')
+ * - Date (returns ISO string)
+ * - Map (returns {__type: 'Map', entries: {...}})
+ * - Set (returns {__type: 'Set', values: [...]})
+ * - Error objects (returns {name, message, stack, ...})
+ *
+ * @param value - The value to serialize
+ * @param options - Serialization options (same as SafeStringifyOptions)
+ * @returns A JSON-serializable representation of the value
+ *
+ * @example
+ * const obj = { a: 1 }
+ * obj.self = obj
+ * const serialized = safeSerialize(obj)
+ * // { a: 1, self: '[Circular]' }
+ */
+export function safeSerialize(value: unknown, options?: SafeStringifyOptions): unknown {
+  const opts = { ...DEFAULT_OPTIONS, ...options }
+  const seen = new WeakSet()
+
+  function serialize(obj: unknown, depth: number): unknown {
+    // Handle primitives
+    if (obj === null || obj === undefined) return obj
+    if (typeof obj === 'boolean' || typeof obj === 'number') return obj
+    if (typeof obj === 'string') {
+      return obj.length > opts.maxLength
+        ? obj.slice(0, opts.maxLength) + `... [truncated ${obj.length - opts.maxLength} chars]`
+        : obj
+    }
+    if (typeof obj === 'bigint') return obj.toString() + 'n'
+    if (typeof obj === 'symbol') return obj.toString()
+    if (typeof obj === 'function') return opts.functionReplacement
+
+    // Check depth
+    if (depth > opts.maxDepth) return '[Max depth exceeded]'
+
+    // Handle objects
+    if (typeof obj === 'object') {
+      // Check for circular reference
+      if (seen.has(obj)) return opts.circularReplacement
+      seen.add(obj)
+
+      // Handle Error objects specially
+      if (obj instanceof Error) {
+        const errorObj: Record<string, unknown> = {
+          name: obj.name,
+          message: obj.message,
+        }
+        if (opts.includeStacks && obj.stack) {
+          errorObj.stack = obj.stack
+        }
+        // Copy custom properties
+        for (const key of Object.keys(obj)) {
+          if (key !== 'name' && key !== 'message' && key !== 'stack') {
+            errorObj[key] = serialize((obj as unknown as Record<string, unknown>)[key], depth + 1)
+          }
+        }
+        return errorObj
+      }
+
+      // Handle Date
+      if (obj instanceof Date) return obj.toISOString()
+
+      // Handle RegExp
+      if (obj instanceof RegExp) return obj.toString()
+
+      // Handle Map
+      if (obj instanceof Map) {
+        const mapObj: Record<string, unknown> = {}
+        for (const [key, val] of obj) {
+          const keyStr = typeof key === 'string' ? key : String(key)
+          mapObj[keyStr] = serialize(val, depth + 1)
+        }
+        return { __type: 'Map', entries: mapObj }
+      }
+
+      // Handle Set
+      if (obj instanceof Set) {
+        return { __type: 'Set', values: Array.from(obj).map(v => serialize(v, depth + 1)) }
+      }
+
+      // Handle Arrays
+      if (Array.isArray(obj)) {
+        return obj.map(item => serialize(item, depth + 1))
+      }
+
+      // Handle plain objects
+      const result: Record<string, unknown> = {}
+      for (const key of Object.keys(obj)) {
+        result[key] = serialize((obj as Record<string, unknown>)[key], depth + 1)
+      }
+      return result
+    }
+
+    return String(obj)
+  }
+
+  return serialize(value, 0)
+}
+
 export default safeStringify

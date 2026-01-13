@@ -20,6 +20,7 @@ import {
   suggestMigration,
   DEFAULT_POLICIES,
   createSchema,
+  formatSchemaDiff,
   type DataContract,
   type CompatibilityMode,
   type EvolutionPolicy,
@@ -962,6 +963,164 @@ describe('SchemaEvolution', () => {
 
       expect(result.allowed).toBe(false)
       expect(result.breakingChanges.some((c) => c.includes('value'))).toBe(true)
+    })
+  })
+
+  // ============================================================================
+  // SCHEMA DIFF VISUALIZATION TESTS
+  // ============================================================================
+
+  describe('schema diff visualization', () => {
+    it('should format added fields with + prefix', () => {
+      const oldSchema = createTestContract('user', '1.0.0', { id: { type: 'string' } }, ['id'])
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          email: { type: 'string' },
+          phone: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const evolution = createSchemaEvolution('none')
+      const result = evolution.checkCompatibility(oldSchema, newSchema)
+      const formatted = formatSchemaDiff(result)
+
+      expect(formatted).toContain('+ email')
+      expect(formatted).toContain('+ phone')
+    })
+
+    it('should format removed fields with - prefix', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          deprecated: { type: 'string' },
+          oldField: { type: 'number' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const evolution = createSchemaEvolution('none')
+      const result = evolution.checkCompatibility(oldSchema, newSchema)
+      const formatted = formatSchemaDiff(result)
+
+      expect(formatted).toContain('- deprecated')
+      expect(formatted).toContain('- oldField')
+    })
+
+    it('should format type changes with ~ prefix', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          score: { type: 'number' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          score: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const evolution = createSchemaEvolution('none')
+      const result = evolution.checkCompatibility(oldSchema, newSchema)
+      const formatted = formatSchemaDiff(result)
+
+      expect(formatted).toContain('~ score')
+      expect(formatted).toContain('number')
+      expect(formatted).toContain('string')
+    })
+
+    it('should show summary statistics', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          age: { type: 'number' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          email: { type: 'string' },
+          age: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const evolution = createSchemaEvolution('none')
+      const result = evolution.checkCompatibility(oldSchema, newSchema)
+      const formatted = formatSchemaDiff(result)
+
+      // Should show counts
+      expect(formatted).toMatch(/added.*1/i)
+      expect(formatted).toMatch(/removed.*1/i)
+      expect(formatted).toMatch(/changed.*1/i)
+    })
+
+    it('should show breaking changes clearly', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          email: { type: 'string' },
+        },
+        ['id', 'email']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const evolution = createSchemaEvolution('backward')
+      const result = evolution.checkCompatibility(oldSchema, newSchema)
+      const formatted = formatSchemaDiff(result)
+
+      expect(formatted).toMatch(/breaking/i)
+      expect(formatted).toContain('email')
+    })
+
+    it('should handle empty diff gracefully', () => {
+      const schema = createTestContract('user', '1.0.0', { id: { type: 'string' } }, ['id'])
+
+      const evolution = createSchemaEvolution('backward')
+      const result = evolution.checkCompatibility(schema, schema)
+      const formatted = formatSchemaDiff(result)
+
+      expect(formatted).toMatch(/no changes/i)
     })
   })
 })

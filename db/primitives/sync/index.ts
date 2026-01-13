@@ -128,3 +128,30 @@ export {
   type ExecutionContext,
   type RetryBatchResult,
 } from './retry-executor'
+
+// =============================================================================
+// HEARTBEAT, RECONNECTION, AND STATE SYNCHRONIZATION
+// =============================================================================
+
+export {
+  createHeartbeatMonitor,
+  createReconnectionManager,
+  createStateSynchronizer,
+  type HeartbeatMonitor,
+  type HeartbeatConfig,
+  type HeartbeatState,
+  type PingEvent,
+  type TimeoutEvent,
+  type PongMessage,
+  type ReconnectionManager,
+  type ReconnectionConfig,
+  type ReconnectionState,
+  type AttemptEvent,
+  type ExhaustedEvent,
+  type StateSynchronizer,
+  type SyncState,
+  type PendingMutation,
+  type StateSyncResult,
+  type StateDiff,
+  type SubscriptionEntry,
+} from './heartbeat'

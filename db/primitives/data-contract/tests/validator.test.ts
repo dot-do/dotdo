@@ -24,6 +24,9 @@ import {
   type BatchValidationResult,
   type CustomValidator,
   type CustomValidationRule,
+  type StreamValidationResult,
+  type StreamValidationSummary,
+  type StreamValidationOptions,
 } from '../validator'
 import { createSchema, type DataContract } from '../index'
 
@@ -1481,6 +1484,319 @@ describe('ContractValidator', () => {
       expect(passedCount).toBeGreaterThan(800)
       expect(failedCount).toBeGreaterThan(50)
       expect(failedCount).toBeLessThan(200)
+    })
+  })
+
+  // ============================================================================
+  // STREAMING VALIDATION
+  // ============================================================================
+
+  describe('streaming validation', () => {
+    let contract: DataContract
+
+    beforeEach(() => {
+      contract = createUserContract()
+    })
+
+    /**
+     * Helper to create an async generator from an array
+     */
+    async function* asyncGenerator<T>(items: T[]): AsyncGenerator<T> {
+      for (const item of items) {
+        yield item
+      }
+    }
+
+    /**
+     * Helper to collect all results from an async generator
+     */
+    async function collectResults<T>(
+      generator: AsyncGenerator<StreamValidationResult<T>, StreamValidationSummary, undefined>
+    ): Promise<{ results: StreamValidationResult<T>[]; summary: StreamValidationSummary }> {
+      const results: StreamValidationResult<T>[] = []
+      let iterResult = await generator.next()
+      while (!iterResult.done) {
+        results.push(iterResult.value)
+        iterResult = await generator.next()
+      }
+      return { results, summary: iterResult.value }
+    }
+
+    describe('validateStream', () => {
+      it('should validate records from an async iterable', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'user2@example.com' },
+          { id: 'user-3', email: 'user3@example.com' },
+        ])
+
+        const { results, summary } = await collectResults(validator.validateStream(records))
+
+        expect(results).toHaveLength(3)
+        expect(results.every((r) => r.valid)).toBe(true)
+        expect(summary.totalRecords).toBe(3)
+        expect(summary.validRecords).toBe(3)
+        expect(summary.invalidRecords).toBe(0)
+      })
+
+      it('should validate records from a sync iterable', async () => {
+        const validator = createValidator(contract)
+
+        const records = [
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'user2@example.com' },
+        ]
+
+        const { results, summary } = await collectResults(validator.validateStream(records))
+
+        expect(results).toHaveLength(2)
+        expect(summary.validRecords).toBe(2)
+      })
+
+      it('should track valid and invalid records separately', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'invalid' }, // invalid
+          { id: 'user-3', email: 'user3@example.com' },
+        ])
+
+        const { results, summary } = await collectResults(validator.validateStream(records))
+
+        expect(results).toHaveLength(3)
+        expect(results[0].valid).toBe(true)
+        expect(results[1].valid).toBe(false)
+        expect(results[2].valid).toBe(true)
+        expect(summary.validRecords).toBe(2)
+        expect(summary.invalidRecords).toBe(1)
+      })
+
+      it('should include index in each result', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'user2@example.com' },
+        ])
+
+        const { results } = await collectResults(validator.validateStream(records))
+
+        expect(results[0].index).toBe(0)
+        expect(results[1].index).toBe(1)
+      })
+
+      it('should support abort signal for early termination', async () => {
+        const validator = createValidator(contract)
+        const abortController = new AbortController()
+
+        let recordsProcessed = 0
+        async function* infiniteGenerator() {
+          while (true) {
+            recordsProcessed++
+            yield { id: `user-${recordsProcessed}`, email: `user${recordsProcessed}@example.com` }
+            if (recordsProcessed >= 5) {
+              abortController.abort()
+            }
+          }
+        }
+
+        const { results } = await collectResults(
+          validator.validateStream(infiniteGenerator(), { signal: abortController.signal })
+        )
+
+        // Should stop around 5-6 records due to abort
+        expect(results.length).toBeLessThanOrEqual(6)
+        expect(results.length).toBeGreaterThanOrEqual(5)
+      })
+
+      it('should support maxErrors for early termination', async () => {
+        const validator = createValidator(contract, { maxErrors: 2 })
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'invalid1' },
+          { id: 'user-2', email: 'invalid2' },
+          { id: 'user-3', email: 'invalid3' }, // should not be validated
+          { id: 'user-4', email: 'invalid4' }, // should not be validated
+        ])
+
+        const { results, summary } = await collectResults(validator.validateStream(records))
+
+        expect(results.length).toBe(2) // early termination after 2 errors
+        expect(summary.invalidRecords).toBe(2)
+      })
+
+      it('should support sample mode', async () => {
+        const validator = createValidator(contract, {
+          strictness: 'sample',
+          sampleRate: 0.3, // 30% sample rate
+        })
+
+        const records = asyncGenerator(
+          Array.from({ length: 100 }, (_, i) => ({
+            id: `user-${i}`,
+            email: 'invalid', // Would fail if validated
+          }))
+        )
+
+        const { results, summary } = await collectResults(validator.validateStream(records))
+
+        expect(results).toHaveLength(100)
+        expect(summary.skippedRecords).toBeGreaterThan(50) // ~70 should be skipped
+        expect(summary.skippedRecords).toBeLessThan(90)
+        expect(summary.invalidRecords).toBeGreaterThan(10) // ~30 should fail validation
+      })
+
+      it('should handle empty streams', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator<unknown>([])
+
+        const { results, summary } = await collectResults(validator.validateStream(records))
+
+        expect(results).toHaveLength(0)
+        expect(summary.totalRecords).toBe(0)
+      })
+
+      it('should provide timing information', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'user2@example.com' },
+        ])
+
+        const { summary } = await collectResults(validator.validateStream(records))
+
+        expect(summary.timing).toBeDefined()
+        expect(summary.timing.totalMs).toBeGreaterThanOrEqual(0)
+        expect(summary.timing.avgPerRecordMs).toBeGreaterThanOrEqual(0)
+      })
+    })
+
+    describe('validateStreamToBatch', () => {
+      it('should return batch result from streaming validation', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'invalid' },
+          { id: 'user-3', email: 'user3@example.com' },
+        ])
+
+        const result = await validator.validateStreamToBatch(records)
+
+        expect(result.totalRecords).toBe(3)
+        expect(result.validRecords).toBe(2)
+        expect(result.invalidRecords).toBe(1)
+        expect(result.results).toHaveLength(3)
+        expect(result.errors).toHaveLength(1)
+        expect(result.errors[0].index).toBe(1)
+      })
+
+      it('should work with sync iterables', async () => {
+        const validator = createValidator(contract)
+
+        const records = [
+          { id: 'user-1', email: 'user1@example.com' },
+          { id: 'user-2', email: 'user2@example.com' },
+        ]
+
+        const result = await validator.validateStreamToBatch(records)
+
+        expect(result.totalRecords).toBe(2)
+        expect(result.validRecords).toBe(2)
+      })
+
+      it('should track skipped records in sample mode', async () => {
+        const validator = createValidator(contract, {
+          strictness: 'sample',
+          sampleRate: 0.5,
+        })
+
+        const records = asyncGenerator(
+          Array.from({ length: 100 }, (_, i) => ({
+            id: `user-${i}`,
+            email: `user${i}@example.com`,
+          }))
+        )
+
+        const result = await validator.validateStreamToBatch(records)
+
+        expect(result.totalRecords).toBe(100)
+        expect(result.skippedRecords).toBeGreaterThan(30)
+        expect(result.skippedRecords).toBeLessThan(70)
+      })
+    })
+
+    describe('streaming performance', () => {
+      it('should handle large streams memory efficiently', async () => {
+        const validator = createValidator(contract)
+
+        // Create a generator that produces records on-demand
+        // This simulates streaming from a database or API
+        async function* largeStream() {
+          for (let i = 0; i < 10000; i++) {
+            yield { id: `user-${i}`, email: `user${i}@example.com` }
+          }
+        }
+
+        const startTime = performance.now()
+        const { summary } = await collectResults(validator.validateStream(largeStream()))
+        const elapsed = performance.now() - startTime
+
+        expect(summary.totalRecords).toBe(10000)
+        expect(summary.validRecords).toBe(10000)
+        // Should complete in reasonable time (< 5 seconds for 10k records)
+        expect(elapsed).toBeLessThan(5000)
+        // Average should be under 1ms per record
+        expect(summary.timing.avgPerRecordMs).toBeLessThan(1)
+      })
+
+      it('should support chunked processing for better throughput', async () => {
+        const validator = createValidator(contract)
+
+        const records = asyncGenerator(
+          Array.from({ length: 100 }, (_, i) => ({
+            id: `user-${i}`,
+            email: `user${i}@example.com`,
+          }))
+        )
+
+        // Process in chunks of 10
+        const { summary } = await collectResults(
+          validator.validateStream(records, { chunkSize: 10 })
+        )
+
+        expect(summary.totalRecords).toBe(100)
+        expect(summary.validRecords).toBe(100)
+      })
+    })
+
+    describe('streaming with dead-letter queue', () => {
+      it('should send invalid records to dead-letter queue during streaming', async () => {
+        const deadLetterQueue: DeadLetterQueue = {
+          send: vi.fn(),
+        }
+
+        const validator = createValidator(contract, {
+          onError: 'dead-letter',
+          deadLetterQueue,
+        })
+
+        const records = asyncGenerator([
+          { id: 'user-1', email: 'valid@example.com' },
+          { id: 'user-2', email: 'invalid' },
+          { id: 'user-3', email: 'valid2@example.com' },
+        ])
+
+        const { summary } = await collectResults(validator.validateStream(records))
+
+        expect(summary.invalidRecords).toBe(1)
+        expect(deadLetterQueue.send).toHaveBeenCalledTimes(1)
+      })
     })
   })
 })

@@ -1000,6 +1000,7 @@ export {
   isFullyCompatible,
   detectBreakingChanges,
   suggestMigration,
+  formatSchemaDiff,
   DEFAULT_POLICIES,
 } from './evolution'
 
@@ -1032,4 +1033,7 @@ export type {
   BatchValidationResult,
   CustomValidator,
   CustomValidationRule,
+  StreamValidationResult,
+  StreamValidationSummary,
+  StreamValidationOptions,
 } from './validator'

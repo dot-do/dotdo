@@ -874,3 +874,579 @@ export class InMemoryDiskBuffer<T> implements DiskBuffer<T> {
 export function createInMemoryDiskBuffer<T>(): DiskBuffer<T> {
   return new InMemoryDiskBuffer<T>()
 }
+
+// =============================================================================
+// FLOW STATE ENUM
+// =============================================================================
+
+/**
+ * State of the flow controller
+ */
+export enum FlowState {
+  /** Normal operation, accepting events */
+  FLOWING = 'FLOWING',
+  /** Paused due to buffer pressure */
+  PAUSED = 'PAUSED',
+}
+
+// =============================================================================
+// FLOW CONTROLLER
+// =============================================================================
+
+/**
+ * Options for FlowController
+ */
+export interface FlowControllerOptions<T> {
+  /** Buffer size threshold to trigger pause */
+  highWatermark: number
+  /** Buffer size threshold to trigger resume */
+  lowWatermark: number
+  /** Maximum buffer size (events beyond this are handled by overflowStrategy) */
+  maxBufferSize?: number
+  /** Strategy for handling overflow */
+  overflowStrategy?: OverflowStrategy
+  /** Callback when state changes */
+  onStateChange?: (state: FlowState) => void
+  /** Callback when events are dropped */
+  onDrop?: (event: T) => void
+  /** BackpressureSignal for upstream coordination */
+  backpressureSignal?: BackpressureSignal
+}
+
+/**
+ * Statistics for FlowController
+ */
+export interface FlowControllerStats {
+  totalPushed: number
+  totalPulled: number
+  droppedCount: number
+  pauseCount: number
+  resumeCount: number
+  maxBufferSizeReached: number
+}
+
+/**
+ * FlowController with watermark-based flow control
+ */
+export class FlowController<T> {
+  private readonly options: FlowControllerOptions<T>
+  private readonly buffer: T[] = []
+  private state: FlowState = FlowState.FLOWING
+  private stats: FlowControllerStats = {
+    totalPushed: 0,
+    totalPulled: 0,
+    droppedCount: 0,
+    pauseCount: 0,
+    resumeCount: 0,
+    maxBufferSizeReached: 0,
+  }
+  private waitResolvers: Array<() => void> = []
+
+  constructor(options: FlowControllerOptions<T>) {
+    // Validate watermarks
+    if (options.lowWatermark >= options.highWatermark) {
+      throw new Error('lowWatermark must be less than highWatermark')
+    }
+    if (options.lowWatermark < 0 || options.highWatermark < 0) {
+      throw new Error('Watermarks must be positive')
+    }
+
+    this.options = {
+      overflowStrategy: OverflowStrategy.BLOCK,
+      ...options,
+    }
+  }
+
+  getHighWatermark(): number {
+    return this.options.highWatermark
+  }
+
+  getLowWatermark(): number {
+    return this.options.lowWatermark
+  }
+
+  getState(): FlowState {
+    return this.state
+  }
+
+  isFlowing(): boolean {
+    return this.state === FlowState.FLOWING
+  }
+
+  getBufferSize(): number {
+    return this.buffer.length
+  }
+
+  getBufferUtilization(): number {
+    return (this.buffer.length / this.options.highWatermark) * 100
+  }
+
+  getStats(): FlowControllerStats {
+    return { ...this.stats }
+  }
+
+  peek(): T | undefined {
+    return this.buffer[0]
+  }
+
+  async push(event: T): Promise<void> {
+    const maxBuffer = this.options.maxBufferSize ?? Number.MAX_SAFE_INTEGER
+
+    // Handle overflow strategies
+    if (this.buffer.length >= maxBuffer) {
+      switch (this.options.overflowStrategy) {
+        case OverflowStrategy.BLOCK:
+          // Wait for space
+          await this.waitForSpace()
+          break
+
+        case OverflowStrategy.DROP_OLDEST:
+          const dropped = this.buffer.shift()
+          if (dropped) {
+            this.stats.droppedCount++
+            if (this.options.onDrop) {
+              this.options.onDrop(dropped)
+            }
+          }
+          break
+
+        case OverflowStrategy.DROP_NEWEST:
+          this.stats.droppedCount++
+          if (this.options.onDrop) {
+            this.options.onDrop(event)
+          }
+          return // Don't add the event
+
+        case OverflowStrategy.SAMPLE:
+          // For sample, we'll just drop
+          this.stats.droppedCount++
+          return
+
+        default:
+          // ERROR strategy
+          throw new Error('Buffer overflow: maximum buffer size exceeded')
+      }
+    }
+
+    this.buffer.push(event)
+    this.stats.totalPushed++
+
+    // Track max buffer size
+    if (this.buffer.length > this.stats.maxBufferSizeReached) {
+      this.stats.maxBufferSizeReached = this.buffer.length
+    }
+
+    // Check if we need to pause
+    if (this.buffer.length >= this.options.highWatermark && this.state === FlowState.FLOWING) {
+      this.transition(FlowState.PAUSED)
+    }
+  }
+
+  private waitForSpace(): Promise<void> {
+    const maxBuffer = this.options.maxBufferSize ?? Number.MAX_SAFE_INTEGER
+    if (this.buffer.length < maxBuffer) {
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
+      this.waitResolvers.push(resolve)
+    })
+  }
+
+  private notifyWaiters(): void {
+    const maxBuffer = this.options.maxBufferSize ?? Number.MAX_SAFE_INTEGER
+    while (this.waitResolvers.length > 0 && this.buffer.length < maxBuffer) {
+      const resolve = this.waitResolvers.shift()
+      if (resolve) resolve()
+    }
+  }
+
+  async pull(): Promise<T | undefined> {
+    const event = this.buffer.shift()
+
+    if (event !== undefined) {
+      this.stats.totalPulled++
+
+      // Check if we should resume
+      if (this.buffer.length <= this.options.lowWatermark && this.state === FlowState.PAUSED) {
+        this.transition(FlowState.FLOWING)
+      }
+
+      // Notify waiting pushers
+      this.notifyWaiters()
+    }
+
+    return event
+  }
+
+  async pullBatch(count: number): Promise<T[]> {
+    const batch: T[] = []
+    for (let i = 0; i < count && this.buffer.length > 0; i++) {
+      const event = this.buffer.shift()
+      if (event !== undefined) {
+        batch.push(event)
+        this.stats.totalPulled++
+      }
+    }
+
+    // Check if we should resume
+    if (this.buffer.length <= this.options.lowWatermark && this.state === FlowState.PAUSED) {
+      this.transition(FlowState.FLOWING)
+    }
+
+    // Notify waiting pushers
+    this.notifyWaiters()
+
+    return batch
+  }
+
+  clear(): void {
+    this.buffer.length = 0
+    if (this.state === FlowState.PAUSED) {
+      this.transition(FlowState.FLOWING)
+    }
+    this.notifyWaiters()
+  }
+
+  private transition(newState: FlowState): void {
+    if (this.state === newState) return
+
+    const oldState = this.state
+    this.state = newState
+
+    if (newState === FlowState.PAUSED) {
+      this.stats.pauseCount++
+      if (this.options.backpressureSignal) {
+        this.options.backpressureSignal.pause()
+      }
+    } else if (newState === FlowState.FLOWING && oldState === FlowState.PAUSED) {
+      this.stats.resumeCount++
+      if (this.options.backpressureSignal) {
+        this.options.backpressureSignal.resume()
+      }
+    }
+
+    if (this.options.onStateChange) {
+      this.options.onStateChange(newState)
+    }
+  }
+}
+
+/**
+ * Create a FlowController instance
+ */
+export function createFlowController<T>(options: FlowControllerOptions<T>): FlowController<T> {
+  return new FlowController<T>(options)
+}
+
+// =============================================================================
+// ADAPTIVE BATCHER
+// =============================================================================
+
+/**
+ * Options for AdaptiveBatcher
+ */
+export interface AdaptiveBatcherOptions<T> {
+  /** Initial batch size */
+  initialBatchSize: number
+  /** Minimum batch size */
+  minBatchSize: number
+  /** Maximum batch size */
+  maxBatchSize: number
+  /** Target latency for batch processing (ms) */
+  targetLatencyMs?: number
+  /** Timeout before forcing batch emission (ms) */
+  batchTimeoutMs?: number
+  /** Smoothing factor for exponential moving average (0-1) */
+  smoothingFactor?: number
+  /** Memory pressure threshold (0-1) */
+  memoryPressureThreshold?: number
+  /** Function to get current memory pressure (0-1) */
+  getMemoryPressure?: () => number
+  /** Handler for completed batches */
+  onBatch?: (batch: T[]) => Promise<void>
+}
+
+/**
+ * Statistics for AdaptiveBatcher
+ */
+export interface AdaptiveBatcherStats {
+  eventsPerSecond: number
+  avgBatchProcessingTimeMs: number
+  batchSizeHistory: number[]
+  totalEventsProcessed: number
+  totalBatchesProcessed: number
+}
+
+/**
+ * AdaptiveBatcher that adjusts batch size based on throughput
+ */
+export class AdaptiveBatcher<T> {
+  private readonly options: AdaptiveBatcherOptions<T>
+  private currentBatchSize: number
+  private buffer: T[] = []
+  private batchTimer: ReturnType<typeof setTimeout> | null = null
+  private stats: AdaptiveBatcherStats = {
+    eventsPerSecond: 0,
+    avgBatchProcessingTimeMs: 0,
+    batchSizeHistory: [],
+    totalEventsProcessed: 0,
+    totalBatchesProcessed: 0,
+  }
+  private totalProcessingTimeMs: number = 0
+  private processingStartTime: number = Date.now()
+
+  constructor(options: AdaptiveBatcherOptions<T>) {
+    this.options = {
+      smoothingFactor: 0.2,
+      ...options,
+    }
+    this.currentBatchSize = options.initialBatchSize
+  }
+
+  getCurrentBatchSize(): number {
+    return this.currentBatchSize
+  }
+
+  getStats(): AdaptiveBatcherStats {
+    const elapsedSeconds = (Date.now() - this.processingStartTime) / 1000
+    return {
+      ...this.stats,
+      eventsPerSecond: elapsedSeconds > 0 ? this.stats.totalEventsProcessed / elapsedSeconds : 0,
+      avgBatchProcessingTimeMs:
+        this.stats.totalBatchesProcessed > 0
+          ? this.totalProcessingTimeMs / this.stats.totalBatchesProcessed
+          : 0,
+    }
+  }
+
+  async add(event: T): Promise<void> {
+    this.buffer.push(event)
+
+    // Check for memory pressure
+    if (this.options.getMemoryPressure && this.options.memoryPressureThreshold) {
+      const pressure = this.options.getMemoryPressure()
+      if (pressure > this.options.memoryPressureThreshold) {
+        this.adjustBatchSize(this.currentBatchSize * 0.8) // Reduce by 20%
+      }
+    }
+
+    // Start timeout timer if configured
+    if (this.options.batchTimeoutMs && !this.batchTimer) {
+      this.batchTimer = setTimeout(() => this.flushInternal(), this.options.batchTimeoutMs)
+    }
+
+    // Check if we should emit a batch
+    if (this.buffer.length >= this.currentBatchSize) {
+      await this.flushInternal()
+    }
+  }
+
+  async flush(): Promise<void> {
+    if (this.batchTimer) {
+      clearTimeout(this.batchTimer)
+      this.batchTimer = null
+    }
+
+    while (this.buffer.length > 0) {
+      await this.flushInternal()
+    }
+  }
+
+  private async flushInternal(): Promise<void> {
+    if (this.batchTimer) {
+      clearTimeout(this.batchTimer)
+      this.batchTimer = null
+    }
+
+    if (this.buffer.length === 0) return
+
+    const batch = this.buffer.splice(0, this.currentBatchSize)
+    const batchSize = batch.length
+    this.stats.batchSizeHistory.push(batchSize)
+
+    if (this.options.onBatch) {
+      const startTime = performance.now()
+      await this.options.onBatch(batch)
+      const processingTime = performance.now() - startTime
+      this.totalProcessingTimeMs += processingTime
+
+      // Adapt batch size based on latency
+      if (this.options.targetLatencyMs) {
+        if (processingTime < this.options.targetLatencyMs * 0.8) {
+          // Processing fast, increase batch size
+          this.adjustBatchSize(this.currentBatchSize * 1.1)
+        } else if (processingTime > this.options.targetLatencyMs * 1.2) {
+          // Processing slow, decrease batch size
+          this.adjustBatchSize(this.currentBatchSize * 0.9)
+        }
+      }
+    }
+
+    this.stats.totalEventsProcessed += batchSize
+    this.stats.totalBatchesProcessed++
+  }
+
+  private adjustBatchSize(newSize: number): void {
+    const smoothingFactor = this.options.smoothingFactor ?? 0.2
+
+    // Apply exponential moving average for smooth adjustment
+    const smoothedSize = this.currentBatchSize * (1 - smoothingFactor) + newSize * smoothingFactor
+
+    // Clamp to min/max bounds
+    this.currentBatchSize = Math.max(
+      this.options.minBatchSize,
+      Math.min(this.options.maxBatchSize, Math.round(smoothedSize))
+    )
+  }
+}
+
+/**
+ * Create an AdaptiveBatcher instance
+ */
+export function createAdaptiveBatcher<T>(options: AdaptiveBatcherOptions<T>): AdaptiveBatcher<T> {
+  return new AdaptiveBatcher<T>(options)
+}
+
+// =============================================================================
+// BACKPRESSURE SIGNAL
+// =============================================================================
+
+/**
+ * Backpressure callback type
+ */
+export type BackpressureCallback = () => void | Promise<void>
+
+/**
+ * Options for BackpressureSignal
+ */
+export interface BackpressureSignalOptions {
+  /** Mode: 'simple' for pause/resume, 'credit' for credit-based, 'rate' for rate limiting */
+  mode?: 'simple' | 'credit' | 'rate'
+  /** Initial credits (for credit mode) */
+  initialCredits?: number
+  /** Max events per second (for rate mode) */
+  maxEventsPerSecond?: number
+  /** Callback when paused */
+  onPause?: BackpressureCallback
+  /** Callback when resumed */
+  onResume?: BackpressureCallback
+  /** Callback when throttled (rate mode) */
+  onThrottle?: BackpressureCallback
+}
+
+/**
+ * BackpressureSignal for upstream coordination
+ */
+export class BackpressureSignal {
+  private readonly options: BackpressureSignalOptions
+  private paused: boolean = false
+  private credits: number = 0
+  private eventTimestamps: number[] = []
+
+  constructor(options: BackpressureSignalOptions = {}) {
+    this.options = {
+      mode: 'simple',
+      ...options,
+    }
+
+    if (options.initialCredits !== undefined) {
+      this.credits = options.initialCredits
+    }
+  }
+
+  isPaused(): boolean {
+    return this.paused
+  }
+
+  async pause(): Promise<void> {
+    if (this.paused) return
+
+    this.paused = true
+    if (this.options.onPause) {
+      await this.options.onPause()
+    }
+  }
+
+  async resume(): Promise<void> {
+    if (!this.paused) return
+
+    this.paused = false
+    if (this.options.onResume) {
+      await this.options.onResume()
+    }
+  }
+
+  // Credit-based flow control
+  getCredits(): number {
+    return this.credits
+  }
+
+  consumeCredit(count: number = 1): void {
+    this.credits = Math.max(0, this.credits - count)
+    if (this.credits === 0 && !this.paused) {
+      this.pause()
+    }
+  }
+
+  grantCredits(count: number): void {
+    const wasZero = this.credits === 0
+    this.credits += count
+    if (wasZero && this.credits > 0 && this.paused) {
+      this.resume()
+    }
+  }
+
+  // Rate-based flow control
+  getMaxEventsPerSecond(): number {
+    return this.options.maxEventsPerSecond ?? 0
+  }
+
+  recordEvent(): void {
+    const now = Date.now()
+    this.eventTimestamps.push(now)
+
+    // Clean old timestamps (older than 1 second)
+    const oneSecondAgo = now - 1000
+    this.eventTimestamps = this.eventTimestamps.filter((t) => t > oneSecondAgo)
+
+    // Check if rate exceeded
+    if (
+      this.options.maxEventsPerSecond &&
+      this.eventTimestamps.length > this.options.maxEventsPerSecond
+    ) {
+      if (this.options.onThrottle) {
+        this.options.onThrottle()
+      }
+    }
+  }
+
+  getWaitTimeMs(): number {
+    if (!this.options.maxEventsPerSecond) return 0
+
+    const now = Date.now()
+    const oneSecondAgo = now - 1000
+
+    // Count events in last second
+    const recentEvents = this.eventTimestamps.filter((t) => t > oneSecondAgo).length
+
+    if (recentEvents <= this.options.maxEventsPerSecond) {
+      return 0
+    }
+
+    // Calculate wait time based on oldest event in window
+    const oldestInWindow = this.eventTimestamps.find((t) => t > oneSecondAgo)
+    if (oldestInWindow) {
+      return 1000 - (now - oldestInWindow)
+    }
+
+    return 100 // Default wait
+  }
+}
+
+/**
+ * Create a BackpressureSignal instance
+ */
+export function createBackpressureSignal(options?: BackpressureSignalOptions): BackpressureSignal {
+  return new BackpressureSignal(options)
+}

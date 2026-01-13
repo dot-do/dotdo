@@ -177,7 +177,7 @@ describe('aggregateText', () => {
   })
 
   it('should count words', async () => {
-    const result = await aggregateText(['Hello World', 'How are you'])
+    const result = await aggregateText(['Hello World', 'How are you'], { separator: ' ' })
     expect(result.wordCount).toBe(5)
   })
 

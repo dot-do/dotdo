@@ -8,7 +8,10 @@ import { defineConfig } from 'tsup'
  * and pipelining internally, so we only need to build the main entry point.
  */
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: {
+    index: 'src/index.ts',
+    auth: 'src/auth.ts',
+  },
   format: ['esm', 'cjs'],
   dts: true,
   sourcemap: true,

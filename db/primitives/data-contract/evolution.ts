@@ -66,6 +66,8 @@ export interface EvolutionResult {
   suggestedFixes: SuggestedFix[]
   breakingChanges: string[]
   warnings: string[]
+  /** Schema diff details for visualization */
+  diff: SchemaDiff
 }
 
 /**
@@ -249,14 +251,15 @@ export class SchemaEvolution {
           autoFixable: false,
         })
       } else if (!this.policy.allowFieldRemoval) {
+        // In forward/full mode, removing optional fields is a breaking change
         const violation: PolicyViolation = {
-          type: 'policy_violation',
+          type: 'breaking_change',
           field,
-          message: `Optional field '${field}' was removed (not allowed by policy)`,
+          message: `Optional field '${field}' was removed (not allowed by ${this.policy.mode} compatibility mode)`,
           rule: 'no_field_removal',
         }
         violations.push(violation)
-        warnings.push(violation.message)
+        breakingChanges.push(violation.message)
       } else {
         warnings.push(`Optional field '${field}' was removed`)
       }
@@ -376,6 +379,7 @@ export class SchemaEvolution {
       suggestedFixes,
       breakingChanges,
       warnings,
+      diff,
     }
   }
 
@@ -756,4 +760,108 @@ export function suggestMigration(
   const evolution = new SchemaEvolution('full')
   const result = evolution.checkCompatibility(oldSchema, newSchema)
   return result.suggestedFixes
+}
+
+// ============================================================================
+// SCHEMA DIFF VISUALIZATION
+// ============================================================================
+
+/**
+ * Format an EvolutionResult as a human-readable diff visualization
+ *
+ * Uses git-like prefixes:
+ * + for added fields
+ * - for removed fields
+ * ~ for changed fields (type changes)
+ */
+export function formatSchemaDiff(result: EvolutionResult): string {
+  const { diff, breakingChanges, warnings } = result
+  const lines: string[] = []
+
+  // Check if there are any changes
+  const hasChanges =
+    diff.addedFields.length > 0 ||
+    diff.removedFields.length > 0 ||
+    diff.changedTypes.length > 0 ||
+    diff.changedRequired.length > 0
+
+  if (!hasChanges) {
+    return 'No changes detected.'
+  }
+
+  // Header
+  lines.push('Schema Diff')
+  lines.push('===========')
+  lines.push('')
+
+  // Added fields
+  if (diff.addedFields.length > 0) {
+    lines.push('Added Fields:')
+    for (const field of diff.addedFields) {
+      lines.push(`  + ${field}`)
+    }
+    lines.push('')
+  }
+
+  // Removed fields
+  if (diff.removedFields.length > 0) {
+    lines.push('Removed Fields:')
+    for (const field of diff.removedFields) {
+      lines.push(`  - ${field}`)
+    }
+    lines.push('')
+  }
+
+  // Type changes
+  if (diff.changedTypes.length > 0) {
+    lines.push('Type Changes:')
+    for (const change of diff.changedTypes) {
+      lines.push(`  ~ ${change.field}: ${change.from} -> ${change.to}`)
+    }
+    lines.push('')
+  }
+
+  // Required changes
+  if (diff.changedRequired.length > 0) {
+    lines.push('Required Changes:')
+    for (const change of diff.changedRequired) {
+      const status = change.isRequired ? 'optional -> required' : 'required -> optional'
+      lines.push(`  ~ ${change.field}: ${status}`)
+    }
+    lines.push('')
+  }
+
+  // Summary
+  lines.push('Summary:')
+  lines.push(`  Added:   ${diff.addedFields.length}`)
+  lines.push(`  Removed: ${diff.removedFields.length}`)
+  lines.push(`  Changed: ${diff.changedTypes.length + diff.changedRequired.length}`)
+  lines.push('')
+
+  // Breaking changes
+  if (breakingChanges.length > 0) {
+    lines.push('Breaking Changes:')
+    for (const change of breakingChanges) {
+      lines.push(`  ! ${change}`)
+    }
+    lines.push('')
+  }
+
+  // Warnings
+  if (warnings.length > 0) {
+    lines.push('Warnings:')
+    for (const warning of warnings) {
+      lines.push(`  * ${warning}`)
+    }
+    lines.push('')
+  }
+
+  // Status
+  if (result.allowed) {
+    lines.push('Status: ALLOWED')
+  } else {
+    lines.push('Status: BLOCKED (breaking changes detected)')
+  }
+
+  return lines.join('\n')
 }
