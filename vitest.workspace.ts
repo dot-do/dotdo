@@ -102,8 +102,8 @@ export default defineWorkspace([
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts']),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
@@ -147,6 +147,9 @@ export default defineWorkspace([
         ...(nodeResolveConfig?.alias || {}),
         '@dotdo/client': resolve(PROJECT_ROOT, 'packages/client/src/index.ts'),
         '@dotdo/react': resolve(PROJECT_ROOT, 'packages/react/src/index.ts'),
+        // App-specific aliases (match app/tsconfig.json paths)
+        '~': resolve(PROJECT_ROOT, 'app'),
+        '@': resolve(PROJECT_ROOT, 'app'),
       },
     },
   },
@@ -432,6 +435,9 @@ export default defineWorkspace([
 
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
+
+  // Roles system tests (job functions with OKRs and capabilities)
+  createNodeWorkspace('roles', ['roles/**/*.test.ts']),
 
   // Agent tool adapters (Read, Write, Edit, Glob, Grep, Bash for Workers)
   createNodeWorkspace('agent-tools', ['lib/agent/tools/tests/**/*.test.ts']),

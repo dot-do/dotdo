@@ -27,7 +27,7 @@ describe('OAuth Login Redirect', () => {
     it('should call buildAuthUrl with correct redirectUri', async () => {
       // This import will fail until the module is created
       // RED phase: this test defines the expected API
-      const { handleLogin } = await import('../../routes/login')
+      const { handleLogin } = await import('../../routes/login-handler')
 
       // Create mock request
       const mockRequest = new Request('http://localhost:3000/login')
@@ -42,7 +42,7 @@ describe('OAuth Login Redirect', () => {
     })
 
     it('should redirect to oauth.do authorize URL', async () => {
-      const { handleLogin } = await import('../../routes/login')
+      const { handleLogin } = await import('../../routes/login-handler')
       const mockRequest = new Request('http://localhost:3000/login')
 
       // Execute
@@ -55,7 +55,7 @@ describe('OAuth Login Redirect', () => {
     })
 
     it('should pass default scope to buildAuthUrl', async () => {
-      const { handleLogin } = await import('../../routes/login')
+      const { handleLogin } = await import('../../routes/login-handler')
       const mockRequest = new Request('http://localhost:3000/login')
 
       const response = await handleLogin(mockRequest)
@@ -66,7 +66,7 @@ describe('OAuth Login Redirect', () => {
     })
 
     it('should include profile and email scopes by default', async () => {
-      const { handleLogin } = await import('../../routes/login')
+      const { handleLogin } = await import('../../routes/login-handler')
       const mockRequest = new Request('http://localhost:3000/login')
 
       const response = await handleLogin(mockRequest)
@@ -76,7 +76,7 @@ describe('OAuth Login Redirect', () => {
     })
 
     it('should preserve return URL in state parameter', async () => {
-      const { handleLogin } = await import('../../routes/login')
+      const { handleLogin } = await import('../../routes/login-handler')
       // User tried to access /dashboard before being redirected to login
       const mockRequest = new Request('http://localhost:3000/login?returnTo=/dashboard')
 
@@ -91,7 +91,7 @@ describe('OAuth Login Redirect', () => {
 
   describe('authenticated user redirect', () => {
     it('should redirect authenticated users to home instead of oauth.do', async () => {
-      const { handleLogin, setMockAuthenticated } = await import('../../routes/login')
+      const { handleLogin, setMockAuthenticated } = await import('../../routes/login-handler')
 
       // Set authenticated state (mock helper)
       await setMockAuthenticated(true)
@@ -105,7 +105,7 @@ describe('OAuth Login Redirect', () => {
     })
 
     it('should redirect authenticated users to returnTo URL if provided', async () => {
-      const { handleLogin, setMockAuthenticated } = await import('../../routes/login')
+      const { handleLogin, setMockAuthenticated } = await import('../../routes/login-handler')
 
       await setMockAuthenticated(true)
 
@@ -119,7 +119,7 @@ describe('OAuth Login Redirect', () => {
 
   describe('error handling', () => {
     it('should handle oauth.do service errors gracefully', async () => {
-      const { handleLogin, setMockOAuthError } = await import('../../routes/login')
+      const { handleLogin, setMockOAuthError } = await import('../../routes/login-handler')
 
       // Simulate oauth.do service error
       await setMockOAuthError(new Error('Service unavailable'))
