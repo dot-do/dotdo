@@ -289,61 +289,6 @@ import {
 
 import type { GraphStore } from '../../db/graph/types'
 
-// Verb form state encoding for Graph-based persistence
-import {
-  HUMAN_REQUEST_VERBS,
-  getRequestState,
-  type RequestVerbForm,
-} from '../../db/human-request-things'
-
-// ============================================================================
-// VERB FORM STATE HELPERS
-// ============================================================================
-
-/**
- * Map HumanFunctionExecutor status to verb form for Graph storage.
- * Uses the `approve` verb family: approve -> approving -> approved
- */
-function statusToVerbForm(status: HumanRequestStatus | 'pending' | 'failed'): RequestVerbForm {
-  switch (status) {
-    case 'pending':
-      return 'approve' // Action form = pending
-    case 'completed':
-      return 'approved' // Event form = completed
-    case 'escalated':
-      return 'escalated' // Event form for escalate verb
-    case 'timeout':
-      return 'approve' // Remains pending (will be marked with timeout metadata)
-    case 'cancelled':
-      return 'rejected' // Use rejected as cancelled equivalent
-    case 'failed':
-      return 'rejected' // Use rejected for failure states
-    default:
-      return 'approve'
-  }
-}
-
-/**
- * Map verb form back to semantic status for HumanFunctionExecutor.
- */
-function verbFormToStatus(verbForm: RequestVerbForm | string): HumanRequestStatus {
-  const state = getRequestState(verbForm)
-  switch (state) {
-    case 'pending':
-      return 'pending'
-    case 'in_progress':
-      return 'pending' // Activity forms are still "in progress" but semantically pending
-    case 'completed':
-      // Check which verb family
-      if (verbForm === 'approved') return 'completed'
-      if (verbForm === 'rejected') return 'cancelled'
-      if (verbForm === 'escalated') return 'escalated'
-      return 'completed'
-    default:
-      return 'pending'
-  }
-}
-
 // ============================================================================
 // TYPE RE-EXPORTS
 // ============================================================================
@@ -486,17 +431,13 @@ interface HumanFunctionExecutorOptions {
   notificationService: NotificationService
   onEvent?: (event: string, data: unknown) => void | Promise<void>
   /**
-   * GraphStore for state persistence using the Graph model.
+   * Optional GraphStore for unified state persistence.
+   * When provided, state will be stored as Things in the graph model,
+   * enabling rich querying and relationship-based audit trails.
    *
-   * State is stored as Things in the graph model with verb form state encoding:
-   * - approve (pending) -> approving (in-progress) -> approved (completed)
-   *
-   * This enables rich querying, relationship-based audit trails, and unified
-   * data model across all DOs.
-   *
-   * @required Graph storage is mandatory for all new deployments.
+   * If not provided, falls back to DO storage for backward compatibility.
    */
-  graphStore: GraphStore
+  graphStore?: GraphStore
 }
 
 // ============================================================================
@@ -521,8 +462,8 @@ export class HumanFunctionExecutor {
   private channels: Record<string, ChannelConfig>
   private notificationService: NotificationService
   private onEvent?: (event: string, data: unknown) => void | Promise<void>
-  private graphStore: GraphStore
-  private humanStore: GraphHumanStore
+  private graphStore?: GraphStore
+  private humanStore?: GraphHumanStore
 
   constructor(options: HumanFunctionExecutorOptions) {
     this.state = options.state
@@ -531,17 +472,18 @@ export class HumanFunctionExecutor {
     this.notificationService = options.notificationService
     this.onEvent = options.onEvent
     this.graphStore = options.graphStore
-    // Initialize GraphHumanStore for all state persistence
-    this.humanStore = new GraphHumanStore(this.graphStore)
+    // Initialize GraphHumanStore if graphStore is provided
+    if (this.graphStore) {
+      this.humanStore = new GraphHumanStore(this.graphStore)
+    }
   }
 
   /**
-   * Graph-based storage is always enabled.
-   * All state is persisted to GraphHumanStore with verb form encoding.
-   * @deprecated This method is retained for backward compatibility but always returns true.
+   * Check if graph-based storage is enabled.
+   * When enabled, state is persisted to GraphHumanStore instead of DO storage.
    */
   get isGraphStorageEnabled(): boolean {
-    return true
+    return !!this.humanStore
   }
 
   // ==========================================================================
@@ -549,15 +491,8 @@ export class HumanFunctionExecutor {
   // ==========================================================================
 
   /**
-   * Persist task state to GraphHumanStore with verb form state encoding.
-   *
-   * Creates a TaskRequest Thing with verb form encoding:
-   * - 'approve' (pending) -> 'approving' (in-progress) -> 'approved' (completed)
-   *
-   * @param taskId - Unique task identifier
-   * @param status - Semantic status (pending, completed, timeout, cancelled, escalated)
-   * @param task - Task definition with prompt, channel, timeout, etc.
-   * @param extra - Additional metadata to store
+   * Persist task state to either GraphHumanStore or DO storage.
+   * When graphStore is configured, creates a TaskRequest Thing with status and metadata.
    */
   private async persistTaskState(
     taskId: string,
@@ -565,46 +500,46 @@ export class HumanFunctionExecutor {
     task: TaskDefinition,
     extra?: Record<string, unknown>
   ): Promise<void> {
-    // Convert semantic status to verb form for Graph storage
-    const verbForm = statusToVerbForm(status)
+    if (this.humanStore) {
+      // Use graph storage - create or update task request as a Thing
+      try {
+        const existing = await this.humanStore.get(taskId)
+        if (existing) {
+          // Update existing request - use cancel for cancelled/timeout states
+          if (status === 'timeout') {
+            // Graph store doesn't have a direct timeout method, but we can handle via storage
+            await this.state.storage.put(`task:${taskId}`, { status, ...extra })
+          } else if (status === 'cancelled') {
+            await this.humanStore.cancel(taskId, extra?.reason as string)
+          }
+        } else {
+          // Create new task request in graph
+          const message = typeof task.prompt === 'function'
+            ? task.prompt(task.input)
+            : interpolatePrompt(task.prompt, (task.input as Record<string, unknown>) || {})
 
-    // Check if request exists
-    const existing = await this.humanStore.get(taskId)
-
-    if (existing) {
-      // Update existing request based on status transition
-      if (status === 'timeout') {
-        // Timeout: mark with metadata but keep pending verb form
-        // The request remains in 'approve' state with timeout metadata
-        // No direct update method on humanStore, so we use cancel with timeout reason
-        await this.humanStore.cancel(taskId, extra?.reason as string ?? 'Request timed out')
-      } else if (status === 'cancelled') {
-        await this.humanStore.cancel(taskId, extra?.reason as string ?? 'Request cancelled')
-      } else if (status === 'escalated') {
-        // Escalation uses the escalate verb family
-        await this.humanStore.escalate(taskId, extra?.escalateTo as string ?? 'unknown')
+          await this.humanStore.create({
+            type: 'task' as HumanRequestType,
+            title: message.substring(0, 100),
+            description: message,
+            channel: Array.isArray(task.channel) ? task.channel[0] : task.channel,
+            timeout: task.timeout,
+            metadata: {
+              taskId,
+              status,
+              input: task.input,
+              actions: task.actions,
+              ...extra,
+            },
+          })
+        }
+      } catch {
+        // Fall back to DO storage on graph errors
+        await this.state.storage.put(`task:${taskId}`, { status, ...extra })
       }
-      // Note: For 'completed' status, use persistAuditLog which calls humanStore.complete()
     } else {
-      // Create new task request in graph with verb form
-      const message = typeof task.prompt === 'function'
-        ? task.prompt(task.input)
-        : interpolatePrompt(task.prompt, (task.input as Record<string, unknown>) || {})
-
-      await this.humanStore.create({
-        type: 'task' as HumanRequestType,
-        title: message.substring(0, 100),
-        description: message,
-        channel: Array.isArray(task.channel) ? task.channel[0] : task.channel,
-        timeout: task.timeout,
-        metadata: {
-          taskId,
-          verbForm, // Store verb form for state encoding
-          input: task.input,
-          actions: task.actions,
-          ...extra,
-        },
-      })
+      // Use DO storage (backward compatible)
+      await this.state.storage.put(`task:${taskId}`, { status, ...extra })
     }
   }
 

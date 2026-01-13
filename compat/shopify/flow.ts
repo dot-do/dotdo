@@ -762,17 +762,11 @@ export class FlowEngine {
       input: resolveVariables(a.input) as Record<string, unknown>,
     }))
 
-    // Resolve variables in conditions too
-    const resolvedConditions = template.conditions?.map((c) => ({
-      ...c,
-      value: resolveVariables(c.value),
-    }))
-
     return this.createWorkflow({
       title: template.title,
       description: template.description,
       trigger: template.trigger,
-      conditions: resolvedConditions,
+      conditions: template.conditions,
       actions: resolvedActions,
       tags: template.tags,
     })

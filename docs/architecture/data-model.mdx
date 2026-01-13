@@ -91,10 +91,10 @@ Things use append-only inserts for updates, creating an immutable audit trail:
 
 ```typescript
 // Version 1: Initial creation
-{ $id: 'cus_123', version: 1, data: { email: 'alice@example.com' } }
+{ $id: 'cus_123', version: 1, data: { email: 'alice@example.com.ai' } }
 
 // Version 2: Plan upgraded
-{ $id: 'cus_123', version: 2, data: { email: 'alice@example.com', plan: 'pro' } }
+{ $id: 'cus_123', version: 2, data: { email: 'alice@example.com.ai', plan: 'pro' } }
 
 // Version 3: Email changed
 { $id: 'cus_123', version: 3, data: { email: 'alice@newdomain.com', plan: 'pro' } }
@@ -120,7 +120,7 @@ const history = await things.versions('cus_123')
 const thing = await things.create({
   $type: 'Customer',
   name: 'Alice',
-  data: { email: 'alice@example.com' }
+  data: { email: 'alice@example.com.ai' }
 })
 
 // Read
@@ -364,7 +364,7 @@ Events are emitted when things happen:
 await events.emit({
   verb: 'signup',
   source: 'Customer/cus_123',
-  data: { email: 'alice@example.com', plan: 'free' }
+  data: { email: 'alice@example.com.ai', plan: 'free' }
 })
 
 // Events linked to actions
@@ -474,7 +474,7 @@ Actions ◄───────────────────────
 
 ```typescript
 // This happens automatically when using the $ context
-await $.do('createCustomer', { email: 'alice@example.com' })
+await $.do('createCustomer', { email: 'alice@example.com.ai' })
 // Creates Thing, logs Action, emits Event, triggers handlers
 ```
 

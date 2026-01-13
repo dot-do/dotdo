@@ -59,12 +59,11 @@ export class CloneModule implements LifecycleModule {
 
   // In-memory state for clone operations
   private _conflictResolvers: Map<string, (conflict: ConflictInfo) => Promise<unknown>> = new Map()
+  private _completionCallbacks: Map<string, (result: unknown) => void | Promise<void>> = new Map()
+  private _errorCallbacks: Map<string, (error: Error, cloneId: string) => void | Promise<void>> = new Map()
   private _resumableClones: Map<string, ResumableCloneState> = new Map()
   private _cloneLocks: Map<string, CloneLockState> = new Map()
   private _broadcastCallbacks: Array<(type: string, target: string) => void> = []
-
-  // TTL for completed clone state retention (default: 5 minutes)
-  private static readonly COMPLETED_CLONE_TTL_MS = 5 * 60 * 1000
 
   initialize(context: LifecycleContext): void {
     this.ctx = context
@@ -1208,21 +1207,11 @@ export class CloneModule implements LifecycleModule {
         state.updatedAt = new Date().toISOString()
         await self.ctx.ctx.storage.put(`eventual:${id}`, state)
         currentStatus = 'cancelled'
-        // Clean up conflict resolver to prevent memory leak
-        self._conflictResolvers.delete(id)
         await self.ctx.emitEvent('clone.cancelled', { id })
       },
     }
 
     return handle
-  }
-
-  /**
-   * Clean up conflict resolver for an eventual clone.
-   * Called when clone completes, errors, or is cancelled.
-   */
-  private cleanupEventualCloneState(id: string): void {
-    this._conflictResolvers.delete(id)
   }
 
   private async getEventualCloneState(id: string): Promise<EventualCloneState | null> {
@@ -1297,98 +1286,39 @@ export class CloneModule implements LifecycleModule {
         if (response.ok) {
           itemsSynced = itemsToSync.length
 
-          // Parse response for conflicts - distinguish between expected empty responses
-          // and unexpected errors (malformed JSON, event emission failures)
-          const contentType = response.headers.get('content-type') || ''
-          const contentLength = response.headers.get('content-length')
-          const isExpectedEmpty = response.status === 204 || contentLength === '0'
-
-          if (!isExpectedEmpty) {
-            try {
-              const responseText = await response.text()
-
-              // Empty string responses are expected and not an error
-              if (responseText.trim() === '') {
-                // No conflicts data - expected case
-              } else {
-                // Attempt to parse JSON
-                try {
-                  const responseData = JSON.parse(responseText) as {
-                    conflicts?: Array<{ thingId: string; sourceVersion: number; targetVersion: number }>
-                  }
-                  if (responseData.conflicts && Array.isArray(responseData.conflicts)) {
-                    for (const conflict of responseData.conflicts) {
-                      const resolution = state.hasCustomResolver ? 'custom' : state.conflictResolution
-                      const conflictInfo: ConflictInfo = {
-                        thingId: conflict.thingId,
-                        sourceVersion: conflict.sourceVersion,
-                        targetVersion: conflict.targetVersion,
-                        resolution,
-                        resolvedAt: new Date(),
-                      }
-                      conflicts.push(conflictInfo)
-                      try {
-                        await this.ctx.emitEvent('clone.conflict', { id, ...conflictInfo })
-                      } catch (emitError) {
-                        // Log event emission errors but don't fail the sync
-                        console.warn(`[Clone] Failed to emit clone.conflict event for ${id}:`, emitError)
-                        state.errorCount++
-                        state.lastError = `Event emission error: ${(emitError as Error).message}`
-                        await this.ctx.emitEvent('clone.sync.warning', {
-                          id,
-                          warning: 'conflict_event_emission_failed',
-                          error: (emitError as Error).message,
-                        })
-                      }
-                    }
-                  } else if (responseData.conflicts !== undefined && !Array.isArray(responseData.conflicts)) {
-                    // Conflicts field exists but is not an array - warn about unexpected structure
-                    console.warn(`[Clone] Unexpected conflicts structure for ${id}: expected array, got ${typeof responseData.conflicts}`)
-                    await this.ctx.emitEvent('clone.sync.warning', {
-                      id,
-                      warning: 'unexpected_conflicts_structure',
-                      received: typeof responseData.conflicts,
-                    })
-                  }
-                } catch (parseError) {
-                  // JSON parse error on non-empty response with JSON content-type is unexpected
-                  if (contentType.includes('application/json')) {
-                    console.warn(`[Clone] JSON parse error for ${id}:`, parseError)
-                    state.errorCount++
-                    state.lastError = `JSON parse error: ${(parseError as Error).message}`
-                    await this.ctx.emitEvent('clone.sync.error', {
-                      id,
-                      error: 'json_parse_error',
-                      message: (parseError as Error).message,
-                      responsePreview: responseText.substring(0, 100),
-                    })
-                  }
-                  // For non-JSON content types, empty catch is acceptable
-                }
-              }
-            } catch (readError) {
-              // Response body read error
-              console.warn(`[Clone] Failed to read response body for ${id}:`, readError)
-              state.errorCount++
-              state.lastError = `Response read error: ${(readError as Error).message}`
+          try {
+            const responseData = (await response.json()) as {
+              conflicts?: Array<{ thingId: string; sourceVersion: number; targetVersion: number }>
             }
+            if (responseData.conflicts && Array.isArray(responseData.conflicts)) {
+              for (const conflict of responseData.conflicts) {
+                const resolution = state.hasCustomResolver ? 'custom' : state.conflictResolution
+                const conflictInfo: ConflictInfo = {
+                  thingId: conflict.thingId,
+                  sourceVersion: conflict.sourceVersion,
+                  targetVersion: conflict.targetVersion,
+                  resolution,
+                  resolvedAt: new Date(),
+                }
+                conflicts.push(conflictInfo)
+                await this.ctx.emitEvent('clone.conflict', { id, ...conflictInfo })
+              }
+            }
+          } catch {
+            // Response may not be JSON
           }
         }
       }
 
-      // Update state - preserve error info if errors occurred during sync response processing
-      const hadNonFatalErrors = state.errorCount > 0 && state.lastError !== null
+      // Update state
       state.itemsSynced += itemsSynced
       state.lastSyncedVersion += itemsSynced
       state.lastSyncAt = new Date().toISOString()
       state.itemsRemaining = Math.max(0, state.totalItems - state.itemsSynced)
       state.progress = state.totalItems > 0 ? Math.floor((state.itemsSynced / state.totalItems) * 100) : 100
       state.divergence = state.itemsRemaining
-      // Only reset error state if no errors occurred during this sync
-      if (!hadNonFatalErrors) {
-        state.errorCount = 0
-        state.lastError = null
-      }
+      state.errorCount = 0
+      state.lastError = null
       state.updatedAt = new Date().toISOString()
 
       await this.ctx.emitEvent('clone.progress', {
@@ -1402,8 +1332,6 @@ export class CloneModule implements LifecycleModule {
       if (state.progress >= 100) {
         state.status = 'active'
         state.phase = 'delta'
-        // Clean up conflict resolver when clone completes (becomes active)
-        this.cleanupEventualCloneState(id)
         await this.ctx.emitEvent('clone.active', { id, target: state.targetNs })
       } else if (state.itemsSynced > 0 && state.phase === 'bulk') {
         state.phase = state.progress >= 80 ? 'catchup' : 'bulk'
@@ -1422,8 +1350,6 @@ export class CloneModule implements LifecycleModule {
 
       if (state.errorCount >= 10) {
         state.status = 'error'
-        // Clean up conflict resolver when clone errors out
-        this.cleanupEventualCloneState(id)
         await this.ctx.emitEvent('clone.error', { id, error: state.lastError })
       }
 
@@ -1476,9 +1402,6 @@ export class CloneModule implements LifecycleModule {
     }
 
     await this.processResumableClones()
-
-    // Clean up completed/failed/cancelled clones to prevent memory leaks
-    await this.cleanupCompletedClones()
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1977,96 +1900,6 @@ export class CloneModule implements LifecycleModule {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // MEMORY MANAGEMENT
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Clean up completed, failed, and cancelled clones from in-memory maps.
-   * Should be called periodically to prevent unbounded memory growth.
-   *
-   * @param ttlMs - Time-to-live for completed clones (default: 5 minutes)
-   * @returns Number of clones cleaned up
-   */
-  async cleanupCompletedClones(ttlMs: number = CloneModule.COMPLETED_CLONE_TTL_MS): Promise<number> {
-    const now = Date.now()
-    const cutoff = now - ttlMs
-    let cleanedCount = 0
-
-    // Clean up completed/failed/cancelled resumable clones
-    for (const [id, state] of this._resumableClones) {
-      const isTerminalState =
-        state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled'
-
-      if (isTerminalState) {
-        const stateTime = state.startedAt
-          ? new Date(state.startedAt).getTime()
-          : new Date(state.createdAt).getTime()
-
-        if (stateTime < cutoff) {
-          this._resumableClones.delete(id)
-          cleanedCount++
-        }
-      }
-    }
-
-    // Clean up stale locks (locks older than TTL with no active clone)
-    for (const [target, lock] of this._cloneLocks) {
-      const lockTime = new Date(lock.acquiredAt).getTime()
-      if (lockTime < cutoff) {
-        // Check if there's an active clone using this lock
-        const state = this._resumableClones.get(lock.cloneId)
-        if (!state || state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled') {
-          this._cloneLocks.delete(target)
-          await this.ctx.ctx.storage.delete(`clone-lock:${target}`)
-          cleanedCount++
-        }
-      }
-    }
-
-    // Clean up orphaned conflict resolvers (for eventual clones that are no longer active)
-    for (const [id] of this._conflictResolvers) {
-      const state = await this.getEventualCloneState(id)
-      if (!state || state.status === 'cancelled' || state.status === 'error' || state.status === 'active') {
-        this._conflictResolvers.delete(id)
-        cleanedCount++
-      }
-    }
-
-    return cleanedCount
-  }
-
-  /**
-   * Get current memory usage statistics for clone operations.
-   * Useful for monitoring and debugging memory leaks.
-   */
-  getMemoryStats(): {
-    conflictResolvers: number
-    resumableClones: number
-    cloneLocks: number
-    activeClones: number
-    completedClones: number
-  } {
-    let activeClones = 0
-    let completedClones = 0
-
-    for (const [, state] of this._resumableClones) {
-      if (state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled') {
-        completedClones++
-      } else {
-        activeClones++
-      }
-    }
-
-    return {
-      conflictResolvers: this._conflictResolvers.size,
-      resumableClones: this._resumableClones.size,
-      cloneLocks: this._cloneLocks.size,
-      activeClones,
-      completedClones,
-    }
   }
 
   // Test helper methods

@@ -24,106 +24,17 @@ const management = new ManagementClient({
 const user = await management.users.get({ id: 'user_123' })
 ```
 
-## Choosing Your Mode
+## Why auth0.do?
 
-@dotdo/auth0 supports two distinct deployment modes. Choose based on your situation:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Which mode should I use?                         │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  Are you currently paying for Auth0 Cloud?                          │
-│                                                                     │
-│     YES ─────────────────────┐    NO ─────────────────────┐         │
-│                              │                            │         │
-│                              ▼                            ▼         │
-│  ┌───────────────────────────────┐  ┌───────────────────────────┐   │
-│  │     Do you want to keep      │  │    SELF-HOSTED MODE       │   │
-│  │     using Auth0 Cloud?       │  │    (Recommended)          │   │
-│  └───────────────────────────────┘  │                           │   │
-│           │              │          │  Full replacement for     │   │
-│          YES            NO          │  Auth0 - your data lives  │   │
-│           │              │          │  entirely in Durable      │   │
-│           ▼              │          │  Objects                  │   │
-│  ┌─────────────────┐     │          └───────────────────────────┘   │
-│  │  PROXY MODE     │     │                                          │
-│  │  (Coming Soon)  │     └──────────► SELF-HOSTED MODE              │
-│  │                 │                  + Migration                   │
-│  │  Integrates     │                                                │
-│  │  with existing  │                                                │
-│  │  Auth0 tenant   │                                                │
-│  └─────────────────┘                                                │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Self-Hosted Mode (Available Now)
-
-**What it is:** A complete Auth0 reimplementation running on Durable Objects. No Auth0 servers involved.
-
-**When to use:**
-- Starting a new project and want Auth0-compatible APIs without Auth0 pricing
-- Want to stop paying Auth0 and own your auth infrastructure
-- Need edge-local auth (300+ cities, 0ms cold starts)
-- Want unlimited API calls without rate limits
-
-**Data flow:**
-```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  Your App   │────►│  @dotdo/auth0    │────►│  Durable Object     │
-│             │◄────│  SDK             │◄────│  (SQLite)           │
-└─────────────┘     └──────────────────┘     └─────────────────────┘
-                           │
-                           ▼
-                    No Auth0 Cloud
-                    connection
-```
-
-**Compliance/Security considerations:**
-- Data residency: Your auth data stays in your Cloudflare account
-- You control encryption keys, backups, and data retention
-- SOC2/HIPAA compliance depends on your Cloudflare configuration
-- No third-party data processor (Auth0) involved
-
-### Proxy Mode (Coming Soon)
-
-**What it is:** A compatibility layer that proxies requests to your existing Auth0 tenant while providing the dotdo SDK interface.
-
-**When to use:**
-- Already invested in Auth0 Cloud and want to keep using it
-- Need Auth0-specific features (social connections, SAML, anomaly detection)
-- Want to gradually evaluate dotdo without changing your auth backend
-- Compliance requirements mandate using Auth0's infrastructure
-
-**Data flow:**
-```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  Your App   │────►│  @dotdo/auth0    │────►│  Auth0 Cloud        │
-│             │◄────│  SDK (Proxy)     │◄────│  (your tenant)      │
-└─────────────┘     └──────────────────┘     └─────────────────────┘
-                           │
-                           ▼
-                    Optional local
-                    caching layer
-```
-
-**Compliance/Security considerations:**
-- Data remains in Auth0 Cloud (subject to Auth0's compliance certifications)
-- Auth0's SOC2, HIPAA BAA, and other certifications apply
-- You inherit Auth0's security features (anomaly detection, breached password detection)
-
-## Why @dotdo/auth0?
-
-| Auth0 Cloud | auth0.do (Self-Hosted) |
-|-------------|------------------------|
+| Auth0 Cloud | auth0.do |
+|-------------|----------|
 | Per-MAU pricing ($23/1K MAU) | Flat resource pricing |
 | Single-region data residency | Edge-local in 300+ cities |
 | Vendor lock-in | Self-hosted, portable |
 | Rate-limited APIs | Unlimited API calls |
 | Separate auth infrastructure | Unified with your DO data |
 
-**Self-hosted mode is a reimplementation.** Your auth data lives in Durable Object SQLite - not proxied to Auth0 servers. The domain and credentials are used for namespacing and JWT configuration.
+**This is a reimplementation.** Your auth data lives in Durable Object SQLite - not proxied to Auth0 servers. The domain and credentials are used for namespacing and JWT configuration.
 
 ## Features
 
@@ -166,7 +77,7 @@ const user = await management.users.get({ id: 'user_123' })
 - Anomaly detection
 - Breached password detection
 - Attack protection
-- Proxy mode to real Auth0 tenant (coming soon - see "Choosing Your Mode" above)
+- Proxy mode to real Auth0 tenant
 
 ## Installation
 
@@ -219,46 +130,6 @@ const users = await management.users.getByEmail('alice@example.com')
 await management.users.delete({ id: user.user_id })
 ```
 
-### The jwtSecret Configuration
-
-The `jwtSecret` is used by `AuthenticationClient` to sign and verify JWT tokens (access tokens, ID tokens, refresh tokens). This is required for self-hosted mode.
-
-**How to generate:**
-
-```bash
-# Option 1: Using OpenSSL (recommended - 256 bits)
-openssl rand -base64 32
-
-# Option 2: Using Node.js
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-
-# Option 3: Using a UUID (less secure, but works)
-node -e "console.log(require('crypto').randomUUID())"
-```
-
-**What it's used for:**
-- Signing access tokens (HS256 algorithm by default)
-- Signing ID tokens for OpenID Connect flows
-- Signing refresh tokens for secure token rotation
-- Verifying tokens during authentication middleware checks
-
-**Security requirements:**
-- Minimum 32 bytes (256 bits) for production use
-- Store securely in environment variables, never commit to source control
-- Rotate periodically (requires re-authentication of all users)
-- Use different secrets per environment (dev, staging, production)
-
-```typescript
-// Example .env file
-JWT_SECRET=your-32-byte-base64-secret-here
-
-// In your code
-const auth = new AuthenticationClient({
-  domain: 'your-tenant.auth0.do',
-  jwtSecret: process.env.JWT_SECRET,
-})
-```
-
 ### Authentication Flows
 
 ```typescript
@@ -267,7 +138,7 @@ import { AuthenticationClient } from '@dotdo/auth0'
 const auth = new AuthenticationClient({
   domain: 'your-tenant.auth0.com',
   clientId: 'your-client-id',
-  jwtSecret: process.env.JWT_SECRET, // See "The jwtSecret Configuration" above
+  jwtSecret: 'your-jwt-secret',
 })
 
 // Sign up a new user
@@ -368,7 +239,7 @@ import { AuthenticationClient } from '@dotdo/auth0'
 
 const auth = new AuthenticationClient({
   domain: 'your-tenant.auth0.com',
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: 'your-jwt-secret',
 })
 
 // Enroll TOTP authenticator
@@ -411,7 +282,7 @@ import { AuthenticationClient } from '@dotdo/auth0'
 
 const auth = new AuthenticationClient({
   domain: 'your-tenant.auth0.com',
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: 'your-jwt-secret',
 })
 
 // Start passwordless flow (email)
@@ -648,7 +519,7 @@ import { AuthenticationClient, Auth0APIError } from '@dotdo/auth0'
 
 const auth = new AuthenticationClient({
   domain: 'your-tenant.auth0.do',
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: 'your-jwt-secret',
 })
 
 try {
@@ -796,7 +667,7 @@ What's different from Auth0 Cloud:
 | Custom database | Not implemented | |
 | Anomaly detection | Not implemented | |
 | Breached passwords | Not implemented | |
-| Proxy to Auth0 | Coming soon | See "Proxy Mode" above - will integrate with existing Auth0 tenants |
+| Proxy to Auth0 | Not implemented | Self-hosted only |
 
 ## Related
 

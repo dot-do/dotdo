@@ -1,57 +1,196 @@
 ---
 title: Messaging
-description: API-compatible messaging SDKs for queuing and pub/sub on Durable Objects.
+description: API-compatible messaging SDKs for Kafka, Redis, NATS, SQS, and Pub/Sub.
 ---
 
 # Messaging Compat SDKs
 
-Durable Object (DO)-native queues that scale with your agents. Messages persist to SQLite with overflow to R2.
+Five messaging APIs, rebuilt on Durable Objects. Queues that scale with your agents.
 
 ## The Problem
 
 When 10,000 AI agents start producing and consuming messages:
 
-- **SQS** rate limits concurrent message operations
 - **Kafka** hits partition rebalancing storms during scale-up
+- **Redis** exhausts memory on high-volume streams
+- **SQS** rate limits concurrent message operations
 - **Pub/Sub** struggles with per-topic throughput limits
 
-The solution: DO-native queues. Each queue is a Durable Object. No external coordination. Messages persist to SQLite with overflow to R2.
+The solution: DO-native queues. Each topic partition is a Durable Object. No external coordination. No partition rebalancing. Messages persist to SQLite with overflow to R2.
 
 ## Quick Start
 
 ```typescript
-import { SQSClient, SendMessageCommand, ReceiveMessageCommand } from '@dotdo/sqs'
+import { Kafka } from '@dotdo/kafka'
 
-const sqs = new SQSClient({ region: 'auto' })
-const queueUrl = 'https://sqs.dotdo.io/123456789/my-queue'
+const kafka = new Kafka({
+  brokers: ['kafka-1.dotdo.io'],
+  clientId: 'my-agent',
+})
 
-// Send message
-await sqs.send(new SendMessageCommand({
-  QueueUrl: queueUrl,
-  MessageBody: JSON.stringify({ type: 'signup', userId: '123' }),
-}))
-
-// Receive messages
-const response = await sqs.send(new ReceiveMessageCommand({
-  QueueUrl: queueUrl,
-  MaxNumberOfMessages: 10,
-  WaitTimeSeconds: 20,
-}))
+const producer = kafka.producer()
+await producer.send({
+  topic: 'events',
+  messages: [{ value: JSON.stringify({ type: 'signup', userId: '123' }) }],
+})
 ```
 
 ## Available SDKs
+
+### @dotdo/kafka
+
+Kafka producer and consumer API compatible.
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  brokers: [process.env.KAFKA_BROKER],
+  clientId: 'my-service',
+})
+
+// Producer
+const producer = kafka.producer()
+await producer.connect()
+
+await producer.send({
+  topic: 'user-events',
+  messages: [
+    {
+      key: 'user-123',
+      value: JSON.stringify({ event: 'login', timestamp: Date.now() }),
+      headers: { 'correlation-id': requestId },
+    },
+  ],
+})
+
+// Consumer
+const consumer = kafka.consumer({ groupId: 'my-group' })
+await consumer.connect()
+await consumer.subscribe({ topic: 'user-events', fromBeginning: true })
+
+await consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    console.log({
+      key: message.key?.toString(),
+      value: message.value?.toString(),
+      headers: message.headers,
+    })
+  },
+})
+```
+
+Under the hood:
+- Each partition is a Durable Object
+- Messages persist to SQLite, overflow to R2
+- Consumer groups coordinate via DO state
+- No ZooKeeper, no partition rebalancing
+
+### @dotdo/redis
+
+Redis commands for pub/sub, streams, and queues.
+
+```typescript
+import { Redis } from '@dotdo/redis'
+
+const redis = new Redis(process.env.REDIS_URL)
+
+// Pub/Sub
+await redis.subscribe('notifications', (message) => {
+  console.log('Received:', message)
+})
+
+await redis.publish('notifications', JSON.stringify({
+  type: 'alert',
+  message: 'Server load high',
+}))
+
+// Streams (Redis Streams API)
+await redis.xadd('events', '*', {
+  type: 'order',
+  orderId: 'ord-123',
+  amount: '99.99',
+})
+
+const messages = await redis.xread('STREAMS', 'events', '0')
+
+// Consumer groups
+await redis.xgroup('CREATE', 'events', 'processors', '$', 'MKSTREAM')
+
+const entries = await redis.xreadgroup(
+  'GROUP', 'processors', 'worker-1',
+  'COUNT', '10',
+  'STREAMS', 'events', '>'
+)
+
+// Acknowledge processed messages
+await redis.xack('events', 'processors', messageId)
+
+// Lists as queues
+await redis.lpush('tasks', JSON.stringify({ job: 'process', id: 123 }))
+const task = await redis.brpop('tasks', 0)
+```
+
+Key differences from hosted Redis:
+- No memory limits (tiered to R2)
+- No cluster mode needed (sharded by key prefix)
+- Persistence by default (SQLite in DO)
+
+### @dotdo/nats
+
+NATS pub/sub and JetStream compatible.
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect({ servers: process.env.NATS_URL })
+const sc = StringCodec()
+
+// Basic pub/sub
+const sub = nc.subscribe('orders.>')
+;(async () => {
+  for await (const msg of sub) {
+    console.log(`[${msg.subject}]: ${sc.decode(msg.data)}`)
+  }
+})()
+
+nc.publish('orders.new', sc.encode(JSON.stringify({
+  orderId: 'ord-123',
+  items: ['item-1', 'item-2'],
+})))
+
+// Request/reply
+const response = await nc.request(
+  'inventory.check',
+  sc.encode(JSON.stringify({ sku: 'SKU-123' })),
+  { timeout: 1000 }
+)
+console.log('Stock:', sc.decode(response.data))
+
+// JetStream for persistence
+const js = nc.jetstream()
+
+// Publish to stream
+await js.publish('ORDERS.new', sc.encode(JSON.stringify({
+  orderId: 'ord-456',
+})))
+
+// Consume from stream
+const consumer = await js.consumers.get('ORDERS', 'order-processor')
+const messages = await consumer.consume()
+
+for await (const msg of messages) {
+  console.log('Processing:', sc.decode(msg.data))
+  msg.ack()
+}
+```
 
 ### @dotdo/sqs
 
 AWS SQS API compatible.
 
 ```typescript
-import {
-  SQSClient,
-  SendMessageCommand,
-  ReceiveMessageCommand,
-  DeleteMessageCommand,
-} from '@dotdo/sqs'
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand } from '@dotdo/sqs'
 
 const sqs = new SQSClient({
   region: 'auto',
@@ -101,52 +240,83 @@ Supports:
 - Long polling
 - Message attributes
 
-## Planned SDKs
+### @dotdo/pubsub
 
-The following messaging SDKs are on the roadmap but not yet implemented:
+Google Cloud Pub/Sub API compatible.
 
-| SDK | Status | Description |
-|-----|--------|-------------|
-| `@dotdo/kafka` | Planned | Kafka producer/consumer with KafkaJS compatibility |
-| `@dotdo/redis` | Planned | Redis pub/sub, streams, and queues |
-| `@dotdo/nats` | Planned | NATS pub/sub and JetStream |
-| `@dotdo/pubsub` | Planned | Google Cloud Pub/Sub API |
+```typescript
+import { PubSub } from '@dotdo/pubsub'
 
-For real-time messaging today, see the [Pusher compat SDK](/docs/compat/realtime) which provides WebSocket-based pub/sub.
+const pubsub = new PubSub({
+  projectId: 'my-project',
+})
+
+// Create topic and subscription
+const [topic] = await pubsub.createTopic('events')
+const [subscription] = await topic.createSubscription('event-processor')
+
+// Publish
+const messageId = await topic.publishMessage({
+  data: Buffer.from(JSON.stringify({
+    type: 'user.created',
+    userId: 'user-123',
+  })),
+  attributes: { source: 'signup-service' },
+})
+
+// Subscribe
+subscription.on('message', (message) => {
+  console.log('Received:', message.data.toString())
+  console.log('Attributes:', message.attributes)
+  message.ack()
+})
+
+subscription.on('error', (error) => {
+  console.error('Error:', error)
+})
+
+// Pull-based consumption
+const [messages] = await subscription.pull({ maxMessages: 10 })
+for (const message of messages) {
+  console.log('Processing:', message.data.toString())
+  message.ack()
+}
+```
 
 ## Architecture
 
 ### DO-Native Queues
 
-Each queue is a Durable Object:
+Each queue partition is a Durable Object:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Producer                                  │
-│              sqs.send(new SendMessageCommand({ ... }))           │
+│              kafka.producer().send({ topic: 'events' })          │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Queue Router                               │
-│            Queue URL → Queue DO                                  │
+│                     Partition Router                             │
+│         Key hash → partition → DO                                │
 └─────────────────────────────────────────────────────────────────┘
                                 │
-                                ▼
-                          ┌────────┐
-                          │ Queue  │
-                          │  (DO)  │
-                          └────────┘
-                                │
-                                ▼
-                   ┌─────────────────────────┐
-                   │ SQLite (hot) + R2 (cold)│
-                   └─────────────────────────┘
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+               ┌────────┐  ┌────────┐  ┌────────┐
+               │ Part 0 │  │ Part 1 │  │ Part 2 │
+               │  (DO)  │  │  (DO)  │  │  (DO)  │
+               └────────┘  └────────┘  └────────┘
+                    │           │           │
+                    ▼           ▼           ▼
+               ┌─────────────────────────────────┐
+               │    SQLite (hot) + R2 (cold)     │
+               └─────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Consumer                                  │
-│              sqs.send(new ReceiveMessageCommand({ ... }))        │
+│                      Consumer Group                              │
+│         Partition assignment via DO coordination                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,47 +329,44 @@ Messages tier automatically:
 // Warm: Older messages in R2 (< 100ms)
 // Cold: Archived to Iceberg Parquet
 
-// Messages are retained based on queue configuration:
-// - Standard queues: 4 days default, up to 14 days
-// - FIFO queues: Exactly-once processing within deduplication window
+const kafka = new Kafka({
+  retention: {
+    hot: '24h',      // Keep last 24h in SQLite
+    warm: '7d',      // Keep 7 days in R2
+    cold: 'forever', // Archive to Parquet
+  },
+})
 ```
 
-### Visibility Timeout
+### Consumer Groups
 
-Messages are hidden from other consumers while being processed:
+Consumer group coordination happens in Durable Objects:
 
 ```typescript
-// Receive with 30 second visibility timeout
-const response = await sqs.send(new ReceiveMessageCommand({
-  QueueUrl: queueUrl,
-  VisibilityTimeout: 30, // Message hidden for 30s
-}))
+const consumer = kafka.consumer({
+  groupId: 'processors',
+  sessionTimeout: 30000,
+  rebalanceTimeout: 60000,
+})
 
-// If processing takes longer, extend the timeout
-await sqs.send(new ChangeMessageVisibilityCommand({
-  QueueUrl: queueUrl,
-  ReceiptHandle: message.ReceiptHandle,
-  VisibilityTimeout: 60,
-}))
+// Partition assignment is stable
+// No rebalancing storms during scale-up
+// New consumers get new partitions, existing keep theirs
 ```
 
 ## Patterns
 
-### Fan-Out with SNS
+### Fan-Out
 
-Use SNS to broadcast to multiple SQS queues:
+Broadcast a message to multiple subscribers:
 
 ```typescript
-// Create multiple queues subscribed to one topic
-// Each queue receives a copy of every message
+// Redis pub/sub style
+await redis.publish('events', message)
 
-// Producer sends to SNS topic
-await sns.send(new PublishCommand({
-  TopicArn: topicArn,
-  Message: JSON.stringify({ event: 'order.created', orderId: '123' }),
-}))
-
-// Each SQS queue subscribed to the topic receives the message
+// Each subscriber gets the message
+redis.subscribe('events', handler1)
+redis.subscribe('events', handler2)
 ```
 
 ### Work Queue
@@ -207,26 +374,26 @@ await sns.send(new PublishCommand({
 Distribute work across workers:
 
 ```typescript
-// Producer: Push work to queue
-await sqs.send(new SendMessageCommand({
-  QueueUrl: queueUrl,
-  MessageBody: JSON.stringify({ job: 'process', id: 123 }),
-}))
+// Push work
+await redis.lpush('tasks', JSON.stringify(task))
 
-// Multiple workers compete for messages
-const response = await sqs.send(new ReceiveMessageCommand({
-  QueueUrl: queueUrl,
-  MaxNumberOfMessages: 1,
-  WaitTimeSeconds: 20, // Long polling
-}))
+// Multiple workers compete for tasks
+const task = await redis.brpop('tasks', 0)
+await processTask(task)
+```
 
-if (response.Messages?.length) {
-  await processTask(response.Messages[0])
-  await sqs.send(new DeleteMessageCommand({
-    QueueUrl: queueUrl,
-    ReceiptHandle: response.Messages[0].ReceiptHandle,
-  }))
-}
+### Request/Reply
+
+Synchronous communication:
+
+```typescript
+// NATS request/reply
+const response = await nc.request('services.users.get', userId)
+
+// Or implement with Redis
+const replyTo = `replies.${uuid()}`
+await redis.subscribe(replyTo, handleReply)
+await redis.publish('requests', JSON.stringify({ replyTo, data }))
 ```
 
 ### Delayed Messages
@@ -234,21 +401,16 @@ if (response.Messages?.length) {
 Schedule messages for future delivery:
 
 ```typescript
-// SQS delay (up to 15 minutes)
-await sqs.send(new SendMessageCommand({
-  QueueUrl: queueUrl,
-  MessageBody: JSON.stringify(message),
-  DelaySeconds: 900, // 15 minutes
-}))
+// Redis sorted set
+const deliverAt = Date.now() + 60000 // 1 minute
+await redis.zadd('scheduled', deliverAt, JSON.stringify(message))
 
-// For longer delays, use message attributes + visibility timeout
-await sqs.send(new SendMessageCommand({
-  QueueUrl: queueUrl,
-  MessageBody: JSON.stringify({
-    ...message,
-    deliverAt: Date.now() + 3600000, // 1 hour
-  }),
-}))
+// Worker polls for due messages
+const due = await redis.zrangebyscore('scheduled', 0, Date.now())
+for (const message of due) {
+  await process(message)
+  await redis.zrem('scheduled', message)
+}
 ```
 
 ### Dead Letter Queue
@@ -256,60 +418,64 @@ await sqs.send(new SendMessageCommand({
 Handle failed messages:
 
 ```typescript
-// Configure DLQ when creating the queue
-// Messages that fail maxReceiveCount times are moved to DLQ
+const consumer = kafka.consumer({
+  groupId: 'processors',
+  deadLetterQueue: 'events.dlq',
+  maxRetries: 3,
+})
 
-// Process main queue
-const response = await sqs.send(new ReceiveMessageCommand({
-  QueueUrl: queueUrl,
-}))
-
-try {
-  await processOrThrow(response.Messages[0])
-  await sqs.send(new DeleteMessageCommand({
-    QueueUrl: queueUrl,
-    ReceiptHandle: response.Messages[0].ReceiptHandle,
-  }))
-} catch (error) {
-  // Message will become visible again after visibility timeout
-  // After maxReceiveCount failures, moves to DLQ
-}
+// Messages that fail 3 times go to DLQ
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    await processOrThrow(message)
+  },
+})
 ```
 
 ## Performance
 
 | Operation | Latency | Throughput |
 |-----------|---------|------------|
-| Send message | < 10ms | 10K/s per queue |
-| Send batch | < 50ms | 100K/s per queue |
-| Receive | < 5ms | 50K/s per consumer |
-| Long polling | ~20ms | Efficient for low-volume |
+| Publish (single) | < 10ms | 10K/s per partition |
+| Publish (batch) | < 50ms | 100K/s per partition |
+| Consume | < 5ms | 50K/s per consumer |
+| Fan-out | < 20ms | 1K subscribers |
 
 ### Scaling
 
-Throughput scales with multiple queues:
+Throughput scales with partitions:
 
 ```typescript
-// Use multiple queues for high throughput
-// Partition messages by key to maintain ordering within partitions
-
-const queueUrl = `https://sqs.dotdo.io/123456789/events-${hash(key) % 16}`
-
-await sqs.send(new SendMessageCommand({
-  QueueUrl: queueUrl,
-  MessageBody: JSON.stringify(message),
-}))
+// 16 partitions = 16x throughput
+const admin = kafka.admin()
+await admin.createTopics({
+  topics: [{
+    topic: 'high-volume',
+    numPartitions: 16,
+    replicationFactor: 1,
+  }],
+})
 ```
 
 ## Real-Time with WebSockets
 
-For real-time pub/sub, use the [Pusher compat SDK](/docs/compat/realtime) with DO WebSockets:
+Combine with DO WebSockets for real-time delivery:
 
 ```typescript
 // In your Durable Object
 export class ChatRoom extends DurableObject {
   async onMessage(ws: WebSocket, message: string) {
+    // Publish to Redis for cross-room distribution
+    await this.redis.publish('chat', message)
+
     // Broadcast to local connections
+    for (const client of this.connections) {
+      client.send(message)
+    }
+  }
+
+  async onRedisMessage(channel: string, message: string) {
+    // Forward Redis messages to WebSocket clients
     for (const client of this.connections) {
       client.send(message)
     }
@@ -317,19 +483,55 @@ export class ChatRoom extends DurableObject {
 }
 ```
 
-For cross-DO communication, use SQS or the Pusher SDK for real-time pub/sub.
-
 ## Migration Guide
+
+### From Kafka Cloud
+
+```typescript
+// Before: Confluent Cloud
+import { Kafka } from 'kafkajs'
+const kafka = new Kafka({
+  brokers: ['pkc-xxx.confluent.cloud:9092'],
+  ssl: true,
+  sasl: { mechanism: 'plain', username, password },
+})
+
+// After: dotdo
+import { Kafka } from '@dotdo/kafka'
+const kafka = new Kafka({
+  brokers: [process.env.DOTDO_KAFKA_URL],
+  clientId: 'my-service',
+})
+
+// Code stays the same
+const producer = kafka.producer()
+await producer.send({ topic: 'events', messages })
+```
+
+### From Redis Cloud
+
+```typescript
+// Before: Redis Cloud
+import Redis from 'ioredis'
+const redis = new Redis('redis://default:xxx@redis.cloud:6379')
+
+// After: dotdo
+import { Redis } from '@dotdo/redis'
+const redis = new Redis(process.env.DOTDO_REDIS_URL)
+
+// Code stays the same
+await redis.publish('channel', message)
+```
 
 ### From AWS SQS
 
 ```typescript
 // Before: AWS SQS
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
+import { SQSClient } from '@aws-sdk/client-sqs'
 const sqs = new SQSClient({ region: 'us-east-1' })
 
 // After: dotdo
-import { SQSClient, SendMessageCommand } from '@dotdo/sqs'
+import { SQSClient } from '@dotdo/sqs'
 const sqs = new SQSClient({ region: 'auto' })
 
 // Code stays the same
@@ -338,12 +540,20 @@ await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody }))
 
 ## Limitations
 
-What's different from AWS SQS:
+What's different from managed services:
 
-- **Max message size: 256KB** - Same as AWS SQS
-- **Max delay: 15 minutes** - Same as AWS SQS
-- **At-least-once delivery** - Use FIFO queues or idempotency for exactly-once
-- **No FIFO high throughput mode** - Standard FIFO limits apply
+- **No transactions across topics** - Use saga patterns instead
+- **No exactly-once delivery** - At-least-once with idempotency
+- **Limited to 256 partitions** - More than enough for most workloads
+- **No schema registry** - Validate in application code
+
+## Individual Integrations
+
+Detailed guides for specific messaging services:
+
+- [Kafka](/docs/integrations/kafka) - Kafka producer/consumer with KafkaJS compatibility
+- [Redis](/docs/integrations/redis) - Redis pub/sub and streams
+- [Upstash](/docs/integrations/upstash) - Upstash Redis and Kafka
 
 ## Related Categories
 

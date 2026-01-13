@@ -297,30 +297,6 @@ export function evaluateFilterDirect<T extends Document = Document>(
     return !filter.$nor.some((subFilter) => evaluateFilterDirect(subFilter, doc))
   }
 
-  // Handle $where operator
-  if ('$where' in filter) {
-    const whereClause = filter.$where
-    let whereResult: boolean
-    if (typeof whereClause === 'function') {
-      whereResult = whereClause.call(doc)
-    } else if (typeof whereClause === 'string') {
-      // Execute JavaScript string with 'this' bound to the document
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(`return ${whereClause}`)
-      whereResult = fn.call(doc)
-    } else {
-      whereResult = false
-    }
-    if (!whereResult) return false
-  }
-
-  // Handle $expr operator
-  if ('$expr' in filter) {
-    if (!evaluateExpr(filter.$expr, doc)) {
-      return false
-    }
-  }
-
   // Evaluate each field condition
   for (const [key, condition] of Object.entries(filter)) {
     // Skip logical operators (already handled above)
@@ -462,13 +438,6 @@ function evaluateOperators(value: unknown, operators: Record<string, unknown>): 
       case '$type':
         if (!checkBsonType(value, expected)) return false
         break
-      case '$mod': {
-        if (!Array.isArray(expected) || expected.length !== 2) return false
-        const [divisor, remainder] = expected
-        if (typeof value !== 'number' || typeof divisor !== 'number' || typeof remainder !== 'number') return false
-        if (value % divisor !== remainder) return false
-        break
-      }
       default:
         // Unknown operator - ignore
         break
@@ -504,156 +473,21 @@ function compareLte(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Evaluate an $expr expression against a document.
- * Supports basic aggregation expression operators:
- * - Comparison: $gt, $gte, $lt, $lte, $eq, $ne
- * - Arithmetic: $add, $subtract, $multiply, $divide, $mod
- * - Logical: $and, $or, $not
- * - Field access: $fieldPath (string starting with $)
- */
-function evaluateExpr(expr: unknown, doc: Record<string, unknown>): boolean {
-  if (typeof expr !== 'object' || expr === null) {
-    return !!expr
-  }
-
-  const exprObj = expr as Record<string, unknown>
-  const keys = Object.keys(exprObj)
-
-  for (const key of keys) {
-    const value = exprObj[key]
-
-    switch (key) {
-      case '$gt': {
-        const [left, right] = value as [unknown, unknown]
-        const leftVal = resolveExprValue(left, doc)
-        const rightVal = resolveExprValue(right, doc)
-        return compareGt(leftVal, rightVal)
-      }
-      case '$gte': {
-        const [left, right] = value as [unknown, unknown]
-        const leftVal = resolveExprValue(left, doc)
-        const rightVal = resolveExprValue(right, doc)
-        return compareGte(leftVal, rightVal)
-      }
-      case '$lt': {
-        const [left, right] = value as [unknown, unknown]
-        const leftVal = resolveExprValue(left, doc)
-        const rightVal = resolveExprValue(right, doc)
-        return compareLt(leftVal, rightVal)
-      }
-      case '$lte': {
-        const [left, right] = value as [unknown, unknown]
-        const leftVal = resolveExprValue(left, doc)
-        const rightVal = resolveExprValue(right, doc)
-        return compareLte(leftVal, rightVal)
-      }
-      case '$eq': {
-        const [left, right] = value as [unknown, unknown]
-        const leftVal = resolveExprValue(left, doc)
-        const rightVal = resolveExprValue(right, doc)
-        return compareEquality(leftVal, rightVal)
-      }
-      case '$ne': {
-        const [left, right] = value as [unknown, unknown]
-        const leftVal = resolveExprValue(left, doc)
-        const rightVal = resolveExprValue(right, doc)
-        return !compareEquality(leftVal, rightVal)
-      }
-      case '$and': {
-        const conditions = value as unknown[]
-        return conditions.every((cond) => evaluateExpr(cond, doc))
-      }
-      case '$or': {
-        const conditions = value as unknown[]
-        return conditions.some((cond) => evaluateExpr(cond, doc))
-      }
-      case '$not': {
-        return !evaluateExpr(value, doc)
-      }
-      default:
-        // Unknown expression operator - treat as truthy
-        break
-    }
-  }
-
-  return true
-}
-
-/**
- * Resolve an expression value, which can be:
- * - A field path starting with $ (e.g., "$field")
- * - An arithmetic expression object (e.g., { $add: ["$a", "$b"] })
- * - A literal value
- */
-function resolveExprValue(value: unknown, doc: Record<string, unknown>): unknown {
-  if (typeof value === 'string' && value.startsWith('$')) {
-    // Field path - remove the $ and get nested value
-    const fieldPath = value.slice(1)
-    return getNestedValue(doc, fieldPath)
-  }
-
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    const exprObj = value as Record<string, unknown>
-    const keys = Object.keys(exprObj)
-
-    if (keys.length === 1) {
-      const op = keys[0]!
-      const args = exprObj[op]
-
-      switch (op) {
-        case '$add': {
-          const operands = (args as unknown[]).map((arg) => resolveExprValue(arg, doc))
-          return operands.reduce((sum: number, val) => sum + (typeof val === 'number' ? val : 0), 0)
-        }
-        case '$subtract': {
-          const [left, right] = (args as unknown[]).map((arg) => resolveExprValue(arg, doc))
-          return (typeof left === 'number' ? left : 0) - (typeof right === 'number' ? right : 0)
-        }
-        case '$multiply': {
-          const operands = (args as unknown[]).map((arg) => resolveExprValue(arg, doc))
-          return operands.reduce((prod: number, val) => prod * (typeof val === 'number' ? val : 0), 1)
-        }
-        case '$divide': {
-          const [left, right] = (args as unknown[]).map((arg) => resolveExprValue(arg, doc))
-          const rightNum = typeof right === 'number' ? right : 1
-          return (typeof left === 'number' ? left : 0) / (rightNum === 0 ? 1 : rightNum)
-        }
-        case '$mod': {
-          const [left, right] = (args as unknown[]).map((arg) => resolveExprValue(arg, doc))
-          return (typeof left === 'number' ? left : 0) % (typeof right === 'number' ? right : 1)
-        }
-      }
-    }
-  }
-
-  // Literal value
-  return value
-}
-
-/**
  * Check BSON type
  */
 function checkBsonType(value: unknown, type: unknown): boolean {
-  // Handle array of types
-  if (Array.isArray(type)) {
-    return type.some((t) => checkBsonType(value, t))
-  }
-
   const typeMap: Record<string, string[]> = {
     double: ['number'],
     string: ['string'],
     object: ['object'],
     array: ['array'],
     bool: ['boolean'],
-    boolean: ['boolean'],
     int: ['number'],
     long: ['number'],
     number: ['number'],
     null: ['null'],
     regex: ['regexp'],
     javascript: ['function'],
-    date: ['date'],
-    objectId: ['objectId'],
   }
 
   const typeStr = typeof type === 'string' ? type : String(type)
@@ -666,11 +500,7 @@ function checkBsonType(value: unknown, type: unknown): boolean {
         ? 'array'
         : value instanceof RegExp
           ? 'regexp'
-          : value instanceof Date
-            ? 'date'
-            : isObjectId(value)
-              ? 'objectId'
-              : typeof value
+          : typeof value
 
   return expectedTypes.includes(actualType)
 }

@@ -321,7 +321,7 @@ export class BatchValidationError extends Error {
 }
 
 // =============================================================================
-// VALIDATOR CLASSES - IMPLEMENTATIONS
+// VALIDATOR CLASSES - STUBS
 // =============================================================================
 
 /**
@@ -331,96 +331,29 @@ export class ActorValidator {
   /**
    * Validates that exactly one of userId, serviceId, or system is provided
    */
-  static validate(actor: Actor): void {
-    const identifiers: string[] = []
-
-    if (actor.userId !== undefined) {
-      if (typeof actor.userId !== 'string' || actor.userId.trim() === '') {
-        throw new ActorValidationError('userId must be a non-empty string', actor)
-      }
-      identifiers.push('userId')
-    }
-
-    if (actor.serviceId !== undefined) {
-      if (typeof actor.serviceId !== 'string' || actor.serviceId.trim() === '') {
-        throw new ActorValidationError('serviceId must be a non-empty string', actor)
-      }
-      identifiers.push('serviceId')
-    }
-
-    if (actor.system === true) {
-      identifiers.push('system')
-    }
-
-    if (identifiers.length === 0) {
-      throw new ActorValidationError('Actor must have exactly one of: userId, serviceId, or system=true', actor)
-    }
-
-    if (identifiers.length > 1) {
-      throw new ActorValidationError(`Actor must have exactly one identifier, found: ${identifiers.join(', ')}`, actor)
-    }
-
-    // Validate optional fields
-    if (actor.ipAddress !== undefined && !ActorValidator.validateIpAddress(actor.ipAddress)) {
-      throw new ActorValidationError('Invalid IP address format', actor)
-    }
+  static validate(_actor: Actor): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Determines the type of actor
    */
-  static getType(actor: Actor): ActorType {
-    if (actor.userId !== undefined) return 'user'
-    if (actor.serviceId !== undefined) return 'service'
-    if (actor.system === true) return 'system'
-    throw new ActorValidationError('Cannot determine actor type', actor)
+  static getType(_actor: Actor): ActorType {
+    throw new Error('Not implemented')
   }
 
   /**
    * Normalizes actor input (string -> Actor object)
    */
-  static normalize(input: Actor | string): Actor {
-    if (typeof input === 'string') {
-      // Check for prefixes
-      if (input.startsWith('service:')) {
-        return { serviceId: input.substring(8) }
-      }
-      if (input.startsWith('system:') || input === 'system') {
-        return { system: true }
-      }
-      // Default to userId
-      return { userId: input }
-    }
-    return input
+  static normalize(_input: Actor | string): Actor {
+    throw new Error('Not implemented')
   }
 
   /**
-   * Validates IP address format (IPv4 and IPv6)
+   * Validates IP address format
    */
-  static validateIpAddress(ip: string): boolean {
-    // IPv4 pattern
-    const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
-    const ipv4Match = ip.match(ipv4Pattern)
-    if (ipv4Match) {
-      return ipv4Match.slice(1).every(octet => {
-        const num = parseInt(octet, 10)
-        return num >= 0 && num <= 255
-      })
-    }
-
-    // IPv6 pattern (simplified - accepts full and compressed forms)
-    const ipv6Pattern = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/
-    if (ipv6Pattern.test(ip)) {
-      return true
-    }
-
-    // Full IPv6
-    const fullIpv6Pattern = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/
-    if (fullIpv6Pattern.test(ip)) {
-      return true
-    }
-
-    return false
+  static validateIpAddress(_ip: string): boolean {
+    throw new Error('Not implemented')
   }
 }
 
@@ -428,83 +361,32 @@ export class ActorValidator {
  * Validates action information
  */
 export class ActionValidator {
-  private static readonly STANDARD_ACTIONS: readonly string[] = ['create', 'read', 'update', 'delete']
-  private static readonly VALID_ACTION_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/
-  private static readonly NAMESPACE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/
-
   /**
    * Validates action type
    */
-  static validate(action: Action | string): void {
-    if (typeof action === 'string') {
-      if (action.trim() === '') {
-        throw new ActionValidationError('Action cannot be empty', action)
-      }
-      // Check for dotted namespace.action format
-      if (action.includes('.')) {
-        const [namespace, actionType] = action.split('.', 2)
-        if (!ActionValidator.validateNamespace(namespace)) {
-          throw new ActionValidationError('Invalid namespace format', action)
-        }
-        if (!actionType || !ActionValidator.VALID_ACTION_PATTERN.test(actionType)) {
-          throw new ActionValidationError('Invalid action type format', action)
-        }
-      } else if (!ActionValidator.VALID_ACTION_PATTERN.test(action)) {
-        throw new ActionValidationError('Action contains invalid characters', action)
-      }
-    } else {
-      if (!action.type || action.type.trim() === '') {
-        throw new ActionValidationError('Action type cannot be empty', action)
-      }
-      if (!ActionValidator.VALID_ACTION_PATTERN.test(action.type)) {
-        throw new ActionValidationError('Action type contains invalid characters', action)
-      }
-      if (action.namespace !== undefined && !ActionValidator.validateNamespace(action.namespace)) {
-        throw new ActionValidationError('Invalid namespace format', action)
-      }
-    }
+  static validate(_action: Action | string): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Checks if action is a standard CRUD action
    */
-  static isStandardAction(action: string): action is StandardAction {
-    return ActionValidator.STANDARD_ACTIONS.includes(action)
+  static isStandardAction(_action: string): action is StandardAction {
+    throw new Error('Not implemented')
   }
 
   /**
    * Normalizes action input
    */
-  static normalize(input: Action | string): Action {
-    if (typeof input === 'string') {
-      // Check for dotted namespace.action format
-      if (input.includes('.')) {
-        const [namespace, actionType] = input.split('.', 2)
-        return {
-          type: actionType,
-          namespace,
-          isCustom: !ActionValidator.isStandardAction(actionType),
-        }
-      }
-      return {
-        type: input,
-        isCustom: !ActionValidator.isStandardAction(input),
-      }
-    }
-    return {
-      ...input,
-      isCustom: input.isCustom ?? !ActionValidator.isStandardAction(input.type),
-    }
+  static normalize(_input: Action | string): Action {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates custom action namespace format
    */
-  static validateNamespace(namespace: string): boolean {
-    if (!namespace || namespace.trim() === '') {
-      return false
-    }
-    return ActionValidator.NAMESPACE_PATTERN.test(namespace)
+  static validateNamespace(_namespace: string): boolean {
+    throw new Error('Not implemented')
   }
 }
 
@@ -512,63 +394,32 @@ export class ActionValidator {
  * Validates resource information
  */
 export class ResourceValidator {
-  private static readonly TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/
-  private static readonly PATH_PATTERN = /^\/[a-zA-Z0-9_\-/]+$/
-
   /**
    * Validates resource structure
    */
-  static validate(resource: Resource): void {
-    if (!resource.type || resource.type.trim() === '') {
-      throw new ResourceValidationError('Resource type is required', resource)
-    }
-    if (!ResourceValidator.validateType(resource.type)) {
-      throw new ResourceValidationError('Invalid resource type format', resource)
-    }
-    if (!resource.id || resource.id.trim() === '') {
-      throw new ResourceValidationError('Resource id is required', resource)
-    }
-    if (resource.path !== undefined && !ResourceValidator.validatePath(resource.path)) {
-      throw new ResourceValidationError('Invalid resource path format', resource)
-    }
+  static validate(_resource: Resource): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates resource type format
    */
-  static validateType(type: string): boolean {
-    if (!type || type.trim() === '') {
-      return false
-    }
-    return ResourceValidator.TYPE_PATTERN.test(type)
+  static validateType(_type: string): boolean {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates resource path format
    */
-  static validatePath(path: string): boolean {
-    if (!path || path.trim() === '') {
-      return false
-    }
-    // Allow paths starting with / and containing alphanumeric, _, -, /
-    return ResourceValidator.PATH_PATTERN.test(path) || path.startsWith('/')
+  static validatePath(_path: string): boolean {
+    throw new Error('Not implemented')
   }
 
   /**
    * Normalizes resource path
    */
-  static normalizePath(path: string): string {
-    // Ensure leading slash
-    if (!path.startsWith('/')) {
-      path = '/' + path
-    }
-    // Remove trailing slash
-    if (path.length > 1 && path.endsWith('/')) {
-      path = path.slice(0, -1)
-    }
-    // Collapse multiple slashes
-    path = path.replace(/\/+/g, '/')
-    return path
+  static normalizePath(_path: string): string {
+    throw new Error('Not implemented')
   }
 }
 
@@ -576,97 +427,39 @@ export class ResourceValidator {
  * Validates and handles timestamps
  */
 export class TimestampValidator {
-  private static readonly ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})?$/
-
   /**
    * Validates ISO 8601 timestamp format
    */
-  static validate(timestamp: string): void {
-    if (!timestamp || timestamp.trim() === '') {
-      throw new TimestampValidationError('Timestamp cannot be empty', timestamp)
-    }
-    const date = new Date(timestamp)
-    if (isNaN(date.getTime())) {
-      throw new TimestampValidationError('Invalid timestamp format', timestamp)
-    }
+  static validate(_timestamp: string): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Parses and normalizes timestamp input
    */
-  static parse(input: string | Date | number): AuditTimestamp {
-    let date: Date
-    let timezone: string | undefined
-
-    if (typeof input === 'number') {
-      date = new Date(input)
-    } else if (input instanceof Date) {
-      date = input
-    } else {
-      TimestampValidator.validate(input)
-      date = new Date(input)
-      // Extract timezone if present
-      const tzMatch = input.match(/([+-]\d{2}:\d{2})$/)
-      if (tzMatch) {
-        timezone = tzMatch[1]
-      } else if (input.endsWith('Z')) {
-        timezone = 'UTC'
-      }
-    }
-
-    return {
-      iso: date.toISOString(),
-      epochMs: date.getTime(),
-      timezone,
-    }
+  static parse(_input: string | Date | number): AuditTimestamp {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates timezone string
    */
-  static validateTimezone(timezone: string): boolean {
-    if (!timezone || timezone.trim() === '') {
-      return false
-    }
-    // Check for UTC
-    if (timezone === 'UTC' || timezone === 'Z') {
-      return true
-    }
-    // Check for offset format (+/-HH:MM)
-    const offsetPattern = /^[+-]\d{2}:\d{2}$/
-    if (offsetPattern.test(timezone)) {
-      return true
-    }
-    // Check for IANA timezone names (simplified check)
-    const ianaPattern = /^[A-Za-z_]+\/[A-Za-z_]+$/
-    return ianaPattern.test(timezone)
+  static validateTimezone(_timezone: string): boolean {
+    throw new Error('Not implemented')
   }
 
   /**
    * Converts timestamp to different timezone
    */
-  static toTimezone(timestamp: AuditTimestamp, timezone: string): AuditTimestamp {
-    if (!TimestampValidator.validateTimezone(timezone)) {
-      throw new TimestampValidationError('Invalid timezone', timezone)
-    }
-    // For simplicity, we keep the same epochMs but update the timezone field
-    // Full timezone conversion would require a library like date-fns-tz
-    return {
-      ...timestamp,
-      timezone,
-    }
+  static toTimezone(_timestamp: AuditTimestamp, _timezone: string): AuditTimestamp {
+    throw new Error('Not implemented')
   }
 
   /**
    * Gets current timestamp
    */
   static now(): AuditTimestamp {
-    const date = new Date()
-    return {
-      iso: date.toISOString(),
-      epochMs: date.getTime(),
-      timezone: 'UTC',
-    }
+    throw new Error('Not implemented')
   }
 }
 
@@ -677,86 +470,29 @@ export class StateCapturer {
   /**
    * Creates a state capture from before/after objects
    */
-  static capture(before?: Record<string, unknown>, after?: Record<string, unknown>): StateCapture {
-    const result: StateCapture = {}
-
-    if (before !== undefined) {
-      result.before = StateCapturer.clone(before)
-    }
-    if (after !== undefined) {
-      result.after = StateCapturer.clone(after)
-    }
-    if (before !== undefined && after !== undefined) {
-      result.diff = StateCapturer.diff(before, after)
-    }
-
-    return result
+  static capture(_before?: Record<string, unknown>, _after?: Record<string, unknown>): StateCapture {
+    throw new Error('Not implemented')
   }
 
   /**
    * Computes JSON diff between two objects
    */
-  static diff(before: Record<string, unknown>, after: Record<string, unknown>): JsonDiff {
-    const added: Record<string, unknown> = {}
-    const removed: Record<string, unknown> = {}
-    const modified: Record<string, { old: unknown; new: unknown }> = {}
-
-    // Find added and modified keys
-    for (const key of Object.keys(after)) {
-      if (!(key in before)) {
-        added[key] = after[key]
-      } else if (!StateCapturer.deepEqual(before[key], after[key])) {
-        modified[key] = { old: before[key], new: after[key] }
-      }
-    }
-
-    // Find removed keys
-    for (const key of Object.keys(before)) {
-      if (!(key in after)) {
-        removed[key] = before[key]
-      }
-    }
-
-    return { added, removed, modified }
-  }
-
-  /**
-   * Deep equality check for state comparison
-   */
-  private static deepEqual(a: unknown, b: unknown): boolean {
-    if (a === b) return true
-    if (typeof a !== typeof b) return false
-    if (a === null || b === null) return a === b
-    if (typeof a !== 'object') return false
-
-    const objA = a as Record<string, unknown>
-    const objB = b as Record<string, unknown>
-
-    const keysA = Object.keys(objA)
-    const keysB = Object.keys(objB)
-
-    if (keysA.length !== keysB.length) return false
-
-    return keysA.every(key => StateCapturer.deepEqual(objA[key], objB[key]))
+  static diff(_before: Record<string, unknown>, _after: Record<string, unknown>): JsonDiff {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates state objects
    */
-  static validate(state: StateCapture): void {
-    if (state.before !== undefined && typeof state.before !== 'object') {
-      throw new AuditValidationError('State before must be an object', 'state.before')
-    }
-    if (state.after !== undefined && typeof state.after !== 'object') {
-      throw new AuditValidationError('State after must be an object', 'state.after')
-    }
+  static validate(_state: StateCapture): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Deep clones state to prevent mutation
    */
-  static clone(state: Record<string, unknown>): Record<string, unknown> {
-    return JSON.parse(JSON.stringify(state))
+  static clone(_state: Record<string, unknown>): Record<string, unknown> {
+    throw new Error('Not implemented')
   }
 }
 
@@ -767,53 +503,29 @@ export class MetadataValidator {
   /**
    * Validates metadata structure
    */
-  static validate(metadata: AuditMetadata): void {
-    if (metadata.ipAddress !== undefined && !MetadataValidator.validateIpAddress(metadata.ipAddress)) {
-      throw new AuditValidationError('Invalid IP address format', 'metadata.ipAddress', metadata.ipAddress)
-    }
-    if (metadata.userAgent !== undefined && !MetadataValidator.validateUserAgent(metadata.userAgent)) {
-      throw new AuditValidationError('Invalid user agent', 'metadata.userAgent', metadata.userAgent)
-    }
-    if (metadata.requestId !== undefined && !MetadataValidator.validateRequestId(metadata.requestId)) {
-      throw new AuditValidationError('Invalid request ID format', 'metadata.requestId', metadata.requestId)
-    }
+  static validate(_metadata: AuditMetadata): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates IP address format (IPv4 and IPv6)
    */
-  static validateIpAddress(ip: string): boolean {
-    return ActorValidator.validateIpAddress(ip)
+  static validateIpAddress(_ip: string): boolean {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates user agent string
    */
-  static validateUserAgent(userAgent: string): boolean {
-    // User agent should be a non-empty string with reasonable length
-    return typeof userAgent === 'string' && userAgent.length > 0 && userAgent.length < 2048
+  static validateUserAgent(_userAgent: string): boolean {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates request ID format (UUID, ULID, etc.)
    */
-  static validateRequestId(requestId: string): boolean {
-    if (!requestId || requestId.trim() === '') {
-      return false
-    }
-    // UUID format
-    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    if (uuidPattern.test(requestId)) {
-      return true
-    }
-    // ULID format (26 characters, Crockford base32)
-    const ulidPattern = /^[0-9A-HJKMNP-TV-Z]{26}$/i
-    if (ulidPattern.test(requestId)) {
-      return true
-    }
-    // Allow alphanumeric IDs
-    const alphanumericPattern = /^[a-zA-Z0-9_-]+$/
-    return alphanumericPattern.test(requestId) && requestId.length >= 8 && requestId.length <= 128
+  static validateRequestId(_requestId: string): boolean {
+    throw new Error('Not implemented')
   }
 }
 
@@ -824,51 +536,29 @@ export class CorrelationManager {
   /**
    * Validates correlation structure
    */
-  static validate(correlation: EventCorrelation): void {
-    if (!correlation.correlationId || correlation.correlationId.trim() === '') {
-      throw new AuditValidationError('Correlation ID is required', 'correlation.correlationId')
-    }
+  static validate(_correlation: EventCorrelation): void {
+    throw new Error('Not implemented')
   }
 
   /**
    * Generates a new correlation ID
    */
   static generateCorrelationId(): string {
-    // Generate a UUID v4-like ID
-    const hex = '0123456789abcdef'
-    let result = ''
-    for (let i = 0; i < 32; i++) {
-      if (i === 8 || i === 12 || i === 16 || i === 20) {
-        result += '-'
-      }
-      result += hex[Math.floor(Math.random() * 16)]
-    }
-    return result
+    throw new Error('Not implemented')
   }
 
   /**
    * Links entries by correlation
    */
-  static link(parentEntry: AuditEntry, childEntry: AuditEntry): EventCorrelation {
-    const parentCorrelation = parentEntry.correlation
-    return {
-      correlationId: parentCorrelation?.correlationId ?? CorrelationManager.generateCorrelationId(),
-      causationId: parentEntry.id,
-      parentId: parentEntry.id,
-      transactionId: parentCorrelation?.transactionId,
-    }
+  static link(_parentEntry: AuditEntry, _childEntry: AuditEntry): EventCorrelation {
+    throw new Error('Not implemented')
   }
 
   /**
    * Creates a child correlation from parent
    */
-  static createChild(parentCorrelation: EventCorrelation): EventCorrelation {
-    return {
-      correlationId: parentCorrelation.correlationId,
-      causationId: parentCorrelation.correlationId,
-      parentId: parentCorrelation.correlationId,
-      transactionId: parentCorrelation.transactionId,
-    }
+  static createChild(_parentCorrelation: EventCorrelation): EventCorrelation {
+    throw new Error('Not implemented')
   }
 }
 
@@ -876,157 +566,32 @@ export class CorrelationManager {
  * Handles sensitive field masking
  */
 export class SensitiveFieldMasker {
-  private static readonly SENSITIVE_PATTERNS = [
-    /password/i,
-    /secret/i,
-    /token/i,
-    /api[_-]?key/i,
-    /credential/i,
-    /private[_-]?key/i,
-    /ssn/i,
-    /social[_-]?security/i,
-    /credit[_-]?card/i,
-    /cvv/i,
-  ]
-
   /**
    * Masks sensitive fields in data
    */
-  static mask(data: Record<string, unknown>, config: MaskingConfig): MaskingResult {
-    SensitiveFieldMasker.validateConfig(config)
-
-    const masked = JSON.parse(JSON.stringify(data))
-    const maskedFields: string[] = []
-
-    for (const field of config.fields) {
-      const value = SensitiveFieldMasker.getNestedValue(masked, field)
-      if (value !== undefined) {
-        const maskedValue = SensitiveFieldMasker.applyStrategy(value, config.strategy, config.partialOptions)
-        SensitiveFieldMasker.setNestedValue(masked, field, maskedValue)
-        maskedFields.push(field)
-      }
-    }
-
-    return { masked, maskedFields }
-  }
-
-  /**
-   * Gets nested value from object using dot notation
-   */
-  private static getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-    const parts = path.split('.')
-    let current: unknown = obj
-    for (const part of parts) {
-      if (current === null || current === undefined || typeof current !== 'object') {
-        return undefined
-      }
-      current = (current as Record<string, unknown>)[part]
-    }
-    return current
-  }
-
-  /**
-   * Sets nested value in object using dot notation
-   */
-  private static setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-    const parts = path.split('.')
-    let current: Record<string, unknown> = obj
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i]
-      if (!(part in current) || typeof current[part] !== 'object') {
-        current[part] = {}
-      }
-      current = current[part] as Record<string, unknown>
-    }
-    current[parts[parts.length - 1]] = value
+  static mask(_data: Record<string, unknown>, _config: MaskingConfig): MaskingResult {
+    throw new Error('Not implemented')
   }
 
   /**
    * Detects potentially sensitive fields
    */
-  static detectSensitiveFields(data: Record<string, unknown>, prefix = ''): string[] {
-    const sensitiveFields: string[] = []
-
-    for (const [key, value] of Object.entries(data)) {
-      const fullPath = prefix ? `${prefix}.${key}` : key
-
-      // Check if key matches sensitive patterns
-      if (SensitiveFieldMasker.SENSITIVE_PATTERNS.some(pattern => pattern.test(key))) {
-        sensitiveFields.push(fullPath)
-      }
-
-      // Recursively check nested objects
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        sensitiveFields.push(...SensitiveFieldMasker.detectSensitiveFields(value as Record<string, unknown>, fullPath))
-      }
-    }
-
-    return sensitiveFields
+  static detectSensitiveFields(_data: Record<string, unknown>): string[] {
+    throw new Error('Not implemented')
   }
 
   /**
    * Applies specific masking strategy
    */
-  static applyStrategy(value: unknown, strategy: MaskingConfig['strategy'], options?: MaskingConfig['partialOptions']): unknown {
-    if (value === null || value === undefined) {
-      return value
-    }
-
-    const stringValue = String(value)
-
-    switch (strategy) {
-      case 'redact':
-        return '[REDACTED]'
-
-      case 'hash':
-        // Simple hash for masking purposes
-        let hash = 0
-        for (let i = 0; i < stringValue.length; i++) {
-          const char = stringValue.charCodeAt(i)
-          hash = ((hash << 5) - hash) + char
-          hash = hash & hash
-        }
-        return `***${Math.abs(hash).toString(16)}***`
-
-      case 'partial': {
-        const showFirst = options?.showFirst ?? 0
-        const showLast = options?.showLast ?? 0
-        const maskChar = options?.maskChar ?? '*'
-
-        if (stringValue.length <= showFirst + showLast) {
-          return maskChar.repeat(stringValue.length)
-        }
-
-        const first = stringValue.slice(0, showFirst)
-        const last = stringValue.slice(-showLast || undefined)
-        const middleLength = stringValue.length - showFirst - showLast
-        const middle = maskChar.repeat(Math.min(middleLength, 8))
-
-        return showLast > 0 ? `${first}${middle}${last}` : `${first}${middle}`
-      }
-
-      case 'tokenize':
-        return `tok_${Math.random().toString(36).substring(2, 15)}`
-
-      default:
-        return '[MASKED]'
-    }
+  static applyStrategy(_value: unknown, _strategy: MaskingConfig['strategy'], _options?: MaskingConfig['partialOptions']): unknown {
+    throw new Error('Not implemented')
   }
 
   /**
    * Validates masking config
    */
-  static validateConfig(config: MaskingConfig): void {
-    if (!config.fields || !Array.isArray(config.fields)) {
-      throw new AuditValidationError('Masking config must have fields array', 'maskingConfig.fields')
-    }
-    if (!config.strategy) {
-      throw new AuditValidationError('Masking config must have a strategy', 'maskingConfig.strategy')
-    }
-    const validStrategies = ['redact', 'hash', 'partial', 'tokenize']
-    if (!validStrategies.includes(config.strategy)) {
-      throw new AuditValidationError(`Invalid masking strategy: ${config.strategy}`, 'maskingConfig.strategy')
-    }
+  static validateConfig(_config: MaskingConfig): void {
+    throw new Error('Not implemented')
   }
 }
 

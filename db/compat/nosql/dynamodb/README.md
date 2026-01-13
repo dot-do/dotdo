@@ -464,17 +464,17 @@ const { Item } = await docClient.send(new GetCommand({
 
 ## Comparison
 
-| Feature | @dotdo/dynamodb | AWS DynamoDB |
-|---------|-----------------|--------------|
-| Connection | None needed | HTTPS to AWS |
-| Cold starts | 0ms | ~100-500ms |
-| Capacity planning | Not needed | Required |
-| Provisioned throughput | Unlimited | Required |
-| Read/write pricing | Per DO storage | Per request |
-| Edge deployment | 300+ cities | Single region |
-| Per-agent isolation | Built-in | Complex |
-| SDK compatibility | Full | Native |
-| GSI/LSI | Automatic | Yes |
+| Feature | AWS DynamoDB | @dotdo/dynamodb |
+|---------|--------------|-----------------|
+| Connection | HTTPS to AWS | None needed |
+| Cold starts | ~100-500ms | 0ms |
+| Capacity planning | Required | Not needed |
+| Provisioned throughput | Required | Unlimited |
+| Read/write pricing | Per request | Per DO storage |
+| Edge deployment | Single region | 300+ cities |
+| Per-agent isolation | Complex | Built-in |
+| SDK compatibility | Native | Full |
+| GSI/LSI | Yes | Automatic |
 | Transactions | Yes | Yes |
 | Batch operations | Yes | Yes |
 
@@ -637,7 +637,7 @@ const { Items } = await docClient.send(new QueryCommand({
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://dynamodb.do)

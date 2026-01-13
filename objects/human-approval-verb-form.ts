@@ -1,7 +1,7 @@
 /**
  * Human Approval Workflows via Verb Form State Machine
  *
- * IMPLEMENTED: All 22+ functions fully implemented and tested (66 tests passing).
+ * TDD RED Phase: Stub implementation - all functions throw "Not Implemented"
  *
  * The key insight: verb form IS the state - no separate status column needed.
  *
@@ -326,793 +326,189 @@ export interface CreateRelationshipInput {
 }
 
 // ============================================================================
-// IN-MEMORY STORAGE (keyed by db object identity)
+// STUB IMPLEMENTATIONS - All throw "Not Implemented"
 // ============================================================================
 
-interface ApprovalStore {
-  requests: Map<string, ApprovalRequest>
-  relationships: Map<string, ApprovalRelationship>
-  history: Map<string, ApprovalHistoryEvent[]>
+const NOT_IMPLEMENTED = () => {
+  throw new Error('Not Implemented - TDD RED Phase')
 }
 
-const stores = new WeakMap<object, ApprovalStore>()
-
-function getStore(db: object): ApprovalStore {
-  let store = stores.get(db)
-  if (!store) {
-    store = {
-      requests: new Map(),
-      relationships: new Map(),
-      history: new Map(),
-    }
-    stores.set(db, store)
-  }
-  return store
-}
-
-function generateId(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`
-}
-
-function addHistoryEvent(
-  store: ApprovalStore,
-  requestId: string,
-  event: string,
-  verb: string,
-  actor?: string,
-  data?: Record<string, unknown>
-): void {
-  const events = store.history.get(requestId) || []
-  events.push({
-    event,
-    verb,
-    timestamp: new Date(),
-    actor,
-    data,
-  })
-  store.history.set(requestId, events)
-}
-
-function verbToState(verb: string): ApprovalState {
-  switch (verb) {
-    case 'approve':
-      return 'pending'
-    case 'approving':
-      return 'reviewing'
-    case 'approved':
-      return 'approved'
-    case 'rejected':
-      return 'rejected'
-    case 'cancelled':
-      return 'cancelled'
-    default:
-      return 'pending'
-  }
-}
-
-function isRequestExpired(request: ApprovalRequest): boolean {
-  if (!request.expiresAt) return false
-  return new Date() > request.expiresAt
-}
-
-// ============================================================================
-// CORE APPROVAL WORKFLOW FUNCTIONS
-// ============================================================================
-
+// Core approval workflow functions
 export async function createApprovalRequest(
-  db: object,
-  input: CreateApprovalInput
+  _db: object,
+  _input: CreateApprovalInput
 ): Promise<ApprovalRequest> {
-  // Validate required fields
-  if (!input.requesterId) {
-    throw new Error('requesterId is required')
-  }
-  if (!input.humanId) {
-    throw new Error('humanId is required')
-  }
-
-  const store = getStore(db)
-  const now = new Date()
-  const id = generateId('apr')
-
-  const request: ApprovalRequest = {
-    id,
-    requesterId: input.requesterId,
-    humanId: input.humanId,
-    message: input.message,
-    type: input.type,
-    verb: 'approve',
-    state: 'pending',
-    data: input.data,
-    metadata: input.metadata,
-    sla: input.sla,
-    expiresAt: input.sla ? new Date(now.getTime() + input.sla) : undefined,
-    priority: input.priority,
-    channel: input.channel,
-    createdAt: now,
-    updatedAt: now,
-    escalationConfig: input.escalationConfig,
-    escalationHistory: [],
-  }
-
-  store.requests.set(id, request)
-  addHistoryEvent(store, id, 'created', 'approve', input.requesterId)
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function startReview(
-  db: object,
-  requestId: string,
-  humanId: string
+  _db: object,
+  _requestId: string,
+  _humanId: string
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  // Can only start review from pending state
-  if (request.state !== 'pending') {
-    throw new InvalidTransitionError(request.state, 'reviewing')
-  }
-
-  request.verb = 'approving'
-  request.state = 'reviewing'
-  request.reviewStartedAt = new Date()
-  request.reviewStartedBy = humanId
-  request.updatedAt = new Date()
-
-  addHistoryEvent(store, requestId, 'review_started', 'approving', humanId)
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function completeApproval(
-  db: object,
-  requestId: string,
-  decision: ApprovalDecision
+  _db: object,
+  _requestId: string,
+  _decision: ApprovalDecision
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  // Check if expired (but allow completion if request has been escalated)
-  const hasBeenEscalated = request.escalationHistory && request.escalationHistory.length > 0
-  if (isRequestExpired(request) && !hasBeenEscalated) {
-    throw new ApprovalExpiredError(requestId)
-  }
-
-  // Can complete from pending or reviewing state
-  if (request.state !== 'pending' && request.state !== 'reviewing') {
-    throw new InvalidTransitionError(request.state, 'approved')
-  }
-
-  request.verb = 'approved'
-  request.state = 'approved'
-  request.decision = decision
-  request.decidedAt = new Date()
-  request.decidedBy = request.reviewStartedBy || request.humanId
-  request.updatedAt = new Date()
-
-  addHistoryEvent(store, requestId, 'approved', 'approved', request.decidedBy, {
-    reason: decision.reason,
-  })
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function rejectApproval(
-  db: object,
-  requestId: string,
-  decision: Omit<ApprovalDecision, 'approved'>
+  _db: object,
+  _requestId: string,
+  _decision: Omit<ApprovalDecision, 'approved'>
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  // Can reject from pending or reviewing state
-  if (request.state !== 'pending' && request.state !== 'reviewing') {
-    throw new InvalidTransitionError(request.state, 'rejected')
-  }
-
-  request.verb = 'rejected'
-  request.state = 'rejected'
-  request.decision = { ...decision, approved: false }
-  request.decidedAt = new Date()
-  request.decidedBy = request.reviewStartedBy || request.humanId
-  request.updatedAt = new Date()
-
-  addHistoryEvent(store, requestId, 'rejected', 'rejected', request.decidedBy, {
-    reason: decision.reason,
-  })
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function cancelApproval(
-  db: object,
-  requestId: string,
-  input: CancelInput
+  _db: object,
+  _requestId: string,
+  _input: CancelInput
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  // Cannot cancel completed requests
-  if (request.state === 'approved' || request.state === 'rejected') {
-    throw new InvalidTransitionError(request.state, 'cancelled')
-  }
-
-  request.verb = 'cancelled'
-  request.state = 'cancelled'
-  request.cancellation = {
-    reason: input.reason,
-    cancelledBy: input.cancelledBy,
-    cancelledAt: new Date(),
-  }
-  request.updatedAt = new Date()
-
-  addHistoryEvent(store, requestId, 'cancelled', 'cancelled', input.cancelledBy, {
-    reason: input.reason,
-  })
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function getApprovalRequest(
-  db: object,
-  requestId: string
+  _db: object,
+  _requestId: string
 ): Promise<ApprovalRequest | null> {
-  const store = getStore(db)
-  return store.requests.get(requestId) || null
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
-// ============================================================================
-// MULTI-APPROVER WORKFLOW FUNCTIONS
-// ============================================================================
-
+// Multi-approver workflow functions
 export async function createMultiApproverRequest(
-  db: object,
-  input: CreateMultiApproverInput
+  _db: object,
+  _input: CreateMultiApproverInput
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const now = new Date()
-  const id = generateId('apr')
-
-  const request: ApprovalRequest = {
-    id,
-    requesterId: input.requesterId,
-    humanId: input.config.approvers[0]!, // First approver is primary
-    message: input.message,
-    type: input.type,
-    verb: 'approve',
-    state: 'pending',
-    data: input.data,
-    createdAt: now,
-    updatedAt: now,
-    multiApprover: true,
-    approvers: input.config.approvers,
-    quorum: input.config.quorum,
-    order: input.config.order,
-    currentApprover: input.config.order === 'sequential' ? input.config.approvers[0] : undefined,
-    decisions: {},
-    escalationHistory: [],
-  }
-
-  store.requests.set(id, request)
-  addHistoryEvent(store, id, 'created', 'approve', input.requesterId)
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function recordApproverDecision(
-  db: object,
-  requestId: string,
-  approverId: string,
-  decision: ApproverDecisionInput
+  _db: object,
+  _requestId: string,
+  _approverId: string,
+  _decision: ApproverDecisionInput
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  // Check if approver is in the list
-  if (!request.approvers?.includes(approverId)) {
-    throw new Error('Not an approver')
-  }
-
-  // Check if already decided
-  if (request.decisions?.[approverId]) {
-    throw new Error('Already decided')
-  }
-
-  // Check sequential order
-  if (request.order === 'sequential' && request.currentApprover !== approverId) {
-    throw new Error('Not current approver in sequence')
-  }
-
-  // Record the decision
-  if (!request.decisions) {
-    request.decisions = {}
-  }
-  request.decisions[approverId] = {
-    approved: decision.approved,
-    reason: decision.reason,
-    decidedAt: new Date(),
-  }
-
-  // Update current approver for sequential workflows
-  if (request.order === 'sequential') {
-    const currentIndex = request.approvers!.indexOf(approverId)
-    const nextIndex = currentIndex + 1
-    if (nextIndex < request.approvers!.length) {
-      request.currentApprover = request.approvers![nextIndex]
-    } else {
-      request.currentApprover = undefined
-    }
-  }
-
-  request.updatedAt = new Date()
-
-  addHistoryEvent(store, requestId, 'decision_recorded', request.verb, approverId, {
-    approved: decision.approved,
-    reason: decision.reason,
-  })
-
-  // Check if quorum is met and auto-complete
-  const quorumResult = await checkApprovalQuorum(db, requestId)
-  if (quorumResult.met) {
-    request.verb = 'approved'
-    request.state = 'approved'
-    request.decidedAt = new Date()
-    addHistoryEvent(store, requestId, 'approved', 'approved', 'system', { quorum: 'met' })
-  } else if (quorumResult.blocked) {
-    request.verb = 'rejected'
-    request.state = 'rejected'
-    request.decidedAt = new Date()
-    addHistoryEvent(store, requestId, 'rejected', 'rejected', quorumResult.blockedBy, {
-      quorum: 'blocked',
-    })
-  }
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function checkApprovalQuorum(
-  db: object,
-  requestId: string
+  _db: object,
+  _requestId: string
 ): Promise<QuorumResult> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  const approvers = request.approvers || []
-  const decisions = request.decisions || {}
-
-  const approved: string[] = []
-  const rejected: string[] = []
-  const pending: string[] = []
-
-  for (const approverId of approvers) {
-    const decision = decisions[approverId]
-    if (!decision) {
-      pending.push(approverId)
-    } else if (decision.approved) {
-      approved.push(approverId)
-    } else {
-      rejected.push(approverId)
-    }
-  }
-
-  const quorum = request.quorum || { type: 'all' }
-  let met = false
-  let blocked = false
-  let blockedBy: string | undefined
-
-  switch (quorum.type) {
-    case 'all':
-      met = approved.length === approvers.length
-      // If any rejection, blocked
-      if (rejected.length > 0) {
-        blocked = true
-        blockedBy = rejected[0]
-      }
-      break
-
-    case 'majority':
-      const majorityThreshold = Math.ceil(approvers.length / 2)
-      met = approved.length >= majorityThreshold
-      // If rejections make it impossible to reach majority, blocked
-      if (rejected.length > approvers.length - majorityThreshold) {
-        blocked = true
-        blockedBy = rejected[0]
-      }
-      break
-
-    case 'count':
-      met = approved.length >= quorum.count
-      // If not enough remaining approvers can meet count
-      if (approved.length + pending.length < quorum.count) {
-        blocked = true
-        blockedBy = rejected[0]
-      }
-      break
-  }
-
-  return {
-    met,
-    pending,
-    approved,
-    rejected,
-    blocked,
-    blockedBy,
-  }
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function getApprovalDecisions(
-  db: object,
-  requestId: string
+  _db: object,
+  _requestId: string
 ): Promise<Array<ApproverDecision & { approverId: string }>> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  const decisions = request.decisions || {}
-  return Object.entries(decisions).map(([approverId, decision]) => ({
-    approverId,
-    ...decision,
-  }))
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
-// ============================================================================
-// ESCALATION FUNCTIONS
-// ============================================================================
-
+// Escalation functions
 export async function escalateApproval(
-  db: object,
-  requestId: string,
-  input: EscalateInput
+  _db: object,
+  _requestId: string,
+  _input: EscalateInput
 ): Promise<ApprovalRequest> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  // Cannot escalate completed requests
-  if (request.state === 'approved' || request.state === 'rejected') {
-    throw new Error('Cannot escalate completed request')
-  }
-
-  // Cannot escalate to self
-  if (request.humanId === input.escalateTo) {
-    throw new EscalationFailedError('Cannot escalate to current assignee')
-  }
-
-  const escalationRecord: EscalationRecord = {
-    from: request.humanId,
-    to: input.escalateTo,
-    reason: input.reason,
-    escalatedBy: input.escalatedBy,
-    escalatedAt: new Date(),
-  }
-
-  // Update request
-  request.escalation = escalationRecord
-  if (!request.escalationHistory) {
-    request.escalationHistory = []
-  }
-  request.escalationHistory.push(escalationRecord)
-  request.humanId = input.escalateTo
-  request.updatedAt = new Date()
-
-  addHistoryEvent(store, requestId, 'escalated', request.verb, input.escalatedBy, {
-    from: escalationRecord.from,
-    to: escalationRecord.to,
-    reason: input.reason,
-  })
-
-  return request
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function getEscalationChain(
-  db: object,
-  requestId: string
+  _db: object,
+  _requestId: string
 ): Promise<EscalationRecord[]> {
-  const store = getStore(db)
-  const request = store.requests.get(requestId)
-
-  if (!request) {
-    throw new ApprovalNotFoundError(requestId)
-  }
-
-  return request.escalationHistory || []
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function autoEscalateExpired(
-  db: object
+  _db: object
 ): Promise<ApprovalRequest[]> {
-  const store = getStore(db)
-  const now = new Date()
-  const escalated: ApprovalRequest[] = []
-
-  for (const request of store.requests.values()) {
-    // Skip completed requests
-    if (request.state === 'approved' || request.state === 'rejected' || request.state === 'cancelled') {
-      continue
-    }
-
-    // Check if has escalation config
-    if (!request.escalationConfig || !request.createdAt) {
-      continue
-    }
-
-    const elapsedMinutes = (now.getTime() - request.createdAt.getTime()) / 60000
-    const escalationHistory = request.escalationHistory || []
-    const escalationCount = escalationHistory.length
-
-    // Find applicable escalation rule
-    const rules = request.escalationConfig.rules.sort((a, b) => a.afterMinutes - b.afterMinutes)
-
-    // Find the next rule to apply based on escalation count
-    let targetRule: EscalationRule | undefined
-    for (let i = escalationCount; i < rules.length; i++) {
-      if (elapsedMinutes >= rules[i]!.afterMinutes) {
-        targetRule = rules[i]
-      }
-    }
-
-    // If no rules left, check for final escalation
-    if (!targetRule && escalationCount >= rules.length) {
-      if (request.escalationConfig.finalEscalation && elapsedMinutes >= (rules[rules.length - 1]?.afterMinutes || 0)) {
-        // Check if already at final escalation
-        if (request.humanId !== request.escalationConfig.finalEscalation) {
-          await escalateApproval(db, request.id, {
-            escalateTo: request.escalationConfig.finalEscalation,
-            reason: 'Final escalation - all rules exhausted',
-            escalatedBy: 'system',
-          })
-          escalated.push(request)
-        }
-      }
-      continue
-    }
-
-    if (targetRule) {
-      await escalateApproval(db, request.id, {
-        escalateTo: targetRule.escalateTo,
-        reason: `SLA breach - escalated after ${targetRule.afterMinutes} minutes`,
-        escalatedBy: 'system',
-      })
-      escalated.push(request)
-    }
-  }
-
-  return escalated
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
-// ============================================================================
-// STATE QUERY FUNCTIONS
-// ============================================================================
-
+// State query functions
 export async function queryApprovalsByState(
-  db: object,
-  state: ApprovalState
+  _db: object,
+  _state: ApprovalState
 ): Promise<ApprovalRequest[]> {
-  const store = getStore(db)
-  const results: ApprovalRequest[] = []
-
-  for (const request of store.requests.values()) {
-    if (state === 'active') {
-      if (request.state === 'pending' || request.state === 'reviewing') {
-        results.push(request)
-      }
-    } else if (state === 'completed') {
-      if (request.state === 'approved' || request.state === 'rejected') {
-        results.push(request)
-      }
-    } else if (request.state === state) {
-      results.push(request)
-    }
-  }
-
-  return results
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function queryApprovalsByHuman(
-  db: object,
-  humanId: string,
-  options?: ApprovalQueryOptions
+  _db: object,
+  _humanId: string,
+  _options?: ApprovalQueryOptions
 ): Promise<ApprovalRequest[]> {
-  const store = getStore(db)
-  const results: ApprovalRequest[] = []
-
-  for (const request of store.requests.values()) {
-    if (request.humanId !== humanId) continue
-
-    // Exclude completed by default
-    if (!options?.includeCompleted) {
-      if (request.state === 'approved' || request.state === 'rejected') {
-        continue
-      }
-    }
-
-    results.push(request)
-  }
-
-  // Sort by priority (ascending, lower is higher priority) then by createdAt
-  results.sort((a, b) => {
-    const priorityA = a.priority ?? 99
-    const priorityB = b.priority ?? 99
-    if (priorityA !== priorityB) {
-      return priorityA - priorityB
-    }
-    return a.createdAt.getTime() - b.createdAt.getTime()
-  })
-
-  // Apply pagination
-  const offset = options?.offset || 0
-  const limit = options?.limit || results.length
-
-  return results.slice(offset, offset + limit)
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function queryApprovalsByRequester(
-  db: object,
-  requesterId: string
+  _db: object,
+  _requesterId: string
 ): Promise<ApprovalRequest[]> {
-  const store = getStore(db)
-  const results: ApprovalRequest[] = []
-
-  for (const request of store.requests.values()) {
-    if (request.requesterId === requesterId) {
-      results.push(request)
-    }
-  }
-
-  return results
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function queryExpiredApprovals(
-  db: object
+  _db: object
 ): Promise<ApprovalRequest[]> {
-  const store = getStore(db)
-  const now = new Date()
-  const results: ApprovalRequest[] = []
-
-  for (const request of store.requests.values()) {
-    // Skip completed requests
-    if (request.state === 'approved' || request.state === 'rejected' || request.state === 'cancelled') {
-      continue
-    }
-
-    // Check if expired
-    if (request.expiresAt && now > request.expiresAt) {
-      results.push(request)
-    }
-  }
-
-  return results
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function queryApprovalHistory(
-  db: object,
-  requestId: string
+  _db: object,
+  _requestId: string
 ): Promise<ApprovalHistoryEvent[]> {
-  const store = getStore(db)
-  return store.history.get(requestId) || []
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
-// ============================================================================
-// GRAPH INTEGRATION FUNCTIONS
-// ============================================================================
-
+// Graph integration functions
 export async function createApprovalRelationship(
-  db: object,
-  input: CreateRelationshipInput
+  _db: object,
+  _input: CreateRelationshipInput
 ): Promise<ApprovalRelationship> {
-  const store = getStore(db)
-  const now = new Date()
-  const id = generateId('rel')
-
-  const relationship: ApprovalRelationship = {
-    id,
-    from: input.from,
-    to: input.to,
-    verb: input.verb,
-    data: input.data,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  store.relationships.set(id, relationship)
-
-  return relationship
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function transitionApprovalVerb(
-  db: object,
-  relationshipId: string,
-  newVerb: string
+  _db: object,
+  _relationshipId: string,
+  _newVerb: string
 ): Promise<ApprovalRelationship> {
-  const store = getStore(db)
-  const relationship = store.relationships.get(relationshipId)
-
-  if (!relationship) {
-    throw new Error(`Relationship not found: ${relationshipId}`)
-  }
-
-  relationship.verb = newVerb
-  relationship.updatedAt = new Date()
-
-  return relationship
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }
 
 export async function getApprovalGraph(
-  db: object,
-  entityId: string
+  _db: object,
+  _entityId: string
 ): Promise<ApprovalGraph> {
-  const store = getStore(db)
-
-  const edges: ApprovalRelationship[] = []
-  const byState: ApprovalGraph['byState'] = {
-    pending: [],
-    reviewing: [],
-    approved: [],
-    rejected: [],
-  }
-
-  // Get relationships where entityId is the 'from'
-  for (const rel of store.relationships.values()) {
-    if (rel.from === entityId) {
-      edges.push(rel)
-
-      // Categorize by verb/state
-      const state = verbToState(rel.verb)
-      if (state === 'pending') {
-        byState.pending.push(rel)
-      } else if (state === 'reviewing') {
-        byState.reviewing.push(rel)
-      } else if (state === 'approved') {
-        byState.approved.push(rel)
-      } else if (state === 'rejected') {
-        byState.rejected.push(rel)
-      }
-    }
-  }
-
-  // Get escalation history from any request by this entity
-  const escalations: EscalationRecord[] = []
-  for (const request of store.requests.values()) {
-    if (request.requesterId === entityId && request.escalationHistory) {
-      escalations.push(...request.escalationHistory)
-    }
-  }
-
-  return {
-    entityId,
-    edges,
-    byState,
-    escalations,
-  }
+  NOT_IMPLEMENTED()
+  throw new Error('unreachable')
 }

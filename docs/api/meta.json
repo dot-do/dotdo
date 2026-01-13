@@ -4,7 +4,6 @@
   "root": true,
   "pages": [
     "index",
-    "routing",
     "routes",
     "authentication",
     "middleware",

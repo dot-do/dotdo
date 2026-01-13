@@ -239,34 +239,24 @@ export class BackwardCascadeResolver extends BaseCascadeResolver {
       previousGenerations: context.previousGenerations,
     })
 
-    // Set backref field if specified (BEFORE storing so it's persisted)
+    // Store the generated entity using base class method
+    await this.storeEntity(generated)
+
+    // Set backref field if specified
     if (ref.backrefField) {
       generated[ref.backrefField] = context.entity.$id
     }
-
-    // Store the generated entity using base class method
-    await this.storeEntity(generated)
 
     // Create relationship with correct backward direction
     // Backward: from=target (generated), to=this (current entity)
     const verb = this.deriveBackwardVerb(ref.verb, ref.fieldName)
 
-    const relationshipId = generateRelationshipId()
     const relationship: Relationship = {
-      id: relationshipId,
+      id: generateRelationshipId(),
       verb,
       from: generated.$id,
       to: context.entity.$id,
     }
-
-    // Persist the relationship using the base class method
-    await this.createRelationship({
-      id: relationshipId,
-      verb,
-      from: generated.$id,
-      to: context.entity.$id,
-      data: this.buildMetadata('<-'),
-    })
 
     return {
       mode: 'insert',

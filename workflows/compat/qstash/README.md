@@ -389,7 +389,7 @@ class MyWorkflow extends DO {
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://qstash.do)

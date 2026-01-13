@@ -5,7 +5,7 @@ description: Drop-in replacement for Resend with modern email API, React Email s
 
 # Resend
 
-Drop-in replacement for `resend`. Your existing `resend` code works unchanged - just swap the import.
+Drop-in replacement for `resend`. Same API, runs on Cloudflare Workers.
 
 ```typescript
 // Before
@@ -17,16 +17,16 @@ import { Resend } from '@dotdo/emails'
 
 Your existing Resend code works unchanged. No migration required.
 
-## Why @dotdo/resend?
+## Why resend.do?
 
-| Feature | @dotdo/emails | Resend |
-|---------|---------------|--------|
-| **API compatibility** | 100% compatible | Native |
-| **Runtime** | Edge (300+ cities) | Node.js |
-| **Cold start** | 0ms (V8 isolates) | Variable |
-| **Provider fallback** | Yes (MailChannels, SendGrid) | No |
-| **Local development** | Full DO capture | Sandbox mode |
-| **React Email** | Supported | Native |
+| Feature | Resend | resend.do |
+|---------|--------|-----------|
+| **API compatibility** | Native | 100% compatible |
+| **Runtime** | Node.js | Edge (300+ cities) |
+| **Cold start** | Variable | 0ms (V8 isolates) |
+| **Provider fallback** | No | Yes (MailChannels, SendGrid) |
+| **Local development** | Sandbox mode | Full DO capture |
+| **React Email** | Native | Supported |
 | **Scheduled sending** | Yes | Yes |
 
 ## Features

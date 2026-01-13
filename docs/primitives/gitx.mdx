@@ -12,15 +12,8 @@ gitx implements the Git object model on Cloudflare R2. Blobs, trees, and commits
 ## Quick Start
 
 ```typescript
-// Configure git binding (done in DO initialization)
-$.git.configure({
-  repo: 'org/repo',
-  branch: 'main',
-  r2: env.R2_BUCKET
-})
-
-// Sync from R2 object store
-await $.git.sync()
+// Clone a repository
+await $.git.clone('https://github.com/org/repo')
 
 // Make changes
 await $.fs.write('src/feature.ts', newCode)
@@ -29,8 +22,8 @@ await $.fs.write('src/feature.ts', newCode)
 await $.git.add('src/feature.ts')
 await $.git.commit('feat: add new feature')
 
-// Push to R2
-await $.git.push()
+// Push to origin
+await $.git.push('origin', 'main')
 ```
 
 ## Configuration
@@ -176,21 +169,56 @@ git/objects/
     dcba9876543210fedcba9876543210fedcba98  (commit)
 ```
 
+## Branch Operations
+
+```typescript
+// List branches
+const branches = await $.git.branches()
+// ['main', 'feature-auth', 'fix-bug-123']
+
+// Switch branch
+await $.git.checkout('feature-auth')
+
+// Create and switch
+await $.git.checkout('new-feature', { create: true })
+
+// Delete branch
+await $.git.branch('old-feature', { delete: true })
+```
+
 ## Diff and Log
 
 ```typescript
-// View diff of working changes (placeholder implementation)
+// View diff of working changes
 const diff = await $.git.diff()
 console.log(diff)
 
-// Commit history (returns current commit only)
+// Diff between refs
+const diff2 = await $.git.diff('main', 'feature-branch')
+
+// Commit history
 const commits = await $.git.log({ limit: 10 })
 for (const commit of commits) {
   console.log(`${commit.hash.slice(0, 7)} ${commit.message}`)
+  console.log(`  by ${commit.author} at ${commit.date}`)
 }
 ```
 
-Note: `diff()` and `log()` have placeholder implementations. Full diff output and commit traversal are not yet available.
+## Merge and Rebase
+
+```typescript
+// Merge branch into current
+const mergeResult = await $.git.merge('feature-branch')
+if (mergeResult.conflicts.length > 0) {
+  // Handle conflicts
+  for (const conflict of mergeResult.conflicts) {
+    console.log(`Conflict in: ${conflict.path}`)
+  }
+}
+
+// Rebase current onto target
+await $.git.rebase('main')
+```
 
 ## Working with Remotes
 
@@ -214,46 +242,55 @@ await $.git.push()
 
 ## Multi-Agent Collaboration
 
-Multiple agents can work on the same repository via R2:
+Multiple agents can work on the same repository:
 
 ```typescript
-// Agent 1: Make changes and push
+// Agent 1: Working on feature A
+await agent1.$.git.checkout('feature-a', { create: true })
 await agent1.$.fs.write('src/a.ts', codeA)
-await agent1.$.git.add('src/a.ts')
 await agent1.$.git.commit('feat: add A')
 await agent1.$.git.push()
 
-// Agent 2: Sync to see Agent 1's changes, then add more
-await agent2.$.git.sync()
+// Agent 2: Working on feature B (parallel)
+await agent2.$.git.checkout('feature-b', { create: true })
 await agent2.$.fs.write('src/b.ts', codeB)
-await agent2.$.git.add('src/b.ts')
 await agent2.$.git.commit('feat: add B')
 await agent2.$.git.push()
+
+// Agent 3: Merge both features
+await agent3.$.git.checkout('main')
+await agent3.$.git.merge('feature-a')
+await agent3.$.git.merge('feature-b')
+await agent3.$.git.push()
 ```
 
 R2's consistency model ensures all agents see the same objects once written.
 
-Note: Branch operations (`checkout`, `branch`, `merge`, `rebase`) are not yet implemented. Multi-agent workflows currently operate on a single branch.
-
 ## Error Handling
 
-Git operations throw standard `Error` objects with descriptive messages:
-
 ```typescript
+import { GitError } from 'dotdo/errors'
+
 try {
   await $.git.push()
 } catch (error) {
-  // Check error message for specific conditions
-  const message = (error as Error).message
-
-  if (message.includes('not configured')) {
-    console.log('R2 bucket not configured')
-  } else if (message.includes('No commits to push')) {
-    console.log('Nothing to push - commit first')
-  } else if (message.includes('Nothing to commit')) {
-    console.log('No staged changes')
-  } else {
-    throw error
+  if (error instanceof GitError) {
+    switch (error.code) {
+      case 'NOT_CONFIGURED':
+        console.log('Git not configured for this DO')
+        break
+      case 'NOTHING_TO_COMMIT':
+        console.log('No staged changes')
+        break
+      case 'PUSH_REJECTED':
+        console.log('Push failed - sync first')
+        await $.git.sync()
+        await $.git.push()
+        break
+      case 'MERGE_CONFLICT':
+        console.log('Resolve conflicts first')
+        break
+    }
   }
 }
 ```
@@ -310,14 +347,14 @@ interface PushResult {
 
 ## Comparison to Git CLI
 
-| Feature | @dotdo/gitx | Git CLI |
-|---------|-------------|---------|
-| Object storage | R2 bucket | Local `.git/` |
-| Ref storage | DO metadata | Local files |
-| Network protocol | R2 API | SSH/HTTPS |
-| Hashing | crypto.subtle | libgit2 |
-| Edge deployment | Yes | No |
-| Multi-agent | Native R2 consistency | Needs coordination |
+| Feature | Git CLI | gitx |
+|---------|---------|------|
+| Object storage | Local `.git/` | R2 bucket |
+| Ref storage | Local files | DO metadata |
+| Network protocol | SSH/HTTPS | R2 API |
+| Hashing | libgit2 | crypto.subtle |
+| Edge deployment | No | Yes |
+| Multi-agent | Needs coordination | Native R2 consistency |
 
 ## Technical Details
 

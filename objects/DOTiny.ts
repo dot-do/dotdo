@@ -1,85 +1,32 @@
 /**
- * @module DOTiny
- * @description Minimal Durable Object Base Class (~15KB)
+ * DOTiny - Minimal Durable Object Base Class
  *
- * DOTiny is the foundation of the DO hierarchy, providing the smallest possible
- * implementation for edge-native applications. It includes only essential features:
+ * The smallest possible DO implementation (~15KB) with:
+ * - Identity (ns, $type)
+ * - Storage (Drizzle/SQLite)
+ * - fetch() + /health
+ * - initialize()
+ * - toJSON()
  *
- * **Core Features:**
- * - Identity management (`ns`, `$type`, type hierarchy checking)
- * - Drizzle-powered SQLite storage via `ctx.storage`
- * - HTTP request handling with `fetch()` and `/health` endpoint
- * - User context extraction from `X-User-*` headers
- * - Identity derivation from request URLs
+ * Use this when you need the smallest bundle size and don't need:
+ * - WorkflowContext ($)
+ * - Event handlers ($.on)
+ * - Stores (things, rels, actions, events, search, objects, dlq)
+ * - Scheduling ($.every, alarm)
+ * - Lifecycle operations (fork, clone, compact, move)
+ * - Sharding, branching, promotion
+ * - Built-in Hono routing (import Hono yourself if needed)
  *
- * **DO Class Hierarchy:**
- * ```
- * DOTiny (~15KB)        - Identity, db, fetch, toJSON
- *    |
- *    v
- * DOBase (~80KB)        - + WorkflowContext, stores, events, scheduling
- *    |
- *    v
- * DOFull (~120KB)       - + Lifecycle, sharding, branching, promotion
- * ```
- *
- * **When to Use DOTiny:**
- * - Minimal bundle size is critical
- * - Simple key-value storage patterns
- * - No need for workflow context or event handlers
- * - Custom routing (bring your own Hono or router)
- *
- * **Tree-shakeable Imports:**
- * - `import { DO } from 'dotdo/tiny'` - DOTiny (minimal)
- * - `import { DO } from 'dotdo/base'` - DOBase (workflow context)
- * - `import { DO } from 'dotdo/full'` - DOFull (all features)
- * - `import { DO } from 'dotdo'` - DOFull + fs/git/bash mixins
- *
- * @example Basic Custom DO
+ * @example
  * ```typescript
  * import { DO } from 'dotdo/tiny'
  *
  * class MyDO extends DO {
  *   async fetch(request: Request): Promise<Response> {
- *     const url = new URL(request.url)
- *
- *     if (url.pathname === '/data') {
- *       const data = await this.ctx.storage.get('myData')
- *       return Response.json(data)
- *     }
- *
- *     return super.fetch(request)
+ *     // Custom routing
  *   }
  * }
  * ```
- *
- * @example Type Checking
- * ```typescript
- * class MyEntity extends DO {
- *   static override readonly $type = 'MyEntity'
- * }
- *
- * const entity = new MyEntity(ctx, env)
- * entity.isType('MyEntity')        // true
- * entity.extendsType('DO')         // true
- * entity.getTypeHierarchy()        // ['MyEntity', 'DO']
- * ```
- *
- * @example User Context from Headers
- * ```typescript
- * class SecureDO extends DO {
- *   protected async handleFetch(request: Request): Promise<Response> {
- *     // this.user is automatically extracted from X-User-* headers
- *     if (!this.user) {
- *       return new Response('Unauthorized', { status: 401 })
- *     }
- *     return Response.json({ userId: this.user.id })
- *   }
- * }
- * ```
- *
- * @see DOBase for WorkflowContext and stores
- * @see DOFull for lifecycle operations
  */
 
 import { DurableObject } from 'cloudflare:workers'
@@ -109,29 +56,11 @@ export type Env = CloudflareEnv
 
 /**
  * Extract user context from X-User-* headers in a request.
+ * This is typically used by Durable Objects to get the authenticated user
+ * set by the RPC auth middleware.
  *
- * This function is used internally by DOTiny to populate the `user` property
- * on each incoming request. The RPC auth middleware sets these headers
- * after validating authentication tokens.
- *
- * **Supported Headers:**
- * - `X-User-ID` (required) - Unique user identifier
- * - `X-User-Email` (optional) - User's email address
- * - `X-User-Role` (optional) - User's role or permission level
- *
- * @param req - The incoming HTTP request
- * @returns UserContext object if X-User-ID header is present, null otherwise
- *
- * @example
- * ```typescript
- * // Headers set by auth middleware:
- * // X-User-ID: usr_123
- * // X-User-Email: john@example.com
- * // X-User-Role: admin
- *
- * const user = extractUserFromRequest(request)
- * // { id: 'usr_123', email: 'john@example.com', role: 'admin' }
- * ```
+ * @param req The incoming request
+ * @returns UserContext if X-User-ID is present, null otherwise
  */
 export function extractUserFromRequest(req: Request): UserContext | null {
   const id = req.headers.get('X-User-ID')
@@ -158,42 +87,6 @@ export function extractUserFromRequest(req: Request): UserContext | null {
 // DOTiny - Minimal Durable Object
 // ============================================================================
 
-/**
- * DO (DOTiny) - Minimal Durable Object Base Class
- *
- * The smallest possible DO implementation providing identity, storage, and HTTP handling.
- * Extend this class for minimal-footprint edge applications.
- *
- * @template E - Environment bindings type, defaults to CloudflareEnv
- *
- * @property {string} ns - Namespace URL identifying this DO instance (e.g., 'https://tenant.api.dotdo.dev')
- * @property {string} $type - Type discriminator for polymorphic behavior
- * @property {UserContext | null} user - Current authenticated user, extracted from request headers
- * @property {DrizzleSqliteDODatabase} db - Drizzle ORM instance for SQLite operations
- *
- * @example Subclassing DOTiny
- * ```typescript
- * class CounterDO extends DO {
- *   static override readonly $type = 'Counter'
- *
- *   async increment(): Promise<number> {
- *     const current = await this.ctx.storage.get<number>('count') ?? 0
- *     const next = current + 1
- *     await this.ctx.storage.put('count', next)
- *     return next
- *   }
- *
- *   protected async handleFetch(request: Request): Promise<Response> {
- *     const url = new URL(request.url)
- *     if (url.pathname === '/increment' && request.method === 'POST') {
- *       const count = await this.increment()
- *       return Response.json({ count })
- *     }
- *     return super.handleFetch(request)
- *   }
- * }
- * ```
- */
 export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
   // TYPE DISCRIMINATOR

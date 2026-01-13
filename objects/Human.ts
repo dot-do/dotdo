@@ -1,205 +1,51 @@
 /**
- * @module Human
- * @description Human worker with approval flows, notifications, and escalation
+ * Human - Human worker with approval flows
  *
- * Human extends Worker to represent human participants in business workflows.
- * It provides multi-channel notifications (email, Slack, SMS, webhook),
- * approval queues with SLA tracking, and automatic escalation policies.
- * Humans are the "human-in-the-loop" component for AI agent oversight.
+ * Extends Worker with notification channels, approval queues, escalation.
+ * Examples: 'john@acme.com', 'support-team'
  *
- * **Architecture Note:**
- * This DO shares channel abstractions, validation, and workflow logic with
- * HumanFunctionExecutor via lib/human/*. All reusable logic has been consolidated
- * to eliminate duplication:
- * - lib/human/channels - Channel interface and implementations
- * - lib/human/validation - Form, action, schema validation
- * - lib/human/workflows - Approval workflow execution
- * - lib/human/graph-store - GraphHumanStore for state persistence
+ * Supports blocking approvals via the /request endpoint pattern:
+ * - POST /request - Submit a new approval request
+ * - GET /request/:id - Get request status (for polling)
+ * - POST /request/:id/respond - Submit response to a request
  *
- * **Core Features:**
- * - Multi-channel notifications (email, Slack, SMS, webhook)
- * - Blocking approval requests with polling or webhooks
- * - SLA-based automatic expiration
- * - Escalation policies with configurable rules
- * - Graph-backed state for queryability
+ * Uses Graph model for blocking request state:
+ * - BlockingApprovalRequest stored as Things with type 'ApprovalRequest'
+ * - Status transitions via verb forms (pending -> approved/rejected/expired)
+ * - Relationship: Request assignedTo Human
  *
- * **Approval Request States:**
- * | State | Description |
- * |-------|-------------|
- * | `pending` | Awaiting human response |
- * | `approved` | Human approved the request |
- * | `rejected` | Human rejected the request |
- * | `expired` | SLA exceeded without response |
+ * Uses shared abstractions from lib/human for:
+ * - Channel types and configuration (lib/human/channels)
+ * - Escalation configuration (lib/human/workflows)
+ * - Validation utilities (lib/human/validation)
+ * - Graph-backed storage (lib/human/graph-store)
  *
- * **HTTP Endpoints (Blocking Approval Pattern):**
- * | Method | Path | Description |
- * |--------|------|-------------|
- * | POST | `/request` | Submit new approval request |
- * | GET | `/request/:id` | Poll request status |
- * | POST | `/request/:id/respond` | Submit approval response |
- * | DELETE | `/request/:id` | Cancel pending request |
- * | GET | `/requests` | List all requests |
- * | GET | `/pending` | List pending approvals |
- * | POST | `/approve` | Legacy approval endpoint |
- * | GET/PUT | `/channels` | Manage notification channels |
+ * This class is designed to work seamlessly with HumanFunctionExecutor
+ * by sharing the same underlying abstractions, eliminating code duplication.
  *
- * **Notification Channels:**
- * | Type | Target Format | Example |
- * |------|---------------|---------|
- * | `email` | Email address | john@acme.com |
- * | `slack` | Channel/user | #approvals, @john |
- * | `sms` | Phone number | +1-555-0123 |
- * | `webhook` | URL | https://hook.example.com |
- *
- * **Template Literal Pattern:**
- * The Human DO is designed to work with the `humans.do` template literal syntax:
+ * @example
  * ```typescript
- * import { ceo, legal } from 'humans.do'
- *
- * // Blocking approval - waits for human response
- * const approved = await ceo`approve the partnership deal`
- *
- * // Non-blocking - notifies human, continues
- * legal`review contract and respond within 48 hours`
+ * // From ceo`approve partnership` template literal:
+ * // 1. Client POSTs to /request with message + SLA
+ * // 2. Client polls GET /request/:id until status changes
+ * // 3. Human responds via POST /request/:id/respond
+ * // 4. Client receives ApprovalResult
  * ```
  *
- * @example Notification Channel Configuration
- * ```typescript
- * class ApprovalManager extends Human {
- *   async onStart() {
- *     await this.setChannels([
- *       { type: 'slack', target: '#approvals', priority: 'high' },
- *       { type: 'email', target: 'manager@acme.com', priority: 'normal' },
- *       { type: 'sms', target: '+1-555-0123', priority: 'urgent' }
- *     ])
- *   }
- * }
- * ```
- *
- * @example Escalation Policy
- * ```typescript
- * await human.setEscalationPolicy({
- *   rules: [
- *     {
- *       afterMinutes: 60, // After 1 hour
- *       escalateTo: 'team-lead@acme.com',
- *       notifyChannels: [{ type: 'slack', target: '#urgent', priority: 'high' }]
- *     },
- *     {
- *       afterMinutes: 240, // After 4 hours
- *       escalateTo: 'director@acme.com',
- *       notifyChannels: [{ type: 'sms', target: '+1-555-0199', priority: 'urgent' }]
- *     }
- *   ],
- *   finalEscalation: 'ceo@acme.com'
- * })
- * ```
- *
- * @example Blocking Approval Flow
- * ```typescript
- * // Client code (using HumanClient or template literal)
- * const human = new Human(ctx, env)
- *
- * // 1. Submit approval request with SLA
- * const request = await human.submitBlockingRequest({
- *   requestId: 'req_123',
- *   role: 'ceo',
- *   message: 'Approve $50k marketing budget',
- *   sla: 4 * 60 * 60 * 1000, // 4 hours
- *   type: 'approval'
- * })
- *
- * // 2. Poll until resolved (or use webhook)
- * let status = await human.getBlockingRequest('req_123')
- * while (status.status === 'pending') {
- *   await sleep(30000) // Poll every 30 seconds
- *   status = await human.getBlockingRequest('req_123')
- * }
- *
- * // 3. Check result
- * if (status.status === 'approved') {
- *   console.log(`Approved by ${status.result?.approver}`)
- * }
- * ```
- *
- * @example HTTP API Usage
- * ```typescript
- * // Submit request
- * const response = await fetch('https://ceo.humans.do/request', {
- *   method: 'POST',
- *   body: JSON.stringify({
- *     requestId: 'req_123',
- *     role: 'ceo',
- *     message: 'Approve partnership deal',
- *     sla: 86400000, // 24 hours
- *     type: 'approval'
- *   })
- * })
- *
- * // Human responds via UI or API
- * await fetch('https://ceo.humans.do/request/req_123/respond', {
- *   method: 'POST',
- *   body: JSON.stringify({
- *     approved: true,
- *     reason: 'Good strategic fit'
- *   })
- * })
- * ```
- *
- * @example Integration with Agents
- * ```typescript
- * class RefundAgent extends Agent {
- *   async processLargeRefund(amount: number, customerId: string) {
- *     if (amount > 10000) {
- *       // Escalate to human for approval
- *       const human = this.getHuman('senior-accountant')
- *       const approval = await human.approve({
- *         id: `refund-${customerId}-${Date.now()}`,
- *         type: 'refund',
- *         description: `Refund $${amount} to customer ${customerId}`,
- *         requester: this.ctx.id.toString(),
- *         data: { amount, customerId },
- *         deadline: new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hour SLA
- *       })
- *
- *       if (!approval.approved) {
- *         throw new Error(`Refund rejected: ${approval.reason}`)
- *       }
- *     }
- *     return this.executeRefund(amount, customerId)
- *   }
- * }
- * ```
- *
- * @see Worker - Base class for work-performing entities
- * @see Agent - AI-powered autonomous worker
  * @see lib/human - Shared human-in-the-loop abstractions
- * @see lib/executors/HumanFunctionExecutor - Template literal execution engine
+ * @see lib/executors/HumanFunctionExecutor - Execution engine using same abstractions
  */
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult, Channel } from './Worker'
 import { Env } from './DO'
 import type { ThingEntity } from '../db/stores'
 
-// Import shared types, utilities, and channel abstractions from lib/human
-import {
-  type NotificationPriority,
-  type NotificationChannel as SharedNotificationChannel,
-} from '../lib/human'
-import {
-  type HumanNotificationChannel,
-  type NotificationPayload,
-  type SendResult,
-} from '../lib/human/channels'
-import { createChannel, type ChannelConfig } from '../lib/human/channel-factory'
+// Import shared types and utilities from lib/human
+import type { NotificationPriority } from '../lib/human'
 
 /**
- * Notification channel configuration for Human DO.
- *
- * This is a simplified version of the channel config used for DO storage.
- * For full-featured channel instances, use lib/human/channels.
- *
- * @see SharedNotificationChannel - Type alias from lib/human
+ * Notification channel configuration for Human DO
+ * Uses shared NotificationPriority type from lib/human
  */
 export interface NotificationChannel {
   type: 'email' | 'slack' | 'sms' | 'webhook'
@@ -644,119 +490,13 @@ export class Human extends Worker {
     throw new Error(`Generation queued for human: ${thing.id}`)
   }
 
-  /**
-   * Send a message through a notification channel.
-   *
-   * Uses the shared channel abstractions from lib/human/channels when
-   * channel instances are configured, otherwise emits an event for
-   * external notification handling.
-   *
-   * @param message - The notification message
-   * @param channel - Channel configuration (type, target, priority)
-   * @param requestId - Optional request ID for tracking
-   */
-  protected async sendToChannel(
-    message: string,
-    channel: NotificationChannel | Channel,
-    requestId?: string
-  ): Promise<void> {
-    // Try to use configured channel instances from lib/human/channels
-    const channelInstance = await this.getChannelInstance(channel.type)
-
-    if (channelInstance) {
-      // Use the shared channel abstraction for delivery
-      const payload: NotificationPayload = {
-        requestId: requestId || `human-${this.ctx.id.toString()}-${Date.now()}`,
-        message,
-        priority: 'priority' in channel ? channel.priority : 'normal',
-      }
-
-      try {
-        const result = await channelInstance.send(payload)
-        await this.emit('notification.sent', {
-          channel: channel.type,
-          target: channel.target,
-          message,
-          messageId: result.messageId,
-          delivered: result.delivered,
-        })
-      } catch (error) {
-        await this.emit('notification.failed', {
-          channel: channel.type,
-          target: channel.target,
-          message,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        throw error
-      }
-    } else {
-      // Fallback: emit event for external notification handling
-      // (legacy behavior for when channels are not configured)
-      await this.emit('notification.sent', {
-        channel: channel.type,
-        target: channel.target,
-        message,
-      })
-    }
-  }
-
-  /**
-   * Get a channel instance by type.
-   *
-   * Channel instances are created from env configuration using
-   * lib/human/channel-factory. Override this method to provide
-   * custom channel implementations.
-   */
-  protected async getChannelInstance(type: string): Promise<HumanNotificationChannel | null> {
-    // Check if env has channel configuration
-    // Example env vars: SLACK_WEBHOOK_URL, SENDGRID_API_KEY, etc.
-    try {
-      switch (type) {
-        case 'slack':
-          if (this.env.SLACK_WEBHOOK_URL) {
-            return createChannel({
-              type: 'slack',
-              webhookUrl: this.env.SLACK_WEBHOOK_URL,
-            })
-          }
-          break
-        case 'email':
-          if (this.env.SENDGRID_API_KEY) {
-            return createChannel({
-              type: 'email',
-              provider: 'sendgrid',
-              apiKey: this.env.SENDGRID_API_KEY,
-              from: this.env.EMAIL_FROM || 'noreply@dotdo.dev',
-            })
-          }
-          break
-        case 'sms':
-          if (this.env.TWILIO_ACCOUNT_SID && this.env.TWILIO_AUTH_TOKEN) {
-            return createChannel({
-              type: 'sms',
-              provider: 'twilio',
-              accountSid: this.env.TWILIO_ACCOUNT_SID,
-              authToken: this.env.TWILIO_AUTH_TOKEN,
-              from: this.env.TWILIO_PHONE_NUMBER,
-            })
-          }
-          break
-        case 'webhook':
-          // Webhooks are configured per-channel in the channel config
-          break
-        case 'discord':
-          if (this.env.DISCORD_WEBHOOK_URL) {
-            return createChannel({
-              type: 'discord',
-              webhookUrl: this.env.DISCORD_WEBHOOK_URL,
-            })
-          }
-          break
-      }
-    } catch {
-      // Channel configuration not available, fallback to event emission
-    }
-    return null
+  protected async sendToChannel(message: string, channel: NotificationChannel | Channel): Promise<void> {
+    // In production, integrate with actual notification services
+    await this.emit('notification.sent', {
+      channel: channel.type,
+      target: channel.target,
+      message,
+    })
   }
 
   // =========================================================================

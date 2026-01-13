@@ -33,7 +33,6 @@
  */
 
 import type { GraphStore, GraphThing, GraphRelationship } from '../types'
-import { FUNCTION_TYPE_IDS } from '../constants'
 import { createHash } from 'crypto'
 
 // ============================================================================
@@ -166,18 +165,34 @@ export interface CascadeConfig {
 }
 
 // ============================================================================
-// TYPE IDS (re-exported from centralized constants)
+// TYPE IDS (constants for graph things)
 // ============================================================================
 
 /**
  * Type IDs for Function-related graph things
  *
- * Re-exported from db/graph/constants.ts for backward compatibility.
- * New code should import directly from db/graph/constants or db/graph.
- *
- * @see db/graph/constants.ts for the canonical definitions
+ * Convention:
+ * - CodeFunction: 100
+ * - GenerativeFunction: 101
+ * - AgenticFunction: 102
+ * - HumanFunction: 103
+ * - FunctionVersion: 110
+ * - FunctionRef: 111
+ * - FunctionBlob: 112
  */
-export const TYPE_IDS = FUNCTION_TYPE_IDS
+export const TYPE_IDS = {
+  // Function types by kind
+  CodeFunction: 100,
+  GenerativeFunction: 101,
+  AgenticFunction: 102,
+  HumanFunction: 103,
+  // Legacy: generic Function type (uses kind-specific ID at runtime)
+  Function: 100,
+  // Versioning types
+  FunctionVersion: 110,
+  FunctionRef: 111,
+  FunctionBlob: 112,
+} as const
 
 /**
  * Map function type string to typeId

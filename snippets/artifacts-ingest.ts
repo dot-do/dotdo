@@ -88,10 +88,6 @@ export const noopMetrics: ArtifactMetrics = {
 
 export type { ArtifactMode, ArtifactRecord } from './artifacts-types'
 import type { ArtifactMode, ArtifactRecord } from './artifacts-types'
-import { ParseError } from './parse-error'
-
-// Re-export ParseError for consumers
-export { ParseError }
 
 /**
  * Response returned from the ingest endpoint.
@@ -806,7 +802,9 @@ async function* parseJSONLWithLineTracking(
           } catch (err) {
             // Re-throw with line number for JSON parse errors
             const message = err instanceof Error ? err.message : 'Parse error'
-            throw new ParseError(`${message} at line ${lineNumber}`, lineNumber)
+            const error = new Error(`${message} at line ${lineNumber}`)
+            ;(error as any).line = lineNumber
+            throw error
           }
         }
         break
@@ -832,7 +830,9 @@ async function* parseJSONLWithLineTracking(
           } catch (err) {
             // Re-throw with line number for JSON parse errors
             const message = err instanceof Error ? err.message : 'Parse error'
-            throw new ParseError(`${message} at line ${lineNumber}`, lineNumber)
+            const error = new Error(`${message} at line ${lineNumber}`)
+            ;(error as any).line = lineNumber
+            throw error
           }
         }
       }

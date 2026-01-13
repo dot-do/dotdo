@@ -41,7 +41,7 @@
  * ```
  */
 
-export { DO, type Env, type ThingsCollection, type RelationshipsAccessor, type RelationshipRecord } from '../objects/DOBase.js'
+export { DO, type Env, type ThingsCollection, type RelationshipsAccessor, type RelationshipRecord } from '../objects/DOBase'
 
 /**
  * Capabilities included in this entry point

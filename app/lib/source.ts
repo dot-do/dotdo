@@ -4,7 +4,7 @@ import {
   // Site and App MDX content
   site,
   appContent,
-  // Documentation collections (minimal set)
+  // Documentation collections
   gettingStarted,
   concepts,
   api,
@@ -57,7 +57,7 @@ export function getAppPage() {
 }
 
 // =============================================================================
-// Documentation Sources (Minimal Set)
+// Documentation Sources
 // =============================================================================
 
 // Core documentation
@@ -137,7 +137,11 @@ export const rootTabs = [
 /**
  * All source loaders for iteration
  */
-const allSources = [gettingStartedSource, conceptsSource, apiSource]
+const allSources = [
+  gettingStartedSource,
+  conceptsSource,
+  apiSource,
+]
 
 /**
  * Get all pages from all collections for prerendering
@@ -152,16 +156,14 @@ export function getAllPages() {
  */
 export async function getUnifiedPageTree(): Promise<PageTree.Root> {
   // Get section trees
-  const sectionTrees = await Promise.all(
-    [
-      { name: 'Getting Started', source: gettingStartedSource },
-      { name: 'Concepts', source: conceptsSource },
-      { name: 'API', source: apiSource },
-    ].map(async ({ name, source }) => ({
-      name,
-      tree: source.getPageTree(),
-    }))
-  )
+  const sectionTrees = await Promise.all([
+    { name: 'Getting Started', source: gettingStartedSource },
+    { name: 'Concepts', source: conceptsSource },
+    { name: 'API', source: apiSource },
+  ].map(async ({ name, source }) => ({
+    name,
+    tree: source.getPageTree(),
+  })))
 
   // Combine into unified tree
   const children: PageTree.Node[] = []
@@ -169,7 +171,9 @@ export async function getUnifiedPageTree(): Promise<PageTree.Root> {
   for (const { name, tree } of sectionTrees) {
     // Each section becomes a folder with its tree's children
     if (tree.children.length > 0) {
-      const indexPage = tree.children.find((c): c is PageTree.Item => c.type === 'page' && c.url.endsWith('/'))
+      const indexPage = tree.children.find(
+        (c): c is PageTree.Item => c.type === 'page' && c.url.endsWith('/')
+      )
       children.push({
         type: 'folder',
         name,

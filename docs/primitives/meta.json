@@ -4,21 +4,9 @@
   "root": true,
   "pages": [
     "index",
-    "---Core Primitives---",
+    "---Primitives---",
     "fsx",
     "gitx",
-    "bashx",
-    "npmx",
-    "pyx",
-    "---Communication---",
-    "channel",
-    "machine",
-    "---Infrastructure---",
-    "rate-limiter",
-    "circuit-breaker",
-    "cache-manager",
-    "task-queue",
-    "feature-flags",
-    "event-emitter"
+    "bashx"
   ]
 }

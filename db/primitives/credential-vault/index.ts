@@ -1222,23 +1222,3 @@ export class CredentialVault extends EventEmitter {
 export function createCredentialVault(config: VaultConfig): CredentialVault {
   return new CredentialVault(config)
 }
-
-// =============================================================================
-// Re-export Sharing Module
-// =============================================================================
-
-export {
-  CredentialSharingManager,
-  createCredentialSharingManager,
-  createCredentialVaultRPC,
-  type DelegationToken,
-  type DelegationTokenOptions,
-  type DelegationPermission,
-  type CredentialAccessRequest,
-  type CredentialAccessResult,
-  type AccessRequestContext,
-  type RevocationBroadcast,
-  type CredentialSharingConfig,
-  type DelegationAuditEntry,
-  type CredentialVaultRPC,
-} from './sharing'

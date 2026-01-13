@@ -177,26 +177,3 @@ export {
   SidebarUser,
   DashboardContent,
 } from './layout'
-
-// Re-export lazy-loaded chart components and skeletons
-export {
-  // Lazy chart wrappers
-  LazyAreaChartWrapper,
-  LazyBarChartWrapper,
-  LazyLineChartWrapper,
-  LazyPieChartWrapper,
-  // Skeleton components
-  ChartSkeleton,
-  KPICardSkeleton,
-  ActivityFeedSkeleton,
-  AgentStatusSkeleton,
-} from './lazy-charts'
-
-// Re-export error boundary components
-export {
-  DashboardErrorBoundary,
-  DashboardErrorFallback,
-  withDashboardErrorBoundary,
-  type DashboardErrorBoundaryProps,
-  type DashboardErrorFallbackProps,
-} from './dashboard-error-boundary'

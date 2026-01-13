@@ -2,41 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## IMPORTANT: dotdo vs workers.do
+## What is dotdo?
 
-**This is dotdo** - the **runtime/framework layer**. Think of it like Node.js.
-
-| | **dotdo (this repo)** | **workers.do (separate repo)** |
-|---|---|---|
-| **Role** | Runtime/Framework | Platform/Product |
-| **Analogy** | Node.js | Heroku |
-| **Users** | Infrastructure developers | Startup founders, teams |
-| **Package** | `dotdo` | `agents.do`, `teams.do`, `workers.do` |
-
-### What belongs HERE (dotdo)
-
-- DO base classes (DOTiny, DOBase, DO)
-- Storage primitives (Things, Relationships, Events, Actions)
-- Extended primitives (fsx, gitx, bashx, npmx, pyx)
-- Compat layers (40+ API replacements: redis, postgres, stripe, etc.)
-- Cap'n Web RPC and transport layers
-- WorkflowContext ($) and event system
-- Generic Agent/Human/Worker base classes
-
-### What belongs in workers.do (NOT here)
-
-- Named agents (Priya, Ralph, Tom, Mark, Sally, Quinn)
-- Teams (Engineering, Product, Sales, Marketing)
-- Workflows (dev, review, sales, marketing)
-- Business-as-Code syntax for founders
-- The "Autonomous Startup" product experience
-
-**The example code below shows the USER experience (via workers.do), not what you build in THIS repo:**
+**Build your 1-Person Unicorn.** Business-as-Code framework for autonomous businesses run by AI agents.
 
 ```typescript
-// This is the PRODUCT experience (workers.do), not infrastructure (dotdo)
 import { Startup } from 'dotdo'
-import { priya, ralph, tom, mark, sally } from 'agents.do'  // <-- agents.do is from workers.do
+import { priya, ralph, tom, mark, sally } from 'agents.do'
 
 export class MyStartup extends Startup {
   async launch() {
@@ -57,7 +29,7 @@ export class MyStartup extends Startup {
 
 **V8 Isolates + Durable Objects:** Virtual Chrome tabs with persistent state, running on edge (300+ cities, 0ms cold starts).
 
-**Cap'n Web RPC:** Promise pipelining integration with `capnweb`. One network round trip for entire pipelines - unawaited promises pass directly to servers.
+**Cap'n Web RPC:** Promise pipelining integration with `capnweb`. One network round trip for entire pipelines—unawaited promises pass directly to servers.
 
 **Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs), npmx, pyx - implemented as separate packages in `primitives/`.
 
@@ -92,7 +64,7 @@ See `vitest.workspace.ts` for all 80+ test workspaces organized by domain.
 
 ### Testing Philosophy: NO MOCKS
 
-**Durable Objects (DOs) require NO MOCKING.** Miniflare runs real DOs with real SQLite locally.
+**Durable Objects require NO MOCKING.** Miniflare runs real DOs with real SQLite locally.
 
 #### Why No Mocks?
 
@@ -174,7 +146,7 @@ export default defineWorkersConfig({
 
 ```
 api/           # Hono HTTP (routes/, middleware/, generators/)
-objects/       # Durable Object (DO) classes - the core runtime
+objects/       # DO classes - the core runtime
   DOBase.ts    # Base class with REST router, SQLite, persistence (104K LOC)
   Entity.ts    # Domain objects with CRUD
   Startup.ts   # Business container
@@ -210,7 +182,7 @@ cli/           # CLI commands (device auth, config)
 
 ## DO Proxy Workers
 
-Route requests to DOs with the `API()` factory:
+Route requests to Durable Objects with the `API()` factory:
 
 ```typescript
 import { API } from 'dotdo'
