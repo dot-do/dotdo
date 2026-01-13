@@ -6,8 +6,27 @@
  */
 
 import { Logger, createLogger } from '../utils/logger'
+import { safeJsonParse } from '../utils/json'
 import * as fs from 'fs'
 import * as path from 'path'
+
+/**
+ * Prepared statement interface compatible with both bun:sqlite and better-sqlite3
+ */
+export interface PreparedStatement {
+  run(...params: unknown[]): void
+  get<T = unknown>(...params: unknown[]): T | undefined
+  all<T = unknown>(...params: unknown[]): T[]
+}
+
+/**
+ * SQLite database interface compatible with both bun:sqlite and better-sqlite3
+ */
+export interface SQLiteDatabase {
+  exec(sql: string): void
+  prepare(sql: string): PreparedStatement
+  close?(): void
+}
 
 export interface DOState {
   id: string
@@ -26,6 +45,25 @@ export interface DOSnapshot {
   label?: string
 }
 
+/** Database row type for do_state table */
+interface DOStateRow {
+  id: string
+  class_name: string
+  state: string
+  storage: string
+  created_at: number
+  updated_at: number
+}
+
+/** Database row type for do_snapshots table */
+interface DOSnapshotRow {
+  id: string
+  do_id: string
+  state: string
+  label: string | null
+  created_at: number
+}
+
 export interface EmbeddedDBOptions {
   logger?: Logger
   persist?: boolean | string
@@ -37,7 +75,7 @@ export interface EmbeddedDBOptions {
 export class EmbeddedDB {
   private logger: Logger
   private dbPath: string
-  private db: unknown | null = null // Will be better-sqlite3 or bun:sqlite instance
+  private db: SQLiteDatabase | null = null
 
   constructor(options: EmbeddedDBOptions = {}) {
     this.logger = options.logger ?? createLogger('db')
@@ -88,11 +126,11 @@ export class EmbeddedDB {
       // Bun has built-in SQLite
       if (typeof Bun !== 'undefined') {
         const { Database } = await import('bun:sqlite')
-        this.db = new Database(this.dbPath)
+        this.db = new Database(this.dbPath) as SQLiteDatabase
       } else {
         // Node.js fallback
         const betterSqlite = await import('better-sqlite3')
-        this.db = new betterSqlite.default(this.dbPath)
+        this.db = new betterSqlite.default(this.dbPath) as SQLiteDatabase
       }
 
       this.logger.debug(`Database initialized at ${this.dbPath}`)
@@ -150,11 +188,11 @@ export class EmbeddedDB {
   /**
    * Get the underlying database instance
    */
-  private getDB(): { exec: (sql: string) => void; prepare: (sql: string) => { run: (...params: unknown[]) => void; get: (...params: unknown[]) => unknown; all: (...params: unknown[]) => unknown[] } } {
+  private getDB(): SQLiteDatabase {
     if (!this.db) {
       throw new Error('Database not initialized. Call init() first.')
     }
-    return this.db as { exec: (sql: string) => void; prepare: (sql: string) => { run: (...params: unknown[]) => void; get: (...params: unknown[]) => unknown; all: (...params: unknown[]) => unknown[] } }
+    return this.db
   }
 
   /**
@@ -170,18 +208,15 @@ export class EmbeddedDB {
   async list(className?: string): Promise<DOState[]> {
     const db = this.getDB()
 
-    let rows: unknown[]
-    if (className) {
-      rows = db.prepare('SELECT * FROM do_state WHERE class_name = ?').all(className)
-    } else {
-      rows = db.prepare('SELECT * FROM do_state').all()
-    }
+    const rows = className
+      ? db.prepare('SELECT * FROM do_state WHERE class_name = ?').all<DOStateRow>(className)
+      : db.prepare('SELECT * FROM do_state').all<DOStateRow>()
 
-    return (rows as Array<{ id: string; class_name: string; state: string; storage: string; created_at: number; updated_at: number }>).map(row => ({
+    return rows.map(row => ({
       id: row.id,
       className: row.class_name,
-      state: JSON.parse(row.state),
-      storage: JSON.parse(row.storage),
+      state: safeJsonParse(row.state, {}, this.logger),
+      storage: safeJsonParse(row.storage, {}, this.logger),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
@@ -192,15 +227,15 @@ export class EmbeddedDB {
    */
   async get(id: string): Promise<DOState | null> {
     const db = this.getDB()
-    const row = db.prepare('SELECT * FROM do_state WHERE id = ?').get(id) as { id: string; class_name: string; state: string; storage: string; created_at: number; updated_at: number } | undefined
+    const row = db.prepare('SELECT * FROM do_state WHERE id = ?').get<DOStateRow>(id)
 
     if (!row) return null
 
     return {
       id: row.id,
       className: row.class_name,
-      state: JSON.parse(row.state),
-      storage: JSON.parse(row.storage),
+      state: safeJsonParse(row.state, {}, this.logger),
+      storage: safeJsonParse(row.storage, {}, this.logger),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
@@ -263,18 +298,12 @@ export class EmbeddedDB {
    */
   async listSnapshots(doId: string): Promise<DOSnapshot[]> {
     const db = this.getDB()
-    const rows = db.prepare('SELECT * FROM do_snapshots WHERE do_id = ? ORDER BY created_at DESC').all(doId) as Array<{
-      id: string
-      do_id: string
-      state: string
-      label: string | null
-      created_at: number
-    }>
+    const rows = db.prepare('SELECT * FROM do_snapshots WHERE do_id = ? ORDER BY created_at DESC').all<DOSnapshotRow>(doId)
 
     return rows.map(row => ({
       id: row.id,
       doId: row.do_id,
-      state: JSON.parse(row.state),
+      state: safeJsonParse<DOState>(row.state, {} as DOState, this.logger),
       label: row.label ?? undefined,
       createdAt: row.created_at,
     }))
@@ -285,15 +314,20 @@ export class EmbeddedDB {
    */
   async restore(doId: string, snapshotId: string): Promise<void> {
     const db = this.getDB()
-    const row = db.prepare('SELECT * FROM do_snapshots WHERE id = ? AND do_id = ?').get(snapshotId, doId) as {
-      state: string
-    } | undefined
+    const row = db.prepare('SELECT * FROM do_snapshots WHERE id = ? AND do_id = ?').get<DOSnapshotRow>(snapshotId, doId)
 
     if (!row) {
       throw new Error(`Snapshot not found: ${snapshotId}`)
     }
 
-    const state: DOState = JSON.parse(row.state)
+    const state: DOState = safeJsonParse<DOState>(row.state, {
+      id: doId,
+      className: 'Unknown',
+      state: {},
+      storage: {},
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }, this.logger)
     state.updatedAt = Date.now()
     await this.save(state)
   }
@@ -321,8 +355,8 @@ export class EmbeddedDB {
    * Close the database connection
    */
   close(): void {
-    if (this.db && typeof (this.db as { close?: () => void }).close === 'function') {
-      (this.db as { close: () => void }).close()
+    if (this.db?.close) {
+      this.db.close()
       this.db = null
     }
   }

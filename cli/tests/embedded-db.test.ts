@@ -132,4 +132,256 @@ describe('EmbeddedDB', () => {
       expect(db.getPath()).toBe(':memory:')
     })
   })
+
+  describe('type safety', () => {
+    it('EmbeddedDB should export proper database interfaces for compile-time use', async () => {
+      // Import types to verify they exist and are exported
+      // TypeScript interfaces exist only at compile-time, so we verify by:
+      // 1. Creating objects that satisfy the interfaces (compile-time check)
+      // 2. Using them in type-safe ways
+
+      // Import the module to access types
+      const mod = await import('../runtime/embedded-db')
+
+      // Create a mock PreparedStatement that satisfies the interface
+      // If the interface isn't properly exported, this would fail at compile time
+      const mockStatement: import('../runtime/embedded-db').PreparedStatement = {
+        run: () => {},
+        get: <T>() => undefined as T | undefined,
+        all: <T>() => [] as T[],
+      }
+
+      // Create a mock SQLiteDatabase that satisfies the interface
+      const mockDb: import('../runtime/embedded-db').SQLiteDatabase = {
+        exec: () => {},
+        prepare: () => mockStatement,
+        close: () => {},
+      }
+
+      // Runtime assertions to prove the mocks work
+      expect(typeof mockDb.exec).toBe('function')
+      expect(typeof mockDb.prepare).toBe('function')
+      expect(typeof mockStatement.run).toBe('function')
+      expect(typeof mockStatement.get).toBe('function')
+      expect(typeof mockStatement.all).toBe('function')
+
+      // Verify module exports the class and factory
+      expect(mod.EmbeddedDB).toBeDefined()
+      expect(mod.createDB).toBeDefined()
+    })
+
+    it('database methods should be properly typed without assertions in calling code', async () => {
+      // This test verifies the design goal: callers shouldn't need type assertions
+      const db = new EmbeddedDB({ persist: false })
+
+      // These method signatures should work without any 'as' casts in this test code
+      // If they require casts, the internal typing is wrong
+      const path: string = db.getPath()
+      expect(typeof path).toBe('string')
+
+      // The close method should be callable without assertions
+      db.close()
+    })
+
+    it('list method should return properly typed DOState array', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      // list() should return Promise<DOState[]> with no assertions needed
+      // If the return type requires casting, internal typing is broken
+      type ListReturnType = Awaited<ReturnType<typeof db.list>>
+      type ExpectedType = import('../runtime/embedded-db').DOState[]
+
+      // Type-level assertion: these should be compatible
+      const _typeCheck: ExpectedType extends ListReturnType ? true : false = true
+      expect(_typeCheck).toBe(true)
+    })
+
+    it('get method should return properly typed DOState or null', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      // get() should return Promise<DOState | null> with no assertions needed
+      type GetReturnType = Awaited<ReturnType<typeof db.get>>
+      type ExpectedType = import('../runtime/embedded-db').DOState | null
+
+      // Type-level assertion: these should be compatible
+      const _typeCheck: ExpectedType extends GetReturnType ? true : false = true
+      expect(_typeCheck).toBe(true)
+    })
+  })
+})
+
+/**
+ * Tests for corrupted JSON handling
+ *
+ * These tests verify that EmbeddedDB gracefully handles corrupted JSON data
+ * in the database without crashing.
+ */
+describe('EmbeddedDB corrupted JSON handling', () => {
+  let EmbeddedDB: typeof import('../runtime/embedded-db').EmbeddedDB
+
+  beforeEach(async () => {
+    vi.resetModules()
+    vi.clearAllMocks()
+
+    // Mock fs to allow directory creation
+    mockFs.existsSync.mockReturnValue(true)
+
+    // Import fresh module
+    const mod = await import('../runtime/embedded-db')
+    EmbeddedDB = mod.EmbeddedDB
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  describe('list() with corrupted data', () => {
+    it('should handle corrupted state JSON gracefully', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      // Mock the database to return corrupted state JSON
+      const mockPrepare = vi.fn().mockReturnValue({
+        all: vi.fn().mockReturnValue([
+          {
+            id: 'test-1',
+            class_name: 'TestDO',
+            state: '{invalid json',  // Corrupted
+            storage: '{}',
+            created_at: 1000,
+            updated_at: 2000,
+          },
+        ]),
+        run: vi.fn(),
+        get: vi.fn(),
+      })
+
+      // Inject mock db
+      ;(db as unknown as { db: unknown }).db = {
+        exec: vi.fn(),
+        prepare: mockPrepare,
+      }
+
+      const results = await db.list()
+
+      expect(results).toHaveLength(1)
+      expect(results[0].state).toEqual({})  // Should fallback to empty object
+      expect(results[0].storage).toEqual({})
+    })
+
+    it('should handle corrupted storage JSON gracefully', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      const mockPrepare = vi.fn().mockReturnValue({
+        all: vi.fn().mockReturnValue([
+          {
+            id: 'test-1',
+            class_name: 'TestDO',
+            state: '{"valid": true}',
+            storage: 'not valid json at all',  // Corrupted
+            created_at: 1000,
+            updated_at: 2000,
+          },
+        ]),
+        run: vi.fn(),
+        get: vi.fn(),
+      })
+
+      ;(db as unknown as { db: unknown }).db = {
+        exec: vi.fn(),
+        prepare: mockPrepare,
+      }
+
+      const results = await db.list()
+
+      expect(results).toHaveLength(1)
+      expect(results[0].state).toEqual({ valid: true })
+      expect(results[0].storage).toEqual({})  // Should fallback to empty object
+    })
+  })
+
+  describe('get() with corrupted data', () => {
+    it('should handle corrupted JSON gracefully', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      const mockPrepare = vi.fn().mockReturnValue({
+        all: vi.fn(),
+        run: vi.fn(),
+        get: vi.fn().mockReturnValue({
+          id: 'test-1',
+          class_name: 'TestDO',
+          state: '{{{{',  // Corrupted
+          storage: '[[[[',  // Corrupted
+          created_at: 1000,
+          updated_at: 2000,
+        }),
+      })
+
+      ;(db as unknown as { db: unknown }).db = {
+        exec: vi.fn(),
+        prepare: mockPrepare,
+      }
+
+      const result = await db.get('test-1')
+
+      expect(result).not.toBeNull()
+      expect(result!.state).toEqual({})  // Should fallback to empty object
+      expect(result!.storage).toEqual({})  // Should fallback to empty object
+    })
+  })
+
+  describe('listSnapshots() with corrupted data', () => {
+    it('should handle corrupted JSON gracefully', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      const mockPrepare = vi.fn().mockReturnValue({
+        all: vi.fn().mockReturnValue([
+          {
+            id: 'snap-1',
+            do_id: 'test-1',
+            state: 'corrupted snapshot state',  // Corrupted
+            label: 'test snapshot',
+            created_at: 1000,
+          },
+        ]),
+        run: vi.fn(),
+        get: vi.fn(),
+      })
+
+      ;(db as unknown as { db: unknown }).db = {
+        exec: vi.fn(),
+        prepare: mockPrepare,
+      }
+
+      const results = await db.listSnapshots('test-1')
+
+      expect(results).toHaveLength(1)
+      expect(results[0].state).toEqual({})  // Should fallback to empty object
+    })
+  })
+
+  describe('restore() with corrupted data', () => {
+    it('should handle corrupted JSON gracefully', async () => {
+      const db = new EmbeddedDB({ persist: false })
+
+      const mockPrepare = vi.fn().mockReturnValue({
+        all: vi.fn(),
+        run: vi.fn(),
+        get: vi.fn().mockReturnValue({
+          id: 'snap-1',
+          do_id: 'test-1',
+          state: 'totally broken json }{',  // Corrupted
+          label: null,
+          created_at: 1000,
+        }),
+      })
+
+      ;(db as unknown as { db: unknown }).db = {
+        exec: vi.fn(),
+        prepare: mockPrepare,
+      }
+
+      // Should not throw, should use fallback
+      await expect(db.restore('test-1', 'snap-1')).resolves.not.toThrow()
+    })
+  })
 })
