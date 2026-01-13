@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
  * REST API Route Tests
  *
  * These tests verify the /api/* routes for the dotdo worker.
- * They are expected to FAIL until the API routes are implemented.
+ * They use the Hono app's request() method for testing.
  *
  * Implementation requirements:
  * - Create routes in worker/src/routes/api.ts (or similar)
@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
  * The in-memory Map should be replaced with Durable Object persistence.
  */
 
-// Import the actual app
+// Import the actual app (cloudflare:workers is mocked in node environment)
 import { app } from '../../index'
 
 // ============================================================================
@@ -80,8 +80,10 @@ describe('GET /api/health', () => {
 
     expect(res.status).toBe(200)
 
-    const body = await res.json()
-    expect(body).toEqual({ status: 'ok' })
+    const body = await res.json() as { status?: string; timestamp?: string }
+    expect(body.status).toBe('ok')
+    // Health endpoint also includes timestamp
+    expect(body).toHaveProperty('timestamp')
   })
 
   it('returns JSON content type', async () => {

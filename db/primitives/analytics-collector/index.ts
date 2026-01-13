@@ -7,9 +7,24 @@
  * - Batching: automatic event batching with flush intervals
  * - User Identification: anonymous ID -> user ID resolution
  * - Context Enrichment: automatic context (IP, user agent, geo)
+ * - Identity Resolution: anonymous -> authenticated profile merging
  *
  * @module db/primitives/analytics-collector
  */
+
+// Re-export identity resolution module
+export {
+  IdentityResolver,
+  createIdentityResolver,
+  type IdentityNode,
+  type IdentityEdge,
+  type ResolvedIdentity,
+  type MergeRecord,
+  type IdentityResolverOptions,
+  type IdentifyInput,
+  type AliasInput,
+  type ResolveResult,
+} from './identity-resolver'
 
 // ============================================================================
 // TYPES

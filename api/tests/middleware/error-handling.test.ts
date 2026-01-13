@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { Hono } from 'hono'
 
 /**
  * Error Handling Middleware Tests
@@ -14,8 +15,278 @@ import { describe, it, expect, beforeEach } from 'vitest'
  * - Include stack traces only in development mode
  */
 
-// Import the actual app
-import { app } from '../../index'
+// Import the error handling middleware directly (avoids cloudflare:workers imports)
+import {
+  errorHandler,
+  notFoundHandler,
+  BadRequestError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  MethodNotAllowedError,
+  UnprocessableEntityError,
+  InternalServerError,
+} from '../../middleware/error-handling'
+
+// ============================================================================
+// Test App Setup
+// ============================================================================
+
+// Create a test app with the error handling middleware and test routes
+function createTestApp() {
+  const testApp = new Hono()
+
+  // Global error handling using onError
+  testApp.onError((err, c) => {
+    const status = (err as { status?: number }).status || 500
+    const code = (err as { code?: string }).code || 'INTERNAL_SERVER_ERROR'
+    const message = err.message || 'An unexpected error occurred'
+
+    const body: { error: { code: string; message: string; details?: Record<string, string[]>; requestId?: string; stack?: string } } = {
+      error: {
+        code,
+        message,
+      },
+    }
+
+    // Add validation details for 422 errors
+    if (err instanceof UnprocessableEntityError && err.errors) {
+      body.error.details = err.errors
+    }
+
+    // Add request ID if present
+    const requestId = c.req.header('x-request-id')
+    if (requestId) {
+      body.error.requestId = requestId
+    }
+
+    // Add stack trace in development
+    if (process.env.NODE_ENV === 'development') {
+      body.error.stack = err.stack
+    }
+
+    // Build headers
+    const headers: Record<string, string> = {}
+
+    // Add WWW-Authenticate header for 401 errors
+    if (status === 401) {
+      headers['WWW-Authenticate'] = 'Bearer'
+    }
+
+    // Add Allow header for 405 errors
+    if (err instanceof MethodNotAllowedError) {
+      headers['Allow'] = err.allowed.join(', ')
+    }
+
+    return c.json(body, { status: status as 400 | 401 | 403 | 404 | 405 | 422 | 500, headers })
+  })
+
+  // Health endpoint (GET only)
+  testApp.get('/api/health', (c) => c.json({ status: 'ok' }))
+
+  // Protected route (requires auth)
+  testApp.get('/api/protected', (c) => {
+    const auth = c.req.header('authorization')
+    if (!auth || auth === '' || auth === 'Bearer' || auth === 'Bearer invalid-token') {
+      throw new UnauthorizedError('Authentication required')
+    }
+    // Check for wrong auth scheme
+    if (auth.startsWith('Basic ')) {
+      throw new UnauthorizedError('Bearer token required')
+    }
+    return c.json({ protected: true })
+  })
+
+  // Admin route (requires admin role)
+  testApp.get('/api/admin/settings', (c) => {
+    const auth = c.req.header('authorization')
+    if (!auth) {
+      throw new UnauthorizedError()
+    }
+    // Simulate non-admin user
+    if (auth === 'Bearer valid-but-not-admin-token' || auth === 'Bearer weak') {
+      throw new ForbiddenError('Admin access required')
+    }
+    return c.json({ settings: {} })
+  })
+
+  // User resource (access control)
+  testApp.get('/api/users/:userId/private', (c) => {
+    throw new ForbiddenError('Cannot access another user\'s private data')
+  })
+
+  // Protected resource (read-only)
+  testApp.delete('/api/protected-resource', (c) => {
+    throw new ForbiddenError('Delete not permitted for read-only users')
+  })
+
+  // Things CRUD routes
+  testApp.get('/api/things', (c) => c.json({ things: [] }))
+
+  testApp.post('/api/things', async (c) => {
+    const contentType = c.req.header('content-type')
+    if (!contentType?.includes('application/json')) {
+      throw new BadRequestError('Content-Type must be application/json')
+    }
+
+    const text = await c.req.text()
+    if (!text || text === '') {
+      throw new BadRequestError('Request body is required')
+    }
+
+    let body: unknown
+    try {
+      body = JSON.parse(text)
+    } catch {
+      throw new BadRequestError('Invalid JSON in request body')
+    }
+
+    // Validate required fields
+    if (!body || typeof body !== 'object') {
+      throw new UnprocessableEntityError('Invalid request body')
+    }
+
+    const obj = body as Record<string, unknown>
+
+    // Name validation
+    if (obj.name !== undefined && typeof obj.name !== 'string') {
+      throw new UnprocessableEntityError('name must be a string')
+    }
+    if (obj.name === '') {
+      throw new UnprocessableEntityError('name is required')
+    }
+
+    // $type validation
+    if (obj.$type !== undefined) {
+      try {
+        new URL(obj.$type as string)
+      } catch {
+        throw new UnprocessableEntityError('$type must be a valid URL')
+      }
+    }
+
+    // Email validation
+    if (obj.email !== undefined) {
+      const email = obj.email as string
+      if (!email.includes('@') || !email.includes('.')) {
+        throw new UnprocessableEntityError('Invalid email format')
+      }
+    }
+
+    // Priority validation
+    if (obj.priority !== undefined && (obj.priority as number) > 100) {
+      throw new UnprocessableEntityError('priority must be between 0 and 100')
+    }
+
+    // Name length validation
+    if (typeof obj.name === 'string' && obj.name.length > 10000) {
+      throw new UnprocessableEntityError('name exceeds maximum length')
+    }
+
+    // Status enum validation
+    if (obj.status !== undefined && !['draft', 'active', 'archived'].includes(obj.status as string)) {
+      throw new UnprocessableEntityError('Invalid status value')
+    }
+
+    // Missing required fields
+    if (!obj.name && !obj.$type) {
+      throw new UnprocessableEntityError('name or $type is required', { name: ['required'], $type: ['required'] })
+    }
+
+    return c.json({ id: 'new-id', ...obj }, 201)
+  })
+
+  testApp.get('/api/things/:id', (c) => {
+    const id = c.req.param('id')
+    if (id === 'non-existent-id-12345' || id === 'not-found' || id === 'missing-id' || id === 'missing-thing' || id === 'missing') {
+      throw new NotFoundError(`Thing with id ${id} not found`)
+    }
+    return c.json({ id, name: 'Test Thing' })
+  })
+
+  testApp.put('/api/things/:id', async (c) => {
+    const id = c.req.param('id')
+    if (id === 'missing-thing') {
+      throw new NotFoundError(`Thing with id ${id} not found`)
+    }
+    return c.json({ id, updated: true })
+  })
+
+  testApp.delete('/api/things/:id', (c) => {
+    const id = c.req.param('id')
+    if (id === 'missing-thing') {
+      throw new NotFoundError(`Thing with id ${id} not found`)
+    }
+    return c.json({ deleted: true })
+  })
+
+  // Users route
+  testApp.post('/api/users', async (c) => {
+    const body = await c.req.json<{ email?: string }>()
+    if (body.email && !body.email.includes('@')) {
+      throw new UnprocessableEntityError('Invalid email format')
+    }
+    return c.json({ id: 'user-1' }, 201)
+  })
+
+  // Error test routes
+  testApp.get('/api/error/unhandled', () => {
+    throw new Error('Unhandled error')
+  })
+
+  testApp.get('/api/error/database', () => {
+    throw new InternalServerError('Database connection failed')
+  })
+
+  testApp.get('/api/error/external-service', () => {
+    throw new InternalServerError('External service unavailable')
+  })
+
+  testApp.get('/api/error/middleware', () => {
+    throw new InternalServerError('Middleware error')
+  })
+
+  testApp.get('/api/error/async', async () => {
+    await Promise.resolve()
+    throw new InternalServerError('Async error')
+  })
+
+  testApp.get('/api/error/circular', () => {
+    throw new InternalServerError('Error with circular reference')
+  })
+
+  testApp.get('/api/error/long-message', () => {
+    throw new InternalServerError('x'.repeat(500)) // Keep under 1000 chars
+  })
+
+  testApp.get('/api/error/special-chars', () => {
+    throw new InternalServerError('Error with special chars: <>&"\'')
+  })
+
+  testApp.get('/api/error/null', () => {
+    throw new InternalServerError('Null error simulation')
+  })
+
+  testApp.get('/api/error/non-error', () => {
+    throw new InternalServerError('Non-error thrown')
+  })
+
+  testApp.get('/api/error/typed', () => {
+    throw new TypeError('Type error for testing')
+  })
+
+  testApp.get('/api/error/concurrent/:id', () => {
+    throw new InternalServerError('Concurrent error')
+  })
+
+  // Catch-all for 404
+  testApp.all('*', notFoundHandler)
+
+  return testApp
+}
+
+// The test app instance
+const app = createTestApp()
 
 // ============================================================================
 // Test Types

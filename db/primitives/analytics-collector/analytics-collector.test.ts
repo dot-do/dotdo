@@ -292,6 +292,478 @@ describe('Track Event', () => {
       })
     })
   })
+
+  // ==========================================================================
+  // [RED] EVENT SCHEMA VALIDATION
+  // ==========================================================================
+
+  describe('event schema validation', () => {
+    it('should reject event names exceeding max length (200 chars)', async () => {
+      const longEventName = 'A'.repeat(201)
+      await expect(
+        analytics.track({
+          event: longEventName,
+          userId: 'user_123',
+        })
+      ).rejects.toThrow('event name exceeds maximum length of 200 characters')
+    })
+
+    it('should reject event names with invalid characters', async () => {
+      await expect(
+        analytics.track({
+          event: 'Event\x00Name', // null byte
+          userId: 'user_123',
+        })
+      ).rejects.toThrow('event name contains invalid characters')
+    })
+
+    it('should reject event names that are only whitespace', async () => {
+      await expect(
+        analytics.track({
+          event: '   ',
+          userId: 'user_123',
+        })
+      ).rejects.toThrow('event name is required')
+    })
+
+    it('should trim whitespace from event names', async () => {
+      await analytics.track({
+        event: '  Button Clicked  ',
+        userId: 'user_123',
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).event).toBe('Button Clicked')
+    })
+
+    it('should validate userId format', async () => {
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: '', // empty string should fail
+        })
+      ).rejects.toThrow('userId or anonymousId is required')
+    })
+
+    it('should reject userId exceeding max length (256 chars)', async () => {
+      const longUserId = 'U'.repeat(257)
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: longUserId,
+        })
+      ).rejects.toThrow('userId exceeds maximum length of 256 characters')
+    })
+
+    it('should reject anonymousId exceeding max length (256 chars)', async () => {
+      const longAnonymousId = 'A'.repeat(257)
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          anonymousId: longAnonymousId,
+        })
+      ).rejects.toThrow('anonymousId exceeds maximum length of 256 characters')
+    })
+
+    it('should validate messageId format (UUID-like)', async () => {
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: 'user_123',
+          messageId: 'not-a-valid-format!!!',
+        })
+      ).rejects.toThrow('messageId must be alphanumeric with hyphens')
+    })
+  })
+
+  // ==========================================================================
+  // [RED] REQUIRED FIELDS VALIDATION
+  // ==========================================================================
+
+  describe('required fields', () => {
+    it('should reject null event name', async () => {
+      await expect(
+        analytics.track({
+          event: null as unknown as string,
+          userId: 'user_123',
+        })
+      ).rejects.toThrow('event name is required')
+    })
+
+    it('should reject undefined event name', async () => {
+      await expect(
+        analytics.track({
+          event: undefined as unknown as string,
+          userId: 'user_123',
+        })
+      ).rejects.toThrow('event name is required')
+    })
+
+    it('should reject both userId and anonymousId as empty strings', async () => {
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: '',
+          anonymousId: '',
+        })
+      ).rejects.toThrow('userId or anonymousId is required')
+    })
+
+    it('should reject both userId and anonymousId as whitespace', async () => {
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: '   ',
+          anonymousId: '   ',
+        })
+      ).rejects.toThrow('userId or anonymousId is required')
+    })
+
+    it('should accept valid event with only anonymousId', async () => {
+      await analytics.track({
+        event: 'Anonymous Action',
+        anonymousId: 'anon_valid_123',
+      })
+
+      await analytics.flush()
+      expect(mockDest.events).toHaveLength(1)
+      expect(mockDest.events[0]).toMatchObject({
+        type: 'track',
+        event: 'Anonymous Action',
+        anonymousId: 'anon_valid_123',
+      })
+    })
+
+    it('should accept valid event with both userId and anonymousId', async () => {
+      await analytics.track({
+        event: 'Linked Action',
+        userId: 'user_123',
+        anonymousId: 'anon_456',
+      })
+
+      await analytics.flush()
+      expect(mockDest.events[0]).toMatchObject({
+        userId: 'user_123',
+        anonymousId: 'anon_456',
+      })
+    })
+  })
+
+  // ==========================================================================
+  // [RED] CUSTOM PROPERTIES VALIDATION
+  // ==========================================================================
+
+  describe('custom properties', () => {
+    it('should support nested object properties', async () => {
+      await analytics.track({
+        event: 'Complex Event',
+        userId: 'user_123',
+        properties: {
+          product: {
+            id: 'prod_123',
+            details: {
+              category: 'Electronics',
+              subcategory: 'Phones',
+            },
+          },
+        },
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).properties).toMatchObject({
+        product: {
+          id: 'prod_123',
+          details: {
+            category: 'Electronics',
+            subcategory: 'Phones',
+          },
+        },
+      })
+    })
+
+    it('should support array properties', async () => {
+      await analytics.track({
+        event: 'Cart Updated',
+        userId: 'user_123',
+        properties: {
+          items: [
+            { sku: 'SKU001', quantity: 2 },
+            { sku: 'SKU002', quantity: 1 },
+          ],
+          tags: ['sale', 'featured', 'new'],
+        },
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).properties).toMatchObject({
+        items: [
+          { sku: 'SKU001', quantity: 2 },
+          { sku: 'SKU002', quantity: 1 },
+        ],
+        tags: ['sale', 'featured', 'new'],
+      })
+    })
+
+    it('should support boolean properties', async () => {
+      await analytics.track({
+        event: 'Feature Toggled',
+        userId: 'user_123',
+        properties: {
+          enabled: true,
+          darkMode: false,
+        },
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).properties).toMatchObject({
+        enabled: true,
+        darkMode: false,
+      })
+    })
+
+    it('should support null property values', async () => {
+      await analytics.track({
+        event: 'Profile Updated',
+        userId: 'user_123',
+        properties: {
+          middleName: null,
+          nickname: 'Johnny',
+        },
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).properties).toMatchObject({
+        middleName: null,
+        nickname: 'Johnny',
+      })
+    })
+
+    it('should support numeric property types', async () => {
+      await analytics.track({
+        event: 'Metrics Recorded',
+        userId: 'user_123',
+        properties: {
+          integer: 42,
+          float: 3.14159,
+          negative: -100,
+          zero: 0,
+          largeNumber: Number.MAX_SAFE_INTEGER,
+        },
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).properties).toMatchObject({
+        integer: 42,
+        float: 3.14159,
+        negative: -100,
+        zero: 0,
+        largeNumber: Number.MAX_SAFE_INTEGER,
+      })
+    })
+
+    it('should reject properties exceeding max size (500KB)', async () => {
+      const largeString = 'X'.repeat(600 * 1024) // 600KB
+      await expect(
+        analytics.track({
+          event: 'Large Event',
+          userId: 'user_123',
+          properties: {
+            data: largeString,
+          },
+        })
+      ).rejects.toThrow('properties exceed maximum size of 500KB')
+    })
+
+    it('should reject deeply nested properties (max depth 10)', async () => {
+      const deepNested = { level1: { level2: { level3: { level4: { level5: { level6: { level7: { level8: { level9: { level10: { level11: 'too deep' } } } } } } } } } } }
+      await expect(
+        analytics.track({
+          event: 'Deep Event',
+          userId: 'user_123',
+          properties: deepNested,
+        })
+      ).rejects.toThrow('properties exceed maximum nesting depth of 10')
+    })
+
+    it('should reject circular reference in properties', async () => {
+      const circular: Record<string, unknown> = { name: 'test' }
+      circular.self = circular
+
+      await expect(
+        analytics.track({
+          event: 'Circular Event',
+          userId: 'user_123',
+          properties: circular,
+        })
+      ).rejects.toThrow('properties contain circular reference')
+    })
+
+    it('should handle undefined property values by omitting them', async () => {
+      await analytics.track({
+        event: 'Sparse Event',
+        userId: 'user_123',
+        properties: {
+          defined: 'value',
+          undefined: undefined,
+        },
+      })
+
+      await analytics.flush()
+      const props = (mockDest.events[0] as TrackEvent).properties
+      expect(props).toHaveProperty('defined', 'value')
+      expect(props).not.toHaveProperty('undefined')
+    })
+
+    it('should support Date objects in properties (serialized to ISO string)', async () => {
+      const testDate = new Date('2025-06-15T12:00:00Z')
+      await analytics.track({
+        event: 'Date Event',
+        userId: 'user_123',
+        properties: {
+          createdAt: testDate,
+        },
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as TrackEvent).properties).toMatchObject({
+        createdAt: '2025-06-15T12:00:00.000Z',
+      })
+    })
+  })
+
+  // ==========================================================================
+  // [RED] TIMESTAMP HANDLING
+  // ==========================================================================
+
+  describe('timestamp handling', () => {
+    it('should accept ISO 8601 string timestamp', async () => {
+      await analytics.track({
+        event: 'Test Event',
+        userId: 'user_123',
+        timestamp: '2025-06-15T12:30:45.123Z',
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
+        '2025-06-15T12:30:45.123Z'
+      )
+    })
+
+    it('should accept ISO 8601 string with timezone offset', async () => {
+      await analytics.track({
+        event: 'Test Event',
+        userId: 'user_123',
+        timestamp: '2025-06-15T12:30:45+05:30',
+      })
+
+      await analytics.flush()
+      // Should normalize to UTC
+      expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
+        '2025-06-15T07:00:45.000Z'
+      )
+    })
+
+    it('should accept Unix timestamp in milliseconds', async () => {
+      const unixMs = 1718452245123 // 2024-06-15T12:30:45.123Z
+      await analytics.track({
+        event: 'Test Event',
+        userId: 'user_123',
+        timestamp: unixMs as unknown as Date,
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
+        '2024-06-15T12:30:45.123Z'
+      )
+    })
+
+    it('should accept Unix timestamp in seconds', async () => {
+      const unixSec = 1718452245 // 2024-06-15T12:30:45Z
+      await analytics.track({
+        event: 'Test Event',
+        userId: 'user_123',
+        timestamp: unixSec as unknown as Date,
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
+        '2024-06-15T12:30:45.000Z'
+      )
+    })
+
+    it('should reject invalid timestamp string', async () => {
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: 'user_123',
+          timestamp: 'not-a-date' as unknown as Date,
+        })
+      ).rejects.toThrow('invalid timestamp format')
+    })
+
+    it('should reject timestamps in the far future (more than 1 hour ahead)', async () => {
+      const farFuture = new Date(Date.now() + 2 * 60 * 60 * 1000) // 2 hours ahead
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: 'user_123',
+          timestamp: farFuture,
+        })
+      ).rejects.toThrow('timestamp cannot be more than 1 hour in the future')
+    })
+
+    it('should reject timestamps too far in the past (more than 30 days)', async () => {
+      const farPast = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) // 31 days ago
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: 'user_123',
+          timestamp: farPast,
+        })
+      ).rejects.toThrow('timestamp cannot be more than 30 days in the past')
+    })
+
+    it('should preserve millisecond precision', async () => {
+      const preciseDate = new Date('2025-06-15T12:30:45.999Z')
+      await analytics.track({
+        event: 'Test Event',
+        userId: 'user_123',
+        timestamp: preciseDate,
+      })
+
+      await analytics.flush()
+      expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
+        '2025-06-15T12:30:45.999Z'
+      )
+    })
+
+    it('should default to current time when timestamp is omitted', async () => {
+      const before = new Date()
+      await analytics.track({
+        event: 'Test Event',
+        userId: 'user_123',
+      })
+      const after = new Date()
+
+      await analytics.flush()
+      const timestamp = new Date(
+        (mockDest.events[0] as { timestamp: string }).timestamp
+      )
+      expect(timestamp.getTime()).toBeGreaterThanOrEqual(before.getTime())
+      expect(timestamp.getTime()).toBeLessThanOrEqual(after.getTime())
+    })
+
+    it('should handle timestamp at Unix epoch', async () => {
+      const epoch = new Date(0) // 1970-01-01T00:00:00.000Z
+      await expect(
+        analytics.track({
+          event: 'Test Event',
+          userId: 'user_123',
+          timestamp: epoch,
+        })
+      ).rejects.toThrow('timestamp cannot be more than 30 days in the past')
+    })
+  })
 })
 
 // ============================================================================

@@ -39,6 +39,9 @@ export {
   type AggregateFunction,
   type ColumnBatch,
   type BloomFilter,
+  type CodecType,
+  type DataCharacteristics,
+  type CodecStats,
 } from './typed-column-store'
 
 // =============================================================================

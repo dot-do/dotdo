@@ -1185,3 +1185,540 @@ describe('Advanced App Home Patterns', () => {
     )
   })
 })
+
+// ============================================================================
+// APP HOME OPENED EVENT TESTS
+// ============================================================================
+
+describe('App Home Opened Event Handling', () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    mockFetch = createMockFetch({
+      'views.publish': { ok: true, view: { id: 'V123', type: 'home' } },
+    })
+    globalThis.fetch = mockFetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('should register app_home_opened handler', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+    const handler = vi.fn()
+
+    appHome.onAppHomeOpened(handler)
+
+    expect(appHome.hasAppHomeOpenedHandler()).toBe(true)
+  })
+
+  it('should handle app_home_opened event with custom handler', async () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+    const handler = vi.fn()
+
+    appHome.onAppHomeOpened(handler)
+
+    const event: AppHomeOpenedEvent = {
+      type: 'app_home_opened',
+      user: 'U123',
+      channel: 'D123',
+      tab: 'home',
+      event_ts: '1234567890.123456',
+    }
+
+    await appHome.handleAppHomeOpened(event)
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event,
+        userId: 'U123',
+        tab: 'home',
+        publish: expect.any(Function),
+        buildHomeTab: expect.any(Function),
+        client: expect.any(Object),
+      })
+    )
+  })
+
+  it('should allow publishing from handler context', async () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    appHome.onAppHomeOpened(async ({ publish, buildHomeTab }) => {
+      await publish(
+        buildHomeTab()
+          .header('Welcome!')
+          .section('Your personal dashboard')
+      )
+    })
+
+    const event: AppHomeOpenedEvent = {
+      type: 'app_home_opened',
+      user: 'U123',
+      channel: 'D123',
+      tab: 'home',
+      event_ts: '1234567890.123456',
+    }
+
+    await appHome.handleAppHomeOpened(event)
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('views.publish'),
+      expect.objectContaining({
+        body: expect.stringContaining('Welcome!'),
+      })
+    )
+  })
+
+  it('should publish default home tab when no handler but defaultHomeTab configured', async () => {
+    const appHome = new AppHome({
+      token: 'xoxb-test',
+      defaultHomeTab: {
+        builder: (b) => b.header('Default Home'),
+      },
+    })
+
+    const event: AppHomeOpenedEvent = {
+      type: 'app_home_opened',
+      user: 'U123',
+      channel: 'D123',
+      tab: 'home',
+      event_ts: '1234567890.123456',
+    }
+
+    await appHome.handleAppHomeOpened(event)
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('views.publish'),
+      expect.objectContaining({
+        body: expect.stringContaining('Default Home'),
+      })
+    )
+  })
+
+  it('should not publish when tab is not home', async () => {
+    const appHome = new AppHome({
+      token: 'xoxb-test',
+      defaultHomeTab: {
+        builder: (b) => b.header('Default Home'),
+      },
+    })
+
+    const event: AppHomeOpenedEvent = {
+      type: 'app_home_opened',
+      user: 'U123',
+      channel: 'D123',
+      tab: 'messages',
+      event_ts: '1234567890.123456',
+    }
+
+    await appHome.handleAppHomeOpened(event)
+
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('should handle event callback body with app_home_opened', async () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+    const handler = vi.fn()
+
+    appHome.onAppHomeOpened(handler)
+
+    const body: EventCallbackBody = {
+      type: 'event_callback',
+      token: 'test-token',
+      team_id: 'T123',
+      api_app_id: 'A123',
+      event: {
+        type: 'app_home_opened',
+        user: 'U123',
+        channel: 'D123',
+        tab: 'home',
+        event_ts: '1234567890.123456',
+      } as AppHomeOpenedEvent,
+      event_id: 'Ev123',
+      event_time: Date.now(),
+    }
+
+    const handled = await appHome.handleEventCallback(body)
+
+    expect(handled).toBe(true)
+    expect(handler).toHaveBeenCalled()
+  })
+
+  it('should return false for non-app_home_opened events', async () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const body: EventCallbackBody = {
+      type: 'event_callback',
+      token: 'test-token',
+      team_id: 'T123',
+      api_app_id: 'A123',
+      event: {
+        type: 'message',
+        user: 'U123',
+        channel: 'C123',
+        ts: '123',
+      },
+      event_id: 'Ev123',
+      event_time: Date.now(),
+    }
+
+    const handled = await appHome.handleEventCallback(body)
+
+    expect(handled).toBe(false)
+  })
+
+  it('should provide previous view in context when available', async () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+    let receivedContext: any
+
+    appHome.onAppHomeOpened(async (ctx) => {
+      receivedContext = ctx
+    })
+
+    const previousView = {
+      id: 'V_PREV',
+      type: 'home' as const,
+      blocks: [],
+    }
+
+    const event: AppHomeOpenedEvent = {
+      type: 'app_home_opened',
+      user: 'U123',
+      channel: 'D123',
+      tab: 'home',
+      event_ts: '1234567890.123456',
+      view: previousView,
+    }
+
+    await appHome.handleAppHomeOpened(event)
+
+    expect(receivedContext.previousView).toEqual(previousView)
+  })
+})
+
+// ============================================================================
+// BUILDER ENHANCEMENTS TESTS
+// ============================================================================
+
+describe('Enhanced Home Tab Builder', () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    mockFetch = createMockFetch({
+      'views.publish': { ok: true, view: { id: 'V123' } },
+    })
+    globalThis.fetch = mockFetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('should add image block to home tab', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const view = appHome
+      .buildHomeTab()
+      .header('Gallery')
+      .image('https://example.com/image.jpg', 'Sample image', 'My Photo')
+      .build()
+
+    expect(view.blocks).toHaveLength(2)
+    expect(view.blocks[1]).toMatchObject({
+      type: 'image',
+      image_url: 'https://example.com/image.jpg',
+      alt_text: 'Sample image',
+      title: { type: 'plain_text', text: 'My Photo' },
+    })
+  })
+
+  it('should add image block without title', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const view = appHome
+      .buildHomeTab()
+      .image('https://example.com/image.jpg', 'Sample image')
+      .build()
+
+    expect(view.blocks[0]).toMatchObject({
+      type: 'image',
+      image_url: 'https://example.com/image.jpg',
+      alt_text: 'Sample image',
+    })
+    expect(view.blocks[0]).not.toHaveProperty('title')
+  })
+
+  it('should add context with text elements', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const view = appHome
+      .buildHomeTab()
+      .contextText('Last updated: now', 'By: Admin')
+      .build()
+
+    expect(view.blocks[0]).toMatchObject({
+      type: 'context',
+      elements: [
+        { type: 'mrkdwn', text: 'Last updated: now' },
+        { type: 'mrkdwn', text: 'By: Admin' },
+      ],
+    })
+  })
+
+  it('should track block count', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const builder = appHome
+      .buildHomeTab()
+      .header('Title')
+      .section('Content')
+      .divider()
+
+    expect(builder.blockCount).toBe(3)
+  })
+})
+
+describe('Enhanced Modal Builder', () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    mockFetch = createMockFetch({
+      'views.open': { ok: true, view: { id: 'V456' } },
+    })
+    globalThis.fetch = mockFetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('should add image block to modal', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const view = appHome
+      .buildModal()
+      .title('Preview')
+      .image('https://example.com/preview.jpg', 'Preview image')
+      .build()
+
+    expect(view.blocks[0]).toMatchObject({
+      type: 'image',
+      image_url: 'https://example.com/preview.jpg',
+      alt_text: 'Preview image',
+    })
+  })
+
+  it('should add context with text elements to modal', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const view = appHome
+      .buildModal()
+      .title('Info')
+      .contextText('Note: This is important')
+      .build()
+
+    expect(view.blocks[0]).toMatchObject({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: 'Note: This is important' }],
+    })
+  })
+
+  it('should track block count in modal builder', () => {
+    const appHome = new AppHome({ token: 'xoxb-test' })
+
+    const builder = appHome
+      .buildModal()
+      .title('Form')
+      .section('Fill out the form')
+      .input({ blockId: 'name', label: 'Name', actionId: 'name_input' })
+
+    expect(builder.blockCount).toBe(2)
+  })
+})
+
+// ============================================================================
+// VALUE EXTRACTION UTILITIES TESTS
+// ============================================================================
+
+import {
+  extractTextValue,
+  extractSelectValue,
+  extractMultiSelectValues,
+  extractUserValue,
+  extractMultiUserValues,
+  extractChannelValue,
+  extractMultiChannelValues,
+  extractConversationValue,
+  extractDateValue,
+  extractTimeValue,
+  extractAllValues,
+} from '../app-home'
+
+describe('Value Extraction Utilities', () => {
+  const sampleValues: ViewState['values'] = {
+    name_block: {
+      name_input: { type: 'plain_text_input', value: 'John Doe' },
+    },
+    email_block: {
+      email_input: { type: 'plain_text_input', value: 'john@example.com' },
+    },
+    role_block: {
+      role_select: {
+        type: 'static_select',
+        selected_option: { text: { type: 'plain_text', text: 'Admin' }, value: 'admin' },
+      },
+    },
+    tags_block: {
+      tags_multi: {
+        type: 'multi_static_select',
+        selected_options: [
+          { text: { type: 'plain_text', text: 'Tag 1' }, value: 'tag1' },
+          { text: { type: 'plain_text', text: 'Tag 2' }, value: 'tag2' },
+        ],
+      },
+    },
+    assignee_block: {
+      assignee_select: { type: 'users_select', selected_user: 'U456' },
+    },
+    team_block: {
+      team_multi: { type: 'multi_users_select', selected_users: ['U111', 'U222'] },
+    },
+    channel_block: {
+      channel_select: { type: 'channels_select', selected_channel: 'C789' },
+    },
+    channels_block: {
+      channels_multi: { type: 'multi_channels_select', selected_channels: ['C111', 'C222'] },
+    },
+    conversation_block: {
+      conv_select: { type: 'conversations_select', selected_conversation: 'G123' },
+    },
+    date_block: {
+      date_picker: { type: 'datepicker', selected_date: '2024-01-15' },
+    },
+    time_block: {
+      time_picker: { type: 'timepicker', selected_time: '14:30' },
+    },
+  }
+
+  describe('extractTextValue', () => {
+    it('should extract text input value', () => {
+      const value = extractTextValue(sampleValues, 'name_block', 'name_input')
+      expect(value).toBe('John Doe')
+    })
+
+    it('should return undefined for missing block', () => {
+      const value = extractTextValue(sampleValues, 'nonexistent', 'input')
+      expect(value).toBeUndefined()
+    })
+
+    it('should return undefined for missing action', () => {
+      const value = extractTextValue(sampleValues, 'name_block', 'nonexistent')
+      expect(value).toBeUndefined()
+    })
+  })
+
+  describe('extractSelectValue', () => {
+    it('should extract selected option value', () => {
+      const value = extractSelectValue(sampleValues, 'role_block', 'role_select')
+      expect(value).toBe('admin')
+    })
+
+    it('should return undefined for missing selection', () => {
+      const value = extractSelectValue(sampleValues, 'name_block', 'name_input')
+      expect(value).toBeUndefined()
+    })
+  })
+
+  describe('extractMultiSelectValues', () => {
+    it('should extract multiple selected values', () => {
+      const values = extractMultiSelectValues(sampleValues, 'tags_block', 'tags_multi')
+      expect(values).toEqual(['tag1', 'tag2'])
+    })
+
+    it('should return undefined for missing selection', () => {
+      const values = extractMultiSelectValues(sampleValues, 'name_block', 'name_input')
+      expect(values).toBeUndefined()
+    })
+  })
+
+  describe('extractUserValue', () => {
+    it('should extract selected user', () => {
+      const value = extractUserValue(sampleValues, 'assignee_block', 'assignee_select')
+      expect(value).toBe('U456')
+    })
+  })
+
+  describe('extractMultiUserValues', () => {
+    it('should extract multiple selected users', () => {
+      const values = extractMultiUserValues(sampleValues, 'team_block', 'team_multi')
+      expect(values).toEqual(['U111', 'U222'])
+    })
+  })
+
+  describe('extractChannelValue', () => {
+    it('should extract selected channel', () => {
+      const value = extractChannelValue(sampleValues, 'channel_block', 'channel_select')
+      expect(value).toBe('C789')
+    })
+  })
+
+  describe('extractMultiChannelValues', () => {
+    it('should extract multiple selected channels', () => {
+      const values = extractMultiChannelValues(sampleValues, 'channels_block', 'channels_multi')
+      expect(values).toEqual(['C111', 'C222'])
+    })
+  })
+
+  describe('extractConversationValue', () => {
+    it('should extract selected conversation', () => {
+      const value = extractConversationValue(sampleValues, 'conversation_block', 'conv_select')
+      expect(value).toBe('G123')
+    })
+  })
+
+  describe('extractDateValue', () => {
+    it('should extract selected date', () => {
+      const value = extractDateValue(sampleValues, 'date_block', 'date_picker')
+      expect(value).toBe('2024-01-15')
+    })
+  })
+
+  describe('extractTimeValue', () => {
+    it('should extract selected time', () => {
+      const value = extractTimeValue(sampleValues, 'time_block', 'time_picker')
+      expect(value).toBe('14:30')
+    })
+  })
+
+  describe('extractAllValues', () => {
+    it('should extract all values as flat object', () => {
+      const allValues = extractAllValues(sampleValues)
+
+      expect(allValues).toMatchObject({
+        name_block: 'John Doe',
+        email_block: 'john@example.com',
+        role_block: 'admin',
+        tags_block: ['tag1', 'tag2'],
+        assignee_block: 'U456',
+        team_block: ['U111', 'U222'],
+        channel_block: 'C789',
+        channels_block: ['C111', 'C222'],
+        conversation_block: 'G123',
+        date_block: '2024-01-15',
+        time_block: '14:30',
+      })
+    })
+
+    it('should handle empty values', () => {
+      const allValues = extractAllValues({})
+      expect(allValues).toEqual({})
+    })
+  })
+})

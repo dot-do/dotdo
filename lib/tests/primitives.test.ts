@@ -284,6 +284,7 @@ describe('Extended Primitives', () => {
       class TestDO extends withFs(DO) {}
       const instance = new TestDO(mockState, mockEnv)
 
+      await instance.$.fs.mkdir('/dir')
       await instance.$.fs.write('/dir/a.txt', 'a')
       await instance.$.fs.write('/dir/b.txt', 'b')
 
@@ -739,9 +740,10 @@ describe('Primitives Integration', () => {
     }
 
     // Compose: DO -> withFs -> withBash (with fs integration)
+    // Pass mockFs directly since that's where the file content is stored
     class TestDO extends withBash(withFs(DO), {
       executor: () => mockExecutor,
-      fs: (instance) => instance.$.fs,
+      fs: () => mockFs,
     }) {}
 
     const instance = new TestDO(createMockState(), createMockEnv())

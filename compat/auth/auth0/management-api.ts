@@ -17,12 +17,22 @@ import type {
   Auth0Permission,
   Auth0Client,
   Auth0ResourceServer,
+  Auth0Organization,
+  Auth0OrganizationMember,
+  Auth0OrganizationInvitation,
+  OrganizationConnection,
   CreateUserParams,
   UpdateUserParams,
   CreateConnectionParams,
   CreateRoleParams,
   CreateClientParams,
   CreateResourceServerParams,
+  CreateOrganizationParams,
+  UpdateOrganizationParams,
+  AddOrganizationMembersParams,
+  AddMemberRolesParams,
+  CreateOrganizationInvitationParams,
+  AddOrganizationConnectionParams,
   PaginationParams,
   PaginatedResponse,
 } from './types'
@@ -64,6 +74,11 @@ export class ManagementClient {
   private permissionStore: TemporalStore<Auth0Permission[]>
   private userRoleStore: TemporalStore<string[]> // user_id -> role_ids
   private rolePermissionStore: TemporalStore<Auth0Permission[]> // role_id -> permissions
+  private organizationStore: TemporalStore<Auth0Organization>
+  private orgMemberStore: TemporalStore<string[]> // org_id -> user_ids
+  private orgMemberRoleStore: TemporalStore<string[]> // org_id:user_id -> role_ids
+  private orgConnectionStore: TemporalStore<OrganizationConnection[]> // org_id -> connections
+  private orgInvitationStore: TemporalStore<Auth0OrganizationInvitation>
 
   constructor(options: ManagementAPIOptions) {
     this.options = options
@@ -76,6 +91,11 @@ export class ManagementClient {
     this.permissionStore = createTemporalStore<Auth0Permission[]>()
     this.userRoleStore = createTemporalStore<string[]>()
     this.rolePermissionStore = createTemporalStore<Auth0Permission[]>()
+    this.organizationStore = createTemporalStore<Auth0Organization>()
+    this.orgMemberStore = createTemporalStore<string[]>()
+    this.orgMemberRoleStore = createTemporalStore<string[]>()
+    this.orgConnectionStore = createTemporalStore<OrganizationConnection[]>()
+    this.orgInvitationStore = createTemporalStore<Auth0OrganizationInvitation>()
   }
 
   // ============================================================================
@@ -690,6 +710,404 @@ export class ManagementClient {
      */
     getAll: async (): Promise<Auth0ResourceServer[]> => {
       return []
+    },
+  }
+
+  // ============================================================================
+  // ORGANIZATIONS API
+  // ============================================================================
+
+  /**
+   * organizations namespace
+   */
+  organizations = {
+    /**
+     * Create an organization
+     */
+    create: async (data: CreateOrganizationParams): Promise<Auth0Organization> => {
+      const id = this.generateId('org')
+      const organization: Auth0Organization = {
+        id,
+        name: data.name,
+        display_name: data.display_name,
+        branding: data.branding,
+        metadata: data.metadata,
+        enabled_connections: data.enabled_connections ?? [],
+      }
+
+      await this.organizationStore.put(`org:${id}`, organization, Date.now())
+      await this.addOrganizationIndex(data.name, id)
+
+      // Store enabled connections separately
+      if (data.enabled_connections?.length) {
+        await this.orgConnectionStore.put(`org_connections:${id}`, data.enabled_connections, Date.now())
+      }
+
+      return organization
+    },
+
+    /**
+     * Get an organization by ID
+     */
+    get: async (params: { id: string }): Promise<Auth0Organization> => {
+      const org = await this.organizationStore.get(`org:${params.id}`)
+      if (!org) {
+        throw new Auth0APIError(404, 'Not Found', `Organization not found: ${params.id}`)
+      }
+
+      // Fetch enabled connections
+      const connections = await this.orgConnectionStore.get(`org_connections:${params.id}`)
+      org.enabled_connections = connections ?? []
+
+      return org
+    },
+
+    /**
+     * Get an organization by name
+     */
+    getByName: async (name: string): Promise<Auth0Organization | null> => {
+      const id = await this.getOrganizationIdByName(name)
+      if (!id) return null
+      return this.organizations.get({ id })
+    },
+
+    /**
+     * Update an organization
+     */
+    update: async (
+      params: { id: string },
+      data: UpdateOrganizationParams
+    ): Promise<Auth0Organization> => {
+      const existing = await this.organizations.get(params)
+
+      const updated: Auth0Organization = {
+        ...existing,
+        ...data,
+        id: existing.id,
+      }
+
+      // If name changed, update index
+      if (data.name && data.name !== existing.name) {
+        await this.removeOrganizationIndex(existing.name)
+        await this.addOrganizationIndex(data.name, existing.id)
+      }
+
+      await this.organizationStore.put(`org:${params.id}`, updated, Date.now())
+
+      return updated
+    },
+
+    /**
+     * Delete an organization
+     */
+    delete: async (params: { id: string }): Promise<void> => {
+      const org = await this.organizationStore.get(`org:${params.id}`)
+      if (org) {
+        await this.removeOrganizationIndex(org.name)
+      }
+      await this.organizationStore.put(`org:${params.id}`, null as unknown as Auth0Organization, Date.now())
+      // Clean up related data
+      await this.orgMemberStore.put(`org_members:${params.id}`, null as unknown as string[], Date.now())
+      await this.orgConnectionStore.put(`org_connections:${params.id}`, null as unknown as OrganizationConnection[], Date.now())
+    },
+
+    /**
+     * Get all organizations
+     */
+    getAll: async (params?: PaginationParams): Promise<Auth0Organization[] | PaginatedResponse<Auth0Organization>> => {
+      if (params?.include_totals) {
+        return {
+          start: params.page ?? 0,
+          limit: params.per_page ?? 50,
+          length: 0,
+          total: 0,
+          organizations: [],
+        }
+      }
+      return []
+    },
+
+    // ============================================================================
+    // ORGANIZATION MEMBERS
+    // ============================================================================
+
+    /**
+     * Get organization members
+     */
+    getMembers: async (params: { id: string }): Promise<Auth0OrganizationMember[]> => {
+      const memberIds = (await this.orgMemberStore.get(`org_members:${params.id}`)) ?? []
+      const members: Auth0OrganizationMember[] = []
+
+      for (const userId of memberIds) {
+        try {
+          const user = await this.userManager.getUser(userId)
+          if (user) {
+            const roleIds = (await this.orgMemberRoleStore.get(`org_member_roles:${params.id}:${userId}`)) ?? []
+            const roles: Auth0Role[] = []
+            for (const roleId of roleIds) {
+              const role = await this.roleStore.get(`role:${roleId}`)
+              if (role) roles.push(role)
+            }
+
+            members.push({
+              user_id: user.id,
+              email: user.email,
+              name: user.name,
+              picture: user.picture,
+              roles,
+            })
+          }
+        } catch {
+          // User may have been deleted, skip
+        }
+      }
+
+      return members
+    },
+
+    /**
+     * Add members to an organization
+     */
+    addMembers: async (params: { id: string }, data: AddOrganizationMembersParams): Promise<void> => {
+      // Verify organization exists
+      await this.organizations.get(params)
+
+      const existingMembers = (await this.orgMemberStore.get(`org_members:${params.id}`)) ?? []
+      const newMembers = [...new Set([...existingMembers, ...data.members])]
+      await this.orgMemberStore.put(`org_members:${params.id}`, newMembers, Date.now())
+    },
+
+    /**
+     * Remove members from an organization
+     */
+    removeMembers: async (params: { id: string }, data: { members: string[] }): Promise<void> => {
+      const existingMembers = (await this.orgMemberStore.get(`org_members:${params.id}`)) ?? []
+      const newMembers = existingMembers.filter((m) => !data.members.includes(m))
+      await this.orgMemberStore.put(`org_members:${params.id}`, newMembers, Date.now())
+
+      // Clean up member roles
+      for (const memberId of data.members) {
+        await this.orgMemberRoleStore.put(`org_member_roles:${params.id}:${memberId}`, null as unknown as string[], Date.now())
+      }
+    },
+
+    // ============================================================================
+    // ORGANIZATION MEMBER ROLES
+    // ============================================================================
+
+    /**
+     * Get member roles within an organization
+     */
+    getMemberRoles: async (params: { id: string; user_id: string }): Promise<Auth0Role[]> => {
+      const roleIds = (await this.orgMemberRoleStore.get(`org_member_roles:${params.id}:${params.user_id}`)) ?? []
+      const roles: Auth0Role[] = []
+
+      for (const roleId of roleIds) {
+        const role = await this.roleStore.get(`role:${roleId}`)
+        if (role) roles.push(role)
+      }
+
+      return roles
+    },
+
+    /**
+     * Add roles to a member within an organization
+     */
+    addMemberRoles: async (
+      params: { id: string; user_id: string },
+      data: AddMemberRolesParams
+    ): Promise<void> => {
+      const existingRoles = (await this.orgMemberRoleStore.get(`org_member_roles:${params.id}:${params.user_id}`)) ?? []
+      const newRoles = [...new Set([...existingRoles, ...data.roles])]
+      await this.orgMemberRoleStore.put(`org_member_roles:${params.id}:${params.user_id}`, newRoles, Date.now())
+    },
+
+    /**
+     * Remove roles from a member within an organization
+     */
+    removeMemberRoles: async (
+      params: { id: string; user_id: string },
+      data: { roles: string[] }
+    ): Promise<void> => {
+      const existingRoles = (await this.orgMemberRoleStore.get(`org_member_roles:${params.id}:${params.user_id}`)) ?? []
+      const newRoles = existingRoles.filter((r) => !data.roles.includes(r))
+      await this.orgMemberRoleStore.put(`org_member_roles:${params.id}:${params.user_id}`, newRoles, Date.now())
+    },
+
+    // ============================================================================
+    // ORGANIZATION CONNECTIONS
+    // ============================================================================
+
+    /**
+     * Get organization enabled connections
+     */
+    getEnabledConnections: async (params: { id: string }): Promise<OrganizationConnection[]> => {
+      return (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+    },
+
+    /**
+     * Add an enabled connection to an organization
+     */
+    addEnabledConnection: async (
+      params: { id: string },
+      data: AddOrganizationConnectionParams
+    ): Promise<OrganizationConnection> => {
+      const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+
+      // Check if connection already exists
+      const existingIndex = connections.findIndex((c) => c.connection_id === data.connection_id)
+      if (existingIndex >= 0) {
+        throw new Auth0APIError(409, 'Conflict', `Connection ${data.connection_id} is already enabled for this organization`)
+      }
+
+      const newConnection: OrganizationConnection = {
+        connection_id: data.connection_id,
+        assign_membership_on_login: data.assign_membership_on_login ?? false,
+        show_as_button: data.show_as_button ?? true,
+      }
+
+      connections.push(newConnection)
+      await this.orgConnectionStore.put(`org_connections:${params.id}`, connections, Date.now())
+
+      // Update organization's enabled_connections
+      const org = await this.organizationStore.get(`org:${params.id}`)
+      if (org) {
+        org.enabled_connections = connections
+        await this.organizationStore.put(`org:${params.id}`, org, Date.now())
+      }
+
+      return newConnection
+    },
+
+    /**
+     * Get a specific enabled connection for an organization
+     */
+    getEnabledConnection: async (
+      params: { id: string; connectionId: string }
+    ): Promise<OrganizationConnection> => {
+      const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+      const connection = connections.find((c) => c.connection_id === params.connectionId)
+
+      if (!connection) {
+        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connectionId} not found for organization ${params.id}`)
+      }
+
+      return connection
+    },
+
+    /**
+     * Update an enabled connection for an organization
+     */
+    updateEnabledConnection: async (
+      params: { id: string; connectionId: string },
+      data: Partial<AddOrganizationConnectionParams>
+    ): Promise<OrganizationConnection> => {
+      const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+      const index = connections.findIndex((c) => c.connection_id === params.connectionId)
+
+      if (index < 0) {
+        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connectionId} not found for organization ${params.id}`)
+      }
+
+      connections[index] = {
+        ...connections[index],
+        ...data,
+        connection_id: params.connectionId, // Can't change connection_id
+      }
+
+      await this.orgConnectionStore.put(`org_connections:${params.id}`, connections, Date.now())
+
+      return connections[index]
+    },
+
+    /**
+     * Remove an enabled connection from an organization
+     */
+    removeEnabledConnection: async (params: { id: string; connectionId: string }): Promise<void> => {
+      const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+      const filtered = connections.filter((c) => c.connection_id !== params.connectionId)
+
+      if (filtered.length === connections.length) {
+        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connectionId} not found for organization ${params.id}`)
+      }
+
+      await this.orgConnectionStore.put(`org_connections:${params.id}`, filtered, Date.now())
+    },
+
+    // ============================================================================
+    // ORGANIZATION INVITATIONS
+    // ============================================================================
+
+    /**
+     * Get organization invitations
+     */
+    getInvitations: async (params: { id: string }): Promise<Auth0OrganizationInvitation[]> => {
+      // Simplified - would need proper listing in production
+      return []
+    },
+
+    /**
+     * Create an organization invitation
+     */
+    createInvitation: async (
+      params: { id: string },
+      data: CreateOrganizationInvitationParams
+    ): Promise<Auth0OrganizationInvitation> => {
+      // Verify organization exists
+      await this.organizations.get(params)
+
+      const invitationId = this.generateId('inv')
+      const ticketId = this.generateSecret().substring(0, 32)
+      const now = new Date()
+      const ttlMs = (data.ttl_sec ?? 604800) * 1000 // Default 7 days
+      const expiresAt = new Date(now.getTime() + ttlMs)
+
+      const invitation: Auth0OrganizationInvitation = {
+        id: invitationId,
+        organization_id: params.id,
+        inviter: data.inviter,
+        invitee: data.invitee,
+        invitation_url: `https://${this.options.domain}/authorize?invitation=${ticketId}&organization=${params.id}`,
+        ticket_id: ticketId,
+        created_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        client_id: data.client_id,
+        connection_id: data.connection_id,
+        app_metadata: data.app_metadata,
+        user_metadata: data.user_metadata,
+        roles: data.roles,
+        send_invitation_email: data.send_invitation_email ?? true,
+      }
+
+      await this.orgInvitationStore.put(`invitation:${invitationId}`, invitation, Date.now())
+      // Index by ticket for lookup
+      await this.orgInvitationStore.put(`invitation_ticket:${ticketId}`, invitation, Date.now())
+
+      return invitation
+    },
+
+    /**
+     * Get an organization invitation by ID
+     */
+    getInvitation: async (params: { id: string; invitation_id: string }): Promise<Auth0OrganizationInvitation> => {
+      const invitation = await this.orgInvitationStore.get(`invitation:${params.invitation_id}`)
+      if (!invitation || invitation.organization_id !== params.id) {
+        throw new Auth0APIError(404, 'Not Found', `Invitation not found: ${params.invitation_id}`)
+      }
+      return invitation
+    },
+
+    /**
+     * Delete an organization invitation
+     */
+    deleteInvitation: async (params: { id: string; invitation_id: string }): Promise<void> => {
+      const invitation = await this.orgInvitationStore.get(`invitation:${params.invitation_id}`)
+      if (invitation) {
+        await this.orgInvitationStore.put(`invitation:${params.invitation_id}`, null as unknown as Auth0OrganizationInvitation, Date.now())
+        if (invitation.ticket_id) {
+          await this.orgInvitationStore.put(`invitation_ticket:${invitation.ticket_id}`, null as unknown as Auth0OrganizationInvitation, Date.now())
+        }
+      }
     },
   }
 

@@ -814,6 +814,272 @@ describe('CDCSyncMode', () => {
 })
 
 // =============================================================================
+// Additional CDC Edge Cases (dotdo-c8tm4)
+// =============================================================================
+
+describe('CDCSyncMode - Edge Cases', () => {
+  describe('timestamp handling', () => {
+    it('should include _cdc_timestamp in all record types', async () => {
+      const now = Date.now()
+      const changes = [
+        { type: 'insert' as const, record: { id: 1 }, lsn: '0/1234', timestamp: now },
+        { type: 'update' as const, before: { id: 2, name: 'old' }, after: { id: 2, name: 'new' }, lsn: '0/1235', timestamp: now + 1 },
+        { type: 'delete' as const, record: { id: 3 }, lsn: '0/1236', timestamp: now + 2 },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      expect(records).toHaveLength(3)
+      expect(records[0].record.data._cdc_timestamp).toBe(now)
+      expect(records[1].record.data._cdc_timestamp).toBe(now + 1)
+      expect(records[2].record.data._cdc_timestamp).toBe(now + 2)
+    })
+
+    it('should use current timestamp when timestamp is not provided', async () => {
+      const before = Date.now()
+      const changes = [
+        { type: 'insert' as const, record: { id: 1 }, lsn: '0/1234' },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      const after = Date.now()
+      expect(records[0].record.data._cdc_timestamp).toBeGreaterThanOrEqual(before)
+      expect(records[0].record.data._cdc_timestamp).toBeLessThanOrEqual(after)
+    })
+  })
+
+  describe('mixed change types', () => {
+    it('should handle batch with all change types', async () => {
+      const changes = [
+        { type: 'insert' as const, record: { id: 1, name: 'Alice' }, lsn: '0/1234' },
+        { type: 'update' as const, before: { id: 1, name: 'Alice' }, after: { id: 1, name: 'Alice Smith' }, lsn: '0/1235' },
+        { type: 'delete' as const, record: { id: 2, name: 'Bob' }, lsn: '0/1236' },
+        { type: 'insert' as const, record: { id: 3, name: 'Charlie' }, lsn: '0/1237' },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      expect(records).toHaveLength(4)
+      expect(records[0].record.data._cdc_op).toBe('insert')
+      expect(records[1].record.data._cdc_op).toBe('update')
+      expect(records[2].record.data._cdc_op).toBe('delete')
+      expect(records[3].record.data._cdc_op).toBe('insert')
+    })
+  })
+
+  describe('empty batch handling', () => {
+    it('should handle empty change batch gracefully', async () => {
+      const sync = createCDCSync({
+        fetchChanges: async () => [],
+        streamName: 'users',
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      const states = messages.filter((m): m is StateMessage => m.type === 'STATE')
+      expect(records).toHaveLength(0)
+      // No state emitted when no changes
+      expect(states.filter(s => s.state.stream?.streamState.lsn)).toHaveLength(0)
+    })
+  })
+
+  describe('LSN comparison edge cases', () => {
+    it('should handle hex LSN values correctly when sorting', async () => {
+      const changes = [
+        { type: 'insert' as const, record: { id: 3 }, lsn: '0/FFFF' },
+        { type: 'insert' as const, record: { id: 1 }, lsn: '0/1000' },
+        { type: 'insert' as const, record: { id: 2 }, lsn: '0/A000' },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+        sortByLsn: true,
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      expect(records[0].record.data.id).toBe(1) // 0/1000
+      expect(records[1].record.data.id).toBe(2) // 0/A000
+      expect(records[2].record.data.id).toBe(3) // 0/FFFF
+    })
+
+    it('should handle multi-segment LSN values', async () => {
+      const changes = [
+        { type: 'insert' as const, record: { id: 2 }, lsn: '1/0' },
+        { type: 'insert' as const, record: { id: 1 }, lsn: '0/FFFFFFFF' },
+        { type: 'insert' as const, record: { id: 3 }, lsn: '1/1000' },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+        sortByLsn: true,
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      // String comparison: 0/FFFFFFFF < 1/0 < 1/1000
+      expect(records[0].record.data.id).toBe(1)
+      expect(records[1].record.data.id).toBe(2)
+      expect(records[2].record.data.id).toBe(3)
+    })
+  })
+
+  describe('snapshot with startLsn', () => {
+    it('should use startLsn for CDC resumption after snapshot', async () => {
+      const snapshotData = [{ id: 1 }, { id: 2 }]
+      const cdcChanges = [
+        { type: 'insert' as const, record: { id: 3 }, lsn: '0/2000' },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async (lsn) => {
+          // Should receive the startLsn from snapshot config
+          if (lsn === '0/1000') {
+            return cdcChanges
+          }
+          return []
+        },
+        streamName: 'users',
+        initialSnapshot: {
+          enabled: true,
+          fetchSnapshot: async () => snapshotData,
+          startLsn: '0/1000',
+        },
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const states = messages.filter((m): m is StateMessage => m.type === 'STATE')
+      // After snapshot, state should contain startLsn
+      const snapshotState = states.find(s => s.state.stream?.streamState.snapshotComplete === true)
+      expect(snapshotState?.state.stream?.streamState.lsn).toBe('0/1000')
+    })
+  })
+
+  describe('update record structure', () => {
+    it('should preserve all fields from after in update records', async () => {
+      const changes = [
+        {
+          type: 'update' as const,
+          before: { id: 1, name: 'Alice', email: 'alice@old.com', age: 25 },
+          after: { id: 1, name: 'Alice Smith', email: 'alice@new.com', age: 26 },
+          lsn: '0/1234',
+        },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const records = messages.filter((m): m is RecordMessage => m.type === 'RECORD')
+      expect(records[0].record.data.id).toBe(1)
+      expect(records[0].record.data.name).toBe('Alice Smith')
+      expect(records[0].record.data.email).toBe('alice@new.com')
+      expect(records[0].record.data.age).toBe(26)
+    })
+  })
+
+  describe('progress tracking', () => {
+    it('should track progress correctly across all CDC operations', async () => {
+      const changes = [
+        { type: 'insert' as const, record: { id: 1, name: 'Alice' }, lsn: '0/1234' },
+        { type: 'update' as const, before: { id: 1 }, after: { id: 1, name: 'Alice Updated' }, lsn: '0/1235' },
+        { type: 'delete' as const, record: { id: 2 }, lsn: '0/1236' },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'users',
+      })
+
+      for await (const _ of sync.read({}, { streams: [{ name: 'users', syncMode: 'incremental' }] })) {
+        // consume
+      }
+
+      const progress = sync.getProgress()
+      expect(progress.recordsEmitted).toBe(3)
+      expect(progress.bytesEmitted).toBeGreaterThan(0)
+      expect(progress.status).toBe('completed')
+    })
+  })
+
+  describe('offset tracking without LSN', () => {
+    it('should track only offset when LSN is not present', async () => {
+      const changes = [
+        { type: 'insert' as const, record: { id: 1 }, offset: 1000 },
+        { type: 'insert' as const, record: { id: 2 }, offset: 1001 },
+      ]
+
+      const sync = createCDCSync({
+        fetchChanges: async () => changes,
+        streamName: 'events',
+      })
+
+      const messages: AirbyteMessage[] = []
+      for await (const msg of sync.read({}, { streams: [{ name: 'events', syncMode: 'incremental' }] })) {
+        messages.push(msg)
+      }
+
+      const states = messages.filter((m): m is StateMessage => m.type === 'STATE')
+      const finalState = states[states.length - 1]
+      expect(finalState.state.stream?.streamState.offset).toBe(1001)
+      expect(finalState.state.stream?.streamState.lsn).toBeUndefined()
+    })
+  })
+})
+
+// =============================================================================
 // Integration Tests
 // =============================================================================
 

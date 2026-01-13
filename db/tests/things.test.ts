@@ -40,6 +40,7 @@ import {
   undeleteThing,
   countVersions,
   type ThingsDb,
+  type CountVersionsOptions,
 } from '../things'
 
 // ============================================================================
@@ -820,14 +821,23 @@ describe('Edge Cases', () => {
 
 describe('Query Helpers', () => {
   // Mock database for testing
+  // Supports both full row queries and COUNT(*) queries
   const createMockDb = (mockResults: unknown[] = []): ThingsDb => ({
-    select: () => ({
+    select: (fields?: Record<string, unknown>) => ({
       from: () => ({
-        where: () => ({
-          orderBy: () => ({
-            limit: () => Promise.resolve(mockResults),
-          }),
-        }),
+        where: () => {
+          // If fields are passed (like { count: sql`COUNT(*)` }), return directly
+          // This supports the new COUNT(*) query pattern
+          if (fields && 'count' in fields) {
+            return Promise.resolve(mockResults)
+          }
+          // Otherwise, return the chainable orderBy/limit pattern
+          return {
+            orderBy: () => ({
+              limit: () => Promise.resolve(mockResults),
+            }),
+          }
+        },
       }),
     }),
     insert: () => ({
@@ -1020,6 +1030,47 @@ describe('Query Helpers', () => {
       const result = await countVersions(db, 'non-existent')
 
       expect(result).toBe(0)
+    })
+
+    it('uses SQL COUNT() for efficiency - should not fetch all rows', async () => {
+      // This test verifies the function uses COUNT(*) instead of fetching rows
+      // A COUNT query returns a single row with the count, not all matching rows
+      //
+      // The mock db returns what we give it, but the key insight is:
+      // - Fetching 10,000 rows: O(n) memory, O(n) network transfer
+      // - COUNT(*) query: O(1) memory, O(1) network transfer (just the count)
+      //
+      // The implementation should use: SELECT COUNT(*) as count FROM things WHERE id = ?
+      const mockCount = [{ count: 50000 }]
+      const db = createMockDb(mockCount)
+
+      const result = await countVersions(db, 'high-volume-thing')
+
+      // Should return the count directly, not array length
+      expect(result).toBe(50000)
+    })
+
+    it('supports configurable safety limit via options', async () => {
+      // The limit option caps the returned count for "has more than N" checks
+      const mockCount = [{ count: 100 }]
+      const db = createMockDb(mockCount)
+
+      // countVersions(db, id, options?) - limit caps the returned count
+      const result = await countVersions(db, 'thing-001', { limit: 500 })
+
+      // 100 < 500, so we get the actual count
+      expect(result).toBe(100)
+    })
+
+    it('caps result when count exceeds limit', async () => {
+      // When the actual count exceeds the limit, return the limit
+      const mockCount = [{ count: 1000 }]
+      const db = createMockDb(mockCount)
+
+      const result = await countVersions(db, 'thing-001', { limit: 500 })
+
+      // 1000 > 500, so we get the capped limit
+      expect(result).toBe(500)
     })
   })
 })

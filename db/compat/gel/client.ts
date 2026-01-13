@@ -12,7 +12,16 @@
 
 import { parseSDL, type Schema, type TypeDefinition } from './sdl-parser'
 import { generateDDL } from './ddl-generator'
-import { parse } from './edgeql-parser'
+import {
+  parse,
+  type Statement,
+  type InsertStatement,
+  type Assignment,
+  type Expression,
+  type StringLiteral,
+  type NumberLiteral,
+  type BooleanLiteral,
+} from './edgeql-parser'
 import { translateQuery } from './query-translator'
 
 // =============================================================================
@@ -384,10 +393,11 @@ export class GelClient implements GelTransaction {
     try {
       // For INSERT statements, use run() and synthesize the result
       if (ast.type === 'InsertStatement') {
+        const insertAst = ast as InsertStatement
         // Validate required fields before inserting
-        this.validateInsertRequiredFields(ast)
+        this.validateInsertRequiredFields(insertAst)
         // Validate unique constraints
-        this.validateInsertUniqueConstraints(ast)
+        this.validateInsertUniqueConstraints(insertAst)
 
         // Remove RETURNING clause for run() since mock storage doesn't support it
         const sqlWithoutReturning = translated.sql.replace(/ RETURNING "id"$/, '')
@@ -399,17 +409,17 @@ export class GelClient implements GelTransaction {
                           generateUUID()
 
         // Extract field names from the INSERT data
-        const insertedObject: any = { id: insertedId }
-        const data = ast.data?.assignments || []
+        const insertedObject: Record<string, unknown> = { id: insertedId }
+        const data: Assignment[] = insertAst.data?.assignments || []
         for (const assignment of data) {
           const name = assignment.name
           const value = assignment.value
           if (value?.type === 'StringLiteral') {
-            insertedObject[name] = value.value
+            insertedObject[name] = (value as StringLiteral).value
           } else if (value?.type === 'NumberLiteral') {
-            insertedObject[name] = value.value
+            insertedObject[name] = (value as NumberLiteral).value
           } else if (value?.type === 'BooleanLiteral') {
-            insertedObject[name] = value.value
+            insertedObject[name] = (value as BooleanLiteral).value
           }
         }
 
@@ -423,7 +433,7 @@ export class GelClient implements GelTransaction {
         return [] as T[]
       }
 
-      const results = this.storage.all<any>(translated.sql, boundParams)
+      const results = this.storage.all<Record<string, unknown>>(translated.sql, boundParams)
 
       // Hydrate results (convert SQLite types to EdgeQL types)
       return this.hydrateResults(results, ast) as T[]
@@ -545,7 +555,7 @@ export class GelClient implements GelTransaction {
   /**
    * Validate unique constraints for INSERT
    */
-  private validateInsertUniqueConstraints(ast: any): void {
+  private validateInsertUniqueConstraints(ast: InsertStatement): void {
     if (!this.schema) return
 
     // Get the target type name
@@ -554,13 +564,13 @@ export class GelClient implements GelTransaction {
     if (!typeDef) return
 
     // Get the provided values from the INSERT
-    const data = ast.data?.assignments || []
+    const data: Assignment[] = ast.data?.assignments || []
     const providedValues: Record<string, string> = {}
     for (const assignment of data) {
       const name = assignment.name
       const value = assignment.value
       if (value?.type === 'StringLiteral') {
-        providedValues[name] = value.value
+        providedValues[name] = (value as StringLiteral).value
       }
     }
 
@@ -586,7 +596,7 @@ export class GelClient implements GelTransaction {
   /**
    * Validate that all required fields are provided for INSERT
    */
-  private validateInsertRequiredFields(ast: any): void {
+  private validateInsertRequiredFields(ast: InsertStatement): void {
     if (!this.schema) return
 
     // Get the target type name
@@ -596,7 +606,7 @@ export class GelClient implements GelTransaction {
 
     // Get the provided field names from the INSERT
     const providedFields = new Set<string>()
-    const data = ast.data?.assignments || []
+    const data: Assignment[] = ast.data?.assignments || []
     for (const assignment of data) {
       providedFields.add(assignment.name)
     }
@@ -708,17 +718,17 @@ export class GelClient implements GelTransaction {
   /**
    * Hydrate results from SQLite types to EdgeQL types
    */
-  private hydrateResults(results: any[], ast: any): any[] {
+  private hydrateResults(results: Record<string, unknown>[], ast: Statement): Record<string, unknown>[] {
     return results.map(row => this.hydrateRow(row, ast))
   }
 
   /**
    * Hydrate a single row
    */
-  private hydrateRow(row: any, ast: any): any {
+  private hydrateRow(row: Record<string, unknown>, ast: Statement): Record<string, unknown> {
     if (!row) return row
 
-    const hydrated: any = {}
+    const hydrated: Record<string, unknown> = {}
 
     for (const key of Object.keys(row)) {
       const value = row[key]

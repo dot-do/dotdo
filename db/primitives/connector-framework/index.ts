@@ -1418,6 +1418,120 @@ export function toAirbyteCatalog(streams: Stream[]): AirbyteCatalog {
 }
 
 // =============================================================================
+// Convenience Discovery Functions
+// =============================================================================
+
+/**
+ * Options for discovering a stream from sample records
+ */
+export interface DiscoverStreamOptions {
+  /** Optional namespace for the stream */
+  namespace?: string
+  /** Override supported sync modes (defaults to auto-detection) */
+  supportedSyncModes?: SyncMode[]
+  /** Override primary key (defaults to auto-detection) */
+  primaryKey?: string[][]
+  /** Override cursor field (defaults to auto-detection) */
+  cursorField?: string[]
+}
+
+/**
+ * Discover a stream definition from sample records
+ *
+ * This convenience function combines schema inference, primary key detection,
+ * and cursor field detection into a single operation to create a complete
+ * Stream definition suitable for catalog discovery.
+ *
+ * @param name - The stream/table name
+ * @param records - Sample records to infer schema from
+ * @param options - Optional overrides for namespace, sync modes, etc.
+ * @returns A complete Stream definition
+ */
+export function discoverStreamFromRecords(
+  name: string,
+  records: Record<string, unknown>[],
+  options: DiscoverStreamOptions = {},
+): Stream {
+  // Infer schema from records
+  const schema = inferStreamSchema(records)
+
+  // Detect primary key unless explicitly provided
+  const detectedPrimaryKey = options.primaryKey ?? detectPrimaryKey(records)
+
+  // Detect cursor field unless explicitly provided
+  const detectedCursorField = options.cursorField ?? detectCursorField(schema)
+
+  // Determine if cursor was detected/specified
+  const hasCursor = detectedCursorField !== undefined
+
+  // Determine supported sync modes
+  let supportedSyncModes: SyncMode[]
+  if (options.supportedSyncModes) {
+    supportedSyncModes = options.supportedSyncModes
+  } else if (hasCursor) {
+    // If we have a cursor, support both modes
+    supportedSyncModes = ['full_refresh', 'incremental']
+  } else {
+    // No cursor, only full refresh
+    supportedSyncModes = ['full_refresh']
+  }
+
+  return {
+    name,
+    namespace: options.namespace,
+    schema,
+    supportedSyncModes,
+    sourceDefinedPrimaryKey: detectedPrimaryKey,
+    sourceDefinedCursor: hasCursor,
+    defaultCursorField: detectedCursorField,
+  }
+}
+
+/**
+ * Options for discovering multiple streams from data object
+ */
+export interface DiscoverCatalogOptions {
+  /** Namespace to apply to all discovered streams */
+  namespace?: string
+}
+
+/**
+ * Discover multiple streams from a data object
+ *
+ * This convenience function takes an object where keys are stream names
+ * and values are arrays of sample records, returning an array of Stream
+ * definitions with auto-inferred schemas, primary keys, and cursors.
+ *
+ * @param data - Object mapping stream names to sample records
+ * @param options - Optional namespace to apply to all streams
+ * @returns Array of Stream definitions
+ *
+ * @example
+ * ```ts
+ * const streams = discoverCatalogFromData({
+ *   users: [{ id: 1, name: 'Alice' }],
+ *   orders: [{ id: 101, total: 99.99 }]
+ * })
+ * ```
+ */
+export function discoverCatalogFromData(
+  data: Record<string, Record<string, unknown>[]>,
+  options: DiscoverCatalogOptions = {},
+): Stream[] {
+  const streams: Stream[] = []
+
+  for (const [name, records] of Object.entries(data)) {
+    streams.push(
+      discoverStreamFromRecords(name, records, {
+        namespace: options.namespace,
+      }),
+    )
+  }
+
+  return streams
+}
+
+// =============================================================================
 // Sync Modes Re-exports
 // =============================================================================
 export {
@@ -1442,6 +1556,66 @@ export {
   type SyncProgress,
   type SyncCheckpoint,
 } from './sync-modes'
+
+// =============================================================================
+// Config Spec Re-exports
+// =============================================================================
+export {
+  // Factory functions
+  createConfigSpec,
+  // Validation functions
+  validateConfig as validateConfigSpec,
+  validateOAuthConfig,
+  // Secret masking
+  maskSecrets as maskConfigSecrets,
+  getSecretFields,
+  // Defaults and coercion
+  applyDefaults,
+  coerceConfigTypes,
+  mergeConfigs,
+  // Error formatting
+  formatValidationErrors,
+  // Types
+  type ConfigSpec as ConfigSpecType,
+  type PropertySpec as ConfigPropertySpec,
+  type OAuth2FlowConfig,
+  type AuthMethodConfig,
+  type ConfigValidationError,
+  type ConfigValidationResult,
+} from './config-spec'
+
+// =============================================================================
+// Schema Mapper Re-exports
+// =============================================================================
+export {
+  // Schema mapper factory
+  createSchemaMapper,
+  type SchemaMapper,
+  // Types
+  type SchemaMapping,
+  type FieldAlias,
+  type ComputedFieldDef,
+  type SchemaMapperConfig,
+  // Coercion
+  coerceValue,
+  registerCoercionRule,
+  getCoercionRules,
+  type CoercionRule,
+  type CoercionTargetType,
+  // Flattening
+  flattenRecord,
+  unflattenRecord,
+  type FlattenOptions,
+  type UnflattenOptions,
+  // Schema evolution
+  createSchemaEvolution,
+  migrateRecord,
+  detectSchemaChanges,
+  type SchemaVersion,
+  type SchemaEvolution,
+  type SchemaChange,
+  type SchemaChangeType,
+} from './schema-mapper'
 
 // =============================================================================
 // Convenience Exports

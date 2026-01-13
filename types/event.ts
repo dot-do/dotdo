@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // ============================================================================
-// 5W+H Event Type - EPCIS-compatible event model
+// 5W+H Event Type - EPCIS-compatible event model with Digital Extensions
 // ============================================================================
 
 /**
@@ -12,6 +12,75 @@ import { z } from 'zod'
  * - human: Human-in-the-loop
  */
 export type FunctionMethod = 'code' | 'generative' | 'agentic' | 'human'
+
+// ============================================================================
+// Digital Extensions - Actor, Channel, Session, Device, Confidence
+// ============================================================================
+
+/**
+ * ActorType - Classification of the entity performing the action
+ * Distinguishes between human users, AI agents, automated systems, and webhooks
+ */
+export type ActorType = 'human' | 'agent' | 'system' | 'webhook'
+
+/**
+ * ChannelType - The communication/interaction channel
+ * Common channels include web, mobile, api, email, and automation
+ */
+export type ChannelType = 'web' | 'mobile' | 'api' | 'email' | 'sms' | 'voice' | 'chat' | 'automation' | string
+
+/**
+ * ConfidenceLevel - Numeric score (0-1) representing certainty
+ * Used for AI-generated events to indicate model confidence
+ */
+export type ConfidenceLevel = number // 0-1
+
+/**
+ * SessionInfo - Digital session context
+ */
+export interface SessionInfo {
+  /** Unique session identifier */
+  id: string
+  /** Session start time */
+  startedAt?: Date | string
+  /** Session user agent */
+  userAgent?: string
+  /** Session IP address (anonymized) */
+  ip?: string
+}
+
+/**
+ * DeviceInfo - Device context for events
+ */
+export interface DeviceInfo {
+  /** Unique device identifier */
+  id: string
+  /** Device type (desktop, mobile, tablet, iot, scanner, etc.) */
+  type?: string
+  /** Device platform (iOS, Android, Windows, etc.) */
+  platform?: string
+  /** Device model/version */
+  model?: string
+  /** Additional device metadata */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * DigitalExtensions - Digital context fields extending the 5W+H model
+ * These capture modern digital interaction context beyond physical supply chain
+ */
+export interface DigitalExtensions {
+  /** Type of actor performing the action */
+  actorType?: ActorType
+  /** Confidence score for AI-generated events (0-1) */
+  confidence?: ConfidenceLevel
+  /** Interaction channel */
+  channelType?: ChannelType
+  /** Session information */
+  session?: SessionInfo | string
+  /** Device information */
+  device?: DeviceInfo | string
+}
 
 // ============================================================================
 // WHO - Actor, Source, Destination
@@ -140,6 +209,38 @@ export interface EventHow {
 }
 
 // ============================================================================
+// Extensibility - Custom Dimensions
+// ============================================================================
+
+/**
+ * CustomDimension - A user-defined dimension for events
+ * Allows extending the 5W+H model with domain-specific context
+ */
+export interface CustomDimension<T = unknown> {
+  /** Dimension namespace (e.g., "custom:", "epcis:", "domain:") */
+  namespace: string
+  /** Dimension key */
+  key: string
+  /** Dimension value */
+  value: T
+  /** Optional schema reference for validation */
+  schema?: string
+}
+
+/**
+ * EventExtensions - Container for custom dimensions
+ * Provides a structured way to add domain-specific context
+ */
+export interface EventExtensions {
+  /** Custom dimensions keyed by namespace:key */
+  dimensions?: Record<string, unknown>
+  /** EPCIS-style extensions */
+  epcis?: Record<string, unknown>
+  /** Domain-specific extensions */
+  domain?: Record<string, unknown>
+}
+
+// ============================================================================
 // Combined Event Interface
 // ============================================================================
 
@@ -147,6 +248,15 @@ export interface EventHow {
  * Complete Event interface combining all 5W+H fields
  */
 export interface Event extends EventWho, EventWhat, EventWhen, EventWhere, EventWhy, EventHow {}
+
+/**
+ * ExtendedEvent - Event with digital extensions and custom dimensions
+ * This is the full event type for modern digital applications
+ */
+export interface ExtendedEvent extends Event, DigitalExtensions {
+  /** Custom extensions for domain-specific context */
+  extensions?: EventExtensions
+}
 
 /**
  * EventData - Partial event for creation (only requires mandatory fields)

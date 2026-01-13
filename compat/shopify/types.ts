@@ -865,3 +865,290 @@ export interface ListResponse<T> {
     endCursor?: string
   }
 }
+
+// =============================================================================
+// Flow Types (Shopify Flow Automation)
+// =============================================================================
+
+/**
+ * Flow trigger types - events that can start a workflow
+ */
+export type FlowTriggerType =
+  | 'order_created'
+  | 'order_paid'
+  | 'order_fulfilled'
+  | 'order_cancelled'
+  | 'order_refunded'
+  | 'customer_created'
+  | 'customer_updated'
+  | 'customer_deleted'
+  | 'product_created'
+  | 'product_updated'
+  | 'product_deleted'
+  | 'inventory_level_updated'
+  | 'fulfillment_created'
+  | 'refund_created'
+  | 'checkout_created'
+  | 'checkout_updated'
+  | 'draft_order_created'
+  | 'collection_created'
+  | 'collection_updated'
+  | 'scheduled'
+  | 'manual'
+  | string
+
+/**
+ * Flow trigger definition
+ */
+export interface FlowTrigger {
+  id: string
+  type: FlowTriggerType
+  title: string
+  description?: string
+  /** Properties available from this trigger */
+  outputSchema?: Record<string, FlowPropertyType>
+  /** Schedule expression for scheduled triggers (cron format) */
+  schedule?: string
+  /** Custom trigger configuration */
+  config?: Record<string, unknown>
+}
+
+/**
+ * Flow property types for conditions and data mapping
+ */
+export type FlowPropertyType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'datetime'
+  | 'money'
+  | 'array'
+  | 'object'
+
+/**
+ * Flow condition operators
+ */
+export type FlowConditionOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'greater_than'
+  | 'greater_than_or_equals'
+  | 'less_than'
+  | 'less_than_or_equals'
+  | 'contains'
+  | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'is_empty'
+  | 'is_not_empty'
+  | 'in'
+  | 'not_in'
+  | 'matches_regex'
+
+/**
+ * Flow condition - evaluates to true or false
+ */
+export interface FlowCondition {
+  id: string
+  /** Property path to evaluate (e.g., 'order.total_price', 'customer.tags') */
+  property: string
+  operator: FlowConditionOperator
+  /** Value to compare against (not needed for is_empty/is_not_empty) */
+  value?: unknown
+  /** For nested conditions */
+  and?: FlowCondition[]
+  or?: FlowCondition[]
+}
+
+/**
+ * Flow action types - operations that can be performed
+ */
+export type FlowActionType =
+  // Order actions
+  | 'add_order_tag'
+  | 'remove_order_tag'
+  | 'add_order_note'
+  | 'capture_payment'
+  | 'cancel_order'
+  | 'create_fulfillment'
+  | 'send_order_email'
+  // Customer actions
+  | 'add_customer_tag'
+  | 'remove_customer_tag'
+  | 'update_customer_metafield'
+  | 'send_customer_email'
+  // Product actions
+  | 'add_product_tag'
+  | 'remove_product_tag'
+  | 'update_product_metafield'
+  | 'hide_product'
+  | 'publish_product'
+  // Inventory actions
+  | 'adjust_inventory'
+  | 'set_inventory'
+  // Notification actions
+  | 'send_email'
+  | 'send_slack_message'
+  | 'send_webhook'
+  | 'send_sms'
+  // Data actions
+  | 'set_variable'
+  | 'transform_data'
+  | 'lookup_metafield'
+  // Control flow
+  | 'wait'
+  | 'loop'
+  | 'branch'
+  // Custom
+  | 'custom'
+  | string
+
+/**
+ * Flow action definition
+ */
+export interface FlowAction {
+  id: string
+  type: FlowActionType
+  title?: string
+  /** Input configuration for the action */
+  input: Record<string, unknown>
+  /** Conditions that must be met to execute this action */
+  conditions?: FlowCondition[]
+  /** Transform output data before passing to next action */
+  outputMapping?: Record<string, string>
+  /** Error handling configuration */
+  onError?: 'continue' | 'stop' | 'retry'
+  /** Maximum retry attempts if onError is 'retry' */
+  maxRetries?: number
+  /** Delay in milliseconds before retry */
+  retryDelay?: number
+}
+
+/**
+ * Flow workflow definition
+ */
+export interface FlowWorkflow {
+  id: string
+  title: string
+  description?: string
+  /** Whether the workflow is enabled */
+  enabled: boolean
+  /** Trigger that starts this workflow */
+  trigger: FlowTrigger
+  /** Conditions that must be met after trigger fires */
+  conditions?: FlowCondition[]
+  /** Actions to execute in sequence */
+  actions: FlowAction[]
+  /** Workflow metadata */
+  createdAt: string
+  updatedAt: string
+  /** Version for optimistic locking */
+  version: number
+  /** Tags for organization */
+  tags?: string[]
+}
+
+/**
+ * Flow workflow template - pre-built workflow configurations
+ */
+export interface FlowWorkflowTemplate {
+  id: string
+  title: string
+  description: string
+  category: FlowTemplateCategory
+  /** Template trigger configuration */
+  trigger: Omit<FlowTrigger, 'id'>
+  /** Template conditions */
+  conditions?: Omit<FlowCondition, 'id'>[]
+  /** Template actions */
+  actions: Omit<FlowAction, 'id'>[]
+  /** Variables that must be configured when using template */
+  requiredVariables?: FlowTemplateVariable[]
+  /** Estimated time to set up */
+  setupTimeMinutes?: number
+  /** Tags for filtering */
+  tags?: string[]
+}
+
+/**
+ * Flow template categories
+ */
+export type FlowTemplateCategory =
+  | 'orders'
+  | 'customers'
+  | 'products'
+  | 'inventory'
+  | 'marketing'
+  | 'fulfillment'
+  | 'notifications'
+  | 'integrations'
+  | 'custom'
+
+/**
+ * Template variable definition
+ */
+export interface FlowTemplateVariable {
+  name: string
+  type: FlowPropertyType
+  description: string
+  required: boolean
+  defaultValue?: unknown
+}
+
+/**
+ * Flow execution status
+ */
+export type FlowExecutionStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'waiting'
+
+/**
+ * Flow execution - represents a single workflow run
+ */
+export interface FlowExecution {
+  id: string
+  workflowId: string
+  status: FlowExecutionStatus
+  /** Trigger event that started the execution */
+  triggerEvent: Record<string, unknown>
+  /** Current step being executed */
+  currentStep?: number
+  /** Results from each executed action */
+  stepResults: FlowStepResult[]
+  /** Error information if failed */
+  error?: FlowExecutionError
+  /** Timestamps */
+  startedAt: string
+  completedAt?: string
+  /** Duration in milliseconds */
+  durationMs?: number
+}
+
+/**
+ * Flow step result
+ */
+export interface FlowStepResult {
+  actionId: string
+  status: 'success' | 'failed' | 'skipped'
+  output?: Record<string, unknown>
+  error?: string
+  startedAt: string
+  completedAt: string
+  durationMs: number
+}
+
+/**
+ * Flow execution error
+ */
+export interface FlowExecutionError {
+  message: string
+  code?: string
+  actionId?: string
+  step?: number
+  retryable: boolean
+}

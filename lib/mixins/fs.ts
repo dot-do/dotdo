@@ -757,9 +757,67 @@ function getBasename(path: string): string {
  * @internal
  */
 function createFsCapability(storage: DurableObjectStorage): FsCapability {
+  // Helper to check if a path exists as a file
+  async function isFile(normalizedPath: string): Promise<boolean> {
+    const fileContent = await storage.get(FS_STORAGE_PREFIX_FILE + normalizedPath)
+    return fileContent !== undefined
+  }
+
+  // Helper to check if a path exists as a directory
+  async function isDirectory(normalizedPath: string): Promise<boolean> {
+    const dirMarker = await storage.get(FS_STORAGE_PREFIX_DIR + normalizedPath)
+    return dirMarker !== undefined
+  }
+
+  // Helper to check if a path exists (file or directory)
+  async function pathExists(normalizedPath: string): Promise<boolean> {
+    return (await isFile(normalizedPath)) || (await isDirectory(normalizedPath))
+  }
+
+  // Helper to validate parent directory exists and is not a file
+  async function validateParentPath(normalizedPath: string, syscall: string): Promise<void> {
+    if (normalizedPath === '/') return
+
+    const parentDir = getParentDir(normalizedPath)
+
+    // Root always exists
+    if (parentDir === '/') return
+
+    // Check if parent exists as a file (ENOTDIR)
+    if (await isFile(parentDir)) {
+      throw new FsError('ENOTDIR', parentDir, syscall)
+    }
+
+    // Check if parent exists
+    if (!(await pathExists(parentDir))) {
+      throw new FsError('ENOENT', parentDir, syscall)
+    }
+  }
+
+  // Helper to check if directory has any children
+  async function hasChildren(normalizedPath: string): Promise<boolean> {
+    const prefix = normalizedPath === '/' ? '/' : normalizedPath + '/'
+
+    // Check for files
+    const fileKeys = await storage.list<string>({ prefix: FS_STORAGE_PREFIX_FILE + prefix })
+    if (fileKeys.size > 0) return true
+
+    // Check for subdirectories
+    const dirKeys = await storage.list<boolean>({ prefix: FS_STORAGE_PREFIX_DIR + prefix })
+    if (dirKeys.size > 0) return true
+
+    return false
+  }
+
   return {
     async read(path: string, options?: FsReadOptions): Promise<string> {
       const normalizedPath = normalizePath(path)
+
+      // Check if path is a directory
+      if (await isDirectory(normalizedPath)) {
+        throw new FsError('EISDIR', path, 'read')
+      }
+
       const content = await storage.get<string>(FS_STORAGE_PREFIX_FILE + normalizedPath)
       if (content === undefined) {
         throw new FsError('ENOENT', path, 'read')
@@ -769,6 +827,15 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
 
     async write(path: string, content: string, options?: FsWriteOptions): Promise<void> {
       const normalizedPath = normalizePath(path)
+
+      // Check if path is a directory
+      if (await isDirectory(normalizedPath)) {
+        throw new FsError('EISDIR', path, 'write')
+      }
+
+      // Validate parent path exists and is not a file
+      await validateParentPath(normalizedPath, 'write')
+
       const now = new Date().toISOString()
 
       // Check if file already exists to preserve createdAt
@@ -788,17 +855,25 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
 
     async exists(path: string): Promise<boolean> {
       const normalizedPath = normalizePath(path)
-      // Check for file
-      const fileContent = await storage.get(FS_STORAGE_PREFIX_FILE + normalizedPath)
-      if (fileContent !== undefined) return true
-      // Check for directory marker
-      const dirMarker = await storage.get(FS_STORAGE_PREFIX_DIR + normalizedPath)
-      if (dirMarker !== undefined) return true
-      return false
+      return pathExists(normalizedPath)
     },
 
     async delete(path: string): Promise<void> {
       const normalizedPath = normalizePath(path)
+
+      // Check if path exists
+      const fileExists = await isFile(normalizedPath)
+      const dirExists = await isDirectory(normalizedPath)
+
+      if (!fileExists && !dirExists) {
+        throw new FsError('ENOENT', path, 'delete')
+      }
+
+      // If it's a directory, check if it's empty
+      if (dirExists && (await hasChildren(normalizedPath))) {
+        throw new FsError('ENOTEMPTY', path, 'delete')
+      }
+
       // Delete file content, metadata, and directory marker
       await storage.delete(FS_STORAGE_PREFIX_FILE + normalizedPath)
       await storage.delete(FS_STORAGE_PREFIX_META + normalizedPath)
@@ -807,6 +882,17 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
 
     async list(path: string, options?: FsListOptions): Promise<FsEntry[]> {
       const normalizedPath = normalizePath(path)
+
+      // Check if path is a file (ENOTDIR)
+      if (await isFile(normalizedPath)) {
+        throw new FsError('ENOTDIR', path, 'list')
+      }
+
+      // Check if directory exists (root always exists)
+      if (normalizedPath !== '/' && !(await isDirectory(normalizedPath))) {
+        throw new FsError('ENOENT', path, 'list')
+      }
+
       const prefix = normalizedPath === '/' ? '/' : normalizedPath + '/'
 
       const entries: FsEntry[] = []
@@ -826,8 +912,8 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
         if (name && !seen.has(name)) {
           seen.add(name)
           // If there's a slash, it's a directory containing this file
-          const isDirectory = firstSlash !== -1
-          entries.push({ name, isDirectory })
+          const isDir = firstSlash !== -1
+          entries.push({ name, isDirectory: isDir })
         }
       }
 
@@ -858,15 +944,33 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
     async mkdir(path: string, options?: FsMkdirOptions): Promise<void> {
       const normalizedPath = normalizePath(path)
 
+      // Root is always valid
+      if (normalizedPath === '/') return
+
+      // Check if path already exists as a file
+      if (await isFile(normalizedPath)) {
+        throw new FsError('EEXIST', path, 'mkdir')
+      }
+
       if (options?.recursive) {
         // Create all parent directories
         const parts = normalizedPath.split('/').filter(Boolean)
         let current = ''
         for (const part of parts) {
           current += '/' + part
+          // Check if this path component is a file
+          if (await isFile(current)) {
+            throw new FsError('ENOTDIR', current, 'mkdir')
+          }
           await storage.put(FS_STORAGE_PREFIX_DIR + current, true)
         }
       } else {
+        // Check if parent exists
+        const parentDir = getParentDir(normalizedPath)
+        if (parentDir !== '/' && !(await pathExists(parentDir))) {
+          throw new FsError('ENOENT', parentDir, 'mkdir')
+        }
+
         await storage.put(FS_STORAGE_PREFIX_DIR + normalizedPath, true)
       }
     },
@@ -887,8 +991,8 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       }
 
       // Check for directory marker
-      const isDir = await storage.get(FS_STORAGE_PREFIX_DIR + normalizedPath)
-      if (isDir !== undefined) {
+      const isDirMarker = await storage.get(FS_STORAGE_PREFIX_DIR + normalizedPath)
+      if (isDirMarker !== undefined) {
         const now = new Date()
         return {
           size: 0,
@@ -906,12 +1010,19 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       const normalizedSrc = normalizePath(src)
       const normalizedDest = normalizePath(dest)
 
+      // Check if source is a directory
+      if (await isDirectory(normalizedSrc)) {
+        throw new FsError('EISDIR', src, 'copy')
+      }
+
       const content = await storage.get<string>(FS_STORAGE_PREFIX_FILE + normalizedSrc)
       if (content === undefined) {
         throw new FsError('ENOENT', src, 'copy')
       }
 
-      const srcMeta = await storage.get<FileMetadata>(FS_STORAGE_PREFIX_META + normalizedSrc)
+      // Validate destination parent path exists
+      await validateParentPath(normalizedDest, 'copy')
+
       const now = new Date().toISOString()
 
       // Write to destination with new timestamps

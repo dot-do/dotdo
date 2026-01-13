@@ -8,6 +8,13 @@
  * - POST /v1/search - Vector similarity search
  * - GET /v1/lookup/:table/:key - Point lookup (Iceberg)
  * - POST /v1/query - SQL query (browser or server execution)
+ * - POST /v1/track - Record user actions
+ * - POST /v1/identify - Associate user with traits
+ * - POST /v1/page - Record page views
+ * - POST /v1/screen - Record mobile screen views
+ * - POST /v1/group - Associate user with a group
+ * - POST /v1/alias - Link user identities
+ * - POST /v1/batch - Send multiple events at once
  *
  * @module api/analytics/router
  * @see docs/plans/unified-analytics-architecture.md
@@ -15,6 +22,7 @@
 
 import { Hono } from 'hono'
 import type { Env } from '../types'
+import { eventsRouter } from './events'
 import type {
   VectorSearchRequest,
   VectorSearchResponse,

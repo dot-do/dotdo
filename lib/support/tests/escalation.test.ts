@@ -156,7 +156,9 @@ describe('EscalationRequest', () => {
       conversation: createTestConversation([]),
     })
 
-    const result = await request
+    // Use resolve() to get the boolean result - this is the correct pattern
+    // since EscalationRequest is not a Promise but provides resolve() for async use
+    const result = await request.resolve()
     expect(result).toBe(true)
   })
 

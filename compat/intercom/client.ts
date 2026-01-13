@@ -38,6 +38,7 @@ import { ContactsResource, type IntercomClientInterface } from './contacts'
 import { ConversationsResource, MessagesResource } from './conversations'
 import { ArticlesResource } from './articles'
 import { EventsResource } from './events'
+import { MessengerResource } from './messenger'
 
 // =============================================================================
 // Constants
@@ -137,6 +138,8 @@ export class Client implements IntercomClientInterface {
   readonly events: EventsResource
   /** Articles resource for managing help center articles */
   readonly articles: ArticlesResource
+  /** Messenger resource for widget customization */
+  readonly messenger: MessengerResource
 
   constructor(config: ClientConfig) {
     if (!config.tokenAuth?.token) {
@@ -154,6 +157,7 @@ export class Client implements IntercomClientInterface {
     this.messages = new MessagesResource(this)
     this.events = new EventsResource(this)
     this.articles = new ArticlesResource(this)
+    this.messenger = new MessengerResource(this)
   }
 
   /**

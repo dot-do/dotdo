@@ -15,6 +15,10 @@
  */
 
 import type { ThingsStore, ThingEntity } from '../../db/stores'
+import { buildResponse } from '../../lib/response/linked-data'
+import { buildCollectionResponse as buildCollectionResponseShape } from '../../lib/response/collection'
+import { buildItemLinks } from '../../lib/response/links'
+import { buildItemActions } from '../../lib/response/actions'
 
 // ============================================================================
 // TYPES
@@ -72,6 +76,8 @@ export interface RestRouterContext {
   ns: string
   /** Base context URL for JSON-LD */
   contextUrl?: string
+  /** Parent namespace URL for root $context (e.g., 'https://Startups.Studio') */
+  parent?: string
   /** Available noun types (optional, for index generation) */
   nouns?: Array<{ noun: string; plural: string }>
   /** DO class type (e.g., 'Startup', 'DO') for index response */

@@ -250,6 +250,10 @@ describe('DOBase.loadFromIceberg', () => {
   // --------------------------------------------------------------------------
   describe('Basic Load', () => {
     it('should load state from Iceberg on cold start', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       // Setup: mock a snapshot exists in R2
       const snapshotKey = 'orgs/org_123/tenants/tenant_456/do/do_123/snapshots/seq-1-abc123'
       mockR2._storage.set(snapshotKey, createMockSnapshot({
@@ -276,6 +280,10 @@ describe('DOBase.loadFromIceberg', () => {
     })
 
     it('should restore SQLite state from snapshot data', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       const snapshotKey = 'orgs/org_123/tenants/tenant_456/do/do_123/snapshots/seq-1-abc123'
       const snapshotData = {
         version: 1,
@@ -366,6 +374,10 @@ describe('DOBase.loadFromIceberg', () => {
   // --------------------------------------------------------------------------
   describe('Fresh DO (No Snapshot)', () => {
     it('should handle missing snapshot (fresh DO)', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       // No snapshots exist
       mockR2.list.mockResolvedValue({ objects: [] })
 
@@ -376,6 +388,10 @@ describe('DOBase.loadFromIceberg', () => {
     })
 
     it('should succeed without error when no snapshot exists', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       mockR2.list.mockResolvedValue({ objects: [] })
 
       const doInstance = new DO(mockState as unknown as DurableObjectState, mockEnv)
@@ -402,6 +418,10 @@ describe('DOBase.loadFromIceberg', () => {
   // --------------------------------------------------------------------------
   describe('Latest Snapshot Selection', () => {
     it('should load latest snapshot when multiple exist', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       // Multiple snapshots with different sequence numbers
       mockR2.list.mockResolvedValue({
         objects: [
@@ -433,6 +453,10 @@ describe('DOBase.loadFromIceberg', () => {
     })
 
     it('should sort snapshots by sequence number correctly', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       // Snapshots in random order
       mockR2.list.mockResolvedValue({
         objects: [
@@ -459,6 +483,10 @@ describe('DOBase.loadFromIceberg', () => {
     })
 
     it('should handle single snapshot correctly', async () => {
+      // Setup: JWT for authorization
+      const testJwt = createTestJwt({ org_id: 'org_123', tenant_id: 'tenant_456' })
+      mockEnv.JWT = testJwt
+
       const singleSnapshot = 'orgs/org_123/tenants/tenant_456/do/do_123/snapshots/seq-1-only'
       mockR2.list.mockResolvedValue({
         objects: [{ key: singleSnapshot }],

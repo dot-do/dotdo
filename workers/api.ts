@@ -44,6 +44,12 @@ export interface APIConfig {
  * Result of namespace resolution
  */
 interface ResolveResult {
+  /**
+   * The resolved namespace - either a full URL or a literal string.
+   * - Hostname mode: 'https://tenant.api.example.org.ai'
+   * - Path param mode: 'https://api.example.org.ai/acme'
+   * - Fixed namespace mode: 'main' (literal)
+   */
   ns: string | null
   remainingPath: string
 }
@@ -69,74 +75,92 @@ function findDOBinding(env: Record<string, unknown>): DurableObjectNamespace | n
 }
 
 /**
- * Extract subdomain from hostname
- * e.g., 'tenant.api.dotdo.dev' -> 'tenant'
- *
- * Uses a 4-part heuristic for multi-tenant SaaS:
- * - 4+ parts: tenant.api.dotdo.dev -> 'tenant' (subdomain)
- * - 3 parts: api.dotdo.dev -> null (apex, no subdomain)
- * - 2 parts: dotdo.dev -> null (apex)
- * - 1 part: localhost -> null
+ * Check if hostname has a subdomain using 4-part heuristic for multi-tenant SaaS:
+ * - 4+ parts: tenant.api.dotdo.dev -> true (has subdomain)
+ * - 3 parts: api.dotdo.dev -> false (apex, no subdomain)
+ * - 2 parts: dotdo.dev -> false (apex)
+ * - 1 part: localhost -> false
  */
-function extractSubdomain(hostname: string): string | null {
+function hasSubdomain(hostname: string): boolean {
   const parts = hostname.split('.')
   // Need at least 4 parts for a subdomain in typical SaaS setup
   // e.g., tenant.api.dotdo.dev (4 parts) has subdomain 'tenant'
   // but api.dotdo.dev (3 parts) is apex, no subdomain
-  if (parts.length < 4) {
-    return null
-  }
-  // Return the first part as the subdomain
-  return parts[0] || null
+  return parts.length >= 4
+}
+
+/**
+ * Build namespace URL from origin
+ * @returns Full URL string like 'https://tenant.api.example.org.ai'
+ */
+function buildNamespaceUrl(url: URL): string {
+  // Use origin which includes protocol + hostname + port (if non-standard)
+  return url.origin
 }
 
 /**
  * Extract namespace from path using Express-style pattern
  * Pattern: '/:param' or '/:param1/:param2'
+ *
+ * @returns Object with full URL namespace and remaining path
  */
-function extractPathParams(pathname: string, pattern: string): ResolveResult {
+function extractPathParams(url: URL, pattern: string): ResolveResult {
   // Parse pattern to get param names
   const patternParts = pattern.split('/').filter(Boolean)
   const paramCount = patternParts.filter(p => p.startsWith(':')).length
 
   // Parse pathname
-  const pathParts = pathname.split('/').filter(Boolean)
+  const pathParts = url.pathname.split('/').filter(Boolean)
 
   // Need enough path segments for all params
   if (pathParts.length < paramCount) {
-    return { ns: null, remainingPath: pathname }
+    return { ns: null, remainingPath: url.pathname }
   }
 
-  // Extract namespace parts and join with colon
+  // Extract namespace parts (the path segments that form the namespace)
   const nsParts = pathParts.slice(0, paramCount)
-  const ns = nsParts.join(':')
+  const nsPath = '/' + nsParts.join('/')
+
+  // Build full namespace URL: origin + namespace path
+  // e.g., 'https://api.example.org.ai/acme' or 'https://api.example.org.ai/acme/proj1'
+  const ns = url.origin + nsPath
 
   // Remaining path
   const remaining = pathParts.slice(paramCount)
   const remainingPath = '/' + remaining.join('/')
 
-  return { ns: ns || null, remainingPath }
+  return { ns, remainingPath }
 }
 
 /**
  * Resolve namespace from request based on pattern
+ *
+ * Returns full URL namespaces for hostname and path modes,
+ * or literal strings for fixed namespace mode.
  */
 function resolveNs(request: Request, pattern?: string): ResolveResult {
   const url = new URL(request.url)
 
-  // No pattern = hostname mode (extract subdomain)
+  // No pattern = hostname mode
+  // Check if hostname has subdomain (4+ parts)
+  // Namespace is the full origin URL: 'https://tenant.api.example.org.ai'
   if (!pattern) {
-    const subdomain = extractSubdomain(url.hostname)
-    return { ns: subdomain, remainingPath: url.pathname }
+    if (!hasSubdomain(url.hostname)) {
+      return { ns: null, remainingPath: url.pathname }
+    }
+    // Return full origin as namespace (includes protocol, hostname, port)
+    return { ns: buildNamespaceUrl(url), remainingPath: url.pathname }
   }
 
-  // Literal namespace (no colon = not a path param)
+  // Literal/fixed namespace (no colon = not a path param)
+  // e.g., 'main', 'singleton' - use as-is
   if (!pattern.startsWith('/') || !pattern.includes(':')) {
     return { ns: pattern, remainingPath: url.pathname }
   }
 
   // Path params (/:org or /:org/:project)
-  return extractPathParams(url.pathname, pattern)
+  // Namespace is full URL with path: 'https://api.example.org.ai/acme'
+  return extractPathParams(url, pattern)
 }
 
 /**

@@ -497,3 +497,237 @@ export interface LLMProvider {
   /** List available models */
   listModels(): Promise<ModelConfig[]>
 }
+
+// ============================================================================
+// Agent Loop Types - Think-Act-Observe Pattern
+// ============================================================================
+
+/**
+ * Agent loop phase identifiers
+ *
+ * The agent loop follows a classic ReAct (Reasoning + Acting) pattern:
+ * - THINK: LLM reasons about the current state and decides what to do
+ * - ACT: Execute tool calls decided during thinking
+ * - OBSERVE: Process tool results and update state for next iteration
+ */
+export type AgentPhase = 'think' | 'act' | 'observe'
+
+/**
+ * Result of the THINK phase
+ *
+ * Contains the LLM's reasoning output including any tool calls it wants to make.
+ */
+export interface ThinkResult {
+  /** Phase identifier */
+  phase: 'think'
+  /** LLM response text (reasoning/explanation) */
+  text?: string
+  /** Tool calls the LLM wants to execute */
+  toolCalls: ToolCall[]
+  /** Token usage for this thinking step */
+  usage: TokenUsage
+  /** Response latency in milliseconds */
+  latencyMs: number
+  /** Whether the agent should stop (no tool calls and has final answer) */
+  shouldStop: boolean
+  /** Provider that served this request */
+  provider: ProviderName
+}
+
+/**
+ * Result of a single tool execution in the ACT phase
+ */
+export interface ActToolResult {
+  /** The tool call that was executed */
+  toolCall: ToolCall
+  /** Result from tool execution */
+  result: ToolResult
+  /** Execution time in milliseconds */
+  durationMs: number
+  /** Whether execution was successful */
+  success: boolean
+}
+
+/**
+ * Result of the ACT phase
+ *
+ * Contains results from executing all tool calls from the think phase.
+ */
+export interface ActResult {
+  /** Phase identifier */
+  phase: 'act'
+  /** Results from each tool execution */
+  toolResults: ActToolResult[]
+  /** Total execution time for all tools in milliseconds */
+  totalDurationMs: number
+  /** Number of successful tool executions */
+  successCount: number
+  /** Number of failed tool executions */
+  errorCount: number
+}
+
+/**
+ * Result of the OBSERVE phase
+ *
+ * Contains the updated state after processing tool results.
+ */
+export interface ObserveResult {
+  /** Phase identifier */
+  phase: 'observe'
+  /** Updated message history with tool results */
+  messages: Message[]
+  /** Summary of observations from tool results */
+  observations: ToolObservation[]
+  /** Total tokens used so far */
+  totalTokens: number
+  /** Whether to continue the loop */
+  continueLoop: boolean
+}
+
+/**
+ * A single observation from a tool result
+ */
+export interface ToolObservation {
+  /** Tool that produced this observation */
+  toolName: string
+  /** The tool call ID */
+  toolCallId: string
+  /** Whether the tool succeeded */
+  success: boolean
+  /** Summary of the result (for logging/debugging) */
+  summary: string
+  /** The full result data */
+  data: unknown
+}
+
+/**
+ * Combined result from a single loop iteration
+ */
+export interface LoopIterationResult {
+  /** Iteration number (1-based) */
+  iteration: number
+  /** Result from think phase */
+  think: ThinkResult
+  /** Result from act phase (null if no tools to execute) */
+  act: ActResult | null
+  /** Result from observe phase (null if no tools executed) */
+  observe: ObserveResult | null
+  /** Whether this iteration ended the loop */
+  isTerminal: boolean
+  /** Reason for loop termination (if terminal) */
+  terminationReason?: LoopTerminationReason
+}
+
+/**
+ * Reasons why the agent loop terminated
+ */
+export type LoopTerminationReason =
+  | 'completed'       // Agent finished naturally (no more tool calls, has answer)
+  | 'max_steps'       // Reached maximum step limit
+  | 'aborted'         // Cancelled via abort signal
+  | 'error'           // Unrecoverable error occurred
+  | 'budget_exceeded' // Cost budget exceeded
+
+/**
+ * Complete agent loop execution result
+ */
+export interface AgentLoopResult {
+  /** All iteration results */
+  iterations: LoopIterationResult[]
+  /** Total number of iterations */
+  totalIterations: number
+  /** Final text output */
+  finalText: string
+  /** All tool calls across all iterations */
+  allToolCalls: ToolCall[]
+  /** All tool results across all iterations */
+  allToolResults: ToolResult[]
+  /** Final message history */
+  messages: Message[]
+  /** Why the loop terminated */
+  terminationReason: LoopTerminationReason
+  /** Total token usage */
+  totalUsage: TokenUsage
+  /** Total cost in USD */
+  totalCostUsd: number
+  /** Total execution time in milliseconds */
+  totalLatencyMs: number
+}
+
+/**
+ * Hooks for observing and customizing agent loop behavior
+ */
+export interface AgentLoopHooks {
+  /**
+   * Called before the think phase starts
+   * Can modify messages or context before LLM call
+   */
+  onBeforeThink?: (context: LoopContext) => Promise<LoopContext | void>
+
+  /**
+   * Called after think phase completes
+   * Can inspect or modify tool calls before execution
+   */
+  onAfterThink?: (result: ThinkResult, context: LoopContext) => Promise<ThinkResult | void>
+
+  /**
+   * Called before each tool is executed
+   * Can modify arguments, skip execution, or provide cached results
+   */
+  onBeforeAct?: (
+    toolCall: ToolCall,
+    context: LoopContext
+  ) => Promise<{ action: 'execute' | 'skip' | 'cache'; cachedResult?: unknown; modifiedArgs?: Record<string, unknown> }>
+
+  /**
+   * Called after each tool execution
+   * Can modify or augment tool results
+   */
+  onAfterAct?: (actResult: ActToolResult, context: LoopContext) => Promise<ActToolResult | void>
+
+  /**
+   * Called after observe phase with all tool results
+   * Can modify observations or add additional context
+   */
+  onAfterObserve?: (result: ObserveResult, context: LoopContext) => Promise<ObserveResult | void>
+
+  /**
+   * Called at end of each iteration
+   * Can force early termination or continue despite stop signals
+   */
+  onIterationEnd?: (result: LoopIterationResult, context: LoopContext) => Promise<{ forceStop?: boolean; forceContinue?: boolean }>
+
+  /**
+   * Called when an error occurs during any phase
+   * Can handle/recover from errors or let them propagate
+   */
+  onError?: (error: Error, phase: AgentPhase, context: LoopContext) => Promise<{ handled: boolean; result?: unknown }>
+}
+
+/**
+ * Context passed to hooks and available throughout loop execution
+ */
+export interface LoopContext {
+  /** Agent ID */
+  agentId: string
+  /** Session ID */
+  sessionId: string
+  /** Current iteration number */
+  iteration: number
+  /** Current messages */
+  messages: Message[]
+  /** Available tools */
+  tools: ToolDefinition[]
+  /** Model being used */
+  model: string
+  /** Abort signal */
+  signal?: AbortSignal
+  /** Additional metadata */
+  metadata?: Record<string, unknown>
+  /** Usage so far */
+  usageSoFar: TokenUsage
+  /** Cost so far in USD */
+  costSoFar: number
+  /** Time elapsed so far in milliseconds */
+  elapsedMs: number
+}

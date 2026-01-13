@@ -7,6 +7,7 @@
  * @module
  */
 
+import { createTemporalStore, type TemporalStore } from '../../../db/primitives/temporal-store'
 import { createUserManager, type UserManager } from '../shared/users'
 import { createSessionManager, type SessionManager } from '../shared/sessions'
 import { createMFAManager, type MFAManager } from '../shared/mfa'
@@ -25,6 +26,56 @@ import type {
   Auth0MFAChallenge,
 } from './types'
 import { Auth0APIError } from './types'
+
+// ============================================================================
+// AUTHORIZATION CODE TYPES
+// ============================================================================
+
+/**
+ * Authorization code stored data
+ */
+interface AuthorizationCodeData {
+  code: string
+  client_id: string
+  user_id: string
+  redirect_uri: string
+  scope: string
+  state?: string
+  nonce?: string
+  code_challenge?: string
+  code_challenge_method?: 'plain' | 'S256'
+  expires_at: string
+}
+
+// ============================================================================
+// DEVICE CODE TYPES
+// ============================================================================
+
+/**
+ * Device code response
+ */
+export interface DeviceCodeResponse {
+  device_code: string
+  user_code: string
+  verification_uri: string
+  verification_uri_complete: string
+  expires_in: number
+  interval: number
+}
+
+/**
+ * Device authorization stored data
+ */
+interface DeviceAuthorizationData {
+  device_code: string
+  user_code: string
+  client_id: string
+  scope: string
+  expires_at: string
+  interval: number
+  status: 'pending' | 'authorized' | 'denied' | 'expired'
+  user_id?: string
+}
 
 // ============================================================================
 // AUTHENTICATION API OPTIONS
@@ -65,6 +116,8 @@ export class AuthenticationClient {
   private sessionManager: SessionManager
   private mfaManager: MFAManager
   private oauthManager: OAuthManager
+  private authCodeStore: TemporalStore<AuthorizationCodeData>
+  private deviceCodeStore: TemporalStore<DeviceAuthorizationData>
 
   constructor(options: AuthenticationAPIOptions) {
     this.options = {
@@ -95,6 +148,8 @@ export class AuthenticationClient {
       idTokenTTL: this.options.idTokenTTL,
       issuer: `https://${options.domain}/`,
     })
+    this.authCodeStore = createTemporalStore<AuthorizationCodeData>({ enableTTL: true })
+    this.deviceCodeStore = createTemporalStore<DeviceAuthorizationData>({ enableTTL: true })
   }
 
   // ============================================================================
@@ -310,6 +365,9 @@ export class AuthenticationClient {
 
         case 'password':
           return this.handlePasswordGrant(params)
+
+        case 'urn:ietf:params:oauth:grant-type:device_code':
+          return this.handleDeviceCodeGrant(params)
 
         default:
           throw new Auth0APIError(400, 'unsupported_grant_type', `Grant type not supported: ${params.grant_type}`)
@@ -587,6 +645,266 @@ export class AuthenticationClient {
           throw new Auth0APIError(400, 'Bad Request', error.message)
         }
         throw new Auth0APIError(400, 'Bad Request', 'Invalid OTP code')
+      }
+    },
+  }
+
+  // ============================================================================
+  // AUTHORIZATION CODE FLOW
+  // ============================================================================
+
+  /**
+   * authorization namespace for Authorization Code and PKCE flows
+   */
+  authorization = {
+    /**
+     * Generate an authorization code for a user
+     * This is typically called after user authentication on the authorize endpoint
+     *
+     * @param userId - The authenticated user's ID
+     * @param params - Authorization parameters
+     * @returns Authorization code and redirect URL
+     */
+    generateCode: async (
+      userId: string,
+      params: {
+        client_id: string
+        redirect_uri: string
+        scope: string
+        state?: string
+        nonce?: string
+        code_challenge?: string
+        code_challenge_method?: 'plain' | 'S256'
+      }
+    ): Promise<{ code: string; redirect_url: string }> => {
+      // Validate user exists
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new Auth0APIError(400, 'invalid_request', 'User not found')
+      }
+
+      // Generate authorization code
+      const code = this.generateSecureCode()
+      const codeHash = await this.hashToken(code)
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+
+      const authCodeData: AuthorizationCodeData = {
+        code: codeHash,
+        client_id: params.client_id,
+        user_id: userId,
+        redirect_uri: params.redirect_uri,
+        scope: params.scope,
+        state: params.state,
+        nonce: params.nonce,
+        code_challenge: params.code_challenge,
+        code_challenge_method: params.code_challenge_method,
+        expires_at: expiresAt.toISOString(),
+      }
+
+      await this.authCodeStore.put(`authcode:${codeHash}`, authCodeData, Date.now(), {
+        ttl: 10 * 60 * 1000, // 10 minutes
+      })
+
+      // Build redirect URL
+      const redirectUrl = new URL(params.redirect_uri)
+      redirectUrl.searchParams.set('code', code)
+      if (params.state) {
+        redirectUrl.searchParams.set('state', params.state)
+      }
+
+      return {
+        code,
+        redirect_url: redirectUrl.toString(),
+      }
+    },
+
+    /**
+     * Generate PKCE code verifier and challenge
+     * Used by clients to initiate PKCE flow
+     */
+    generatePKCE: async (): Promise<{ code_verifier: string; code_challenge: string; code_challenge_method: 'S256' }> => {
+      const codeVerifier = this.generateCodeVerifier()
+      const codeChallenge = await generateCodeChallenge(codeVerifier, 'S256')
+
+      return {
+        code_verifier: codeVerifier,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      }
+    },
+
+    /**
+     * Build PKCE authorization URL
+     * Convenience method that generates PKCE and returns the full authorization URL
+     */
+    buildPKCEAuthorizationUrl: async (params: {
+      client_id: string
+      redirect_uri: string
+      scope: string
+      state?: string
+      audience?: string
+      connection?: string
+    }): Promise<{ url: string; code_verifier: string }> => {
+      const pkce = await this.authorization.generatePKCE()
+
+      const url = this.oauth.authorizationUrl({
+        response_type: 'code',
+        client_id: params.client_id,
+        redirect_uri: params.redirect_uri,
+        scope: params.scope,
+        state: params.state,
+        audience: params.audience,
+        connection: params.connection,
+        code_challenge: pkce.code_challenge,
+        code_challenge_method: pkce.code_challenge_method,
+      })
+
+      return {
+        url,
+        code_verifier: pkce.code_verifier,
+      }
+    },
+  }
+
+  // ============================================================================
+  // DEVICE AUTHORIZATION FLOW
+  // ============================================================================
+
+  /**
+   * device namespace for Device Authorization Grant (RFC 8628)
+   */
+  device = {
+    /**
+     * Start device authorization flow
+     * Returns device_code and user_code for the device to poll and user to enter
+     *
+     * @example
+     * ```typescript
+     * const deviceAuth = await auth.device.authorize({
+     *   client_id: 'my-client-id',
+     *   scope: 'openid profile email',
+     * })
+     *
+     * console.log(`Go to ${deviceAuth.verification_uri} and enter code: ${deviceAuth.user_code}`)
+     * ```
+     */
+    authorize: async (params: {
+      client_id: string
+      scope?: string
+      audience?: string
+    }): Promise<DeviceCodeResponse> => {
+      const deviceCode = this.generateSecureCode()
+      const userCode = this.generateUserCode()
+      const deviceCodeHash = await this.hashToken(deviceCode)
+      const expiresIn = 1800 // 30 minutes
+      const interval = 5 // 5 seconds polling interval
+      const expiresAt = new Date(Date.now() + expiresIn * 1000)
+
+      const deviceAuthData: DeviceAuthorizationData = {
+        device_code: deviceCodeHash,
+        user_code: userCode,
+        client_id: params.client_id,
+        scope: params.scope ?? 'openid',
+        expires_at: expiresAt.toISOString(),
+        interval,
+        status: 'pending',
+      }
+
+      // Store by device_code hash and user_code for lookup
+      await this.deviceCodeStore.put(`device:${deviceCodeHash}`, deviceAuthData, Date.now(), {
+        ttl: expiresIn * 1000,
+      })
+      await this.deviceCodeStore.put(`usercode:${userCode}`, deviceAuthData, Date.now(), {
+        ttl: expiresIn * 1000,
+      })
+
+      const verificationUri = `https://${this.options.domain}/activate`
+
+      return {
+        device_code: deviceCode,
+        user_code: userCode,
+        verification_uri: verificationUri,
+        verification_uri_complete: `${verificationUri}?user_code=${userCode}`,
+        expires_in: expiresIn,
+        interval,
+      }
+    },
+
+    /**
+     * Authorize a device using user_code
+     * Called when user enters the user_code on the verification page
+     *
+     * @param userCode - The user code displayed to the user
+     * @param userId - The authenticated user's ID
+     */
+    authorizeUserCode: async (userCode: string, userId: string): Promise<void> => {
+      const deviceAuthData = await this.deviceCodeStore.get(`usercode:${userCode}`)
+
+      if (!deviceAuthData) {
+        throw new Auth0APIError(400, 'invalid_request', 'Invalid or expired user code')
+      }
+
+      if (deviceAuthData.status !== 'pending') {
+        throw new Auth0APIError(400, 'invalid_request', 'User code already used or expired')
+      }
+
+      if (new Date(deviceAuthData.expires_at) < new Date()) {
+        throw new Auth0APIError(400, 'expired_token', 'User code has expired')
+      }
+
+      // Update both stores with authorized status
+      const updatedData: DeviceAuthorizationData = {
+        ...deviceAuthData,
+        status: 'authorized',
+        user_id: userId,
+      }
+
+      const deviceCodeHash = deviceAuthData.device_code
+      await this.deviceCodeStore.put(`device:${deviceCodeHash}`, updatedData, Date.now())
+      await this.deviceCodeStore.put(`usercode:${userCode}`, updatedData, Date.now())
+    },
+
+    /**
+     * Deny a device authorization
+     * Called when user denies the device authorization request
+     */
+    denyUserCode: async (userCode: string): Promise<void> => {
+      const deviceAuthData = await this.deviceCodeStore.get(`usercode:${userCode}`)
+
+      if (!deviceAuthData) {
+        throw new Auth0APIError(400, 'invalid_request', 'Invalid or expired user code')
+      }
+
+      const updatedData: DeviceAuthorizationData = {
+        ...deviceAuthData,
+        status: 'denied',
+      }
+
+      const deviceCodeHash = deviceAuthData.device_code
+      await this.deviceCodeStore.put(`device:${deviceCodeHash}`, updatedData, Date.now())
+      await this.deviceCodeStore.put(`usercode:${userCode}`, updatedData, Date.now())
+    },
+
+    /**
+     * Get device authorization status by user code
+     * Useful for displaying the current status in the UI
+     */
+    getStatus: async (userCode: string): Promise<{ status: 'pending' | 'authorized' | 'denied' | 'expired'; client_id: string; scope: string }> => {
+      const deviceAuthData = await this.deviceCodeStore.get(`usercode:${userCode}`)
+
+      if (!deviceAuthData) {
+        throw new Auth0APIError(400, 'invalid_request', 'Invalid or expired user code')
+      }
+
+      let status = deviceAuthData.status
+      if (new Date(deviceAuthData.expires_at) < new Date()) {
+        status = 'expired'
+      }
+
+      return {
+        status,
+        client_id: deviceAuthData.client_id,
+        scope: deviceAuthData.scope,
       }
     },
   }

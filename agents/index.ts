@@ -254,6 +254,43 @@ export function createProvider(name: string, options?: unknown): unknown {
 }
 
 // ============================================================================
+// Memory
+// ============================================================================
+
+export {
+  createConversationMemory,
+  withMemory,
+  createLLMSummarizer,
+  createTiktokenCounter,
+  createAPITokenCounter,
+  type ConversationMemory,
+  type ConversationMemoryConfig,
+  type ConversationState,
+  type MemorySummary,
+  type TokenCounter,
+  type Summarizer,
+  type AgentWithMemory,
+  type LLMSummarizerOptions,
+} from './memory'
+
+// ============================================================================
+// LLM Router
+// ============================================================================
+
+export {
+  LLMRouter,
+  createRouter,
+  type RouterConfig,
+  type ProviderConfig,
+  type LoadBalanceStrategy,
+  type FallbackConfig,
+  type BudgetConfig,
+  type HealthCheckConfig,
+  type RouterMetrics,
+  type ProviderHealthStatus,
+} from './router'
+
+// ============================================================================
 // Testing Utilities
 // ============================================================================
 

@@ -94,6 +94,14 @@ doRoutes.all('/:doClass/:id/*', async (c) => {
   const requestId = c.req.header('x-request-id') || crypto.randomUUID()
   const source = `${doClass}/${id}`
 
+  // Check if env exists (may be undefined in tests without bindings)
+  if (!c.env) {
+    return c.json(
+      { error: { code: 'NOT_FOUND', message: `Unknown DO class: ${doClass}` } },
+      404
+    )
+  }
+
   // Get DO namespace binding by class name
   const namespace = c.env[doClass as keyof Env] as DurableObjectNamespace | undefined
   if (!namespace || typeof namespace.idFromName !== 'function') {
@@ -182,6 +190,14 @@ doRoutes.all('/:doClass/:id', async (c) => {
   const { doClass, id } = c.req.param()
   const requestId = c.req.header('x-request-id') || crypto.randomUUID()
   const source = `${doClass}/${id}`
+
+  // Check if env exists (may be undefined in tests without bindings)
+  if (!c.env) {
+    return c.json(
+      { error: { code: 'NOT_FOUND', message: `Unknown DO class: ${doClass}` } },
+      404
+    )
+  }
 
   // Get DO namespace binding by class name
   const namespace = c.env[doClass as keyof Env] as DurableObjectNamespace | undefined

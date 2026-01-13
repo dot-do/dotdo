@@ -528,6 +528,45 @@ function normalizeProperties(
   return normalized
 }
 
+/**
+ * Check if a value looks like a number
+ */
+function isNumericString(value: string): boolean {
+  return !isNaN(Number(value)) && value.trim() !== ''
+}
+
+/**
+ * Compare values - use numeric comparison if both values are numeric
+ */
+function compareValues(a: string, b: string, operator: 'lt' | 'lte' | 'gt' | 'gte'): boolean {
+  // Try numeric comparison if both values look like numbers
+  if (isNumericString(a) && isNumericString(b)) {
+    const numA = Number(a)
+    const numB = Number(b)
+    switch (operator) {
+      case 'lt':
+        return numA < numB
+      case 'lte':
+        return numA <= numB
+      case 'gt':
+        return numA > numB
+      case 'gte':
+        return numA >= numB
+    }
+  }
+  // Fall back to string comparison for non-numeric values
+  switch (operator) {
+    case 'lt':
+      return a < b
+    case 'lte':
+      return a <= b
+    case 'gt':
+      return a > b
+    case 'gte':
+      return a >= b
+  }
+}
+
 function matchesFilter(
   properties: Record<string, string | null>,
   filter: SearchFilter
@@ -541,21 +580,26 @@ function matchesFilter(
     case 'neq':
       return value !== filterValue
     case 'lt':
-      return value !== null && filterValue !== undefined && value < filterValue
+      return value !== null && filterValue !== undefined && compareValues(value, filterValue, 'lt')
     case 'lte':
-      return value !== null && filterValue !== undefined && value <= filterValue
+      return value !== null && filterValue !== undefined && compareValues(value, filterValue, 'lte')
     case 'gt':
-      return value !== null && filterValue !== undefined && value > filterValue
+      return value !== null && filterValue !== undefined && compareValues(value, filterValue, 'gt')
     case 'gte':
-      return value !== null && filterValue !== undefined && value >= filterValue
+      return value !== null && filterValue !== undefined && compareValues(value, filterValue, 'gte')
     case 'between':
-      return (
-        value !== null &&
-        filterValue !== undefined &&
-        filter.highValue !== undefined &&
-        value >= filterValue &&
-        value <= filter.highValue
-      )
+      if (value === null || filterValue === undefined || filter.highValue === undefined) {
+        return false
+      }
+      // Use numeric comparison if values are numeric
+      if (isNumericString(value) && isNumericString(filterValue) && isNumericString(filter.highValue)) {
+        const numValue = Number(value)
+        const numLow = Number(filterValue)
+        const numHigh = Number(filter.highValue)
+        return numValue >= numLow && numValue <= numHigh
+      }
+      // Fall back to string comparison
+      return value >= filterValue && value <= filter.highValue
     case 'in':
       return filter.values ? filter.values.includes(value ?? '') : false
     case 'not_in':

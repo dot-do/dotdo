@@ -52,6 +52,53 @@ export {
 } from './salesforce'
 
 // =============================================================================
+// Workflow/Process Builder
+// =============================================================================
+
+export {
+  WorkflowRule,
+  ProcessBuilder,
+  WorkflowEngine,
+  CriteriaEvaluator,
+} from './workflows'
+
+export type {
+  // Workflow types
+  EvaluationCriteria,
+  ProcessTrigger,
+  ComparisonOperator,
+  WorkflowActionType,
+  TimeBasedTrigger,
+  RuleCriterion,
+  RuleCriteria,
+  FilterCriteria,
+  // Action types
+  FieldUpdateAction,
+  EmailAlertAction,
+  CreateTaskAction,
+  OutboundMessageAction,
+  CreateRecordAction,
+  UpdateRecordAction,
+  ApexAction,
+  QuickActionAction,
+  FlowAction,
+  PostAction,
+  WorkflowAction,
+  TimeBasedAction,
+  // Rule/Process types
+  WorkflowRuleConfig,
+  WorkflowRuleResult,
+  ActionResult,
+  ProcessNode,
+  ProcessBuilderConfig,
+  ProcessResult,
+  RecordContext,
+  RecordOperation,
+  WorkflowEngineConfig,
+  ActionHandler,
+} from './workflows'
+
+// =============================================================================
 // Types
 // =============================================================================
 

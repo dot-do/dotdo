@@ -249,6 +249,10 @@ export interface SemanticQuery {
   order?: OrderSpec[]
   limit?: number
   offset?: number
+  /** @internal Security filters injected by MetricsAccessControl */
+  _securityFilters?: string[]
+  /** @internal Column masks injected by MetricsAccessControl */
+  _columnMasks?: Record<string, string>
 }
 
 /**
@@ -688,8 +692,8 @@ class SQLGenerator {
   ): string {
     const parts: string[] = []
 
-    // SELECT clause
-    parts.push(this.generateSelect(cubes, parsedQuery))
+    // SELECT clause (with optional column masks from security context)
+    parts.push(this.generateSelect(cubes, parsedQuery, query._columnMasks))
 
     // FROM clause
     parts.push(this.generateFrom(cubes, parsedQuery))
@@ -730,7 +734,8 @@ class SQLGenerator {
 
   private generateSelect(
     cubes: Map<string, Cube>,
-    parsedQuery: ParsedQuery
+    parsedQuery: ParsedQuery,
+    columnMasks?: Record<string, string>
   ): string {
     const columns: string[] = []
 
@@ -746,7 +751,13 @@ class SQLGenerator {
         })
         columns.push(`${sql} AS ${dim.alias || dim.name}`)
       } else {
-        columns.push(`${dimension.toSQL(dim.cubeName)} AS ${dim.alias || dim.name}`)
+        // Check if this dimension has a column mask applied
+        const maskSql = columnMasks?.[dim.name]
+        if (maskSql) {
+          columns.push(`${maskSql} AS ${dim.alias || dim.name}`)
+        } else {
+          columns.push(`${dimension.toSQL(dim.cubeName)} AS ${dim.alias || dim.name}`)
+        }
       }
     }
 
@@ -804,6 +815,12 @@ class SQLGenerator {
     parsedQuery: ParsedQuery
   ): string | null {
     const conditions: string[] = []
+
+    // SECURITY: Add security filters first (row-level security)
+    // These are injected by MetricsAccessControl and cannot be bypassed
+    if (query._securityFilters && query._securityFilters.length > 0) {
+      conditions.push(...query._securityFilters)
+    }
 
     // Process filters
     if (query.filters) {
@@ -1485,3 +1502,51 @@ GROUP BY ${groupByColumns.join(', ')}`
     return { cubes }
   }
 }
+
+// =============================================================================
+// Re-export Cube DSL
+// =============================================================================
+
+export {
+  // Core factory
+  cube as cubeDSL,
+
+  // Measure helpers
+  count as countMeasure,
+  sum as sumMeasure,
+  avg as avgMeasure,
+  min as minMeasure,
+  max as maxMeasure,
+  countDistinct as countDistinctMeasure,
+
+  // Dimension helpers
+  time as timeDimension,
+  categorical as categoricalDimension,
+  numeric as numericDimension,
+  boolean as booleanDimension,
+
+  // Join helpers
+  oneToOne,
+  oneToMany,
+  manyToMany,
+
+  // Segment helper
+  segment as segmentDSL,
+
+  // Validation
+  validateCube,
+  CubeValidationError,
+
+  // Types
+  type CubeDefinition as CubeDSLDefinition,
+  type CubeInput,
+  type MeasureDefinition as DSLMeasureDefinition,
+  type DimensionDefinition as DSLDimensionDefinition,
+  type JoinDefinition as DSLJoinDefinition,
+  type SegmentDefinition as DSLSegmentDefinition,
+  type MeasureOptions,
+  type DimensionOptions,
+  type SegmentOptions,
+  type JoinSqlOptions,
+  type ManyToManyOptions,
+} from './cube-dsl'

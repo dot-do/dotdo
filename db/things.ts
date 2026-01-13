@@ -98,6 +98,12 @@ export interface ThingsDb {
       }
     }
   }
+  /** Select specific columns/expressions (used for COUNT queries) */
+  select<T extends Record<string, unknown>>(fields: T): {
+    from(table: typeof things): {
+      where(condition: unknown): Promise<{ [K in keyof T]: unknown }[]>
+    }
+  }
   insert(table: typeof things): {
     values(values: NewThing): {
       returning(): Promise<Thing[]>
@@ -382,31 +388,58 @@ export async function undeleteThing(
 }
 
 /**
+ * Options for countVersions query.
+ *
+ * The default safety limit of 10,000 was chosen because:
+ * - It's high enough to handle most legitimate use cases
+ * - It prevents runaway queries in edge cases (e.g., corrupted data, infinite loops)
+ * - SQLite's COUNT(*) is O(n) for unindexed counts, so a limit provides predictable performance
+ *
+ * In practice, the COUNT(*) approach is already much more efficient than fetching rows,
+ * but the limit option is retained for API compatibility and edge case protection.
+ */
+export interface CountVersionsOptions {
+  /**
+   * Maximum count to return (default: undefined = no limit).
+   * When set, the query will use LIMIT to cap the count.
+   * This is useful for "has more than N versions" checks.
+   */
+  limit?: number
+}
+
+/**
  * Count the number of versions for a thing.
+ *
+ * Uses SQL COUNT(*) for efficiency - returns the count directly without fetching rows.
+ * This is O(1) memory and network transfer regardless of how many versions exist.
  *
  * SQL: SELECT COUNT(*) as count FROM things WHERE id = ?
  *
  * @param db - Drizzle database instance
  * @param id - The thing ID to count versions for
+ * @param options - Optional configuration (e.g., limit for "more than N" checks)
  * @returns The number of versions
  */
 export async function countVersions(
   db: ThingsDb,
-  id: string
+  id: string,
+  options?: CountVersionsOptions
 ): Promise<number> {
+  // Use SQL COUNT(*) for efficiency - doesn't fetch rows, just returns the count
   const results = await db
-    .select()
+    .select({ count: sql<number>`COUNT(*)` })
     .from(things)
     .where(eq(things.id, id))
-    .orderBy(things.id)
-    .limit(10000) // Safety limit
 
-  // The mock db returns count in a special format
-  if (results.length === 1 && 'count' in results[0]!) {
-    return (results[0] as unknown as { count: number }).count
+  // Cast to number since the interface returns unknown for count result
+  const count = (results[0]?.count as number | undefined) ?? 0
+
+  // Apply optional limit (for "has more than N" checks)
+  if (options?.limit !== undefined) {
+    return Math.min(count, options.limit)
   }
 
-  return results.length
+  return count
 }
 
 // ============================================================================

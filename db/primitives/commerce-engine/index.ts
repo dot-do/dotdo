@@ -407,6 +407,7 @@ export interface TaxRate {
   country: string
   state?: string
   city?: string
+  postalCode?: string
   createdAt: Date
 }
 
@@ -419,6 +420,7 @@ export interface TaxRateCreateOptions {
   country: string
   state?: string
   city?: string
+  postalCode?: string
 }
 
 /**
@@ -436,6 +438,199 @@ export interface TaxCalculation {
 export interface TaxCalculationOptions {
   subtotal: number
   shippingAddress: Address
+}
+
+// =============================================================================
+// TaxCalculator Types
+// =============================================================================
+
+/**
+ * Product tax category - determines how a product is taxed
+ */
+export type ProductTaxCategory =
+  | 'standard'      // Normal taxable goods
+  | 'reduced'       // Reduced rate (e.g., essential goods)
+  | 'zero'          // Zero-rated (taxable but at 0%)
+  | 'exempt'        // Exempt from tax
+  | 'food'          // Food items (often reduced or exempt)
+  | 'clothing'      // Clothing (varies by jurisdiction)
+  | 'digital'       // Digital goods/services
+  | 'services'      // Services
+  | 'medical'       // Medical supplies
+  | 'education'     // Educational materials
+
+/**
+ * Jurisdiction tax rate with optional category-specific rates
+ */
+export interface JurisdictionTaxRate {
+  id: string
+  name: string
+  jurisdiction: TaxJurisdiction
+  standardRate: number
+  categoryRates?: Partial<Record<ProductTaxCategory, number>>
+  shippingTaxable: boolean
+  shippingRate?: number  // If different from standard rate
+  compoundTax: boolean   // If true, this tax is applied on top of other taxes
+  priority: number       // Order in which taxes are applied (lower = first)
+  active: boolean
+  startsAt?: Date
+  expiresAt?: Date
+  createdAt: Date
+  updatedAt?: Date
+}
+
+/**
+ * Tax jurisdiction - hierarchical location matching
+ */
+export interface TaxJurisdiction {
+  country: string
+  state?: string
+  county?: string
+  city?: string
+  postalCode?: string
+  postalCodeRange?: { from: string; to: string }
+}
+
+/**
+ * Options for creating a jurisdiction tax rate
+ */
+export interface JurisdictionTaxRateCreateOptions {
+  name: string
+  jurisdiction: TaxJurisdiction
+  standardRate: number
+  categoryRates?: Partial<Record<ProductTaxCategory, number>>
+  shippingTaxable?: boolean
+  shippingRate?: number
+  compoundTax?: boolean
+  priority?: number
+  startsAt?: Date
+  expiresAt?: Date
+}
+
+/**
+ * Customer tax exemption
+ */
+export interface CustomerTaxExemption {
+  id: string
+  customerId: string
+  exemptionType: TaxExemptionType
+  exemptionNumber?: string  // Certificate number, resale permit, etc.
+  jurisdiction?: TaxJurisdiction  // Specific jurisdiction or all if not set
+  categories?: ProductTaxCategory[]  // Specific categories or all if not set
+  reason?: string
+  documentUrl?: string
+  validFrom: Date
+  validUntil?: Date
+  verified: boolean
+  verifiedAt?: Date
+  verifiedBy?: string
+  createdAt: Date
+  updatedAt?: Date
+}
+
+/**
+ * Tax exemption types
+ */
+export type TaxExemptionType =
+  | 'resale'           // Reseller/wholesale
+  | 'nonprofit'        // Non-profit organization
+  | 'government'       // Government entity
+  | 'diplomatic'       // Diplomatic exemption
+  | 'manufacturing'    // Manufacturing exemption
+  | 'agricultural'     // Agricultural exemption
+  | 'medical'          // Medical organization
+  | 'education'        // Educational institution
+  | 'religious'        // Religious organization
+  | 'other'            // Other exemption
+
+/**
+ * Options for creating customer tax exemption
+ */
+export interface CustomerTaxExemptionCreateOptions {
+  customerId: string
+  exemptionType: TaxExemptionType
+  exemptionNumber?: string
+  jurisdiction?: TaxJurisdiction
+  categories?: ProductTaxCategory[]
+  reason?: string
+  documentUrl?: string
+  validFrom?: Date
+  validUntil?: Date
+}
+
+/**
+ * Line item for tax calculation
+ */
+export interface TaxableLineItem {
+  id: string
+  productId: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+  taxCategory?: ProductTaxCategory
+  taxIncluded?: boolean  // Is tax already included in the price?
+}
+
+/**
+ * Comprehensive tax calculation input
+ */
+export interface TaxCalculatorInput {
+  lineItems: TaxableLineItem[]
+  shippingAddress: Address
+  billingAddress?: Address
+  customerId?: string
+  shippingAmount?: number
+  discountAmount?: number
+  currencyCode?: string
+}
+
+/**
+ * Tax line - individual tax component
+ */
+export interface TaxLine {
+  rateId: string
+  rateName: string
+  jurisdiction: TaxJurisdiction
+  rate: number
+  taxableAmount: number
+  taxAmount: number
+  category?: ProductTaxCategory
+  isShippingTax: boolean
+  isCompound: boolean
+}
+
+/**
+ * Line item with calculated taxes
+ */
+export interface TaxedLineItem extends TaxableLineItem {
+  taxLines: TaxLine[]
+  taxAmount: number
+  totalWithTax: number
+}
+
+/**
+ * Comprehensive tax calculation result
+ */
+export interface TaxCalculatorResult {
+  lineItems: TaxedLineItem[]
+  shippingTaxLines: TaxLine[]
+  shippingTaxAmount: number
+  subtotal: number
+  totalTax: number
+  totalWithTax: number
+  taxLines: TaxLine[]  // Aggregated tax lines
+  exemptionsApplied: string[]  // IDs of exemptions that were applied
+  currency: string
+}
+
+/**
+ * Tax-inclusive pricing conversion result
+ */
+export interface TaxInclusivePriceResult {
+  priceIncludingTax: number
+  priceExcludingTax: number
+  taxAmount: number
+  effectiveRate: number
 }
 
 /**
@@ -1591,6 +1786,681 @@ class PricingManager {
       currency: options.basePrice.currency,
     }
   }
+}
+
+// =============================================================================
+// TaxCalculator
+// =============================================================================
+
+/**
+ * TaxCalculator - Comprehensive tax calculation engine
+ *
+ * Features:
+ * - Jurisdiction-based tax rates (country, state, county, city, postal code)
+ * - Product tax categories with different rates
+ * - Customer tax exemptions
+ * - Shipping tax rules
+ * - Tax-inclusive pricing conversion
+ * - Compound tax support (tax on tax)
+ */
+export class TaxCalculator {
+  private jurisdictionRates: Map<string, JurisdictionTaxRate> = new Map()
+  private customerExemptions: Map<string, CustomerTaxExemption[]> = new Map()
+
+  // =========================================================================
+  // Jurisdiction Tax Rate Management
+  // =========================================================================
+
+  /**
+   * Create a jurisdiction-based tax rate
+   */
+  async createJurisdictionRate(
+    options: JurisdictionTaxRateCreateOptions
+  ): Promise<JurisdictionTaxRate> {
+    const id = generateId('jtax')
+
+    const rate: JurisdictionTaxRate = {
+      id,
+      name: options.name,
+      jurisdiction: options.jurisdiction,
+      standardRate: options.standardRate,
+      categoryRates: options.categoryRates,
+      shippingTaxable: options.shippingTaxable ?? true,
+      shippingRate: options.shippingRate,
+      compoundTax: options.compoundTax ?? false,
+      priority: options.priority ?? 0,
+      active: true,
+      startsAt: options.startsAt,
+      expiresAt: options.expiresAt,
+      createdAt: new Date(),
+    }
+
+    this.jurisdictionRates.set(id, rate)
+    return rate
+  }
+
+  /**
+   * Get a jurisdiction rate by ID
+   */
+  async getJurisdictionRate(id: string): Promise<JurisdictionTaxRate | null> {
+    return this.jurisdictionRates.get(id) ?? null
+  }
+
+  /**
+   * Update a jurisdiction rate
+   */
+  async updateJurisdictionRate(
+    id: string,
+    updates: Partial<JurisdictionTaxRateCreateOptions>
+  ): Promise<JurisdictionTaxRate> {
+    const existing = this.jurisdictionRates.get(id)
+    if (!existing) {
+      throw new Error('Jurisdiction tax rate not found')
+    }
+
+    const updated: JurisdictionTaxRate = {
+      ...existing,
+      ...updates,
+      jurisdiction: updates.jurisdiction ?? existing.jurisdiction,
+      standardRate: updates.standardRate ?? existing.standardRate,
+      updatedAt: new Date(),
+    }
+
+    this.jurisdictionRates.set(id, updated)
+    return updated
+  }
+
+  /**
+   * Deactivate a jurisdiction rate
+   */
+  async deactivateJurisdictionRate(id: string): Promise<void> {
+    const existing = this.jurisdictionRates.get(id)
+    if (existing) {
+      existing.active = false
+      existing.updatedAt = new Date()
+      this.jurisdictionRates.set(id, existing)
+    }
+  }
+
+  /**
+   * List all jurisdiction rates, optionally filtered
+   */
+  async listJurisdictionRates(options?: {
+    country?: string
+    state?: string
+    activeOnly?: boolean
+  }): Promise<JurisdictionTaxRate[]> {
+    let rates = Array.from(this.jurisdictionRates.values())
+
+    if (options?.activeOnly !== false) {
+      const now = new Date()
+      rates = rates.filter((r) => {
+        if (!r.active) return false
+        if (r.startsAt && r.startsAt > now) return false
+        if (r.expiresAt && r.expiresAt < now) return false
+        return true
+      })
+    }
+
+    if (options?.country) {
+      rates = rates.filter((r) => r.jurisdiction.country === options.country)
+    }
+
+    if (options?.state) {
+      rates = rates.filter((r) => r.jurisdiction.state === options.state)
+    }
+
+    return rates.sort((a, b) => a.priority - b.priority)
+  }
+
+  // =========================================================================
+  // Customer Tax Exemption Management
+  // =========================================================================
+
+  /**
+   * Create a customer tax exemption
+   */
+  async createExemption(
+    options: CustomerTaxExemptionCreateOptions
+  ): Promise<CustomerTaxExemption> {
+    const id = generateId('texm')
+
+    const exemption: CustomerTaxExemption = {
+      id,
+      customerId: options.customerId,
+      exemptionType: options.exemptionType,
+      exemptionNumber: options.exemptionNumber,
+      jurisdiction: options.jurisdiction,
+      categories: options.categories,
+      reason: options.reason,
+      documentUrl: options.documentUrl,
+      validFrom: options.validFrom ?? new Date(),
+      validUntil: options.validUntil,
+      verified: false,
+      createdAt: new Date(),
+    }
+
+    const customerExemptions = this.customerExemptions.get(options.customerId) ?? []
+    customerExemptions.push(exemption)
+    this.customerExemptions.set(options.customerId, customerExemptions)
+
+    return exemption
+  }
+
+  /**
+   * Get all exemptions for a customer
+   */
+  async getCustomerExemptions(customerId: string): Promise<CustomerTaxExemption[]> {
+    return this.customerExemptions.get(customerId) ?? []
+  }
+
+  /**
+   * Get a specific exemption by ID
+   */
+  async getExemption(exemptionId: string): Promise<CustomerTaxExemption | null> {
+    for (const exemptions of this.customerExemptions.values()) {
+      const found = exemptions.find((e) => e.id === exemptionId)
+      if (found) return found
+    }
+    return null
+  }
+
+  /**
+   * Verify a customer exemption
+   */
+  async verifyExemption(
+    exemptionId: string,
+    verifiedBy: string
+  ): Promise<CustomerTaxExemption> {
+    for (const [customerId, exemptions] of this.customerExemptions) {
+      const idx = exemptions.findIndex((e) => e.id === exemptionId)
+      if (idx !== -1) {
+        const exemption = exemptions[idx]
+        const updated: CustomerTaxExemption = {
+          ...exemption,
+          verified: true,
+          verifiedAt: new Date(),
+          verifiedBy,
+          updatedAt: new Date(),
+        }
+        exemptions[idx] = updated
+        this.customerExemptions.set(customerId, exemptions)
+        return updated
+      }
+    }
+    throw new Error('Exemption not found')
+  }
+
+  /**
+   * Revoke (delete) a customer exemption
+   */
+  async revokeExemption(exemptionId: string): Promise<void> {
+    for (const [customerId, exemptions] of this.customerExemptions) {
+      const filtered = exemptions.filter((e) => e.id !== exemptionId)
+      if (filtered.length !== exemptions.length) {
+        this.customerExemptions.set(customerId, filtered)
+        return
+      }
+    }
+  }
+
+  /**
+   * Check if a customer is exempt for a specific context
+   */
+  async isCustomerExempt(
+    customerId: string,
+    jurisdiction: TaxJurisdiction,
+    category?: ProductTaxCategory
+  ): Promise<{ exempt: boolean; exemptions: CustomerTaxExemption[] }> {
+    const exemptions = await this.getCustomerExemptions(customerId)
+    const now = new Date()
+
+    const validExemptions = exemptions.filter((e) => {
+      // Check validity period
+      if (e.validFrom > now) return false
+      if (e.validUntil && e.validUntil < now) return false
+
+      // Check jurisdiction match (if specified on exemption)
+      if (e.jurisdiction) {
+        if (!this.jurisdictionMatches(jurisdiction, e.jurisdiction)) return false
+      }
+
+      // Check category match (if specified on exemption)
+      if (e.categories && category) {
+        if (!e.categories.includes(category)) return false
+      }
+
+      return true
+    })
+
+    return {
+      exempt: validExemptions.length > 0,
+      exemptions: validExemptions,
+    }
+  }
+
+  // =========================================================================
+  // Tax Calculation
+  // =========================================================================
+
+  /**
+   * Calculate taxes for a complete order
+   */
+  async calculate(input: TaxCalculatorInput): Promise<TaxCalculatorResult> {
+    const currency = input.currencyCode ?? 'USD'
+    const exemptionsApplied: string[] = []
+    const allTaxLines: TaxLine[] = []
+
+    // Find applicable tax rates for the shipping address
+    const applicableRates = await this.findApplicableRates(input.shippingAddress)
+
+    // Calculate taxes for each line item
+    const taxedLineItems: TaxedLineItem[] = []
+    let subtotal = 0
+
+    for (const item of input.lineItems) {
+      const taxCategory = item.taxCategory ?? 'standard'
+      let taxableAmount = item.totalPrice
+
+      // Handle tax-inclusive pricing
+      if (item.taxIncluded) {
+        // Calculate the effective rate for this item
+        const effectiveRate = this.calculateEffectiveRate(applicableRates, taxCategory)
+        taxableAmount = Math.round(item.totalPrice / (1 + effectiveRate))
+      }
+
+      // Check for customer exemptions
+      let itemExemptions: CustomerTaxExemption[] = []
+      if (input.customerId) {
+        const exemptionResult = await this.isCustomerExempt(
+          input.customerId,
+          this.addressToJurisdiction(input.shippingAddress),
+          taxCategory
+        )
+        if (exemptionResult.exempt) {
+          itemExemptions = exemptionResult.exemptions
+          exemptionsApplied.push(...itemExemptions.map((e) => e.id))
+        }
+      }
+
+      // Calculate tax lines for this item
+      const itemTaxLines: TaxLine[] = []
+      let itemTaxAmount = 0
+
+      if (itemExemptions.length === 0 && taxCategory !== 'exempt') {
+        // Sort rates by priority for compound tax calculation
+        const sortedRates = [...applicableRates].sort((a, b) => a.priority - b.priority)
+        let compoundBase = taxableAmount
+
+        for (const rate of sortedRates) {
+          const taxRate = this.getRateForCategory(rate, taxCategory)
+
+          if (taxRate > 0) {
+            const baseForTax = rate.compoundTax ? compoundBase : taxableAmount
+            const taxAmount = Math.round(baseForTax * taxRate)
+
+            const taxLine: TaxLine = {
+              rateId: rate.id,
+              rateName: rate.name,
+              jurisdiction: rate.jurisdiction,
+              rate: taxRate,
+              taxableAmount: baseForTax,
+              taxAmount,
+              category: taxCategory,
+              isShippingTax: false,
+              isCompound: rate.compoundTax,
+            }
+
+            itemTaxLines.push(taxLine)
+            allTaxLines.push(taxLine)
+            itemTaxAmount += taxAmount
+
+            // Update compound base for next tax
+            if (rate.compoundTax) {
+              compoundBase += taxAmount
+            }
+          }
+        }
+      }
+
+      const taxedItem: TaxedLineItem = {
+        ...item,
+        totalPrice: taxableAmount, // Use tax-exclusive price
+        taxLines: itemTaxLines,
+        taxAmount: itemTaxAmount,
+        totalWithTax: taxableAmount + itemTaxAmount,
+      }
+
+      taxedLineItems.push(taxedItem)
+      subtotal += taxableAmount
+    }
+
+    // Calculate shipping tax
+    let shippingTaxAmount = 0
+    const shippingTaxLines: TaxLine[] = []
+    const shippingAmount = input.shippingAmount ?? 0
+
+    if (shippingAmount > 0) {
+      // Check if customer is exempt from shipping tax
+      let shippingExempt = false
+      if (input.customerId) {
+        const exemptionResult = await this.isCustomerExempt(
+          input.customerId,
+          this.addressToJurisdiction(input.shippingAddress)
+        )
+        if (exemptionResult.exempt) {
+          shippingExempt = true
+          exemptionsApplied.push(...exemptionResult.exemptions.map((e) => e.id))
+        }
+      }
+
+      if (!shippingExempt) {
+        const sortedRates = [...applicableRates].sort((a, b) => a.priority - b.priority)
+        let compoundBase = shippingAmount
+
+        for (const rate of sortedRates) {
+          if (rate.shippingTaxable) {
+            const shippingRate = rate.shippingRate ?? rate.standardRate
+
+            if (shippingRate > 0) {
+              const baseForTax = rate.compoundTax ? compoundBase : shippingAmount
+              const taxAmount = Math.round(baseForTax * shippingRate)
+
+              const taxLine: TaxLine = {
+                rateId: rate.id,
+                rateName: rate.name,
+                jurisdiction: rate.jurisdiction,
+                rate: shippingRate,
+                taxableAmount: baseForTax,
+                taxAmount,
+                isShippingTax: true,
+                isCompound: rate.compoundTax,
+              }
+
+              shippingTaxLines.push(taxLine)
+              allTaxLines.push(taxLine)
+              shippingTaxAmount += taxAmount
+
+              if (rate.compoundTax) {
+                compoundBase += taxAmount
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Calculate totals
+    const totalItemTax = taxedLineItems.reduce((sum, item) => sum + item.taxAmount, 0)
+    const totalTax = totalItemTax + shippingTaxAmount
+    const totalWithTax = subtotal + shippingAmount + totalTax
+
+    // Aggregate tax lines by rate
+    const aggregatedTaxLines = this.aggregateTaxLines(allTaxLines)
+
+    return {
+      lineItems: taxedLineItems,
+      shippingTaxLines,
+      shippingTaxAmount,
+      subtotal,
+      totalTax,
+      totalWithTax,
+      taxLines: aggregatedTaxLines,
+      exemptionsApplied: [...new Set(exemptionsApplied)],
+      currency,
+    }
+  }
+
+  /**
+   * Calculate tax for a simple amount (convenience method)
+   */
+  async calculateSimple(
+    amount: number,
+    address: Address,
+    options?: {
+      customerId?: string
+      category?: ProductTaxCategory
+      includeShipping?: boolean
+      shippingAmount?: number
+    }
+  ): Promise<{ taxAmount: number; rate: number; totalWithTax: number }> {
+    const result = await this.calculate({
+      lineItems: [
+        {
+          id: 'simple',
+          productId: 'simple',
+          quantity: 1,
+          unitPrice: amount,
+          totalPrice: amount,
+          taxCategory: options?.category,
+        },
+      ],
+      shippingAddress: address,
+      customerId: options?.customerId,
+      shippingAmount: options?.includeShipping ? (options.shippingAmount ?? 0) : 0,
+    })
+
+    const effectiveRate =
+      result.totalTax > 0 ? result.totalTax / (result.subtotal + (options?.shippingAmount ?? 0)) : 0
+
+    return {
+      taxAmount: result.totalTax,
+      rate: effectiveRate,
+      totalWithTax: result.totalWithTax,
+    }
+  }
+
+  // =========================================================================
+  // Tax-Inclusive Pricing Conversion
+  // =========================================================================
+
+  /**
+   * Convert a tax-inclusive price to tax-exclusive
+   */
+  async convertToTaxExclusive(
+    priceIncludingTax: number,
+    address: Address,
+    category?: ProductTaxCategory
+  ): Promise<TaxInclusivePriceResult> {
+    const applicableRates = await this.findApplicableRates(address)
+    const effectiveRate = this.calculateEffectiveRate(applicableRates, category ?? 'standard')
+
+    const priceExcludingTax = Math.round(priceIncludingTax / (1 + effectiveRate))
+    const taxAmount = priceIncludingTax - priceExcludingTax
+
+    return {
+      priceIncludingTax,
+      priceExcludingTax,
+      taxAmount,
+      effectiveRate,
+    }
+  }
+
+  /**
+   * Convert a tax-exclusive price to tax-inclusive
+   */
+  async convertToTaxInclusive(
+    priceExcludingTax: number,
+    address: Address,
+    category?: ProductTaxCategory
+  ): Promise<TaxInclusivePriceResult> {
+    const applicableRates = await this.findApplicableRates(address)
+    const effectiveRate = this.calculateEffectiveRate(applicableRates, category ?? 'standard')
+
+    const taxAmount = Math.round(priceExcludingTax * effectiveRate)
+    const priceIncludingTax = priceExcludingTax + taxAmount
+
+    return {
+      priceIncludingTax,
+      priceExcludingTax,
+      taxAmount,
+      effectiveRate,
+    }
+  }
+
+  /**
+   * Get the effective tax rate for a specific address and category
+   */
+  async getEffectiveRate(
+    address: Address,
+    category?: ProductTaxCategory
+  ): Promise<number> {
+    const applicableRates = await this.findApplicableRates(address)
+    return this.calculateEffectiveRate(applicableRates, category ?? 'standard')
+  }
+
+  // =========================================================================
+  // Private Helper Methods
+  // =========================================================================
+
+  /**
+   * Find all applicable tax rates for an address
+   */
+  private async findApplicableRates(address: Address): Promise<JurisdictionTaxRate[]> {
+    const now = new Date()
+    const jurisdiction = this.addressToJurisdiction(address)
+    const applicableRates: JurisdictionTaxRate[] = []
+
+    for (const rate of this.jurisdictionRates.values()) {
+      // Check if rate is active and within valid date range
+      if (!rate.active) continue
+      if (rate.startsAt && rate.startsAt > now) continue
+      if (rate.expiresAt && rate.expiresAt < now) continue
+
+      // Check jurisdiction match
+      if (this.jurisdictionMatches(jurisdiction, rate.jurisdiction)) {
+        applicableRates.push(rate)
+      }
+    }
+
+    return applicableRates.sort((a, b) => a.priority - b.priority)
+  }
+
+  /**
+   * Check if a jurisdiction matches a rate's jurisdiction
+   * More specific jurisdictions take precedence
+   */
+  private jurisdictionMatches(
+    address: TaxJurisdiction,
+    rateJurisdiction: TaxJurisdiction
+  ): boolean {
+    // Country must match
+    if (rateJurisdiction.country !== address.country) return false
+
+    // If rate specifies state, it must match
+    if (rateJurisdiction.state && rateJurisdiction.state !== address.state) return false
+
+    // If rate specifies county, it must match
+    if (rateJurisdiction.county && rateJurisdiction.county !== address.county) return false
+
+    // If rate specifies city, it must match
+    if (rateJurisdiction.city && rateJurisdiction.city !== address.city) return false
+
+    // If rate specifies postal code, it must match
+    if (rateJurisdiction.postalCode && rateJurisdiction.postalCode !== address.postalCode) {
+      return false
+    }
+
+    // If rate specifies postal code range, check if address is within range
+    if (rateJurisdiction.postalCodeRange && address.postalCode) {
+      const { from, to } = rateJurisdiction.postalCodeRange
+      if (address.postalCode < from || address.postalCode > to) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  /**
+   * Convert an Address to a TaxJurisdiction
+   */
+  private addressToJurisdiction(address: Address): TaxJurisdiction {
+    return {
+      country: address.country,
+      state: address.state,
+      city: address.city,
+      postalCode: address.postalCode,
+    }
+  }
+
+  /**
+   * Get the tax rate for a specific category
+   */
+  private getRateForCategory(
+    rate: JurisdictionTaxRate,
+    category: ProductTaxCategory
+  ): number {
+    // Check for category-specific rate
+    if (rate.categoryRates && rate.categoryRates[category] !== undefined) {
+      return rate.categoryRates[category]!
+    }
+
+    // Handle special categories
+    if (category === 'exempt') return 0
+    if (category === 'zero') return 0
+
+    // Fall back to standard rate
+    return rate.standardRate
+  }
+
+  /**
+   * Calculate the effective (combined) tax rate for applicable rates
+   */
+  private calculateEffectiveRate(
+    rates: JurisdictionTaxRate[],
+    category: ProductTaxCategory
+  ): number {
+    if (category === 'exempt' || category === 'zero') return 0
+
+    let effectiveRate = 0
+    let compoundBase = 1
+
+    const sortedRates = [...rates].sort((a, b) => a.priority - b.priority)
+
+    for (const rate of sortedRates) {
+      const taxRate = this.getRateForCategory(rate, category)
+
+      if (rate.compoundTax) {
+        // Compound tax: apply to (1 + previous taxes)
+        effectiveRate += taxRate * compoundBase
+        compoundBase *= 1 + taxRate
+      } else {
+        // Simple tax: just add
+        effectiveRate += taxRate
+      }
+    }
+
+    return effectiveRate
+  }
+
+  /**
+   * Aggregate tax lines by rate ID
+   */
+  private aggregateTaxLines(taxLines: TaxLine[]): TaxLine[] {
+    const aggregated = new Map<string, TaxLine>()
+
+    for (const line of taxLines) {
+      const key = `${line.rateId}:${line.isShippingTax ? 'shipping' : 'item'}:${line.category ?? 'standard'}`
+      const existing = aggregated.get(key)
+
+      if (existing) {
+        existing.taxableAmount += line.taxableAmount
+        existing.taxAmount += line.taxAmount
+      } else {
+        aggregated.set(key, { ...line })
+      }
+    }
+
+    return Array.from(aggregated.values())
+  }
+}
+
+/**
+ * Factory function to create a TaxCalculator instance
+ */
+export function createTaxCalculator(): TaxCalculator {
+  return new TaxCalculator()
 }
 
 // =============================================================================

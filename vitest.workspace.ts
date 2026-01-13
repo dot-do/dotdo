@@ -102,8 +102,14 @@ export default defineWorkspace([
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts']),
+  // DO persistence layer tests (checkpoint, WAL, replication, migration, iceberg state)
+  createNodeWorkspace('persistence', ['objects/persistence/tests/**/*.test.ts']),
+
+  // DO transport layer tests (REST router, edit UI, auth layer, RPC, etc.)
+  createNodeWorkspace('objects-transport', ['objects/transport/tests/**/*.test.ts']),
+
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, storage, auth, namespace, response, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts', 'lib/storage/tests/**/*.test.ts', 'lib/auth/tests/**/*.test.ts', 'lib/namespace/tests/**/*.test.ts', 'lib/response/tests/**/*.test.ts']),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
@@ -242,6 +248,10 @@ export default defineWorkspace([
   // Observability tail worker tests (pipeline integration)
   createNodeWorkspace('observability-tail', ['workers/observability-tail/tests/**/*.test.ts']),
 
+  // Worker unit tests (Node environment, uses mocks - NOT workers runtime)
+  // These test worker logic without requiring actual Workers runtime
+  createNodeWorkspace('worker-unit', ['workers/tests/**/*.test.ts']),
+
   // Tests for objects in tests/objects directory (mocked Durable Objects)
   createNodeWorkspace('tests-objects', ['tests/objects/**/*.test.ts']),
 
@@ -255,7 +265,8 @@ export default defineWorkspace([
   createNodeWorkspace('generators', ['api/generators/tests/**/*.test.ts']),
 
   // API routes tests (Node environment, for isolated route testing)
-  createNodeWorkspace('api-routes', ['api/routes/tests/**/*.test.ts']),
+  // Includes both api/routes/tests/ and api/tests/routes/ directories
+  createNodeWorkspace('api-routes', ['api/routes/tests/**/*.test.ts', 'api/tests/routes/**/*.test.ts']),
 
   // Compat layer tests (API-compatible SDKs backed by DO)
   createNodeWorkspace('compat', ['compat/**/*.test.ts', 'db/compat/**/*.test.ts', 'search/compat/**/*.test.ts', 'config/compat/**/*.test.ts', 'storage/compat/**/*.test.ts']),
@@ -448,8 +459,8 @@ export default defineWorkspace([
   // Streaming core tests (StreamBridge, pipelines integration)
   createNodeWorkspace('streaming', ['streaming/**/*.test.ts']),
 
-  // Benchmarks (SQL parsers, etc.)
-  createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts']),
+  // Benchmarks (SQL parsers, DO latency, performance)
+  createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts', 'benchmarks/**/*.test.ts']),
 
   // Reliability tests (error handling, promise handling, resilience)
   createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts', 'tests/error-handling/**/*.test.ts', 'tests/error-logging.test.ts', 'tests/error-logging/**/*.test.ts']),
@@ -477,14 +488,20 @@ export default defineWorkspace([
   // ============================================
 
   // Runtime integration tests using Cloudflare Workers pool
+  // NOTE: api/tests/routes tests are now in api-routes project (node environment)
   {
     extends: './tests/config/vitest.workers.config.ts',
     test: {
-      ...sharedTestConfig,
+      // Use only compatible settings from sharedTestConfig (NOT pool/poolOptions - those come from extended config)
+      globals: sharedTestConfig?.globals,
+      testTimeout: sharedTestConfig?.testTimeout,
+      hookTimeout: sharedTestConfig?.hookTimeout,
+      reporters: sharedTestConfig?.reporters,
+      snapshotFormat: sharedTestConfig?.snapshotFormat,
+      bail: sharedTestConfig?.bail,
       name: 'workers',
       include: [
         'api/tests/infrastructure/**/*.test.ts',
-        'api/tests/routes/**/*.test.ts',
         'api/tests/middleware/**/*.test.ts',
       ],
       exclude: defaultExcludes,
@@ -504,7 +521,7 @@ export default defineWorkspace([
       globals: sharedTestConfig?.globals,
       name: 'workers-integration',
       include: ['workers/**/*.test.ts'],
-      exclude: [...defaultExcludes, 'workers/observability-tail/**', 'workers/do-rest-integration.test.ts'],
+      exclude: [...defaultExcludes, 'workers/observability-tail/**', 'workers/do-rest-integration.test.ts', 'workers/tests/**'],
       sequence: { concurrent: false },
       // Override pool options to use workers-specific wrangler config
       // Type assertion needed for @cloudflare/vitest-pool-workers specific options

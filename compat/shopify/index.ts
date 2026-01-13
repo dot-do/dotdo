@@ -65,6 +65,7 @@ export * from './products'
 export * from './orders'
 export * from './customers'
 export * from './inventory'
+export * from './flow'
 
 // Re-export Storefront API
 export {
@@ -109,6 +110,78 @@ export {
   type CollectionSortKeys,
   type ProductFilter,
 } from './storefront'
+
+// Re-export Shopify Functions
+export {
+  createDiscountFunction,
+  createPaymentCustomization,
+  createDeliveryCustomization,
+  createValidationFunction,
+  percentageDiscount,
+  fixedAmountDiscount,
+  orderSubtotalTarget,
+  productVariantTarget,
+  getCartTotal,
+  getCartSubtotal,
+  getCartQuantity,
+  cartHasProduct,
+  cartHasVariant,
+  isReturningCustomer,
+  isFromCountry,
+  getProductQuantity,
+  getVariantQuantity,
+  isDiscountFunction,
+  isPaymentCustomization,
+  isDeliveryCustomization,
+  isValidationFunction,
+  ShopifyFunctionError,
+  type FunctionMoney,
+  type FunctionMetafield,
+  type FunctionVariant,
+  type FunctionCartLine,
+  type FunctionBuyerIdentity,
+  type FunctionCartCost,
+  type FunctionCart,
+  type FunctionDeliveryGroup,
+  type FunctionDeliveryOption,
+  type DiscountFunctionInput,
+  type DiscountFunctionOutput,
+  type DiscountFunctionConfig,
+  type DiscountFunction,
+  type OrderSubtotalTarget,
+  type ProductVariantTarget,
+  type PercentageValue,
+  type FixedAmountValue,
+  type Discount,
+  type DiscountCondition,
+  type PaymentCustomizationInput,
+  type PaymentCustomizationOutput,
+  type PaymentCustomizationConfig,
+  type PaymentCustomization,
+  type FunctionPaymentMethod,
+  type HidePaymentOperation,
+  type MovePaymentOperation,
+  type RenamePaymentOperation,
+  type PaymentOperation,
+  type DeliveryCustomizationInput,
+  type DeliveryCustomizationOutput,
+  type DeliveryCustomizationConfig,
+  type DeliveryCustomization,
+  type HideDeliveryOperation,
+  type MoveDeliveryOperation,
+  type RenameDeliveryOperation,
+  type DeliveryOperation,
+  type ValidationFunctionInput,
+  type ValidationFunctionOutput,
+  type ValidationFunctionConfig,
+  type ValidationFunction,
+  type ValidationError,
+  type OrderDiscountFunctionInput,
+  type ProductDiscountFunctionInput,
+  type ShippingDiscountFunctionInput,
+  type ShippingLineTarget,
+  type ShippingDiscountFunctionOutput,
+} from './functions'
 
 const DEFAULT_RETRIES = 2
 const DEFAULT_TIMEOUT = 60000 // 60 seconds

@@ -145,3 +145,13 @@ export {
   type MigrationStorage,
   type TransformFunction,
 } from './migration-runner'
+
+// Iceberg State Adapter
+export {
+  IcebergStateAdapter,
+  type IcebergSnapshot,
+  type IcebergMetadataV2,
+  type ManifestEntry,
+  type DataFile,
+  type IcebergStateAdapterOptions,
+} from './iceberg-state'

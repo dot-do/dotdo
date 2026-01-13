@@ -24,7 +24,7 @@ export type SessionOptions = {
  * This avoids importing capnweb's recursive types directly.
  */
 interface CapnWebModule {
-  newWebSocketRpcSession(url: string, localMain?: unknown, options?: SessionOptions): unknown
+  newWebSocketRpcSession(webSocket: WebSocket | string, localMain?: unknown, options?: SessionOptions): unknown
   newHttpBatchRpcSession(url: string, options?: SessionOptions): unknown
 }
 
@@ -38,17 +38,17 @@ const capnweb = capnwebModule as unknown as CapnWebModule
 /**
  * Create a WebSocket RPC session
  *
- * @param url - WebSocket URL (wss:// or ws://)
+ * @param webSocket - WebSocket instance or URL string (wss:// or ws://)
  * @param localMain - Optional local object to expose to the remote
  * @param options - Session options
  * @returns RPC stub for the remote object
  */
 export function newWebSocketRpcSession(
-  url: string,
+  webSocket: WebSocket | string,
   localMain?: unknown,
   options?: SessionOptions
 ): unknown {
-  return capnweb.newWebSocketRpcSession(url, localMain, options)
+  return capnweb.newWebSocketRpcSession(webSocket, localMain, options)
 }
 
 /**

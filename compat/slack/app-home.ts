@@ -80,7 +80,10 @@ import type {
   ViewOutput,
   ViewState,
   Block,
+  EventCallbackBody,
 } from './types'
+
+import type { AppHomeOpenedEvent } from './bot'
 
 import {
   type PlainTextObject,
@@ -95,6 +98,8 @@ import {
   actions as actionsBlock,
   context as contextBlock,
   input as inputBlock,
+  image as imageBlock,
+  type ImageBlock,
   type PlainTextInputElement,
   type StaticSelectElement,
   type MultiStaticSelectElement,
@@ -306,6 +311,31 @@ export type ViewSubmissionHandler = (
 export type ViewClosedHandler = (context: ViewClosedContext) => Promise<void>
 
 /**
+ * App home opened context
+ */
+export interface AppHomeOpenedContext {
+  /** The app_home_opened event */
+  event: AppHomeOpenedEvent
+  /** User ID who opened the home tab */
+  userId: string
+  /** Tab that was opened (home, messages, about) */
+  tab: 'home' | 'messages' | 'about'
+  /** Previous view if any */
+  previousView?: ViewOutput
+  /** Publish a home tab view to this user */
+  publish: (view: HomeTabViewType | HomeTabBuilder) => Promise<ViewsPublishResponse>
+  /** Build a home tab */
+  buildHomeTab: () => HomeTabBuilder
+  /** The underlying client */
+  client: BotWebClient
+}
+
+/**
+ * App home opened handler function type
+ */
+export type AppHomeOpenedHandler = (context: AppHomeOpenedContext) => Promise<void>
+
+/**
  * Home tab configuration
  */
 export interface HomeTabConfig {
@@ -471,11 +501,43 @@ export class HomeTabBuilder {
   }
 
   /**
+   * Add a context block with simple text elements
+   */
+  contextText(...texts: string[]): this {
+    this._blocks.push(
+      contextBlock({
+        elements: texts.map((t) => mrkdwn(t)),
+      })
+    )
+    return this
+  }
+
+  /**
+   * Add an image block
+   */
+  image(imageUrl: string, altText: string, title?: string): this {
+    const block = imageBlock({
+      image_url: imageUrl,
+      alt_text: altText,
+      title: title ? plainText(title) : undefined,
+    })
+    this._blocks.push(block)
+    return this
+  }
+
+  /**
    * Add any block
    */
   addBlock(block: Block): this {
     this._blocks.push(block)
     return this
+  }
+
+  /**
+   * Get the current number of blocks
+   */
+  get blockCount(): number {
+    return this._blocks.length
   }
 
   /**
@@ -700,11 +762,43 @@ export class ModalBuilder {
   }
 
   /**
+   * Add a context block with simple text elements
+   */
+  contextText(...texts: string[]): this {
+    this._blocks.push(
+      contextBlock({
+        elements: texts.map((t) => mrkdwn(t)),
+      })
+    )
+    return this
+  }
+
+  /**
+   * Add an image block
+   */
+  image(imageUrl: string, altText: string, title?: string): this {
+    const block = imageBlock({
+      image_url: imageUrl,
+      alt_text: altText,
+      title: title ? plainText(title) : undefined,
+    })
+    this._blocks.push(block)
+    return this
+  }
+
+  /**
    * Add any block
    */
   addBlock(block: Block): this {
     this._blocks.push(block)
     return this
+  }
+
+  /**
+   * Get the current number of blocks
+   */
+  get blockCount(): number {
+    return this._blocks.length
   }
 
   /**
@@ -789,6 +883,7 @@ export class AppHome {
   private messageShortcutHandlers: Map<string | RegExp, MessageShortcutHandler> = new Map()
   private viewSubmissionHandlers: Map<string | RegExp, ViewSubmissionHandler> = new Map()
   private viewClosedHandlers: Map<string | RegExp, ViewClosedHandler> = new Map()
+  private appHomeOpenedHandler?: AppHomeOpenedHandler
 
   constructor(config: AppHomeConfig) {
     if (!config.token && !config.client) {
@@ -876,6 +971,89 @@ export class AppHome {
    */
   buildHomeTab(): HomeTabBuilder {
     return new HomeTabBuilder(this)
+  }
+
+  // ==========================================================================
+  // APP HOME OPENED EVENT HANDLING
+  // ==========================================================================
+
+  /**
+   * Register a handler for app_home_opened events.
+   * This allows you to publish a customized home tab when users open your app.
+   *
+   * @example
+   * ```typescript
+   * appHome.onAppHomeOpened(async ({ userId, tab, publish, buildHomeTab }) => {
+   *   if (tab === 'home') {
+   *     await publish(
+   *       buildHomeTab()
+   *         .header('Welcome!')
+   *         .section(`Hello <@${userId}>`)
+   *     )
+   *   }
+   * })
+   * ```
+   */
+  onAppHomeOpened(handler: AppHomeOpenedHandler): this {
+    this.appHomeOpenedHandler = handler
+    return this
+  }
+
+  /**
+   * Check if app_home_opened handler exists
+   */
+  hasAppHomeOpenedHandler(): boolean {
+    return this.appHomeOpenedHandler !== undefined
+  }
+
+  /**
+   * Handle an app_home_opened event.
+   * Call this from your SlackBot event handler or directly with the event data.
+   *
+   * @example Integration with SlackBot
+   * ```typescript
+   * bot.event('app_home_opened', async ({ event }) => {
+   *   await appHome.handleAppHomeOpened(event)
+   * })
+   * ```
+   */
+  async handleAppHomeOpened(event: AppHomeOpenedEvent): Promise<void> {
+    if (!this.appHomeOpenedHandler) {
+      // If no handler but defaultHomeTab is configured, publish that
+      if (this.defaultHomeTab && event.tab === 'home') {
+        await this.publishDefault(event.user)
+      }
+      return
+    }
+
+    const context: AppHomeOpenedContext = {
+      event,
+      userId: event.user,
+      tab: event.tab,
+      previousView: event.view,
+      publish: async (view) => {
+        if (view instanceof HomeTabBuilder) {
+          return this.publish({ userId: event.user, view: view.build() })
+        }
+        return this.publish({ userId: event.user, view })
+      },
+      buildHomeTab: () => this.buildHomeTab(),
+      client: this.client,
+    }
+
+    await this.appHomeOpenedHandler(context)
+  }
+
+  /**
+   * Handle an event callback body that might contain app_home_opened.
+   * This is useful for processing raw event payloads from Slack.
+   */
+  async handleEventCallback(body: EventCallbackBody): Promise<boolean> {
+    if (body.event?.type === 'app_home_opened') {
+      await this.handleAppHomeOpened(body.event as AppHomeOpenedEvent)
+      return true
+    }
+    return false
   }
 
   // ==========================================================================
@@ -1246,4 +1424,179 @@ export interface HomeTabContext {
   previousView?: ViewOutput
   /** Event timestamp */
   eventTs: string
+}
+
+// ============================================================================
+// VALUE EXTRACTION UTILITIES
+// ============================================================================
+
+/**
+ * Extract a text input value from view state values.
+ * Returns the value or undefined if not found.
+ *
+ * @example
+ * ```typescript
+ * appHome.onViewSubmission('feedback_form', async ({ values }) => {
+ *   const feedback = extractTextValue(values, 'feedback_block', 'feedback_input')
+ *   // feedback is string | undefined
+ * })
+ * ```
+ */
+export function extractTextValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.value
+}
+
+/**
+ * Extract a selected option value from view state values (static_select).
+ * Returns the option value or undefined if not found.
+ */
+export function extractSelectValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.selected_option?.value
+}
+
+/**
+ * Extract multiple selected option values from view state (multi_static_select).
+ * Returns an array of values or undefined if not found.
+ */
+export function extractMultiSelectValues(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string[] | undefined {
+  const options = values[blockId]?.[actionId]?.selected_options
+  return options?.map((o) => o.value)
+}
+
+/**
+ * Extract a selected user ID from view state (users_select).
+ */
+export function extractUserValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.selected_user
+}
+
+/**
+ * Extract multiple selected user IDs from view state (multi_users_select).
+ */
+export function extractMultiUserValues(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string[] | undefined {
+  return values[blockId]?.[actionId]?.selected_users
+}
+
+/**
+ * Extract a selected channel ID from view state (channels_select).
+ */
+export function extractChannelValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.selected_channel
+}
+
+/**
+ * Extract multiple selected channel IDs from view state (multi_channels_select).
+ */
+export function extractMultiChannelValues(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string[] | undefined {
+  return values[blockId]?.[actionId]?.selected_channels
+}
+
+/**
+ * Extract a selected conversation ID from view state (conversations_select).
+ */
+export function extractConversationValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.selected_conversation
+}
+
+/**
+ * Extract a selected date from view state (datepicker).
+ * Returns date string in YYYY-MM-DD format or undefined.
+ */
+export function extractDateValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.selected_date
+}
+
+/**
+ * Extract a selected time from view state (timepicker).
+ * Returns time string in HH:MM format or undefined.
+ */
+export function extractTimeValue(
+  values: ViewState['values'],
+  blockId: string,
+  actionId: string
+): string | undefined {
+  return values[blockId]?.[actionId]?.selected_time
+}
+
+/**
+ * Extract all values from a view submission as a flat object.
+ * Useful for simple forms where block_id matches the desired key.
+ *
+ * @example
+ * ```typescript
+ * const data = extractAllValues(values)
+ * // { name_block: 'John', email_block: 'john@example.com' }
+ * ```
+ */
+export function extractAllValues(
+  values: ViewState['values']
+): Record<string, string | string[] | undefined> {
+  const result: Record<string, string | string[] | undefined> = {}
+
+  for (const [blockId, actions] of Object.entries(values)) {
+    for (const [, stateValue] of Object.entries(actions)) {
+      // Handle different input types
+      if (stateValue.value !== undefined) {
+        result[blockId] = stateValue.value
+      } else if (stateValue.selected_option) {
+        result[blockId] = stateValue.selected_option.value
+      } else if (stateValue.selected_options) {
+        result[blockId] = stateValue.selected_options.map((o) => o.value)
+      } else if (stateValue.selected_user) {
+        result[blockId] = stateValue.selected_user
+      } else if (stateValue.selected_users) {
+        result[blockId] = stateValue.selected_users
+      } else if (stateValue.selected_channel) {
+        result[blockId] = stateValue.selected_channel
+      } else if (stateValue.selected_channels) {
+        result[blockId] = stateValue.selected_channels
+      } else if (stateValue.selected_conversation) {
+        result[blockId] = stateValue.selected_conversation
+      } else if (stateValue.selected_conversations) {
+        result[blockId] = stateValue.selected_conversations
+      } else if (stateValue.selected_date) {
+        result[blockId] = stateValue.selected_date
+      } else if (stateValue.selected_time) {
+        result[blockId] = stateValue.selected_time
+      }
+    }
+  }
+
+  return result
 }

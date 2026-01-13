@@ -112,6 +112,12 @@ export class EscalationRequest {
   /**
    * Resolve the escalation request to a boolean.
    * Use this when you need to await the escalation decision.
+   *
+   * @example
+   * ```typescript
+   * const request = await detectEscalation(conversation)
+   * const shouldEscalate = await request.resolve()
+   * ```
    */
   resolve(): Promise<boolean> {
     return Promise.resolve(this._shouldEscalate)

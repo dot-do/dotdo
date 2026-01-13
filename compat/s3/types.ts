@@ -781,7 +781,31 @@ export interface InternalBucketExtended extends InternalBucket {
 // Internal Versioned Object Types
 // =============================================================================
 
-export interface InternalObjectVersion extends InternalObject {
+export interface InternalObjectVersion {
+  /** Object key */
+  key: string
+  /** Object body data */
+  body: Uint8Array
+  /** Content type */
+  contentType?: string
+  /** Content encoding */
+  contentEncoding?: string
+  /** Cache control */
+  cacheControl?: string
+  /** Content disposition */
+  contentDisposition?: string
+  /** Content language */
+  contentLanguage?: string
+  /** Custom metadata */
+  metadata?: Record<string, string>
+  /** ETag */
+  etag: string
+  /** Last modified date */
+  lastModified: Date
+  /** Object size */
+  size: number
+  /** Storage class */
+  storageClass?: StorageClass
   /** Unique version ID */
   versionId: string
   /** Whether this is the latest version */

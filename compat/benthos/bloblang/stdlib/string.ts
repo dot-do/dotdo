@@ -332,6 +332,64 @@ export const stringFunctions = {
   },
 
   /**
+   * Replaces all regex matches with replacement
+   */
+  re_replace_all: {
+    call(value: unknown, pattern?: unknown, replacement?: unknown): string {
+      const str = validateString(value, 're_replace_all')
+      validateArgument(pattern, 'pattern', 're_replace_all')
+      validateArgument(replacement, 'replacement', 're_replace_all')
+      const patternStr = String(pattern)
+      const replacementStr = String(replacement)
+
+      try {
+        const regex = new RegExp(patternStr, 'g')
+        return str.replace(regex, replacementStr)
+      } catch (error) {
+        throw new Error(`Invalid regex pattern: ${patternStr}`)
+      }
+    }
+  },
+
+  /**
+   * Returns a match object with named groups from first regex match
+   * Returns null if pattern does not match
+   * Returns empty object {} if pattern has no named groups
+   */
+  re_find_object: {
+    call(value: unknown, pattern?: unknown): Record<string, string> | null {
+      const str = validateString(value, 're_find_object')
+      validateArgument(pattern, 'pattern', 're_find_object')
+      const patternStr = String(pattern)
+
+      try {
+        const regex = new RegExp(patternStr)
+        const match = str.match(regex)
+
+        if (!match) {
+          return null
+        }
+
+        // Extract named groups from the match
+        // In JavaScript, named groups are available in match.groups
+        const groups = match.groups || {}
+
+        // Return only the named groups (filter out undefined values from optional groups)
+        const result: Record<string, string> = {}
+        for (const [key, value] of Object.entries(groups)) {
+          if (value !== undefined) {
+            result[key] = value
+          }
+        }
+
+        return result
+      } catch (error) {
+        throw new Error(`Invalid regex pattern: ${patternStr}`)
+      }
+    }
+  },
+
+  /**
    * Encodes string using specified encoding
    */
   encode: {

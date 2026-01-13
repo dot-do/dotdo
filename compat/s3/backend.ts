@@ -46,6 +46,15 @@ export interface LifecycleEvaluation {
   abortUploads: Array<{ uploadId: string; key: string; ruleId: string }>
 }
 
+export interface LifecycleExecutionResult {
+  /** Objects that were deleted due to expiration rules */
+  deletedObjects: Array<{ key: string; ruleId: string }>
+  /** Objects that were transitioned to different storage class */
+  transitionedObjects: Array<{ key: string; ruleId: string; newStorageClass: StorageClass }>
+  /** Multipart uploads that were aborted */
+  abortedUploads: Array<{ uploadId: string; key: string; ruleId: string }>
+}
+
 // =============================================================================
 // Storage Backend Interface
 // =============================================================================
@@ -79,18 +88,24 @@ export interface StorageBackend {
     key: string,
     body: Uint8Array,
     options?: PutObjectOptions
-  ): Promise<{ etag: string }>
+  ): Promise<{ etag: string; versionId?: string }>
   getObject(
     bucket: string,
     key: string,
     options?: GetObjectOptions
-  ): Promise<InternalObject | null>
-  headObject(bucket: string, key: string): Promise<InternalObject | null>
-  deleteObject(bucket: string, key: string): Promise<void>
+  ): Promise<(InternalObject & { versionId?: string }) | null>
+  headObject(bucket: string, key: string, versionId?: string): Promise<(InternalObject & { versionId?: string }) | null>
+  deleteObject(bucket: string, key: string, versionId?: string): Promise<{ deleteMarker?: boolean; versionId?: string }>
   listObjects(
     bucket: string,
     options?: ListObjectsOptions
   ): Promise<ListObjectsResult>
+
+  // Versioning-aware object operations
+  listObjectVersions(
+    bucket: string,
+    options?: ListObjectVersionsOptions
+  ): Promise<ListObjectVersionsResult>
 
   // Multipart operations
   createMultipartUpload(
@@ -164,6 +179,7 @@ export interface PutObjectOptions {
 
 export interface GetObjectOptions {
   range?: { start: number; end: number }
+  versionId?: string
 }
 
 export interface ListObjectsOptions {
@@ -179,6 +195,23 @@ export interface ListObjectsResult {
   commonPrefixes: string[]
   isTruncated: boolean
   nextContinuationToken?: string
+}
+
+export interface ListObjectVersionsOptions {
+  prefix?: string
+  delimiter?: string
+  maxKeys?: number
+  keyMarker?: string
+  versionIdMarker?: string
+}
+
+export interface ListObjectVersionsResult {
+  versions: Array<InternalObjectVersion & { key: string }>
+  deleteMarkers: Array<{ key: string; versionId: string; isLatest: boolean; lastModified: Date }>
+  commonPrefixes: string[]
+  isTruncated: boolean
+  nextKeyMarker?: string
+  nextVersionIdMarker?: string
 }
 
 export interface CreateMultipartOptions {
@@ -322,40 +355,314 @@ export class MemoryBackend implements StorageBackend {
     key: string,
     body: Uint8Array,
     options: PutObjectOptions = {}
-  ): Promise<{ etag: string }> {
-    const bucketObjects = this.objects.get(bucket)
-    if (!bucketObjects) {
+  ): Promise<{ etag: string; versionId?: string }> {
+    const bucketData = this.buckets.get(bucket)
+    if (!bucketData) {
       throw new Error('NoSuchBucket')
     }
 
     const etag = generateETag(body)
-    const obj: InternalObject = {
-      key,
-      body,
-      contentType: options.contentType,
-      contentEncoding: options.contentEncoding,
-      cacheControl: options.cacheControl,
-      contentDisposition: options.contentDisposition,
-      contentLanguage: options.contentLanguage,
-      metadata: options.metadata,
-      etag,
-      lastModified: new Date(),
-      size: body.length,
-      storageClass: options.storageClass,
-    }
+    const now = new Date()
 
-    bucketObjects.set(key, obj)
-    return { etag }
+    // Check versioning status
+    const versioningEnabled = bucketData.versioningStatus === 'Enabled'
+    const versioningSuspended = bucketData.versioningStatus === 'Suspended'
+
+    if (versioningEnabled) {
+      // Generate a unique version ID
+      const versionId = this.generateVersionId()
+
+      // Initialize versioned storage for this bucket if needed
+      if (!this.versionedObjects.has(bucket)) {
+        this.versionedObjects.set(bucket, new Map())
+      }
+
+      const bucketVersions = this.versionedObjects.get(bucket)!
+
+      // Get or create versioned objects for this key
+      if (!bucketVersions.has(key)) {
+        bucketVersions.set(key, { versions: new Map(), currentVersionId: null })
+      }
+
+      const keyVersions = bucketVersions.get(key)!
+
+      // Mark previous latest version as not latest
+      if (keyVersions.currentVersionId) {
+        const prevVersion = keyVersions.versions.get(keyVersions.currentVersionId)
+        if (prevVersion) {
+          prevVersion.isLatest = false
+        }
+      }
+
+      // Also clear any latest delete markers
+      const deleteMarkerMap = this.deleteMarkers.get(bucket)
+      if (deleteMarkerMap?.has(key)) {
+        const markers = deleteMarkerMap.get(key)!
+        for (const marker of markers) {
+          marker.isLatest = false
+        }
+      }
+
+      // Create new version
+      const newVersion: InternalObjectVersion = {
+        key,
+        body,
+        contentType: options.contentType,
+        contentEncoding: options.contentEncoding,
+        cacheControl: options.cacheControl,
+        contentDisposition: options.contentDisposition,
+        contentLanguage: options.contentLanguage,
+        metadata: options.metadata,
+        etag,
+        lastModified: now,
+        size: body.length,
+        storageClass: options.storageClass,
+        versionId,
+        isLatest: true,
+      }
+
+      keyVersions.versions.set(versionId, newVersion)
+      keyVersions.currentVersionId = versionId
+
+      // Also update main objects map for backward compatibility
+      if (!this.objects.has(bucket)) {
+        this.objects.set(bucket, new Map())
+      }
+      this.objects.get(bucket)!.set(key, {
+        key,
+        body,
+        contentType: options.contentType,
+        contentEncoding: options.contentEncoding,
+        cacheControl: options.cacheControl,
+        contentDisposition: options.contentDisposition,
+        contentLanguage: options.contentLanguage,
+        metadata: options.metadata,
+        etag,
+        lastModified: now,
+        size: body.length,
+        storageClass: options.storageClass,
+      })
+
+      return { etag, versionId }
+    } else if (versioningSuspended) {
+      // Versioning suspended: use "null" version ID
+      if (!this.versionedObjects.has(bucket)) {
+        this.versionedObjects.set(bucket, new Map())
+      }
+
+      const bucketVersions = this.versionedObjects.get(bucket)!
+
+      if (!bucketVersions.has(key)) {
+        bucketVersions.set(key, { versions: new Map(), currentVersionId: null })
+      }
+
+      const keyVersions = bucketVersions.get(key)!
+
+      // Mark previous versions as not latest (but keep them)
+      for (const version of keyVersions.versions.values()) {
+        version.isLatest = false
+      }
+
+      // Clear any latest delete markers
+      const deleteMarkerMap = this.deleteMarkers.get(bucket)
+      if (deleteMarkerMap?.has(key)) {
+        const markers = deleteMarkerMap.get(key)!
+        for (const marker of markers) {
+          marker.isLatest = false
+        }
+      }
+
+      // Create/replace the null version
+      const nullVersion: InternalObjectVersion = {
+        key,
+        body,
+        contentType: options.contentType,
+        contentEncoding: options.contentEncoding,
+        cacheControl: options.cacheControl,
+        contentDisposition: options.contentDisposition,
+        contentLanguage: options.contentLanguage,
+        metadata: options.metadata,
+        etag,
+        lastModified: now,
+        size: body.length,
+        storageClass: options.storageClass,
+        versionId: 'null',
+        isLatest: true,
+      }
+
+      keyVersions.versions.set('null', nullVersion)
+      keyVersions.currentVersionId = 'null'
+
+      // Update main objects map
+      if (!this.objects.has(bucket)) {
+        this.objects.set(bucket, new Map())
+      }
+      this.objects.get(bucket)!.set(key, {
+        key,
+        body,
+        contentType: options.contentType,
+        contentEncoding: options.contentEncoding,
+        cacheControl: options.cacheControl,
+        contentDisposition: options.contentDisposition,
+        contentLanguage: options.contentLanguage,
+        metadata: options.metadata,
+        etag,
+        lastModified: now,
+        size: body.length,
+        storageClass: options.storageClass,
+      })
+
+      return { etag, versionId: 'null' }
+    } else {
+      // No versioning: standard put
+      if (!this.objects.has(bucket)) {
+        this.objects.set(bucket, new Map())
+      }
+
+      const obj: InternalObject = {
+        key,
+        body,
+        contentType: options.contentType,
+        contentEncoding: options.contentEncoding,
+        cacheControl: options.cacheControl,
+        contentDisposition: options.contentDisposition,
+        contentLanguage: options.contentLanguage,
+        metadata: options.metadata,
+        etag,
+        lastModified: now,
+        size: body.length,
+        storageClass: options.storageClass,
+      }
+
+      this.objects.get(bucket)!.set(key, obj)
+      return { etag }
+    }
   }
 
   async getObject(
     bucket: string,
     key: string,
     options: GetObjectOptions = {}
-  ): Promise<InternalObject | null> {
+  ): Promise<(InternalObject & { versionId?: string }) | null> {
+    const bucketData = this.buckets.get(bucket)
+    if (!bucketData) {
+      throw new Error('NoSuchBucket')
+    }
+
+    // If a specific version is requested
+    if (options.versionId) {
+      const bucketVersions = this.versionedObjects.get(bucket)
+      if (!bucketVersions?.has(key)) {
+        return null
+      }
+
+      const keyVersions = bucketVersions.get(key)!
+      const version = keyVersions.versions.get(options.versionId)
+
+      if (!version || version.isDeleteMarker) {
+        return null
+      }
+
+      // Handle range request
+      if (options.range) {
+        const { start, end } = options.range
+        const slicedBody = version.body.slice(start, end + 1)
+        return {
+          key: version.key,
+          body: slicedBody,
+          contentType: version.contentType,
+          contentEncoding: version.contentEncoding,
+          cacheControl: version.cacheControl,
+          contentDisposition: version.contentDisposition,
+          contentLanguage: version.contentLanguage,
+          metadata: version.metadata,
+          etag: version.etag,
+          lastModified: version.lastModified,
+          size: slicedBody.length,
+          storageClass: version.storageClass,
+          versionId: version.versionId,
+        }
+      }
+
+      return {
+        key: version.key,
+        body: version.body,
+        contentType: version.contentType,
+        contentEncoding: version.contentEncoding,
+        cacheControl: version.cacheControl,
+        contentDisposition: version.contentDisposition,
+        contentLanguage: version.contentLanguage,
+        metadata: version.metadata,
+        etag: version.etag,
+        lastModified: version.lastModified,
+        size: version.size,
+        storageClass: version.storageClass,
+        versionId: version.versionId,
+      }
+    }
+
+    // Check if there's a delete marker as latest (makes object appear deleted)
+    const deleteMarkerMap = this.deleteMarkers.get(bucket)
+    if (deleteMarkerMap?.has(key)) {
+      const markers = deleteMarkerMap.get(key)!
+      const latestMarker = markers.find((m) => m.isLatest)
+      if (latestMarker) {
+        // Object is "deleted" by a delete marker
+        return null
+      }
+    }
+
+    // Get from versioned storage if versioning is/was enabled
+    const bucketVersions = this.versionedObjects.get(bucket)
+    if (bucketVersions?.has(key)) {
+      const keyVersions = bucketVersions.get(key)!
+      if (keyVersions.currentVersionId) {
+        const currentVersion = keyVersions.versions.get(keyVersions.currentVersionId)
+        if (currentVersion && !currentVersion.isDeleteMarker) {
+          // Handle range request
+          if (options.range) {
+            const { start, end } = options.range
+            const slicedBody = currentVersion.body.slice(start, end + 1)
+            return {
+              key: currentVersion.key,
+              body: slicedBody,
+              contentType: currentVersion.contentType,
+              contentEncoding: currentVersion.contentEncoding,
+              cacheControl: currentVersion.cacheControl,
+              contentDisposition: currentVersion.contentDisposition,
+              contentLanguage: currentVersion.contentLanguage,
+              metadata: currentVersion.metadata,
+              etag: currentVersion.etag,
+              lastModified: currentVersion.lastModified,
+              size: slicedBody.length,
+              storageClass: currentVersion.storageClass,
+              versionId: currentVersion.versionId,
+            }
+          }
+
+          return {
+            key: currentVersion.key,
+            body: currentVersion.body,
+            contentType: currentVersion.contentType,
+            contentEncoding: currentVersion.contentEncoding,
+            cacheControl: currentVersion.cacheControl,
+            contentDisposition: currentVersion.contentDisposition,
+            contentLanguage: currentVersion.contentLanguage,
+            metadata: currentVersion.metadata,
+            etag: currentVersion.etag,
+            lastModified: currentVersion.lastModified,
+            size: currentVersion.size,
+            storageClass: currentVersion.storageClass,
+            versionId: currentVersion.versionId,
+          }
+        }
+      }
+    }
+
+    // Fallback to non-versioned storage
     const bucketObjects = this.objects.get(bucket)
     if (!bucketObjects) {
-      throw new Error('NoSuchBucket')
+      return null
     }
 
     const obj = bucketObjects.get(key)
@@ -377,22 +684,285 @@ export class MemoryBackend implements StorageBackend {
     return obj
   }
 
-  async headObject(bucket: string, key: string): Promise<InternalObject | null> {
+  async headObject(bucket: string, key: string, versionId?: string): Promise<(InternalObject & { versionId?: string }) | null> {
+    const bucketData = this.buckets.get(bucket)
+    if (!bucketData) {
+      throw new Error('NoSuchBucket')
+    }
+
+    // If a specific version is requested
+    if (versionId) {
+      const bucketVersions = this.versionedObjects.get(bucket)
+      if (!bucketVersions?.has(key)) {
+        return null
+      }
+
+      const keyVersions = bucketVersions.get(key)!
+      const version = keyVersions.versions.get(versionId)
+
+      if (!version || version.isDeleteMarker) {
+        return null
+      }
+
+      return {
+        key: version.key,
+        body: new Uint8Array(0), // Head doesn't return body
+        contentType: version.contentType,
+        contentEncoding: version.contentEncoding,
+        cacheControl: version.cacheControl,
+        contentDisposition: version.contentDisposition,
+        contentLanguage: version.contentLanguage,
+        metadata: version.metadata,
+        etag: version.etag,
+        lastModified: version.lastModified,
+        size: version.size,
+        storageClass: version.storageClass,
+        versionId: version.versionId,
+      }
+    }
+
+    // Check if there's a delete marker as latest
+    const deleteMarkerMap = this.deleteMarkers.get(bucket)
+    if (deleteMarkerMap?.has(key)) {
+      const markers = deleteMarkerMap.get(key)!
+      const latestMarker = markers.find((m) => m.isLatest)
+      if (latestMarker) {
+        return null
+      }
+    }
+
+    // Get from versioned storage if versioning is/was enabled
+    const bucketVersions = this.versionedObjects.get(bucket)
+    if (bucketVersions?.has(key)) {
+      const keyVersions = bucketVersions.get(key)!
+      if (keyVersions.currentVersionId) {
+        const currentVersion = keyVersions.versions.get(keyVersions.currentVersionId)
+        if (currentVersion && !currentVersion.isDeleteMarker) {
+          return {
+            key: currentVersion.key,
+            body: new Uint8Array(0),
+            contentType: currentVersion.contentType,
+            contentEncoding: currentVersion.contentEncoding,
+            cacheControl: currentVersion.cacheControl,
+            contentDisposition: currentVersion.contentDisposition,
+            contentLanguage: currentVersion.contentLanguage,
+            metadata: currentVersion.metadata,
+            etag: currentVersion.etag,
+            lastModified: currentVersion.lastModified,
+            size: currentVersion.size,
+            storageClass: currentVersion.storageClass,
+            versionId: currentVersion.versionId,
+          }
+        }
+      }
+    }
+
+    // Fallback to non-versioned storage
     const bucketObjects = this.objects.get(bucket)
     if (!bucketObjects) {
-      throw new Error('NoSuchBucket')
+      return null
     }
 
     return bucketObjects.get(key) || null
   }
 
-  async deleteObject(bucket: string, key: string): Promise<void> {
-    const bucketObjects = this.objects.get(bucket)
-    if (!bucketObjects) {
+  async deleteObject(bucket: string, key: string, versionId?: string): Promise<{ deleteMarker?: boolean; versionId?: string }> {
+    const bucketData = this.buckets.get(bucket)
+    if (!bucketData) {
       throw new Error('NoSuchBucket')
     }
 
-    bucketObjects.delete(key)
+    // If deleting a specific version
+    if (versionId) {
+      // Check delete markers first
+      const deleteMarkerMap = this.deleteMarkers.get(bucket)
+      if (deleteMarkerMap?.has(key)) {
+        const markers = deleteMarkerMap.get(key)!
+        const markerIdx = markers.findIndex((m) => m.versionId === versionId)
+        if (markerIdx >= 0) {
+          const wasLatest = markers[markerIdx].isLatest
+          markers.splice(markerIdx, 1)
+
+          // If we removed the latest delete marker, find the new latest
+          if (wasLatest) {
+            // Find the most recent item (version or delete marker)
+            this.updateLatestAfterDeletion(bucket, key)
+          }
+
+          return { versionId }
+        }
+      }
+
+      // Check versioned objects
+      const bucketVersions = this.versionedObjects.get(bucket)
+      if (bucketVersions?.has(key)) {
+        const keyVersions = bucketVersions.get(key)!
+        const version = keyVersions.versions.get(versionId)
+
+        if (version) {
+          const wasLatest = version.isLatest
+          keyVersions.versions.delete(versionId)
+
+          // If we deleted the current version, update pointer
+          if (keyVersions.currentVersionId === versionId) {
+            keyVersions.currentVersionId = null
+          }
+
+          // If we removed the latest version, find the new latest
+          if (wasLatest) {
+            this.updateLatestAfterDeletion(bucket, key)
+          }
+
+          // Also remove from main objects map if it was there
+          const bucketObjects = this.objects.get(bucket)
+          if (bucketObjects) {
+            bucketObjects.delete(key)
+          }
+
+          return { versionId }
+        }
+      }
+
+      // Version not found - in S3 this is idempotent
+      return { versionId }
+    }
+
+    // Deleting without version ID
+    const versioningEnabled = bucketData.versioningStatus === 'Enabled'
+
+    if (versioningEnabled) {
+      // Create a delete marker
+      const deleteVersionId = this.generateVersionId()
+
+      if (!this.deleteMarkers.has(bucket)) {
+        this.deleteMarkers.set(bucket, new Map())
+      }
+
+      const deleteMarkerMap = this.deleteMarkers.get(bucket)!
+
+      if (!deleteMarkerMap.has(key)) {
+        deleteMarkerMap.set(key, [])
+      }
+
+      // Mark previous markers as not latest
+      const markers = deleteMarkerMap.get(key)!
+      for (const marker of markers) {
+        marker.isLatest = false
+      }
+
+      // Also mark current version as not latest
+      const bucketVersions = this.versionedObjects.get(bucket)
+      if (bucketVersions?.has(key)) {
+        const keyVersions = bucketVersions.get(key)!
+        for (const version of keyVersions.versions.values()) {
+          version.isLatest = false
+        }
+        keyVersions.currentVersionId = null
+      }
+
+      markers.push({
+        versionId: deleteVersionId,
+        created: new Date(),
+        isLatest: true,
+      })
+
+      // Remove from main objects map
+      const bucketObjects = this.objects.get(bucket)
+      if (bucketObjects) {
+        bucketObjects.delete(key)
+      }
+
+      return { deleteMarker: true, versionId: deleteVersionId }
+    } else {
+      // No versioning: actual delete
+      const bucketObjects = this.objects.get(bucket)
+      if (bucketObjects) {
+        bucketObjects.delete(key)
+      }
+
+      // Also clean up versioned storage if suspended
+      if (bucketData.versioningStatus === 'Suspended') {
+        const bucketVersions = this.versionedObjects.get(bucket)
+        if (bucketVersions?.has(key)) {
+          bucketVersions.get(key)!.versions.delete('null')
+        }
+      }
+
+      return {}
+    }
+  }
+
+  /**
+   * Helper to update the latest flag after deleting a version or delete marker
+   */
+  private updateLatestAfterDeletion(bucket: string, key: string): void {
+    // Find the most recent item
+    let latestTime = 0
+    let latestVersionId: string | null = null
+    let isDeleteMarker = false
+
+    // Check versions
+    const bucketVersions = this.versionedObjects.get(bucket)
+    if (bucketVersions?.has(key)) {
+      const keyVersions = bucketVersions.get(key)!
+      for (const [id, version] of keyVersions.versions) {
+        if (version.lastModified.getTime() > latestTime) {
+          latestTime = version.lastModified.getTime()
+          latestVersionId = id
+          isDeleteMarker = false
+        }
+      }
+    }
+
+    // Check delete markers
+    const deleteMarkerMap = this.deleteMarkers.get(bucket)
+    if (deleteMarkerMap?.has(key)) {
+      const markers = deleteMarkerMap.get(key)!
+      for (const marker of markers) {
+        if (marker.created.getTime() > latestTime) {
+          latestTime = marker.created.getTime()
+          latestVersionId = marker.versionId
+          isDeleteMarker = true
+        }
+      }
+    }
+
+    // Update the isLatest flag
+    if (latestVersionId) {
+      if (isDeleteMarker) {
+        const markers = deleteMarkerMap!.get(key)!
+        const marker = markers.find((m) => m.versionId === latestVersionId)
+        if (marker) {
+          marker.isLatest = true
+        }
+      } else {
+        const keyVersions = bucketVersions!.get(key)!
+        const version = keyVersions.versions.get(latestVersionId)
+        if (version) {
+          version.isLatest = true
+          keyVersions.currentVersionId = latestVersionId
+        }
+
+        // Update main objects map
+        const bucketObjects = this.objects.get(bucket)
+        if (bucketObjects && version) {
+          bucketObjects.set(key, {
+            key: version.key,
+            body: version.body,
+            contentType: version.contentType,
+            contentEncoding: version.contentEncoding,
+            cacheControl: version.cacheControl,
+            contentDisposition: version.contentDisposition,
+            contentLanguage: version.contentLanguage,
+            metadata: version.metadata,
+            etag: version.etag,
+            lastModified: version.lastModified,
+            size: version.size,
+            storageClass: version.storageClass,
+          })
+        }
+      }
+    }
   }
 
   async listObjects(
@@ -447,6 +1017,189 @@ export class MemoryBackend implements StorageBackend {
       commonPrefixes: Array.from(commonPrefixes).sort(),
       isTruncated,
       nextContinuationToken,
+    }
+  }
+
+  async listObjectVersions(
+    bucket: string,
+    options: ListObjectVersionsOptions = {}
+  ): Promise<ListObjectVersionsResult> {
+    const bucketData = this.buckets.get(bucket)
+    if (!bucketData) {
+      throw new Error('NoSuchBucket')
+    }
+
+    const { prefix = '', delimiter, maxKeys = 1000, keyMarker, versionIdMarker } = options
+
+    const versions: Array<InternalObjectVersion & { key: string }> = []
+    const deleteMarkersList: Array<{ key: string; versionId: string; isLatest: boolean; lastModified: Date }> = []
+    const commonPrefixes: Set<string> = new Set()
+
+    // Collect versions from versioned storage
+    const bucketVersions = this.versionedObjects.get(bucket)
+    if (bucketVersions) {
+      for (const [key, keyVersions] of bucketVersions) {
+        // Prefix filter
+        if (!key.startsWith(prefix)) continue
+
+        // Key marker filter
+        if (keyMarker && key < keyMarker) continue
+        if (keyMarker && key === keyMarker && versionIdMarker) {
+          // Skip versions before/at the marker
+        }
+
+        // Delimiter handling
+        if (delimiter) {
+          const keyAfterPrefix = key.slice(prefix.length)
+          const delimiterIndex = keyAfterPrefix.indexOf(delimiter)
+          if (delimiterIndex >= 0) {
+            const commonPrefix = prefix + keyAfterPrefix.slice(0, delimiterIndex + 1)
+            commonPrefixes.add(commonPrefix)
+            continue
+          }
+        }
+
+        for (const [versionId, version] of keyVersions.versions) {
+          // Skip if before version marker for same key
+          if (keyMarker === key && versionIdMarker && versionId <= versionIdMarker) continue
+
+          versions.push({ ...version, key })
+        }
+      }
+    }
+
+    // Also check main objects map for non-versioned objects (null version)
+    const bucketObjects = this.objects.get(bucket)
+    if (bucketObjects) {
+      for (const [key, obj] of bucketObjects) {
+        // Skip if already tracked in versioned storage
+        if (bucketVersions?.has(key)) continue
+
+        // Prefix filter
+        if (!key.startsWith(prefix)) continue
+
+        // Key marker filter
+        if (keyMarker && key <= keyMarker) continue
+
+        // Delimiter handling
+        if (delimiter) {
+          const keyAfterPrefix = key.slice(prefix.length)
+          const delimiterIndex = keyAfterPrefix.indexOf(delimiter)
+          if (delimiterIndex >= 0) {
+            const commonPrefix = prefix + keyAfterPrefix.slice(0, delimiterIndex + 1)
+            commonPrefixes.add(commonPrefix)
+            continue
+          }
+        }
+
+        // Add as null version
+        versions.push({
+          key,
+          body: obj.body,
+          contentType: obj.contentType,
+          contentEncoding: obj.contentEncoding,
+          cacheControl: obj.cacheControl,
+          contentDisposition: obj.contentDisposition,
+          contentLanguage: obj.contentLanguage,
+          metadata: obj.metadata,
+          etag: obj.etag,
+          lastModified: obj.lastModified,
+          size: obj.size,
+          storageClass: obj.storageClass,
+          versionId: 'null',
+          isLatest: true,
+        })
+      }
+    }
+
+    // Collect delete markers
+    const deleteMarkerMap = this.deleteMarkers.get(bucket)
+    if (deleteMarkerMap) {
+      for (const [key, markers] of deleteMarkerMap) {
+        // Prefix filter
+        if (!key.startsWith(prefix)) continue
+
+        // Key marker filter
+        if (keyMarker && key < keyMarker) continue
+
+        // Delimiter handling
+        if (delimiter) {
+          const keyAfterPrefix = key.slice(prefix.length)
+          const delimiterIndex = keyAfterPrefix.indexOf(delimiter)
+          if (delimiterIndex >= 0) {
+            continue // Already added to commonPrefixes if applicable
+          }
+        }
+
+        for (const marker of markers) {
+          if (keyMarker === key && versionIdMarker && marker.versionId <= versionIdMarker) continue
+
+          deleteMarkersList.push({
+            key,
+            versionId: marker.versionId,
+            isLatest: marker.isLatest,
+            lastModified: marker.created,
+          })
+        }
+      }
+    }
+
+    // Sort versions by key, then by lastModified descending
+    versions.sort((a, b) => {
+      if (a.key !== b.key) return a.key.localeCompare(b.key)
+      return b.lastModified.getTime() - a.lastModified.getTime()
+    })
+
+    // Sort delete markers similarly
+    deleteMarkersList.sort((a, b) => {
+      if (a.key !== b.key) return a.key.localeCompare(b.key)
+      return b.lastModified.getTime() - a.lastModified.getTime()
+    })
+
+    // Merge and paginate (combine versions and delete markers for accurate count)
+    const totalItems = versions.length + deleteMarkersList.length
+    const isTruncated = totalItems > maxKeys
+
+    // For simplicity, truncate versions first, then delete markers
+    const truncatedVersions = versions.slice(0, maxKeys)
+    const remainingSlots = maxKeys - truncatedVersions.length
+    const truncatedMarkers = deleteMarkersList.slice(0, remainingSlots)
+
+    let nextKeyMarker: string | undefined
+    let nextVersionIdMarker: string | undefined
+
+    if (isTruncated) {
+      // Find the last item to set markers
+      const lastVersion = truncatedVersions[truncatedVersions.length - 1]
+      const lastMarker = truncatedMarkers[truncatedMarkers.length - 1]
+
+      if (lastVersion && lastMarker) {
+        // Compare which is "later" in sort order
+        if (lastVersion.key > lastMarker.key ||
+            (lastVersion.key === lastMarker.key &&
+             lastVersion.lastModified.getTime() < lastMarker.lastModified.getTime())) {
+          nextKeyMarker = lastVersion.key
+          nextVersionIdMarker = lastVersion.versionId
+        } else {
+          nextKeyMarker = lastMarker.key
+          nextVersionIdMarker = lastMarker.versionId
+        }
+      } else if (lastVersion) {
+        nextKeyMarker = lastVersion.key
+        nextVersionIdMarker = lastVersion.versionId
+      } else if (lastMarker) {
+        nextKeyMarker = lastMarker.key
+        nextVersionIdMarker = lastMarker.versionId
+      }
+    }
+
+    return {
+      versions: truncatedVersions,
+      deleteMarkers: truncatedMarkers,
+      commonPrefixes: Array.from(commonPrefixes).sort(),
+      isTruncated,
+      nextKeyMarker,
+      nextVersionIdMarker,
     }
   }
 
@@ -798,6 +1551,66 @@ export class MemoryBackend implements StorageBackend {
     }
 
     return evaluation
+  }
+
+  /**
+   * Apply lifecycle rules to the bucket, executing expirations, transitions, and multipart aborts.
+   * This method mutates the bucket's objects and multipart uploads according to lifecycle rules.
+   * Returns the actions that were taken.
+   */
+  async applyLifecycleRules(
+    name: string,
+    now: Date = new Date()
+  ): Promise<LifecycleExecutionResult> {
+    const evaluation = await this.evaluateLifecycleRules(name, now)
+    const result: LifecycleExecutionResult = {
+      deletedObjects: [],
+      transitionedObjects: [],
+      abortedUploads: [],
+    }
+
+    const bucketObjects = this.objects.get(name)
+    if (!bucketObjects) {
+      return result
+    }
+
+    // Apply expirations - delete the objects
+    for (const expired of evaluation.expiredObjects) {
+      if (bucketObjects.has(expired.key)) {
+        bucketObjects.delete(expired.key)
+        result.deletedObjects.push({
+          key: expired.key,
+          ruleId: expired.ruleId,
+        })
+      }
+    }
+
+    // Apply transitions - change storage class
+    for (const transition of evaluation.transitionObjects) {
+      const obj = bucketObjects.get(transition.key)
+      if (obj) {
+        obj.storageClass = transition.targetStorageClass
+        result.transitionedObjects.push({
+          key: transition.key,
+          ruleId: transition.ruleId,
+          newStorageClass: transition.targetStorageClass,
+        })
+      }
+    }
+
+    // Apply multipart upload aborts
+    for (const abort of evaluation.abortUploads) {
+      if (this.multipartUploads.has(abort.uploadId)) {
+        this.multipartUploads.delete(abort.uploadId)
+        result.abortedUploads.push({
+          uploadId: abort.uploadId,
+          key: abort.key,
+          ruleId: abort.ruleId,
+        })
+      }
+    }
+
+    return result
   }
 
   // --------------------------------------------------------------------------

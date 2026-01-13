@@ -7,13 +7,14 @@
  * TDD: These tests will FAIL until the routes are implemented.
  *
  * @see objects/Browser.ts - Browser Durable Object implementation
- * @see api/routes/browsers.ts - Route handlers (to be implemented)
+ * @see api/routes/browsers.ts - Route handlers
  */
 
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { Hono } from 'hono'
 
-// Import the app directly for testing
-import { app } from '../../index'
+// Import the browsers routes directly to avoid cloudflare:workers import issues
+import { browsersRoutes } from '../../routes/browsers'
 
 // ============================================================================
 // Test Types
@@ -61,6 +62,78 @@ interface ErrorResponse {
     details?: Record<string, unknown>
   }
 }
+
+// ============================================================================
+// Test Setup
+// ============================================================================
+
+// Create a mock DO stub for testing
+function createMockDOStub(responses: Record<string, { status?: number; body: unknown }> = {}) {
+  return {
+    fetch: vi.fn(async (req: Request) => {
+      const url = new URL(req.url)
+      const path = url.pathname
+
+      // Default responses for various endpoints
+      const defaultResponses: Record<string, { status?: number; body: unknown }> = {
+        '/start': { status: 200, body: { sessionId: 'test-session-id', provider: 'cloudflare' } },
+        '/state': { status: 200, body: { status: 'active', provider: 'cloudflare', currentUrl: 'https://example.com.ai' } },
+        '/goto': { status: 200, body: { success: true } },
+        '/act': { status: 200, body: { success: true, action: 'click' } },
+        '/extract': { status: 200, body: { title: 'Example Page' } },
+        '/observe': { status: 200, body: [{ type: 'button', text: 'Login' }] },
+        '/stop': { status: 200, body: { success: true } },
+        '/screenshot': { status: 200, body: { image: 'base64-image-data' } },
+      }
+
+      const response = responses[path] ?? defaultResponses[path] ?? { status: 404, body: { error: 'Not found' } }
+
+      return new Response(JSON.stringify(response.body), {
+        status: response.status ?? 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }),
+  }
+}
+
+// Create a mock DurableObjectNamespace
+function createMockNamespace(stubOverrides: Record<string, { status?: number; body: unknown }> = {}) {
+  return {
+    idFromName: vi.fn((name: string) => ({ name })),
+    get: vi.fn(() => createMockDOStub(stubOverrides)),
+  }
+}
+
+// Session registry for simulating session tracking
+const testSessionRegistry = new Map<string, { id: string; createdAt: string; provider: string }>()
+
+// Create test app with mock bindings
+function createTestApp(stubOverrides: Record<string, { status?: number; body: unknown }> = {}) {
+  const testApp = new Hono<{ Bindings: { BROWSER_DO: DurableObjectNamespace } }>()
+
+  // Add mock bindings middleware
+  testApp.use('*', async (c, next) => {
+    c.env = {
+      BROWSER_DO: createMockNamespace(stubOverrides) as unknown as DurableObjectNamespace,
+    }
+    await next()
+  })
+
+  // Mount browsers routes
+  testApp.route('/api/browsers', browsersRoutes)
+
+  return testApp
+}
+
+// The test app instance
+let app: ReturnType<typeof createTestApp>
+
+// Reset before each test
+beforeEach(() => {
+  testSessionRegistry.clear()
+  vi.clearAllMocks()
+  app = createTestApp()
+})
 
 // ============================================================================
 // Helper Functions

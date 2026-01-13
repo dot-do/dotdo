@@ -174,6 +174,24 @@ export {
 export { generateSQL } from './sql'
 
 // =============================================================================
+// Join Path Resolution
+// =============================================================================
+
+export {
+  JoinGraph,
+
+  // Types
+  type JoinEdge,
+  type JoinPath,
+  type FanOutWarning,
+  type AmbiguousPathError,
+  type AggregationRecommendation,
+  type QueryJoinResolution,
+  type QueryWarning,
+  type PathFindingOptions,
+} from './join-path'
+
+// =============================================================================
 // Errors
 // =============================================================================
 

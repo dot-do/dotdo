@@ -940,6 +940,262 @@ describe('RetryPolicy', () => {
       expect(retries[1].attempt).toBe(2)
     })
   })
+
+  describe('custom delays edge cases', () => {
+    it('should use last delay for attempts beyond array length', () => {
+      const policy = createRetryPolicy({
+        maxAttempts: 10,
+        backoff: { type: 'custom', delays: [100, 200] },
+      })
+      expect(policy.getDelay(1)).toBe(100)
+      expect(policy.getDelay(2)).toBe(200)
+      expect(policy.getDelay(3)).toBe(200) // Falls back to last
+      expect(policy.getDelay(10)).toBe(200) // Falls back to last
+    })
+
+    it('should handle empty custom delays array', () => {
+      const policy = createRetryPolicy({
+        maxAttempts: 3,
+        backoff: { type: 'custom', delays: [] },
+      })
+      expect(policy.getDelay(1)).toBe(0)
+      expect(policy.getDelay(2)).toBe(0)
+    })
+  })
+
+  describe('exponential backoff cap', () => {
+    it('should cap exponential delays at max value', () => {
+      const policy = createRetryPolicy({
+        maxAttempts: 10,
+        backoff: { type: 'exponential', base: 100, max: 1000 },
+      })
+      // 100 * 2^0 = 100
+      expect(policy.getDelay(1)).toBe(100)
+      // 100 * 2^3 = 800
+      expect(policy.getDelay(4)).toBe(800)
+      // 100 * 2^4 = 1600 -> capped to 1000
+      expect(policy.getDelay(5)).toBe(1000)
+      // Should stay capped
+      expect(policy.getDelay(6)).toBe(1000)
+      expect(policy.getDelay(10)).toBe(1000)
+    })
+
+    it('should cap exponential-jitter delays at max value', () => {
+      const policy = createRetryPolicy({
+        maxAttempts: 10,
+        backoff: { type: 'exponential-jitter', base: 100, max: 500 },
+      })
+      // With jitter, delays should never exceed max
+      for (let i = 0; i < 50; i++) {
+        expect(policy.getDelay(10)).toBeLessThanOrEqual(500)
+      }
+    })
+  })
+
+  describe('integration with executor', () => {
+    it('should apply backoff delays during execution', async () => {
+      const attemptTimes: number[] = []
+      let attempts = 0
+
+      const d = createDAG({
+        id: 'backoff-test',
+        tasks: [
+          createTaskNode({
+            id: 'flaky',
+            execute: async () => {
+              attemptTimes.push(Date.now())
+              attempts++
+              if (attempts < 3) throw new Error('Flaky')
+              return 'success'
+            },
+            dependencies: [],
+            retryPolicy: {
+              maxAttempts: 3,
+              backoff: { type: 'fixed', delay: 50 },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(attemptTimes.length).toBe(3)
+      // Check delays between attempts (should be ~50ms)
+      const delay1 = attemptTimes[1]! - attemptTimes[0]!
+      const delay2 = attemptTimes[2]! - attemptTimes[1]!
+      expect(delay1).toBeGreaterThanOrEqual(40) // Allow some timing variance
+      expect(delay1).toBeLessThan(100)
+      expect(delay2).toBeGreaterThanOrEqual(40)
+      expect(delay2).toBeLessThan(100)
+    })
+
+    it('should not retry non-retryable errors', async () => {
+      let attempts = 0
+
+      const d = createDAG({
+        id: 'non-retryable-test',
+        tasks: [
+          createTaskNode({
+            id: 'fatal',
+            execute: async () => {
+              attempts++
+              throw new Error('FATAL: unrecoverable error')
+            },
+            dependencies: [],
+            retryPolicy: {
+              maxAttempts: 5,
+              backoff: { type: 'fixed', delay: 10 },
+              retryableErrors: (err) => !err.message.includes('FATAL'),
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('failed')
+      expect(attempts).toBe(1) // Should not retry fatal errors
+      expect(run.taskResults.get('fatal')?.attempts).toBe(1)
+    })
+
+    it('should call onRetry callback during executor retries', async () => {
+      const retryLog: { attempt: number; message: string }[] = []
+      let attempts = 0
+
+      const d = createDAG({
+        id: 'onretry-test',
+        tasks: [
+          createTaskNode({
+            id: 'retryable',
+            execute: async () => {
+              attempts++
+              if (attempts < 3) throw new Error(`Attempt ${attempts} failed`)
+              return 'success'
+            },
+            dependencies: [],
+            retryPolicy: {
+              maxAttempts: 3,
+              backoff: { type: 'fixed', delay: 10 },
+              onRetry: (attempt, error) => {
+                retryLog.push({ attempt, message: error.message })
+              },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(retryLog).toHaveLength(2)
+      expect(retryLog[0]).toEqual({ attempt: 1, message: 'Attempt 1 failed' })
+      expect(retryLog[1]).toEqual({ attempt: 2, message: 'Attempt 2 failed' })
+    })
+
+    it('should apply exponential backoff with increasing delays', async () => {
+      const attemptTimes: number[] = []
+      let attempts = 0
+
+      const d = createDAG({
+        id: 'exponential-test',
+        tasks: [
+          createTaskNode({
+            id: 'exponential-retry',
+            execute: async () => {
+              attemptTimes.push(Date.now())
+              attempts++
+              if (attempts < 4) throw new Error('Retry me')
+              return 'success'
+            },
+            dependencies: [],
+            retryPolicy: {
+              maxAttempts: 4,
+              backoff: { type: 'exponential', base: 20, max: 1000 },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(attemptTimes.length).toBe(4)
+
+      // Check that delays are increasing (exponential pattern)
+      const delay1 = attemptTimes[1]! - attemptTimes[0]! // ~20ms
+      const delay2 = attemptTimes[2]! - attemptTimes[1]! // ~40ms
+      const delay3 = attemptTimes[3]! - attemptTimes[2]! // ~80ms
+
+      expect(delay2).toBeGreaterThan(delay1 * 1.5) // Should be roughly double
+      expect(delay3).toBeGreaterThan(delay2 * 1.5) // Should be roughly double
+    })
+
+    it('should fail after exhausting maxAttempts', async () => {
+      let attempts = 0
+
+      const d = createDAG({
+        id: 'exhaust-test',
+        tasks: [
+          createTaskNode({
+            id: 'always-fails',
+            execute: async () => {
+              attempts++
+              throw new Error('Always fails')
+            },
+            dependencies: [],
+            retryPolicy: {
+              maxAttempts: 3,
+              backoff: { type: 'fixed', delay: 5 },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('failed')
+      expect(attempts).toBe(3) // Should try exactly maxAttempts times
+      expect(run.taskResults.get('always-fails')?.status).toBe('failed')
+      expect(run.taskResults.get('always-fails')?.attempts).toBe(3)
+      expect(run.taskResults.get('always-fails')?.error?.message).toBe('Always fails')
+    })
+
+    it('should track attempt count in TaskResult', async () => {
+      let attempts = 0
+
+      const d = createDAG({
+        id: 'attempt-count-test',
+        tasks: [
+          createTaskNode({
+            id: 'retry-twice',
+            execute: async () => {
+              attempts++
+              if (attempts < 3) throw new Error('Not yet')
+              return 'done'
+            },
+            dependencies: [],
+            retryPolicy: {
+              maxAttempts: 5,
+              backoff: { type: 'fixed', delay: 5 },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(run.taskResults.get('retry-twice')?.attempts).toBe(3)
+      expect(run.taskResults.get('retry-twice')?.status).toBe('success')
+    })
+  })
 })
 
 // ============================================================================

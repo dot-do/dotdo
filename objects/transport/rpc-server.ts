@@ -17,6 +17,8 @@
  * @see {@link ./capnweb-target.ts} for the new capnweb integration
  */
 
+import { buildResponse, type ResponseOptions } from '../../lib/response/linked-data'
+
 // ============================================================================
 // TYPES - Cap'n Web RPC Protocol
 // ============================================================================

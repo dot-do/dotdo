@@ -1532,21 +1532,20 @@ describe('Bloblang Interpreter', () => {
   describe('Null and Undefined Handling', () => {
     it('null equals null', () => {
       const ast = ASTBuilder.binaryOp('==', ASTBuilder.literal(null), ASTBuilder.literal(null))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
 
-    it('null not equals undefined', () => {
-      // Assuming undefined comes from missing property
+    it('null equals undefined (Bloblang semantics)', () => {
+      // In Bloblang, null and undefined are treated as equal (see looseEquals)
+      // This is different from JavaScript strict equality
       const ast = ASTBuilder.binaryOp(
-        '!=',
+        '==',
         ASTBuilder.literal(null),
         ASTBuilder.memberAccess(ASTBuilder.root(), 'nonexistent', 'dot')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true) // null !== undefined
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true) // null == undefined in Bloblang
     })
 
     it('null is falsy in conditions', () => {
@@ -1555,69 +1554,68 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal('truthy'),
         ASTBuilder.literal('falsy')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('falsy')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('falsy')
     })
   })
 
   describe('Method Chaining', () => {
     it('chains string methods', () => {
+      // Pipe expressions are left-associative: (a | b) | c, not a | (b | c)
       const ast = ASTBuilder.pipe(
-        ASTBuilder.literal('hello world'),
         ASTBuilder.pipe(
-          ASTBuilder.call(ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'uppercase', 'dot'), []),
-          ASTBuilder.call(ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'replace', 'dot'), [
-            ASTBuilder.literal(' '),
-            ASTBuilder.literal('_')
-          ])
-        )
+          ASTBuilder.literal('hello world'),
+          ASTBuilder.call(ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'uppercase', 'dot'), [])
+        ),
+        ASTBuilder.call(ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'replace', 'dot'), [
+          ASTBuilder.literal(' '),
+          ASTBuilder.literal('_')
+        ])
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('HELLO_WORLD')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('HELLO_WORLD')
     })
 
     it('chains array methods', () => {
+      // Pipe expressions are left-associative: (a | b) | c, not a | (b | c)
       const ast = ASTBuilder.pipe(
-        ASTBuilder.array([ASTBuilder.literal(1), ASTBuilder.literal(2), ASTBuilder.literal(3)]),
         ASTBuilder.pipe(
+          ASTBuilder.array([ASTBuilder.literal(1), ASTBuilder.literal(2), ASTBuilder.literal(3)]),
           ASTBuilder.call(
             ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'map', 'dot'),
             [ASTBuilder.arrow('x', ASTBuilder.binaryOp('*', ASTBuilder.identifier('x'), ASTBuilder.literal(2)))]
-          ),
-          ASTBuilder.call(
-            ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'filter', 'dot'),
-            [ASTBuilder.arrow('x', ASTBuilder.binaryOp('>', ASTBuilder.identifier('x'), ASTBuilder.literal(2)))]
           )
+        ),
+        ASTBuilder.call(
+          ASTBuilder.memberAccess(ASTBuilder.identifier('_'), 'filter', 'dot'),
+          [ASTBuilder.arrow('x', ASTBuilder.binaryOp('>', ASTBuilder.identifier('x'), ASTBuilder.literal(2)))]
         )
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual([4, 6])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual([4, 6])
     })
   })
 
   describe('Special Values', () => {
     it('handles infinity', () => {
       const ast = ASTBuilder.binaryOp('/', ASTBuilder.literal(1), ASTBuilder.literal(0))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(Infinity)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(Infinity)
     })
 
     it('handles NaN', () => {
       const ast = ASTBuilder.binaryOp('/', ASTBuilder.literal(0), ASTBuilder.literal(0))
-      // const result = evaluate(ast, msg)
-      // expect(Number.isNaN(result as number)).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Number.isNaN(result as number)).toBe(true)
     })
 
-    it('handles negative zero', () => {
+    it('handles negative zero (normalized to positive zero)', () => {
+      // The interpreter intentionally normalizes -0 to 0 for consistency
+      // See evalUnaryOp: "return negated === 0 ? 0 : negated"
       const ast = ASTBuilder.unaryOp('-', ASTBuilder.literal(0))
-      // const result = evaluate(ast, msg)
-      // expect(Object.is(result, -0)).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(0)
+      expect(Object.is(result, 0)).toBe(true) // Not -0
     })
   })
 })

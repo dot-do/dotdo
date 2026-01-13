@@ -11,12 +11,19 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 
-// Import the app directly for testing
-import { app } from '../../index'
+// Import routes directly to avoid cloudflare:workers dependency from index.ts
+import { obsRoutes } from '../../routes/obs'
 
 // Import types for type safety
 import type { ObservabilityEvent, ObsFilter } from '../../../types/observability'
+
+// Create test app with just the routes needed (no cloudflare:workers re-export)
+const app = new Hono()
+app.use('*', cors())
+app.route('/api/obs', obsRoutes)
 
 // ============================================================================
 // Test Types

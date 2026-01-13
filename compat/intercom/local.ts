@@ -48,6 +48,8 @@ import {
   simpleTokenize,
 } from '../../db/iceberg/inverted-index'
 
+import { MessengerLocal } from './messenger'
+
 import type {
   Contact,
   ContactCreateParams,
@@ -1116,6 +1118,8 @@ export class IntercomLocal {
   readonly events: LocalEventsResource
   /** Articles resource with InvertedIndex for search */
   readonly articles: LocalArticlesResource
+  /** Messenger resource for widget customization */
+  readonly messenger: MessengerLocal
 
   constructor(config: IntercomLocalConfig) {
     this.contacts = new LocalContactsResource(config.workspaceId)

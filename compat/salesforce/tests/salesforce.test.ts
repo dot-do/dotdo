@@ -1863,3 +1863,575 @@ describe('@dotdo/salesforce - Default Export', () => {
     expect(conn.oauth2).toBeDefined()
   })
 })
+
+// =============================================================================
+// Custom Object Tests
+// =============================================================================
+
+describe('@dotdo/salesforce - Custom Objects', () => {
+  let conn: Connection
+  let mockFetch: ReturnType<typeof createMockFetch>
+
+  beforeEach(() => {
+    mockFetch = createMockFetch(new Map())
+    conn = new Connection({
+      instanceUrl: 'https://na1.salesforce.com',
+      accessToken: 'test_token',
+      fetch: mockFetch,
+    })
+  })
+
+  describe('CustomObject schema definition', () => {
+    it('should define a custom object with __c suffix', () => {
+      const customObject = conn.customObject('Invoice__c')
+
+      expect(customObject).toBeDefined()
+      expect(customObject.name).toBe('Invoice__c')
+    })
+
+    it('should auto-append __c suffix if not provided', () => {
+      const customObject = conn.customObject('Invoice')
+
+      expect(customObject.name).toBe('Invoice__c')
+    })
+
+    it('should define custom fields with types', () => {
+      const customObject = conn.customObject('Invoice__c')
+        .field('Amount__c', { type: 'currency', required: true })
+        .field('Status__c', { type: 'picklist', values: ['Draft', 'Sent', 'Paid'] })
+        .field('DueDate__c', { type: 'date' })
+
+      expect(customObject.fields).toHaveLength(3)
+      expect(customObject.fields[0].name).toBe('Amount__c')
+      expect(customObject.fields[0].type).toBe('currency')
+      expect(customObject.fields[0].required).toBe(true)
+    })
+
+    it('should auto-append __c to field names if not provided', () => {
+      const customObject = conn.customObject('Invoice__c')
+        .field('Amount', { type: 'currency' })
+
+      expect(customObject.fields[0].name).toBe('Amount__c')
+    })
+
+    it('should support all standard Salesforce field types', () => {
+      const customObject = conn.customObject('TestObject__c')
+        .field('TextField__c', { type: 'string', length: 255 })
+        .field('NumberField__c', { type: 'double', precision: 18, scale: 2 })
+        .field('CheckboxField__c', { type: 'boolean', defaultValue: false })
+        .field('DateField__c', { type: 'date' })
+        .field('DateTimeField__c', { type: 'datetime' })
+        .field('EmailField__c', { type: 'email' })
+        .field('PhoneField__c', { type: 'phone' })
+        .field('UrlField__c', { type: 'url' })
+        .field('TextAreaField__c', { type: 'textarea' })
+        .field('CurrencyField__c', { type: 'currency' })
+        .field('PercentField__c', { type: 'percent' })
+
+      expect(customObject.fields).toHaveLength(11)
+    })
+
+    it('should define picklist fields with values', () => {
+      const customObject = conn.customObject('Order__c')
+        .field('Status__c', {
+          type: 'picklist',
+          values: ['New', 'Processing', 'Shipped', 'Delivered'],
+          defaultValue: 'New',
+        })
+
+      expect(customObject.fields[0].type).toBe('picklist')
+      expect(customObject.fields[0].picklistValues).toEqual(['New', 'Processing', 'Shipped', 'Delivered'])
+      expect(customObject.fields[0].defaultValue).toBe('New')
+    })
+
+    it('should define multipicklist fields', () => {
+      const customObject = conn.customObject('Product__c')
+        .field('Categories__c', {
+          type: 'multipicklist',
+          values: ['Electronics', 'Clothing', 'Home', 'Sports'],
+        })
+
+      expect(customObject.fields[0].type).toBe('multipicklist')
+    })
+  })
+
+  describe('Custom Object relationships', () => {
+    it('should define lookup relationship to standard object', () => {
+      const customObject = conn.customObject('Invoice__c')
+        .field('Account__c', {
+          type: 'reference',
+          referenceTo: 'Account',
+          relationshipName: 'Account',
+        })
+
+      expect(customObject.fields[0].type).toBe('reference')
+      expect(customObject.fields[0].referenceTo).toBe('Account')
+    })
+
+    it('should define lookup relationship to custom object', () => {
+      const customObject = conn.customObject('LineItem__c')
+        .field('Invoice__c', {
+          type: 'reference',
+          referenceTo: 'Invoice__c',
+          relationshipName: 'Invoice',
+        })
+
+      expect(customObject.fields[0].referenceTo).toBe('Invoice__c')
+    })
+
+    it('should define master-detail relationship', () => {
+      const customObject = conn.customObject('InvoiceItem__c')
+        .field('Invoice__c', {
+          type: 'reference',
+          referenceTo: 'Invoice__c',
+          relationshipType: 'masterDetail',
+          relationshipName: 'Invoice',
+        })
+
+      expect(customObject.fields[0].relationshipType).toBe('masterDetail')
+    })
+  })
+
+  describe('Custom Object CRUD operations', () => {
+    it('should create a custom object record', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /services/data/v59.0/sobjects/Invoice__c',
+            {
+              status: 201,
+              body: { id: 'a00xx000000001AAA', success: true, errors: [] },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn.sobject('Invoice__c').create({
+        Name: 'INV-001',
+        Amount__c: 1000.00,
+        Status__c: 'Draft',
+      })
+
+      expect(result.id).toBe('a00xx000000001AAA')
+      expect(result.success).toBe(true)
+    })
+
+    it('should retrieve a custom object record', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /services/data/v59.0/sobjects/Invoice__c/a00xx000000001AAA',
+            {
+              status: 200,
+              body: {
+                Id: 'a00xx000000001AAA',
+                Name: 'INV-001',
+                Amount__c: 1000.00,
+                Status__c: 'Draft',
+                attributes: { type: 'Invoice__c', url: '/services/data/v59.0/sobjects/Invoice__c/a00xx000000001AAA' },
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const record = await conn.sobject('Invoice__c').retrieve('a00xx000000001AAA')
+
+      expect(record.Id).toBe('a00xx000000001AAA')
+      expect(record.Amount__c).toBe(1000.00)
+    })
+
+    it('should update a custom object record', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'PATCH /services/data/v59.0/sobjects/Invoice__c/a00xx000000001AAA',
+            {
+              status: 204,
+              body: null,
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn.sobject('Invoice__c').update({
+        Id: 'a00xx000000001AAA',
+        Status__c: 'Sent',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should delete a custom object record', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'DELETE /services/data/v59.0/sobjects/Invoice__c/a00xx000000001AAA',
+            {
+              status: 204,
+              body: null,
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn.sobject('Invoice__c').destroy('a00xx000000001AAA')
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should upsert custom object record with custom external ID', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'PATCH /services/data/v59.0/sobjects/Invoice__c/External_Invoice_ID__c/EXT-INV-001',
+            {
+              status: 201,
+              body: { id: 'a00xx000000001AAA', success: true, created: true, errors: [] },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn.sobject('Invoice__c').upsert(
+        { External_Invoice_ID__c: 'EXT-INV-001', Name: 'INV-001', Amount__c: 1000 },
+        'External_Invoice_ID__c'
+      )
+
+      expect(result.success).toBe(true)
+      expect(result.created).toBe(true)
+    })
+  })
+
+  describe('Custom Object queries', () => {
+    it('should query custom object records', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /services/data/v59.0/query',
+            {
+              status: 200,
+              body: {
+                totalSize: 2,
+                done: true,
+                records: [
+                  { Id: 'a00xx000000001AAA', Name: 'INV-001', Amount__c: 1000, Status__c: 'Draft' },
+                  { Id: 'a00xx000000002AAA', Name: 'INV-002', Amount__c: 2000, Status__c: 'Sent' },
+                ],
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn.query("SELECT Id, Name, Amount__c, Status__c FROM Invoice__c WHERE Status__c = 'Draft'")
+
+      expect(result.totalSize).toBe(2)
+      expect(result.records[0].Amount__c).toBe(1000)
+    })
+
+    it('should query custom objects using find builder', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /services/data/v59.0/query',
+            {
+              status: 200,
+              body: {
+                totalSize: 1,
+                done: true,
+                records: [{ Id: 'a00xx000000001AAA', Name: 'INV-001', Amount__c: 5000 }],
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn
+        .sobject('Invoice__c')
+        .find({ Status__c: 'Paid' })
+        .select(['Id', 'Name', 'Amount__c'])
+        .where({ Amount__c: { $gt: 1000 } })
+        .limit(10)
+        .execute()
+
+      expect(result.records).toHaveLength(1)
+    })
+
+    it('should query related custom objects', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /services/data/v59.0/query',
+            {
+              status: 200,
+              body: {
+                totalSize: 1,
+                done: true,
+                records: [
+                  {
+                    Id: 'a00xx000000001AAA',
+                    Name: 'INV-001',
+                    Account__r: {
+                      Id: '001xx000003DGxYAAW',
+                      Name: 'Acme Inc',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const result = await conn.query('SELECT Id, Name, Account__r.Id, Account__r.Name FROM Invoice__c')
+
+      expect(result.records[0].Account__r).toBeDefined()
+      expect((result.records[0].Account__r as { Name: string }).Name).toBe('Acme Inc')
+    })
+  })
+
+  describe('Custom Object describe', () => {
+    it('should describe custom object metadata', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /services/data/v59.0/sobjects/Invoice__c/describe',
+            {
+              status: 200,
+              body: {
+                name: 'Invoice__c',
+                label: 'Invoice',
+                labelPlural: 'Invoices',
+                custom: true,
+                queryable: true,
+                createable: true,
+                updateable: true,
+                deletable: true,
+                fields: [
+                  { name: 'Id', type: 'id', label: 'Invoice ID' },
+                  { name: 'Name', type: 'string', label: 'Invoice Name' },
+                  { name: 'Amount__c', type: 'currency', label: 'Amount', custom: true },
+                  { name: 'Status__c', type: 'picklist', label: 'Status', custom: true },
+                ],
+                recordTypeInfos: [],
+                childRelationships: [],
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const describe = await conn.sobject('Invoice__c').describe()
+
+      expect(describe.name).toBe('Invoice__c')
+      expect(describe.custom).toBe(true)
+      expect(describe.fields.some((f: { name: string }) => f.name === 'Amount__c')).toBe(true)
+    })
+
+    it('should list custom objects in global describe', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /services/data/v59.0/sobjects',
+            {
+              status: 200,
+              body: {
+                encoding: 'UTF-8',
+                maxBatchSize: 200,
+                sobjects: [
+                  { name: 'Account', label: 'Account', queryable: true, custom: false },
+                  { name: 'Contact', label: 'Contact', queryable: true, custom: false },
+                  { name: 'Invoice__c', label: 'Invoice', queryable: true, custom: true },
+                  { name: 'LineItem__c', label: 'Line Item', queryable: true, custom: true },
+                ],
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const global = await conn.describeGlobal()
+      const customObjects = global.sobjects.filter((obj: { custom?: boolean }) => obj.custom === true)
+
+      expect(customObjects).toHaveLength(2)
+      expect(customObjects.map((o: { name: string }) => o.name)).toContain('Invoice__c')
+    })
+  })
+
+  describe('Custom Object bulk operations', () => {
+    it('should create bulk insert job for custom object', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /services/data/v59.0/jobs/ingest',
+            {
+              status: 200,
+              body: {
+                id: '750xx0000004567AAA',
+                operation: 'insert',
+                object: 'Invoice__c',
+                state: 'Open',
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const job = conn.bulk.createJob('Invoice__c', 'insert')
+
+      expect(job.object).toBe('Invoice__c')
+      expect(job.operation).toBe('insert')
+    })
+
+    it('should bulk query custom objects', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /services/data/v59.0/jobs/query',
+            {
+              status: 200,
+              body: {
+                id: '750xx0000004567AAA',
+                operation: 'query',
+                state: 'UploadComplete',
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const job = await conn.bulk.query('SELECT Id, Name, Amount__c FROM Invoice__c')
+
+      expect(job.operation).toBe('query')
+    })
+  })
+
+  describe('CustomObject metadata create/deploy', () => {
+    it('should deploy a custom object definition', async () => {
+      mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /services/Soap/m/59.0',
+            {
+              status: 200,
+              body: {
+                result: {
+                  id: '0Afxx0000004567AAA',
+                  done: true,
+                  success: true,
+                  status: 'Succeeded',
+                },
+              },
+            },
+          ],
+        ])
+      )
+      conn = new Connection({
+        instanceUrl: 'https://na1.salesforce.com',
+        accessToken: 'test_token',
+        fetch: mockFetch,
+      })
+
+      const customObjectDef = {
+        fullName: 'Invoice__c',
+        label: 'Invoice',
+        pluralLabel: 'Invoices',
+        nameField: {
+          type: 'AutoNumber',
+          label: 'Invoice Number',
+          displayFormat: 'INV-{0000}',
+        },
+        deploymentStatus: 'Deployed',
+        sharingModel: 'ReadWrite',
+        fields: [
+          {
+            fullName: 'Amount__c',
+            label: 'Amount',
+            type: 'Currency',
+            required: true,
+            scale: 2,
+          },
+          {
+            fullName: 'Status__c',
+            label: 'Status',
+            type: 'Picklist',
+            valueSet: {
+              restricted: true,
+              valueSetDefinition: {
+                value: [
+                  { fullName: 'Draft', default: true, label: 'Draft' },
+                  { fullName: 'Sent', label: 'Sent' },
+                  { fullName: 'Paid', label: 'Paid' },
+                ],
+              },
+            },
+          },
+        ],
+      }
+
+      // Test the connection can handle custom object metadata
+      expect(conn.metadata).toBeDefined()
+    })
+  })
+})

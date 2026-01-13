@@ -390,7 +390,7 @@ export function pathToSQL(
  * Translate an expression to SQL
  */
 export function translateExpression(
-  expr: ExtendedExpression | any,
+  expr: ExtendedExpression,
   options?: TranslateOptions
 ): { sql: string; params: unknown[] } {
   const ctx = createContext(options)
@@ -398,7 +398,7 @@ export function translateExpression(
   return { sql, params: ctx.params }
 }
 
-function exprToSQL(expr: any, ctx: TranslateContext, topLevel = false): string {
+function exprToSQL(expr: ExtendedExpression | null | undefined, ctx: TranslateContext, topLevel = false): string {
   if (!expr || !expr.type) {
     return ''
   }
@@ -638,14 +638,14 @@ function addParam(value: unknown, ctx: TranslateContext): string {
  * Translate a SELECT statement to SQL
  */
 export function translateSelect(
-  ast: SelectStatement | any,
+  ast: SelectStatement,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
   return translateSelectInternal(ast, ctx)
 }
 
-function translateSelectInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): TranslatedQuery {
   const tableName = getTableName(ast.target || '', ctx.options.schema, ctx.options)
   const quote = ctx.options.quoteIdentifiers !== false ? quoteIdentifier : (s: string) => s
 
@@ -834,14 +834,14 @@ function findLink(typeName: string, linkName: string, schema?: Schema): Link | u
  * Translate an INSERT statement to SQL
  */
 export function translateInsert(
-  ast: InsertStatement | any,
+  ast: InsertStatement,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
   return translateInsertInternal(ast, ctx)
 }
 
-function translateInsertInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateInsertInternal(ast: InsertStatement, ctx: TranslateContext): TranslatedQuery {
   const tableName = getTableName(ast.target || '', ctx.options.schema, ctx.options)
   const quote = ctx.options.quoteIdentifiers !== false ? quoteIdentifier : (s: string) => s
 
@@ -907,14 +907,14 @@ function translateInsertInternal(ast: any, ctx: TranslateContext): TranslatedQue
  * Translate an UPDATE statement to SQL
  */
 export function translateUpdate(
-  ast: UpdateStatement | any,
+  ast: UpdateStatement,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
   return translateUpdateInternal(ast, ctx)
 }
 
-function translateUpdateInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateUpdateInternal(ast: UpdateStatement, ctx: TranslateContext): TranslatedQuery {
   const tableName = getTableName(ast.target || '', ctx.options.schema, ctx.options)
   const quote = ctx.options.quoteIdentifiers !== false ? quoteIdentifier : (s: string) => s
 

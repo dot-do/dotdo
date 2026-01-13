@@ -7,6 +7,8 @@
  */
 
 import { stringFunctions } from './stdlib/string'
+import { cryptoFunctions } from './stdlib/crypto'
+import { encodingFunctions } from './stdlib/encoding'
 import * as arrayFunctions from './stdlib/array'
 import * as numberFunctions from './stdlib/number'
 import * as objectFunctions from './stdlib/object'
@@ -675,6 +677,22 @@ function registerStdlib(registry: FunctionRegistry): void {
     category: 'string'
   })
 
+  // Encoding functions (global)
+  registry.register({
+    name: 'encode',
+    fn: (s, encoding) => encodingFunctions.encode.call(s, encoding),
+    arity: 2,
+    category: 'encoding',
+    description: 'Encode string using specified encoding (base64, base64url, hex, ascii85, z85)',
+  })
+  registry.register({
+    name: 'decode',
+    fn: (s, encoding) => encodingFunctions.decode.call(s, encoding),
+    arity: 2,
+    category: 'encoding',
+    description: 'Decode string using specified encoding (base64, base64url, hex, ascii85, z85)',
+  })
+
   // ===== STRING METHODS =====
 
   registry.registerMethod('string', {
@@ -748,6 +766,40 @@ function registerStdlib(registry: FunctionRegistry): void {
     name: 'has_suffix',
     fn: function(this: string, suffix: unknown) { return stringFunctions.has_suffix.call(this, suffix) },
     arity: 1,
+  })
+
+  // ===== CRYPTO METHODS (on strings) =====
+
+  registry.registerMethod('string', {
+    name: 'hash',
+    fn: function(this: string, algorithm: unknown) { return cryptoFunctions.hash.call(this, algorithm) },
+    arity: 1,
+    category: 'crypto',
+    description: 'Generate hash using specified algorithm (sha256, sha512, md5, xxhash64)',
+  })
+  registry.registerMethod('string', {
+    name: 'hmac',
+    fn: function(this: string, algorithm: unknown, key: unknown) { return cryptoFunctions.hmac.call(this, algorithm, key) },
+    arity: 2,
+    category: 'crypto',
+    description: 'Generate HMAC signature using specified algorithm (sha256, sha512) and key',
+  })
+
+  // ===== ENCODING METHODS (on strings) =====
+
+  registry.registerMethod('string', {
+    name: 'encode',
+    fn: function(this: string, encoding: unknown) { return encodingFunctions.encode.call(this, encoding) },
+    arity: 1,
+    category: 'encoding',
+    description: 'Encode string using specified encoding (base64, base64url, hex, ascii85, z85)',
+  })
+  registry.registerMethod('string', {
+    name: 'decode',
+    fn: function(this: string, encoding: unknown) { return encodingFunctions.decode.call(this, encoding) },
+    arity: 1,
+    category: 'encoding',
+    description: 'Decode string using specified encoding (base64, base64url, hex, ascii85, z85)',
   })
 
   // ===== ARRAY METHODS =====

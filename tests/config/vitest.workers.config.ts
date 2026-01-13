@@ -19,6 +19,10 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 import { resolve } from 'path'
 import type { Plugin } from 'vite'
 
+// Resolve path to cloudflare:workers mock for Vite bundling phase
+// The actual Workers runtime provides this, but Vite needs it during transformation
+const CLOUDFLARE_WORKERS_MOCK = resolve(__dirname, '../mocks/cloudflare-workers.ts')
+
 // Resolve path to duckdb-wasm browser-blocking module
 // The package doesn't export this path in its exports field, but the file exists
 const DUCKDB_BROWSER_BLOCKING = resolve(
@@ -69,6 +73,9 @@ export default defineWorkersConfig({
     alias: {
       // Map the import path to the actual file location
       '@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs': DUCKDB_BROWSER_BLOCKING,
+      // cloudflare:workers mock for Vite transformation phase
+      // Allows importing modules that re-export from cloudflare:workers
+      'cloudflare:workers': CLOUDFLARE_WORKERS_MOCK,
     },
   },
   // SSR options for miniflare compatibility

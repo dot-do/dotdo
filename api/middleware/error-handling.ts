@@ -174,7 +174,20 @@ export const errorHandler: MiddlewareHandler = async (c, next) => {
       body.error.stack = err.stack
     }
 
-    return c.json(body, status as 400 | 401 | 403 | 404 | 405 | 422 | 500)
+    // Build headers
+    const headers: Record<string, string> = {}
+
+    // Add WWW-Authenticate header for 401 errors
+    if (status === 401) {
+      headers['WWW-Authenticate'] = 'Bearer'
+    }
+
+    // Add Allow header for 405 errors
+    if (err instanceof MethodNotAllowedError) {
+      headers['Allow'] = err.allowed.join(', ')
+    }
+
+    return c.json(body, { status: status as 400 | 401 | 403 | 404 | 405 | 422 | 500, headers })
   }
 }
 

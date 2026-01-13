@@ -729,6 +729,172 @@ describe('Bloblang String Stdlib Functions', () => {
     })
   })
 
+  describe('re_replace_all(pattern, replacement)', () => {
+    it('replaces all matches of pattern', () => {
+      const result = stringFunctions.re_replace_all.call('hello123world456', '\\d+', 'X')
+      expect(result).toBe('helloXworldX')
+    })
+
+    it('collapses multiple whitespace to single space', () => {
+      const result = stringFunctions.re_replace_all.call('hello   world\t\ntest', '\\s+', ' ')
+      expect(result).toBe('hello world test')
+    })
+
+    it('replaces with capture groups', () => {
+      const result = stringFunctions.re_replace_all.call('abc def ghi', '(\\w+)', '[$1]')
+      expect(result).toBe('[abc] [def] [ghi]')
+    })
+
+    it('replaces with empty string to remove matches', () => {
+      const result = stringFunctions.re_replace_all.call('a1b2c3d4', '\\d', '')
+      expect(result).toBe('abcd')
+    })
+
+    it('returns original if no matches', () => {
+      const result = stringFunctions.re_replace_all.call('hello', '\\d+', 'X')
+      expect(result).toBe('hello')
+    })
+
+    it('handles overlapping-style patterns correctly', () => {
+      // Note: standard regex doesn't match overlapping, so 'aaa' with 'aa' -> 'ba'
+      const result = stringFunctions.re_replace_all.call('aaa', 'aa', 'b')
+      expect(result).toBe('ba')
+    })
+
+    it('handles special regex characters in replacement', () => {
+      // $& is the matched substring
+      const result = stringFunctions.re_replace_all.call('hello world', '\\w+', '[$&]')
+      expect(result).toBe('[hello] [world]')
+    })
+
+    it('handles empty string match', () => {
+      // Matching empty string at each position
+      const result = stringFunctions.re_replace_all.call('ab', '^', 'X')
+      expect(result).toBe('Xab')
+    })
+
+    it('throws on non-string input', () => {
+      expect(() => stringFunctions.re_replace_all.call(null, '\\d+', 'X')).toThrow()
+      expect(() => stringFunctions.re_replace_all.call(123, '\\d+', 'X')).toThrow()
+    })
+
+    it('throws if pattern argument missing', () => {
+      expect(() => stringFunctions.re_replace_all.call('hello', undefined, 'X')).toThrow()
+    })
+
+    it('throws if replacement argument missing', () => {
+      expect(() => stringFunctions.re_replace_all.call('hello', '\\d+', undefined)).toThrow()
+    })
+
+    it('throws on invalid regex pattern', () => {
+      expect(() => stringFunctions.re_replace_all.call('hello', '[invalid', 'X')).toThrow()
+    })
+  })
+
+  describe('re_find_object(pattern)', () => {
+    it('returns match object with named groups', () => {
+      const result = stringFunctions.re_find_object.call(
+        '192.168.1.1 - GET /api/users',
+        '(?<ip>\\d+\\.\\d+\\.\\d+\\.\\d+).*(?<method>GET|POST)'
+      )
+      expect(result).toEqual({
+        ip: '192.168.1.1',
+        method: 'GET'
+      })
+    })
+
+    it('returns match object with multiple named groups', () => {
+      const result = stringFunctions.re_find_object.call(
+        'John Doe (age: 30)',
+        '(?<first>\\w+)\\s+(?<last>\\w+).*age:\\s*(?<age>\\d+)'
+      )
+      expect(result).toEqual({
+        first: 'John',
+        last: 'Doe',
+        age: '30'
+      })
+    })
+
+    it('returns empty object if pattern has no named groups', () => {
+      const result = stringFunctions.re_find_object.call('hello123', '\\d+')
+      expect(result).toEqual({})
+    })
+
+    it('returns null if pattern does not match', () => {
+      const result = stringFunctions.re_find_object.call('hello', '(?<num>\\d+)')
+      expect(result).toBeNull()
+    })
+
+    it('handles mixed named and unnamed groups', () => {
+      // Only named groups should be in the result
+      // Note: greedy \w+ before the named group will consume characters
+      // so we need a pattern that separates word and number boundaries
+      const result = stringFunctions.re_find_object.call(
+        'test-123-abc',
+        '([a-z]+)-(?<num>\\d+)-([a-z]+)'
+      )
+      expect(result).toEqual({ num: '123' })
+    })
+
+    it('handles optional named groups that did not match', () => {
+      const result = stringFunctions.re_find_object.call(
+        'hello',
+        '(?<word>\\w+)(?<num>\\d+)?'
+      )
+      expect(result).toHaveProperty('word', 'hello')
+      // num should be undefined or not present since it didn't match
+      expect(result?.num).toBeUndefined()
+    })
+
+    it('returns first match only', () => {
+      const result = stringFunctions.re_find_object.call(
+        'abc 123 def 456',
+        '(?<word>\\w+)\\s+(?<num>\\d+)'
+      )
+      expect(result).toEqual({
+        word: 'abc',
+        num: '123'
+      })
+    })
+
+    it('handles email parsing', () => {
+      // Pattern matches word characters before @ for user
+      const result = stringFunctions.re_find_object.call(
+        'contact: user@example.com',
+        '(?<user>\\w+)@(?<domain>[^\\s]+)'
+      )
+      expect(result).toEqual({
+        user: 'user',
+        domain: 'example.com'
+      })
+    })
+
+    it('handles log line parsing', () => {
+      const result = stringFunctions.re_find_object.call(
+        '[2024-01-15 10:30:45] ERROR: Connection failed',
+        '\\[(?<date>[^\\]]+)\\]\\s+(?<level>\\w+):\\s+(?<message>.+)'
+      )
+      expect(result).toEqual({
+        date: '2024-01-15 10:30:45',
+        level: 'ERROR',
+        message: 'Connection failed'
+      })
+    })
+
+    it('throws on non-string input', () => {
+      expect(() => stringFunctions.re_find_object.call(null, '(?<num>\\d+)')).toThrow()
+      expect(() => stringFunctions.re_find_object.call(123, '(?<num>\\d+)')).toThrow()
+    })
+
+    it('throws if pattern argument missing', () => {
+      expect(() => stringFunctions.re_find_object.call('hello')).toThrow()
+    })
+
+    it('throws on invalid regex pattern', () => {
+      expect(() => stringFunctions.re_find_object.call('hello', '[invalid')).toThrow()
+    })
+  })
+
   describe('encode(encoding) - base64', () => {
     it('encodes string to base64', () => {
       const result = stringFunctions.encode.call('hello', 'base64')

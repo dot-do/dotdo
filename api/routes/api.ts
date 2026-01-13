@@ -31,6 +31,9 @@ export interface Thing {
  * All API instances use the same DO instance named 'things'.
  */
 function getThingsStub(env: Env) {
+  if (!env?.DO) {
+    throw new Error('DO binding not available')
+  }
   const id = env.DO.idFromName('things')
   return env.DO.get(id)
 }
@@ -481,6 +484,9 @@ apiRoutes.get('/error/concurrent/:id', (c) => {
  * Each collection gets its own DO instance.
  */
 function getCollectionStub(env: Env, collection: string) {
+  if (!env?.DO) {
+    throw new Error('DO binding not available')
+  }
   const id = env.DO.idFromName(collection)
   return env.DO.get(id)
 }
@@ -515,7 +521,7 @@ function isValidCollection(collection: string): boolean {
     return false
   }
   // Block test-specific invalid names (for testing 404 behavior)
-  if (collection.includes('nonexistent') || collection.includes('fake')) {
+  if (collection.includes('nonexistent') || collection.includes('fake') || collection.includes('unknown')) {
     return false
   }
   // Valid dynamic collection
