@@ -1,14 +1,68 @@
 /**
- * IcebergRestorer - Restore DO state from Iceberg snapshots
+ * Iceberg Time Travel and State Restoration
  *
- * Provides restore and time travel capabilities for Durable Objects
- * using Iceberg snapshots stored in R2.
+ * Provides time travel and disaster recovery capabilities for Durable Objects
+ * using Iceberg snapshots stored in R2. This enables lakehouse-style historical
+ * queries and point-in-time recovery.
  *
- * Features:
- * - restore(snapshotId) - restore state from snapshot
- * - listSnapshots() - list available snapshots
- * - getSnapshotAt(timestamp) - get snapshot by timestamp
+ * ## Time Travel in Lakehouse Architecture
  *
+ * Iceberg maintains a history of table states through immutable snapshots. Each
+ * snapshot references a specific set of data files, enabling:
+ *
+ * - **Point-in-Time Queries**: Query data as it existed at any historical snapshot
+ * - **Disaster Recovery**: Restore to a previous known-good state
+ * - **Audit Trail**: Track changes over time for compliance
+ * - **Rollback**: Undo changes by restoring a previous snapshot
+ *
+ * ## Snapshot Lifecycle
+ *
+ * ```
+ * Snapshot History
+ * ┌─────────────────────────────────────────────────────────┐
+ * │ S1 ──> S2 ──> S3 ──> S4 (current)                       │
+ * │  │      │      │      │                                 │
+ * │  v      v      v      v                                 │
+ * │ D1     D2     D3     D4  (data files)                   │
+ * └─────────────────────────────────────────────────────────┘
+ *
+ * - Each snapshot (S1-S4) points to data files
+ * - Old snapshots remain accessible for time travel
+ * - Garbage collection removes unreferenced data files
+ * ```
+ *
+ * ## Features
+ *
+ * | Method | Purpose |
+ * |--------|---------|
+ * | `restore(snapshotId)` | Restore DO state from a specific snapshot |
+ * | `listSnapshots()` | List all available snapshots with timestamps |
+ * | `getSnapshotAt(timestamp)` | Find snapshot for point-in-time query |
+ *
+ * @example Time Travel Query
+ * ```typescript
+ * const restorer = new IcebergRestorer(bucket, doId, db, parquetAdapter)
+ *
+ * // List available snapshots
+ * const snapshots = await restorer.listSnapshots()
+ * // => [{ id: 'snap-4', timestamp: '2024-01-15T10:00:00Z' }, ...]
+ *
+ * // Get snapshot at specific time (24 hours ago)
+ * const snapshot = await restorer.getSnapshotAt(Date.now() - 86400000)
+ * ```
+ *
+ * @example Disaster Recovery
+ * ```typescript
+ * // Restore to a known-good state
+ * const snapshots = await restorer.listSnapshots()
+ * const lastGoodSnapshot = snapshots.find(s => s.timestamp < disasterTime)
+ *
+ * await restorer.restore(lastGoodSnapshot.id)
+ * console.log('DO restored to pre-disaster state')
+ * ```
+ *
+ * @see https://iceberg.apache.org/docs/latest/spark-queries/#time-travel - Time travel
+ * @see https://iceberg.apache.org/spec/#snapshots - Snapshot specification
  * @module db/iceberg/iceberg-reader
  */
 
