@@ -844,3 +844,33 @@ export {
   type VisualizationOptions,
   type VisualizationData,
 } from './visualization'
+
+// =============================================================================
+// DBT DOCS EXPORT RE-EXPORTS
+// =============================================================================
+
+export {
+  // Implementation
+  DbtDocsExporter,
+  // Factory
+  createDbtDocsExporter,
+  // Types
+  type DbtResourceType,
+  type DbtMaterialization,
+  type DbtColumn,
+  type DbtTableStats,
+  type DbtCatalogNode,
+  type DbtCatalogSource,
+  type DbtCatalog,
+  type DbtNodeConfig,
+  type DbtManifestNode,
+  type DbtManifestSource,
+  type DbtManifestExposure,
+  type DbtParentMap,
+  type DbtChildMap,
+  type DbtManifest,
+  type DbtDocsBundle,
+  type DbtCatalogOptions,
+  type DbtManifestOptions,
+  type DbtDocsBundleOptions,
+} from './dbt-docs'

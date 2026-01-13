@@ -28,6 +28,7 @@
 import type { GraphStore, GraphThing } from '../types'
 import { GIT_TYPE_IDS } from '../constants'
 import { createHash } from 'crypto'
+import { toRecord } from '../../../lib/type-guards'
 
 // ============================================================================
 // TYPES
@@ -267,7 +268,7 @@ export class GitGraphAdapter {
       id,
       typeId: TYPE_IDS.Commit,
       typeName: 'Commit',
-      data: commitData as unknown as Record<string, unknown>,
+      data: toRecord(commitData),
     })
 
     // Create hasTree relationship
@@ -351,7 +352,7 @@ export class GitGraphAdapter {
       id,
       typeId: TYPE_IDS.Tree,
       typeName: 'Tree',
-      data: treeData as unknown as Record<string, unknown>,
+      data: toRecord(treeData),
     })
 
     // Create contains relationships for each entry
@@ -434,7 +435,7 @@ export class GitGraphAdapter {
       id,
       typeId: TYPE_IDS.Blob,
       typeName: 'Blob',
-      data: blobData as unknown as Record<string, unknown>,
+      data: toRecord(blobData),
     })
 
     return blob
@@ -489,7 +490,7 @@ export class GitGraphAdapter {
       id,
       typeId: TYPE_IDS.Ref,
       typeName: 'Ref',
-      data: refData as unknown as Record<string, unknown>,
+      data: toRecord(refData),
     })
 
     // Cache the ref

@@ -56,6 +56,9 @@ interface PrimitiveInfo {
   hasTypes: boolean
   isMature: boolean
   isFlat: boolean
+  isSubmodule: boolean
+  /** Submodules with src/ containing nested do/ are valid */
+  hasSrcWithNestedDo: boolean
 }
 
 async function analyzePrimitive(name: string): Promise<PrimitiveInfo> {
@@ -64,6 +67,21 @@ async function analyzePrimitive(name: string): Promise<PrimitiveInfo> {
 
   const dirs = entries.filter(e => e.isDirectory()).map(e => e.name)
   const files = entries.filter(e => e.isFile()).map(e => e.name)
+
+  // Check if this is a git submodule (has .git file, not directory)
+  const isSubmodule = files.includes('.git')
+
+  // Check if src/ contains nested do/ (valid for standalone submodules)
+  let hasSrcWithNestedDo = false
+  if (dirs.includes('src')) {
+    try {
+      const srcEntries = await readdir(join(primitivePath, 'src'), { withFileTypes: true })
+      const srcDirs = srcEntries.filter(e => e.isDirectory()).map(e => e.name)
+      hasSrcWithNestedDo = srcDirs.includes('do')
+    } catch {
+      // ignore errors reading src/
+    }
+  }
 
   const info: PrimitiveInfo = {
     name,
@@ -78,6 +96,8 @@ async function analyzePrimitive(name: string): Promise<PrimitiveInfo> {
     hasTypes: files.includes('types.ts'),
     isMature: MATURE_PRIMITIVES.includes(name),
     isFlat: false,
+    isSubmodule,
+    hasSrcWithNestedDo,
   }
 
   // A primitive is "flat" if it has no core/ or src/ directories
@@ -110,6 +130,11 @@ describe('Primitive Structure Verification', () => {
 
       for (const p of primitives) {
         if (p.isMature && p.hasCore && p.hasSrc) {
+          // Submodules may legitimately have both core/ and src/ as they are
+          // standalone packages with their own structure for npm publishing
+          if (p.isSubmodule) {
+            continue // This is acceptable for submodules
+          }
           violations.push(`${p.name}: has both core/ and src/ - should consolidate`)
         }
       }
@@ -140,8 +165,13 @@ describe('Primitive Structure Verification', () => {
       const shouldHaveDo: string[] = []
 
       for (const p of primitives) {
-        // If mature and has src/ but no do/, it should be renamed
+        // If mature and has src/ but no do/, check if it's a valid submodule pattern
+        // Submodules with src/do/ are valid - they organize code differently for standalone use
         if (p.isMature && p.hasSrc && !p.hasDo) {
+          // Accept submodules with src/do/ as valid
+          if (p.isSubmodule && p.hasSrcWithNestedDo) {
+            continue // This is a valid submodule pattern
+          }
           shouldHaveDo.push(`${p.name}: has src/ but no do/ - consider renaming CF code to do/`)
         }
       }

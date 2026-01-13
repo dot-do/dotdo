@@ -1,0 +1,486 @@
+---
+title: Agent Stop Conditions
+description: Control when agents terminate their execution loop with stop conditions
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Agent Stop Conditions
+
+Stop conditions define when an agent should terminate its execution loop. Without proper stop conditions, agents could loop indefinitely or stop prematurely.
+
+## How Agents Execute
+
+Agents run in a continuous loop:
+
+```
+1. THINK   -> LLM generates a response (possibly with tool calls)
+2. ACT     -> Execute any requested tools
+3. OBSERVE -> Process results, check stop conditions
+4. REPEAT  -> If not stopped, continue from THINK
+```
+
+Stop conditions are evaluated during the OBSERVE phase after each step.
+
+## Built-in Stop Conditions
+
+Import stop conditions from the agents module:
+
+```typescript
+import {
+  stepCountIs,
+  hasToolCall,
+  hasText,
+  customStop,
+  all,
+  any,
+  not,
+} from 'agents'
+```
+
+### stepCountIs(n)
+
+Stop after a specific number of steps. Essential for preventing runaway agents.
+
+```typescript
+import { stepCountIs } from 'agents'
+
+const agent = provider.createAgent({
+  id: 'bounded-agent',
+  name: 'Bounded',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: stepCountIs(10), // Stop after 10 steps max
+})
+```
+
+**Use cases:**
+- Safety limits to prevent infinite loops
+- Cost control (fewer steps = fewer API calls)
+- Time-bounded operations
+
+### hasToolCall(toolName)
+
+Stop when a specific tool is called. Perfect for agents that signal completion through a "finish" tool.
+
+```typescript
+import { z } from 'zod'
+import { hasToolCall } from 'agents'
+
+const submitTool = {
+  name: 'submit_answer',
+  description: 'Submit the final answer',
+  inputSchema: z.object({
+    answer: z.string(),
+    confidence: z.number().min(0).max(1),
+  }),
+  execute: async ({ answer, confidence }) => ({ submitted: true, answer, confidence }),
+}
+
+const agent = provider.createAgent({
+  id: 'research-agent',
+  name: 'Researcher',
+  instructions: 'Research the topic and submit your final answer using submit_answer.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool, submitTool],
+  stopWhen: hasToolCall('submit_answer'),
+})
+```
+
+**Use cases:**
+- Structured output agents that call a "finish" tool
+- Workflow agents that call a "complete" tool
+- Agents with explicit completion signaling
+
+### hasText()
+
+Stop when the agent produces text output without tool calls.
+
+```typescript
+import { hasText } from 'agents'
+
+const agent = provider.createAgent({
+  id: 'chat-agent',
+  name: 'Chat',
+  instructions: 'Answer questions conversationally.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: hasText(),
+})
+```
+
+<Callout type="info">
+This is the default stop condition for chat agents. The agent continues while it makes tool calls, then stops when it produces a final text response.
+</Callout>
+
+**Use cases:**
+- Chat and Q&A agents
+- Agents that should respond once and stop
+- Simple request-response patterns
+
+### customStop(fn)
+
+Create custom stop conditions with full access to the step state.
+
+```typescript
+import { customStop } from 'agents'
+
+// Stop when confidence is high enough
+const agent = provider.createAgent({
+  id: 'confident-agent',
+  name: 'Confident',
+  instructions: 'Research until you are confident.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool],
+  stopWhen: customStop((state) => {
+    const lastResult = state.lastStep.toolResults?.find(
+      r => r.toolName === 'search'
+    )
+    return lastResult?.result?.confidence > 0.9
+  }),
+})
+```
+
+The `StepState` object provides:
+
+```typescript
+interface StepState {
+  stepNumber: number        // Current step (1-indexed)
+  messages: Message[]       // Full conversation history
+  lastStep: StepResult      // Result from last LLM call
+  totalTokens: number       // Cumulative token usage
+}
+
+interface StepResult {
+  text?: string             // Text output from LLM
+  toolCalls?: ToolCall[]    // Tools the LLM wants to call
+  toolResults?: ToolResult[] // Results from executed tools
+  finishReason: 'stop' | 'tool_calls' | 'max_steps' | 'error'
+  usage?: TokenUsage
+}
+```
+
+**Custom condition examples:**
+
+<Tabs items={['Token Limit', 'Content Check', 'Time Limit', 'Error Threshold']}>
+  <Tab value="Token Limit">
+```typescript
+// Stop when token budget is exhausted
+customStop((state) => state.totalTokens > 50000)
+```
+  </Tab>
+  <Tab value="Content Check">
+```typescript
+// Stop when a specific phrase is found
+customStop((state) =>
+  state.lastStep.text?.includes('TASK COMPLETE') ?? false
+)
+```
+  </Tab>
+  <Tab value="Time Limit">
+```typescript
+// Stop after 30 seconds
+const startTime = Date.now()
+customStop(() => Date.now() - startTime > 30000)
+```
+  </Tab>
+  <Tab value="Error Threshold">
+```typescript
+// Stop if too many tool errors
+customStop((state) => {
+  const errors = state.lastStep.toolResults?.filter(r => r.error) ?? []
+  return errors.length >= 3
+})
+```
+  </Tab>
+</Tabs>
+
+## Combining Stop Conditions
+
+### Array (OR Logic)
+
+Pass an array to stop when ANY condition matches:
+
+```typescript
+const agent = provider.createAgent({
+  id: 'multi-stop',
+  name: 'Multi',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool, submitTool],
+  // Stop on submit_answer OR after 20 steps
+  stopWhen: [
+    hasToolCall('submit_answer'),
+    stepCountIs(20),
+  ],
+})
+```
+
+### any(...conditions)
+
+Explicit OR logic (same as array):
+
+```typescript
+import { any, hasToolCall, stepCountIs } from 'agents'
+
+const agent = provider.createAgent({
+  id: 'any-stop',
+  name: 'Any',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: any(
+    hasToolCall('done'),
+    hasToolCall('error'),
+    stepCountIs(15),
+  ),
+})
+```
+
+### all(...conditions)
+
+AND logic - ALL conditions must be true:
+
+```typescript
+import { all, hasText, stepCountIs } from 'agents'
+
+const agent = provider.createAgent({
+  id: 'all-stop',
+  name: 'All',
+  instructions: 'Take at least 2 steps before responding.',
+  model: 'claude-sonnet-4-20250514',
+  // Must have text AND have run at least 2 steps
+  stopWhen: all(hasText(), stepCountIs(2)),
+})
+```
+
+### not(condition)
+
+Negate a condition:
+
+```typescript
+import { not, hasText } from 'agents'
+
+// Continue as long as there's text (tool-only agent)
+const agent = provider.createAgent({
+  id: 'tool-only',
+  name: 'ToolOnly',
+  instructions: 'Use tools, never respond with text.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [actionTool],
+  stopWhen: [
+    not(hasText()),  // Stop when there's NO text
+    stepCountIs(10),
+  ],
+})
+```
+
+## Common Patterns
+
+### Chat Agent (Default)
+
+Stop when the agent produces a text response:
+
+```typescript
+const chatAgent = provider.createAgent({
+  id: 'chat',
+  name: 'Chat',
+  instructions: 'Be helpful and concise.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: hasText(), // Default behavior
+})
+```
+
+### Tool Agent with Explicit Finish
+
+Stop when the agent calls a specific completion tool:
+
+```typescript
+const finishTool = {
+  name: 'complete',
+  description: 'Mark the task as complete with a summary',
+  inputSchema: z.object({
+    summary: z.string(),
+    success: z.boolean(),
+  }),
+  execute: async (input) => input,
+}
+
+const taskAgent = provider.createAgent({
+  id: 'task',
+  name: 'Task',
+  instructions: 'Complete the task and call complete() when done.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool, writeTool, finishTool],
+  stopWhen: [
+    hasToolCall('complete'),
+    stepCountIs(30), // Safety limit
+  ],
+})
+```
+
+### Research Agent (Confidence-Based)
+
+Stop when search results meet a confidence threshold:
+
+```typescript
+const researchAgent = provider.createAgent({
+  id: 'research',
+  name: 'Research',
+  instructions: 'Search until you find high-confidence results.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool],
+  stopWhen: [
+    customStop((state) => {
+      const searchResult = state.lastStep.toolResults?.find(
+        r => r.toolName === 'search'
+      )
+      return (searchResult?.result?.confidence ?? 0) > 0.95
+    }),
+    stepCountIs(10), // Max 10 searches
+  ],
+})
+```
+
+### Budget-Conscious Agent
+
+Stop before exceeding token budget:
+
+```typescript
+const budgetAgent = provider.createAgent({
+  id: 'budget',
+  name: 'Budget',
+  instructions: 'Answer within token budget.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: [
+    hasText(),
+    customStop((state) => state.totalTokens > 10000), // 10k token limit
+  ],
+})
+```
+
+### Multi-Phase Agent
+
+Different stop conditions for different phases:
+
+```typescript
+import { customStop, hasToolCall, stepCountIs } from 'agents'
+
+let phase = 'research'
+
+const multiPhaseAgent = provider.createAgent({
+  id: 'multi-phase',
+  name: 'MultiPhase',
+  instructions: 'Research first, then write.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool, writeTool, publishTool],
+  stopWhen: customStop((state) => {
+    if (phase === 'research') {
+      // In research phase, stop when we have 3+ search results
+      const searches = state.lastStep.toolResults?.filter(
+        r => r.toolName === 'search'
+      ) ?? []
+      if (searches.length >= 3) {
+        phase = 'write'
+        return false // Continue to writing phase
+      }
+    }
+
+    if (phase === 'write') {
+      // In write phase, stop when publish is called
+      return state.lastStep.toolCalls?.some(
+        tc => tc.name === 'publish'
+      ) ?? false
+    }
+
+    return state.stepNumber >= 20 // Safety limit
+  }),
+})
+```
+
+## Runtime Stop Condition Override
+
+Override stop conditions for specific runs:
+
+```typescript
+const agent = provider.createAgent({
+  id: 'flexible',
+  name: 'Flexible',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: stepCountIs(10), // Default: 10 steps
+})
+
+// Override for this specific run
+const result = await agent.run({
+  prompt: 'Complex research task',
+  stopWhen: [
+    hasToolCall('complete'),
+    stepCountIs(50), // Allow more steps for complex task
+  ],
+})
+```
+
+## The maxSteps Shorthand
+
+For simple step limits, use `maxSteps` instead of `stopWhen`:
+
+```typescript
+const agent = provider.createAgent({
+  id: 'simple',
+  name: 'Simple',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  maxSteps: 20, // Equivalent to stopWhen: stepCountIs(20)
+})
+```
+
+<Callout type="warning">
+If neither `stopWhen` nor `maxSteps` is specified, the default is `maxSteps: 20`. Always set explicit limits for production agents.
+</Callout>
+
+## Debugging Stop Conditions
+
+### Check Why Agent Stopped
+
+```typescript
+const result = await agent.run({ prompt: 'Research AI trends' })
+
+console.log('Finish reason:', result.finishReason)
+// 'stop' - Normal completion (hasText or explicit stop)
+// 'tool_calls' - Stopped due to hasToolCall condition
+// 'max_steps' - Hit step limit
+// 'error' - Error occurred
+// 'cancelled' - Aborted via signal
+
+console.log('Steps taken:', result.steps)
+console.log('Tokens used:', result.usage.totalTokens)
+```
+
+### Log Stop Condition Evaluation
+
+```typescript
+import { customStop, shouldStop } from 'agents'
+
+const debuggableAgent = provider.createAgent({
+  id: 'debug',
+  name: 'Debug',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  stopWhen: customStop((state) => {
+    console.log(`Step ${state.stepNumber}:`)
+    console.log('  Text:', state.lastStep.text?.slice(0, 50))
+    console.log('  Tool calls:', state.lastStep.toolCalls?.length ?? 0)
+    console.log('  Total tokens:', state.totalTokens)
+
+    // Your actual stop logic
+    return state.totalTokens > 10000
+  }),
+})
+```
+
+## Related
+
+- [Agent Testing](/docs/agents/testing) - Test agents with mock providers
+- [Agent Lifecycle](/docs/agents/lifecycle) - Understand the full agent execution flow
+- [Custom Agents](/docs/agents/custom-agents) - Build domain-specific agents
+- [Agent Providers](/docs/agents/providers) - Configure LLM providers

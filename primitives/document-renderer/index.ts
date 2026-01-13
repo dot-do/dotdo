@@ -74,11 +74,12 @@ const DEFAULT_MARGINS = {
 
 /**
  * Template engine for variable substitution in documents
- * Supports {{variable}}, {{nested.path}}, conditionals, and loops
+ * Supports {{variable}}, {{nested.path}}, conditionals, loops, and HTML escaping
  */
 export class TemplateEngine implements ITemplateEngine {
   private openDelimiter: string
   private closeDelimiter: string
+  private contextStack: Record<string, unknown>[] = []
 
   constructor(options?: { openDelimiter?: string; closeDelimiter?: string }) {
     this.openDelimiter = options?.openDelimiter ?? '{{'
@@ -89,15 +90,25 @@ export class TemplateEngine implements ITemplateEngine {
    * Render a template string with variables
    */
   render(template: string, variables: Record<string, unknown>): string {
+    return this.renderInternal(template, variables, true)
+  }
+
+  /**
+   * Internal render with context tracking
+   */
+  private renderInternal(template: string, variables: Record<string, unknown>, isRoot: boolean): string {
     let result = template
 
-    // Process loops first ({{#each array}}...{{/each}})
+    // Process triple-brace unescaped output first
+    result = this.processUnescapedVariables(result, variables)
+
+    // Process loops ({{#each array}}...{{/each}})
     result = this.processLoops(result, variables)
 
     // Process conditionals ({{#if condition}}...{{/if}})
     result = this.processConditionals(result, variables)
 
-    // Process variable substitutions
+    // Process variable substitutions with HTML escaping
     result = this.processVariables(result, variables)
 
     return result
@@ -134,31 +145,75 @@ export class TemplateEngine implements ITemplateEngine {
   }
 
   /**
-   * Process loop blocks
+   * Process loop blocks with {{else}} support and object/array iteration
    */
   private processLoops(template: string, variables: Record<string, unknown>): string {
-    return this.processBlock(template, 'each', (arrayName, body) => {
-      const array = this.getValue(arrayName, variables)
-      if (!Array.isArray(array)) return ''
+    return this.processBlockWithElse(template, 'each', (param, body, elseBody) => {
+      const value = this.getValue(param, variables)
 
-      return array
+      // Handle object iteration (when value is plain object, not array)
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        const entries = Object.entries(value as Record<string, unknown>)
+        if (entries.length === 0) {
+          return elseBody ? this.renderWithContext(elseBody, variables) : ''
+        }
+
+        const result = entries
+          .map(([key, val], index) => {
+            const loopVars: Record<string, unknown> = {
+              ...variables,
+              this: val,
+              '@key': key,
+              '@index': index,
+              '@first': index === 0,
+              '@last': index === entries.length - 1,
+            }
+
+            // Push current iteration's context for ../ access from nested loops
+            this.contextStack.push(loopVars)
+            const rendered = this.renderInternal(body, loopVars, false)
+            this.contextStack.pop()
+            return rendered
+          })
+          .join('')
+        return result
+      }
+
+      // Handle array iteration
+      if (!Array.isArray(value) || value.length === 0) {
+        return elseBody ? this.renderWithContext(elseBody, variables) : ''
+      }
+
+      const result = value
         .map((item, index) => {
           const loopVars: Record<string, unknown> = {
             ...variables,
             this: item,
             '@index': index,
             '@first': index === 0,
-            '@last': index === array.length - 1,
+            '@last': index === value.length - 1,
           }
 
           if (typeof item === 'object' && item !== null) {
             Object.assign(loopVars, item)
           }
 
-          return this.render(body, loopVars)
+          // Push current iteration's context for ../ access from nested loops
+          this.contextStack.push(loopVars)
+          const rendered = this.renderInternal(body, loopVars, false)
+          this.contextStack.pop()
+          return rendered
         })
         .join('')
+      return result
     })
+  }
+
+  /**
+   * Render with context (inherits current context stack)
+   */
+  private renderWithContext(template: string, variables: Record<string, unknown>): string {
+    return this.renderInternal(template, variables, false)
   }
 
   /**
@@ -334,25 +389,150 @@ export class TemplateEngine implements ITemplateEngine {
   }
 
   /**
-   * Process variable substitutions
+   * Process a block type with {{else}} support
+   */
+  private processBlockWithElse(
+    template: string,
+    blockType: string,
+    processor: (param: string, body: string, elseBody: string | null) => string
+  ): string {
+    const openTag = `${this.openDelimiter}#${blockType}`
+    const closeTag = `${this.openDelimiter}/${blockType}${this.closeDelimiter}`
+    const elseTag = `${this.openDelimiter}else${this.closeDelimiter}`
+
+    let result = ''
+    let pos = 0
+
+    while (pos < template.length) {
+      const openStart = template.indexOf(openTag, pos)
+      if (openStart === -1) {
+        result += template.slice(pos)
+        break
+      }
+
+      result += template.slice(pos, openStart)
+
+      const openEnd = template.indexOf(this.closeDelimiter, openStart)
+      if (openEnd === -1) {
+        result += template.slice(openStart)
+        break
+      }
+
+      const tagContent = template.slice(openStart + openTag.length, openEnd).trim()
+      const param = tagContent.split(/\s+/)[0]
+
+      // Find matching close tag with nesting and else support
+      let depth = 1
+      let searchPos = openEnd + this.closeDelimiter.length
+      let bodyEnd = -1
+      let elsePos = -1
+
+      while (depth > 0 && searchPos < template.length) {
+        const nextOpen = template.indexOf(openTag, searchPos)
+        const nextClose = template.indexOf(closeTag, searchPos)
+        const nextElse = depth === 1 ? template.indexOf(elseTag, searchPos) : -1
+
+        if (nextClose === -1) break
+
+        // Check for else at current depth level
+        if (nextElse !== -1 && (nextOpen === -1 || nextElse < nextOpen) && nextElse < nextClose && elsePos === -1) {
+          elsePos = nextElse
+        }
+
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+          depth++
+          searchPos = nextOpen + openTag.length
+        } else {
+          depth--
+          if (depth === 0) {
+            bodyEnd = nextClose
+          }
+          searchPos = nextClose + closeTag.length
+        }
+      }
+
+      if (bodyEnd === -1) {
+        result += template.slice(openStart, openEnd + this.closeDelimiter.length)
+        pos = openEnd + this.closeDelimiter.length
+        continue
+      }
+
+      let body: string
+      let elseBody: string | null = null
+
+      if (elsePos !== -1 && elsePos < bodyEnd) {
+        body = template.slice(openEnd + this.closeDelimiter.length, elsePos)
+        elseBody = template.slice(elsePos + elseTag.length, bodyEnd)
+      } else {
+        body = template.slice(openEnd + this.closeDelimiter.length, bodyEnd)
+      }
+
+      result += processor(param, body, elseBody)
+
+      pos = bodyEnd + closeTag.length
+    }
+
+    return result
+  }
+
+  /**
+   * Process triple-brace unescaped variable substitutions {{{variable}}}
+   */
+  private processUnescapedVariables(template: string, variables: Record<string, unknown>): string {
+    // Only apply to standard {{ }} delimiters
+    if (this.openDelimiter === '{{' && this.closeDelimiter === '}}') {
+      const triplePattern = /\{\{\{\s*([a-zA-Z_@][a-zA-Z0-9_.]*)\s*\}\}\}/g
+      template = template.replace(triplePattern, (match, varPath) => {
+        const value = this.getValue(varPath, variables)
+        if (value === undefined || value === null) return match
+        return this.formatValue(value) // No HTML escaping for triple braces
+      })
+    }
+    return template
+  }
+
+  /**
+   * Process variable substitutions with HTML escaping
    */
   private processVariables(template: string, variables: Record<string, unknown>): string {
     const open = this.escapeRegExp(this.openDelimiter)
     const close = this.escapeRegExp(this.closeDelimiter)
 
-    const pattern = new RegExp(`${open}\\s*([a-zA-Z_@][a-zA-Z0-9_.]*)\\s*${close}`, 'g')
+    // Support standard var names and ../ parent context access
+    const pattern = new RegExp(`${open}\\s*([a-zA-Z_@./][a-zA-Z0-9_./]*)\\s*${close}`, 'g')
 
     return template.replace(pattern, (match, varPath) => {
       const value = this.getValue(varPath, variables)
-      if (value === undefined) return match
-      return this.formatValue(value)
+      if (value === undefined || value === null) return match
+      const formatted = this.formatValue(value)
+      return this.escapeHtml(formatted)
     })
   }
 
   /**
-   * Get value from variables using dot notation
+   * Get value from variables using dot notation with parent context support
    */
   private getValue(path: string, variables: Record<string, unknown>): unknown {
+    // Handle parent context access (../)
+    if (path.startsWith('../')) {
+      let contextIndex = this.contextStack.length - 1
+      let remainingPath = path
+
+      while (remainingPath.startsWith('../') && contextIndex >= 0) {
+        remainingPath = remainingPath.slice(3)
+        contextIndex--
+      }
+
+      if (contextIndex >= 0 && remainingPath) {
+        return this.getValue(remainingPath, this.contextStack[contextIndex])
+      } else if (remainingPath && this.contextStack.length > 0) {
+        // Use the deepest available context
+        return this.getValue(remainingPath, this.contextStack[0])
+      }
+
+      return undefined
+    }
+
     if (path === 'this' || path.startsWith('@')) {
       return variables[path]
     }
@@ -397,6 +577,18 @@ export class TemplateEngine implements ITemplateEngine {
    */
   private escapeRegExp(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+
+  /**
+   * Escape HTML special characters for XSS protection
+   */
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
   }
 }
 

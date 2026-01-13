@@ -1082,9 +1082,14 @@ const FS_STORAGE_REF = Symbol('fsStorageRef')
  * }
  * ```
  */
-export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: TBase): TBase & Constructor<{ $: WithFsContext }> {
-  // @ts-expect-error - Mixin class augments $ type which TypeScript can't verify statically
-  return class WithFs extends Base {
+export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(
+  Base: TBase
+): TBase & Constructor<{ $: WithFsContext; hasCapability(name: string): boolean }> {
+  // The class expression extends TBase (preserving base class) and adds FsCapability.
+  // We explicitly declare the return type intersection so consumers get proper types.
+  // TypeScript cannot verify the $ type change at compile time due to the Proxy-based
+  // augmentation, so we use a type assertion on return.
+  class WithFs extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'fs']
 
@@ -1162,4 +1167,9 @@ export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: 
       })
     }
   }
+
+  // Type assertion: WithFs extends TBase and adds FsCapability to $.
+  // The Proxy-based augmentation is not type-checkable at compile time,
+  // so we use `unknown` intermediate cast (standard pattern for mixin type narrowing).
+  return WithFs as unknown as TBase & Constructor<{ $: WithFsContext; hasCapability(name: string): boolean }>
 }

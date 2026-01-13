@@ -1,0 +1,596 @@
+---
+title: Agent Lifecycle
+description: Understanding the complete agent execution flow from creation to completion
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Agent Lifecycle
+
+This guide covers the complete lifecycle of an agent from creation through execution to completion, including hooks for observability and control at each phase.
+
+## Lifecycle Overview
+
+```
+CREATION
+   |
+   v
++------------------+
+|  Create Agent    |  provider.createAgent(config)
++------------------+
+         |
+         v
+EXECUTION
+         |
+   +-----+-----+
+   |  run()    |  or  stream()
+   +-----+-----+
+         |
+         v
+   +-----------+
+   |  LOOP     |<--------------+
+   +-----------+               |
+         |                     |
+         v                     |
+   +-------------------+       |
+   | 1. Prepare Step   |  prepareStep hook
+   +-------------------+       |
+         |                     |
+         v                     |
+   +-------------------+       |
+   | 2. THINK          |  LLM generates response
+   +-------------------+       |
+         |                     |
+         v                     |
+   +-------------------+       |
+   | 3. ACT            |  Execute tool calls
+   +-------------------+       |
+         |                     |
+         v                     |
+   +-------------------+       |
+   | 4. OBSERVE        |  Check stop conditions
+   +-------------------+       |
+         |                     |
+    Should stop?               |
+    /         \                |
+   Yes         No--------------+
+   |
+   v
+COMPLETION
+   |
+   v
++------------------+
+|  Return Result   |  AgentResult
++------------------+
+```
+
+## Phase 1: Agent Creation
+
+Agents are created via a provider's `createAgent` method:
+
+```typescript
+import { createClaudeProvider } from 'agents/providers'
+
+const provider = createClaudeProvider({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+})
+
+const agent = provider.createAgent({
+  id: 'my-agent',
+  name: 'My Agent',
+  instructions: 'You are a helpful assistant.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool, writeTool],
+  maxSteps: 20,
+  hooks: { /* lifecycle hooks */ },
+})
+```
+
+At creation time:
+- Agent configuration is validated
+- Tools are registered
+- Stop conditions are configured
+- Hooks are attached
+- No LLM calls are made
+
+## Phase 2: Execution Start
+
+Execution begins when you call `run()` or `stream()`:
+
+```typescript
+// Blocking execution - waits for completion
+const result = await agent.run({ prompt: 'Hello' })
+
+// Streaming execution - process events as they occur
+const stream = agent.stream({ prompt: 'Hello' })
+for await (const event of stream) {
+  console.log(event.type, event.data)
+}
+```
+
+### Input Processing
+
+The agent processes input to build the initial message array:
+
+```typescript
+// Simple prompt
+agent.run({ prompt: 'Hello' })
+// -> [{ role: 'system', content: instructions }, { role: 'user', content: 'Hello' }]
+
+// Pre-existing messages
+agent.run({
+  messages: [
+    { role: 'user', content: 'Previous question' },
+    { role: 'assistant', content: 'Previous answer' },
+    { role: 'user', content: 'Follow-up question' },
+  ]
+})
+// -> [{ role: 'system', content: instructions }, ...messages]
+
+// Combined
+agent.run({
+  messages: [{ role: 'user', content: 'Context' }],
+  prompt: 'New question', // Appended as final user message
+})
+```
+
+## Phase 3: The Agent Loop
+
+### Step 0: Prepare Step (Optional)
+
+The `prepareStep` hook runs before each LLM call, allowing dynamic configuration:
+
+```typescript
+const agent = provider.createAgent({
+  id: 'adaptive',
+  name: 'Adaptive',
+  instructions: 'Complete the task.',
+  model: 'claude-sonnet-4-20250514',
+  prepareStep: async (state) => {
+    // Switch to a cheaper model after 5 steps
+    if (state.stepNumber > 5) {
+      return { model: 'claude-3-haiku-20240307' }
+    }
+
+    // Compress context if too long
+    if (state.messages.length > 20) {
+      return {
+        messages: compressMessages(state.messages),
+        instructions: 'Continue the task. Previous context has been summarized.',
+      }
+    }
+
+    return {} // No changes
+  },
+})
+```
+
+`PrepareStepResult` options:
+
+```typescript
+interface PrepareStepResult {
+  model?: string           // Override model for this step
+  tools?: ToolDefinition[] // Override available tools
+  messages?: Message[]     // Replace message history
+  instructions?: string    // Override system prompt
+  providerOptions?: Record<string, unknown>  // Provider-specific options
+}
+```
+
+### Step 1: THINK Phase
+
+The agent calls the LLM to generate a response:
+
+```typescript
+// Internal flow:
+const stepResult = await generate(messages, config)
+// -> { text: "...", toolCalls: [...], finishReason: "...", usage: {...} }
+```
+
+The `onStepStart` hook fires before the LLM call:
+
+```typescript
+const agent = provider.createAgent({
+  // ...config
+  hooks: {
+    onStepStart: async (stepNumber, state) => {
+      console.log(`Starting step ${stepNumber}`)
+      console.log('Messages:', state.messages.length)
+      console.log('Tokens so far:', state.totalTokens)
+    },
+  },
+})
+```
+
+### Step 2: ACT Phase
+
+If the LLM requests tool calls, they are executed:
+
+```typescript
+// LLM returned:
+{
+  text: "Let me search for that.",
+  toolCalls: [
+    { id: "call-1", name: "search", arguments: { query: "AI trends" } }
+  ]
+}
+
+// Agent executes each tool:
+for (const toolCall of toolCalls) {
+  const tool = tools.find(t => t.name === toolCall.name)
+  const result = await tool.execute(toolCall.arguments, context)
+}
+```
+
+Tool execution hooks:
+
+```typescript
+const agent = provider.createAgent({
+  // ...config
+  hooks: {
+    // Before each tool executes
+    onPreToolUse: async (toolCall) => {
+      console.log(`Calling ${toolCall.name}`, toolCall.arguments)
+
+      // Control execution:
+      return { action: 'allow' }              // Proceed normally
+      // return { action: 'deny', reason: 'Not permitted' }
+      // return { action: 'modify', arguments: { ...modified } }
+      // return { action: 'use_cached', result: cachedValue }
+    },
+
+    // After each tool completes
+    onPostToolUse: async (toolCall, result) => {
+      console.log(`${toolCall.name} completed`)
+      if (result.error) {
+        console.error('Error:', result.error)
+      } else {
+        console.log('Result:', result.result)
+      }
+    },
+  },
+})
+```
+
+### Step 3: OBSERVE Phase
+
+After tool execution (or if no tools were called), the agent evaluates stop conditions:
+
+```typescript
+const state: StepState = {
+  stepNumber,
+  messages,
+  lastStep: stepResult,
+  totalTokens: totalTokens.totalTokens,
+}
+
+if (shouldStop(stopConditions, state)) {
+  return finalResult
+}
+```
+
+The `onStepFinish` hook fires after each step completes:
+
+```typescript
+const agent = provider.createAgent({
+  // ...config
+  hooks: {
+    onStepFinish: async (step, stepNumber) => {
+      console.log(`Step ${stepNumber} finished`)
+      console.log('Text:', step.text?.slice(0, 100))
+      console.log('Tools called:', step.toolCalls?.length ?? 0)
+      console.log('Finish reason:', step.finishReason)
+    },
+  },
+})
+```
+
+### Loop Continuation
+
+If stop conditions are not met, the loop continues:
+1. Tool results are added to messages
+2. `prepareStep` is called for the next iteration
+3. LLM is called again with updated context
+
+## Phase 4: Completion
+
+When a stop condition is met, the agent returns an `AgentResult`:
+
+```typescript
+interface AgentResult {
+  text: string              // Final text output
+  toolCalls: ToolCall[]     // All tool calls made
+  toolResults: ToolResult[] // All tool results
+  messages: Message[]       // Complete conversation history
+  steps: number             // Number of steps taken
+  finishReason: FinishReason // Why the agent stopped
+  usage: TokenUsage         // Total token usage
+}
+
+type FinishReason =
+  | 'stop'       // Normal completion (hasText, etc.)
+  | 'tool_calls' // Stopped due to hasToolCall condition
+  | 'max_steps'  // Hit maxSteps limit
+  | 'error'      // Error occurred
+  | 'cancelled'  // Aborted via AbortSignal
+```
+
+### Finish Reasons
+
+<Tabs items={['stop', 'tool_calls', 'max_steps', 'error', 'cancelled']}>
+  <Tab value="stop">
+**stop** - Normal completion
+
+The agent produced a final text response without requesting more tool calls.
+
+```typescript
+const result = await agent.run({ prompt: 'Hello' })
+if (result.finishReason === 'stop') {
+  console.log('Agent completed normally:', result.text)
+}
+```
+  </Tab>
+  <Tab value="tool_calls">
+**tool_calls** - Stopped by hasToolCall condition
+
+A specific tool was called that triggers termination.
+
+```typescript
+const result = await agent.run({ prompt: 'Complete the task' })
+if (result.finishReason === 'tool_calls') {
+  const finishCall = result.toolCalls.find(tc => tc.name === 'complete')
+  console.log('Task completed:', finishCall.arguments)
+}
+```
+  </Tab>
+  <Tab value="max_steps">
+**max_steps** - Hit step limit
+
+The agent reached the maximum allowed steps without completing.
+
+```typescript
+const result = await agent.run({ prompt: 'Complex task' })
+if (result.finishReason === 'max_steps') {
+  console.warn('Agent did not complete within step limit')
+  console.log('Partial progress:', result.text)
+}
+```
+  </Tab>
+  <Tab value="error">
+**error** - Error occurred
+
+An unrecoverable error stopped execution.
+
+```typescript
+const result = await agent.run({ prompt: 'Task' })
+if (result.finishReason === 'error') {
+  console.error('Agent encountered an error')
+  // Check tool results for errors
+  const errors = result.toolResults.filter(r => r.error)
+  console.error('Tool errors:', errors)
+}
+```
+  </Tab>
+  <Tab value="cancelled">
+**cancelled** - Aborted
+
+Execution was cancelled via an AbortSignal.
+
+```typescript
+const controller = new AbortController()
+
+// Cancel after 5 seconds
+setTimeout(() => controller.abort(), 5000)
+
+const result = await agent.run({
+  prompt: 'Long task',
+  signal: controller.signal,
+})
+
+if (result.finishReason === 'cancelled') {
+  console.log('Agent was cancelled after', result.steps, 'steps')
+}
+```
+  </Tab>
+</Tabs>
+
+## Streaming Lifecycle
+
+When using `stream()`, you receive events as they occur:
+
+```typescript
+const stream = agent.stream({ prompt: 'Research AI' })
+
+for await (const event of stream) {
+  switch (event.type) {
+    // Text generation
+    case 'text-delta':
+      process.stdout.write(event.data.textDelta)
+      break
+
+    // Tool execution
+    case 'tool-call-start':
+      console.log(`\nCalling ${event.data.toolName}...`)
+      break
+    case 'tool-call-end':
+      console.log(`${event.data.toolName} complete`)
+      break
+    case 'tool-result':
+      console.log('Result:', event.data.result)
+      break
+
+    // Step boundaries
+    case 'step-start':
+      console.log(`\n--- Step ${event.data.stepNumber} ---`)
+      break
+    case 'step-finish':
+      console.log(`Step ${event.data.stepNumber} done`)
+      break
+
+    // Completion
+    case 'done':
+      console.log('\nFinal result:', event.data.finalResult)
+      break
+
+    // Errors
+    case 'error':
+      console.error('Error:', event.data.error)
+      break
+  }
+}
+```
+
+### Stream Event Types
+
+| Event | When It Fires | Data |
+|-------|---------------|------|
+| `text-delta` | Each text chunk from LLM | `{ textDelta: string }` |
+| `tool-call-start` | Before tool execution | `{ toolCallId, toolName }` |
+| `tool-call-delta` | Tool arguments streaming | `{ toolCallId, argumentsDelta }` |
+| `tool-call-end` | After tool call parsed | `{ toolCall: ToolCall }` |
+| `tool-result` | After tool execution | `{ result: ToolResult }` |
+| `step-start` | Before each step | `{ stepNumber }` |
+| `step-finish` | After each step | `{ step: StepResult, stepNumber }` |
+| `done` | Agent completed | `{ finalResult: AgentResult }` |
+| `error` | Error occurred | `{ error: Error }` |
+
+## Cancellation
+
+Agents support cancellation via `AbortSignal`:
+
+```typescript
+const controller = new AbortController()
+
+// Start agent
+const resultPromise = agent.run({
+  prompt: 'Long research task',
+  signal: controller.signal,
+})
+
+// Cancel after 10 seconds
+setTimeout(() => {
+  console.log('Cancelling agent...')
+  controller.abort()
+}, 10000)
+
+const result = await resultPromise
+console.log('Finish reason:', result.finishReason) // 'cancelled'
+```
+
+Cancellation is checked:
+- Before each step starts
+- Between tool executions
+- After each observe phase
+
+<Callout type="info">
+Cancellation is cooperative. Long-running tool executions won't be interrupted mid-execution. Pass the `signal` to your tool implementations for finer control.
+</Callout>
+
+## Error Handling
+
+### Tool Errors
+
+Tool errors don't stop the agent - they're reported to the LLM for recovery:
+
+```typescript
+const agent = provider.createAgent({
+  id: 'resilient',
+  name: 'Resilient',
+  instructions: 'If a tool fails, try an alternative approach.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [
+    {
+      name: 'risky_operation',
+      description: 'An operation that might fail',
+      inputSchema: z.object({ data: z.string() }),
+      execute: async ({ data }) => {
+        if (Math.random() < 0.5) {
+          throw new Error('Random failure')
+        }
+        return { success: true, data }
+      },
+    },
+  ],
+})
+
+const result = await agent.run({ prompt: 'Try the risky operation' })
+
+// Check for tool errors
+const failedTools = result.toolResults.filter(r => r.error)
+if (failedTools.length > 0) {
+  console.log('Some tools failed:', failedTools)
+}
+```
+
+### Hook Errors
+
+Errors in hooks are caught and optionally reported:
+
+```typescript
+const agent = provider.createAgent({
+  // ...config
+  hooks: {
+    onError: async (error) => {
+      console.error('Agent error:', error.message)
+      // Log to monitoring service
+      await logToDatadog(error)
+    },
+  },
+})
+```
+
+### LLM Errors
+
+API errors from the LLM provider stop execution:
+
+```typescript
+try {
+  const result = await agent.run({ prompt: 'Hello' })
+} catch (error) {
+  if (error.message.includes('401')) {
+    console.error('Invalid API key')
+  } else if (error.message.includes('429')) {
+    console.error('Rate limited - try again later')
+  } else if (error.message.includes('500')) {
+    console.error('Provider error - check status page')
+  }
+}
+```
+
+## Complete Hook Reference
+
+```typescript
+interface AgentHooks {
+  // Before each LLM call
+  onStepStart?: (stepNumber: number, state: StepState) => Promise<void>
+
+  // After each LLM response + tool execution
+  onStepFinish?: (step: StepResult, stepNumber: number) => Promise<void>
+
+  // Before each tool executes
+  onPreToolUse?: (toolCall: ToolCall) => Promise<ToolCallDecision>
+
+  // After each tool completes
+  onPostToolUse?: (toolCall: ToolCall, result: ToolResult) => Promise<void>
+
+  // When permission is needed (file access, network, etc.)
+  onPermissionRequest?: (request: PermissionRequest) => Promise<boolean>
+
+  // When an error occurs
+  onError?: (error: Error) => Promise<void>
+}
+
+type ToolCallDecision =
+  | { action: 'allow' }                              // Proceed normally
+  | { action: 'deny'; reason: string }               // Block with error message
+  | { action: 'modify'; arguments: Record<string, unknown> }  // Change arguments
+  | { action: 'use_cached'; result: unknown }        // Skip execution, use cached result
+```
+
+## Related
+
+- [Stop Conditions](/docs/agents/stop-conditions) - Control when agents terminate
+- [Agent Testing](/docs/agents/testing) - Test agents with mock providers
+- [Custom Agents](/docs/agents/custom-agents) - Build domain-specific agents
+- [Agent Providers](/docs/agents/providers) - Configure LLM providers

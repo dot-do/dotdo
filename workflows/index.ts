@@ -289,6 +289,22 @@ export {
   type VectorEntry,
 } from './context/vector'
 
+// Lineage context API ($.lineage) - Data lineage tracking
+export {
+  createLineageContext,
+  createMockContext as createLineageMockContext,
+  // Types
+  type TrackTransformOptions,
+  type RecordOptions,
+  type WrapOptions,
+  type ExportFormat,
+  type ExportOptions,
+  type LineageScopedContext,
+  type LineageAPI,
+  type LineageContextResult,
+  type LineageStorage,
+} from './context/lineage'
+
 // $ Data API - Unified data primitives (Epic 4)
 export {
   createDataContext,

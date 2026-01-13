@@ -12,6 +12,8 @@ import type {
   PredicateNode,
   LogicalNode,
   ComparisonOp,
+  TemporalNode,
+  TemporalQueryType,
 } from '../ast'
 
 // =============================================================================
@@ -52,6 +54,10 @@ export interface IndexedFieldConfig {
  */
 export interface CompileOptions {
   indexedFields?: IndexedFieldConfig[]
+  /** Explicit temporal clause (AS OF) to apply */
+  temporal?: TemporalNode
+  /** Current timestamp for relative time calculations (defaults to Date.now()) */
+  currentTimestamp?: number
 }
 
 /**
@@ -63,11 +69,21 @@ export interface IndexedOperation {
 }
 
 /**
- * Temporal range for TemporalStore operations
+ * Temporal range for TemporalStore operations.
+ *
+ * Supports both time-based ranges and version-based ranges for time travel queries.
  */
 export interface TemporalRange {
+  /** Start timestamp (epoch ms) for range queries */
   start?: number
+  /** End timestamp (epoch ms) for range queries */
   end?: number
+  /** Snapshot ID for version-based queries */
+  snapshotId?: number
+  /** Query type (AS_OF, BEFORE, BETWEEN, VERSIONS_BETWEEN) */
+  queryType?: TemporalQueryType
+  /** Whether this is a materialized AS OF query */
+  isMaterialized?: boolean
 }
 
 /**
@@ -136,11 +152,11 @@ export class DocumentCompiler {
 
     // Handle empty query (match all)
     if (Object.keys(query).length === 0) {
-      return this.createMatchAllResult(indexedFields)
+      return this.createMatchAllResult(indexedFields, options)
     }
 
     const ast = this.parseMongoQuery(query)
-    const plan = this.createExecutionPlan(ast, indexedFields)
+    const plan = this.createExecutionPlan(ast, indexedFields, options)
 
     return this.createResult(ast, plan, indexedFields, this.detectedRegexOptions)
   }

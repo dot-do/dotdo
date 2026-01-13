@@ -1,0 +1,10 @@
+# Cloudflare Pages Redirects
+# @see https://developers.cloudflare.com/pages/configuration/redirects/
+
+# Docs index redirect to getting-started
+/docs /docs/getting-started 302
+
+# Handle trailing slashes consistently
+/docs/getting-started/ /docs/getting-started 301
+/docs/concepts/ /docs/concepts 301
+/docs/api/ /docs/api 301

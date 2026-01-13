@@ -3379,6 +3379,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       return this.handleIntrospectRoute(request)
     }
 
+    // Handle /rpc endpoint for JSON-RPC
+    if (url.pathname === '/rpc') {
+      return this.handleJsonRpcRoute(request)
+    }
+
     // Handle /mcp endpoint for MCP transport
     if (url.pathname === '/mcp') {
       return this.handleMcp(request)
@@ -3549,6 +3554,201 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       return Response.json(schema)
     } catch (error) {
       return Response.json({ error: 'Invalid token' }, { status: 401 })
+    }
+  }
+
+  /**
+   * Handle the /rpc HTTP route for JSON-RPC 2.0 requests.
+   * Supports calling methods like $introspect via JSON-RPC protocol.
+   */
+  private async handleJsonRpcRoute(request: Request): Promise<Response> {
+    // Only allow POST requests
+    if (request.method !== 'POST') {
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32600, message: 'Method not allowed' },
+          id: null,
+        },
+        { status: 405 }
+      )
+    }
+
+    // Parse JSON-RPC request body
+    let body: { jsonrpc?: string; method?: string; params?: unknown; id?: unknown }
+    try {
+      body = await request.json()
+    } catch {
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32700, message: 'Parse error' },
+          id: null,
+        },
+        { status: 400 }
+      )
+    }
+
+    // Validate JSON-RPC version
+    if (body.jsonrpc !== '2.0') {
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32600, message: 'Invalid Request: jsonrpc version must be 2.0' },
+          id: body.id ?? null,
+        },
+        { status: 400 }
+      )
+    }
+
+    // Validate method
+    if (!body.method || typeof body.method !== 'string') {
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32600, message: 'Invalid Request: method required' },
+          id: body.id ?? null,
+        },
+        { status: 400 }
+      )
+    }
+
+    // Parse auth context from Authorization header
+    let authContext: AuthContext | undefined
+    const authHeader = request.headers.get('Authorization')
+
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7)
+      try {
+        const parts = token.split('.')
+        if (parts.length === 3) {
+          // Verify JWT signature if JWT_SECRET is configured
+          const jwtSecret = (this.env as Record<string, unknown>).JWT_SECRET as string | undefined
+          if (jwtSecret) {
+            const isValid = await this.verifyJwtSignature(token, jwtSecret)
+            if (!isValid) {
+              return Response.json(
+                {
+                  jsonrpc: '2.0',
+                  error: { code: -32001, message: 'Invalid token signature' },
+                  id: body.id ?? null,
+                },
+                { status: 401 }
+              )
+            }
+          } else {
+            console.warn('JWT_SECRET not configured - skipping signature verification')
+          }
+
+          const payload = JSON.parse(atob(parts[1]!)) as {
+            sub?: string
+            email?: string
+            name?: string
+            roles?: string[]
+            permissions?: string[]
+            exp?: number
+          }
+
+          // Check expiration
+          const now = Math.floor(Date.now() / 1000)
+          if (payload.exp && payload.exp < now) {
+            return Response.json(
+              {
+                jsonrpc: '2.0',
+                error: { code: -32001, message: 'Token expired' },
+                id: body.id ?? null,
+              },
+              { status: 401 }
+            )
+          }
+
+          authContext = {
+            authenticated: true,
+            user: {
+              id: payload.sub || 'anonymous',
+              email: payload.email,
+              name: payload.name,
+              roles: payload.roles || [],
+              permissions: payload.permissions || [],
+            },
+            token: {
+              type: 'jwt',
+              expiresAt: payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000),
+            },
+          }
+        }
+      } catch {
+        return Response.json(
+          {
+            jsonrpc: '2.0',
+            error: { code: -32001, message: 'Invalid token' },
+            id: body.id ?? null,
+          },
+          { status: 401 }
+        )
+      }
+    }
+
+    // Get auth config for this DO class
+    const constructor = this.constructor as typeof DO
+    const authConfig = constructor.$auth as Record<string, { requireAuth?: boolean; public?: boolean; roles?: string[] }> | undefined
+
+    // Check auth requirements for the method
+    const methodAuthConfig = authConfig?.[body.method]
+    if (methodAuthConfig?.requireAuth && !authContext?.authenticated) {
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Authentication required' },
+          id: body.id ?? null,
+        },
+        { status: 401 }
+      )
+    }
+
+    // Route method calls
+    try {
+      let result: unknown
+
+      switch (body.method) {
+        case '$introspect':
+          result = await this.$introspect(authContext)
+          break
+        case '$health':
+          result = { status: 'ok', ns: this.ns }
+          break
+        default:
+          // Check if method exists on this instance
+          const method = (this as Record<string, unknown>)[body.method]
+          if (typeof method === 'function') {
+            result = await (method as (params: unknown) => Promise<unknown>).call(this, body.params)
+          } else {
+            return Response.json(
+              {
+                jsonrpc: '2.0',
+                error: { code: -32601, message: `Method not found: ${body.method}` },
+                id: body.id ?? null,
+              },
+              { status: 404 }
+            )
+          }
+      }
+
+      return Response.json({
+        jsonrpc: '2.0',
+        result,
+        id: body.id ?? null,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Internal error'
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32603, message },
+          id: body.id ?? null,
+        },
+        { status: 500 }
+      )
     }
   }
 

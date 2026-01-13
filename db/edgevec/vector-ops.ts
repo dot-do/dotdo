@@ -837,12 +837,13 @@ export function cosineDistanceUnrolled(a: Float32Array, b: Float32Array): number
  * - With cache: O(M * D) for initial cache + O(N * D) for queries
  *
  * This provides significant speedup when M >> N or N >> 1.
+ *
+ * Uses O(1) LRU eviction via Map insertion order (ES2015+).
  */
 export class VectorNormCache {
   private norms: Map<string, number> = new Map()
   private vectors: Map<string, Float32Array> = new Map()
   private maxSize: number
-  private accessOrder: string[] = []
 
   constructor(maxSize: number = 10000) {
     this.maxSize = maxSize
@@ -850,17 +851,28 @@ export class VectorNormCache {
 
   /**
    * Get or compute the L2 norm of a vector
+   *
+   * Uses O(1) LRU touch via Map delete/re-insert pattern.
    */
   getNorm(id: string, vector: Float32Array): number {
-    let norm = this.norms.get(id)
+    const norm = this.norms.get(id)
 
     if (norm === undefined) {
       // Compute norm using unrolled loop for efficiency
-      norm = this.computeNorm(vector)
-      this.set(id, vector, norm)
-    } else {
-      // Move to end of access order for LRU
-      this.touch(id)
+      const computed = this.computeNorm(vector)
+      this.set(id, vector, computed)
+      return computed
+    }
+
+    // O(1) LRU touch: delete and re-insert to move to end
+    // ES2015 Maps preserve insertion order
+    this.norms.delete(id)
+    this.norms.set(id, norm)
+    // Also update vectors map order
+    const vec = this.vectors.get(id)
+    if (vec) {
+      this.vectors.delete(id)
+      this.vectors.set(id, vec)
     }
 
     return norm
@@ -868,11 +880,20 @@ export class VectorNormCache {
 
   /**
    * Get a cached vector by ID
+   *
+   * Uses O(1) LRU touch via Map delete/re-insert pattern.
    */
   getVector(id: string): Float32Array | undefined {
     const vec = this.vectors.get(id)
     if (vec) {
-      this.touch(id)
+      // O(1) LRU touch
+      this.vectors.delete(id)
+      this.vectors.set(id, vec)
+      const norm = this.norms.get(id)
+      if (norm !== undefined) {
+        this.norms.delete(id)
+        this.norms.set(id, norm)
+      }
     }
     return vec
   }
@@ -935,7 +956,6 @@ export class VectorNormCache {
   clear(): void {
     this.norms.clear()
     this.vectors.clear()
-    this.accessOrder = []
   }
 
   /**
@@ -974,24 +994,16 @@ export class VectorNormCache {
   }
 
   private set(id: string, vector: Float32Array, norm: number): void {
-    // Evict if at capacity
-    while (this.norms.size >= this.maxSize && this.accessOrder.length > 0) {
-      const evictId = this.accessOrder.shift()!
-      this.norms.delete(evictId)
-      this.vectors.delete(evictId)
+    // Evict if at capacity - Map.keys().next() gives oldest entry (insertion order)
+    while (this.norms.size >= this.maxSize) {
+      const oldestId = this.norms.keys().next().value as string | undefined
+      if (!oldestId) break
+      this.norms.delete(oldestId)
+      this.vectors.delete(oldestId)
     }
 
     this.norms.set(id, norm)
     this.vectors.set(id, vector)
-    this.accessOrder.push(id)
-  }
-
-  private touch(id: string): void {
-    const idx = this.accessOrder.indexOf(id)
-    if (idx !== -1) {
-      this.accessOrder.splice(idx, 1)
-      this.accessOrder.push(id)
-    }
   }
 }
 

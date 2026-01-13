@@ -1,0 +1,79 @@
+{
+  "name": "@dotdo/tanstack",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TanStack DB integration for dotdo - SyncProvider, useDotdoCollection, and real-time sync hooks",
+  "author": "dotdo <hello@dotdo.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dotdo-dev/dotdo.git",
+    "directory": "packages/tanstack"
+  },
+  "homepage": "https://dotdo.dev",
+  "bugs": {
+    "url": "https://github.com/dotdo-dev/dotdo/issues"
+  },
+  "keywords": [
+    "dotdo",
+    "tanstack",
+    "tanstack-db",
+    "react",
+    "react-hooks",
+    "real-time",
+    "sync",
+    "websocket",
+    "durable-objects",
+    "cloudflare"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "zod": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.0",
+    "jsdom": "^25.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0",
+    "zod": "^3.23.0"
+  },
+  "sideEffects": false
+}

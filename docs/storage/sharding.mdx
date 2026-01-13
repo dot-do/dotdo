@@ -1,0 +1,436 @@
+---
+title: Sharding Strategies
+description: Horizontal scaling across Durable Objects with consistent hashing
+---
+
+# Sharding Strategies
+
+Durable Objects have a 10GB storage limit per instance. Sharding distributes data across multiple DOs to scale beyond this limit, enabling up to 10TB total capacity with 1000 shards.
+
+## Architecture
+
+```
+                 ┌─────────────────────┐
+                 │   ShardedPostgres   │
+                 │   (Coordinator DO)  │
+                 └──────────┬──────────┘
+                            │
+       ┌────────────────────┼────────────────────┐
+       │                    │                    │
+       ▼                    ▼                    ▼
+ ┌───────────┐        ┌───────────┐        ┌───────────┐
+ │  Shard 0  │        │  Shard 1  │        │  Shard N  │
+ │(DO + PG)  │        │(DO + PG)  │   ...  │(DO + PG)  │
+ └───────────┘        └───────────┘        └───────────┘
+```
+
+## Quick Start
+
+```typescript
+import { ShardManager } from 'dotdo/db/core'
+
+const manager = new ShardManager(env.DO, {
+  key: 'tenant_id',
+  count: 16,
+  algorithm: 'consistent',
+})
+
+// Route to specific shard
+const stub = await manager.getShardStub('tenant-123')
+await stub.fetch('/query', { method: 'POST', body: sql })
+
+// Fan out to all shards
+const results = await manager.queryAll('/query', { body: aggregateSql })
+```
+
+## Sharding Algorithms
+
+| Algorithm | Best For | Rebalance Impact |
+|-----------|----------|------------------|
+| **consistent** | General purpose (default) | ~1/N data moves |
+| **range** | Range queries on shard key | Varies |
+| **hash** | Maximum throughput | 100% data moves |
+
+### Consistent Hashing
+
+Uses virtual nodes for even distribution and minimal data movement during rebalancing:
+
+```typescript
+const manager = new ShardManager(env.DO, {
+  key: 'tenant_id',
+  count: 16,
+  algorithm: 'consistent',
+})
+```
+
+**How it works:**
+
+1. Each physical shard maps to 150 virtual nodes on a hash ring
+2. Keys are hashed and mapped to the nearest virtual node clockwise
+3. Adding a shard only moves ~1/N of the data
+
+```
+Ring with 16 shards, 150 virtual nodes each:
+- Total: 2,400 virtual nodes
+- Binary search: O(log 2400) = ~11 comparisons
+- Memory: ~50KB for the ring
+```
+
+### Range-Based Sharding
+
+Good for ordered data like time-series or alphabetical partitions:
+
+```typescript
+const manager = new ShardManager(env.DO, {
+  key: 'created_at',
+  count: 12,  // One shard per month
+  algorithm: 'range',
+})
+```
+
+**Characteristics:**
+- Range queries hit fewer shards
+- Hot spots possible with temporal data
+- Rebalancing more complex
+
+### Simple Hash
+
+Maximum throughput with uniform distribution:
+
+```typescript
+const manager = new ShardManager(env.DO, {
+  key: 'user_id',
+  count: 8,
+  algorithm: 'hash',
+})
+```
+
+**Characteristics:**
+- FNV-1a hash for fast, uniform distribution
+- Full data redistribution on resize
+- Best when shard count is fixed
+
+## ShardedPostgres
+
+Full SQL support with automatic routing:
+
+```typescript
+import { ShardedPostgres } from 'dotdo/db/edge-postgres'
+
+const db = new ShardedPostgres(ctx, env, {
+  sharding: {
+    key: 'tenant_id',
+    count: 16,
+    algorithm: 'consistent',
+  },
+})
+
+// Single-shard query (fast, routed to one shard)
+await db.query(
+  'SELECT * FROM orders WHERE tenant_id = $1',
+  ['tenant-123']
+)
+
+// Fan-out query (parallel execution across all shards)
+await db.query(
+  'SELECT COUNT(*) as total FROM orders WHERE status = $1',
+  ['pending']
+)
+
+// DDL executes on all shards
+await db.exec('CREATE TABLE orders (id TEXT, tenant_id TEXT, ...)')
+
+// Transaction (single shard only)
+await db.transaction('tenant-123', async (tx) => {
+  await tx.query('UPDATE accounts SET balance = balance - 100 WHERE id = $1', [from])
+  await tx.query('UPDATE accounts SET balance = balance + 100 WHERE id = $1', [to])
+})
+```
+
+## Query Routing
+
+Queries are automatically routed based on shard key presence:
+
+### Single-Shard Queries
+
+Shard key found in WHERE or INSERT:
+
+```sql
+-- Routed to single shard
+SELECT * FROM orders WHERE tenant_id = 'abc'
+INSERT INTO orders (id, tenant_id, amount) VALUES ('o1', 'abc', 100)
+UPDATE orders SET status = 'shipped' WHERE tenant_id = 'abc' AND id = 'o1'
+DELETE FROM orders WHERE tenant_id = 'abc' AND id = 'o1'
+```
+
+### Multi-Shard Queries (IN clause)
+
+Multiple shard keys route to affected shards only:
+
+```sql
+-- Routes to 2-3 shards (not all)
+SELECT * FROM orders WHERE tenant_id IN ('abc', 'def', 'ghi')
+```
+
+### Fan-Out Queries
+
+No shard key means parallel execution on all shards:
+
+```sql
+-- Executes on all 16 shards in parallel
+SELECT COUNT(*) FROM orders WHERE status = 'pending'
+SELECT tenant_id, SUM(amount) FROM orders GROUP BY tenant_id
+```
+
+## Result Merging
+
+Fan-out results are automatically merged with full SQL support:
+
+### Aggregations
+
+```typescript
+// Results from each shard are combined
+const result = await db.query(
+  'SELECT tenant_id, COUNT(*) as orders, SUM(amount) as total FROM orders GROUP BY tenant_id'
+)
+// COUNT and SUM are re-aggregated across shards
+```
+
+### ORDER BY and LIMIT
+
+```typescript
+const result = await db.query(
+  'SELECT * FROM orders ORDER BY created_at DESC LIMIT 10'
+)
+// Each shard returns top 10, then merged and re-sorted
+```
+
+### DISTINCT
+
+```typescript
+const result = await db.query(
+  'SELECT DISTINCT status FROM orders'
+)
+// Duplicates removed across shards
+```
+
+## Compound Shard Keys
+
+For multi-tenant scenarios with sub-partitioning:
+
+```typescript
+const db = new ShardedPostgres(ctx, env, {
+  sharding: {
+    key: ['region', 'customer_id'],  // Compound key
+    count: 64,
+    algorithm: 'consistent',
+  },
+})
+
+// Query with compound key
+await db.query(
+  'SELECT * FROM orders WHERE region = $1 AND customer_id = $2',
+  ['us-west', 'cust-123']
+)
+// Keys are concatenated: 'us-west:cust-123'
+```
+
+## Strict Mode
+
+Prevent accidental expensive queries:
+
+```typescript
+const db = new ShardedPostgres(ctx, env, {
+  sharding: {
+    key: 'tenant_id',
+    count: 16,
+    algorithm: 'consistent',
+    strictMode: true,  // Require shard key
+  },
+})
+
+// This throws an error in strict mode
+await db.query('SELECT * FROM orders WHERE status = $1', ['pending'])
+// Error: Shard key required in strict mode
+```
+
+## Rebalancing
+
+Add or remove shards with minimal data movement:
+
+```typescript
+// Calculate impact before rebalancing
+const movement = router.calculateRebalanceMovement(24)
+console.log(`Adding 8 shards will move ${movement.estimatedDataMovementPercent}% of data`)
+// Output: "Adding 8 shards will move ~33% of data"
+
+// Execute rebalance with progress tracking
+const result = await db.rebalance(24, {
+  onProgress: (percent) => console.log(`Progress: ${percent}%`),
+})
+
+console.log(`Moved ${result.rowsMoved} rows from ${result.previousShardCount} to ${result.newShardCount} shards`)
+```
+
+**Rebalance characteristics:**
+
+| From | To | Data Moved (Consistent) | Data Moved (Hash) |
+|------|----|-----------------------|-------------------|
+| 16 | 24 | ~33% | 100% |
+| 16 | 32 | ~50% | 100% |
+| 16 | 8 | ~50% | 100% |
+
+## SQL Key Extraction
+
+The ShardManager automatically extracts shard keys from SQL:
+
+```typescript
+// All these patterns are supported:
+'WHERE tenant_id = \'value\''
+'WHERE tenant_id = ?'
+'WHERE tenant_id = $1'
+'WHERE tenant_id = :tenant_id'
+'INSERT INTO t (id, tenant_id) VALUES (\'o1\', \'value\')'
+```
+
+## Limitations
+
+### Cross-Shard Transactions
+
+Not supported - use saga pattern:
+
+```typescript
+// WRONG: This will fail
+await db.transaction(['tenant-a', 'tenant-b'], async (tx) => {
+  // Error: Cross-shard transactions not supported
+})
+
+// RIGHT: Use saga pattern
+await transferBetweenTenants('tenant-a', 'tenant-b', amount)
+```
+
+### Cross-Shard JOINs
+
+Not supported - denormalize or use fan-out:
+
+```typescript
+// Instead of JOIN, denormalize data or query separately
+const orders = await db.query('SELECT * FROM orders WHERE tenant_id = $1', ['abc'])
+const products = await db.query('SELECT * FROM products WHERE id IN (...)')
+```
+
+## Configuration Options
+
+### ShardingOptions
+
+```typescript
+interface ShardingOptions {
+  // Column(s) for shard key
+  key: string | string[]
+
+  // Number of shards (1-1000)
+  count: number
+
+  // Sharding algorithm
+  algorithm: 'consistent' | 'range' | 'hash'
+
+  // Virtual nodes per shard (default: 150)
+  virtualNodesPerShard?: number
+
+  // Hash function (default: 'fnv1a')
+  hashFunction?: 'fnv1a' | 'xxhash' | 'murmur3'
+
+  // DO namespace binding (default: 'EDGE_POSTGRES_SHARDS')
+  namespaceBinding?: string
+
+  // Require shard key in queries (default: false)
+  strictMode?: boolean
+}
+```
+
+### ShardConfig
+
+```typescript
+interface ShardConfig {
+  sharding: ShardingOptions
+
+  // Query timeout in ms
+  queryTimeout?: number
+
+  // Allow partial results on failures
+  allowPartialResults?: boolean
+
+  // Callbacks
+  onShardQuery?: (shardId: number) => void
+  onDataMove?: (from: number, to: number, rows: number) => void
+}
+```
+
+## Choosing Shard Count
+
+| Data Size | Recommended Shards | Max Capacity |
+|-----------|-------------------|--------------|
+| < 10GB | 1 (no sharding) | 10GB |
+| 10-100GB | 4-16 | 160GB |
+| 100GB-1TB | 32-128 | 1.28TB |
+| > 1TB | 256-1000 | 10TB |
+
+**Rule of thumb:** Start with fewer shards and scale up. Each shard adds coordination overhead.
+
+## Best Practices
+
+### 1. Choose the Right Shard Key
+
+```typescript
+// Good: High cardinality, even distribution
+key: 'tenant_id'  // Many unique values
+key: 'user_id'    // Well distributed
+
+// Bad: Low cardinality, hot spots
+key: 'status'     // Only a few values
+key: 'country'    // Uneven distribution
+```
+
+### 2. Include Shard Key in Queries
+
+```typescript
+// Good: Shard key in WHERE
+await db.query(
+  'SELECT * FROM orders WHERE tenant_id = $1 AND status = $2',
+  ['abc', 'pending']
+)
+
+// Avoid: No shard key (fan-out to all shards)
+await db.query('SELECT * FROM orders WHERE status = $1', ['pending'])
+```
+
+### 3. Monitor Shard Health
+
+```typescript
+const results = await db.queryAll('/health', {})
+for (const { shard, data, error } of results) {
+  if (error) {
+    console.error(`Shard ${shard} unhealthy: ${error.message}`)
+  }
+}
+```
+
+### 4. Use Partial Results for Resilience
+
+```typescript
+const db = new ShardedPostgres(ctx, env, {
+  sharding: { key: 'tenant_id', count: 16, algorithm: 'consistent' },
+  allowPartialResults: true,  // Continue on shard failure
+})
+
+const result = await db.query('SELECT COUNT(*) FROM orders')
+if (result.partialResults) {
+  console.warn(`Missing shards: ${result.failedShards?.join(', ')}`)
+}
+```
+
+## Related
+
+- [Replication Patterns](/docs/storage/replication) - Geo-distributed replicas
+- [Tiered Storage](/docs/storage/tiered) - Hot/warm/cold data management
+- [Storage Architecture](/docs/storage) - Overall storage overview
