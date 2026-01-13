@@ -18,9 +18,11 @@ import * as path from 'node:path'
 import { createAdapter, type RunningInstance } from '../runtime/miniflare-adapter'
 import { createLogger } from '../utils/logger'
 import { loadConfigAsync } from '../utils/config'
+import { parsePort } from '../utils/validation'
 import { discoverAll, type DiscoveryResult, type Surface } from '../utils/discover'
 import { scaffold } from '../utils/scaffold'
 import { startTunnel } from './tunnel'
+import { formatSectionHeader, formatUrl } from '../utils/output'
 
 const logger = createLogger('start')
 
@@ -81,13 +83,11 @@ export async function hasExistingProject(rootDir: string): Promise<boolean> {
 export function printSurfaceUrls(port: number, surfaces: Record<Surface, string | null>): void {
   const baseUrl = `http://localhost:${port}`
 
-  console.log()
-  console.log('  Surfaces:')
-  console.log()
+  console.log(formatSectionHeader('Surfaces'))
 
   // App is the root
   if (surfaces.App) {
-    console.log(`    App:    ${baseUrl}`)
+    console.log(formatUrl('App:', baseUrl))
   }
 
   // Other surfaces have their own paths
@@ -99,12 +99,8 @@ export function printSurfaceUrls(port: number, surfaces: Record<Surface, string 
   }
 
   for (const [surface, route] of Object.entries(surfaceRoutes) as [Exclude<Surface, 'App'>, string][]) {
-    if (surfaces[surface]) {
-      console.log(`    ${surface.padEnd(7)} ${baseUrl}${route}`)
-    } else {
-      // Show as available but not configured
-      console.log(`    ${surface.padEnd(7)} ${baseUrl}${route} (not configured)`)
-    }
+    const configured = surfaces[surface] !== null
+    console.log(formatUrl(surface, `${baseUrl}${route}`, configured))
   }
 }
 
@@ -133,7 +129,7 @@ function clearState(rootDir: string): void {
  */
 export async function startAction(options: StartOptions): Promise<StartResult> {
   const rootDir = options.cwd ?? process.cwd()
-  const port = parseInt(options.port, 10)
+  const port = parsePort(options.port)
 
   // Handle --reset flag
   if (options.reset) {
@@ -161,8 +157,8 @@ export async function startAction(options: StartOptions): Promise<StartResult> {
   // Discover surfaces
   const discovery = await discoverAll(rootDir)
 
-  // Load config
-  const config = await loadConfigAsync(rootDir)
+  // Load config (pass logger for debug logging of parse errors)
+  const config = await loadConfigAsync(rootDir, logger)
 
   // Create miniflare adapter with state persistence
   const stateDir = path.join(rootDir, '.do', 'state')

@@ -9,6 +9,7 @@ import { Command } from 'commander'
 import { createAdapter } from '../runtime/miniflare-adapter'
 import { createLogger } from '../utils/logger'
 import { loadConfigAsync } from '../utils/config'
+import { parsePort } from '../utils/validation'
 import { startTunnel } from './tunnel'
 
 const logger = createLogger('dev')
@@ -25,9 +26,10 @@ export const devCommand = new Command('dev')
   .option('--live-reload', 'Enable live reload on file changes', true)
   .option('-c, --config <path>', 'Path to config file')
   .action(async (options) => {
-    const config = await loadConfigAsync()
+    // Pass logger for debug logging of parse errors
+    const config = await loadConfigAsync(undefined, logger)
 
-    const port = parseInt(options.port, 10)
+    const port = parsePort(options.port)
     const host = options.host
 
     logger.info(`Starting development server...`)
