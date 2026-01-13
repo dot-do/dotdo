@@ -594,3 +594,386 @@ class GraphAuthAdapterImpl implements GraphAuthAdapter {
     await this.store.deleteThing(id)
   }
 }
+
+// ============================================================================
+// BETTER-AUTH DATABASE ADAPTER WRAPPER
+// ============================================================================
+
+/**
+ * Where clause for better-auth queries
+ */
+interface Where {
+  field: string
+  value: unknown
+  operator?: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'contains' | 'starts_with' | 'ends_with'
+}
+
+/**
+ * Model to type ID mapping for better-auth entities
+ */
+const MODEL_TYPE_IDS: Record<string, number> = {
+  user: TYPE_IDS.User,
+  session: TYPE_IDS.Session,
+  account: TYPE_IDS.Account,
+  verification: 4,
+  jwks: 5,
+  organization: 6,
+  member: 7,
+  invitation: 8,
+  apikey: 9,
+}
+
+/**
+ * Get the next type ID for unknown models
+ */
+let nextTypeId = 100
+function getTypeId(model: string): number {
+  const normalized = model.toLowerCase()
+  if (MODEL_TYPE_IDS[normalized]) {
+    return MODEL_TYPE_IDS[normalized]!
+  }
+  MODEL_TYPE_IDS[normalized] = nextTypeId++
+  return MODEL_TYPE_IDS[normalized]!
+}
+
+/**
+ * Capitalize first letter for type name
+ */
+function toTypeName(model: string): string {
+  return model.charAt(0).toUpperCase() + model.slice(1)
+}
+
+/**
+ * Check if a record matches the where clauses
+ */
+function matchesWhere(data: Record<string, unknown>, where: Where[]): boolean {
+  return where.every((clause) => {
+    const value = data[clause.field]
+    const targetValue = clause.value
+    const operator = clause.operator ?? 'eq'
+
+    switch (operator) {
+      case 'eq':
+        return value === targetValue
+      case 'ne':
+        return value !== targetValue
+      case 'gt':
+        return typeof value === 'number' && typeof targetValue === 'number' && value > targetValue
+      case 'gte':
+        return typeof value === 'number' && typeof targetValue === 'number' && value >= targetValue
+      case 'lt':
+        return typeof value === 'number' && typeof targetValue === 'number' && value < targetValue
+      case 'lte':
+        return typeof value === 'number' && typeof targetValue === 'number' && value <= targetValue
+      case 'in':
+        return Array.isArray(targetValue) && targetValue.includes(value)
+      case 'contains':
+        return typeof value === 'string' && typeof targetValue === 'string' && value.includes(targetValue)
+      case 'starts_with':
+        return typeof value === 'string' && typeof targetValue === 'string' && value.startsWith(targetValue)
+      case 'ends_with':
+        return typeof value === 'string' && typeof targetValue === 'string' && value.endsWith(targetValue)
+      default:
+        return value === targetValue
+    }
+  })
+}
+
+/**
+ * Convert a Thing to a flat record for better-auth
+ */
+function thingToRecord(thing: { id: string; data: unknown; createdAt: number; updatedAt: number }): Record<string, unknown> {
+  const data = thing.data as Record<string, unknown> | null
+  return {
+    id: thing.id,
+    ...data,
+    createdAt: new Date(thing.createdAt),
+    updatedAt: new Date(thing.updatedAt),
+  }
+}
+
+/**
+ * Convert Date fields to timestamps for storage
+ */
+function normalizeDataForStorage(data: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (key === 'id' || key === 'createdAt' || key === 'updatedAt') continue
+    if (value instanceof Date) {
+      result[key] = value.getTime()
+    } else {
+      result[key] = value
+    }
+  }
+  return result
+}
+
+/**
+ * Factory function to create a better-auth compatible database adapter
+ * backed by GraphStore.
+ *
+ * This adapter translates better-auth's generic database operations
+ * (create, findOne, findMany, update, delete) into GraphStore operations.
+ *
+ * @param store - The GraphStore instance to use for persistence
+ * @returns A function that returns a better-auth DBAdapter
+ *
+ * @example
+ * ```typescript
+ * import { graphAuthAdapter } from './adapters/graph'
+ *
+ * export function createAuth(config) {
+ *   return betterAuth({
+ *     database: graphAuthAdapter(config.graphStore),
+ *     // ... rest of config
+ *   })
+ * }
+ * ```
+ */
+export function graphAuthAdapter(store: GraphStore) {
+  // Return a factory function that better-auth calls with options
+  return (_options?: unknown) => {
+    return {
+      id: 'graph-auth-adapter',
+
+      /**
+       * Create a new record
+       */
+      async create<T extends Record<string, unknown>, R = T>(params: {
+        model: string
+        data: Omit<T, 'id'>
+        select?: string[]
+        forceAllowId?: boolean
+      }): Promise<R> {
+        const { model, data, forceAllowId } = params
+        const id = forceAllowId && (data as Record<string, unknown>).id
+          ? String((data as Record<string, unknown>).id)
+          : randomUUID()
+
+        const storageData = normalizeDataForStorage(data as Record<string, unknown>)
+
+        const thing = await store.createThing({
+          id,
+          typeId: getTypeId(model),
+          typeName: toTypeName(model),
+          data: storageData,
+        })
+
+        return thingToRecord(thing) as R
+      },
+
+      /**
+       * Find a single record
+       */
+      async findOne<T>(params: {
+        model: string
+        where: Where[]
+        select?: string[]
+      }): Promise<T | null> {
+        const { model, where } = params
+
+        // Optimization: if querying by ID directly, use getThing
+        const idClause = where.find((w) => w.field === 'id' && w.operator !== 'ne')
+        if (idClause && where.length === 1) {
+          const thing = await store.getThing(String(idClause.value))
+          if (!thing || thing.deletedAt !== null || thing.typeName !== toTypeName(model)) {
+            return null
+          }
+          return thingToRecord(thing) as T
+        }
+
+        // Otherwise, query by type and filter
+        const things = await store.getThingsByType({ typeName: toTypeName(model) })
+
+        for (const thing of things) {
+          if (thing.deletedAt !== null) continue
+          const record = thingToRecord(thing)
+          if (matchesWhere(record, where)) {
+            return record as T
+          }
+        }
+
+        return null
+      },
+
+      /**
+       * Find multiple records
+       */
+      async findMany<T>(params: {
+        model: string
+        where?: Where[]
+        limit?: number
+        sortBy?: { field: string; direction: 'asc' | 'desc' }
+        offset?: number
+      }): Promise<T[]> {
+        const { model, where, limit, sortBy, offset } = params
+
+        const things = await store.getThingsByType({ typeName: toTypeName(model) })
+        let results: Record<string, unknown>[] = []
+
+        for (const thing of things) {
+          if (thing.deletedAt !== null) continue
+          const record = thingToRecord(thing)
+          if (!where || where.length === 0 || matchesWhere(record, where)) {
+            results.push(record)
+          }
+        }
+
+        // Sort
+        if (sortBy) {
+          results.sort((a, b) => {
+            const aVal = a[sortBy.field]
+            const bVal = b[sortBy.field]
+            if (aVal === bVal) return 0
+            const comparison = aVal! < bVal! ? -1 : 1
+            return sortBy.direction === 'asc' ? comparison : -comparison
+          })
+        }
+
+        // Offset
+        if (offset && offset > 0) {
+          results = results.slice(offset)
+        }
+
+        // Limit
+        if (limit && limit > 0) {
+          results = results.slice(0, limit)
+        }
+
+        return results as T[]
+      },
+
+      /**
+       * Update a single record
+       */
+      async update<T>(params: {
+        model: string
+        where: Where[]
+        update: Record<string, unknown>
+      }): Promise<T | null> {
+        const { model, where, update } = params
+
+        // Find the record to update
+        const existing = await this.findOne<Record<string, unknown>>({ model, where })
+        if (!existing) {
+          return null
+        }
+
+        const id = existing.id as string
+        const currentThing = await store.getThing(id)
+        if (!currentThing) {
+          return null
+        }
+
+        const currentData = currentThing.data as Record<string, unknown> | null
+        const newData = normalizeDataForStorage({
+          ...(currentData ?? {}),
+          ...update,
+        })
+
+        const updated = await store.updateThing(id, { data: newData })
+        if (!updated) {
+          return null
+        }
+
+        return thingToRecord(updated) as T
+      },
+
+      /**
+       * Update multiple records
+       */
+      async updateMany(params: {
+        model: string
+        where: Where[]
+        update: Record<string, unknown>
+      }): Promise<number> {
+        const { model, where, update } = params
+
+        const things = await store.getThingsByType({ typeName: toTypeName(model) })
+        let count = 0
+
+        for (const thing of things) {
+          if (thing.deletedAt !== null) continue
+          const record = thingToRecord(thing)
+          if (matchesWhere(record, where)) {
+            const currentData = thing.data as Record<string, unknown> | null
+            const newData = normalizeDataForStorage({
+              ...(currentData ?? {}),
+              ...update,
+            })
+            await store.updateThing(thing.id, { data: newData })
+            count++
+          }
+        }
+
+        return count
+      },
+
+      /**
+       * Delete a single record
+       */
+      async delete(params: {
+        model: string
+        where: Where[]
+      }): Promise<void> {
+        const { model, where } = params
+
+        const existing = await this.findOne<Record<string, unknown>>({ model, where })
+        if (existing) {
+          await store.deleteThing(existing.id as string)
+        }
+      },
+
+      /**
+       * Delete multiple records
+       */
+      async deleteMany(params: {
+        model: string
+        where: Where[]
+      }): Promise<number> {
+        const { model, where } = params
+
+        const things = await store.getThingsByType({ typeName: toTypeName(model) })
+        let count = 0
+
+        for (const thing of things) {
+          if (thing.deletedAt !== null) continue
+          const record = thingToRecord(thing)
+          if (matchesWhere(record, where)) {
+            await store.deleteThing(thing.id)
+            count++
+          }
+        }
+
+        return count
+      },
+
+      /**
+       * Count records
+       */
+      async count(params: {
+        model: string
+        where?: Where[]
+      }): Promise<number> {
+        const { model, where } = params
+
+        const things = await store.getThingsByType({ typeName: toTypeName(model) })
+        let count = 0
+
+        for (const thing of things) {
+          if (thing.deletedAt !== null) continue
+          if (!where || where.length === 0) {
+            count++
+          } else {
+            const record = thingToRecord(thing)
+            if (matchesWhere(record, where)) {
+              count++
+            }
+          }
+        }
+
+        return count
+      },
+    }
+  }
+}

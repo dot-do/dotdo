@@ -87,8 +87,11 @@ export class BucketAlreadyExists extends S3ServiceException {
 
 /**
  * A bucket already exists and is owned by you
+ *
+ * This extends BucketAlreadyExists so that code checking for BucketAlreadyExists
+ * will also catch BucketAlreadyOwnedByYou (which is a more specific case).
  */
-export class BucketAlreadyOwnedByYou extends S3ServiceException {
+export class BucketAlreadyOwnedByYou extends BucketAlreadyExists {
   override readonly name = 'BucketAlreadyOwnedByYou'
 
   constructor(options: S3ErrorOptions = {}) {

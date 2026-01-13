@@ -3,11 +3,8 @@
   "compilerOptions": {
     // Output configuration
     "outDir": "dist",
-    // Note: declaration generation disabled due to mixin pattern issues
-    // in objects/transport/auth-layer.ts and rpc-server.ts
-    // TODO: Fix mixin patterns to enable declaration emit (dotdo-xxxx)
-    "declaration": false,
-    "declarationMap": false,
+    "declaration": true,
+    "declarationMap": true,
     "sourceMap": true,
     "noEmit": false,
 

@@ -2,6 +2,7 @@
  * Schema Parser for Cascade Generation System
  *
  * Parses schema definitions into structured LegacyParsedSchema objects.
+ * Now delegates to the centralized schema-parser for operator parsing.
  */
 
 import type {
@@ -12,10 +13,18 @@ import type {
   LegacyParsedField,
   CascadeOperator,
 } from './types'
+import {
+  defaultParser,
+  CascadeSchemaError,
+  PRIMITIVE_TYPES,
+} from './schema-parser'
 
 // Re-export types for convenience (using legacy types for backwards compatibility)
 export type { SchemaDefinition, SchemaMetadata }
 export type { LegacyParsedSchema as LegacyParsedSchema, LegacyParsedType as LegacyParsedType, LegacyParsedField as LegacyParsedField }
+
+// Re-export error types
+export { CascadeSchemaError }
 
 /**
  * Check if a key is a PascalCase type name (starts with uppercase letter A-Z)
@@ -34,18 +43,13 @@ function isDirective(key: string): boolean {
 }
 
 /**
- * Unified regex to match all cascade operators: ->, ~>, <-, <~
- * Captures: (prompt)(operator)(reference)(optional?)
- */
-const OPERATOR_PATTERN = /^(.*?)(<-|<~|->|~>)(\w+)(\??)$/
-
-/**
  * Pattern to identify simple type declarations (lowercase word with optional ?)
  */
 const SIMPLE_TYPE_PATTERN = /^([a-z]+)(\??)$/
 
 /**
- * Parse a field value string to extract type, operator, reference, and prompt
+ * Parse a field value string to extract type, operator, reference, and prompt.
+ * Uses the centralized parser for operator detection.
  *
  * Examples:
  * - 'string' -> { type: 'string', required: true }
@@ -54,18 +58,16 @@ const SIMPLE_TYPE_PATTERN = /^([a-z]+)(\??)$/
  * - 'What is the idea? <-Idea' -> { type: 'reference', operator: '<-', reference: 'Idea', prompt: 'What is the idea?' }
  * - '->Node?' -> { type: 'reference', operator: '->', reference: 'Node', required: false }
  */
-function parseFieldValue(value: string): Partial<LegacyParsedField> {
-  // Try to match a cascade operator
-  const operatorMatch = value.match(OPERATOR_PATTERN)
-  if (operatorMatch) {
-    const [, promptPart, operator, reference, optional] = operatorMatch
-    const prompt = promptPart!.trim()
+function parseFieldValue(value: string, fieldName?: string, typeName?: string): Partial<LegacyParsedField> {
+  // Use centralized parser for operator detection
+  const parsed = defaultParser.parseReference(value)
+  if (parsed) {
     return {
       type: 'reference',
-      operator: operator as CascadeOperator,
-      reference,
-      required: optional !== '?',
-      ...(prompt && { prompt }),
+      operator: parsed.operator as CascadeOperator,
+      reference: parsed.target,
+      required: !parsed.isOptional,
+      ...(parsed.prompt && { prompt: parsed.prompt }),
     }
   }
 
@@ -79,6 +81,17 @@ function parseFieldValue(value: string): Partial<LegacyParsedField> {
     }
   }
 
+  // Check if it looks like a reference with invalid format
+  if (value.includes('->') || value.includes('<-') || value.includes('~>') || value.includes('<~')) {
+    throw new CascadeSchemaError({
+      field: fieldName,
+      typeName,
+      value,
+      reason: 'Invalid reference format',
+      hint: 'Reference format should be: [prompt] operator Target[?]. Example: "->User" or "What user? ->User?"',
+    })
+  }
+
   // It's a prompt without an operator
   return {
     type: 'string',
@@ -90,7 +103,7 @@ function parseFieldValue(value: string): Partial<LegacyParsedField> {
 /**
  * Parse a field definition (can be string, array, or nested object)
  */
-function parseField(name: string, value: unknown): LegacyParsedField {
+function parseField(name: string, value: unknown, typeName?: string): LegacyParsedField {
   const field: LegacyParsedField = {
     name,
     type: 'unknown',
@@ -99,7 +112,7 @@ function parseField(name: string, value: unknown): LegacyParsedField {
 
   if (typeof value === 'string') {
     // Simple string field definition
-    const parsed = parseFieldValue(value)
+    const parsed = parseFieldValue(value, name, typeName)
     Object.assign(field, parsed)
   } else if (Array.isArray(value)) {
     // Array field
@@ -110,7 +123,7 @@ function parseField(name: string, value: unknown): LegacyParsedField {
 
       if (typeof firstElement === 'string') {
         // Array of primitives or references: ['string'] or ['->Type']
-        const parsed = parseFieldValue(firstElement)
+        const parsed = parseFieldValue(firstElement, name, typeName)
         Object.assign(field, parsed)
 
         // Check for array constraints in second element: ['->Type', { minItems: 2, maxItems: 5 }]
@@ -129,14 +142,14 @@ function parseField(name: string, value: unknown): LegacyParsedField {
       } else if (typeof firstElement === 'object' && firstElement !== null) {
         // Array of nested objects: [{ product: '->Product', quantity: 'number' }]
         field.isNested = true
-        field.nestedFields = parseFieldsFromObject(firstElement as Record<string, unknown>)
+        field.nestedFields = parseFieldsFromObject(firstElement as Record<string, unknown>, typeName)
         field.type = 'object'
       }
     }
   } else if (typeof value === 'object' && value !== null) {
     // Nested object field
     field.isNested = true
-    field.nestedFields = parseFieldsFromObject(value as Record<string, unknown>)
+    field.nestedFields = parseFieldsFromObject(value as Record<string, unknown>, typeName)
     field.type = 'object'
   }
 
@@ -146,14 +159,14 @@ function parseField(name: string, value: unknown): LegacyParsedField {
 /**
  * Parse fields from an object definition
  */
-function parseFieldsFromObject(obj: Record<string, unknown>): LegacyParsedField[] {
+function parseFieldsFromObject(obj: Record<string, unknown>, typeName?: string): LegacyParsedField[] {
   const fields: LegacyParsedField[] = []
 
   for (const [key, value] of Object.entries(obj)) {
     // Skip $ directives
     if (isDirective(key)) continue
 
-    fields.push(parseField(key, value))
+    fields.push(parseField(key, value, typeName))
   }
 
   return fields
@@ -165,7 +178,7 @@ function parseFieldsFromObject(obj: Record<string, unknown>): LegacyParsedField[
 function parseType(name: string, definition: Record<string, unknown>): LegacyParsedType {
   return {
     name,
-    fields: parseFieldsFromObject(definition),
+    fields: parseFieldsFromObject(definition, name),
   }
 }
 
@@ -186,9 +199,24 @@ function extractMetadata(def: SchemaDefinition): SchemaMetadata {
 }
 
 /**
- * Parse a schema definition into a structured LegacyParsedSchema
+ * Options for schema parsing
  */
-export function parseSchema(def: SchemaDefinition): LegacyParsedSchema {
+export interface ParseSchemaOptions {
+  /** Validate that referenced types exist */
+  validateReferences?: boolean
+  /** Detect circular references at parse time */
+  detectCircularReferences?: boolean
+}
+
+/**
+ * Parse a schema definition into a structured LegacyParsedSchema
+ *
+ * @param def - The schema definition to parse
+ * @param options - Optional parsing options
+ * @returns Parsed schema with type information and helper methods
+ * @throws CascadeSchemaError if validation fails (when options are enabled)
+ */
+export function parseSchema(def: SchemaDefinition, options?: ParseSchemaOptions): LegacyParsedSchema {
   const metadata = extractMetadata(def)
   const types: LegacyParsedType[] = []
 
@@ -208,6 +236,45 @@ export function parseSchema(def: SchemaDefinition): LegacyParsedSchema {
   const typeMap = new Map<string, LegacyParsedType>()
   for (const type of types) {
     typeMap.set(type.name, type)
+  }
+
+  // Validate references if requested
+  if (options?.validateReferences) {
+    const definedTypes = new Set(types.map(t => t.name))
+    for (const type of types) {
+      for (const field of type.fields) {
+        if (field.reference && !definedTypes.has(field.reference) && !PRIMITIVE_TYPES.has(field.reference.toLowerCase())) {
+          throw new CascadeSchemaError({
+            typeName: type.name,
+            field: field.name,
+            value: field.reference,
+            reason: `Referenced type '${field.reference}' is not defined in schema`,
+            hint: `Define the '${field.reference}' type in your schema, or use a primitive type (string, number, boolean, etc.)`,
+          })
+        }
+      }
+    }
+  }
+
+  // Detect circular references if requested
+  if (options?.detectCircularReferences) {
+    const rawSchema: Record<string, Record<string, unknown>> = {}
+    for (const type of types) {
+      const fields: Record<string, unknown> = {}
+      for (const field of type.fields) {
+        if (field.operator && field.reference) {
+          fields[field.name] = `${field.operator}${field.reference}${field.required ? '' : '?'}`
+        } else {
+          fields[field.name] = field.type
+        }
+      }
+      rawSchema[type.name] = fields
+    }
+
+    const circularError = defaultParser.detectCircularReferences(rawSchema)
+    if (circularError) {
+      throw circularError
+    }
   }
 
   return {
