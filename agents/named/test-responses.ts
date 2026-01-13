@@ -287,6 +287,9 @@ const ROLE_RESPONSE_GENERATORS: Record<AgentRole, ResponseGenerator | null> = {
   marketing: null,
   sales: null,
   qa: null,
+  'customer-success': null,
+  finance: null,
+  data: null,
 }
 
 // ============================================================================

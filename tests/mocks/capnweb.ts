@@ -99,8 +99,58 @@ export function newHttpBatchRpcSession(_url: string, _options?: SessionOptions):
   return createMockStub()
 }
 
+/**
+ * Mock RpcTarget base class for DO classes to extend
+ */
+export class RpcTarget {
+  [Symbol.dispose]() {
+    // Cleanup
+  }
+}
+
+/**
+ * Mock for newWorkersRpcResponse (creates RPC response for Workers runtime)
+ */
+export function newWorkersRpcResponse(
+  _target: unknown,
+  _request: Request,
+  _options?: unknown
+): Response {
+  return new Response(JSON.stringify({ __mock: true }), {
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * Mock for newHttpBatchRpcResponse (creates HTTP batch RPC response)
+ */
+export function newHttpBatchRpcResponse(
+  _target: unknown,
+  _request: Request,
+  _options?: unknown
+): Response {
+  return new Response(JSON.stringify({ __mock: true }), {
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * Mock for newWorkersWebSocketRpcResponse (creates WebSocket RPC response)
+ */
+export function newWorkersWebSocketRpcResponse(
+  _target: unknown,
+  _request: Request,
+  _options?: unknown
+): Response {
+  return new Response(null, { status: 101, webSocket: undefined as unknown as WebSocket })
+}
+
 // Default export for ESM compatibility
 export default {
   newWebSocketRpcSession,
   newHttpBatchRpcSession,
+  RpcTarget,
+  newWorkersRpcResponse,
+  newHttpBatchRpcResponse,
+  newWorkersWebSocketRpcResponse,
 }

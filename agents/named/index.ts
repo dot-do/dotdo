@@ -13,14 +13,18 @@
  * | Sally | Sales - outreach, closing |
  * | Quinn | QA - testing, quality |
  * | Rae   | Frontend - React, components, design systems |
+ * | Casey | Customer Success - onboarding, retention |
+ * | Finn  | Finance - budgets, forecasting, analysis |
+ * | Dana  | Data - analytics, metrics, data-driven insights |
  *
  * @example
  * ```ts
- * import { priya, ralph, tom, rae } from 'agents.do'
+ * import { priya, ralph, tom, rae, finn } from 'agents.do'
  *
  * const spec = await priya`define the MVP for ${hypothesis}`
  * let app = await ralph`build ${spec}`
  * let ui = await rae`create the dashboard UI`
+ * let budget = await finn`estimate budget for ${spec}`
  *
  * do {
  *   app = await ralph`improve ${app} per ${tom}`
@@ -42,6 +46,9 @@ export {
   sally,
   quinn,
   rae,
+  casey,
+  finn,
+  dana,
   createNamedAgent,
   enableMockMode,
   disableMockMode,

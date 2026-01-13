@@ -176,3 +176,28 @@ export {
   type FoundationStorage,
   type FoundationContext,
 } from './context/foundation'
+
+// Analytics context API ($.analytics)
+export {
+  createAnalyticsContext,
+  type WebMetrics,
+  type ProductMetrics,
+  type FinancialMetrics,
+  type WebAnalytics,
+  type ProductAnalytics,
+  type FinancialAnalytics,
+  type MetricTrend,
+  type TrendPeriod,
+  type AnalyticsSummary,
+  type AllAnalytics,
+  type Analytics,
+  type AnalyticsContext,
+  type AnalyticsStorage,
+  type SessionData,
+  type PageviewData,
+  type ActivityData,
+  type FeatureData,
+  type RevenueData,
+  type CostData,
+  type SubscriptionData,
+} from './context/analytics'

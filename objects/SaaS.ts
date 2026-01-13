@@ -1,12 +1,23 @@
 /**
  * SaaS - Software-as-a-Service application
  *
- * Combines App with subscription billing, multi-tenancy, usage tracking.
+ * Extends DigitalBusiness with SaaS-specific OKRs: MRR, Churn, NRR, CAC, LTV.
+ * Includes subscription billing, multi-tenancy, and usage tracking.
+ *
  * Examples: 'analytics-saas', 'crm-platform'
+ *
+ * @example
+ * ```typescript
+ * class MyApp extends SaaS {
+ *   // Inherits: Revenue, Costs, Profit, Traffic, Conversion, Engagement
+ *   // Adds: MRR, Churn, NRR, CAC, LTV (SaaS metrics)
+ * }
+ * ```
  */
 
-import { App, AppConfig } from './App'
+import { DigitalBusiness, DigitalBusinessConfig } from './DigitalBusiness'
 import { Env } from './DO'
+import type { OKR } from './DOBase'
 
 export interface SaaSPlan {
   id: string
@@ -35,18 +46,118 @@ export interface UsageRecord {
   timestamp: Date
 }
 
-export interface SaaSConfig extends AppConfig {
+export interface SaaSConfig extends DigitalBusinessConfig {
   plans: SaaSPlan[]
   trialDays?: number
   features: string[]
   usageMetrics?: string[]
 }
 
-export class SaaS extends App {
+export class SaaS extends DigitalBusiness {
+  static override readonly $type: string = 'SaaS'
+
   private saasConfig: SaaSConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+  }
+
+  /**
+   * OKRs for SaaS
+   *
+   * Includes inherited DigitalBusiness OKRs (Revenue, Costs, Profit, Traffic, Conversion, Engagement)
+   * plus SaaS-specific metrics (MRR, Churn, NRR, CAC, LTV)
+   */
+  override okrs: Record<string, OKR> = {
+    // Inherited from Business (via DigitalBusiness)
+    Revenue: this.defineOKR({
+      objective: 'Grow revenue',
+      keyResults: [
+        { name: 'TotalRevenue', target: 100000, current: 0, unit: '$' },
+        { name: 'RevenueGrowthRate', target: 20, current: 0, unit: '%' },
+      ],
+    }),
+    Costs: this.defineOKR({
+      objective: 'Optimize costs',
+      keyResults: [
+        { name: 'TotalCosts', target: 50000, current: 0, unit: '$' },
+        { name: 'CostReduction', target: 10, current: 0, unit: '%' },
+      ],
+    }),
+    Profit: this.defineOKR({
+      objective: 'Maximize profit',
+      keyResults: [
+        { name: 'NetProfit', target: 50000, current: 0, unit: '$' },
+        { name: 'ProfitMargin', target: 50, current: 0, unit: '%' },
+      ],
+    }),
+    // Inherited from DigitalBusiness
+    Traffic: this.defineOKR({
+      objective: 'Increase website traffic',
+      keyResults: [
+        { name: 'MonthlyVisitors', target: 100000, current: 0 },
+        { name: 'UniqueVisitors', target: 50000, current: 0 },
+        { name: 'PageViews', target: 300000, current: 0 },
+      ],
+    }),
+    Conversion: this.defineOKR({
+      objective: 'Improve conversion rates',
+      keyResults: [
+        { name: 'VisitorToSignup', target: 10, current: 0, unit: '%' },
+        { name: 'SignupToCustomer', target: 25, current: 0, unit: '%' },
+        { name: 'OverallConversion', target: 2.5, current: 0, unit: '%' },
+      ],
+    }),
+    Engagement: this.defineOKR({
+      objective: 'Boost user engagement',
+      keyResults: [
+        { name: 'DAU', target: 10000, current: 0 },
+        { name: 'MAU', target: 50000, current: 0 },
+        { name: 'DAUMAURatio', target: 20, current: 0, unit: '%' },
+        { name: 'SessionDuration', target: 300, current: 0, unit: 'seconds' },
+      ],
+    }),
+    // SaaS-specific OKRs
+    MRR: this.defineOKR({
+      objective: 'Grow Monthly Recurring Revenue',
+      keyResults: [
+        { name: 'MonthlyRecurringRevenue', target: 100000, current: 0, unit: '$' },
+        { name: 'MRRGrowthRate', target: 15, current: 0, unit: '%' },
+        { name: 'NewMRR', target: 20000, current: 0, unit: '$' },
+      ],
+    }),
+    Churn: this.defineOKR({
+      objective: 'Minimize customer churn',
+      keyResults: [
+        { name: 'MonthlyChurnRate', target: 2, current: 0, unit: '%' },
+        { name: 'ChurnedCustomers', target: 5, current: 0 },
+        { name: 'ChurnedMRR', target: 2000, current: 0, unit: '$' },
+      ],
+    }),
+    NRR: this.defineOKR({
+      objective: 'Maximize Net Revenue Retention',
+      keyResults: [
+        { name: 'NetRevenueRetention', target: 120, current: 0, unit: '%' },
+        { name: 'ExpansionRevenue', target: 25000, current: 0, unit: '$' },
+        { name: 'ContractionRevenue', target: 5000, current: 0, unit: '$' },
+      ],
+    }),
+    CAC: this.defineOKR({
+      objective: 'Optimize Customer Acquisition Cost',
+      keyResults: [
+        { name: 'CustomerAcquisitionCost', target: 500, current: 0, unit: '$' },
+        { name: 'CACPaybackMonths', target: 12, current: 0, unit: 'months' },
+        { name: 'MarketingEfficiency', target: 3, current: 0, unit: 'x' },
+      ],
+    }),
+    LTV: this.defineOKR({
+      objective: 'Maximize Customer Lifetime Value',
+      keyResults: [
+        { name: 'LifetimeValue', target: 6000, current: 0, unit: '$' },
+        { name: 'LTVCACRatio', target: 3, current: 0, unit: 'x' },
+        { name: 'AverageCustomerLifespan', target: 36, current: 0, unit: 'months' },
+      ],
+    }),
   }
 
   /**

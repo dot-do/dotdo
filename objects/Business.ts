@@ -3,9 +3,14 @@
  *
  * Top-level container for Apps, Sites, and organizational data.
  * Examples: 'acme-corp', 'startup-inc'
+ *
+ * Provides pre-configured OKRs for common business metrics:
+ * - Revenue: Track MRR and ARR targets
+ * - Costs: Track OpEx and COGS
+ * - Profit: Track GrossMargin and NetMargin percentages
  */
 
-import { DO, Env } from './DO'
+import { DO, Env, type OKR } from './DO'
 
 export interface BusinessConfig {
   name: string
@@ -18,6 +23,59 @@ export class Business extends DO {
   static override readonly $type: string = 'Business'
 
   private config: BusinessConfig | null = null
+
+  /**
+   * Pre-configured OKRs for business financial metrics.
+   *
+   * - Revenue: Track monthly and annual recurring revenue (MRR, ARR)
+   * - Costs: Track operating expenses and cost of goods sold (OpEx, COGS)
+   * - Profit: Track gross and net profit margins (GrossMargin, NetMargin)
+   *
+   * Subclasses can extend or override OKRs in their constructor:
+   * ```typescript
+   * class MyBusiness extends Business {
+   *   constructor(ctx: DurableObjectState, env: Env) {
+   *     super(ctx, env)
+   *     // Add custom OKRs
+   *     this.okrs.CustomerGrowth = this.defineOKR({
+   *       objective: 'Grow customer base',
+   *       keyResults: [{ name: 'TotalCustomers', target: 1000 }],
+   *     })
+   *     // Or override defaults with custom targets
+   *     this.okrs.Revenue = this.defineOKR({
+   *       objective: 'Hit aggressive revenue targets',
+   *       keyResults: [
+   *         { name: 'MRR', target: 50000, current: 0, unit: '$' },
+   *         { name: 'ARR', target: 600000, current: 0, unit: '$' },
+   *       ],
+   *     })
+   *   }
+   * }
+   * ```
+   */
+  override okrs: Record<string, OKR> = {
+    Revenue: this.defineOKR({
+      objective: 'Achieve revenue targets',
+      keyResults: [
+        { name: 'MRR', target: 10000, current: 0, unit: '$' },
+        { name: 'ARR', target: 120000, current: 0, unit: '$' },
+      ],
+    }),
+    Costs: this.defineOKR({
+      objective: 'Manage costs efficiently',
+      keyResults: [
+        { name: 'OpEx', target: 5000, current: 0, unit: '$' },
+        { name: 'COGS', target: 3000, current: 0, unit: '$' },
+      ],
+    }),
+    Profit: this.defineOKR({
+      objective: 'Achieve profitability targets',
+      keyResults: [
+        { name: 'GrossMargin', target: 70, current: 0, unit: '%' },
+        { name: 'NetMargin', target: 20, current: 0, unit: '%' },
+      ],
+    }),
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)

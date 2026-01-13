@@ -1,496 +1,838 @@
 /**
- * Service - Business service offering
+ * Service - AI-delivered Services-as-Software DO subclass
  *
- * Represents a subscribable service delivered by Agents, Humans, or automation.
- * Examples: SaaS subscriptions, marketing content, agentic coding on demand
+ * Extends Business for AI-delivered Services-as-Software businesses.
+ * AI agents deliver the service with human escalation when needed.
+ *
+ * Vision: `class MyAgency extends Service` - a service container that
+ * can be extended to create specific AI-powered service businesses.
+ *
+ * Service-specific OKRs:
+ * - TasksCompleted - Work items delivered
+ * - QualityScore - Output quality (human or AI-rated)
+ * - ResponseTime - Time to first action
+ * - DeliveryTime - Time to completion
+ * - CustomerSatisfaction - Service CSAT
+ * - HumanEscalationRate - % requiring human intervention
+ * - CostPerTask - Efficiency metric
+ * - CapacityUtilization - Agent workload
  */
 
-import { DO, Env } from './DO'
+import { Business, BusinessConfig } from './Business'
+import { Env, OKR } from './DO'
 
-export type ServiceType = 'subscription' | 'on-demand' | 'project' | 'retainer'
-export type DeliveryMethod = 'agent' | 'human' | 'automated' | 'hybrid'
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
 
-export interface ServiceTier {
-  id: string
-  name: string
+/**
+ * Service configuration
+ */
+export interface ServiceConfig extends BusinessConfig {
   description?: string
-  price: number
-  interval?: 'monthly' | 'yearly' | 'one-time' | 'per-use'
-  features: string[]
-  limits?: Record<string, number>
-  deliveryMethod: DeliveryMethod
-  sla?: {
-    responseTime: string
-    resolution: string
-    availability: string
-  }
+  pricingModel?: PricingModel
 }
 
-export interface ServiceConfig {
+/**
+ * Pricing model for the service
+ */
+export interface PricingModel {
+  type: 'per-task' | 'subscription' | 'usage-based' | 'hybrid'
+  basePrice?: number
+  pricePerTask?: number
+  currency?: string
+  tiers?: PricingTier[]
+}
+
+/**
+ * Pricing tier for tiered pricing
+ */
+export interface PricingTier {
   name: string
-  description?: string
-  type: ServiceType
-  category?: string
-  tiers: ServiceTier[]
-  deliveryMethod: DeliveryMethod
-  assignedWorkers?: string[] // Agent or Human DO IDs
-  capabilities?: string[]
-  integrations?: string[]
+  minTasks?: number
+  maxTasks?: number
+  pricePerTask: number
 }
 
-export interface ServiceSubscription {
-  id: string
-  serviceId: string
-  customerId: string
-  tierId: string
-  status: 'active' | 'paused' | 'canceled' | 'trial'
-  startedAt: Date
-  currentPeriodStart: Date
-  currentPeriodEnd: Date
-  canceledAt?: Date
-  metadata?: Record<string, unknown>
-}
-
-export interface ServiceRequest {
-  id: string
-  subscriptionId: string
+/**
+ * Task definition for service work
+ */
+export interface ServiceTask {
+  taskId: string
   type: string
   description: string
   input: Record<string, unknown>
-  status: 'pending' | 'assigned' | 'in_progress' | 'review' | 'completed' | 'failed'
-  assignedTo?: string // Worker DO ID
-  priority: 'low' | 'normal' | 'high' | 'urgent'
-  createdAt: Date
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  deadline?: Date
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Internal task record with tracking data
+ */
+interface TaskRecord extends ServiceTask {
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'escalated'
+  submittedAt: Date
   startedAt?: Date
   completedAt?: Date
   output?: Record<string, unknown>
-  feedback?: {
-    rating: number
-    comment?: string
-  }
+  qualityScore?: number
+  humanRating?: number
+  responseTimeMs?: number
+  deliveryTimeMs?: number
+  cost?: number
+  escalatedTo?: string
+  assignedAgent?: string
+  ratingFeedback?: string
+  ratedBy?: string
 }
 
-export interface ServiceDeliverable {
-  id: string
-  requestId: string
-  type: string
+/**
+ * Task completion options
+ */
+export interface TaskCompletionOptions {
+  status: 'completed' | 'failed' | 'escalated'
+  output?: Record<string, unknown>
+  qualityScore?: number
+  responseTimeMs?: number
+  deliveryTimeMs?: number
+  cost?: number
+  escalatedTo?: string
+}
+
+/**
+ * Task result after completion
+ */
+export interface TaskResult {
+  taskId: string
+  status: 'completed' | 'failed' | 'escalated'
+  output?: Record<string, unknown>
+  qualityScore?: number
+  responseTimeMs?: number
+  deliveryTimeMs?: number
+  cost?: number
+  escalatedTo?: string
+  completedAt: Date
+}
+
+/**
+ * Agent assignment for task execution
+ */
+export interface AgentAssignment {
+  agentId: string
   name: string
-  content: unknown
-  createdAt: Date
-  createdBy: string
-  version: number
+  role: 'primary' | 'backup' | 'specialist'
+  capabilities?: string[]
+  currentLoad?: number
+  maxLoad?: number
 }
 
-export class Service extends DO {
-  private config: ServiceConfig | null = null
+/**
+ * Service metrics snapshot
+ */
+export interface ServiceMetrics {
+  tasksCompleted: number
+  tasksFailed: number
+  tasksEscalated: number
+  averageQualityScore: number
+  averageResponseTimeMs: number
+  averageDeliveryTimeMs: number
+  humanEscalationRate: number
+  averageCostPerTask: number
+  capacityUtilization: number
+  totalRevenue: number
+}
+
+/**
+ * Escalation configuration
+ */
+export interface ServiceEscalationConfig {
+  qualityThreshold?: number
+  maxRetries?: number
+  escalationTargets: Array<{
+    target: string
+    priority: 'low' | 'normal' | 'high' | 'urgent'
+  }>
+}
+
+/**
+ * Escalation options
+ */
+export interface EscalationOptions {
+  reason: string
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+}
+
+/**
+ * Quality rating options
+ */
+export interface QualityRatingOptions {
+  rating: number
+  ratedBy: string
+  feedback?: string
+}
+
+// ============================================================================
+// SERVICE CLASS
+// ============================================================================
+
+export class Service extends Business {
+  static override readonly $type: string = 'Service'
+
+  // Internal state
+  private tasks: Map<string, TaskRecord> = new Map()
+  private assignedAgents: Map<string, AgentAssignment> = new Map()
+  private pricingModel: PricingModel | null = null
+  private escalationConfig: ServiceEscalationConfig | null = null
+  private serviceConfig: ServiceConfig | null = null
+
+  // Metrics tracking
+  private metricsCache: ServiceMetrics | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
   }
 
+  // ==========================================================================
+  // SERVICE-SPECIFIC OKRs
+  // ==========================================================================
+
   /**
-   * Get service configuration
+   * Service-specific OKRs for tracking performance
    */
-  async getConfig(): Promise<ServiceConfig | null> {
-    if (!this.config) {
-      this.config = (await this.ctx.storage.get('config')) as ServiceConfig | null
-    }
-    return this.config
+  override okrs: Record<string, OKR> = {
+    TasksCompleted: this.defineOKR({
+      objective: 'Maximize task completion rate',
+      keyResults: [
+        { name: 'CompletedTasks', target: 100, current: 0 },
+        { name: 'CompletionRate', target: 95, current: 0, unit: '%' },
+      ],
+    }),
+    QualityScore: this.defineOKR({
+      objective: 'Maintain high quality output',
+      keyResults: [
+        { name: 'AverageQuality', target: 90, current: 0, unit: '%' },
+        { name: 'HighQualityTasks', target: 80, current: 0, unit: '%' },
+      ],
+    }),
+    ResponseTime: this.defineOKR({
+      objective: 'Minimize response time to first action',
+      keyResults: [
+        { name: 'AvgResponseMs', target: 1000, current: 0, unit: 'ms' },
+        { name: 'Under5SecRate', target: 95, current: 0, unit: '%' },
+      ],
+    }),
+    DeliveryTime: this.defineOKR({
+      objective: 'Optimize delivery time to completion',
+      keyResults: [
+        { name: 'AvgDeliveryMs', target: 60000, current: 0, unit: 'ms' },
+        { name: 'OnTimeRate', target: 90, current: 0, unit: '%' },
+      ],
+    }),
+    CustomerSatisfaction: this.defineOKR({
+      objective: 'Achieve high customer satisfaction',
+      keyResults: [
+        { name: 'CSAT', target: 90, current: 0, unit: '%' },
+        { name: 'NPS', target: 50, current: 0 },
+      ],
+    }),
+    HumanEscalationRate: this.defineOKR({
+      objective: 'Minimize human escalation rate',
+      keyResults: [
+        { name: 'EscalationRate', target: 10, current: 0, unit: '%' },
+        { name: 'AutoResolveRate', target: 90, current: 0, unit: '%' },
+      ],
+    }),
+    CostPerTask: this.defineOKR({
+      objective: 'Optimize cost efficiency per task',
+      keyResults: [
+        { name: 'AvgCost', target: 1.0, current: 0, unit: '$' },
+        { name: 'CostReduction', target: 20, current: 0, unit: '%' },
+      ],
+    }),
+    CapacityUtilization: this.defineOKR({
+      objective: 'Maintain optimal capacity utilization',
+      keyResults: [
+        { name: 'Utilization', target: 80, current: 0, unit: '%' },
+        { name: 'AgentEfficiency', target: 85, current: 0, unit: '%' },
+      ],
+    }),
   }
+
+  // ==========================================================================
+  // TASK MANAGEMENT
+  // ==========================================================================
+
+  /**
+   * Submit a new task for processing
+   */
+  async submitTask(task: ServiceTask): Promise<{ taskId: string }> {
+    const record: TaskRecord = {
+      ...task,
+      status: 'pending',
+      submittedAt: new Date(),
+    }
+
+    this.tasks.set(task.taskId, record)
+    await this.ctx.storage.put(`task:${task.taskId}`, record)
+
+    await this.emit('task.submitted', {
+      taskId: task.taskId,
+      type: task.type,
+      priority: task.priority,
+    })
+
+    return { taskId: task.taskId }
+  }
+
+  /**
+   * Get a task by ID
+   */
+  async getTask(taskId: string): Promise<TaskRecord | null> {
+    // Check in-memory cache first
+    if (this.tasks.has(taskId)) {
+      return this.tasks.get(taskId) || null
+    }
+
+    // Load from storage
+    const stored = await this.ctx.storage.get<TaskRecord>(`task:${taskId}`)
+    if (stored) {
+      this.tasks.set(taskId, stored)
+    }
+    return stored || null
+  }
+
+  /**
+   * List all tasks with optional filtering
+   */
+  async listTasks(filter?: { status?: string }): Promise<TaskRecord[]> {
+    // Load all tasks from storage if not in memory
+    if (this.tasks.size === 0) {
+      const stored = await this.ctx.storage.list<TaskRecord>({ prefix: 'task:' })
+      stored.forEach((value, key) => {
+        const taskId = key.replace('task:', '')
+        this.tasks.set(taskId, value)
+      })
+    }
+
+    let tasks = Array.from(this.tasks.values())
+
+    // Apply status filter if provided
+    if (filter?.status) {
+      tasks = tasks.filter((t) => t.status === filter.status)
+    }
+
+    return tasks
+  }
+
+  /**
+   * Complete a task with results
+   */
+  async completeTask(taskId: string, options: TaskCompletionOptions): Promise<TaskResult> {
+    const task = await this.getTask(taskId)
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`)
+    }
+
+    const now = new Date()
+    const updatedTask: TaskRecord = {
+      ...task,
+      status: options.status,
+      completedAt: now,
+      output: options.output,
+      qualityScore: options.qualityScore,
+      responseTimeMs: options.responseTimeMs,
+      deliveryTimeMs: options.deliveryTimeMs,
+      cost: options.cost,
+      escalatedTo: options.escalatedTo,
+    }
+
+    this.tasks.set(taskId, updatedTask)
+    await this.ctx.storage.put(`task:${taskId}`, updatedTask)
+
+    // Invalidate metrics cache
+    this.metricsCache = null
+
+    await this.emit('task.completed', {
+      taskId,
+      status: options.status,
+      qualityScore: options.qualityScore,
+    })
+
+    return {
+      taskId,
+      status: options.status,
+      output: options.output,
+      qualityScore: options.qualityScore,
+      responseTimeMs: options.responseTimeMs,
+      deliveryTimeMs: options.deliveryTimeMs,
+      cost: options.cost,
+      escalatedTo: options.escalatedTo,
+      completedAt: now,
+    }
+  }
+
+  // ==========================================================================
+  // AGENT ASSIGNMENT
+  // ==========================================================================
+
+  /**
+   * Assign an agent to this service
+   */
+  async assignAgent(assignment: AgentAssignment): Promise<void> {
+    this.assignedAgents.set(assignment.agentId, {
+      ...assignment,
+      currentLoad: assignment.currentLoad ?? 0,
+      maxLoad: assignment.maxLoad ?? 10,
+    })
+    await this.ctx.storage.put(`agent:${assignment.agentId}`, assignment)
+    await this.emit('agent.assigned', {
+      agentId: assignment.agentId,
+      name: assignment.name,
+      role: assignment.role,
+    })
+  }
+
+  /**
+   * Get all assigned agents
+   */
+  async getAssignedAgents(): Promise<AgentAssignment[]> {
+    // Load from storage if not in memory
+    if (this.assignedAgents.size === 0) {
+      const stored = await this.ctx.storage.list<AgentAssignment>({ prefix: 'agent:' })
+      stored.forEach((value, key) => {
+        const agentId = key.replace('agent:', '')
+        this.assignedAgents.set(agentId, value)
+      })
+    }
+    return Array.from(this.assignedAgents.values())
+  }
+
+  /**
+   * Unassign an agent from this service
+   */
+  async unassignAgent(agentId: string): Promise<void> {
+    this.assignedAgents.delete(agentId)
+    await this.ctx.storage.delete(`agent:${agentId}`)
+    await this.emit('agent.unassigned', { agentId })
+  }
+
+  /**
+   * Get the agent with the lowest current load
+   */
+  async getAvailableAgent(): Promise<AgentAssignment | null> {
+    const agents = await this.getAssignedAgents()
+    if (agents.length === 0) return null
+
+    // Sort by load percentage (currentLoad / maxLoad)
+    const sorted = agents.sort((a, b) => {
+      const loadA = (a.currentLoad ?? 0) / (a.maxLoad ?? 10)
+      const loadB = (b.currentLoad ?? 0) / (b.maxLoad ?? 10)
+      return loadA - loadB
+    })
+
+    return sorted[0] || null
+  }
+
+  /**
+   * Update an agent's current load
+   */
+  async updateAgentLoad(agentId: string, load: number): Promise<void> {
+    const agent = this.assignedAgents.get(agentId)
+    if (!agent) {
+      throw new Error(`Agent not found: ${agentId}`)
+    }
+
+    const updated = { ...agent, currentLoad: load }
+    this.assignedAgents.set(agentId, updated)
+    await this.ctx.storage.put(`agent:${agentId}`, updated)
+  }
+
+  // ==========================================================================
+  // HUMAN ESCALATION
+  // ==========================================================================
+
+  /**
+   * Set escalation configuration
+   */
+  async setEscalationConfig(config: ServiceEscalationConfig): Promise<void> {
+    this.escalationConfig = config
+    await this.ctx.storage.put('escalationConfig', config)
+    await this.emit('escalation.configured', { config })
+  }
+
+  /**
+   * Get escalation configuration
+   */
+  async getEscalationConfig(): Promise<ServiceEscalationConfig | null> {
+    if (!this.escalationConfig) {
+      this.escalationConfig = await this.ctx.storage.get<ServiceEscalationConfig>('escalationConfig') || null
+    }
+    return this.escalationConfig
+  }
+
+  /**
+   * Escalate a task to human review
+   */
+  async escalateTask(taskId: string, options: EscalationOptions): Promise<TaskResult> {
+    const config = await this.getEscalationConfig()
+    if (!config || config.escalationTargets.length === 0) {
+      throw new Error('No escalation targets configured')
+    }
+
+    const task = await this.getTask(taskId)
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`)
+    }
+
+    // Find appropriate escalation target
+    const priority = options.priority || 'normal'
+    const target = config.escalationTargets.find((t) => t.priority === priority) || config.escalationTargets[0]
+
+    const result = await this.completeTask(taskId, {
+      status: 'escalated',
+      escalatedTo: target.target,
+    })
+
+    await this.emit('task.escalated', {
+      taskId,
+      escalatedTo: target.target,
+      reason: options.reason,
+      priority,
+    })
+
+    return result
+  }
+
+  // ==========================================================================
+  // PRICING MODEL
+  // ==========================================================================
+
+  /**
+   * Set the pricing model for this service
+   */
+  async setPricingModel(model: PricingModel): Promise<void> {
+    this.pricingModel = model
+    await this.ctx.storage.put('pricingModel', model)
+    await this.emit('pricing.configured', { model })
+  }
+
+  /**
+   * Get the current pricing model
+   */
+  async getPricingModel(): Promise<PricingModel | null> {
+    if (!this.pricingModel) {
+      this.pricingModel = await this.ctx.storage.get<PricingModel>('pricingModel') || null
+    }
+    return this.pricingModel
+  }
+
+  /**
+   * Calculate the cost for a specific task
+   */
+  async calculateTaskCost(taskId: string): Promise<number> {
+    const pricing = await this.getPricingModel()
+    if (!pricing) return 0
+
+    switch (pricing.type) {
+      case 'per-task':
+        return pricing.pricePerTask ?? 0
+
+      case 'usage-based':
+        if (pricing.tiers && pricing.tiers.length > 0) {
+          // Get task count to determine tier
+          const tasks = await this.listTasks({ status: 'completed' })
+          const taskCount = tasks.length + 1
+
+          // Find applicable tier
+          const tier = pricing.tiers.find(
+            (t) => taskCount >= (t.minTasks ?? 0) && (!t.maxTasks || taskCount <= t.maxTasks)
+          )
+          return tier?.pricePerTask ?? pricing.pricePerTask ?? 0
+        }
+        return pricing.pricePerTask ?? 0
+
+      case 'subscription':
+        // For subscription, per-task cost might be 0 or calculated differently
+        return pricing.pricePerTask ?? 0
+
+      case 'hybrid':
+        return pricing.pricePerTask ?? 0
+
+      default:
+        return 0
+    }
+  }
+
+  // ==========================================================================
+  // SERVICE METRICS
+  // ==========================================================================
+
+  /**
+   * Get comprehensive service metrics
+   */
+  async getServiceMetrics(): Promise<ServiceMetrics> {
+    // Use cached metrics if available
+    if (this.metricsCache) {
+      return this.metricsCache
+    }
+
+    const tasks = await this.listTasks()
+    const agents = await this.getAssignedAgents()
+
+    const completed = tasks.filter((t) => t.status === 'completed')
+    const failed = tasks.filter((t) => t.status === 'failed')
+    const escalated = tasks.filter((t) => t.status === 'escalated')
+
+    const totalProcessed = completed.length + failed.length + escalated.length
+
+    // Calculate averages
+    const qualityScores = completed.filter((t) => t.qualityScore !== undefined).map((t) => t.qualityScore!)
+    const responseTimes = completed.filter((t) => t.responseTimeMs !== undefined).map((t) => t.responseTimeMs!)
+    const deliveryTimes = completed.filter((t) => t.deliveryTimeMs !== undefined).map((t) => t.deliveryTimeMs!)
+    const costs = completed.filter((t) => t.cost !== undefined).map((t) => t.cost!)
+
+    const avgQuality = qualityScores.length > 0 ? qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length : 0
+    const avgResponse = responseTimes.length > 0 ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length : 0
+    const avgDelivery = deliveryTimes.length > 0 ? deliveryTimes.reduce((a, b) => a + b, 0) / deliveryTimes.length : 0
+    const avgCost = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : 0
+    const totalRevenue = costs.reduce((a, b) => a + b, 0)
+
+    // Calculate escalation rate
+    const escalationRate = totalProcessed > 0 ? escalated.length / totalProcessed : 0
+
+    // Calculate capacity utilization
+    const totalLoad = agents.reduce((sum, a) => sum + (a.currentLoad ?? 0), 0)
+    const totalCapacity = agents.reduce((sum, a) => sum + (a.maxLoad ?? 10), 0)
+    const utilization = totalCapacity > 0 ? (totalLoad / totalCapacity) * 100 : 0
+
+    const metrics: ServiceMetrics = {
+      tasksCompleted: completed.length,
+      tasksFailed: failed.length,
+      tasksEscalated: escalated.length,
+      averageQualityScore: avgQuality,
+      averageResponseTimeMs: avgResponse,
+      averageDeliveryTimeMs: avgDelivery,
+      humanEscalationRate: escalationRate,
+      averageCostPerTask: avgCost,
+      capacityUtilization: utilization,
+      totalRevenue,
+    }
+
+    this.metricsCache = metrics
+    return metrics
+  }
+
+  /**
+   * Record a quality rating for a completed task
+   */
+  async recordQualityRating(taskId: string, rating: QualityRatingOptions): Promise<void> {
+    const task = await this.getTask(taskId)
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`)
+    }
+
+    const updated: TaskRecord = {
+      ...task,
+      humanRating: rating.rating,
+      ratedBy: rating.ratedBy,
+      ratingFeedback: rating.feedback,
+    }
+
+    this.tasks.set(taskId, updated)
+    await this.ctx.storage.put(`task:${taskId}`, updated)
+
+    // Invalidate metrics cache
+    this.metricsCache = null
+
+    await this.emit('task.rated', {
+      taskId,
+      rating: rating.rating,
+      ratedBy: rating.ratedBy,
+    })
+  }
+
+  // ==========================================================================
+  // SERVICE CONFIGURATION
+  // ==========================================================================
 
   /**
    * Configure the service
    */
   async configure(config: ServiceConfig): Promise<void> {
-    this.config = config
-    await this.ctx.storage.put('config', config)
-    await this.emit('service.configured', { config })
-  }
+    this.serviceConfig = config
 
-  // ============================================================================
-  // Subscriptions
-  // ============================================================================
+    // Also set the parent Business config
+    await this.setConfig({
+      name: config.name,
+      slug: config.slug,
+      plan: config.plan,
+      settings: config.settings,
+    })
 
-  /**
-   * Create a subscription
-   */
-  async subscribe(customerId: string, tierId: string, trial: boolean = false): Promise<ServiceSubscription> {
-    const config = await this.getConfig()
-    if (!config) throw new Error('Service not configured')
-
-    const tier = config.tiers.find((t) => t.id === tierId)
-    if (!tier) throw new Error(`Tier not found: ${tierId}`)
-
-    const now = new Date()
-    const periodEnd = new Date(now)
-
-    if (trial) {
-      periodEnd.setDate(periodEnd.getDate() + 14) // 14-day trial
-    } else if (tier.interval === 'monthly') {
-      periodEnd.setMonth(periodEnd.getMonth() + 1)
-    } else if (tier.interval === 'yearly') {
-      periodEnd.setFullYear(periodEnd.getFullYear() + 1)
+    // Set pricing model if provided
+    if (config.pricingModel) {
+      await this.setPricingModel(config.pricingModel)
     }
 
-    const subscription: ServiceSubscription = {
-      id: crypto.randomUUID(),
-      serviceId: this.ctx.id.toString(),
-      customerId,
-      tierId,
-      status: trial ? 'trial' : 'active',
-      startedAt: now,
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
+    await this.ctx.storage.put('serviceConfig', config)
+    await this.emit('service.configured', {
+      name: config.name,
+      slug: config.slug,
+      description: config.description,
+    })
+  }
+
+  /**
+   * Get service configuration
+   * Overrides Business.getConfig to return ServiceConfig
+   */
+  override async getConfig(): Promise<ServiceConfig | null> {
+    if (!this.serviceConfig) {
+      this.serviceConfig = await this.ctx.storage.get<ServiceConfig>('serviceConfig') || null
     }
-
-    await this.ctx.storage.put(`subscription:${subscription.id}`, subscription)
-    await this.emit('subscription.created', { subscription })
-
-    return subscription
+    return this.serviceConfig
   }
 
-  /**
-   * Get subscription
-   */
-  async getSubscription(subscriptionId: string): Promise<ServiceSubscription | null> {
-    return (await this.ctx.storage.get(`subscription:${subscriptionId}`)) as ServiceSubscription | null
-  }
-
-  /**
-   * List subscriptions
-   */
-  async listSubscriptions(customerId?: string): Promise<ServiceSubscription[]> {
-    const map = await this.ctx.storage.list({ prefix: 'subscription:' })
-    let subscriptions = Array.from(map.values()) as ServiceSubscription[]
-
-    if (customerId) {
-      subscriptions = subscriptions.filter((s) => s.customerId === customerId)
-    }
-
-    return subscriptions.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
-  }
-
-  /**
-   * Cancel subscription
-   */
-  async cancelSubscription(subscriptionId: string): Promise<ServiceSubscription | null> {
-    const subscription = await this.getSubscription(subscriptionId)
-    if (!subscription) return null
-
-    subscription.status = 'canceled'
-    subscription.canceledAt = new Date()
-
-    await this.ctx.storage.put(`subscription:${subscriptionId}`, subscription)
-    await this.emit('subscription.canceled', { subscription })
-
-    return subscription
-  }
-
-  // ============================================================================
-  // Service Requests
-  // ============================================================================
-
-  /**
-   * Create a service request
-   */
-  async createRequest(
-    subscriptionId: string,
-    type: string,
-    description: string,
-    input: Record<string, unknown>,
-    priority: ServiceRequest['priority'] = 'normal',
-  ): Promise<ServiceRequest> {
-    const subscription = await this.getSubscription(subscriptionId)
-    if (!subscription || subscription.status === 'canceled') {
-      throw new Error('Active subscription required')
-    }
-
-    const request: ServiceRequest = {
-      id: crypto.randomUUID(),
-      subscriptionId,
-      type,
-      description,
-      input,
-      status: 'pending',
-      priority,
-      createdAt: new Date(),
-    }
-
-    await this.ctx.storage.put(`request:${request.id}`, request)
-    await this.emit('request.created', { request })
-
-    // Auto-assign based on delivery method
-    await this.assignRequest(request.id)
-
-    return request
-  }
-
-  /**
-   * Get service request
-   */
-  async getRequest(requestId: string): Promise<ServiceRequest | null> {
-    return (await this.ctx.storage.get(`request:${requestId}`)) as ServiceRequest | null
-  }
-
-  /**
-   * List service requests
-   */
-  async listRequests(subscriptionId?: string, status?: ServiceRequest['status']): Promise<ServiceRequest[]> {
-    const map = await this.ctx.storage.list({ prefix: 'request:' })
-    let requests = Array.from(map.values()) as ServiceRequest[]
-
-    if (subscriptionId) {
-      requests = requests.filter((r) => r.subscriptionId === subscriptionId)
-    }
-    if (status) {
-      requests = requests.filter((r) => r.status === status)
-    }
-
-    return requests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-  }
-
-  /**
-   * Assign request to a worker
-   */
-  async assignRequest(requestId: string, workerId?: string): Promise<ServiceRequest | null> {
-    const request = await this.getRequest(requestId)
-    if (!request) return null
-
-    const config = await this.getConfig()
-    if (!config) return null
-
-    // Auto-select worker if not specified
-    if (!workerId && config.assignedWorkers?.length) {
-      // Simple round-robin (in production, use smarter load balancing)
-      const activeRequests = await this.listRequests(undefined, 'in_progress')
-      const workerLoads: Record<string, number> = {}
-
-      for (const worker of config.assignedWorkers) {
-        workerLoads[worker] = activeRequests.filter((r) => r.assignedTo === worker).length
-      }
-
-      // Pick least loaded worker
-      workerId = config.assignedWorkers.reduce((a, b) => ((workerLoads[a] || 0) <= (workerLoads[b] || 0) ? a : b))
-    }
-
-    request.assignedTo = workerId
-    request.status = 'assigned'
-
-    await this.ctx.storage.put(`request:${requestId}`, request)
-    await this.emit('request.assigned', { request, workerId })
-
-    return request
-  }
-
-  /**
-   * Start working on a request
-   */
-  async startRequest(requestId: string): Promise<ServiceRequest | null> {
-    const request = await this.getRequest(requestId)
-    if (!request) return null
-
-    request.status = 'in_progress'
-    request.startedAt = new Date()
-
-    await this.ctx.storage.put(`request:${requestId}`, request)
-    await this.emit('request.started', { request })
-
-    return request
-  }
-
-  /**
-   * Complete a request
-   */
-  async completeRequest(requestId: string, output: Record<string, unknown>): Promise<ServiceRequest | null> {
-    const request = await this.getRequest(requestId)
-    if (!request) return null
-
-    request.status = 'completed'
-    request.completedAt = new Date()
-    request.output = output
-
-    await this.ctx.storage.put(`request:${requestId}`, request)
-    await this.emit('request.completed', { request })
-
-    return request
-  }
-
-  /**
-   * Submit feedback for a request
-   */
-  async submitFeedback(requestId: string, rating: number, comment?: string): Promise<ServiceRequest | null> {
-    const request = await this.getRequest(requestId)
-    if (!request) return null
-
-    request.feedback = { rating, comment }
-
-    await this.ctx.storage.put(`request:${requestId}`, request)
-    await this.emit('feedback.submitted', { requestId, rating, comment })
-
-    return request
-  }
-
-  // ============================================================================
-  // Deliverables
-  // ============================================================================
-
-  /**
-   * Create a deliverable
-   */
-  async createDeliverable(requestId: string, type: string, name: string, content: unknown, createdBy: string): Promise<ServiceDeliverable> {
-    // Get existing versions
-    const existing = await this.getDeliverables(requestId, type)
-    const version = existing.length + 1
-
-    const deliverable: ServiceDeliverable = {
-      id: crypto.randomUUID(),
-      requestId,
-      type,
-      name,
-      content,
-      createdAt: new Date(),
-      createdBy,
-      version,
-    }
-
-    await this.ctx.storage.put(`deliverable:${deliverable.id}`, deliverable)
-    await this.emit('deliverable.created', { deliverable })
-
-    return deliverable
-  }
-
-  /**
-   * Get deliverables for a request
-   */
-  async getDeliverables(requestId: string, type?: string): Promise<ServiceDeliverable[]> {
-    const map = await this.ctx.storage.list({ prefix: 'deliverable:' })
-    let deliverables = Array.from(map.values()) as ServiceDeliverable[]
-
-    deliverables = deliverables.filter((d) => d.requestId === requestId)
-    if (type) {
-      deliverables = deliverables.filter((d) => d.type === type)
-    }
-
-    return deliverables.sort((a, b) => a.version - b.version)
-  }
-
-  // ============================================================================
-  // Analytics
-  // ============================================================================
-
-  /**
-   * Get service metrics
-   */
-  async getMetrics(): Promise<{
-    totalSubscriptions: number
-    activeSubscriptions: number
-    totalRequests: number
-    completedRequests: number
-    avgCompletionTime: number
-    avgRating: number
-  }> {
-    const subscriptions = await this.listSubscriptions()
-    const requests = await this.listRequests()
-
-    const activeSubscriptions = subscriptions.filter((s) => s.status === 'active' || s.status === 'trial')
-    const completedRequests = requests.filter((r) => r.status === 'completed')
-
-    const completionTimes = completedRequests.filter((r) => r.startedAt && r.completedAt).map((r) => r.completedAt!.getTime() - r.startedAt!.getTime())
-
-    const ratings = completedRequests.filter((r) => r.feedback?.rating).map((r) => r.feedback!.rating)
-
-    return {
-      totalSubscriptions: subscriptions.length,
-      activeSubscriptions: activeSubscriptions.length,
-      totalRequests: requests.length,
-      completedRequests: completedRequests.length,
-      avgCompletionTime: completionTimes.length > 0 ? completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length : 0,
-      avgRating: ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0,
-    }
-  }
+  // ==========================================================================
+  // HTTP ENDPOINTS
+  // ==========================================================================
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
-    if (url.pathname === '/config') {
-      if (request.method === 'GET') {
-        const config = await this.getConfig()
-        return new Response(JSON.stringify(config), {
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      if (request.method === 'PUT') {
-        const config = (await request.json()) as ServiceConfig
-        await this.configure(config)
-        return new Response(JSON.stringify({ success: true }), {
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
+    // /config - GET service configuration
+    if (url.pathname === '/config' && request.method === 'GET') {
+      const config = await this.getConfig()
+      return new Response(JSON.stringify(config), {
+        headers: { 'Content-Type': 'application/json' },
+      })
     }
 
-    if (url.pathname === '/subscribe' && request.method === 'POST') {
-      const { customerId, tierId, trial } = (await request.json()) as {
-        customerId: string
-        tierId: string
-        trial?: boolean
-      }
-      const subscription = await this.subscribe(customerId, tierId, trial)
-      return new Response(JSON.stringify(subscription), {
+    // /config - PUT service configuration
+    if (url.pathname === '/config' && request.method === 'PUT') {
+      const config = (await request.json()) as ServiceConfig
+      await this.configure(config)
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /tasks - GET all tasks
+    if (url.pathname === '/tasks' && request.method === 'GET') {
+      const status = url.searchParams.get('status') || undefined
+      const tasks = await this.listTasks(status ? { status } : undefined)
+      return new Response(JSON.stringify(tasks), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /tasks - POST submit a new task
+    if (url.pathname === '/tasks' && request.method === 'POST') {
+      const task = (await request.json()) as ServiceTask
+      const result = await this.submitTask(task)
+      return new Response(JSON.stringify(result), {
         status: 201,
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    if (url.pathname === '/subscriptions') {
-      const customerId = url.searchParams.get('customerId') || undefined
-      const subscriptions = await this.listSubscriptions(customerId)
-      return new Response(JSON.stringify(subscriptions), {
+    // /tasks/:id - GET a specific task
+    if (url.pathname.startsWith('/tasks/') && request.method === 'GET') {
+      const taskId = url.pathname.replace('/tasks/', '')
+      const task = await this.getTask(taskId)
+      if (!task) {
+        return new Response(JSON.stringify({ error: 'Task not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify(task), {
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    if (url.pathname === '/request' && request.method === 'POST') {
-      const { subscriptionId, type, description, input, priority } = (await request.json()) as {
-        subscriptionId: string
-        type: string
-        description: string
-        input: Record<string, unknown>
-        priority?: ServiceRequest['priority']
-      }
-      const req = await this.createRequest(subscriptionId, type, description, input, priority)
-      return new Response(JSON.stringify(req), {
+    // /tasks/:id/complete - POST complete a task
+    if (url.pathname.match(/^\/tasks\/[^/]+\/complete$/) && request.method === 'POST') {
+      const taskId = url.pathname.replace('/tasks/', '').replace('/complete', '')
+      const options = (await request.json()) as TaskCompletionOptions
+      const result = await this.completeTask(taskId, options)
+      return new Response(JSON.stringify(result), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /tasks/:id/escalate - POST escalate a task
+    if (url.pathname.match(/^\/tasks\/[^/]+\/escalate$/) && request.method === 'POST') {
+      const taskId = url.pathname.replace('/tasks/', '').replace('/escalate', '')
+      const options = (await request.json()) as EscalationOptions
+      const result = await this.escalateTask(taskId, options)
+      return new Response(JSON.stringify(result), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /agents - GET all assigned agents
+    if (url.pathname === '/agents' && request.method === 'GET') {
+      const agents = await this.getAssignedAgents()
+      return new Response(JSON.stringify(agents), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /agents - POST assign an agent
+    if (url.pathname === '/agents' && request.method === 'POST') {
+      const agent = (await request.json()) as AgentAssignment
+      await this.assignAgent(agent)
+      return new Response(JSON.stringify({ success: true }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    if (url.pathname === '/requests') {
-      const subscriptionId = url.searchParams.get('subscriptionId') || undefined
-      const status = url.searchParams.get('status') as ServiceRequest['status'] | undefined
-      const requests = await this.listRequests(subscriptionId, status)
-      return new Response(JSON.stringify(requests), {
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    if (url.pathname === '/metrics') {
-      const metrics = await this.getMetrics()
+    // /metrics - GET service metrics
+    if (url.pathname === '/metrics' && request.method === 'GET') {
+      const metrics = await this.getServiceMetrics()
       return new Response(JSON.stringify(metrics), {
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    if (url.pathname.startsWith('/request/')) {
-      const requestId = url.pathname.split('/')[2]!
-      const req = await this.getRequest(requestId)
-      if (!req) {
-        return new Response('Not Found', { status: 404 })
-      }
-      return new Response(JSON.stringify(req), {
+    // /pricing - GET pricing model
+    if (url.pathname === '/pricing' && request.method === 'GET') {
+      const pricing = await this.getPricingModel()
+      return new Response(JSON.stringify(pricing || {}), {
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
+    // /pricing - PUT set pricing model
+    if (url.pathname === '/pricing' && request.method === 'PUT') {
+      const pricing = (await request.json()) as PricingModel
+      await this.setPricingModel(pricing)
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /escalation - GET escalation config
+    if (url.pathname === '/escalation' && request.method === 'GET') {
+      const config = await this.getEscalationConfig()
+      return new Response(JSON.stringify(config || {}), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // /escalation - PUT set escalation config
+    if (url.pathname === '/escalation' && request.method === 'PUT') {
+      const config = (await request.json()) as ServiceEscalationConfig
+      await this.setEscalationConfig(config)
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Fall through to parent Business handler
     return super.fetch(request)
   }
 }

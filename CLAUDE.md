@@ -29,32 +29,38 @@ export class MyStartup extends Startup {
 
 **V8 Isolates + Durable Objects:** Virtual Chrome tabs with persistent state, running on edge (300+ cities, 0ms cold starts).
 
-**Cap'n Web RPC (partial):** Promise pipelining integration with `capnweb`. Core infrastructure exists; full Magic Map planned.
+**Cap'n Web RPC:** Promise pipelining integration with `capnweb`. One network round trip for entire pipelines—unawaited promises pass directly to servers.
 
-**Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs) - implemented as separate packages in `primitives/`.
+**Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs), npmx, pyx - implemented as separate packages in `primitives/`.
 
-**Compat SDKs (15 implemented):** algolia, benthos, couchdb, duckdb, emails, postgres, pusher, sendgrid, sentry, sqs, stripe, supabase, supabase-auth. Additional SDKs (mongo, kafka, redis, etc.) planned.
+**Compat SDKs (40+ layers):** Drop-in API replacements backed by Durable Objects. Located in `compat/` (algolia, anthropic, discord, duckdb, github, kafka, linear, mongo, openai, postgres, pusher, redis, s3, sendgrid, sentry, shopify, slack, sqs, stripe, supabase, twilio, zendesk, etc.).
 
 ## Commands
 
 ```bash
 npm run dev          # Wrangler dev server
-npm run dev:app      # App dev server
+npm run dev:app      # App dev server (TanStack Start)
 npm test             # Vitest watch mode
-npm run test:run     # Tests once
+npm run test:run     # Tests once (--reporter=dot)
 npm run typecheck    # TypeScript check
 npm run deploy       # Build + deploy
+npm run lint         # ESLint
 ```
 
 ### Running Tests
 
 ```bash
 npx vitest run path/to/test.ts        # Single file
-npx vitest --project=workers          # Workers runtime
-npx vitest --project=compat           # Compat layers
-npx vitest --project=agents           # Agent SDK
-npx playwright test tests/e2e/        # E2E tests
+npx vitest --project=workers          # Workers runtime (miniflare)
+npx vitest --project=compat           # Compat layer tests
+npx vitest --project=agents           # Agent SDK tests
+npx vitest --project=objects          # DO tests (mocked runtime)
+npx vitest --project=lib              # Library utility tests
+npx vitest --project=workflows        # Workflow proxy tests
+npx playwright test tests/e2e/        # E2E browser tests
 ```
+
+See `vitest.workspace.ts` for all 80+ test workspaces organized by domain.
 
 ### Process Management (IMPORTANT)
 
@@ -81,41 +87,60 @@ npx playwright test tests/e2e/        # E2E tests
 ## Architecture
 
 ```
-api/           # Hono HTTP (routes/, middleware/)
-objects/       # DO classes (DO.ts, Worker.ts, Entity.ts, Startup.ts)
+api/           # Hono HTTP (routes/, middleware/, generators/)
+objects/       # DO classes - the core runtime
+  DOBase.ts    # Base class with REST router, SQLite, persistence (104K LOC)
+  Entity.ts    # Domain objects with CRUD
+  Startup.ts   # Business container
+  Agent.ts     # AI workers with tools
+  Human.ts     # Approval workflows
+  Workflow*.ts # Workflow runtime, factory, state machines
 types/         # Thing, Noun, Verb, WorkflowContext
-db/            # Drizzle schemas, iceberg/, edgevec/, proxy/
-workflows/     # $ context DSL (on.ts, proxy.ts, schedule-builder.ts)
-compat/        # API-compatible SDKs (15 implemented)
-agents/        # Multi-provider agent SDK (Tool, Agent, Providers)
-workers/       # DO proxy workers (api.ts, hostname-proxy.ts)
+db/            # Drizzle schemas, iceberg/, edgevec/, parquet/, proxy/
+workflows/     # $ context DSL
+  on.ts        # Event handlers via two-level proxy
+  schedule-builder.ts  # CRON via fluent DSL
+  pipeline-promise.ts  # Promise pipelining
+  context/     # Execution modes
+compat/        # API-compatible SDKs (40+ packages)
+agents/        # Multi-provider agent SDK
+  Agent.ts     # Core agent class
+  Tool.ts      # Tool definitions
+  providers/   # OpenAI, Anthropic, etc.
+  named/       # Priya, Ralph, Tom, etc.
+primitives/    # Edge-native implementations
+  fsx/         # Filesystem on SQLite
+  gitx/        # Git on R2
+  bashx/       # Shell without VMs
+  npmx/        # Package management
+  pyx/         # Python execution
+workers/       # DO proxy workers, observability tail
 app/           # TanStack Start frontend (MDXUI components)
+packages/      # Published @dotdo/* packages
+lib/           # Shared utilities (sqids, rpc, channels, humans, etc.)
+auth/          # better-auth configuration
+cli/           # CLI commands (device auth, config)
 ```
 
 ## DO Proxy Workers
 
-Route requests to Durable Objects with the clean `API()` factory:
+Route requests to Durable Objects with the `API()` factory:
 
 ```typescript
 import { API } from 'dotdo'
 
 // Hostname mode (default) - subdomain → DO namespace
-// tenant.api.dotdo.dev → DO('tenant')
-export default API()
+export default API()  // tenant.api.dotdo.dev → DO('tenant')
 
 // Path param routing (Express-style)
-// api.dotdo.dev/acme/users → DO('acme')
-export default API({ ns: '/:org' })
+export default API({ ns: '/:org' })  // api.dotdo.dev/acme/users → DO('acme')
 
 // Nested path params
-// api.dotdo.dev/acme/proj1/tasks → DO('acme:proj1')
-export default API({ ns: '/:org/:project' })
+export default API({ ns: '/:org/:project' })  // → DO('acme:proj1')
 
 // Fixed namespace (singleton DO)
 export default API({ ns: 'main' })
 ```
-
-The `API()` factory auto-detects DO bindings and forwards requests with the namespace stripped from the path.
 
 ## Key APIs
 
@@ -125,16 +150,17 @@ $.send(event)              // Fire-and-forget
 $.try(action)              // Single attempt
 $.do(action)               // Durable with retries
 
-// Event handlers (infinite Noun.verb combinations)
+// Event handlers (infinite Noun.verb combinations via Proxy)
 $.on.Customer.signup(handler)
 $.on.Payment.failed(handler)
+$.on.*.created(handler)    // Wildcards
 
-// Scheduling
+// Scheduling (fluent DSL → CRON)
 $.every.Monday.at9am(handler)
 $.every.day.at('6pm')(handler)
 $.every.hour(handler)
 
-// Cross-DO RPC
+// Cross-DO RPC with circuit breakers
 await $.Customer(id).notify()
 ```
 
@@ -153,7 +179,7 @@ Implemented in `agents/named/` with composable persona system:
 
 ## Human Escalation
 
-Template literal syntax implemented in `lib/humans/`:
+Template literal syntax in `lib/humans/`:
 
 ```typescript
 import { legal, ceo } from 'humans.do'
@@ -167,7 +193,7 @@ escalation = this.HumanFunction({
 })
 ```
 
-Human notification channels and escalation policies implemented in `objects/Human.ts`.
+Human notification channels (Slack, Discord, Email, MDXUI Chat) in `objects/Human.ts`.
 
 ## Issue Tracking (bd)
 

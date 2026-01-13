@@ -12,13 +12,15 @@
  *    ┌─────┴─────┐   ┌─────┴─────┐   ┌─────┴─────┐   ┌─────┴─────┐  ┌──────┴──────┐
  *    │  Business │   │    App    │   │   Site    │   │  Worker   │  │   Entity    │
  *    │           │   │           │   │           │   │           │  │             │
- *    └───────────┘   └─────┬─────┘   └───────────┘   └─────┬─────┘  └──────┬──────┘
- *                          │                               │               │
- *                    ┌─────┴─────┐                   ┌─────┴─────┐   ┌─────┴─────┐
- *                    │   SaaS    │                   │           │   │           │
- *                    └───────────┘               ┌───┴───┐   ┌───┴───┐  (Collection, Directory, etc.)
- *                                                │ Agent │   │ Human │
- *                                                └───────┘   └───────┘
+ *    └─────┬─────┘   └───────────┘   └───────────┘   └─────┬─────┘  └──────┬──────┘
+ *          │                                               │               │
+ *    ┌─────┴──────────┐                              ┌─────┴─────┐   ┌─────┴─────┐
+ *    │DigitalBusiness │                              │           │   │           │
+ *    └─────┬──────────┘                          ┌───┴───┐   ┌───┴───┐  (Collection, Directory, etc.)
+ *          │                                     │ Agent │   │ Human │
+ *    ┌─────┴─────┐                               └───────┘   └───────┘
+ *    │   SaaS    │
+ *    └───────────┘
  * ```
  */
 
@@ -48,6 +50,7 @@ export { Human, type NotificationChannel, type EscalationRule, type EscalationPo
 
 // Organization hierarchy
 export { Business, type BusinessConfig } from './Business'
+export { DigitalBusiness, type DigitalBusinessConfig } from './DigitalBusiness'
 export {
   Startup,
   type ServiceBinding,

@@ -204,6 +204,43 @@ export interface RelationshipRecord {
 }
 
 // ============================================================================
+// OKR (OBJECTIVES AND KEY RESULTS) TYPES
+// ============================================================================
+
+/**
+ * Key Result definition with target and current values
+ */
+export interface KeyResult {
+  name: string
+  target: number
+  current: number
+  unit?: string
+}
+
+/**
+ * OKR (Objective and Key Results) definition
+ */
+export interface OKR {
+  objective: string
+  keyResults: KeyResult[]
+  progress(): number
+  isComplete(): boolean
+}
+
+/**
+ * OKR Definition input for defineOKR()
+ */
+export interface OKRDefinition {
+  objective: string
+  keyResults: Array<{
+    name: string
+    target: number
+    current?: number
+    unit?: string
+  }>
+}
+
+// ============================================================================
 // DO - Core Durable Object with WorkflowContext
 // ============================================================================
 
@@ -259,6 +296,114 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    */
   hasCapability(name: string): boolean {
     return (this.constructor as typeof DO).capabilities?.includes(name) ?? false
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // OKR (OBJECTIVES AND KEY RESULTS) FRAMEWORK
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * OKRs (Objectives and Key Results) for this DO instance.
+   * Subclasses can extend this with custom metrics using defineOKR().
+   *
+   * @example
+   * ```typescript
+   * class MyApp extends DO {
+   *   override okrs = {
+   *     ...super.okrs,
+   *     Revenue: this.defineOKR({
+   *       objective: 'Achieve revenue targets',
+   *       keyResults: [
+   *         { name: 'MRR', target: 10000, current: 5000 },
+   *         { name: 'ARR', target: 120000, current: 60000 },
+   *       ],
+   *     }),
+   *   }
+   * }
+   * ```
+   */
+  okrs: Record<string, OKR> = {}
+
+  /**
+   * Define an OKR (Objective and Key Results) with progress tracking.
+   *
+   * @param definition - The OKR definition with objective and key results
+   * @returns A typed OKR object with progress() and isComplete() methods
+   *
+   * @example
+   * ```typescript
+   * const revenueOKR = this.defineOKR({
+   *   objective: 'Grow monthly revenue',
+   *   keyResults: [
+   *     { name: 'MRR', target: 10000, current: 2500 },
+   *     { name: 'Customers', target: 100, current: 25, unit: 'count' },
+   *   ],
+   * })
+   *
+   * console.log(revenueOKR.progress()) // 25 (average of 25% and 25%)
+   * console.log(revenueOKR.isComplete()) // false
+   * ```
+   */
+  defineOKR(definition: OKRDefinition): OKR {
+    // Create key results with defaults
+    const keyResults: KeyResult[] = definition.keyResults.map((kr) => ({
+      name: kr.name,
+      target: kr.target,
+      current: kr.current ?? 0,
+      unit: kr.unit,
+    }))
+
+    return {
+      objective: definition.objective,
+      keyResults,
+
+      /**
+       * Calculate overall progress as average of key result progress.
+       * Returns 100 if no key results or all targets are 0.
+       */
+      progress(): number {
+        if (keyResults.length === 0) {
+          return 100
+        }
+
+        let totalProgress = 0
+        let validResults = 0
+
+        for (const kr of keyResults) {
+          if (kr.target === 0) {
+            // Zero target is considered complete
+            totalProgress += 100
+          } else {
+            totalProgress += Math.min((kr.current / kr.target) * 100, 100)
+          }
+          validResults++
+        }
+
+        if (validResults === 0) {
+          return 100
+        }
+
+        return Math.round(totalProgress / validResults)
+      },
+
+      /**
+       * Check if all key results have met or exceeded their targets.
+       * Returns true if no key results.
+       */
+      isComplete(): boolean {
+        if (keyResults.length === 0) {
+          return true
+        }
+
+        for (const kr of keyResults) {
+          if (kr.target !== 0 && kr.current < kr.target) {
+            return false
+          }
+        }
+
+        return true
+      },
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -73,6 +73,10 @@ export type {
   ThingsCollection,
   RelationshipsAccessor,
   RelationshipRecord,
+  // OKR types
+  KeyResult,
+  OKR,
+  OKRDefinition,
 } from './DOBase'
 
 // Import DO to use as default export
