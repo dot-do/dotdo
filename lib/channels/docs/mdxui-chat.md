@@ -780,7 +780,7 @@ const response = await channel.waitForResponse({ timeout: 60000 })
 
 ##### sendTypingIndicator(userId: string): Promise<void>
 
-Sends a typing indicator to the user (fire and forget).
+Sends a typing indicator to the user (fire-and-forget).
 
 ```typescript
 await channel.sendTypingIndicator('user-123')
