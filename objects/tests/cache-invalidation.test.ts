@@ -697,12 +697,13 @@ describe('Metrics & Observability', () => {
   })
 
   it('tracks latency by cache state', async () => {
-    vi.useFakeTimers()
+    // Use real timers with actual latency tracking
+    // (Fake timers don't work well with async operations that use setTimeout)
 
-    // Configure loader with artificial delay for misses
+    // Configure loader with minimal delay for misses
     const slowLoader = async (key: string) => {
       // Simulate slow external fetch for cache miss
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 60))
       return { loaded: true }
     }
 
@@ -713,29 +714,24 @@ describe('Metrics & Observability', () => {
 
     // Cache hit (fast)
     await metricCache.set('fast:key', { cached: true })
-    vi.advanceTimersByTime(1)
     await metricCache.get('fast:key')
 
-    // Cache miss with loader (slow)
-    vi.advanceTimersByTime(50)
+    // Cache miss with loader (slow) - uses real timing
     await metricCache.get('slow:key')
 
     // Write operation
-    vi.advanceTimersByTime(2)
     await metricCache.set('new:key', { written: true })
 
     const stats = await metricCache.getStats()
 
-    // Hit latency should be very low
-    expect(stats.avgLatencyMs.hit).toBeLessThan(10)
+    // Hit latency should be very low (less than 50ms)
+    expect(stats.avgLatencyMs.hit).toBeLessThan(50)
 
-    // Miss latency should include loader time
-    expect(stats.avgLatencyMs.miss).toBeGreaterThan(40)
+    // Miss latency should include loader time (60ms delay)
+    expect(stats.avgLatencyMs.miss).toBeGreaterThan(50)
 
     // Write latency should be low
-    expect(stats.avgLatencyMs.write).toBeLessThan(10)
-
-    vi.useRealTimers()
+    expect(stats.avgLatencyMs.write).toBeLessThan(50)
   })
 
   it('emits invalidation events for observability', async () => {
