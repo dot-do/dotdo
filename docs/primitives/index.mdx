@@ -3,6 +3,8 @@ title: Extended Primitives
 description: Filesystem, Git, and Shell rebuilt for V8 isolates
 ---
 
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
 # Extended Primitives
 
 V8 isolates are fast, secure, and scale infinitely. They also have no filesystem, no Git, and no shell.
@@ -142,6 +144,43 @@ Each primitive is implemented as a standalone package in `primitives/`:
 
 Dive into each primitive:
 
-- [fsx](/docs/primitives/fsx) - POSIX filesystem on SQLite with tiered storage
-- [gitx](/docs/primitives/gitx) - Git protocol on R2 with SHA-1 via crypto.subtle
-- [bashx](/docs/primitives/bashx) - Safe shell execution with AST analysis
+<Cards>
+  <Card title="fsx" href="/docs/primitives/fsx">
+    POSIX filesystem on SQLite with tiered storage.
+  </Card>
+  <Card title="gitx" href="/docs/primitives/gitx">
+    Git protocol on R2 with SHA-1 via crypto.subtle.
+  </Card>
+  <Card title="bashx" href="/docs/primitives/bashx">
+    Safe shell execution with AST analysis.
+  </Card>
+  <Card title="npmx" href="/docs/primitives/npmx">
+    Package management for edge environments.
+  </Card>
+  <Card title="pyx" href="/docs/primitives/pyx">
+    Python execution on edge.
+  </Card>
+</Cards>
+
+## Additional Primitives
+
+<Cards>
+  <Card title="Machine" href="/docs/primitives/machine">
+    State machine primitives for workflow state management.
+  </Card>
+  <Card title="Channel" href="/docs/primitives/channel">
+    Communication channels for inter-process messaging.
+  </Card>
+  <Card title="Rate Limiter" href="/docs/primitives/rate-limiter">
+    Distributed rate limiting for APIs and workflows.
+  </Card>
+  <Card title="Circuit Breaker" href="/docs/primitives/circuit-breaker">
+    Fault tolerance with circuit breaker patterns.
+  </Card>
+  <Card title="Cache Manager" href="/docs/primitives/cache-manager">
+    Multi-tier caching for performance optimization.
+  </Card>
+  <Card title="Task Queue" href="/docs/primitives/task-queue">
+    Background task processing with retries.
+  </Card>
+</Cards>

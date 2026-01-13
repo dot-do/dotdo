@@ -1,0 +1,215 @@
+---
+title: dotdo Roadmap
+description: Business-as-Code Platform for Autonomous Businesses - Implementation roadmap and architecture overview
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
+# dotdo Roadmap
+
+This roadmap outlines the architecture and implementation plan for dotdo - a batteries-included framework for vibe coders to build Autonomous Businesses.
+
+## Core Value Proposition
+
+**Infrastructure-as-Code unlocked SaaS. Business-as-Code unlocks Services-as-Software.**
+
+Just as Terraform made infrastructure programmable, dotdo makes businesses programmable. The result: Autonomous Businesses managed entirely by AI agents, escalating to humans only for sensitive decisions.
+
+```typescript
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+
+export class TaxPrepAI extends Startup {
+  hypothesis = 'Freelancers hate tax season - AI does 95%, CPA reviews edge cases'
+
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
+
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    mark`announce the launch`
+    sally`start selling`
+  }
+}
+```
+
+## The Journey: Three Phases
+
+dotdo guides vibe coders through three distinct phases, each building on the last:
+
+<Cards>
+  <Card title="1. Foundation Sprint" href="/docs/roadmap/foundation-sprint">
+    Go from vague idea to testable Founding Hypothesis. Customer definition, problem clarity, differentiation mapping.
+  </Card>
+  <Card title="2. Experimentation Machine" href="/docs/roadmap/experimentation-machine">
+    Find product-market fit through systematic A/B testing, HUNCH metrics, and learning loops.
+  </Card>
+  <Card title="3. Autonomous Business" href="/docs/roadmap/autonomous-business">
+    Deploy businesses that run autonomously. AI agents operate, humans escalate only for sensitive decisions.
+  </Card>
+</Cards>
+
+## Key Concepts
+
+### Business-as-Code
+
+Define businesses programmatically. Not just workflows - entire business models, pricing, operations, and growth strategies as code.
+
+```typescript
+// A complete business definition
+export class ConsultingFirm extends Startup {
+  pricing = $.plan({
+    starter: { price: 199, features: ['2 projects/mo', 'Email support'] },
+    growth: { price: 499, features: ['10 projects/mo', 'Slack support'] },
+    scale: { price: 1499, features: ['Unlimited', '24/7 support', 'Dedicated agent'] },
+  })
+
+  // Revenue flows, profit compounds
+  async operate() {
+    $.on.Customer.signup(customer => agents.onboarding.welcome(customer))
+    $.on.Project.submitted(project => agents.delivery.execute(project))
+    $.on.Invoice.overdue(invoice => agents.collections.followUp(invoice))
+  }
+}
+```
+
+### Services-as-Software
+
+Professional services delivered by AI agents. Tax preparation, legal review, bookkeeping, consulting - all automated with human oversight for edge cases.
+
+```typescript
+// Tax prep as a software service
+$.on.TaxReturn.submitted(async (taxReturn) => {
+  const analysis = await agents.tax.analyze(taxReturn)
+
+  if (analysis.auditRisk > 0.8) {
+    // Human CPA reviews high-risk returns
+    await $.escalate(cpa, 'Review high-risk return', taxReturn)
+  } else {
+    // AI handles straightforward cases
+    await agents.tax.prepare(taxReturn)
+  }
+})
+```
+
+### HumanFunction
+
+Not a fallback for bad AI - **deliberate oversight** for sensitive decisions. Designed into the system from the start.
+
+```typescript
+// Explicit escalation policies
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000 OR audit_risk > 0.8',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  channels: ['slack', 'email'],
+})
+```
+
+## Platform Architecture
+
+dotdo provides everything needed to build and run Autonomous Businesses:
+
+<Cards>
+  <Card title="Business-as-Code Primitives" href="/docs/roadmap/primitives">
+    Core building blocks: Startup, Agent, Human, Workflow. Extended primitives: fsx, gitx, bashx. 40+ compat SDKs.
+  </Card>
+  <Card title="Platform Services" href="/docs/roadmap/platform-services">
+    Auth, billing, analytics, observability, real-time sync, search - all built-in.
+  </Card>
+  <Card title="Surfaces (MDXUI)" href="/docs/ui">
+    Sites for customers (Beacon), apps for operators (Cockpit). 30 theme presets.
+  </Card>
+  <Card title="Developer Experience" href="/docs/getting-started">
+    CLI, templates, playground, documentation. Zero to deployed in under an hour.
+  </Card>
+</Cards>
+
+## Implementation Priorities
+
+The roadmap is organized into phases that progressively unlock the full vision:
+
+### Phase 1: Foundation (Current)
+
+Core primitives and infrastructure that everything else depends on:
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| [Business-as-Code Primitives](/docs/roadmap/primitives) | DO base, Startup class, $ context, compat SDKs | In Progress |
+| [File Convention System](/docs/concepts) | .ts/.mdx/.md files for business primitives | Planned |
+| [Developer Experience](/docs/getting-started) | CLI, templates, playground, docs | In Progress |
+
+### Phase 2: Journey
+
+The three-phase user journey from idea to profitable business:
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| [Foundation Sprint](/docs/roadmap/foundation-sprint) | From idea to Founding Hypothesis | Planned |
+| [Experimentation Machine](/docs/roadmap/experimentation-machine) | From hypothesis to validated PMF | Planned |
+| [Autonomous Business](/docs/roadmap/autonomous-business) | From PMF to profitable operation | Planned |
+
+### Phase 3: Platform Services
+
+Cross-cutting capabilities for production businesses:
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| [Platform Services](/docs/roadmap/platform-services) | Auth, billing, analytics, observability | Planned |
+| [Surfaces (MDXUI)](/docs/ui) | Sites, apps, theme system | In Progress |
+| [AI Agent Memory & Safety](/docs/agents) | Memory architecture, guardrails, observability | Planned |
+
+### Phase 4: Ecosystem
+
+Connections to the broader platform:
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| [StartupBuilder Integration](/docs/roadmap/foundation-sprint#startupbuilder) | 150K+ ideas from O*NET/NAICS/Zapier | Planned |
+| [SalesBuilder Integration](/docs/roadmap/autonomous-business#salesbuilder) | GTM automation | Planned |
+| [Visual Workflow Builder](/docs/workflows) | n8n-inspired no-code builder | Planned |
+
+### Phase 5: Enterprise & Growth
+
+Features for scale and enterprise adoption:
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| [SOC2 Compliance](/docs/security/compliance) | Automated evidence collection, trust center | Planned |
+| [Business Formation](/docs/roadmap/autonomous-business#formation) | Legal infrastructure, Stripe Connect | Planned |
+| [Documentation Overhaul](/docs) | 4 audience paths | In Progress |
+| [Templates & Starters](/docs/getting-started) | One-click deploy | Planned |
+
+## Success Metrics
+
+The platform measures success through the **HUNCH** metrics framework:
+
+| Metric | Question | Target |
+|--------|----------|--------|
+| **H**air-on-Fire | Is this a must-have problem? | >70% say "very disappointed" if gone |
+| **U**sage | Are they actively using it? | >40% weekly active |
+| **N**PS | Would they recommend it? | >50 NPS |
+| **C**hurn | Are they staying? | <5% monthly |
+| **H**LTV/CAC | Is it profitable? | >3x ratio |
+
+<Callout type="info">
+These metrics apply both to dotdo as a platform AND to the Autonomous Businesses built on it. The Experimentation Machine helps vibe coders measure their own HUNCH scores.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Foundation Sprint" href="/docs/roadmap/foundation-sprint">
+    Learn how to go from idea to Founding Hypothesis.
+  </Card>
+  <Card title="Business-as-Code Primitives" href="/docs/roadmap/primitives">
+    Understand the building blocks of autonomous businesses.
+  </Card>
+  <Card title="Getting Started" href="/docs/getting-started">
+    Jump in and start building.
+  </Card>
+</Cards>

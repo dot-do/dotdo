@@ -44,7 +44,7 @@ dotdo transforms how businesses are built. Instead of hiring engineers to write 
 
 **Named Agents:** Real workers with real identity. When Tom reviews your PR, you see `@tom-do` commenting on GitHub. Full audit trail.
 
-**38 Compat SDKs:** Use APIs you know. Supabase, MongoDB, Kafka, Redis. Same code, but it scales to millions of agents.
+**40+ Compat SDKs:** Use APIs you know. Supabase, MongoDB, Kafka, Redis. Same code, but it scales to millions of agents.
 
 ---
 
@@ -137,35 +137,41 @@ Messages route to Slack, email, SMS. Full audit trail. When you grow from 1 pers
 ## Documentation
 
 <Cards>
-  <Card title="Platform" href="/docs/sdk">
-    Core SDK, Things, Functions, Capabilities. The foundation.
+  <Card title="Workflows" href="/docs/workflows">
+    The $ context DSL - event handlers, scheduling, and durable execution.
   </Card>
-  <Card title="Integrations" href="/docs/compat">
-    38 API-compatible SDKs. Supabase, MongoDB, Kafka, Redis, and more.
-  </Card>
-  <Card title="Functions" href="/docs/sdk/functions">
-    Code, Generative, Agentic, Human. Four function types.
-  </Card>
-  <Card title="Workflows" href="/docs/concepts/do-loop">
-    Triggers, steps, sagas. Durable execution with the $ context.
-  </Card>
-  <Card title="Actions" href="/docs/concepts/actions">
-    Lifecycle, logging, replay. Everything is auditable.
-  </Card>
-  <Card title="Events" href="/docs/concepts/events">
-    Emission, subscriptions, streaming. $.on.Noun.verb() handlers.
+  <Card title="Durable Objects" href="/docs/objects">
+    DO class hierarchy - persistent, stateful actors that form dotdo's foundation.
   </Card>
   <Card title="Agents" href="/docs/agents">
     Named agents, personas, tools. Your AI team.
   </Card>
+  <Card title="Human Escalation" href="/docs/humans">
+    When AI needs human judgment - approvals and escalation workflows.
+  </Card>
+  <Card title="Security" href="/docs/security">
+    Identity, authorization, and secrets management.
+  </Card>
+  <Card title="Platform" href="/docs/platform">
+    Platform services, compliance, and audit logging.
+  </Card>
+  <Card title="Functions" href="/docs/sdk/functions">
+    Code, Generative, Agentic, Human. Four function types.
+  </Card>
+  <Card title="Events" href="/docs/concepts/events">
+    Emission, subscriptions, streaming. $.on.Noun.verb() handlers.
+  </Card>
   <Card title="Database" href="/docs/storage">
     Primitives, compat, vector, lake. SQLite to Iceberg.
+  </Card>
+  <Card title="Integrations" href="/docs/compat">
+    40+ API-compatible SDKs. Supabase, MongoDB, Kafka, Redis, and more.
   </Card>
   <Card title="Primitives" href="/docs/primitives">
     fsx, gitx, bashx. Extended capabilities without VMs.
   </Card>
-  <Card title="UI" href="/docs/tutorials/content-site">
-    MDXUI beacon, cockpit, admin. Frontend components.
+  <Card title="Transport" href="/docs/transport">
+    REST, RPC, and WebSocket transport layer architecture.
   </Card>
 </Cards>
 
@@ -207,11 +213,11 @@ npx dotdo dev
 
 ## Who It's For
 
-**Solo founders** *** Get a team without hiring one.
+**Solo founders** - Get a team without hiring one.
 
-**Small teams** *** AI does the work, humans decide.
+**Small teams** - AI does the work, humans decide.
 
-**Growing startups** *** Add humans without changing code.
+**Growing startups** - Add humans without changing code.
 
 <Callout type="info">
 dotdo is TypeScript-first and runs on Cloudflare. If you need Python or self-hosted infrastructure, see [Why dotdo?](/docs/why-dotdo) for alternatives.

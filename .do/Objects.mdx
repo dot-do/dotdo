@@ -1,3 +1,8 @@
+---
+title: Durable Objects
+description: Virtual Chrome tabs with persistent state. The building blocks of dotdo running on the edge.
+---
+
 # Durable Objects
 
 Virtual Chrome tabs with persistent state. The building blocks of dotdo.
@@ -166,6 +171,11 @@ Higher-level abstractions for common patterns.
 For APIs and tools.
 
 ```typescript
+import { Service, API } from 'dotdo'
+import { Stripe } from 'compat/stripe'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+
 export class PaymentService extends Service {
   async charge(amount: number, customer: string) {
     return stripe.charges.create({ amount, customer })
@@ -173,6 +183,9 @@ export class PaymentService extends Service {
 }
 
 export class MyAPI extends API {
+  // Services are injected as properties
+  payment = new PaymentService()
+
   routes = {
     'POST /charge': this.payment.charge,
   }
@@ -200,7 +213,7 @@ const data = await user.getData()
 
 ## Cross-DO Communication
 
-DOs can call each other.
+Durable Objects can call each other.
 
 ```typescript
 export class Order extends DO {

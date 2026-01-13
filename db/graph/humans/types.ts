@@ -7,25 +7,21 @@
  * @module db/graph/humans/types
  */
 
+import { HUMAN_TYPE_IDS as CENTRALIZED_HUMAN_TYPE_IDS } from '../constants'
+
 // ============================================================================
-// CONSTANTS
+// CONSTANTS (from centralized db/graph/constants.ts)
 // ============================================================================
 
 /**
  * Type IDs for human-related Things in the graph
+ *
+ * Re-exported from db/graph/constants.ts for backward compatibility.
+ * New code should import directly from db/graph/constants or db/graph.
+ *
+ * @see db/graph/constants.ts for the canonical definitions
  */
-export const HUMAN_TYPE_IDS = {
-  User: 10,
-  Organization: 11,
-  Role: 12,
-  Session: 13,
-  Account: 14,
-  Invitation: 15,
-  ApprovalRequest: 16,
-  Team: 17,
-  ApiKey: 18,
-  Verification: 19,
-} as const
+export const HUMAN_TYPE_IDS = CENTRALIZED_HUMAN_TYPE_IDS
 
 /**
  * Type names for human-related Things
@@ -38,6 +34,9 @@ export const HUMAN_TYPE_NAMES = {
   Account: 'Account',
   Invitation: 'Invitation',
   ApprovalRequest: 'ApprovalRequest',
+  TaskRequest: 'TaskRequest',
+  DecisionRequest: 'DecisionRequest',
+  ReviewRequest: 'ReviewRequest',
   Team: 'Team',
   ApiKey: 'ApiKey',
   Verification: 'Verification',
@@ -66,27 +65,60 @@ export const HUMAN_VERBS = {
   FOLLOWS: 'follows',
   INVITED_BY: 'invitedBy',
 
-  // Approval workflow verbs (verb form state encoding)
-  // Intent verbs
+  // =========================================================================
+  // Human-in-the-Loop Verb Form State Encoding
+  // =========================================================================
+  //
+  // Verb forms encode state directly:
+  // - Action form (request/approve/etc.) = intent/pending
+  // - Activity form (-ing) = in-progress
+  // - Event form (-ed) = completed
+  //
+  // =========================================================================
+
+  // Request verbs (for initial submission)
+  REQUEST: 'request',
+  REQUESTING: 'requesting',
+  REQUESTED: 'requested',
+
+  // Approval workflow verbs
   APPROVE: 'approve',
-  REJECT: 'reject',
-  REVIEW: 'review',
-  ASSIGN: 'assign',
-  ESCALATE: 'escalate',
-
-  // Activity verbs (in-progress)
   APPROVING: 'approving',
-  REJECTING: 'rejecting',
-  REVIEWING: 'reviewing',
-  ASSIGNING: 'assigning',
-  ESCALATING: 'escalating',
-
-  // Completed verbs
   APPROVED: 'approved',
+
+  REJECT: 'reject',
+  REJECTING: 'rejecting',
   REJECTED: 'rejected',
+
+  // Review workflow verbs
+  REVIEW: 'review',
+  REVIEWING: 'reviewing',
   REVIEWED: 'reviewed',
+
+  // Assignment verbs
+  ASSIGN: 'assign',
+  ASSIGNING: 'assigning',
   ASSIGNED: 'assigned',
+
+  // Escalation verbs
+  ESCALATE: 'escalate',
+  ESCALATING: 'escalating',
   ESCALATED: 'escalated',
+
+  // Decision verbs
+  DECIDE: 'decide',
+  DECIDING: 'deciding',
+  DECIDED: 'decided',
+
+  // Completion verbs (for task completion)
+  COMPLETE: 'complete',
+  COMPLETING: 'completing',
+  COMPLETED: 'completed',
+
+  // Response verbs (for human responding)
+  RESPOND: 'respond',
+  RESPONDING: 'responding',
+  RESPONDED: 'responded',
 
   // Notification relationships
   NOTIFIED_VIA: 'notifiedVia',
@@ -477,6 +509,324 @@ export interface ApprovalResponse {
 }
 
 // ============================================================================
+// TASK REQUEST TYPES
+// ============================================================================
+
+/**
+ * Task request Thing data structure
+ *
+ * Status is encoded via verb form in the relationship:
+ * - assign (intent) -> assigning (in-progress) -> assigned (completed)
+ * - complete (intent) -> completing (in-progress) -> completed (finished)
+ */
+export interface TaskRequestThingData {
+  /** Task title */
+  title: string
+  /** Detailed instructions */
+  instructions: string
+  /** Tools available for the task */
+  tools?: string[]
+  /** Estimated effort (in minutes) */
+  estimatedEffort?: number
+  /** Priority */
+  priority: NotificationPriority
+  /** SLA in milliseconds */
+  sla?: number
+  /** Deadline timestamp */
+  deadline?: number
+  /** Requester ID (user or agent) */
+  requesterId: string
+  /** Target role */
+  targetRole?: string
+  /** Target user ID */
+  targetUserId?: string
+  /** Notification channel preference */
+  channel?: NotificationChannelType
+  /** Task state */
+  state: TaskState
+  /** Timestamps for SLA tracking */
+  timestamps: TaskTimestamps
+  /** Context data */
+  context?: Record<string, unknown>
+  /** Response data (when completed) */
+  response?: TaskResponse
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+/**
+ * Task state type
+ */
+export type TaskState = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled'
+
+/**
+ * Task timestamps for SLA tracking
+ */
+export interface TaskTimestamps {
+  /** When the task was created */
+  createdAt: number
+  /** When the task was assigned */
+  assignedAt?: number
+  /** When work started on the task */
+  startedAt?: number
+  /** When the task was completed */
+  completedAt?: number
+  /** When first response was received */
+  firstResponseAt?: number
+  /** Escalation history */
+  escalations?: Array<{
+    level: number
+    escalatedAt: number
+    target: string
+  }>
+}
+
+/**
+ * Task response data
+ */
+export interface TaskResponse {
+  /** User who completed the task */
+  completedBy: string
+  /** Completion timestamp */
+  completedAt: number
+  /** Result/output */
+  result?: unknown
+  /** Notes */
+  notes?: string
+}
+
+// ============================================================================
+// DECISION REQUEST TYPES
+// ============================================================================
+
+/**
+ * Decision request Thing data structure
+ *
+ * Status is encoded via verb form in the relationship:
+ * - decide (intent) -> deciding (in-progress) -> decided (completed)
+ */
+export interface DecisionRequestThingData {
+  /** Decision title */
+  title: string
+  /** Question being decided */
+  question: string
+  /** Available options */
+  options: DecisionOption[]
+  /** Criteria for making the decision */
+  criteria?: string[]
+  /** Priority */
+  priority: NotificationPriority
+  /** SLA in milliseconds */
+  sla?: number
+  /** Deadline timestamp */
+  deadline?: number
+  /** Requester ID */
+  requesterId: string
+  /** Target role */
+  targetRole?: string
+  /** Target user ID */
+  targetUserId?: string
+  /** Notification channel preference */
+  channel?: NotificationChannelType
+  /** Timestamps for SLA tracking */
+  timestamps: DecisionTimestamps
+  /** Context data */
+  context?: Record<string, unknown>
+  /** Decision result */
+  decision?: DecisionResult
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+/**
+ * Decision option
+ */
+export interface DecisionOption {
+  /** Option ID */
+  id: string
+  /** Option label */
+  label: string
+  /** Option description */
+  description?: string
+  /** Optional data associated with the option */
+  data?: Record<string, unknown>
+}
+
+/**
+ * Decision timestamps for SLA tracking
+ */
+export interface DecisionTimestamps {
+  /** When the decision request was created */
+  createdAt: number
+  /** When the decision was assigned */
+  assignedAt?: number
+  /** When the decision was made */
+  decidedAt?: number
+  /** First response timestamp */
+  firstResponseAt?: number
+  /** Escalation history */
+  escalations?: Array<{
+    level: number
+    escalatedAt: number
+    target: string
+  }>
+}
+
+/**
+ * Decision result
+ */
+export interface DecisionResult {
+  /** Selected option ID */
+  selectedOptionId: string
+  /** User who made the decision */
+  decidedBy: string
+  /** Decision timestamp */
+  decidedAt: number
+  /** Reasoning */
+  reasoning?: string
+  /** Confidence level (0-1) */
+  confidence?: number
+}
+
+// ============================================================================
+// REVIEW REQUEST TYPES
+// ============================================================================
+
+/**
+ * Review request Thing data structure
+ *
+ * Status is encoded via verb form in the relationship:
+ * - review (intent) -> reviewing (in-progress) -> reviewed (completed)
+ */
+export interface ReviewRequestThingData {
+  /** Review title */
+  title: string
+  /** Content to be reviewed */
+  content: string
+  /** Review criteria */
+  criteria?: string[]
+  /** Type of review */
+  reviewType: ReviewType
+  /** Priority */
+  priority: NotificationPriority
+  /** SLA in milliseconds */
+  sla?: number
+  /** Deadline timestamp */
+  deadline?: number
+  /** Requester ID */
+  requesterId: string
+  /** Target role */
+  targetRole?: string
+  /** Target user ID */
+  targetUserId?: string
+  /** Notification channel preference */
+  channel?: NotificationChannelType
+  /** Timestamps for SLA tracking */
+  timestamps: ReviewTimestamps
+  /** Context data */
+  context?: Record<string, unknown>
+  /** Review result */
+  review?: ReviewResult
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+/**
+ * Review type
+ */
+export type ReviewType = 'code' | 'content' | 'design' | 'legal' | 'security' | 'quality' | 'other'
+
+/**
+ * Review timestamps for SLA tracking
+ */
+export interface ReviewTimestamps {
+  /** When the review request was created */
+  createdAt: number
+  /** When the review was assigned */
+  assignedAt?: number
+  /** When review started */
+  startedAt?: number
+  /** When the review was completed */
+  completedAt?: number
+  /** First response timestamp */
+  firstResponseAt?: number
+  /** Escalation history */
+  escalations?: Array<{
+    level: number
+    escalatedAt: number
+    target: string
+  }>
+}
+
+/**
+ * Review result
+ */
+export interface ReviewResult {
+  /** User who reviewed */
+  reviewedBy: string
+  /** Review timestamp */
+  reviewedAt: number
+  /** Approval status */
+  approved: boolean
+  /** Review score (optional, 0-100) */
+  score?: number
+  /** Feedback */
+  feedback?: string
+  /** Issues found */
+  issues?: ReviewIssue[]
+}
+
+/**
+ * Review issue
+ */
+export interface ReviewIssue {
+  /** Issue type */
+  type: 'error' | 'warning' | 'suggestion' | 'nitpick'
+  /** Issue description */
+  description: string
+  /** Location reference */
+  location?: string
+  /** Severity (1-5) */
+  severity?: number
+}
+
+// ============================================================================
+// SLA CONFIGURATION TYPES
+// ============================================================================
+
+/**
+ * SLA configuration for different priorities
+ */
+export interface SLAConfiguration {
+  /** SLA by priority (in milliseconds) */
+  byPriority: Record<NotificationPriority, number>
+  /** Warning threshold (percentage of SLA, e.g., 0.75 = 75%) */
+  warningThreshold: number
+  /** Default SLA if not specified */
+  default: number
+}
+
+/**
+ * Default SLA configuration
+ */
+export const DEFAULT_SLA_CONFIG: SLAConfiguration = {
+  byPriority: {
+    urgent: 30 * 60 * 1000, // 30 minutes
+    high: 2 * 60 * 60 * 1000, // 2 hours
+    normal: 8 * 60 * 60 * 1000, // 8 hours
+    low: 24 * 60 * 60 * 1000, // 24 hours
+  },
+  warningThreshold: 0.75, // Warn at 75% of SLA
+  default: 8 * 60 * 60 * 1000, // 8 hours default
+}
+
+// ============================================================================
 // NOTIFICATION TYPES
 // ============================================================================
 
@@ -560,8 +910,16 @@ export const HumanUrls = {
   session: (id: string) => `auth://sessions/${id}`,
   account: (id: string) => `auth://accounts/${id}`,
   invitation: (id: string) => `auth://invitations/${id}`,
-  approval: (id: string) => `requests://approvals/${id}`,
   team: (orgId: string, id: string) => `auth://orgs/${orgId}/teams/${id}`,
+
+  // Human request URLs
+  approval: (id: string) => `requests://approvals/${id}`,
+  task: (id: string) => `requests://tasks/${id}`,
+  decision: (id: string) => `requests://decisions/${id}`,
+  review: (id: string) => `requests://reviews/${id}`,
+
+  // Generic request URL (detects type from ID prefix or context)
+  request: (type: 'approval' | 'task' | 'decision' | 'review', id: string) => `requests://${type}s/${id}`,
 
   /** Extract ID from URL */
   extractId: (url: string): string => {
@@ -578,6 +936,9 @@ export const HumanUrls = {
     if (url.startsWith('auth://accounts/')) return 'Account'
     if (url.startsWith('auth://invitations/')) return 'Invitation'
     if (url.startsWith('requests://approvals/')) return 'ApprovalRequest'
+    if (url.startsWith('requests://tasks/')) return 'TaskRequest'
+    if (url.startsWith('requests://decisions/')) return 'DecisionRequest'
+    if (url.startsWith('requests://reviews/')) return 'ReviewRequest'
     return null
   },
 } as const
@@ -620,4 +981,52 @@ export function isApprovalRequestThingData(data: unknown): data is ApprovalReque
   if (!data || typeof data !== 'object') return false
   const d = data as Record<string, unknown>
   return typeof d.title === 'string' && typeof d.message === 'string' && typeof d.type === 'string'
+}
+
+/**
+ * Type guard for TaskRequestThingData
+ */
+export function isTaskRequestThingData(data: unknown): data is TaskRequestThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.title === 'string' && typeof d.instructions === 'string' && typeof d.timestamps === 'object'
+}
+
+/**
+ * Type guard for DecisionRequestThingData
+ */
+export function isDecisionRequestThingData(data: unknown): data is DecisionRequestThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.title === 'string' && typeof d.question === 'string' && Array.isArray(d.options)
+}
+
+/**
+ * Type guard for ReviewRequestThingData
+ */
+export function isReviewRequestThingData(data: unknown): data is ReviewRequestThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.title === 'string' && typeof d.content === 'string' && typeof d.reviewType === 'string'
+}
+
+/**
+ * Union type for all human request data types
+ */
+export type HumanRequestThingData =
+  | ApprovalRequestThingData
+  | TaskRequestThingData
+  | DecisionRequestThingData
+  | ReviewRequestThingData
+
+/**
+ * Type guard for any human request data
+ */
+export function isHumanRequestThingData(data: unknown): data is HumanRequestThingData {
+  return (
+    isApprovalRequestThingData(data) ||
+    isTaskRequestThingData(data) ||
+    isDecisionRequestThingData(data) ||
+    isReviewRequestThingData(data)
+  )
 }

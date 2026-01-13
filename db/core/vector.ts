@@ -1,6 +1,12 @@
 /**
  * VectorManager - Tiered vector search management
  *
+ * @experimental This module is a stub implementation. All vector engines currently
+ * use an in-memory backend regardless of the configured engine type. Production
+ * implementations for real backends are not yet available.
+ *
+ * ## Designed Architecture (Not Yet Implemented)
+ *
  * Manages vector operations across multiple backends:
  * - Hot tier: libsql (SQLite F32_BLOB), edgevec (WASM HNSW)
  * - Warm tier: Cloudflare Vectorize
@@ -10,6 +16,21 @@
  * - cascade: Try hot first, fall back to colder tiers
  * - parallel: Query all tiers, merge results
  * - smart: Use query characteristics to pick best tier
+ *
+ * ## Current Status
+ *
+ * **Implemented (functional):**
+ * - Math utilities: `cosineSimilarity`, `euclideanDistance`, `dotProduct`, `normalizeVector`
+ * - In-memory vector storage and search
+ * - All routing strategies (cascade, parallel, smart)
+ * - Tier management (insert, search, delete, promote, demote)
+ *
+ * **Stub only (in-memory fallback):**
+ * - libsql engine - uses InMemoryVectorEngine
+ * - edgevec engine - uses InMemoryVectorEngine
+ * - vectorize engine - uses InMemoryVectorEngine
+ * - clickhouse engine - uses InMemoryVectorEngine
+ * - iceberg engine - uses InMemoryVectorEngine
  */
 import type { VectorConfig, VectorTierConfig, VectorEngineType } from './types'
 import { DEFAULT_VECTOR_CONFIG } from './types'
@@ -106,9 +127,18 @@ export function normalizeVector(v: number[]): number[] {
 }
 
 // ============================================================================
-// IN-MEMORY ENGINE (for testing)
+// IN-MEMORY ENGINE (stub implementation for all backends)
 // ============================================================================
 
+/**
+ * In-memory vector engine implementation.
+ *
+ * @stub This is the only actual implementation currently available. All configured
+ * engine types (libsql, edgevec, vectorize, clickhouse, iceberg) fall back to this
+ * in-memory implementation. Data is not persisted and is lost when the process ends.
+ *
+ * @internal Used internally by `createVectorEngine` as the fallback for all engine types.
+ */
 class InMemoryVectorEngine implements VectorEngine {
   name: VectorEngineType
   dimensions: number
@@ -185,17 +215,35 @@ class InMemoryVectorEngine implements VectorEngine {
 // ============================================================================
 
 /**
- * Create a vector engine based on config
+ * Create a vector engine based on config.
  *
- * In production, this would create actual engine clients.
- * For testing, we return an in-memory engine.
+ * @stub Currently returns an in-memory engine for ALL engine types. The `config.engine`
+ * value is stored but does not affect behavior - all engines use the same in-memory
+ * implementation.
+ *
+ * @example
+ * ```typescript
+ * // These all create identical in-memory engines:
+ * createVectorEngine({ engine: 'libsql', dimensions: 128 }, bindings)
+ * createVectorEngine({ engine: 'vectorize', dimensions: 128 }, bindings)
+ * createVectorEngine({ engine: 'clickhouse', dimensions: 128 }, bindings)
+ * ```
+ *
+ * @param config - Tier configuration specifying engine type, dimensions, and metric
+ * @param _bindings - Cloudflare bindings (currently unused - reserved for future implementations)
+ * @returns An in-memory vector engine instance
  */
 export function createVectorEngine(
   config: VectorTierConfig,
   _bindings: unknown
 ): VectorEngine {
-  // In-memory implementation for all engines in this version
-  // Production version would have real implementations
+  // STUB: In-memory implementation for all engines in this version
+  // TODO: Production version would have real implementations:
+  //   - libsql: Use SQLite F32_BLOB vectors
+  //   - edgevec: Use EdgeVec WASM HNSW via Workers RPC
+  //   - vectorize: Use Cloudflare Vectorize binding
+  //   - clickhouse: Use ClickHouse ANN indexes
+  //   - iceberg: Use Iceberg Parquet with vector columns
   return new InMemoryVectorEngine(config)
 }
 
@@ -206,6 +254,44 @@ export function createVectorEngine(
 type TierName = 'hot' | 'warm' | 'cold'
 const TIER_ORDER: TierName[] = ['hot', 'warm', 'cold']
 
+/**
+ * Tiered vector search manager.
+ *
+ * @experimental This class provides a working API for tiered vector operations,
+ * but all underlying engines are stub implementations using in-memory storage.
+ * Data is not persisted and is lost when the process ends.
+ *
+ * ## Functional Features
+ *
+ * The following features work correctly with the in-memory backend:
+ * - Multi-tier configuration (hot/warm/cold)
+ * - Insert, search, and delete operations
+ * - Routing strategies: cascade, parallel, smart
+ * - Filtering and threshold support
+ * - Tier promotion/demotion
+ * - Vector retrieval by ID
+ *
+ * ## Stub Limitations
+ *
+ * - **No persistence**: All data is stored in memory only
+ * - **No real backends**: Engine type config is ignored; all use in-memory storage
+ * - **No distributed search**: Parallel strategy runs sequentially in-memory
+ * - **No production scaling**: Not suitable for production workloads
+ *
+ * @example
+ * ```typescript
+ * const manager = new VectorManager(env, {
+ *   tiers: {
+ *     hot: { engine: 'libsql', dimensions: 1536 },  // Actually uses in-memory
+ *     warm: { engine: 'vectorize', dimensions: 1536 }, // Actually uses in-memory
+ *   },
+ *   routing: { strategy: 'cascade', fallback: true },
+ * })
+ *
+ * await manager.insert('doc-1', embedding, { title: 'Example' })
+ * const results = await manager.search(queryVector, { limit: 10 })
+ * ```
+ */
 export class VectorManager {
   readonly config: VectorConfig
   private engines: Map<TierName, VectorEngine> = new Map()
@@ -396,7 +482,12 @@ export class VectorManager {
   }
 
   /**
-   * Smart search: use query characteristics to pick best tier
+   * Smart search: use query characteristics to pick best tier.
+   *
+   * @stub Currently falls back to cascade strategy. Production implementation would:
+   * - Analyze query vector characteristics
+   * - Consider tier data sizes and latency
+   * - Use ML-based tier selection
    */
   private async searchSmart(
     vector: number[],
@@ -410,8 +501,8 @@ export class VectorManager {
       return this.applyThreshold(results, options.threshold)
     }
 
-    // For now, use cascade strategy for smart routing
-    // In production, this would analyze query characteristics
+    // STUB: For now, use cascade strategy for smart routing
+    // TODO: In production, this would analyze query characteristics
     return this.searchCascade(vector, options)
   }
 

@@ -1408,6 +1408,331 @@ function escapeRegex(str: string): string {
 }
 
 // ============================================================================
+// SUGGEST SUPPORT
+// ============================================================================
+
+/**
+ * Suggest options for a single suggestion
+ */
+interface SuggestOption {
+  text?: string
+  term?: { field: string; size?: number; suggest_mode?: string }
+  phrase?: { field: string; size?: number }
+  completion?: { field: string; size?: number; skip_duplicates?: boolean; fuzzy?: boolean | { fuzziness?: string | number } }
+}
+
+/**
+ * Suggest result for a single suggestion
+ */
+interface SuggestResult {
+  text: string
+  offset: number
+  length: number
+  options: Array<{
+    text: string
+    score: number
+    freq?: number
+  }>
+}
+
+/**
+ * Generate suggestions for a query
+ */
+function generateSuggestions(
+  indices: string[],
+  suggestConfig: Record<string, SuggestOption>
+): Record<string, SuggestResult[]> {
+  const results: Record<string, SuggestResult[]> = {}
+
+  for (const [suggestName, config] of Object.entries(suggestConfig)) {
+    const text = config.text ?? ''
+    const suggestions: SuggestResult[] = []
+
+    if (config.term) {
+      // Term suggester - suggests similar terms
+      const termResults = generateTermSuggestions(indices, text, config.term)
+      suggestions.push(...termResults)
+    } else if (config.phrase) {
+      // Phrase suggester - suggests complete phrases
+      const phraseResults = generatePhraseSuggestions(indices, text, config.phrase)
+      suggestions.push(...phraseResults)
+    } else if (config.completion) {
+      // Completion suggester - suggests from completion field
+      const completionResults = generateCompletionSuggestions(indices, text, config.completion)
+      suggestions.push(...completionResults)
+    }
+
+    results[suggestName] = suggestions
+  }
+
+  return results
+}
+
+/**
+ * Generate term suggestions (spell correction)
+ */
+function generateTermSuggestions(
+  indices: string[],
+  text: string,
+  config: { field: string; size?: number; suggest_mode?: string }
+): SuggestResult[] {
+  const { field, size = 5, suggest_mode = 'missing' } = config
+  const terms = tokenize(text)
+  const results: SuggestResult[] = []
+
+  // Collect all unique terms from the field across all documents
+  const allTerms = new Set<string>()
+  const termFrequencies = new Map<string, number>()
+
+  for (const indexName of indices) {
+    const storage = getIndexStorageIfExists(indexName)
+    if (!storage) continue
+
+    for (const [, doc] of storage.documents) {
+      const fieldValue = getNestedValue(doc._source, field)
+      if (typeof fieldValue === 'string') {
+        const docTerms = tokenize(fieldValue)
+        for (const term of docTerms) {
+          allTerms.add(term)
+          termFrequencies.set(term, (termFrequencies.get(term) ?? 0) + 1)
+        }
+      }
+    }
+  }
+
+  let offset = 0
+  for (const term of terms) {
+    const options: Array<{ text: string; score: number; freq: number }> = []
+
+    // Find similar terms using Levenshtein distance
+    const exactMatch = allTerms.has(term)
+
+    // Skip if suggest_mode is 'missing' and term exists
+    if (suggest_mode === 'missing' && exactMatch) {
+      results.push({
+        text: term,
+        offset,
+        length: term.length,
+        options: [],
+      })
+      offset += term.length + 1
+      continue
+    }
+
+    for (const candidate of allTerms) {
+      if (candidate === term) continue
+
+      const distance = levenshteinDistance(term, candidate)
+      const maxLen = Math.max(term.length, candidate.length)
+      const similarity = 1 - distance / maxLen
+
+      // Only include if similarity is high enough (at least 60%)
+      if (similarity >= 0.6) {
+        const freq = termFrequencies.get(candidate) ?? 0
+        options.push({
+          text: candidate,
+          score: similarity,
+          freq,
+        })
+      }
+    }
+
+    // Sort by score descending, then by frequency descending
+    options.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return b.freq - a.freq
+    })
+
+    results.push({
+      text: term,
+      offset,
+      length: term.length,
+      options: options.slice(0, size),
+    })
+
+    offset += term.length + 1
+  }
+
+  return results
+}
+
+/**
+ * Generate phrase suggestions
+ */
+function generatePhraseSuggestions(
+  indices: string[],
+  text: string,
+  config: { field: string; size?: number }
+): SuggestResult[] {
+  const { field, size = 5 } = config
+
+  // Collect all phrases from the field
+  const phrases: Array<{ text: string; freq: number }> = []
+
+  for (const indexName of indices) {
+    const storage = getIndexStorageIfExists(indexName)
+    if (!storage) continue
+
+    for (const [, doc] of storage.documents) {
+      const fieldValue = getNestedValue(doc._source, field)
+      if (typeof fieldValue === 'string') {
+        // Check if the text is a prefix of this field value
+        const lowerField = fieldValue.toLowerCase()
+        const lowerText = text.toLowerCase()
+
+        if (lowerField.startsWith(lowerText) || lowerField.includes(lowerText)) {
+          const existing = phrases.find((p) => p.text === fieldValue)
+          if (existing) {
+            existing.freq++
+          } else {
+            phrases.push({ text: fieldValue, freq: 1 })
+          }
+        }
+      }
+    }
+  }
+
+  // Sort by frequency descending
+  phrases.sort((a, b) => b.freq - a.freq)
+
+  const options = phrases.slice(0, size).map((p) => ({
+    text: p.text,
+    score: 1.0,
+    freq: p.freq,
+  }))
+
+  return [{
+    text,
+    offset: 0,
+    length: text.length,
+    options,
+  }]
+}
+
+/**
+ * Generate completion suggestions (autocomplete)
+ */
+function generateCompletionSuggestions(
+  indices: string[],
+  text: string,
+  config: { field: string; size?: number; skip_duplicates?: boolean; fuzzy?: boolean | { fuzziness?: string | number } }
+): SuggestResult[] {
+  const { field, size = 5, skip_duplicates = false, fuzzy = false } = config
+  const lowerText = text.toLowerCase()
+
+  // Collect all completions
+  const completions: Array<{ text: string; score: number }> = []
+  const seen = new Set<string>()
+
+  for (const indexName of indices) {
+    const storage = getIndexStorageIfExists(indexName)
+    if (!storage) continue
+
+    for (const [, doc] of storage.documents) {
+      const fieldValue = getNestedValue(doc._source, field)
+
+      // Handle completion field format or simple string
+      let suggestions: string[] = []
+      if (typeof fieldValue === 'string') {
+        suggestions = [fieldValue]
+      } else if (Array.isArray(fieldValue)) {
+        suggestions = fieldValue.map((v) => String(v))
+      } else if (fieldValue && typeof fieldValue === 'object') {
+        // Completion field format: { input: [...], weight: number }
+        const completionField = fieldValue as { input?: string | string[]; weight?: number }
+        if (completionField.input) {
+          suggestions = Array.isArray(completionField.input)
+            ? completionField.input
+            : [completionField.input]
+        }
+      }
+
+      for (const suggestion of suggestions) {
+        const lowerSuggestion = suggestion.toLowerCase()
+
+        // Check for prefix match
+        if (lowerSuggestion.startsWith(lowerText)) {
+          if (skip_duplicates && seen.has(lowerSuggestion)) continue
+          seen.add(lowerSuggestion)
+
+          completions.push({
+            text: suggestion,
+            score: 1.0, // Exact prefix match
+          })
+        } else if (fuzzy) {
+          // Fuzzy matching
+          const maxDistance = typeof fuzzy === 'object' && fuzzy.fuzziness
+            ? (typeof fuzzy.fuzziness === 'number' ? fuzzy.fuzziness : 2)
+            : 2
+
+          // Check if any prefix of the suggestion is within edit distance
+          const prefixLen = Math.min(lowerText.length + maxDistance, lowerSuggestion.length)
+          const suggestionPrefix = lowerSuggestion.slice(0, prefixLen)
+          const distance = levenshteinDistance(lowerText, suggestionPrefix)
+
+          if (distance <= maxDistance) {
+            if (skip_duplicates && seen.has(lowerSuggestion)) continue
+            seen.add(lowerSuggestion)
+
+            completions.push({
+              text: suggestion,
+              score: 1 - distance / Math.max(lowerText.length, prefixLen),
+            })
+          }
+        }
+      }
+    }
+  }
+
+  // Sort by score descending
+  completions.sort((a, b) => b.score - a.score)
+
+  return [{
+    text,
+    offset: 0,
+    length: text.length,
+    options: completions.slice(0, size),
+  }]
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+  if (a.length === 0) return b.length
+  if (b.length === 0) return a.length
+
+  const matrix: number[][] = []
+
+  // Initialize first column
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i]
+  }
+
+  // Initialize first row
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j
+  }
+
+  // Fill in the rest of the matrix
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1, // insertion
+          matrix[i - 1][j] + 1 // deletion
+        )
+      }
+    }
+  }
+
+  return matrix[b.length][a.length]
+}
+
+// ============================================================================
 // INDICES CLIENT
 // ============================================================================
 
@@ -2549,6 +2874,12 @@ export class Client implements ClientType {
       })
     }
 
+    // Handle suggest
+    const suggestConfig = params?.body?.suggest
+    const suggest = suggestConfig
+      ? generateSuggestions(indices, suggestConfig as Record<string, SuggestOption>)
+      : undefined
+
     return {
       took: Date.now() - startTime,
       timed_out: false,
@@ -2565,6 +2896,7 @@ export class Client implements ClientType {
       },
       aggregations,
       _scroll_id: scrollId,
+      suggest,
     }
   }
 

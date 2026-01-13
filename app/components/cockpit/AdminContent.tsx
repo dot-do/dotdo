@@ -5,6 +5,14 @@
  * 1. With Shell wrapper (recommended) - just the content portion
  * 2. Standalone with full layout - includes sidebar/navigation
  *
+ * ## Performance Optimizations
+ *
+ * This component is optimized for performance:
+ * - Error boundaries isolate section failures
+ * - Data is memoized to prevent unnecessary re-renders
+ * - Skeleton loading states are available for async loading
+ * - All child components use React.memo
+ *
  * ## Usage
  *
  * With Shell (recommended):
@@ -20,6 +28,8 @@
  * ```
  */
 
+import * as React from 'react'
+import { useMemo, memo, Suspense } from 'react'
 import {
   DashboardLayout,
   Sidebar,
@@ -31,6 +41,10 @@ import {
   KPICard,
   ActivityFeed,
   AgentStatus,
+  DashboardErrorBoundary,
+  KPICardSkeleton,
+  ActivityFeedSkeleton,
+  AgentStatusSkeleton,
 } from './index'
 
 export interface AdminContentProps {
@@ -89,12 +103,88 @@ export const defaultAdminData: AdminContentProps = {
 }
 
 /**
+ * KPI Grid Section - Memoized for performance
+ * Wrapped with error boundary for isolation
+ */
+const KPIGridSection = memo(function KPIGridSection({
+  kpis,
+}: {
+  kpis: AdminContentProps['kpis']
+}) {
+  // Memoize KPI data to prevent unnecessary re-renders
+  const memoizedKpis = useMemo(() => kpis || [], [kpis])
+
+  return (
+    <DashboardGrid cols={4}>
+      {memoizedKpis.map((kpi) => (
+        <DashboardErrorBoundary
+          key={kpi.title}
+          sectionTitle={kpi.title}
+          compact
+        >
+          <KPICard {...kpi} />
+        </DashboardErrorBoundary>
+      ))}
+    </DashboardGrid>
+  )
+})
+
+/**
+ * Activity Section - Memoized for performance
+ * Wrapped with error boundary for isolation
+ */
+const ActivitySection = memo(function ActivitySection({
+  activities,
+}: {
+  activities: AdminContentProps['activities']
+}) {
+  // Memoize activities data
+  const memoizedActivities = useMemo(() => activities || [], [activities])
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
+      <DashboardErrorBoundary sectionTitle="Recent Activity">
+        <ActivityFeed items={memoizedActivities} />
+      </DashboardErrorBoundary>
+    </div>
+  )
+})
+
+/**
+ * Agent Status Section - Memoized for performance
+ * Wrapped with error boundary for isolation
+ */
+const AgentSection = memo(function AgentSection({
+  agents,
+}: {
+  agents: AdminContentProps['agents']
+}) {
+  // Memoize agents data
+  const memoizedAgents = useMemo(() => agents || [], [agents])
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">Agent Status</h2>
+      <DashboardErrorBoundary sectionTitle="Agent Status">
+        <AgentStatus agents={memoizedAgents} />
+      </DashboardErrorBoundary>
+    </div>
+  )
+})
+
+/**
  * DashboardContent - Content-only component for use with Shell
  *
  * Renders just the dashboard content (KPIs, activity feed, agent status)
  * without the sidebar/navigation. Use this when wrapping with Shell.
+ *
+ * Performance optimizations:
+ * - Error boundaries isolate section failures
+ * - Data is memoized to prevent unnecessary re-renders
+ * - Each section is wrapped in memo() for render optimization
  */
-export function DashboardContent({
+export const DashboardContent = memo(function DashboardContent({
   kpis = defaultAdminData.kpis,
   activities = defaultAdminData.activities,
   agents = defaultAdminData.agents,
@@ -103,25 +193,15 @@ export function DashboardContent({
     <>
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
-      <DashboardGrid cols={4}>
-        {kpis?.map((kpi) => (
-          <KPICard key={kpi.title} {...kpi} />
-        ))}
-      </DashboardGrid>
+      <KPIGridSection kpis={kpis} />
 
       <div className="grid md:grid-cols-2 gap-6 mt-6">
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
-          <ActivityFeed items={activities} />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Agent Status</h2>
-          <AgentStatus agents={agents} />
-        </div>
+        <ActivitySection activities={activities} />
+        <AgentSection agents={agents} />
       </div>
     </>
   )
-}
+})
 
 /**
  * AdminContent - Full dashboard with layout (standalone use)
@@ -131,7 +211,7 @@ export function DashboardContent({
  *
  * @deprecated Prefer using DashboardContent with Shell wrapper
  */
-export function AdminContent({
+export const AdminContent = memo(function AdminContent({
   kpis = defaultAdminData.kpis,
   activities = defaultAdminData.activities,
   agents = defaultAdminData.agents,
@@ -157,4 +237,57 @@ export function AdminContent({
       </DashboardContentWrapper>
     </DashboardLayout>
   )
-}
+})
+
+/**
+ * DashboardContentWithSkeleton - Dashboard content with loading state support
+ *
+ * Use this when you need to show loading skeletons while data is being fetched.
+ *
+ * @example
+ * ```tsx
+ * <DashboardContentWithSkeleton
+ *   isLoading={isLoading}
+ *   kpis={data?.kpis}
+ *   activities={data?.activities}
+ *   agents={data?.agents}
+ * />
+ * ```
+ */
+export const DashboardContentWithSkeleton = memo(function DashboardContentWithSkeleton({
+  isLoading = false,
+  kpis,
+  activities,
+  agents,
+}: AdminContentProps & { isLoading?: boolean }) {
+  if (isLoading) {
+    return (
+      <>
+        <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+        <DashboardGrid cols={4}>
+          {[1, 2, 3, 4].map((i) => (
+            <KPICardSkeleton key={i} />
+          ))}
+        </DashboardGrid>
+        <div className="grid md:grid-cols-2 gap-6 mt-6">
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
+            <ActivityFeedSkeleton itemCount={3} />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Agent Status</h2>
+            <AgentStatusSkeleton agentCount={6} />
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <DashboardContent
+      kpis={kpis}
+      activities={activities}
+      agents={agents}
+    />
+  )
+})

@@ -1,0 +1,387 @@
+---
+title: Beacon - Marketing Sites
+description: Build marketing sites, landing pages, and documentation with Beacon components
+---
+
+# Beacon - Marketing Sites
+
+Beacon is MDXUI's component library for marketing sites, landing pages, and public-facing content. Optimized for SEO, accessibility, and conversion.
+
+## Quick Start
+
+```tsx
+import { Site, Header, Footer, LandingPage, Hero, Features, Pricing } from 'mdxui/site'
+
+export default function HomePage() {
+  return (
+    <Site name="Acme" domain="acme.com" theme="light">
+      <Header
+        logo={<Logo />}
+        nav={[
+          { label: 'Features', href: '/features' },
+          { label: 'Pricing', href: '/pricing' },
+          { label: 'Docs', href: '/docs' },
+        ]}
+        cta={{ text: 'Get Started', href: '/signup' }}
+      />
+
+      <LandingPage>
+        <Hero
+          title="Build your 1-Person Unicorn"
+          subtitle="Business-as-Code for autonomous businesses run by AI agents"
+          cta={{ text: 'Start Free', href: '/signup' }}
+          image="/hero-dashboard.png"
+        />
+
+        <Features
+          title="Everything you need"
+          features={[
+            { icon: 'bot', title: 'AI Agents', description: 'Named agents with real identity' },
+            { icon: 'database', title: 'Edge Database', description: 'SQLite on Durable Objects' },
+            { icon: 'workflow', title: 'Workflows', description: 'Durable execution at the edge' },
+          ]}
+        />
+
+        <Pricing tiers={pricingTiers} />
+      </LandingPage>
+
+      <Footer
+        logo={<Logo />}
+        links={footerLinks}
+        copyright="2024 Acme Inc."
+      />
+    </Site>
+  )
+}
+```
+
+## Site Structure
+
+### Site Component
+
+The root wrapper that provides theme context and global configuration:
+
+```tsx
+<Site
+  name="Acme Analytics"
+  domain="acme.analytics"
+  theme="dark"              // 'light' | 'dark' | 'system'
+  locale="en"               // Locale for i18n
+>
+  {children}
+</Site>
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `name` | `string` | Required | Site name for SEO |
+| `domain` | `string` | - | Domain for absolute URLs |
+| `theme` | `'light' \| 'dark' \| 'system'` | `'system'` | Color theme |
+| `locale` | `string` | `'en'` | Locale for i18n |
+
+### Header Component
+
+Navigation header with logo, nav links, and CTA:
+
+```tsx
+<Header
+  logo={<Logo />}
+  nav={[
+    { label: 'Features', href: '/features' },
+    { label: 'Pricing', href: '/pricing' },
+    {
+      label: 'Resources',
+      items: [
+        { label: 'Documentation', href: '/docs' },
+        { label: 'Blog', href: '/blog' },
+        { label: 'API Reference', href: '/api' },
+      ]
+    }
+  ]}
+  cta={{ text: 'Get Started', href: '/signup' }}
+  sticky              // Stick to top on scroll
+  transparent         // Transparent background over hero
+/>
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `logo` | `ReactNode` | - | Logo element |
+| `nav` | `NavItem[]` | `[]` | Navigation items |
+| `cta` | `{ text, href }` | - | Call-to-action button |
+| `sticky` | `boolean` | `false` | Stick to top on scroll |
+| `transparent` | `boolean` | `false` | Transparent over hero |
+
+### Footer Component
+
+Site footer with link groups and social links:
+
+```tsx
+<Footer
+  logo={<Logo />}
+  links={[
+    {
+      title: 'Product',
+      items: [
+        { label: 'Features', href: '/features' },
+        { label: 'Pricing', href: '/pricing' },
+        { label: 'Changelog', href: '/changelog' },
+      ]
+    },
+    {
+      title: 'Resources',
+      items: [
+        { label: 'Documentation', href: '/docs' },
+        { label: 'Blog', href: '/blog' },
+        { label: 'Support', href: '/support' },
+      ]
+    }
+  ]}
+  social={[
+    { platform: 'twitter', href: 'https://twitter.com/acme' },
+    { platform: 'github', href: 'https://github.com/acme' },
+    { platform: 'discord', href: 'https://discord.gg/acme' },
+  ]}
+  copyright="2024 Acme Inc. All rights reserved."
+/>
+```
+
+## Landing Page Sections
+
+### Hero
+
+The main hero section with headline, subheadline, and CTA:
+
+```tsx
+<Hero
+  title="Build Faster, Ship Sooner"
+  subtitle="The complete platform for modern web development"
+  cta={{ text: 'Start Free', href: '/signup' }}
+  secondaryCta={{ text: 'View Demo', href: '/demo' }}
+  image="/hero-screenshot.png"
+  video="/hero-demo.mp4"      // Optional video
+  badge="New: AI Agents"      // Optional badge
+  variant="centered"          // 'centered' | 'split' | 'image-right'
+/>
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `title` | `string` | Required | Main headline |
+| `subtitle` | `string` | - | Supporting text |
+| `cta` | `{ text, href }` | - | Primary CTA |
+| `secondaryCta` | `{ text, href }` | - | Secondary CTA |
+| `image` | `string` | - | Hero image URL |
+| `video` | `string` | - | Hero video URL |
+| `badge` | `string` | - | Badge above title |
+| `variant` | `'centered' \| 'split' \| 'image-right'` | `'centered'` | Layout variant |
+
+### Features
+
+Showcase product features in a grid:
+
+```tsx
+<Features
+  title="Why Acme?"
+  subtitle="Everything you need to build great products"
+  features={[
+    {
+      icon: 'lightning',
+      title: 'Lightning Fast',
+      description: '0ms cold starts with V8 isolates'
+    },
+    {
+      icon: 'shield',
+      title: 'Secure by Default',
+      description: 'Isolated execution with no shared state'
+    },
+    {
+      icon: 'globe',
+      title: 'Global by Default',
+      description: 'Deploy to 300+ edge locations'
+    }
+  ]}
+  columns={3}
+  variant="cards"    // 'cards' | 'icons' | 'list'
+/>
+```
+
+### Pricing
+
+Display pricing tiers with feature comparison:
+
+```tsx
+<Pricing
+  title="Simple, transparent pricing"
+  subtitle="Start free, scale as you grow"
+  tiers={[
+    {
+      name: 'Starter',
+      price: { monthly: 0, annually: 0 },
+      description: 'For individuals and side projects',
+      features: ['1 agent', '10K requests/month', 'Community support'],
+      cta: { text: 'Start Free', href: '/signup' }
+    },
+    {
+      name: 'Pro',
+      price: { monthly: 29, annually: 290 },
+      description: 'For growing teams',
+      features: ['Unlimited agents', '1M requests/month', 'Priority support'],
+      cta: { text: 'Start Trial', href: '/signup?plan=pro' },
+      popular: true
+    },
+    {
+      name: 'Enterprise',
+      price: 'Custom',
+      description: 'For large organizations',
+      features: ['Everything in Pro', 'SLA', 'Dedicated support'],
+      cta: { text: 'Contact Sales', href: '/contact' }
+    }
+  ]}
+  showToggle          // Show monthly/annually toggle
+/>
+```
+
+### Testimonials
+
+Customer testimonials and social proof:
+
+```tsx
+<Testimonials
+  title="Loved by developers"
+  testimonials={[
+    {
+      quote: "This changed how we build products. Shipping 10x faster now.",
+      author: "Jane Smith",
+      role: "CTO at TechCorp",
+      avatar: "/avatars/jane.jpg",
+      logo: "/logos/techcorp.svg"
+    }
+  ]}
+  variant="cards"    // 'cards' | 'carousel' | 'marquee'
+/>
+```
+
+### FAQ
+
+Frequently asked questions with accordion:
+
+```tsx
+<FAQ
+  title="Frequently Asked Questions"
+  items={[
+    {
+      question: "How do I get started?",
+      answer: "Sign up for a free account and follow our quick start guide."
+    },
+    {
+      question: "What payment methods do you accept?",
+      answer: "We accept all major credit cards and PayPal."
+    }
+  ]}
+/>
+```
+
+### CTA Section
+
+Final call-to-action section:
+
+```tsx
+<CTA
+  title="Ready to get started?"
+  subtitle="Start building for free. No credit card required."
+  primaryCta={{ text: 'Start Free', href: '/signup' }}
+  secondaryCta={{ text: 'Talk to Sales', href: '/contact' }}
+  variant="centered"    // 'centered' | 'split' | 'banner'
+/>
+```
+
+## Blog Components
+
+### Blog Listing
+
+Display blog posts with categories and pagination:
+
+```tsx
+<Blog
+  site="acme"
+  limit={10}
+  layout="grid"           // 'grid' | 'list' | 'featured'
+  showCategories
+  showSearch
+/>
+```
+
+### Blog Post
+
+Individual blog post with rich formatting:
+
+```tsx
+<BlogPost
+  slug={params.slug}
+  showAuthor
+  showDate
+  showReadTime
+  showTableOfContents
+  showShareButtons
+/>
+```
+
+## Documentation Components
+
+### Docs Layout
+
+Documentation site with sidebar navigation:
+
+```tsx
+<Docs
+  project="acme-docs"
+  showSidebar
+  showToc
+  showSearch
+  showBreadcrumbs
+  showPrevNext
+/>
+```
+
+### DocsPage
+
+Individual documentation page:
+
+```tsx
+<DocsPage
+  path={params.path}
+  showLastUpdated
+  showEditLink
+  editUrl="https://github.com/acme/docs/edit/main"
+/>
+```
+
+## SEO Optimization
+
+Beacon components automatically generate SEO metadata:
+
+```tsx
+// Automatic meta tags from component props
+<Hero title="Build Faster" />
+// Generates: <title>Build Faster | Acme</title>
+// Generates: <meta property="og:title" content="Build Faster" />
+
+// Or explicit SEO props
+<Site
+  name="Acme"
+  seo={{
+    title: "Acme - Build Faster",
+    description: "The complete platform for modern development",
+    image: "/og-image.png",
+    twitter: "@acme"
+  }}
+>
+```
+
+## Related
+
+- [UI Overview](/docs/ui) - Introduction to MDXUI
+- [Components](/docs/ui/components) - Primitive components
+- [Cockpit](/docs/ui/cockpit) - Application components
+- [Theming](/docs/ui/components#theming-and-variants) - Customizing themes

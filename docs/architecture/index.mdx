@@ -7,7 +7,69 @@ import { Callout } from 'fumadocs-ui/components/callout'
 
 # Architecture Overview
 
-dotdo is a Business-as-Code framework built on Cloudflare's V8 Isolates and Durable Objects. This section provides a technical deep dive into the internal architecture for advanced users building on the platform.
+dotdo is a Business-as-Code framework built on Cloudflare's V8 Isolates and Durable Objects (DOs). This section provides a technical deep dive into the internal architecture for advanced users building on the platform.
+
+## Where Does My Code Run?
+
+This simplified diagram shows the execution path from your code to storage:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          dotdo ARCHITECTURE OVERVIEW                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  YOUR CODE                     CLOUDFLARE EDGE                    STORAGE    │
+│  ─────────                     ───────────────                    ───────    │
+│                                                                              │
+│  ┌─────────────┐     fetch     ┌─────────────────────────────────────────┐   │
+│  │   Client    │ ──────────▶   │              Worker (V8 Isolate)        │   │
+│  │  (Browser)  │               │                                         │   │
+│  └─────────────┘               │   API() ─▶ DO Router ─▶ Namespace ID    │   │
+│                                │                           │              │   │
+│  ┌─────────────┐               └───────────────────────────│─────────────┘   │
+│  │  agents/    │                                           │                 │
+│  │  objects/   │ ◀─ Your DO class extends                  │                 │
+│  │  workflows/ │    DOTiny, DO, or DOFull                  ▼                 │
+│  └─────────────┘               ┌─────────────────────────────────────────┐   │
+│                                │          Durable Object Instance        │   │
+│  ┌─────────────┐               │                                         │   │
+│  │  compat/    │               │   ┌─────────────────────────────────┐   │   │
+│  │  (40+ APIs) │ ◀─ Drop-in    │   │         SQLite (Drizzle)        │   │   │
+│  │  redis      │    replacements   │   ├─────────────────────────────┤   │   │
+│  │  postgres   │               │   │  things │ rels │ events │ ...  │   │   │
+│  │  stripe     │               │   └───────────────┬─────────────────┘   │   │
+│  │  ...        │               │                   │                     │   │
+│  └─────────────┘               └───────────────────│─────────────────────┘   │
+│                                                    │                         │
+│  ┌─────────────┐                                   │ Cloudflare Pipelines    │
+│  │ primitives/ │                                   ▼                         │
+│  │  fsx        │ ◀─ Edge-native  ┌────────────────────────────────────────┐  │
+│  │  gitx       │    primitives   │    R2 + Iceberg/Parquet (Warm Tier)    │  │
+│  │  bashx      │                 └────────────────────────────────────────┘  │
+│  │  npmx       │                                   │                         │
+│  │  pyx        │                                   ▼                         │
+│  └─────────────┘                 ┌────────────────────────────────────────┐  │
+│                                  │   ClickHouse + R2 Archive (Cold Tier)  │  │
+│                                  └────────────────────────────────────────┘  │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  LATENCY:  Client ─▶ Worker ~0ms │ Worker ─▶ DO ~5ms │ DO ─▶ SQLite ~50ms   │
+│  LOCATION: 300+ Cloudflare edge cities │ Code runs close to users           │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Quick Reference: Code Location
+
+| Directory | What It Is | Where It Runs |
+|-----------|------------|---------------|
+| `objects/` | DO base classes (DOTiny, DO, DOFull) | Durable Object (edge) |
+| `workflows/` | $ context, events, scheduling | Inside DO |
+| `db/` | Stores, schemas, Iceberg | DO SQLite + R2 |
+| `compat/` | API-compatible SDKs | DO (drop-in for Redis, Postgres, etc.) |
+| `primitives/` | fsx, gitx, bashx | DO (edge-native) |
+| `agents/` | AI agent SDK | DO or Worker |
+| `workers/` | API() router, proxy workers | Worker (V8 Isolate) |
+| `app/` | TanStack Start frontend | Client (browser) |
 
 ## System Architecture
 
@@ -78,6 +140,206 @@ The complete dotdo stack integrates V8 Isolates, Durable Objects, Cap'n Web RPC,
 | **State** | Durable Objects + SQLite | Actor model, ACID transactions |
 | **Warm Storage** | R2 + Iceberg/Parquet | Cross-DO queries, event archive |
 | **Cold Storage** | ClickHouse + R2 | Analytics, time-series aggregation |
+
+## Component Relationship Diagram
+
+This diagram shows how the major codebase components depend on and interact with each other:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                       COMPONENT RELATIONSHIPS                                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                              ┌────────────────┐                              │
+│                              │    app/        │  TanStack Start              │
+│                              │   (Frontend)   │  React + MDXUI               │
+│                              └───────┬────────┘                              │
+│                                      │ HTTP/WebSocket                        │
+│                                      ▼                                       │
+│                              ┌────────────────┐                              │
+│                              │   workers/     │  V8 Isolate                  │
+│                              │  API() Router  │  Proxy Workers               │
+│                              └───────┬────────┘                              │
+│                                      │ DO.get(namespace)                     │
+│                                      ▼                                       │
+│  ┌───────────────────────────────────────────────────────────────────────┐   │
+│  │                           objects/                                     │   │
+│  │                   Durable Object Class Hierarchy                       │   │
+│  │                                                                        │   │
+│  │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐            │   │
+│  │   │   DOTiny     │───▶│     DO       │───▶│   DOFull     │            │   │
+│  │   │   (~15KB)    │    │   (~80KB)    │    │  (~120KB)    │            │   │
+│  │   │              │    │              │    │              │            │   │
+│  │   │ • Identity   │    │ • $ context  │    │ • Lifecycle  │            │   │
+│  │   │ • SQLite     │    │ • Stores     │    │ • Branching  │            │   │
+│  │   │ • fetch()    │    │ • Events     │    │ • Sharding   │            │   │
+│  │   └──────────────┘    │ • Scheduling │    │ • fs/git/bash│            │   │
+│  │                       └───────┬──────┘    └──────────────┘            │   │
+│  │                               │                                        │   │
+│  │   Specialized Classes (extend DO):                                     │   │
+│  │   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │   │
+│  │   │  Entity  │ │  Agent   │ │  Human   │ │ Workflow │ │  App     │   │   │
+│  │   │  (CRUD)  │ │ (AI+Tools│ │(Approval)│ │ (State)  │ │(Container│   │   │
+│  │   └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘   │   │
+│  └───────────────────────────────────────────────────────────────────────┘   │
+│                          │           │           │                           │
+│                          │           │           │                           │
+│      ┌───────────────────┘           │           └───────────────────┐       │
+│      ▼                               ▼                               ▼       │
+│  ┌──────────────┐            ┌──────────────┐                ┌──────────────┐│
+│  │  workflows/  │            │     db/      │                │   agents/    ││
+│  │              │            │              │                │              ││
+│  │ • $ proxy    │◀──────────▶│ • stores.ts  │                │ • Agent.ts   ││
+│  │ • on.ts      │  uses      │ • things     │                │ • Tool.ts    ││
+│  │   (events)   │            │ • rels       │                │ • providers/ ││
+│  │ • schedule   │            │ • events     │                │   OpenAI     ││
+│  │   builder    │            │ • actions    │                │   Anthropic  ││
+│  │ • pipeline   │            │ • search     │                │   etc.       ││
+│  │   promise    │            │              │                │              ││
+│  └──────────────┘            │ • iceberg/   │                └──────────────┘│
+│                              │ • parquet/   │                                │
+│                              │ • proxy/     │                                │
+│                              └──────┬───────┘                                │
+│                                     │                                        │
+│      ┌──────────────────────────────┼──────────────────────────────┐         │
+│      ▼                              ▼                              ▼         │
+│  ┌──────────────┐            ┌──────────────┐               ┌──────────────┐ │
+│  │ primitives/  │            │    compat/   │               │    lib/      │ │
+│  │              │            │  (40+ SDKs)  │               │              │ │
+│  │ • fsx        │            │              │               │ • auth/      │ │
+│  │   (SQLite)   │            │ • redis      │               │ • rpc/       │ │
+│  │ • gitx       │            │ • postgres   │               │ • channels/  │ │
+│  │   (R2)       │            │ • mongo      │               │ • humans/    │ │
+│  │ • bashx      │            │ • stripe     │               │ • storage/   │ │
+│  │ • npmx       │            │ • openai     │               │ • response/  │ │
+│  │ • pyx        │            │ • slack      │               │              │ │
+│  │              │            │ • kafka      │               │              │ │
+│  │              │            │ • ...        │               │              │ │
+│  └──────────────┘            └──────────────┘               └──────────────┘ │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  LEGEND:                                                                     │
+│  ────▶ extends/inherits    ◀────▶ bidirectional dependency                  │
+│  uses: runtime dependency   dotted lines show data flow                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Component Summary
+
+| Component | Purpose | Key Files |
+|-----------|---------|-----------|
+| **objects/** | DO base classes and domain objects | `DOTiny.ts`, `DOBase.ts`, `Entity.ts`, `Agent.ts` |
+| **workflows/** | $ context DSL for events, scheduling, pipelines | `on.ts`, `schedule-builder.ts`, `pipeline-promise.ts` |
+| **db/** | Storage layer: schemas, stores, Iceberg integration | `stores.ts`, `things.ts`, `iceberg/`, `parquet/` |
+| **agents/** | Multi-provider AI agent SDK | `Agent.ts`, `Tool.ts`, `providers/` |
+| **compat/** | API-compatible SDKs (drop-in replacements) | `redis/`, `postgres/`, `stripe/`, etc. |
+| **primitives/** | Edge-native implementations | `fsx/`, `gitx/`, `bashx/`, `npmx/`, `pyx/` |
+| **workers/** | DO proxy workers and routing | `API()` factory, observability |
+| **lib/** | Shared utilities | `auth/`, `rpc/`, `channels/`, `humans/` |
+| **app/** | Frontend application | TanStack Start + MDXUI components |
+
+## Request Lifecycle
+
+This diagram shows the complete path of a request from client to response:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          REQUEST LIFECYCLE                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. CLIENT REQUEST                                                           │
+│  ─────────────────                                                           │
+│                                                                              │
+│     Browser/App ─────▶ https://tenant.api.dotdo.dev/customers/cust_123      │
+│                        ──────────────────────────────────────────────        │
+│                        subdomain: tenant                                     │
+│                        path: /customers/cust_123                             │
+│                        method: GET                                           │
+│                                                                              │
+│  2. WORKER (V8 ISOLATE)                                                      │
+│  ──────────────────────                                                      │
+│                                                                              │
+│     API() Factory     ┌─────────────────────────────────────┐               │
+│         │             │  1. Extract namespace from:         │               │
+│         ▼             │     - Subdomain (tenant.*)          │               │
+│     ┌─────────┐       │     - Path param (/:org/*)          │               │
+│     │ Router  │ ─────▶│     - Fixed value ('main')          │               │
+│     └────┬────┘       │                                      │               │
+│          │            │  2. Get DO stub:                     │               │
+│          │            │     env.DO.idFromName('tenant')      │               │
+│          │            │     env.DO.get(id)                   │               │
+│          │            │                                      │               │
+│          │            │  3. Forward request to DO            │               │
+│          │            └─────────────────────────────────────┘               │
+│          ▼                                                                   │
+│  3. DURABLE OBJECT                                                           │
+│  ─────────────────                                                           │
+│                                                                              │
+│     ┌─────────────────────────────────────────────────────────────────┐     │
+│     │                      DO.fetch(request)                           │     │
+│     │                                                                  │     │
+│     │  ┌─────────────────────────────────────────────────────────┐    │     │
+│     │  │  Route Matching (REST Router)                            │    │     │
+│     │  │                                                          │    │     │
+│     │  │  GET /health           ─▶  { status: 'ok', ns, $type }  │    │     │
+│     │  │  GET /:type            ─▶  things.list({ type })         │    │     │
+│     │  │  GET /:type/:id        ─▶  things.get(id)                │    │     │
+│     │  │  POST /:type           ─▶  things.create(body)           │    │     │
+│     │  │  PUT /:type/:id        ─▶  things.update(id, body)       │    │     │
+│     │  │  DELETE /:type/:id     ─▶  things.delete(id)             │    │     │
+│     │  │  POST /rpc             ─▶  handleRpc(body)               │    │     │
+│     │  │  WS /sync              ─▶  handleSync(socket)            │    │     │
+│     │  │  POST /mcp             ─▶  handleMcp(body)               │    │     │
+│     │  └─────────────────────────────────────────────────────────┘    │     │
+│     │                              │                                   │     │
+│     │                              ▼                                   │     │
+│     │  ┌─────────────────────────────────────────────────────────┐    │     │
+│     │  │  Store Operation (things.get)                            │    │     │
+│     │  │                                                          │    │     │
+│     │  │  1. Query SQLite:                                        │    │     │
+│     │  │     SELECT * FROM things                                 │    │     │
+│     │  │     WHERE id = 'cust_123'                                │    │     │
+│     │  │     ORDER BY rowid DESC LIMIT 1                          │    │     │
+│     │  │                                                          │    │     │
+│     │  │  2. Deserialize JSON data column                         │    │     │
+│     │  │                                                          │    │     │
+│     │  │  3. Apply visibility rules (visibility_policy)           │    │     │
+│     │  │                                                          │    │     │
+│     │  │  4. Return Thing with metadata                           │    │     │
+│     │  └─────────────────────────────────────────────────────────┘    │     │
+│     │                              │                                   │     │
+│     └──────────────────────────────│───────────────────────────────────┘     │
+│                                    ▼                                         │
+│  4. RESPONSE                                                                 │
+│  ───────────                                                                 │
+│                                                                              │
+│     {                                                                        │
+│       "$id": "cust_123",                                                    │
+│       "$type": "Customer",                                                  │
+│       "$ns": "tenant",                                                      │
+│       "name": "Alice",                                                       │
+│       "email": "alice@example.com",                                          │
+│       "$version": 3,                                                         │
+│       "$createdAt": "2024-01-15T10:30:00Z",                                 │
+│       "$updatedAt": "2024-01-15T14:22:00Z"                                  │
+│     }                                                                        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  LATENCY BREAKDOWN (typical):                                                │
+│  DNS + TLS: ~20ms │ Worker routing: ~1ms │ DO lookup: ~5ms │ SQLite: ~50ms  │
+│  Total: ~75ms (first request) │ ~55ms (warm DO)                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Request Flow Summary
+
+| Stage | Component | Latency | What Happens |
+|-------|-----------|---------|--------------|
+| **1** | Client | - | HTTP/WebSocket request to edge |
+| **2** | Worker | ~1ms | `API()` extracts namespace, gets DO stub |
+| **3** | DO Router | ~5ms | Route matching, auth, context setup |
+| **4** | Store | ~50ms | SQLite query, JSON parsing, visibility |
+| **5** | Response | - | Serialized JSON back to client |
 
 ## Core Philosophy
 
@@ -424,5 +686,20 @@ For detailed promise pipelining patterns, see [Await Patterns](/docs/rpc/await-p
 <Cards>
   <Card title="RPC Deep Dive" href="/docs/rpc/">
     Learn about Cap'n Web RPC, promise pipelining, and Magic Map for efficient cross-DO communication.
+  </Card>
+  <Card title="Durable Objects" href="/docs/objects">
+    The DO class hierarchy - DOTiny, DO, DOFull, and specialized classes.
+  </Card>
+  <Card title="Transport Layer" href="/docs/transport">
+    REST, RPC, and WebSocket transport protocols.
+  </Card>
+  <Card title="Platform Services" href="/docs/platform">
+    Platform services, security, compliance, and audit logging.
+  </Card>
+  <Card title="Workflows" href="/docs/workflows">
+    Durable workflow orchestration with the $ context DSL.
+  </Card>
+  <Card title="Security" href="/docs/security">
+    Identity, authorization, and secrets management.
   </Card>
 </Cards>

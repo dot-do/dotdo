@@ -48,7 +48,7 @@ import { generateJWT } from 'dotdo/auth'
 
 const token = await generateJWT({
   sub: 'user-123',
-  email: 'user@example.com.ai',
+  email: 'user@example.com',
   role: 'user',
   permissions: ['read', 'write'],
 }, process.env.JWT_SECRET, '24h')
@@ -68,7 +68,7 @@ app.use('*', authMiddleware({
 
 // JWKS endpoint (RS256, asymmetric)
 app.use('*', authMiddleware({
-  jwksUrl: 'https://auth.example.com.ai/.well-known/jwks.json',
+  jwksUrl: 'https://auth.example.com/.well-known/jwks.json',
 }))
 ```
 

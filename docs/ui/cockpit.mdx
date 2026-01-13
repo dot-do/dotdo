@@ -1,0 +1,492 @@
+---
+title: Cockpit - Application Dashboards
+description: Build SaaS dashboards, admin panels, and developer portals with Cockpit components
+---
+
+# Cockpit - Application Dashboards
+
+Cockpit is MDXUI's component library for SaaS applications, admin panels, and developer portals. Built for data-dense interfaces with complex interactions.
+
+## Quick Start
+
+```tsx
+import { App, Shell, Sidebar, Dashboard, KPICard, DataTable, AreaChart } from 'mdxui/app'
+
+export default function DashboardPage() {
+  return (
+    <App name="Acme Dashboard" auth={{ provider: 'workos' }}>
+      <Shell sidebar header>
+        <Sidebar
+          logo={<Logo />}
+          nav={[
+            { icon: 'dashboard', label: 'Dashboard', href: '/' },
+            { icon: 'users', label: 'Customers', href: '/customers' },
+            { icon: 'chart', label: 'Analytics', href: '/analytics' },
+            { icon: 'settings', label: 'Settings', href: '/settings' },
+          ]}
+        />
+
+        <Dashboard title="Overview">
+          <DashboardGrid>
+            <KPICard label="Revenue" value="$125K" change={12.5} trend="up" />
+            <KPICard label="Users" value="8,420" change={-2.3} trend="down" />
+            <KPICard label="Conversion" value="3.2%" trend="neutral" />
+          </DashboardGrid>
+
+          <AreaChart
+            data={revenueData}
+            xKey="month"
+            yKey="revenue"
+            title="Monthly Revenue"
+          />
+
+          <DataTable
+            data={recentOrders}
+            columns={['id', 'customer', 'amount', 'status']}
+          />
+        </Dashboard>
+      </Shell>
+    </App>
+  )
+}
+```
+
+## App Structure
+
+### App Component
+
+The root wrapper with authentication and global state:
+
+```tsx
+<App
+  name="Acme Dashboard"
+  auth={{
+    provider: 'workos',        // 'workos' | 'clerk' | 'auth0' | 'custom'
+    clientId: process.env.WORKOS_CLIENT_ID,
+    redirectUri: '/callback'
+  }}
+  theme="dark"
+>
+  {children}
+</App>
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `name` | `string` | Required | Application name |
+| `auth` | `AuthConfig` | - | Authentication configuration |
+| `theme` | `'light' \| 'dark' \| 'system'` | `'system'` | Color theme |
+
+### Shell Component
+
+Application shell with sidebar and header layout:
+
+```tsx
+<Shell
+  sidebar                 // Show sidebar
+  header                  // Show header
+  sidebarCollapsed       // Sidebar collapsed by default
+  sidebarWidth={240}     // Sidebar width in pixels
+>
+  <Sidebar nav={nav} />
+  <Main>{children}</Main>
+</Shell>
+```
+
+### Sidebar Component
+
+Navigation sidebar with collapsible groups:
+
+```tsx
+<Sidebar
+  logo={<Logo />}
+  nav={[
+    { icon: 'dashboard', label: 'Dashboard', href: '/' },
+    { icon: 'users', label: 'Customers', href: '/customers' },
+    {
+      icon: 'chart',
+      label: 'Analytics',
+      items: [
+        { label: 'Overview', href: '/analytics' },
+        { label: 'Reports', href: '/analytics/reports' },
+        { label: 'Events', href: '/analytics/events' },
+      ]
+    },
+    { icon: 'settings', label: 'Settings', href: '/settings' },
+  ]}
+  footer={<UserMenu user={user} />}
+/>
+```
+
+### Header Component
+
+Application header with breadcrumbs and actions:
+
+```tsx
+<Header
+  breadcrumbs={[
+    { label: 'Dashboard', href: '/' },
+    { label: 'Customers', href: '/customers' },
+    { label: 'Acme Corp' }
+  ]}
+  actions={[
+    { icon: 'bell', onClick: showNotifications },
+    { icon: 'help', onClick: showHelp },
+  ]}
+  search={{
+    placeholder: 'Search...',
+    onSearch: handleSearch
+  }}
+/>
+```
+
+## Dashboard Components
+
+### DashboardGrid
+
+Responsive grid for dashboard cards:
+
+```tsx
+<DashboardGrid columns={4} gap={4}>
+  <KPICard label="Revenue" value="$125K" />
+  <KPICard label="Users" value="8,420" />
+  <KPICard label="Orders" value="1,234" />
+  <KPICard label="Conversion" value="3.2%" />
+</DashboardGrid>
+```
+
+### KPICard
+
+Display key metrics with trend indicators:
+
+```tsx
+<KPICard
+  label="Monthly Revenue"
+  value="$125,000"
+  change={12.5}           // Percentage change
+  trend="up"              // 'up' | 'down' | 'neutral'
+  icon="dollar"           // Optional icon
+  sparkline={sparkData}   // Optional sparkline data
+  href="/analytics/revenue"  // Optional link
+/>
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `label` | `string` | Required | Metric label |
+| `value` | `string \| number` | Required | Metric value |
+| `change` | `number` | - | Percentage change |
+| `trend` | `'up' \| 'down' \| 'neutral'` | - | Trend direction |
+| `icon` | `string` | - | Icon name |
+| `sparkline` | `number[]` | - | Sparkline data |
+| `href` | `string` | - | Link URL |
+
+### ActivityFeed
+
+Real-time activity stream:
+
+```tsx
+<ActivityFeed
+  items={[
+    {
+      id: '1',
+      type: 'user',
+      message: 'New user signed up',
+      user: { name: 'Alice', avatar: '/alice.jpg' },
+      timestamp: new Date()
+    },
+    {
+      id: '2',
+      type: 'order',
+      message: 'Order #1234 completed',
+      meta: { amount: '$299' },
+      timestamp: new Date()
+    }
+  ]}
+  realtime              // Enable real-time updates
+  maxItems={10}         // Maximum items to show
+/>
+```
+
+### AgentStatus
+
+Monitor AI agent status:
+
+```tsx
+<AgentStatus
+  agents={[
+    { id: 'priya', name: 'Priya', status: 'active', lastAction: '2m ago' },
+    { id: 'ralph', name: 'Ralph', status: 'working', task: 'Building feature' },
+    { id: 'tom', name: 'Tom', status: 'idle' },
+  ]}
+  showLastAction
+  showCurrentTask
+/>
+```
+
+## Data Components
+
+### DataTable
+
+Render tabular data with sorting, filtering, and pagination:
+
+```tsx
+<DataTable
+  data={customers}
+  columns={[
+    { key: 'name', label: 'Name', sortable: true },
+    { key: 'email', label: 'Email' },
+    { key: 'plan', label: 'Plan', filterable: true },
+    { key: 'mrr', label: 'MRR', format: 'currency', sortable: true },
+    { key: 'status', label: 'Status', render: StatusBadge },
+  ]}
+  pageSize={10}
+  searchable
+  selectable
+  onRowClick={handleRowClick}
+  actions={[
+    { label: 'Edit', onClick: handleEdit },
+    { label: 'Delete', onClick: handleDelete, variant: 'destructive' }
+  ]}
+/>
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `data` | `T[]` | Required | Data array |
+| `columns` | `Column[]` | Required | Column definitions |
+| `pageSize` | `number` | `10` | Rows per page |
+| `searchable` | `boolean` | `false` | Enable search |
+| `selectable` | `boolean` | `false` | Enable row selection |
+| `onRowClick` | `function` | - | Row click handler |
+| `actions` | `Action[]` | - | Row actions |
+
+### DataGrid
+
+Advanced data grid with inline editing:
+
+```tsx
+<DataGrid
+  data={products}
+  columns={[
+    { key: 'name', label: 'Name', editable: true },
+    { key: 'price', label: 'Price', type: 'number', editable: true },
+    { key: 'stock', label: 'Stock', type: 'number' },
+    { key: 'category', label: 'Category', type: 'select', options: categories },
+  ]}
+  onSave={handleSave}
+  autosave
+/>
+```
+
+### ListView
+
+List view with cards or rows:
+
+```tsx
+<ListView
+  data={projects}
+  renderItem={(project) => (
+    <ProjectCard
+      title={project.name}
+      description={project.description}
+      status={project.status}
+    />
+  )}
+  layout="grid"          // 'grid' | 'list'
+  columns={3}
+/>
+```
+
+## Chart Components
+
+All charts use Recharts under the hood with consistent theming.
+
+### AreaChart
+
+```tsx
+<AreaChart
+  data={revenueData}
+  xKey="month"
+  yKey={['revenue', 'expenses']}
+  title="Revenue vs Expenses"
+  height={300}
+  showLegend
+  showTooltip
+  showGrid
+  colors={['#6366f1', '#ef4444']}
+  stacked
+/>
+```
+
+### BarChart
+
+```tsx
+<BarChart
+  data={salesData}
+  xKey="product"
+  yKey="sales"
+  title="Sales by Product"
+  horizontal           // Horizontal bars
+  showLabels           // Show value labels
+/>
+```
+
+### LineChart
+
+```tsx
+<LineChart
+  data={userGrowth}
+  xKey="date"
+  yKey="users"
+  title="User Growth"
+  smooth               // Smooth curves
+  showDots             // Show data points
+/>
+```
+
+### PieChart
+
+```tsx
+<PieChart
+  data={breakdown}
+  dataKey="value"
+  nameKey="category"
+  title="Revenue Breakdown"
+  donut                // Donut style
+  showLabels
+/>
+```
+
+### Chart Props
+
+All charts share these common props:
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `data` | `T[]` | Required | Chart data |
+| `xKey` | `keyof T` | - | X-axis key |
+| `yKey` | `keyof T \| (keyof T)[]` | - | Y-axis key(s) |
+| `title` | `string` | - | Chart title |
+| `height` | `number` | `200` | Chart height |
+| `colors` | `string[]` | Theme | Custom colors |
+| `showLegend` | `boolean` | `false` | Show legend |
+| `showTooltip` | `boolean` | `true` | Show tooltip |
+| `showGrid` | `boolean` | `true` | Show grid |
+| `animate` | `boolean` | `true` | Enable animation |
+
+## Developer Portal Components
+
+### APIKeys
+
+Manage API keys:
+
+```tsx
+<APIKeys
+  project="acme"
+  allowCreate
+  allowDelete
+  showLastUsed
+  showUsage
+/>
+```
+
+### Webhooks
+
+Configure webhooks:
+
+```tsx
+<Webhooks
+  project="acme"
+  allowCreate
+  allowEdit
+  showLogs
+  events={['user.created', 'order.completed', 'payment.failed']}
+/>
+```
+
+### Usage
+
+Display API usage and limits:
+
+```tsx
+<Usage
+  project="acme"
+  period="month"         // 'day' | 'week' | 'month' | 'year'
+  showBreakdown
+  showProjections
+  alerts={[
+    { threshold: 80, message: 'Approaching limit' },
+    { threshold: 100, message: 'Limit reached' }
+  ]}
+/>
+```
+
+### Logs
+
+Real-time log viewer:
+
+```tsx
+<Logs
+  source="api"
+  realtime
+  filter={{
+    level: ['error', 'warn'],
+    path: '/api/v1/*'
+  }}
+  maxLines={1000}
+/>
+```
+
+## Settings Components
+
+### Team
+
+Team management:
+
+```tsx
+<Team
+  workspace="acme"
+  allowInvite
+  allowRoleChange
+  allowRemove
+  roles={['admin', 'member', 'viewer']}
+/>
+```
+
+### Billing
+
+Billing and subscription management:
+
+```tsx
+<Billing
+  customer="cus_123"
+  showInvoices
+  showPaymentMethods
+  showUsage
+  allowUpgrade
+/>
+```
+
+### Settings Form
+
+Generic settings form:
+
+```tsx
+<SettingsForm
+  schema={settingsSchema}
+  values={currentSettings}
+  onSave={handleSave}
+  sections={[
+    { id: 'general', title: 'General', fields: ['name', 'description'] },
+    { id: 'notifications', title: 'Notifications', fields: ['email', 'slack'] },
+  ]}
+/>
+```
+
+## Related
+
+- [UI Overview](/docs/ui) - Introduction to MDXUI
+- [Components](/docs/ui/components) - Primitive components
+- [Beacon](/docs/ui/beacon) - Marketing site components
+- [Admin](/docs/ui/admin) - Admin panel patterns

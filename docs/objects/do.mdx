@@ -135,7 +135,7 @@ this.$.every(30).minutes(async () => {
 })
 
 // Cron-style scheduling
-this.$.every.monday.at('9am')(async () => {
+this.$.every.Monday.at9am(async () => {
   await this.sendWeeklyDigest()
 })
 

@@ -1,0 +1,363 @@
+---
+title: DuckDB
+description: Drop-in replacement for DuckDB with edge compatibility, R2 storage for Parquet files, and distributed sharding.
+---
+
+# DuckDB
+
+Drop-in replacement for the DuckDB Node.js SDK (`duckdb`). Your existing DuckDB code works unchanged - just swap the import.
+
+```typescript
+// Before: DuckDB SDK
+import duckdb from 'duckdb'
+
+// After: dotdo (import from compat/duckdb)
+import { Database } from '@dotdo/duckdb'
+
+// Code stays the same
+const db = new Database(':memory:')
+db.run('CREATE TABLE test (id INTEGER, name TEXT)')
+db.run("INSERT INTO test VALUES (1, 'Alice'), (2, 'Bob')")
+
+const rows = db.all('SELECT * FROM test')
+console.log(rows)
+
+db.close()
+```
+
+## Why @dotdo/duckdb?
+
+| DuckDB SDK | dotdo DuckDB |
+|------------|--------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Local file storage only | Parquet files on R2 |
+| Single instance | Distributed sharding |
+| No connection pooling | Stateless HTTP requests |
+| No built-in replication | Replica support with read preferences |
+
+**This is a compatibility layer.** It can either run entirely locally using Durable Object storage (development/edge) or connect to Parquet files on R2 (production). The API surface matches the official DuckDB Node.js SDK.
+
+## Features
+
+### Implemented
+
+**Database**
+- `new Database()` - Create database instance
+- `db.run()` - Execute SQL statements
+- `db.all()` - Query and return all rows
+- `db.get()` - Query and return first row
+- `db.each()` - Iterate over results
+- `db.close()` - Close database connection
+
+**Connection**
+- `db.connect()` - Create a connection
+- `conn.run()` - Execute on connection
+- `conn.all()` - Query on connection
+- `conn.close()` - Close connection
+
+**Statement**
+- `db.prepare()` - Prepare a statement
+- `stmt.bind()` - Bind parameters
+- `stmt.run()` - Execute statement
+- `stmt.all()` - Query with statement
+- `stmt.finalize()` - Finalize statement
+
+**Extended Features (dotdo-specific)**
+- R2 Parquet file storage
+- Distributed query routing
+- Sharding by key
+- Replica read preferences
+- Memory-only mode for testing
+
+### Not Yet Implemented
+
+- Arrow format support
+- Appender API
+- Extension loading
+- Remote database connections
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { Database } from '@dotdo/duckdb'
+
+const db = new Database(':memory:')
+
+// Create table and insert data
+db.run('CREATE TABLE users (id INTEGER, name TEXT, email TEXT)')
+db.run("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
+db.run("INSERT INTO users VALUES (2, 'Bob', 'bob@example.com')")
+
+// Query data
+const users = db.all('SELECT * FROM users')
+console.log(users)
+// [{ id: 1, name: 'Alice', email: 'alice@example.com' }, ...]
+
+// Get single row
+const alice = db.get('SELECT * FROM users WHERE id = 1')
+console.log(alice.name) // 'Alice'
+
+db.close()
+```
+
+### Async API with Connections
+
+```typescript
+import { open } from '@dotdo/duckdb'
+
+const db = await open(':memory:')
+const conn = await db.connect()
+
+await conn.run('CREATE TABLE products (id INTEGER, name TEXT, price DECIMAL)')
+await conn.run("INSERT INTO products VALUES (1, 'Widget', 9.99)")
+
+const products = await conn.all('SELECT * FROM products WHERE price < 20')
+console.log(products)
+
+await conn.close()
+await db.close()
+```
+
+### Prepared Statements
+
+```typescript
+import { Database } from '@dotdo/duckdb'
+
+const db = new Database(':memory:')
+db.run('CREATE TABLE events (id INTEGER, type TEXT, timestamp INTEGER)')
+
+// Prepare statement for repeated execution
+const stmt = db.prepare('INSERT INTO events VALUES (?, ?, ?)')
+
+stmt.run(1, 'click', Date.now())
+stmt.run(2, 'view', Date.now())
+stmt.run(3, 'purchase', Date.now())
+
+stmt.finalize()
+
+const events = db.all('SELECT * FROM events')
+console.log(events)
+
+db.close()
+```
+
+## Configuration
+
+### Database Options
+
+```typescript
+import { Database, type DatabaseConfig } from '@dotdo/duckdb'
+
+const config: DatabaseConfig = {
+  // Access mode
+  access_mode: 'READ_WRITE', // or 'READ_ONLY'
+
+  // Threading
+  threads: 4,
+
+  // Memory limit
+  max_memory: '2GB',
+}
+
+const db = new Database(':memory:', config)
+```
+
+### Extended DO Configuration
+
+```typescript
+import { Database, type ExtendedDuckDBConfig } from '@dotdo/duckdb'
+
+const db = new Database(':memory:', {
+  // Sharding configuration for horizontal scaling
+  shard: {
+    // Sharding algorithm
+    algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
+
+    // Number of shards
+    count: 8,
+
+    // Field to shard on
+    key: 'tenant_id',
+  },
+
+  // Replica configuration for read scaling
+  replica: {
+    // Read preference
+    readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
+
+    // Write-through to all replicas
+    writeThrough: true,
+
+    // Jurisdiction for data residency
+    jurisdiction: 'eu',
+  },
+
+  // R2 bucket for Parquet storage
+  r2Bucket: env.DUCKDB_BUCKET,
+
+  // DO namespace for Worker deployment
+  doNamespace: env.DUCKDB_DO,
+} as ExtendedDuckDBConfig)
+```
+
+## Parquet Integration
+
+Read Parquet files from R2:
+
+```typescript
+import { Database } from '@dotdo/duckdb'
+
+const db = new Database(':memory:', {
+  r2Bucket: env.DATA_BUCKET,
+})
+
+// Query Parquet files directly
+const result = db.all(`
+  SELECT * FROM read_parquet('analytics/events/*.parquet')
+  WHERE event_date >= '2024-01-01'
+`)
+
+// Create table from Parquet
+db.run(`
+  CREATE TABLE events AS
+  SELECT * FROM read_parquet('analytics/events.parquet')
+`)
+```
+
+## Analytics Queries
+
+DuckDB excels at analytical queries:
+
+```typescript
+import { Database } from '@dotdo/duckdb'
+
+const db = new Database(':memory:')
+
+// Create sample data
+db.run(`
+  CREATE TABLE sales (
+    date DATE,
+    product TEXT,
+    region TEXT,
+    amount DECIMAL,
+    quantity INTEGER
+  )
+`)
+
+// Insert data...
+
+// Analytical queries
+const monthlyRevenue = db.all(`
+  SELECT
+    DATE_TRUNC('month', date) as month,
+    SUM(amount) as revenue,
+    SUM(quantity) as units_sold
+  FROM sales
+  GROUP BY DATE_TRUNC('month', date)
+  ORDER BY month
+`)
+
+// Window functions
+const runningTotal = db.all(`
+  SELECT
+    date,
+    amount,
+    SUM(amount) OVER (ORDER BY date) as running_total
+  FROM sales
+`)
+
+// Pivot queries
+const pivotByRegion = db.all(`
+  PIVOT sales
+  ON region
+  USING SUM(amount)
+  GROUP BY DATE_TRUNC('month', date)
+`)
+```
+
+## Error Handling
+
+```typescript
+import { Database, DuckDBError } from '@dotdo/duckdb'
+
+const db = new Database(':memory:')
+
+try {
+  db.run('SELECT * FROM nonexistent_table')
+} catch (error) {
+  if (error instanceof DuckDBError) {
+    console.error('DuckDB error:', error.message)
+    // Handle specific DuckDB errors
+  }
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Core types
+  IDatabase,
+  IConnection,
+  IStatement,
+
+  // Config types
+  DatabaseConfig,
+  ExtendedDuckDBConfig,
+
+  // Result types
+  QueryResult,
+  ColumnInfo,
+
+  // Access modes
+  AccessMode,
+
+  // Callback types
+  DatabaseCallback,
+  CloseCallback,
+  RunCallback,
+  AllCallback,
+  GetCallback,
+  EachRowCallback,
+  EachCompleteCallback,
+  FinalizeCallback,
+} from '@dotdo/duckdb'
+```
+
+## Migration from DuckDB
+
+### 1. Update imports
+
+```typescript
+// Before
+import duckdb from 'duckdb'
+const db = new duckdb.Database(':memory:')
+
+// After
+import { Database } from '@dotdo/duckdb'
+const db = new Database(':memory:')
+```
+
+### 2. Code changes
+
+Most code works unchanged. Check for:
+
+- **File paths**: Use R2 paths instead of local filesystem
+- **Node.js APIs**: Replace with edge-compatible alternatives
+- **Extensions**: Some DuckDB extensions not yet supported
+
+## Next Steps
+
+<Cards>
+  <Card title="PostgreSQL Integration" href="/docs/integrations/postgres">
+    PostgreSQL wire protocol compatibility for relational queries.
+  </Card>
+  <Card title="ClickHouse Integration" href="/docs/integrations/clickhouse">
+    ClickHouse for large-scale analytics.
+  </Card>
+  <Card title="Database SDKs" href="/docs/compat/databases">
+    Overview of all database compatibility layers.
+  </Card>
+</Cards>
