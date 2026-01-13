@@ -1031,9 +1031,16 @@ export class ThingsStore {
       sql`SELECT rowid as version, * FROM things WHERE id = ${id} ORDER BY rowid ASC`
     )
 
+    const rows = results as any[]
+
+    // Batch lookup all type names to avoid N+1 queries
+    const typeIds = rows.map((row) => row.type as number)
+    const typeNameMap = await this.batchGetTypeNames(typeIds)
+
+    // Map to ThingEntity using the pre-fetched type names
     const entities: ThingEntity[] = []
-    for (const row of results as any[]) {
-      const typeName = await this.getTypeName(row.type)
+    for (const row of rows) {
+      const typeName = typeNameMap.get(row.type) ?? 'Unknown'
       entities.push({
         $id: row.id,
         $type: typeName,

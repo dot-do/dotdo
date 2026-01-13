@@ -396,7 +396,8 @@ function createRootObject(ctx: RPCContext): Record<string, unknown> {
         return null  // Customer not found
       }
 
-      return buildResponse(
+      // Create a customer object with Orders method for promise pipelining
+      const customer = buildResponse(
         { id, ...customerData },
         {
           ns: DEFAULT_NAMESPACE,
@@ -404,6 +405,39 @@ function createRootObject(ctx: RPCContext): Record<string, unknown> {
           id: id,
         }
       )
+
+      // Add Orders method for promise pipelining tests
+      ;(customer as Record<string, unknown>).Orders = () => {
+        const orders = [
+          { id: `${id}-order-1`, product: 'Widget', amount: 99.99, customerId: id },
+          { id: `${id}-order-2`, product: 'Gadget', amount: 149.99, customerId: id },
+        ]
+
+        const items = orders.map((order) =>
+          buildResponse(
+            order,
+            {
+              ns: DEFAULT_NAMESPACE,
+              type: 'Order',
+              id: order.id,
+            }
+          )
+        )
+
+        return buildResponse(
+          {
+            items,
+            count: items.length,
+          },
+          {
+            ns: DEFAULT_NAMESPACE,
+            type: 'Order',
+            isCollection: true,
+          }
+        )
+      }
+
+      return customer
     },
 
     /**
@@ -932,9 +966,35 @@ rpcRoutes.post('/', async (c) => {
     )
   }
 
-  // Check if this is a JSON-RPC 2.0 request for obs methods (which require WebSocket)
-  if (request && typeof request === 'object' && 'jsonrpc' in request && (request as JSONRPCRequest).jsonrpc === '2.0') {
+  // Handle JSON-RPC 2.0 batch requests (array of requests)
+  if (isJSONRPCBatch(request)) {
+    const responses: JSONRPCResponse[] = []
+    for (const req of request) {
+      // Check for obs methods which require WebSocket
+      if (req.method?.startsWith('obs.')) {
+        responses.push({
+          jsonrpc: '2.0',
+          error: {
+            code: -32600,
+            message: 'obs.subscribe requires WebSocket connection. Upgrade to WebSocket protocol.',
+          },
+          id: req.id ?? null,
+        })
+      } else {
+        const response = await handleJSONRPCRequest(req, ctx)
+        if (response) {
+          responses.push(response)
+        }
+      }
+    }
+    return c.json(responses)
+  }
+
+  // Handle single JSON-RPC 2.0 requests
+  if (isJSONRPCRequest(request)) {
     const jsonRpcRequest = request as JSONRPCRequest
+
+    // Check for obs methods which require WebSocket
     if (jsonRpcRequest.method?.startsWith('obs.')) {
       return c.json({
         jsonrpc: '2.0',
@@ -945,8 +1005,12 @@ rpcRoutes.post('/', async (c) => {
         id: jsonRpcRequest.id ?? null,
       } satisfies JSONRPCResponse)
     }
+
+    const response = await handleJSONRPCRequest(jsonRpcRequest, ctx)
+    return c.json(response)
   }
 
+  // Handle Capnweb requests
   const rpcRequest = request as RPCRequest
 
   if (!rpcRequest.id) {

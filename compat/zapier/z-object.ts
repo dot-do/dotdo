@@ -42,6 +42,8 @@ export interface CreateZObjectOptions {
     set: (cursor: string) => Promise<void>
   }
   hydrationStore?: Map<string, { func: DehydrateFunc; inputData: Record<string, unknown> }>
+  /** Custom callback URL generator for enterprise deployments */
+  callbackUrlGenerator?: () => string
 }
 
 /**
@@ -295,8 +297,11 @@ export function createZObject(options: CreateZObjectOptions = {}): ZObject {
     },
 
     generateCallbackUrl: (): string => {
-      const id = crypto.randomUUID()
-      return `https://hooks.zapier.com/hooks/callback/${id}`
+      if (options.callbackUrlGenerator) {
+        return options.callbackUrlGenerator()
+      }
+      const id = crypto.randomUUID().replace(/-/g, '')
+      return `https://hooks.zapier.com/hooks/standard/${id}`
     },
 
     hash,

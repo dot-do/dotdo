@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
+import { buildResponse } from '../../lib/response/linked-data'
 
 /**
  * REST API Routes for /api/*
@@ -356,6 +357,69 @@ apiRoutes.delete('/things/:id', async (c) => {
 })
 
 // ============================================================================
+// Customers Routes (for E2E RPC linked data tests)
+// ============================================================================
+
+// Default namespace for linked data responses - matches RPC routes
+const DEFAULT_NAMESPACE = 'https://localhost:8787'
+
+// Sample customer data - matches RPC routes
+const SAMPLE_CUSTOMERS: Record<string, { name: string; email: string }> = {
+  alice: { name: 'Alice Smith', email: 'alice@example.com' },
+  bob: { name: 'Bob Jones', email: 'bob@example.com' },
+  charlie: { name: 'Charlie Brown', email: 'charlie@example.com' },
+}
+
+// GET /customers/:id - Get a single customer with linked data
+apiRoutes.get('/customers/:id', (c) => {
+  const id = c.req.param('id')
+  const customerData = SAMPLE_CUSTOMERS[id]
+
+  if (!customerData) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Customer not found' } }, 404)
+  }
+
+  return c.json(
+    buildResponse(
+      { id, ...customerData },
+      {
+        ns: DEFAULT_NAMESPACE,
+        type: 'Customer',
+        id: id,
+      }
+    )
+  )
+})
+
+// GET /customers - List all customers with linked data
+apiRoutes.get('/customers', (c) => {
+  const items = Object.entries(SAMPLE_CUSTOMERS).map(([id, data]) =>
+    buildResponse(
+      { id, ...data },
+      {
+        ns: DEFAULT_NAMESPACE,
+        type: 'Customer',
+        id: id,
+      }
+    )
+  )
+
+  return c.json(
+    buildResponse(
+      {
+        items,
+        count: items.length,
+      },
+      {
+        ns: DEFAULT_NAMESPACE,
+        type: 'Customer',
+        isCollection: true,
+      }
+    )
+  )
+})
+
+// ============================================================================
 // Protected Routes (for auth middleware testing)
 // ============================================================================
 
@@ -473,6 +537,126 @@ apiRoutes.get('/error/typed', (c) => {
 
 apiRoutes.get('/error/concurrent/:id', (c) => {
   return c.json({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred' } }, 500)
+})
+
+// ============================================================================
+// Test Collection Routes (Collection<T> E2E Testing)
+// ============================================================================
+
+/**
+ * Get the TestCollectionDO stub for E2E testing.
+ * Uses the COLLECTION_DO binding.
+ */
+function getTestCollectionStub(env: Env) {
+  if (!env?.COLLECTION_DO) {
+    throw new Error('COLLECTION_DO binding not available')
+  }
+  const id = env.COLLECTION_DO.idFromName('test-collection')
+  return env.COLLECTION_DO.get(id)
+}
+
+// GET /test-collection - Collection root (list items)
+apiRoutes.get('/test-collection', async (c) => {
+  const stub = getTestCollectionStub(c.env)
+  const url = new URL(c.req.url)
+  const doResponse = await stub.fetch(new Request(`http://do/${url.search}`, {
+    method: 'GET',
+  }))
+  const data = await doResponse.json()
+  return c.json(data, doResponse.status as 200)
+})
+
+// POST /test-collection - Create item
+apiRoutes.post('/test-collection', async (c) => {
+  const stub = getTestCollectionStub(c.env)
+  const body = await c.req.text()
+  const doResponse = await stub.fetch(new Request('http://do/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  }))
+  const data = await doResponse.json()
+  return c.json(data, doResponse.status as 200 | 201 | 400 | 409)
+})
+
+// HEAD /test-collection - Check if collection exists
+apiRoutes.on('HEAD', '/test-collection', async (c) => {
+  const stub = getTestCollectionStub(c.env)
+  const doResponse = await stub.fetch(new Request('http://do/', {
+    method: 'HEAD',
+  }))
+  return new Response(null, { status: doResponse.status })
+})
+
+// GET /test-collection/:id - Get item by ID
+apiRoutes.get('/test-collection/:id', async (c) => {
+  const id = c.req.param('id')
+  const stub = getTestCollectionStub(c.env)
+  const doResponse = await stub.fetch(new Request(`http://do/${encodeURIComponent(id)}`, {
+    method: 'GET',
+  }))
+  const data = await doResponse.json()
+  return c.json(data, doResponse.status as 200 | 404)
+})
+
+// PUT /test-collection/:id - Update item (replace)
+apiRoutes.put('/test-collection/:id', async (c) => {
+  const id = c.req.param('id')
+  const stub = getTestCollectionStub(c.env)
+  const body = await c.req.text()
+  const doResponse = await stub.fetch(new Request(`http://do/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  }))
+  const data = await doResponse.json()
+  return c.json(data, doResponse.status as 200 | 400 | 404)
+})
+
+// PATCH /test-collection/:id - Update item (merge)
+apiRoutes.patch('/test-collection/:id', async (c) => {
+  const id = c.req.param('id')
+  const stub = getTestCollectionStub(c.env)
+  const body = await c.req.text()
+  const doResponse = await stub.fetch(new Request(`http://do/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  }))
+  const data = await doResponse.json()
+  return c.json(data, doResponse.status as 200 | 400 | 404)
+})
+
+// DELETE /test-collection/:id - Delete item
+apiRoutes.delete('/test-collection/:id', async (c) => {
+  const id = c.req.param('id')
+  const stub = getTestCollectionStub(c.env)
+  const doResponse = await stub.fetch(new Request(`http://do/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }))
+  if (doResponse.status === 204) {
+    return new Response(null, { status: 204 })
+  }
+  const data = await doResponse.json()
+  return c.json(data, doResponse.status as 404)
+})
+
+// HEAD /test-collection/:id - Check if item exists
+apiRoutes.on('HEAD', '/test-collection/:id', async (c) => {
+  const id = c.req.param('id')
+  const stub = getTestCollectionStub(c.env)
+  const doResponse = await stub.fetch(new Request(`http://do/${encodeURIComponent(id)}`, {
+    method: 'HEAD',
+  }))
+  return new Response(null, { status: doResponse.status })
+})
+
+// Handle nested paths for test-collection (not supported)
+apiRoutes.all('/test-collection/:id/*', () => {
+  return Response.json(
+    { $type: 'Error', error: 'Nested paths not supported in Collection routing', code: 'NOT_FOUND' },
+    { status: 404 }
+  )
 })
 
 // ============================================================================

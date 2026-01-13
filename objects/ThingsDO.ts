@@ -10,10 +10,12 @@
  * - GET /things/:id - Get a specific thing
  * - PUT /things/:id - Update a thing
  * - DELETE /things/:id - Delete a thing
+ * - GET /:type/:id/edit - Edit UI with Monaco editor
  */
 
 import { DurableObject } from 'cloudflare:workers'
 import { Hono } from 'hono'
+import { generateEditUI, createEditUIData } from './transport/edit-ui'
 
 export interface ThingData {
   id: string
@@ -203,12 +205,270 @@ export class ThingsDO extends DurableObject {
       return new Response(null, { status: 204 })
     })
 
+    // ========================================================================
+    // REST-style routes: /:type, /:type/:id, /:type/:id/edit
+    // These provide a RESTful interface for any resource type
+    // ========================================================================
+
+    // Edit UI: GET /:type/:id/edit
+    app.get('/:type/:id/edit', async (c) => {
+      const type = c.req.param('type')
+      const id = c.req.param('id')
+      const url = new URL(c.req.url)
+      const ns = url.origin
+
+      // Try to get existing thing by ID
+      const thingsMap = await this.ctx.storage.get<Map<string, StoredThing>>('things')
+      let existingData: Record<string, unknown> | null = null
+
+      if (thingsMap) {
+        // Try to find by exact id
+        const thing = thingsMap.get(id)
+        if (thing) {
+          existingData = {
+            id: thing.id,
+            name: thing.name,
+            ...(thing.data ?? {}),
+          }
+        } else {
+          // Try to find by searching all things
+          for (const [thingId, thing] of thingsMap.entries()) {
+            if (thingId === id || thing.name?.toLowerCase() === id.toLowerCase()) {
+              existingData = {
+                id: thing.id,
+                name: thing.name,
+                ...(thing.data ?? {}),
+              }
+              break
+            }
+          }
+        }
+      }
+
+      // Generate edit UI data
+      const editData = createEditUIData(ns, type, id, existingData)
+      const html = generateEditUI(editData)
+
+      return c.html(html)
+    })
+
+    // List collection: GET /:type
+    app.get('/:type', async (c) => {
+      const type = c.req.param('type')
+      const url = new URL(c.req.url)
+      const ns = url.origin
+
+      const thingsMap = await this.ctx.storage.get<Map<string, StoredThing>>('things')
+      const things = thingsMap ? Array.from(thingsMap.values()) : []
+
+      // Filter by type if needed (singularize the type for matching)
+      const singularType = this.singularize(type)
+      const filtered = things.filter(t =>
+        t.$type.toLowerCase() === singularType.toLowerCase() ||
+        t.$type.toLowerCase() === type.toLowerCase()
+      )
+
+      // Build collection response
+      const items = filtered.map(t => ({
+        $context: ns,
+        $type: `${ns}/${singularType}`,
+        $id: `${ns}/${type}/${t.id}`,
+        id: t.id,
+        name: t.name,
+        ...(t.data ?? {}),
+      }))
+
+      return c.json({
+        $context: ns,
+        $type: 'Collection',
+        $id: `${ns}/${type}`,
+        items,
+        total: items.length,
+      })
+    })
+
+    // Get item: GET /:type/:id
+    app.get('/:type/:id', async (c) => {
+      const type = c.req.param('type')
+      const id = c.req.param('id')
+      const url = new URL(c.req.url)
+      const ns = url.origin
+
+      const thingsMap = await this.ctx.storage.get<Map<string, StoredThing>>('things')
+      let thing: StoredThing | undefined
+
+      if (thingsMap) {
+        // Try to find by exact id first
+        thing = thingsMap.get(id)
+        if (!thing) {
+          // Try to find by name
+          for (const t of thingsMap.values()) {
+            if (t.name?.toLowerCase() === id.toLowerCase()) {
+              thing = t
+              break
+            }
+          }
+        }
+      }
+
+      if (!thing) {
+        // Return a minimal structure for non-existent items
+        // This allows the edit UI to work for creating new items
+        const singularType = this.singularize(type)
+        return c.json({
+          $context: ns,
+          $type: `${ns}/${singularType}`,
+          $id: `${ns}/${type}/${id}`,
+          id: id,
+          links: {
+            self: `${ns}/${type}/${id}`,
+            collection: `${ns}/${type}`,
+            edit: `${ns}/${type}/${id}/edit`,
+          },
+        })
+      }
+
+      const singularType = this.singularize(type)
+      return c.json({
+        $context: ns,
+        $type: `${ns}/${singularType}`,
+        $id: `${ns}/${type}/${thing.id}`,
+        id: thing.id,
+        name: thing.name,
+        ...(thing.data ?? {}),
+        links: {
+          self: `${ns}/${type}/${thing.id}`,
+          collection: `${ns}/${type}`,
+          edit: `${ns}/${type}/${thing.id}/edit`,
+        },
+      })
+    })
+
+    // Create item: POST /:type
+    app.post('/:type', async (c) => {
+      const type = c.req.param('type')
+      const url = new URL(c.req.url)
+      const ns = url.origin
+
+      let body: Record<string, unknown>
+      try {
+        body = await c.req.json()
+      } catch {
+        return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
+      }
+
+      const id = (body.id as string) || (body.$id as string) || crypto.randomUUID()
+      const now = new Date().toISOString()
+      const singularType = this.singularize(type)
+
+      const thing: StoredThing = {
+        id,
+        $type: singularType,
+        name: (body.name as string) || id,
+        data: body,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      const thingsMap = (await this.ctx.storage.get<Map<string, StoredThing>>('things')) || new Map()
+      thingsMap.set(id, thing)
+      await this.ctx.storage.put('things', thingsMap)
+
+      return c.json({
+        $context: ns,
+        $type: `${ns}/${singularType}`,
+        $id: `${ns}/${type}/${id}`,
+        id,
+        name: thing.name,
+        ...(thing.data ?? {}),
+      }, 201)
+    })
+
+    // Update item: PUT /:type/:id
+    app.put('/:type/:id', async (c) => {
+      const type = c.req.param('type')
+      const id = c.req.param('id')
+      const url = new URL(c.req.url)
+      const ns = url.origin
+
+      let body: Record<string, unknown>
+      try {
+        body = await c.req.json()
+      } catch {
+        return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
+      }
+
+      const now = new Date().toISOString()
+      const singularType = this.singularize(type)
+
+      const thingsMap = (await this.ctx.storage.get<Map<string, StoredThing>>('things')) || new Map()
+
+      // Get existing or create new
+      const existing = thingsMap.get(id)
+      const thing: StoredThing = {
+        id,
+        $type: singularType,
+        name: (body.name as string) || existing?.name || id,
+        data: body,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      }
+
+      thingsMap.set(id, thing)
+      await this.ctx.storage.put('things', thingsMap)
+
+      return c.json({
+        $context: ns,
+        $type: `${ns}/${singularType}`,
+        $id: `${ns}/${type}/${id}`,
+        id,
+        name: thing.name,
+        ...(thing.data ?? {}),
+        success: true,
+      })
+    })
+
+    // Delete item: DELETE /:type/:id
+    app.delete('/:type/:id', async (c) => {
+      const type = c.req.param('type')
+      const id = c.req.param('id')
+
+      const thingsMap = await this.ctx.storage.get<Map<string, StoredThing>>('things')
+
+      if (!thingsMap?.has(id)) {
+        return c.json({ error: { code: 'NOT_FOUND', message: `${type} not found: ${id}` } }, 404)
+      }
+
+      thingsMap.delete(id)
+      await this.ctx.storage.put('things', thingsMap)
+
+      return new Response(null, { status: 204 })
+    })
+
     // Catch-all
     app.all('*', (c) => {
       return c.json({ error: { code: 'NOT_FOUND', message: `Not found: ${c.req.path}` } }, 404)
     })
 
     return app
+  }
+
+  /**
+   * Convert plural form to singular (simple heuristic)
+   */
+  private singularize(plural: string): string {
+    let singular = plural
+
+    if (plural.endsWith('ies')) {
+      singular = plural.slice(0, -3) + 'y'
+    } else if (plural.endsWith('es')) {
+      singular = plural.slice(0, -2)
+    } else if (plural.endsWith('s')) {
+      singular = plural.slice(0, -1)
+    }
+
+    // Capitalize first letter
+    return singular.charAt(0).toUpperCase() + singular.slice(1)
   }
 
   private toApiFormat(thing: StoredThing): ThingData {

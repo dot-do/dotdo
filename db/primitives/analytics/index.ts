@@ -94,3 +94,35 @@ export {
   type MaterializedAnalyticsTable,
   type MaterializeOptions,
 } from './unified-analytics'
+
+// ============================================================================
+// Query Planner with Partition Pruning
+// ============================================================================
+
+export {
+  // Factory function
+  createQueryPlanner,
+
+  // Types
+  type QueryPlanner,
+  type AnalyticsQuery,
+  type TableStats,
+  type PartitionStats,
+  type ColumnStats as QueryPlannerColumnStats,
+  type QueryPlan as FullQueryPlan,
+  type PlanNode,
+  type CostEstimate,
+  type ExplainOptions,
+  type QueryPlannerConfig,
+  type BloomFilter,
+
+  // Predicate helpers (re-exported with planner-specific types)
+  eq as plannerEq,
+  neq as plannerNeq,
+  gt as plannerGt,
+  lt as plannerLt,
+  gte as plannerGte,
+  lte as plannerLte,
+  between as plannerBetween,
+  inList as plannerInList,
+} from './query-planner'

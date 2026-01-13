@@ -1845,3 +1845,332 @@ describe('e-commerce integration', () => {
     expect(firstPageIds.filter((id) => secondPageIds.includes(id))).toHaveLength(0)
   })
 })
+
+// ============================================================================
+// KNN QUERY TESTS
+// ============================================================================
+
+describe('client.search() - kNN queries', () => {
+  let client: ClientType
+
+  // Simple embedding function for tests (normalizes to unit vectors)
+  function createEmbedding(values: number[]): number[] {
+    const magnitude = Math.sqrt(values.reduce((sum, v) => sum + v * v, 0))
+    return values.map((v) => v / magnitude)
+  }
+
+  beforeEach(async () => {
+    clearAllIndices()
+    client = new Client({ node: 'http://localhost:9200' })
+
+    // Create index with dense_vector mapping
+    await client.indices.create({
+      index: 'vectors',
+      mappings: {
+        properties: {
+          title: { type: 'text' },
+          category: { type: 'keyword' },
+          embedding: {
+            type: 'dense_vector',
+            dims: 4,
+            similarity: 'cosine',
+          },
+        },
+      },
+    })
+
+    // Index documents with embeddings
+    await client.bulk({
+      operations: [
+        { index: { _index: 'vectors', _id: '1' } },
+        { title: 'Machine learning basics', category: 'tech', embedding: createEmbedding([1, 0, 0, 0]) },
+        { index: { _index: 'vectors', _id: '2' } },
+        { title: 'Deep learning tutorial', category: 'tech', embedding: createEmbedding([0.9, 0.1, 0, 0]) },
+        { index: { _index: 'vectors', _id: '3' } },
+        { title: 'Natural language processing', category: 'tech', embedding: createEmbedding([0.8, 0.2, 0, 0]) },
+        { index: { _index: 'vectors', _id: '4' } },
+        { title: 'Cooking recipes', category: 'food', embedding: createEmbedding([0, 0, 1, 0]) },
+        { index: { _index: 'vectors', _id: '5' } },
+        { title: 'Baking bread', category: 'food', embedding: createEmbedding([0, 0, 0.9, 0.1]) },
+      ],
+    })
+  })
+
+  it('should perform basic kNN search', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([1, 0, 0, 0]),
+        k: 3,
+        num_candidates: 10,
+      },
+    })
+
+    expect(response.hits.total.value).toBe(3)
+    expect(response.hits.hits).toHaveLength(3)
+    // The closest vector should be doc 1 (exact match)
+    expect(response.hits.hits[0]._id).toBe('1')
+    // Score should be high for cosine similarity
+    expect(response.hits.hits[0]._score).toBeGreaterThan(0.9)
+  })
+
+  it('should return results ordered by similarity', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([1, 0, 0, 0]),
+        k: 5,
+        num_candidates: 10,
+      },
+    })
+
+    // Results should be ordered by decreasing similarity
+    expect(response.hits.hits[0]._id).toBe('1')  // Exact match
+    expect(response.hits.hits[1]._id).toBe('2')  // Very similar
+    expect(response.hits.hits[2]._id).toBe('3')  // Similar
+
+    // Scores should be in decreasing order
+    for (let i = 1; i < response.hits.hits.length; i++) {
+      expect(response.hits.hits[i - 1]._score).toBeGreaterThanOrEqual(response.hits.hits[i]._score!)
+    }
+  })
+
+  it('should support kNN with filter', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([1, 0, 0, 0]),
+        k: 3,
+        num_candidates: 10,
+        filter: {
+          term: { category: 'food' },
+        },
+      },
+    })
+
+    // Should only return food items even though tech items are more similar
+    expect(response.hits.total.value).toBe(2)
+    expect(response.hits.hits.every((h) => h._source?.category === 'food')).toBe(true)
+  })
+
+  it('should support hybrid search (kNN + text query)', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      query: { match: { title: 'learning' } },
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([1, 0, 0, 0]),
+        k: 3,
+        num_candidates: 10,
+      },
+    })
+
+    // Should combine results from both kNN and text search
+    expect(response.hits.total.value).toBeGreaterThan(0)
+    // Documents matching both queries should rank higher
+    const learningDocs = response.hits.hits.filter(
+      (h) => (h._source?.title as string)?.toLowerCase().includes('learning')
+    )
+    expect(learningDocs.length).toBeGreaterThan(0)
+  })
+
+  it('should support hybrid search with RRF ranking', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      query: { match: { title: 'deep learning' } },
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([0.9, 0.1, 0, 0]),
+        k: 3,
+        num_candidates: 10,
+      },
+      rank: {
+        rrf: {
+          window_size: 100,
+          rank_constant: 60,
+        },
+      },
+    })
+
+    expect(response.hits.total.value).toBeGreaterThan(0)
+    // Document 2 should rank high as it matches both the text query and is similar to the vector
+    const doc2 = response.hits.hits.find((h) => h._id === '2')
+    expect(doc2).toBeDefined()
+  })
+
+  it('should handle kNN-only search without text query', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      size: 2,
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([0, 0, 1, 0]),
+        k: 5,
+        num_candidates: 10,
+      },
+    })
+
+    // Should return food-related items (similar to [0,0,1,0])
+    expect(response.hits.hits).toHaveLength(2)
+    expect(response.hits.hits[0]._id).toBe('4')  // Cooking recipes
+  })
+
+  it('should support multiple kNN clauses', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      knn: [
+        {
+          field: 'embedding',
+          query_vector: createEmbedding([1, 0, 0, 0]),
+          k: 2,
+          num_candidates: 10,
+        },
+        {
+          field: 'embedding',
+          query_vector: createEmbedding([0, 0, 1, 0]),
+          k: 2,
+          num_candidates: 10,
+        },
+      ],
+    })
+
+    // Should return results from both kNN searches
+    expect(response.hits.total.value).toBeGreaterThanOrEqual(2)
+  })
+
+  it('should work with source filtering', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([1, 0, 0, 0]),
+        k: 2,
+        num_candidates: 10,
+      },
+      _source: ['title', 'category'],
+    })
+
+    expect(response.hits.hits[0]._source).toHaveProperty('title')
+    expect(response.hits.hits[0]._source).toHaveProperty('category')
+    expect(response.hits.hits[0]._source).not.toHaveProperty('embedding')
+  })
+
+  it('should return kNN results with scores normalized to similarity', async () => {
+    const response = await client.search({
+      index: 'vectors',
+      knn: {
+        field: 'embedding',
+        query_vector: createEmbedding([1, 0, 0, 0]),
+        k: 3,
+        num_candidates: 10,
+      },
+    })
+
+    // Cosine similarity should be between 0 and 1 for unit vectors
+    for (const hit of response.hits.hits) {
+      expect(hit._score).toBeGreaterThanOrEqual(0)
+      expect(hit._score).toBeLessThanOrEqual(1.01) // Small tolerance for floating point
+    }
+  })
+})
+
+// ============================================================================
+// KNN WITH DENSE_VECTOR MAPPING TESTS
+// ============================================================================
+
+describe('dense_vector field mapping', () => {
+  let client: ClientType
+
+  beforeEach(() => {
+    clearAllIndices()
+    client = new Client({ node: 'http://localhost:9200' })
+  })
+
+  it('should create index with dense_vector field', async () => {
+    await client.indices.create({
+      index: 'embeddings',
+      mappings: {
+        properties: {
+          name: { type: 'text' },
+          vector: {
+            type: 'dense_vector',
+            dims: 128,
+            similarity: 'cosine',
+          },
+        },
+      },
+    })
+
+    const mapping = await client.indices.getMapping({ index: 'embeddings' })
+    expect(mapping.embeddings.mappings.properties?.vector.type).toBe('dense_vector')
+    expect(mapping.embeddings.mappings.properties?.vector.dims).toBe(128)
+    expect(mapping.embeddings.mappings.properties?.vector.similarity).toBe('cosine')
+  })
+
+  it('should support different similarity metrics', async () => {
+    await client.indices.create({
+      index: 'l2-vectors',
+      mappings: {
+        properties: {
+          vector: {
+            type: 'dense_vector',
+            dims: 64,
+            similarity: 'l2_norm',
+          },
+        },
+      },
+    })
+
+    const mapping = await client.indices.getMapping({ index: 'l2-vectors' })
+    expect(mapping['l2-vectors'].mappings.properties?.vector.similarity).toBe('l2_norm')
+  })
+
+  it('should support dot_product similarity', async () => {
+    await client.indices.create({
+      index: 'dot-vectors',
+      mappings: {
+        properties: {
+          vector: {
+            type: 'dense_vector',
+            dims: 64,
+            similarity: 'dot_product',
+          },
+        },
+      },
+    })
+
+    const mapping = await client.indices.getMapping({ index: 'dot-vectors' })
+    expect(mapping['dot-vectors'].mappings.properties?.vector.similarity).toBe('dot_product')
+  })
+
+  it('should index and retrieve documents with dense_vector fields', async () => {
+    await client.indices.create({
+      index: 'test-vectors',
+      mappings: {
+        properties: {
+          title: { type: 'text' },
+          embedding: {
+            type: 'dense_vector',
+            dims: 3,
+            similarity: 'cosine',
+          },
+        },
+      },
+    })
+
+    await client.index({
+      index: 'test-vectors',
+      id: '1',
+      document: {
+        title: 'Test document',
+        embedding: [0.1, 0.2, 0.3],
+      },
+    })
+
+    const doc = await client.get({ index: 'test-vectors', id: '1' })
+    expect(doc._source?.embedding).toEqual([0.1, 0.2, 0.3])
+  })
+})

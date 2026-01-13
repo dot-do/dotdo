@@ -24,6 +24,15 @@ export interface CollectionResponseOptions {
   customActions?: string[]
 }
 
+/**
+ * Clickable action object with method and href
+ */
+export interface ClickableAction {
+  method: string
+  href: string
+  type?: string
+}
+
 export interface CollectionResponse<T extends object> {
   $context: string
   $type: string
@@ -31,7 +40,7 @@ export interface CollectionResponse<T extends object> {
   count: number
   links: Record<string, string>
   facets?: { sort?: string[]; filter?: Record<string, string[]> }
-  actions: Record<string, string>
+  actions: Record<string, ClickableAction>
   items: Array<T & { $context: string; $type: string; $id: string }>
 }
 
@@ -91,6 +100,7 @@ export function buildCollectionResponse<T extends { id: string }>(
   // Build links
   const links: Record<string, string> = {
     home: normalizedNs,
+    self: $type,
     first: $type,
   }
 
@@ -108,14 +118,14 @@ export function buildCollectionResponse<T extends { id: string }>(
     links.last = `${$type}?last=true`
   }
 
-  // Build actions
-  const actions: Record<string, string> = {
-    create: $type,
+  // Build actions as clickable objects with method and href
+  const actions: Record<string, ClickableAction> = {
+    create: { method: 'POST', href: $type },
   }
 
-  // Add custom actions
+  // Add custom actions (default to POST)
   for (const action of customActions) {
-    actions[action] = `${$type}/${action}`
+    actions[action] = { method: 'POST', href: `${$type}/${action}` }
   }
 
   // Transform items - each item needs $context, $type, $id

@@ -42,10 +42,36 @@ export type Relationship = typeof relationships.$inferSelect
 export type NewRelationship = typeof relationships.$inferInsert
 
 // ============================================================================
-// Query Helpers
+// Database Interface
 // ============================================================================
 
-type DrizzleDB = { select: Function; insert: Function; delete: Function }
+/**
+ * Database interface required for relationship query helpers.
+ * This allows the helpers to work with any Drizzle database instance
+ * (D1, Durable Object SQLite, or test mocks) while maintaining full type safety.
+ */
+export interface RelationshipsDb {
+  /** Select all columns from a table */
+  select(): {
+    from(table: typeof relationships): {
+      where(condition: unknown): Promise<Relationship[]>
+    }
+  }
+  /** Insert values into a table */
+  insert(table: typeof relationships): {
+    values(values: NewRelationship): {
+      returning(): Promise<Relationship[]>
+    }
+  }
+  /** Delete from a table */
+  delete(table: typeof relationships): {
+    where(condition: unknown): Promise<void>
+  }
+}
+
+// ============================================================================
+// Query Helpers
+// ============================================================================
 
 /**
  * Get all outgoing relationships from a source URL
@@ -53,16 +79,15 @@ type DrizzleDB = { select: Function; insert: Function; delete: Function }
  * @param from - Source URL
  * @param verb - Optional verb filter
  */
-export function getRelationshipsFrom<T extends DrizzleDB>(
-  db: T,
+export function getRelationshipsFrom(
+  db: RelationshipsDb,
   from: string,
   verb?: string,
 ): Promise<Relationship[]> {
-  const query = db.select().from(relationships)
-  if (verb) {
-    return (query as any).where(and(eq(relationships.from, from), eq(relationships.verb, verb)))
-  }
-  return (query as any).where(eq(relationships.from, from))
+  const condition = verb
+    ? and(eq(relationships.from, from), eq(relationships.verb, verb))
+    : eq(relationships.from, from)
+  return db.select().from(relationships).where(condition)
 }
 
 /**
@@ -71,16 +96,15 @@ export function getRelationshipsFrom<T extends DrizzleDB>(
  * @param to - Target URL
  * @param verb - Optional verb filter
  */
-export function getRelationshipsTo<T extends DrizzleDB>(
-  db: T,
+export function getRelationshipsTo(
+  db: RelationshipsDb,
   to: string,
   verb?: string,
 ): Promise<Relationship[]> {
-  const query = db.select().from(relationships)
-  if (verb) {
-    return (query as any).where(and(eq(relationships.to, to), eq(relationships.verb, verb)))
-  }
-  return (query as any).where(eq(relationships.to, to))
+  const condition = verb
+    ? and(eq(relationships.to, to), eq(relationships.verb, verb))
+    : eq(relationships.to, to)
+  return db.select().from(relationships).where(condition)
 }
 
 /**
@@ -88,11 +112,12 @@ export function getRelationshipsTo<T extends DrizzleDB>(
  * @param db - Drizzle database instance
  * @param data - Relationship data to insert
  */
-export function createRelationship<T extends DrizzleDB>(
-  db: T,
+export async function createRelationship(
+  db: RelationshipsDb,
   data: NewRelationship,
 ): Promise<Relationship> {
-  return (db.insert(relationships).values(data).returning() as any).then((rows: Relationship[]) => rows[0])
+  const rows = await db.insert(relationships).values(data).returning()
+  return rows[0]
 }
 
 /**
@@ -100,9 +125,9 @@ export function createRelationship<T extends DrizzleDB>(
  * @param db - Drizzle database instance
  * @param id - Relationship ID to delete
  */
-export function deleteRelationship<T extends DrizzleDB>(
-  db: T,
+export function deleteRelationship(
+  db: RelationshipsDb,
   id: string,
 ): Promise<void> {
-  return (db.delete(relationships).where(eq(relationships.id, id)) as any)
+  return db.delete(relationships).where(eq(relationships.id, id))
 }

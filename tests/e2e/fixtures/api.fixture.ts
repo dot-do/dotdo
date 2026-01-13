@@ -34,6 +34,7 @@ export class APIClient {
   private getHeaders(additionalHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       ...additionalHeaders,
     }
 

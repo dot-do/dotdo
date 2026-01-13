@@ -18,7 +18,7 @@ import type { ThingsStore, ThingEntity } from '../../db/stores'
 import { buildResponse } from '../../lib/response/linked-data'
 import { buildCollectionResponse as buildCollectionResponseShape } from '../../lib/response/collection'
 import { buildItemLinks } from '../../lib/response/links'
-import { buildItemActions } from '../../lib/response/actions'
+import { buildItemActionsClickable } from '../../lib/response/actions'
 import { generateEditUI, createEditUIData, type EditUIData } from './edit-ui'
 
 // ============================================================================
@@ -64,6 +64,7 @@ export interface IndexResponse {
   $id: string
   $type: string  // DO's class type, not "Index"
   ns: string
+  links: Record<string, string>
   collections: Record<string, CollectionInfo>
 }
 
@@ -119,7 +120,7 @@ export function formatThingAsJsonLd(
   // Add links and actions if requested (for single item GET)
   if (options?.includeLinksActions) {
     const links = buildItemLinks({ ns, type, id: thing.$id })
-    const actions = buildItemActions({ ns, type, id: thing.$id })
+    const actions = buildItemActionsClickable({ ns, type, id: thing.$id })
     return {
       ...response,
       links: {
@@ -203,6 +204,7 @@ function extractNamespace(ns: string): string {
  * - $context: parent namespace (if provided), otherwise default schema
  * - $type: ns (the namespace URL itself is the type)
  * - $id: ns (same as $type for root)
+ * - links: navigation links (self, and collection links)
  * - collections: Record with collection info including counts
  */
 export function generateIndex(
@@ -216,15 +218,23 @@ export function generateIndex(
   // For root, $context is the parent (or default schema if no parent)
   const $context = options?.parent ?? 'https://schema.org.ai'
 
+  // Build links - self plus links to each collection
+  const links: Record<string, string> = {
+    self: ns,
+  }
+
   // Build collections as Record with counts
   const collections: Record<string, CollectionInfo> = {}
   for (const { noun, plural } of nouns) {
     const pluralLower = plural.toLowerCase()
+    const collectionUrl = `${ns}/${pluralLower}`
     collections[pluralLower] = {
-      $id: `${ns}/${pluralLower}`,
+      $id: collectionUrl,
       $type: 'Collection',
       count: options?.collectionCounts?.[pluralLower] ?? 0,
     }
+    // Also add link to the collection
+    links[pluralLower] = collectionUrl
   }
 
   return {
@@ -232,6 +242,7 @@ export function generateIndex(
     $id: ns,
     $type: ns,
     ns: extractNamespace(ns),
+    links,
     collections,
   }
 }

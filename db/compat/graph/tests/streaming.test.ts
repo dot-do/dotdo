@@ -68,6 +68,10 @@ function createTestContext(): StreamingContext {
         yield batch
       }
     },
+    // Type collection support: get all things of a specific type
+    getThingsByType(type: string): Thing[] {
+      return [...things.values()].filter(thing => thing.type === type)
+    },
   }
 
   return context

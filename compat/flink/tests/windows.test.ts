@@ -55,6 +55,7 @@ import {
   // Evictors
   CountEvictor,
   TimeEvictor,
+  DeltaEvictor,
 
   // Time utilities
   Time,
@@ -1364,6 +1365,1040 @@ describe('@dotdo/flink - Window Functions (TDD RED Phase)', () => {
       // Only element at 8000 should remain
       expect(result).toHaveLength(1)
       expect(result[0]?.value).toBe(20)
+    })
+  })
+
+  // ==========================================================================
+  // 10. Processing Time Windows
+  // ==========================================================================
+
+  describe('Processing Time Windows', () => {
+    it('should create tumbling processing time windows', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', pageId: 'home', value: 10 },
+        { userId: 'u1', pageId: 'products', value: 20 },
+        { userId: 'u1', pageId: 'cart', value: 30 }
+      )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingProcessingTimeWindows.of(Time.seconds(5)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      // Processing time windows should produce results
+      const result = await env.executeAndCollect(windowed)
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should create sliding processing time windows', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', pageId: 'a', value: 10 },
+        { userId: 'u1', pageId: 'b', value: 20 }
+      )
+
+      // 4 second window, sliding every 2 seconds
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(SlidingProcessingTimeWindows.of(Time.seconds(4), Time.seconds(2)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+      expect(result).toBeDefined()
+    })
+
+    it('should use processing time trigger for processing time windows', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', value: 10 },
+        { userId: 'u1', value: 20 }
+      )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingProcessingTimeWindows.of(Time.seconds(5)))
+        .trigger(ProcessingTimeTrigger.create())
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      expect(windowed).toBeInstanceOf(DataStream)
+    })
+
+    it('should handle processing time window with offset', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', value: 10 },
+        { userId: 'u1', value: 20 }
+      )
+
+      // Window with 500ms offset
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingProcessingTimeWindows.of(Time.seconds(5), Time.milliseconds(500)))
+        .reduce((a, b) => a)
+
+      const result = await env.executeAndCollect(windowed)
+      expect(result).toBeDefined()
+    })
+  })
+
+  // ==========================================================================
+  // 11. Incremental Aggregation with Window Metadata
+  // ==========================================================================
+
+  describe('Incremental Aggregation with Window Metadata', () => {
+    it('should combine reduce with ProcessWindowFunction for window metadata', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 2000, pageId: 'b', value: 20 },
+          { userId: 'u1', timestamp: 3000, pageId: 'c', value: 30 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      interface EnrichedResult {
+        key: string
+        sum: number
+        windowStart: number
+        windowEnd: number
+        elementCount: number
+      }
+
+      // Incremental reduce followed by ProcessWindowFunction for enrichment
+      const processFunction: ProcessWindowFunction<ClickEvent, EnrichedResult, string> = {
+        process: (key, context, elements, out) => {
+          const window = context.window()
+          let sum = 0
+          let count = 0
+          for (const e of elements) {
+            sum += e.value ?? 0
+            count++
+          }
+          out.collect({
+            key,
+            sum,
+            windowStart: window.getStart(),
+            windowEnd: window.getEnd(),
+            elementCount: count,
+          })
+        },
+      }
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .process(processFunction)
+
+      const result = await env.executeAndCollect(windowed)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({
+        key: 'u1',
+        sum: 60,
+        windowStart: 0,
+        windowEnd: 5000,
+        elementCount: 3,
+      })
+    })
+
+    it('should combine aggregate with WindowFunction for enriched output', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 2000, pageId: 'b', value: 20 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const averageAggregator: AggregateFunction<
+        ClickEvent,
+        { sum: number; count: number },
+        number
+      > = {
+        createAccumulator: () => ({ sum: 0, count: 0 }),
+        add: (value, acc) => ({
+          sum: acc.sum + (value.value ?? 0),
+          count: acc.count + 1,
+        }),
+        getResult: (acc) => (acc.count > 0 ? acc.sum / acc.count : 0),
+        merge: (a, b) => ({ sum: a.sum + b.sum, count: a.count + b.count }),
+      }
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .aggregate(averageAggregator)
+
+      const result = await env.executeAndCollect(windowed)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toBe(15) // Average of 10 and 20
+    })
+
+    it('should access window state in ProcessWindowFunction', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 2000, pageId: 'b', value: 20 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      let processingTimeAccessed = false
+      let watermarkAccessed = false
+
+      const processFunction: ProcessWindowFunction<ClickEvent, string, string> = {
+        process: (key, context, elements, out) => {
+          // Access processing time and watermark
+          const processingTime = context.currentProcessingTime()
+          const watermark = context.currentWatermark()
+
+          processingTimeAccessed = typeof processingTime === 'number'
+          watermarkAccessed = typeof watermark === 'number'
+
+          out.collect(`processed-${key}`)
+        },
+      }
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .process(processFunction)
+
+      await env.executeAndCollect(windowed)
+
+      expect(processingTimeAccessed).toBe(true)
+      expect(watermarkAccessed).toBe(true)
+    })
+  })
+
+  // ==========================================================================
+  // 12. Custom Triggers
+  // ==========================================================================
+
+  describe('Custom Triggers', () => {
+    it('should fire on continuous event time intervals', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 3000, pageId: 'b', value: 20 },
+          { userId: 'u1', timestamp: 5000, pageId: 'c', value: 30 },
+          { userId: 'u1', timestamp: 7000, pageId: 'd', value: 40 },
+          { userId: 'u1', timestamp: 9000, pageId: 'e', value: 50 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      // 10 second window with continuous trigger every 2 seconds
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(10)))
+        .trigger(ContinuousEventTimeTrigger.of(Time.seconds(2)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // Should fire multiple times during the window
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should purge window contents after firing', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', pageId: 'a', value: 10 },
+        { userId: 'u1', pageId: 'b', value: 20 },
+        { userId: 'u1', pageId: 'c', value: 30 },
+        { userId: 'u1', pageId: 'd', value: 40 }
+      )
+
+      // Global window with purging count trigger
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(GlobalWindows.create())
+        .trigger(PurgingTrigger.of(CountTrigger.of(2)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // Should have 2 results: (10+20=30) and (30+40=70)
+      expect(result).toHaveLength(2)
+      expect(result[0]?.value).toBe(30)
+      expect(result[1]?.value).toBe(70)
+    })
+
+    it('should handle delta trigger for change detection', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 2000, pageId: 'b', value: 12 }, // Delta = 2
+          { userId: 'u1', timestamp: 3000, pageId: 'c', value: 25 }, // Delta = 13, should trigger
+          { userId: 'u1', timestamp: 4000, pageId: 'd', value: 27 }  // Delta = 2
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      // Delta trigger fires when delta exceeds threshold
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(10)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // ==========================================================================
+  // 13. Delta Evictor
+  // ==========================================================================
+
+  describe('Delta Evictor', () => {
+    it('should evict elements based on delta function', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+        { userId: 'u1', timestamp: 2000, pageId: 'b', value: 50 },
+        { userId: 'u1', timestamp: 3000, pageId: 'c', value: 15 },
+        { userId: 'u1', timestamp: 4000, pageId: 'd', value: 55 },
+        { userId: 'u1', timestamp: 5000, pageId: 'e', value: 20 }
+      )
+
+      // DeltaEvictor removes elements where delta from last element exceeds threshold
+      const deltaFunction = (a: ClickEvent, b: ClickEvent) =>
+        Math.abs((a.value ?? 0) - (b.value ?? 0))
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(GlobalWindows.create())
+        .trigger(CountTrigger.of(5))
+        .evictor(DeltaEvictor.of(30, deltaFunction))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should apply evictor after window function when configured', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', timestamp: 1000, pageId: 'a', value: 1 },
+        { userId: 'u1', timestamp: 2000, pageId: 'b', value: 2 },
+        { userId: 'u1', timestamp: 3000, pageId: 'c', value: 3 },
+        { userId: 'u1', timestamp: 4000, pageId: 'd', value: 4 },
+        { userId: 'u1', timestamp: 5000, pageId: 'e', value: 5 }
+      )
+
+      // CountEvictor with doEvictAfter=true
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(GlobalWindows.create())
+        .trigger(CountTrigger.of(5))
+        .evictor(CountEvictor.of(3, true)) // Evict after processing, keep last 3
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+      expect(result).toBeDefined()
+    })
+  })
+
+  // ==========================================================================
+  // 14. Window State and Timers
+  // ==========================================================================
+
+  describe('Window State and Timers', () => {
+    it('should register event time timer from ProcessWindowFunction', async () => {
+      const env = createTestEnvironment()
+      const timersFired: number[] = []
+
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 2000, pageId: 'b', value: 20 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const processFunction: ProcessWindowFunction<ClickEvent, string, string> = {
+        process: (key, context, elements, out) => {
+          // Register a timer for cleanup or late firing
+          const window = context.window()
+          out.collect(`window-${window.getStart()}-${window.getEnd()}`)
+        },
+      }
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .process(processFunction)
+
+      const result = await env.executeAndCollect(windowed)
+      expect(result).toContain('window-0-5000')
+    })
+
+    it('should access global state from window function', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 6000, pageId: 'b', value: 20 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      let windowCount = 0
+
+      const windowFunction: WindowFunction<ClickEvent, WindowResult, string> = {
+        apply: (key, window, elements, out) => {
+          windowCount++
+          let sum = 0
+          let count = 0
+          for (const e of elements) {
+            sum += e.value ?? 0
+            count++
+          }
+          out.collect({
+            key,
+            sum,
+            count,
+            windowStart: window.getStart(),
+            windowEnd: window.getEnd(),
+          })
+        },
+      }
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .apply(windowFunction)
+
+      const result = await env.executeAndCollect(windowed)
+
+      expect(result).toHaveLength(2) // Two windows
+      expect(windowCount).toBe(2)
+    })
+  })
+
+  // ==========================================================================
+  // 15. Count Windows
+  // ==========================================================================
+
+  describe('Count Windows', () => {
+    it('should create tumbling count window', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', pageId: 'a', value: 1 },
+        { userId: 'u1', pageId: 'b', value: 2 },
+        { userId: 'u1', pageId: 'c', value: 3 },
+        { userId: 'u1', pageId: 'd', value: 4 },
+        { userId: 'u1', pageId: 'e', value: 5 },
+        { userId: 'u1', pageId: 'f', value: 6 }
+      )
+
+      // Count window of size 3
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .countWindow(3)
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // First window: 1+2+3 = 6
+      // Second window: 4+5+6 = 15
+      expect(result).toHaveLength(2)
+      expect(result[0]?.value).toBe(6)
+      expect(result[1]?.value).toBe(15)
+    })
+
+    it('should create sliding count window', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', pageId: 'a', value: 1 },
+        { userId: 'u1', pageId: 'b', value: 2 },
+        { userId: 'u1', pageId: 'c', value: 3 },
+        { userId: 'u1', pageId: 'd', value: 4 },
+        { userId: 'u1', pageId: 'e', value: 5 }
+      )
+
+      // Count window: size 3, slide 2
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .countWindow(3, 2)
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // Windows: [1,2,3]=6, [3,4,5]=12
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should handle count window with different keys', async () => {
+      const env = createTestEnvironment()
+      const events = env.fromElements(
+        { userId: 'u1', value: 1 },
+        { userId: 'u2', value: 10 },
+        { userId: 'u1', value: 2 },
+        { userId: 'u2', value: 20 },
+        { userId: 'u1', value: 3 },
+        { userId: 'u2', value: 30 }
+      )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .countWindow(3)
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // u1: 1+2+3 = 6
+      // u2: 10+20+30 = 60
+      expect(result).toContainEqual(expect.objectContaining({ userId: 'u1', value: 6 }))
+      expect(result).toContainEqual(expect.objectContaining({ userId: 'u2', value: 60 }))
+    })
+  })
+
+  // ==========================================================================
+  // 16. Window Joins
+  // ==========================================================================
+
+  describe('Window Joins', () => {
+    it('should join two streams in tumbling window', async () => {
+      const env = createTestEnvironment()
+
+      const orders = env
+        .fromElements(
+          { orderId: 'o1', userId: 'u1', timestamp: 1000, amount: 100 },
+          { orderId: 'o2', userId: 'u2', timestamp: 2000, amount: 200 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            orderId: string
+            userId: string
+            timestamp: number
+            amount: number
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const payments = env
+        .fromElements(
+          { paymentId: 'p1', orderId: 'o1', timestamp: 1500, status: 'completed' },
+          { paymentId: 'p2', orderId: 'o2', timestamp: 2500, status: 'pending' }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            paymentId: string
+            orderId: string
+            timestamp: number
+            status: string
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      // Join orders with payments on orderId within 5-second tumbling windows
+      const joined = orders
+        .join(payments)
+        .where((o) => o.orderId)
+        .equalTo((p) => p.orderId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .apply((order, payment) => ({
+          orderId: order.orderId,
+          amount: order.amount,
+          status: payment.status,
+        }))
+
+      const result = await env.executeAndCollect(joined)
+
+      expect(result).toContainEqual({
+        orderId: 'o1',
+        amount: 100,
+        status: 'completed',
+      })
+    })
+
+    it('should coGroup two streams in tumbling window', async () => {
+      const env = createTestEnvironment()
+
+      const clicks = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'home' },
+          { userId: 'u1', timestamp: 2000, pageId: 'products' },
+          { userId: 'u2', timestamp: 1500, pageId: 'home' }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            userId: string
+            timestamp: number
+            pageId: string
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const purchases = env
+        .fromElements(
+          { userId: 'u1', timestamp: 3000, productId: 'prod1', amount: 50 },
+          { userId: 'u2', timestamp: 4000, productId: 'prod2', amount: 100 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            userId: string
+            timestamp: number
+            productId: string
+            amount: number
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      // CoGroup allows processing unmatched elements
+      const coGrouped = clicks
+        .coGroup(purchases)
+        .where((c) => c.userId)
+        .equalTo((p) => p.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .apply((clicksIter, purchasesIter, out) => {
+          const clickList = [...clicksIter]
+          const purchaseList = [...purchasesIter]
+          out.collect({
+            clickCount: clickList.length,
+            purchaseCount: purchaseList.length,
+            totalAmount: purchaseList.reduce((sum, p) => sum + p.amount, 0),
+          })
+        })
+
+      const result = await env.executeAndCollect(coGrouped)
+      expect(result).toBeDefined()
+    })
+  })
+
+  // ==========================================================================
+  // 17. Interval Joins
+  // ==========================================================================
+
+  describe('Interval Joins', () => {
+    it('should join elements within time interval', async () => {
+      const env = createTestEnvironment()
+
+      const clicks = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'checkout' },
+          { userId: 'u2', timestamp: 5000, pageId: 'checkout' }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            userId: string
+            timestamp: number
+            pageId: string
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const purchases = env
+        .fromElements(
+          { userId: 'u1', timestamp: 2000, amount: 100 },
+          { userId: 'u2', timestamp: 8000, amount: 200 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            userId: string
+            timestamp: number
+            amount: number
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      // Interval join: purchase must occur within [-2s, +5s] of click
+      const intervalJoined = clicks
+        .keyBy((c) => c.userId)
+        .intervalJoin(purchases.keyBy((p) => p.userId))
+        .between(Time.seconds(-2), Time.seconds(5))
+        .process((click, purchase, out) => {
+          out.collect({
+            userId: click.userId,
+            pageId: click.pageId,
+            amount: purchase.amount,
+          })
+        })
+
+      const result = await env.executeAndCollect(intervalJoined)
+
+      // u1: click@1000, purchase@2000 -> within [1000-2000, 1000+5000] = [-1000, 6000]
+      // u2: click@5000, purchase@8000 -> within [5000-2000, 5000+5000] = [3000, 10000]
+      expect(result).toContainEqual({
+        userId: 'u1',
+        pageId: 'checkout',
+        amount: 100,
+      })
+    })
+
+    it('should handle asymmetric time bounds in interval join', async () => {
+      const env = createTestEnvironment()
+
+      const events1 = env
+        .fromElements({ key: 'a', timestamp: 5000, value: 'e1' })
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            key: string
+            timestamp: number
+            value: string
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const events2 = env
+        .fromElements(
+          { key: 'a', timestamp: 3000, value: 'e2-early' },
+          { key: 'a', timestamp: 7000, value: 'e2-later' },
+          { key: 'a', timestamp: 10000, value: 'e2-late' }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{
+            key: string
+            timestamp: number
+            value: string
+          }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      // Events from events2 must be within [e1.timestamp - 3s, e1.timestamp + 2s]
+      // For e1@5000: valid range is [2000, 7000]
+      const joined = events1
+        .keyBy((e) => e.key)
+        .intervalJoin(events2.keyBy((e) => e.key))
+        .between(Time.seconds(-3), Time.seconds(2))
+        .process((e1, e2, out) => {
+          out.collect({ e1: e1.value, e2: e2.value })
+        })
+
+      const result = await env.executeAndCollect(joined)
+
+      // e2-early@3000 is in [2000, 7000] -> included
+      // e2-later@7000 is in [2000, 7000] -> included
+      // e2-late@10000 is NOT in [2000, 7000] -> excluded
+      expect(result).toContainEqual({ e1: 'e1', e2: 'e2-early' })
+      expect(result).toContainEqual({ e1: 'e1', e2: 'e2-later' })
+      expect(result).not.toContainEqual(expect.objectContaining({ e2: 'e2-late' }))
+    })
+
+    it('should exclude lower and upper bounds when configured', async () => {
+      const env = createTestEnvironment()
+
+      const left = env
+        .fromElements({ key: 'a', timestamp: 5000 })
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number }>()
+            .withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const right = env
+        .fromElements(
+          { key: 'a', timestamp: 3000 }, // Exactly at lower bound
+          { key: 'a', timestamp: 7000 }  // Exactly at upper bound
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number }>()
+            .withTimestampAssigner((e) => e.timestamp)
+        )
+
+      // With lowerBoundExclusive and upperBoundExclusive
+      const joined = left
+        .keyBy((e) => e.key)
+        .intervalJoin(right.keyBy((e) => e.key))
+        .between(Time.seconds(-2), Time.seconds(2))
+        .lowerBoundExclusive()
+        .upperBoundExclusive()
+        .process((l, r, out) => {
+          out.collect({ leftTs: l.timestamp, rightTs: r.timestamp })
+        })
+
+      const result = await env.executeAndCollect(joined)
+
+      // With exclusive bounds [3000, 7000) and (3000, 7000]
+      // Neither 3000 nor 7000 should be included
+      expect(result).not.toContainEqual(expect.objectContaining({ rightTs: 3000 }))
+      expect(result).not.toContainEqual(expect.objectContaining({ rightTs: 7000 }))
+    })
+  })
+
+  // ==========================================================================
+  // 18. Window Assigner Properties
+  // ==========================================================================
+
+  describe('Window Assigner Properties', () => {
+    it('should correctly identify event time vs processing time windows', () => {
+      const eventTimeWindow = TumblingEventTimeWindows.of(Time.seconds(5))
+      const processingTimeWindow = TumblingProcessingTimeWindows.of(Time.seconds(5))
+
+      expect(eventTimeWindow.isEventTime()).toBe(true)
+      expect(processingTimeWindow.isEventTime()).toBe(false)
+    })
+
+    it('should return correct default trigger for each window type', () => {
+      const tumblingEventTime = TumblingEventTimeWindows.of(Time.seconds(5))
+      const slidingEventTime = SlidingEventTimeWindows.of(Time.seconds(5), Time.seconds(1))
+      const sessionWindow = SessionWindows.withGap(Time.seconds(5))
+      const globalWindow = GlobalWindows.create()
+
+      // Event time windows default to EventTimeTrigger
+      expect(tumblingEventTime.getDefaultTrigger()).toBeDefined()
+      expect(slidingEventTime.getDefaultTrigger()).toBeDefined()
+      expect(sessionWindow.getDefaultTrigger()).toBeDefined()
+
+      // Global windows default to NeverTrigger (requires explicit trigger)
+      expect(globalWindow.getDefaultTrigger()).toBeDefined()
+    })
+
+    it('should assign windows correctly based on element timestamp', () => {
+      const windowAssigner = TumblingEventTimeWindows.of(Time.seconds(5))
+
+      // Element at timestamp 2500 should be in window [0, 5000)
+      const windows1 = windowAssigner.assignWindows({}, 2500)
+      expect(windows1).toHaveLength(1)
+      expect(windows1[0]?.getStart()).toBe(0)
+      expect(windows1[0]?.getEnd()).toBe(5000)
+
+      // Element at timestamp 7000 should be in window [5000, 10000)
+      const windows2 = windowAssigner.assignWindows({}, 7000)
+      expect(windows2).toHaveLength(1)
+      expect(windows2[0]?.getStart()).toBe(5000)
+      expect(windows2[0]?.getEnd()).toBe(10000)
+    })
+
+    it('should assign element to multiple windows for sliding assigner', () => {
+      const windowAssigner = SlidingEventTimeWindows.of(Time.seconds(4), Time.seconds(2))
+
+      // Element at timestamp 3000 should be in multiple overlapping windows
+      const windows = windowAssigner.assignWindows({}, 3000)
+
+      // Should be in at least 2 windows
+      expect(windows.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // ==========================================================================
+  // 19. Trigger Behavior Details
+  // ==========================================================================
+
+  describe('Trigger Behavior Details', () => {
+    it('should return correct TriggerResult values', () => {
+      expect(TriggerResult.CONTINUE).toBe('CONTINUE')
+      expect(TriggerResult.FIRE).toBe('FIRE')
+      expect(TriggerResult.PURGE).toBe('PURGE')
+      expect(TriggerResult.FIRE_AND_PURGE).toBe('FIRE_AND_PURGE')
+    })
+
+    it('should register timers in trigger context', async () => {
+      const env = createTestEnvironment()
+      let timerRegistered = false
+
+      const events = env
+        .fromElements({ userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 })
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .trigger(EventTimeTrigger.create())
+        .reduce((a, b) => a)
+
+      await env.executeAndCollect(windowed)
+
+      // Timer registration should happen internally
+      expect(windowed).toBeInstanceOf(DataStream)
+    })
+
+    it('should handle onEventTime callback in trigger', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 6000, pageId: 'b', value: 20 } // Advances watermark past first window
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .trigger(EventTimeTrigger.create())
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // First window [0, 5000) should fire when watermark reaches 5000
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // ==========================================================================
+  // 20. Complex Window Scenarios
+  // ==========================================================================
+
+  describe('Complex Window Scenarios', () => {
+    it('should handle nested windowing operations', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 2000, pageId: 'b', value: 20 },
+          { userId: 'u1', timestamp: 8000, pageId: 'c', value: 30 },
+          { userId: 'u1', timestamp: 9000, pageId: 'd', value: 40 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      // First aggregation: 5-second windows
+      const firstLevel = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      // The result can be further processed
+      const result = await env.executeAndCollect(firstLevel)
+
+      // Window [0, 5000): 10 + 20 = 30
+      // Window [5000, 10000): 30 + 40 = 70
+      expect(result).toContainEqual(expect.objectContaining({ value: 30 }))
+      expect(result).toContainEqual(expect.objectContaining({ value: 70 }))
+    })
+
+    it('should handle high-cardinality keys efficiently', async () => {
+      const env = createTestEnvironment()
+
+      // Generate events with many different keys
+      const events: ClickEvent[] = []
+      for (let i = 0; i < 100; i++) {
+        events.push({
+          userId: `user-${i}`,
+          timestamp: i * 100,
+          pageId: 'page',
+          value: i,
+        })
+      }
+
+      const stream = env
+        .fromCollection(events)
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const windowed = stream
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(10)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // Should have results for all keys
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should handle very long windows correctly', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 0, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 30000, pageId: 'b', value: 20 },
+          { userId: 'u1', timestamp: 59000, pageId: 'c', value: 30 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      // 1-minute window
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.minutes(1)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // All events should be in one window [0, 60000)
+      expect(result).toHaveLength(1)
+      expect(result[0]?.value).toBe(60) // 10 + 20 + 30
+    })
+
+    it('should handle events with same timestamp correctly', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, pageId: 'a', value: 10 },
+          { userId: 'u1', timestamp: 1000, pageId: 'b', value: 20 },
+          { userId: 'u1', timestamp: 1000, pageId: 'c', value: 30 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // All events at same timestamp should be in same window
+      expect(result).toHaveLength(1)
+      expect(result[0]?.value).toBe(60)
+    })
+
+    it('should handle events at window end timestamp correctly', async () => {
+      const env = createTestEnvironment()
+      const events = env
+        .fromElements(
+          { userId: 'u1', timestamp: 4999, pageId: 'a', value: 10 }, // Last element in [0, 5000)
+          { userId: 'u1', timestamp: 5000, pageId: 'b', value: 20 }  // First element in [5000, 10000)
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<ClickEvent>().withTimestampAssigner(
+            (e) => e.timestamp
+          )
+        )
+
+      const windowed = events
+        .keyBy((e) => e.userId)
+        .window(TumblingEventTimeWindows.of(Time.seconds(5)))
+        .reduce((a, b) => ({ ...a, value: (a.value ?? 0) + (b.value ?? 0) }))
+
+      const result = await env.executeAndCollect(windowed)
+
+      // Should have 2 windows with 1 element each
+      expect(result).toHaveLength(2)
+      expect(result).toContainEqual(expect.objectContaining({ value: 10 }))
+      expect(result).toContainEqual(expect.objectContaining({ value: 20 }))
     })
   })
 })

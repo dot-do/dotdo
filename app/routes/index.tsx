@@ -2,6 +2,7 @@
 
 import { createFileRoute, Link } from '@tanstack/react-router'
 import * as React from 'react'
+import { buildResponse } from '../../lib/response/linked-data'
 
 // Temporarily remove beacon components to test prerender
 // import { Hero, Features, Pricing, CTA, Testimonials } from '@mdxui/beacon'
@@ -51,6 +52,39 @@ function Navigation({ logo, items, cta }: NavigationProps) {
 
 export const Route = createFileRoute('/')({
   component: Home,
+  server: {
+    handlers: {
+      GET: async ({ request }) => {
+        // Content negotiation: return JSON for API requests
+        const accept = request.headers.get('Accept') || ''
+        if (accept.includes('application/json')) {
+          const url = new URL(request.url)
+          const baseNs = `${url.protocol}//${url.host}`
+
+          const rootData = {
+            name: 'dotdo',
+            version: '0.0.1',
+            links: {
+              customers: `${baseNs}/customers`,
+              things: `${baseNs}/things`,
+              self: baseNs,
+            },
+          }
+
+          const response = buildResponse(rootData, {
+            ns: baseNs,
+            type: 'API',
+            isRoot: true,
+            parent: `${baseNs}/schema/api`,
+          })
+
+          return Response.json(response)
+        }
+        // Fall through to component rendering for HTML requests
+        return undefined
+      },
+    },
+  },
   head: () => ({
     meta: [
       { title: 'dotdo - Build your 1-Person Unicorn' },

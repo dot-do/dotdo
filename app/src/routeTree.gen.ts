@@ -9,11 +9,15 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RpcRouteImport } from './routes/rpc'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
+import { Route as CustomersIndexRouteImport } from './routes/customers.index'
+import { Route as SchemaApiRouteImport } from './routes/schema.api'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as CustomersIdRouteImport } from './routes/customers.$id'
 import { Route as AuthLogoutRouteImport } from './routes/auth.logout'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AppAppRouteImport } from './routes/app/_app'
@@ -36,6 +40,7 @@ import { Route as AdminAdminIndexRouteImport } from './routes/admin/_admin.index
 import { Route as AppWorkflowsNewRouteImport } from './routes/app/workflows/new'
 import { Route as AppProjectsNewRouteImport } from './routes/app/projects/new'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/app/projects/$projectId'
+import { Route as ApiCustomersIdRouteImport } from './routes/api/customers.$id'
 import { Route as AdminWorkflowsWorkflowIdRouteImport } from './routes/admin/workflows/$workflowId'
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users/new'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users/$userId'
@@ -55,6 +60,11 @@ import { Route as AdminAdminLoginRouteImport } from './routes/admin/_admin.login
 import { Route as AdminWorkflowsWorkflowIdRunsRouteImport } from './routes/admin/workflows/$workflowId/runs'
 import { Route as AdminWorkflowsWorkflowIdRunsRunIdRouteImport } from './routes/admin/workflows/$workflowId/runs/$runId'
 
+const RpcRoute = RpcRouteImport.update({
+  id: '/rpc',
+  path: '/rpc',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -75,9 +85,24 @@ const DocsIndexRoute = DocsIndexRouteImport.update({
   path: '/docs/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CustomersIndexRoute = CustomersIndexRouteImport.update({
+  id: '/customers/',
+  path: '/customers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchemaApiRoute = SchemaApiRouteImport.update({
+  id: '/schema/api',
+  path: '/schema/api',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
   id: '/docs/$',
   path: '/docs/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomersIdRoute = CustomersIdRouteImport.update({
+  id: '/customers/$id',
+  path: '/customers/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthLogoutRoute = AuthLogoutRouteImport.update({
@@ -190,6 +215,11 @@ const AppProjectsProjectIdRoute = AppProjectsProjectIdRouteImport.update({
   path: '/app/projects/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCustomersIdRoute = ApiCustomersIdRouteImport.update({
+  id: '/api/customers/$id',
+  path: '/api/customers/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminWorkflowsWorkflowIdRoute =
   AdminWorkflowsWorkflowIdRouteImport.update({
     id: '/admin/workflows/$workflowId',
@@ -291,12 +321,16 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/login': typeof LoginRoute
+  '/rpc': typeof RpcRoute
   '/admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
   '/app': typeof AppAppRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/customers/$id': typeof CustomersIdRoute
   '/docs/$': typeof DocsSplatRoute
+  '/schema/api': typeof SchemaApiRoute
+  '/customers': typeof CustomersIndexRoute
   '/docs': typeof DocsIndexRoute
   '/admin/login': typeof AdminAdminLoginRoute
   '/admin/reset-password': typeof AdminAdminResetPasswordRoute
@@ -314,6 +348,7 @@ export interface FileRoutesByFullPath {
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  '/api/customers/$id': typeof ApiCustomersIdRoute
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/projects/new': typeof AppProjectsNewRoute
   '/app/workflows/new': typeof AppWorkflowsNewRoute
@@ -338,10 +373,14 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/login': typeof LoginRoute
+  '/rpc': typeof RpcRoute
   '/api/search': typeof ApiSearchRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/customers/$id': typeof CustomersIdRoute
   '/docs/$': typeof DocsSplatRoute
+  '/schema/api': typeof SchemaApiRoute
+  '/customers': typeof CustomersIndexRoute
   '/docs': typeof DocsIndexRoute
   '/admin/login': typeof AdminAdminLoginRoute
   '/admin/reset-password': typeof AdminAdminResetPasswordRoute
@@ -359,6 +398,7 @@ export interface FileRoutesByTo {
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  '/api/customers/$id': typeof ApiCustomersIdRoute
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/projects/new': typeof AppProjectsNewRoute
   '/app/workflows/new': typeof AppWorkflowsNewRoute
@@ -384,12 +424,16 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/login': typeof LoginRoute
+  '/rpc': typeof RpcRoute
   '/admin/_admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
   '/app/_app': typeof AppAppRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/customers/$id': typeof CustomersIdRoute
   '/docs/$': typeof DocsSplatRoute
+  '/schema/api': typeof SchemaApiRoute
+  '/customers/': typeof CustomersIndexRoute
   '/docs/': typeof DocsIndexRoute
   '/admin/_admin/login': typeof AdminAdminLoginRoute
   '/admin/_admin/reset-password': typeof AdminAdminResetPasswordRoute
@@ -407,6 +451,7 @@ export interface FileRoutesById {
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  '/api/customers/$id': typeof ApiCustomersIdRoute
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/projects/new': typeof AppProjectsNewRoute
   '/app/workflows/new': typeof AppWorkflowsNewRoute
@@ -433,12 +478,16 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/login'
+    | '/rpc'
     | '/admin'
     | '/api/search'
     | '/app'
     | '/auth/callback'
     | '/auth/logout'
+    | '/customers/$id'
     | '/docs/$'
+    | '/schema/api'
+    | '/customers'
     | '/docs'
     | '/admin/login'
     | '/admin/reset-password'
@@ -456,6 +505,7 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
+    | '/api/customers/$id'
     | '/app/projects/$projectId'
     | '/app/projects/new'
     | '/app/workflows/new'
@@ -480,10 +530,14 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/login'
+    | '/rpc'
     | '/api/search'
     | '/auth/callback'
     | '/auth/logout'
+    | '/customers/$id'
     | '/docs/$'
+    | '/schema/api'
+    | '/customers'
     | '/docs'
     | '/admin/login'
     | '/admin/reset-password'
@@ -501,6 +555,7 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
+    | '/api/customers/$id'
     | '/app/projects/$projectId'
     | '/app/projects/new'
     | '/app/workflows/new'
@@ -525,12 +580,16 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/login'
+    | '/rpc'
     | '/admin/_admin'
     | '/api/search'
     | '/app/_app'
     | '/auth/callback'
     | '/auth/logout'
+    | '/customers/$id'
     | '/docs/$'
+    | '/schema/api'
+    | '/customers/'
     | '/docs/'
     | '/admin/_admin/login'
     | '/admin/_admin/reset-password'
@@ -548,6 +607,7 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
+    | '/api/customers/$id'
     | '/app/projects/$projectId'
     | '/app/projects/new'
     | '/app/workflows/new'
@@ -573,12 +633,16 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SplatRoute: typeof SplatRoute
   LoginRoute: typeof LoginRoute
+  RpcRoute: typeof RpcRoute
   AdminAdminRoute: typeof AdminAdminRouteWithChildren
   ApiSearchRoute: typeof ApiSearchRoute
   AppAppRoute: typeof AppAppRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
+  CustomersIdRoute: typeof CustomersIdRoute
   DocsSplatRoute: typeof DocsSplatRoute
+  SchemaApiRoute: typeof SchemaApiRoute
+  CustomersIndexRoute: typeof CustomersIndexRoute
   DocsIndexRoute: typeof DocsIndexRoute
   AdminActivityLogIdRoute: typeof AdminActivityLogIdRoute
   AdminApprovalsApprovalIdRoute: typeof AdminApprovalsApprovalIdRoute
@@ -593,6 +657,7 @@ export interface RootRouteChildren {
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
   AdminUsersNewRoute: typeof AdminUsersNewRoute
   AdminWorkflowsWorkflowIdRoute: typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  ApiCustomersIdRoute: typeof ApiCustomersIdRoute
   AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRoute
   AppProjectsNewRoute: typeof AppProjectsNewRoute
   AppWorkflowsNewRoute: typeof AppWorkflowsNewRoute
@@ -612,6 +677,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/rpc': {
+      id: '/rpc'
+      path: '/rpc'
+      fullPath: '/rpc'
+      preLoaderRoute: typeof RpcRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -640,11 +712,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/customers/': {
+      id: '/customers/'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof CustomersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schema/api': {
+      id: '/schema/api'
+      path: '/schema/api'
+      fullPath: '/schema/api'
+      preLoaderRoute: typeof SchemaApiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs/$': {
       id: '/docs/$'
       path: '/docs/$'
       fullPath: '/docs/$'
       preLoaderRoute: typeof DocsSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customers/$id': {
+      id: '/customers/$id'
+      path: '/customers/$id'
+      fullPath: '/customers/$id'
+      preLoaderRoute: typeof CustomersIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/logout': {
@@ -799,6 +892,13 @@ declare module '@tanstack/react-router' {
       path: '/app/projects/$projectId'
       fullPath: '/app/projects/$projectId'
       preLoaderRoute: typeof AppProjectsProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/customers/$id': {
+      id: '/api/customers/$id'
+      path: '/api/customers/$id'
+      fullPath: '/api/customers/$id'
+      preLoaderRoute: typeof ApiCustomersIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/workflows/$workflowId': {
@@ -993,12 +1093,16 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
   LoginRoute: LoginRoute,
+  RpcRoute: RpcRoute,
   AdminAdminRoute: AdminAdminRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
   AppAppRoute: AppAppRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLogoutRoute: AuthLogoutRoute,
+  CustomersIdRoute: CustomersIdRoute,
   DocsSplatRoute: DocsSplatRoute,
+  SchemaApiRoute: SchemaApiRoute,
+  CustomersIndexRoute: CustomersIndexRoute,
   DocsIndexRoute: DocsIndexRoute,
   AdminActivityLogIdRoute: AdminActivityLogIdRoute,
   AdminApprovalsApprovalIdRoute: AdminApprovalsApprovalIdRoute,
@@ -1013,6 +1117,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,
   AdminUsersNewRoute: AdminUsersNewRoute,
   AdminWorkflowsWorkflowIdRoute: AdminWorkflowsWorkflowIdRouteWithChildren,
+  ApiCustomersIdRoute: ApiCustomersIdRoute,
   AppProjectsProjectIdRoute: AppProjectsProjectIdRoute,
   AppProjectsNewRoute: AppProjectsNewRoute,
   AppWorkflowsNewRoute: AppWorkflowsNewRoute,

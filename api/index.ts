@@ -17,6 +17,7 @@ import { landingPageHtml, docsPageHtml, adminDashboardHtml, adminLoginHtml, admi
 
 // Re-export Durable Object classes for wrangler
 export { TestDurableObject } from './test-do'
+export { TestCollectionDO } from './test-collection-do'
 export { DurableObject } from 'cloudflare:workers'
 export { Browser } from '../objects/Browser'
 export { ThingsDO } from '../objects/ThingsDO'
@@ -54,6 +55,8 @@ export interface Env extends CloudflareEnv {
   TEST_KV: KVNamespace
   /** Test DO namespace (dev/test only) */
   TEST_DO: DurableObjectNamespace
+  /** Collection DO namespace (test collection) */
+  COLLECTION_DO: DurableObjectNamespace
   /** Static assets fetcher */
   ASSETS: Fetcher
 }

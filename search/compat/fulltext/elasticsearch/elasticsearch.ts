@@ -73,6 +73,9 @@ import type {
   InfoResponse,
   IndexMappings,
   IndexSettings,
+  KnnQuery,
+  RankOptions,
+  MappingProperty,
 } from './types'
 
 import {
@@ -85,6 +88,9 @@ import {
 // Import search primitives
 import { InvertedIndex, type SearchResult } from '../../../../db/primitives/inverted-index/inverted-index'
 import { RankFusion, type RankedResult } from '../../../../db/primitives/rank-fusion'
+
+// Import HNSW for vector search
+import { createHNSWIndex, type HNSWIndex, type DistanceMetric } from '../../../../db/edgevec/hnsw'
 
 // Re-export error types
 export {
@@ -111,6 +117,14 @@ interface StoredDocument {
 }
 
 /**
+ * Vector field configuration
+ */
+interface VectorFieldConfig {
+  dims: number
+  similarity: 'cosine' | 'l2_norm' | 'dot_product'
+}
+
+/**
  * Index storage structure - now uses InvertedIndex for full-text search
  */
 interface IndexStorage {
@@ -124,6 +138,10 @@ interface IndexStorage {
   textIndex: InvertedIndex
   /** Per-field inverted indexes for field-specific search */
   fieldIndexes: Map<string, InvertedIndex>
+  /** Per-field HNSW indexes for vector similarity search */
+  vectorIndexes: Map<string, HNSWIndex>
+  /** Vector field configurations */
+  vectorFieldConfigs: Map<string, VectorFieldConfig>
 }
 
 /**
@@ -191,6 +209,9 @@ function getIndexStorage(indexName: string, autoCreate: boolean = true): IndexSt
         b: 0.75, // BM25 b parameter
       }),
       fieldIndexes: new Map(),
+      // Initialize vector indexes
+      vectorIndexes: new Map(),
+      vectorFieldConfigs: new Map(),
     }
     globalStorage.set(indexName, storage)
   }
@@ -287,6 +308,35 @@ function indexDocumentText(storage: IndexStorage, docId: string, source: Record<
       const textValue = typeof fieldValue === 'string' ? fieldValue : String(fieldValue)
       fieldIndex.add(docId, textValue)
     }
+  }
+}
+
+/**
+ * Index vector fields for a document in HNSW indexes
+ */
+function indexDocumentVectors(storage: IndexStorage, docId: string, source: Record<string, unknown>): void {
+  // Index each vector field that has a configured HNSW index
+  for (const [fieldName, config] of storage.vectorFieldConfigs) {
+    const vectorValue = getNestedValue(source, fieldName)
+    if (vectorValue && Array.isArray(vectorValue)) {
+      const hnswIndex = storage.vectorIndexes.get(fieldName)
+      if (hnswIndex) {
+        // Convert to Float32Array for HNSW
+        const vector = new Float32Array(vectorValue as number[])
+        if (vector.length === config.dims) {
+          hnswIndex.insert(docId, vector)
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Remove a document from HNSW indexes
+ */
+function removeDocumentVectors(storage: IndexStorage, docId: string): void {
+  for (const hnswIndex of storage.vectorIndexes.values()) {
+    hnswIndex.delete(docId)
   }
 }
 
@@ -1296,6 +1346,32 @@ class IndicesClientImpl implements IndicesClient {
     const mappings = params.mappings ?? params.body?.mappings ?? {}
     const aliases = params.aliases ?? params.body?.aliases ?? {}
 
+    // Initialize vector indexes and field configs from mappings
+    const vectorIndexes = new Map<string, HNSWIndex>()
+    const vectorFieldConfigs = new Map<string, VectorFieldConfig>()
+
+    // Parse mappings for dense_vector fields
+    if (mappings.properties) {
+      for (const [fieldName, fieldMapping] of Object.entries(mappings.properties)) {
+        if (fieldMapping.type === 'dense_vector') {
+          const dims = fieldMapping.dims ?? 128
+          const similarity = (fieldMapping.similarity as VectorFieldConfig['similarity']) ?? 'cosine'
+
+          // Convert Elasticsearch similarity to HNSW metric
+          const metric: DistanceMetric = similarity === 'l2_norm' ? 'l2' :
+            similarity === 'dot_product' ? 'dot' : 'cosine'
+
+          vectorFieldConfigs.set(fieldName, { dims, similarity })
+          vectorIndexes.set(fieldName, createHNSWIndex({
+            dimensions: dims,
+            metric,
+            M: 16,
+            efConstruction: 200,
+          }))
+        }
+      }
+    }
+
     const storage: IndexStorage = {
       documents: new Map(),
       settings: {
@@ -1313,6 +1389,8 @@ class IndicesClientImpl implements IndicesClient {
         b: 0.75,
       }),
       fieldIndexes: new Map(),
+      vectorIndexes,
+      vectorFieldConfigs,
     }
 
     globalStorage.set(params.index, storage)
@@ -1619,9 +1697,10 @@ export class Client implements ClientType {
     const existing = storage.documents.get(id)
     const isUpdate = !!existing
 
-    // Remove from InvertedIndex if updating
+    // Remove from indexes if updating
     if (isUpdate) {
       removeDocumentText(storage, id)
+      removeDocumentVectors(storage, id)
     }
 
     const storedDoc: StoredDocument = {
@@ -1635,6 +1714,9 @@ export class Client implements ClientType {
 
     // Index in InvertedIndex for BM25 full-text search
     indexDocumentText(storage, id, document as Record<string, unknown>)
+
+    // Index vector fields in HNSW indexes
+    indexDocumentVectors(storage, id, document as Record<string, unknown>)
 
     storage.updatedAt = new Date()
 
@@ -1741,8 +1823,9 @@ export class Client implements ClientType {
       }
     }
 
-    // Remove from InvertedIndex
+    // Remove from indexes
     removeDocumentText(storage, params.id)
+    removeDocumentVectors(storage, params.id)
 
     storage.documents.delete(params.id)
     storage.updatedAt = new Date()

@@ -100,6 +100,7 @@ export class HashMapStateBackend {
 export class EmbeddedRocksDBStateBackend {
   private numberOfTransferringThreads: number = 1
   private predefinedOptions: string = 'DEFAULT'
+  private incrementalThreshold: number = 0
 
   constructor(private incrementalCheckpoints: boolean = false) {}
 
@@ -124,6 +125,111 @@ export class EmbeddedRocksDBStateBackend {
   }
 
   getPredefinedOptions(): string {
+    throw new Error('Not implemented')
+  }
+
+  setIncrementalCheckpointThreshold(threshold: number): void {
+    throw new Error('Not implemented')
+  }
+
+  getIncrementalCheckpointThreshold(): number {
+    throw new Error('Not implemented')
+  }
+}
+
+/**
+ * Changelog state backend - wraps another backend with changelog
+ */
+export class ChangelogStateBackend {
+  private changelogStorage: string = ''
+  private materializationInterval: number = 600000
+  private materializationMaxSize: number = 128 * 1024 * 1024
+
+  constructor(private delegatedBackend: any) {}
+
+  getDelegatedStateBackend(): any {
+    throw new Error('Not implemented')
+  }
+
+  setChangelogStorage(storage: string): void {
+    throw new Error('Not implemented')
+  }
+
+  getChangelogStorage(): string {
+    throw new Error('Not implemented')
+  }
+
+  setMaterializationInterval(interval: number): void {
+    throw new Error('Not implemented')
+  }
+
+  getMaterializationInterval(): number {
+    throw new Error('Not implemented')
+  }
+
+  setMaterializationMaxSize(size: number): void {
+    throw new Error('Not implemented')
+  }
+
+  getMaterializationMaxSize(): number {
+    throw new Error('Not implemented')
+  }
+}
+
+/**
+ * Job manager checkpoint storage
+ */
+export class JobManagerCheckpointStorage {
+  constructor(private maxStateSize: number = 5 * 1024 * 1024) {}
+
+  getName(): string {
+    throw new Error('Not implemented')
+  }
+
+  getMaxStateSize(): number {
+    throw new Error('Not implemented')
+  }
+}
+
+/**
+ * File system checkpoint storage
+ */
+export class FileSystemCheckpointStorage {
+  private writeBufferSize: number = 4096
+  private fileSizeThreshold: number = 20 * 1024
+  private credentials?: { accessKeyId: string; secretAccessKey: string }
+
+  constructor(private checkpointPath: string) {}
+
+  getName(): string {
+    throw new Error('Not implemented')
+  }
+
+  getCheckpointPath(): string {
+    throw new Error('Not implemented')
+  }
+
+  setWriteBufferSize(size: number): void {
+    throw new Error('Not implemented')
+  }
+
+  getWriteBufferSize(): number {
+    throw new Error('Not implemented')
+  }
+
+  setFileSizeThreshold(threshold: number): void {
+    throw new Error('Not implemented')
+  }
+
+  getFileSizeThreshold(): number {
+    throw new Error('Not implemented')
+  }
+
+  setCredentials(credentials: { accessKeyId: string; secretAccessKey: string }): void {
+    throw new Error('Not implemented')
+  }
+
+  hasCredentials(): boolean {
     throw new Error('Not implemented')
   }
 }
@@ -197,6 +303,10 @@ export interface SavepointMetadata {
   getCheckpointId(): number
   getOperatorStates(): any[]
   getMasterStates(): any[]
+  getTriggerLatency(): number
+  getFormatVersion(): number
+  preservesIncrementalStructure(): boolean
+  getOperatorUIDMapping(): Map<string, any>
 }
 
 /**
@@ -233,12 +343,17 @@ export class SavepointRestoreSettings {
   private constructor(
     private savepointPath: string,
     private claimMode: 'CLAIM' | 'NO_CLAIM' = 'NO_CLAIM',
-    private allowNonRestored: boolean = false
+    private allowNonRestored: boolean = false,
+    private validateVersion: boolean = false
   ) {}
 
   static forPath(
     path: string,
-    options?: { claimMode?: 'CLAIM' | 'NO_CLAIM'; allowNonRestoredState?: boolean }
+    options?: {
+      claimMode?: 'CLAIM' | 'NO_CLAIM'
+      allowNonRestoredState?: boolean
+      validateVersion?: boolean
+    }
   ): SavepointRestoreSettings {
     throw new Error('Not implemented')
   }
@@ -254,6 +369,10 @@ export class SavepointRestoreSettings {
   allowNonRestoredState(): boolean {
     throw new Error('Not implemented')
   }
+
+  shouldValidateVersion(): boolean {
+    throw new Error('Not implemented')
+  }
 }
 
 /**
@@ -264,7 +383,7 @@ export class SavepointManager {
 
   async triggerSavepoint(
     path: string,
-    options?: { formatType?: 'canonical' | 'native' }
+    options?: { formatType?: 'canonical' | 'native'; drain?: boolean }
   ): Promise<Savepoint> {
     throw new Error('Not implemented')
   }
@@ -276,11 +395,24 @@ export class SavepointManager {
   async savepointExists(path: string): Promise<boolean> {
     throw new Error('Not implemented')
   }
+
+  async upgradeSavepoint(sourcePath: string, targetPath: string): Promise<string> {
+    throw new Error('Not implemented')
+  }
 }
 
 // ===========================================================================
 // Checkpoint Metadata
 // ===========================================================================
+
+/**
+ * Operator checkpoint metric
+ */
+export interface OperatorCheckpointMetric {
+  operatorId: string
+  duration: number
+  stateSize: number
+}
 
 /**
  * Metadata for a checkpoint
@@ -294,6 +426,13 @@ export interface CheckpointMetadata {
   getSubtaskStates(): any[]
   getAlignmentDuration(): number
   isIncremental(): boolean
+  getIncrementalSize(): number
+  getChangelogSize(): number
+  isUnaligned(): boolean
+  getPersistedBuffers(): any[] | null
+  getInflightData(): any[]
+  getEndToEndDuration(): number
+  getOperatorCheckpointMetrics(): OperatorCheckpointMetric[]
 }
 
 /**
@@ -343,7 +482,7 @@ export class PendingCheckpoint {
  */
 export interface CheckpointListener {
   notifyCheckpointComplete(checkpointId: number): void
-  notifyCheckpointAborted(checkpointId: number): void
+  notifyCheckpointAborted(checkpointId: number, reason?: string): void
 }
 
 /**
@@ -376,6 +515,29 @@ export interface SnapshotResult {
 }
 
 /**
+ * Checkpoint statistics
+ */
+export interface CheckpointStats {
+  getCompletedCheckpointCount(): number
+  getFailedCheckpointCount(): number
+  getLastFailureReason(): string | null
+  getAverageDuration(): number
+  getAverageStateSize(): number
+  getMinDuration(): number
+  getMaxDuration(): number
+  getSharedStateFileCount(): number
+  getSharedStateBytes(): number
+}
+
+/**
+ * Checkpoint progress
+ */
+export interface CheckpointProgress {
+  acknowledgedTasks: number
+  pendingTasks: number
+}
+
+/**
  * Coordinator for checkpoint operations
  */
 export class CheckpointCoordinator {
@@ -405,6 +567,82 @@ export class CheckpointCoordinator {
   async triggerAsyncSnapshot(): Promise<SnapshotResult> {
     throw new Error('Not implemented')
   }
+
+  // Additional methods for new tests
+
+  setForceFullCheckpoint(force: boolean): void {
+    throw new Error('Not implemented')
+  }
+
+  getCheckpointStats(): CheckpointStats {
+    throw new Error('Not implemented')
+  }
+
+  getCompletedCheckpoints(): CompletedCheckpoint[] {
+    throw new Error('Not implemented')
+  }
+
+  getMaterializationCount(): number {
+    throw new Error('Not implemented')
+  }
+
+  initiateCheckpoint(): CheckpointBarrier {
+    throw new Error('Not implemented')
+  }
+
+  async acknowledgeBarrier(
+    checkpointId: number,
+    taskInfo: { operatorId: string; subtaskIndex: number }
+  ): Promise<void> {
+    throw new Error('Not implemented')
+  }
+
+  getCheckpointProgress(checkpointId: number): CheckpointProgress {
+    throw new Error('Not implemented')
+  }
+
+  recordInflightData(data: { channelId: string; records: any[] }): void {
+    throw new Error('Not implemented')
+  }
+
+  declineCheckpoint(
+    checkpointId: number,
+    info: { operatorId: string; subtaskIndex?: number; reason: string }
+  ): void {
+    throw new Error('Not implemented')
+  }
+
+  getPendingCheckpoint(checkpointId: number): PendingCheckpoint | null {
+    throw new Error('Not implemented')
+  }
+
+  simulateCheckpointFailure(info: { reason: string; operatorId: string }): void {
+    throw new Error('Not implemented')
+  }
+
+  clearFailureSimulation(): void {
+    throw new Error('Not implemented')
+  }
+
+  isJobFailed(): boolean {
+    throw new Error('Not implemented')
+  }
+
+  getFailureReason(): string | null {
+    throw new Error('Not implemented')
+  }
+
+  getConsecutiveFailureCount(): number {
+    throw new Error('Not implemented')
+  }
+
+  async restoreFromCheckpointId(checkpointId: number): Promise<void> {
+    throw new Error('Not implemented')
+  }
+
+  isCheckpointSubsumed(checkpointId: number): boolean {
+    throw new Error('Not implemented')
+  }
 }
 
 // ===========================================================================
@@ -418,6 +656,9 @@ export interface RecoveryResult {
   wasRescaled(): boolean
   getOriginalParallelism(): number
   getNewParallelism(): number
+  usedLocalState(): boolean
+  getLocalStateHitRate(): number
+  fellBackToRemote(): boolean
 }
 
 /**
@@ -428,7 +669,11 @@ export class StateRecoveryManager {
 
   async recoverFromCheckpoint(
     path: string,
-    options?: { allowRescaling?: boolean; allowNonRestoredState?: boolean }
+    options?: {
+      allowRescaling?: boolean
+      allowNonRestoredState?: boolean
+      preferLocalState?: boolean
+    }
   ): Promise<RecoveryResult> {
     throw new Error('Not implemented')
   }
@@ -438,6 +683,10 @@ export class StateRecoveryManager {
   }
 
   getOperatorStateStore(): OperatorStateStore {
+    throw new Error('Not implemented')
+  }
+
+  setLocalStateAvailable(available: boolean): void {
     throw new Error('Not implemented')
   }
 }

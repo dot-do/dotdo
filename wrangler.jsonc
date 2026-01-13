@@ -61,6 +61,10 @@
       {
         "name": "OBS_BROADCASTER",
         "class_name": "ObservabilityBroadcaster"
+      },
+      {
+        "name": "COLLECTION_DO",
+        "class_name": "TestCollectionDO"
       }
     ]
   },
@@ -86,6 +90,10 @@
     {
       "tag": "v5",
       "new_classes": ["SandboxDO"]
+    },
+    {
+      "tag": "v6",
+      "new_classes": ["TestCollectionDO"]
     }
   ],
 

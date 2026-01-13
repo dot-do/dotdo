@@ -1412,4 +1412,847 @@ describe('@dotdo/flink - KeyedStream Operations', () => {
       expect(bResults[bResults.length - 1]?.state).toBe(3) // 1 + 2
     })
   })
+
+  // ===========================================================================
+  // Timer Operations
+  // ===========================================================================
+
+  describe('Timer Operations', () => {
+    it('should register and fire event-time timers', async () => {
+      const env = createTestEnvironment()
+      const stream = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, value: 1 },
+          { userId: 'u1', timestamp: 5000, value: 2 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ userId: string; timestamp: number; value: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const timerFiredTimes: number[] = []
+
+      class TimerFunction extends KeyedProcessFunction<
+        string,
+        { userId: string; timestamp: number; value: number },
+        { type: string; timestamp: number }
+      > {
+        processElement(
+          event: { userId: string; timestamp: number; value: number },
+          ctx: Context,
+          out: Collector<{ type: string; timestamp: number }>
+        ) {
+          // Register a timer 2 seconds after the event
+          ctx.timerService().registerEventTimeTimer(event.timestamp + 2000)
+          out.collect({ type: 'element', timestamp: event.timestamp })
+        }
+
+        onTimer(
+          timestamp: number,
+          ctx: OnTimerContext,
+          out: Collector<{ type: string; timestamp: number }>
+        ) {
+          timerFiredTimes.push(timestamp)
+          out.collect({ type: 'timer', timestamp })
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.userId).process(new TimerFunction())
+      const result = await env.executeAndCollect(processed)
+
+      // Timer at 3000 should fire when watermark advances past it (at 5000)
+      expect(timerFiredTimes).toContain(3000)
+      expect(result).toContainEqual({ type: 'timer', timestamp: 3000 })
+    })
+
+    it('should register and fire processing-time timers', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { key: 'a', value: 1 },
+        { key: 'a', value: 2 }
+      )
+
+      let processingTimerFired = false
+
+      class ProcessingTimerFunction extends KeyedProcessFunction<
+        string,
+        { key: string; value: number },
+        { type: string; value: number }
+      > {
+        processElement(
+          event: { key: string; value: number },
+          ctx: Context,
+          out: Collector<{ type: string; value: number }>
+        ) {
+          // Register a processing time timer 10ms from now
+          const now = ctx.timerService().currentProcessingTime()
+          ctx.timerService().registerProcessingTimeTimer(now + 10)
+          out.collect({ type: 'element', value: event.value })
+        }
+
+        onTimer(
+          timestamp: number,
+          ctx: OnTimerContext,
+          out: Collector<{ type: string; value: number }>
+        ) {
+          if (ctx.timeDomain() === 'PROCESSING_TIME') {
+            processingTimerFired = true
+            out.collect({ type: 'timer', value: timestamp })
+          }
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.key).process(new ProcessingTimerFunction())
+      await env.executeAndCollect(processed)
+
+      // Processing time timers are harder to test deterministically
+      // This test verifies the timer registration API works
+      expect(processingTimerFired).toBe(true)
+    })
+
+    it('should delete registered timers', async () => {
+      const env = createTestEnvironment()
+      const stream = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, action: 'start' },
+          { userId: 'u1', timestamp: 2000, action: 'cancel' },
+          { userId: 'u1', timestamp: 6000, action: 'done' }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ userId: string; timestamp: number; action: string }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const timersFired: number[] = []
+
+      class CancellableTimerFunction extends KeyedProcessFunction<
+        string,
+        { userId: string; timestamp: number; action: string },
+        string
+      > {
+        private pendingTimer!: ValueState<number>
+
+        open(ctx: RuntimeContext) {
+          this.pendingTimer = ctx.getState(new ValueStateDescriptor<number>('pending-timer'))
+        }
+
+        processElement(
+          event: { userId: string; timestamp: number; action: string },
+          ctx: Context,
+          out: Collector<string>
+        ) {
+          if (event.action === 'start') {
+            // Register timer for 5 seconds later
+            const timerTime = event.timestamp + 5000
+            ctx.timerService().registerEventTimeTimer(timerTime)
+            this.pendingTimer.update(timerTime)
+            out.collect(`timer registered for ${timerTime}`)
+          } else if (event.action === 'cancel') {
+            // Delete the pending timer
+            const pending = this.pendingTimer.value()
+            if (pending !== null) {
+              ctx.timerService().deleteEventTimeTimer(pending)
+              this.pendingTimer.clear()
+              out.collect(`timer at ${pending} cancelled`)
+            }
+          }
+        }
+
+        onTimer(
+          timestamp: number,
+          ctx: OnTimerContext,
+          out: Collector<string>
+        ) {
+          timersFired.push(timestamp)
+          out.collect(`timer fired at ${timestamp}`)
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.userId).process(new CancellableTimerFunction())
+      await env.executeAndCollect(processed)
+
+      // Timer at 6000 should NOT fire because it was cancelled
+      expect(timersFired).not.toContain(6000)
+    })
+
+    it('should support timer coalescing (same time, same key)', async () => {
+      const env = createTestEnvironment()
+      const stream = env
+        .fromElements(
+          { key: 'a', timestamp: 1000 },
+          { key: 'a', timestamp: 1100 },
+          { key: 'a', timestamp: 5000 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      let timerFireCount = 0
+
+      class CoalescingTimerFunction extends KeyedProcessFunction<
+        string,
+        { key: string; timestamp: number },
+        string
+      > {
+        processElement(
+          event: { key: string; timestamp: number },
+          ctx: Context,
+          out: Collector<string>
+        ) {
+          // Both first events register timer for time 3000
+          ctx.timerService().registerEventTimeTimer(3000)
+        }
+
+        onTimer(
+          timestamp: number,
+          ctx: OnTimerContext,
+          out: Collector<string>
+        ) {
+          timerFireCount++
+          out.collect(`timer fired`)
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.key).process(new CoalescingTimerFunction())
+      await env.executeAndCollect(processed)
+
+      // Timer at 3000 should fire exactly once, not twice
+      expect(timerFireCount).toBe(1)
+    })
+
+    it('should provide current watermark in timer service', async () => {
+      const env = createTestEnvironment()
+      const stream = env
+        .fromElements(
+          { key: 'a', timestamp: 1000 },
+          { key: 'a', timestamp: 5000 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const watermarks: number[] = []
+
+      class WatermarkTrackingFunction extends KeyedProcessFunction<
+        string,
+        { key: string; timestamp: number },
+        number
+      > {
+        processElement(
+          event: { key: string; timestamp: number },
+          ctx: Context,
+          out: Collector<number>
+        ) {
+          watermarks.push(ctx.timerService().currentWatermark())
+          out.collect(ctx.timerService().currentWatermark())
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.key).process(new WatermarkTrackingFunction())
+      await env.executeAndCollect(processed)
+
+      // Watermarks should increase as we process elements
+      expect(watermarks[1]).toBeGreaterThan(watermarks[0]!)
+    })
+  })
+
+  // ===========================================================================
+  // FlatMap on KeyedStream
+  // ===========================================================================
+
+  describe('KeyedStream.flatMap()', () => {
+    it('should flatMap elements while maintaining key context', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { userId: 'u1', tags: ['a', 'b'] },
+        { userId: 'u2', tags: ['c'] },
+        { userId: 'u1', tags: ['d'] }
+      )
+
+      // Note: KeyedStream.flatMap is not standard Flink API but useful
+      // In Flink, you would use process() instead
+      const flattened = stream
+        .keyBy((e) => e.userId)
+        .flatMap((event, out) => {
+          for (const tag of event.tags) {
+            out.collect({ userId: event.userId, tag })
+          }
+        })
+
+      const result = await env.executeAndCollect(flattened)
+
+      expect(result).toContainEqual({ userId: 'u1', tag: 'a' })
+      expect(result).toContainEqual({ userId: 'u1', tag: 'b' })
+      expect(result).toContainEqual({ userId: 'u2', tag: 'c' })
+      expect(result).toContainEqual({ userId: 'u1', tag: 'd' })
+    })
+  })
+
+  // ===========================================================================
+  // Side Outputs from KeyedProcessFunction
+  // ===========================================================================
+
+  describe('Side Outputs from Process Functions', () => {
+    it('should emit to side output from keyed process function', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { key: 'a', value: 5 },
+        { key: 'a', value: 15 }, // Should go to side output (> 10)
+        { key: 'b', value: 3 },
+        { key: 'b', value: 25 } // Should go to side output (> 10)
+      )
+
+      const largeValueTag = new OutputTag<{ key: string; value: number }>('large-values')
+
+      class SplittingFunction extends KeyedProcessFunction<
+        string,
+        { key: string; value: number },
+        { key: string; value: number }
+      > {
+        processElement(
+          event: { key: string; value: number },
+          ctx: Context,
+          out: Collector<{ key: string; value: number }>
+        ) {
+          if (event.value > 10) {
+            ctx.output(largeValueTag, event)
+          } else {
+            out.collect(event)
+          }
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.key).process(new SplittingFunction())
+      const mainOutput = await env.executeAndCollect(processed)
+      const sideOutput = await env.executeAndCollect(processed.getSideOutput(largeValueTag))
+
+      expect(mainOutput).toContainEqual({ key: 'a', value: 5 })
+      expect(mainOutput).toContainEqual({ key: 'b', value: 3 })
+      expect(mainOutput).not.toContainEqual({ key: 'a', value: 15 })
+
+      expect(sideOutput).toContainEqual({ key: 'a', value: 15 })
+      expect(sideOutput).toContainEqual({ key: 'b', value: 25 })
+    })
+
+    it('should emit late data to side output', async () => {
+      const env = createTestEnvironment()
+      const lateDataTag = new OutputTag<{ key: string; timestamp: number; value: number }>('late-data')
+
+      const stream = env
+        .fromElements(
+          { key: 'a', timestamp: 1000, value: 1 },
+          { key: 'a', timestamp: 5000, value: 2 },
+          { key: 'a', timestamp: 500, value: 3 } // Late element
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number; value: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const windowed = stream
+        .keyBy((e) => e.key)
+        .window(TumblingEventTimeWindows.of(Time.seconds(2)))
+        .sideOutputLateData(lateDataTag)
+        .sum('value')
+
+      const mainOutput = await env.executeAndCollect(windowed)
+      const lateOutput = await env.executeAndCollect(windowed.getSideOutput(lateDataTag))
+
+      // Late element should appear in side output
+      expect(lateOutput).toContainEqual(expect.objectContaining({ timestamp: 500 }))
+    })
+  })
+
+  // ===========================================================================
+  // State TTL (Time-To-Live)
+  // ===========================================================================
+
+  describe('State TTL Behavior', () => {
+    it('should expire state based on TTL configuration', async () => {
+      const env = createTestEnvironment()
+      const stream = env
+        .fromElements(
+          { key: 'a', timestamp: 1000, value: 10 },
+          { key: 'a', timestamp: 5000, value: 20 }, // 4 seconds later, state should still exist
+          { key: 'a', timestamp: 100000, value: 30 } // Much later, state should have expired
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number; value: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      class TTLStateFunction extends KeyedProcessFunction<
+        string,
+        { key: string; timestamp: number; value: number },
+        { key: string; sum: number; isNew: boolean }
+      > {
+        private sumState!: ValueState<number>
+
+        open(ctx: RuntimeContext) {
+          const descriptor = new ValueStateDescriptor<number>('sum', 0)
+          const ttlConfig = StateTtlConfig.newBuilder(Time.seconds(10))
+            .setUpdateType(StateTtlConfig.UpdateType.OnCreateAndWrite)
+            .setStateVisibility(StateTtlConfig.StateVisibility.NeverReturnExpired)
+            .build()
+          descriptor.enableTimeToLive(ttlConfig)
+          this.sumState = ctx.getState(descriptor)
+        }
+
+        processElement(
+          event: { key: string; timestamp: number; value: number },
+          ctx: Context,
+          out: Collector<{ key: string; sum: number; isNew: boolean }>
+        ) {
+          const currentSum = this.sumState.value()
+          const isNew = currentSum === null || currentSum === 0
+          const newSum = (currentSum ?? 0) + event.value
+          this.sumState.update(newSum)
+          out.collect({ key: event.key, sum: newSum, isNew })
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.key).process(new TTLStateFunction())
+      const result = await env.executeAndCollect(processed)
+
+      // First two should accumulate (within TTL)
+      expect(result[0]).toEqual({ key: 'a', sum: 10, isNew: true })
+      expect(result[1]).toEqual({ key: 'a', sum: 30, isNew: false })
+
+      // Third should start fresh (TTL expired - 95 seconds gap > 10 second TTL)
+      expect(result[2]).toEqual({ key: 'a', sum: 30, isNew: true })
+    })
+
+    it('should update TTL on read with OnReadAndWrite policy', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { key: 'a', action: 'write', value: 100 },
+        { key: 'a', action: 'read', value: 0 },
+        { key: 'a', action: 'read', value: 0 }
+      )
+
+      class ReadUpdateTTLFunction extends KeyedProcessFunction<
+        string,
+        { key: string; action: string; value: number },
+        number | null
+      > {
+        private state!: ValueState<number>
+
+        open(ctx: RuntimeContext) {
+          const descriptor = new ValueStateDescriptor<number>('value')
+          const ttlConfig = StateTtlConfig.newBuilder(Time.hours(1))
+            .setUpdateType(StateTtlConfig.UpdateType.OnReadAndWrite)
+            .build()
+          descriptor.enableTimeToLive(ttlConfig)
+          this.state = ctx.getState(descriptor)
+        }
+
+        processElement(
+          event: { key: string; action: string; value: number },
+          ctx: Context,
+          out: Collector<number | null>
+        ) {
+          if (event.action === 'write') {
+            this.state.update(event.value)
+            out.collect(event.value)
+          } else {
+            // Reading should also update TTL
+            out.collect(this.state.value())
+          }
+        }
+      }
+
+      const processed = stream.keyBy((e) => e.key).process(new ReadUpdateTTLFunction())
+      const result = await env.executeAndCollect(processed)
+
+      // All reads should return the value (TTL is refreshed on read)
+      expect(result).toEqual([100, 100, 100])
+    })
+  })
+
+  // ===========================================================================
+  // Interval Join (Keyed Streams)
+  // ===========================================================================
+
+  describe('Interval Join', () => {
+    it('should join elements within time bounds', async () => {
+      const env = createTestEnvironment()
+
+      const leftStream = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1000, action: 'click' },
+          { userId: 'u2', timestamp: 2000, action: 'view' }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ userId: string; timestamp: number; action: string }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const rightStream = env
+        .fromElements(
+          { userId: 'u1', timestamp: 1500, purchase: 100 },
+          { userId: 'u1', timestamp: 5000, purchase: 200 } // Too late to join with click at 1000
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ userId: string; timestamp: number; purchase: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      // Interval join: right element timestamp must be within left.timestamp - 1000ms and left.timestamp + 2000ms
+      const joined = leftStream
+        .keyBy((e) => e.userId)
+        .intervalJoin(rightStream.keyBy((e) => e.userId))
+        .between(Time.seconds(-1), Time.seconds(2))
+        .process((left, right, out) => {
+          out.collect({
+            userId: left.userId,
+            action: left.action,
+            purchase: right.purchase,
+            timeDiff: right.timestamp - left.timestamp,
+          })
+        })
+
+      const result = await env.executeAndCollect(joined)
+
+      // Only u1 click (1000) + purchase (1500) should match (diff = 500ms, within -1s to +2s)
+      expect(result).toContainEqual({
+        userId: 'u1',
+        action: 'click',
+        purchase: 100,
+        timeDiff: 500,
+      })
+
+      // u1 click (1000) + purchase (5000) should NOT match (diff = 4000ms, outside bounds)
+      expect(result).not.toContainEqual(expect.objectContaining({ purchase: 200 }))
+    })
+
+    it('should handle multiple matches in interval', async () => {
+      const env = createTestEnvironment()
+
+      const leftStream = env
+        .fromElements({ key: 'a', timestamp: 1000, type: 'L' })
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number; type: string }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const rightStream = env
+        .fromElements(
+          { key: 'a', timestamp: 500, value: 1 },
+          { key: 'a', timestamp: 800, value: 2 },
+          { key: 'a', timestamp: 1200, value: 3 }
+        )
+        .assignTimestampsAndWatermarks(
+          WatermarkStrategy.forMonotonousTimestamps<{ key: string; timestamp: number; value: number }>().withTimestampAssigner((e) => e.timestamp)
+        )
+
+      const joined = leftStream
+        .keyBy((e) => e.key)
+        .intervalJoin(rightStream.keyBy((e) => e.key))
+        .between(Time.seconds(-1), Time.seconds(1))
+        .process((left, right, out) => {
+          out.collect({ left: left.type, rightValue: right.value })
+        })
+
+      const result = await env.executeAndCollect(joined)
+
+      // All three right elements are within [-1s, +1s] of left element at 1000
+      expect(result).toHaveLength(3)
+      expect(result).toContainEqual({ left: 'L', rightValue: 1 })
+      expect(result).toContainEqual({ left: 'L', rightValue: 2 })
+      expect(result).toContainEqual({ left: 'L', rightValue: 3 })
+    })
+  })
+
+  // ===========================================================================
+  // Broadcast State Pattern
+  // ===========================================================================
+
+  describe('Broadcast State Pattern', () => {
+    it('should broadcast rules to all keyed stream partitions', async () => {
+      const env = createTestEnvironment()
+
+      // Main keyed stream of events
+      const eventsStream = env.fromElements(
+        { userId: 'u1', action: 'login' },
+        { userId: 'u2', action: 'purchase' },
+        { userId: 'u1', action: 'logout' }
+      )
+
+      // Broadcast stream of rules
+      const rulesStream = env.fromElements(
+        { ruleId: 'r1', pattern: 'login', alert: 'User logged in' },
+        { ruleId: 'r2', pattern: 'purchase', alert: 'Purchase detected' }
+      )
+
+      const ruleStateDescriptor = new MapStateDescriptor<string, { pattern: string; alert: string }>('rules')
+
+      // Connect keyed stream with broadcast stream
+      const connected = eventsStream
+        .keyBy((e) => e.userId)
+        .connect(rulesStream.broadcast(ruleStateDescriptor))
+
+      const processed = connected.process({
+        processElement(event, ctx, out) {
+          // Access broadcast state to check rules
+          const rules = ctx.getBroadcastState(ruleStateDescriptor)
+          for (const [ruleId, rule] of rules.entries()) {
+            if (event.action === rule.pattern) {
+              out.collect({
+                userId: event.userId,
+                ruleId,
+                alert: rule.alert,
+              })
+            }
+          }
+        },
+        processBroadcastElement(rule, ctx, out) {
+          // Update broadcast state when rule arrives
+          const rules = ctx.getBroadcastState(ruleStateDescriptor)
+          rules.put(rule.ruleId, { pattern: rule.pattern, alert: rule.alert })
+        },
+      })
+
+      const result = await env.executeAndCollect(processed)
+
+      expect(result).toContainEqual({
+        userId: 'u1',
+        ruleId: 'r1',
+        alert: 'User logged in',
+      })
+      expect(result).toContainEqual({
+        userId: 'u2',
+        ruleId: 'r2',
+        alert: 'Purchase detected',
+      })
+    })
+  })
+
+  // ===========================================================================
+  // Async I/O Operations
+  // ===========================================================================
+
+  describe('Async I/O', () => {
+    it('should perform async enrichment with ordered results', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { key: 'a', id: 1 },
+        { key: 'a', id: 2 },
+        { key: 'b', id: 3 }
+      )
+
+      // Simulate async database lookup
+      const asyncLookup = async (id: number): Promise<string> => {
+        return `enriched-${id}`
+      }
+
+      const enriched = await stream
+        .keyBy((e) => e.key)
+        .asyncMap(async (element) => {
+          const extra = await asyncLookup(element.id)
+          return { ...element, extra }
+        }, { ordered: true, timeout: Time.seconds(5), capacity: 10 })
+
+      const result = await env.executeAndCollect(enriched)
+
+      // Results should maintain input order
+      expect(result[0]).toEqual({ key: 'a', id: 1, extra: 'enriched-1' })
+      expect(result[1]).toEqual({ key: 'a', id: 2, extra: 'enriched-2' })
+      expect(result[2]).toEqual({ key: 'b', id: 3, extra: 'enriched-3' })
+    })
+
+    it('should handle async failures with retry', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements({ key: 'a', id: 1 })
+
+      let attempts = 0
+      const flakeyLookup = async (): Promise<string> => {
+        attempts++
+        if (attempts < 3) {
+          throw new Error('Transient failure')
+        }
+        return 'success'
+      }
+
+      const enriched = await stream
+        .keyBy((e) => e.key)
+        .asyncMap(
+          async (element) => {
+            const result = await flakeyLookup()
+            return { ...element, result }
+          },
+          { retries: 5, retryDelay: Time.milliseconds(10) }
+        )
+
+      const result = await env.executeAndCollect(enriched)
+
+      expect(result[0]?.result).toBe('success')
+      expect(attempts).toBe(3)
+    })
+  })
+
+  // ===========================================================================
+  // Connected Keyed Streams
+  // ===========================================================================
+
+  describe('Connected Keyed Streams', () => {
+    it('should join two keyed streams with shared state', async () => {
+      const env = createTestEnvironment()
+
+      const stream1 = env.fromElements(
+        { userId: 'u1', clicks: 5 },
+        { userId: 'u2', clicks: 10 }
+      )
+
+      const stream2 = env.fromElements(
+        { userId: 'u1', purchases: 2 },
+        { userId: 'u1', purchases: 1 }
+      )
+
+      class JoinFunction {
+        private clicksState!: ValueState<number>
+        private purchasesState!: ValueState<number>
+
+        open(ctx: RuntimeContext) {
+          this.clicksState = ctx.getState(new ValueStateDescriptor<number>('clicks', 0))
+          this.purchasesState = ctx.getState(new ValueStateDescriptor<number>('purchases', 0))
+        }
+
+        processElement1(
+          event: { userId: string; clicks: number },
+          ctx: Context,
+          out: Collector<{ userId: string; clicks: number; purchases: number }>
+        ) {
+          this.clicksState.update(event.clicks)
+          out.collect({
+            userId: event.userId,
+            clicks: this.clicksState.value()!,
+            purchases: this.purchasesState.value() ?? 0,
+          })
+        }
+
+        processElement2(
+          event: { userId: string; purchases: number },
+          ctx: Context,
+          out: Collector<{ userId: string; clicks: number; purchases: number }>
+        ) {
+          const currentPurchases = this.purchasesState.value() ?? 0
+          this.purchasesState.update(currentPurchases + event.purchases)
+          out.collect({
+            userId: event.userId,
+            clicks: this.clicksState.value() ?? 0,
+            purchases: this.purchasesState.value()!,
+          })
+        }
+      }
+
+      const connected = stream1
+        .keyBy((e) => e.userId)
+        .connect(stream2.keyBy((e) => e.userId))
+
+      const result = await env.executeAndCollect(
+        connected.process(new JoinFunction())
+      )
+
+      // u1 should have accumulated state from both streams
+      const u1Results = result.filter((r) => r.userId === 'u1')
+      const lastU1 = u1Results[u1Results.length - 1]
+      expect(lastU1?.clicks).toBe(5)
+      expect(lastU1?.purchases).toBe(3) // 2 + 1
+    })
+  })
+
+  // ===========================================================================
+  // KeyedStream Aggregations
+  // ===========================================================================
+
+  describe('KeyedStream.aggregate()', () => {
+    it('should aggregate with custom AggregateFunction', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { category: 'A', amount: 10 },
+        { category: 'B', amount: 20 },
+        { category: 'A', amount: 15 },
+        { category: 'B', amount: 25 },
+        { category: 'A', amount: 5 }
+      )
+
+      const avgAggregator: AggregateFunction<
+        { category: string; amount: number },
+        { sum: number; count: number; category: string },
+        { category: string; average: number }
+      > = {
+        createAccumulator: () => ({ sum: 0, count: 0, category: '' }),
+        add: (value, acc) => ({
+          sum: acc.sum + value.amount,
+          count: acc.count + 1,
+          category: value.category,
+        }),
+        getResult: (acc) => ({
+          category: acc.category,
+          average: acc.count > 0 ? acc.sum / acc.count : 0,
+        }),
+        merge: (a, b) => ({
+          sum: a.sum + b.sum,
+          count: a.count + b.count,
+          category: a.category || b.category,
+        }),
+      }
+
+      const aggregated = stream.keyBy((e) => e.category).aggregate(avgAggregator)
+
+      const result = await env.executeAndCollect(aggregated)
+
+      // Category A: (10 + 15 + 5) / 3 = 10
+      // Category B: (20 + 25) / 2 = 22.5
+      expect(result).toContainEqual({ category: 'A', average: 10 })
+      expect(result).toContainEqual({ category: 'B', average: 22.5 })
+    })
+
+    it('should emit rolling aggregate results', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { key: 'a', value: 2 },
+        { key: 'a', value: 4 },
+        { key: 'a', value: 6 }
+      )
+
+      const sumAggregator: AggregateFunction<
+        { key: string; value: number },
+        { total: number },
+        number
+      > = {
+        createAccumulator: () => ({ total: 0 }),
+        add: (value, acc) => ({ total: acc.total + value.value }),
+        getResult: (acc) => acc.total,
+        merge: (a, b) => ({ total: a.total + b.total }),
+      }
+
+      const aggregated = stream.keyBy((e) => e.key).aggregate(sumAggregator)
+
+      const result = await env.executeAndCollect(aggregated)
+
+      // Should emit rolling results: 2, 6, 12
+      expect(result).toHaveLength(3)
+      expect(result).toEqual([2, 6, 12])
+    })
+  })
+
+  // ===========================================================================
+  // KeyedStream.fold() (deprecated but still used)
+  // ===========================================================================
+
+  describe('KeyedStream.fold()', () => {
+    it('should fold elements with initial value', async () => {
+      const env = createTestEnvironment()
+      const stream = env.fromElements(
+        { userId: 'u1', item: 'apple' },
+        { userId: 'u2', item: 'banana' },
+        { userId: 'u1', item: 'cherry' }
+      )
+
+      const folded = stream
+        .keyBy((e) => e.userId)
+        .fold([] as string[], (acc, value) => [...acc, value.item])
+
+      const result = await env.executeAndCollect(folded)
+
+      // u1: ['apple', 'cherry']
+      // u2: ['banana']
+      expect(result).toContainEqual(['apple', 'cherry'])
+      expect(result).toContainEqual(['banana'])
+    })
+  })
 })

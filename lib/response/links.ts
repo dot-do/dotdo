@@ -34,6 +34,7 @@ export interface CollectionLinksOptions {
  * Build navigation links for a single item
  *
  * Expected links:
+ * - home: URL to the root (namespace)
  * - collection: URL to the collection this item belongs to
  * - edit: URL to edit this item
  * - [relation]: URL to related collections (if relations provided)
@@ -49,6 +50,7 @@ export function buildItemLinks(options: ItemLinksOptions): Record<string, string
   const itemUrl = buildIdUrl(ns, type, id)
 
   const links: Record<string, string> = {
+    home: ns,
     collection: collectionUrl,
     edit: itemUrl + '/edit',
   }
@@ -68,6 +70,7 @@ export function buildItemLinks(options: ItemLinksOptions): Record<string, string
  *
  * Expected links:
  * - home: URL to namespace root
+ * - self: URL to this collection (same as first without pagination)
  * - first: URL to first page of collection
  * - next: URL to next page (if hasNext and after cursor provided)
  * - prev: URL to previous page (if hasPrev and before cursor provided)
@@ -83,6 +86,7 @@ export function buildCollectionLinks(options: CollectionLinksOptions): Record<st
 
   const links: Record<string, string> = {
     home: ns,
+    self: typeUrl,
     first: typeUrl,
   }
 

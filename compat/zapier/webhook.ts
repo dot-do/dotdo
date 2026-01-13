@@ -22,6 +22,8 @@ import type {
  */
 export class WebhookHandler {
   private subscriptions = new Map<string, WebhookSubscription>()
+  private allowedIPs: string[] = []
+  private allowedIPRanges: Array<{ base: number[]; mask: number }> = []
 
   /**
    * Register a webhook subscription
@@ -133,8 +135,91 @@ export class WebhookHandler {
     signature: string,
     secret: string,
     algorithm: 'sha256' | 'sha1' = 'sha256'
-  ): boolean {
+  ): boolean | Promise<boolean> {
     return validateHmacSignature(payload, signature, secret, algorithm)
+  }
+
+  /**
+   * Set allowed IPs for webhook source verification
+   * Supports both individual IPs and CIDR notation (e.g., '192.168.1.0/24')
+   */
+  setAllowedIPs(ips: string[]): void {
+    this.allowedIPs = []
+    this.allowedIPRanges = []
+
+    for (const ip of ips) {
+      if (ip.includes('/')) {
+        // CIDR notation
+        const [baseIP, maskStr] = ip.split('/')
+        const mask = parseInt(maskStr, 10)
+        const base = this.parseIP(baseIP)
+        if (base) {
+          this.allowedIPRanges.push({ base, mask })
+        }
+      } else {
+        // Individual IP
+        this.allowedIPs.push(ip)
+      }
+    }
+  }
+
+  /**
+   * Check if an IP address is allowed
+   */
+  isIPAllowed(ip: string): boolean {
+    // Check exact match first
+    if (this.allowedIPs.includes(ip)) {
+      return true
+    }
+
+    // Check CIDR ranges
+    const parsedIP = this.parseIP(ip)
+    if (!parsedIP) {
+      return false
+    }
+
+    for (const range of this.allowedIPRanges) {
+      if (this.isIPInRange(parsedIP, range.base, range.mask)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  /**
+   * Parse an IPv4 address into octets
+   */
+  private parseIP(ip: string): number[] | null {
+    const parts = ip.split('.')
+    if (parts.length !== 4) {
+      return null
+    }
+
+    const octets: number[] = []
+    for (const part of parts) {
+      const num = parseInt(part, 10)
+      if (isNaN(num) || num < 0 || num > 255) {
+        return null
+      }
+      octets.push(num)
+    }
+
+    return octets
+  }
+
+  /**
+   * Check if an IP is within a CIDR range
+   */
+  private isIPInRange(ip: number[], base: number[], mask: number): boolean {
+    // Convert to 32-bit integers
+    const ipInt = (ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]
+    const baseInt = (base[0] << 24) | (base[1] << 16) | (base[2] << 8) | base[3]
+
+    // Create mask
+    const maskInt = mask === 0 ? 0 : ~((1 << (32 - mask)) - 1)
+
+    return (ipInt & maskInt) === (baseInt & maskInt)
   }
 }
 
@@ -250,6 +335,32 @@ export class WebhookSubscriptionManager {
   async loadFromStorage(): Promise<void> {
     // Would need to implement listing keys from storage
     // For now, just use in-memory cache
+  }
+
+  /**
+   * Register an existing subscription (for testing/restoration)
+   */
+  registerSubscription(subscription: WebhookSubscription): void {
+    this.subscriptions.set(subscription.id, subscription)
+  }
+
+  /**
+   * Cleanup stale subscriptions older than maxAge
+   * @param maxAge Maximum age in milliseconds
+   * @returns Number of subscriptions cleaned up
+   */
+  cleanupStale(maxAge: number): number {
+    const cutoff = Date.now() - maxAge
+    let cleaned = 0
+
+    for (const [id, subscription] of this.subscriptions) {
+      if (subscription.createdAt < cutoff) {
+        this.subscriptions.delete(id)
+        cleaned++
+      }
+    }
+
+    return cleaned
   }
 }
 

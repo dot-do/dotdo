@@ -12,7 +12,9 @@
 
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { organization, admin, apiKey, sso, oauthProvider } from 'better-auth/plugins'
+import { organization, admin, apiKey } from 'better-auth/plugins'
+// Note: sso and oauthProvider are not available in better-auth@1.4.10
+// import { sso, oauthProvider } from 'better-auth/plugins'
 import { stripe } from '@better-auth/stripe'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import * as schema from '../db'
@@ -162,13 +164,15 @@ export function createAuth(config: AuthConfig) {
       }),
 
       // SSO (Enterprise SAML/OIDC per org)
-      sso(),
+      // Note: sso() is not available in better-auth@1.4.10
+      // sso(),
 
       // OAuth Provider (your app as OAuth provider for MCP/AI agents)
-      oauthProvider({
-        loginPage: '/login',
-        consentPage: '/consent',
-      }),
+      // Note: oauthProvider is not available in better-auth@1.4.10
+      // oauthProvider({
+      //   loginPage: '/login',
+      //   consentPage: '/consent',
+      // }),
 
       // Stripe (if configured)
       ...(stripeClient && stripeWebhookSecret

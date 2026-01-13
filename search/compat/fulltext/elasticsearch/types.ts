@@ -581,12 +581,52 @@ export interface HighlightOptions {
 export type SourceFilter = boolean | string[] | { includes?: string[]; excludes?: string[] }
 
 /**
+ * kNN query for vector similarity search
+ */
+export interface KnnQuery {
+  /** The name of the vector field to search against */
+  field: string
+  /** The query vector */
+  query_vector: number[]
+  /** Number of nearest neighbors to return (k) */
+  k: number
+  /** Number of candidates to consider from each shard */
+  num_candidates: number
+  /** Optional filter to apply before kNN search */
+  filter?: QueryDsl
+  /** Optional boost factor */
+  boost?: number
+  /** Optional similarity threshold (minimum score) */
+  similarity?: number
+}
+
+/**
+ * RRF (Reciprocal Rank Fusion) ranking options
+ */
+export interface RRFOptions {
+  /** Size of the window to consider for RRF */
+  window_size?: number
+  /** Rank constant for RRF formula (default: 60) */
+  rank_constant?: number
+}
+
+/**
+ * Rank options for combining search results
+ */
+export interface RankOptions {
+  /** RRF ranking configuration */
+  rrf?: RRFOptions
+}
+
+/**
  * Search request
  */
 export interface SearchRequest {
   index?: string | string[]
   body?: {
     query?: QueryDsl
+    knn?: KnnQuery | KnnQuery[]
+    rank?: RankOptions
     aggs?: Record<string, AggregationDsl>
     aggregations?: Record<string, AggregationDsl>
     sort?: SortOption[]
@@ -619,6 +659,10 @@ export interface SearchRequest {
     }>
   }
   query?: QueryDsl
+  /** kNN query for vector similarity search */
+  knn?: KnnQuery | KnnQuery[]
+  /** Rank options for combining multiple search results (e.g., RRF) */
+  rank?: RankOptions
   aggs?: Record<string, AggregationDsl>
   aggregations?: Record<string, AggregationDsl>
   sort?: SortOption[]

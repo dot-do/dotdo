@@ -49,9 +49,10 @@ test.describe('Edit UI - Monaco Editor Integration', () => {
   test('HTML contains Monaco editor script tag', async ({ page }) => {
     await page.goto('/customers/alice/edit')
 
-    // Check for Monaco script inclusion
+    // Check for Monaco script inclusion (Monaco loads multiple script files)
     const monacoScript = page.locator('script[src*="monaco"]')
-    await expect(monacoScript).toHaveCount(1)
+    const count = await monacoScript.count()
+    expect(count).toBeGreaterThanOrEqual(1)
   })
 
   test('Monaco editor container is visible', async ({ page }) => {

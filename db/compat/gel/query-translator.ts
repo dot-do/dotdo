@@ -11,11 +11,16 @@ import type {
   Statement,
   SelectStatement,
   InsertStatement,
+  UpdateStatement as ParserUpdateStatement,
+  DeleteStatement as ParserDeleteStatement,
+  ForStatement as ParserForStatement,
+  WithBlock as ParserWithBlock,
   Expression,
   Shape,
   ShapeField,
   PathExpression,
   BinaryExpression,
+  UnaryExpression as ParserUnaryExpression,
   StringLiteral,
   NumberLiteral,
   BooleanLiteral,
@@ -23,6 +28,9 @@ import type {
   InsertData,
   Assignment,
   PathSegment,
+  SetExpression as ParserSetExpression,
+  OrderByClause as ParserOrderByClause,
+  OrderByExpression as ParserOrderByExpression,
 } from './edgeql-parser'
 
 import type { Schema, TypeDefinition, Link } from './sdl-parser'
@@ -477,7 +485,7 @@ function exprToSQL(expr: ExtendedExpression | null | undefined, ctx: TranslateCo
   }
 }
 
-function pathExprToSQL(expr: PathExpression | any, ctx: TranslateContext): string {
+function pathExprToSQL(expr: PathExpression, ctx: TranslateContext): string {
   // Handle path array (from test AST builders)
   if (Array.isArray(expr.path) && expr.path.length > 0) {
     const segments = expr.path
@@ -542,7 +550,7 @@ function binaryExprToSQL(expr: BinaryExpression, ctx: TranslateContext, topLevel
   return `(${left} ${op} ${right})`
 }
 
-function unaryExprToSQL(expr: UnaryExpression | any, ctx: TranslateContext): string {
+function unaryExprToSQL(expr: UnaryExpression, ctx: TranslateContext): string {
   const operand = exprToSQL(expr.operand, ctx)
 
   switch (expr.operator) {
@@ -802,9 +810,9 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
   }
 }
 
-function orderByToSQL(orderBy: OrderByClause | any, ctx: TranslateContext): string {
+function orderByToSQL(orderBy: OrderByClause, ctx: TranslateContext): string {
   const expressions = orderBy.expressions || []
-  return expressions.map((e: any) => {
+  return expressions.map((e: OrderByExpression) => {
     let sql = exprToSQL(e.expression, ctx)
     if (e.direction) {
       sql += ` ${e.direction.toUpperCase()}`
@@ -989,14 +997,14 @@ function translateUpdateInternal(ast: UpdateStatement, ctx: TranslateContext): T
  * Translate a DELETE statement to SQL
  */
 export function translateDelete(
-  ast: DeleteStatement | any,
+  ast: DeleteStatement,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
   return translateDeleteInternal(ast, ctx)
 }
 
-function translateDeleteInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateDeleteInternal(ast: DeleteStatement, ctx: TranslateContext): TranslatedQuery {
   const tableName = getTableName(ast.target || '', ctx.options.schema, ctx.options)
   const quote = ctx.options.quoteIdentifiers !== false ? quoteIdentifier : (s: string) => s
 
@@ -1023,14 +1031,14 @@ function translateDeleteInternal(ast: any, ctx: TranslateContext): TranslatedQue
  * Translate a FOR loop to SQL (typically as CTE or subquery)
  */
 export function translateFor(
-  ast: ForStatement | any,
+  ast: ForStatement,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
   return translateForInternal(ast, ctx)
 }
 
-function translateForInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateForInternal(ast: ForStatement, ctx: TranslateContext): TranslatedQuery {
   const variable = ast.variable
   const iterator = ast.iterator
   const body = ast.body
@@ -1043,18 +1051,20 @@ function translateForInternal(ast: any, ctx: TranslateContext): TranslatedQuery 
 
   if (iterator.type === 'SetExpression') {
     // Set literal - use VALUES or UNION
-    const elements = iterator.elements.map((el: any) => exprToSQL(el, ctx))
+    const setExpr = iterator as SetExpression
+    const elements = setExpr.elements.map((el: Expression) => exprToSQL(el, ctx))
     iteratorSql = elements.map((e: string) => `SELECT ${e} AS ${quoteIdentifier(variable)}`).join(' UNION ALL ')
   } else if (iterator.type === 'PathExpression') {
     // Type reference - SELECT from table
-    const path = iterator.path
+    const pathExpr = iterator as PathExpression
+    const path = pathExpr.path
     const typeName = Array.isArray(path) && path.length > 0
-      ? (typeof path[0] === 'string' ? path[0] : path[0].name)
+      ? (typeof path[0] === 'string' ? path[0] : (path[0] as PathSegment).name)
       : 'unknown'
     const tableName = getTableName(typeName, ctx.options.schema, ctx.options)
     iteratorSql = `SELECT * FROM ${quoteIdentifier(tableName)}`
   } else if (iterator.type === 'SelectStatement') {
-    const iterResult = translateSelectInternal(iterator, ctx)
+    const iterResult = translateSelectInternal(iterator as SelectStatement, ctx)
     iteratorSql = iterResult.sql
   } else {
     iteratorSql = exprToSQL(iterator, ctx)
@@ -1082,14 +1092,14 @@ function translateForInternal(ast: any, ctx: TranslateContext): TranslatedQuery 
  * Translate a WITH block to SQL CTEs
  */
 export function translateWith(
-  ast: WithBlock | any,
+  ast: WithBlock,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
   return translateWithInternal(ast, ctx)
 }
 
-function translateWithInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateWithInternal(ast: WithBlock, ctx: TranslateContext): TranslatedQuery {
   const bindings = ast.bindings || []
   const body = ast.body
 
@@ -1105,7 +1115,7 @@ function translateWithInternal(ast: any, ctx: TranslateContext): TranslatedQuery
     let cteSql: string
 
     if (value.type === 'SelectStatement') {
-      const selectResult = translateSelectInternal(value, ctx)
+      const selectResult = translateSelectInternal(value as SelectStatement, ctx)
       cteSql = selectResult.sql
     } else if (value.type === 'NumberLiteral' || value.type === 'StringLiteral' || value.type === 'BooleanLiteral') {
       // Scalar value - wrap in SELECT
@@ -1114,7 +1124,7 @@ function translateWithInternal(ast: any, ctx: TranslateContext): TranslatedQuery
       cteSql = `SELECT ${exprToSQL(value, ctx)} AS value`
     } else if (value.type === 'PathExpression') {
       // Could be a reference to another binding or a type
-      const pathStr = pathExprToSQL(value, ctx)
+      const pathStr = pathExprToSQL(value as PathExpression, ctx)
       if (ctx.cteBindings.has(pathStr.replace(/"/g, ''))) {
         // Reference to another CTE
         cteSql = `SELECT * FROM ${pathStr}`
@@ -1154,7 +1164,7 @@ function translateWithInternal(ast: any, ctx: TranslateContext): TranslatedQuery
  * Translate an EdgeQL AST to SQLite SQL
  */
 export function translateQuery(
-  ast: ASTNode | any,
+  ast: ASTNode,
   options?: TranslateOptions
 ): TranslatedQuery {
   const ctx = createContext(options)
@@ -1188,67 +1198,71 @@ export function translateQuery(
   return translateQueryInternal(ast, ctx)
 }
 
-function validateFilterPaths(filter: any, typeName: string, schema: Schema, ctx: TranslateContext): void {
-  const condition = filter.condition || filter
+function validateFilterPaths(filter: FilterExpression | Expression, typeName: string, schema: Schema, ctx: TranslateContext): void {
+  const condition = (filter as FilterExpression).condition || filter
 
   if (condition.type === 'BinaryExpression') {
-    validateExpressionPaths(condition.left, typeName, schema, ctx)
-    validateExpressionPaths(condition.right, typeName, schema, ctx)
+    const binaryExpr = condition as BinaryExpression
+    validateExpressionPaths(binaryExpr.left, typeName, schema, ctx)
+    validateExpressionPaths(binaryExpr.right, typeName, schema, ctx)
   }
 }
 
-function validateExpressionPaths(expr: any, typeName: string, schema: Schema, ctx: TranslateContext): void {
+function validateExpressionPaths(expr: Expression | null | undefined, typeName: string, schema: Schema, ctx: TranslateContext): void {
   if (!expr) return
 
-  if (expr.type === 'PathExpression' && expr.path && expr.path.length > 1) {
-    const path = expr.path
-    const firstSegment = typeof path[0] === 'string' ? path[0] : path[0].name
+  if (expr.type === 'PathExpression') {
+    const pathExpr = expr as PathExpression
+    if (pathExpr.path && pathExpr.path.length > 1) {
+      const path = pathExpr.path
+      const firstSegment = typeof path[0] === 'string' ? path[0] : (path[0] as PathSegment).name
 
-    // Look up the type
-    const baseTypeName = getTableName(typeName)
-    const typeDef = schema.types.find(t => t.name === baseTypeName)
+      // Look up the type
+      const baseTypeName = getTableName(typeName)
+      const typeDef = schema.types.find(t => t.name === baseTypeName)
 
-    if (typeDef) {
-      // Check if first segment is a valid link or property
-      const link = typeDef.links.find(l => l.name === firstSegment)
-      const prop = typeDef.properties.find(p => p.name === firstSegment)
+      if (typeDef) {
+        // Check if first segment is a valid link or property
+        const link = typeDef.links.find(l => l.name === firstSegment)
+        const prop = typeDef.properties.find(p => p.name === firstSegment)
 
-      // If not found, throw an error
-      if (!link && !prop) {
-        throw new Error(`Unknown property or link: ${firstSegment}`)
+        // If not found, throw an error
+        if (!link && !prop) {
+          throw new Error(`Unknown property or link: ${firstSegment}`)
+        }
+
+        // For links, don't validate nested paths strictly - they may have dynamic properties
+        // The database will catch actual errors at runtime
       }
-
-      // For links, don't validate nested paths strictly - they may have dynamic properties
-      // The database will catch actual errors at runtime
     }
   }
 }
 
-function translateQueryInternal(ast: any, ctx: TranslateContext): TranslatedQuery {
+function translateQueryInternal(ast: ASTNode, ctx: TranslateContext): TranslatedQuery {
   if (!ast || !ast.type) {
     return { sql: '', params: [] }
   }
 
   switch (ast.type) {
     case 'SelectStatement':
-      return translateSelectInternal(ast, ctx)
+      return translateSelectInternal(ast as SelectStatement, ctx)
 
     case 'InsertStatement':
-      return translateInsertInternal(ast, ctx)
+      return translateInsertInternal(ast as InsertStatement, ctx)
 
     case 'UpdateStatement':
-      return translateUpdateInternal(ast, ctx)
+      return translateUpdateInternal(ast as UpdateStatement, ctx)
 
     case 'DeleteStatement':
-      return translateDeleteInternal(ast, ctx)
+      return translateDeleteInternal(ast as DeleteStatement, ctx)
 
     case 'ForStatement':
-      return translateForInternal(ast, ctx)
+      return translateForInternal(ast as ForStatement, ctx)
 
     case 'WithBlock':
-      return translateWithInternal(ast, ctx)
+      return translateWithInternal(ast as WithBlock, ctx)
 
     default:
-      throw new Error(`Unknown statement type: ${ast.type}`)
+      throw new Error(`Unknown statement type: ${(ast as ASTNode).type}`)
   }
 }

@@ -471,9 +471,12 @@ describe('Response Shape Integration: Collection Response (GET /:type)', () => {
 
     const body = await response.json() as CollectionResponse
 
-    // RED: Should have actions object with create action
+    // RED: Should have actions object with create action (clickable format)
     expect(body.actions).toBeDefined()
-    expect(body.actions?.create).toBe('https://headless.ly/customers')
+    expect(body.actions?.create).toMatchObject({
+      method: 'POST',
+      href: 'https://headless.ly/customers',
+    })
   })
 
   it('items have full $context/$type/$id shape', async () => {

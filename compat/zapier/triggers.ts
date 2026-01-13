@@ -93,6 +93,36 @@ export class Trigger {
 
     return resolvedFields
   }
+
+  /**
+   * Get static input fields (non-dynamic only)
+   */
+  getInputFields(): InputField[] {
+    const fields = this.config.operation.inputFields || []
+    return fields.filter((field): field is InputField => typeof field !== 'function')
+  }
+
+  /**
+   * Validate input data against required fields
+   */
+  validateInput(inputData: Record<string, unknown>): { valid: boolean; errors: string[] } {
+    const fields = this.getInputFields()
+    const errors: string[] = []
+
+    for (const field of fields) {
+      if (field.required) {
+        const value = inputData[field.key]
+        if (value === undefined || value === null || value === '') {
+          errors.push(`${field.key} is required`)
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    }
+  }
 }
 
 // ============================================================================
@@ -292,7 +322,15 @@ export class WebhookTriggerManager {
     const operation = trigger.config.operation as HookTriggerOperation
 
     if (operation.performList) {
-      return operation.performList(z, bundle)
+      try {
+        const results = await operation.performList(z, bundle)
+        // Deduplicate by 'id' field
+        return deduplicateResults(results as Array<Record<string, unknown>>)
+      } catch {
+        // Fall back to static sample on error
+        const sample = trigger.getSample()
+        return sample ? [sample] : []
+      }
     }
 
     // Fall back to sample data
