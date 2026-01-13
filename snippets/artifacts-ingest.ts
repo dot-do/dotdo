@@ -166,6 +166,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// ============================================================================
+// Performance: Shared instances to avoid repeated allocations
+// ============================================================================
+
+/**
+ * Reusable TextDecoder instance for JSONL parsing.
+ * Creating TextDecoder instances is relatively expensive; reusing improves performance.
+ */
+const sharedTextDecoder = new TextDecoder()
+
 /**
  * Executes a function with exponential backoff retry logic.
  *
@@ -234,7 +244,6 @@ export async function withRetry<T>(
  */
 export async function* parseJSONL(body: ReadableStream<Uint8Array>): AsyncGenerator<ArtifactRecord> {
   const reader = body.getReader()
-  const decoder = new TextDecoder()
   let buffer = ''
 
   try {
@@ -249,7 +258,7 @@ export async function* parseJSONL(body: ReadableStream<Uint8Array>): AsyncGenera
         break
       }
 
-      buffer += decoder.decode(value, { stream: true })
+      buffer += sharedTextDecoder.decode(value, { stream: true })
 
       // Process complete lines
       let newlineIndex: number
