@@ -678,12 +678,17 @@ export class S3Client {
       throw new NoSuchBucket()
     }
 
-    const deleted: Array<{ Key?: string; VersionId?: string; DeleteMarker?: boolean }> = []
+    const deleted: Array<{ Key?: string; VersionId?: string; DeleteMarker?: boolean; DeleteMarkerVersionId?: string }> = []
 
     for (const obj of Delete.Objects) {
       // S3 treats delete of non-existent keys as success
-      await this.backend.deleteObject(Bucket, obj.Key)
-      deleted.push({ Key: obj.Key, VersionId: obj.VersionId })
+      const result = await this.backend.deleteObject(Bucket, obj.Key, obj.VersionId)
+      deleted.push({
+        Key: obj.Key,
+        VersionId: result.versionId ?? obj.VersionId,
+        DeleteMarker: result.deleteMarker,
+        DeleteMarkerVersionId: result.deleteMarker ? result.versionId : undefined,
+      })
     }
 
     return {
