@@ -8,6 +8,93 @@
 import { Logger, createLogger } from '../utils/logger'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as ts from 'typescript'
+
+/**
+ * Simple DO class info returned by AST detection
+ */
+export interface DOClass {
+  name: string
+  filePath: string
+}
+
+/**
+ * Cache for parsed ASTs to avoid re-parsing the same file
+ */
+const astCache = new Map<string, ts.SourceFile>()
+
+/**
+ * Detect Durable Object classes using TypeScript AST parsing.
+ * This replaces the fragile regex-based detection with proper AST analysis.
+ *
+ * @param content - TypeScript source code content
+ * @param filePath - Path to the file (for error reporting)
+ * @returns Array of detected DO classes
+ */
+export function detectDOClassesAST(content: string, filePath: string): DOClass[] {
+  // Check cache first
+  const cacheKey = `${filePath}:${content.length}:${content.slice(0, 100)}`
+  let sourceFile = astCache.get(cacheKey)
+
+  if (!sourceFile) {
+    sourceFile = ts.createSourceFile(
+      filePath,
+      content,
+      ts.ScriptTarget.Latest,
+      true // setParentNodes
+    )
+    astCache.set(cacheKey, sourceFile)
+
+    // Keep cache bounded
+    if (astCache.size > 100) {
+      const firstKey = astCache.keys().next().value
+      if (firstKey) astCache.delete(firstKey)
+    }
+  }
+
+  const classes: DOClass[] = []
+
+  function visit(node: ts.Node) {
+    if (ts.isClassDeclaration(node)) {
+      // Check heritage clause for DurableObject or DO
+      const extendsClause = node.heritageClauses?.find(
+        (h) => h.token === ts.SyntaxKind.ExtendsKeyword
+      )
+
+      if (extendsClause) {
+        for (const type of extendsClause.types) {
+          // Get the base type name - handle both simple and namespaced references
+          let typeName: string
+
+          if (ts.isIdentifier(type.expression)) {
+            typeName = type.expression.text
+          } else if (ts.isPropertyAccessExpression(type.expression)) {
+            // For namespaced references like cloudflare.DurableObject
+            typeName = type.expression.name.text
+          } else {
+            // Fallback to getText for complex expressions
+            typeName = type.expression.getText(sourceFile)
+          }
+
+          if (typeName === 'DurableObject' || typeName === 'DO') {
+            // Get the class name
+            const className = node.name?.text
+            if (className) {
+              classes.push({ name: className, filePath })
+            }
+            // Don't add anonymous classes to the list
+            break
+          }
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return classes
+}
 
 export interface DOClassInfo {
   className: string
@@ -85,75 +172,64 @@ export class DORegistry {
   }
 
   /**
-   * Extract DO class definitions from a TypeScript file
+   * Extract DO class definitions from a TypeScript file using AST parsing.
+   * This replaces the old regex-based detection which had false positives.
    */
   private async extractDOClasses(filePath: string): Promise<DOClassInfo[]> {
     const content = fs.readFileSync(filePath, 'utf-8')
-    const classes: DOClassInfo[] = []
 
-    // Pattern to match DO class exports
-    // Matches: export class MyDO extends DurableObject
-    // Matches: export class MyDO implements DurableObject
-    const classPattern = /export\s+class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+[\w,\s]+)?\s*\{/g
+    // Use AST-based detection
+    const detected = detectDOClassesAST(content, filePath)
 
-    let match: RegExpExecArray | null
-    while ((match = classPattern.exec(content)) !== null) {
-      const className = match[1]
-      const extendsClass = match[2]
-
-      // Check if it's a Durable Object
-      const isDO =
-        extendsClass === 'DurableObject' ||
-        extendsClass === 'DO' ||
-        content.includes(`DurableObjectState`) ||
-        content.includes(`DurableObject`) ||
-        className.endsWith('DO')
-
-      if (isDO) {
-        // Extract class body for method detection
-        const classBody = this.extractClassBody(content, match.index)
-
-        classes.push({
-          className,
-          filePath,
-          exports: [className],
-          hasAlarm: classBody.includes('alarm(') || classBody.includes('alarm ='),
-          hasFetch: classBody.includes('fetch(') || classBody.includes('fetch ='),
-          hasWebSocket: classBody.includes('webSocketMessage') || classBody.includes('WebSocket'),
-        })
+    // Enrich with method detection using AST
+    return detected.map((cls) => {
+      const methods = this.detectClassMethods(content, cls.name)
+      return {
+        className: cls.name,
+        filePath: cls.filePath,
+        exports: [cls.name],
+        hasAlarm: methods.has('alarm'),
+        hasFetch: methods.has('fetch'),
+        hasWebSocket: methods.has('webSocketMessage') || methods.has('webSocketClose') || methods.has('webSocketError'),
       }
-    }
-
-    return classes
+    })
   }
 
   /**
-   * Extract class body from content starting at given index
+   * Detect methods in a class using AST parsing
    */
-  private extractClassBody(content: string, startIndex: number): string {
-    let braceCount = 0
-    let started = false
-    let body = ''
+  private detectClassMethods(content: string, className: string): Set<string> {
+    const methods = new Set<string>()
 
-    for (let i = startIndex; i < content.length; i++) {
-      const char = content[i]
+    const sourceFile = ts.createSourceFile(
+      'temp.ts',
+      content,
+      ts.ScriptTarget.Latest,
+      true
+    )
 
-      if (char === '{') {
-        braceCount++
-        started = true
-      } else if (char === '}') {
-        braceCount--
-      }
-
-      if (started) {
-        body += char
-        if (braceCount === 0) {
-          break
+    function visit(node: ts.Node) {
+      if (ts.isClassDeclaration(node) && node.name?.text === className) {
+        for (const member of node.members) {
+          if (ts.isMethodDeclaration(member) && member.name) {
+            if (ts.isIdentifier(member.name)) {
+              methods.add(member.name.text)
+            }
+          } else if (ts.isPropertyDeclaration(member) && member.name) {
+            // Check for arrow function properties like: alarm = async () => {}
+            if (ts.isIdentifier(member.name) && member.initializer) {
+              if (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer)) {
+                methods.add(member.name.text)
+              }
+            }
+          }
         }
       }
+      ts.forEachChild(node, visit)
     }
 
-    return body
+    visit(sourceFile)
+    return methods
   }
 
   /**
