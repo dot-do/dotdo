@@ -209,12 +209,7 @@ describe('VectorMemory', () => {
       await vectorMemory.remember('It is raining outside')
       await vectorMemory.remember('User prefers dark mode')
 
-      // With mock embedder using hash-based pseudo-random embeddings,
-      // we need minSimilarity: 0 to ensure results are returned (since hash
-      // doesn't encode actual semantic similarity)
-      const results = await vectorMemory.semanticSearch('What is the weather like?', {
-        minSimilarity: 0,
-      })
+      const results = await vectorMemory.semanticSearch('What is the weather like?')
 
       // With mock embedder, results are deterministic based on text hash
       expect(results.length).toBeGreaterThan(0)
@@ -260,11 +255,8 @@ describe('VectorMemory', () => {
       await vectorMemory.remember('A fast orange animal leaps')
       await vectorMemory.remember('Database optimization tips')
 
-      // With mock embedder, semantic similarity may be low (hash-based),
-      // but text search will match 'quick' and 'fox'
       const results = await vectorMemory.hybridSearch('quick fox', {
         textWeight: 0.5,
-        minSimilarity: 0, // Allow all semantic results since mock embedder doesn't encode semantics
       })
 
       expect(results.length).toBeGreaterThan(0)

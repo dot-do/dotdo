@@ -24,7 +24,7 @@
  * @module lib/human/channel-factory
  */
 
-import type { HumanNotificationChannel, ChannelType } from './channels/index'
+import type { HumanNotificationChannel, ChannelType } from './channels'
 import { SlackHumanChannel, type SlackChannelConfig } from './channels/slack'
 import { EmailHumanChannel, type EmailChannelConfig } from './channels/email'
 import { SMSHumanChannel, type SMSChannelConfig } from './channels/sms'

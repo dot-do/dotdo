@@ -30,7 +30,6 @@
  */
 
 import type { AgentMemory, MemoryThing, MemoryType, StoreMemoryOptions, MemorySearchOptions } from '../unified-memory'
-import { cosineSimilarityUnrolled, l2DistanceUnrolled, dotProductUnrolled } from '../../db/edgevec/vector-ops'
 
 // ============================================================================
 // Types
@@ -209,18 +208,13 @@ export class WorkersAIEmbeddingProvider implements EmbeddingProvider {
 /**
  * Simple in-memory vector index using brute-force search
  *
- * Optimizations:
- * - Uses SIMD-friendly loop-unrolled distance functions
- * - Pre-computes and caches norms for cosine similarity
- * - Avoids redundant sqrt operations during search
- *
  * For production, use EdgeVec (db/edgevec/) which provides:
  * - HNSW for O(log n) search
  * - DO persistence
  * - R2 backup
  */
 export class SimpleVectorIndex {
-  private vectors: Map<string, { embedding: Float32Array; metadata: Record<string, unknown>; norm: number }> = new Map()
+  private vectors: Map<string, { embedding: Float32Array; metadata: Record<string, unknown> }> = new Map()
   private metric: 'cosine' | 'euclidean' | 'dot'
   private dimensions: number
 
@@ -236,9 +230,7 @@ export class SimpleVectorIndex {
     if (embedding.length !== this.dimensions) {
       throw new Error(`Dimension mismatch: expected ${this.dimensions}, got ${embedding.length}`)
     }
-    // Pre-compute norm for cosine similarity optimization
-    const norm = this.computeNorm(embedding)
-    this.vectors.set(id, { embedding, metadata, norm })
+    this.vectors.set(id, { embedding, metadata })
   }
 
   /**
@@ -250,20 +242,15 @@ export class SimpleVectorIndex {
 
   /**
    * Search for similar vectors
-   *
-   * Optimized with pre-computed norms for cosine similarity.
    */
   search(query: Float32Array, k: number, filter?: (metadata: Record<string, unknown>) => boolean): Array<{ id: string; score: number; metadata: Record<string, unknown> }> {
     const results: Array<{ id: string; score: number; metadata: Record<string, unknown> }> = []
 
-    // Pre-compute query norm for cosine similarity (only once per search)
-    const queryNorm = this.metric === 'cosine' ? this.computeNorm(query) : 0
-
-    for (const [id, { embedding, metadata, norm }] of this.vectors) {
+    for (const [id, { embedding, metadata }] of this.vectors) {
       // Apply optional filter
       if (filter && !filter(metadata)) continue
 
-      const score = this.computeScore(query, queryNorm, embedding, norm)
+      const score = this.computeScore(query, embedding)
       results.push({ id, score, metadata })
     }
 
@@ -287,48 +274,45 @@ export class SimpleVectorIndex {
     this.vectors.clear()
   }
 
-  /**
-   * Compute similarity score using optimized SIMD-friendly functions
-   * Uses pre-computed norms for cosine similarity to avoid redundant sqrt operations
-   */
-  private computeScore(query: Float32Array, queryNorm: number, embedding: Float32Array, embeddingNorm: number): number {
+  private computeScore(a: Float32Array, b: Float32Array): number {
     switch (this.metric) {
       case 'cosine':
-        // Optimized cosine: use pre-computed norms, just compute dot product
-        if (queryNorm === 0 || embeddingNorm === 0) return 0
-        return dotProductUnrolled(query, embedding) / (queryNorm * embeddingNorm)
+        return this.cosineSimilarity(a, b)
       case 'euclidean':
-        // Convert distance to similarity (higher is better)
-        return 1 / (1 + l2DistanceUnrolled(query, embedding))
+        return 1 / (1 + this.euclideanDistance(a, b))
       case 'dot':
-        return dotProductUnrolled(query, embedding)
+        return this.dotProduct(a, b)
     }
   }
 
-  /**
-   * Compute L2 norm with loop unrolling for efficiency
-   */
-  private computeNorm(v: Float32Array): number {
-    const len = v.length
-    const remainder = len % 4
-    const unrolledLen = len - remainder
-
-    let sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0
-
-    for (let i = 0; i < unrolledLen; i += 4) {
-      const v0 = v[i]!, v1 = v[i + 1]!, v2 = v[i + 2]!, v3 = v[i + 3]!
-      sum0 += v0 * v0
-      sum1 += v1 * v1
-      sum2 += v2 * v2
-      sum3 += v3 * v3
+  private cosineSimilarity(a: Float32Array, b: Float32Array): number {
+    let dot = 0
+    let normA = 0
+    let normB = 0
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i]! * b[i]!
+      normA += a[i]! * a[i]!
+      normB += b[i]! * b[i]!
     }
+    const denom = Math.sqrt(normA) * Math.sqrt(normB)
+    return denom === 0 ? 0 : dot / denom
+  }
 
-    let sumR = 0
-    for (let i = unrolledLen; i < len; i++) {
-      sumR += v[i]! * v[i]!
+  private euclideanDistance(a: Float32Array, b: Float32Array): number {
+    let sum = 0
+    for (let i = 0; i < a.length; i++) {
+      const diff = a[i]! - b[i]!
+      sum += diff * diff
     }
+    return Math.sqrt(sum)
+  }
 
-    return Math.sqrt(sum0 + sum1 + sum2 + sum3 + sumR)
+  private dotProduct(a: Float32Array, b: Float32Array): number {
+    let sum = 0
+    for (let i = 0; i < a.length; i++) {
+      sum += a[i]! * b[i]!
+    }
+    return sum
   }
 }
 

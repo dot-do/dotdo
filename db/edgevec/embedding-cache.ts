@@ -79,12 +79,13 @@ export interface CacheStats {
  *
  * Key optimizations:
  * 1. Pre-computed norms for cosine similarity
- * 2. O(1) LRU eviction via Map insertion order (ES2015+)
+ * 2. LRU eviction for memory management
  * 3. Batch operations for efficiency
  * 4. Memory-aware eviction
  */
 export class EmbeddingCache {
   private cache: Map<string, CacheEntry> = new Map()
+  private accessOrder: string[] = []
   private config: Required<EmbeddingCacheConfig>
   private stats = {
     hits: 0,
@@ -131,11 +132,7 @@ export class EmbeddingCache {
     // Update access stats
     entry.accessCount++
     entry.lastAccess = Date.now()
-
-    // O(1) LRU touch: delete and re-insert to move to end of Map
-    this.cache.delete(id)
-    this.cache.set(id, entry)
-
+    this.touch(id)
     this.stats.hits++
 
     return entry
@@ -200,10 +197,7 @@ export class EmbeddingCache {
       existing.metadata = metadata
       existing.lastAccess = now
       existing.accessCount++
-
-      // O(1) LRU touch: delete and re-insert to move to end of Map
-      this.cache.delete(id)
-      this.cache.set(id, existing)
+      this.touch(id)
     } else {
       // Ensure we have room
       this.ensureCapacity()
@@ -220,6 +214,7 @@ export class EmbeddingCache {
       }
 
       this.cache.set(id, entry)
+      this.accessOrder.push(id)
     }
   }
 
@@ -240,7 +235,14 @@ export class EmbeddingCache {
    * Delete an embedding from cache
    */
   delete(id: string): boolean {
-    return this.cache.delete(id)
+    const existed = this.cache.delete(id)
+    if (existed) {
+      const idx = this.accessOrder.indexOf(id)
+      if (idx !== -1) {
+        this.accessOrder.splice(idx, 1)
+      }
+    }
+    return existed
   }
 
   /**
@@ -248,6 +250,7 @@ export class EmbeddingCache {
    */
   clear(): void {
     this.cache.clear()
+    this.accessOrder = []
     this.stats = { hits: 0, misses: 0 }
   }
 
@@ -373,28 +376,41 @@ export class EmbeddingCache {
   }
 
   /**
+   * Move ID to end of access order (LRU touch)
+   */
+  private touch(id: string): void {
+    const idx = this.accessOrder.indexOf(id)
+    if (idx !== -1) {
+      this.accessOrder.splice(idx, 1)
+      this.accessOrder.push(id)
+    }
+  }
+
+  /**
    * Ensure we have capacity for a new entry
    */
   private ensureCapacity(): void {
-    // Check entry limit - use O(1) eviction via Map iteration order
-    while (this.cache.size >= this.config.maxEntries) {
+    // Check entry limit
+    while (this.cache.size >= this.config.maxEntries && this.accessOrder.length > 0) {
       this.evictLRU()
     }
 
     // Check memory limit
-    while (this.estimateMemory() >= this.config.maxMemoryBytes && this.cache.size > 0) {
+    while (
+      this.estimateMemory() >= this.config.maxMemoryBytes &&
+      this.accessOrder.length > 0
+    ) {
       this.evictLRU()
     }
   }
 
   /**
-   * Evict the least recently used entry (O(1) via Map insertion order)
+   * Evict the least recently used entry
    */
   private evictLRU(): void {
-    // Map.keys().next() returns the oldest (first inserted) key
-    const oldestId = this.cache.keys().next().value as string | undefined
-    if (oldestId) {
-      this.cache.delete(oldestId)
+    const evictId = this.accessOrder.shift()
+    if (evictId) {
+      this.cache.delete(evictId)
     }
   }
 

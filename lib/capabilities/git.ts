@@ -1363,14 +1363,9 @@ const GIT_CAPABILITY_CACHE = Symbol('gitCapabilityCache')
  * }
  * ```
  */
-export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(
-  Base: TBase
-): TBase & Constructor<{ $: WithGitContext; hasCapability(name: string): boolean }> {
-  // The class expression extends TBase (preserving base class) and adds GitCapability.
-  // We explicitly declare the return type intersection so consumers get proper types.
-  // TypeScript cannot verify the $ type change at compile time due to the Proxy-based
-  // augmentation, so we use a type assertion on return.
-  class WithGit extends Base {
+export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase): TBase & Constructor<{ $: WithGitContext }> {
+  // @ts-expect-error - Mixin class augments $ type which TypeScript can't verify statically
+  return class WithGit extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'git']
 
@@ -1463,9 +1458,4 @@ export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(
       })
     }
   }
-
-  // Type assertion: WithGit extends TBase and adds GitCapability to $.
-  // The Proxy-based augmentation is not type-checkable at compile time,
-  // so we use `unknown` intermediate cast (standard pattern for mixin type narrowing).
-  return WithGit as unknown as TBase & Constructor<{ $: WithGitContext; hasCapability(name: string): boolean }>
 }

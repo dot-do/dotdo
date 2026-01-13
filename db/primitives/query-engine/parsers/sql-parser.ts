@@ -25,8 +25,6 @@ import type {
   ColumnSpec,
   AliasedAggregation,
   JoinType,
-  TemporalNode,
-  TemporalQueryType,
 } from '../ast'
 
 import {
@@ -56,8 +54,6 @@ export interface ParsedSelect {
   limit?: number
   offset?: number
   distinct?: boolean
-  /** Temporal clause for AS OF / time travel queries */
-  temporal?: TemporalNode
 }
 
 // =============================================================================
@@ -76,8 +72,6 @@ export const SQL_KEYWORDS = new Set([
   'DATE', 'TIMESTAMP', 'INTERVAL', 'ARRAY', 'SIMILAR', 'TO', 'ESCAPE',
   'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'ROLLUP', 'OVER',
   'PARTITION', 'ROW_NUMBER', 'CURRENT_TIMESTAMP',
-  // Temporal / Time Travel keywords
-  'FOR', 'SYSTEM_TIME', 'SYSTEM_VERSION', 'OF', 'BEFORE', 'VERSIONS',
 ])
 
 // Alias for backwards compatibility
@@ -143,12 +137,6 @@ export class SQLWhereParser {
     // Parse FROM clause
     if (this.matchKeyword('FROM')) {
       result.from = this.parseIdentifier()
-
-      // Parse temporal clause (FOR SYSTEM_TIME AS OF, etc.)
-      // This must come right after the table name, before JOINs
-      if (this.matchKeyword('FOR')) {
-        result.temporal = this.parseTemporalClause()
-      }
 
       // Parse JOINs
       while (this.peekJoin()) {
@@ -883,246 +871,6 @@ export class SQLWhereParser {
       left: '$current',
       right,
       on: on as PredicateNode,
-    }
-  }
-
-  // ===========================================================================
-  // Temporal / Time Travel Clause Parsing
-  // ===========================================================================
-
-  /**
-   * Parse temporal clause after FOR keyword.
-   *
-   * Supports the following SQL:2011 temporal query patterns:
-   * - FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-15T10:00:00Z'
-   * - FOR SYSTEM_TIME AS OF 1705312800000
-   * - FOR SYSTEM_VERSION AS OF 12345
-   * - FOR SYSTEM_TIME BEFORE TIMESTAMP '2024-01-15T10:00:00Z'
-   * - FOR SYSTEM_TIME BETWEEN timestamp1 AND timestamp2
-   * - FOR SYSTEM_TIME FROM timestamp1 TO timestamp2
-   *
-   * Also supports the shorter patterns:
-   * - AS OF TIMESTAMP '2024-01-15T10:00:00Z'
-   * - AS OF 1705312800000
-   */
-  private parseTemporalClause(): TemporalNode {
-    // Handle SYSTEM_TIME or SYSTEM_VERSION
-    let isVersionBased = false
-
-    if (this.matchKeyword('SYSTEM_TIME')) {
-      isVersionBased = false
-    } else if (this.matchKeyword('SYSTEM_VERSION')) {
-      isVersionBased = true
-    } else {
-      // Fallback: expect AS OF directly (short form)
-      this.expectKeyword('AS')
-      this.expectKeyword('OF')
-      return this.parseAsOfValue(false)
-    }
-
-    // Parse the temporal operator
-    if (this.matchKeyword('AS')) {
-      this.expectKeyword('OF')
-      return this.parseAsOfValue(isVersionBased)
-    }
-
-    if (this.matchKeyword('BEFORE')) {
-      return this.parseBeforeValue()
-    }
-
-    if (this.matchKeyword('BETWEEN')) {
-      return this.parseBetweenTimestamps()
-    }
-
-    if (this.matchKeyword('FROM')) {
-      return this.parseFromToTimestamps()
-    }
-
-    throw new ParseError(
-      'Expected AS OF, BEFORE, BETWEEN, or FROM in temporal clause',
-      this.current().position
-    )
-  }
-
-  /**
-   * Parse AS OF value (timestamp or version number)
-   */
-  private parseAsOfValue(isVersionBased: boolean): TemporalNode {
-    if (isVersionBased) {
-      // FOR SYSTEM_VERSION AS OF <version_number>
-      const version = this.parseNumber()
-      return {
-        type: 'temporal',
-        queryType: 'AS_OF',
-        snapshotId: version,
-      }
-    }
-
-    // FOR SYSTEM_TIME AS OF <timestamp>
-    const timestamp = this.parseTemporalTimestamp()
-    return {
-      type: 'temporal',
-      queryType: 'AS_OF',
-      asOfTimestamp: timestamp,
-    }
-  }
-
-  /**
-   * Parse BEFORE value
-   */
-  private parseBeforeValue(): TemporalNode {
-    const timestamp = this.parseTemporalTimestamp()
-    return {
-      type: 'temporal',
-      queryType: 'BEFORE',
-      asOfTimestamp: timestamp,
-    }
-  }
-
-  /**
-   * Parse BETWEEN timestamp1 AND timestamp2
-   */
-  private parseBetweenTimestamps(): TemporalNode {
-    const fromTimestamp = this.parseTemporalTimestamp()
-    this.expectKeyword('AND')
-    const toTimestamp = this.parseTemporalTimestamp()
-    return {
-      type: 'temporal',
-      queryType: 'BETWEEN',
-      asOfTimestamp: fromTimestamp,
-      toTimestamp: toTimestamp,
-    }
-  }
-
-  /**
-   * Parse FROM timestamp1 TO timestamp2
-   */
-  private parseFromToTimestamps(): TemporalNode {
-    const fromTimestamp = this.parseTemporalTimestamp()
-    this.expectKeyword('TO')
-    const toTimestamp = this.parseTemporalTimestamp()
-    return {
-      type: 'temporal',
-      queryType: 'BETWEEN',
-      asOfTimestamp: fromTimestamp,
-      toTimestamp: toTimestamp,
-    }
-  }
-
-  /**
-   * Parse a timestamp value in temporal clause.
-   *
-   * Supports:
-   * - TIMESTAMP '2024-01-15T10:00:00Z' (ISO string)
-   * - '2024-01-15T10:00:00Z' (ISO string without TIMESTAMP keyword)
-   * - 1705312800000 (epoch milliseconds)
-   * - CURRENT_TIMESTAMP
-   * - CURRENT_TIMESTAMP - INTERVAL '1 day'
-   */
-  private parseTemporalTimestamp(): number {
-    // Handle TIMESTAMP keyword
-    if (this.matchKeyword('TIMESTAMP')) {
-      const token = this.current()
-      if (token.type === 'STRING') {
-        this.advance()
-        return new Date(token.value).getTime()
-      }
-      throw new ParseError('Expected timestamp string after TIMESTAMP', token.position)
-    }
-
-    // Handle CURRENT_TIMESTAMP
-    if (this.matchKeyword('CURRENT_TIMESTAMP')) {
-      let timestamp = Date.now()
-
-      // Handle CURRENT_TIMESTAMP - INTERVAL
-      if (this.current().value === '-' || this.current().value === '+') {
-        const isSubtract = this.current().value === '-'
-        this.advance()
-
-        if (this.matchKeyword('INTERVAL')) {
-          const intervalMs = this.parseIntervalValue()
-          timestamp = isSubtract ? timestamp - intervalMs : timestamp + intervalMs
-        }
-      }
-
-      return timestamp
-    }
-
-    // Handle numeric timestamp (epoch ms)
-    const token = this.current()
-    if (token.type === 'NUMBER') {
-      this.advance()
-      return parseFloat(token.value)
-    }
-
-    // Handle string timestamp without TIMESTAMP keyword
-    if (token.type === 'STRING') {
-      this.advance()
-      return new Date(token.value).getTime()
-    }
-
-    throw new ParseError('Expected timestamp value', token.position)
-  }
-
-  /**
-   * Parse INTERVAL value and return milliseconds.
-   *
-   * Supports:
-   * - INTERVAL '1 day'
-   * - INTERVAL '30 minutes'
-   * - INTERVAL '2 hours'
-   */
-  private parseIntervalValue(): number {
-    const token = this.current()
-    if (token.type !== 'STRING') {
-      throw new ParseError('Expected interval string', token.position)
-    }
-    this.advance()
-
-    // Parse interval string like '1 day' or '30 minutes'
-    const match = token.value.match(/^(\d+)\s*(\w+)$/)
-    if (!match) {
-      throw new ParseError(`Invalid interval format: ${token.value}`, token.position)
-    }
-
-    const value = parseInt(match[1], 10)
-    const unit = match[2].toLowerCase()
-
-    switch (unit) {
-      case 'millisecond':
-      case 'milliseconds':
-      case 'ms':
-        return value
-      case 'second':
-      case 'seconds':
-      case 'sec':
-      case 's':
-        return value * 1000
-      case 'minute':
-      case 'minutes':
-      case 'min':
-        return value * 60 * 1000
-      case 'hour':
-      case 'hours':
-      case 'hr':
-      case 'h':
-        return value * 60 * 60 * 1000
-      case 'day':
-      case 'days':
-      case 'd':
-        return value * 24 * 60 * 60 * 1000
-      case 'week':
-      case 'weeks':
-      case 'w':
-        return value * 7 * 24 * 60 * 60 * 1000
-      case 'month':
-      case 'months':
-        return value * 30 * 24 * 60 * 60 * 1000 // Approximate
-      case 'year':
-      case 'years':
-        return value * 365 * 24 * 60 * 60 * 1000 // Approximate
-      default:
-        throw new ParseError(`Unknown interval unit: ${unit}`, token.position)
     }
   }
 }

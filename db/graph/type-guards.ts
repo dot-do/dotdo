@@ -57,20 +57,8 @@ const FUNCTION_TYPES: FunctionType[] = ['code', 'generative', 'agentic', 'human'
  * ```
  */
 export function isFunctionData(data: unknown): data is FunctionData {
-  if (!isObject(data)) return false
-
-  // Required fields
-  if (typeof data.name !== 'string') return false
-  if (typeof data.type !== 'string' || !FUNCTION_TYPES.includes(data.type as FunctionType)) return false
-
-  // Optional fields with correct types when present
-  if (data.description !== undefined && typeof data.description !== 'string') return false
-  if (data.handler !== undefined && typeof data.handler !== 'string') return false
-  if (data.config !== undefined && !isObject(data.config)) return false
-  if (data.version !== undefined && typeof data.version !== 'string') return false
-  if (data.enabled !== undefined && typeof data.enabled !== 'boolean') return false
-
-  return true
+  // TODO: Implement in GREEN phase
+  return false
 }
 
 // ============================================================================
@@ -95,23 +83,8 @@ export function isFunctionData(data: unknown): data is FunctionData {
  * ```
  */
 export function isWorkflowInstanceData(data: unknown): data is WorkflowInstanceData {
-  if (!isObject(data)) return false
-
-  // Required fields
-  if (typeof data.templateId !== 'string') return false
-  if (typeof data.stateVerb !== 'string') return false
-  if (!isObject(data.input)) return false
-
-  // Optional fields with correct types when present
-  if (data.output !== undefined && !isObject(data.output)) return false
-  if (data.error !== undefined && typeof data.error !== 'string') return false
-  if (data.currentStepIndex !== undefined && typeof data.currentStepIndex !== 'number') return false
-  if (data.currentStepName !== undefined && typeof data.currentStepName !== 'string') return false
-  if (data.startedAt !== undefined && typeof data.startedAt !== 'number') return false
-  if (data.endedAt !== undefined && typeof data.endedAt !== 'number') return false
-  if (data.metadata !== undefined && !isObject(data.metadata)) return false
-
-  return true
+  // TODO: Implement in GREEN phase
+  return false
 }
 
 // ============================================================================
@@ -127,20 +100,8 @@ export function isWorkflowInstanceData(data: unknown): data is WorkflowInstanceD
  * @returns true if the value is valid WorkflowTemplateData
  */
 export function isWorkflowTemplateData(data: unknown): data is WorkflowTemplateData {
-  if (!isObject(data)) return false
-
-  // Required fields
-  if (typeof data.name !== 'string') return false
-  if (typeof data.version !== 'string') return false
-
-  // Optional fields with correct types when present
-  if (data.description !== undefined && typeof data.description !== 'string') return false
-  if (data.tags !== undefined && !Array.isArray(data.tags)) return false
-  if (data.triggers !== undefined && !Array.isArray(data.triggers)) return false
-  if (data.timeout !== undefined && typeof data.timeout !== 'number') return false
-  if (data.metadata !== undefined && !isObject(data.metadata)) return false
-
-  return true
+  // TODO: Implement in GREEN phase
+  return false
 }
 
 // ============================================================================
@@ -161,20 +122,8 @@ const WORKFLOW_STEP_TYPES: WorkflowStepType[] = ['action', 'decision', 'parallel
  * @returns true if the value is valid WorkflowStepData
  */
 export function isWorkflowStepData(data: unknown): data is WorkflowStepData {
-  if (!isObject(data)) return false
-
-  // Required fields
-  if (typeof data.name !== 'string') return false
-  if (typeof data.type !== 'string' || !WORKFLOW_STEP_TYPES.includes(data.type as WorkflowStepType)) return false
-  if (typeof data.index !== 'number') return false
-
-  // Optional fields with correct types when present
-  if (data.description !== undefined && typeof data.description !== 'string') return false
-  if (data.config !== undefined && !isObject(data.config)) return false
-  if (data.handler !== undefined && typeof data.handler !== 'string') return false
-  if (data.metadata !== undefined && !isObject(data.metadata)) return false
-
-  return true
+  // TODO: Implement in GREEN phase
+  return false
 }
 
 // ============================================================================

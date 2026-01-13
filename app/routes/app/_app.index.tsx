@@ -67,65 +67,16 @@ export const Route = createFileRoute('/app/_app/')({
 })
 
 // =============================================================================
-// Types
-// =============================================================================
-
-/** Metrics displayed on the dashboard */
-interface DashboardMetrics {
-  projects: number
-  tasks: number
-  workflows: number
-}
-
-/** Activity feed item */
-interface ActivityItem {
-  id: string
-  description: string
-  timestamp: string
-}
-
-/** Project list item */
-interface ProjectItem {
-  id: string
-  name: string
-  updatedAt: string
-}
-
-/** Task list item */
-interface TaskItem {
-  id: string
-  title: string
-  priority: 'high' | 'medium' | 'low'
-}
-
-/** Workflow list item */
-interface WorkflowItem {
-  id: string
-  name: string
-  status: 'running' | 'scheduled' | 'paused' | 'completed'
-}
-
-/** Metric card configuration */
-interface MetricConfig {
-  id: keyof DashboardMetrics
-  label: string
-  sublabel: string
-  icon: React.ComponentType<{ className?: string }>
-  testId: string
-  valueTestId: string
-}
-
-// =============================================================================
 // Mock Data
 // =============================================================================
 
-const mockMetrics: DashboardMetrics = {
+const mockMetrics = {
   projects: 12,
   tasks: 24,
   workflows: 5,
 }
 
-const mockActivity: ActivityItem[] = [
+const mockActivity = [
   {
     id: '1',
     description: 'Created new project "Marketing Campaign"',
@@ -148,49 +99,21 @@ const mockActivity: ActivityItem[] = [
   },
 ]
 
-const mockRecentProjects: ProjectItem[] = [
+const mockRecentProjects = [
   { id: '1', name: 'Marketing Campaign', updatedAt: '2 hours ago' },
   { id: '2', name: 'Product Launch', updatedAt: '1 day ago' },
   { id: '3', name: 'Q4 Planning', updatedAt: '3 days ago' },
 ]
 
-const mockPendingTasks: TaskItem[] = [
+const mockPendingTasks = [
   { id: '1', title: 'Review PR #42', priority: 'high' },
   { id: '2', title: 'Update documentation', priority: 'medium' },
   { id: '3', title: 'Fix login bug', priority: 'high' },
 ]
 
-const mockActiveWorkflows: WorkflowItem[] = [
+const mockActiveWorkflows = [
   { id: '1', name: 'Daily Report', status: 'running' },
   { id: '2', name: 'Weekly Sync', status: 'scheduled' },
-]
-
-/** Metric cards configuration for reuse between desktop and mobile */
-const METRIC_CONFIGS: MetricConfig[] = [
-  {
-    id: 'projects',
-    label: 'Projects',
-    sublabel: 'Active projects',
-    icon: FolderKanban,
-    testId: 'project-count',
-    valueTestId: 'project-count-value',
-  },
-  {
-    id: 'tasks',
-    label: 'Tasks',
-    sublabel: 'Pending tasks',
-    icon: CheckSquare,
-    testId: 'task-count',
-    valueTestId: 'task-count-value',
-  },
-  {
-    id: 'workflows',
-    label: 'Workflows',
-    sublabel: 'Active workflows',
-    icon: Workflow,
-    testId: 'workflow-count',
-    valueTestId: 'workflow-count-value',
-  },
 ]
 
 // =============================================================================
@@ -303,41 +226,6 @@ function DashboardSkeleton() {
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-// =============================================================================
-// MetricCard Component
-// =============================================================================
-
-interface MetricCardProps {
-  config: MetricConfig
-  value: number
-  variant?: 'desktop' | 'mobile'
-}
-
-function MetricCard({ config, value, variant = 'desktop' }: MetricCardProps) {
-  const Icon = config.icon
-  const baseClasses = 'rounded-lg border bg-card p-6'
-  const variantClasses = variant === 'desktop'
-    ? 'hover:border-primary/50 transition-colors'
-    : 'min-w-[280px] snap-start'
-
-  return (
-    <div
-      data-testid={config.testId}
-      role="status"
-      className={`${baseClasses} ${variantClasses}`}
-    >
-      <div className="flex items-center justify-between mb-4">
-        <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">
-          {config.label}
-        </h3>
-        <Icon className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <p data-testid={config.valueTestId} className="text-3xl font-bold">{value}</p>
-      <p className="text-xs text-muted-foreground mt-1">{config.sublabel}</p>
     </div>
   )
 }
@@ -989,28 +877,84 @@ function AppDashboard() {
             data-testid="metrics-grid"
             className="hidden md:grid gap-6 md:grid-cols-3"
           >
-            {METRIC_CONFIGS.map((config) => (
-              <MetricCard
-                key={config.id}
-                config={config}
-                value={mockMetrics[config.id]}
-                variant="desktop"
-              />
-            ))}
+            <div
+              data-testid="project-count"
+              role="status"
+              className="rounded-lg border bg-card p-6 hover:border-primary/50 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">Projects</h3>
+                <FolderKanban className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p data-testid="project-count-value" className="text-3xl font-bold">{mockMetrics.projects}</p>
+              <p className="text-xs text-muted-foreground mt-1">Active projects</p>
+            </div>
+            <div
+              data-testid="task-count"
+              role="status"
+              className="rounded-lg border bg-card p-6 hover:border-primary/50 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">Tasks</h3>
+                <CheckSquare className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p data-testid="task-count-value" className="text-3xl font-bold">{mockMetrics.tasks}</p>
+              <p className="text-xs text-muted-foreground mt-1">Pending tasks</p>
+            </div>
+            <div
+              data-testid="workflow-count"
+              role="status"
+              className="rounded-lg border bg-card p-6 hover:border-primary/50 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">Workflows</h3>
+                <Workflow className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p data-testid="workflow-count-value" className="text-3xl font-bold">{mockMetrics.workflows}</p>
+              <p className="text-xs text-muted-foreground mt-1">Active workflows</p>
+            </div>
           </div>
           {/* Mobile Carousel */}
           <div
             data-testid="metrics-carousel"
             className="md:hidden flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4"
           >
-            {METRIC_CONFIGS.map((config) => (
-              <MetricCard
-                key={config.id}
-                config={config}
-                value={mockMetrics[config.id]}
-                variant="mobile"
-              />
-            ))}
+            <div
+              data-testid="project-count"
+              role="status"
+              className="rounded-lg border bg-card p-6 min-w-[280px] snap-start"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">Projects</h3>
+                <FolderKanban className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p data-testid="project-count-value" className="text-3xl font-bold">{mockMetrics.projects}</p>
+              <p className="text-xs text-muted-foreground mt-1">Active projects</p>
+            </div>
+            <div
+              data-testid="task-count"
+              role="status"
+              className="rounded-lg border bg-card p-6 min-w-[280px] snap-start"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">Tasks</h3>
+                <CheckSquare className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p data-testid="task-count-value" className="text-3xl font-bold">{mockMetrics.tasks}</p>
+              <p className="text-xs text-muted-foreground mt-1">Pending tasks</p>
+            </div>
+            <div
+              data-testid="workflow-count"
+              role="status"
+              className="rounded-lg border bg-card p-6 min-w-[280px] snap-start"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 data-testid="metric-label" className="text-sm font-medium text-muted-foreground">Workflows</h3>
+                <Workflow className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p data-testid="workflow-count-value" className="text-3xl font-bold">{mockMetrics.workflows}</p>
+              <p className="text-xs text-muted-foreground mt-1">Active workflows</p>
+            </div>
           </div>
         </section>
 
@@ -1137,32 +1081,12 @@ function AppDashboard() {
             <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
               <EyeOff className="h-4 w-4" />
               {widgets.filter((w) => !w.visible).length} widget(s) hidden.{' '}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="text-primary hover:underline inline-flex items-center"
-                  >
-                    Show widgets
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="center" className="w-56">
-                  <DropdownMenuLabel>Hidden Widgets</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {widgets.filter((w) => !w.visible).map((widget) => (
-                    <DropdownMenuItem
-                      key={widget.id}
-                      onClick={() => toggleWidget(widget.id)}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      Show {widget.label}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={resetPreferences} className="text-muted-foreground">
-                    Reset to defaults
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <button
+                onClick={() => {}}
+                className="text-primary hover:underline inline-flex items-center"
+              >
+                Customize
+              </button>
             </p>
           </div>
         )}

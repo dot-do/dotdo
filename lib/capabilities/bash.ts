@@ -936,12 +936,8 @@ export const BASH_CAPABILITY_CACHE: unique symbol = Symbol('bashCapabilityCache'
 export function withBash<TBase extends Constructor<{ $: WorkflowContext }>>(
   Base: TBase,
   config: WithBashConfig<TBase>
-): TBase & Constructor<{ $: WithBashContext; hasCapability(name: string): boolean }> {
-  // The class expression extends TBase (preserving base class) and adds BashCapability.
-  // We explicitly declare the return type intersection so consumers get proper types.
-  // TypeScript cannot verify the $ type change at compile time due to the Proxy-based
-  // augmentation, so we use a type assertion on return.
-  class WithBash extends Base {
+) {
+  return class WithBash extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'bash']
 
@@ -1009,11 +1005,6 @@ export function withBash<TBase extends Constructor<{ $: WorkflowContext }>>(
       })
     }
   }
-
-  // Type assertion: WithBash extends TBase and adds BashCapability to $.
-  // The Proxy-based augmentation is not type-checkable at compile time,
-  // so we use `unknown` intermediate cast (standard pattern for mixin type narrowing).
-  return WithBash as unknown as TBase & Constructor<{ $: WithBashContext; hasCapability(name: string): boolean }>
 }
 
 // ============================================================================
