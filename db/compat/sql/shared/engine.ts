@@ -76,6 +76,46 @@ export interface SQLEngine {
   getDialect(): DialectConfig
 }
 
+/**
+ * Async SQL Engine interface for DO-backed engines.
+ *
+ * This interface is used by engines that route queries through Durable Objects
+ * and need to make network calls.
+ */
+export interface AsyncSQLEngine {
+  /** Execute a SQL statement asynchronously */
+  execute(sql: string, params?: SQLValue[]): Promise<ExecutionResult>
+
+  /** Begin a transaction */
+  beginTransaction(mode?: TransactionMode): void
+
+  /** Commit the current transaction */
+  commitTransaction(): void
+
+  /** Rollback the current transaction */
+  rollbackTransaction(): void
+
+  /** Check if a transaction is active */
+  isInTransaction(): boolean
+
+  /** Get the dialect configuration */
+  getDialect(): DialectConfig
+}
+
+/**
+ * Union type for both sync and async engines
+ */
+export type AnySQLEngine = SQLEngine | AsyncSQLEngine
+
+/**
+ * Check if an engine is async (DO-backed)
+ */
+export function isAsyncEngine(engine: AnySQLEngine): engine is AsyncSQLEngine {
+  // Check if the execute method returns a Promise by looking at the engine's properties
+  // DO engines have getShardManager() method
+  return 'getShardManager' in engine || 'getReplicaManager' in engine
+}
+
 // ============================================================================
 // IN-MEMORY SQL ENGINE
 // ============================================================================

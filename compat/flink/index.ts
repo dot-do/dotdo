@@ -2957,3 +2957,87 @@ export function createTestEnvironment(): LocalStreamEnvironment {
 
 // Re-export WindowReduceFunction as an alias
 export { ReduceFunction as WindowReduceFunction }
+
+// ===========================================================================
+// SQL and Table API Re-exports
+// ===========================================================================
+
+export {
+  // Table Environment
+  TableEnvironment,
+  StreamTableEnvironment,
+  EnvironmentSettings,
+  EnvironmentSettingsBuilder,
+
+  // Table and Schema
+  Table,
+  TableResult,
+  Schema,
+  SchemaBuilder,
+  Row,
+  GroupedTable,
+
+  // Data Types
+  DataType,
+  DataTypes,
+
+  // Expression API
+  $,
+  lit,
+  ExpressionBuilder,
+
+  // SQL Parser
+  SqlParser,
+  SqlParseError,
+  StatementType,
+  ParsedStatement,
+
+  // Catalog
+  Catalog,
+  Database,
+} from './sql'
+
+// ===========================================================================
+// State Migration Re-exports
+// ===========================================================================
+
+export {
+  // Schema types
+  Schema as MigrationSchema,
+  SchemaDefinition,
+  SchemaField,
+  SchemaVersion,
+  SchemaChange,
+
+  // Compatibility types
+  CompatibilityResult,
+  SchemaCompatibilityCheckResult,
+
+  // Migration types
+  StateMigrator,
+  MigrationContext,
+  StateMigrationResult,
+  ValidationResult,
+  MigrationStep,
+
+  // Serializer types
+  StateSerializer,
+  SerializerConfig,
+  TypeConverter,
+
+  // Error types
+  StateMigrationError,
+  MigrationErrorCode,
+
+  // Checkpoint migration types
+  CheckpointMigrationOptions,
+  CheckpointMigrationResult,
+
+  // Classes
+  SchemaEvolutionRules,
+  SchemaComparator,
+  VersionedJsonSerializer,
+  StateMigrationManager,
+  CheckpointMigrator,
+  BackwardCompatibleState,
+} from './state-migration'

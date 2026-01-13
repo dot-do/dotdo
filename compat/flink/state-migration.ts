@@ -1197,15 +1197,3 @@ export class BackwardCompatibleState<T> {
   }
 }
 
-// ===========================================================================
-// Export Types and Classes
-// ===========================================================================
-
-export {
-  SchemaEvolutionRules,
-  SchemaComparator,
-  VersionedJsonSerializer,
-  StateMigrationManager,
-  CheckpointMigrator,
-  BackwardCompatibleState,
-}

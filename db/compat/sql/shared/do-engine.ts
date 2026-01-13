@@ -50,7 +50,7 @@ import type {
   SQLCommand,
 } from './types'
 import { POSTGRES_DIALECT, SQLError } from './types'
-import type { SQLEngine } from './engine'
+import type { AsyncSQLEngine } from './engine'
 
 // ============================================================================
 // DO ENGINE CONFIGURATION
@@ -111,7 +111,7 @@ interface DOSQLResponse {
  *    - Reads: Route based on read preference (primary, secondary, nearest)
  * 4. For queries without shard key: Fan out to all shards and merge results
  */
-export class DOSQLEngine implements SQLEngine {
+export class DOSQLEngine implements AsyncSQLEngine {
   private namespace: DurableObjectNamespace
   private shardManager?: ShardManager
   private replicaManager?: ReplicaManager

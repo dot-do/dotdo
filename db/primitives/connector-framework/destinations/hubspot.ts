@@ -657,9 +657,12 @@ export const hubspotDestinationDef: DestinationConnectorDef = {
 
       // Try to infer from stream name
       const normalized = streamName.toLowerCase()
-      if (normalized.includes('contact')) return 'contacts'
-      if (normalized.includes('company') || normalized.includes('account')) return 'companies'
+      // Check in order of specificity - deal/opportunity, then company/account, then contact
       if (normalized.includes('deal') || normalized.includes('opportunity')) return 'deals'
+      // Match 'company', 'companies', 'account', 'accounts'
+      if (normalized.includes('compan') || normalized.includes('account')) return 'companies'
+      // Match 'contact', 'contacts'
+      if (normalized.includes('contact')) return 'contacts'
 
       // Default to contacts
       return 'contacts'

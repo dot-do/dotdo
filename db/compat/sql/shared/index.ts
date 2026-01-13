@@ -75,8 +75,12 @@ export {
 // SQL ENGINE
 // ============================================================================
 
-export type { SQLEngine } from './engine'
-export { InMemorySQLEngine, createSQLEngine } from './engine'
+export type { SQLEngine, AsyncSQLEngine, AnySQLEngine } from './engine'
+export { InMemorySQLEngine, createSQLEngine, isAsyncEngine } from './engine'
+
+// DO-backed SQL engine (uses db/core managers)
+export { DOSQLEngine, createDOSQLEngine } from './do-engine'
+export type { DOSQLEngineConfig } from './do-engine'
 
 // ============================================================================
 // PARSER UTILITIES

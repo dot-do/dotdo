@@ -65,6 +65,10 @@
       {
         "name": "COLLECTION_DO",
         "class_name": "TestCollectionDO"
+      },
+      {
+        "name": "BASE_DO",
+        "class_name": "DO"
       }
     ]
   },

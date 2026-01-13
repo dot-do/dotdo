@@ -29,8 +29,12 @@ import { EventEmitter } from '../../../../compat/shared/event-emitter'
 // Import the shared SQL engine infrastructure
 import {
   createSQLEngine,
+  createDOSQLEngine,
+  isAsyncEngine,
   POSTGRES_DIALECT,
   type SQLEngine,
+  type AsyncSQLEngine,
+  type AnySQLEngine,
   type SQLValue,
   type ExecutionResult,
   SQLError,
@@ -39,6 +43,7 @@ import {
   UniqueConstraintError,
   SQLParseError,
 } from '../shared'
+import { DEFAULT_SHARD_CONFIG } from '../../../core/types'
 
 // ============================================================================
 // ERROR MAPPING
@@ -101,21 +106,74 @@ function transformToQueryResult<R>(result: ExecutionResult): QueryResult<R> {
 }
 
 // ============================================================================
+// ENGINE FACTORY
+// ============================================================================
+
+/**
+ * Create the appropriate SQL engine based on configuration.
+ *
+ * If doNamespace is provided with shard or replica config, creates a DOSQLEngine
+ * that routes queries through Durable Objects using the db/core managers.
+ *
+ * Otherwise, creates an in-memory SQL engine for testing/local development.
+ */
+function createEngineFromConfig(config: ExtendedPostgresConfig): SQLEngine | Promise<SQLEngine> {
+  // If DO namespace is configured with shard or replica options, use DOSQLEngine
+  if (config.doNamespace && (config.shard || config.replica)) {
+    return createDOSQLEngine({
+      namespace: config.doNamespace,
+      shard: config.shard
+        ? {
+            ...DEFAULT_SHARD_CONFIG,
+            key: config.shard.key ?? DEFAULT_SHARD_CONFIG.key,
+            count: config.shard.count ?? DEFAULT_SHARD_CONFIG.count,
+            algorithm: config.shard.algorithm ?? DEFAULT_SHARD_CONFIG.algorithm,
+          }
+        : undefined,
+      replica: config.replica
+        ? {
+            jurisdiction: config.replica.jurisdiction,
+            readFrom:
+              config.replica.readPreference === 'primary'
+                ? 'primary'
+                : config.replica.readPreference === 'secondary'
+                  ? 'secondary'
+                  : 'nearest',
+            writeThrough: config.replica.writeThrough,
+          }
+        : undefined,
+      dialect: POSTGRES_DIALECT,
+    })
+  }
+
+  // Default to in-memory engine
+  return createSQLEngine(POSTGRES_DIALECT)
+}
+
+// ============================================================================
 // CLIENT IMPLEMENTATION
 // ============================================================================
 
 // @ts-expect-error - EventEmitter 'on' method signature differs from pg Client interface
 class PostgresClient extends EventEmitter implements IClient {
-  protected engine: SQLEngine
+  protected engine: AnySQLEngine
   private config: ExtendedPostgresConfig
   private connected = false
   private _processID = Math.floor(Math.random() * 100000)
   private _secretKey = Math.floor(Math.random() * 1000000)
 
-  constructor(config?: string | ClientConfig | ExtendedPostgresConfig, sharedEngine?: SQLEngine) {
+  constructor(config?: string | ClientConfig | ExtendedPostgresConfig, sharedEngine?: AnySQLEngine) {
     super()
     this.config = this.parseConfig(config)
-    this.engine = sharedEngine ?? createSQLEngine(POSTGRES_DIALECT)
+    // Use provided engine, create DO engine if configured, or fall back to in-memory
+    this.engine = sharedEngine ?? createEngineFromConfig(this.config)
+  }
+
+  /**
+   * Check if this client is using a DO-backed engine (async)
+   */
+  get isDOBacked(): boolean {
+    return isAsyncEngine(this.engine)
   }
 
   private parseConfig(config?: string | ClientConfig | ExtendedPostgresConfig): ExtendedPostgresConfig {
@@ -196,12 +254,13 @@ class PostgresClient extends EventEmitter implements IClient {
       }
     }
 
-    const doQuery = (): Promise<QueryResult<R>> => {
+    const doQuery = async (): Promise<QueryResult<R>> => {
       try {
-        const result = this.engine.execute(text, values)
-        return Promise.resolve(transformToQueryResult<R>(result))
+        // Handle both sync and async engines
+        const result = await Promise.resolve(this.engine.execute(text, values))
+        return transformToQueryResult<R>(result)
       } catch (e) {
-        return Promise.reject(mapToPostgresError(e))
+        throw mapToPostgresError(e)
       }
     }
 
