@@ -1,13 +1,88 @@
 /**
- * RateLimiter - Comprehensive Rate Limiting Primitives
+ * @module rate-limiter
  *
- * Provides multiple rate limiting strategies:
- * - FixedWindow: Simple time-based windows
- * - SlidingWindow: Accurate sliding log algorithm
- * - TokenBucket: Classic burst-tolerant algorithm
- * - LeakyBucket: Smooth rate enforcement
- * - DistributedRateLimiter: DO-coordinated multi-region limiting
- * - QuotaManager: Period-based usage tracking
+ * Rate Limiter Primitive - Comprehensive rate limiting for the dotdo platform.
+ *
+ * Provides multiple rate limiting algorithms to protect APIs from abuse,
+ * enforce fair usage policies, and maintain service stability. All limiters
+ * support pluggable storage backends for edge and Durable Object deployment.
+ *
+ * ## Algorithms
+ *
+ * - **FixedWindow** - Simple counter reset at window boundaries
+ * - **SlidingWindow** - Accurate sliding log with timestamp tracking
+ * - **TokenBucket** - Burst-tolerant with configurable refill rates
+ * - **LeakyBucket** - Smooth, constant-rate output enforcement
+ * - **DistributedRateLimiter** - Multi-region coordination via Durable Objects
+ * - **QuotaManager** - Period-based limits (minute/hour/day/week/month)
+ *
+ * @example Basic Rate Limiting
+ * ```typescript
+ * import { createRateLimiter, MemoryStorage } from 'dotdo/primitives/rate-limiter'
+ *
+ * // 100 requests per minute per user
+ * const limiter = createRateLimiter({
+ *   requests: 100,
+ *   window: 60000,
+ *   strategy: 'sliding-window',
+ * })
+ *
+ * const result = await limiter.consume(`user:${userId}`)
+ * if (!result.allowed) {
+ *   return new Response('Too Many Requests', {
+ *     status: 429,
+ *     headers: {
+ *       'Retry-After': String(result.retryAfter),
+ *       'X-RateLimit-Limit': String(result.limit),
+ *       'X-RateLimit-Remaining': String(result.remaining),
+ *     },
+ *   })
+ * }
+ * ```
+ *
+ * @example Token Bucket for Burst Traffic
+ * ```typescript
+ * import { createTokenBucket } from 'dotdo/primitives/rate-limiter'
+ *
+ * // Allow bursts of 10, refill 1 token/second
+ * const bucket = createTokenBucket({
+ *   capacity: 10,
+ *   refillRate: 1,
+ * })
+ *
+ * const allowed = await bucket.tryConsume('api-key:abc123')
+ * ```
+ *
+ * @example Multi-Period Quotas
+ * ```typescript
+ * import { createQuotaManager } from 'dotdo/primitives/rate-limiter'
+ *
+ * const quota = createQuotaManager({
+ *   minute: 10,
+ *   hourly: 100,
+ *   daily: 1000,
+ * })
+ *
+ * const status = await quota.consume('tenant:acme')
+ * if (status.exceeded) {
+ *   console.log('Exceeded periods:', status.exceededPeriods)
+ * }
+ * ```
+ *
+ * @example Distributed Rate Limiting
+ * ```typescript
+ * import { DistributedRateLimiter } from 'dotdo/primitives/rate-limiter'
+ *
+ * const limiter = new DistributedRateLimiter(
+ *   { requests: 1000, window: 60000 },
+ *   { syncInterval: 1000, localBurst: 10 },
+ *   doStorage,
+ *   'worker-us-east',
+ *   'us-east-1'
+ * )
+ * ```
+ *
+ * @packageDocumentation
  */
 
 export * from './types'

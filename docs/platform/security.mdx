@@ -1,0 +1,919 @@
+---
+title: Security Hardening Guide
+description: Production-ready security configuration for dotdo deployments
+---
+
+# Security Hardening Guide
+
+This guide covers production security hardening for dotdo deployments. Follow these practices to secure your autonomous business platform against common threats.
+
+## Authentication Best Practices
+
+### org.ai Integration
+
+All authentication in dotdo flows through [org.ai](https://id.org.ai), providing unified identity for humans and AI agents.
+
+```typescript
+import { auth } from 'org.ai'
+
+// Always verify requests at the edge
+export async function handleRequest(request: Request) {
+  const user = await auth.verify(request, {
+    // Require specific claims
+    requiredClaims: ['email_verified'],
+    // Enforce token freshness
+    maxAge: '1h',
+    // Validate audience
+    audience: 'your-app.dotdo.dev',
+  })
+
+  if (!user) {
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: {
+        'WWW-Authenticate': 'Bearer realm="dotdo"',
+      },
+    })
+  }
+
+  // Attach user to context
+  return handleAuthorized(request, user)
+}
+```
+
+### Multi-Factor Authentication
+
+Require MFA for sensitive operations:
+
+```typescript
+import { auth, mfa } from 'org.ai'
+
+$.on.Refund.request(async ($, { amount }) => {
+  // High-value operations require MFA
+  if (amount > 5000) {
+    const verified = await mfa.verify($.user, {
+      methods: ['totp', 'webauthn'],
+      timeout: '5m',
+    })
+
+    if (!verified) {
+      return $.escalate.to('finance', {
+        reason: 'MFA verification failed for high-value refund',
+        amount,
+      })
+    }
+  }
+
+  await processRefund(amount)
+})
+```
+
+### Session Security
+
+Configure secure session defaults:
+
+```typescript
+$.configure({
+  sessions: {
+    // Short-lived access tokens
+    accessTokenTtl: '15m',
+    // Longer refresh tokens
+    refreshTokenTtl: '7d',
+    // Absolute session timeout
+    absoluteTimeout: '24h',
+    // Idle timeout
+    idleTimeout: '30m',
+    // Bind sessions to IP
+    ipBinding: process.env.NODE_ENV === 'production',
+    // Secure cookie settings
+    cookie: {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+    },
+  },
+})
+```
+
+### Token Best Practices
+
+```typescript
+// Use short-lived tokens with automatic refresh
+const tokenConfig = {
+  access: {
+    ttl: '15m',
+    algorithm: 'ES256',
+  },
+  refresh: {
+    ttl: '7d',
+    rotation: true, // New refresh token on each use
+    reuseWindow: '10s', // Grace period for concurrent requests
+  },
+}
+
+// Validate tokens strictly
+const user = await auth.verify(request, {
+  clockTolerance: 30, // 30 second tolerance for clock skew
+  algorithms: ['ES256'], // Only accept expected algorithms
+  issuer: 'https://auth.org.ai',
+})
+```
+
+## Authorization Patterns
+
+### Role-Based Access Control (RBAC)
+
+Define clear role hierarchies:
+
+```typescript
+// Define roles with inherited permissions
+$.authorize.roles({
+  viewer: {
+    permissions: ['*.read'],
+  },
+  editor: {
+    inherits: ['viewer'],
+    permissions: ['*.write', '*.update'],
+  },
+  admin: {
+    inherits: ['editor'],
+    permissions: ['*.delete', 'System.*'],
+  },
+  superadmin: {
+    inherits: ['admin'],
+    permissions: ['*'], // Full access
+  },
+})
+
+// Assign roles to users
+await $.users.assignRole(userId, 'editor')
+
+// Check permissions
+if (await $.can('Customer.delete')) {
+  await deleteCustomer(id)
+}
+```
+
+### Attribute-Based Access Control (ABAC)
+
+For fine-grained permissions based on context:
+
+```typescript
+$.authorize.policies({
+  // Document access based on ownership
+  'Document.read': async (user, document) => {
+    return document.ownerId === user.id
+      || document.sharedWith.includes(user.id)
+      || user.roles.includes('admin')
+  },
+
+  // Time-based access
+  'Deploy.production': async (user) => {
+    const hour = new Date().getUTCHours()
+    const isBusinessHours = hour >= 9 && hour <= 17
+    const isDayShift = user.attributes.shift === 'day'
+
+    // Only day shift during business hours, or oncall
+    return (isBusinessHours && isDayShift)
+      || user.roles.includes('oncall')
+  },
+
+  // Amount-based thresholds
+  'Refund.approve': async (user, context) => {
+    if (context.amount <= 100) return user.roles.includes('support')
+    if (context.amount <= 1000) return user.roles.includes('senior-support')
+    if (context.amount <= 10000) return user.roles.includes('finance')
+    return user.roles.includes('finance-director')
+  },
+})
+```
+
+### Agent Authorization
+
+Restrict AI agent permissions:
+
+```typescript
+import { ralph, tom, sally } from 'agents.do'
+
+// Configure agent-specific permissions
+$.agents.configure({
+  ralph: {
+    roles: ['developer'],
+    permissions: ['Code.*', 'PR.create'],
+    // Cannot deploy to production
+    deny: ['Deploy.production'],
+    // Rate limits
+    rateLimit: {
+      requests: 1000,
+      window: '1h',
+    },
+  },
+  tom: {
+    roles: ['tech-lead'],
+    permissions: ['Code.*', 'PR.*', 'Deploy.staging'],
+    // Require human approval for merges
+    requireApproval: ['PR.merge'],
+  },
+  sally: {
+    roles: ['sales'],
+    permissions: ['Customer.read', 'Lead.*', 'Deal.*'],
+    // Cannot access financial data
+    deny: ['Payment.*', 'Invoice.*'],
+  },
+})
+```
+
+## Input Validation and Sanitization
+
+### Request Validation
+
+Always validate input at the boundary:
+
+```typescript
+import { z } from 'zod'
+
+// Define strict schemas
+const CustomerSchema = z.object({
+  name: z.string()
+    .min(1, 'Name is required')
+    .max(100, 'Name too long')
+    .regex(/^[\p{L}\s\-']+$/u, 'Invalid characters in name'),
+  email: z.string()
+    .email('Invalid email format')
+    .toLowerCase(),
+  phone: z.string()
+    .regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone format')
+    .optional(),
+})
+
+// Validate in handlers
+$.on.Customer.create(async ($, data) => {
+  const validated = CustomerSchema.safeParse(data)
+
+  if (!validated.success) {
+    return $.error('validation_failed', {
+      errors: validated.error.flatten(),
+    })
+  }
+
+  await $.db.customers.create(validated.data)
+})
+```
+
+### Sanitization Helpers
+
+```typescript
+import { sanitize } from 'dotdo/security'
+
+// HTML sanitization for user content
+const cleanHtml = sanitize.html(userInput, {
+  allowedTags: ['p', 'b', 'i', 'a', 'ul', 'li'],
+  allowedAttributes: {
+    a: ['href', 'title'],
+  },
+  // Strip dangerous protocols
+  allowedSchemes: ['https', 'mailto'],
+})
+
+// Filename sanitization
+const safeFilename = sanitize.filename(userFilename, {
+  replacement: '_',
+  maxLength: 255,
+})
+
+// URL sanitization
+const safeUrl = sanitize.url(userUrl, {
+  protocols: ['https'],
+  allowLocalhost: false,
+})
+```
+
+## SQL Injection Prevention
+
+### Parameterized Queries
+
+Always use parameterized queries in compat layers:
+
+```typescript
+// GOOD: Parameterized query
+const customers = await $.db.query`
+  SELECT * FROM customers
+  WHERE email = ${email}
+  AND status = ${status}
+`
+
+// BAD: String interpolation (NEVER DO THIS)
+const customers = await $.db.query(`
+  SELECT * FROM customers
+  WHERE email = '${email}'
+`)
+```
+
+### Drizzle ORM Safety
+
+```typescript
+import { eq, and, like, sql } from 'drizzle-orm'
+
+// Safe: Using Drizzle query builder
+const results = await $.db
+  .select()
+  .from(customers)
+  .where(and(
+    eq(customers.email, email),
+    like(customers.name, `%${sanitize.sql(searchTerm)}%`),
+  ))
+
+// For raw SQL, use sql`` template
+const count = await $.db.execute(sql`
+  SELECT COUNT(*) FROM ${customers}
+  WHERE created_at > ${startDate}
+`)
+```
+
+### Compat Layer Security
+
+When building compat layers (e.g., postgres, mongo):
+
+```typescript
+// compat/postgres/query.ts
+export function query(strings: TemplateStringsArray, ...values: unknown[]) {
+  // Automatically parameterize all values
+  const text = strings.reduce((acc, str, i) => {
+    return acc + str + (i < values.length ? `$${i + 1}` : '')
+  }, '')
+
+  return {
+    text,
+    values: values.map(sanitizeValue),
+  }
+}
+
+function sanitizeValue(value: unknown): unknown {
+  // Type coercion for safety
+  if (value === null || value === undefined) return null
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') return value
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map(sanitizeValue)
+
+  throw new Error('Unsupported value type')
+}
+```
+
+## XSS Prevention in MDXUI
+
+### Content Security Policy
+
+Configure strict CSP headers:
+
+```typescript
+$.configure({
+  security: {
+    csp: {
+      'default-src': ["'self'"],
+      'script-src': ["'self'", "'strict-dynamic'"],
+      'style-src': ["'self'", "'unsafe-inline'"], // Required for Tailwind
+      'img-src': ["'self'", 'data:', 'https:'],
+      'font-src': ["'self'"],
+      'connect-src': ["'self'", 'https://api.dotdo.dev'],
+      'frame-ancestors': ["'none'"],
+      'base-uri': ["'self'"],
+      'form-action': ["'self'"],
+    },
+  },
+})
+```
+
+### Safe Rendering
+
+```typescript
+import { sanitize } from 'dotdo/security'
+
+// In MDXUI components, always sanitize user content
+export function UserComment({ content }: { content: string }) {
+  const safeContent = sanitize.html(content, {
+    allowedTags: ['p', 'b', 'i', 'code', 'a'],
+    allowedAttributes: {
+      a: ['href'],
+    },
+  })
+
+  return (
+    <div
+      className="comment"
+      dangerouslySetInnerHTML={{ __html: safeContent }}
+    />
+  )
+}
+
+// Better: Use text-only rendering when possible
+export function UserName({ name }: { name: string }) {
+  // React automatically escapes text content
+  return <span className="username">{name}</span>
+}
+```
+
+### Template Literal Safety
+
+```typescript
+// Agent template literals automatically escape
+const response = await priya`
+  Write a welcome email for ${customerName}
+`
+// customerName is automatically escaped before being sent to LLM
+
+// For HTML generation, use explicit escaping
+import { escapeHtml } from 'dotdo/security'
+
+const html = `
+  <div>Welcome, ${escapeHtml(customerName)}</div>
+`
+```
+
+## CSRF Protection
+
+### Token-Based Protection
+
+```typescript
+$.configure({
+  csrf: {
+    enabled: true,
+    // Token configuration
+    tokenLength: 32,
+    tokenExpiry: '1h',
+    // Cookie settings
+    cookie: {
+      name: '__csrf',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+    },
+    // Ignore safe methods
+    ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
+    // Custom header validation
+    header: 'X-CSRF-Token',
+  },
+})
+```
+
+### Double Submit Cookie Pattern
+
+```typescript
+import { csrf } from 'dotdo/security'
+
+// Generate token for forms
+export async function getFormData(request: Request) {
+  const token = await csrf.generate(request)
+
+  return {
+    csrfToken: token,
+    // Include in hidden form field
+  }
+}
+
+// Validate on submission
+export async function handleSubmit(request: Request) {
+  const valid = await csrf.validate(request)
+
+  if (!valid) {
+    return new Response('Invalid CSRF token', { status: 403 })
+  }
+
+  // Process form
+}
+```
+
+### SameSite Cookie Strategy
+
+```typescript
+// For APIs, use strict SameSite cookies
+$.configure({
+  cookies: {
+    session: {
+      sameSite: 'strict',
+      httpOnly: true,
+      secure: true,
+    },
+  },
+})
+
+// For cross-origin APIs, validate Origin header
+export async function handleCrossOrigin(request: Request) {
+  const origin = request.headers.get('Origin')
+  const allowedOrigins = ['https://app.dotdo.dev', 'https://admin.dotdo.dev']
+
+  if (!origin || !allowedOrigins.includes(origin)) {
+    return new Response('Forbidden', { status: 403 })
+  }
+
+  return new Response('OK', {
+    headers: {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true',
+    },
+  })
+}
+```
+
+## Secrets Management
+
+### Vault Integration
+
+Store all secrets in the vault:
+
+```typescript
+// Store secrets securely
+await $.vault.set('stripe_key', process.env.STRIPE_KEY, {
+  description: 'Stripe API key for payments',
+  rotateAfter: '90d',
+  roles: ['payment-service'],
+})
+
+// Access secrets with audit logging
+const key = await $.vault.get('stripe_key')
+
+// Use references to prevent exposure
+const stripeRef = $.vault.ref('stripe_key')
+await processPayment(stripeRef, amount)
+```
+
+### WorkOS Vault Integration
+
+For enterprise deployments:
+
+```typescript
+import { workos } from 'dotdo/integrations'
+
+$.configure({
+  vault: {
+    provider: 'workos',
+    config: {
+      apiKey: process.env.WORKOS_API_KEY,
+      organizationId: process.env.WORKOS_ORG_ID,
+    },
+    // Automatic sync with WorkOS Vault
+    sync: {
+      enabled: true,
+      interval: '5m',
+    },
+  },
+})
+```
+
+### Environment-Specific Secrets
+
+```typescript
+// Configure per-environment
+$.vault.configure({
+  environments: {
+    development: {
+      prefix: 'dev_',
+      allowPlaintext: true, // Only for development
+    },
+    staging: {
+      prefix: 'stg_',
+      encryption: 'AES-256-GCM',
+    },
+    production: {
+      prefix: 'prd_',
+      encryption: 'AES-256-GCM',
+      hsm: true, // Use hardware security module
+    },
+  },
+})
+```
+
+## API Key Rotation
+
+### Automatic Rotation
+
+```typescript
+// Configure rotation policies
+$.vault.setRotationPolicy('api_keys', {
+  interval: '30d',
+  handler: async (secretName) => {
+    // Generate new key
+    const newKey = await generateApiKey()
+
+    // Update in external service
+    await updateExternalService(secretName, newKey)
+
+    return newKey
+  },
+  notification: {
+    type: 'webhook',
+    url: process.env.ROTATION_WEBHOOK_URL,
+  },
+})
+
+// Monitor rotation status
+$.every.day.at9am(async ($) => {
+  const pending = await $.vault.needsRotation()
+
+  if (pending.length > 0) {
+    await $.alert.security('Keys need rotation', {
+      keys: pending,
+      severity: 'medium',
+    })
+  }
+})
+```
+
+### Graceful Key Rotation
+
+```typescript
+// Support multiple active keys during rotation
+$.vault.configure({
+  keys: {
+    overlapPeriod: '24h', // Both old and new keys valid
+    deprecationWarning: '7d', // Warn before expiry
+  },
+})
+
+// Validate with key fallback
+async function validateApiKey(key: string): Promise<boolean> {
+  const validKeys = await $.vault.getVersions('api_key', {
+    includeDeprecated: true,
+    maxAge: '24h',
+  })
+
+  return validKeys.some((k) => k.value === key)
+}
+```
+
+## Security Headers
+
+### Configure Headers
+
+```typescript
+$.configure({
+  security: {
+    headers: {
+      // Strict Transport Security
+      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+
+      // Content Security Policy
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "script-src 'self' 'strict-dynamic'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https:",
+        "connect-src 'self' https://api.dotdo.dev",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+      ].join('; '),
+
+      // Prevent MIME sniffing
+      'X-Content-Type-Options': 'nosniff',
+
+      // Clickjacking protection
+      'X-Frame-Options': 'DENY',
+
+      // XSS filter (legacy browsers)
+      'X-XSS-Protection': '1; mode=block',
+
+      // Referrer policy
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+
+      // Permissions policy
+      'Permissions-Policy': [
+        'camera=()',
+        'microphone=()',
+        'geolocation=()',
+        'payment=(self)',
+      ].join(', '),
+    },
+  },
+})
+```
+
+### Per-Route Headers
+
+```typescript
+// Override headers for specific routes
+$.route('/api/webhooks/*', {
+  headers: {
+    // Allow webhook POSTs from trusted sources
+    'Content-Security-Policy': "default-src 'none'",
+  },
+})
+
+$.route('/embed/*', {
+  headers: {
+    // Allow embedding in specific domains
+    'X-Frame-Options': 'ALLOW-FROM https://partner.com',
+    'Content-Security-Policy': "frame-ancestors https://partner.com",
+  },
+})
+```
+
+## Penetration Testing
+
+### Security Testing Configuration
+
+```typescript
+// Enable security testing endpoints in staging
+if (process.env.ENVIRONMENT === 'staging') {
+  $.security.enableTestEndpoints({
+    // Vulnerability scanning endpoint
+    '/_security/scan': {
+      allowedIPs: ['10.0.0.0/8'],
+      rateLimit: 10,
+    },
+    // Security headers check
+    '/_security/headers': {
+      public: true,
+    },
+  })
+}
+```
+
+### Bug Bounty Integration
+
+```typescript
+$.configure({
+  security: {
+    bugBounty: {
+      enabled: true,
+      // Security.txt
+      contact: 'security@yourcompany.com',
+      policy: 'https://yourcompany.com/security-policy',
+      // Acknowledge security researchers
+      acknowledgements: 'https://yourcompany.com/security-thanks',
+    },
+  },
+})
+
+// Serve security.txt
+$.route('/.well-known/security.txt', () => {
+  return new Response(`
+Contact: mailto:security@yourcompany.com
+Policy: https://yourcompany.com/security-policy
+Acknowledgements: https://yourcompany.com/security-thanks
+Preferred-Languages: en
+Canonical: https://yourcompany.com/.well-known/security.txt
+Expires: 2025-12-31T23:59:59.000Z
+  `.trim())
+})
+```
+
+## Incident Response
+
+### Automated Detection
+
+```typescript
+// Configure security monitoring
+$.security.monitor({
+  // Brute force detection
+  bruteForce: {
+    threshold: 5,
+    window: '5m',
+    action: 'block',
+    blockDuration: '1h',
+  },
+
+  // Rate limiting
+  rateLimit: {
+    requests: 100,
+    window: '1m',
+    action: 'throttle',
+  },
+
+  // Anomaly detection
+  anomaly: {
+    // Unusual access patterns
+    patterns: ['geo-impossible-travel', 'unusual-time', 'new-device'],
+    action: 'alert',
+  },
+})
+```
+
+### Incident Response Procedures
+
+```typescript
+$.on.Security.incident(async ($, incident) => {
+  // 1. Immediate containment
+  if (incident.severity === 'critical') {
+    await $.security.contain({
+      blockIPs: incident.sourceIPs,
+      revokeTokens: incident.affectedTokens,
+      lockAccounts: incident.affectedUsers,
+    })
+  }
+
+  // 2. Alert security team
+  await $.alert.security('Security incident detected', {
+    type: incident.type,
+    severity: incident.severity,
+    affectedResources: incident.resources,
+    timestamp: new Date().toISOString(),
+  })
+
+  // 3. Create audit trail
+  await $.audit.log('security.incident', {
+    incident,
+    containmentActions: incident.containment,
+    responders: ['security-team'],
+  })
+
+  // 4. Schedule post-mortem
+  if (incident.severity === 'critical' || incident.severity === 'high') {
+    await $.calendar.schedule({
+      title: `Security Incident Post-Mortem: ${incident.id}`,
+      time: 'next-business-day',
+      attendees: ['security-team', 'engineering-leads'],
+    })
+  }
+})
+```
+
+### Breach Notification
+
+```typescript
+$.on.Security.breach(async ($, breach) => {
+  // Assess impact
+  const impact = await $.security.assessImpact(breach)
+
+  // GDPR requires notification within 72 hours
+  if (impact.affectedUsers > 0 && impact.piiExposed) {
+    await $.compliance.scheduleNotification({
+      type: 'breach',
+      deadline: '72h',
+      authority: 'dpa',
+      affectedUsers: impact.affectedUsers,
+      dataTypes: impact.exposedDataTypes,
+    })
+
+    // Notify affected users
+    await $.email.sendBatch({
+      template: 'security-breach-notification',
+      recipients: impact.affectedUserEmails,
+      data: {
+        incidentDate: breach.timestamp,
+        dataAffected: impact.exposedDataTypes,
+        actionsTaken: breach.containment,
+        nextSteps: breach.remediation,
+      },
+    })
+  }
+
+  // Document everything
+  await $.audit.log('security.breach', {
+    breach,
+    impact,
+    notifications: impact.notifications,
+    remediation: breach.remediation,
+  })
+})
+```
+
+## Security Checklist
+
+Use this checklist before deploying to production:
+
+### Authentication
+- [ ] MFA enabled for admin accounts
+- [ ] Session timeouts configured
+- [ ] Token rotation enabled
+- [ ] Password policies enforced
+
+### Authorization
+- [ ] Principle of least privilege applied
+- [ ] Agent permissions restricted
+- [ ] Role hierarchies defined
+- [ ] Resource-level permissions tested
+
+### Data Protection
+- [ ] All data encrypted at rest
+- [ ] TLS 1.3 for all connections
+- [ ] Sensitive fields double-encrypted
+- [ ] Key rotation scheduled
+
+### Input Validation
+- [ ] All inputs validated with schemas
+- [ ] SQL injection tests passed
+- [ ] XSS prevention tested
+- [ ] File upload restrictions configured
+
+### Infrastructure
+- [ ] Security headers configured
+- [ ] CSP policy deployed
+- [ ] Rate limiting enabled
+- [ ] DDoS protection configured
+
+### Monitoring
+- [ ] Audit logging enabled
+- [ ] Security alerts configured
+- [ ] Incident response procedures documented
+- [ ] Penetration testing scheduled
+
+## Related Documentation
+
+- [Authentication](/docs/security/authentication) - Identity verification with org.ai
+- [Authorization](/docs/security/authorization) - Role-based access control
+- [Encryption](/docs/security/encryption) - Data protection mechanisms
+- [Vault](/docs/security/vault) - Secure secrets storage
+- [Compliance](/docs/platform/compliance) - GDPR and data residency
+- [Audit Logging](/docs/platform/audit-logging) - Comprehensive audit trail

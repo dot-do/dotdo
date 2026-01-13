@@ -1,18 +1,93 @@
 /**
  * Product Quantization (PQ) - Vector Compression for Scalable Similarity Search
  *
- * Product Quantization is a technique for compressing high-dimensional vectors
- * while preserving distance relationships. It works by:
+ * Product Quantization is a lossy compression technique for high-dimensional vectors
+ * that enables billion-scale similarity search by dramatically reducing memory usage
+ * while preserving distance relationships.
  *
- * 1. Splitting D-dimensional vectors into M subvectors of D/M dimensions each
- * 2. Training K centroids per subvector using k-means clustering
- * 3. Encoding vectors as M indices (one per subvector) into the codebook
- * 4. Computing distances efficiently using precomputed lookup tables (ADC)
+ * ## How PQ Works
  *
- * Compression ratio: D * 4 bytes (float32) -> M bytes (uint8 codes)
- * Example: 768-dim float32 (3072 bytes) -> 48 uint8 codes (48 bytes) = 64x compression
+ * ```
+ * Original Vector (D dimensions)
+ * ┌────┬────┬────┬────┬────┬────┬────┬────┐
+ * │ d0 │ d1 │ d2 │ d3 │ d4 │ d5 │ d6 │ d7 │  768 floats = 3072 bytes
+ * └────┴────┴────┴────┴────┴────┴────┴────┘
+ *        │         │         │         │
+ *        ▼         ▼         ▼         ▼
+ *     ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐
+ *     │ M=0 │  │ M=1 │  │ M=2 │  │ M=3 │   Split into M subvectors
+ *     └──┬──┘  └──┬──┘  └──┬──┘  └──┬──┘
+ *        │        │        │        │
+ *        ▼        ▼        ▼        ▼
+ *     ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐
+ *     │ c42 │  │ c17 │  │ c99 │  │ c5  │   Find nearest centroid
+ *     └─────┘  └─────┘  └─────┘  └─────┘
+ *        │        │        │        │
+ *        ▼        ▼        ▼        ▼
+ * PQ Code: [42, 17, 99, 5] = 4 bytes (768x compression with M=4, K=256)
+ * ```
+ *
+ * ## Compression Ratios
+ *
+ * | Dimensions | M (subquantizers) | Compression | Memory per vector |
+ * |------------|-------------------|-------------|-------------------|
+ * | 768        | 48                | 64x         | 48 bytes          |
+ * | 768        | 96                | 32x         | 96 bytes          |
+ * | 1536       | 96                | 64x         | 96 bytes          |
+ * | 1536       | 192               | 32x         | 192 bytes         |
+ *
+ * ## Distance Computation
+ *
+ * - **Symmetric Distance (SDC)**: Both vectors quantized, faster but less accurate
+ * - **Asymmetric Distance (ADC)**: Only database vectors quantized, query exact
+ *
+ * ADC achieves better accuracy by using the exact query vector with precomputed
+ * distance tables for O(M) distance computation per candidate.
+ *
+ * @example Training a PQ codebook
+ * ```typescript
+ * import { trainPQCodebook, ProductQuantization } from 'db/edgevec/pq'
+ *
+ * // Train codebook on sample vectors (need at least K vectors)
+ * const trainingVectors = documents.map(d => new Float32Array(d.embedding))
+ * const codebook = await trainPQCodebook(trainingVectors, {
+ *   numSubquantizers: 48,  // M: number of subspaces
+ *   numCentroids: 256,     // K: centroids per subspace (256 = uint8)
+ *   maxIterations: 25,     // k-means iterations
+ * })
+ *
+ * const pq = new ProductQuantization(codebook)
+ * console.log(`Compression: ${pq.getCompressionRatio()}x`)
+ * ```
+ *
+ * @example Encoding and searching
+ * ```typescript
+ * // Encode database vectors
+ * const codes = documents.map(d => pq.encode(new Float32Array(d.embedding)))
+ *
+ * // Search with ADC
+ * const queryVector = new Float32Array(queryEmbedding)
+ * const distanceTable = pq.computeDistanceTable(queryVector)
+ *
+ * // Score all candidates in O(M) per vector
+ * const scores = codes.map(code => pq.distanceFromTable(distanceTable, code))
+ * ```
+ *
+ * @example Serialization
+ * ```typescript
+ * import { serializeCodebook, deserializeCodebook } from 'db/edgevec/pq'
+ *
+ * // Save to R2
+ * const buffer = serializeCodebook(codebook)
+ * await env.R2.put('codebook.pqcb', buffer)
+ *
+ * // Load from R2
+ * const data = await env.R2.get('codebook.pqcb')
+ * const loadedCodebook = deserializeCodebook(await data.arrayBuffer())
+ * ```
  *
  * @module db/edgevec/pq
+ * @see {@link https://ieeexplore.ieee.org/document/5432202 | Product Quantization Paper}
  */
 
 import type { PQCodebook } from '../../types/vector'
@@ -554,10 +629,38 @@ export function deserializeCodebook(buffer: ArrayBuffer): PQCodebook {
 // ============================================================================
 
 /**
- * ProductQuantization - High-level class for PQ operations
+ * ProductQuantization - High-level class for PQ operations.
  *
- * Provides methods for encoding, decoding, and computing distances
- * with a trained PQ codebook.
+ * This class wraps a trained PQ codebook and provides methods for:
+ * - Encoding vectors to compact PQ codes
+ * - Decoding PQ codes back to approximate vectors
+ * - Computing asymmetric and symmetric distances
+ * - Computing ADC distance tables for fast batch scoring
+ *
+ * @example Basic usage
+ * ```typescript
+ * const pq = new ProductQuantization(codebook)
+ *
+ * // Encode a vector
+ * const code = pq.encode(vector)  // Uint8Array of M codes
+ *
+ * // Decode back to approximate vector
+ * const reconstructed = pq.decode(code)  // Float32Array
+ *
+ * // Compute distance
+ * const distance = pq.asymmetricDistance(query, code)
+ * ```
+ *
+ * @example Fast batch scoring with ADC tables
+ * ```typescript
+ * // Precompute distance table for query (O(M * K * subDim))
+ * const table = pq.computeDistanceTable(queryVector)
+ *
+ * // Score each candidate in O(M) time
+ * for (const code of candidateCodes) {
+ *   const distance = pq.distanceFromTable(table, code)
+ * }
+ * ```
  */
 export class ProductQuantization {
   readonly codebook: PQCodebook

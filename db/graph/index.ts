@@ -276,6 +276,89 @@ export type {
 // ============================================================================
 
 // ============================================================================
+// USER GRAPH STORE - User as Thing with relationships
+// ============================================================================
+
+export {
+  // Constants
+  USER_TYPE_ID,
+  USER_TYPE_NAME,
+  USER_VERBS,
+  // Type guards
+  isUserThingData,
+  isValidEmail,
+  // CRUD operations
+  createUser,
+  getUser,
+  getUserByEmail,
+  getUserByExternalId,
+  listUsers,
+  updateUser,
+  touchUser,
+  recordUserSignIn,
+  deleteUser,
+  suspendUser,
+  reactivateUser,
+  // Profile operations
+  getUserProfile,
+  updateUserProfile,
+  // Role relationships
+  assignUserRole,
+  removeUserRole,
+  getUserRoles,
+  userHasRole,
+  // Organization relationships (memberOf)
+  addUserToOrg,
+  removeUserFromOrg,
+  getUserOrganizations,
+  isUserMemberOf,
+  getUserOrgRole,
+  // Social relationships (follows)
+  followUser,
+  unfollowUser,
+  getFollowing,
+  getFollowers,
+  isFollowing,
+  // Statistics
+  getUserStats,
+  getOrgUsers,
+  getUsersWithRole,
+} from './user'
+
+export type {
+  UserStatus,
+  UserThingData,
+  UserProfileData,
+  CreateUserOptions,
+  UpdateUserOptions,
+  QueryUsersOptions,
+  OrgMembershipData,
+} from './user'
+
+// ============================================================================
+// WORKER GRAPH STORE - Worker as Thing with CRUD operations
+// ============================================================================
+
+export {
+  // Constants
+  WORKER_TYPE_ID,
+  WORKER_TYPE_NAME,
+  // Store class
+  WorkerStore,
+} from './workers'
+
+export type {
+  WorkerKind,
+  WorkerTier,
+  WorkerStatus,
+  WorkerData,
+  WorkerThing,
+  CreateWorkerInput,
+  UpdateWorkerInput,
+  WorkerQueryOptions,
+} from './workers'
+
+// ============================================================================
 // GRAPH ENGINE - In-memory graph with traversals and algorithms
 // ============================================================================
 

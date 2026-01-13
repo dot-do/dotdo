@@ -1,607 +1,612 @@
-# DOBase Decomposition Architecture
+# DOBase Architecture and Decomposition
 
-## Executive Summary
+This document describes the architecture of the Durable Object class hierarchy in dotdo, with focus on DOBase (exported as `DO`), its extension points, mixin system, and migration guidance.
 
-This document analyzes the current DOBase.ts (~3,400 LOC, ~104KB) and proposes a decomposition strategy to enable tree-shaking and improve maintainability. The goal is to allow users to import only the functionality they need, reducing bundle sizes for simpler use cases.
-
----
-
-## Current State Analysis
-
-### File Statistics
-
-| File | LOC | Size | Responsibilities |
-|------|-----|------|------------------|
-| `DOTiny.ts` | ~330 | ~15KB | Identity, storage, fetch, type discriminator |
-| `DOBase.ts` | ~3,390 | ~104KB | WorkflowContext, stores, events, scheduling, RPC, REST, MCP |
-| `DOFull.ts` | ~2,400 | ~70KB | Lifecycle (fork, clone, branch), sharding, 2PC |
-| `DO.ts` | ~85 | ~3KB | Re-exports from DOFull for backward compatibility |
-
-### Current Hierarchy
+## Class Hierarchy Overview
 
 ```
-DurableObject (cloudflare:workers)
-    |
-    v
-DOTiny (~15KB)
-    - Identity (ns, $type)
-    - Storage (Drizzle/SQLite)
-    - fetch() + /health
-    - initialize()
-    - toJSON()
-    - User context extraction
-    |
-    v
-DOBase (~104KB) - THE PROBLEM
-    - WorkflowContext ($)
-    - Store accessors (things, rels, actions, events, search, objects, dlq)
-    - Event handlers ($.on.Noun.verb)
-    - Schedule management ($.every)
-    - Execution modes (send, try, do)
-    - Action logging
-    - Event emission
-    - Location detection
-    - Cross-DO resolution
-    - REST/GraphQL routing
-    - MCP server integration
-    - RPC server integration
-    - Sync WebSocket handler
-    - Introspection ($introspect)
-    - Circuit breaker for cross-DO calls
-    - Iceberg state persistence
-    - Visibility/authorization
-    |
-    v
-DOFull (~70KB)
-    - Fork/Clone/Compact/Move
-    - Branch/Checkout/Merge
-    - Promote/Demote
-    - Staged clone (2PC)
-    - Eventual consistency replication
-    - Resumable clones
-    - Sharding (delegates to ShardModule)
-    - Cross-DO resolution with caching
+                              DurableObject (Cloudflare)
+                                       |
+                                       v
+                              +-----------------+
+                              |     DOTiny      |  ~15KB - Minimal base
+                              |   (DO export)   |  Identity, Storage, fetch()
+                              +-----------------+
+                                       |
+                                       v
+                              +-----------------+
+                              |     DOBase      |  ~120KB - Full features
+                              |   (DO export)   |  WorkflowContext, Stores, Events
+                              +-----------------+
+                                       |
+                                       v
+                              +-----------------+
+                              |     DOFull      |  ~200KB - Lifecycle ops
+                              |   (DO export)   |  Clone, Branch, Shard
+                              +-----------------+
+                                       |
+              +------------------------+------------------------+
+              |            |           |           |            |
+              v            v           v           v            v
+         +--------+   +--------+  +--------+  +--------+  +--------+
+         |Business|   |  App   |  |  Site  |  | Worker |  | Entity |
+         +--------+   +--------+  +--------+  +--------+  +--------+
+              |                                    |            |
+              v                                    v            v
+    +------------------+                     +--------+   +------------+
+    | DigitalBusiness  |                     | Agent  |   | Collection |
+    +------------------+                     +--------+   +------------+
+              |                              | Human  |   | Directory  |
+              v                              +--------+   +------------+
+         +--------+
+         |  SaaS  |
+         +--------+
 ```
 
-### DOBase Responsibility Analysis
+## Core Classes
 
-DOBase currently handles 12+ distinct concerns:
+### DOTiny (`objects/DOTiny.ts`)
 
-| # | Responsibility | LOC Est. | Dependencies | Extractable? |
-|---|----------------|----------|--------------|--------------|
-| 1 | **WorkflowContext Creation** | ~70 | Proxy factories | Yes - Core |
-| 2 | **Store Accessors** | ~150 | db, schema, StoreContext | Yes - Module |
-| 3 | **Event Handlers** | ~200 | $.on proxy, DomainEvent | Yes - Module |
-| 4 | **Schedule Management** | ~100 | $.every proxy, ScheduleManager | Yes - Module |
-| 5 | **Execution Modes** | ~250 | send/try/do, retry logic | Yes - Module |
-| 6 | **Action Logging** | ~200 | actions store, status updates | Yes - Module |
-| 7 | **Event Emission** | ~150 | events store, pipeline, DLQ | Yes - Module |
-| 8 | **Cross-DO Resolution** | ~300 | objects store, circuit breaker | Yes - Module |
-| 9 | **HTTP Handler (handleFetch)** | ~150 | Route dispatch | Yes - Module |
-| 10 | **REST Router** | ~50 | rest-router.ts | Already extracted |
-| 11 | **MCP Handler** | ~30 | mcp-server.ts | Already extracted |
-| 12 | **RPC Server** | ~50 | rpc-server.ts | Already extracted |
-| 13 | **Sync WebSocket** | ~100 | sync-engine.ts | Already extracted |
-| 14 | **Introspection** | ~250 | Schema discovery | Yes - Module |
-| 15 | **Location Detection** | ~150 | CF trace API | Yes - Module |
-| 16 | **Iceberg Persistence** | ~200 | R2, IcebergStateAdapter | Yes - Module |
-| 17 | **Visibility/Auth** | ~150 | Actor context, filters | Yes - Module |
-| 18 | **Noun/Collection Access** | ~200 | Type resolution, CRUD | Yes - Module |
-| 19 | **OKRs** | ~80 | Progress tracking | Yes - Module |
-| 20 | **Capabilities** | ~30 | hasCapability() | In DOTiny |
+The smallest possible Durable Object implementation (~15KB). Use when bundle size is critical.
 
----
+**Provides:**
+- Identity (`ns`, `$type`)
+- Storage (Drizzle/SQLite via `this.db`)
+- `fetch()` with `/health` endpoint
+- `initialize()` method
+- `toJSON()` serialization
+- User context extraction from `X-User-*` headers
+- Type hierarchy methods (`isType()`, `extendsType()`, `isInstanceOfType()`)
 
-## Proposed Module Structure
-
-### Target Architecture
-
-```
-DurableObject (cloudflare:workers)
-    |
-    v
-DOTiny (~15KB) - UNCHANGED
-    - Identity, storage, fetch, type discriminator
-    |
-    v
-DOCore (~25KB) - NEW (replaces thin layer of DOBase)
-    - WorkflowContext creation
-    - $ proxy setup
-    - Basic execution modes (send, try, do)
-    - Store accessors (lazy-loaded)
-    |
-    +-- modules/stores.ts (~15KB) - Lazy module
-    |   - ThingsStore, ActionsStore, EventsStore, etc.
-    |   - StoreContext interface
-    |
-    +-- modules/events.ts (~15KB) - Lazy module
-    |   - Event handler registration ($.on)
-    |   - Event dispatch
-    |   - Wildcard matching
-    |   - DLQ integration
-    |
-    +-- modules/scheduling.ts (~10KB) - Lazy module
-    |   - Schedule builder ($.every)
-    |   - ScheduleManager integration
-    |   - Alarm handler
-    |
-    +-- modules/actions.ts (~12KB) - Lazy module
-    |   - Action logging
-    |   - Status updates
-    |   - Retry policy
-    |
-    +-- modules/cross-do.ts (~15KB) - Lazy module
-    |   - Cross-DO resolution
-    |   - Circuit breaker
-    |   - Stub caching
-    |
-    v
-DOBase (~30KB) - SLIMMED (was 104KB)
-    - Integrates core modules
-    - HTTP handler (delegates to transport modules)
-    - REST routing (already external)
-    |
-    +-- transport/ (already extracted)
-    |   - rest-router.ts
-    |   - mcp-server.ts
-    |   - rpc-server.ts
-    |   - sync-engine.ts
-    |   - capnweb-target.ts
-    |
-    +-- modules/introspection.ts (~12KB) - NEW
-    |   - $introspect implementation
-    |   - Schema discovery
-    |   - Role-based filtering
-    |
-    +-- modules/location.ts (~8KB) - NEW
-    |   - Location detection
-    |   - CF trace API
-    |   - Caching
-    |
-    +-- modules/iceberg.ts (~10KB) - NEW
-    |   - loadFromIceberg()
-    |   - saveToIceberg()
-    |   - Snapshot management
-    |
-    +-- modules/visibility.ts (~8KB) - NEW
-    |   - Actor context
-    |   - canViewThing()
-    |   - filterVisibleThings()
-    |
-    v
-DOFull (~70KB) - LARGELY UNCHANGED
-    - Lifecycle operations
-    - Sharding (already uses ShardModule)
-```
-
-### Module Contracts
-
-Each module follows the `LifecycleModule` pattern already established:
+**Does NOT provide:**
+- WorkflowContext (`$`)
+- Event handlers (`$.on`)
+- Stores (things, rels, actions, events, search, objects, dlq)
+- Scheduling (`$.every`, alarm)
+- Built-in Hono routing
 
 ```typescript
-// modules/types.ts
-export interface ModuleContext {
-  ns: string
-  currentBranch: string
-  db: DrizzleSqliteDODatabase<typeof schema>
-  env: CloudflareEnv
-  ctx: DurableObjectState
-  emitEvent: (verb: string, data?: unknown) => Promise<void>
-  log: (message: string, data?: unknown) => void
-}
-
-export interface DOModule {
-  initialize(context: ModuleContext): void
-}
-```
-
----
-
-## Proposed Module Interfaces
-
-### 1. EventsModule
-
-```typescript
-// modules/events.ts
-export interface EventsModule extends DOModule {
-  // Handler registration
-  registerHandler(eventKey: string, handler: EventHandler, options?: HandlerOptions): void
-  unregisterHandler(eventKey: string, handler: Function): boolean
-
-  // Handler access
-  getHandlers(eventKey: string): Function[]
-  getHandlersByPriority(eventKey: string): Array<{ handler: Function; priority: number }>
-  getHandlerMetadata(eventKey: string, name: string): HandlerRegistration | undefined
-  listAllHandlers(): Map<string, HandlerRegistration[]>
-
-  // Event dispatch
-  dispatchEvent(event: DomainEvent): Promise<EnhancedDispatchResult>
-
-  // Proxy factory
-  createOnProxy(): OnProxy
-}
-```
-
-### 2. SchedulingModule
-
-```typescript
-// modules/scheduling.ts
-export interface SchedulingModule extends DOModule {
-  // Schedule registration
-  registerSchedule(cron: string, name: string, handler: ScheduleHandler): Promise<void>
-  unregisterSchedule(name: string): Promise<void>
-
-  // Alarm handling
-  handleAlarm(): Promise<void>
-
-  // Proxy factory
-  createScheduleBuilder(): ScheduleBuilder
-}
-```
-
-### 3. ActionsModule
-
-```typescript
-// modules/actions.ts
-export interface ActionsModule extends DOModule {
-  // Execution modes
-  send(event: string, data: unknown): void
-  try<T>(action: string, data: unknown, options?: TryOptions): Promise<T>
-  do<T>(action: string, data: unknown, options?: DoOptions): Promise<T>
-
-  // Action logging
-  logAction(durability: 'send' | 'try' | 'do', verb: string, input: unknown): Promise<{ id: string }>
-  updateActionStatus(actionId: string, status: ActionStatus, fields?: object): Promise<void>
-  completeAction(actionId: string, output: unknown, fields?: object): Promise<void>
-  failAction(actionId: string, error: ActionError, fields?: object): Promise<void>
-}
-```
-
-### 4. CrossDOModule
-
-```typescript
-// modules/cross-do.ts
-export interface CrossDOModule extends DOModule {
-  // Resolution
-  resolve(url: string): Promise<Thing>
-  resolveLocal(path: string, ref: string): Promise<Thing>
-  resolveCrossDO(ns: string, path: string, ref: string): Promise<Thing>
-
-  // Cross-DO method invocation
-  invokeCrossDOMethod(noun: string, id: string, method: string, args: unknown[]): Promise<unknown>
-
-  // Circuit breaker
-  checkCircuitBreaker(targetNs: string): 'closed' | 'open' | 'half-open'
-  recordSuccess(targetNs: string): void
-  recordFailure(targetNs: string): void
-  clearCache(ns?: string): void
-}
-```
-
-### 5. IntrospectionModule
-
-```typescript
-// modules/introspection.ts
-export interface IntrospectionModule extends DOModule {
-  introspect(authContext?: AuthContext): Promise<DOSchema>
-  introspectClasses(role: VisibilityRole): DOClassSchema[]
-  introspectStores(role: VisibilityRole): StoreSchema[]
-  introspectStorage(role: VisibilityRole): StorageCapabilities
-  introspectNouns(): Promise<IntrospectNounSchema[]>
-  introspectVerbs(): Promise<VerbSchema[]>
-}
-```
-
-### 6. LocationModule
-
-```typescript
-// modules/location.ts
-export interface LocationModule extends DOModule {
-  getLocation(): Promise<DOLocation>
-  detectLocation(): Promise<DOLocation>
-  onLocationDetected?(location: DOLocation): Promise<void>
-}
-```
-
-### 7. IcebergModule
-
-```typescript
-// modules/iceberg.ts
-export interface IcebergModule extends DOModule {
-  loadFromIceberg(jwt?: string): Promise<void>
-  saveToIceberg(): Promise<void>
-  getSnapshotSequence(): number
-}
-```
-
-### 8. VisibilityModule
-
-```typescript
-// modules/visibility.ts
-export interface VisibilityModule extends DOModule {
-  setActorContext(actor: { userId?: string; orgId?: string }): void
-  getActorContext(): { userId?: string; orgId?: string }
-  clearActorContext(): void
-  canViewThing(thing: Thing | null): boolean
-  assertCanView(thing: Thing | null, message?: string): void
-  filterVisibleThings<T extends Thing>(things: T[]): T[]
-  getVisibility(thing: Thing | null): 'public' | 'unlisted' | 'org' | 'user'
-  isOwner(thing: Thing | null): boolean
-  isInThingOrg(thing: Thing | null): boolean
-}
-```
-
----
-
-## Migration Path
-
-### Phase 1: Extract Pure Modules (Low Risk)
-
-1. **Location Module** - No dependencies on other DOBase functionality
-2. **Visibility Module** - Pure utility functions
-3. **Introspection Module** - Self-contained schema discovery
-
-**Approach**: Create modules in `objects/modules/`, import from DOBase, delegate calls.
-
-### Phase 2: Extract Event System (Medium Risk)
-
-1. **Events Module** - Handler registration and dispatch
-2. **Scheduling Module** - $.every and alarm handling
-
-**Approach**: These are core to WorkflowContext but have clear boundaries.
-
-### Phase 3: Extract Execution Engine (Medium Risk)
-
-1. **Actions Module** - send/try/do execution modes
-2. **Cross-DO Module** - Resolution and circuit breaker
-
-**Approach**: These interact with stores but can be decoupled with interfaces.
-
-### Phase 4: Create DOCore (Higher Risk)
-
-1. Extract WorkflowContext creation into DOCore
-2. DOCore manages module lifecycle
-3. DOBase becomes a thin layer over DOCore + transport
-
-**Approach**: Requires careful testing of backward compatibility.
-
-### Migration Sequence
-
-```
-Week 1: Phase 1
-  - Extract location.ts
-  - Extract visibility.ts
-  - Extract introspection.ts
-  - All tests pass
-
-Week 2: Phase 2
-  - Extract events.ts
-  - Extract scheduling.ts
-  - Update DOBase to use modules
-  - All tests pass
-
-Week 3: Phase 3
-  - Extract actions.ts
-  - Extract cross-do.ts
-  - Update DOBase to use modules
-  - All tests pass
-
-Week 4: Phase 4
-  - Create DOCore
-  - Slim DOBase
-  - Update imports
-  - Performance testing
-```
-
----
-
-## Tree-Shaking Strategy
-
-### Bundle Size Targets
-
-| Import | Target Size | Contents |
-|--------|-------------|----------|
-| `dotdo/tiny` | ~15KB | DOTiny only |
-| `dotdo/core` | ~40KB | DOCore + essential modules |
-| `dotdo/base` | ~60KB | DOBase + transport |
-| `dotdo/full` | ~130KB | DOFull + lifecycle |
-| `dotdo` | ~150KB | Full + mixins (fs, git, bash) |
-
-### Import Paths
-
-```typescript
-// Minimal - just identity and storage
 import { DO } from 'dotdo/tiny'
 
-// Core workflow context without HTTP
-import { DO } from 'dotdo/core'
-
-// HTTP APIs (REST, RPC, MCP)
-import { DO } from 'dotdo/base'
-
-// Lifecycle operations
-import { DO } from 'dotdo/full'
-
-// Everything including mixins
-import { DO } from 'dotdo'
-```
-
-### Conditional Module Loading
-
-```typescript
-// In DOCore
-class DOCore extends DOTiny {
-  private _eventsModule?: EventsModule
-  private _schedulingModule?: SchedulingModule
-
-  get events(): EventsModule {
-    if (!this._eventsModule) {
-      // Dynamic import for tree-shaking
-      this._eventsModule = new EventsModuleImpl(this.getModuleContext())
-    }
-    return this._eventsModule
+class MyTinyDO extends DO {
+  async fetch(request: Request): Promise<Response> {
+    // Minimal DO - implement your own routing
   }
 }
 ```
 
----
+### DOBase (`objects/DOBase.ts`)
 
-## Risk Assessment
+The standard Durable Object with full WorkflowContext support (~120KB). This is the default export.
 
-### High Risk Areas
-
-1. **WorkflowContext Proxy** - Complex proxy chain may break with changes
-2. **Cross-DO Resolution** - Circuit breaker state is shared across instances
-3. **Event Dispatch** - Priority ordering and wildcard matching are subtle
-
-### Mitigation Strategies
-
-1. **Comprehensive Test Coverage** - Each module needs isolated unit tests
-2. **Integration Tests** - Full workflow tests for each import level
-3. **Backward Compatibility Layer** - DOBase re-exports all module methods
-4. **Feature Flags** - Gradual rollout with ability to disable new modules
-
-### Testing Requirements
+**Extends DOTiny with:**
+- WorkflowContext (`this.$`) - Full DSL for actions, events, scheduling
+- Event handlers (`$.on.Noun.verb()`)
+- All stores (things, rels, actions, events, search, objects, dlq)
+- Scheduling (`$.every.day.at9am()`, alarm handling)
+- Actor context
+- Collection accessors
+- Event emission and dispatch
+- OKR (Objectives & Key Results) framework
+- Location detection and caching
+- Iceberg state persistence (R2 snapshots)
+- Cross-DO RPC with circuit breakers
+- MCP (Model Context Protocol) support
+- RPC server (JSON-RPC 2.0)
+- WebSocket sync engine (TanStack DB)
+- REST router for CRUD operations
+- Cap'n Web RPC at root endpoint
+- Introspection (`$introspect`)
 
 ```typescript
-// Each module needs:
-// 1. Unit tests in objects/modules/tests/
-// 2. Integration tests with DOBase
-// 3. Tree-shaking verification
+import { DO } from 'dotdo'
 
-// Example test structure:
-// objects/modules/tests/events.test.ts
-// objects/modules/tests/scheduling.test.ts
-// objects/modules/tests/actions.test.ts
-// objects/modules/tests/cross-do.test.ts
-// objects/modules/tests/introspection.test.ts
-// objects/modules/tests/location.test.ts
-// objects/modules/tests/iceberg.test.ts
-// objects/modules/tests/visibility.test.ts
+class MyDO extends DO {
+  async onStart() {
+    // Register event handlers
+    this.$.on.Customer.created(async (event) => {
+      await this.$.do('sendWelcomeEmail', event.data)
+    })
+
+    // Schedule recurring tasks
+    this.$.every.hour(async () => {
+      await this.$.do('healthCheck')
+    })
+  }
+}
 ```
 
----
+### DOFull (`objects/DOFull.ts`)
 
-## Dependency Graph
+Full-featured DO with lifecycle operations (~200KB). Use when you need advanced operations.
 
-```
-                    DOTiny
-                      |
-                      v
-    +---------------DOCore---------------+
-    |                 |                  |
-    v                 v                  v
- stores          events           scheduling
-    |              /|\                  |
-    |             / | \                 |
-    v            v  v  v                v
- actions    cross-do  introspection  (alarm)
-    |           |
-    v           v
- (DLQ)    (circuit breaker)
+**Extends DOBase with:**
+- Fork, Clone, Compact, Move operations
+- Sharding (shard, unshard, routing)
+- Branching (branch, checkout, merge)
+- Promotion (promote, demote)
+- Staged clone operations (two-phase commit)
+- Eventual consistency replication
+- Resumable clone operations
 
-                      |
-                      v
-                   DOBase
-                      |
-        +-------------+-------------+
-        |             |             |
-        v             v             v
-    transport    iceberg      visibility
-     (REST)     (R2/state)   (auth/filter)
-     (RPC)
-     (MCP)
-     (sync)
+```typescript
+import { DO } from 'dotdo/full'
 
-                      |
-                      v
-                   DOFull
-                      |
-        +-------------+-------------+
-        |             |             |
-        v             v             v
-    lifecycle      shard         clone
-    (fork)      (ShardModule)   (2PC)
-    (branch)
-    (merge)
+class MyFullDO extends DO {
+  async backup() {
+    await this.clone('https://backup.example.com')
+  }
+
+  async experiment() {
+    await this.branch('feature-x')
+    // Make changes...
+    await this.merge('feature-x')
+  }
+}
 ```
 
----
+## Extension Points
 
-## Success Criteria
+### 1. Static Configuration
 
-1. **Bundle Size**: `dotdo/core` < 50KB gzipped
-2. **Cold Start**: No regression in cold start time
-3. **Test Coverage**: 90%+ coverage on all new modules
-4. **Backward Compatibility**: All existing tests pass without modification
-5. **API Stability**: No breaking changes to public API
+#### `static $type`
+Type discriminator for the DO class. Used in serialization and type checking.
 
----
+```typescript
+class Customer extends DO {
+  static readonly $type = 'Customer'
+}
+```
 
-## Related Files
+#### `static $mcp`
+MCP (Model Context Protocol) configuration for exposing methods as tools.
 
-- `/Users/nathanclevenger/projects/dotdo/objects/DOTiny.ts` - Base class
-- `/Users/nathanclevenger/projects/dotdo/objects/DOBase.ts` - Target for decomposition
-- `/Users/nathanclevenger/projects/dotdo/objects/DOFull.ts` - Lifecycle operations
-- `/Users/nathanclevenger/projects/dotdo/objects/lifecycle/types.ts` - Module pattern
-- `/Users/nathanclevenger/projects/dotdo/objects/lifecycle/Shard.ts` - Example module
-- `/Users/nathanclevenger/projects/dotdo/objects/mixins/infrastructure.ts` - Capability mixin pattern
-- `/Users/nathanclevenger/projects/dotdo/objects/transport/` - Already extracted HTTP handlers
+```typescript
+class SearchableDO extends DO {
+  static $mcp = {
+    tools: {
+      search: {
+        description: 'Search items',
+        inputSchema: { query: { type: 'string' } },
+        required: ['query'],
+        visibility: 'user', // Role-based access
+      },
+    },
+    resources: ['items', 'users'],
+  }
+}
+```
 
----
+#### `static $rest`
+REST endpoint configuration for schema introspection.
 
-## Appendix: Current DOBase Method Inventory
+```typescript
+class ApiDO extends DO {
+  static $rest = {
+    endpoints: [
+      { method: 'GET', path: '/items', description: 'List items' },
+      { method: 'POST', path: '/items', description: 'Create item' },
+    ],
+  }
+}
+```
 
-### Public Methods (API Surface)
-- `$.send()`, `$.try()`, `$.do()` - Execution modes
-- `$.on` proxy - Event registration
-- `$.every` proxy - Scheduling
-- `$.location` - Location access
-- `$.user` - User context
-- `$.ai`, `$.write`, `$.summarize`, `$.list`, `$.extract`, `$.is`, `$.decide` - AI functions
-- `things`, `rels`, `actions`, `events`, `search`, `objects`, `dlq` - Store accessors
-- `resolve()` - URL resolution
-- `$introspect()` - Schema introspection
-- `handleMcp()` - MCP protocol
-- `alarm()` - Scheduled task handler
+#### `static capabilities`
+Array of capability names supported by the class. Populated by mixins.
 
-### Protected Methods (Subclass API)
-- `collection<T>()` - Typed collection accessor
-- `relationships` - Relationship accessor
-- `link()`, `getLinkedObjects()` - DO linking
-- `createThing()`, `createAction()` - Entity creation
-- `emitEvent()`, `emit()` - Event emission
-- `send()`, `try()`, `do()` - Execution modes (internal)
-- `setActor()`, `clearActor()`, `getCurrentActor()` - Actor context
-- `setActorContext()`, `getActorContext()`, `clearActorContext()` - Visibility
-- `canViewThing()`, `assertCanView()`, `filterVisibleThings()` - Visibility helpers
-- `getVisibleThing()`, `getVisibility()`, `isOwner()`, `isInThingOrg()` - Visibility
-- `resolveNounToFK()`, `registerNoun()` - Noun management
-- `getLocation()`, `_detectLocation()`, `onLocationDetected()` - Location
-- `loadFromIceberg()`, `saveToIceberg()` - Persistence
-- `handleFetch()` - HTTP handling override point
-- `handleSyncWebSocket()` - WebSocket handling
-- `validateSyncAuthToken()` - Auth override point
-- `capnWebOptions` - RPC config override
+```typescript
+// Populated automatically by mixins
+// MyDO.capabilities === ['fs', 'git', 'bash']
+```
 
-### Private Methods (Internal)
-- `createWorkflowContext()` - $ proxy factory
-- `createOnProxy()` - $.on proxy factory
-- `createScheduleBuilder()` - $.every proxy factory
-- `createDomainProxy()` - $.Noun() proxy factory
-- `invokeDomainMethod()`, `invokeCrossDOMethod()` - Method dispatch
-- `fetchWithCrossDOTimeout()` - HTTP with timeout
-- `checkCircuitBreaker()`, `recordCircuitBreakerSuccess/Failure()` - Circuit breaker
-- `logAction()`, `updateActionStatus()`, `completeAction()`, `failAction()` - Action lifecycle
-- `calculateBackoffDelay()`, `generateStepId()` - Retry logic
-- `persistStepResult()`, `loadPersistedSteps()` - Step caching
-- `emitSystemError()` - Error handling
-- `collectMatchingHandlers()`, `dispatchEventToHandlers()` - Event dispatch
-- `getStoreContext()` - Store initialization
-- `getRestRouterContext()`, `getRegisteredNouns()` - REST helpers
-- `handleIntrospectRoute()` - HTTP route handler
-- `determineRole()`, `introspectClasses/Stores/Storage/Nouns/Verbs()` - Introspection
-- `verifyJwtSignature()`, `base64UrlDecode()` - JWT helpers
-- `decodeJwtClaimsInternal()`, `getJwtFromContextInternal()` - JWT helpers
-- `emitLifecycleEvent()` - Internal events
-- `extractBearerTokenFromProtocol()` - WebSocket auth
+### 2. Lifecycle Hooks
+
+Override these methods to customize DO behavior:
+
+```typescript
+class MyDO extends DO {
+  // Called when location is first detected
+  protected async onLocationDetected(location: DOLocation): Promise<void> {
+    console.log(`DO running in ${location.city}`)
+  }
+
+  // Called after state is loaded from Iceberg
+  // Use this.on('stateLoaded', callback) instead
+}
+```
+
+### 3. Execution Customization
+
+```typescript
+class MyDO extends DO {
+  // Override action execution
+  protected async executeAction(action: string, data: unknown): Promise<unknown> {
+    switch (action) {
+      case 'customAction':
+        return this.handleCustomAction(data)
+      default:
+        return super.executeAction(action, data)
+    }
+  }
+
+  // Override retry policy
+  protected static readonly DEFAULT_RETRY_POLICY = {
+    maxAttempts: 5,        // More retries
+    initialDelayMs: 200,
+    maxDelayMs: 60000,
+    backoffMultiplier: 2,
+    jitter: true,
+  }
+}
+```
+
+### 4. HTTP Routing Extension
+
+```typescript
+class MyDO extends DO {
+  // Override fetch handling
+  protected override async handleFetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+
+    // Custom routes
+    if (url.pathname === '/custom') {
+      return this.handleCustomRoute(request)
+    }
+
+    // Fall back to default handling
+    return super.handleFetch(request)
+  }
+
+  // Or use Hono app
+  protected app = new Hono()
+    .get('/custom', (c) => c.json({ custom: true }))
+}
+```
+
+### 5. Auth Token Validation
+
+```typescript
+class SecureDO extends DO {
+  protected async validateSyncAuthToken(token: string): Promise<{ user: UserContext } | null> {
+    // Custom JWT validation
+    const claims = await verifyJWT(token, this.env.JWT_SECRET)
+    if (!claims) return null
+
+    return {
+      user: {
+        id: claims.sub,
+        email: claims.email,
+        role: claims.role,
+      },
+    }
+  }
+}
+```
+
+## Mixin Architecture
+
+Mixins add optional capabilities to DO classes without modifying the base class.
+
+### Creating a Custom Capability
+
+```typescript
+import { createCapability, type CapabilityContext } from 'dotdo/mixins'
+
+// Define the capability API
+interface MyCapability {
+  doSomething(): Promise<void>
+  getSomething(): string
+}
+
+// Create the capability mixin
+export const withMyCapability = createCapability<'my', MyCapability>(
+  'my',
+  (ctx: CapabilityContext): MyCapability => ({
+    async doSomething() {
+      // Access DO state via ctx.state
+      await ctx.state.storage.put('key', 'value')
+    },
+    getSomething() {
+      return 'something'
+    },
+  })
+)
+```
+
+### Using Capabilities
+
+```typescript
+import { DO } from 'dotdo'
+import { withFs, withGit, withBash } from 'dotdo/mixins'
+
+// Compose capabilities (order matters for dependency resolution)
+class DevDO extends withBash(withGit(withFs(DO))) {
+  async setup() {
+    // Access capabilities via $
+    await this.$.fs.write('/config.json', '{}')
+    await this.$.git.commit('Initial setup')
+    await this.$.bash.exec('npm install')
+  }
+}
+
+// Check for capabilities at runtime
+if (this.hasCapability('fs')) {
+  await this.$.fs.read('/config.json')
+}
+```
+
+### Available Mixins
+
+| Mixin | Capability | Description |
+|-------|------------|-------------|
+| `withFs` | `$.fs` | Filesystem on SQLite (fsx) |
+| `withGit` | `$.git` | Git on R2 (gitx) |
+| `withBash` | `$.bash` | Shell without VMs (bashx) |
+| `withNpm` | `$.npm` | Package management |
+| `withPrimitives` | `$.primitives` | TemporalStore, WindowManager, ExactlyOnceContext |
+
+### Mixin Implementation Details
+
+The mixin system uses:
+
+1. **Symbol-based storage** - Capability cache and init functions stored via Symbols
+2. **Proxy wrapping** - `$` getter returns a Proxy that intercepts capability access
+3. **Lazy initialization** - Capabilities created on first access
+4. **Idempotency** - Applying same mixin twice is safe
+5. **Composability** - Multiple mixins can be chained
+
+```typescript
+// Internal structure
+const CAPABILITY_CACHE = Symbol.for('dotdo.capabilityCache')
+const CAPABILITY_INITS = Symbol.for('dotdo.capabilityInits')
+
+// When accessing this.$.fs:
+// 1. Check CAPABILITY_CACHE for existing instance
+// 2. If not found, call init function from CAPABILITY_INITS
+// 3. Cache and return the capability
+```
+
+## Store Architecture
+
+All stores are lazy-initialized on first access:
+
+| Store | Purpose | Table(s) |
+|-------|---------|----------|
+| `this.things` | CRUD for Things | `things`, `nouns` |
+| `this.rels` | Relationships | `relationships` |
+| `this.actions` | Action lifecycle | `actions` |
+| `this.events` | Event streaming | `events` |
+| `this.search` | Full-text search | `search` |
+| `this.objects` | DO registry | `objects` |
+| `this.dlq` | Dead letter queue | `dlq` |
+
+### Eager Initialization
+
+Use `DO.with()` to eagerly initialize specific stores:
+
+```typescript
+// Default: all stores lazy-initialized
+class LazyDO extends DO { }
+
+// Eager: search and vectors initialized on DO creation
+class SearchableDO extends DO.with({ search: true, vectors: true }) { }
+
+// All stores eager
+class FullFeaturedDO extends DO.with({
+  things: true,
+  relationships: true,
+  actions: true,
+  events: true,
+  search: true,
+  vectors: true,
+  objects: true,
+  dlq: true,
+}) { }
+```
+
+## WorkflowContext ($)
+
+The `$` property provides the workflow DSL:
+
+### Execution Modes
+
+```typescript
+// Fire-and-forget (non-blocking, non-durable)
+this.$.send('notify', { message: 'Hello' })
+
+// Single attempt (blocking, non-durable)
+const result = await this.$.try('validate', data, { timeout: 5000 })
+
+// Durable execution (blocking, with retries)
+const result = await this.$.do('process', data, {
+  retry: {
+    maxAttempts: 5,
+    initialDelayMs: 100,
+  },
+})
+```
+
+### Event Handlers
+
+```typescript
+// Exact match
+this.$.on.Customer.created(async (event) => { ... })
+
+// Wildcards
+this.$.on.Customer['*'](async (event) => { ... })  // Any verb
+this.$.on['*'].created(async (event) => { ... })   // Any noun
+this.$.on['*']['*'](async (event) => { ... })      // All events
+
+// With options
+this.$.on.Payment.failed(
+  async (event) => { ... },
+  {
+    priority: 10,
+    name: 'paymentFailureHandler',
+    filter: async (event) => event.data.amount > 1000,
+    maxRetries: 5,
+  }
+)
+```
+
+### Scheduling
+
+```typescript
+// Fluent DSL
+this.$.every.Monday.at9am(async () => { ... })
+this.$.every.day.at('6pm')(async () => { ... })
+this.$.every.hour(async () => { ... })
+this.$.every(15).minutes(async () => { ... })
+```
+
+### Domain Proxies (Cross-DO RPC)
+
+```typescript
+// Call methods on other DOs
+const result = await this.$.Customer('cust-123').notify({ message: 'Hello' })
+
+// With circuit breaker protection (automatic)
+// - 5 failures opens circuit
+// - 30s reset timeout
+// - Automatic retries with exponential backoff
+```
+
+## HTTP Endpoints
+
+DOBase provides these built-in endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | JSON-LD index with collections |
+| `/` | POST | Cap'n Web RPC (HTTP batch) |
+| `/` | WebSocket | Cap'n Web RPC (persistent) |
+| `/health` | GET | Health check |
+| `/rpc` | POST | JSON-RPC 2.0 |
+| `/rpc` | WebSocket | RPC streaming |
+| `/sync` | WebSocket | TanStack DB sync |
+| `/mcp` | POST | MCP transport |
+| `/resolve` | GET | Cross-DO resolution |
+| `/$introspect` | GET | Schema introspection |
+| `/:type` | GET/POST | REST list/create |
+| `/:type/:id` | GET/PUT/PATCH/DELETE | REST CRUD |
+
+## Migration Guidance
+
+### From DOTiny to DOBase
+
+```typescript
+// Before: DOTiny
+import { DO } from 'dotdo/tiny'
+
+class MyDO extends DO {
+  async fetch(request: Request) {
+    // Manual routing
+  }
+}
+
+// After: DOBase
+import { DO } from 'dotdo'
+
+class MyDO extends DO {
+  async onStart() {
+    // Use $ for event handling and scheduling
+    this.$.on.Thing.created(handler)
+    this.$.every.hour(handler)
+  }
+  // REST routes work automatically
+}
+```
+
+### From DOBase to DOFull
+
+```typescript
+// Before: DOBase
+import { DO } from 'dotdo'
+
+class MyDO extends DO {
+  // No lifecycle operations
+}
+
+// After: DOFull
+import { DO } from 'dotdo/full'
+
+class MyDO extends DO {
+  async backup() {
+    await this.clone('https://backup.ns')
+  }
+
+  async feature() {
+    await this.branch('feature-x')
+    // Changes...
+    await this.merge('feature-x')
+  }
+}
+```
+
+### Adding Capabilities
+
+```typescript
+// Before: No file system
+class MyDO extends DO { }
+
+// After: With file system capability
+import { withFs } from 'dotdo/mixins'
+
+class MyDO extends withFs(DO) {
+  async setup() {
+    await this.$.fs.write('/config.json', '{}')
+  }
+}
+```
+
+### Switching to Eager Initialization
+
+```typescript
+// Before: Lazy (default)
+class MyDO extends DO {
+  async search(query: string) {
+    // First call creates search table
+    return this.search.query(query)
+  }
+}
+
+// After: Eager (table created at DO start)
+class MyDO extends DO.with({ search: true }) {
+  async search(query: string) {
+    // Table already exists
+    return this.search.query(query)
+  }
+}
+```
+
+## Best Practices
+
+1. **Start with DOTiny** when you need minimal bundle size and will implement your own routing.
+
+2. **Use DOBase** (default) for most applications - it provides the full workflow DSL.
+
+3. **Use DOFull** only when you need lifecycle operations (clone, branch, shard).
+
+4. **Prefer lazy initialization** unless you know specific stores will be used immediately.
+
+5. **Use mixins** for optional capabilities rather than subclassing.
+
+6. **Override hooks** rather than constructor for customization.
+
+7. **Use `DO.with()`** for eager store initialization when needed.
+
+8. **Implement `validateSyncAuthToken()`** for production WebSocket sync.
+
+9. **Configure `capnWebOptions`** to control stack trace exposure.
+
+10. **Use `$introspect`** for schema discovery in clients.
+
+## File Locations
+
+- DOTiny: `/Users/nathanclevenger/projects/dotdo/objects/DOTiny.ts`
+- DOBase: `/Users/nathanclevenger/projects/dotdo/objects/DOBase.ts`
+- DOFull: `/Users/nathanclevenger/projects/dotdo/objects/DOFull.ts`
+- Mixins: `/Users/nathanclevenger/projects/dotdo/objects/mixins/`
+- Index: `/Users/nathanclevenger/projects/dotdo/objects/index.ts`
+- Stores: `/Users/nathanclevenger/projects/dotdo/db/stores.ts`
+- Transport: `/Users/nathanclevenger/projects/dotdo/objects/transport/`

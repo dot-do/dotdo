@@ -1,21 +1,117 @@
 /**
- * Workflow Runtime - Durable execution engine for ai-workflows
+ * @module workflows/runtime
  *
- * Implements the WorkflowRuntime interface to execute workflow steps with:
- * - Step persistence and replay for durability
- * - Retry logic with configurable backoff policies
- * - Three execution modes: send (fire-and-forget), try (quick), do (durable)
+ * Workflow Runtime - Durable Execution Engine for dotdo Workflows
  *
- * @example
+ * This module provides the runtime execution engine for workflows, implementing
+ * step persistence, replay for durability, and configurable retry policies.
+ * It supports three execution modes with different durability guarantees.
+ *
+ * ## Execution Modes
+ *
+ * The runtime supports three distinct execution modes, matching the workflow
+ * context DSL (`$.send`, `$.try`, `$.do`):
+ *
+ * | Mode | Blocking | Durable | Retries | Use Case |
+ * |------|----------|---------|---------|----------|
+ * | `send` | No | No | No | Fire-and-forget notifications |
+ * | `try` | Yes | No | No | Quick operations, fallible |
+ * | `do` | Yes | Yes | Yes | Critical operations |
+ *
+ * @example Three durability levels
+ * ```typescript
+ * const runtime = createWorkflowRuntime({ storage })
+ *
+ * // Fire-and-forget - returns immediately
+ * runtime.send('notification.sent', { userId, message })
+ *
+ * // Single attempt - may fail
+ * const result = await runtime.try('Cache.get', key)
+ *
+ * // Durable with retries - persisted, replayed on restart
+ * const order = await runtime.do('Order.create', orderData)
+ * ```
+ *
+ * ## Step Persistence
+ *
+ * In `do` mode, each step is persisted with its result, enabling:
+ * - **Replay**: If a workflow restarts, completed steps return cached results
+ * - **Exactly-once**: Steps are executed exactly once even across restarts
+ * - **Audit trail**: Step history is retained for debugging
+ *
+ * @example Step replay
+ * ```typescript
+ * // First execution - runs the step
+ * const result1 = await runtime.do('Payment.charge', { amount: 100 })
+ *
+ * // Workflow restarts...
+ *
+ * // Same step ID - returns cached result (no re-execution)
+ * const result2 = await runtime.do('Payment.charge', { amount: 100 })
+ * // result1 === result2 (same cached result)
+ * ```
+ *
+ * ## Retry Policies
+ *
+ * The `do` mode uses exponential backoff with configurable parameters:
+ *
+ * @example Custom retry policy
  * ```typescript
  * const runtime = createWorkflowRuntime({
- *   storage: new Map(),
- *   registry: domainRegistry,
+ *   storage,
+ *   retryPolicy: {
+ *     maxAttempts: 5,
+ *     initialDelayMs: 500,
+ *     maxDelayMs: 30000,
+ *     backoffMultiplier: 2,
+ *     jitter: true  // Adds randomness to prevent thundering herd
+ *   }
  * })
- *
- * const $ = createWorkflowProxy(runtime)
- * await $.Inventory(product).check()
  * ```
+ *
+ * ## Storage Interface
+ *
+ * The runtime requires a storage implementation for persisting step results:
+ *
+ * @example Custom storage
+ * ```typescript
+ * class SqliteStepStorage implements StepStorage {
+ *   async get(stepId: string) { ... }
+ *   async set(stepId: string, result: StepResult) { ... }
+ *   async delete(stepId: string) { ... }
+ *   async list() { ... }
+ * }
+ *
+ * const runtime = createWorkflowRuntime({
+ *   storage: new SqliteStepStorage()
+ * })
+ * ```
+ *
+ * ## Lifecycle Callbacks
+ *
+ * Monitor step execution with optional callbacks:
+ *
+ * @example Observability
+ * ```typescript
+ * const runtime = createWorkflowRuntime({
+ *   storage,
+ *   onStepStart: (stepId, pipeline) => {
+ *     console.log(`Starting step: ${stepId}`)
+ *   },
+ *   onStepComplete: (stepId, result) => {
+ *     metrics.recordSuccess(stepId)
+ *   },
+ *   onStepError: (stepId, error, attempt) => {
+ *     logger.error(`Step ${stepId} failed (attempt ${attempt}):`, error)
+ *   }
+ * })
+ * ```
+ *
+ * @see {@link createWorkflowRuntime} - Create a runtime instance
+ * @see {@link createTestRuntime} - Create a runtime for testing
+ * @see {@link DurableWorkflowRuntime} - The runtime class
+ * @see {@link StepStorage} - Storage interface
+ * @see {@link RetryPolicy} - Retry configuration
  */
 
 import type { Pipeline, WorkflowRuntime } from './proxy'
@@ -102,8 +198,34 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
 // ============================================================================
 
 /**
- * Simple in-memory storage for step results
- * Useful for testing or non-persistent workflows
+ * Simple in-memory storage for step results.
+ *
+ * Provides a Map-based implementation of StepStorage for testing
+ * or non-persistent workflows. Data is lost when the process exits.
+ *
+ * @example Testing usage
+ * ```typescript
+ * const storage = new InMemoryStepStorage()
+ * const runtime = createWorkflowRuntime({ storage })
+ *
+ * // Run tests...
+ *
+ * // Clear between tests
+ * storage.clear()
+ * ```
+ *
+ * @example Inspecting stored steps
+ * ```typescript
+ * const storage = new InMemoryStepStorage()
+ * const runtime = createWorkflowRuntime({ storage })
+ *
+ * await runtime.do('Order.create', orderData)
+ *
+ * // Check what was stored
+ * const steps = await storage.list()
+ * console.log(steps)
+ * // [{ stepId: 'Order.create:...', status: 'completed', result: {...} }]
+ * ```
  */
 export class InMemoryStepStorage implements StepStorage {
   private store = new Map<string, StepResult>()
@@ -135,7 +257,44 @@ export class InMemoryStepStorage implements StepStorage {
 // ============================================================================
 
 /**
- * Workflow Runtime with durable execution capabilities
+ * Workflow Runtime with durable execution capabilities.
+ *
+ * Implements the WorkflowRuntime interface with full support for
+ * step persistence, replay, and configurable retry policies.
+ *
+ * @example Basic usage
+ * ```typescript
+ * const runtime = new DurableWorkflowRuntime({
+ *   storage: new InMemoryStepStorage(),
+ *   retryPolicy: { maxAttempts: 3 }
+ * })
+ *
+ * // Execute steps
+ * runtime.send('event', data)           // Fire-and-forget
+ * await runtime.try('Cache.get', key)   // Single attempt
+ * await runtime.do('Order.create', order) // Durable with retries
+ * ```
+ *
+ * @example In a Durable Object
+ * ```typescript
+ * class OrderWorkflow extends DurableObject {
+ *   private runtime: DurableWorkflowRuntime
+ *
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env)
+ *     this.runtime = new DurableWorkflowRuntime({
+ *       storage: new DOStepStorage(ctx.storage)
+ *     })
+ *   }
+ *
+ *   async processOrder(order: Order) {
+ *     // These steps are durable - survive DO hibernation
+ *     await this.runtime.do('Inventory.reserve', order.items)
+ *     await this.runtime.do('Payment.charge', order.payment)
+ *     await this.runtime.do('Shipping.create', order.address)
+ *   }
+ * }
+ * ```
  */
 export class DurableWorkflowRuntime implements WorkflowRuntime {
   private storage: StepStorage
@@ -397,14 +556,74 @@ export class WorkflowStepError extends Error {
 // ============================================================================
 
 /**
- * Create a new workflow runtime with the specified options
+ * Create a new workflow runtime with the specified options.
+ *
+ * This is the primary factory function for creating workflow runtimes.
+ * It provides sensible defaults while allowing full customization.
+ *
+ * @param options - Runtime configuration options
+ * @returns A configured DurableWorkflowRuntime instance
+ *
+ * @example Basic creation
+ * ```typescript
+ * const runtime = createWorkflowRuntime()
+ * // Uses in-memory storage and default retry policy
+ * ```
+ *
+ * @example With custom storage
+ * ```typescript
+ * const runtime = createWorkflowRuntime({
+ *   storage: new SqliteStepStorage(db)
+ * })
+ * ```
+ *
+ * @example With observability
+ * ```typescript
+ * const runtime = createWorkflowRuntime({
+ *   storage,
+ *   onStepStart: (stepId) => span.start(stepId),
+ *   onStepComplete: (stepId, result) => span.end(stepId),
+ *   onStepError: (stepId, error, attempt) => {
+ *     span.recordError(stepId, error)
+ *     if (attempt === 3) alertOps(stepId, error)
+ *   }
+ * })
+ * ```
  */
 export function createWorkflowRuntime(options: RuntimeOptions = {}): DurableWorkflowRuntime {
   return new DurableWorkflowRuntime(options)
 }
 
 /**
- * Create a simple runtime for testing (in-memory, no retries)
+ * Create a simple runtime for testing (in-memory, no retries).
+ *
+ * Provides a pre-configured runtime suitable for unit tests:
+ * - In-memory storage (no persistence)
+ * - Single attempt (no retries)
+ * - No delays between attempts
+ *
+ * @returns A test-optimized DurableWorkflowRuntime instance
+ *
+ * @example Unit test usage
+ * ```typescript
+ * describe('OrderWorkflow', () => {
+ *   let runtime: DurableWorkflowRuntime
+ *
+ *   beforeEach(() => {
+ *     runtime = createTestRuntime()
+ *   })
+ *
+ *   it('creates orders', async () => {
+ *     const result = await runtime.do('Order.create', orderData)
+ *     expect(result.id).toBeDefined()
+ *   })
+ *
+ *   it('fails fast without retries', async () => {
+ *     await expect(runtime.do('Failing.action', {}))
+ *       .rejects.toThrow()
+ *   })
+ * })
+ * ```
  */
 export function createTestRuntime(): DurableWorkflowRuntime {
   return new DurableWorkflowRuntime({

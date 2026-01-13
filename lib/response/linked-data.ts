@@ -7,6 +7,58 @@
 
 import { buildContextUrl, buildTypeUrl, buildIdUrl } from './urls'
 
+// ============================================================================
+// ERROR RESPONSE TYPES AND BUILDER
+// ============================================================================
+
+/**
+ * Standard error codes used across the API
+ */
+export type ErrorCode =
+  | 'NOT_FOUND'
+  | 'BAD_REQUEST'
+  | 'DUPLICATE'
+  | 'CREATE_FAILED'
+  | 'UPDATE_FAILED'
+  | 'DELETE_FAILED'
+  | 'METHOD_NOT_ALLOWED'
+  | 'UNSUPPORTED_MEDIA_TYPE'
+  | 'INTERNAL_ERROR'
+
+/**
+ * JSON-LD formatted error response
+ */
+export interface ErrorResponse {
+  $type: 'Error'
+  code: ErrorCode
+  message: string
+}
+
+/**
+ * Build a JSON-LD formatted error response
+ *
+ * @param code - The error code (e.g., 'NOT_FOUND', 'BAD_REQUEST')
+ * @param message - Human-readable error message
+ * @returns Error response with $type: 'Error'
+ *
+ * @example
+ * ```ts
+ * buildErrorResponse('NOT_FOUND', 'Customer not found: alice')
+ * // -> { $type: 'Error', code: 'NOT_FOUND', message: 'Customer not found: alice' }
+ * ```
+ */
+export function buildErrorResponse(code: ErrorCode, message: string): ErrorResponse {
+  return {
+    $type: 'Error',
+    code,
+    message,
+  }
+}
+
+// ============================================================================
+// LINKED DATA RESPONSE BUILDER
+// ============================================================================
+
 /**
  * Options for building a response with linked data properties
  */

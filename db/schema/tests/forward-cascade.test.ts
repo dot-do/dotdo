@@ -1230,8 +1230,10 @@ describe('Relationship Creation', () => {
 
     it('generates unique relationship id', async () => {
       const storedRelationships: MockRelationship[] = []
+      let relIdCounter = 0
       const mockCreateRelationship = vi.fn().mockImplementation((rel) => {
-        storedRelationships.push({ ...rel, id: `rel-${Date.now()}` })
+        relIdCounter++
+        storedRelationships.push({ ...rel, id: `rel-${relIdCounter}` })
         return Promise.resolve(storedRelationships[storedRelationships.length - 1])
       })
 

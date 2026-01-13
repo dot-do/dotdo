@@ -119,11 +119,14 @@ Configure API keys via environment variable:
 }
 ```
 
-Set in `wrangler.toml`:
+Set in `wrangler.jsonc`:
 
-```toml
-[vars]
-API_KEYS = '{"prod-key-abc123":{"userId":"service-account-1","role":"user"}}'
+```json
+{
+  "vars": {
+    "API_KEYS": "{\"prod-key-abc123\":{\"userId\":\"service-account-1\",\"role\":\"user\"}}"
+  }
+}
 ```
 
 Or use Cloudflare secrets:

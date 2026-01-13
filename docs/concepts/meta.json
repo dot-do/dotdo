@@ -1,4 +1,6 @@
 {
+  "root": true,
   "title": "Concepts",
+  "description": "Core concepts and design patterns for Business-as-Code",
   "pages": ["index", "promise-pipelining", "things", "functions", "do-loop", "experiments", "events", "sqids", "relationships", "actions"]
 }

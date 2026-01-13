@@ -1,15 +1,193 @@
 /**
- * CascadeExecutor
+ * @module lib/executors/CascadeExecutor
  *
- * Tries function types in order of speed/cost, escalating on failure:
- * 1. Code (fastest, cheapest, deterministic)
- * 2. Generative (AI inference, single call)
- * 3. Agentic (AI + tools, multi-step)
- * 4. Human (slowest, most expensive, guaranteed judgment)
+ * CascadeExecutor - Cascade execution across multiple executor types.
  *
- * The cascade stops when a function succeeds. On failure, it escalates
- * to the next type automatically. The cascade path is recorded in the
- * resulting event for observability.
+ * This executor implements the intelligent fallback pattern, trying function types
+ * in order of speed and cost, automatically escalating on failure. It is the core
+ * orchestrator that enables "Business-as-Code" by seamlessly transitioning between
+ * code execution, AI inference, agentic workflows, and human judgment.
+ *
+ * ## Cascade Order
+ *
+ * The default cascade follows this hierarchy:
+ * 1. **Code** - Fastest, cheapest, deterministic execution
+ * 2. **Generative** - Single AI inference call
+ * 3. **Agentic** - Multi-step AI with tools
+ * 4. **Human** - Guaranteed human judgment (slowest, most expensive)
+ *
+ * Execution stops on the first successful handler. On failure, it automatically
+ * escalates to the next type. The full cascade path is recorded for observability.
+ *
+ * ## Event Tracking (5W+H)
+ *
+ * Every cascade result includes a comprehensive event following the 5W+H model:
+ * - **WHO**: Actor, source, destination
+ * - **WHAT**: Object, type, quantity
+ * - **WHEN**: Timestamp, recorded time
+ * - **WHERE**: Namespace, location, read point
+ * - **WHY**: Verb, disposition, reason
+ * - **HOW**: Method (code/generative/agentic/human), cascade path
+ *
+ * @example Basic Cascade Execution
+ * ```typescript
+ * import { CascadeExecutor } from 'dotdo/lib/executors'
+ *
+ * // Create executor with DO context
+ * const executor = new CascadeExecutor({
+ *   state: this.state,
+ *   env: this.env
+ * })
+ *
+ * // Execute with multiple handler types
+ * const result = await executor.execute({
+ *   input: { orderId: 'ORD-123', action: 'refund' },
+ *   handlers: {
+ *     // Try code first - deterministic rules
+ *     code: async (input, ctx) => {
+ *       if (input.action === 'refund' && orderAmount < 100) {
+ *         return { approved: true, method: 'auto-approved' }
+ *       }
+ *       throw new Error('Amount exceeds auto-approval limit')
+ *     },
+ *
+ *     // Fall back to AI for complex cases
+ *     generative: async (input, ctx) => {
+ *       return await aiService.generate({
+ *         prompt: `Analyze refund request for order ${input.orderId}`,
+ *         schema: { type: 'object', properties: { approved: { type: 'boolean' } } }
+ *       })
+ *     },
+ *
+ *     // Final fallback to human review
+ *     human: async (input, ctx) => {
+ *       return await humanService.requestApproval({
+ *         prompt: `Review refund for ${input.orderId}`,
+ *         channel: 'slack',
+ *         timeout: 3600000
+ *       })
+ *     }
+ *   }
+ * })
+ *
+ * console.log('Executed via:', result.method) // 'code', 'generative', or 'human'
+ * console.log('Cascade steps:', result.cascade.steps)
+ * ```
+ *
+ * @example Type Override (Skip Cascade)
+ * ```typescript
+ * // Force execution with a specific handler type
+ * const result = await executor.execute({
+ *   input: { data: 'sensitive-request' },
+ *   type: 'human', // Skip code and AI, go directly to human
+ *   handlers: {
+ *     human: humanHandler
+ *   }
+ * })
+ * ```
+ *
+ * @example Start from Specific Type
+ * ```typescript
+ * // Skip code, start from generative
+ * const result = await executor.execute({
+ *   input: { query: 'complex analysis' },
+ *   startFrom: 'generative', // Skip code handler
+ *   handlers: {
+ *     code: codeHandler,
+ *     generative: generativeHandler,
+ *     agentic: agenticHandler,
+ *     human: humanHandler
+ *   }
+ * })
+ * ```
+ *
+ * @example Timeout Configuration
+ * ```typescript
+ * // Global and per-step timeouts
+ * const result = await executor.execute({
+ *   input: data,
+ *   handlers: { ... },
+ *   timeout: 60000, // 1 minute total cascade timeout
+ *   stepTimeout: 10000, // 10 seconds per step
+ *   signal: abortController.signal // External cancellation
+ * })
+ *
+ * if (result.error instanceof CascadeTimeoutError) {
+ *   console.log('Cascade timed out at step:', result.cascade.steps.length)
+ * }
+ * ```
+ *
+ * @example Event Emission and Callbacks
+ * ```typescript
+ * // Track cascade progress with callbacks
+ * const result = await executor.execute({
+ *   input: data,
+ *   handlers: { ... },
+ *   emitEvents: true, // Emit to env.EVENTS
+ *   emitEvent: true, // Emit 5W+H event on success
+ *   eventContext: {
+ *     actor: 'order-service',
+ *     object: 'refund-123',
+ *     type: 'Refund',
+ *     verb: 'processed',
+ *     ns: 'ecommerce'
+ *   },
+ *   onStepStart: ({ type }) => console.log(`Starting ${type} handler`),
+ *   onStepComplete: (step) => {
+ *     console.log(`${step.type}: ${step.success ? 'success' : 'failed'} in ${step.duration}ms`)
+ *   },
+ *   onCascadeComplete: (result) => {
+ *     analytics.track('cascade.completed', {
+ *       method: result.method,
+ *       duration: result.duration
+ *     })
+ *   }
+ * })
+ * ```
+ *
+ * @example Track Skipped Handlers
+ * ```typescript
+ * // Include skipped handlers in cascade path
+ * const result = await executor.execute({
+ *   input: data,
+ *   handlers: {
+ *     generative: generativeHandler,
+ *     human: humanHandler
+ *     // Note: no code or agentic handlers
+ *   },
+ *   trackSkipped: true // Include empty slots in steps
+ * })
+ *
+ * // cascade.steps will include entries for code and agentic
+ * // with attempted: false
+ * ```
+ *
+ * @example Contextual Data for Handlers
+ * ```typescript
+ * // Pass extra context to handlers
+ * const result = await executor.execute({
+ *   input: { orderId: 'ORD-123' },
+ *   handlers: { ... },
+ *   context: {
+ *     userId: 'user-456',
+ *     sessionId: 'sess-789',
+ *     permissions: ['refund.approve']
+ *   },
+ *   // Optional metadata for 5W+H event
+ *   model: 'claude-sonnet-4-20250514',
+ *   tools: ['search', 'calculate'],
+ *   channel: 'slack',
+ *   branch: 'main'
+ * })
+ *
+ * // Handlers receive context via ctx parameter
+ * // ctx.userId, ctx.sessionId, ctx.permissions
+ * ```
+ *
+ * @see {@link CodeFunctionExecutor} for code execution details
+ * @see {@link GenerativeFunctionExecutor} for AI generation details
+ * @see {@link AgenticFunctionExecutor} for agentic workflow details
+ * @see {@link HumanFunctionExecutor} for human approval details
  */
 
 // ============================================================================

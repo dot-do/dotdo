@@ -1,0 +1,570 @@
+---
+title: Graph Storage
+description: Graph data model with Things (nodes), Relationships (edges), and traversal algorithms
+---
+
+# Graph Storage
+
+The `db/graph` module provides a unified graph data model where Things are nodes and Relationships are edges. It includes an in-memory GraphEngine for traversals, path finding, and graph algorithms, plus persistent storage backends.
+
+## Architecture
+
+```
++------------------------------------------------------------------+
+|  GraphEngine (In-Memory)                                          |
+|  - Node/Edge operations                                           |
+|  - Traversals (BFS, DFS)                                          |
+|  - Path finding (Dijkstra, shortest path)                         |
+|  - Graph algorithms (PageRank, centrality, components)            |
+|  - Pattern matching (Cypher-like)                                 |
++----------------------------+-------------------------------------+
+                             |
+                             v
++----------------------------+-------------------------------------+
+|  GraphStore (Persistent)                                          |
+|  +-------------------+  +-------------------+                     |
+|  | SQLiteGraphStore  |  | DocumentGraphStore|                     |
+|  | - Drizzle ORM     |  | - MongoDB-like    |                     |
+|  | - DO SQLite       |  | - Aggregations    |                     |
+|  +-------------------+  +-------------------+                     |
++------------------------------------------------------------------+
+                             |
+                             v
++------------------------------------------------------------------+
+|  Adapters                                                         |
+|  - FileGraphAdapter (filesystem operations)                       |
+|  - GitGraphAdapter (git objects as Things)                        |
+|  - FunctionVersionAdapter (versioned code artifacts)              |
++------------------------------------------------------------------+
+```
+
+## Quick Start
+
+```typescript
+import {
+  createGraphStore,
+  GraphEngine,
+  VerbFormStateMachine,
+} from 'db/graph'
+
+// Create persistent store
+const store = await createGraphStore({
+  backend: 'sqlite',
+  connectionString: ':memory:'
+})
+
+// Create a Thing (node)
+const customer = await store.createThing({
+  id: 'customer-alice',
+  typeId: 1,
+  typeName: 'Customer',
+  data: { name: 'Alice', email: 'alice@example.com' }
+})
+
+// Create a Relationship (edge)
+await store.createRelationship({
+  id: 'rel-1',
+  verb: 'purchased',
+  fromId: 'customer-alice',
+  toId: 'product-widget',
+  data: { quantity: 2, total: 199.98 }
+})
+
+// In-memory traversals
+const engine = new GraphEngine()
+const results = await engine.traverse({
+  start: 'customer-alice',
+  direction: 'OUTGOING',
+  maxDepth: 3
+})
+```
+
+## GraphEngine
+
+The in-memory graph engine provides fast traversals and algorithms.
+
+### Node Operations
+
+```typescript
+const engine = new GraphEngine()
+
+// Create nodes
+const alice = await engine.createNode('Person', {
+  name: 'Alice',
+  age: 30
+})
+
+const bob = await engine.createNode('Person', {
+  name: 'Bob',
+  age: 28
+})
+
+// Query nodes
+const people = await engine.queryNodes({
+  label: 'Person',
+  where: { age: { $gt: 25 } },
+  orderBy: { age: 'desc' },
+  limit: 10
+})
+
+// Update node
+await engine.updateNode(alice.id, { age: 31 })
+
+// Delete node (and connected edges)
+await engine.deleteNode(alice.id)
+```
+
+### Edge Operations
+
+```typescript
+// Create edges
+await engine.createEdge(alice, 'FOLLOWS', bob, {
+  since: '2024-01-01'
+})
+
+await engine.createEdge(alice, 'WORKS_AT', company)
+
+// Query edges
+const follows = await engine.queryEdges({
+  type: 'FOLLOWS',
+  from: alice.id
+})
+
+// Get all edges
+const allEdges = await engine.getEdges()
+```
+
+### Traversals
+
+```typescript
+// BFS traversal (default)
+const bfsResult = await engine.traverse({
+  start: alice,
+  direction: 'OUTGOING',  // 'INCOMING' | 'BOTH'
+  maxDepth: 3,
+  filter: { type: 'FOLLOWS' }
+})
+
+// DFS traversal
+const dfsResult = await engine.traverseDFS({
+  start: alice,
+  direction: 'BOTH',
+  maxDepth: 5
+})
+
+// Get immediate neighbors
+const neighbors = await engine.neighbors(alice.id, {
+  type: 'FOLLOWS',
+  direction: 'OUTGOING'
+})
+```
+
+### Path Finding
+
+```typescript
+// Shortest path (BFS)
+const path = await engine.shortestPath('alice', 'charlie', {
+  relationshipTypes: ['FOLLOWS', 'KNOWS'],
+  maxDepth: 6
+})
+
+if (path) {
+  console.log(`Path length: ${path.length}`)
+  console.log('Nodes:', path.nodes.map(n => n.id))
+  console.log('Edges:', path.edges.map(e => e.type))
+}
+
+// All paths between nodes
+const allPaths = await engine.allPaths('alice', 'charlie', {
+  maxDepth: 4,
+  maxPaths: 100
+})
+
+// Check path existence
+const exists = await engine.pathExists('alice', 'charlie')
+
+// Weighted shortest path (Dijkstra)
+const weighted = await engine.dijkstra('alice', 'charlie', {
+  weightProperty: 'distance',
+  maxWeight: 1000
+})
+
+if (weighted) {
+  console.log(`Total weight: ${weighted.weight}`)
+}
+```
+
+### Graph Algorithms
+
+```typescript
+// PageRank
+const pageRank = await engine.pageRank({
+  dampingFactor: 0.85,
+  maxIterations: 100,
+  tolerance: 1e-6
+})
+// Returns: Map<nodeId, score>
+
+// Degree centrality
+const degreeCentrality = await engine.degreeCentrality({
+  normalized: true
+})
+
+// Betweenness centrality
+const betweenness = await engine.betweennessCentrality({
+  normalized: true
+})
+
+// Closeness centrality
+const closeness = await engine.closenessCentrality({
+  normalized: true
+})
+
+// Clustering coefficient
+const clustering = await engine.clusteringCoefficient('alice')
+
+// Common neighbors
+const common = await engine.commonNeighbors('alice', 'bob')
+```
+
+### Connected Components
+
+```typescript
+// Find connected components (undirected)
+const components = await engine.connectedComponents()
+// Returns: string[][] (array of node ID arrays)
+
+// Find strongly connected components (directed)
+const sccs = await engine.stronglyConnectedComponents()
+
+// Check if graph is connected
+const connected = await engine.isConnected()
+
+// Get largest component
+const largest = await engine.largestComponent()
+```
+
+### Graph Metrics
+
+```typescript
+// Eccentricity (max distance from node)
+const ecc = await engine.eccentricity('alice')
+
+// Graph diameter (max eccentricity)
+const diameter = await engine.diameter()
+
+// Graph radius (min eccentricity)
+const radius = await engine.radius()
+
+// Center nodes
+const center = await engine.center()
+
+// Topological sort (DAG only)
+const sorted = await engine.topologicalSort()
+
+// Check for cycles
+const hasCycles = await engine.hasCycles()
+
+// Minimum spanning tree
+const mst = await engine.minimumSpanningTree({
+  weightProperty: 'distance'
+})
+```
+
+### Pattern Matching
+
+```typescript
+// Cypher-like pattern matching
+const result = await engine.match({
+  pattern: '(a:Person)-[r:FOLLOWS]->(b:Person)',
+  where: { 'a.age': { $gt: 25 } },
+  return: ['a.name', 'b.name']
+})
+
+// Full Cypher query
+const matches = await engine.matchCypher(`
+  MATCH (a:Person)-[r:FOLLOWS]->(b:Person)
+  WHERE a.age > 25
+  RETURN a.name, b.name
+  ORDER BY a.name
+  LIMIT 10
+`)
+```
+
+### Statistics and Export
+
+```typescript
+// Graph statistics
+const stats = await engine.stats()
+// { nodeCount, edgeCount, labelCounts, typeCounts, avgDegree, isolatedNodes }
+
+// Export graph
+const exported = await engine.export()
+// { nodes: [...], edges: [...], metadata: { exportedAt, version } }
+
+// Import graph
+await engine.import(exported)
+
+// Clear graph
+await engine.clear()
+```
+
+## GraphStore Backends
+
+### SQLiteGraphStore
+
+Drizzle-based persistent storage:
+
+```typescript
+import { SQLiteGraphStore } from 'db/graph'
+
+const store = new SQLiteGraphStore(db)
+
+// CRUD operations
+const thing = await store.createThing({
+  id: 'user-1',
+  typeId: 1,
+  typeName: 'User',
+  data: { name: 'Alice' }
+})
+
+const retrieved = await store.getThing('user-1')
+
+const users = await store.getThingsByType(1, {
+  limit: 100,
+  offset: 0
+})
+
+await store.updateThing('user-1', {
+  data: { name: 'Alice Smith' }
+})
+
+await store.deleteThing('user-1')
+```
+
+### DocumentGraphStore
+
+MongoDB-style queries with aggregation pipeline:
+
+```typescript
+import { DocumentGraphStore } from 'db/graph'
+
+const store = new DocumentGraphStore(db)
+
+// Find with operators
+const users = await store.findThings({
+  $and: [
+    { typeName: 'User' },
+    { 'data.age': { $gte: 18 } },
+    { 'data.status': { $in: ['active', 'pending'] } }
+  ]
+})
+
+// Aggregation pipeline
+const stats = await store.aggregate([
+  { $match: { typeName: 'Order' } },
+  { $group: { _id: '$data.status', count: { $sum: 1 }, total: { $sum: '$data.amount' } } },
+  { $sort: { total: -1 } }
+])
+
+// Bulk operations
+const bulkResult = await store.bulkUpdate(
+  { 'data.status': 'pending' },
+  { $set: { 'data.status': 'processing' } }
+)
+
+// Transactions
+const session = store.startSession()
+try {
+  await session.createThing({ ... })
+  await session.createRelationship({ ... })
+  await session.commit()
+} catch (err) {
+  await session.abort()
+}
+```
+
+## Verb Forms
+
+State encoding via verb conjugation:
+
+```typescript
+import {
+  VerbFormStateMachine,
+  parseVerbForm,
+  transitionVerbForm
+} from 'db/graph'
+
+// Parse verb form to determine state
+const state = parseVerbForm('creating')
+// { type: 'activity', baseVerb: 'create' }
+
+const completedState = parseVerbForm('created')
+// { type: 'event', baseVerb: 'create' }
+
+// State machine for verb transitions
+const machine = new VerbFormStateMachine()
+
+// Transition verb form
+const next = transitionVerbForm('create', 'start')
+// 'creating'
+
+const completed = transitionVerbForm('creating', 'complete')
+// 'created'
+
+// Query by verb form state
+const active = await queryByVerbFormState(store, {
+  verb: 'process',
+  state: 'activity'  // Returns things with verb='processing'
+})
+```
+
+### Verb Form Types
+
+| Type | Example | Meaning |
+|------|---------|---------|
+| `action` | create, update, delete | Intent/command |
+| `activity` | creating, updating | In progress |
+| `event` | created, updated | Completed |
+
+## Adapters
+
+### FileGraphAdapter
+
+Filesystem operations via graph:
+
+```typescript
+import { createFileGraphAdapter } from 'db/graph'
+
+const files = createFileGraphAdapter(graphStore, contentStore)
+
+// Create directory
+await files.mkdir('/projects', { recursive: true })
+
+// Create file
+await files.createFile('/projects/readme.md', {
+  content: '# My Project',
+  mimeType: 'text/markdown'
+})
+
+// List directory
+const entries = await files.readdir('/projects')
+
+// Get file stats
+const stat = await files.stat('/projects/readme.md')
+
+// Delete
+await files.unlink('/projects/readme.md')
+await files.rmdir('/projects')
+```
+
+### GitGraphAdapter
+
+Git objects as graph nodes:
+
+```typescript
+import { GitGraphAdapter } from 'db/graph'
+
+const git = new GitGraphAdapter(graphStore)
+
+// Create commit
+const commit = await git.createCommit({
+  tree: treeId,
+  parents: [parentId],
+  author: { name: 'Alice', email: 'alice@example.com', timestamp: Date.now() },
+  message: 'Initial commit'
+})
+
+// Get commit history
+const history = await git.getCommitHistory(commitId, { limit: 100 })
+
+// Create branch
+await git.createRef('refs/heads/feature', commitId)
+
+// Resolve ref
+const resolved = await git.resolveRef('refs/heads/main')
+```
+
+### FunctionVersionAdapter
+
+Content-addressable code storage:
+
+```typescript
+import { FunctionVersionAdapter } from 'db/graph'
+
+const functions = new FunctionVersionAdapter(graphStore)
+
+// Store function version
+const version = await functions.createVersion({
+  name: 'processPayment',
+  code: 'export function processPayment(...) { ... }',
+  dependencies: { stripe: '^12.0.0' }
+})
+
+// Get latest version
+const latest = await functions.getLatest('processPayment')
+
+// Get version history
+const history = await functions.getVersionHistory('processPayment')
+
+// Pin to specific version
+await functions.pinVersion('processPayment', versionHash)
+```
+
+## Event Delivery
+
+Guaranteed delivery for graph events:
+
+```typescript
+import { EventDeliveryStore } from 'db/graph'
+
+const delivery = new EventDeliveryStore(db, pipeline)
+
+// Emit event
+await delivery.emit({
+  verb: 'Customer.signup',
+  source: 'customer-alice',
+  data: { plan: 'premium' }
+})
+
+// Stream undelivered events
+const unstreamed = await delivery.getUnstreamed({ limit: 1000 })
+
+// Mark as delivered
+await delivery.markDelivered(eventId)
+
+// Bulk delivery
+const count = await delivery.deliverBatch({ batchSize: 100 })
+```
+
+## Analytics
+
+Columnar analytics for graph data:
+
+```typescript
+import { createGraphAnalytics } from 'db/graph'
+
+const analytics = createGraphAnalytics(columnStore)
+
+// Aggregate by type
+const typeStats = await analytics.aggregateByType()
+
+// Time series
+const timeSeries = await analytics.timeSeriesCount({
+  interval: 'day',
+  start: '2024-01-01',
+  end: '2024-01-31'
+})
+
+// Relationship statistics
+const relStats = await analytics.relationshipStats({
+  groupBy: 'verb'
+})
+```
+
+## Related
+
+- [Things & Versioning](/docs/database/things) - Entity storage
+- [Store Accessors](/docs/database/stores) - CRUD operations
+- [Relationships](/docs/concepts/relationships) - Edge types and queries
+- [Query Engine](/docs/database/query-engine) - Graph traversal queries

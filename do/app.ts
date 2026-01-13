@@ -1,14 +1,30 @@
 /**
- * dotdo App - Ready-to-deploy dashboard application
+ * dotdo App - Static MDX-based Application Framework
  *
- * Exports a Hono app that serves the dotdo dashboard.
+ * Provides a complete, ready-to-deploy application with:
+ * - Landing page rendered from Site.mdx at root
+ * - Dashboard app rendered from App.mdx
+ * - Documentation from docs/ folder via fumadocs-mdx
+ *
+ * ## Usage
+ *
  * Consumers can deploy by simply re-exporting:
  *
- * @example
+ * @example Basic deployment
  * ```ts
  * // worker.ts
  * import { app } from 'dotdo/app'
  * export default app
+ * ```
+ *
+ * @example With custom MDX files
+ * ```
+ * your-project/
+ *   Site.mdx      # Landing page content
+ *   App.mdx       # Dashboard content
+ *   docs/         # Documentation (fumadocs-mdx)
+ *   worker.ts     # import { app } from 'dotdo/app'
+ *   wrangler.jsonc
  * ```
  *
  * Configure wrangler.jsonc to serve static assets:
@@ -19,10 +35,25 @@
  *   }
  * }
  * ```
+ *
+ * ## MDX Components Available
+ *
+ * In Site.mdx:
+ * - AgentGrid, Agent - Display team agents
+ * - FeatureGrid, Feature - Display features
+ * - CTA - Call to action buttons
+ * - Hero, Section, CodeBlock - Layout components
+ *
+ * In App.mdx:
+ * - DashboardLayout, Sidebar, DashboardContent
+ * - KPICard, ActivityFeed, AgentStatus
+ * - DataTable, Tabs, Charts
+ * - SettingsLayout, SettingsSection
+ *
+ * @see https://dotdo.dev/docs/app
  */
 
 import { Hono } from 'hono'
-import { serveStatic } from 'hono/cloudflare-workers'
 
 export interface AppEnv {
   ASSETS?: Fetcher
@@ -30,12 +61,17 @@ export interface AppEnv {
 }
 
 /**
- * The dotdo dashboard application.
+ * The dotdo application.
  *
  * This is a Hono app that:
- * 1. Serves static assets from the app/dist directory
- * 2. Provides API routes for the dashboard
+ * 1. Serves the static site built from MDX files
+ * 2. Provides API routes for the application
  * 3. Can be extended with additional routes
+ *
+ * ## Route Structure
+ * - `/` - Landing page (from Site.mdx)
+ * - `/app` - Dashboard (from App.mdx)
+ * - `/docs` - Documentation (from docs/ folder)
  */
 export const app = new Hono<{ Bindings: AppEnv }>()
 

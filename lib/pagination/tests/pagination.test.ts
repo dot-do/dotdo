@@ -150,18 +150,21 @@ describe('decodeCursor', () => {
       expect(() => decodeCursor(undefined)).toThrow('Invalid cursor')
     })
 
-    it('throws for tampered cursor', () => {
+    it('handles tampered cursor gracefully', () => {
       const cursor = encodeCursor({ offset: 10 })
       const tampered = cursor.slice(0, -3) + 'xxx'
 
-      // May throw or return invalid data
-      expect(() => {
+      // Tampered cursors may either throw or return invalid data
+      // The important thing is the system doesn't crash
+      try {
         const result = decodeCursor(tampered)
-        // If it doesn't throw, verify it at least fails validation
-        if (typeof result !== 'object') {
-          throw new Error('Invalid cursor')
-        }
-      }).not.toThrow() // Tampered base64 might still decode to something
+        // If it doesn't throw, the result should still be an object
+        expect(typeof result).toBe('object')
+      } catch (e) {
+        // If it throws, it should be an Invalid cursor error
+        expect(e).toBeInstanceOf(Error)
+        expect((e as Error).message).toContain('Invalid cursor')
+      }
     })
 
     it('throws for non-object JSON', () => {

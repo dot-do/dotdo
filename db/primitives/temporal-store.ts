@@ -1,8 +1,9 @@
 /**
- * TemporalStore - Time-aware key-value storage primitive
+ * TemporalStore - Time-Aware Key-Value Storage Primitive
  *
  * Provides time-travel queries over a key-value store with optimizations for
- * production workloads:
+ * production workloads. Enables historical queries, point-in-time snapshots,
+ * and streaming range queries with backpressure support.
  *
  * ## Features
  * - **put/get** - Store and retrieve values with timestamps
@@ -25,6 +26,66 @@
  * - LRU cache for recent getAsOf queries (configurable size)
  * - Streaming iterators prevent memory spikes on large ranges
  * - Batch operations for efficient bulk inserts
+ *
+ * @example Basic Time-Travel Queries
+ * ```typescript
+ * import { TemporalStore } from 'dotdo/db/primitives/temporal-store'
+ *
+ * const store = new TemporalStore<User>()
+ *
+ * // Store values at specific timestamps
+ * store.put('user-123', { name: 'Alice', status: 'active' }, t1)
+ * store.put('user-123', { name: 'Alice', status: 'premium' }, t2)
+ * store.put('user-123', { name: 'Alice Smith', status: 'premium' }, t3)
+ *
+ * // Get current value
+ * const current = store.get('user-123')
+ *
+ * // Time-travel: what was the value at t2?
+ * const atT2 = store.getAsOf('user-123', t2)
+ * // Returns: { name: 'Alice', status: 'premium' }
+ * ```
+ *
+ * @example Snapshots for Point-in-Time Recovery
+ * ```typescript
+ * // Create snapshot before risky operation
+ * const snapshotId = store.createSnapshot()
+ *
+ * // Perform operations...
+ * store.put('key1', value1)
+ * store.put('key2', value2)
+ *
+ * // Oops, something went wrong - restore!
+ * store.restoreSnapshot(snapshotId)
+ * ```
+ *
+ * @example Streaming Range Queries
+ * ```typescript
+ * // Stream entries within time range (memory-efficient)
+ * const lastHour = {
+ *   start: Date.now() - 3600000,
+ *   end: Date.now()
+ * }
+ *
+ * for await (const entry of store.range({ timeRange: lastHour, batchSize: 100 })) {
+ *   await processEntry(entry)
+ * }
+ * ```
+ *
+ * @example Retention and Compaction
+ * ```typescript
+ * const store = new TemporalStore({
+ *   retentionMs: 7 * 24 * 60 * 60 * 1000, // 7 days
+ *   maxVersionsPerKey: 100,
+ * })
+ *
+ * // Prune old versions beyond retention
+ * const pruned = store.prune()
+ * console.log(`Removed ${pruned} old entries`)
+ *
+ * // Compact to keep only latest N versions per key
+ * store.compact({ maxVersionsPerKey: 10 })
+ * ```
  *
  * @module db/primitives/temporal-store
  */
@@ -203,6 +264,8 @@ interface VersionedEntry<T> {
   timestamp: number
   version: number
   expiresAt?: number
+  /** If true, this entry is a tombstone marking deletion */
+  deleted?: boolean
 }
 
 /**
@@ -523,6 +586,25 @@ export interface TemporalStore<T> {
    * Call after bulk updates or when memory is constrained.
    */
   clearCache(): void
+
+  /**
+   * Delete (tombstone) a key at a specific timestamp.
+   *
+   * Creates a tombstone entry that marks the key as deleted at this point in time.
+   * Subsequent get() calls will return null. Historical queries via getAsOf()
+   * will return the value as it was before the deletion timestamp.
+   *
+   * @param key - Key to delete
+   * @param timestamp - Timestamp of deletion (typically Date.now())
+   *
+   * @example
+   * // Delete a user
+   * await store.delete('user:123', Date.now())
+   *
+   * // Historical query still works
+   * const oldUser = await store.getAsOf('user:123', yesterday)
+   */
+  delete(key: string, timestamp: number): Promise<void>
 }
 
 // =============================================================================
@@ -679,6 +761,11 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
 
       // Get the latest version
       const latest = versions[versions.length - 1]!
+
+      // Check if deleted (tombstone)
+      if (latest.deleted) {
+        return null
+      }
 
       // Check TTL expiration
       if (this.enableTTL && latest.expiresAt !== undefined) {
@@ -939,6 +1026,46 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
     this.cache.clear()
   }
 
+  async delete(key: string, timestamp: number): Promise<void> {
+    const start = performance.now()
+    try {
+      let versions = this.entries.get(key)
+      if (!versions) {
+        versions = []
+        this.entries.set(key, versions)
+      }
+
+      const version = versions.length + 1
+      // Create a tombstone entry - value is typed as T but won't be accessed
+      const entry: VersionedEntry<T> = {
+        key,
+        value: undefined as T, // Safe: deleted entries never return value
+        timestamp,
+        version,
+        deleted: true,
+      }
+
+      // Check if there's an existing entry with the same timestamp
+      const existingIdx = this.binarySearchByTimestamp(versions, timestamp)
+      if (existingIdx >= 0 && versions[existingIdx]!.timestamp === timestamp) {
+        // Replace existing entry with tombstone
+        versions[existingIdx] = entry
+      } else {
+        // Insert maintaining sorted order by timestamp
+        const insertIdx = this.findInsertPosition(versions, timestamp)
+        versions.splice(insertIdx, 0, entry)
+      }
+
+      // Invalidate cache entries for this key
+      this.cache.invalidateKey(key)
+
+      // Record metrics
+      this.metrics.recordGauge(MetricNames.TEMPORAL_STORE_VERSION_COUNT, versions.length, { key })
+    } finally {
+      this.metrics.recordLatency(MetricNames.TEMPORAL_STORE_PUT_LATENCY, performance.now() - start)
+    }
+  }
+
   // ===========================================================================
   // PRIVATE HELPER METHODS
   // ===========================================================================
@@ -994,26 +1121,32 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
   private findVersionAtOrBefore(versions: VersionedEntry<T>[], timestamp: number): T | null {
     let left = 0
     let right = versions.length - 1
-    let result: T | null = null
+    let resultEntry: VersionedEntry<T> | null = null
 
     while (left <= right) {
       const mid = Math.floor((left + right) / 2)
-      const midTs = versions[mid]!.timestamp
+      const entry = versions[mid]!
+      const midTs = entry.timestamp
 
       if (midTs <= timestamp) {
-        result = versions[mid]!.value
+        resultEntry = entry
         left = mid + 1 // Look for a later version that still satisfies the condition
       } else {
         right = mid - 1
       }
     }
 
-    return result
+    // Return null if the entry is a tombstone (deleted)
+    if (resultEntry?.deleted) {
+      return null
+    }
+
+    return resultEntry?.value ?? null
   }
 
   /**
    * Find the latest version within a time range.
-   * Handles TTL expiration for unbounded queries.
+   * Handles TTL expiration for unbounded queries and tombstone filtering.
    */
   private findLatestInRange(
     versions: VersionedEntry<T>[],
@@ -1030,6 +1163,11 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
         continue
       }
       if (rangeEnd !== undefined && v.timestamp > rangeEnd) {
+        continue
+      }
+
+      // Skip tombstones (deleted entries)
+      if (v.deleted) {
         continue
       }
 

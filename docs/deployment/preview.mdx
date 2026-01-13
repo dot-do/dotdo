@@ -11,27 +11,33 @@ Preview deployments let you test changes in isolated environments before merging
 
 ### Configuration
 
-Configure preview deployments in your `wrangler.toml`:
+Configure preview deployments in your `wrangler.jsonc`:
 
-```toml
-name = "my-startup"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
+```json
+{
+  "name": "my-startup",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-01-01",
 
-# Enable preview deployments
-[env.preview]
-name = "my-startup-preview"
-workers_dev = true
+  // Enable preview deployments
+  "env": {
+    "preview": {
+      "name": "my-startup-preview",
+      "workers_dev": true,
 
-# Use preview-specific bindings
-[[env.preview.kv_namespaces]]
-binding = "CACHE"
-id = "preview-kv-id"
-preview_id = "preview-kv-preview-id"
+      // Use preview-specific bindings
+      "kv_namespaces": [
+        { "binding": "CACHE", "id": "preview-kv-id", "preview_id": "preview-kv-preview-id" }
+      ],
 
-[[env.preview.durable_objects.bindings]]
-name = "STARTUP"
-class_name = "Startup"
+      "durable_objects": {
+        "bindings": [
+          { "name": "STARTUP", "class_name": "Startup" }
+        ]
+      }
+    }
+  }
+}
 ```
 
 ### Deploying a Branch
@@ -55,7 +61,7 @@ For unique URLs per branch:
 BRANCH=$(git branch --show-current | tr '/' '-')
 PREVIEW_NAME="my-startup-preview-${BRANCH}"
 
-# Update wrangler.toml dynamically
+# Update wrangler.jsonc dynamically
 cat > wrangler.preview.toml << EOF
 name = "${PREVIEW_NAME}"
 main = "src/index.ts"

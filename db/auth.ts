@@ -4,6 +4,44 @@ import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqli
 // AUTH - better-auth Drizzle schema for SQLite
 // ============================================================================
 //
+// @deprecated This schema is DEPRECATED. Auth entities are now stored as Things
+// in the Graph model using GraphAuthAdapter.
+//
+// ## Migration Status
+// - GraphAuthAdapter is the PRIMARY storage backend for auth
+// - These Drizzle tables are kept for backward compatibility during migration
+// - New deployments should use `createAuthWithGraph()` exclusively
+//
+// ## Migration Path
+// 1. Use `createAuthWithGraph()` in auth/config.ts (new deployments)
+// 2. For existing deployments with Drizzle data:
+//    - Use auth/migration.ts to migrate data to Graph
+//    - After migration, switch to `createAuthWithGraph()`
+//
+// ## When This Will Be Removed
+// - After all existing deployments are migrated to Graph storage
+// - Scheduled for removal in next major version
+//
+// ## What Replaces This
+// Auth entities are now stored as Things in the Graph model:
+// - User -> Thing { type: 'User', data: { email, name, ... } }
+// - Session -> Thing { type: 'Session', data: { token, expiresAt, ... } }
+// - Account -> Thing { type: 'Account', data: { provider, providerAccountId, ... } }
+// - Organization -> Thing { type: 'Organization', data: { name, slug, ... } }
+//
+// Relationships are stored as graph edges:
+// - Session `belongsTo` User
+// - Account `linkedTo` User
+// - User `memberOf` Organization
+//
+// @see auth/adapters/graph.ts - GraphAuthAdapter implementation
+// @see auth/config.ts - createAuthWithGraph() factory
+// @see auth/migration.ts - Migration utilities
+//
+// ============================================================================
+// LEGACY SCHEMA - DO NOT ADD NEW TABLES HERE
+// ============================================================================
+//
 // Complete schema for better-auth with all enterprise plugins:
 //   - Core: users, sessions, accounts, verifications
 //   - Organization: organizations, members, invitations, teams

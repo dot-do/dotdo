@@ -415,6 +415,14 @@ npx vitest run workflows/
 
 ---
 
+## Related Documentation
+
+- [Workflows Documentation](/docs/workflows/) - User-facing documentation with $ context DSL, durability levels, and patterns
+- [Workflow Triggers](/docs/workflows/triggers) - Event, schedule, manual, and webhook triggers
+- [SDK: WorkflowContext](/docs/sdk/workflow-context) - Full $ API reference
+
+---
+
 ## License
 
 MIT

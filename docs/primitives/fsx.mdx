@@ -274,6 +274,22 @@ interface FsStat {
 | Max file size | Disk limit | 5GB (R2) |
 | Concurrent access | File locks | Per-DO isolation |
 
+## Technical Details
+
+For implementation details, architecture decisions, and contributor documentation:
+
+- **[fsx README](https://github.com/dotdo/dotdo/blob/main/primitives/fsx/README.md)** - Package documentation with 3,000+ tests, two-package architecture (@dotdo/fsx core library + fsx.do managed service), storage backend interface, and CLI reference
+- **[fsx CLAUDE.md](https://github.com/dotdo/dotdo/blob/main/primitives/fsx/CLAUDE.md)** - Developer guidance for working with the fsx codebase
+
+### Key Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `core/backend.ts` | FsBackend interface + MemoryBackend |
+| `core/fsx.ts` | FSx main class |
+| `storage/tiered.ts` | TieredFS - automatic hot/warm tier routing |
+| `do/mixin.ts` | withFs() - add $.fs to DO classes |
+
 ## Next Steps
 
 - [gitx](/docs/primitives/gitx) - Version control built on fsx

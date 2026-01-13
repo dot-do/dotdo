@@ -1,5 +1,5 @@
 /**
- * Product & Variant Model Tests - TDD RED Phase
+ * Product & Variant Model Tests
  *
  * Tests for Product and Variant domain models providing:
  * - Product creation with validation
@@ -8,19 +8,21 @@
  * - SKU generation patterns
  * - Product-variant relationships
  * - Variant option validation against product options
+ * - Inventory per variant integration
+ * - Complex variant queries
  *
  * @module db/primitives/commerce/tests/product-variant
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   createProduct,
   createVariant,
+  createProductVariantStore,
   type ProductModel,
   type VariantModel,
-  type ProductOptions,
-  type VariantOptions,
-  type SKUPattern,
+  type ProductVariantStore,
 } from '../product-variant'
+import { createInventoryManager, type InventoryManager } from '../inventory'
 
 // =============================================================================
 // Product Model Tests
@@ -534,7 +536,16 @@ describe('VariantModel', () => {
       const variant1 = createVariant(product, {
         options: { Size: 'M', Color: 'Red' },
       })
-      const variant2 = createVariant(product, {
+      // Create a second product to test comparison across products
+      const product2 = createProduct({
+        name: 'Another T-Shirt',
+        basePrice: 2999,
+      })
+      product2.setOptions([
+        { name: 'Size', values: ['S', 'M', 'L'] },
+        { name: 'Color', values: ['Red', 'Blue'] },
+      ])
+      const variant2 = createVariant(product2, {
         options: { Size: 'M', Color: 'Red' },
       })
       const variant3 = createVariant(product, {
@@ -758,6 +769,734 @@ describe('Product-Variant Integration', () => {
 
       const defaultVariant = product.getDefaultVariant()
       expect(defaultVariant?.id).toBe(v2.id)
+    })
+  })
+})
+
+// =============================================================================
+// Inventory Per Variant Tests
+// =============================================================================
+
+describe('Inventory Per Variant', () => {
+  let inventory: InventoryManager
+  let product: ProductModel
+
+  beforeEach(async () => {
+    inventory = createInventoryManager()
+    product = createProduct({
+      name: 'T-Shirt with Inventory',
+      basePrice: 2999,
+    })
+    product.setOptions([
+      { name: 'Size', values: ['S', 'M', 'L', 'XL'] },
+      { name: 'Color', values: ['Red', 'Blue', 'Black'] },
+    ])
+  })
+
+  describe('stock per variant', () => {
+    it('should set and get stock for individual variants', async () => {
+      const variantSmallRed = product.addVariant({
+        options: { Size: 'S', Color: 'Red' },
+        sku: 'TSHIRT-S-RED',
+      })
+      const variantMediumBlue = product.addVariant({
+        options: { Size: 'M', Color: 'Blue' },
+        sku: 'TSHIRT-M-BLUE',
+      })
+
+      await inventory.setStock(variantSmallRed.id, 50)
+      await inventory.setStock(variantMediumBlue.id, 75)
+
+      expect(await inventory.getStock(variantSmallRed.id)).toBe(50)
+      expect(await inventory.getStock(variantMediumBlue.id)).toBe(75)
+    })
+
+    it('should track stock independently per variant', async () => {
+      const variants = product.createAllVariants({
+        skuPattern: 'TS-{Size}-{Color}',
+      })
+
+      // Set different stock levels for each size
+      for (const variant of variants) {
+        const baseStock =
+          variant.options.Size === 'S'
+            ? 100
+            : variant.options.Size === 'M'
+              ? 200
+              : variant.options.Size === 'L'
+                ? 150
+                : 50 // XL
+
+        await inventory.setStock(variant.id, baseStock)
+      }
+
+      // Verify each variant has independent stock
+      const smallVariants = variants.filter((v) => v.options.Size === 'S')
+      const mediumVariants = variants.filter((v) => v.options.Size === 'M')
+
+      for (const v of smallVariants) {
+        expect(await inventory.getStock(v.id)).toBe(100)
+      }
+      for (const v of mediumVariants) {
+        expect(await inventory.getStock(v.id)).toBe(200)
+      }
+    })
+
+    it('should allow selling down stock for specific variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'M', Color: 'Black' },
+      })
+
+      await inventory.setStock(variant.id, 100)
+      await inventory.adjustStock(variant.id, -25, 'Sale order #123')
+
+      expect(await inventory.getStock(variant.id)).toBe(75)
+    })
+
+    it('should prevent overselling a specific variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'L', Color: 'Red' },
+      })
+
+      await inventory.setStock(variant.id, 10)
+
+      await expect(
+        inventory.adjustStock(variant.id, -15, 'Over-sale attempt')
+      ).rejects.toThrow('Insufficient stock')
+    })
+  })
+
+  describe('variant availability', () => {
+    it('should check availability for single variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'M', Color: 'Blue' },
+      })
+
+      await inventory.setStock(variant.id, 25)
+
+      expect(await inventory.isAvailable(variant.id, 20)).toBe(true)
+      expect(await inventory.isAvailable(variant.id, 25)).toBe(true)
+      expect(await inventory.isAvailable(variant.id, 30)).toBe(false)
+    })
+
+    it('should check availability for multiple variants in cart', async () => {
+      const variant1 = product.addVariant({
+        options: { Size: 'S', Color: 'Red' },
+      })
+      const variant2 = product.addVariant({
+        options: { Size: 'M', Color: 'Blue' },
+      })
+      const variant3 = product.addVariant({
+        options: { Size: 'L', Color: 'Black' },
+      })
+
+      await inventory.setStock(variant1.id, 10)
+      await inventory.setStock(variant2.id, 5)
+      await inventory.setStock(variant3.id, 0)
+
+      const result = await inventory.checkAvailability([
+        { variantId: variant1.id, quantity: 5 },
+        { variantId: variant2.id, quantity: 5 },
+        { variantId: variant3.id, quantity: 1 },
+      ])
+
+      expect(result.available).toBe(false)
+      expect(result.items[0].available).toBe(true)
+      expect(result.items[1].available).toBe(true)
+      expect(result.items[2].available).toBe(false)
+    })
+
+    it('should return out of stock variants', async () => {
+      const variants = product.createAllVariants()
+
+      // Set some to zero stock
+      await inventory.setStock(variants[0].id, 0)
+      await inventory.setStock(variants[1].id, 0)
+      await inventory.setStock(variants[2].id, 50)
+
+      const outOfStock = await inventory.getOutOfStockItems()
+
+      expect(outOfStock.length).toBe(2)
+      expect(outOfStock.map((i) => i.variantId)).toContain(variants[0].id)
+      expect(outOfStock.map((i) => i.variantId)).toContain(variants[1].id)
+    })
+  })
+
+  describe('low stock alerts per variant', () => {
+    it('should set low stock threshold per variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'M', Color: 'Red' },
+      })
+
+      await inventory.setStock(variant.id, 100)
+      await inventory.setLowStockThreshold(variant.id, 20)
+
+      const level = await inventory.getInventoryLevel(variant.id)
+      expect(level.lowStockThreshold).toBe(20)
+    })
+
+    it('should trigger alert when variant stock drops below threshold', async () => {
+      const alertCallback = vi.fn()
+      inventory = createInventoryManager({ onLowStock: alertCallback })
+
+      const variant = product.addVariant({
+        options: { Size: 'XL', Color: 'Black' },
+      })
+
+      await inventory.setStock(variant.id, 50)
+      await inventory.setLowStockThreshold(variant.id, 15)
+
+      // Drop stock below threshold
+      await inventory.adjustStock(variant.id, -40, 'Big sale')
+
+      expect(alertCallback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variantId: variant.id,
+          currentStock: 10,
+          threshold: 15,
+        })
+      )
+    })
+
+    it('should identify all low stock variants', async () => {
+      const variants = product.createAllVariants()
+
+      // Set varied stock levels and thresholds
+      await inventory.setStock(variants[0].id, 5)
+      await inventory.setLowStockThreshold(variants[0].id, 10) // Low stock
+
+      await inventory.setStock(variants[1].id, 100)
+      await inventory.setLowStockThreshold(variants[1].id, 20) // Not low
+
+      await inventory.setStock(variants[2].id, 3)
+      await inventory.setLowStockThreshold(variants[2].id, 5) // Low stock
+
+      const lowStock = await inventory.getLowStockItems()
+
+      expect(lowStock.length).toBe(2)
+      expect(lowStock.map((i) => i.variantId)).toContain(variants[0].id)
+      expect(lowStock.map((i) => i.variantId)).toContain(variants[2].id)
+    })
+  })
+
+  describe('reservations per variant', () => {
+    it('should reserve stock for specific variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'L', Color: 'Blue' },
+      })
+
+      await inventory.setStock(variant.id, 50)
+
+      const reservation = await inventory.createReservation({
+        variantId: variant.id,
+        quantity: 10,
+        referenceId: 'cart-123',
+        referenceType: 'cart',
+      })
+
+      expect(reservation.variantId).toBe(variant.id)
+      expect(reservation.quantity).toBe(10)
+
+      const level = await inventory.getInventoryLevel(variant.id)
+      expect(level.onHand).toBe(50)
+      expect(level.reserved).toBe(10)
+      expect(level.available).toBe(40)
+    })
+
+    it('should handle multiple reservations across variants', async () => {
+      const variant1 = product.addVariant({
+        options: { Size: 'S', Color: 'Red' },
+      })
+      const variant2 = product.addVariant({
+        options: { Size: 'M', Color: 'Blue' },
+      })
+
+      await inventory.setStock(variant1.id, 30)
+      await inventory.setStock(variant2.id, 20)
+
+      const reservations = await inventory.createBulkReservation({
+        items: [
+          { variantId: variant1.id, quantity: 5 },
+          { variantId: variant2.id, quantity: 3 },
+        ],
+        referenceId: 'order-456',
+        referenceType: 'order',
+      })
+
+      expect(reservations).toHaveLength(2)
+
+      const level1 = await inventory.getInventoryLevel(variant1.id)
+      const level2 = await inventory.getInventoryLevel(variant2.id)
+
+      expect(level1.available).toBe(25)
+      expect(level2.available).toBe(17)
+    })
+
+    it('should confirm reservation and deduct stock for variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'M', Color: 'Black' },
+      })
+
+      await inventory.setStock(variant.id, 100)
+
+      const reservation = await inventory.createReservation({
+        variantId: variant.id,
+        quantity: 15,
+        referenceId: 'cart-789',
+        referenceType: 'cart',
+      })
+
+      await inventory.confirmReservation(reservation.id, 'order-999')
+
+      const level = await inventory.getInventoryLevel(variant.id)
+      expect(level.onHand).toBe(85)
+      expect(level.reserved).toBe(0)
+      expect(level.available).toBe(85)
+    })
+  })
+
+  describe('stock movements per variant', () => {
+    it('should track stock movements for individual variants', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'L', Color: 'Red' },
+      })
+
+      await inventory.setStock(variant.id, 100)
+      await inventory.adjustStock(variant.id, -20, 'Online sale')
+      await inventory.adjustStock(variant.id, 50, 'Restock')
+      await inventory.adjustStock(variant.id, -5, 'Return processed')
+
+      const movements = await inventory.getStockMovements(variant.id)
+
+      expect(movements.length).toBeGreaterThanOrEqual(3)
+      expect(movements.some((m) => m.reason === 'Online sale')).toBe(true)
+      expect(movements.some((m) => m.reason === 'Restock')).toBe(true)
+    })
+
+    it('should calculate historical stock for variant', async () => {
+      const variant = product.addVariant({
+        options: { Size: 'XL', Color: 'Blue' },
+      })
+
+      const startTime = new Date()
+      await inventory.setStock(variant.id, 100)
+
+      await new Promise((r) => setTimeout(r, 10))
+      await inventory.adjustStock(variant.id, -30, 'Sales')
+
+      await new Promise((r) => setTimeout(r, 10))
+      await inventory.adjustStock(variant.id, 20, 'Returns')
+
+      // Current stock should be 90
+      expect(await inventory.getStock(variant.id)).toBe(90)
+
+      // Historical stock at start
+      const historicalStock = await inventory.getStockAsOf(variant.id, startTime)
+      expect(historicalStock).toBeLessThanOrEqual(100)
+    })
+  })
+})
+
+// =============================================================================
+// Variant Query Tests
+// =============================================================================
+
+describe('Variant Queries', () => {
+  let product: ProductModel
+
+  beforeEach(() => {
+    product = createProduct({
+      name: 'Queryable Product',
+      basePrice: 4999,
+    })
+    product.setOptions([
+      { name: 'Size', values: ['XS', 'S', 'M', 'L', 'XL', 'XXL'] },
+      { name: 'Color', values: ['White', 'Black', 'Navy', 'Gray', 'Red'] },
+      { name: 'Material', values: ['Cotton', 'Polyester', 'Blend'] },
+    ])
+  })
+
+  describe('filtering variants', () => {
+    it('should find variants by single option value', () => {
+      product.createAllVariants()
+
+      const largeVariants = product.variants.filter((v) =>
+        v.matchesOptions({ Size: 'L' })
+      )
+
+      // 5 colors * 3 materials = 15 large variants
+      expect(largeVariants).toHaveLength(15)
+      expect(largeVariants.every((v) => v.options.Size === 'L')).toBe(true)
+    })
+
+    it('should find variants by multiple option values', () => {
+      product.createAllVariants()
+
+      const mediumCottonVariants = product.variants.filter((v) =>
+        v.matchesOptions({ Size: 'M', Material: 'Cotton' })
+      )
+
+      // 5 colors for M/Cotton
+      expect(mediumCottonVariants).toHaveLength(5)
+      expect(
+        mediumCottonVariants.every(
+          (v) => v.options.Size === 'M' && v.options.Material === 'Cotton'
+        )
+      ).toBe(true)
+    })
+
+    it('should find variants by color only', () => {
+      product.createAllVariants()
+
+      const blackVariants = product.variants.filter((v) =>
+        v.matchesOptions({ Color: 'Black' })
+      )
+
+      // 6 sizes * 3 materials = 18 black variants
+      expect(blackVariants).toHaveLength(18)
+    })
+
+    it('should find exact variant match', () => {
+      product.createAllVariants()
+
+      const exact = product.findVariant({
+        Size: 'M',
+        Color: 'Navy',
+        Material: 'Blend',
+      })
+
+      expect(exact).toBeDefined()
+      expect(exact?.options).toEqual({
+        Size: 'M',
+        Color: 'Navy',
+        Material: 'Blend',
+      })
+    })
+
+    it('should return undefined for non-existent combination', () => {
+      product.createAllVariants()
+
+      const notFound = product.findVariant({
+        Size: 'XXXL', // Not in options
+        Color: 'Black',
+        Material: 'Cotton',
+      })
+
+      expect(notFound).toBeUndefined()
+    })
+  })
+
+  describe('variant lookups', () => {
+    it('should find variant by SKU', () => {
+      product.createAllVariants({
+        skuPattern: 'PROD-{Size}-{Color}-{Material}',
+      })
+
+      const variant = product.variants.find(
+        (v) => v.sku === 'PROD-L-Navy-Blend'
+      )
+
+      expect(variant).toBeDefined()
+      expect(variant?.options.Size).toBe('L')
+      expect(variant?.options.Color).toBe('Navy')
+      expect(variant?.options.Material).toBe('Blend')
+    })
+
+    it('should find variant by ID', () => {
+      product.createAllVariants()
+      const firstVariant = product.variants[0]
+
+      const found = product.variants.find((v) => v.id === firstVariant.id)
+
+      expect(found).toBe(firstVariant)
+    })
+  })
+
+  describe('variant aggregations', () => {
+    it('should get available options for filtering', () => {
+      product.createAllVariants()
+
+      const availableSizes = new Set(product.variants.map((v) => v.options.Size))
+      const availableColors = new Set(product.variants.map((v) => v.options.Color))
+      const availableMaterials = new Set(product.variants.map((v) => v.options.Material))
+
+      expect(availableSizes.size).toBe(6)
+      expect(availableColors.size).toBe(5)
+      expect(availableMaterials.size).toBe(3)
+    })
+
+    it('should get available colors for a specific size', () => {
+      product.createAllVariants()
+
+      const xlVariants = product.variants.filter((v) => v.options.Size === 'XL')
+      const colorsForXL = new Set(xlVariants.map((v) => v.options.Color))
+
+      expect(colorsForXL.size).toBe(5) // All colors available in XL
+    })
+
+    it('should get available sizes for a specific color and material', () => {
+      product.createAllVariants()
+
+      const navyCottonVariants = product.variants.filter(
+        (v) => v.options.Color === 'Navy' && v.options.Material === 'Cotton'
+      )
+      const sizesAvailable = new Set(navyCottonVariants.map((v) => v.options.Size))
+
+      expect(sizesAvailable.size).toBe(6) // All sizes available in Navy/Cotton
+    })
+
+    it('should count variants per option value', () => {
+      product.createAllVariants()
+
+      const countBySize = new Map<string, number>()
+      for (const variant of product.variants) {
+        const size = variant.options.Size
+        countBySize.set(size, (countBySize.get(size) ?? 0) + 1)
+      }
+
+      // Each size should have: 5 colors * 3 materials = 15 variants
+      expect(countBySize.get('S')).toBe(15)
+      expect(countBySize.get('M')).toBe(15)
+      expect(countBySize.get('L')).toBe(15)
+    })
+  })
+
+  describe('price range queries', () => {
+    it('should get price range when variants have same price', () => {
+      product.createAllVariants()
+
+      const range = product.getPriceRange()
+
+      expect(range.min).toBe(4999)
+      expect(range.max).toBe(4999)
+    })
+
+    it('should get price range with varied variant prices', () => {
+      product.createAllVariants({
+        priceAdjustments: {
+          Size: {
+            XS: -500,
+            S: -250,
+            M: 0,
+            L: 250,
+            XL: 500,
+            XXL: 750,
+          },
+          Material: {
+            Cotton: 0,
+            Polyester: -200,
+            Blend: 300,
+          },
+        },
+      })
+
+      const range = product.getPriceRange()
+
+      // Min: base(4999) + XS(-500) + Polyester(-200) = 4299
+      // Max: base(4999) + XXL(750) + Blend(300) = 6049
+      expect(range.min).toBe(4299)
+      expect(range.max).toBe(6049)
+    })
+
+    it('should get variants in a price range', () => {
+      product.createAllVariants({
+        priceAdjustments: {
+          Size: { XS: -1000, XXL: 1000 },
+        },
+      })
+
+      // Find variants priced at base (4999) - no adjustments
+      const standardPriced = product.variants.filter((v) => {
+        const price = v.getEffectivePrice()
+        return price >= 4500 && price <= 5500
+      })
+
+      // All sizes except XS and XXL
+      expect(standardPriced.length).toBeGreaterThan(0)
+      expect(
+        standardPriced.every(
+          (v) => v.options.Size !== 'XS' && v.options.Size !== 'XXL'
+        )
+      ).toBe(true)
+    })
+  })
+})
+
+// =============================================================================
+// Product-Variant Store Integration Tests
+// =============================================================================
+
+describe('ProductVariantStore', () => {
+  let store: ProductVariantStore
+
+  beforeEach(() => {
+    store = createProductVariantStore()
+  })
+
+  describe('product management', () => {
+    it('should create and retrieve a product', async () => {
+      const product = await store.createProduct({
+        name: 'Store Test Product',
+        basePrice: 1999,
+      })
+
+      expect(product.id).toBeDefined()
+
+      const retrieved = await store.getProduct(product.id)
+      expect(retrieved?.name).toBe('Store Test Product')
+    })
+
+    it('should list all products', async () => {
+      await store.createProduct({ name: 'Product 1', basePrice: 1000 })
+      await store.createProduct({ name: 'Product 2', basePrice: 2000 })
+      await store.createProduct({ name: 'Product 3', basePrice: 3000 })
+
+      const products = await store.listProducts()
+
+      expect(products).toHaveLength(3)
+    })
+
+    it('should update a product', async () => {
+      const product = await store.createProduct({
+        name: 'Original Name',
+        basePrice: 1000,
+      })
+
+      const updated = await store.updateProduct(product.id, {
+        name: 'Updated Name',
+        basePrice: 1500,
+      })
+
+      expect(updated.name).toBe('Updated Name')
+      expect(updated.basePrice).toBe(1500)
+    })
+
+    it('should delete a product and its variants', async () => {
+      const product = await store.createProduct({
+        name: 'To Delete',
+        basePrice: 999,
+      })
+      await store.setProductOptions(product.id, [
+        { name: 'Size', values: ['S', 'M'] },
+      ])
+      await store.createVariantsFromOptions(product.id)
+
+      await store.deleteProduct(product.id)
+
+      const retrieved = await store.getProduct(product.id)
+      expect(retrieved).toBeNull()
+
+      const variants = await store.getVariantsByProduct(product.id)
+      expect(variants).toHaveLength(0)
+    })
+  })
+
+  describe('variant management', () => {
+    it('should create variants for a product', async () => {
+      const product = await store.createProduct({
+        name: 'Variant Product',
+        basePrice: 2499,
+      })
+      await store.setProductOptions(product.id, [
+        { name: 'Size', values: ['S', 'M', 'L'] },
+        { name: 'Color', values: ['Red', 'Blue'] },
+      ])
+
+      const variants = await store.createVariantsFromOptions(product.id)
+
+      expect(variants).toHaveLength(6)
+    })
+
+    it('should find variant by SKU across all products', async () => {
+      const product = await store.createProduct({
+        name: 'SKU Product',
+        basePrice: 1999,
+      })
+      await store.setProductOptions(product.id, [
+        { name: 'Size', values: ['M'] },
+      ])
+      await store.createVariantsFromOptions(product.id, {
+        skuPattern: 'UNIQUE-SKU-{Size}',
+      })
+
+      const variant = await store.findVariantBySku('UNIQUE-SKU-M')
+
+      expect(variant).toBeDefined()
+      expect(variant?.options.Size).toBe('M')
+    })
+
+    it('should get variant with product details', async () => {
+      const product = await store.createProduct({
+        name: 'Detail Product',
+        basePrice: 3999,
+      })
+      await store.setProductOptions(product.id, [
+        { name: 'Size', values: ['L'] },
+      ])
+      const variants = await store.createVariantsFromOptions(product.id)
+
+      const variantWithProduct = await store.getVariantWithProduct(variants[0].id)
+
+      expect(variantWithProduct?.variant.id).toBe(variants[0].id)
+      expect(variantWithProduct?.product.name).toBe('Detail Product')
+    })
+  })
+
+  describe('cross-product queries', () => {
+    it('should find variants by option across products', async () => {
+      const product1 = await store.createProduct({
+        name: 'T-Shirt',
+        basePrice: 2999,
+      })
+      const product2 = await store.createProduct({
+        name: 'Hoodie',
+        basePrice: 5999,
+      })
+
+      await store.setProductOptions(product1.id, [
+        { name: 'Size', values: ['S', 'M', 'L'] },
+      ])
+      await store.setProductOptions(product2.id, [
+        { name: 'Size', values: ['M', 'L', 'XL'] },
+      ])
+
+      await store.createVariantsFromOptions(product1.id)
+      await store.createVariantsFromOptions(product2.id)
+
+      const mediumVariants = await store.findVariantsByOption('Size', 'M')
+
+      expect(mediumVariants).toHaveLength(2) // One from each product
+    })
+
+    it('should get all variants in a price range', async () => {
+      const product = await store.createProduct({
+        name: 'Price Range Product',
+        basePrice: 5000,
+      })
+      await store.setProductOptions(product.id, [
+        { name: 'Tier', values: ['Basic', 'Premium', 'Elite'] },
+      ])
+      await store.createVariantsFromOptions(product.id, {
+        priceAdjustments: {
+          Tier: {
+            Basic: -2000,
+            Premium: 0,
+            Elite: 3000,
+          },
+        },
+      })
+
+      const midPriceVariants = await store.findVariantsInPriceRange(4000, 6000)
+
+      // Basic (3000) excluded, Premium (5000) included, Elite (8000) excluded
+      expect(midPriceVariants).toHaveLength(1)
+      expect(
+        midPriceVariants.every((v) => {
+          const price = v.getEffectivePrice()
+          return price >= 4000 && price <= 6000
+        })
+      ).toBe(true)
+      expect(midPriceVariants[0].options.Tier).toBe('Premium')
     })
   })
 })

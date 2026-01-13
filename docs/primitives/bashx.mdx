@@ -375,6 +375,23 @@ class BuildAgent extends withBash(withFs(DO), {
 4. **Sandboxing** - Container execution is isolated
 5. **Resource Limits** - Timeouts prevent runaway processes
 
+## Technical Details
+
+For implementation details, architecture decisions, and contributor documentation:
+
+- **[bashx README](https://github.com/dotdo/dotdo/blob/main/primitives/bashx/README.md)** - Package documentation with 1,400+ tests, AST-based safety analysis using tree-sitter-bash WASM, tiered execution model, MCP integration, and core library (@dotdo/bashx)
+- **[bashx CLAUDE.md](https://github.com/dotdo/dotdo/blob/main/primitives/bashx/CLAUDE.md)** - Developer guidance for working with the bashx codebase
+
+### Key Implementation Files
+
+| Directory | Purpose |
+|-----------|---------|
+| `src/ast/` | AST parsing and analysis (tree-sitter WASM) |
+| `src/mcp/` | MCP tool definition (single `bash` tool) |
+| `core/safety/` | Safety analysis, classification, intent extraction |
+| `core/escape/` | Shell escaping utilities (POSIX-compliant) |
+| `core/classify/` | Input classification (command vs natural language) |
+
 ## Next Steps
 
 - [fsx](/docs/primitives/fsx) - Filesystem used by native operations

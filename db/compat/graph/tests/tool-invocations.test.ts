@@ -686,8 +686,10 @@ describe('Tool Invocation Tracking as Relationships', () => {
       })
 
       // Cannot go directly from invoke to invoked (must go through invoking)
+      // Note: transitionVerb() enforces strict state machine rules
+      // complete() auto-transitions for convenience
       await expect(
-        graph.complete(invocation.id, { output: {} })
+        graph.transitionVerb(invocation.id, 'invoked')
       ).rejects.toThrow('Invalid verb transition: invoke -> invoked')
 
       // Cannot go backwards

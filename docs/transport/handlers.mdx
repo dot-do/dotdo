@@ -1,0 +1,676 @@
+---
+title: Handler Reference
+description: Quick reference for all transport handlers - REST, RPC, MCP, Sync, and Auth
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Handler Reference
+
+Quick reference for all transport handlers in `objects/transport/`.
+
+## Handler Chain
+
+```typescript
+import { HandlerChain, createHandlerContext } from 'dotdo/transport'
+
+const chain = new HandlerChain({ debug: true })
+  .use(authHandler, 100)
+  .use(mcpHandler, 50)
+  .use(rpcHandler, 40)
+  .use(restHandler, 30)
+
+// In DO fetch()
+async fetch(request: Request): Promise<Response> {
+  return chain.handle(request, createHandlerContext({
+    env: this.env,
+    ctx: this.ctx,
+    state: this.state,
+    instance: this,
+  }))
+}
+```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `use(handler, priority)` | Add handler to chain |
+| `remove(handler)` | Remove handler |
+| `setEnabled(handler, bool)` | Enable/disable handler |
+| `getHandlers()` | List all handlers |
+| `handle(request, context)` | Process request |
+| `clearCaches()` | Clear handler selection cache |
+| `dispose()` | Clean up all handlers |
+
+---
+
+## REST Handler
+
+```typescript
+import { RestHandler } from 'dotdo/transport'
+
+chain.use(new RestHandler(), 30)
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | HATEOAS index |
+| GET | `/:type` | List collection |
+| GET | `/:type/:id` | Get item |
+| GET | `/:type/:id/edit` | Edit UI (HTML) |
+| POST | `/:type` | Create item |
+| PUT | `/:type/:id` | Replace item |
+| PATCH | `/:type/:id` | Merge update |
+| DELETE | `/:type/:id` | Delete item |
+
+### Query Parameters
+
+```bash
+GET /customers?limit=10&offset=20
+GET /customers?after=cust-100
+```
+
+### Standalone Functions
+
+```typescript
+import {
+  handleRestRequest,
+  handleGetIndex,
+  handleListByType,
+  handleGetById,
+  handleCreate,
+  handleUpdate,
+  handleDelete,
+  parseRestRoute,
+} from 'dotdo/transport'
+
+// Full router
+const response = await handleRestRequest(request, {
+  things: this.things,
+  ns: this.ns,
+  nouns: this.nouns,
+})
+
+// Individual handlers
+const index = await handleGetIndex(ctx, request)
+const items = await handleListByType(ctx, 'Customer', { limit: 10 }, request)
+const item = await handleGetById(ctx, 'Customer', 'cust-123', request)
+```
+
+### Response Formatters
+
+```typescript
+import {
+  formatThingAsJsonLd,
+  formatCollectionAsJsonLd,
+  generateIndex,
+} from 'dotdo/transport'
+
+// Single item
+const item = formatThingAsJsonLd(thing, ns, { includeLinksActions: true })
+
+// Collection
+const collection = formatCollectionAsJsonLd(things, 'Customer', ns, {
+  totalCount: 100,
+  pagination: { after: 'cust-50', hasNext: true },
+})
+
+// Index
+const index = generateIndex(ns, nouns, { parent: parentNs, collectionCounts })
+```
+
+---
+
+## RPC Handler
+
+```typescript
+import { RpcHandler, RPCServer } from 'dotdo/transport'
+
+chain.use(new RpcHandler({ maxPipelineDepth: 20 }), 40)
+```
+
+### Endpoints
+
+| Protocol | Path | Transport |
+|----------|------|-----------|
+| JSON-RPC 2.0 | `/rpc` | HTTP POST |
+| Cap'n Web | `/rpc` | HTTP POST |
+| Chain RPC | `/rpc` | HTTP POST |
+| WebSocket | `/rpc` | WebSocket upgrade |
+
+### JSON-RPC Example
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "Customer.create",
+  "params": { "name": "Acme" }
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": { "$id": "cust-123", "name": "Acme" }
+}
+```
+
+### Collection Methods
+
+```
+{Noun}.create  - Create item
+{Noun}.update  - Update item
+{Noun}.delete  - Delete item
+{Noun}.get     - Get by ID
+{Noun}.list    - List items
+{Noun}.find    - Query items
+```
+
+### Standalone Functions
+
+```typescript
+import {
+  RPCServer,
+  createRpcHandler,
+  handleRpcRequest,
+  handleWebSocketRpc,
+  withRpcServer,
+  applyRpcIntegration,
+} from 'dotdo/transport'
+
+// Create server
+const server = new RPCServer(doInstance, {
+  maxPipelineDepth: 20,
+  exposedMethods: ['getUser', 'createUser'],
+  blockedMethods: ['internalMethod'],
+})
+
+// HTTP request
+const response = await server.handleRpcRequest(request)
+
+// WebSocket
+const response = server.handleWebSocketRpc()
+
+// Get exposed methods
+const methods = server.methods
+```
+
+### Mixin Pattern
+
+```typescript
+import { withRpcServer } from 'dotdo/transport'
+
+class MyDO extends withRpcServer(DOBase, { maxPipelineDepth: 30 }) {
+  // rpcServer property available
+  // /rpc endpoint auto-handled
+}
+```
+
+---
+
+## MCP Handler
+
+```typescript
+import { McpHandler } from 'dotdo/transport'
+
+chain.use(new McpHandler({ path: '/mcp' }), 50)
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/mcp` | JSON-RPC requests |
+| GET | `/mcp` | SSE notification stream |
+| DELETE | `/mcp` | Terminate session |
+
+### Configuration
+
+```typescript
+class MyDO extends DO {
+  static $mcp = {
+    tools: {
+      search: {
+        description: 'Search items',
+        inputSchema: {
+          query: { type: 'string', description: 'Search query' },
+          limit: { type: 'number', description: 'Max results' },
+        },
+        required: ['query'],
+      },
+    },
+    resources: ['items', 'users'],
+  }
+
+  search(query: string, limit?: number) { /* ... */ }
+  getItems() { return this.items }
+  getUsers() { return this.users }
+}
+```
+
+### MCP Methods
+
+| Method | Description |
+|--------|-------------|
+| `initialize` | Start session |
+| `ping` | Health check |
+| `tools/list` | List tools |
+| `tools/call` | Invoke tool |
+| `resources/list` | List resources |
+| `resources/read` | Read resource |
+| `prompts/list` | List prompts |
+
+### Standalone Functions
+
+```typescript
+import {
+  McpHandler,
+  createMcpHandler,
+  getMcpTools,
+  getMcpResources,
+  hasMcpConfig,
+  attachMcpHandler,
+} from 'dotdo/transport'
+
+// Get tools from class
+const tools = getMcpTools(MyDO)
+// [{ name: 'search', description: '...', inputSchema: {...} }]
+
+// Get resources
+const resources = getMcpResources(MyDO, 'https://example.com')
+// [{ uri: 'do://example.com/items', name: 'items', mimeType: 'application/json' }]
+
+// Check for config
+if (hasMcpConfig(MyDO)) {
+  // MCP is configured
+}
+
+// Create handler manually
+const handler = createMcpHandler(MyDO)
+const response = await handler(instance, request, sessions)
+```
+
+---
+
+## Auth Handler
+
+```typescript
+import { AuthHandler } from 'dotdo/transport'
+
+chain.use(new AuthHandler({
+  jwtSecret: env.JWT_SECRET,
+  jwtIssuer: 'https://auth.example.com',
+}), 100)
+```
+
+### Static Configuration
+
+```typescript
+class MyDO extends DO {
+  static $auth = {
+    list: { public: true },
+    get: { public: true },
+    create: { requireAuth: true },
+    update: { requireAuth: true, roles: ['editor'] },
+    delete: { requireAuth: true, roles: ['admin'] },
+    processPayment: {
+      requireAuth: true,
+      permissions: ['payments:write'],
+      rateLimit: { requests: 10, window: '1m' },
+    },
+  }
+}
+```
+
+### Standalone Functions
+
+```typescript
+import {
+  AuthHandler,
+  createAuthMiddleware,
+  withAuth,
+  validateToken,
+  checkPermission,
+  checkRole,
+  createRateLimiter,
+  validateRequestSignature,
+  createInMemorySessionStorage,
+} from 'dotdo/transport'
+
+// Validate JWT
+const result = await validateToken(token, { secret, issuer })
+// { valid: true, claims: { sub: 'user-123', ... } }
+
+// Check role
+const hasRole = checkRole(authContext, ['admin', 'editor'])
+
+// Check permission
+const canWrite = checkPermission(authContext, 'orders:write')
+
+// Rate limiter
+const limiter = createRateLimiter({ requests: 100, window: '1m' })
+const allowed = await limiter.check(userId)
+```
+
+---
+
+## Sync Engine
+
+```typescript
+import { SyncEngine } from 'dotdo/transport'
+
+const syncEngine = new SyncEngine(this.things)
+syncEngine.startHeartbeat()
+```
+
+### WebSocket Messages
+
+**Client to Server:**
+
+| Type | Description |
+|------|-------------|
+| `subscribe` | Subscribe to collection |
+| `unsubscribe` | Unsubscribe |
+| `pong` | Heartbeat response |
+
+**Server to Client:**
+
+| Type | Description |
+|------|-------------|
+| `ping` | Heartbeat |
+| `initial` | Full collection state |
+| `insert` | Item created |
+| `update` | Item modified |
+| `delete` | Item removed |
+
+### Methods
+
+```typescript
+// Accept WebSocket connection
+syncEngine.accept(socket, user?)
+
+// Subscribe to collection
+syncEngine.subscribe(socket, 'Task', 'main', { limit: 100 })
+
+// Unsubscribe
+syncEngine.unsubscribe(socket, 'Task', 'main')
+
+// Send initial state
+await syncEngine.sendInitialState(socket, 'Task', 'main', { limit: 100 })
+
+// Broadcast changes
+syncEngine.onThingCreated(thing, rowid)
+syncEngine.onThingUpdated(thing, rowid)
+syncEngine.onThingDeleted('Task', 'task-123', 'main', rowid)
+
+// Metrics
+const metrics = syncEngine.getMetrics()
+// { activeConnections: 42, subscriptionsByCollection: Map, totalSubscriptions: 42 }
+
+// Connection state events
+const unsubscribe = syncEngine.onConnectionState((event) => {
+  console.log(event.type, event.socketId)
+})
+
+// Cleanup
+syncEngine.stopHeartbeat()
+```
+
+---
+
+## Cap'n Web Target
+
+```typescript
+import { handleCapnWebRpc, createCapnWebTarget, isCapnWebRequest } from 'dotdo/transport'
+
+// Handle at root endpoint
+async fetch(request: Request): Promise<Response> {
+  const url = new URL(request.url)
+
+  if (url.pathname === '/' && isCapnWebRequest(request)) {
+    return handleCapnWebRpc(request, this, {
+      includeStackTraces: process.env.NODE_ENV !== 'production',
+    })
+  }
+
+  // ... other handlers
+}
+```
+
+### Functions
+
+| Function | Description |
+|----------|-------------|
+| `handleCapnWebRpc(request, instance, options)` | Handle Cap'n Web request |
+| `createCapnWebTarget(instance)` | Create filtered proxy |
+| `isCapnWebRequest(request)` | Check if Cap'n Web request |
+| `isInternalMember(name)` | Check if method is internal |
+
+---
+
+## Shared Utilities
+
+```typescript
+import {
+  parseJsonBody,
+  parseJsonBodyOrThrow,
+  buildJsonResponse,
+  buildErrorResponse,
+  buildStreamingResponse,
+  mapErrorToStatus,
+  logRequest,
+  createRequestTimer,
+  validateSchema,
+  getCachedSchema,
+  extractPathParams,
+  parseQueryParams,
+  parseAcceptHeader,
+  getBestContentType,
+} from 'dotdo/transport'
+```
+
+### Request Parsing
+
+```typescript
+// Safe parse (returns result object)
+const { success, data, error, status } = await parseJsonBody(request)
+
+// Throws on error
+const data = await parseJsonBodyOrThrow(request)
+
+// Extract path params
+const params = extractPathParams('/users/:id', '/users/123')
+// { id: '123' }
+
+// Parse query string
+const query = parseQueryParams(request)
+// { limit: '10', offset: '0' }
+```
+
+### Response Building
+
+```typescript
+// JSON response
+return buildJsonResponse(data, {
+  status: 200,
+  headers: { 'X-Custom': 'value' },
+})
+
+// Error response
+return buildErrorResponse(
+  { message: 'Not found', code: 'NOT_FOUND' },
+  404,
+  { debug: true }
+)
+
+// Streaming response
+return buildStreamingResponse(readableStream, {
+  contentType: 'text/event-stream',
+})
+```
+
+### Schema Validation
+
+```typescript
+const schema = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    age: { type: 'number' },
+  },
+  required: ['name'],
+}
+
+const result = validateSchema(data, schema)
+// { valid: true } or { valid: false, errors: [...] }
+```
+
+### Content Negotiation
+
+```typescript
+const accept = parseAcceptHeader(request.headers.get('Accept'))
+// ['application/json', 'text/html']
+
+const contentType = getBestContentType(accept, ['application/json', 'text/html'])
+// 'application/json'
+```
+
+---
+
+## Handler Chain Builder
+
+```typescript
+import { HandlerChainBuilder, wrapWithMiddleware } from 'dotdo/transport'
+
+const chain = HandlerChainBuilder.create()
+  .withDebug(true)
+  .withLogger(console)
+  .withTimeout(30000)
+  .withCaching(true)
+  .withAuth(authHandler)
+  .use(mcpHandler, 50)
+  .use(rpcHandler, 40)
+  .use(restHandler, 30)
+  .withFallback(async (req) => new Response('Not Found', { status: 404 }))
+  .build()
+```
+
+### Middleware Wrapping
+
+```typescript
+// Wrap handler with middleware
+const protectedRest = wrapWithMiddleware(authHandler, restHandler)
+chain.use(protectedRest, 30)
+```
+
+---
+
+## Context Creation
+
+```typescript
+import { createHandlerContext, discoverMethods } from 'dotdo/transport'
+
+// Auto-discover methods
+const methods = discoverMethods(doInstance, {
+  blockedMethods: new Set(['internal']),
+  includePrivate: false,
+})
+
+// Create context
+const context = createHandlerContext({
+  env: this.env,
+  ctx: this.ctx,
+  state: this.state,
+  instance: this,
+  methods,
+})
+```
+
+---
+
+## Types
+
+```typescript
+import type {
+  // Handler interface
+  TransportHandler,
+  WrappableHandler,
+  MiddlewareHandler,
+
+  // Context types
+  HandlerContext,
+  AuthContext,
+  MethodInfo,
+  HandlerOptions,
+  Logger,
+
+  // Result types
+  CanHandleResult,
+  HandlerResponse,
+
+  // Cloudflare types
+  ExecutionContext,
+  DurableObjectState,
+  DurableObjectId,
+  DurableObjectStorage,
+
+  // Shared types
+  ParseJsonResult,
+  JsonResponseOptions,
+  TransportError,
+  RequestLog,
+  JsonSchema,
+  ValidationResult,
+
+  // REST types
+  RestRouterContext,
+  JsonLdResponse,
+  CollectionResponse,
+  IndexResponse,
+  ParsedRoute,
+
+  // RPC types
+  RPCRequest,
+  RPCResponse,
+  RPCCall,
+  RPCTarget,
+  RPCArg,
+  RPCResult,
+  RPCError,
+  JSONRPCRequest,
+  JSONRPCResponse,
+  ChainRpcRequest,
+  ChainRpcResponse,
+  RpcHandlerOptions,
+
+  // MCP types
+  McpTool,
+  McpResource,
+  McpSession,
+  McpConfig,
+  McpHandlerOptions,
+
+  // Sync types
+  SyncThing,
+  SubscribeMessage,
+  UnsubscribeMessage,
+  InitialMessage,
+  ChangeMessage,
+  ConnectionMetrics,
+  ConnectionStateEvent,
+
+  // Auth types
+  AuthHandlerOptions,
+  MethodAuthConfig,
+  AuthResult,
+  ApiKeyInfo,
+  SessionStorage,
+  SessionData,
+  RateLimitConfig,
+} from 'dotdo/transport'
+```

@@ -4,24 +4,535 @@ description: AI-powered autonomous worker with tools, memory, and goal-seeking c
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
 
 # Agent
 
 The `Agent` class extends [Worker](/docs/objects/worker) with AI capabilities: tool registration, memory management, and autonomous goal-seeking execution loops. Agents can work independently, use tools, remember past interactions, and pursue complex goals.
 
-## Overview
-
-```
-Worker
-   |
-Agent
-```
-
 <Callout type="info">
-Agents are AI workers that can operate autonomously. They observe their environment, think about actions, and execute tools to achieve goals. Use `mode: 'supervised'` to require human approval for high-stakes actions.
+dotdo provides two complementary agent systems: the **DO Agent** class (Durable Object-based, for persistent stateful agents) and the **Agent SDK** (provider-agnostic, for flexible AI agent orchestration). This documentation covers both.
 </Callout>
 
-## Basic Usage
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      dotdo Agent System                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────┐    ┌─────────────────────────────┐ │
+│  │   DO Agent Class    │    │       Agent SDK             │ │
+│  │   (objects/Agent)   │    │    (agents/ module)         │ │
+│  ├─────────────────────┤    ├─────────────────────────────┤ │
+│  │ • Durable Object    │    │ • Provider-agnostic         │ │
+│  │ • Persistent state  │    │ • Multi-step loops          │ │
+│  │ • SQLite storage    │    │ • Named agents (priya, etc) │ │
+│  │ • Goal-seeking loop │    │ • Streaming support         │ │
+│  │ • Tool execution    │    │ • Cost tracking             │ │
+│  └─────────────────────┘    └─────────────────────────────┘ │
+│           │                           │                     │
+│           └───────────┬───────────────┘                     │
+│                       ▼                                     │
+│           ┌─────────────────────┐                           │
+│           │   Unified Memory    │                           │
+│           │  (Graph-backed)     │                           │
+│           └─────────────────────┘                           │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Quick Start with Named Agents
+
+The fastest way to use agents is with the pre-built named agents:
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+// Template literal syntax for natural language invocation
+const spec = await priya`define the MVP for ${hypothesis}`
+let app = await ralph`build ${spec}`
+
+// Iterative refinement loop
+do {
+  app = await ralph`improve ${app} per ${tom}`
+} while (!await tom.approve(app))
+
+// Launch and sell
+await mark`announce the launch of ${app}`
+await sally`start selling to ${targetCustomers}`
+```
+
+## Named Agent Personas
+
+dotdo includes ten pre-configured agent personas, each with specialized capabilities:
+
+| Agent | Role | Capabilities |
+|-------|------|--------------|
+| **Priya** | Product Manager | Specs, roadmaps, MVP definition, user stories |
+| **Ralph** | Software Engineer | Builds code, implements features, refactoring |
+| **Tom** | Tech Lead | Architecture, code review, technical decisions |
+| **Mark** | Marketing Lead | Content, launches, announcements, brand voice |
+| **Sally** | Sales Lead | Outreach, pitches, objection handling, closing |
+| **Quinn** | QA Lead | Testing, quality assurance, bug finding |
+| **Rae** | Frontend Engineer | React/Next.js, Tailwind CSS, design systems |
+| **Casey** | Customer Success | Onboarding, retention, customer advocacy |
+| **Finn** | Finance Lead | Budgets, forecasting, financial analysis |
+| **Dana** | Data Analyst | Analytics, metrics, data-driven insights |
+
+### Using Named Agents
+
+```typescript
+import { priya, ralph, tom, rae, finn, dana } from 'agents.do'
+
+// Product specification
+const spec = await priya`
+  Define the MVP for a customer feedback system:
+  - User persona: ${persona}
+  - Problem statement: ${problem}
+  - Success metrics: ${metrics}
+`
+
+// Implementation
+const code = await ralph`implement ${spec.features[0]}`
+
+// Code review with approval
+const review = await tom.approve(code)
+if (!review.approved) {
+  console.log('Feedback:', review.feedback)
+}
+
+// Frontend UI
+const dashboard = await rae`
+  Create a dashboard component showing:
+  - Customer satisfaction score
+  - Recent feedback items
+  - Trend charts
+`
+
+// Financial analysis
+const budget = await finn`
+  Estimate the budget for ${spec}:
+  - Development costs
+  - Infrastructure costs
+  - 12-month runway
+`
+
+// Data analysis
+const insights = await dana`
+  Analyze the user engagement data:
+  ${engagementData}
+`
+```
+
+### Typed Agent Results
+
+Use Zod schemas to get structured, type-safe output:
+
+```typescript
+import { priya } from 'agents.do'
+import { z } from 'zod'
+
+const SpecSchema = z.object({
+  features: z.array(z.string()),
+  timeline: z.string(),
+  cost: z.number(),
+  risks: z.array(z.object({
+    description: z.string(),
+    mitigation: z.string(),
+  })),
+})
+
+// Type-safe invocation
+const spec = await priya.as(SpecSchema)`define MVP for ${hypothesis}`
+
+// spec.content is typed: { features: string[], timeline: string, cost: number, ... }
+console.log(spec.content.features)
+console.log(spec.content.cost)
+```
+
+### Configuring Named Agents
+
+```typescript
+import { ralph, createNamedAgent, PERSONAS, createVercelProvider } from 'agents.do'
+
+// Configure with custom settings
+const customRalph = ralph.withConfig({
+  temperature: 0.7,
+  maxTokens: 8000,
+  model: 'claude-opus-4-5-20250514',
+})
+
+// Use a different provider
+const provider = createVercelProvider()
+const vercelRalph = ralph.withProvider(provider)
+
+// Create a custom named agent
+import { persona } from 'agents.do'
+
+const alex = createNamedAgent(
+  persona('Alex', 'engineering')
+    .withDescription('Backend specialist')
+    .addCapabilities(
+      'Optimize database queries',
+      'Design microservices',
+      'Implement caching strategies'
+    )
+    .build()
+)
+
+const backend = await alex`design the API for ${spec}`
+```
+
+## Agent SDK (Provider-Agnostic)
+
+The Agent SDK provides a unified abstraction over multiple AI providers:
+
+### Supported Providers
+
+| Provider | Models | Features |
+|----------|--------|----------|
+| **Vercel AI SDK** | GPT-4, Claude, etc | stopWhen, prepareStep |
+| **Claude (Anthropic)** | Claude 3.5/4 | subagents, hooks, MCP |
+| **OpenAI** | GPT-4o, o1 | handoffs, Responses API |
+| **Devin (Cognition)** | Devin | sessions, attachments |
+| **Vapi/LiveKit** | Various | voice agents, STT/TTS |
+
+### Creating Agents with Providers
+
+```typescript
+import { createProvider, tool, stepCountIs } from './agents'
+import { z } from 'zod'
+
+// Create a provider
+const provider = createProvider('vercel')
+
+// Define tools
+const weatherTool = tool({
+  name: 'getWeather',
+  description: 'Get weather for a location',
+  inputSchema: z.object({
+    location: z.string(),
+    unit: z.enum(['celsius', 'fahrenheit']).default('celsius'),
+  }),
+  execute: async ({ location, unit }) => {
+    // Fetch weather data...
+    return { temperature: 22, condition: 'sunny' }
+  },
+})
+
+// Create an agent
+const agent = provider.createAgent({
+  id: 'weather-agent',
+  name: 'Weather Agent',
+  instructions: 'You help users with weather information.',
+  model: 'gpt-4o',
+  tools: [weatherTool],
+  stopWhen: stepCountIs(5),
+})
+
+// Run the agent
+const result = await agent.run({
+  prompt: 'What is the weather in San Francisco?',
+})
+
+console.log(result.text)
+```
+
+### Streaming Responses
+
+```typescript
+const stream = agent.stream({ prompt: 'Tell me about the weather' })
+
+for await (const event of stream) {
+  if (event.type === 'text-delta') {
+    process.stdout.write(event.data.textDelta)
+  }
+}
+
+// Or await final result
+const result = await stream.result
+```
+
+## Tool System
+
+### Defining Tools
+
+Tools extend agent capabilities with type-safe schemas:
+
+```typescript
+import { tool } from './agents'
+import { z } from 'zod'
+
+const searchTool = tool({
+  name: 'searchKnowledge',
+  description: 'Search the knowledge base for relevant information',
+  inputSchema: z.object({
+    query: z.string().describe('Search query'),
+    limit: z.number().default(5).describe('Max results'),
+    filters: z.object({
+      category: z.string().optional(),
+      dateRange: z.enum(['day', 'week', 'month', 'all']).default('all'),
+    }).optional(),
+  }),
+  outputSchema: z.object({
+    results: z.array(z.object({
+      title: z.string(),
+      snippet: z.string(),
+      relevance: z.number(),
+    })),
+    totalCount: z.number(),
+  }),
+  execute: async ({ query, limit, filters }, context) => {
+    // Access abort signal for cancellation
+    if (context.abortSignal?.aborted) {
+      throw new Error('Search cancelled')
+    }
+
+    const results = await knowledgeBase.search(query, { limit, ...filters })
+    return { results, totalCount: results.length }
+  },
+})
+```
+
+### Built-in Tool Factories
+
+```typescript
+import {
+  createDelegationTool,
+  createHandoffTool,
+  createFinishTool,
+  createEscalationTool,
+} from './agents'
+
+// Delegation to subagents (Claude pattern)
+const delegateTool = createDelegationTool(async (prompt, agentId) => {
+  const subagent = spawnSubagent(agentId)
+  return subagent.run(prompt)
+})
+
+// Handoff to other agents (OpenAI pattern)
+const handoffTool = createHandoffTool(
+  [
+    { id: 'sales', name: 'Sally', description: 'Sales specialist' },
+    { id: 'support', name: 'Casey', description: 'Customer success' },
+  ],
+  async (agentId, reason) => {
+    await transferConversation(agentId, reason)
+  }
+)
+
+// Signal task completion
+const finishTool = createFinishTool()
+
+// Human escalation
+const escalateTool = createEscalationTool(async (question, context) => {
+  return await requestHumanApproval(question, context)
+})
+```
+
+### Tool Result Caching
+
+```typescript
+import { createToolCache, cacheable, withCaching } from './agents'
+
+// Create a cache
+const cache = createToolCache({
+  maxSize: 1000,
+  ttlMs: 5 * 60 * 1000, // 5 minutes
+})
+
+// Wrap a tool with caching
+const cachedWeatherTool = cacheable(weatherTool, cache, {
+  ttlMs: 60 * 1000, // Cache weather for 1 minute
+})
+
+// Or use hooks for automatic caching
+const agentWithCache = withCaching(agent, cache)
+```
+
+## Memory Management
+
+### Unified Memory System
+
+dotdo consolidates multiple memory approaches into a graph-backed system:
+
+```typescript
+import {
+  createGraphMemory,
+  createInMemoryAgentMemory,
+  toConversationMemory,
+} from './agents'
+
+// Graph-backed memory (production)
+const graphMemory = createGraphMemory({
+  store: graphStore,
+  agentId: 'agent-123',
+  sessionId: 'session-456',
+  maxMessages: 100,
+  embedder: async (text) => embeddings.create(text),
+})
+
+// In-memory (testing)
+const testMemory = createInMemoryAgentMemory()
+
+// ConversationMemory adapter (backwards compatibility)
+const conversationMemory = toConversationMemory(graphMemory)
+```
+
+### Memory Types
+
+| Type | Purpose | Retention |
+|------|---------|-----------|
+| `short-term` | Temporary context | May be pruned aggressively |
+| `long-term` | Important facts | Preserved across sessions |
+| `episodic` | Event sequences | Temporal context |
+| `semantic` | Extracted knowledge | Facts and patterns |
+
+### Storing and Retrieving Memories
+
+```typescript
+// Store a memory
+const memory = await agentMemory.remember(
+  'Customer prefers email communication over phone',
+  {
+    type: 'long-term',
+    metadata: { customerId: 'cust-123', source: 'support-ticket' },
+  }
+)
+
+// Get recent memories
+const recent = await agentMemory.getRecentMemories(10, 'short-term')
+
+// Search memories
+const relevant = await agentMemory.searchMemories('communication preferences', {
+  type: 'long-term',
+  limit: 5,
+  since: new Date('2024-01-01'),
+})
+
+// Link related memories
+await agentMemory.linkMemories(memory1.id, memory2.id, 'relates-to')
+
+// Get related memories
+const related = await agentMemory.getRelatedMemories(memory.id, 'relates-to')
+```
+
+### Conversation Memory
+
+For managing conversation context with sliding windows:
+
+```typescript
+import { createConversationMemory, withMemory, createLLMSummarizer } from './agents'
+
+// Create memory with summarization
+const memory = createConversationMemory({
+  maxMessages: 50,
+  maxTokens: 8000,
+  windowStrategy: 'summarize',
+  summarizeThreshold: 4000,
+  preserveSystemMessages: true,
+})
+
+// Set up LLM-based summarization
+const summarizer = createLLMSummarizer(agent, {
+  maxSummaryTokens: 500,
+})
+memory.setSummarizer(summarizer)
+
+// Wrap agent with memory
+const agentWithMemory = withMemory(agent, memory)
+
+// Run with automatic context management
+await agentWithMemory.runWithMemory({ prompt: 'Hello!' })
+await agentWithMemory.runWithMemory({ prompt: 'What did I just say?' })
+```
+
+## Goal-Seeking Execution Loop
+
+The Agent SDK implements the Think-Act-Observe pattern:
+
+<Steps>
+  <Step>
+    **Think (Plan)**: LLM generates a response, possibly with tool calls
+  </Step>
+  <Step>
+    **Act (Execute)**: Execute any requested tools
+  </Step>
+  <Step>
+    **Observe (Process)**: Process results, update context, decide to continue or stop
+  </Step>
+</Steps>
+
+### AgentLoop Class
+
+```typescript
+import { AgentLoop, createAgentLoop, stepCountIs, hasToolCall } from './agents'
+
+const loop = createAgentLoop({
+  generate: async (messages, tools) => {
+    return llm.complete({ messages, tools })
+  },
+  tools: [searchTool, writeTool],
+  maxSteps: 10,
+  stopWhen: stepCountIs(5),
+  hooks: {
+    onStepStart: async (stepNumber, state) => {
+      console.log(`Starting step ${stepNumber}`)
+    },
+    onStepFinish: async (step, stepNumber) => {
+      console.log(`Completed step ${stepNumber}:`, step.text)
+    },
+    onPreToolUse: async (toolCall) => {
+      // Approve, deny, or modify tool calls
+      if (toolCall.name === 'dangerous-tool') {
+        return { action: 'deny', reason: 'Not allowed' }
+      }
+      return { action: 'allow' }
+    },
+  },
+})
+
+// Run to completion
+const result = await loop.run({
+  prompt: 'Research and write a report on AI',
+})
+
+// Or stream events
+for await (const event of loop.stream({ prompt: 'Hello' })) {
+  console.log(event.type, event)
+}
+```
+
+### Stop Conditions
+
+```typescript
+import { stepCountIs, hasToolCall, hasText, customStop, all, any, not } from './agents'
+
+// Stop after N steps
+stopWhen: stepCountIs(10)
+
+// Stop when a specific tool is called
+stopWhen: hasToolCall('finish')
+
+// Stop when text response is generated
+stopWhen: hasText()
+
+// Custom condition
+stopWhen: customStop((state) => {
+  return state.totalTokens > 50000
+})
+
+// Combine conditions
+stopWhen: all(stepCountIs(10), hasText())
+stopWhen: any(hasToolCall('finish'), stepCountIs(20))
+stopWhen: not(hasToolCall('continue'))
+```
+
+## DO Agent Class (Durable Object)
+
+For persistent, stateful agents that live on the edge:
 
 ```typescript
 import { Agent, Tool, Goal } from 'dotdo'
@@ -29,14 +540,16 @@ import { Agent, Tool, Goal } from 'dotdo'
 class SupportAgent extends Agent {
   static override readonly $type = 'SupportAgent'
 
+  protected mode: 'autonomous' | 'supervised' | 'manual' = 'autonomous'
+
   async onStart() {
-    // Register tools the agent can use
+    // Register tools
     this.registerTool({
       name: 'send-email',
       description: 'Send an email to a customer',
       parameters: { to: 'string', subject: 'string', body: 'string' },
       handler: async (input) => {
-        const { to, subject, body } = input as { to: string; subject: string; body: string }
+        const { to, subject, body } = input as any
         await this.emailService.send(to, subject, body)
         return { sent: true }
       },
@@ -47,414 +560,235 @@ class SupportAgent extends Agent {
       description: 'Look up order details by ID',
       parameters: { orderId: 'string' },
       handler: async (input) => {
-        const { orderId } = input as { orderId: string }
+        const { orderId } = input as any
         return this.things.get(orderId)
       },
     })
   }
-}
-```
 
-## Operating Modes
-
-Agents inherit three modes from Worker:
-
-| Mode | Behavior |
-|------|----------|
-| `autonomous` | Agent auto-approves actions and works independently |
-| `supervised` | Agent requires periodic human review |
-| `manual` | Agent requires human approval for each action |
-
-```typescript
-// Set mode on initialization
-class CautionAgent extends Agent {
-  protected mode: 'autonomous' | 'supervised' | 'manual' = 'supervised'
-}
-
-// Or change at runtime
-agent.setMode('autonomous')
-```
-
-## Tool System
-
-### Registering Tools
-
-```typescript
-interface Tool {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  handler: (input: unknown) => Promise<unknown>
-}
-
-this.registerTool({
-  name: 'search-knowledge',
-  description: 'Search the knowledge base for relevant information',
-  parameters: {
-    query: { type: 'string', description: 'Search query' },
-    limit: { type: 'number', description: 'Max results', default: 5 },
-  },
-  handler: async (input) => {
-    const { query, limit } = input as { query: string; limit?: number }
-    return this.search.query(query, { limit: limit || 5 })
-  },
-})
-```
-
-### Getting Available Tools
-
-```typescript
-const tools = this.getTools()
-// tools: Tool[]
-```
-
-### Executing Tools
-
-```typescript
-const result = await this.executeTool('send-email', {
-  to: 'customer@example.com',
-  subject: 'Order Update',
-  body: 'Your order has shipped!',
-})
-```
-
-Events emitted:
-- `tool.executed` with `{ name, input }`
-
-## Goal-Seeking Execution
-
-The `run()` method implements an observe-think-act loop for autonomous goal pursuit:
-
-```typescript
-interface Goal {
-  id: string
-  description: string
-  constraints?: string[]
-  maxIterations?: number
-}
-
-interface GoalResult {
-  success: boolean
-  result?: unknown
-  iterations: number
-  actions: string[]
-}
-
-// Run a goal
-const result = await agent.run({
-  id: 'resolve-ticket-123',
-  description: 'Resolve support ticket #123',
-  constraints: ['Do not refund more than $100', 'Escalate if customer is angry'],
-  maxIterations: 10,
-})
-```
-
-### The OTA Loop
-
-1. **Observe**: Gather current state and relevant memories
-2. **Think**: Decide what action to take (or complete the goal)
-3. **Act**: Execute the chosen action using available tools
-
-```typescript
-// Override for custom observation logic
-protected async observe(goal: Goal): Promise<Record<string, unknown>> {
-  const memories = await this.getRecentMemories(5)
-  const ticket = await this.things.get(goal.id)
-  return {
-    goal: goal.description,
-    memories: memories.map(m => m.content),
-    tools: this.getTools().map(t => t.name),
-    ticketStatus: ticket?.status,
-    customerSentiment: ticket?.sentiment,
-  }
-}
-
-// Override for custom thinking logic
-protected async think(
-  goal: Goal,
-  observation: Record<string, unknown>,
-  previousActions: string[]
-): Promise<{ type: 'action' | 'complete'; description: string; tool?: string; input?: unknown; result?: unknown }> {
-  // Use AI to decide next action
-  const decision = await this.$.ai.decide({
-    goal: goal.description,
-    observation,
-    previousActions,
-    availableTools: this.getTools(),
-  })
-
-  if (decision.goalComplete) {
-    return { type: 'complete', description: 'Goal achieved', result: decision.result }
-  }
-
-  return {
-    type: 'action',
-    description: decision.reasoning,
-    tool: decision.toolName,
-    input: decision.toolInput,
-  }
-}
-
-// Override for custom action execution
-protected async act(action: { tool?: string; input?: unknown; description: string }): Promise<void> {
-  if (action.tool) {
-    await this.executeTool(action.tool, action.input)
-  }
-  await this.emit('action.executed', { action })
-}
-```
-
-Events emitted during `run()`:
-- `goal.started` with `{ goal }`
-- `step.started` with `{ stepName }`
-- `step.completed` with `{ stepName, output }`
-- `goal.completed` with `{ goal, result, iterations }`
-- `goal.failed` with `{ goal, reason, iterations }` (if max iterations reached)
-
-## Memory System
-
-Agents have built-in memory for context retention:
-
-### Memory Types
-
-| Type | Purpose |
-|------|---------|
-| `short-term` | Recent interactions, current context |
-| `long-term` | Important facts, learned patterns |
-| `episodic` | Specific event sequences |
-
-### Storing Memories
-
-```typescript
-interface Memory {
-  id: string
-  type: 'short-term' | 'long-term' | 'episodic'
-  content: string
-  embedding?: number[]
-  createdAt: Date
-}
-
-// Remember something
-const memory = await agent.remember('Customer prefers email over phone', 'long-term')
-```
-
-### Retrieving Memories
-
-```typescript
-// Get recent memories (most recent first)
-const recent = await agent.getRecentMemories(10)
-
-// Search memories by content
-const relevant = await agent.searchMemories('refund policy')
-```
-
-## Worker Interface
-
-Agent implements all Worker interface methods:
-
-```typescript
-// Execute tasks (uses run() internally)
-protected async executeTask(task: Task, context?: Context): Promise<unknown> {
-  return this.run({
-    id: task.id,
-    description: task.description,
-    maxIterations: 10,
-  })
-}
-
-// Generate answers using memories
-protected async generateAnswer(question: string, context?: Context): Promise<Answer> {
-  const memories = await this.searchMemories(question)
-  return {
-    text: `Agent answer to: ${question}`,
-    sources: memories.map(m => m.id),
-  }
-}
-
-// Make decisions (stub - override with AI)
-protected async makeDecision(question: string, options: Option[], context?: Context): Promise<Decision> {
-  // Use AI to select best option
-  return {
-    selectedOption: options[0]!,
-    reasoning: 'Selected based on AI analysis',
-  }
-}
-
-// Process approvals (auto-approve in autonomous mode)
-protected async processApproval(request: ApprovalRequest): Promise<ApprovalResult> {
-  if (this.mode === 'autonomous') {
-    return {
-      approved: true,
-      approver: this.ctx.id.toString(),
-      approvedAt: new Date(),
-    }
-  }
-  return {
-    approved: false,
-    approver: this.ctx.id.toString(),
-    reason: 'Requires human approval',
+  // Run autonomous goal
+  async handleTicket(ticketId: string) {
+    return this.run({
+      id: `resolve-${ticketId}`,
+      description: `Resolve support ticket ${ticketId}`,
+      constraints: ['Do not refund more than $100'],
+      maxIterations: 10,
+    })
   }
 }
 ```
 
-## Example: Complete Agent
+### Using Unified Memory in DO Agent
 
 ```typescript
-import { Agent, Tool, Goal, GoalResult } from 'dotdo'
+import { Agent } from 'dotdo'
+import { createGraphMemory } from './agents'
 
-class CustomerSuccessAgent extends Agent {
-  static override readonly $type = 'CustomerSuccessAgent'
-
+class MemoryAgent extends Agent {
   async onStart() {
-    // Register tools
-    this.registerTool({
-      name: 'get-customer',
-      description: 'Get customer details',
-      parameters: { customerId: 'string' },
-      handler: async (input) => {
-        const { customerId } = input as { customerId: string }
-        return this.things.get(customerId)
-      },
-    })
-
-    this.registerTool({
-      name: 'send-message',
-      description: 'Send a message to customer',
-      parameters: { customerId: 'string', message: 'string', channel: 'string' },
-      handler: async (input) => {
-        const { customerId, message, channel } = input as any
-        await this.notify(message, [{ type: channel, target: customerId }])
-        return { sent: true }
-      },
-    })
-
-    this.registerTool({
-      name: 'create-ticket',
-      description: 'Create a support ticket',
-      parameters: { customerId: 'string', issue: 'string', priority: 'string' },
-      handler: async (input) => {
-        return this.things.create({ type: 'ticket', ...input })
-      },
-    })
-
-    // Subscribe to events
-    this.$.on.Customer.churned(async (event) => {
-      await this.run({
-        id: `win-back-${event.data.customerId}`,
-        description: `Win back churned customer ${event.data.customerId}`,
-        maxIterations: 5,
-      })
-    })
+    // Enable unified memory system
+    this.setMemory(createGraphMemory({
+      store: this.graphStore,
+      agentId: this.ctx.id.toString(),
+    }))
   }
 
-  // Custom observation for customer success goals
-  protected override async observe(goal: Goal): Promise<Record<string, unknown>> {
-    const memories = await this.getRecentMemories(5)
-    const customerId = goal.id.replace('win-back-', '')
-    const customer = await this.things.get(customerId)
-    const interactions = await this.rels.list({ from: customerId, verb: 'interacted' })
-
-    return {
-      goal: goal.description,
-      memories: memories.map(m => m.content),
-      tools: this.getTools().map(t => t.name),
-      customer,
-      recentInteractions: interactions.slice(0, 5),
-    }
+  async handleQuery(query: string) {
+    // Memory operations now use graph storage
+    await this.remember('User asked about pricing', 'short-term')
+    const relevant = await this.searchMemories(query)
+    return this.generateResponse(query, relevant)
   }
+}
+```
 
-  // Custom thinking with AI
-  protected override async think(
-    goal: Goal,
-    observation: Record<string, unknown>,
-    previousActions: string[]
-  ) {
-    // In production, use AI to decide
-    const customer = observation.customer as any
+## Cost Tracking
 
-    if (!customer) {
-      return { type: 'complete' as const, description: 'Customer not found', result: { success: false } }
-    }
+Monitor and control AI spending:
 
-    if (previousActions.length === 0) {
-      return {
-        type: 'action' as const,
-        description: 'Send personalized win-back message',
-        tool: 'send-message',
-        input: {
-          customerId: customer.id,
-          message: `Hi ${customer.name}, we miss you! Here's a special offer...`,
-          channel: 'email',
-        },
+```typescript
+import { createCostTracker, withCostTracking, BudgetExceededError } from './agents'
+
+const tracker = createCostTracker({
+  budget: {
+    daily: 100,  // $100/day
+    monthly: 2000,
+  },
+})
+
+// Track usage
+tracker.recordUsage({
+  model: 'gpt-4o',
+  promptTokens: 1000,
+  completionTokens: 500,
+})
+
+// Get stats
+const stats = tracker.getStats()
+console.log(`Total cost: $${stats.totalCost.toFixed(2)}`)
+console.log(`Budget remaining: $${stats.remainingBudget?.toFixed(2)}`)
+
+// Wrap agent with cost tracking
+const trackedAgent = withCostTracking(agent, tracker)
+
+try {
+  await trackedAgent.run({ prompt: 'Expensive query' })
+} catch (error) {
+  if (error instanceof BudgetExceededError) {
+    console.log('Budget exceeded:', error.message)
+  }
+}
+```
+
+## Agent-to-Agent Communication
+
+Enable agents to collaborate:
+
+```typescript
+import { createMessageBus, createGraphMessageBus } from './agents'
+
+// Create message bus
+const bus = createMessageBus({
+  maxMessageSize: 1024 * 1024, // 1MB
+  deliveryTimeout: 30000,
+})
+
+// Register agents
+bus.register('priya')
+bus.register('ralph')
+
+// Send messages
+await bus.send({
+  from: 'priya',
+  to: 'ralph',
+  type: 'task',
+  payload: { task: 'implement auth', spec: specData },
+})
+
+// Subscribe to messages
+bus.subscribe('ralph', async (message) => {
+  if (message.type === 'task') {
+    const result = await ralph`${message.payload.task}`
+    await bus.reply(message, { result })
+  }
+})
+
+// Request-response pattern
+const response = await bus.request({
+  from: 'priya',
+  to: 'ralph',
+  type: 'estimate',
+  payload: { feature: 'auth system' },
+}, { timeout: 60000 })
+```
+
+## Testing Agents
+
+```typescript
+import {
+  createMockProvider,
+  createMockTool,
+  mockResponses,
+  fixtures,
+  expectAgentResult,
+  enableMockMode,
+} from './agents'
+
+describe('SupportAgent', () => {
+  beforeAll(() => {
+    enableMockMode()
+  })
+
+  it('should resolve simple tickets', async () => {
+    const provider = createMockProvider({
+      responses: [
+        fixtures.textResponse('I will help resolve this ticket'),
+        fixtures.toolCall('send-email', { to: 'customer@example.com' }),
+        fixtures.textResponse('Ticket resolved successfully'),
+      ],
+    })
+
+    const agent = provider.createAgent(supportAgentConfig)
+    const result = await agent.run({ prompt: 'Resolve ticket #123' })
+
+    expectAgentResult(result, {
+      containsText: 'resolved',
+      hasToolCalls: ['send-email'],
+      finishReason: 'stop',
+    })
+  })
+})
+```
+
+## Integration Patterns
+
+### With Workflows
+
+```typescript
+import { $ } from 'dotdo'
+import { ralph, tom } from 'agents.do'
+
+// Event-driven agent execution
+$.on.Feature.requested(async (event) => {
+  const { featureId, description } = event.data
+
+  // Build the feature
+  const code = await ralph`implement ${description}`
+
+  // Review it
+  const review = await tom.approve(code)
+
+  if (review.approved) {
+    await $.do.Feature(featureId).complete({ code })
+  } else {
+    await $.do.Feature(featureId).requestChanges({ feedback: review.feedback })
+  }
+})
+```
+
+### With Human Escalation
+
+```typescript
+import { legal, ceo } from 'humans.do'
+import { sally } from 'agents.do'
+
+class SalesWorkflow {
+  async negotiateDeal(dealId: string, terms: DealTerms) {
+    // Agent handles initial negotiation
+    const proposal = await sally`
+      Create a proposal for deal ${dealId}
+      Terms: ${JSON.stringify(terms)}
+    `
+
+    // Human approval for large deals
+    if (terms.value > 100000) {
+      const approved = await ceo`approve the $${terms.value} deal`
+      if (!approved) {
+        return { status: 'rejected' }
       }
     }
 
-    return {
-      type: 'complete' as const,
-      description: 'Win-back campaign initiated',
-      result: { success: true, actionsCompleted: previousActions.length },
+    // Legal review for contracts
+    if (terms.requiresContract) {
+      await legal`review contract for ${dealId}`
     }
+
+    return { status: 'approved', proposal }
   }
-}
-```
-
-## Types
-
-### Tool
-
-```typescript
-interface Tool {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  handler: (input: unknown) => Promise<unknown>
-}
-```
-
-### Goal
-
-```typescript
-interface Goal {
-  id: string
-  description: string
-  constraints?: string[]
-  maxIterations?: number
-}
-```
-
-### GoalResult
-
-```typescript
-interface GoalResult {
-  success: boolean
-  result?: unknown
-  iterations: number
-  actions: string[]
-}
-```
-
-### Memory
-
-```typescript
-interface Memory {
-  id: string
-  type: 'short-term' | 'long-term' | 'episodic'
-  content: string
-  embedding?: number[]
-  createdAt: Date
 }
 ```
 
 ## API Reference
 
-### Properties
+### DO Agent Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `$type` | `'Agent'` | Type discriminator |
-| `mode` | `WorkerMode` | Operating mode (inherited) |
+| `mode` | `WorkerMode` | Operating mode |
+| `unifiedMemory` | `AgentMemory?` | Graph-backed memory (if set) |
 
-### Methods
+### DO Agent Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -462,13 +796,62 @@ interface Memory {
 | `getTools()` | `Tool[]` | Get available tools |
 | `executeTool(name, input)` | `Promise<unknown>` | Execute a tool |
 | `run(goal)` | `Promise<GoalResult>` | Run goal-seeking loop |
+| `setMemory(memory)` | `void` | Set unified memory system |
 | `remember(content, type?)` | `Promise<Memory>` | Store a memory |
 | `getRecentMemories(limit?)` | `Promise<Memory[]>` | Get recent memories |
 | `searchMemories(query)` | `Promise<Memory[]>` | Search memories |
+
+### Named Agent Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `` `prompt` `` | `Promise<string>` | Template literal invocation |
+| `withConfig(config)` | `NamedAgent` | Create with custom config |
+| `withProvider(provider)` | `NamedAgent` | Use different provider |
+| `approve(input)` | `Promise<ApprovalResult>` | Review and approve (Tom, Quinn) |
+| `as(schema)` | `TypedTemplateLiteral` | Typed output invocation |
+| `invoke(schema, prompt)` | `Promise<AgentResult>` | Direct typed invocation |
+| `stream` | `StreamTemplate` | Streaming template literal |
+| `reset()` | `void` | Clear conversation context |
+
+### Agent SDK Types
+
+```typescript
+interface Agent {
+  readonly config: AgentConfig
+  readonly provider: AgentProvider
+  run(input: AgentInput): Promise<AgentResult>
+  stream(input: AgentInput): AgentStreamResult
+  spawnSubagent?(task: SubagentTask): Promise<SubagentResult>
+  handoff?(request: HandoffRequest): Promise<AgentResult>
+}
+
+interface AgentResult {
+  text: string
+  toolCalls: ToolCall[]
+  toolResults: ToolResult[]
+  messages: Message[]
+  steps: number
+  finishReason: 'stop' | 'tool_calls' | 'max_steps' | 'error' | 'cancelled'
+  usage: TokenUsage
+}
+
+interface AgentMemory {
+  addMessage(message: Message): Promise<void>
+  getMessages(): Message[]
+  remember(content: string, options?: StoreMemoryOptions): Promise<MemoryThing>
+  getRecentMemories(limit?: number, type?: MemoryType): Promise<MemoryThing[]>
+  searchMemories(query: string, options?: MemorySearchOptions): Promise<MemoryThing[]>
+  linkMemories(fromId: string, toId: string, verb: string): Promise<void>
+  getStats(): Promise<MemoryStats>
+}
+```
 
 ## See Also
 
 - [Worker](/docs/objects/worker) - Base worker class
 - [Human](/docs/objects/human) - Human worker with approvals
-- [Named Agents](/docs/agents/named) - Pre-configured agent personas
+- [Named Agents](/docs/agents/named-agents) - Pre-configured agent personas
+- [Custom Agents](/docs/agents/custom-agents) - Building custom agents
 - [Tools](/docs/agents/tools) - Building custom tools
+- [Workflows](/docs/workflows) - Event-driven orchestration

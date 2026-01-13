@@ -1,15 +1,92 @@
 /**
  * ShardedPostgres - Distributed Postgres across Durable Objects
  *
- * Provides consistent hashing-based sharding for EdgePostgres, enabling:
- * - Distribution across up to 1000 shards (10TB total)
- * - Automatic shard key extraction from queries
- * - Cross-shard query fan-out with parallel execution
- * - Result merging with ORDER BY, LIMIT, GROUP BY support
- * - Single-shard transactions (multi-shard not supported)
- * - Rebalancing with minimal data movement using virtual nodes
+ * Provides consistent hashing-based sharding for EdgePostgres, enabling horizontal
+ * scaling beyond single Durable Object limits. Each shard is an independent DO
+ * with its own EdgePostgres instance, providing up to 10TB total capacity.
+ *
+ * ## Overview
+ *
+ * ShardedPostgres automatically routes queries to the correct shard based on a
+ * shard key column. Queries without a shard key are fanned out to all shards
+ * with results merged (supporting ORDER BY, LIMIT, GROUP BY, aggregates).
+ *
+ * ## Features
+ *
+ * - **Horizontal scaling**: Up to 1000 shards (10TB total capacity)
+ * - **Automatic routing**: Shard key extraction from INSERT/SELECT/UPDATE/DELETE
+ * - **Query fan-out**: Parallel execution across shards for global queries
+ * - **Result merging**: ORDER BY, LIMIT, GROUP BY, DISTINCT, aggregates
+ * - **Single-shard transactions**: ACID within a shard (cross-shard not supported)
+ * - **Online rebalancing**: Add/remove shards with minimal data movement
+ *
+ * ## Sharding Algorithms
+ *
+ * | Algorithm   | Best For                     | Rebalance Impact |
+ * |-------------|------------------------------|------------------|
+ * | consistent  | General purpose (default)    | ~1/N data moves  |
+ * | range       | Range queries on shard key   | Varies           |
+ * | hash        | Maximum throughput           | 100% data moves  |
+ *
+ * ## Architecture
+ *
+ * ```
+ *                    ┌─────────────────────┐
+ *                    │   ShardedPostgres   │
+ *                    │   (Coordinator DO)  │
+ *                    └──────────┬──────────┘
+ *                               │
+ *          ┌────────────────────┼────────────────────┐
+ *          │                    │                    │
+ *          ▼                    ▼                    ▼
+ *    ┌───────────┐        ┌───────────┐        ┌───────────┐
+ *    │  Shard 0  │        │  Shard 1  │        │  Shard N  │
+ *    │(DO + PG)  │        │(DO + PG)  │   ...  │(DO + PG)  │
+ *    └───────────┘        └───────────┘        └───────────┘
+ * ```
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * const db = new ShardedPostgres(ctx, env, {
+ *   sharding: {
+ *     key: 'tenant_id',
+ *     count: 16,
+ *     algorithm: 'consistent',
+ *   },
+ * })
+ *
+ * // Single-shard query (fast, routed to one shard)
+ * await db.query(
+ *   'SELECT * FROM orders WHERE tenant_id = $1',
+ *   ['tenant-123']
+ * )
+ *
+ * // Fan-out query (parallel execution across all shards)
+ * await db.query(
+ *   'SELECT COUNT(*) as total FROM orders WHERE status = $1',
+ *   ['pending']
+ * )
+ *
+ * // DDL executes on all shards
+ * await db.exec('CREATE TABLE orders (id TEXT, tenant_id TEXT, ...)')
+ *
+ * // Transaction (single shard only)
+ * await db.transaction('tenant-123', async (tx) => {
+ *   await tx.query('UPDATE accounts SET balance = balance - 100 WHERE id = $1', [from])
+ *   await tx.query('UPDATE accounts SET balance = balance + 100 WHERE id = $1', [to])
+ * })
+ * ```
+ *
+ * ## Limitations
+ *
+ * - Cross-shard transactions not supported (use saga pattern)
+ * - Cross-shard JOINs not supported (denormalize or use fan-out)
+ * - Shard key must be included in queries for efficient routing
  *
  * @module db/edge-postgres/sharding
+ * @see {@link EdgePostgres} for single-instance Postgres
+ * @see {@link ShardRouter} for the routing algorithm implementation
  */
 
 import { EdgePostgres, type QueryOptions, type QueryResult, type Transaction } from './edge-postgres'
@@ -29,22 +106,74 @@ export type ShardingAlgorithm = 'consistent' | 'range' | 'hash'
 export type HashFunction = 'xxhash' | 'murmur3' | 'fnv1a'
 
 /**
- * Sharding configuration
+ * Sharding configuration options.
+ *
+ * Defines how data is distributed across shards, including the shard key,
+ * number of shards, and routing algorithm.
+ *
+ * @example
+ * ```typescript
+ * // Simple single-column sharding
+ * const options: ShardingOptions = {
+ *   key: 'tenant_id',
+ *   count: 16,
+ *   algorithm: 'consistent',
+ * }
+ *
+ * // Compound shard key
+ * const compoundOptions: ShardingOptions = {
+ *   key: ['region', 'customer_id'],
+ *   count: 64,
+ *   algorithm: 'consistent',
+ *   strictMode: true,  // Require shard key in all queries
+ * }
+ * ```
  */
 export interface ShardingOptions {
-  /** Column(s) to shard on */
+  /**
+   * Column(s) to use as the shard key.
+   * For compound keys, values are concatenated with ':' separator.
+   * @example 'tenant_id' or ['region', 'customer_id']
+   */
   key: string | string[]
-  /** Number of shards (1-1000) */
+  /**
+   * Number of shards to create.
+   * Higher counts enable more parallelism but increase coordination overhead.
+   * @minimum 1
+   * @maximum 1000
+   */
   count: number
-  /** Sharding algorithm */
+  /**
+   * Algorithm for mapping shard keys to shards.
+   * - 'consistent': Best for online rebalancing (default)
+   * - 'range': Best for range queries on shard key
+   * - 'hash': Simplest, but poor rebalancing
+   */
   algorithm: ShardingAlgorithm
-  /** Virtual nodes per shard for consistent hashing (default: 150) */
+  /**
+   * Number of virtual nodes per physical shard for consistent hashing.
+   * Higher values provide better load distribution but increase memory.
+   * @default 150
+   */
   virtualNodesPerShard?: number
-  /** Hash function for consistent hashing (default: fnv1a) */
+  /**
+   * Hash function for key-to-shard mapping.
+   * - 'fnv1a': Fast, good distribution (default)
+   * - 'xxhash': Very fast, excellent distribution
+   * - 'murmur3': Standard choice, good distribution
+   * @default 'fnv1a'
+   */
   hashFunction?: HashFunction
-  /** DO namespace binding name (default: EDGE_POSTGRES_SHARDS) */
+  /**
+   * Cloudflare Worker binding name for the shard DO namespace.
+   * @default 'EDGE_POSTGRES_SHARDS'
+   */
   namespaceBinding?: string
-  /** Strict mode - require shard key in all queries */
+  /**
+   * If true, queries without shard key throw an error instead of fan-out.
+   * Useful for preventing accidental expensive queries.
+   * @default false
+   */
   strictMode?: boolean
 }
 
@@ -213,10 +342,50 @@ interface VirtualNode {
 }
 
 /**
- * ShardRouter - Consistent hashing with virtual nodes
+ * ShardRouter - Consistent hashing with virtual nodes.
  *
- * Provides deterministic routing of keys to shards with minimal redistribution
- * when shards are added or removed.
+ * Implements the consistent hashing algorithm for deterministic key-to-shard
+ * mapping. Uses virtual nodes to ensure even distribution and minimize data
+ * movement during rebalancing.
+ *
+ * ## How It Works
+ *
+ * 1. Each physical shard is represented by multiple "virtual nodes" on a hash ring
+ * 2. Keys are hashed and mapped to the nearest virtual node clockwise
+ * 3. The virtual node points to its physical shard
+ *
+ * ## Benefits of Virtual Nodes
+ *
+ * - **Even distribution**: More points on the ring = better balance
+ * - **Smooth rebalancing**: Adding a shard only affects ~1/N of keys
+ * - **Hotspot prevention**: Virtual nodes spread load across ring
+ *
+ * ## Ring Size Calculation
+ *
+ * With 16 shards and 150 virtual nodes per shard:
+ * - Ring has 2,400 virtual nodes
+ * - Binary search: O(log 2400) = ~11 comparisons per lookup
+ * - Memory: ~50KB for the ring
+ *
+ * @example
+ * ```typescript
+ * const router = new ShardRouter({
+ *   count: 16,
+ *   algorithm: 'consistent',
+ *   virtualNodesPerShard: 150,
+ *   hashFunction: 'fnv1a',
+ * })
+ *
+ * // Get shard for a key
+ * const shardId = router.getShardForKey('tenant-123')
+ *
+ * // Get all shards (for fan-out)
+ * const allShards = router.getAllShards()
+ *
+ * // Calculate rebalance impact
+ * const movement = router.calculateRebalanceMovement(24)
+ * console.log(`Adding 8 shards will move ${movement.estimatedDataMovementPercent}% of data`)
+ * ```
  */
 export class ShardRouter {
   private shardCount: number
@@ -727,10 +896,68 @@ function hasDistinct(sql: string): boolean {
 // ============================================================================
 
 /**
- * ShardedPostgres - Distributed Postgres for Durable Objects
+ * ShardedPostgres - Distributed Postgres for Durable Objects.
  *
- * Wraps multiple EdgePostgres instances across DOs with automatic routing,
- * query fan-out, and result merging.
+ * Main class for sharded Postgres operations. Coordinates queries across
+ * multiple EdgePostgres shard instances, handling routing, fan-out,
+ * and result merging transparently.
+ *
+ * ## Query Routing
+ *
+ * Queries are routed based on shard key presence:
+ *
+ * 1. **Single-shard query**: Shard key found in WHERE/INSERT
+ *    - Routed directly to target shard
+ *    - Fastest path, no coordination
+ *
+ * 2. **Multi-shard query (IN clause)**: Multiple shard keys
+ *    - Parallel execution on affected shards only
+ *    - Results merged before return
+ *
+ * 3. **Fan-out query**: No shard key
+ *    - Parallel execution on ALL shards
+ *    - Results merged with ORDER BY/LIMIT/GROUP BY support
+ *
+ * ## Supported SQL Features
+ *
+ * - SELECT with WHERE, ORDER BY, LIMIT, OFFSET
+ * - INSERT/UPDATE/DELETE with shard key
+ * - Aggregates: COUNT, SUM, AVG, MIN, MAX
+ * - GROUP BY with aggregates
+ * - DISTINCT
+ * - DDL (CREATE TABLE, etc.) - executes on all shards
+ *
+ * @example
+ * ```typescript
+ * const db = new ShardedPostgres(ctx, env, {
+ *   sharding: {
+ *     key: 'tenant_id',
+ *     count: 16,
+ *     algorithm: 'consistent',
+ *   },
+ *   queryTimeout: 30000,
+ *   allowPartialResults: false,
+ * })
+ *
+ * // Create schema on all shards
+ * await db.exec(`CREATE TABLE orders (
+ *   id TEXT PRIMARY KEY,
+ *   tenant_id TEXT NOT NULL,
+ *   amount DECIMAL
+ * )`)
+ *
+ * // Routed query (single shard)
+ * const orders = await db.query(
+ *   'SELECT * FROM orders WHERE tenant_id = $1',
+ *   ['t-123']
+ * )
+ *
+ * // Fan-out aggregation
+ * const totals = await db.query(
+ *   'SELECT tenant_id, SUM(amount) as total FROM orders GROUP BY tenant_id',
+ *   []
+ * )
+ * ```
  */
 export class ShardedPostgres {
   private ctx: DOState

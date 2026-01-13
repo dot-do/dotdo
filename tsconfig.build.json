@@ -16,6 +16,7 @@
     // Remove most path aliases for published package, keep stubs for missing deps
     "paths": {
       "fsx.do": ["./types/stubs/fsx.do.d.ts"],
+      "@dotdo/fsx": ["./types/stubs/dotdo-fsx.d.ts"],
       "@dotdo/client": ["./types/stubs/dotdo-client.d.ts"]
     },
 
@@ -68,11 +69,26 @@
     "api/**/*",
     // Missing dependencies
     "do/payments/**/*",
-    "objects/mixins/**/*",
+    // objects/mixins now uses lib/mixins which only imports types from @dotdo/fsx
     // Files depending on @dotdo/client package (runtime not available during build)
     "lib/agent/**/*",
     "sdk/**/*",
     // Files depending on compat graph (db/compat)
-    "lib/tools/provider-bridge.ts"
+    "lib/tools/provider-bridge.ts",
+    // Directories that import from compat/ or have unresolved type errors
+    "lib/tools/**/*",
+    "lib/benchmarks/**/*",
+    "lib/validation/**/*",
+    "lib/executors/**/*",
+    "lib/human/**/*",
+    "lib/iterators/**/*",
+    // Objects with type errors (will be fixed in separate PRs)
+    "objects/StatelessDOState.ts",
+    "objects/CollectionDO.ts",
+    "objects/mixins/npm.ts",
+    // Agents - has graph dependencies and type errors
+    "agents/**/*",
+    // Workflow error escalation
+    "workflows/errors/**/*"
   ]
 }

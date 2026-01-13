@@ -5,6 +5,7 @@
   "pages": [
     "index",
     "create-function",
+    "executors",
     "composition",
     "middleware",
     "registry",

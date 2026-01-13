@@ -1,36 +1,144 @@
 /**
- * Permission Engine Primitive
+ * @module permission-engine
  *
- * A comprehensive authorization system for the dotdo platform with:
- * - Role-Based Access Control (RBAC)
- * - Attribute-Based Access Control (ABAC)
- * - Role inheritance with multi-level support
- * - Policy evaluation with deny-overrides-allow semantics
- * - Wildcard permissions for resources and actions
- * - Resource ownership checks
- * - Permission caching for performance
- * - Authorization audit logging
+ * Permission Engine Primitive - Comprehensive authorization for the dotdo platform.
  *
- * @example
+ * Combines Role-Based Access Control (RBAC) and Attribute-Based Access Control (ABAC)
+ * for fine-grained authorization. Supports role inheritance, policy evaluation with
+ * deny-overrides-allow semantics, wildcards, ownership checks, and caching.
+ *
+ * ## Features
+ *
+ * - **RBAC** with role inheritance and permission aggregation
+ * - **ABAC** with rich condition operators and variable substitution
+ * - **Deny-overrides-allow** policy evaluation semantics
+ * - **Wildcard permissions** for resources and actions
+ * - **Ownership checks** for resource-owner validation
+ * - **Permission caching** with TTL for performance
+ * - **Audit logging** for authorization decisions
+ * - **Condition operators**: eq, neq, gt, gte, lt, lte, in, nin, contains, startsWith, endsWith, matches, exists
+ *
+ * @example Basic RBAC Setup
  * ```typescript
  * import { PermissionEngine } from 'dotdo/primitives/permission-engine'
  *
  * const engine = new PermissionEngine({
  *   roles: [
- *     { name: 'editor', permissions: [{ resource: 'document', actions: ['read', 'update'] }] },
- *     { name: 'admin', permissions: [{ resource: '*', actions: ['*'] }], inherits: ['editor'] },
- *   ],
- *   policies: [
- *     { id: 'no-delete-archived', effect: 'deny', resources: ['document'], actions: ['delete'],
- *       conditions: [{ field: 'resource.attributes.archived', operator: 'eq', value: true }] },
+ *     {
+ *       name: 'viewer',
+ *       permissions: [{ resource: 'document', actions: ['read'] }],
+ *     },
+ *     {
+ *       name: 'editor',
+ *       permissions: [{ resource: 'document', actions: ['read', 'update'] }],
+ *       inherits: ['viewer'],
+ *     },
+ *     {
+ *       name: 'admin',
+ *       permissions: [{ resource: '*', actions: ['*'] }],
+ *       inherits: ['editor'],
+ *     },
  *   ],
  * })
+ *
+ * const subject = { id: 'user-123', type: 'user', roles: ['editor'], attributes: {} }
+ * const resource = { id: 'doc-456', type: 'document', attributes: {} }
  *
  * const result = engine.check(subject, 'update', resource)
  * if (result.allowed) {
  *   // Proceed with action
  * }
  * ```
+ *
+ * @example ABAC Policy Rules
+ * ```typescript
+ * const engine = new PermissionEngine({
+ *   roles: [{ name: 'user', permissions: [] }],
+ *   policies: [
+ *     {
+ *       id: 'no-delete-archived',
+ *       effect: 'deny',
+ *       resources: ['document'],
+ *       actions: ['delete'],
+ *       conditions: [
+ *         { field: 'resource.attributes.archived', operator: 'eq', value: true },
+ *       ],
+ *     },
+ *     {
+ *       id: 'owner-can-edit',
+ *       effect: 'allow',
+ *       resources: ['document'],
+ *       actions: ['update', 'delete'],
+ *       conditions: [
+ *         { field: 'resource.owner', operator: 'eq', value: '${subject.id}' },
+ *       ],
+ *     },
+ *   ],
+ * })
+ * ```
+ *
+ * @example Ownership-Based Access
+ * ```typescript
+ * const engine = new PermissionEngine({
+ *   roles: [{
+ *     name: 'user',
+ *     permissions: [{
+ *       resource: 'document',
+ *       actions: ['update', 'delete'],
+ *       conditions: [{ operator: 'isOwner', field: '', value: true }],
+ *     }],
+ *   }],
+ * })
+ *
+ * const subject = { id: 'user-123', type: 'user', roles: ['user'], attributes: {} }
+ * const myDoc = { id: 'doc-1', type: 'document', owner: 'user-123', attributes: {} }
+ * const otherDoc = { id: 'doc-2', type: 'document', owner: 'user-456', attributes: {} }
+ *
+ * engine.check(subject, 'update', myDoc).allowed    // true (owner)
+ * engine.check(subject, 'update', otherDoc).allowed // false (not owner)
+ * ```
+ *
+ * @example Permission Caching
+ * ```typescript
+ * const engine = new PermissionEngine({
+ *   roles: [...],
+ *   enableCache: true,
+ *   cacheTtl: 60000, // 1 minute TTL
+ * })
+ *
+ * // First check - evaluated
+ * engine.check(subject, 'read', resource)
+ *
+ * // Second check - cached result returned
+ * engine.check(subject, 'read', resource)
+ *
+ * // Check cache stats
+ * const stats = engine.getCacheStats()
+ * console.log(`Hit rate: ${stats.hits / (stats.hits + stats.misses)}`)
+ * ```
+ *
+ * @example Dynamic Role Management
+ * ```typescript
+ * // Grant permission to a role
+ * engine.grant('editor', { resource: 'comment', actions: ['create', 'update'] })
+ *
+ * // Revoke permission from a role
+ * engine.revoke('editor', { resource: 'comment', actions: ['delete'] })
+ *
+ * // Assign/remove roles from subjects
+ * const updatedSubject = engine.assignRole(subject, 'admin')
+ * const demotedSubject = engine.removeRole(updatedSubject, 'admin')
+ * ```
+ *
+ * @example Check Multiple Actions
+ * ```typescript
+ * const result = engine.checkAll(subject, ['read', 'update', 'delete'], resource)
+ * if (!result.allowed) {
+ *   console.log('Failed actions:', result.context.failedActions)
+ * }
+ * ```
+ *
+ * @packageDocumentation
  */
 
 import type {

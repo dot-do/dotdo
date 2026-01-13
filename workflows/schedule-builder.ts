@@ -1,16 +1,118 @@
 /**
- * Schedule Builder - Fluent API for $.every scheduling
+ * @module workflows/schedule-builder
  *
- * Creates a proxy that converts fluent scheduling syntax to cron expressions
- * and registers schedules with the ScheduleManager.
+ * Schedule Builder - Fluent API for $.every scheduling in Durable Objects
  *
- * Supports:
- * - $.every.Monday.at9am(handler)
- * - $.every.day.at('6pm')(handler)
- * - $.every.hour(handler)
- * - $.every('every 5 minutes', handler)
+ * This module provides a fluent, human-readable scheduling DSL that converts
+ * natural language patterns to cron expressions and integrates with the
+ * Durable Object alarm API for reliable scheduled execution.
  *
- * Converts to cron and registers with DO alarm API.
+ * ## Fluent Scheduling DSL
+ *
+ * The schedule builder supports multiple syntax patterns for expressing schedules:
+ *
+ * @example Day and time combinations
+ * ```typescript
+ * import { createScheduleBuilderProxy } from 'dotdo/workflows'
+ *
+ * const every = createScheduleBuilderProxy({ state: ctx.state })
+ *
+ * // Every Monday at 9am
+ * every.Monday.at9am(() => {
+ *   generateWeeklyReport()
+ * })
+ *
+ * // Every Friday at 5pm
+ * every.Friday.at5pm(() => {
+ *   sendWeeklyNewsletter()
+ * })
+ *
+ * // Weekdays at 8:30am
+ * every.weekday.at('8:30am')(() => {
+ *   sendDailyBriefing()
+ * })
+ * ```
+ *
+ * @example Interval schedules
+ * ```typescript
+ * // Every hour
+ * every.hour(() => {
+ *   checkSystemHealth()
+ * })
+ *
+ * // Every minute
+ * every.minute(() => {
+ *   pingMonitoring()
+ * })
+ * ```
+ *
+ * @example Natural language (function call syntax)
+ * ```typescript
+ * // Parsed using AI when available, regex fallback otherwise
+ * every('every 5 minutes', () => {
+ *   syncExternalData()
+ * })
+ *
+ * every('daily at 6am', () => {
+ *   prepareReports()
+ * })
+ *
+ * every('first day of month at 9am', () => {
+ *   generateMonthlyInvoices()
+ * })
+ * ```
+ *
+ * ## Time Parsing
+ *
+ * The module supports various time formats:
+ * - 12-hour format: `9am`, `9:30am`, `5pm`
+ * - 24-hour format: `14:30`, `09:00`
+ * - Special times: `noon`, `midnight`
+ *
+ * @example Time parsing
+ * ```typescript
+ * every.day.at('9am')(() => handleMorning())
+ * every.day.at('14:30')(() => handleAfternoon())
+ * every.day.atnoon(() => handleLunch())
+ * every.day.atmidnight(() => handleMidnight())
+ * ```
+ *
+ * ## Cron Expression Generation
+ *
+ * All fluent patterns are converted to standard 5-field cron expressions:
+ *
+ * | Pattern | Cron |
+ * |---------|------|
+ * | `every.Monday.at9am` | `0 9 * * 1` |
+ * | `every.day.at6pm` | `0 18 * * *` |
+ * | `every.hour` | `0 * * * *` |
+ * | `every('every 5 minutes')` | `* /5 * * * *` |
+ * | `every.weekday.at9am` | `0 9 * * 1-5` |
+ *
+ * ## AI-Powered Natural Language Parsing
+ *
+ * When AI environment bindings are available, complex natural language
+ * schedules are parsed using Claude for greater flexibility:
+ *
+ * @example AI parsing with fallback
+ * ```typescript
+ * const every = createScheduleBuilderProxy({
+ *   state: ctx.state,
+ *   env: ctx.env  // Enables AI parsing
+ * })
+ *
+ * // These work with or without AI (regex fallback)
+ * every('every 5 minutes', handler)
+ * every('daily at 9am', handler)
+ *
+ * // These require AI for accurate parsing
+ * every('every second Tuesday at 3pm', handler)
+ * every('last Friday of month', handler)
+ * ```
+ *
+ * @see {@link createScheduleBuilderProxy} - Factory function
+ * @see {@link parseNaturalSchedule} - Natural language parser
+ * @see {@link parseCronExpression} - Cron expression parser (in ScheduleManager)
  */
 
 /// <reference types="@cloudflare/workers-types" />
@@ -70,8 +172,24 @@ const TIMES: Record<string, { minute: string; hour: string }> = {
 // ============================================================================
 
 /**
- * Parse a time string like '9am', '9:30am', 'noon', 'midnight'
- * Returns { minute, hour }
+ * Parse a time string into minute and hour components.
+ *
+ * Supports multiple time formats:
+ * - 12-hour with meridiem: `9am`, `9:30pm`, `12pm`
+ * - 24-hour format: `14:30`, `09:00`, `23:59`
+ * - Special names: `noon`, `midnight`
+ *
+ * @param timeStr - Time string to parse
+ * @returns Object with `minute` and `hour` as strings
+ * @throws Error if the time format is invalid
+ *
+ * @example
+ * ```typescript
+ * parseTime('9am')      // { minute: '0', hour: '9' }
+ * parseTime('9:30pm')   // { minute: '30', hour: '21' }
+ * parseTime('noon')     // { minute: '0', hour: '12' }
+ * parseTime('14:30')    // { minute: '30', hour: '14' }
+ * ```
  */
 function parseTime(timeStr: string): { minute: string; hour: string } {
   const lower = timeStr.toLowerCase().trim()
@@ -187,7 +305,21 @@ for (const [pattern, cron] of Object.entries(COMMON_PATTERNS)) {
 }
 
 /**
- * Validate that a string is a valid 5-field cron expression
+ * Validate that a string is a valid 5-field cron expression.
+ *
+ * Checks that the cron string has exactly 5 space-separated fields
+ * and each field matches valid cron syntax (wildcards, numbers, ranges, steps).
+ *
+ * @param cron - Cron expression string to validate
+ * @returns true if valid, false otherwise
+ *
+ * @example
+ * ```
+ * isValidCron('0 9 * * 1')   // true (Monday 9am)
+ * isValidCron('*​/5 * * * *') // true (every 5 minutes)
+ * isValidCron('0 9 * *')     // false (only 4 fields)
+ * isValidCron('invalid')     // false
+ * ```
  */
 function isValidCron(cron: string): boolean {
   const parts = cron.trim().split(/\s+/)
@@ -529,7 +661,56 @@ export interface ScheduleBuilderProxy {
 }
 
 /**
- * Create a schedule builder proxy for $.every
+ * Create a schedule builder proxy for fluent scheduling DSL.
+ *
+ * Returns a proxy object that supports both property-based fluent syntax
+ * (e.g., `every.Monday.at9am`) and function call syntax for natural language
+ * (e.g., `every('daily at 9am')`).
+ *
+ * The proxy automatically:
+ * - Converts fluent patterns to cron expressions
+ * - Registers schedules with the Durable Object alarm API
+ * - Notifies callbacks when schedules are registered
+ *
+ * @param config - Configuration for the schedule builder
+ * @param config.state - Durable Object state for alarm management
+ * @param config.onScheduleRegistered - Optional callback when a schedule is registered
+ * @param config.env - Optional environment bindings for AI-powered parsing
+ * @returns A proxy object implementing the fluent scheduling DSL
+ *
+ * @example Basic usage in a Durable Object
+ * ```typescript
+ * class MyWorkflow extends DurableObject {
+ *   private every: ScheduleBuilderProxy
+ *
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env)
+ *     this.every = createScheduleBuilderProxy({
+ *       state: ctx.state,
+ *       onScheduleRegistered: (cron, name, handler) => {
+ *         console.log(`Registered schedule ${name}: ${cron}`)
+ *       }
+ *     })
+ *   }
+ *
+ *   async setup() {
+ *     // Fluent syntax
+ *     this.every.Monday.at9am(() => this.weeklyReport())
+ *
+ *     // Natural language
+ *     this.every('every 5 minutes', () => this.healthCheck())
+ *   }
+ * }
+ * ```
+ *
+ * @example Using .at() for dynamic times
+ * ```typescript
+ * const every = createScheduleBuilderProxy({ state })
+ *
+ * // Dynamic time string
+ * every.day.at('9:30am')(() => handleMeeting())
+ * every.weekday.at('17:00')(() => endOfDay())
+ * ```
  */
 export function createScheduleBuilderProxy(config: ScheduleBuilderConfig): ScheduleBuilderProxy {
   const { state, onScheduleRegistered } = config

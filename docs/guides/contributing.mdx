@@ -1,0 +1,142 @@
+---
+title: Contributing
+description: Guidelines for human and AI contributors to the dotdo codebase
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Contributing to dotdo
+
+Whether you're a human developer or an AI coding assistant, this guide covers how to contribute effectively to the dotdo codebase.
+
+## For AI Agents (Claude Code, Cursor, etc.)
+
+AI coding assistants should read the project context file before making changes:
+
+<Callout type="info">
+**Context File:** [`/CLAUDE.md`](https://github.com/dotdo/dotdo/blob/main/CLAUDE.md) provides comprehensive guidance for AI agents working on this codebase.
+</Callout>
+
+The `CLAUDE.md` file in the repository root contains:
+
+| Section | What It Covers |
+|---------|----------------|
+| **What is dotdo?** | High-level architecture overview |
+| **Commands** | Build, test, and development commands |
+| **Testing Philosophy** | NO MOCKS policy for Durable Objects |
+| **Process Management** | Memory and process guidelines for vitest/vite |
+| **Architecture** | Directory structure and key components |
+| **Key APIs** | WorkflowContext ($), event handlers, scheduling |
+| **Named Agents** | Priya, Ralph, Tom, Mark, Sally, Quinn |
+| **Issue Tracking** | `bd` commands for issue management |
+
+### Key Guidelines for AI Agents
+
+1. **Test with real DOs** - Never mock Durable Objects or stores. Miniflare provides real DO instances.
+
+2. **One vitest at a time** - Never run parallel vitest processes. They consume excessive memory.
+
+3. **Sync issues before ending** - Always run `bd sync` and verify the JSONL file was updated.
+
+```bash
+# Run a single test file
+npx vitest run path/to/test.ts
+
+# Check for orphan processes
+ps aux | grep -E "(vitest|vite|node)" | grep -v grep
+```
+
+### Issue Tracking with bd
+
+The `bd` (beads) CLI manages issues in this repository:
+
+```bash
+bd ready                              # Find ready work
+bd update <id> --status in_progress   # Claim an issue
+bd close <id>                         # Complete work
+bd sync                               # Sync to git
+```
+
+<Callout type="warning">
+**Critical:** Run `bd sync` before ending a session. Issue data lives in SQLite locally but must be exported to `.beads/issues.jsonl` for persistence.
+</Callout>
+
+## For Human Developers
+
+### Getting Started
+
+1. **Clone and install**
+   ```bash
+   git clone https://github.com/dotdo/dotdo.git
+   cd dotdo
+   npm install
+   ```
+
+2. **Run the dev server**
+   ```bash
+   npm run dev          # Wrangler dev server
+   npm run dev:app      # App dev server (TanStack Start)
+   ```
+
+3. **Run tests**
+   ```bash
+   npm test             # Vitest watch mode
+   npm run test:run     # Run once
+   ```
+
+### Project Structure
+
+```
+api/           # Hono HTTP (routes/, middleware/)
+objects/       # Durable Object classes
+workflows/     # $ context DSL
+compat/        # 40+ API-compatible SDKs
+agents/        # Multi-provider agent SDK
+primitives/    # fsx, gitx, bashx, npmx, pyx
+app/           # TanStack Start frontend
+lib/           # Shared utilities
+```
+
+### Testing
+
+dotdo uses Vitest with the `@cloudflare/vitest-pool-workers` for testing Durable Objects in a real miniflare runtime.
+
+```bash
+# Run specific test project
+npx vitest --project=workers          # Workers runtime
+npx vitest --project=compat           # Compat layers
+npx vitest --project=agents           # Agent SDK
+npx vitest --project=objects          # DO tests
+
+# Run E2E tests
+npx playwright test tests/e2e/
+```
+
+See `vitest.workspace.ts` for all 80+ test workspaces.
+
+### Code Style
+
+- **TypeScript-first** - All code is TypeScript with strict mode
+- **No mocks for DOs** - Test with real miniflare instances
+- **Append-only data** - Things store uses versioned inserts
+
+## Pull Request Guidelines
+
+1. **Create focused PRs** - One feature or fix per PR
+2. **Write tests** - All new features need test coverage
+3. **Run typecheck** - `npm run typecheck` must pass
+4. **Follow conventions** - Match existing code style
+
+## Related Documentation
+
+<Cards>
+  <Card title="Architecture" href="/docs/architecture">
+    Technical deep dive into dotdo internals.
+  </Card>
+  <Card title="Testing Guide" href="/docs/guides/testing">
+    Comprehensive testing documentation.
+  </Card>
+  <Card title="CLI Reference" href="/docs/cli">
+    Command-line tools for development.
+  </Card>
+</Cards>

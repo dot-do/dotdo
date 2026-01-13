@@ -316,16 +316,21 @@ export class SMSChannel {
     let action: string | undefined
     let requestId: string | undefined
 
-    // Check for simple keyword responses
-    const lowerBody = body.toLowerCase().trim()
-    if (lowerBody === 'yes' || lowerBody === 'approve' || lowerBody === 'y' || lowerBody === '1') {
+    // Parse parts for action and request ID
+    const parts = body.trim().split(/\s+/)
+    const firstWord = parts[0]?.toLowerCase() || ''
+
+    // Check for action keywords (first word or entire message)
+    const approveKeywords = ['yes', 'approve', 'y', '1']
+    const rejectKeywords = ['no', 'reject', 'n', '0']
+
+    if (approveKeywords.includes(firstWord)) {
       action = 'approve'
-    } else if (lowerBody === 'no' || lowerBody === 'reject' || lowerBody === 'n' || lowerBody === '0') {
+    } else if (rejectKeywords.includes(firstWord)) {
       action = 'reject'
     }
 
-    // Try to extract request ID from message (e.g., "approve req-123" or "yes 123")
-    const parts = body.trim().split(/\s+/)
+    // Extract request ID from message (e.g., "approve req-123" or "yes 123")
     if (parts.length >= 2) {
       const potentialId = parts[parts.length - 1]
       if (potentialId && /^[a-zA-Z0-9\-_]+$/.test(potentialId)) {

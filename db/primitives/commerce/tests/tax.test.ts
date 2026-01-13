@@ -1172,4 +1172,502 @@ describe('TaxEngine', () => {
       expect(validation.valid).toBe(false)
     })
   })
+
+  // =============================================================================
+  // Additional Tax Scenarios Tests
+  // =============================================================================
+
+  describe('Australian GST calculations', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should apply 10% GST for Australian sales', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: { country: 'AU', state: 'NSW' },
+      })
+
+      expect(result.taxAmount).toBe(1000) // 10% GST
+      expect(result.taxType).toBe('gst')
+    })
+
+    it('should apply GST to shipping in Australia', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 5000, quantity: 1 }],
+        shippingAddress: { country: 'AU' },
+        shippingCost: 1000,
+      })
+
+      // Shipping also taxed at 10%
+      expect(result.shippingTax).toBe(100)
+    })
+
+    it('should handle GST-free items in Australia', async () => {
+      await tax.createTaxCategory({
+        code: 'GST_FREE_AU',
+        name: 'GST Free Items (Australia)',
+        rateOverrides: [
+          { jurisdiction: { country: 'AU' }, rate: 0 },
+        ],
+      })
+
+      const result = await tax.calculateTax({
+        items: [{
+          productId: 'medical-supply-1',
+          price: 5000,
+          quantity: 1,
+          taxCategory: 'GST_FREE_AU',
+        }],
+        shippingAddress: { country: 'AU' },
+      })
+
+      expect(result.taxAmount).toBe(0)
+    })
+  })
+
+  describe('additional EU VAT scenarios', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should apply correct VAT rates for all EU countries', async () => {
+      const euCountries = [
+        { country: 'NL', expectedRate: 21 },
+        { country: 'BE', expectedRate: 21 },
+        { country: 'AT', expectedRate: 20 },
+        { country: 'PL', expectedRate: 23 },
+        { country: 'SE', expectedRate: 25 },
+        { country: 'DK', expectedRate: 25 },
+        { country: 'FI', expectedRate: 24 },
+        { country: 'PT', expectedRate: 23 },
+        { country: 'HU', expectedRate: 27 }, // Highest VAT in EU
+        { country: 'LU', expectedRate: 17 }, // Lowest VAT in EU
+      ]
+
+      for (const { country, expectedRate } of euCountries) {
+        const rate = await tax.getTaxRate({ country })
+        expect(rate).toBeDefined()
+        expect(rate!.rate).toBe(expectedRate)
+        expect(rate!.type).toBe('vat')
+      }
+    })
+
+    it('should apply Hungary highest VAT rate (27%)', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: { country: 'HU' },
+      })
+
+      expect(result.taxAmount).toBe(2700)
+    })
+
+    it('should apply Luxembourg lowest VAT rate (17%)', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: { country: 'LU' },
+      })
+
+      expect(result.taxAmount).toBe(1700)
+    })
+
+    it('should reject invalid VAT numbers', async () => {
+      const validation = await tax.validateVatNumber('XX')
+
+      expect(validation.valid).toBe(false)
+    })
+
+    it('should validate VAT numbers with proper format', async () => {
+      const validations = await Promise.all([
+        tax.validateVatNumber('GB123456789'),
+        tax.validateVatNumber('FR12345678901'),
+        tax.validateVatNumber('IT12345678901'),
+      ])
+
+      expect(validations[0].valid).toBe(true)
+      expect(validations[0].countryCode).toBe('GB')
+      expect(validations[1].valid).toBe(true)
+      expect(validations[1].countryCode).toBe('FR')
+      expect(validations[2].valid).toBe(true)
+      expect(validations[2].countryCode).toBe('IT')
+    })
+  })
+
+  describe('US district tax scenarios', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should support custom district tax rates', async () => {
+      await tax.registerTaxRate({
+        jurisdiction: { country: 'US', state: 'CA', county: 'Santa Clara', city: 'San Jose' },
+        rate: 9.375,
+        type: 'sales_tax',
+        components: { state: 7.25, county: 0.25, city: 0.25, district: 1.625 },
+      })
+
+      const rate = await tax.getTaxRate({
+        country: 'US',
+        state: 'CA',
+        county: 'Santa Clara',
+        city: 'San Jose',
+      })
+
+      expect(rate!.rate).toBe(9.375)
+      expect(rate!.components!.district).toBe(1.625)
+    })
+
+    it('should fall back to state rate when city rate not found', async () => {
+      const rate = await tax.getTaxRate({
+        country: 'US',
+        state: 'CA',
+        city: 'Unknown City',
+      })
+
+      expect(rate!.rate).toBe(7.25) // State rate fallback
+    })
+
+    it('should handle multiple US states without sales tax', async () => {
+      const noSalesTaxStates = ['OR', 'MT', 'NH', 'DE', 'AK']
+
+      for (const state of noSalesTaxStates) {
+        const rate = await tax.getTaxRate({ country: 'US', state })
+        expect(rate!.rate).toBe(0)
+      }
+    })
+  })
+
+  describe('exemption date boundary cases', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should apply exemption that starts today', async () => {
+      const today = new Date()
+      await tax.createExemption({
+        type: 'customer',
+        customerId: 'cust-today',
+        validFrom: today,
+        validTo: new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000), // 1 year later
+        jurisdictions: [{ country: 'US' }],
+      })
+
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: { country: 'US', state: 'CA' },
+        customerId: 'cust-today',
+      })
+
+      expect(result.exemptionApplied).toBe(true)
+      expect(result.taxAmount).toBe(0)
+    })
+
+    it('should not apply exemption that starts tomorrow', async () => {
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+
+      await tax.createExemption({
+        type: 'customer',
+        customerId: 'cust-tomorrow',
+        validFrom: tomorrow,
+        jurisdictions: [{ country: 'US' }],
+      })
+
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: { country: 'US', state: 'CA' },
+        customerId: 'cust-tomorrow',
+      })
+
+      expect(result.exemptionApplied).toBe(false)
+      expect(result.taxAmount).toBeGreaterThan(0)
+    })
+
+    it('should apply exemption without date restrictions', async () => {
+      await tax.createExemption({
+        type: 'customer',
+        customerId: 'cust-forever',
+        reason: 'Permanent exemption',
+        jurisdictions: [{ country: 'US' }],
+        // No validFrom or validTo
+      })
+
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: { country: 'US', state: 'CA' },
+        customerId: 'cust-forever',
+      })
+
+      expect(result.exemptionApplied).toBe(true)
+      expect(result.exemptionReason).toBe('Permanent exemption')
+    })
+  })
+
+  describe('multi-item tax calculations', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should calculate per-item tax breakdown', async () => {
+      const result = await tax.calculateTax({
+        items: [
+          { productId: 'item-1', price: 5000, quantity: 2 },
+          { productId: 'item-2', price: 3000, quantity: 1 },
+          { productId: 'item-3', price: 2000, quantity: 3 },
+        ],
+        shippingAddress: UK_LONDON,
+      })
+
+      // Total: (5000*2) + 3000 + (2000*3) = 10000 + 3000 + 6000 = 19000
+      // Tax: 19000 * 0.20 = 3800
+      expect(result.subtotal).toBe(19000)
+      expect(result.taxAmount).toBe(3800)
+      expect(result.itemTaxes).toHaveLength(3)
+      expect(result.itemTaxes![0].taxAmount).toBe(2000) // 10000 * 0.20
+      expect(result.itemTaxes![1].taxAmount).toBe(600)  // 3000 * 0.20
+      expect(result.itemTaxes![2].taxAmount).toBe(1200) // 6000 * 0.20
+    })
+
+    it('should handle mixed taxable and exempt items', async () => {
+      await tax.createExemption({
+        type: 'product',
+        productIds: ['exempt-item'],
+        jurisdictions: [{ country: 'GB' }],
+      })
+
+      const result = await tax.calculateTax({
+        items: [
+          { productId: 'taxable-item', price: 10000, quantity: 1 },
+          { productId: 'exempt-item', price: 5000, quantity: 1 },
+        ],
+        shippingAddress: UK_LONDON,
+      })
+
+      // Only taxable item should be taxed
+      expect(result.itemTaxes![0].taxAmount).toBe(2000) // Taxable: 20%
+      expect(result.itemTaxes![1].taxAmount).toBe(0)    // Exempt
+      expect(result.taxAmount).toBe(2000)
+    })
+
+    it('should handle large number of line items', async () => {
+      const items = Array.from({ length: 100 }, (_, i) => ({
+        productId: `item-${i}`,
+        price: 100,
+        quantity: 1,
+      }))
+
+      const result = await tax.calculateTax({
+        items,
+        shippingAddress: UK_LONDON,
+      })
+
+      // 100 items * 100 * 0.20 = 2000
+      expect(result.subtotal).toBe(10000)
+      expect(result.taxAmount).toBe(2000)
+      expect(result.itemTaxes).toHaveLength(100)
+    })
+  })
+
+  describe('Canadian province validation', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should validate Canadian provinces', async () => {
+      const validProvinces = ['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT']
+
+      for (const province of validProvinces) {
+        const validation = await tax.validateJurisdiction({
+          country: 'CA',
+          state: province,
+        })
+        expect(validation.valid).toBe(true)
+      }
+    })
+
+    it('should reject invalid Canadian provinces', async () => {
+      const validation = await tax.validateJurisdiction({
+        country: 'CA',
+        state: 'XX',
+      })
+
+      expect(validation.valid).toBe(false)
+    })
+
+    it('should handle all Canadian tax scenarios', async () => {
+      const provinces = [
+        { state: 'ON', expectedRate: 13, type: 'hst' },
+        { state: 'NB', expectedRate: 15, type: 'hst' },
+        { state: 'NS', expectedRate: 15, type: 'hst' },
+        { state: 'NL', expectedRate: 15, type: 'hst' },
+        { state: 'PE', expectedRate: 15, type: 'hst' },
+        { state: 'BC', expectedRate: 12, type: 'gst' },
+        { state: 'SK', expectedRate: 11, type: 'gst' },
+        { state: 'MB', expectedRate: 12, type: 'gst' },
+        { state: 'AB', expectedRate: 5, type: 'gst' },
+        { state: 'NT', expectedRate: 5, type: 'gst' },
+        { state: 'NU', expectedRate: 5, type: 'gst' },
+        { state: 'YT', expectedRate: 5, type: 'gst' },
+      ]
+
+      for (const { state, expectedRate, type } of provinces) {
+        const rate = await tax.getTaxRate({ country: 'CA', state })
+        expect(rate!.rate).toBe(expectedRate)
+        expect(rate!.type).toBe(type)
+      }
+    })
+  })
+
+  describe('tax reporting edge cases', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should export data in JSON format', async () => {
+      // Record a transaction first
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: UK_LONDON,
+        orderId: 'export-test-order',
+      })
+
+      await tax.recordTaxTransaction({ orderId: 'export-test-order', result })
+
+      const exportData = await tax.exportTaxData({
+        startDate: new Date('2020-01-01'),
+        endDate: new Date('2030-12-31'),
+        format: 'json',
+      })
+
+      expect(exportData.format).toBe('json')
+      const parsed = JSON.parse(exportData.data)
+      expect(Array.isArray(parsed)).toBe(true)
+    })
+
+    it('should filter export by jurisdiction', async () => {
+      // Record transactions for different jurisdictions
+      const ukResult = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 1 }],
+        shippingAddress: UK_LONDON,
+      })
+      await tax.recordTaxTransaction({ orderId: 'uk-order', result: ukResult })
+
+      const deResult = await tax.calculateTax({
+        items: [{ productId: 'p2', price: 5000, quantity: 1 }],
+        shippingAddress: DE_BERLIN,
+      })
+      await tax.recordTaxTransaction({ orderId: 'de-order', result: deResult })
+
+      const ukExport = await tax.exportTaxData({
+        startDate: new Date('2020-01-01'),
+        endDate: new Date('2030-12-31'),
+        format: 'json',
+        jurisdiction: { country: 'GB' },
+      })
+
+      const parsed = JSON.parse(ukExport.data)
+      expect(parsed.length).toBe(1)
+      expect(parsed[0].orderId).toBe('uk-order')
+    })
+
+    it('should handle refund for non-existent order', async () => {
+      await expect(
+        tax.calculateRefundTax({
+          originalOrderId: 'non-existent-order',
+          refundAmount: 1000,
+        })
+      ).rejects.toThrow('Original transaction not found')
+    })
+
+    it('should calculate partial refund correctly', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 20000, quantity: 1 }],
+        shippingAddress: UK_LONDON,
+      })
+
+      await tax.recordTaxTransaction({ orderId: 'partial-refund-order', result })
+
+      // Refund 25% of the order
+      const refund = await tax.calculateRefundTax({
+        originalOrderId: 'partial-refund-order',
+        refundAmount: 5000,
+      })
+
+      // Original tax rate: 4000/20000 = 20%
+      // Refund tax: 5000 * 0.20 = 1000
+      expect(refund.taxRefund).toBe(1000)
+      expect(refund.netRefund).toBe(4000)
+    })
+  })
+
+  describe('input validation', () => {
+    let tax: TaxEngine
+
+    beforeEach(() => {
+      tax = createTestTaxEngine()
+    })
+
+    it('should handle missing country gracefully', async () => {
+      const validation = await tax.validateJurisdiction({
+        state: 'CA',
+      } as TaxJurisdiction)
+
+      expect(validation.valid).toBe(false)
+    })
+
+    it('should handle empty string country', async () => {
+      const rate = await tax.getTaxRate({
+        country: '',
+        state: 'CA',
+      })
+
+      expect(rate).toBeNull()
+    })
+
+    it('should handle case-insensitive country codes', async () => {
+      const rates = await Promise.all([
+        tax.getTaxRate({ country: 'gb' }),
+        tax.getTaxRate({ country: 'GB' }),
+        tax.getTaxRate({ country: 'Gb' }),
+      ])
+
+      expect(rates[0]!.rate).toBe(rates[1]!.rate)
+      expect(rates[1]!.rate).toBe(rates[2]!.rate)
+      expect(rates[0]!.rate).toBe(20)
+    })
+
+    it('should handle negative prices', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'credit-1', price: -1000, quantity: 1 }],
+        shippingAddress: UK_LONDON,
+      })
+
+      // Negative prices result in negative tax (credits/adjustments)
+      expect(result.taxAmount).toBe(-200)
+    })
+
+    it('should handle zero quantity', async () => {
+      const result = await tax.calculateTax({
+        items: [{ productId: 'p1', price: 10000, quantity: 0 }],
+        shippingAddress: UK_LONDON,
+      })
+
+      expect(result.subtotal).toBe(0)
+      expect(result.taxAmount).toBe(0)
+    })
+  })
 })

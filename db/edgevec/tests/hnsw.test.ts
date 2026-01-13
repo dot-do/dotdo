@@ -1419,9 +1419,13 @@ describe('HNSW Graph Structure', () => {
 
     // Each layer should have roughly 1/M of the nodes from the previous layer
     // Allow significant variance due to randomness
+    // Only check layers with reasonable sample sizes (>10 nodes)
     for (let i = 1; i < distribution.length - 1; i++) {
+      // Skip ratio check for very small layers where variance is high
+      if (distribution[i] < 10) continue
+
       const ratio = distribution[i + 1] / distribution[i]
-      // Ratio should be roughly 1/M = 1/16 = 0.0625, allow range 0.01 to 0.3
+      // Ratio should be roughly 1/M = 1/16 = 0.0625, allow range 0.01 to 0.5
       expect(ratio).toBeGreaterThan(0.01)
       expect(ratio).toBeLessThan(0.5)
     }

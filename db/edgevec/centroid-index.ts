@@ -1,27 +1,98 @@
 /**
- * Centroid Index - Static Asset Coarse Search
+ * Centroid Index - Static Asset Coarse Search for IVF Vector Search
  *
- * Loads cluster centroids from static assets (CENT binary format) and performs
- * coarse nearest neighbor search to identify candidate clusters.
+ * This module implements the coarse search stage of IVF (Inverted File) vector search.
+ * It loads pre-computed cluster centroids from static binary assets and performs
+ * efficient nearest centroid search to identify candidate clusters for PQ scoring.
  *
- * The CentroidIndex is the first stage of IVF-based vector search:
- * 1. Load K centroids from a binary CENT file (static asset)
- * 2. Find top-nprobe nearest centroids for a query vector
- * 3. Return cluster IDs with distances for downstream PQ search
+ * ## IVF-PQ Search Pipeline
  *
- * Binary format (CENT):
- * - Header (32 bytes):
- *   - magic: uint32 = 0x43454E54 ("CENT")
- *   - version: uint16 = 1
- *   - flags: uint16 = 0
- *   - num_centroids: uint32
- *   - dimensions: uint32
- *   - dtype: uint8 (0 = float32, 1 = float16)
- *   - metric: uint8 (0 = cosine, 1 = l2, 2 = dot)
- *   - reserved: uint8[10]
- * - Centroid data: num_centroids * dimensions * sizeof(dtype)
+ * ```
+ * Query Vector
+ *     │
+ *     ▼
+ * ┌─────────────────────────┐
+ * │   CentroidIndex         │  Stage 1: Coarse Search
+ * │   Find top-nprobe       │  O(K) where K = num centroids
+ * │   nearest centroids     │
+ * └───────────┬─────────────┘
+ *             │
+ *             ▼
+ * ┌─────────────────────────┐
+ * │   PQ Code Search        │  Stage 2: Fine Search
+ * │   Score vectors in      │  O(N/K * nprobe) with ADC
+ * │   candidate clusters    │
+ * └─────────────────────────┘
+ * ```
+ *
+ * ## CENT Binary Format
+ *
+ * The CENT format is designed for efficient static asset loading:
+ *
+ * ```
+ * ┌─────────────────────────────────────────────────┐
+ * │ Header (32 bytes)                               │
+ * │ ├─ magic: uint32 = 0x43454E54 ("CENT")         │
+ * │ ├─ version: uint16 = 1                         │
+ * │ ├─ flags: uint16 = 0                           │
+ * │ ├─ num_centroids: uint32                       │
+ * │ ├─ dimensions: uint32                          │
+ * │ ├─ dtype: uint8 (0=float32, 1=float16)         │
+ * │ ├─ metric: uint8 (0=cosine, 1=l2)              │
+ * │ └─ reserved: uint8[10]                         │
+ * ├─────────────────────────────────────────────────┤
+ * │ Centroid Data                                   │
+ * │ num_centroids * dimensions * sizeof(dtype)      │
+ * └─────────────────────────────────────────────────┘
+ * ```
+ *
+ * ## Performance Optimizations
+ *
+ * - **Flat Storage**: Centroids stored contiguously for cache efficiency
+ * - **Pre-computed Norms**: Inverse norms pre-computed to avoid division in hot loop
+ * - **Loop Unrolling**: 16-element unrolled loops with 4 accumulators for ILP
+ * - **Partial Sort**: Max-heap based top-K selection avoids full sort
+ * - **Pre-allocated Buffers**: Reusable distance and heap buffers avoid GC pressure
+ *
+ * @example Loading centroids from a static asset
+ * ```typescript
+ * import { CentroidIndex } from 'db/edgevec/centroid-index'
+ *
+ * // Load centroids from static asset
+ * const centFile = await env.ASSETS.get('centroids.cent')
+ * const centroid = new CentroidIndex()
+ * await centroid.load(await centFile.arrayBuffer())
+ *
+ * console.log(`Loaded ${centroid.numCentroids} centroids`)
+ * console.log(`Dimensions: ${centroid.dimensions}`)
+ * console.log(`Metric: ${centroid.metric}`)
+ * ```
+ *
+ * @example Coarse search for candidate clusters
+ * ```typescript
+ * // Find top 10 nearest centroids (nprobe = 10)
+ * const query = new Float32Array(embedding)
+ * const clusters = await centroid.search(query, 10)
+ *
+ * // clusters: [{ clusterId: 42, distance: 0.15 }, ...]
+ * // Use clusterId to load PQ codes from corresponding cluster file
+ * for (const { clusterId, distance } of clusters) {
+ *   const clusterCodes = await loadClusterCodes(clusterId)
+ *   // Score with PQ...
+ * }
+ * ```
+ *
+ * @example Search with statistics
+ * ```typescript
+ * const { results, stats } = await centroid.searchWithStats(query, 10)
+ *
+ * console.log(`Searched ${stats.centroidsScanned} centroids`)
+ * console.log(`Search time: ${stats.searchTimeMs.toFixed(2)}ms`)
+ * console.log(`Distance computations: ${stats.distanceComputations}`)
+ * ```
  *
  * @module db/edgevec/centroid-index
+ * @see {@link https://arxiv.org/abs/1702.08734 | Billion-scale similarity search with GPUs}
  */
 
 import type { DistanceMetric } from '../../types/vector'
@@ -522,7 +593,34 @@ export function serializeCentroidFile(index: CentroidIndex): ArrayBuffer {
 // ============================================================================
 
 /**
- * CentroidIndex - Loads and searches cluster centroids from CENT format
+ * CentroidIndex - High-performance coarse search for IVF vector retrieval.
+ *
+ * This class loads cluster centroids from a binary CENT file and provides
+ * efficient nearest centroid search for identifying candidate clusters.
+ *
+ * ## Memory Layout
+ *
+ * The centroids are stored in a contiguous Float32Array for optimal
+ * cache performance during distance computation:
+ *
+ * ```
+ * centroidsFlat: [c0_d0, c0_d1, ..., c0_dD, c1_d0, c1_d1, ..., c1_dD, ...]
+ *                 ╰─────── centroid 0 ──────╯ ╰─────── centroid 1 ──────╯
+ * ```
+ *
+ * ## Thread Safety
+ *
+ * CentroidIndex is designed for single-threaded use within Cloudflare Workers.
+ * Each worker instance should have its own CentroidIndex instance.
+ *
+ * @example Basic usage
+ * ```typescript
+ * const index = new CentroidIndex()
+ * await index.load(centFileBuffer)
+ *
+ * // Find nearest clusters
+ * const matches = await index.search(queryVector, 10)
+ * ```
  */
 export class CentroidIndex {
   private _loaded = false

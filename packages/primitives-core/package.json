@@ -1,0 +1,79 @@
+{
+  "name": "@dotdo/primitives-core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared utilities for dotdo primitives - hash functions, compression, events, and state management",
+  "author": "dotdo <hello@dotdo.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "directory": "packages/primitives-core"
+  },
+  "homepage": "https://github.com/dotdo-dev/dotdo/tree/main/packages/primitives-core#readme",
+  "bugs": {
+    "url": "https://github.com/dotdo-dev/dotdo/issues"
+  },
+  "keywords": [
+    "dotdo",
+    "primitives",
+    "hash",
+    "sha1",
+    "sha256",
+    "murmur",
+    "compression",
+    "gzip",
+    "deflate",
+    "events",
+    "state",
+    "cloudflare",
+    "workers"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./hash": {
+      "types": "./dist/hash.d.ts",
+      "import": "./dist/hash.js",
+      "require": "./dist/hash.cjs"
+    },
+    "./compression": {
+      "types": "./dist/compression.d.ts",
+      "import": "./dist/compression.js",
+      "require": "./dist/compression.cjs"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js",
+      "require": "./dist/events.cjs"
+    },
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js",
+      "require": "./dist/state.cjs"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "sideEffects": false
+}

@@ -1,8 +1,104 @@
 /**
- * Filtered Vector Search
+ * Filtered Vector Search - HNSW with Metadata Filtering
  *
- * Extends HNSW index with metadata filtering capabilities.
- * Supports MongoDB-like query operators for filtering.
+ * This module extends the HNSW index with metadata filtering capabilities,
+ * enabling hybrid semantic + attribute search. It supports MongoDB-like
+ * query operators for flexible metadata filtering.
+ *
+ * ## Use Cases
+ *
+ * - **Multi-tenant search**: Filter by `tenantId` to isolate results
+ * - **Access control**: Filter by `visibility`, `permissions`
+ * - **Category refinement**: Filter by `category`, `tags`, `type`
+ * - **Time-based search**: Filter by `createdAt`, `expiresAt`
+ * - **Price/rating filters**: Filter by numeric ranges
+ *
+ * ## Filter Modes
+ *
+ * - **Pre-filter**: Filter candidates before HNSW search (best for selective filters)
+ * - **Post-filter**: Search first, then filter results (best for broad filters)
+ * - **Auto**: Automatically chooses based on filter selectivity (default)
+ *
+ * ## Supported Operators
+ *
+ * | Operator    | Description                 | Example                        |
+ * |-------------|-----------------------------|---------------------------------|
+ * | `$eq`       | Equality                    | `{ status: { $eq: 'active' }}` |
+ * | `$ne`       | Not equal                   | `{ status: { $ne: 'deleted' }}`|
+ * | `$gt`       | Greater than                | `{ price: { $gt: 100 }}`       |
+ * | `$gte`      | Greater than or equal       | `{ price: { $gte: 100 }}`      |
+ * | `$lt`       | Less than                   | `{ price: { $lt: 500 }}`       |
+ * | `$lte`      | Less than or equal          | `{ price: { $lte: 500 }}`      |
+ * | `$in`       | Value in array              | `{ category: { $in: ['a','b']}}|
+ * | `$nin`      | Value not in array          | `{ status: { $nin: ['x','y']}} |
+ * | `$contains` | Array contains value        | `{ tags: { $contains: 'ai' }}` |
+ * | `$exists`   | Field exists                | `{ thumbnail: { $exists: true }}`|
+ * | `$and`      | Logical AND                 | `{ $and: [{...}, {...}] }`     |
+ * | `$or`       | Logical OR                  | `{ $or: [{...}, {...}] }`      |
+ * | `$not`      | Logical NOT                 | `{ $not: {...} }`              |
+ *
+ * @example Basic filtered search
+ * ```typescript
+ * import { createFilteredIndex } from 'db/edgevec/filtered-search'
+ *
+ * const index = createFilteredIndex({
+ *   dimensions: 768,
+ *   metric: 'cosine',
+ *   M: 16,
+ *   efConstruction: 200
+ * })
+ *
+ * // Insert vectors with metadata
+ * index.insert('doc-1', embedding1, { category: 'tech', price: 99 })
+ * index.insert('doc-2', embedding2, { category: 'tech', price: 199 })
+ * index.insert('doc-3', embedding3, { category: 'finance', price: 149 })
+ *
+ * // Search with metadata filter
+ * const results = index.search(queryVector, {
+ *   k: 10,
+ *   filter: {
+ *     category: 'tech',          // Shorthand for { $eq: 'tech' }
+ *     price: { $lte: 150 }       // Price <= 150
+ *   }
+ * })
+ * ```
+ *
+ * @example Complex filters with logical operators
+ * ```typescript
+ * // Find tech OR finance documents under $200
+ * const results = index.search(queryVector, {
+ *   k: 10,
+ *   filter: {
+ *     $and: [
+ *       { $or: [
+ *         { category: 'tech' },
+ *         { category: 'finance' }
+ *       ]},
+ *       { price: { $lt: 200 }}
+ *     ]
+ *   }
+ * })
+ * ```
+ *
+ * @example Multi-tenant search
+ * ```typescript
+ * // Each tenant only sees their own data
+ * const results = index.search(queryVector, {
+ *   k: 10,
+ *   filter: { tenantId: ctx.tenantId }
+ * })
+ * ```
+ *
+ * @example Persistence with metadata
+ * ```typescript
+ * // Serialize includes metadata
+ * const buffer = index.serialize()
+ * await env.R2.put('index.bin', buffer)
+ *
+ * // Deserialize restores metadata
+ * const data = await env.R2.get('index.bin')
+ * const loaded = FilteredHNSWIndexImpl.deserialize(await data.arrayBuffer())
+ * ```
  *
  * @module db/edgevec/filtered-search
  */

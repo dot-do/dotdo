@@ -1,17 +1,27 @@
 /**
- * TaskQueue - Background job queue primitive for the dotdo platform
+ * @module task-queue
  *
- * Features:
- * - Priority-based task ordering
- * - Configurable concurrency limits
- * - Automatic retries with exponential/linear/fixed backoff
- * - Task cancellation and pause/resume
- * - Progress tracking
- * - Scheduled and cron-based tasks
- * - Dead letter queue for failed tasks
+ * Task Queue Primitive - Background job processing for the dotdo platform.
  *
- * @example
+ * Provides a robust task queue with priority ordering, configurable concurrency,
+ * automatic retries, progress tracking, and dead letter handling. Designed for
+ * reliable background job processing in edge environments.
+ *
+ * ## Features
+ *
+ * - **Priority queue** using min-heap for efficient ordering
+ * - **Concurrency control** to limit parallel task execution
+ * - **Automatic retries** with fixed, linear, or exponential backoff
+ * - **Task cancellation** with abort signal propagation
+ * - **Progress tracking** for long-running tasks
+ * - **Dead letter queue** for failed task inspection and retry
+ * - **Scheduled tasks** with one-time and cron support
+ * - **Event system** for monitoring queue state
+ *
+ * @example Basic Task Queue
  * ```typescript
+ * import { TaskQueue } from 'dotdo/primitives/task-queue'
+ *
  * const queue = new TaskQueue({ concurrency: 3, retries: 2 })
  *
  * queue.registerHandler('email', async (task, ctx) => {
@@ -20,9 +30,96 @@
  *   ctx.progress(100, 100, 'Done!')
  * })
  *
- * await queue.enqueue({ type: 'email', payload: { to: 'user@example.com' }, priority: 10 })
+ * await queue.enqueue({
+ *   type: 'email',
+ *   payload: { to: 'user@example.com', subject: 'Welcome!' },
+ *   priority: 10,
+ * })
+ *
  * await queue.process()
  * ```
+ *
+ * @example Priority-Based Processing
+ * ```typescript
+ * // Higher priority tasks processed first
+ * await queue.enqueue({ type: 'urgent', payload: {}, priority: 100 })
+ * await queue.enqueue({ type: 'normal', payload: {}, priority: 1 })
+ * // 'urgent' task will be processed before 'normal'
+ * ```
+ *
+ * @example Retry with Backoff
+ * ```typescript
+ * const queue = new TaskQueue({
+ *   retries: 3,
+ *   backoff: {
+ *     type: 'exponential',
+ *     delay: 1000,
+ *     factor: 2,
+ *     maxDelay: 30000,
+ *   },
+ * })
+ *
+ * queue.registerHandler('api-call', async (task) => {
+ *   const response = await fetch(task.payload.url)
+ *   if (!response.ok) throw new Error('API failed')
+ *   return response.json()
+ * })
+ * // Retries at 1s, 2s, 4s intervals on failure
+ * ```
+ *
+ * @example Progress Tracking
+ * ```typescript
+ * queue.registerHandler('import', async (task, ctx) => {
+ *   const items = task.payload.items
+ *   for (let i = 0; i < items.length; i++) {
+ *     await processItem(items[i])
+ *     ctx.progress(i + 1, items.length, `Processed ${i + 1} of ${items.length}`)
+ *   }
+ * })
+ *
+ * queue.on('task:progress', (progress) => {
+ *   console.log(`${progress.taskId}: ${progress.percentage}%`)
+ * })
+ * ```
+ *
+ * @example Dead Letter Queue
+ * ```typescript
+ * queue.on('task:deadletter', (task) => {
+ *   console.log(`Task ${task.id} moved to DLQ after all retries`)
+ * })
+ *
+ * // Inspect failed tasks
+ * const failed = queue.deadLetterQueue.list()
+ *
+ * // Retry a failed task
+ * await queue.retryFromDeadLetter(taskId)
+ * ```
+ *
+ * @example Scheduled Tasks
+ * ```typescript
+ * // One-time scheduled task
+ * await queue.schedule({
+ *   runAt: new Date('2024-12-25T00:00:00Z'),
+ *   task: { type: 'holiday-promo', payload: {} },
+ * })
+ *
+ * // Recurring cron task
+ * await queue.schedule({
+ *   cron: '0 0 * * *', // Daily at midnight
+ *   task: { type: 'daily-cleanup', payload: {} },
+ * })
+ * ```
+ *
+ * @example Event Handling
+ * ```typescript
+ * queue.on('task:started', (task) => console.log(`Started: ${task.id}`))
+ * queue.on('task:completed', (task) => console.log(`Completed: ${task.id}`))
+ * queue.on('task:failed', ({ error }) => console.error(`Failed:`, error))
+ * queue.on('task:retry', ({ attempt }) => console.log(`Retry ${attempt}`))
+ * queue.on('queue:empty', () => console.log('Queue empty'))
+ * ```
+ *
+ * @packageDocumentation
  */
 
 export * from './types'

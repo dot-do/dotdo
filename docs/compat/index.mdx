@@ -79,17 +79,19 @@ npm install @dotdo/mongo
 npm install @dotdo/redis
 ```
 
-Configure your Durable Object bindings in `wrangler.toml`:
+Configure your Durable Object bindings in `wrangler.jsonc`:
 
-```toml
-[durable_objects]
-bindings = [
-  { name = "DO", class_name = "CompatDO" }
-]
-
-[[migrations]]
-tag = "v1"
-new_classes = ["CompatDO"]
+```json
+{
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "CompatDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_classes": ["CompatDO"] }
+  ]
+}
 ```
 
 ## Quick Start
@@ -279,7 +281,14 @@ The compat layer handles:
 
 Zero egress costs because everything runs on Cloudflare R2.
 
-## What's Next
+## Documentation Structure
+
+dotdo documentation is organized into two sections:
+
+- **Compat Categories** (this section) - Architecture overviews explaining how groups of SDKs work, including sharding, tiering, and patterns
+- **[Individual Integrations](/docs/integrations)** - Detailed API reference and examples for specific services
+
+## Browse by Category
 
 <Cards>
   <Card title="Databases" href="/docs/compat/databases">
@@ -288,10 +297,20 @@ Zero egress costs because everything runs on Cloudflare R2.
   <Card title="Messaging" href="/docs/compat/messaging">
     Kafka, Redis, NATS, SQS, and Pub/Sub.
   </Card>
+  <Card title="Realtime" href="/docs/compat/realtime">
+    Pusher, Ably, Socket.IO for WebSocket communication.
+  </Card>
   <Card title="Search" href="/docs/compat/search">
     Elasticsearch, Algolia, Meilisearch, Typesense, Orama.
   </Card>
   <Card title="Vector" href="/docs/compat/vector">
     Pinecone, Qdrant, Weaviate, Chroma for embeddings.
   </Card>
+  <Card title="Graph" href="/docs/compat/graph">
+    Neo4j graph database with Cypher support.
+  </Card>
 </Cards>
+
+## Individual Service Guides
+
+For detailed API documentation on specific services, see [Integrations](/docs/integrations).

@@ -4,6 +4,8 @@
   "root": true,
   "pages": [
     "index",
+    "---Hardening---",
+    "hardening",
     "---Identity---",
     "authentication",
     "---Access Control---",

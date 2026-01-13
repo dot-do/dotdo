@@ -1,23 +1,80 @@
 /**
- * TypedColumnStore - Columnar storage with compression codecs
+ * TypedColumnStore - Columnar Storage with Compression Codecs
  *
- * A column-oriented data store optimized for analytical workloads with
- * specialized compression codecs and statistical operations.
+ * A column-oriented data store optimized for analytical workloads on Cloudflare
+ * Workers. Provides specialized compression codecs, statistical operations, and
+ * SIMD-friendly data layouts for high performance within 128MB memory limits.
  *
- * Key features:
- * - Gorilla XOR compression for floating-point time series
- * - Delta-of-delta encoding for timestamps
- * - Run-length encoding (RLE) for low-cardinality data
- * - ZSTD-like general-purpose compression (using deflate)
- * - Bloom filters for membership testing
- * - HyperLogLog for distinct count estimation
+ * ## Compression Codecs
+ * | Codec | Best For | Ratio | Speed |
+ * |-------|----------|-------|-------|
+ * | Gorilla | Floating-point time series | 2-10x | Very Fast |
+ * | Delta-of-Delta | Monotonic timestamps | 5-20x | Very Fast |
+ * | RLE | Low-cardinality (< 100 unique) | 2-100x | Very Fast |
+ * | ZSTD | General purpose, mixed data | 2-4x | Fast |
  *
- * Performance optimizations:
- * - SIMD-friendly data layout for vectorized operations
- * - Streaming/chunk-based processing for large columns
- * - Hybrid codec auto-selection based on data characteristics
- * - Zero-copy operations in hot paths
- * - Pre-allocated buffers to minimize allocations
+ * ## Features
+ * - **Auto-Codec Selection** - Analyzes data characteristics to pick optimal codec
+ * - **Bloom Filters** - Probabilistic membership testing (0.5% FPR)
+ * - **HyperLogLog** - Distinct count estimation (< 2% error)
+ * - **Streaming Encode/Decode** - Process large columns in chunks
+ * - **Buffer Pooling** - Reduces allocations in hot paths
+ * - **Dictionary Encoding** - For string columns with repetition
+ *
+ * ## Performance
+ * - SIMD-friendly 256-value chunks (fits in L1 cache)
+ * - 64KB streaming chunks for large data
+ * - Zero-copy operations where possible
+ * - Pre-allocated buffer pools
+ *
+ * @example Basic Column Operations
+ * ```typescript
+ * import { createTypedColumnStore } from 'dotdo/db/primitives/typed-column-store'
+ *
+ * const store = createTypedColumnStore()
+ *
+ * // Add columns with types
+ * store.addColumn('timestamp', 'timestamp')
+ * store.addColumn('value', 'float64')
+ * store.addColumn('category', 'string', { encoding: 'dictionary' })
+ *
+ * // Append data
+ * store.append('timestamp', [1704067200000, 1704067260000, 1704067320000])
+ * store.append('value', [42.5, 43.2, 41.8])
+ * store.append('category', ['A', 'A', 'B'])
+ *
+ * // Query
+ * const result = store.filter({ column: 'category', op: '=', value: 'A' })
+ * const avg = store.aggregate('value', 'avg')
+ * ```
+ *
+ * @example Compression with Auto-Codec
+ * ```typescript
+ * const store = createTypedColumnStore()
+ *
+ * // Auto-select best codec based on data characteristics
+ * const { data, codec } = store.encodeAuto(timeSeriesValues)
+ * console.log(`Used ${codec}, ratio: ${values.length * 8 / data.length}x`)
+ *
+ * // Or specify codec explicitly
+ * const encoded = store.encode(values, 'gorilla')
+ * const decoded = store.decode(encoded, 'gorilla')
+ * ```
+ *
+ * @example Statistical Operations
+ * ```typescript
+ * // Get min/max for predicate pushdown
+ * const { min, max } = store.minMax('timestamp')
+ *
+ * // Bloom filter for membership testing
+ * const bloom = store.bloomFilter('userId')
+ * if (bloom.mightContain('user-123')) {
+ *   // Possibly present, do full scan
+ * }
+ *
+ * // Distinct count estimation
+ * const uniqueUsers = store.distinctCount('userId') // ~1M users
+ * ```
  *
  * @module db/primitives/typed-column-store
  */

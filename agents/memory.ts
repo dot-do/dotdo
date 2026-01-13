@@ -4,6 +4,23 @@
  * Provides sliding window and summarization-based memory management
  * for maintaining context across agent interactions.
  *
+ * @deprecated This module is deprecated. Use the unified memory system instead:
+ * ```ts
+ * import { createInMemoryAgentMemory, toConversationMemory } from './agents'
+ *
+ * // Create unified memory and wrap with ConversationMemory adapter
+ * const memory = createInMemoryAgentMemory()
+ * const conversationMemory = toConversationMemory(memory)
+ *
+ * // Or for graph-backed persistence:
+ * import { createGraphMemory, toConversationMemory } from './agents'
+ * const graphMemory = createGraphMemory({ store, agentId })
+ * const conversationMemory = toConversationMemory(graphMemory)
+ * ```
+ *
+ * @see agents/unified-memory.ts for the new consolidated memory system
+ * @see dotdo-ww5cn - [REFACTOR] Consolidate Agent Memory Systems
+ *
  * @example
  * ```ts
  * import { createConversationMemory, withMemory } from './agents'
@@ -462,6 +479,13 @@ class ConversationMemoryImpl implements ConversationMemory {
 /**
  * Create a conversation memory instance
  *
+ * @deprecated Use `createInMemoryAgentMemory` with `toConversationMemory` instead:
+ * ```ts
+ * import { createInMemoryAgentMemory, toConversationMemory } from './agents'
+ * const memory = createInMemoryAgentMemory()
+ * const conversationMemory = toConversationMemory(memory)
+ * ```
+ *
  * @example
  * ```ts
  * // Basic FIFO memory
@@ -499,6 +523,10 @@ export interface AgentWithMemory extends Agent {
 
 /**
  * Wrap an agent with conversation memory
+ *
+ * @deprecated Consider using the unified AgentMemory system instead.
+ * The unified system provides better integration with graph-backed storage
+ * and consistent APIs across conversation and long-term memory.
  *
  * @example
  * ```ts

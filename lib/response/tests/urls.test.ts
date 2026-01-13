@@ -24,8 +24,501 @@ import { describe, it, expect } from 'vitest'
  * - ID: "https://headless.ly/customers/alice"
  */
 
-// Import the module under test (will fail until implemented)
-import { buildContextUrl, buildTypeUrl, buildIdUrl } from '../urls'
+// Import the module under test
+import { buildContextUrl, buildTypeUrl, buildIdUrl, pluralize, normalizeNs } from '../urls'
+
+// ============================================================================
+// pluralize Tests
+// ============================================================================
+
+describe('pluralize', () => {
+  describe('regular plurals - adding "s"', () => {
+    it('pluralizes "customer" to "customers"', () => {
+      expect(pluralize('customer')).toBe('customers')
+    })
+
+    it('pluralizes "product" to "products"', () => {
+      expect(pluralize('product')).toBe('products')
+    })
+
+    it('pluralizes "user" to "users"', () => {
+      expect(pluralize('user')).toBe('users')
+    })
+
+    it('pluralizes "deal" to "deals"', () => {
+      expect(pluralize('deal')).toBe('deals')
+    })
+
+    it('pluralizes "order" to "orders"', () => {
+      expect(pluralize('order')).toBe('orders')
+    })
+  })
+
+  describe('words ending in s, x, ch, sh - adding "es"', () => {
+    it('pluralizes "status" to "statuses"', () => {
+      expect(pluralize('status')).toBe('statuses')
+    })
+
+    it('pluralizes "class" to "classes"', () => {
+      expect(pluralize('class')).toBe('classes')
+    })
+
+    it('pluralizes "box" to "boxes"', () => {
+      expect(pluralize('box')).toBe('boxes')
+    })
+
+    it('pluralizes "tax" to "taxes"', () => {
+      expect(pluralize('tax')).toBe('taxes')
+    })
+
+    it('pluralizes "match" to "matches"', () => {
+      expect(pluralize('match')).toBe('matches')
+    })
+
+    it('pluralizes "watch" to "watches"', () => {
+      expect(pluralize('watch')).toBe('watches')
+    })
+
+    it('pluralizes "wish" to "wishes"', () => {
+      expect(pluralize('wish')).toBe('wishes')
+    })
+
+    it('pluralizes "dish" to "dishes"', () => {
+      expect(pluralize('dish')).toBe('dishes')
+    })
+  })
+
+  describe('words ending in consonant + y - changing y to ies', () => {
+    it('pluralizes "category" to "categories"', () => {
+      expect(pluralize('category')).toBe('categories')
+    })
+
+    it('pluralizes "company" to "companies"', () => {
+      expect(pluralize('company')).toBe('companies')
+    })
+
+    it('pluralizes "activity" to "activities"', () => {
+      expect(pluralize('activity')).toBe('activities')
+    })
+
+    it('pluralizes "entity" to "entities"', () => {
+      expect(pluralize('entity')).toBe('entities')
+    })
+
+    it('pluralizes "party" to "parties"', () => {
+      expect(pluralize('party')).toBe('parties')
+    })
+  })
+
+  describe('words ending in vowel + y - adding "s"', () => {
+    it('pluralizes "key" to "keys"', () => {
+      expect(pluralize('key')).toBe('keys')
+    })
+
+    it('pluralizes "day" to "days"', () => {
+      expect(pluralize('day')).toBe('days')
+    })
+
+    it('pluralizes "toy" to "toys"', () => {
+      expect(pluralize('toy')).toBe('toys')
+    })
+
+    it('pluralizes "boy" to "boys"', () => {
+      expect(pluralize('boy')).toBe('boys')
+    })
+
+    it('pluralizes "guy" to "guys"', () => {
+      expect(pluralize('guy')).toBe('guys')
+    })
+  })
+
+  describe('irregular plurals', () => {
+    it('pluralizes "person" to "people"', () => {
+      expect(pluralize('person')).toBe('people')
+    })
+
+    it('pluralizes "child" to "children"', () => {
+      expect(pluralize('child')).toBe('children')
+    })
+
+    it('pluralizes "man" to "men"', () => {
+      expect(pluralize('man')).toBe('men')
+    })
+
+    it('pluralizes "woman" to "women"', () => {
+      expect(pluralize('woman')).toBe('women')
+    })
+
+    it('pluralizes "foot" to "feet"', () => {
+      expect(pluralize('foot')).toBe('feet')
+    })
+
+    it('pluralizes "tooth" to "teeth"', () => {
+      expect(pluralize('tooth')).toBe('teeth')
+    })
+
+    it('pluralizes "goose" to "geese"', () => {
+      expect(pluralize('goose')).toBe('geese')
+    })
+
+    it('pluralizes "mouse" to "mice"', () => {
+      expect(pluralize('mouse')).toBe('mice')
+    })
+
+    it('pluralizes "ox" to "oxen"', () => {
+      expect(pluralize('ox')).toBe('oxen')
+    })
+  })
+
+  describe('case handling', () => {
+    it('converts PascalCase to lowercase plural', () => {
+      expect(pluralize('Customer')).toBe('customers')
+    })
+
+    it('converts uppercase to lowercase plural', () => {
+      expect(pluralize('PRODUCT')).toBe('products')
+    })
+
+    it('handles mixed case', () => {
+      expect(pluralize('OrderItem')).toBe('orderitems')
+    })
+
+    it('handles irregular plurals in PascalCase', () => {
+      expect(pluralize('Person')).toBe('people')
+    })
+  })
+
+  describe('caching behavior', () => {
+    it('returns consistent results for same input', () => {
+      const first = pluralize('customer')
+      const second = pluralize('customer')
+
+      expect(first).toBe(second)
+    })
+
+    it('returns consistent results regardless of case', () => {
+      const lower = pluralize('customer')
+      const upper = pluralize('Customer')
+      const mixed = pluralize('CUSTOMER')
+
+      expect(lower).toBe(upper)
+      expect(upper).toBe(mixed)
+    })
+  })
+})
+
+// ============================================================================
+// normalizeNs Tests
+// ============================================================================
+
+describe('normalizeNs', () => {
+  describe('trailing slash removal', () => {
+    it('removes trailing slash from URL', () => {
+      expect(normalizeNs('https://headless.ly/')).toBe('https://headless.ly')
+    })
+
+    it('leaves URL without trailing slash unchanged', () => {
+      expect(normalizeNs('https://headless.ly')).toBe('https://headless.ly')
+    })
+
+    it('removes trailing slash from path URL', () => {
+      expect(normalizeNs('https://api.example.com/v1/')).toBe('https://api.example.com/v1')
+    })
+
+    it('handles URL with only trailing slash as path', () => {
+      expect(normalizeNs('https://example.com/')).toBe('https://example.com')
+    })
+  })
+
+  describe('preserves other URL components', () => {
+    it('preserves port numbers', () => {
+      expect(normalizeNs('https://localhost:8787/')).toBe('https://localhost:8787')
+    })
+
+    it('preserves query parameters', () => {
+      expect(normalizeNs('https://api.example.com?key=value')).toBe('https://api.example.com?key=value')
+    })
+
+    it('preserves hash fragments', () => {
+      expect(normalizeNs('https://example.com/page#section')).toBe('https://example.com/page#section')
+    })
+
+    it('preserves deep paths', () => {
+      expect(normalizeNs('https://api.example.com/v1/tenant/workspace/')).toBe(
+        'https://api.example.com/v1/tenant/workspace'
+      )
+    })
+  })
+
+  describe('edge cases', () => {
+    it('handles empty string', () => {
+      expect(normalizeNs('')).toBe('')
+    })
+
+    it('handles single slash', () => {
+      expect(normalizeNs('/')).toBe('')
+    })
+
+    it('handles relative paths', () => {
+      expect(normalizeNs('api/v1/')).toBe('api/v1')
+    })
+
+    it('handles protocol-relative URLs', () => {
+      expect(normalizeNs('//example.com/path/')).toBe('//example.com/path')
+    })
+  })
+
+  describe('caching behavior', () => {
+    it('returns consistent results for same input', () => {
+      const first = normalizeNs('https://headless.ly/')
+      const second = normalizeNs('https://headless.ly/')
+
+      expect(first).toBe(second)
+    })
+
+    it('caches both slashed and non-slashed versions separately', () => {
+      const slashed = normalizeNs('https://example.com/')
+      const nonSlashed = normalizeNs('https://example.com')
+
+      expect(slashed).toBe(nonSlashed)
+    })
+  })
+})
+
+// ============================================================================
+// Query Parameter Handling Tests
+// ============================================================================
+
+describe('query parameter handling', () => {
+  describe('buildContextUrl with query parameters', () => {
+    it('preserves query parameters in namespace', () => {
+      const result = buildContextUrl('https://headless.ly?version=1')
+
+      expect(result).toBe('https://headless.ly?version=1')
+    })
+
+    it('preserves multiple query parameters', () => {
+      const result = buildContextUrl('https://api.example.com?a=1&b=2')
+
+      expect(result).toBe('https://api.example.com?a=1&b=2')
+    })
+
+    it('preserves encoded query parameters', () => {
+      const result = buildContextUrl('https://api.example.com?q=hello%20world')
+
+      expect(result).toBe('https://api.example.com?q=hello%20world')
+    })
+  })
+
+  describe('buildTypeUrl with query parameters in namespace', () => {
+    it('appends type path after query parameters', () => {
+      // Note: query params in namespace are preserved but type is appended
+      // This may or may not be the desired behavior - documenting current behavior
+      const result = buildTypeUrl('https://headless.ly?version=1', 'Customer')
+
+      // Current implementation appends type after query string
+      expect(result).toBe('https://headless.ly?version=1/customers')
+    })
+  })
+
+  describe('buildIdUrl with special characters requiring encoding', () => {
+    it('encodes @ symbol in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'User', 'user@example.com')
+
+      expect(result).toBe('https://headless.ly/users/user%40example.com')
+    })
+
+    it('encodes space in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'Customer', 'John Doe')
+
+      expect(result).toBe('https://headless.ly/customers/John%20Doe')
+    })
+
+    it('encodes hash symbol in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'Tag', '#trending')
+
+      expect(result).toBe('https://headless.ly/tags/%23trending')
+    })
+
+    it('encodes question mark in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'Query', 'what?')
+
+      expect(result).toBe('https://headless.ly/queries/what%3F')
+    })
+
+    it('encodes ampersand in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'Company', 'Smith & Jones')
+
+      expect(result).toBe('https://headless.ly/companies/Smith%20%26%20Jones')
+    })
+
+    it('encodes plus sign in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'Feature', 'A+B')
+
+      expect(result).toBe('https://headless.ly/features/A%2BB')
+    })
+
+    it('encodes percent sign in id', () => {
+      const result = buildIdUrl('https://headless.ly', 'Discount', '50%off')
+
+      expect(result).toBe('https://headless.ly/discounts/50%25off')
+    })
+
+    it('preserves safe characters in id', () => {
+      // These should NOT be encoded: A-Z a-z 0-9 - _ . ! ~ * ' ( )
+      const result = buildIdUrl('https://headless.ly', 'Item', 'item-123_test.v1')
+
+      expect(result).toBe('https://headless.ly/items/item-123_test.v1')
+    })
+  })
+})
+
+// ============================================================================
+// Base URL Resolution Tests
+// ============================================================================
+
+describe('base URL resolution', () => {
+  describe('different URL schemes', () => {
+    it('handles https URLs', () => {
+      expect(buildTypeUrl('https://headless.ly', 'Customer')).toBe('https://headless.ly/customers')
+    })
+
+    it('handles http URLs', () => {
+      expect(buildTypeUrl('http://localhost:8787', 'Customer')).toBe('http://localhost:8787/customers')
+    })
+
+    it('handles custom protocols', () => {
+      // While uncommon, custom protocols should work
+      expect(buildTypeUrl('app://my-app', 'Customer')).toBe('app://my-app/customers')
+    })
+  })
+
+  describe('port handling', () => {
+    it('preserves standard HTTPS port (implicit)', () => {
+      expect(buildTypeUrl('https://headless.ly', 'Customer')).toBe('https://headless.ly/customers')
+    })
+
+    it('preserves non-standard port', () => {
+      expect(buildTypeUrl('https://localhost:8787', 'Customer')).toBe('https://localhost:8787/customers')
+    })
+
+    it('preserves port 443 if explicit', () => {
+      expect(buildTypeUrl('https://example.com:443', 'Customer')).toBe('https://example.com:443/customers')
+    })
+
+    it('preserves port 80 if explicit', () => {
+      expect(buildTypeUrl('http://example.com:80', 'Customer')).toBe('http://example.com:80/customers')
+    })
+  })
+
+  describe('path segment handling', () => {
+    it('handles single path segment', () => {
+      expect(buildTypeUrl('https://api.example.com/v1', 'Customer')).toBe('https://api.example.com/v1/customers')
+    })
+
+    it('handles multiple path segments', () => {
+      expect(buildTypeUrl('https://api.example.com/v1/tenant', 'Customer')).toBe(
+        'https://api.example.com/v1/tenant/customers'
+      )
+    })
+
+    it('handles deep nested paths', () => {
+      expect(buildTypeUrl('https://api.example.com/a/b/c/d', 'Customer')).toBe(
+        'https://api.example.com/a/b/c/d/customers'
+      )
+    })
+  })
+
+  describe('subdomain handling', () => {
+    it('handles multiple subdomains', () => {
+      expect(buildTypeUrl('https://api.v2.staging.example.com', 'Customer')).toBe(
+        'https://api.v2.staging.example.com/customers'
+      )
+    })
+
+    it('handles hyphenated subdomains', () => {
+      expect(buildTypeUrl('https://my-cool-app.workers.dev', 'Customer')).toBe(
+        'https://my-cool-app.workers.dev/customers'
+      )
+    })
+
+    it('handles numbered subdomains', () => {
+      expect(buildTypeUrl('https://api2.example.com', 'Customer')).toBe('https://api2.example.com/customers')
+    })
+  })
+
+  describe('TLD handling', () => {
+    it('handles .com TLD', () => {
+      expect(buildTypeUrl('https://example.com', 'Customer')).toBe('https://example.com/customers')
+    })
+
+    it('handles .io TLD', () => {
+      expect(buildTypeUrl('https://example.io', 'Customer')).toBe('https://example.io/customers')
+    })
+
+    it('handles .dev TLD', () => {
+      expect(buildTypeUrl('https://example.dev', 'Customer')).toBe('https://example.dev/customers')
+    })
+
+    it('handles .ai TLD', () => {
+      expect(buildTypeUrl('https://schema.org.ai', 'Customer')).toBe('https://schema.org.ai/customers')
+    })
+
+    it('handles country TLDs', () => {
+      expect(buildTypeUrl('https://example.co.uk', 'Customer')).toBe('https://example.co.uk/customers')
+    })
+  })
+})
+
+// ============================================================================
+// Relative URL Tests
+// ============================================================================
+
+describe('relative URL handling', () => {
+  describe('path-only inputs', () => {
+    it('handles root-relative path', () => {
+      expect(buildTypeUrl('/api/v1', 'Customer')).toBe('/api/v1/customers')
+    })
+
+    it('handles simple relative path', () => {
+      expect(buildTypeUrl('api/v1', 'Customer')).toBe('api/v1/customers')
+    })
+
+    it('handles current directory relative path', () => {
+      expect(buildTypeUrl('./api', 'Customer')).toBe('./api/customers')
+    })
+  })
+
+  describe('protocol-relative URLs', () => {
+    it('handles protocol-relative URL', () => {
+      expect(buildTypeUrl('//example.com/api', 'Customer')).toBe('//example.com/api/customers')
+    })
+  })
+
+  describe('special path patterns', () => {
+    it('handles path with dots', () => {
+      expect(buildTypeUrl('https://api.example.com/v1.0', 'Customer')).toBe('https://api.example.com/v1.0/customers')
+    })
+
+    it('handles path with underscores', () => {
+      expect(buildTypeUrl('https://api.example.com/my_tenant', 'Customer')).toBe(
+        'https://api.example.com/my_tenant/customers'
+      )
+    })
+
+    it('handles path with hyphens', () => {
+      expect(buildTypeUrl('https://api.example.com/my-tenant', 'Customer')).toBe(
+        'https://api.example.com/my-tenant/customers'
+      )
+    })
+
+    it('handles path with numbers', () => {
+      expect(buildTypeUrl('https://api.example.com/tenant123', 'Customer')).toBe(
+        'https://api.example.com/tenant123/customers'
+      )
+    })
+  })
+})
 
 // ============================================================================
 // buildContextUrl Tests

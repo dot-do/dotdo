@@ -1,38 +1,91 @@
 /**
- * Query Engine
+ * Query Engine - Unified Query Processing for Multiple Syntaxes
  *
- * Unified query primitive for Document/Analytics/Search/Graph workloads.
- * Parses multiple query syntaxes into unified AST, compiles to TypedColumnStore
- * predicates, and plans/executes queries with cost estimation.
+ * A comprehensive query primitive supporting Document (MongoDB), SQL, and Graph
+ * (Cypher) query syntaxes. Parses queries into a unified AST, applies cost-based
+ * optimization, and executes against TypedColumnStore.
  *
- * @example
+ * ## Architecture
+ * ```
+ * Query String -> Parser -> Unified AST -> Compiler -> Planner -> Executor
+ *     |              |           |             |           |          |
+ *   MongoDB       SQL/Cypher  PredicateNode  TCSPredicate QueryPlan Result
+ * ```
+ *
+ * ## Features
+ * - **Multi-Syntax Parsing** - MongoDB, SQL WHERE, Cypher (graph)
+ * - **Unified AST** - Common representation for all query languages
+ * - **Cost-Based Planning** - Statistics-driven join ordering and index selection
+ * - **Index Optimization** - Bloom filters, min/max pruning, B-tree scans
+ * - **Memory Management** - 128MB budget awareness for Workers runtime
+ * - **Predicate Pushdown** - Filters pushed to storage layer
+ * - **Vector Search** - k-NN support for embeddings
+ *
+ * ## Components
+ * | Component | Purpose |
+ * |-----------|---------|
+ * | MongoQueryParser | Parse MongoDB find/aggregation queries |
+ * | SQLWhereParser | Parse SQL WHERE clauses and SELECT statements |
+ * | PredicateCompiler | Convert AST to TypedColumnStore predicates |
+ * | QueryPlanner | Cost-based query plan optimization |
+ * | ExecutionEngine | Execute plans with streaming/batching |
+ *
+ * @example MongoDB Query
+ * ```typescript
+ * import { MongoQueryParser, PredicateCompiler } from 'dotdo/db/primitives/query-engine'
+ *
+ * const parser = new MongoQueryParser()
+ * const ast = parser.parse({
+ *   status: 'active',
+ *   age: { $gte: 21, $lt: 65 },
+ *   tags: { $in: ['premium', 'vip'] },
+ * })
+ *
+ * const compiler = new PredicateCompiler()
+ * const { predicates } = compiler.compile(ast)
+ * // Optimized predicates with bloom filter hints, etc.
+ * ```
+ *
+ * @example SQL Query
+ * ```typescript
+ * import { SQLWhereParser } from 'dotdo/db/primitives/query-engine'
+ *
+ * const parser = new SQLWhereParser()
+ * const ast = parser.parse(`
+ *   SELECT id, name, email
+ *   FROM users
+ *   WHERE status = 'active' AND created_at > '2024-01-01'
+ *   ORDER BY name ASC
+ *   LIMIT 100
+ * `)
+ * ```
+ *
+ * @example Full Pipeline
  * ```typescript
  * import {
  *   MongoQueryParser,
- *   SQLWhereParser,
  *   PredicateCompiler,
  *   QueryPlanner,
  *   ExecutionEngine,
- * } from './query-engine'
+ * } from 'dotdo/db/primitives/query-engine'
  *
- * // Parse MongoDB query
- * const mongoParser = new MongoQueryParser()
- * const ast = mongoParser.parse({ age: { $gt: 21 } })
+ * // Parse -> Compile -> Plan -> Execute
+ * const ast = new MongoQueryParser().parse(query)
+ * const compiled = new PredicateCompiler().compile(ast)
  *
- * // Compile to TypedColumnStore predicates
- * const compiler = new PredicateCompiler()
- * const compiled = compiler.compile(ast)
- *
- * // Plan execution
  * const planner = new QueryPlanner()
+ * planner.setStatistics('users', {
+ *   rowCount: 1_000_000,
+ *   distinctCounts: new Map([['status', 5], ['country', 200]]),
+ * })
  * const plan = planner.plan(ast, 'users')
  *
- * // Execute
  * const engine = new ExecutionEngine()
  * const result = await engine.execute(plan, { columnStore })
  * ```
  *
  * @see dotdo-zd66s
+ * @module db/primitives/query-engine
  */
 
 // =============================================================================
@@ -159,6 +212,20 @@ export {
   SQL_KEYWORDS,
   type ParsedSelect,
 } from './parsers/sql-parser'
+
+export {
+  ElasticsearchParser,
+  type ElasticsearchQuery,
+  type ParsedElasticsearch,
+} from './parsers/elasticsearch-parser'
+
+export {
+  CypherParser,
+  CYPHER_KEYWORDS,
+  type ParsedCypher,
+  type ParsedNode,
+  type ParsedRelationship,
+} from './parsers/cypher-parser'
 
 // =============================================================================
 // Common Utilities
