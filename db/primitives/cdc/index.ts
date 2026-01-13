@@ -193,6 +193,31 @@ export {
 } from './sink'
 
 // =============================================================================
+// OFFSET TRACKER
+// =============================================================================
+
+export {
+  // Class
+  OffsetTracker,
+  // Factory
+  createOffsetTracker,
+  // Types
+  type Offset,
+  type OffsetFormat,
+  type OffsetValue,
+  type PartitionOffset,
+  type TrackedEvent,
+  type CheckpointType,
+  type CheckpointConfig,
+  type CommitOptions,
+  type DeduplicationRetention,
+  type OffsetTrackerStats,
+  type OffsetCheckpointState,
+  type CheckpointId,
+  type OffsetTrackerOptions,
+} from './offset-tracker'
+
+// =============================================================================
 // CHANGE EVENT SCHEMA
 // =============================================================================
 
@@ -228,3 +253,30 @@ export {
   // Utilities
   getChangedFields,
 } from './change-event'
+
+// =============================================================================
+// SNAPSHOT MANAGER
+// =============================================================================
+
+export {
+  // Class
+  SnapshotManager,
+  // Factory
+  createSnapshotManager,
+  // Enum
+  SnapshotPhase,
+  // Types
+  type SnapshotEvent,
+  type TableScanner,
+  type SnapshotState,
+  type SnapshotProgress,
+  type ChunkInfo,
+  type CutoverInfo,
+  type SnapshotStats,
+  type SnapshotEventHandler,
+  type ChunkCompleteHandler,
+  type StateChangeHandler,
+  type ProgressHandler,
+  type ErrorHandler,
+  type SnapshotOptions,
+} from './snapshot-manager'

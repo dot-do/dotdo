@@ -587,33 +587,35 @@ describe('SnapshotManager', () => {
 
     it('should support pause/resume for maintenance window', async () => {
       const events: SnapshotEvent<TestRecord>[] = []
-      const records = generateRecords(100)
-      const scanner = createMockScanner(records, { delayMs: 5 })
+      const records = generateRecords(200)
+      const scanner = createMockScanner(records, { delayMs: 10 })
 
       const manager = createSnapshotManager<TestRecord>({
         scanner,
         chunkSize: 20,
         onSnapshot: async (event) => {
           events.push(event)
+          // Add processing delay to slow things down
+          await delay(2)
         },
       })
 
       await manager.start()
 
-      // Pause after some records
-      await delay(30)
+      // Pause after some records - wait longer for processing to start
+      await delay(80)
       await manager.pause()
 
       const pausedCount = events.length
       expect(pausedCount).toBeGreaterThan(0)
-      expect(pausedCount).toBeLessThan(100)
+      expect(pausedCount).toBeLessThan(200)
       expect(manager.getProgress().phase).toBe(SnapshotPhase.PAUSED)
 
       // Resume and complete
       await manager.resume()
       await manager.waitForCompletion()
 
-      expect(events.length).toBe(100)
+      expect(events.length).toBe(200)
     })
   })
 

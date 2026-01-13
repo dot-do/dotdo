@@ -169,14 +169,21 @@ export interface PartitionFilter {
 // Constants
 // ============================================================================
 
-/** Avro magic bytes: 'Obj\x01' - identifies valid Avro Object Container Files */
-const AVRO_MAGIC = new Uint8Array([0x4f, 0x62, 0x6a, 0x01])
+/**
+ * Grouped constants for Iceberg manifest parsing and validation.
+ *
+ * Exported for testing and documentation purposes.
+ */
+export const ICEBERG_CONSTANTS = Object.freeze({
+  /** Avro magic bytes: 'Obj\x01' - identifies valid Avro Object Container Files */
+  AVRO_MAGIC: new Uint8Array([0x4f, 0x62, 0x6a, 0x01]),
 
-/** Minimum size for a valid Avro file (magic + some content) */
-const AVRO_MIN_SIZE = 5
+  /** Minimum size for a valid Avro file (magic + some content) */
+  AVRO_MIN_SIZE: 5,
 
-/** Manifest entry status indicating the file was deleted */
-const STATUS_DELETED: ManifestEntryStatus = 2
+  /** Manifest entry status indicating the file was deleted */
+  STATUS_DELETED: 2 as ManifestEntryStatus,
+})
 
 // ============================================================================
 // Avro Validation
@@ -193,12 +200,12 @@ function validateAvroMagic(data: Uint8Array): void {
     throw new Error('Empty input data')
   }
 
-  if (data.length < AVRO_MAGIC.length) {
+  if (data.length < ICEBERG_CONSTANTS.AVRO_MAGIC.length) {
     throw new Error('Input too short to be valid Avro')
   }
 
-  for (let i = 0; i < AVRO_MAGIC.length; i++) {
-    if (data[i] !== AVRO_MAGIC[i]) {
+  for (let i = 0; i < ICEBERG_CONSTANTS.AVRO_MAGIC.length; i++) {
+    if (data[i] !== ICEBERG_CONSTANTS.AVRO_MAGIC[i]) {
       throw new Error('Invalid Avro magic bytes')
     }
   }
@@ -474,7 +481,7 @@ export function parseManifestList(data: Uint8Array): ManifestListEntry[] {
   validateAvroMagic(data)
 
   // Require content beyond just magic bytes
-  if (data.length < AVRO_MIN_SIZE) {
+  if (data.length < ICEBERG_CONSTANTS.AVRO_MIN_SIZE) {
     throw new Error('Truncated Avro file - missing content after header')
   }
 
@@ -585,7 +592,7 @@ export function filterDataFilesByPartition(entries: ManifestEntry[], filter: Par
 
   return entries.filter((entry) => {
     // Always exclude deleted entries
-    if (entry.status === STATUS_DELETED) {
+    if (entry.status === ICEBERG_CONSTANTS.STATUS_DELETED) {
       return false
     }
 

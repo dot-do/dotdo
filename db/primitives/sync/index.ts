@@ -8,6 +8,8 @@
  *
  * - **ConflictDetector**: Identifies conflicts in bidirectional sync scenarios
  * - **RateLimiter**: Rate limits requests to respect destination API limits
+ * - **SyncStatus**: Tracks sync operation state and progress
+ * - **FieldMapper**: Maps and transforms fields between source and destination schemas
  *
  * ## Usage Example
  *
@@ -16,7 +18,9 @@
  *   ConflictDetector,
  *   createConflictDetector,
  *   RateLimiter,
- *   createRateLimiter
+ *   createRateLimiter,
+ *   SyncStatus,
+ *   createSyncStatus
  * } from '@dotdo/primitives/sync'
  *
  * // Conflict detection
@@ -32,6 +36,13 @@
  * })
  * await limiter.acquire()
  * await callDestinationAPI()
+ *
+ * // Sync status tracking
+ * const status = createSyncStatus({ planId: 'plan-123', totalRecords: 1000 })
+ * status.on('progress', ({ percentage }) => console.log(`${percentage}%`))
+ * status.start()
+ * status.recordProcessed('added')
+ * status.complete()
  * ```
  *
  * @module db/primitives/sync
@@ -61,3 +72,59 @@ export {
   createRateLimiter,
   type RateLimitConfig,
 } from './rate-limiter'
+
+// =============================================================================
+// SYNC STATUS & PROGRESS
+// =============================================================================
+
+export {
+  SyncStatus,
+  createSyncStatus,
+  type SyncProgress,
+  type SyncError,
+  type SyncStatusState,
+  type SyncStatusEvents,
+  type SyncStatusOptions,
+  type SyncStatusJSON,
+  type ProcessedResultType,
+  type BatchResult,
+} from './sync-status'
+
+// =============================================================================
+// FIELD MAPPING
+// =============================================================================
+
+export {
+  FieldMapper,
+  createFieldMapper,
+  type FieldMapping,
+  type TransformFunction,
+  type TransformPipeline,
+  type BuiltInTransform,
+  type CustomTransformFunction,
+  type FieldMapperOptions,
+  type MappingValidationError,
+  type ValidationResult,
+} from './field-mapper'
+
+// =============================================================================
+// ERROR HANDLING AND RETRIES
+// =============================================================================
+
+export {
+  RetryExecutor,
+  SyncErrorTracker,
+  createRetryExecutor,
+  createSyncErrorTracker,
+  type RetryPolicy,
+  type RetryError,
+  type RetryResult,
+  type FailedRecord,
+  type TrackFailureInput,
+  type FailedRecordFilter,
+  type FailureSummary,
+  type ExportedFailure,
+  type RetryExecutorOptions,
+  type ExecutionContext,
+  type RetryBatchResult,
+} from './retry-executor'

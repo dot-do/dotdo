@@ -64,6 +64,7 @@ export * from './vault'
 export * from './rotation'
 export * from './access'
 export * from './audit'
+export * from './token-refresher'
 
 // =============================================================================
 // Unified Types

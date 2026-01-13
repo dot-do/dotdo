@@ -21,11 +21,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   RetryExecutor,
-  SyncErrorTracker,
+  RetryErrorTracker,
   createRetryExecutor,
-  createSyncErrorTracker,
+  createRetryErrorTracker,
   type RetryPolicy,
-  type SyncError,
+  type RetryError,
   type RetryResult,
   type FailedRecord,
 } from '../retry-executor'
@@ -388,11 +388,11 @@ describe('RetryExecutor', () => {
 // SYNC ERROR TRACKER TESTS
 // =============================================================================
 
-describe('SyncErrorTracker', () => {
-  let tracker: SyncErrorTracker
+describe('RetryErrorTracker', () => {
+  let tracker: RetryErrorTracker
 
   beforeEach(() => {
-    tracker = new SyncErrorTracker()
+    tracker = new RetryErrorTracker()
   })
 
   describe('tracking failed records', () => {
@@ -673,7 +673,7 @@ describe('Batch retry execution', () => {
   it('processes batch with partial failures', async () => {
     const policy = createDefaultPolicy({ maxAttempts: 2 })
     const executor = new RetryExecutor(policy, { delayFn: async () => {} })
-    const tracker = new SyncErrorTracker()
+    const tracker = new RetryErrorTracker()
 
     const batch = [
       { key: 'item-1', value: 100 },
@@ -705,7 +705,7 @@ describe('Batch retry execution', () => {
   it('continues batch after transient failures that eventually succeed', async () => {
     const policy = createDefaultPolicy({ maxAttempts: 3 })
     const executor = new RetryExecutor(policy, { delayFn: async () => {} })
-    const tracker = new SyncErrorTracker()
+    const tracker = new RetryErrorTracker()
 
     const attemptCounts = new Map<string, number>()
 
@@ -755,10 +755,10 @@ describe('Factory functions', () => {
     expect(executor).toBeInstanceOf(RetryExecutor)
   })
 
-  it('createSyncErrorTracker creates new tracker', () => {
-    const tracker = createSyncErrorTracker()
+  it('createRetryErrorTracker creates new tracker', () => {
+    const tracker = createRetryErrorTracker()
 
-    expect(tracker).toBeInstanceOf(SyncErrorTracker)
+    expect(tracker).toBeInstanceOf(RetryErrorTracker)
     expect(tracker.getFailedRecords()).toHaveLength(0)
   })
 })

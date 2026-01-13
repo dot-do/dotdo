@@ -1012,3 +1012,31 @@ describe('integration scenarios', () => {
     })
   })
 })
+
+// ============================================================================
+// ICEBERG_CONSTANTS Tests
+// ============================================================================
+
+describe('ICEBERG_CONSTANTS', () => {
+  it('exports grouped constants object', () => {
+    expect(ICEBERG_CONSTANTS).toBeDefined()
+    expect(typeof ICEBERG_CONSTANTS).toBe('object')
+  })
+
+  it('contains AVRO_MAGIC bytes (Obj\\x01)', () => {
+    expect(ICEBERG_CONSTANTS.AVRO_MAGIC).toBeInstanceOf(Uint8Array)
+    expect(ICEBERG_CONSTANTS.AVRO_MAGIC).toEqual(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]))
+  })
+
+  it('contains AVRO_MIN_SIZE for validation', () => {
+    expect(ICEBERG_CONSTANTS.AVRO_MIN_SIZE).toBe(5)
+  })
+
+  it('contains STATUS_DELETED for manifest entry filtering', () => {
+    expect(ICEBERG_CONSTANTS.STATUS_DELETED).toBe(2)
+  })
+
+  it('is frozen (immutable)', () => {
+    expect(Object.isFrozen(ICEBERG_CONSTANTS)).toBe(true)
+  })
+})

@@ -177,3 +177,28 @@ export {
   // Types - Options
   type DeliveryQueueOptions,
 } from './delivery-queue'
+
+// =============================================================================
+// Template Engine Exports
+// =============================================================================
+
+export {
+  // Factory
+  createTemplateEngine,
+  // Main class
+  TemplateEngine,
+  // Types - Escape
+  type EscapeMode,
+  // Types - Helper & Filter
+  type TemplateHelper,
+  type TemplateFilter,
+  // Types - Compiled
+  type CompiledTemplate,
+  type TemplateNode,
+  type TemplateNodeType,
+  // Types - Config
+  type TemplateEngineConfig,
+  type TemplateEngineOptions,
+  // Types - Render
+  type RenderOptions,
+} from './template-engine'
