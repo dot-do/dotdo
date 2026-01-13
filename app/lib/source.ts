@@ -1,47 +1,29 @@
-import { loader } from 'fumadocs-core/source'
+import { loader, type InferPageType, type InferMetaType } from 'fumadocs-core/source'
+import type { PageTree } from 'fumadocs-core/server'
 import {
+  // MINIMAL set for build debugging
+  gettingStarted,
   concepts,
   api,
-  gettingStarted,
-  agents,
-  cli,
-  database,
-  deployment,
-  integrations,
-  sdk,
-  rpc,
-  guides,
-  observability,
-  primitives,
-  security,
-  storage,
-  workflows,
-  // Additional sections
-  actions,
-  architecture,
-  compat,
-  events,
-  functions,
-  humans,
-  mcp,
-  objects,
-  platform,
-  transport,
-  ui,
 } from 'fumadocs-mdx:collections/server'
 
 /**
- * Multi-collection source loaders
+ * MINIMAL source loaders for build debugging
  *
- * Each collection has its own loader with baseUrl for:
- * - Independent navigation trees
- * - Separate chunk splitting
- * - Memory-efficient prerendering
+ * The full 27 collection setup causes 8GB+ memory usage during SSR build.
+ * Using minimal set to get a working build first.
+ *
+ * NOTE: No rootDocsSource - /docs redirects to /docs/getting-started
  *
  * @see docs/plans/2026-01-12-fumadocs-static-prerender-design.md
  */
 
 // Core documentation
+export const gettingStartedSource = loader({
+  source: gettingStarted.toFumadocsSource(),
+  baseUrl: '/docs/getting-started',
+})
+
 export const conceptsSource = loader({
   source: concepts.toFumadocsSource(),
   baseUrl: '/docs/concepts',
@@ -52,137 +34,54 @@ export const apiSource = loader({
   baseUrl: '/docs/api',
 })
 
-export const gettingStartedSource = loader({
-  source: gettingStarted.toFumadocsSource(),
-  baseUrl: '/docs/getting-started',
-})
+/**
+ * Collection name to source mapping
+ */
+export const sourcesByCollection = {
+  gettingStarted: gettingStartedSource,
+  concepts: conceptsSource,
+  api: apiSource,
+} as const
 
-// Platform & Infrastructure
-export const agentsSource = loader({
-  source: agents.toFumadocsSource(),
-  baseUrl: '/docs/agents',
-})
+export type CollectionName = keyof typeof sourcesByCollection
 
-export const cliSource = loader({
-  source: cli.toFumadocsSource(),
-  baseUrl: '/docs/cli',
-})
+/**
+ * URL path segment to collection name mapping
+ */
+const pathToCollection: Record<string, CollectionName> = {
+  'getting-started': 'gettingStarted',
+  concepts: 'concepts',
+  api: 'api',
+}
 
-export const databaseSource = loader({
-  source: database.toFumadocsSource(),
-  baseUrl: '/docs/database',
-})
+/**
+ * Get the collection name for a URL path
+ */
+export function getCollectionForPath(slugs: string[]): CollectionName | null {
+  if (slugs.length === 0) return null
+  const firstSlug = slugs[0]
+  return pathToCollection[firstSlug] ?? null
+}
 
-export const deploymentSource = loader({
-  source: deployment.toFumadocsSource(),
-  baseUrl: '/docs/deployment',
-})
+/**
+ * Get the source loader for a URL path
+ */
+export function getSourceForPath(slugs: string[]) {
+  const collection = getCollectionForPath(slugs)
+  if (!collection) return null
+  return sourcesByCollection[collection]
+}
 
-// Integration & SDK docs
-export const integrationsSource = loader({
-  source: integrations.toFumadocsSource(),
-  baseUrl: '/docs/integrations',
-})
-
-export const sdkSource = loader({
-  source: sdk.toFumadocsSource(),
-  baseUrl: '/docs/sdk',
-})
-
-export const rpcSource = loader({
-  source: rpc.toFumadocsSource(),
-  baseUrl: '/docs/rpc',
-})
-
-// Advanced topics
-export const guidesSource = loader({
-  source: guides.toFumadocsSource(),
-  baseUrl: '/docs/guides',
-})
-
-export const observabilitySource = loader({
-  source: observability.toFumadocsSource(),
-  baseUrl: '/docs/observability',
-})
-
-export const primitivesSource = loader({
-  source: primitives.toFumadocsSource(),
-  baseUrl: '/docs/primitives',
-})
-
-export const securitySource = loader({
-  source: security.toFumadocsSource(),
-  baseUrl: '/docs/security',
-})
-
-export const storageSource = loader({
-  source: storage.toFumadocsSource(),
-  baseUrl: '/docs/storage',
-})
-
-export const workflowsSource = loader({
-  source: workflows.toFumadocsSource(),
-  baseUrl: '/docs/workflows',
-})
-
-// Additional sections
-export const actionsSource = loader({
-  source: actions.toFumadocsSource(),
-  baseUrl: '/docs/actions',
-})
-
-export const architectureSource = loader({
-  source: architecture.toFumadocsSource(),
-  baseUrl: '/docs/architecture',
-})
-
-export const compatSource = loader({
-  source: compat.toFumadocsSource(),
-  baseUrl: '/docs/compat',
-})
-
-export const eventsSource = loader({
-  source: events.toFumadocsSource(),
-  baseUrl: '/docs/events',
-})
-
-export const functionsSource = loader({
-  source: functions.toFumadocsSource(),
-  baseUrl: '/docs/functions',
-})
-
-export const humansSource = loader({
-  source: humans.toFumadocsSource(),
-  baseUrl: '/docs/humans',
-})
-
-export const mcpSource = loader({
-  source: mcp.toFumadocsSource(),
-  baseUrl: '/docs/mcp',
-})
-
-export const objectsSource = loader({
-  source: objects.toFumadocsSource(),
-  baseUrl: '/docs/objects',
-})
-
-export const platformSource = loader({
-  source: platform.toFumadocsSource(),
-  baseUrl: '/docs/platform',
-})
-
-export const transportSource = loader({
-  source: transport.toFumadocsSource(),
-  baseUrl: '/docs/transport',
-})
-
-export const uiSource = loader({
-  source: ui.toFumadocsSource(),
-  baseUrl: '/docs/ui',
-})
-
-// Main docs source (uses getting-started as entry point for /docs)
-export const source = gettingStartedSource
+/**
+ * Get a page from the appropriate source based on slugs
+ */
+export function getPage(slugs: string[]) {
+  const source = getSourceForPath(slugs)
+  if (!source) return null
+  // Remove the first slug (it's the section prefix)
+  const pageSlug = slugs.slice(1)
+  return source.getPage(pageSlug)
+}
 
 /**
  * Root tabs for top-level navigation
@@ -191,49 +90,15 @@ export const rootTabs = [
   { title: 'Getting Started', url: '/docs/getting-started' },
   { title: 'Concepts', url: '/docs/concepts' },
   { title: 'API', url: '/docs/api' },
-  { title: 'SDKs', url: '/docs/integrations' },
-  { title: 'Agents', url: '/docs/agents' },
-  { title: 'CLI', url: '/docs/cli' },
-  { title: 'Database', url: '/docs/database' },
-  { title: 'Deployment', url: '/docs/deployment' },
 ]
 
 /**
  * All source loaders for iteration
  */
 const allSources = [
-  // Core docs
+  gettingStartedSource,
   conceptsSource,
   apiSource,
-  gettingStartedSource,
-  // Platform
-  agentsSource,
-  cliSource,
-  databaseSource,
-  deploymentSource,
-  // SDKs
-  integrationsSource,
-  sdkSource,
-  rpcSource,
-  // Advanced
-  guidesSource,
-  observabilitySource,
-  primitivesSource,
-  securitySource,
-  storageSource,
-  workflowsSource,
-  // Additional
-  actionsSource,
-  architectureSource,
-  compatSource,
-  eventsSource,
-  functionsSource,
-  humansSource,
-  mcpSource,
-  objectsSource,
-  platformSource,
-  transportSource,
-  uiSource,
 ]
 
 /**
@@ -242,3 +107,54 @@ const allSources = [
 export function getAllPages() {
   return allSources.flatMap((s) => s.getPages())
 }
+
+/**
+ * Build a unified page tree from all collections
+ * This combines individual collection trees into a single navigation structure
+ */
+export async function getUnifiedPageTree(): Promise<PageTree.Root> {
+  // Get section trees
+  const sectionTrees = await Promise.all([
+    { name: 'Getting Started', source: gettingStartedSource },
+    { name: 'Concepts', source: conceptsSource },
+    { name: 'API', source: apiSource },
+  ].map(async ({ name, source }) => ({
+    name,
+    tree: source.getPageTree(),
+  })))
+
+  // Combine into unified tree
+  const children: PageTree.Node[] = []
+
+  for (const { name, tree } of sectionTrees) {
+    // Each section becomes a folder with its tree's children
+    if (tree.children.length > 0) {
+      const indexPage = tree.children.find(
+        (c): c is PageTree.Item => c.type === 'page' && c.url.endsWith('/')
+      )
+      children.push({
+        type: 'folder',
+        name,
+        index: indexPage,
+        children: tree.children.filter((c) => c !== indexPage),
+      })
+    }
+  }
+
+  return {
+    name: 'Docs',
+    children,
+  }
+}
+
+/**
+ * Serialize the unified page tree for client transfer
+ */
+export async function serializeUnifiedPageTree() {
+  const tree = await getUnifiedPageTree()
+  // The tree is already serializable, just return it
+  return tree
+}
+
+// Default source for backwards compatibility
+export const source = gettingStartedSource

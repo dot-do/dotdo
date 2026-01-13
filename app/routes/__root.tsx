@@ -1,8 +1,9 @@
-import { createRootRoute, Outlet, HeadContent, Scripts } from '@tanstack/react-router'
+import { createRootRoute, Outlet, HeadContent, Scripts, useRouterState } from '@tanstack/react-router'
 import { RootProvider } from 'fumadocs-ui/provider/tanstack'
-import React, { useEffect } from 'react'
+import React, { useEffect, Suspense } from 'react'
 import { ThemeScript, useThemeStore } from '@mdxui/themes'
 import { ErrorBoundary } from '../components/ui/error-boundary'
+import { RouteProgressBar, RoutePending, RouteError, RouteNotFound } from '../components/ui/route-transition'
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -12,6 +13,14 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
     ],
   }),
+  // Default pending component for all routes
+  pendingComponent: () => <RoutePending showSkeleton />,
+  // Default error component for all routes
+  errorComponent: ({ error, reset }) => (
+    <RouteError error={error as Error} reset={reset} />
+  ),
+  // Not found handler
+  notFoundComponent: () => <RouteNotFound />,
 })
 
 function ThemeInitializer() {
@@ -32,11 +41,14 @@ function RootComponent() {
         <HeadContent />
         <ThemeScript defaultMode="system" />
       </head>
-      <body>
+      <body className="theme-transition">
         <ThemeInitializer />
+        <RouteProgressBar />
         <RootProvider>
           <ErrorBoundary>
-            <Outlet />
+            <Suspense fallback={<RoutePending showSkeleton />}>
+              <Outlet />
+            </Suspense>
           </ErrorBoundary>
         </RootProvider>
         <Scripts />

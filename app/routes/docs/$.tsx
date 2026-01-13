@@ -1,7 +1,7 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { DocsLayout } from 'fumadocs-ui/layouts/docs'
 import { createServerFn } from '@tanstack/react-start'
-import { source } from '../../lib/source'
+import { getPage, getCollectionForPath, serializeUnifiedPageTree, type CollectionName } from '../../lib/source'
 import browserCollections from 'fumadocs-mdx:collections/browser'
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page'
 import defaultMdxComponents from 'fumadocs-ui/mdx'
@@ -12,7 +12,12 @@ export const Route = createFileRoute('/docs/$')({
   loader: async ({ params }) => {
     const slugs = params._splat?.split('/') ?? []
     const data = await serverLoader({ data: slugs })
-    await clientLoader.preload(data.path)
+    // Preload content from the appropriate collection
+    const collection = data.collection as CollectionName
+    const clientLoader = getClientLoader(collection)
+    if (clientLoader) {
+      await clientLoader.preload(data.path)
+    }
     return data
   },
   head: ({ loaderData }) => ({
@@ -34,46 +39,70 @@ const serverLoader = createServerFn({
 })
   .inputValidator((slugs: string[]) => slugs)
   .handler(async ({ data: slugs }) => {
-    const page = source.getPage(slugs)
+    const page = getPage(slugs)
     if (!page) throw notFound()
+
+    const collection = getCollectionForPath(slugs)
+    const pageTree = await serializeUnifiedPageTree()
 
     return {
       path: page.path,
-      pageTree: await source.serializePageTree(source.getPageTree()),
+      pageTree,
+      collection,
     }
   })
 
-const clientLoader = browserCollections.docs.createClientLoader({
-  component(
-    { toc, frontmatter, default: MDX },
-    props: {
-      className?: string
+/**
+ * Create a client loader component for a specific collection
+ */
+function createClientLoaderComponent(collection: keyof typeof browserCollections) {
+  const collectionData = browserCollections[collection]
+  if (!collectionData) return null
+
+  return collectionData.createClientLoader({
+    component(
+      { toc, frontmatter, default: MDX },
+      props: {
+        className?: string
+      },
+    ) {
+      return (
+        <DocsPage toc={toc} {...props}>
+          <DocsTitle>{frontmatter.title}</DocsTitle>
+          <DocsDescription>{frontmatter.description}</DocsDescription>
+          <DocsBody>
+            <MDX
+              components={{
+                ...defaultMdxComponents,
+              }}
+            />
+          </DocsBody>
+        </DocsPage>
+      )
     },
-  ) {
-    return (
-      <DocsPage toc={toc} {...props}>
-        <DocsTitle>{frontmatter.title}</DocsTitle>
-        <DocsDescription>{frontmatter.description}</DocsDescription>
-        <DocsBody>
-          <MDX
-            components={{
-              ...defaultMdxComponents,
-            }}
-          />
-        </DocsBody>
-      </DocsPage>
-    )
-  },
-})
+  })
+}
+
+// Cache client loaders for each collection
+const clientLoaders = new Map<CollectionName, ReturnType<typeof createClientLoaderComponent>>()
+
+function getClientLoader(collection: CollectionName) {
+  if (!clientLoaders.has(collection)) {
+    clientLoaders.set(collection, createClientLoaderComponent(collection as keyof typeof browserCollections))
+  }
+  return clientLoaders.get(collection)
+}
 
 function Page() {
   const data = useFumadocsLoader(Route.useLoaderData())
+  const collection = data.collection as CollectionName
+  const clientLoader = getClientLoader(collection)
 
   return (
     <DocsLayout tree={data.pageTree}>
-      {clientLoader.useContent(data.path, {
+      {clientLoader?.useContent(data.path, {
         className: '',
-      })}
+      }) ?? <div>Content not found</div>}
     </DocsLayout>
   )
 }

@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Admin Password Reset Route
  *

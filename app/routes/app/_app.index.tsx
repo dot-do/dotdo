@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * App Dashboard Index Route
  *

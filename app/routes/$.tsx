@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Catch-All 404 Route
  *

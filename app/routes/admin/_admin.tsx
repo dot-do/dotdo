@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Admin Layout Route
  *

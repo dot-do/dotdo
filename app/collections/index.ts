@@ -13,7 +13,10 @@ import { z } from 'zod'
 // Environment Configuration
 // =============================================================================
 
-const DO_URL = import.meta.env.VITE_DO_URL || ''
+// During SSR/prerender, VITE_DO_URL may not be set. Use a placeholder URL
+// that passes validation but won't actually be used for static pages.
+// Real-time sync only activates when clients connect via WebSocket.
+const DO_URL = import.meta.env.VITE_DO_URL || 'wss://localhost/do/placeholder'
 
 // =============================================================================
 // User Collection

@@ -23,6 +23,10 @@ export default defineConfig({
       '@workos-inc/widgets',
       // @xterm/xterm has ESM export issues during SSR
       '@xterm/xterm',
+      // server-only throws in non-RSC environments - must bundle to apply our shim
+      'server-only',
+      // fumadocs-typescript/ui imports server-only, bundle it to use our shim
+      'fumadocs-typescript',
     ],
   },
   plugins: [
@@ -39,21 +43,37 @@ export default defineConfig({
       // Static prerendering for zero-cost Cloudflare static assets deployment
       // Uses multi-collection splitting for memory-efficient builds
       // @see docs/plans/2026-01-12-fumadocs-static-prerender-design.md
-      // NOTE: Disabled due to RSC boundary issues during prerender
-      // The SSR noExternal config fixes package bundling, but some routes
-      // import client-only modules during SSR (xterm, admin components)
       prerender: {
+        // DISABLED: Build runs out of memory (8GB) due to 28MB docs-sdks chunk
+        // TODO: Split integrations into smaller chunks, then re-enable
         enabled: false,
         // Lower concurrency to manage memory (default 14)
         concurrency: 2,
-        // Crawl links to discover all docs pages automatically
-        // Starting from /docs, it will find all linked pages
-        crawlLinks: true,
-        // Start with root routes - crawlLinks will discover docs pages
+        // DISABLED: crawlLinks causes SSR timeout due to 28MB docs-sdks chunk
+        // TODO: Re-enable after splitting integrations into smaller chunks
+        crawlLinks: false,
+        // Explicit routes for prerendering (lightweight sections first)
         routes: [
-          '/',
           '/docs',
+          '/docs/getting-started',
+          '/docs/concepts',
+          '/docs/guides',
         ],
+        // Filter out auth-protected routes from prerendering
+        // These routes require authentication and should be SSR'd at runtime
+        filter: ({ path }) => {
+          // Exclude admin routes (behind auth)
+          if (path.startsWith('/admin')) return false
+          // Exclude app routes (behind auth)
+          if (path.startsWith('/app')) return false
+          // Exclude auth flows (redirects cause infinite loops)
+          if (path.startsWith('/signup')) return false
+          if (path.startsWith('/login')) return false
+          // Exclude homepage (SSR timeout issues with beacon components)
+          if (path === '/' || path === '') return false
+          // Prerender everything else
+          return true
+        },
       },
     }),
     react(),
@@ -61,6 +81,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@tests/mocks': path.resolve(__dirname, '../tests/mocks'),
+      // Alias server-only to empty module - this package is designed for Next.js RSC
+      // and throws when imported from client components. In TanStack Start we don't
+      // have the same RSC boundaries, so we shim it to a no-op.
+      'server-only': path.resolve(__dirname, 'lib/shims/server-only.ts'),
     },
   },
   build: {

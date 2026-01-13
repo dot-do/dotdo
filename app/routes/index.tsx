@@ -1,6 +1,10 @@
+'use client'
+
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { LandingPage, Hero, Features, Pricing, CTA, Testimonials } from '@mdxui/beacon'
 import * as React from 'react'
+
+// Temporarily remove beacon components to test prerender
+// import { Hero, Features, Pricing, CTA, Testimonials } from '@mdxui/beacon'
 
 // Local Navigation component since @mdxui/beacon doesn't export it
 interface NavItem {
@@ -72,12 +76,12 @@ export const Route = createFileRoute('/')({
 })
 
 const features = [
-  { icon: '1', title: 'Promise Pipelining', description: 'Multiple agent calls execute in one network round trip. The server receives your entire pipeline and runs it in a single pass.' },
-  { icon: '2', title: 'Magic Map', description: 'The .map() isn\'t JavaScript\'s array method. It records your callback, sends it to the server, and replays it for each result.' },
-  { icon: '3', title: 'V8 Isolates', description: 'Virtual Chrome tabs with persistent state. 0ms cold starts. Runs in 300+ cities worldwide.' },
-  { icon: '4', title: '38 Compat SDKs', description: 'Use APIs you know - Supabase, MongoDB, Kafka, Redis. Same code, scales to millions of agents.' },
-  { icon: '5', title: 'Extended Primitives', description: 'fsx (filesystem), gitx (version control), bashx (shell) - all rebuilt for edge without VMs.' },
-  { icon: '6', title: 'Human Escalation', description: 'AI does the work. Humans make decisions. Route to Slack, email, SMS with full audit trail.' },
+  { title: 'Promise Pipelining', description: 'Multiple agent calls execute in one network round trip. The server receives your entire pipeline and runs it in a single pass.' },
+  { title: 'Magic Map', description: 'The .map() isn\'t JavaScript\'s array method. It records your callback, sends it to the server, and replays it for each result.' },
+  { title: 'V8 Isolates', description: 'Virtual Chrome tabs with persistent state. 0ms cold starts. Runs in 300+ cities worldwide.' },
+  { title: '38 Compat SDKs', description: 'Use APIs you know - Supabase, MongoDB, Kafka, Redis. Same code, scales to millions of agents.' },
+  { title: 'Extended Primitives', description: 'fsx (filesystem), gitx (version control), bashx (shell) - all rebuilt for edge without VMs.' },
+  { title: 'Human Escalation', description: 'AI does the work. Humans make decisions. Route to Slack, email, SMS with full audit trail.' },
 ]
 
 const pricingTiers = [
@@ -128,7 +132,7 @@ const testimonials = [
 
 function Home() {
   return (
-    <LandingPage>
+    <div className="min-h-screen bg-background">
       <Navigation
         logo={<span>.do</span>}
         items={[
@@ -137,36 +141,47 @@ function Home() {
         ]}
         cta={{ label: 'Get Started', href: '/signup' }}
       />
-      <Hero
-        title="Build your 1-Person Unicorn"
-        subtitle="Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents."
-        cta={{ label: 'Get Started', href: '/docs' }}
-        variant="code-side"
-      >
-        <pre>{`import { Startup } from 'dotdo'
-import { priya, ralph, tom, mark, sally } from 'agents.do'
 
-export class MyStartup extends Startup {
-  async launch() {
-    const spec = await priya\`define the MVP for \${this.hypothesis}\`
-    const app = await ralph\`build \${spec}\`
-    const reviewed = await tom\`ship \${app}\`
+      {/* Simplified hero for SSR-safe prerender testing */}
+      <section className="py-20 px-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <h1 className="text-5xl font-bold mb-6">Build your 1-Person Unicorn</h1>
+          <p className="text-xl text-muted-foreground mb-8">
+            Deploy a startup with product, engineering, marketing, and sales.
+            Business-as-Code for autonomous businesses run by AI agents.
+          </p>
+          <div className="flex gap-4 justify-center">
+            <Link
+              to="/docs"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Get Started
+            </Link>
+            <a
+              href="https://github.com/dot-do/dotdo"
+              className="inline-flex items-center justify-center rounded-md border px-6 py-3 text-sm font-medium hover:bg-muted"
+            >
+              View on GitHub
+            </a>
+          </div>
+        </div>
+      </section>
 
-    await mark\`announce the launch\`
-    await sally\`start selling\`
-  }
-}`}</pre>
-      </Hero>
-      <Features items={features} />
-      <Pricing tiers={pricingTiers} />
-      <Testimonials items={testimonials} />
-      <CTA
-        title="Ready to build your 1-Person Unicorn?"
-        subtitle="Solo founders get a team. Small teams scale. AI does the work. Humans decide."
-        primaryAction={{ label: 'Get Started', href: '/docs' }}
-        secondaryAction={{ label: 'View on GitHub', href: 'https://github.com/dot-do/dotdo' }}
-      />
-    </LandingPage>
+      {/* Simplified features */}
+      <section className="py-16 px-6 bg-muted/50">
+        <div className="max-w-6xl mx-auto">
+          <h2 className="text-3xl font-bold text-center mb-12">Features</h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            {features.map((feature, i) => (
+              <div key={i} className="p-6 bg-background rounded-lg">
+                <h3 className="font-semibold mb-2">{feature.title}</h3>
+                <p className="text-sm text-muted-foreground">{feature.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
   )
 }
 

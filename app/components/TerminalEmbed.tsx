@@ -17,15 +17,19 @@
  * - Auto-reconnection with exponential backoff
  * - Keyboard shortcuts (documented in aria-describedby)
  *
+ * SSR Compatibility:
+ * - xterm.js is browser-only and requires dynamic import
+ * - Terminal initialization is deferred to useEffect (client-side only)
+ * - CSS is imported dynamically alongside the library
+ *
  * @see api/routes/sandboxes.ts - Sandbox terminal WebSocket endpoint
  * @see objects/Sandbox.ts - Sandbox Durable Object
  */
 
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
+import type { Terminal } from '@xterm/xterm'
+import type { FitAddon } from '@xterm/addon-fit'
 import { useThemeStore } from '@mdxui/themes'
-import '@xterm/xterm/css/xterm.css'
 
 // ============================================================================
 // Constants
@@ -98,6 +102,7 @@ export function TerminalEmbed({
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const [isTerminalReady, setIsTerminalReady] = useState(false)
 
   // Get resolved theme mode from app theme store
   const { resolvedMode } = useThemeStore()
@@ -248,43 +253,83 @@ export function TerminalEmbed({
   }, [connectWebSocket])
 
   // Initialize xterm and WebSocket connection
+  // Uses dynamic imports for SSR compatibility - xterm.js is browser-only
   useEffect(() => {
-    // Get initial theme
-    const themeMode = resolvedMode === 'dark' ? 'dark' : 'light'
+    // SSR guard - only run in browser
+    if (typeof window === 'undefined') return
 
-    // Initialize xterm with scrollback limit and theme
-    const terminal = new Terminal({
-      cursorBlink: true,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 14,
-      scrollback: scrollbackLimit,
-      theme: TERMINAL_THEMES[themeMode],
-      // Accessibility options
-      screenReaderMode: false, // Can be enabled via prop if needed
-    })
-    const fitAddon = new FitAddon()
-    terminal.loadAddon(fitAddon)
+    let terminal: Terminal | null = null
+    let fitAddon: FitAddon | null = null
+    let disposables: { inputDisposable?: { dispose(): void }; resizeDisposable?: { dispose(): void } } | null = null
+    let handleWindowResize: (() => void) | null = null
+    let mounted = true
 
-    xtermRef.current = terminal
-    fitAddonRef.current = fitAddon
+    // Dynamically import xterm.js (browser-only library)
+    const initTerminal = async () => {
+      try {
+        // Import xterm modules dynamically
+        const [{ Terminal: TerminalClass }, { FitAddon: FitAddonClass }] = await Promise.all([
+          import('@xterm/xterm'),
+          import('@xterm/addon-fit'),
+        ])
 
-    if (terminalRef.current) {
-      terminal.open(terminalRef.current)
-      fitAddon.fit()
+        // Import CSS - Vite handles this correctly
+        await import('@xterm/xterm/css/xterm.css')
+
+        // Check if component is still mounted
+        if (!mounted) return
+
+        // Get initial theme
+        const themeMode = resolvedMode === 'dark' ? 'dark' : 'light'
+
+        // Initialize xterm with scrollback limit and theme
+        terminal = new TerminalClass({
+          cursorBlink: true,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          fontSize: 14,
+          scrollback: scrollbackLimit,
+          theme: TERMINAL_THEMES[themeMode],
+          // Accessibility options
+          screenReaderMode: false, // Can be enabled via prop if needed
+        })
+        fitAddon = new FitAddonClass()
+        terminal.loadAddon(fitAddon)
+
+        xtermRef.current = terminal
+        fitAddonRef.current = fitAddon
+
+        if (terminalRef.current) {
+          terminal.open(terminalRef.current)
+          fitAddon.fit()
+        }
+
+        // Connect WebSocket
+        disposables = connectWebSocket()
+
+        // Handle window resize
+        handleWindowResize = () => {
+          fitAddon?.fit()
+        }
+        window.addEventListener('resize', handleWindowResize)
+
+        // Mark terminal as ready
+        setIsTerminalReady(true)
+      } catch (err) {
+        console.error('Failed to initialize terminal:', err)
+        onError?.(err instanceof Error ? err : new Error('Failed to initialize terminal'))
+      }
     }
 
-    // Connect WebSocket
-    const disposables = connectWebSocket()
-
-    // Handle window resize
-    const handleWindowResize = () => {
-      fitAddon.fit()
-    }
-    window.addEventListener('resize', handleWindowResize)
+    initTerminal()
 
     // Cleanup on unmount
     return () => {
-      window.removeEventListener('resize', handleWindowResize)
+      mounted = false
+      setIsTerminalReady(false)
+
+      if (handleWindowResize) {
+        window.removeEventListener('resize', handleWindowResize)
+      }
 
       // Clear reconnect timeout
       if (reconnectTimeoutRef.current) {
@@ -301,9 +346,9 @@ export function TerminalEmbed({
       disposables?.resizeDisposable?.dispose()
 
       // Dispose terminal (cleans up DOM and memory)
-      terminal.dispose()
+      terminal?.dispose()
     }
-  }, [sandboxId, scrollbackLimit, resolvedMode, connectWebSocket])
+  }, [sandboxId, scrollbackLimit, resolvedMode, connectWebSocket, onError])
 
   // Get status message with reconnect info
   const getStatusMessage = () => {
@@ -417,15 +462,28 @@ export function TerminalEmbed({
       </div>
 
       {/* Terminal container */}
-      <div
-        ref={terminalRef}
-        data-testid="terminal-container"
-        className="w-full h-96 border rounded bg-gray-900 overflow-hidden"
-        role="application"
-        aria-label="Terminal"
-        aria-describedby="terminal-shortcuts-description"
-        tabIndex={0}
-      />
+      <div className="relative">
+        <div
+          ref={terminalRef}
+          data-testid="terminal-container"
+          className="w-full h-96 border rounded bg-gray-900 overflow-hidden"
+          role="application"
+          aria-label="Terminal"
+          aria-describedby="terminal-shortcuts-description"
+          tabIndex={0}
+        />
+        {/* Loading overlay - shown during SSR and while terminal initializes */}
+        {!isTerminalReady && (
+          <div
+            className="absolute inset-0 flex items-center justify-center bg-gray-900 border rounded"
+            data-testid="terminal-loading"
+          >
+            <div className="text-gray-400 text-sm animate-pulse">
+              Loading terminal...
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
