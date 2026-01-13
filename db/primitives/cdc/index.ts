@@ -280,3 +280,70 @@ export {
   type ErrorHandler,
   type SnapshotOptions,
 } from './snapshot-manager'
+
+// =============================================================================
+// WAL/BINLOG READER
+// =============================================================================
+
+export {
+  // Interface and base types
+  type WALReader,
+  type WALEntry,
+  type WALPosition,
+  type WALReaderOptions,
+  type WALReaderState,
+  // Enums
+  WALOperationType,
+  // PostgreSQL
+  PostgresWALReader,
+  createPostgresWALReader,
+  type PostgresWALReaderOptions,
+  type PgOutputMessage,
+  // MySQL
+  MySQLBinlogReader,
+  createMySQLBinlogReader,
+  type MySQLBinlogReaderOptions,
+  type BinlogEvent,
+  type GTID,
+  // SQLite
+  SQLiteChangeCapture,
+  createSQLiteChangeCapture,
+  type SQLiteChangeCaptureOptions,
+  type SQLiteChange,
+  // Utilities
+  parseWALPosition,
+  compareWALPositions,
+} from './wal-reader'
+
+// =============================================================================
+// SCHEMA EVOLUTION
+// =============================================================================
+
+export {
+  // Classes
+  SchemaEvolution,
+  SchemaRegistry,
+  SchemaTransformer,
+  // Factory functions
+  createSchemaEvolution,
+  createSchemaRegistry,
+  createSchemaTransformer,
+  // Constants
+  DDLEventTypes,
+  CompatibilityModes,
+  // Types
+  type FieldType as SchemaFieldType,
+  type SchemaField as EvolutionSchemaField,
+  type SchemaVersion,
+  type SchemaMigration,
+  type DDLEventType,
+  type DDLEvent,
+  type SchemaChangeNotification,
+  type SchemaCompatibility,
+  type EvolutionResult,
+  type TransformResult,
+  type CompatibilityResult,
+  type SchemaEvolutionOptions,
+  type SchemaRegistryOptions,
+  type SchemaTransformerOptions,
+} from './schema-evolution'

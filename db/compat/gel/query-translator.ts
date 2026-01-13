@@ -244,7 +244,8 @@ export interface TypeFilterExpression {
 }
 
 /**
- * Extended expression types
+ * Extended expression types - includes all expression types that can appear
+ * in EdgeQL AST nodes, providing full type safety for translation operations.
  */
 export type ExtendedExpression =
   | Expression
@@ -265,6 +266,9 @@ export type ExtendedExpression =
   | RemoveAssignment
   | BacklinkExpression
   | TypeFilterExpression
+  | FilterExpression
+  | LimitClause
+  | OffsetClause
 
 /**
  * All AST node types
@@ -665,9 +669,9 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
     for (const field of ast.shape.fields) {
       const fieldName = field.name
 
-      if (field.computed && field.expression) {
-        // Computed field
-        const exprSql = exprToSQL(field.expression, ctx)
+      if (field.computed) {
+        // Computed field - field.computed is the expression
+        const exprSql = exprToSQL(field.computed, ctx)
         columns.push(`${exprSql} AS ${quote(fieldName)}`)
         ctx.columnMap.push({
           sqlColumn: fieldName,

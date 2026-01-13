@@ -456,3 +456,168 @@ export function createEscalationChecker(
     })
   }
 }
+
+// ============================================================================
+// humans.do Pool Integration
+// ============================================================================
+
+import { HumanRequest } from '../humans/templates'
+
+/**
+ * Priority to SLA mapping in milliseconds
+ */
+const PRIORITY_SLA_MAP: Record<'low' | 'normal' | 'high' | 'urgent', number> = {
+  low: 4 * 60 * 60 * 1000, // 4 hours
+  normal: 2 * 60 * 60 * 1000, // 2 hours
+  high: 30 * 60 * 1000, // 30 minutes
+  urgent: 15 * 60 * 1000, // 15 minutes
+}
+
+/**
+ * Format trigger types for human-readable message
+ */
+function formatTriggers(triggers: EscalationTriggerType[]): string {
+  const triggerDescriptions: Record<EscalationTriggerType, string> = {
+    sentiment: 'negative sentiment detected',
+    loops: 'repeated questions (conversation loop)',
+    explicit: 'customer requested human assistance',
+    value: 'high-value customer',
+  }
+
+  return triggers.map((t) => triggerDescriptions[t]).join(', ')
+}
+
+/**
+ * Build escalation message with context
+ */
+function buildEscalationMessage(request: EscalationRequest): string {
+  const { conversation, triggers, priority } = request
+  const customer = conversation.customer
+
+  // Recent messages summary (last 3)
+  const recentMessages = conversation.messages.slice(-5).map((m) => `${m.role}: ${m.content}`).join('\n')
+
+  const parts = [
+    `**Escalation Required** - This conversation needs human intervention.`,
+    ``,
+    `**Triggers:** ${formatTriggers(triggers)}`,
+    `**Priority:** ${priority}`,
+    ``,
+    `**Customer:** ${customer.name} (${customer.email})`,
+  ]
+
+  // Add customer metadata if relevant
+  if (customer.metadata?.plan) {
+    parts.push(`**Plan:** ${customer.metadata.plan}`)
+  }
+  if (customer.metadata?.value) {
+    parts.push(`**Customer Value:** $${customer.metadata.value}`)
+  }
+
+  parts.push(``, `**Recent Conversation:**`, recentMessages)
+
+  return parts.join('\n')
+}
+
+/**
+ * Convert an EscalationRequest to a HumanRequest for the humans.do pool.
+ *
+ * This function bridges the escalation detection system with the humans.do
+ * human-in-the-loop infrastructure. It creates a HumanRequest that will be
+ * routed to the appropriate support pool.
+ *
+ * @param request The EscalationRequest to convert
+ * @returns A HumanRequest ready to be submitted to humans.do
+ * @throws Error if escalation is not needed (shouldEscalate is false)
+ *
+ * @example
+ * ```typescript
+ * const escalation = await detectEscalation(conversation)
+ * if (escalation.shouldEscalate) {
+ *   const humanRequest = escalateToPool(escalation)
+ *   const result = await humanRequest // Waits for human to respond
+ * }
+ * ```
+ */
+export function escalateToPool(request: EscalationRequest): HumanRequest {
+  if (!request.shouldEscalate) {
+    throw new Error('Escalation not needed - shouldEscalate is false')
+  }
+
+  // Determine the target role
+  const role = request.role ?? 'support'
+
+  // Build the escalation message
+  const message = buildEscalationMessage(request)
+
+  // Determine SLA from priority or explicit setting
+  const sla = request.sla ?? PRIORITY_SLA_MAP[request.priority]
+
+  // Create the HumanRequest
+  const humanRequest = new HumanRequest(role, message, {
+    sla,
+    channel: request.channel,
+  })
+
+  return humanRequest
+}
+
+/**
+ * Options for detectAndEscalate
+ */
+export interface DetectAndEscalateOptions extends EscalationOptions {
+  /** Role to escalate to (defaults to 'support') */
+  escalationRole?: string
+  /** Channel for escalation notifications */
+  escalationChannel?: string
+}
+
+/**
+ * Detect if a conversation needs human escalation and trigger it in one call.
+ *
+ * This is a convenience function that combines detectEscalation() and
+ * escalateToPool() for common use cases where you want to detect and
+ * escalate in a single operation.
+ *
+ * @param conversation The conversation to analyze
+ * @param options Detection and escalation options
+ * @returns HumanRequest if escalation needed, null otherwise
+ *
+ * @example
+ * ```typescript
+ * const humanRequest = await detectAndEscalate(conversation, {
+ *   urgentKeywords: ['security', 'fraud'],
+ *   escalationRole: 'security-team',
+ *   escalationChannel: 'pagerduty',
+ * })
+ *
+ * if (humanRequest) {
+ *   const result = await humanRequest
+ *   // Human has responded
+ * }
+ * ```
+ */
+export async function detectAndEscalate(
+  conversation: Conversation,
+  options: DetectAndEscalateOptions = {}
+): Promise<HumanRequest | null> {
+  const { escalationRole, escalationChannel, ...detectionOptions } = options
+
+  // Detect if escalation is needed
+  let request = await detectEscalation(conversation, detectionOptions)
+
+  if (!request.shouldEscalate) {
+    return null
+  }
+
+  // Apply custom role and channel if specified
+  if (escalationRole) {
+    request = request.to(escalationRole)
+  }
+  if (escalationChannel) {
+    request = request.via(escalationChannel)
+  }
+
+  // Convert to HumanRequest and return
+  return escalateToPool(request)
+}

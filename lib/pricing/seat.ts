@@ -93,6 +93,44 @@ export interface SeatCost {
 }
 
 /**
+ * Usage record for a completed seat session
+ */
+export interface SeatUsageRecord {
+  /** Seat ID */
+  seatId: string
+  /** Type of seat */
+  type: SeatType
+  /** Whether this was a burst seat */
+  burst: boolean
+  /** Timestamp when seat was acquired */
+  acquiredAt: number
+  /** Timestamp when seat was released */
+  releasedAt: number
+  /** Duration in milliseconds */
+  duration: number
+}
+
+/**
+ * Aggregated usage statistics
+ */
+export interface SeatUsageStats {
+  /** Total number of completed sessions */
+  totalSessions: number
+  /** Total duration across all sessions (ms) */
+  totalDuration: number
+  /** Number of agent sessions */
+  agentSessions: number
+  /** Number of human sessions */
+  humanSessions: number
+  /** Number of burst sessions */
+  burstSessions: number
+  /** Average session duration (ms) */
+  averageDuration: number
+  /** Peak concurrent seat usage */
+  peakConcurrent: number
+}
+
+/**
  * Seat manager configuration (read-only view)
  */
 export interface SeatManagerConfigView {
@@ -158,6 +196,21 @@ export interface SeatManager {
    * Get current configuration
    */
   config(): SeatManagerConfigView
+
+  /**
+   * Get usage history of completed seat sessions
+   */
+  usageHistory(): SeatUsageRecord[]
+
+  /**
+   * Get aggregated usage statistics
+   */
+  usageStats(): SeatUsageStats
+
+  /**
+   * Clear usage history and reset statistics
+   */
+  clearHistory(): void
 }
 
 // ============================================================================
@@ -195,9 +248,23 @@ export function createSeatManager(config: SeatManagerConfig): SeatManager {
   const agentQueue: QueuedRequest[] = []
   const humanQueue: QueuedRequest[] = []
 
+  // Usage tracking state
+  const history: SeatUsageRecord[] = []
+  let peakConcurrent = 0
+
   // Derived settings
   const overflow: SeatOverflowBehavior = pricing.overflow ?? 'queue'
   const burstMultiplier = pricing.burstMultiplier ?? 2.0
+
+  /**
+   * Update peak concurrent tracking
+   */
+  function updatePeakConcurrent(): void {
+    const current = seats.size
+    if (current > peakConcurrent) {
+      peakConcurrent = current
+    }
+  }
 
   /**
    * Get counts for a specific seat type
@@ -255,6 +322,8 @@ export function createSeatManager(config: SeatManagerConfig): SeatManager {
         acquiredAt: Date.now(),
       })
 
+      updatePeakConcurrent()
+
       request.resolve({
         success: true,
         seatId,
@@ -278,6 +347,8 @@ export function createSeatManager(config: SeatManagerConfig): SeatManager {
           burst: false,
           acquiredAt: Date.now(),
         })
+
+        updatePeakConcurrent()
 
         return {
           success: true,
@@ -312,6 +383,8 @@ export function createSeatManager(config: SeatManagerConfig): SeatManager {
             acquiredAt: Date.now(),
           })
 
+          updatePeakConcurrent()
+
           return {
             success: true,
             seatId,
@@ -327,6 +400,17 @@ export function createSeatManager(config: SeatManagerConfig): SeatManager {
       if (!record) {
         return false
       }
+
+      // Record usage history before deleting
+      const releasedAt = Date.now()
+      history.push({
+        seatId: record.id,
+        type: record.type,
+        burst: record.burst,
+        acquiredAt: record.acquiredAt,
+        releasedAt,
+        duration: releasedAt - record.acquiredAt,
+      })
 
       seats.delete(seatId)
 
@@ -391,6 +475,34 @@ export function createSeatManager(config: SeatManagerConfig): SeatManager {
         overflow,
         burstMultiplier: overflow === 'burst-pricing' ? burstMultiplier : undefined,
       }
+    },
+
+    usageHistory(): SeatUsageRecord[] {
+      return [...history]
+    },
+
+    usageStats(): SeatUsageStats {
+      const totalSessions = history.length
+      const totalDuration = history.reduce((sum, r) => sum + r.duration, 0)
+      const agentSessions = history.filter((r) => r.type === 'agent').length
+      const humanSessions = history.filter((r) => r.type === 'human').length
+      const burstSessions = history.filter((r) => r.burst).length
+      const averageDuration = totalSessions > 0 ? totalDuration / totalSessions : 0
+
+      return {
+        totalSessions,
+        totalDuration,
+        agentSessions,
+        humanSessions,
+        burstSessions,
+        averageDuration,
+        peakConcurrent,
+      }
+    },
+
+    clearHistory(): void {
+      history.length = 0
+      peakConcurrent = 0
     },
   }
 }

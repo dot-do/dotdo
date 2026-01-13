@@ -13,7 +13,7 @@
  * ## Usage Example
  *
  * ```typescript
- * import { RetryExecutor, RetryErrorTracker, createRetryExecutor } from './retry-executor'
+ * import { RetryExecutor, SyncErrorTracker, createRetryExecutor } from './retry-executor'
  *
  * const policy: RetryPolicy = {
  *   maxAttempts: 3,
@@ -24,7 +24,7 @@
  * }
  *
  * const executor = new RetryExecutor(policy)
- * const tracker = new RetryErrorTracker()
+ * const tracker = new SyncErrorTracker()
  *
  * const result = await executor.execute(async () => {
  *   return await api.syncRecord(record)
@@ -290,7 +290,7 @@ export class RetryExecutor {
     items: T[],
     operation: (item: T) => Promise<R>,
     getKey: (item: T) => string,
-    tracker?: RetryErrorTracker
+    tracker?: SyncErrorTracker
   ): Promise<RetryBatchResult<T, R>> {
     const successful: Array<{ item: T; result: R }> = []
     const failed: Array<{ item: T; key: string; error: RetryError }> = []
@@ -407,11 +407,11 @@ export class RetryExecutor {
 // =============================================================================
 
 /**
- * RetryErrorTracker tracks failed records for manual review and retry
+ * SyncErrorTracker tracks failed records for manual review and retry
  *
  * @example
  * ```typescript
- * const tracker = new RetryErrorTracker()
+ * const tracker = new SyncErrorTracker()
  *
  * // Track a failure
  * tracker.trackFailure({
@@ -428,7 +428,7 @@ export class RetryExecutor {
  * const toRetry = tracker.getRetryQueue()
  * ```
  */
-export class RetryErrorTracker {
+export class SyncErrorTracker {
   private failures: Map<string, FailedRecord> = new Map()
 
   /**
@@ -541,10 +541,10 @@ export function createRetryExecutor(
 }
 
 /**
- * Create a new RetryErrorTracker instance
+ * Create a new SyncErrorTracker instance
  *
- * @returns A new RetryErrorTracker instance
+ * @returns A new SyncErrorTracker instance
  */
-export function createRetryErrorTracker(): RetryErrorTracker {
-  return new RetryErrorTracker()
+export function createSyncErrorTracker(): SyncErrorTracker {
+  return new SyncErrorTracker()
 }

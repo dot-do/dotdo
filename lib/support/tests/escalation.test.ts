@@ -23,6 +23,90 @@ vi.mock('../../../ai/template-literals', () => {
   }
 })
 
+// Mock HumanClient to prevent real HTTP calls
+vi.mock('../../humans/templates', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../humans/templates')>()
+
+  // Create a mock HumanClient that doesn't make HTTP calls
+  class MockHumanRequest implements PromiseLike<original.ApprovalResult> {
+    private _role: string
+    private _message: string
+    private _sla?: number
+    private _channel?: string
+    private _requestId: string
+    private _promise: Promise<original.ApprovalResult>
+
+    constructor(
+      role: string,
+      message: string,
+      options?: { sla?: number; channel?: string; requestId?: string }
+    ) {
+      this._role = role
+      this._message = message
+      this._sla = options?.sla
+      this._channel = options?.channel
+      this._requestId = options?.requestId || `mock-${Date.now()}`
+      // Don't make HTTP calls - just resolve with a mock result
+      this._promise = Promise.resolve({
+        approved: true,
+        approver: 'mock-human',
+        reason: 'Auto-approved in test',
+        respondedAt: new Date(),
+        requestId: this._requestId,
+      })
+    }
+
+    get role() { return this._role }
+    get message() { return this._message }
+    get sla() { return this._sla }
+    get channel() { return this._channel }
+    get requestId() { return this._requestId }
+
+    then<TResult1 = original.ApprovalResult, TResult2 = never>(
+      onfulfilled?: ((value: original.ApprovalResult) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): Promise<TResult1 | TResult2> {
+      return this._promise.then(onfulfilled, onrejected)
+    }
+
+    catch<TResult = never>(
+      onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
+    ): Promise<original.ApprovalResult | TResult> {
+      return this._promise.catch(onrejected)
+    }
+
+    finally(onfinally?: (() => void) | null): Promise<original.ApprovalResult> {
+      return this._promise.finally(onfinally)
+    }
+
+    timeout(duration: string): MockHumanRequest {
+      const match = duration.match(/^(\d+)\s*(second|minute|hour|day|week)s?$/i)
+      if (!match) throw new Error(`Invalid duration: ${duration}`)
+      const value = parseInt(match[1]!, 10)
+      const unit = match[2]!.toLowerCase()
+      const multipliers: Record<string, number> = {
+        second: 1000, minute: 60000, hour: 3600000, day: 86400000, week: 604800000
+      }
+      return new MockHumanRequest(this._role, this._message, {
+        sla: value * multipliers[unit]!,
+        channel: this._channel,
+      })
+    }
+
+    via(channelName: string): MockHumanRequest {
+      return new MockHumanRequest(this._role, this._message, {
+        sla: this._sla,
+        channel: channelName,
+      })
+    }
+  }
+
+  return {
+    ...original,
+    HumanRequest: MockHumanRequest,
+  }
+})
+
 import { is, decide } from '../../../ai/template-literals'
 
 // Import the module under test
@@ -642,5 +726,212 @@ describe('Complex Escalation Scenarios', () => {
 
     expect(request.shouldEscalate).toBe(true)
     expect(request.priority).toBe('urgent')
+  })
+})
+
+// ============================================================================
+// humans.do Pool Integration Tests
+// ============================================================================
+
+describe('escalateToPool() - humans.do Integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('converts EscalationRequest to HumanRequest for humans.do', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const request = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['sentiment', 'explicit'],
+      conversation: createTestConversation([
+        { role: 'customer', content: 'I need to talk to a real person!' },
+      ]),
+      priority: 'high',
+    })
+
+    const humanRequest = escalateToPool(request)
+
+    // Should create a HumanRequest targeting the support pool
+    expect(humanRequest.role).toBe('support')
+    expect(humanRequest.message).toContain('conversation needs human')
+  })
+
+  it('includes trigger context in escalation message', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const request = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['sentiment', 'loops'],
+      conversation: createTestConversation([
+        { role: 'customer', content: 'This is terrible!' },
+      ]),
+    })
+
+    const humanRequest = escalateToPool(request)
+
+    // Message should include human-readable trigger descriptions
+    expect(humanRequest.message).toContain('negative sentiment')
+    expect(humanRequest.message).toContain('conversation loop')
+  })
+
+  it('respects priority by setting appropriate SLA', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const urgentRequest = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['explicit'],
+      conversation: createTestConversation([]),
+      priority: 'urgent',
+    })
+
+    const humanRequest = escalateToPool(urgentRequest)
+
+    // Urgent priority should have a short SLA
+    expect(humanRequest.sla).toBeDefined()
+    expect(humanRequest.sla).toBeLessThanOrEqual(900000) // 15 minutes or less
+  })
+
+  it('includes customer context in escalation', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const conversation = createTestConversation([
+      { role: 'customer', content: 'Help me!' },
+    ])
+    conversation.customer = {
+      id: 'cust-vip',
+      name: 'VIP Customer',
+      email: 'vip@enterprise.com',
+      metadata: { plan: 'enterprise' },
+    }
+
+    const request = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['value'],
+      conversation,
+    })
+
+    const humanRequest = escalateToPool(request)
+
+    // Should include customer info for context
+    expect(humanRequest.message).toContain('VIP Customer')
+  })
+
+  it('routes to custom role when specified via .to()', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const request = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['sentiment'],
+      conversation: createTestConversation([]),
+    }).to('support-lead')
+
+    const humanRequest = escalateToPool(request)
+
+    expect(humanRequest.role).toBe('support-lead')
+  })
+
+  it('uses channel from .via() configuration', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const request = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['explicit'],
+      conversation: createTestConversation([]),
+    }).via('slack')
+
+    const humanRequest = escalateToPool(request)
+
+    expect(humanRequest.channel).toBe('slack')
+  })
+
+  it('throws when escalation is not needed', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const request = new EscalationRequest({
+      shouldEscalate: false,
+      triggers: [],
+      conversation: createTestConversation([]),
+    })
+
+    expect(() => escalateToPool(request)).toThrow('Escalation not needed')
+  })
+
+  it('includes conversation history summary', async () => {
+    const { escalateToPool, EscalationRequest } = await import('../escalation')
+
+    const conversation = createTestConversation([
+      { role: 'customer', content: 'Where is my order?' },
+      { role: 'agent', content: 'Let me check for you.' },
+      { role: 'customer', content: 'I have been waiting for 2 weeks!' },
+      { role: 'agent', content: 'I apologize for the delay.' },
+      { role: 'customer', content: 'This is unacceptable! Get me a human!' },
+    ])
+
+    const request = new EscalationRequest({
+      shouldEscalate: true,
+      triggers: ['sentiment', 'explicit'],
+      conversation,
+    })
+
+    const humanRequest = escalateToPool(request)
+
+    // Should include recent conversation context
+    expect(humanRequest.message).toContain('order')
+  })
+})
+
+// ============================================================================
+// detectAndEscalate() - Combined Detection and Pool Trigger
+// ============================================================================
+
+describe('detectAndEscalate() - End-to-End Flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('detects escalation need and triggers humans.do pool in one call', async () => {
+    setupMocks(true, 'negative')
+    const { detectAndEscalate } = await import('../escalation')
+
+    const conversation = createTestConversation([
+      { role: 'customer', content: 'This is terrible! I need a human NOW!' },
+    ])
+
+    const humanRequest = await detectAndEscalate(conversation)
+
+    expect(humanRequest).not.toBeNull()
+    expect(humanRequest?.role).toBe('support')
+  })
+
+  it('returns null when no escalation needed', async () => {
+    setupMocks(false, 'positive')
+    const { detectAndEscalate } = await import('../escalation')
+
+    const conversation = createTestConversation([
+      { role: 'customer', content: 'Thanks for your help!' },
+    ])
+
+    const humanRequest = await detectAndEscalate(conversation)
+
+    expect(humanRequest).toBeNull()
+  })
+
+  it('supports custom options for detection and escalation', async () => {
+    setupMocks(true, 'negative')
+    const { detectAndEscalate } = await import('../escalation')
+
+    const conversation = createTestConversation([
+      { role: 'customer', content: 'My security has been compromised!' },
+    ])
+
+    const humanRequest = await detectAndEscalate(conversation, {
+      urgentKeywords: ['security', 'compromised'],
+      escalationRole: 'security-team',
+      escalationChannel: 'pagerduty',
+    })
+
+    expect(humanRequest?.role).toBe('security-team')
+    expect(humanRequest?.channel).toBe('pagerduty')
   })
 })

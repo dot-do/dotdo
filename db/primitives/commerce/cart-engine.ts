@@ -561,11 +561,9 @@ export class CartEngine {
     // Mark cart as converted
     const snapshot = await this.cartManager.markAsConverted(cart.id, orderId)
 
-    // Clear session cart reference
-    const session = await this.getSession(sessionId)
-    if (session) {
-      session.cartId = undefined
-    }
+    // Note: We keep the session cart reference so the user can still view the
+    // converted cart. The cart's status will be 'converted' which indicates it
+    // cannot be modified further.
 
     return snapshot
   }

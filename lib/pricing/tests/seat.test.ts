@@ -683,3 +683,218 @@ describe('type safety', () => {
     expect('seatId' in result).toBe(true)
   })
 })
+
+// ============================================================================
+// Seat Usage Tracking Tests (TDD: RED phase for dotdo-dswif)
+// ============================================================================
+
+describe('seat usage tracking', () => {
+  let manager: SeatManager
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    manager = createSeatManager({
+      pricing: basePricing,
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  describe('usageHistory()', () => {
+    it('returns empty history initially', () => {
+      const history = manager.usageHistory()
+
+      expect(history).toEqual([])
+    })
+
+    it('records usage when a seat is released', async () => {
+      const { seatId } = await manager.acquire('agent')
+
+      // Advance time by 5 seconds
+      vi.advanceTimersByTime(5000)
+
+      manager.release(seatId!)
+
+      const history = manager.usageHistory()
+
+      expect(history.length).toBe(1)
+      expect(history[0].type).toBe('agent')
+      expect(history[0].duration).toBe(5000)
+      expect(history[0].burst).toBe(false)
+    })
+
+    it('records burst status in usage history', async () => {
+      const burstManager = createSeatManager({
+        pricing: { ...basePricing, overflow: 'burst-pricing', burstMultiplier: 1.5 },
+      })
+
+      // Fill all agent seats
+      for (let i = 0; i < 5; i++) {
+        await burstManager.acquire('agent')
+      }
+
+      // Acquire burst seat
+      const { seatId } = await burstManager.acquire('agent')
+
+      vi.advanceTimersByTime(3000)
+
+      burstManager.release(seatId!)
+
+      const history = burstManager.usageHistory()
+      const burstUsage = history.find((u) => u.burst)
+
+      expect(burstUsage).toBeDefined()
+      expect(burstUsage!.burst).toBe(true)
+      expect(burstUsage!.duration).toBe(3000)
+    })
+
+    it('records multiple usage entries', async () => {
+      const seat1 = await manager.acquire('agent')
+      vi.advanceTimersByTime(1000)
+      manager.release(seat1.seatId!)
+
+      const seat2 = await manager.acquire('human')
+      vi.advanceTimersByTime(2000)
+      manager.release(seat2.seatId!)
+
+      const history = manager.usageHistory()
+
+      expect(history.length).toBe(2)
+      expect(history[0].duration).toBe(1000)
+      expect(history[1].duration).toBe(2000)
+    })
+  })
+
+  describe('usageStats()', () => {
+    it('returns zero stats initially', () => {
+      const stats = manager.usageStats()
+
+      expect(stats.totalSessions).toBe(0)
+      expect(stats.totalDuration).toBe(0)
+      expect(stats.agentSessions).toBe(0)
+      expect(stats.humanSessions).toBe(0)
+      expect(stats.burstSessions).toBe(0)
+      expect(stats.averageDuration).toBe(0)
+    })
+
+    it('calculates total sessions and duration', async () => {
+      const seat1 = await manager.acquire('agent')
+      vi.advanceTimersByTime(5000)
+      manager.release(seat1.seatId!)
+
+      const seat2 = await manager.acquire('agent')
+      vi.advanceTimersByTime(3000)
+      manager.release(seat2.seatId!)
+
+      const stats = manager.usageStats()
+
+      expect(stats.totalSessions).toBe(2)
+      expect(stats.totalDuration).toBe(8000)
+      expect(stats.averageDuration).toBe(4000)
+    })
+
+    it('tracks agent vs human sessions separately', async () => {
+      const agentSeat = await manager.acquire('agent')
+      vi.advanceTimersByTime(1000)
+      manager.release(agentSeat.seatId!)
+
+      const humanSeat = await manager.acquire('human')
+      vi.advanceTimersByTime(1000)
+      manager.release(humanSeat.seatId!)
+
+      const humanSeat2 = await manager.acquire('human')
+      vi.advanceTimersByTime(1000)
+      manager.release(humanSeat2.seatId!)
+
+      const stats = manager.usageStats()
+
+      expect(stats.agentSessions).toBe(1)
+      expect(stats.humanSessions).toBe(2)
+    })
+
+    it('tracks burst sessions separately', async () => {
+      const burstManager = createSeatManager({
+        pricing: { ...basePricing, overflow: 'burst-pricing' },
+      })
+
+      // Fill all agent seats
+      for (let i = 0; i < 5; i++) {
+        const { seatId } = await burstManager.acquire('agent')
+        vi.advanceTimersByTime(100)
+        burstManager.release(seatId!)
+      }
+
+      // Add burst seats
+      for (let i = 0; i < 5; i++) {
+        await burstManager.acquire('agent')
+      }
+      const burst1 = await burstManager.acquire('agent')
+      const burst2 = await burstManager.acquire('agent')
+
+      vi.advanceTimersByTime(500)
+
+      burstManager.release(burst1.seatId!)
+      burstManager.release(burst2.seatId!)
+
+      const stats = burstManager.usageStats()
+
+      expect(stats.burstSessions).toBe(2)
+    })
+
+    it('calculates peak concurrent usage', async () => {
+      // Acquire 3 agent seats simultaneously
+      const seat1 = await manager.acquire('agent')
+      const seat2 = await manager.acquire('agent')
+      const seat3 = await manager.acquire('agent')
+
+      vi.advanceTimersByTime(1000)
+
+      // Release one, peak should still be 3
+      manager.release(seat1.seatId!)
+
+      // Acquire more
+      const seat4 = await manager.acquire('agent')
+      const seat5 = await manager.acquire('agent')
+
+      vi.advanceTimersByTime(1000)
+
+      manager.release(seat2.seatId!)
+      manager.release(seat3.seatId!)
+      manager.release(seat4.seatId!)
+      manager.release(seat5.seatId!)
+
+      const stats = manager.usageStats()
+
+      expect(stats.peakConcurrent).toBe(4) // Peak was seat2, seat3, seat4, seat5 active
+    })
+  })
+
+  describe('clearHistory()', () => {
+    it('clears usage history', async () => {
+      const { seatId } = await manager.acquire('agent')
+      vi.advanceTimersByTime(1000)
+      manager.release(seatId!)
+
+      expect(manager.usageHistory().length).toBe(1)
+
+      manager.clearHistory()
+
+      expect(manager.usageHistory()).toEqual([])
+    })
+
+    it('resets usage stats', async () => {
+      const { seatId } = await manager.acquire('agent')
+      vi.advanceTimersByTime(1000)
+      manager.release(seatId!)
+
+      manager.clearHistory()
+
+      const stats = manager.usageStats()
+
+      expect(stats.totalSessions).toBe(0)
+      expect(stats.totalDuration).toBe(0)
+    })
+  })
+})

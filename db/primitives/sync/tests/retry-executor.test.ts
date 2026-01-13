@@ -21,9 +21,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   RetryExecutor,
-  RetryErrorTracker,
+  SyncErrorTracker,
   createRetryExecutor,
-  createRetryErrorTracker,
+  createSyncErrorTracker,
   type RetryPolicy,
   type RetryError,
   type RetryResult,
@@ -388,11 +388,11 @@ describe('RetryExecutor', () => {
 // SYNC ERROR TRACKER TESTS
 // =============================================================================
 
-describe('RetryErrorTracker', () => {
-  let tracker: RetryErrorTracker
+describe('SyncErrorTracker', () => {
+  let tracker: SyncErrorTracker
 
   beforeEach(() => {
-    tracker = new RetryErrorTracker()
+    tracker = new SyncErrorTracker()
   })
 
   describe('tracking failed records', () => {
@@ -673,7 +673,7 @@ describe('Batch retry execution', () => {
   it('processes batch with partial failures', async () => {
     const policy = createDefaultPolicy({ maxAttempts: 2 })
     const executor = new RetryExecutor(policy, { delayFn: async () => {} })
-    const tracker = new RetryErrorTracker()
+    const tracker = new SyncErrorTracker()
 
     const batch = [
       { key: 'item-1', value: 100 },
@@ -705,7 +705,7 @@ describe('Batch retry execution', () => {
   it('continues batch after transient failures that eventually succeed', async () => {
     const policy = createDefaultPolicy({ maxAttempts: 3 })
     const executor = new RetryExecutor(policy, { delayFn: async () => {} })
-    const tracker = new RetryErrorTracker()
+    const tracker = new SyncErrorTracker()
 
     const attemptCounts = new Map<string, number>()
 
@@ -755,10 +755,10 @@ describe('Factory functions', () => {
     expect(executor).toBeInstanceOf(RetryExecutor)
   })
 
-  it('createRetryErrorTracker creates new tracker', () => {
-    const tracker = createRetryErrorTracker()
+  it('createSyncErrorTracker creates new tracker', () => {
+    const tracker = createSyncErrorTracker()
 
-    expect(tracker).toBeInstanceOf(RetryErrorTracker)
+    expect(tracker).toBeInstanceOf(SyncErrorTracker)
     expect(tracker.getFailedRecords()).toHaveLength(0)
   })
 })

@@ -453,6 +453,8 @@ export class OffsetTracker {
     if (typeof checkpoint.committedAt !== 'number') return false
     if (!Array.isArray(checkpoint.partitionOffsets)) return false
     if (!Array.isArray(checkpoint.processedEventIds)) return false
+    // offset must be either null or a valid Offset object (not undefined)
+    if (checkpoint.offset === undefined) return false
     return true
   }
 

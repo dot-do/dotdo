@@ -1,11 +1,27 @@
 /**
- * API - REST/GraphQL API endpoint
+ * API - REST/GraphQL API platform
  *
- * HTTP API with routing, rate limiting, authentication, CORS.
+ * Extends DigitalBusiness with API-specific OKRs: APICalls, Latency, ErrorRate.
+ * Includes routing, rate limiting, authentication, CORS for developer platforms.
+ *
  * Examples: 'api.acme.com/v1', 'graphql.acme.com'
+ *
+ * @example
+ * ```typescript
+ * class MyAPI extends API {
+ *   // Inherits: Revenue, Costs, Profit, Traffic, Conversion, Engagement
+ *   // Adds: APICalls, Latency, ErrorRate (developer platform metrics)
+ * }
+ * ```
  */
 
-import { DO, Env } from './DO'
+import { DigitalBusiness, DigitalBusinessConfig } from './DigitalBusiness'
+import { Env } from './DO'
+import type { OKR } from './DOBase'
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
 
 export interface Route {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
@@ -14,7 +30,7 @@ export interface Route {
   middleware?: string[]
 }
 
-export interface APIConfig {
+export interface APIConfig extends DigitalBusinessConfig {
   name: string
   description?: string
   version: string
@@ -49,29 +65,125 @@ export interface RateLimitState {
   resetAt: number
 }
 
-export class API extends DO {
-  private config: APIConfig | null = null
+// ============================================================================
+// API CLASS
+// ============================================================================
+
+export class API extends DigitalBusiness {
+  static override readonly $type: string = 'API'
+
+  private apiConfig: APIConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
   }
 
   /**
+   * OKRs for API
+   *
+   * Includes inherited DigitalBusiness OKRs (Revenue, Costs, Profit, Traffic, Conversion, Engagement)
+   * plus API-specific metrics (APICalls, Latency, ErrorRate)
+   */
+  override okrs: Record<string, OKR> = {
+    // Inherited from Business (via DigitalBusiness)
+    Revenue: this.defineOKR({
+      objective: 'Grow revenue',
+      keyResults: [
+        { name: 'TotalRevenue', target: 100000, current: 0, unit: '$' },
+        { name: 'RevenueGrowthRate', target: 20, current: 0, unit: '%' },
+      ],
+    }),
+    Costs: this.defineOKR({
+      objective: 'Optimize costs',
+      keyResults: [
+        { name: 'TotalCosts', target: 50000, current: 0, unit: '$' },
+        { name: 'CostReduction', target: 10, current: 0, unit: '%' },
+      ],
+    }),
+    Profit: this.defineOKR({
+      objective: 'Maximize profit',
+      keyResults: [
+        { name: 'NetProfit', target: 50000, current: 0, unit: '$' },
+        { name: 'ProfitMargin', target: 50, current: 0, unit: '%' },
+      ],
+    }),
+    // Inherited from DigitalBusiness
+    Traffic: this.defineOKR({
+      objective: 'Increase website traffic',
+      keyResults: [
+        { name: 'MonthlyVisitors', target: 100000, current: 0 },
+        { name: 'UniqueVisitors', target: 50000, current: 0 },
+        { name: 'PageViews', target: 300000, current: 0 },
+      ],
+    }),
+    Conversion: this.defineOKR({
+      objective: 'Improve conversion rates',
+      keyResults: [
+        { name: 'VisitorToSignup', target: 10, current: 0, unit: '%' },
+        { name: 'SignupToCustomer', target: 25, current: 0, unit: '%' },
+        { name: 'OverallConversion', target: 2.5, current: 0, unit: '%' },
+      ],
+    }),
+    Engagement: this.defineOKR({
+      objective: 'Boost user engagement',
+      keyResults: [
+        { name: 'DAU', target: 10000, current: 0 },
+        { name: 'MAU', target: 50000, current: 0 },
+        { name: 'DAUMAURatio', target: 20, current: 0, unit: '%' },
+        { name: 'SessionDuration', target: 300, current: 0, unit: 'seconds' },
+      ],
+    }),
+    // API-specific OKRs
+    APICalls: this.defineOKR({
+      objective: 'Scale API usage',
+      keyResults: [
+        { name: 'TotalAPICalls', target: 10000000, current: 0 },
+        { name: 'DailyAPICalls', target: 500000, current: 0 },
+        { name: 'UniqueAPIClients', target: 10000, current: 0 },
+        { name: 'RequestsPerSecond', target: 1000, current: 0, unit: 'req/s' },
+      ],
+    }),
+    Latency: this.defineOKR({
+      objective: 'Minimize API response time',
+      keyResults: [
+        { name: 'AvgLatency', target: 50, current: 0, unit: 'ms' },
+        { name: 'P50Latency', target: 30, current: 0, unit: 'ms' },
+        { name: 'P95Latency', target: 100, current: 0, unit: 'ms' },
+        { name: 'P99Latency', target: 200, current: 0, unit: 'ms' },
+      ],
+    }),
+    ErrorRate: this.defineOKR({
+      objective: 'Maximize API reliability',
+      keyResults: [
+        { name: 'TotalErrorRate', target: 0.1, current: 0, unit: '%' },
+        { name: '4xxErrorRate', target: 1, current: 0, unit: '%' },
+        { name: '5xxErrorRate', target: 0.01, current: 0, unit: '%' },
+        { name: 'Uptime', target: 99.99, current: 0, unit: '%' },
+      ],
+    }),
+  }
+
+  // ==========================================================================
+  // API CONFIGURATION
+  // ==========================================================================
+
+  /**
    * Get API configuration
    */
-  async getConfig(): Promise<APIConfig | null> {
-    if (!this.config) {
-      this.config = (await this.ctx.storage.get('config')) as APIConfig | null
+  async getAPIConfig(): Promise<APIConfig | null> {
+    if (!this.apiConfig) {
+      this.apiConfig = (await this.ctx.storage.get('api_config')) as APIConfig | null
     }
-    return this.config
+    return this.apiConfig
   }
 
   /**
    * Configure the API
    */
-  async configure(config: APIConfig): Promise<void> {
-    this.config = config
-    await this.ctx.storage.put('config', config)
+  async configureAPI(config: APIConfig): Promise<void> {
+    this.apiConfig = config
+    await this.ctx.storage.put('api_config', config)
+    await this.setConfig(config)
     await this.emit('api.configured', { config })
   }
 
@@ -79,22 +191,26 @@ export class API extends DO {
    * Add a route
    */
   async addRoute(route: Route): Promise<void> {
-    const config = await this.getConfig()
+    const config = await this.getAPIConfig()
     if (!config) {
       throw new Error('API not configured')
     }
     config.routes.push(route)
-    await this.ctx.storage.put('config', config)
+    await this.ctx.storage.put('api_config', config)
     await this.emit('route.added', { route })
   }
+
+  // ==========================================================================
+  // ROUTING
+  // ==========================================================================
 
   /**
    * Match a route to a request
    */
   protected matchRoute(method: string, path: string): { route: Route; params: Record<string, string> } | null {
-    if (!this.config) return null
+    if (!this.apiConfig) return null
 
-    for (const route of this.config.routes) {
+    for (const route of this.apiConfig.routes) {
       if (route.method !== method) continue
 
       // Simple path matching with :params
@@ -123,11 +239,15 @@ export class API extends DO {
     return null
   }
 
+  // ==========================================================================
+  // RATE LIMITING
+  // ==========================================================================
+
   /**
    * Check rate limit for a client
    */
   async checkRateLimit(clientId: string): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
-    const config = await this.getConfig()
+    const config = await this.getAPIConfig()
     if (!config?.rateLimit) {
       return { allowed: true, remaining: Infinity, resetAt: 0 }
     }
@@ -154,11 +274,15 @@ export class API extends DO {
     return { allowed, remaining, resetAt: state.resetAt }
   }
 
+  // ==========================================================================
+  // AUTHENTICATION
+  // ==========================================================================
+
   /**
    * Validate authentication
    */
   async validateAuth(request: Request): Promise<{ valid: boolean; clientId?: string; error?: string }> {
-    const config = await this.getConfig()
+    const config = await this.getAPIConfig()
     if (!config?.authentication) {
       return { valid: true }
     }
@@ -200,11 +324,15 @@ export class API extends DO {
     }
   }
 
+  // ==========================================================================
+  // CORS
+  // ==========================================================================
+
   /**
    * Add CORS headers to response
    */
   addCorsHeaders(response: Response): Response {
-    const config = this.config
+    const config = this.apiConfig
     if (!config?.cors) return response
 
     const headers = new Headers(response.headers)
@@ -219,6 +347,10 @@ export class API extends DO {
     })
   }
 
+  // ==========================================================================
+  // REQUEST HANDLING
+  // ==========================================================================
+
   /**
    * Execute a handler (stub - override in subclasses)
    */
@@ -230,8 +362,8 @@ export class API extends DO {
   /**
    * Handle an API request
    */
-  async handleRequest(request: Request): Promise<Response> {
-    const config = await this.getConfig()
+  async handleAPIRequest(request: Request): Promise<Response> {
+    const config = await this.getAPIConfig()
     if (!config) {
       return new Response('API not configured', { status: 503 })
     }
@@ -286,11 +418,15 @@ export class API extends DO {
     }
   }
 
+  // ==========================================================================
+  // OPENAPI
+  // ==========================================================================
+
   /**
    * Generate OpenAPI spec (stub)
    */
   async getOpenAPISpec(): Promise<Record<string, unknown>> {
-    const config = await this.getConfig()
+    const config = await this.getAPIConfig()
     if (!config) {
       return { openapi: '3.0.0', info: { title: 'API', version: '1.0.0' }, paths: {} }
     }
@@ -317,12 +453,16 @@ export class API extends DO {
     }
   }
 
+  // ==========================================================================
+  // HTTP ENDPOINTS
+  // ==========================================================================
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      const config = await this.getConfig()
+      const config = await this.getAPIConfig()
       if (config?.cors) {
         return this.addCorsHeaders(new Response(null, { status: 204 }))
       }
@@ -331,14 +471,14 @@ export class API extends DO {
     // API management endpoints
     if (url.pathname === '/_config') {
       if (request.method === 'GET') {
-        const config = await this.getConfig()
+        const config = await this.getAPIConfig()
         return new Response(JSON.stringify(config), {
           headers: { 'Content-Type': 'application/json' },
         })
       }
       if (request.method === 'PUT') {
         const config = (await request.json()) as APIConfig
-        await this.configure(config)
+        await this.configureAPI(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
         })
@@ -381,7 +521,7 @@ export class API extends DO {
     }
 
     // Handle API request
-    const response = await this.handleRequest(request)
+    const response = await this.handleAPIRequest(request)
     return this.addCorsHeaders(response)
   }
 }

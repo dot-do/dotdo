@@ -16,153 +16,20 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-
-// =============================================================================
-// Type Definitions
-// =============================================================================
-
-/**
- * Role of the message sender
- */
-type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
-
-/**
- * Message content can be text or structured content parts
- */
-type MessageContent =
-  | string
-  | Array<{
-      type: 'text' | 'image' | 'file' | 'tool_call' | 'tool_result'
-      text?: string
-      url?: string
-      mimeType?: string
-      toolCallId?: string
-      toolName?: string
-      input?: unknown
-      output?: unknown
-    }>
-
-/**
- * Individual message in a thread
- */
-interface Message {
-  id: string
-  threadId: string
-  role: MessageRole
-  content: MessageContent
-  createdAt: Date
-  metadata: Record<string, unknown>
-  parentMessageId?: string
-  status?: 'pending' | 'completed' | 'failed'
-}
-
-/**
- * Thread status
- */
-type ThreadStatus = 'active' | 'archived' | 'deleted'
-
-/**
- * Conversation thread containing messages
- */
-interface Thread {
-  id: string
-  title?: string
-  status: ThreadStatus
-  createdAt: Date
-  updatedAt: Date
-  metadata: Record<string, unknown>
-  messageCount: number
-  lastMessageAt?: Date
-  participantIds?: string[]
-}
-
-/**
- * Options for creating a thread
- */
-interface CreateThreadOptions {
-  id?: string
-  title?: string
-  metadata?: Record<string, unknown>
-  participantIds?: string[]
-}
-
-/**
- * Options for creating a message
- */
-interface CreateMessageOptions {
-  id?: string
-  role: MessageRole
-  content: MessageContent
-  metadata?: Record<string, unknown>
-  parentMessageId?: string
-}
-
-/**
- * Pagination options for listing
- */
-interface PaginationOptions {
-  limit?: number
-  cursor?: string
-  order?: 'asc' | 'desc'
-}
-
-/**
- * Paginated result
- */
-interface PaginatedResult<T> {
-  items: T[]
-  hasMore: boolean
-  nextCursor?: string
-  totalCount?: number
-}
-
-/**
- * Thread filter options
- */
-interface ThreadFilterOptions {
-  status?: ThreadStatus
-  participantId?: string
-  createdAfter?: Date
-  createdBefore?: Date
-  hasMessages?: boolean
-}
-
-/**
- * Thread manager interface
- */
-interface ThreadManager {
-  // Thread operations
-  createThread(options?: CreateThreadOptions): Promise<Thread>
-  getThread(threadId: string): Promise<Thread | null>
-  updateThread(threadId: string, updates: Partial<Pick<Thread, 'title' | 'metadata' | 'status'>>): Promise<Thread>
-  deleteThread(threadId: string): Promise<void>
-  listThreads(filter?: ThreadFilterOptions, pagination?: PaginationOptions): Promise<PaginatedResult<Thread>>
-  archiveThread(threadId: string): Promise<Thread>
-
-  // Message operations
-  appendMessage(threadId: string, options: CreateMessageOptions): Promise<Message>
-  getMessage(threadId: string, messageId: string): Promise<Message | null>
-  getMessages(threadId: string, pagination?: PaginationOptions): Promise<PaginatedResult<Message>>
-  updateMessage(threadId: string, messageId: string, updates: Partial<Pick<Message, 'content' | 'metadata' | 'status'>>): Promise<Message>
-  deleteMessage(threadId: string, messageId: string): Promise<void>
-
-  // Bulk operations
-  getMessageCount(threadId: string): Promise<number>
-  clearMessages(threadId: string): Promise<void>
-  getLatestMessage(threadId: string): Promise<Message | null>
-  getMessagesBefore(threadId: string, messageId: string, limit?: number): Promise<Message[]>
-  getMessagesAfter(threadId: string, messageId: string, limit?: number): Promise<Message[]>
-}
-
-/**
- * Factory function placeholder - this should be imported from implementation
- * Currently stubbed to make tests fail (RED phase)
- */
-function createThreadManager(): ThreadManager {
-  // RED phase: This stub will cause tests to fail
-  // Implementation should be provided in db/primitives/conversation/thread.ts
-  throw new Error('ThreadManager not implemented - RED phase')
-}
+import { createThreadManager } from '../thread'
+import type {
+  Thread,
+  ThreadManager,
+  ThreadStatus,
+  Message,
+  MessageRole,
+  MessageContent,
+  CreateThreadOptions,
+  CreateMessageOptions,
+  PaginationOptions,
+  PaginatedResult,
+  ThreadFilterOptions,
+} from '../thread'
 
 // =============================================================================
 // TDD Cycle 1: Thread Creation

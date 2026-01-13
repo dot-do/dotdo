@@ -12,6 +12,7 @@ export * from './schema-registry'
 export * from './error-transform'
 export * from './env-validation'
 export * from './validated-handler'
+export * from './input-validators'
 
 // Re-export Zod for convenience
 export { z, ZodError, ZodSchema, ZodType } from 'zod'

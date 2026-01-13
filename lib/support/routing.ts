@@ -61,6 +61,25 @@ export interface Router {
   route(conversation: Conversation): Promise<RouterResult>
 }
 
+/**
+ * AI classifier interface for topic detection
+ * Compatible with WorkersAI and other AI providers
+ */
+export interface AIClassifier {
+  /** Generate text from a prompt */
+  generateText(prompt: string, options?: { systemPrompt?: string }): Promise<{ text: string }>
+}
+
+/**
+ * Options for creating an AI topic detector
+ */
+export interface AITopicDetectorOptions {
+  /** List of valid topics to classify into */
+  topics?: string[]
+  /** System prompt override */
+  systemPrompt?: string
+}
+
 // ============================================================================
 // KEYWORD DETECTION
 // ============================================================================
@@ -262,5 +281,103 @@ export function createRouter(config: SupportConfig, options: RouterOptions = {})
         reason: `Routed to ${topicAgent.name} for topic "${detection.topic}" with confidence ${detection.confidence.toFixed(2)}`,
       }
     },
+  }
+}
+
+// ============================================================================
+// AI TOPIC DETECTOR FACTORY
+// ============================================================================
+
+/**
+ * Default topics for AI classification
+ */
+const DEFAULT_TOPICS = ['billing', 'technical', 'sales', 'general']
+
+/**
+ * Creates an AI-powered topic detector using any AI provider
+ *
+ * @param ai - AI classifier instance (e.g., WorkersAI)
+ * @param options - Optional configuration
+ * @returns TopicDetector function
+ *
+ * @example
+ * ```typescript
+ * const ai = new WorkersAI(env)
+ * const detector = createAITopicDetector(ai, {
+ *   topics: ['billing', 'technical', 'sales'],
+ * })
+ *
+ * const router = createRouter(config, { detector })
+ * ```
+ */
+export function createAITopicDetector(
+  ai: AIClassifier,
+  options: AITopicDetectorOptions = {}
+): TopicDetector {
+  const topics = options.topics ?? DEFAULT_TOPICS
+
+  const systemPrompt = options.systemPrompt ?? `You are a support message classifier. Classify the customer's message into one of these topics: ${topics.join(', ')}.
+
+Respond ONLY with valid JSON in this exact format:
+{"topic": "topic_name", "confidence": 0.0}
+
+Where:
+- topic: one of the allowed topics, or null if unclear
+- confidence: a number from 0 to 1 indicating classification confidence
+
+Do not include any other text, explanations, or markdown.`
+
+  return async (conversation: Conversation): Promise<TopicDetectionResult> => {
+    // Build the conversation context for classification
+    const customerMessages = conversation.messages
+      .filter((m) => m.role === 'customer')
+      .map((m) => m.content)
+      .join('\n')
+
+    if (!customerMessages.trim()) {
+      return { topic: null, confidence: 0 }
+    }
+
+    const prompt = `Classify this customer message:\n\n${customerMessages}`
+
+    try {
+      const response = await ai.generateText(prompt, { systemPrompt })
+
+      // Parse the AI response
+      const parsed = parseAIResponse(response.text)
+
+      return {
+        topic: parsed.topic,
+        confidence: parsed.confidence,
+      }
+    } catch {
+      // Return null topic on AI errors
+      return { topic: null, confidence: 0 }
+    }
+  }
+}
+
+/**
+ * Parse AI response JSON, handling various formats
+ */
+function parseAIResponse(text: string): { topic: string | null; confidence: number } {
+  try {
+    // Try to find JSON in the response
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      return { topic: null, confidence: 0 }
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      topic?: string | null
+      confidence?: number
+    }
+
+    return {
+      topic: parsed.topic ?? null,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
+    }
+  } catch {
+    return { topic: null, confidence: 0 }
   }
 }

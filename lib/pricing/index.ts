@@ -79,4 +79,6 @@ export {
   type SeatCost,
   type SeatManagerConfig,
   type SeatManagerConfigView,
+  type SeatUsageRecord,
+  type SeatUsageStats,
 } from './seat'

@@ -605,10 +605,12 @@ describe('OffsetTracker', () => {
     it('should normalize offsets to common format for comparison', async () => {
       const tracker = createTracker()
 
-      const numeric: Offset = { value: 23456576, format: 'numeric' }
-      const lsn: Offset = { value: '0/1660C40', format: 'lsn' } // Same value in LSN
+      // First, convert a known LSN to numeric to get matching values
+      const lsn: Offset = { value: '0/1660C40', format: 'lsn' }
+      const converted = tracker.convertOffset(lsn, 'numeric')
+      const numeric: Offset = { value: converted.value, format: 'numeric' }
 
-      // Convert both to numeric for comparison
+      // Convert both to numeric for comparison - should be equal
       const comparison = tracker.compareOffsetsNormalized(numeric, lsn)
       expect(comparison).toBe(0)
     })

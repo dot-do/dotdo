@@ -466,7 +466,7 @@ export function createTokenizationService(_config: TokenizationConfig): Tokeniza
 // Usage Metering - Event ingestion, aggregation, limits, tiers
 export {
   createUsageMeter,
-  type UsageMeter,
+  UsageMeter,
   type UsageEvent,
   type UsageAggregate,
   type UsageTier,
@@ -479,12 +479,7 @@ export {
   type TierType,
   type UsageRolloverPolicy,
   type RecordEventInput,
-  type ListEventsFilter,
-  type AggregationType,
-  type GetAggregateInput,
-  type GetAggregatesInput,
   type TierConfig,
-  type TierPriceResult,
   type CurrentTierInfo,
   type LimitAction,
   type LimitStatus,
@@ -494,9 +489,10 @@ export {
   type RolloverHistoryEntry,
   type ReportingModeConfig,
   type SyncStatus,
-  type PeriodPriceResult,
-  type TotalPriceResult,
-  type GenerateSummaryInput,
-  type UsageMeterInvoiceLineItem,
+  type PriceResult,
   type MetricDefinition,
-} from './usage-metering'
+  type InvoiceLineItem,
+  type MetricSummary,
+  type TierBreakdownItem,
+  type AggregationType,
+} from './usage-meter'
