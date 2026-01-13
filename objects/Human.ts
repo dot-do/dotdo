@@ -1,171 +1,39 @@
 /**
- * @module Human
- * @description Human worker with approval flows, notifications, and escalation
+ * Human - Human worker with approval flows
  *
- * Human extends Worker to represent human participants in business workflows.
- * It provides multi-channel notifications (email, Slack, SMS, webhook),
- * approval queues with SLA tracking, and automatic escalation policies.
- * Humans are the "human-in-the-loop" component for AI agent oversight.
+ * Extends Worker with notification channels, approval queues, escalation.
+ * Examples: 'john@acme.com', 'support-team'
  *
- * **Core Features:**
- * - Multi-channel notifications (email, Slack, SMS, webhook)
- * - Blocking approval requests with polling or webhooks
- * - SLA-based automatic expiration
- * - Escalation policies with configurable rules
- * - Graph-backed state for queryability
+ * Supports blocking approvals via the /request endpoint pattern:
+ * - POST /request - Submit a new approval request
+ * - GET /request/:id - Get request status (for polling)
+ * - POST /request/:id/respond - Submit response to a request
  *
- * **Approval Request States:**
- * | State | Description |
- * |-------|-------------|
- * | `pending` | Awaiting human response |
- * | `approved` | Human approved the request |
- * | `rejected` | Human rejected the request |
- * | `expired` | SLA exceeded without response |
+ * Uses Graph model for blocking request state:
+ * - BlockingApprovalRequest stored as Things with type 'ApprovalRequest'
+ * - Status transitions via verb forms (pending -> approved/rejected/expired)
+ * - Relationship: Request assignedTo Human
  *
- * **HTTP Endpoints (Blocking Approval Pattern):**
- * | Method | Path | Description |
- * |--------|------|-------------|
- * | POST | `/request` | Submit new approval request |
- * | GET | `/request/:id` | Poll request status |
- * | POST | `/request/:id/respond` | Submit approval response |
- * | DELETE | `/request/:id` | Cancel pending request |
- * | GET | `/requests` | List all requests |
- * | GET | `/pending` | List pending approvals |
- * | POST | `/approve` | Legacy approval endpoint |
- * | GET/PUT | `/channels` | Manage notification channels |
+ * Uses shared abstractions from lib/human for:
+ * - Channel types and configuration (lib/human/channels)
+ * - Escalation configuration (lib/human/workflows)
+ * - Validation utilities (lib/human/validation)
+ * - Graph-backed storage (lib/human/graph-store)
  *
- * **Notification Channels:**
- * | Type | Target Format | Example |
- * |------|---------------|---------|
- * | `email` | Email address | john@acme.com |
- * | `slack` | Channel/user | #approvals, @john |
- * | `sms` | Phone number | +1-555-0123 |
- * | `webhook` | URL | https://hook.example.com |
+ * This class is designed to work seamlessly with HumanFunctionExecutor
+ * by sharing the same underlying abstractions, eliminating code duplication.
  *
- * **Template Literal Pattern:**
- * The Human DO is designed to work with the `humans.do` template literal syntax:
+ * @example
  * ```typescript
- * import { ceo, legal } from 'humans.do'
- *
- * // Blocking approval - waits for human response
- * const approved = await ceo`approve the partnership deal`
- *
- * // Non-blocking - notifies human, continues
- * legal`review contract and respond within 48 hours`
+ * // From ceo`approve partnership` template literal:
+ * // 1. Client POSTs to /request with message + SLA
+ * // 2. Client polls GET /request/:id until status changes
+ * // 3. Human responds via POST /request/:id/respond
+ * // 4. Client receives ApprovalResult
  * ```
  *
- * @example Notification Channel Configuration
- * ```typescript
- * class ApprovalManager extends Human {
- *   async onStart() {
- *     await this.setChannels([
- *       { type: 'slack', target: '#approvals', priority: 'high' },
- *       { type: 'email', target: 'manager@acme.com', priority: 'normal' },
- *       { type: 'sms', target: '+1-555-0123', priority: 'urgent' }
- *     ])
- *   }
- * }
- * ```
- *
- * @example Escalation Policy
- * ```typescript
- * await human.setEscalationPolicy({
- *   rules: [
- *     {
- *       afterMinutes: 60, // After 1 hour
- *       escalateTo: 'team-lead@acme.com',
- *       notifyChannels: [{ type: 'slack', target: '#urgent', priority: 'high' }]
- *     },
- *     {
- *       afterMinutes: 240, // After 4 hours
- *       escalateTo: 'director@acme.com',
- *       notifyChannels: [{ type: 'sms', target: '+1-555-0199', priority: 'urgent' }]
- *     }
- *   ],
- *   finalEscalation: 'ceo@acme.com'
- * })
- * ```
- *
- * @example Blocking Approval Flow
- * ```typescript
- * // Client code (using HumanClient or template literal)
- * const human = new Human(ctx, env)
- *
- * // 1. Submit approval request with SLA
- * const request = await human.submitBlockingRequest({
- *   requestId: 'req_123',
- *   role: 'ceo',
- *   message: 'Approve $50k marketing budget',
- *   sla: 4 * 60 * 60 * 1000, // 4 hours
- *   type: 'approval'
- * })
- *
- * // 2. Poll until resolved (or use webhook)
- * let status = await human.getBlockingRequest('req_123')
- * while (status.status === 'pending') {
- *   await sleep(30000) // Poll every 30 seconds
- *   status = await human.getBlockingRequest('req_123')
- * }
- *
- * // 3. Check result
- * if (status.status === 'approved') {
- *   console.log(`Approved by ${status.result?.approver}`)
- * }
- * ```
- *
- * @example HTTP API Usage
- * ```typescript
- * // Submit request
- * const response = await fetch('https://ceo.humans.do/request', {
- *   method: 'POST',
- *   body: JSON.stringify({
- *     requestId: 'req_123',
- *     role: 'ceo',
- *     message: 'Approve partnership deal',
- *     sla: 86400000, // 24 hours
- *     type: 'approval'
- *   })
- * })
- *
- * // Human responds via UI or API
- * await fetch('https://ceo.humans.do/request/req_123/respond', {
- *   method: 'POST',
- *   body: JSON.stringify({
- *     approved: true,
- *     reason: 'Good strategic fit'
- *   })
- * })
- * ```
- *
- * @example Integration with Agents
- * ```typescript
- * class RefundAgent extends Agent {
- *   async processLargeRefund(amount: number, customerId: string) {
- *     if (amount > 10000) {
- *       // Escalate to human for approval
- *       const human = this.getHuman('senior-accountant')
- *       const approval = await human.approve({
- *         id: `refund-${customerId}-${Date.now()}`,
- *         type: 'refund',
- *         description: `Refund $${amount} to customer ${customerId}`,
- *         requester: this.ctx.id.toString(),
- *         data: { amount, customerId },
- *         deadline: new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hour SLA
- *       })
- *
- *       if (!approval.approved) {
- *         throw new Error(`Refund rejected: ${approval.reason}`)
- *       }
- *     }
- *     return this.executeRefund(amount, customerId)
- *   }
- * }
- * ```
- *
- * @see Worker - Base class for work-performing entities
- * @see Agent - AI-powered autonomous worker
  * @see lib/human - Shared human-in-the-loop abstractions
- * @see lib/executors/HumanFunctionExecutor - Template literal execution engine
+ * @see lib/executors/HumanFunctionExecutor - Execution engine using same abstractions
  */
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult, Channel } from './Worker'

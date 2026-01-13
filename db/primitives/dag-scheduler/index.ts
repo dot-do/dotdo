@@ -734,7 +734,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
           return result
         }
 
-        await options?.onTaskStart?.(task)
+        options?.onTaskStart?.(task)
 
         const timeout = task.timeout ?? options?.taskTimeout
         const output = await executeWithTimeout(() => task.execute(context), timeout)
@@ -742,7 +742,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
         result.status = 'success'
         result.output = output
         result.completedAt = new Date()
-        await options?.onTaskComplete?.(task, result)
+        options?.onTaskComplete?.(task, result)
         return result
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
@@ -756,7 +756,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
         result.status = 'failed'
         result.error = err
         result.completedAt = new Date()
-        await options?.onTaskComplete?.(task, result)
+        options?.onTaskComplete?.(task, result)
         return result
       }
     }

@@ -76,9 +76,6 @@ export interface AuthContext {
 
 /**
  * JWT Claims structure
- *
- * Index signature allows safe assignment to Record<string, unknown>
- * without unsafe casts. JWTs may contain additional custom claims.
  */
 interface JWTClaims {
   sub: string
@@ -91,8 +88,6 @@ interface JWTClaims {
   org?: string
   email?: string
   name?: string
-  /** Index signature for additional custom claims */
-  [key: string]: unknown
 }
 
 /**
@@ -336,7 +331,7 @@ async function validateJWT(
         issuer: payload.iss,
         audience: payload.aud,
         expiresAt: payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000),
-        claims: payload,
+        claims: payload as unknown as Record<string, unknown>,
       },
     }
   } catch (error) {
@@ -932,7 +927,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
               issuer: payload.iss,
               audience: payload.aud,
               expiresAt: payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000),
-              claims: payload,
+              claims: payload as unknown as Record<string, unknown>,
             },
           }
 
@@ -1239,9 +1234,7 @@ export function withAuth<T extends DOConstructor>(
      * @internal
      */
     getAuthConfig(): Record<string, MethodAuthConfig> | undefined {
-      // Access static $auth property from constructor - standard pattern for mixins
-      const ctor = this.constructor as { $auth?: Record<string, MethodAuthConfig> }
-      return ctor.$auth
+      return (this.constructor as any).$auth
     }
 
     /**
@@ -1597,9 +1590,8 @@ export function withAuth<T extends DOConstructor>(
       context: AuthContext
     ): Promise<Response> {
       try {
-        // Get the method from this class - dynamic method access requires index signature
-        const self = this as Record<string, unknown>
-        const method = self[methodName]
+        // Get the method from this class
+        const method = (this as any)[methodName]
 
         if (typeof method !== 'function') {
           return Response.json(

@@ -52,26 +52,6 @@ import type {
   OpenAIErrorResponse,
   RequestOptions,
 } from './types'
-import type {
-  Assistant,
-  Thread,
-  Message as AssistantMessage,
-  Run,
-  RunStep,
-  CreateAssistantRequest,
-  UpdateAssistantRequest,
-  CreateThreadRequest,
-  UpdateThreadRequest,
-  CreateMessageRequest,
-  UpdateMessageRequest,
-  CreateRunRequest,
-  SubmitToolOutputsRequest,
-  ListResponse,
-  ListParams,
-  ListMessagesParams,
-  DeleteResponse,
-  CreateThreadAndRunRequest,
-} from './assistants'
 
 // =============================================================================
 // Configuration
@@ -204,81 +184,6 @@ export class Stream<T> implements AsyncIterable<T> {
       return JSON.parse(data) as T
     } catch {
       return null
-    }
-  }
-}
-
-/**
- * Async iterable wrapper for Assistants API SSE streams
- * Parses event: and data: pairs from the SSE stream
- */
-export class AssistantStream implements AsyncIterable<AssistantStreamEvent> {
-  private reader: ReadableStreamDefaultReader<Uint8Array>
-  private decoder: TextDecoder
-  private buffer: string = ''
-
-  constructor(response: Response) {
-    if (!response.body) {
-      throw new Error('Response body is null')
-    }
-    this.reader = response.body.getReader()
-    this.decoder = new TextDecoder()
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<AssistantStreamEvent> {
-    try {
-      let currentEvent: string | null = null
-
-      while (true) {
-        const { done, value } = await this.reader.read()
-
-        if (done) {
-          break
-        }
-
-        this.buffer += this.decoder.decode(value, { stream: true })
-
-        // Process complete lines
-        const lines = this.buffer.split('\n')
-        this.buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-
-          // Skip empty lines
-          if (!trimmed) {
-            continue
-          }
-
-          // Check for event prefix
-          if (trimmed.startsWith('event:')) {
-            currentEvent = trimmed.slice(6).trim()
-            continue
-          }
-
-          // Check for data prefix
-          if (trimmed.startsWith('data:')) {
-            const dataStr = trimmed.slice(5).trim()
-
-            // Check for stream end
-            if (dataStr === '[DONE]') {
-              continue
-            }
-
-            try {
-              const data = JSON.parse(dataStr)
-              if (currentEvent) {
-                yield { event: currentEvent, data }
-                currentEvent = null
-              }
-            } catch {
-              // Skip malformed JSON
-            }
-          }
-        }
-      }
-    } finally {
-      this.reader.releaseLock()
     }
   }
 }
@@ -470,259 +375,6 @@ class Models extends OpenAIResource {
 }
 
 // =============================================================================
-// Beta Resources (Assistants API)
-// =============================================================================
-
-/**
- * Assistants resource for managing AI assistants
- */
-class BetaAssistants extends OpenAIResource {
-  async create(params: CreateAssistantRequest, options?: RequestOptions): Promise<Assistant> {
-    return this.client._request<Assistant>('/v1/assistants', params, options)
-  }
-
-  async retrieve(assistantId: string, options?: RequestOptions): Promise<Assistant> {
-    return this.client._requestGet<Assistant>(`/v1/assistants/${assistantId}`, options)
-  }
-
-  async update(assistantId: string, params: UpdateAssistantRequest, options?: RequestOptions): Promise<Assistant> {
-    return this.client._request<Assistant>(`/v1/assistants/${assistantId}`, params, options)
-  }
-
-  async del(assistantId: string, options?: RequestOptions): Promise<DeleteResponse> {
-    return this.client._requestDelete<DeleteResponse>(`/v1/assistants/${assistantId}`, options)
-  }
-
-  async list(params?: ListParams, options?: RequestOptions): Promise<ListResponse<Assistant>> {
-    const queryString = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()}` : ''
-    return this.client._requestGet<ListResponse<Assistant>>(`/v1/assistants${queryString}`, options)
-  }
-}
-
-/**
- * Threads resource for managing conversation threads
- */
-class BetaThreads extends OpenAIResource {
-  readonly messages: BetaMessages
-  readonly runs: BetaRuns
-
-  constructor(client: OpenAI) {
-    super(client)
-    this.messages = new BetaMessages(client)
-    this.runs = new BetaRuns(client)
-  }
-
-  async create(params?: CreateThreadRequest, options?: RequestOptions): Promise<Thread> {
-    return this.client._request<Thread>('/v1/threads', params ?? {}, options)
-  }
-
-  async retrieve(threadId: string, options?: RequestOptions): Promise<Thread> {
-    return this.client._requestGet<Thread>(`/v1/threads/${threadId}`, options)
-  }
-
-  async update(threadId: string, params: UpdateThreadRequest, options?: RequestOptions): Promise<Thread> {
-    return this.client._request<Thread>(`/v1/threads/${threadId}`, params, options)
-  }
-
-  async del(threadId: string, options?: RequestOptions): Promise<DeleteResponse> {
-    return this.client._requestDelete<DeleteResponse>(`/v1/threads/${threadId}`, options)
-  }
-
-  async createAndRun(params: CreateThreadAndRunRequest, options?: RequestOptions): Promise<Run> {
-    return this.client._request<Run>('/v1/threads/runs', params, options)
-  }
-
-  async createAndRunPoll(
-    params: CreateThreadAndRunRequest,
-    pollOptions?: { pollIntervalMs?: number; maxWaitMs?: number },
-    options?: RequestOptions
-  ): Promise<Run> {
-    const run = await this.createAndRun(params, options)
-    return this.runs.poll(run.thread_id, run.id, pollOptions, options)
-  }
-
-  /**
-   * Create a thread and run with streaming
-   */
-  async createAndRunStream(
-    params: CreateThreadAndRunRequest,
-    options?: RequestOptions
-  ): Promise<AsyncIterable<AssistantStreamEvent>> {
-    return this.client._requestAssistantStream(
-      '/v1/threads/runs',
-      { ...params, stream: true },
-      options
-    )
-  }
-}
-
-/**
- * Messages resource for managing thread messages
- */
-class BetaMessages extends OpenAIResource {
-  async create(threadId: string, params: CreateMessageRequest, options?: RequestOptions): Promise<AssistantMessage> {
-    return this.client._request<AssistantMessage>(`/v1/threads/${threadId}/messages`, params, options)
-  }
-
-  async retrieve(threadId: string, messageId: string, options?: RequestOptions): Promise<AssistantMessage> {
-    return this.client._requestGet<AssistantMessage>(`/v1/threads/${threadId}/messages/${messageId}`, options)
-  }
-
-  async update(threadId: string, messageId: string, params: UpdateMessageRequest, options?: RequestOptions): Promise<AssistantMessage> {
-    return this.client._request<AssistantMessage>(`/v1/threads/${threadId}/messages/${messageId}`, params, options)
-  }
-
-  async del(threadId: string, messageId: string, options?: RequestOptions): Promise<DeleteResponse> {
-    return this.client._requestDelete<DeleteResponse>(`/v1/threads/${threadId}/messages/${messageId}`, options)
-  }
-
-  async list(threadId: string, params?: ListMessagesParams, options?: RequestOptions): Promise<ListResponse<AssistantMessage>> {
-    const queryString = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()}` : ''
-    return this.client._requestGet<ListResponse<AssistantMessage>>(`/v1/threads/${threadId}/messages${queryString}`, options)
-  }
-}
-
-/**
- * Assistants streaming event
- */
-export interface AssistantStreamEvent {
-  event: string
-  data: unknown
-}
-
-/**
- * Runs resource for managing assistant runs
- */
-class BetaRuns extends OpenAIResource {
-  readonly steps: BetaRunSteps
-
-  constructor(client: OpenAI) {
-    super(client)
-    this.steps = new BetaRunSteps(client)
-  }
-
-  async create(threadId: string, params: CreateRunRequest, options?: RequestOptions): Promise<Run> {
-    return this.client._request<Run>(`/v1/threads/${threadId}/runs`, params, options)
-  }
-
-  async retrieve(threadId: string, runId: string, options?: RequestOptions): Promise<Run> {
-    return this.client._requestGet<Run>(`/v1/threads/${threadId}/runs/${runId}`, options)
-  }
-
-  async update(threadId: string, runId: string, params: { metadata?: Record<string, string> }, options?: RequestOptions): Promise<Run> {
-    return this.client._request<Run>(`/v1/threads/${threadId}/runs/${runId}`, params, options)
-  }
-
-  async cancel(threadId: string, runId: string, options?: RequestOptions): Promise<Run> {
-    return this.client._request<Run>(`/v1/threads/${threadId}/runs/${runId}/cancel`, {}, options)
-  }
-
-  async list(threadId: string, params?: ListParams, options?: RequestOptions): Promise<ListResponse<Run>> {
-    const queryString = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()}` : ''
-    return this.client._requestGet<ListResponse<Run>>(`/v1/threads/${threadId}/runs${queryString}`, options)
-  }
-
-  async submitToolOutputs(threadId: string, runId: string, params: SubmitToolOutputsRequest, options?: RequestOptions): Promise<Run> {
-    return this.client._request<Run>(`/v1/threads/${threadId}/runs/${runId}/submit_tool_outputs`, params, options)
-  }
-
-  /**
-   * Create a run and stream events
-   */
-  async stream(
-    threadId: string,
-    params: CreateRunRequest,
-    options?: RequestOptions
-  ): Promise<AsyncIterable<AssistantStreamEvent>> {
-    return this.client._requestAssistantStream(
-      `/v1/threads/${threadId}/runs`,
-      { ...params, stream: true },
-      options
-    )
-  }
-
-  /**
-   * Submit tool outputs and stream events
-   */
-  async submitToolOutputsStream(
-    threadId: string,
-    runId: string,
-    params: SubmitToolOutputsRequest,
-    options?: RequestOptions
-  ): Promise<AsyncIterable<AssistantStreamEvent>> {
-    return this.client._requestAssistantStream(
-      `/v1/threads/${threadId}/runs/${runId}/submit_tool_outputs`,
-      { ...params, stream: true },
-      options
-    )
-  }
-
-  async poll(
-    threadId: string,
-    runId: string,
-    pollOptions?: { pollIntervalMs?: number; maxWaitMs?: number },
-    options?: RequestOptions
-  ): Promise<Run> {
-    const pollInterval = pollOptions?.pollIntervalMs ?? 1000
-    const maxWait = pollOptions?.maxWaitMs ?? 300000 // 5 minutes
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < maxWait) {
-      const run = await this.retrieve(threadId, runId, options)
-
-      if (['completed', 'failed', 'cancelled', 'expired', 'requires_action', 'incomplete'].includes(run.status)) {
-        return run
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, pollInterval))
-    }
-
-    throw new OpenAIError(
-      { type: 'timeout_error', message: 'Run polling timed out' },
-      408
-    )
-  }
-
-  async createAndPoll(
-    threadId: string,
-    params: CreateRunRequest,
-    pollOptions?: { pollIntervalMs?: number; maxWaitMs?: number },
-    options?: RequestOptions
-  ): Promise<Run> {
-    const run = await this.create(threadId, params, options)
-    return this.poll(threadId, run.id, pollOptions, options)
-  }
-}
-
-/**
- * Run steps resource
- */
-class BetaRunSteps extends OpenAIResource {
-  async retrieve(threadId: string, runId: string, stepId: string, options?: RequestOptions): Promise<RunStep> {
-    return this.client._requestGet<RunStep>(`/v1/threads/${threadId}/runs/${runId}/steps/${stepId}`, options)
-  }
-
-  async list(threadId: string, runId: string, params?: ListParams, options?: RequestOptions): Promise<ListResponse<RunStep>> {
-    const queryString = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()}` : ''
-    return this.client._requestGet<ListResponse<RunStep>>(`/v1/threads/${threadId}/runs/${runId}/steps${queryString}`, options)
-  }
-}
-
-/**
- * Beta namespace containing experimental/v2 APIs
- */
-class Beta extends OpenAIResource {
-  readonly assistants: BetaAssistants
-  readonly threads: BetaThreads
-
-  constructor(client: OpenAI) {
-    super(client)
-    this.assistants = new BetaAssistants(client)
-    this.threads = new BetaThreads(client)
-  }
-}
-
-// =============================================================================
 // OpenAI Client
 // =============================================================================
 
@@ -743,7 +395,6 @@ export class OpenAI {
   readonly embeddings: Embeddings
   readonly images: Images
   readonly models: Models
-  readonly beta: Beta
 
   constructor(config: OpenAIConfig) {
     if (!config.apiKey) {
@@ -763,7 +414,6 @@ export class OpenAI {
     this.embeddings = new Embeddings(this)
     this.images = new Images(this)
     this.models = new Models(this)
-    this.beta = new Beta(this)
   }
 
   /**
@@ -868,45 +518,6 @@ export class OpenAI {
       }
 
       return new Stream<T>(response)
-    } finally {
-      clearTimeout(timeoutId)
-    }
-  }
-
-  /**
-   * Make an Assistants API streaming request
-   * @internal
-   */
-  async _requestAssistantStream(
-    path: string,
-    body: object,
-    options?: RequestOptions
-  ): Promise<AsyncIterable<AssistantStreamEvent>> {
-    const url = `${this.baseURL}${path}`
-    const headers = this.buildHeaders(options?.headers, true) // Add beta header
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      options?.timeout ?? this.timeout
-    )
-
-    try {
-      const response = await this._fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: options?.signal ?? controller.signal,
-      })
-
-      const requestId = response.headers.get('x-request-id') ?? undefined
-
-      if (!response.ok) {
-        const errorData = (await response.json()) as OpenAIErrorResponse
-        throw new OpenAIError(errorData.error, response.status, requestId)
-      }
-
-      return new AssistantStream(response)
     } finally {
       clearTimeout(timeoutId)
     }
@@ -1124,7 +735,7 @@ export class OpenAI {
   /**
    * Build request headers
    */
-  private buildHeaders(customHeaders?: Record<string, string>, isBeta?: boolean): Record<string, string> {
+  private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${this.apiKey}`,
@@ -1134,10 +745,6 @@ export class OpenAI {
 
     if (this.organization) {
       headers['OpenAI-Organization'] = this.organization
-    }
-
-    if (isBeta) {
-      headers['OpenAI-Beta'] = 'assistants=v2'
     }
 
     return headers
