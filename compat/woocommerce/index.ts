@@ -3,13 +3,9 @@
  *
  * A complete WooCommerce REST API compatible SDK for dotdo.
  * Supports products, variations, categories, tags, attributes,
- * orders, customers, coupons, taxes, shipping, and batch operations.
+ * and batch operations.
  *
- * Two modes of operation:
- * 1. Remote API mode - connects to a real WooCommerce store
- * 2. Local mode - fully functional local implementation backed by DO storage
- *
- * @example Remote API mode:
+ * @example
  * ```typescript
  * import { wooCommerceApi } from '@dotdo/woocommerce'
  *
@@ -28,25 +24,24 @@
  *   type: 'simple',
  *   regular_price: '19.99',
  * })
- * ```
  *
- * @example Local mode:
- * ```typescript
- * import { WooCommerceLocal } from '@dotdo/woocommerce/local'
- *
- * const wc = new WooCommerceLocal()
- *
- * // Create a customer (stored locally)
- * const customer = await wc.customers.create({
- *   email: 'user@example.com',
- *   first_name: 'John',
- *   last_name: 'Doe',
+ * // Create a variable product with variations
+ * const { body: variableProduct } = await wc.products.create({
+ *   name: 'T-Shirt',
+ *   type: 'variable',
+ *   attributes: [
+ *     { name: 'Size', variation: true, options: ['S', 'M', 'L'] },
+ *     { name: 'Color', variation: true, options: ['Red', 'Blue'] },
+ *   ],
  * })
  *
- * // Create an order
- * const order = await wc.orders.create({
- *   customer_id: customer.id,
- *   line_items: [{ product_id: 1, quantity: 2 }],
+ * // Create variations
+ * await wc.products.variations.create(variableProduct.id, {
+ *   regular_price: '24.99',
+ *   attributes: [
+ *     { name: 'Size', option: 'M' },
+ *     { name: 'Color', option: 'Blue' },
+ *   ],
  * })
  * ```
  *
@@ -55,11 +50,6 @@
 
 import { RestClient, resolveConfig } from './client'
 import { ProductsResource } from './products'
-import { OrdersResource } from './orders'
-import { CustomersResource } from './customers'
-import { CouponsResource } from './coupons'
-import { TaxRatesResource, TaxClassesResource } from './taxes'
-import { ShippingZonesResource, ShippingMethodsResource } from './shipping'
 import type { WooCommerceConfig } from './types'
 
 // =============================================================================
@@ -69,12 +59,6 @@ import type { WooCommerceConfig } from './types'
 export * from './types'
 export * from './client'
 export * from './products'
-export * from './orders'
-export * from './customers'
-export * from './coupons'
-export * from './taxes'
-export * from './shipping'
-export * from './local'
 
 // =============================================================================
 // WooCommerce API Factory
@@ -86,20 +70,6 @@ export * from './local'
 export interface WooCommerceAPI {
   /** Products resource (includes variations, categories, tags, attributes) */
   products: ProductsResource
-  /** Orders resource (includes notes and refunds) */
-  orders: OrdersResource
-  /** Customers resource (includes downloads) */
-  customers: CustomersResource
-  /** Coupons resource */
-  coupons: CouponsResource
-  /** Tax rates resource */
-  taxRates: TaxRatesResource
-  /** Tax classes resource */
-  taxClasses: TaxClassesResource
-  /** Shipping zones resource (includes locations and methods) */
-  shippingZones: ShippingZonesResource
-  /** Shipping methods resource */
-  shippingMethods: ShippingMethodsResource
   /** Direct access to REST client for custom requests */
   client: RestClient
 }
@@ -125,13 +95,6 @@ export function wooCommerceApi(config: WooCommerceConfig): WooCommerceAPI {
 
   return {
     products: new ProductsResource(client),
-    orders: new OrdersResource(client),
-    customers: new CustomersResource(client),
-    coupons: new CouponsResource(client),
-    taxRates: new TaxRatesResource(client),
-    taxClasses: new TaxClassesResource(client),
-    shippingZones: new ShippingZonesResource(client),
-    shippingMethods: new ShippingMethodsResource(client),
     client,
   }
 }

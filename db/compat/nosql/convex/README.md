@@ -293,19 +293,19 @@ interface Document {
 
 ## Comparison
 
-| Feature | @dotdo/convex | Convex Cloud |
-|---------|---------------|--------------|
-| Hosting | Self-hosted | Managed |
-| Latency | Global edge (300+ cities) | Single region |
-| Cold starts | 0ms | N/A |
-| Pricing | Free (your infra) | Usage-based |
-| Vendor lock-in | No | Yes |
+| Feature | Convex Cloud | @dotdo/convex |
+|---------|--------------|---------------|
+| Hosting | Managed | Self-hosted |
+| Latency | Single region | Global edge (300+ cities) |
+| Cold starts | N/A | 0ms |
+| Pricing | Usage-based | Free (your infra) |
+| Vendor lock-in | Yes | No |
 | Real-time subscriptions | Yes | Yes |
 | Optimistic updates | Yes | Yes |
 | Type-safe queries | Yes | Yes |
 | Pagination | Yes | Yes |
-| Authentication | Bring your own | Built-in |
-| Per-agent isolation | Automatic | N/A |
+| Authentication | Built-in | Bring your own |
+| Per-agent isolation | N/A | Automatic |
 
 ## Durable Object Integration
 
@@ -404,7 +404,7 @@ await client.close()
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://convex.do)

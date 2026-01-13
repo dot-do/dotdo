@@ -1,6 +1,6 @@
 {
   "title": "Compat SDKs",
-  "description": "40+ API-compatible SDKs for databases, messaging, search, and vector stores",
+  "description": "38 API-compatible SDKs for databases, messaging, search, and vector stores",
   "root": true,
   "pages": [
     "index",

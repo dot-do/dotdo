@@ -114,8 +114,6 @@ export {
   GroupsResource,
   WebhooksResource,
   TargetsResource,
-  SLAPoliciesResource,
-  SLAsResource,
 } from './zendesk'
 
 export { default } from './zendesk'
@@ -255,16 +253,6 @@ export type {
   SLAPolicyCondition,
   SLAPolicyMetric,
   SLAPolicyListResponse,
-  SLAPolicyCreateParams,
-  SLAPolicyUpdateParams,
-  SLAStatus,
-  SLATicketMetric,
-  SLABreach,
-  SLABreachesResponse,
-  SLABreachesParams,
-  SLAAtRisk,
-  SLAAtRiskResponse,
-  SLAAtRiskParams,
 
   // Generic types
   ListResponse,

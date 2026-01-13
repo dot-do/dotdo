@@ -142,32 +142,8 @@ const AGENTS = {
 } as const
 
 // ============================================================================
-// Helper Functions - Reference implementations for GREEN phase
-//
-// These implementations live in the test file as a reference for what needs
-// to be implemented in production code (agents/handoff-chain.ts).
-//
-// For proper TDD workflow:
-// 1. RED: Tests fail because production module doesn't exist
-// 2. GREEN: Copy these implementations to agents/handoff-chain.ts
-// 3. REFACTOR: Optimize and integrate with GraphStore properly
+// Helper Functions - To be implemented in GREEN phase
 // ============================================================================
-
-/**
- * Extract agent ID from a URL that may include conversation context
- * e.g., "do://agents/agent:ralph/conv:123" -> "agent:ralph"
- */
-function extractAgentId(url: string): string {
-  // Remove the "do://agents/" prefix and any trailing conversation ID
-  const withoutPrefix = url.replace('do://agents/', '')
-  // If there's a conversation suffix (starts with conv:), remove it
-  // Format: "agent:ralph/conv:123" or just "agent:ralph"
-  const slashIndex = withoutPrefix.indexOf('/')
-  if (slashIndex === -1) {
-    return withoutPrefix
-  }
-  return withoutPrefix.substring(0, slashIndex)
-}
 
 /**
  * Create a handoff relationship between two agents
@@ -211,6 +187,18 @@ async function createHandoffRelationship(
   })
 
   return relationship as HandoffRelationship
+}
+
+/**
+ * Extract agent ID from a URL that may include conversation context
+ * e.g., "do://agents/agent:ralph/conv:123" -> "agent:ralph"
+ */
+function extractAgentId(url: string): string {
+  // Remove the "do://agents/" prefix and any trailing conversation ID
+  const withoutPrefix = url.replace('do://agents/', '')
+  // If there's a conversation suffix, remove it
+  const parts = withoutPrefix.split('/')
+  return parts[0]!
 }
 
 /**
@@ -378,18 +366,17 @@ async function getHandoffAnalytics(
   }
 
   // Count handoff pairs - use extractAgentId to normalize URLs
-  // Use "|" as separator since agent IDs contain ":"
   const pairCounts = new Map<string, number>()
   for (const handoff of filtered) {
     const fromId = extractAgentId(handoff.from)
     const toId = extractAgentId(handoff.to)
-    const key = `${fromId}|${toId}`
+    const key = `${fromId}:${toId}`
     pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1)
   }
 
   const topHandoffPairs = Array.from(pairCounts.entries())
     .map(([key, count]) => {
-      const [from, to] = key.split('|')
+      const [from, to] = key.split(':')
       return { from: from!, to: to!, count }
     })
     .sort((a, b) => b.count - a.count)

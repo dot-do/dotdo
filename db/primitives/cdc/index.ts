@@ -135,38 +135,19 @@ export {
   // Transform pipeline
   TransformPipeline,
   createTransformPipeline,
-  // Filter chain (composable predicates)
-  FilterChain,
-  createFilterChain,
   // Built-in transformers
   map,
-  mapSync,
   filter,
-  filterSync,
   project,
   enrich,
   flatten,
   aggregate,
   debounce,
-  // Advanced filters
-  filterByOperation,
-  filterByTable,
-  filterByColumn,
-  // Field transformers
-  rename,
-  mask,
-  derive,
-  // Conditional filtering (where predicates)
-  where,
-  whereAll,
-  whereAny,
   // Types
   type Transformer,
   type PipelineStats,
   type MapFn,
-  type SyncMapFn,
   type FilterPredicate,
-  type SyncFilterPredicate,
   type FieldPath,
   type ProjectionConfig,
   type EnrichFn,
@@ -174,14 +155,6 @@ export {
   type FlattenOptions,
   type AggregateOptions,
   type DebounceOptions,
-  type ChainPredicate,
-  type OperationType,
-  type TableFilterConfig,
-  type RenameOptions,
-  type MaskOptions,
-  type DeriveFn,
-  type WhereOperator,
-  type WhereCondition,
 } from './transform'
 
 // =============================================================================
@@ -382,15 +355,10 @@ export {
 export {
   // Classes
   CDCContractStream,
-  SchemaAlertManager,
-  ContractMiddleware,
   // Factory functions
   createCDCContractStream,
   withContract,
   createValidator,
-  createAlertManager,
-  createContractMiddleware,
-  withContractValidation,
   // Validation functions
   validateChangeEvent as validateEventAgainstContract,
   detectSchemaDrift,
@@ -403,12 +371,6 @@ export {
   type SchemaDriftReport,
   type ContractValidationMetrics,
   type CDCContractStreamOptions,
-  type AlertSeverity,
-  type SchemaViolationAlert,
-  type AlertHandler,
-  type AlertingConfig,
-  type ContractMiddlewareOptions,
-  type MiddlewareResult,
 } from './contract-integration'
 
 // =============================================================================
@@ -471,23 +433,16 @@ export {
 // =============================================================================
 
 export {
-  // Classes
+  // Class
   BackpressureController,
-  FlowController,
-  AdaptiveBatcher,
-  BackpressureSignal,
   // Factory functions
   createBackpressureController,
-  createFlowController,
-  createAdaptiveBatcher,
-  createBackpressureSignal,
   createInMemoryDiskBuffer,
   // Class (disk buffer implementation)
   InMemoryDiskBuffer,
   // Enums
   OverflowStrategy,
   BackpressureState,
-  FlowState,
   // Metric names
   BackpressureMetrics,
   // Types
@@ -496,10 +451,4 @@ export {
   type DiskBuffer,
   type BackpressureOptions,
   type ControllableSource,
-  type FlowControllerOptions,
-  type FlowControllerStats,
-  type AdaptiveBatcherOptions,
-  type AdaptiveBatcherStats,
-  type BackpressureSignalOptions,
-  type BackpressureCallback,
 } from './backpressure'

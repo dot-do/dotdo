@@ -84,14 +84,11 @@ export interface PaginationMetaOptions {
 }
 
 // ============================================================================
-// Cursor Functions
+// Cursor Functions (Stub - Will Fail Tests)
 // ============================================================================
 
 /**
  * Create an opaque cursor from a position
- *
- * Uses base64url encoding (RFC 4648 section 5) for URL safety.
- * The cursor is opaque to clients - they should not parse or modify it.
  *
  * @param position - The cursor position to encode
  * @returns URL-safe opaque cursor string
@@ -102,24 +99,12 @@ export interface PaginationMetaOptions {
  * // Returns something like "eyJvIjoyMCwicyI6Iml0ZW0tMjAifQ"
  * ```
  */
-export function createCursor(position: CursorPosition): string {
-  // Use compact keys for smaller cursor size
-  const data: Record<string, unknown> = {
-    o: position.offset,
-  }
-
-  if (position.sortKey !== undefined) {
-    data.s = position.sortKey
-  }
-
-  if (position.secondaryKey !== undefined) {
-    data.k = position.secondaryKey
-  }
-
-  const json = JSON.stringify(data)
-  // Use base64url encoding (URL-safe: + -> -, / -> _, no padding)
-  const base64 = btoa(json)
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+export function createCursor(_position: CursorPosition): string {
+  // TODO: Implement cursor encoding
+  // Should use base64url encoding for URL safety
+  // Should include offset and sort keys
+  // Should be deterministic (same input = same output)
+  throw new Error('Not implemented: createCursor')
 }
 
 /**
@@ -134,50 +119,15 @@ export function createCursor(position: CursorPosition): string {
  * // Returns { offset: 20 }
  * ```
  */
-export function parseCursor(cursor: string): CursorPosition | null {
-  if (!cursor || typeof cursor !== 'string') {
-    return null
-  }
-
-  try {
-    // Convert base64url back to standard base64
-    let base64 = cursor.replace(/-/g, '+').replace(/_/g, '/')
-    // Add padding if needed
-    const paddingNeeded = (4 - (base64.length % 4)) % 4
-    base64 += '='.repeat(paddingNeeded)
-
-    const json = atob(base64)
-    const data = JSON.parse(json)
-
-    if (typeof data !== 'object' || data === null) {
-      return null
-    }
-
-    // Validate offset exists and is a number
-    if (typeof data.o !== 'number') {
-      return null
-    }
-
-    const position: CursorPosition = {
-      offset: data.o,
-    }
-
-    if (data.s !== undefined) {
-      position.sortKey = String(data.s)
-    }
-
-    if (data.k !== undefined) {
-      position.secondaryKey = String(data.k)
-    }
-
-    return position
-  } catch {
-    return null
-  }
+export function parseCursor(_cursor: string): CursorPosition | null {
+  // TODO: Implement cursor decoding
+  // Should handle malformed input gracefully
+  // Should return null for invalid/tampered cursors
+  throw new Error('Not implemented: parseCursor')
 }
 
 // ============================================================================
-// Metadata Building
+// Metadata Building (Stub - Will Fail Tests)
 // ============================================================================
 
 /**
@@ -197,63 +147,17 @@ export function parseCursor(cursor: string): CursorPosition | null {
  * // Returns { total: 100, limit: 20, hasMore: true, cursor: '...' }
  * ```
  */
-export function buildPaginationMeta(options: PaginationMetaOptions): PaginationMeta {
-  const {
-    limit,
-    totalItems,
-    currentOffset,
-    skipTotal,
-    actualItemCount,
-    lastItemKey,
-    firstItemKey,
-  } = options
-
-  // Calculate hasMore based on total or actualItemCount
-  let hasMore: boolean
-  if (totalItems !== undefined) {
-    hasMore = currentOffset + limit < totalItems
-  } else if (actualItemCount !== undefined) {
-    // If we got a full page, there might be more
-    hasMore = actualItemCount >= limit
-  } else {
-    hasMore = false
-  }
-
-  const meta: PaginationMeta = {
-    limit,
-    hasMore,
-  }
-
-  // Include total count unless skipped
-  if (!skipTotal && totalItems !== undefined) {
-    meta.total = totalItems
-  }
-
-  // Generate cursor for next page if hasMore is true
-  if (hasMore) {
-    const nextOffset = currentOffset + limit
-    const cursorPosition: CursorPosition = { offset: nextOffset }
-    if (lastItemKey) {
-      cursorPosition.sortKey = lastItemKey
-    }
-    meta.cursor = createCursor(cursorPosition)
-  }
-
-  // Generate prevCursor when not on first page
-  if (currentOffset > 0) {
-    const prevOffset = Math.max(0, currentOffset - limit)
-    const cursorPosition: CursorPosition = { offset: prevOffset }
-    if (firstItemKey) {
-      cursorPosition.sortKey = firstItemKey
-    }
-    meta.prevCursor = createCursor(cursorPosition)
-  }
-
-  return meta
+export function buildPaginationMeta(_options: PaginationMetaOptions): PaginationMeta {
+  // TODO: Implement metadata building
+  // Should calculate hasMore based on total or actualItemCount
+  // Should generate cursor for next page
+  // Should generate prevCursor when not on first page
+  // Should omit total when skipTotal is true
+  throw new Error('Not implemented: buildPaginationMeta')
 }
 
 // ============================================================================
-// Paginate Function
+// Paginate Function (Stub - Will Fail Tests)
 // ============================================================================
 
 /**
@@ -273,81 +177,13 @@ export function buildPaginationMeta(options: PaginationMetaOptions): PaginationM
  * const page2 = paginate(items, { limit: 20, cursor: result.meta.cursor })
  * ```
  */
-export function paginate<T>(items: T[], params: PaginationParams = {}): PaginatedResult<T> {
-  const totalItems = items.length
-
-  // Normalize limit: default 20, max 100, handle negative as default
-  let limit = params.limit
-  if (limit === undefined || limit === null || limit < 0 || !Number.isFinite(limit)) {
-    limit = DEFAULT_LIMIT
-  }
-  limit = Math.min(limit, MAX_LIMIT)
-
-  // Handle limit=0 special case
-  if (limit === 0) {
-    return {
-      data: [],
-      meta: {
-        limit: 0,
-        hasMore: false,
-        total: totalItems,
-      },
-    }
-  }
-
-  // Determine offset from cursor or offset parameter
-  let offset = 0
-
-  if (params.cursor) {
-    const cursorPosition = parseCursor(params.cursor)
-    if (cursorPosition) {
-      offset = cursorPosition.offset
-    }
-  } else if (params.offset !== undefined && params.offset >= 0) {
-    offset = params.offset
-  }
-
-  // Handle backward direction - adjust offset to go to previous page
-  if (params.direction === 'backward' && params.cursor) {
-    // When going backward, the cursor points to current position
-    // We already parsed it above, so offset is set correctly
-    // The cursor for backward navigation should already contain the correct offset
-  }
-
-  // Ensure offset is valid
-  offset = Math.max(0, Math.min(offset, totalItems))
-
-  // Slice items for current page
-  const startIndex = offset
-  const endIndex = Math.min(startIndex + limit, totalItems)
-  const pageItems = items.slice(startIndex, endIndex)
-  const actualItemCount = pageItems.length
-
-  // Calculate hasMore
-  const hasMore = endIndex < totalItems
-
-  // Build metadata
-  const meta: PaginationMeta = {
-    limit,
-    hasMore,
-    total: totalItems,
-  }
-
-  // Generate cursor for next page if hasMore
-  if (hasMore && actualItemCount > 0) {
-    meta.cursor = createCursor({ offset: endIndex })
-  }
-
-  // Generate prevCursor if not on first page
-  if (startIndex > 0) {
-    const prevOffset = Math.max(0, startIndex - limit)
-    meta.prevCursor = createCursor({ offset: prevOffset })
-  }
-
-  return {
-    data: pageItems,
-    meta,
-  }
+export function paginate<T>(_items: T[], _params: PaginationParams): PaginatedResult<T> {
+  // TODO: Implement pagination logic
+  // Should respect limit (default 20, max 100)
+  // Should handle cursor-based navigation
+  // Should support forward and backward pagination
+  // Should generate appropriate metadata
+  throw new Error('Not implemented: paginate')
 }
 
 // ============================================================================

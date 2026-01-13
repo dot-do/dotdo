@@ -29,34 +29,6 @@ export {
   type SessionCookieOptions,
 } from '../auth-config'
 
-// CSRF Protection
-export {
-  generateCSRFToken,
-  validateCSRFToken,
-  validateCSRFRequest,
-  buildCSRFCookie,
-  parseCSRFCookie,
-  extractCSRFTokenFromRequest,
-  CSRF_DEFAULTS,
-  type CSRFConfig,
-} from './csrf'
-
-// OAuth Providers
-export {
-  OAUTH_PROVIDERS,
-  isProviderEnabled,
-  getEnabledProviders,
-  getProviderConfig,
-  buildOAuthUrl,
-  generateCodeVerifier,
-  generateCodeChallengeAsync,
-  exchangeCodeForTokens,
-  fetchProviderUserInfo,
-  type OAuthProviderId,
-  type OAuthProviderConfig,
-  type OAuthUrlOptions,
-} from './oauth-providers'
-
 // Types
 export type {
   AuthUser,

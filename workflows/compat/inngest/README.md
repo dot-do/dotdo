@@ -472,7 +472,7 @@ Result: returned to caller or stored
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://inngest.do)

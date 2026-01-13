@@ -1335,9 +1335,7 @@ export class TwilioConversations {
     path: string,
     params?: Record<string, unknown>
   ): Promise<T> {
-    // Build URL by concatenating base + path (NOT using new URL with relative path,
-    // which would treat absolute paths as replacing the base path)
-    const url = new URL(this.baseUrl + path)
+    const url = new URL(path, this.baseUrl)
 
     // Add query params for GET requests
     if (method === 'GET' && params) {

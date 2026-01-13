@@ -13,17 +13,6 @@ By the end, you'll have a deployed store where Sally handles customer service an
 
 ---
 
-## Prerequisites
-
-Before you begin, make sure you have:
-
-- **Node.js 18+** installed
-- **Cloudflare account** with Workers enabled
-- **TypeScript** familiarity (basic understanding)
-- **Stripe account** for payment processing (test keys work for development)
-
----
-
 <Steps>
 
 <Step>
@@ -259,7 +248,7 @@ export class Cart extends DO {
       })
     }
 
-    // Fire-and-forget: track for analytics
+    // Track for analytics - fire and forget
     $.send('cart.itemAdded', {
       cartId: this.id,
       productId,
@@ -521,7 +510,7 @@ export class Orders extends DO {
         )
       }
 
-      // Fire-and-forget: notify warehouse
+      // Notify warehouse - fire and forget
       $.send('warehouse.newOrder', { order })
 
       // Update order status

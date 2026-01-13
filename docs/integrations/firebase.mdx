@@ -36,7 +36,7 @@ const rtdb = getDatabase(app)
 await set(ref(rtdb, 'messages/1'), { text: 'Hello', timestamp: Date.now() })
 ```
 
-## Why @dotdo/firebase?
+## Why firebase.do?
 
 | Firebase SDK | @dotdo/firebase |
 |--------------|-----------------|
@@ -129,13 +129,13 @@ await set(ref(rtdb, 'messages/1'), { text: 'Hello', timestamp: Date.now() })
 - Multi-region replication
 - Offline persistence (IndexedDB)
 
-## Quick Start
-
-### Install
+## Installation
 
 ```bash
 npm install @dotdo/firebase
 ```
+
+## Quick Start
 
 ### Firestore
 

@@ -15,7 +15,7 @@
 
 import { drizzle as drizzleBetterSqlite } from 'drizzle-orm/better-sqlite3'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
+import { eq, and, isNull, desc, asc } from 'drizzle-orm'
 import type {
   GraphStore,
   GraphThing,
@@ -28,7 +28,6 @@ import type {
 } from '../types'
 import { graphThings } from '../things'
 import { graphRelationships } from '../relationships'
-import { hasNounById } from '../nouns'
 
 // ============================================================================
 // SQLiteGraphStore Class
@@ -122,19 +121,6 @@ export class SQLiteGraphStore implements GraphStore {
       CREATE INDEX IF NOT EXISTS graph_things_created_at_idx ON graph_things(created_at);
       CREATE INDEX IF NOT EXISTS graph_things_deleted_at_idx ON graph_things(deleted_at);
 
-      -- Unique index on User email (extracted from JSON data)
-      -- This enforces email uniqueness at the database level for non-deleted Users
-      CREATE UNIQUE INDEX IF NOT EXISTS graph_things_user_email_idx
-        ON graph_things(json_extract(data, '$.email'))
-        WHERE type_name = 'User' AND deleted_at IS NULL;
-
-      -- Unique index on Account provider + providerAccountId (extracted from JSON data)
-      -- This enforces OAuth uniqueness at the database level for non-deleted Accounts
-      -- Prevents TOCTOU race condition in AccountThingStore.createAccount()
-      CREATE UNIQUE INDEX IF NOT EXISTS graph_things_account_provider_idx
-        ON graph_things(json_extract(data, '$.provider'), json_extract(data, '$.providerAccountId'))
-        WHERE type_name = 'Account' AND deleted_at IS NULL;
-
       CREATE TABLE IF NOT EXISTS relationships (
         id TEXT PRIMARY KEY NOT NULL,
         verb TEXT NOT NULL,
@@ -175,12 +161,6 @@ export class SQLiteGraphStore implements GraphStore {
     input: Omit<NewGraphThing, 'createdAt' | 'updatedAt' | 'deletedAt'>
   ): Promise<GraphThing> {
     this.ensureInitialized()
-
-    // Validate typeId against noun registry (foreign key constraint emulation)
-    const typeExists = await hasNounById(this, input.typeId)
-    if (!typeExists) {
-      throw new Error(`FOREIGN KEY constraint failed: typeId ${input.typeId} does not reference a valid Noun`)
-    }
 
     const now = Date.now()
     const dataJson = input.data !== undefined ? JSON.stringify(input.data) : null
@@ -340,74 +320,6 @@ export class SQLiteGraphStore implements GraphStore {
   }
 
   // =========================================================================
-  // BATCH THINGS OPERATIONS (N+1 elimination)
-  // =========================================================================
-
-  /**
-   * Default chunk size for SQL IN clause to avoid SQLite limits.
-   * SQLite has a default SQLITE_MAX_VARIABLE_NUMBER of 999.
-   */
-  private static readonly BATCH_CHUNK_SIZE = 500
-
-  /**
-   * Get multiple Things by their IDs in a single query.
-   * Returns a Map for O(1) lookup by ID.
-   *
-   * Uses SQL IN clause for efficient bulk fetch.
-   * Chunks large arrays to avoid SQLite variable limits.
-   */
-  async getThings(ids: string[]): Promise<Map<string, GraphThing>> {
-    this.ensureInitialized()
-
-    // Handle empty array gracefully
-    if (ids.length === 0) {
-      return new Map()
-    }
-
-    const resultMap = new Map<string, GraphThing>()
-
-    // Chunk the IDs to avoid SQLite variable limits
-    for (let i = 0; i < ids.length; i += SQLiteGraphStore.BATCH_CHUNK_SIZE) {
-      const chunk = ids.slice(i, i + SQLiteGraphStore.BATCH_CHUNK_SIZE)
-
-      const results = this.db!.select()
-        .from(graphThings)
-        .where(inArray(graphThings.id, chunk))
-        .all()
-
-      for (const row of results) {
-        const thing = this.rowToThing(row)
-        resultMap.set(thing.id, thing)
-      }
-    }
-
-    return resultMap
-  }
-
-  /**
-   * Get multiple Things by their IDs, preserving order.
-   * Returns an array in the same order as input IDs.
-   * Missing IDs return null at their position.
-   *
-   * Uses SQL IN clause for efficient bulk fetch.
-   * Chunks large arrays to avoid SQLite variable limits.
-   */
-  async getThingsByIds(ids: string[]): Promise<(GraphThing | null)[]> {
-    this.ensureInitialized()
-
-    // Handle empty array gracefully
-    if (ids.length === 0) {
-      return []
-    }
-
-    // Fetch all things as a map
-    const thingsMap = await this.getThings(ids)
-
-    // Return in order, with null for missing IDs
-    return ids.map((id) => thingsMap.get(id) ?? null)
-  }
-
-  // =========================================================================
   // RELATIONSHIPS OPERATIONS
   // =========================================================================
 
@@ -421,12 +333,17 @@ export class SQLiteGraphStore implements GraphStore {
     const dataJson = input.data ? JSON.stringify(input.data) : null
 
     try {
-      // Use parameterized queries to prevent SQL injection
-      const stmt = this.sqlite!.prepare(`
+      this.sqlite!.exec(`
         INSERT INTO relationships (id, verb, "from", "to", data, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (
+          '${input.id.replace(/'/g, "''")}',
+          '${input.verb.replace(/'/g, "''")}',
+          '${input.from.replace(/'/g, "''")}',
+          '${input.to.replace(/'/g, "''")}',
+          ${dataJson ? `'${dataJson.replace(/'/g, "''")}'` : 'NULL'},
+          ${now}
+        )
       `)
-      stmt.run(input.id, input.verb, input.from, input.to, dataJson, now)
 
       return {
         id: input.id,
@@ -511,53 +428,6 @@ export class SQLiteGraphStore implements GraphStore {
     const result = this.sqlite!.prepare(`DELETE FROM relationships WHERE id = ?`).run(id)
 
     return result.changes > 0
-  }
-
-  // =========================================================================
-  // BATCH RELATIONSHIPS OPERATIONS (N+1 elimination)
-  // =========================================================================
-
-  /**
-   * Query relationships from multiple source URLs in a single query.
-   * Eliminates N+1 queries when traversing from multiple nodes.
-   *
-   * Uses SQL IN clause for efficient bulk fetch.
-   * Chunks large arrays to avoid SQLite variable limits.
-   */
-  async queryRelationshipsFromMany(
-    urls: string[],
-    options?: RelationshipQueryOptions
-  ): Promise<GraphRelationship[]> {
-    this.ensureInitialized()
-
-    // Handle empty array gracefully
-    if (urls.length === 0) {
-      return []
-    }
-
-    const allResults: GraphRelationship[] = []
-
-    // Chunk the URLs to avoid SQLite variable limits
-    for (let i = 0; i < urls.length; i += SQLiteGraphStore.BATCH_CHUNK_SIZE) {
-      const chunk = urls.slice(i, i + SQLiteGraphStore.BATCH_CHUNK_SIZE)
-
-      // Build parameterized query with IN clause
-      const placeholders = chunk.map(() => '?').join(', ')
-      let query = `SELECT * FROM relationships WHERE "from" IN (${placeholders})`
-      const params: string[] = [...chunk]
-
-      if (options?.verb) {
-        query += ` AND verb = ?`
-        params.push(options.verb)
-      }
-
-      const stmt = this.sqlite!.prepare(query)
-      const results = stmt.all(...params) as RelationshipRow[]
-
-      allResults.push(...results.map(this.rowToRelationship))
-    }
-
-    return allResults
   }
 
   // =========================================================================

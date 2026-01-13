@@ -3,8 +3,6 @@ title: Human-in-the-Loop
 description: AI does the work. Humans make the decisions.
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card'
-
 # Human-in-the-Loop
 
 AI handles the 95%. Humans handle the edge cases. Full audit trail. Clear accountability.
@@ -122,17 +120,8 @@ escalation = this.HumanFunction({
 
 ## Core Concepts
 
-<Cards>
-  <Card title="Escalation" href="/docs/humans/escalation">
-    Triggers, roles, SLAs, and escalation policies for human intervention.
-  </Card>
-  <Card title="Approval Workflows" href="/docs/humans/approval-workflows">
-    Building approval chains with multi-level sign-offs and parallel approvals.
-  </Card>
-  <Card title="Notification Channels" href="/docs/humans/notification-channels">
-    Email, Slack, Discord, SMS delivery for human notifications.
-  </Card>
-</Cards>
+- **[Escalation](/docs/humans/escalation)** - Triggers, roles, and SLAs
+- **[Approval Workflows](/docs/humans/approval-workflows)** - Building approval chains
 
 ## Design Principles
 
@@ -151,20 +140,3 @@ Every escalation is logged. Who was asked, when they responded, what they decide
 ### Graceful Degradation
 
 If a human doesn't respond within the SLA, the system can escalate higher, fall back to a default action, or alert operations.
-
-## Related
-
-<Cards>
-  <Card title="Agents" href="/docs/agents">
-    AI agents that work alongside human escalation workflows.
-  </Card>
-  <Card title="Workflows" href="/docs/workflows">
-    Durable workflow orchestration with the $ context DSL.
-  </Card>
-  <Card title="Functions" href="/docs/concepts/functions">
-    Four function types including HumanFunction for escalation.
-  </Card>
-  <Card title="Security" href="/docs/security">
-    Identity, authorization, and audit trails for human actions.
-  </Card>
-</Cards>

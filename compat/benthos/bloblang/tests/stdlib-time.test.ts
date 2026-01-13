@@ -495,8 +495,7 @@ describe('Bloblang Date/Time Stdlib Functions', () => {
     it('handles leap years', () => {
       const result = ts_parse('2006-01-02', '2024-02-29')
       expect(result).toBeInstanceOf(Date)
-      // Use getUTCDate() since ts_parse creates UTC dates
-      expect((result as Date).getUTCDate()).toBe(29)
+      expect((result as Date).getDate()).toBe(29)
     })
 
     it('handles DST transitions', () => {

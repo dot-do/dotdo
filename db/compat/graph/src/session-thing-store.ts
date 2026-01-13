@@ -21,7 +21,6 @@
 
 import { randomUUID } from 'crypto'
 import type { GraphStore, GraphThing } from '../../../graph/types'
-import { AUTH_TYPE_IDS } from '../../../graph/constants'
 
 // ============================================================================
 // TYPES
@@ -108,14 +107,13 @@ export interface CreateSessionInput {
 }
 
 // ============================================================================
-// CONSTANTS (from centralized db/graph/constants.ts)
+// CONSTANTS
 // ============================================================================
 
-/**
- * Type IDs for auth entities.
- * Re-exported from db/graph/constants.ts for local use.
- */
-const TYPE_IDS = AUTH_TYPE_IDS
+const TYPE_IDS = {
+  User: 1,
+  Session: 2,
+} as const
 
 // ============================================================================
 // HELPER FUNCTIONS

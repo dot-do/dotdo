@@ -1,124 +1,29 @@
 /**
- * @module DOFull
- * @description Full-featured Durable Object with lifecycle, sharding, and branching (~120KB)
+ * DOFull - Full-featured Durable Object with Lifecycle Operations
  *
- * DOFull extends DOBase with enterprise-grade state management operations for
- * production edge applications. It provides the complete feature set needed
- * for complex, stateful workloads running on Cloudflare's global network.
- *
- * **Extends DOBase with:**
- * - Lifecycle operations (fork, clone, compact, move)
- * - Sharding for horizontal scaling (shard, unshard, routing)
- * - Git-style branching (branch, checkout, merge)
- * - Multi-stage promotion (promote, demote)
- * - Two-phase commit for staged clone operations
+ * Extends DO (~120KB) with:
+ * - Lifecycle (fork, clone, compact, move)
+ * - Sharding (shard, unshard, routing)
+ * - Branching (branch, checkout, merge)
+ * - Promotion (promote, demote)
+ * - Staged clone operations (two-phase commit)
  * - Eventual consistency replication
- * - Resumable clone operations with integrity verification
+ * - Resumable clone operations
  *
- * **DO Class Hierarchy:**
- * ```
- * DOTiny (~15KB)        - Identity, db, fetch, toJSON
- *    |
- *    v
- * DOBase (~80KB)        - + WorkflowContext, stores, events, scheduling
- *    |
- *    v
- * DOFull (~120KB)       - + Lifecycle, sharding, branching, promotion (this module)
- * ```
+ * Use this when you need the full power of DO lifecycle management.
  *
- * **Lifecycle Operations:**
- * | Method | Description |
- * |--------|-------------|
- * | `fork(id, opts)` | Create child DO with parent reference |
- * | `clone(to)` | Copy all state to another DO |
- * | `compact(retention)` | Archive old data, keep recent |
- * | `move(to)` | Transfer state and redirect requests |
- *
- * **Sharding Operations:**
- * | Method | Description |
- * |--------|-------------|
- * | `shard(key, count)` | Route to shard using consistent hashing |
- * | `unshard()` | Consolidate shards back to single DO |
- *
- * **Branching Operations:**
- * | Method | Description |
- * |--------|-------------|
- * | `branch(name)` | Create named branch from current state |
- * | `checkout(name)` | Switch to specified branch |
- * | `merge(source)` | Merge source branch into current |
- *
- * **Promotion Operations:**
- * | Method | Description |
- * |--------|-------------|
- * | `promote(stage)` | Move to next deployment stage |
- * | `demote(stage)` | Roll back to previous stage |
- *
- * @example Basic Lifecycle Usage
+ * @example
  * ```typescript
  * import { DO } from 'dotdo/full'
  *
- * class DataService extends DO {
+ * class MyDO extends DO {
  *   async onStart() {
  *     // Full lifecycle operations available
- *     await this.clone('https://backup.example.com')
+ *     await this.clone('https://backup.example.com.ai')
  *     await this.branch('feature-x')
  *   }
- *
- *   // Create a backup to another DO
- *   async backup() {
- *     await this.clone('https://backup.data.dotdo.dev')
- *   }
- *
- *   // Archive data older than 30 days
- *   async cleanup() {
- *     await this.compact({ retention: 30 * 24 * 60 * 60 * 1000 })
- *   }
  * }
  * ```
- *
- * @example Feature Branching Workflow
- * ```typescript
- * class ConfigService extends DO {
- *   async startFeature(name: string) {
- *     // Create isolated branch for testing
- *     await this.branch(name)
- *     await this.checkout(name)
- *     // All changes now on feature branch
- *   }
- *
- *   async releaseFeature(name: string) {
- *     await this.checkout('main')
- *     await this.merge(name)
- *   }
- * }
- * ```
- *
- * @example Horizontal Scaling with Sharding
- * ```typescript
- * class UserService extends DO {
- *   async getUser(userId: string) {
- *     // Route to consistent shard based on userId
- *     const shardDO = await this.shard(userId, 16)
- *     return shardDO.get(`/users/${userId}`)
- *   }
- * }
- * ```
- *
- * @example Staged Clone (Two-Phase Commit)
- * ```typescript
- * class MigrationService extends DO {
- *   async migrateData(targetNs: string) {
- *     // Phase 1: Prepare (creates staging area)
- *     const staging = await this.prepareClone(targetNs)
- *
- *     // Phase 2: Commit (atomic transfer)
- *     await this.commitClone(staging.token)
- *   }
- * }
- * ```
- *
- * @see DOTiny - Minimal implementation (~15KB)
- * @see DOBase - WorkflowContext and stores (~80KB)
  */
 
 import { DO as DOBase, type Env } from './DOBase'

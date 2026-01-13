@@ -5,12 +5,6 @@
   "pages": [
     "index",
     "---Trigger Types---",
-    "triggers",
-    "event-handlers",
-    "scheduling",
-    "---Execution Patterns---",
-    "steps",
-    "pipelines",
-    "state-machines"
+    "triggers"
   ]
 }

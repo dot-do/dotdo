@@ -122,14 +122,6 @@ export type {
   ChatCompletionChunkChoice,
   ChatCompletionChunk,
 
-  // Legacy Completions (deprecated)
-  CompletionChoice,
-  CompletionLogprobs,
-  Completion,
-  CompletionCreateParams,
-  CompletionChunkChoice,
-  CompletionChunk,
-
   // Embeddings
   Embedding,
   EmbeddingCreateParams,

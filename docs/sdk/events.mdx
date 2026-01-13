@@ -27,7 +27,7 @@ export class MyApp extends DO {
     $.on.Order.shipped(handler)
 
     // Emit - trigger handlers across the system
-    $.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com' })
+    $.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com.ai' })
   }
 }
 ```
@@ -265,7 +265,7 @@ Trigger events that invoke registered handlers:
 
 ```typescript
 // Basic emit
-$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com' })
+$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com.ai' })
 
 // After processing
 async function processOrder(order: Order) {
@@ -302,7 +302,7 @@ Both emit events, but with different guarantees:
 // $.emit - await confirmation, handlers guaranteed to run
 await $.emit.Payment.completed({ amount: 100 })
 
-// $.send - fire-and-forget, don't wait
+// $.send - fire and forget, don't wait
 $.send('analytics.pageview', { path: '/checkout' })
 ```
 

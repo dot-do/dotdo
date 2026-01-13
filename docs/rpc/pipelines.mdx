@@ -5,10 +5,6 @@ description: Batch entire call graphs into single network round trips
 
 import { Callout } from 'fumadocs-ui/components/callout'
 
-<Callout type="info" title="Start with the Mental Model">
-For a conceptual introduction to why promise pipelining works and visual diagrams of the optimization, start with [Understanding Promise Pipelining](/docs/rpc/understanding-promise-pipelining).
-</Callout>
-
 # Promise Pipelining
 
 Promise pipelining is the core technique that makes Cap'n Web fast. Instead of waiting for each RPC result before making the next call, you pass unawaited promises directly as arguments. The system batches everything into a single network round trip.

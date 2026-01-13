@@ -4,24 +4,10 @@ description: Build your first AI-powered startup in minutes
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
-import { Cards, Card } from 'fumadocs-ui/components/card'
 
 # Getting Started
 
-**dotdo** is a Business-as-Code framework for building autonomous businesses powered by AI agents. Write TypeScript that defines your business logic, and AI agents—product managers, engineers, marketers, salespeople—execute the work for you.
-
-## In This Guide
-
-You'll learn how to:
-
-- **Set up your environment** — Install dotdo and configure Cloudflare
-- **Build your first startup** — Deploy a working AI-powered business in 5 minutes
-- **Understand promise pipelining** — The key insight that makes dotdo fast and cheap
-- **Meet your AI team** — Six named agents with real roles and real actions
-
-<Callout type="warn">
-**Before you start:** Make sure you have Node.js 18+, a [Cloudflare account](https://dash.cloudflare.com) (free tier works), and TypeScript 5+.
-</Callout>
+**dotdo** is a Business-as-Code framework that lets you build autonomous businesses run by AI agents. Your code defines the business logic; AI agents execute the work.
 
 <Cards>
   <Card title="Quick Start" href="/docs/getting-started/quickstart">
@@ -32,13 +18,27 @@ You'll learn how to:
   </Card>
 </Cards>
 
+## Prerequisites
+
+Before you begin, make sure you have:
+
+| Requirement | Version | Why |
+|------------|---------|-----|
+| Node.js | 18+ | V8 isolate compatibility |
+| Cloudflare account | Free tier works | Durable Objects hosting |
+| TypeScript | 5+ | Template literal types |
+
+<Callout type="info">
+New to Cloudflare? Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com). You get 100,000 Durable Object requests/day for free.
+</Callout>
+
 ---
 
 ## What You'll Build
 
 It's Tuesday. You're one person. By Friday, you'll have a product, engineering, marketing, and sales team shipping code.
 
-```typescript title="src/index.ts"
+```typescript title="my-startup.ts"
 import { Startup } from 'dotdo'
 import { priya, ralph, tom, mark, sally } from 'agents.do'
 
@@ -125,38 +125,12 @@ The difference: milliseconds vs seconds. Cents vs dollars. One person vs needing
 
 <Cards>
   <Card title="Quick Start" href="/docs/getting-started/quickstart">
-    Build and deploy your first startup in 5 minutes.
+    Build and deploy your first startup.
   </Card>
-  <Card title="Installation" href="/docs/getting-started/installation">
-    Set up dotdo on your machine with detailed configuration.
+  <Card title="Concepts" href="/docs/concepts">
+    Understand the core mental model.
   </Card>
-  <Card title="Core Concepts" href="/docs/concepts">
-    Understand Things, Events, Functions, and Promise Pipelining.
-  </Card>
-  <Card title="Workflows" href="/docs/workflows">
-    Durable workflow orchestration with event handlers and scheduling.
-  </Card>
-  <Card title="Architecture Overview" href="/docs/architecture">
-    Learn how V8 isolates, Durable Objects, and edge computing work together.
-  </Card>
-  <Card title="Named Agents" href="/docs/agents/named-agents">
-    Meet Priya, Ralph, Tom, Mark, Sally, and Quinn.
-  </Card>
-</Cards>
-
-## Deep Dive
-
-<Cards>
-  <Card title="Durable Objects" href="/docs/objects">
-    The DO class hierarchy - persistent, stateful actors that form dotdo's foundation.
-  </Card>
-  <Card title="Human Escalation" href="/docs/humans">
-    When AI needs human judgment - approvals, escalation, and human-in-the-loop workflows.
-  </Card>
-  <Card title="Security" href="/docs/security">
-    Identity, authorization, and secrets management for AI-powered businesses.
-  </Card>
-  <Card title="CLI Reference" href="/docs/cli">
-    Complete command documentation for the dotdo CLI.
+  <Card title="Contributing" href="/docs/guides/contributing">
+    Contribute to dotdo (human and AI developers).
   </Card>
 </Cards>

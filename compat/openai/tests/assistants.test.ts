@@ -756,8 +756,7 @@ describe('@dotdo/openai - Assistants API', () => {
         expect(response.has_more).toBe(true)
 
         const [, options] = mockFetch.mock.calls[0]
-        // GET is explicit or undefined (both work for fetch default)
-        expect(options?.method ?? 'GET').toBe('GET')
+        expect(options?.method).toBeUndefined() // GET is default
       })
 
       it('should support order parameter', async () => {

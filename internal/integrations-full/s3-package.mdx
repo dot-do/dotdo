@@ -266,82 +266,21 @@ for (const prefix of uploads.CommonPrefixes ?? []) {
   console.log('Folder:', prefix.Prefix)
 }
 
-// Pagination with error handling and progress
-async function listAllObjects(
-  client: S3Client,
-  bucket: string,
-  options?: {
-    prefix?: string
-    maxKeys?: number
-    onProgress?: (count: number, lastKey: string) => void
-    resumeToken?: string  // Resume from previous run
+// Pagination
+let continuationToken: string | undefined
+do {
+  const page = await client.send(new ListObjectsV2Command({
+    Bucket: 'my-bucket',
+    MaxKeys: 100,
+    ContinuationToken: continuationToken,
+  }))
+
+  for (const object of page.Contents ?? []) {
+    console.log(object.Key)
   }
-) {
-  const allObjects: { Key: string; Size: number }[] = []
-  let continuationToken = options?.resumeToken
-  let totalObjects = 0
-  let retryCount = 0
-  const maxRetries = 3
 
-  do {
-    try {
-      const page = await client.send(new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: options?.prefix,
-        MaxKeys: options?.maxKeys ?? 1000,
-        ContinuationToken: continuationToken,
-      }))
-
-      for (const object of page.Contents ?? []) {
-        allObjects.push({ Key: object.Key!, Size: object.Size ?? 0 })
-        totalObjects++
-      }
-
-      // Progress callback with current count and last processed key
-      if (options?.onProgress && page.Contents?.length) {
-        const lastKey = page.Contents[page.Contents.length - 1].Key!
-        options.onProgress(totalObjects, lastKey)
-      }
-
-      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
-      retryCount = 0 // Reset on success
-
-      // Rate limiting for large buckets
-      if (page.IsTruncated) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-    } catch (error) {
-      if (retryCount < maxRetries && isRetryableError(error)) {
-        retryCount++
-        const delay = Math.min(1000 * Math.pow(2, retryCount), 10000)
-        console.warn(`Retry ${retryCount}/${maxRetries} after ${delay}ms`)
-        await new Promise(resolve => setTimeout(resolve, delay))
-        continue
-      }
-      // Store continuationToken for resume on failure
-      console.error('Failed at token:', continuationToken)
-      throw error
-    }
-  } while (continuationToken)
-
-  return allObjects
-}
-
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Error) {
-    return ['NetworkError', 'TimeoutError', 'ThrottlingException']
-      .includes(error.name) || (error as any).$fault === 'server'
-  }
-  return false
-}
-
-// Usage
-const objects = await listAllObjects(client, 'my-bucket', {
-  prefix: 'uploads/',
-  onProgress: (count, lastKey) => {
-    console.log(`Processed ${count} objects, last: ${lastKey}`)
-  },
-})
+  continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
+} while (continuationToken)
 ```
 
 ### Copy Objects

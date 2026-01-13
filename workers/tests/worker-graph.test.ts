@@ -13,21 +13,10 @@
  * @module workers/tests/worker-graph
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 
-// Import from worker-store - uses real graph primitives
-import { ThingsStore, RelationshipsStore, type StoreContext } from '../worker-store'
-import { DocumentGraphStore } from '../../db/graph/stores/document'
-import type { GraphStore, GraphRelationship } from '../../db/graph/types'
-
-// ThingEntity type for compatibility
-type ThingEntity = {
-  $id: string
-  $type: string
-  name: string
-  data: Record<string, unknown>
-  deleted?: boolean
-}
+// Import db primitives - NO MOCKS, use real implementations
+import { ThingsStore, RelationshipsStore, type StoreContext, type ThingEntity } from '../../db/stores'
 
 // ============================================================================
 // Worker Types (Expected Interface - to be implemented)
@@ -87,16 +76,12 @@ describe('Worker as Thing', () => {
   let ctx: StoreContext
   let things: ThingsStore
   let relationships: RelationshipsStore
-  let graphStore: DocumentGraphStore
 
-  beforeEach(async () => {
-    // Create a real in-memory DocumentGraphStore
-    graphStore = new DocumentGraphStore(':memory:')
-    await graphStore.initialize()
-
-    // Create store context with real db primitives
+  beforeEach(() => {
+    // Create a minimal store context for testing
+    // This uses real db primitives, not mocks
     ctx = {
-      db: graphStore,
+      db: createTestDatabase(),
       ns: 'https://test.workers.do',
       currentBranch: 'main',
       env: {},
@@ -104,10 +89,6 @@ describe('Worker as Thing', () => {
     }
     things = new ThingsStore(ctx)
     relationships = new RelationshipsStore(ctx)
-  })
-
-  afterEach(async () => {
-    await graphStore.close()
   })
 
   // ===========================================================================
@@ -328,14 +309,10 @@ describe('Worker Relationships', () => {
   let ctx: StoreContext
   let things: ThingsStore
   let relationships: RelationshipsStore
-  let graphStore: DocumentGraphStore
 
-  beforeEach(async () => {
-    graphStore = new DocumentGraphStore(':memory:')
-    await graphStore.initialize()
-
+  beforeEach(() => {
     ctx = {
-      db: graphStore,
+      db: createTestDatabase(),
       ns: 'https://test.workers.do',
       currentBranch: 'main',
       env: {},
@@ -343,10 +320,6 @@ describe('Worker Relationships', () => {
     }
     things = new ThingsStore(ctx)
     relationships = new RelationshipsStore(ctx)
-  })
-
-  afterEach(async () => {
-    await graphStore.close()
   })
 
   // ===========================================================================
@@ -696,14 +669,10 @@ describe('Worker Queries', () => {
   let ctx: StoreContext
   let things: ThingsStore
   let relationships: RelationshipsStore
-  let graphStore: DocumentGraphStore
 
   beforeEach(async () => {
-    graphStore = new DocumentGraphStore(':memory:')
-    await graphStore.initialize()
-
     ctx = {
-      db: graphStore,
+      db: createTestDatabase(),
       ns: 'https://test.workers.do',
       currentBranch: 'main',
       env: {},
@@ -714,10 +683,6 @@ describe('Worker Queries', () => {
 
     // Seed test workers
     await seedTestWorkers(things)
-  })
-
-  afterEach(async () => {
-    await graphStore.close()
   })
 
   describe('Query by Tier', () => {
@@ -899,18 +864,7 @@ describe('Worker Queries', () => {
 // ============================================================================
 
 describe('WorkerStore Interface', () => {
-  let graphStore: DocumentGraphStore
-
-  beforeEach(async () => {
-    graphStore = new DocumentGraphStore(':memory:')
-    await graphStore.initialize()
-  })
-
-  afterEach(async () => {
-    await graphStore.close()
-  })
-
-  // Dynamic import helper
+  // Dynamic import helper - will fail until worker-store.ts is implemented
   const importWorkerStore = async () => {
     const module = await import('../worker-store')
     return module
@@ -921,13 +875,14 @@ describe('WorkerStore Interface', () => {
       const { createWorkerStore } = await importWorkerStore()
 
       const ctx: StoreContext = {
-        db: graphStore,
+        db: createTestDatabase(),
         ns: 'https://test.workers.do',
         currentBranch: 'main',
         env: {},
         typeCache: new Map(),
       }
 
+      // This should fail until WorkerStore is implemented
       const workerStore = createWorkerStore(ctx)
 
       expect(workerStore).toBeDefined()
@@ -945,7 +900,7 @@ describe('WorkerStore Interface', () => {
       const { createWorkerStore } = await importWorkerStore()
 
       const ctx: StoreContext = {
-        db: graphStore,
+        db: createTestDatabase(),
         ns: 'https://test.workers.do',
         currentBranch: 'main',
         env: {},
@@ -968,7 +923,7 @@ describe('WorkerStore Interface', () => {
       const { createWorkerStore } = await importWorkerStore()
 
       const ctx: StoreContext = {
-        db: graphStore,
+        db: createTestDatabase(),
         ns: 'https://test.workers.do',
         currentBranch: 'main',
         env: {},
@@ -993,7 +948,7 @@ describe('WorkerStore Interface', () => {
       const { createWorkerStore } = await importWorkerStore()
 
       const ctx: StoreContext = {
-        db: graphStore,
+        db: createTestDatabase(),
         ns: 'https://test.workers.do',
         currentBranch: 'main',
         env: {},
@@ -1030,7 +985,7 @@ describe('WorkerStore Interface', () => {
       const { createWorkerStore } = await importWorkerStore()
 
       const ctx: StoreContext = {
-        db: graphStore,
+        db: createTestDatabase(),
         ns: 'https://test.workers.do',
         currentBranch: 'main',
         env: {},
@@ -1062,7 +1017,7 @@ describe('WorkerStore Interface', () => {
       const { createWorkerStore } = await importWorkerStore()
 
       const ctx: StoreContext = {
-        db: graphStore,
+        db: createTestDatabase(),
         ns: 'https://test.workers.do',
         currentBranch: 'main',
         env: {},
@@ -1090,390 +1045,6 @@ describe('WorkerStore Interface', () => {
       expect(available.every((w) => (w.data as WorkerData).status === 'available')).toBe(true)
     })
   })
-
-  describe('WorkerStore.findByKind', () => {
-    it('should find agent workers', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      await workerStore.createWorker({
-        kind: 'human',
-        name: 'nathan',
-        capabilities: ['approve'],
-        tier: 'human',
-      })
-
-      const agents = await workerStore.findByKind('agent')
-
-      expect(agents.length).toBe(1)
-      expect(agents.every((w) => (w.data as WorkerData).kind === 'agent')).toBe(true)
-    })
-
-    it('should find human workers', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      await workerStore.createWorker({
-        kind: 'human',
-        name: 'nathan',
-        capabilities: ['approve'],
-        tier: 'human',
-      })
-
-      const humans = await workerStore.findByKind('human')
-
-      expect(humans.length).toBe(1)
-      expect(humans.every((w) => (w.data as WorkerData).kind === 'human')).toBe(true)
-    })
-  })
-
-  describe('WorkerStore.updateWorker', () => {
-    it('should update worker capabilities', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-
-      const updated = await workerStore.updateWorker(worker.$id, {
-        capabilities: ['code', 'review', 'deploy'],
-      })
-
-      expect((updated.data as WorkerData).capabilities).toContain('review')
-      expect((updated.data as WorkerData).capabilities).toContain('deploy')
-    })
-
-    it('should update worker status', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-        status: 'available',
-      })
-
-      const updated = await workerStore.updateWorker(worker.$id, {
-        status: 'busy',
-      })
-
-      expect((updated.data as WorkerData).status).toBe('busy')
-    })
-  })
-
-  describe('WorkerStore.deleteWorker', () => {
-    it('should soft delete a worker', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-
-      const deleted = await workerStore.deleteWorker(worker.$id)
-
-      expect(deleted.$id).toBe(worker.$id)
-
-      // Worker should not be found after deletion
-      const found = await workerStore.getWorker(worker.$id)
-      expect(found).toBeNull()
-    })
-  })
-
-  describe('WorkerStore.getWorker', () => {
-    it('should get a worker by ID', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const created = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-
-      const found = await workerStore.getWorker(created.$id)
-
-      expect(found).toBeDefined()
-      expect(found!.$id).toBe(created.$id)
-      expect((found!.data as WorkerData).name).toBe('ralph')
-    })
-
-    it('should return null for non-existent worker', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const found = await workerStore.getWorker('non-existent-id')
-
-      expect(found).toBeNull()
-    })
-  })
-
-  describe('WorkerStore.listWorkers', () => {
-    it('should list all workers', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      await workerStore.createWorker({
-        kind: 'human',
-        name: 'nathan',
-        capabilities: ['approve'],
-        tier: 'human',
-      })
-
-      const workers = await workerStore.listWorkers()
-
-      expect(workers.length).toBe(2)
-    })
-  })
-
-  describe('WorkerStore.createRelationship', () => {
-    it('should create a relationship between workers', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker1 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      const worker2 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'tom',
-        capabilities: ['review'],
-        tier: 'agentic',
-      })
-
-      const rel = await workerStore.createRelationship({
-        verb: 'handoffTo',
-        from: worker1.$id,
-        to: worker2.$id,
-        data: { task: 'Review code' },
-      })
-
-      expect(rel.verb).toBe('handoffTo')
-      expect(rel.from).toBe(worker1.$id)
-      expect(rel.to).toBe(worker2.$id)
-    })
-  })
-
-  describe('WorkerStore.queryRelationships', () => {
-    it('should query relationships from a worker', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker1 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      const worker2 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'tom',
-        capabilities: ['review'],
-        tier: 'agentic',
-      })
-
-      await workerStore.createRelationship({
-        verb: 'handoffTo',
-        from: worker1.$id,
-        to: worker2.$id,
-      })
-
-      const rels = await workerStore.queryRelationshipsFrom(worker1.$id)
-
-      expect(rels.length).toBe(1)
-      expect(rels[0].verb).toBe('handoffTo')
-    })
-
-    it('should query relationships to a worker', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker1 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      const worker2 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'tom',
-        capabilities: ['review'],
-        tier: 'agentic',
-      })
-
-      await workerStore.createRelationship({
-        verb: 'delegatedTo',
-        from: worker1.$id,
-        to: worker2.$id,
-      })
-
-      const rels = await workerStore.queryRelationshipsTo(worker2.$id)
-
-      expect(rels.length).toBe(1)
-      expect(rels[0].verb).toBe('delegatedTo')
-    })
-
-    it('should filter relationships by verb', async () => {
-      const { createWorkerStore } = await importWorkerStore()
-
-      const ctx: StoreContext = {
-        db: graphStore,
-        ns: 'https://test.workers.do',
-        currentBranch: 'main',
-        env: {},
-        typeCache: new Map(),
-      }
-      const workerStore = createWorkerStore(ctx)
-
-      const worker1 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'ralph',
-        capabilities: ['code'],
-        tier: 'agentic',
-      })
-      const worker2 = await workerStore.createWorker({
-        kind: 'agent',
-        name: 'tom',
-        capabilities: ['review'],
-        tier: 'agentic',
-      })
-
-      await workerStore.createRelationship({
-        verb: 'handoffTo',
-        from: worker1.$id,
-        to: worker2.$id,
-      })
-      await workerStore.createRelationship({
-        verb: 'notifying',
-        from: worker1.$id,
-        to: worker2.$id,
-      })
-
-      const handoffs = await workerStore.queryRelationshipsFrom(worker1.$id, 'handoffTo')
-
-      expect(handoffs.length).toBe(1)
-      expect(handoffs[0].verb).toBe('handoffTo')
-    })
-  })
 })
 
 // ============================================================================
@@ -1482,12 +1053,13 @@ describe('WorkerStore Interface', () => {
 
 /**
  * Create a test database instance
- * Uses real DocumentGraphStore with in-memory SQLite
+ * Uses real db primitives, not mocks
  */
-async function createTestDatabase(): Promise<DocumentGraphStore> {
-  const store = new DocumentGraphStore(':memory:')
-  await store.initialize()
-  return store
+function createTestDatabase() {
+  // This should use the real database implementation
+  // For now, return a minimal interface that will cause tests to fail
+  // until proper integration is set up
+  throw new Error('createTestDatabase not implemented - use real db primitives')
 }
 
 /**

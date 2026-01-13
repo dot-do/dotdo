@@ -1,44 +1,6 @@
 # @dotdo/postgres
 
-**PostgreSQL for Cloudflare Workers.** Edge-native SQL. Durable Object-backed. Zero dependencies.
-
-[![npm version](https://img.shields.io/npm/v/@dotdo/postgres.svg)](https://www.npmjs.com/package/@dotdo/postgres)
-[![Tests](https://img.shields.io/badge/tests-93%20passing-brightgreen.svg)](https://github.com/dot-do/dotdo)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-## Why @dotdo/postgres?
-
-**Edge workers can't run PostgreSQL clients.** The official `pg` package expects TCP connections, binary protocols, and Node.js-specific APIs.
-
-**AI agents need SQL.** They need familiar PostgreSQL syntax, transactions, connection pooling, and proper error handling.
-
-**@dotdo/postgres gives you both:**
-
-```typescript
-import { Client } from '@dotdo/postgres'
-
-// Drop-in replacement - same API, runs on the edge
-const client = new Client({
-  host: 'localhost',
-  database: 'mydb',
-})
-
-await client.connect()
-
-// Full PostgreSQL query API
-const { rows } = await client.query(
-  'SELECT * FROM users WHERE status = $1',
-  ['active']
-)
-
-// Transactions
-await client.query('BEGIN')
-await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [100, 1])
-await client.query('COMMIT')
-```
-
-**Scales to millions of agents.** Each agent gets its own isolated database on Cloudflare's edge network. No shared state. No noisy neighbors. Just fast, persistent SQL at global scale.
+PostgreSQL compatibility layer for Cloudflare Workers - a drop-in replacement for [pg (node-postgres)](https://node-postgres.com/) backed by Durable Objects with SQLite storage.
 
 ## Installation
 
@@ -46,7 +8,19 @@ await client.query('COMMIT')
 npm install @dotdo/postgres
 ```
 
-## Quick Start
+## Features
+
+- **API-compatible with `pg`** - Drop-in replacement for node-postgres
+- **Client and Pool classes** - Full connection management with events
+- **Parameterized queries** - PostgreSQL-style `$1, $2, ...` placeholders
+- **Transaction support** - `BEGIN`, `COMMIT`, `ROLLBACK`, savepoints
+- **Connection pooling** - Configurable pool limits and timeouts
+- **PostgreSQL error codes** - SQLSTATE codes for proper error handling
+- **Extended DO routing** - Sharding, replication, and tiered storage
+
+## Usage
+
+### Basic Client
 
 ```typescript
 import { Client } from '@dotdo/postgres'
@@ -78,16 +52,6 @@ const { rows: newUser } = await client.query(
 
 await client.end()
 ```
-
-## Features
-
-- **API-compatible with `pg`** - Drop-in replacement for node-postgres
-- **Client and Pool classes** - Full connection management with events
-- **Parameterized queries** - PostgreSQL-style `$1, $2, ...` placeholders
-- **Transaction support** - `BEGIN`, `COMMIT`, `ROLLBACK`, savepoints
-- **Connection pooling** - Configurable pool limits and timeouts
-- **PostgreSQL error codes** - SQLSTATE codes for proper error handling
-- **Extended Durable Object (DO) routing** - Sharding, replication, and tiered storage
 
 ### Connection Pool
 
@@ -173,36 +137,7 @@ try {
 }
 ```
 
-## Durable Object Integration
-
-### With dotdo Framework
-
-```typescript
-import { DO } from 'dotdo'
-import { withPostgres } from '@dotdo/postgres/do'
-
-class MyApp extends withPostgres(DO) {
-  async getUsers() {
-    const { rows } = await this.$.postgres.query(
-      'SELECT * FROM users WHERE active = $1',
-      [true]
-    )
-    return rows
-  }
-
-  async createUser(name: string, email: string) {
-    const { rows } = await this.$.postgres.query(
-      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
-      [name, email]
-    )
-    return rows[0]
-  }
-}
-```
-
-### Extended Configuration
-
-Shard routing, replica configuration, and tiered storage for multi-tenant deployments.
+### Extended DO Configuration
 
 ```typescript
 import { Pool, ExtendedPostgresConfig } from '@dotdo/postgres'
@@ -210,9 +145,6 @@ import { Pool, ExtendedPostgresConfig } from '@dotdo/postgres'
 const pool = new Pool({
   host: 'localhost',
   database: 'mydb',
-
-  // Bind to DO namespace for persistence
-  doNamespace: env.POSTGRES_DO,
 
   // Shard across multiple Durable Objects
   shard: {
@@ -239,11 +171,9 @@ const pool = new Pool({
 } as ExtendedPostgresConfig)
 ```
 
-## API Reference
+## Supported SQL Operations
 
-### Supported SQL Operations
-
-#### Data Definition (DDL)
+### Data Definition (DDL)
 
 ```sql
 CREATE TABLE users (
@@ -259,7 +189,7 @@ DROP TABLE users
 DROP TABLE IF EXISTS posts
 ```
 
-#### Data Manipulation (DML)
+### Data Manipulation (DML)
 
 ```sql
 -- INSERT
@@ -288,7 +218,7 @@ DELETE FROM users WHERE id = $1
 DELETE FROM users WHERE id = $1 RETURNING *
 ```
 
-#### Transactions
+### Transactions
 
 ```sql
 BEGIN
@@ -299,7 +229,7 @@ SAVEPOINT my_savepoint
 RELEASE SAVEPOINT my_savepoint
 ```
 
-### Type Constants
+## Type Constants
 
 ```typescript
 import { types } from '@dotdo/postgres'
@@ -341,68 +271,21 @@ import { native } from '@dotdo/postgres'
 const { Client, Pool } = native()
 ```
 
-## How It Works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       @dotdo/postgres                        │
-├─────────────────────────────────────────────────────────────┤
-│  PostgreSQL Client API (Client, Pool, Query)                 │
-├──────────────────────────────┬──────────────────────────────┤
-│  Client                      │  Pool                        │
-│  - connect/end               │  - connect/release           │
-│  - query                     │  - query (auto-checkout)     │
-│  - events                    │  - connection limits         │
-│  - transactions              │  - idle timeouts             │
-├──────────────────────────────┼──────────────────────────────┤
-│  SQL Parser                  │  Type System                 │
-│  - $1, $2 placeholders       │  - PostgreSQL OIDs           │
-│  - DDL/DML support           │  - SQLSTATE error codes      │
-│  - RETURNING clauses         │  - Type coercion             │
-├──────────────────────────────┴──────────────────────────────┤
-│                     Durable Object SQLite                    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Edge Layer (PostgreSQL API)**
-- Drop-in replacement for node-postgres (pg)
-- Full type safety with TypeScript
-- Event-based connection handling
-
-**Storage Layer (Durable Object SQLite)**
-- Microsecond access latency
-- Transactional operations
-- Automatic sharding by tenant
-
 ## Comparison with node-postgres
 
-| Feature | @dotdo/postgres | pg |
-|---------|-----------------|-----|
+| Feature | pg | @dotdo/postgres |
+|---------|-----|-----------------|
 | Client API | Yes | Yes |
 | Pool API | Yes | Yes |
 | Parameterized queries | Yes | Yes |
 | Transactions | Yes | Yes |
 | Connection events | Yes | Yes |
-| COPY commands | No | Yes |
-| Cursors | Partial | Yes |
-| Pub/Sub (LISTEN/NOTIFY) | No | Yes |
-| SSL/TLS | N/A (internal) | Yes |
-| Native bindings | Simulated | Yes |
-
-## Performance
-
-- **93 tests** covering all operations
-- **Microsecond latency** for DO SQLite operations
-- **Zero cold starts** (Durable Objects)
-- **Global distribution** (300+ Cloudflare locations)
+| COPY commands | Yes | No |
+| Cursors | Yes | Partial |
+| Pub/Sub (LISTEN/NOTIFY) | Yes | No |
+| SSL/TLS | Yes | N/A (internal) |
+| Native bindings | Yes | Simulated |
 
 ## License
 
 MIT
-
-## Links
-
-- [GitHub](https://github.com/dot-do/dotdo)
-- [Documentation](https://postgres.do)
-- [.do](https://do.org.ai)
-- [Platform.do](https://platform.do)

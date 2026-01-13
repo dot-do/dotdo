@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { FsCapability } from '../../lib/capabilities/fs'
+import type { FsCapability } from '../../lib/mixins/fs'
 import type { ToolDefinition, ToolContext } from '../types'
 
 // ============================================================================

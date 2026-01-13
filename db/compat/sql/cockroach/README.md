@@ -516,7 +516,7 @@ OFFSET n
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://cockroach.do)

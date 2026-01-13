@@ -2,7 +2,7 @@
 
 Fast point lookups from R2 Data Catalog without R2 SQL overhead.
 
-## Why Direct Iceberg?
+## Why
 
 | Path | Latency | Use Case |
 |------|---------|----------|

@@ -10,7 +10,6 @@ import { sandboxesRoutes } from './routes/sandboxes'
 import { obsRoutes } from './routes/obs'
 import { authRoutes } from './routes/auth'
 import { analyticsRouter } from './analytics/router'
-import { graphRoutes } from './routes/graph'
 import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -174,7 +173,8 @@ app.get('/api/openapi.json', (c) => {
   })
 })
 
-// Mount specific API routes BEFORE the general apiRoutes (which has catch-all patterns)
+// Mount API routes
+app.route('/api', apiRoutes)
 
 // Mount Browser API routes
 app.route('/api/browsers', browsersRoutes)
@@ -188,13 +188,6 @@ app.route('/api/obs', obsRoutes)
 // Mount Analytics API routes
 // Endpoints: /api/analytics/v1/search, /api/analytics/v1/lookup/:table/:key, /api/analytics/v1/query
 app.route('/api/analytics', analyticsRouter)
-
-// Mount Graph API routes
-// Endpoints: /api/graph/things, /api/graph/relationships, /api/graph/traverse
-app.route('/api/graph', graphRoutes)
-
-// Mount general API routes (has dynamic collection routes - must come after specific routes)
-app.route('/api', apiRoutes)
 
 // Mount Auth routes (better-auth integration)
 // Endpoints: /auth/callback, /auth/login, /auth/logout, /auth/session
