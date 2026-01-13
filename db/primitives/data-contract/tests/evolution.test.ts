@@ -1123,4 +1123,442 @@ describe('SchemaEvolution', () => {
       expect(formatted).toMatch(/no changes/i)
     })
   })
+
+  // ============================================================================
+  // FIELD RENAME DETECTION TESTS
+  // ============================================================================
+
+  describe('field rename detection', () => {
+    let evolution: SchemaEvolution
+
+    beforeEach(() => {
+      evolution = createSchemaEvolution('none')
+    })
+
+    it('should detect simple field renames with same type', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          username: { type: 'string' }, // renamed from userName
+        },
+        ['id']
+      )
+
+      const renames = evolution.detectRenames(oldSchema, newSchema)
+
+      expect(renames.length).toBe(1)
+      expect(renames[0]!.fromField).toBe('userName')
+      expect(renames[0]!.toField).toBe('username')
+      expect(renames[0]!.confidence).toBeGreaterThan(0.8)
+    })
+
+    it('should detect camelCase to snake_case renames', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          firstName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          first_name: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const renames = evolution.detectRenames(oldSchema, newSchema)
+
+      expect(renames.length).toBe(1)
+      expect(renames[0]!.fromField).toBe('firstName')
+      expect(renames[0]!.toField).toBe('first_name')
+    })
+
+    it('should detect userId to user_id renames', () => {
+      const oldSchema = createTestContract(
+        'order',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userId: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'order',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          user_id: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const renames = evolution.detectRenames(oldSchema, newSchema)
+
+      expect(renames.length).toBe(1)
+      expect(renames[0]!.fromField).toBe('userId')
+      expect(renames[0]!.toField).toBe('user_id')
+    })
+
+    it('should not detect renames for incompatible types', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          count: { type: 'integer' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          counts: { type: 'boolean' }, // different type
+        },
+        ['id']
+      )
+
+      const renames = evolution.detectRenames(oldSchema, newSchema)
+
+      expect(renames.length).toBe(0)
+    })
+
+    it('should prefer exact normalized name matches', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          isActive: { type: 'boolean' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          active: { type: 'boolean' },
+        },
+        ['id']
+      )
+
+      const renames = evolution.detectRenames(oldSchema, newSchema)
+
+      expect(renames.length).toBe(1)
+      expect(renames[0]!.fromField).toBe('isActive')
+      expect(renames[0]!.toField).toBe('active')
+    })
+  })
+
+  // ============================================================================
+  // MIGRATION WITH RENAME DETECTION TESTS
+  // ============================================================================
+
+  describe('migration with rename detection', () => {
+    let evolution: SchemaEvolution
+
+    beforeEach(() => {
+      evolution = createSchemaEvolution('none')
+    })
+
+    it('should generate rename operations when renames are detected', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          username: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const script = evolution.generateMigration(oldSchema, newSchema)
+
+      const renameOps = script.operations.filter((op) => op.type === 'rename')
+      expect(renameOps.length).toBe(1)
+      expect(renameOps[0]!.fromField).toBe('userName')
+      expect(renameOps[0]!.toField).toBe('username')
+    })
+
+    it('should migrate data with detected renames', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          username: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const data = { id: 'user-123', userName: 'johndoe' }
+      const migrated = evolution.migrate(data, oldSchema, newSchema) as Record<string, unknown>
+
+      expect(migrated.username).toBe('johndoe')
+      expect('userName' in migrated).toBe(false)
+    })
+
+    it('should use explicit field mappings when provided', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          oldField: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          newField: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const script = evolution.generateMigration(oldSchema, newSchema, {
+        fieldMappings: { oldField: 'newField' },
+      })
+
+      const renameOps = script.operations.filter((op) => op.type === 'rename')
+      expect(renameOps.length).toBe(1)
+      expect(renameOps[0]!.fromField).toBe('oldField')
+      expect(renameOps[0]!.toField).toBe('newField')
+    })
+
+    it('should disable rename detection when detectRenames is false', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          username: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const script = evolution.generateMigration(oldSchema, newSchema, {
+        detectRenames: false,
+      })
+
+      const renameOps = script.operations.filter((op) => op.type === 'rename')
+      expect(renameOps.length).toBe(0)
+
+      // Should have add and remove instead
+      const addOps = script.operations.filter((op) => op.type === 'add')
+      const removeOps = script.operations.filter((op) => op.type === 'remove')
+      expect(addOps.length).toBe(1)
+      expect(removeOps.length).toBe(1)
+    })
+
+    it('should use custom defaults for new fields', () => {
+      const oldSchema = createTestContract('user', '1.0.0', { id: { type: 'string' } }, ['id'])
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          status: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const data = { id: 'user-123' }
+      const migrated = evolution.migrate(data, oldSchema, newSchema, {
+        customDefaults: { status: 'active' },
+      }) as Record<string, unknown>
+
+      expect(migrated.status).toBe('active')
+    })
+
+    it('should mark renames as reversible', () => {
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          username: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const script = evolution.generateMigration(oldSchema, newSchema)
+
+      expect(script.isReversible).toBe(true)
+      expect(script.reverseOperations).toBeDefined()
+      expect(script.reverseOperations!.length).toBe(1)
+      expect(script.reverseOperations![0]!.type).toBe('rename')
+      expect(script.reverseOperations![0]!.fromField).toBe('username')
+      expect(script.reverseOperations![0]!.toField).toBe('userName')
+    })
+  })
+
+  // ============================================================================
+  // HELPER FUNCTION TESTS (NEW)
+  // ============================================================================
+
+  describe('new helper functions', () => {
+    it('detectPotentialRenames should detect field renames', async () => {
+      const { detectPotentialRenames } = await import('../index')
+
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          firstName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          first_name: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const renames = detectPotentialRenames(oldSchema, newSchema)
+
+      expect(renames.length).toBe(1)
+      expect(renames[0]!.fromField).toBe('firstName')
+      expect(renames[0]!.toField).toBe('first_name')
+    })
+
+    it('createMigrationScript should create migration with options', async () => {
+      const { createMigrationScript } = await import('../index')
+
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          oldName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          newName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const script = createMigrationScript(oldSchema, newSchema, {
+        fieldMappings: { oldName: 'newName' },
+      })
+
+      expect(script.operations.some((op) => op.type === 'rename')).toBe(true)
+    })
+
+    it('migrateData should migrate data with options', async () => {
+      const { migrateData } = await import('../index')
+
+      const oldSchema = createTestContract(
+        'user',
+        '1.0.0',
+        {
+          id: { type: 'string' },
+          userName: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const newSchema = createTestContract(
+        'user',
+        '2.0.0',
+        {
+          id: { type: 'string' },
+          username: { type: 'string' },
+          status: { type: 'string' },
+        },
+        ['id']
+      )
+
+      const data = { id: 'user-123', userName: 'johndoe' }
+      const migrated = migrateData(data, oldSchema, newSchema, {
+        customDefaults: { status: 'active' },
+      }) as Record<string, unknown>
+
+      expect(migrated.username).toBe('johndoe')
+      expect(migrated.status).toBe('active')
+      expect('userName' in migrated).toBe(false)
+    })
+  })
 })

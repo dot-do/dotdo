@@ -26,6 +26,7 @@
  */
 
 import type { GraphStore, GraphThing } from '../types'
+import { GIT_TYPE_IDS } from '../constants'
 import { createHash } from 'crypto'
 
 // ============================================================================
@@ -89,15 +90,14 @@ export interface RefData {
 }
 
 // ============================================================================
-// TYPE IDS (constants for graph things)
+// TYPE IDS (from centralized db/graph/constants.ts)
 // ============================================================================
 
-const TYPE_IDS = {
-  Commit: 100,
-  Tree: 101,
-  Blob: 102,
-  Ref: 103,
-} as const
+/**
+ * Type IDs for Git objects.
+ * Re-exported from db/graph/constants.ts for local use.
+ */
+const TYPE_IDS = GIT_TYPE_IDS
 
 // ============================================================================
 // URL BUILDERS

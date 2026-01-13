@@ -330,16 +330,17 @@ describe('TypeConverter - Field Type Conversion', () => {
     it('should convert date-time string to timestamp (integer)', () => {
       const converter = createTypeConverter()
       const dateString = '2024-01-15T10:30:00Z'
+      const expectedTimestamp = new Date(dateString).getTime()
       const timestamp = converter.convert(dateString, 'string', 'integer', {
         sourceFormat: 'date-time',
       })
 
-      expect(timestamp).toBe(new Date(dateString).getTime())
+      expect(timestamp).toBe(expectedTimestamp)
     })
 
     it('should convert timestamp to date-time string', () => {
       const converter = createTypeConverter()
-      const timestamp = 1705315800000 // 2024-01-15T10:30:00Z
+      const timestamp = 1705314600000 // 2024-01-15T10:30:00Z
       const dateString = converter.convert(timestamp, 'integer', 'string', {
         destinationFormat: 'date-time',
       })

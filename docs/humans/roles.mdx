@@ -1,0 +1,399 @@
+---
+title: Human Roles
+description: Defining roles, permissions, and capabilities for human escalation
+---
+
+# Human Roles
+
+Roles determine who handles escalations and what authority they have. Define roles to map business functions to actual people in your organization.
+
+## Built-in Role Templates
+
+The `humans.do` module exports pre-configured role templates for common scenarios:
+
+```typescript
+import { ceo, cfo, cto, legal, hr, support, manager } from 'humans.do'
+
+// Use directly with template literal syntax
+const approved = await ceo`approve the partnership deal`
+const reviewed = await legal`review this contract`
+const funded = await cfo`approve marketing budget of $50,000`
+```
+
+### Available Templates
+
+| Role | Import | Typical Use Cases |
+|------|--------|------------------|
+| `ceo` | Chief Executive | Final approvals, strategic decisions, partnerships |
+| `cfo` | Chief Financial | Budget approvals, financial sign-offs, expenses |
+| `cto` | Chief Technical | Architecture decisions, security approvals, technical risk |
+| `legal` | Legal Counsel | Contract review, compliance sign-off, IP matters |
+| `hr` | Human Resources | Policy decisions, personnel matters, terminations |
+| `support` | Customer Support | Ticket escalations, customer issues, refunds |
+| `manager` | Generic Manager | Team-level approvals, operational decisions |
+
+## Creating Custom Roles
+
+For roles not covered by built-in templates, use `createHumanTemplate`:
+
+```typescript
+import { createHumanTemplate } from 'humans.do'
+
+// Create custom role templates
+const seniorAccountant = createHumanTemplate('senior-accountant')
+const complianceOfficer = createHumanTemplate('compliance-officer')
+const securityTeam = createHumanTemplate('security-team')
+const qaLead = createHumanTemplate('qa-lead')
+
+// Use like built-in templates
+const approved = await seniorAccountant`approve refund of $15,000`
+const compliant = await complianceOfficer`verify GDPR compliance`
+```
+
+## Role Configuration in Human DO
+
+Roles can be configured with members, channels, and escalation paths:
+
+```typescript
+import { Human } from 'dotdo'
+
+export class ApprovalWorkflow extends Human {
+  async onStart() {
+    // Configure role with multiple members and channels
+    await this.configureRole('senior-accountant', {
+      members: ['alice@company.com', 'bob@company.com'],
+      channels: [
+        { type: 'slack', target: '#finance', priority: 'high' },
+        { type: 'email', target: 'finance-team@company.com', priority: 'normal' },
+      ],
+      escalateTo: 'cfo',
+      sla: '4 hours',
+    })
+
+    await this.configureRole('compliance-officer', {
+      members: ['carol@company.com'],
+      channels: [
+        { type: 'email', target: 'carol@company.com', priority: 'normal' },
+        { type: 'sms', target: '+1-555-0123', priority: 'urgent' },
+      ],
+      escalateTo: 'legal',
+      sla: '2 hours',
+    })
+  }
+}
+```
+
+### Role Configuration Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `members` | `string[]` | Email addresses or user IDs of role members |
+| `channels` | `NotificationChannel[]` | How to reach role members |
+| `escalateTo` | `string` | Role to escalate to if SLA breached |
+| `sla` | `string` | Default response time (e.g., "4 hours") |
+| `capabilities` | `string[]` | What actions this role can take |
+
+## Role Membership
+
+### Static Membership
+
+Define role members at configuration time:
+
+```typescript
+const roleConfig = {
+  'senior-accountant': {
+    members: ['alice@company.com', 'bob@company.com'],
+    channels: [{ type: 'slack', target: '#finance', priority: 'high' }],
+  },
+  'compliance-officer': {
+    members: ['carol@company.com'],
+    channels: [{ type: 'email', target: 'carol@company.com', priority: 'normal' }],
+  },
+}
+```
+
+### Dynamic Membership
+
+Look up role members from your identity provider or database:
+
+```typescript
+import { Human } from 'dotdo'
+
+export class DynamicRoleWorkflow extends Human {
+  async getRoleMembers(role: string): Promise<string[]> {
+    // Look up from your identity provider
+    const members = await this.env.IDENTITY_API.fetch(`/roles/${role}/members`)
+    return members.json()
+  }
+
+  async notifyRole(role: string, message: string) {
+    const members = await this.getRoleMembers(role)
+
+    for (const member of members) {
+      await this.sendToChannel(message, {
+        type: 'email',
+        target: member,
+        priority: 'normal',
+      })
+    }
+  }
+}
+```
+
+### On-Call Rotation
+
+Integrate with on-call systems for urgent escalations:
+
+```typescript
+import { Human } from 'dotdo'
+
+export class OnCallWorkflow extends Human {
+  async getOnCallMember(role: string): Promise<string> {
+    // Integrate with PagerDuty, OpsGenie, etc.
+    const response = await fetch(`https://api.pagerduty.com/oncalls`, {
+      headers: {
+        'Authorization': `Token token=${this.env.PAGERDUTY_API_KEY}`,
+      },
+    })
+    const data = await response.json()
+    return data.oncalls[0]?.user.email
+  }
+
+  async escalateUrgent(message: string, role: string) {
+    const onCallMember = await this.getOnCallMember(role)
+
+    await this.sendToChannel(message, {
+      type: 'sms',
+      target: onCallMember,
+      priority: 'urgent',
+    })
+  }
+}
+```
+
+## Role-Based SLA Configuration
+
+Different roles can have different SLA expectations:
+
+```typescript
+import { DO } from 'dotdo'
+import { createHumanTemplate } from 'humans.do'
+
+// Configure role-specific SLAs
+const roleConfig = {
+  'ceo': { defaultSla: '48 hours' },           // Strategic decisions take time
+  'cfo': { defaultSla: '24 hours' },           // Financial approvals
+  'senior-accountant': { defaultSla: '4 hours' }, // Routine approvals
+  'support': { defaultSla: '1 hour' },         // Customer-facing SLAs
+  'security-team': { defaultSla: '15 minutes' }, // Security incidents
+}
+
+// Create templates with default SLAs
+function createRoleWithSLA(role: string) {
+  const config = roleConfig[role]
+  const template = createHumanTemplate(role)
+
+  // Wrap template to apply default SLA
+  return (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const request = template(strings, ...values)
+    return config?.defaultSla ? request.timeout(config.defaultSla) : request
+  }
+}
+
+const securityTeam = createRoleWithSLA('security-team')
+// Automatically has 15-minute SLA
+const approved = await securityTeam`approve emergency access`
+```
+
+## Priority-Based SLA Defaults
+
+The system provides default SLAs based on priority levels:
+
+| Priority | Default SLA | Typical Use |
+|----------|-------------|-------------|
+| `critical` | 1 hour | Security incidents, outages |
+| `high` | 2 hours | Customer escalations, urgent business |
+| `normal` | 4 hours | Standard approvals |
+| `low` | 24 hours | Non-urgent reviews |
+
+```typescript
+import { getSLADeadlineForPriority, PRIORITY_DEADLINES } from 'humans.do'
+
+// Get SLA for a priority level
+const criticalSla = getSLADeadlineForPriority('critical') // 3600000 (1 hour in ms)
+const normalSla = getSLADeadlineForPriority('normal')     // 14400000 (4 hours in ms)
+
+// Override defaults in your workflow
+const customPriorityDeadlines = {
+  critical: 30 * 60 * 1000,  // 30 minutes
+  high: 1 * 60 * 60 * 1000,  // 1 hour
+  normal: 2 * 60 * 60 * 1000, // 2 hours
+  low: 8 * 60 * 60 * 1000,   // 8 hours
+}
+```
+
+## Role Capabilities
+
+Define what actions each role can take:
+
+```typescript
+const roleCapabilities = {
+  'ceo': {
+    can: ['approve_any', 'reject_any', 'delegate', 'override'],
+    maxAmount: Infinity,
+  },
+  'cfo': {
+    can: ['approve_financial', 'reject_financial', 'delegate'],
+    maxAmount: 1000000,
+  },
+  'senior-accountant': {
+    can: ['approve_refund', 'reject_refund'],
+    maxAmount: 50000,
+  },
+  'support': {
+    can: ['approve_refund', 'escalate'],
+    maxAmount: 1000,
+  },
+}
+
+// Check capability before allowing action
+function canApprove(role: string, action: string, amount?: number): boolean {
+  const cap = roleCapabilities[role]
+  if (!cap) return false
+  if (!cap.can.includes(action)) return false
+  if (amount !== undefined && amount > cap.maxAmount) return false
+  return true
+}
+```
+
+## Role Hierarchy
+
+Define escalation chains based on role hierarchy:
+
+```typescript
+const roleHierarchy = {
+  'support': { escalateTo: 'support-lead', level: 1 },
+  'support-lead': { escalateTo: 'manager', level: 2 },
+  'manager': { escalateTo: 'director', level: 3 },
+  'director': { escalateTo: 'vp', level: 4 },
+  'vp': { escalateTo: 'ceo', level: 5 },
+  'ceo': { escalateTo: null, level: 6 },
+}
+
+// Get escalation path
+function getEscalationPath(role: string): string[] {
+  const path: string[] = [role]
+  let current = roleHierarchy[role]
+
+  while (current?.escalateTo) {
+    path.push(current.escalateTo)
+    current = roleHierarchy[current.escalateTo]
+  }
+
+  return path
+}
+
+// support -> ['support', 'support-lead', 'manager', 'director', 'vp', 'ceo']
+```
+
+## Environment Variable Configuration
+
+Configure roles via environment variables for different deployments:
+
+```bash
+# wrangler.toml or .env
+CEO_EMAIL="ceo@company.com"
+CFO_EMAIL="cfo@company.com"
+LEGAL_EMAIL="legal@company.com"
+FINANCE_SLACK_CHANNEL="#finance-approvals"
+SECURITY_PAGERDUTY_SERVICE="P123ABC"
+```
+
+```typescript
+import { Human } from 'dotdo'
+
+export class ConfiguredWorkflow extends Human {
+  async onStart() {
+    await this.setChannels([
+      {
+        type: 'email',
+        target: this.env.CEO_EMAIL,
+        priority: 'normal'
+      },
+      {
+        type: 'slack',
+        target: this.env.FINANCE_SLACK_CHANNEL,
+        priority: 'high'
+      },
+    ])
+  }
+}
+```
+
+## Best Practices
+
+### Match Roles to Business Functions
+
+Map roles to actual business responsibilities, not just job titles:
+
+```typescript
+// Good: Business function roles
+const purchaseApprover = createHumanTemplate('purchase-approver')
+const contractReviewer = createHumanTemplate('contract-reviewer')
+const incidentCommander = createHumanTemplate('incident-commander')
+
+// Less ideal: Generic titles
+const managerApproval = createHumanTemplate('manager')
+```
+
+### Define Clear Escalation Paths
+
+Every role should have a clear escalation target:
+
+```typescript
+const roles = {
+  'support-l1': { escalateTo: 'support-l2', sla: '1 hour' },
+  'support-l2': { escalateTo: 'support-manager', sla: '2 hours' },
+  'support-manager': { escalateTo: 'vp-support', sla: '4 hours' },
+  'vp-support': { escalateTo: 'ceo', sla: '24 hours' },
+}
+```
+
+### Use Multiple Channels per Role
+
+Critical roles should have multiple notification channels:
+
+```typescript
+const criticalRoleConfig = {
+  channels: [
+    { type: 'slack', target: '#incidents', priority: 'urgent' },
+    { type: 'sms', target: '+1-555-0123', priority: 'urgent' },
+    { type: 'email', target: 'oncall@company.com', priority: 'high' },
+  ],
+}
+```
+
+### Document Role Responsibilities
+
+Keep a clear record of what each role is responsible for:
+
+```typescript
+const roleDocumentation = {
+  'senior-accountant': {
+    description: 'Reviews and approves financial transactions',
+    responsibilities: [
+      'Refunds over $1,000',
+      'Expense reports over $500',
+      'Vendor payments',
+    ],
+    escalateTo: 'cfo',
+    sla: '4 hours',
+  },
+}
+```
+
+## Next Steps
+
+- [Notification Channels](/docs/humans/notification-channels) - Configure how roles receive notifications
+- [Escalation](/docs/humans/escalation) - Set up escalation policies and SLAs
+- [Approval Workflows](/docs/humans/approval-workflows) - Build multi-level approval chains

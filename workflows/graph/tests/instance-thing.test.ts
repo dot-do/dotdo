@@ -24,27 +24,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { SQLiteGraphStore } from '../../../db/graph/stores/sqlite'
 import type { GraphThing, GraphRelationship } from '../../../db/graph/types'
+import { WorkflowInstanceStore } from '../instance-thing'
 
 // ============================================================================
-// EXPECTED API - WorkflowInstanceStore (NOT YET IMPLEMENTED)
-// The tests in the [RED] section below will fail until this is implemented
+// TYPES FOR TESTS
 // ============================================================================
-
-/**
- * Expected WorkflowInstanceStore interface (to be implemented)
- * This class encapsulates the verb form state encoding pattern.
- */
-interface WorkflowInstanceStore {
-  create(options: CreateInstanceOptions): Promise<WorkflowInstance>
-  get(id: string): Promise<WorkflowInstance | null>
-  start(id: string): Promise<WorkflowInstance>
-  complete(id: string, output: Record<string, unknown>): Promise<WorkflowInstance>
-  pause(id: string, reason?: string): Promise<WorkflowInstance>
-  resume(id: string): Promise<WorkflowInstance>
-  fail(id: string, error: Error): Promise<WorkflowInstance>
-  setCurrentStep(id: string, step: string | number): Promise<void>
-  queryByState(state: InstanceState, options?: InstanceStateQuery): Promise<WorkflowInstance[]>
-}
 
 interface CreateInstanceOptions {
   id?: string
@@ -67,15 +51,6 @@ type InstanceState = 'pending' | 'running' | 'completed' | 'paused' | 'failed'
 interface InstanceStateQuery {
   workflowId?: string
   limit?: number
-}
-
-/**
- * Factory function to create WorkflowInstanceStore.
- * This will fail until the implementation exists.
- */
-function createWorkflowInstanceStore(graphStore: SQLiteGraphStore): WorkflowInstanceStore {
-  // This will throw an error - the implementation doesn't exist yet (RED phase)
-  throw new Error('WorkflowInstanceStore not yet implemented - this is the RED phase')
 }
 
 // ============================================================================
@@ -1148,7 +1123,8 @@ describe('WorkflowInstanceStore API [RED]', () => {
       const running = await instanceStore.queryByState('running')
 
       // inst2 is running (inst3 and inst4 transitioned out)
-      expect(running).toHaveLength(0) // All running instances transitioned
+      expect(running).toHaveLength(1)
+      expect(running[0]!.state).toBe('running')
     })
 
     it('queryByState("completed") returns completed instances', async () => {

@@ -46,11 +46,11 @@ import {
   type McpSession,
   type McpConfig,
 } from './transport/mcp-server'
-import { RPCServer, type RPCServerConfig } from './transport/rpc-server'
 import { SyncEngine } from './transport/sync-engine'
 import {
   handleCapnWebRpc,
   isCapnWebRequest,
+  isInternalMember,
   type CapnWebOptions,
 } from './transport/capnweb-target'
 import {
@@ -645,33 +645,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     sessions: Map<string, McpSession>
   ) => Promise<Response>
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RPC SERVER
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * RPC Server instance for Cap'n Web RPC protocol support.
-   * Lazy-initialized on first access.
-   */
-  private _rpcServer?: RPCServer
-
-  /**
-   * Get the RPC server instance.
-   * Creates the server on first access.
-   */
-  get rpcServer(): RPCServer {
-    if (!this._rpcServer) {
-      this._rpcServer = new RPCServer(this)
-    }
-    return this._rpcServer
-  }
-
   /**
    * Check if a method is exposed via RPC.
-   * Note: This method is bound in the constructor to ensure `this` is always correct.
+   * Uses capnweb's isInternalMember to determine if a method should be hidden.
    */
   isRpcExposed = (method: string): boolean => {
-    return this.rpcServer.isRpcExposed(method)
+    return !isInternalMember(method)
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1735,6 +1714,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     })
 
     const snapshotPath = snapshots[0]
+    if (!snapshotPath) {
+      // No snapshots found - treat as fresh
+      this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
+      return
+    }
 
     // Load snapshot data
     const snapshotData = await r2.get(snapshotPath)
@@ -1787,7 +1771,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     }
     try {
       // Base64url decode the payload (second part)
-      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+      const payload = parts[1]
+      if (!payload) {
+        throw new Error('Missing JWT payload')
+      }
+      const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
       const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
       const decoded = atob(padded)
       return JSON.parse(decoded)
@@ -1836,7 +1824,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         bucket: 'default',
         pathPrefix: '',
       }
-      this._r2Client = new AuthorizedR2Client(r2Claims, r2 as R2Bucket)
+      this._r2Client = new AuthorizedR2Client(r2Claims, r2 as unknown as R2Bucket)
     }
 
     // Initialize Iceberg adapter if needed
@@ -3394,29 +3382,6 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     // Handle /mcp endpoint for MCP transport
     if (url.pathname === '/mcp') {
       return this.handleMcp(request)
-    }
-
-    // Handle /rpc endpoint for RPC protocol (JSON-RPC 2.0 + Chain RPC)
-    if (url.pathname === '/rpc') {
-      // Check for WebSocket upgrade
-      const upgradeHeader = request.headers.get('upgrade')
-      const connectionHeader = request.headers.get('connection')?.toLowerCase() || ''
-      const hasConnectionUpgrade = connectionHeader.includes('upgrade')
-
-      if (upgradeHeader?.toLowerCase() === 'websocket' && hasConnectionUpgrade) {
-        return this.rpcServer.handleWebSocketRpc()
-      }
-
-      // HTTP RPC request
-      if (request.method === 'POST') {
-        return this.rpcServer.handleRpcRequest(request)
-      }
-
-      // GET request - return RPC info
-      return Response.json({
-        message: 'RPC endpoint - use POST for HTTP batch mode or WebSocket for streaming',
-        methods: this.rpcServer.methods,
-      }, { headers: { 'Content-Type': 'application/json' } })
     }
 
     // Handle /sync endpoint for WebSocket sync protocol (TanStack DB)

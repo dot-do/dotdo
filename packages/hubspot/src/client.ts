@@ -180,10 +180,13 @@ class BasicApi<T extends CRMObject> {
     return this.http.post<T>(`/crm/v3/objects/${this.objectType}`, input)
   }
 
-  async getById(id: string, properties?: string[]): Promise<T> {
+  async getById(id: string, properties?: string[], associations?: string[]): Promise<T> {
     const query: Record<string, string | string[]> = {}
     if (properties && properties.length > 0) {
       query.properties = properties
+    }
+    if (associations && associations.length > 0) {
+      query.associations = associations
     }
     return this.http.get<T>(`/crm/v3/objects/${this.objectType}/${id}`, query)
   }

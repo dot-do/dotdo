@@ -133,12 +133,9 @@ describe('[RED] Account as Thing', () => {
     await store.initialize()
 
     // This import will fail until AccountGraphStore is implemented
-    try {
-      const { createAccountGraphStore } = await import('../stores/account-graph')
-      accountStore = await createAccountGraphStore(store)
-    } catch {
-      // Expected to fail in RED phase
-    }
+    // Import from db/graph/stores/account-thing where AccountThingStore is implemented
+    const { createAccountThingStore } = await import('../../db/graph/stores/account-thing')
+    accountStore = await createAccountThingStore(store) as AccountGraphStore
   })
 
   afterEach(async () => {
@@ -267,16 +264,13 @@ describe('[RED] Account Queries', () => {
     store = new SQLiteGraphStore(':memory:')
     await store.initialize()
 
-    try {
-      const { createAccountGraphStore } = await import('../stores/account-graph')
-      accountStore = await createAccountGraphStore(store)
-      testUser = await accountStore.createUser({
-        email: 'query-test@example.com',
-        name: 'Query Test User',
-      })
-    } catch {
-      // Expected to fail in RED phase
-    }
+    // Import from db/graph/stores/account-thing where AccountThingStore is implemented
+    const { createAccountThingStore } = await import('../../db/graph/stores/account-thing')
+    accountStore = await createAccountThingStore(store) as AccountGraphStore
+    testUser = await accountStore.createUser({
+      email: 'query-test@example.com',
+      name: 'Query Test User',
+    })
   })
 
   afterEach(async () => {
@@ -379,12 +373,9 @@ describe('[RED] Account Unlinking', () => {
     store = new SQLiteGraphStore(':memory:')
     await store.initialize()
 
-    try {
-      const { createAccountGraphStore } = await import('../stores/account-graph')
-      accountStore = await createAccountGraphStore(store)
-    } catch {
-      // Expected to fail in RED phase
-    }
+    // Import from db/graph/stores/account-thing where AccountThingStore is implemented
+    const { createAccountThingStore } = await import('../../db/graph/stores/account-thing')
+    accountStore = await createAccountThingStore(store) as AccountGraphStore
   })
 
   afterEach(async () => {
@@ -501,12 +492,9 @@ describe('[RED] Graph Storage Verification', () => {
     store = new SQLiteGraphStore(':memory:')
     await store.initialize()
 
-    try {
-      const { createAccountGraphStore } = await import('../stores/account-graph')
-      accountStore = await createAccountGraphStore(store)
-    } catch {
-      // Expected to fail in RED phase
-    }
+    // Import from db/graph/stores/account-thing where AccountThingStore is implemented
+    const { createAccountThingStore } = await import('../../db/graph/stores/account-thing')
+    accountStore = await createAccountThingStore(store) as AccountGraphStore
   })
 
   afterEach(async () => {
@@ -619,15 +607,12 @@ describe('[RED] OAuth Token Fields', () => {
     store = new SQLiteGraphStore(':memory:')
     await store.initialize()
 
-    try {
-      const { createAccountGraphStore } = await import('../stores/account-graph')
-      accountStore = await createAccountGraphStore(store)
-      testUser = await accountStore.createUser({
-        email: 'oauth-tokens@example.com',
-      })
-    } catch {
-      // Expected to fail in RED phase
-    }
+    // Import from db/graph/stores/account-thing where AccountThingStore is implemented
+    const { createAccountThingStore } = await import('../../db/graph/stores/account-thing')
+    accountStore = await createAccountThingStore(store) as AccountGraphStore
+    testUser = await accountStore.createUser({
+      email: 'oauth-tokens@example.com',
+    })
   })
 
   afterEach(async () => {
@@ -724,12 +709,9 @@ describe('[RED] Edge Cases', () => {
     store = new SQLiteGraphStore(':memory:')
     await store.initialize()
 
-    try {
-      const { createAccountGraphStore } = await import('../stores/account-graph')
-      accountStore = await createAccountGraphStore(store)
-    } catch {
-      // Expected to fail in RED phase
-    }
+    // Import from db/graph/stores/account-thing where AccountThingStore is implemented
+    const { createAccountThingStore } = await import('../../db/graph/stores/account-thing')
+    accountStore = await createAccountThingStore(store) as AccountGraphStore
   })
 
   afterEach(async () => {

@@ -21,3 +21,12 @@ export type { SwipeGestureOptions, SwipeGestureHandlers } from './use-swipe-gest
 
 export { useKeyboardShortcuts } from './use-keyboard-shortcuts'
 export type { KeyboardShortcut } from './use-keyboard-shortcuts'
+
+export { useDashboardPreferences } from './use-dashboard-preferences'
+export type {
+  WidgetId,
+  WidgetConfig,
+  OnboardingStep,
+  DashboardPreferences,
+  DashboardPreferencesReturn,
+} from './use-dashboard-preferences'

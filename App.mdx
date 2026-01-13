@@ -3,6 +3,90 @@ title: dotdo Dashboard
 description: Your autonomous business control center
 ---
 
+export const stats = {
+  activeAgents: 6,
+  agentTrend: '+2 this week',
+  runningWorkflows: 12,
+  workflowTrend: '+5 today',
+  eventsToday: 847,
+  eventTrend: '+15% vs yesterday',
+}
+
+export const recentActivity = [
+  { id: 1, type: 'workflow', message: 'Customer onboarding completed', time: '2 min ago' },
+  { id: 2, type: 'agent', message: 'Ralph deployed new feature', time: '5 min ago' },
+  { id: 3, type: 'event', message: 'Payment processed for $1,250', time: '8 min ago' },
+  { id: 4, type: 'agent', message: 'Priya updated roadmap', time: '12 min ago' },
+  { id: 5, type: 'workflow', message: 'Lead qualification workflow started', time: '15 min ago' },
+]
+
+export const teamAgents = [
+  { name: 'Priya', role: 'Product', status: 'working', task: 'Defining Q2 roadmap' },
+  { name: 'Ralph', role: 'Engineering', status: 'idle', task: null },
+  { name: 'Tom', role: 'Tech Lead', status: 'reviewing', task: 'PR #142 review' },
+  { name: 'Mark', role: 'Marketing', status: 'idle', task: null },
+  { name: 'Sally', role: 'Sales', status: 'outreach', task: 'Following up with leads' },
+  { name: 'Quinn', role: 'QA', status: 'testing', task: 'E2E test suite' },
+]
+
+export const priya = { name: 'Priya', role: 'Product Manager', email: 'priya@agents.do', avatar: '/agents/priya.png' }
+export const ralph = { name: 'Ralph', role: 'Engineer', email: 'ralph@agents.do', avatar: '/agents/ralph.png' }
+export const tom = { name: 'Tom', role: 'Tech Lead', email: 'tom@agents.do', avatar: '/agents/tom.png' }
+export const mark = { name: 'Mark', role: 'Marketing', email: 'mark@agents.do', avatar: '/agents/mark.png' }
+export const sally = { name: 'Sally', role: 'Sales', email: 'sally@agents.do', avatar: '/agents/sally.png' }
+export const quinn = { name: 'Quinn', role: 'QA Engineer', email: 'quinn@agents.do', avatar: '/agents/quinn.png' }
+
+export const startupColumns = [
+  { key: 'name', label: 'Name', sortable: true },
+  { key: 'hypothesis', label: 'Hypothesis' },
+  { key: 'status', label: 'Status', sortable: true },
+  { key: 'mrr', label: 'MRR', format: 'currency', sortable: true },
+  { key: 'experiments', label: 'Experiments' },
+]
+
+export const startups = [
+  { id: 1, name: 'AI Writing Assistant', hypothesis: 'Writers need AI help', status: 'validating', mrr: 2500, experiments: 3 },
+  { id: 2, name: 'Code Review Bot', hypothesis: 'Teams need faster reviews', status: 'growing', mrr: 8500, experiments: 7 },
+  { id: 3, name: 'Sales Automation', hypothesis: 'SMBs need outreach help', status: 'idea', mrr: 0, experiments: 1 },
+]
+
+export const activeWorkflows = [
+  { id: 'wf-1', name: 'Customer Onboarding', status: 'running', progress: 75 },
+  { id: 'wf-2', name: 'Lead Qualification', status: 'running', progress: 30 },
+  { id: 'wf-3', name: 'Invoice Processing', status: 'paused', progress: 50 },
+]
+
+export const workflowEvents = [
+  { time: '14:32', event: 'Customer.signup', workflow: 'Customer Onboarding' },
+  { time: '14:28', event: 'Lead.qualified', workflow: 'Lead Qualification' },
+  { time: '14:15', event: 'Invoice.received', workflow: 'Invoice Processing' },
+]
+
+export const revenueData = [
+  { month: 'Jan', revenue: 12000 },
+  { month: 'Feb', revenue: 15000 },
+  { month: 'Mar', revenue: 18500 },
+  { month: 'Apr', revenue: 22000 },
+  { month: 'May', revenue: 28000 },
+  { month: 'Jun', revenue: 35000 },
+]
+
+export const agentUsage = [
+  { agent: 'Priya', tasks: 145 },
+  { agent: 'Ralph', tasks: 289 },
+  { agent: 'Tom', tasks: 178 },
+  { agent: 'Mark', tasks: 92 },
+  { agent: 'Sally', tasks: 156 },
+  { agent: 'Quinn', tasks: 203 },
+]
+
+export const experimentResults = [
+  { variant: 'A', conversion: 3.2 },
+  { variant: 'B', conversion: 4.1 },
+  { variant: 'C', conversion: 3.8 },
+  { variant: 'D', conversion: 5.2 },
+]
+
 # dotdo Dashboard
 
 <DashboardLayout>

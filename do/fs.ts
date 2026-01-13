@@ -15,8 +15,8 @@
  * ```
  */
 
-import { DO as BaseDO } from '../objects/DO'
-import { withFs } from '../lib/mixins/fs'
+import { DO as BaseDO } from '../objects/DO.js'
+import { withFs } from '../lib/capabilities/fs.js'
 
 export const DO = withFs(BaseDO)
 
@@ -25,4 +25,4 @@ export const DO = withFs(BaseDO)
  */
 export const capabilities = ['fs']
 
-export { withFs }
+export { withFs, FsError, type FsErrorCode } from '../lib/capabilities/fs.js'

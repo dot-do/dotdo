@@ -41,6 +41,24 @@ import type {
   FacetHit,
   Facets,
   HighlightResult,
+  // Synonym types
+  Synonym,
+  SynonymType,
+  SaveSynonymResponse,
+  SaveSynonymsResponse,
+  SearchSynonymsOptions,
+  SearchSynonymsResponse,
+  DeleteSynonymResponse,
+  ClearSynonymsResponse,
+  // Rule types
+  Rule,
+  RuleCondition,
+  SaveRuleResponse,
+  SaveRulesResponse,
+  SearchRulesOptions,
+  SearchRulesResponse,
+  DeleteRuleResponse,
+  ClearRulesResponse,
 } from './types'
 import {
   AlgoliaError,
@@ -61,11 +79,13 @@ export {
 
 /**
  * Global in-memory storage for all indices
- * Structure: Map<indexName, { objects: Map<objectID, object>, settings: Settings }>
+ * Structure: Map<indexName, { objects: Map<objectID, object>, settings: Settings, synonyms: Map, rules: Map }>
  */
 interface IndexStorage {
   objects: Map<string, AlgoliaObject>
   settings: Settings
+  synonyms: Map<string, Synonym>
+  rules: Map<string, Rule>
   createdAt: Date
   updatedAt: Date
 }
@@ -98,6 +118,8 @@ function getIndexStorage(indexName: string): IndexStorage {
     storage = {
       objects: new Map(),
       settings: {},
+      synonyms: new Map(),
+      rules: new Map(),
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -1145,6 +1167,300 @@ class SearchIndexImpl implements SearchIndex {
     globalStorage.delete(this._indexName)
     return { taskID: generateTaskID() }
   }
+
+  // ============================================================================
+  // SYNONYMS
+  // ============================================================================
+
+  async saveSynonym(
+    synonym: Synonym,
+    _options?: { forwardToReplicas?: boolean }
+  ): Promise<SaveSynonymResponse> {
+    const storage = this.getStorage()
+    storage.synonyms.set(synonym.objectID, { ...synonym })
+    storage.updatedAt = new Date()
+
+    return {
+      objectID: synonym.objectID,
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  async saveSynonyms(
+    synonyms: Synonym[],
+    options?: { forwardToReplicas?: boolean; clearExistingSynonyms?: boolean }
+  ): Promise<SaveSynonymsResponse> {
+    const storage = this.getStorage()
+
+    if (options?.clearExistingSynonyms) {
+      storage.synonyms.clear()
+    }
+
+    for (const synonym of synonyms) {
+      storage.synonyms.set(synonym.objectID, { ...synonym })
+    }
+
+    storage.updatedAt = new Date()
+
+    return {
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  async getSynonym(objectID: string): Promise<Synonym> {
+    const storage = this.getStorage()
+    const synonym = storage.synonyms.get(objectID)
+
+    if (!synonym) {
+      throw new AlgoliaError(`Synonym ${objectID} does not exist`, 404)
+    }
+
+    return { ...synonym }
+  }
+
+  async searchSynonyms(options?: SearchSynonymsOptions): Promise<SearchSynonymsResponse> {
+    const storage = this.getStorage()
+    const query = options?.query?.toLowerCase() ?? ''
+    const type = options?.type
+    const page = options?.page ?? 0
+    const hitsPerPage = options?.hitsPerPage ?? 100
+
+    let synonyms = Array.from(storage.synonyms.values())
+
+    // Filter by type
+    if (type) {
+      synonyms = synonyms.filter((s) => s.type === type)
+    }
+
+    // Filter by query
+    if (query) {
+      synonyms = synonyms.filter((s) => {
+        // Search in objectID
+        if (s.objectID.toLowerCase().includes(query)) return true
+        // Search in synonyms array
+        if (s.synonyms?.some((syn) => syn.toLowerCase().includes(query))) return true
+        // Search in input
+        if (s.input?.toLowerCase().includes(query)) return true
+        // Search in word
+        if (s.word?.toLowerCase().includes(query)) return true
+        // Search in corrections
+        if (s.corrections?.some((c) => c.toLowerCase().includes(query))) return true
+        // Search in replacements
+        if (s.replacements?.some((r) => r.toLowerCase().includes(query))) return true
+        return false
+      })
+    }
+
+    const totalHits = synonyms.length
+    const nbPages = Math.ceil(totalHits / hitsPerPage)
+    const startIdx = page * hitsPerPage
+    const endIdx = startIdx + hitsPerPage
+    const hits = synonyms.slice(startIdx, endIdx)
+
+    return {
+      hits,
+      nbHits: totalHits,
+      page,
+      nbPages,
+    }
+  }
+
+  async deleteSynonym(
+    objectID: string,
+    _options?: { forwardToReplicas?: boolean }
+  ): Promise<DeleteSynonymResponse> {
+    const storage = this.getStorage()
+
+    if (!storage.synonyms.has(objectID)) {
+      throw new AlgoliaError(`Synonym ${objectID} does not exist`, 404)
+    }
+
+    storage.synonyms.delete(objectID)
+    storage.updatedAt = new Date()
+
+    return {
+      taskID: generateTaskID(),
+      deletedAt: new Date().toISOString(),
+    }
+  }
+
+  async clearSynonyms(_options?: { forwardToReplicas?: boolean }): Promise<ClearSynonymsResponse> {
+    const storage = this.getStorage()
+    storage.synonyms.clear()
+    storage.updatedAt = new Date()
+
+    return {
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  // ============================================================================
+  // RULES
+  // ============================================================================
+
+  async saveRule(
+    rule: Rule,
+    _options?: { forwardToReplicas?: boolean }
+  ): Promise<SaveRuleResponse> {
+    const storage = this.getStorage()
+
+    // Validate rule has consequence
+    if (!rule.consequence) {
+      throw new AlgoliaError('Rule must have a consequence', 400)
+    }
+
+    // Normalize single condition to conditions array
+    const normalizedRule: Rule = {
+      ...rule,
+      conditions: rule.conditions ?? (rule.condition ? [rule.condition] : undefined),
+      enabled: rule.enabled ?? true,
+    }
+
+    storage.rules.set(rule.objectID, normalizedRule)
+    storage.updatedAt = new Date()
+
+    return {
+      objectID: rule.objectID,
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  async saveRules(
+    rules: Rule[],
+    options?: { forwardToReplicas?: boolean; clearExistingRules?: boolean }
+  ): Promise<SaveRulesResponse> {
+    const storage = this.getStorage()
+
+    if (options?.clearExistingRules) {
+      storage.rules.clear()
+    }
+
+    for (const rule of rules) {
+      if (!rule.consequence) {
+        throw new AlgoliaError('Rule must have a consequence', 400)
+      }
+
+      const normalizedRule: Rule = {
+        ...rule,
+        conditions: rule.conditions ?? (rule.condition ? [rule.condition] : undefined),
+        enabled: rule.enabled ?? true,
+      }
+
+      storage.rules.set(rule.objectID, normalizedRule)
+    }
+
+    storage.updatedAt = new Date()
+
+    return {
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  async getRule(objectID: string): Promise<Rule> {
+    const storage = this.getStorage()
+    const rule = storage.rules.get(objectID)
+
+    if (!rule) {
+      throw new AlgoliaError(`Rule ${objectID} does not exist`, 404)
+    }
+
+    return { ...rule }
+  }
+
+  async searchRules(options?: SearchRulesOptions): Promise<SearchRulesResponse> {
+    const storage = this.getStorage()
+    const query = options?.query?.toLowerCase() ?? ''
+    const anchoring = options?.anchoring
+    const context = options?.context
+    const enabledOnly = options?.enabled
+    const page = options?.page ?? 0
+    const hitsPerPage = options?.hitsPerPage ?? 20
+
+    let rules = Array.from(storage.rules.values())
+
+    // Filter by enabled
+    if (enabledOnly !== undefined) {
+      rules = rules.filter((r) => r.enabled === enabledOnly)
+    }
+
+    // Filter by anchoring
+    if (anchoring) {
+      rules = rules.filter((r) => {
+        const conditions = r.conditions ?? (r.condition ? [r.condition] : [])
+        return conditions.some((c) => c.anchoring === anchoring)
+      })
+    }
+
+    // Filter by context
+    if (context) {
+      rules = rules.filter((r) => {
+        const conditions = r.conditions ?? (r.condition ? [r.condition] : [])
+        return conditions.some((c) => c.context === context)
+      })
+    }
+
+    // Filter by query
+    if (query) {
+      rules = rules.filter((r) => {
+        // Search in objectID
+        if (r.objectID.toLowerCase().includes(query)) return true
+        // Search in description
+        if (r.description?.toLowerCase().includes(query)) return true
+        // Search in conditions pattern
+        const conditions = r.conditions ?? (r.condition ? [r.condition] : [])
+        if (conditions.some((c) => c.pattern?.toLowerCase().includes(query))) return true
+        return false
+      })
+    }
+
+    const totalHits = rules.length
+    const nbPages = Math.ceil(totalHits / hitsPerPage)
+    const startIdx = page * hitsPerPage
+    const endIdx = startIdx + hitsPerPage
+    const hits = rules.slice(startIdx, endIdx)
+
+    return {
+      hits,
+      nbHits: totalHits,
+      page,
+      nbPages,
+    }
+  }
+
+  async deleteRule(
+    objectID: string,
+    _options?: { forwardToReplicas?: boolean }
+  ): Promise<DeleteRuleResponse> {
+    const storage = this.getStorage()
+
+    if (!storage.rules.has(objectID)) {
+      throw new AlgoliaError(`Rule ${objectID} does not exist`, 404)
+    }
+
+    storage.rules.delete(objectID)
+    storage.updatedAt = new Date()
+
+    return {
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  async clearRules(_options?: { forwardToReplicas?: boolean }): Promise<ClearRulesResponse> {
+    const storage = this.getStorage()
+    storage.rules.clear()
+    storage.updatedAt = new Date()
+
+    return {
+      taskID: generateTaskID(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
 }
 
 // ============================================================================
@@ -1261,6 +1577,20 @@ class SearchClientImpl implements SearchClient {
     // Copy settings if in scope
     if (scope.includes('settings')) {
       destStorage.settings = { ...sourceStorage.settings }
+    }
+
+    // Copy synonyms if in scope
+    if (scope.includes('synonyms')) {
+      for (const [id, synonym] of sourceStorage.synonyms) {
+        destStorage.synonyms.set(id, { ...synonym })
+      }
+    }
+
+    // Copy rules if in scope
+    if (scope.includes('rules')) {
+      for (const [id, rule] of sourceStorage.rules) {
+        destStorage.rules.set(id, { ...rule })
+      }
     }
 
     destStorage.updatedAt = new Date()

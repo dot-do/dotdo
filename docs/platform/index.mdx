@@ -3,6 +3,8 @@ title: Platform Overview
 description: Core platform concepts, architecture, and the dotdo runtime
 ---
 
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
 # Platform Overview
 
 The dotdo platform provides a Business-as-Code framework for building autonomous businesses run by AI agents. It runs on Cloudflare's global edge network, providing V8 isolates with Durable Objects for persistent state.
@@ -143,10 +145,39 @@ npm run dev
 npm run deploy
 ```
 
+## Platform Services
+
+<Cards>
+  <Card title="Security" href="/docs/platform/security">
+    Platform security, isolation, and edge computing security model.
+  </Card>
+  <Card title="Compliance" href="/docs/platform/compliance">
+    GDPR, SOC 2, data residency, and regulatory compliance.
+  </Card>
+  <Card title="Audit Logging" href="/docs/platform/audit-logging">
+    Comprehensive audit trails for all platform operations.
+  </Card>
+</Cards>
+
 ## Documentation
 
-- [Architecture: DO Hierarchy](/docs/architecture/do-hierarchy) - DO class tiers and bundle selection
-- [SDK: WorkflowContext](/docs/sdk/workflow-context) - The $ API for workflows
-- [SDK: Thing](/docs/sdk/thing) - Core type system (Thing, Noun, Verb)
-- [API](/docs/api) - Request routing and middleware
-- [Agents](/docs/agents) - AI agents for autonomous business operations
+<Cards>
+  <Card title="Architecture" href="/docs/architecture">
+    Technical deep dive into V8 isolates and DO internals.
+  </Card>
+  <Card title="Durable Objects" href="/docs/objects">
+    DO class hierarchy and specialized classes.
+  </Card>
+  <Card title="WorkflowContext" href="/docs/sdk/workflow-context">
+    The $ API for workflows, events, and scheduling.
+  </Card>
+  <Card title="Workflows" href="/docs/workflows">
+    Durable workflow orchestration with the $ context DSL.
+  </Card>
+  <Card title="Security" href="/docs/security">
+    Identity, authorization, and secrets management.
+  </Card>
+  <Card title="Agents" href="/docs/agents">
+    AI agents for autonomous business operations.
+  </Card>
+</Cards>

@@ -5,7 +5,7 @@ description: Drop-in replacement for postmark SDK with transactional email, temp
 
 # Postmark
 
-Drop-in replacement for `postmark`. Same API, runs on Cloudflare Workers.
+Drop-in replacement for `postmark`. Your existing `postmark` code works unchanged - just swap the import.
 
 ```typescript
 // Before
@@ -17,18 +17,18 @@ import { ServerClient } from '@dotdo/postmark'
 
 Your existing Postmark code works unchanged. No migration required.
 
-## Why postmark.do?
+## Why @dotdo/postmark?
 
-| Feature | Postmark | postmark.do |
-|---------|----------|-------------|
-| **API compatibility** | Native | 100% compatible |
-| **Runtime** | Node.js | Edge (300+ cities) |
-| **Cold start** | Variable | 0ms (V8 isolates) |
-| **Template storage** | Postmark servers | DO SQLite |
-| **Exactly-once delivery** | No | Yes (idempotency keys) |
-| **Audit logs** | Separate product | Built-in temporal store |
-| **Outbox pattern** | DIY | Built-in transactions |
-| **Deliverability** | Industry-leading | Same + edge benefits |
+| Feature | @dotdo/postmark | Postmark |
+|---------|-----------------|----------|
+| **API compatibility** | 100% compatible | Native |
+| **Runtime** | Edge (300+ cities) | Node.js |
+| **Cold start** | 0ms (V8 isolates) | Variable |
+| **Template storage** | DO SQLite | Postmark servers |
+| **Exactly-once delivery** | Yes (idempotency keys) | No |
+| **Audit logs** | Built-in temporal store | Separate product |
+| **Outbox pattern** | Built-in transactions | DIY |
+| **Deliverability** | Same + edge benefits | Industry-leading |
 
 ## Features
 

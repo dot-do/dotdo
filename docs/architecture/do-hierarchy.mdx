@@ -1,6 +1,6 @@
 ---
 title: DO Class Hierarchy
-description: Understanding the three-tier bundle system and mixin-based composition
+description: Understanding the three-tier bundle system, complete class hierarchy, and lifecycle operations
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
@@ -9,19 +9,123 @@ import { Callout } from 'fumadocs-ui/components/callout'
 
 dotdo provides three entry points with different bundle sizes, optimized for different use cases. The architecture uses mixin-based composition to allow fine-grained capability selection.
 
+---
+
+## Visual Guide: Complete Class Hierarchy
+
+The following diagram shows the complete DO class inheritance tree, from the Cloudflare base class through all specialized domain objects.
+
+```
+                              DurableObject
+                              (Cloudflare)
+                                    |
+                                    v
+    +---------------------------------------------------------------+
+    |                          DOTiny (~15KB)                        |
+    |  - Identity (ns, $type)                                        |
+    |  - SQLite via Drizzle (this.db)                               |
+    |  - fetch() handler with /health endpoint                       |
+    |  - User context extraction (X-User-* headers)                  |
+    |  - Type hierarchy checking (isType, extendsType)               |
+    +---------------------------------------------------------------+
+                                    |
+                                    v
+    +---------------------------------------------------------------+
+    |                        DOBase / DO (~80KB)                     |
+    |  + WorkflowContext ($)                                         |
+    |  + Stores: things, rels, actions, events, search, objects, dlq |
+    |  + Event handlers ($.on.Noun.verb)                             |
+    |  + Scheduling ($.every.day.at9am)                              |
+    |  + Cross-DO RPC with circuit breakers                          |
+    |  + REST/RPC/MCP/Sync transport layer                           |
+    +---------------------------------------------------------------+
+                                    |
+                                    v
+    +---------------------------------------------------------------+
+    |                         DOFull (~120KB)                        |
+    |  + Lifecycle: fork, clone, compact, move                       |
+    |  + Branching: branch, checkout, merge                          |
+    |  + Sharding: shard, unshard, queryShards, rebalance           |
+    |  + Promotion: promote (Thing->DO), demote (DO->Thing)          |
+    |  + Extended primitives: $.fs, $.git, $.bash                    |
+    +---------------------------------------------------------------+
+                                    |
+            +-----------------------+-----------------------+
+            |                       |                       |
+            v                       v                       v
+    +---------------+       +---------------+       +---------------+
+    |    Entity     |       |    Worker     |       |      App      |
+    | Schema-based  |       | Work-perform  |       | Application   |
+    | CRUD + Index  |       | Task/Decision |       | Container     |
+    +---------------+       +---------------+       +---------------+
+            |                   /       \                   |
+            |                  /         \                  v
+            v                 v           v         +---------------+
+    +---------------+  +----------+  +----------+   | DigitalBus.   |
+    |  Collection   |  |  Agent   |  |  Human   |   | OKRs/Metrics  |
+    |  Multi-Entity |  | AI Tools |  | Approval |   +---------------+
+    +---------------+  | Memory   |  | Channels |           |
+                       | Goals    |  | Escalate |           v
+                       +----------+  +----------+   +---------------+
+                            |                       |     SaaS      |
+                            |                       | MRR/Churn/LTV |
+                       Named Agents:                +---------------+
+                       Priya (Product)                      |
+                       Ralph (Engineering)                  v
+                       Tom (Tech Lead)              +---------------+
+                       Mark (Marketing)             |   Startup     |
+                       Sally (Sales)                | Runway/PMF    |
+                       Quinn (QA)                   +---------------+
+```
+
+---
+
+## Visual Guide: The Three Tiers
+
+```
++================================================================================+
+|                           BUNDLE SIZE COMPARISON                                |
++================================================================================+
+
+  DOTiny         DOBase/DO           DOFull
+  (~15KB)        (~80KB)             (~120KB)
+
+  [====]         [================]   [========================]
+   15KB              80KB                   120KB
+
+  ^              ^                    ^
+  |              |                    |
+  |              +-- +65KB            +-- +40KB
+  |                  Stores               Lifecycle
+  |                  Events               Branching
+  +-- Base           Scheduling           Sharding
+      Identity       WorkflowContext      fs/git/bash
+      SQLite         REST/RPC
+      fetch()        Cross-DO
+
+
+  Cold Start:     ~5ms              ~15ms              ~25ms
+  Memory:         ~2MB              ~8MB               ~12MB
+  Use Case:       Counters          Standard Apps      Multi-tenant
+                  Rate Limiters     Business Logic     Data Platforms
+                  Coordination      Event-Driven       Horizontal Scale
+```
+
+---
+
 ## The Three Tiers
 
 ```
 DOTiny (~15KB)
-│   Identity (ns)
-│   SQLite (Drizzle)
-│   fetch() handler
+|   Identity (ns)
+|   SQLite (Drizzle)
+|   fetch() handler
 
 DO (~80KB)
-│   + WorkflowContext ($)
-│   + Stores (things, rels, actions, events, search)
-│   + Event handlers ($.on.Noun.verb)
-│   + Scheduling ($.every)
+|   + WorkflowContext ($)
+|   + Stores (things, rels, actions, events, search)
+|   + Event handlers ($.on.Noun.verb)
+|   + Scheduling ($.every)
 
 DOFull (~120KB)
     + Filesystem ($.fs)
@@ -234,6 +338,349 @@ If composing manually, follow the dependency chain:
 - `withBash` requires `withFs`
 - `withSharding` requires `withStores`
 
+---
+
+## Visual Guide: Mixin Dependency Graph
+
+This diagram shows which mixins depend on others. Apply mixins from bottom to top (dependencies first).
+
+```
+                    MIXIN DEPENDENCY GRAPH
+                    ~~~~~~~~~~~~~~~~~~~~~~
+
+                         +-------------+
+                         | withBash    |
+                         | (~3KB)      |
+                         +------+------+
+                                |
+                                | requires
+                                v
++-------------+          +-------------+          +-------------+
+| withGit     |--------->| withFs      |<---------| withNpm     |
+| (~8KB)      | requires | (~5KB)      | requires | (~4KB)      |
++-------------+          +-------------+          +-------------+
+                                ^
+                                |
+                         [Extended Primitives]
+
+
++---------------+        +---------------+        +---------------+
+| withLifecycle |------->| withStores    |<-------| withSharding  |
+| (~20KB)       |        | (~15KB)       |        | (~15KB)       |
+| fork/clone/   |        | things, rels, |        | shard/unshard |
+| compact/move  |        | actions, etc. |        | queryShards   |
++---------------+        +---------------+        +---------------+
+       |                        ^                        |
+       |                        |                        |
+       +------------------------+------------------------+
+                                |
+                         [State Management]
+
+
++---------------+        +---------------+
+| withBranching |------->| withStores    |
+| (~10KB)       |        | (dependency)  |
+| branch/merge  |        |               |
++---------------+        +---------------+
+
+
+LEGEND:
+  -----> : "requires" (must apply dependency first)
+  [   ]  : Category label
+
+
+COMPOSITION EXAMPLES:
+
+  Minimal Git:     withGit(withFs(DOTiny))                 = ~28KB
+  Scheduled:       withSchedule(DOTiny)                     = ~21KB
+  Full Lifecycle:  withSharding(withLifecycle(withStores(DOBase))) = ~130KB
+  Standard + Git:  withGit(withFs(DOBase))                 = ~93KB
+```
+
+---
+
+## Visual Guide: DO Tier Selection Decision Tree
+
+Use this flowchart to choose the appropriate DO tier for your use case.
+
+```
+                        START HERE
+                            |
+                            v
+            +-------------------------------+
+            | Do you need event handlers?   |
+            | ($.on.Noun.verb)              |
+            +---------------+---------------+
+                    |               |
+                   YES              NO
+                    |               |
+                    v               v
+    +---------------------------+   +---------------------------+
+    | Do you need lifecycle     |   | Do you need any stores?   |
+    | operations?               |   | (things, rels, events)    |
+    | - clone/fork/compact      |   +-------------+-------------+
+    | - branch/merge            |           |             |
+    | - shard/unshard           |          YES            NO
+    | - promote/demote          |           |             |
+    +-------------+-------------+           v             v
+          |               |         +-----------+   +-----------+
+         YES              NO        |   dotdo   |   |dotdo/tiny |
+          |               |         |  (~80KB)  |   |  (~15KB)  |
+          v               v         +-----------+   +-----------+
+    +-----------+   +-----------+
+    |dotdo/full |   |   dotdo   |
+    | (~120KB)  |   |  (~80KB)  |
+    +-----------+   +-----------+
+
+
+    QUICK REFERENCE BY USE CASE:
+
+    +---------------------------+------------------+
+    | Use Case                  | Recommended Tier |
+    +---------------------------+------------------+
+    | Rate limiter              | dotdo/tiny       |
+    | Counter/Gauge             | dotdo/tiny       |
+    | Distributed lock          | dotdo/tiny       |
+    | Session store             | dotdo/tiny       |
+    +---------------------------+------------------+
+    | User profile service      | dotdo            |
+    | Order management          | dotdo            |
+    | Event-driven workflow     | dotdo            |
+    | Notification service      | dotdo            |
+    +---------------------------+------------------+
+    | Multi-tenant platform     | dotdo/full       |
+    | Data warehouse DO         | dotdo/full       |
+    | Git-like versioning       | dotdo/full       |
+    | Horizontal scaling        | dotdo/full       |
+    +---------------------------+------------------+
+```
+
+---
+
+## Visual Guide: Lifecycle Operations State Machine
+
+This diagram shows the valid state transitions for DO lifecycle operations.
+
+```
+                    LIFECYCLE OPERATIONS STATE MACHINE
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    1. BRANCHING STATES
+    ~~~~~~~~~~~~~~~~~~~
+
+                    checkout(@main)
+           +-------------------------+
+           |                         |
+           v                         |
+    +-------------+  branch(name)  +-------------+  checkout(branch)
+    |    main     |--------------->| feature/*   |<----------------+
+    | (default)   |                | develop/*   |                 |
+    +------+------+                +------+------+                 |
+           |                              |                        |
+           |       merge(feature)         |                        |
+           |<-----------------------------+                        |
+           |                                                       |
+           |  checkout(@v123)  +-------------+  checkout(branch)   |
+           +------------------>| detached    |---------------------+
+                               | HEAD        |
+                               | (read-only) |
+                               +-------------+
+
+
+    2. CLONE MODES
+    ~~~~~~~~~~~~~~
+
+    +----------+     clone(atomic)      +-----------+
+    | Source   |----------------------->| Target    |
+    | DO       |   [blocking, fast]     | DO        |
+    +----------+                        +-----------+
+         |
+         |       clone(staged)          +-----------+
+         +----------------------------->| Staging   |
+         |    [2-phase commit]          | Area      |
+         |                              +-----+-----+
+         |                                    |
+         |              commitClone()         v
+         |              abortClone()    +-----------+
+         |                              | Target    |
+         |                              | DO        |
+         |                              +-----------+
+         |
+         |       clone(eventual)        +-----------+
+         +----------------------------->| Replica   |
+         |    [async, continuous]       | DO        |
+         |    .sync() .pause()          +-----------+
+         |    .resume() .cancel()            ^
+         |                                   |
+         |                              [delta sync]
+         |                                   |
+         +-----------------------------------+
+         |
+         |       clone(resumable)       +-----------+
+         +----------------------------->| Target    |
+              [checkpointed,            | DO        |
+               interruptible]           +-----------+
+
+
+    3. CLONE STATUS FLOW
+    ~~~~~~~~~~~~~~~~~~~~
+
+    [eventual mode]
+
+    pending --> syncing --> active --> [continues syncing]
+        |          |           |
+        |          v           v
+        |       paused      paused
+        |          |           |
+        v          v           v
+    cancelled  cancelled   cancelled
+        |          |           |
+        v          v           v
+      error      error       error
+
+
+    [resumable mode]
+
+    initializing --> transferring --> completed
+         |               |
+         v               v
+      failed          paused --> transferring
+         |               |
+         v               v
+     cancelled       cancelled
+
+
+    4. PROMOTE / DEMOTE FLOW
+    ~~~~~~~~~~~~~~~~~~~~~~~~
+
+                      promote(thingId)
+    +--------+        +----------+        +--------+
+    | Thing  |------->| Transfer |------->| New DO |
+    | in DO  |        | State    |        | (indep)|
+    +--------+        +----------+        +--------+
+        ^                                      |
+        |           demote(targetNs)           |
+        +--------------------------------------+
+                      [staged or atomic]
+
+
+    5. SHARD OPERATIONS
+    ~~~~~~~~~~~~~~~~~~~
+
+                        shard({key, count: 4})
+    +----------+        +---------------------------+
+    | Single   |------->| Shard 0 | Shard 1        |
+    | DO       |        | Shard 2 | Shard 3        |
+    +----------+        +---------------------------+
+         ^                          |
+         |         unshard()        |
+         +--------------------------+
+
+                    queryShards({query})
+    +---------------------------+        +----------+
+    | Shard 0 | Shard 1        |------->| Merged   |
+    | Shard 2 | Shard 3        |        | Results  |
+    +---------------------------+        +----------+
+
+                    rebalanceShards({targetCount: 8})
+    +---------------------------+        +-----------------------------------+
+    | Shard 0 | Shard 1        |------->| S0 | S1 | S2 | S3 | S4 | S5 | S6 | S7 |
+    | Shard 2 | Shard 3        |        +-----------------------------------+
+    +---------------------------+
+```
+
+---
+
+## Visual Guide: Runtime Lifecycle
+
+This diagram shows the complete runtime lifecycle of a Durable Object from cold start to eviction.
+
+```
+                    DO RUNTIME LIFECYCLE
+                    ====================
+
+    +-----------------+
+    |  Cold Start     |
+    | (construction)  |
+    +--------+--------+
+             |
+             | 1. DurableObject constructor called
+             | 2. Drizzle/SQLite initialized
+             | 3. $type property set
+             |
+             v
+    +-----------------+     +-----------------+
+    | First Request   |<----| Alarm Fire      |
+    | (identity set)  |     | (no request)    |
+    +--------+--------+     +--------+--------+
+             |                       |
+             | deriveIdentity()      |
+             | extractUser()         |
+             v                       v
+    +-----------------+     +-----------------+
+    | handleFetch()   |     | alarm()         |
+    | Route request   |     | Schedule tasks  |
+    +--------+--------+     +--------+--------+
+             |                       |
+             +----------+------------+
+                        |
+                        v
+    +---------------------------------------+
+    |           ACTIVE STATE                |
+    |  - Handle requests (fetch)            |
+    |  - Execute scheduled tasks (alarm)    |
+    |  - Process WebSocket messages         |
+    |  - Cross-DO RPC calls                 |
+    +-------------------+-------------------+
+                        |
+            +-----------+-----------+
+            |                       |
+            v                       v
+    +-----------------+     +-----------------+
+    | Hibernation     |     | Eviction        |
+    | (WebSocket      |     | (cleanup)       |
+    |  connections    |     |                 |
+    |  maintained)    |     | - Memory freed  |
+    +--------+--------+     | - State in SQL  |
+             |              +-----------------+
+             |
+             | WebSocket message
+             | or alarm fires
+             |
+             v
+    +-----------------+
+    | Wake Up         |
+    | (resume active) |
+    +-----------------+
+
+
+    REQUEST HANDLING FLOW:
+
+    fetch(request)
+        |
+        +-- /health              --> { status: 'ok', ns, $type }
+        |
+        +-- /$introspect         --> Schema introspection
+        |
+        +-- /mcp                 --> MCP protocol handler
+        |
+        +-- /rpc                 --> JSON-RPC / Chain RPC
+        |
+        +-- /sync                --> WebSocket sync (TanStack)
+        |
+        +-- /resolve             --> Cross-DO resolution
+        |
+        +-- Cap'n Web (POST/WS)  --> Promise pipelining
+        |
+        +-- /:type               --> REST collection
+        |
+        +-- /:type/:id           --> REST entity
+        |
+        +-- else                 --> 404 Not Found
+```
+
+---
+
 ## Bundle Selection Guide
 
 Use this decision tree to select the appropriate bundle:
@@ -317,3 +764,141 @@ This enables writing generic code that adapts to available capabilities.
 | `dotdo/full` | ~120KB | ~25ms | ~12MB | Complex lifecycle needs |
 
 Choose the smallest bundle that meets your requirements. When in doubt, start with `tiny` and add mixins as needed - it is easier to add capabilities than to remove unused code.
+
+---
+
+## Visual Guide: Bundle Size Impact
+
+This visualization shows the detailed breakdown of bundle sizes and their impact on cold start performance.
+
+```
++=============================================================================+
+|                     BUNDLE SIZE BREAKDOWN (KB)                              |
++=============================================================================+
+
+  dotdo/tiny (~15KB)
+  +---------------------------------------------------------------------+
+  | Base DO class         5KB  [=====]                                  |
+  | Drizzle ORM           8KB  [========]                               |
+  | Identity/fetch        2KB  [==]                                     |
+  +---------------------------------------------------------------------+
+  Total: 15KB                  [===============]
+
+  dotdo (~80KB)
+  +---------------------------------------------------------------------+
+  | DOTiny base          15KB  [===============]                        |
+  | WorkflowContext      15KB  [===============]                        |
+  | Event handlers        8KB  [========]                               |
+  | Scheduling            6KB  [======]                                 |
+  | ThingsStore          10KB  [==========]                             |
+  | RelationshipsStore    5KB  [=====]                                  |
+  | ActionsStore          5KB  [=====]                                  |
+  | EventsStore           5KB  [=====]                                  |
+  | SearchStore           8KB  [========]                               |
+  | ObjectsStore          3KB  [===]                                    |
+  +---------------------------------------------------------------------+
+  Total: 80KB                  [=====================================...]
+
+  dotdo/full (~120KB)
+  +---------------------------------------------------------------------+
+  | DO base              80KB  [=====================================...] |
+  | Filesystem (fsx)      5KB  [=====]                                  |
+  | Git (gitx)            8KB  [========]                               |
+  | Bash (bashx)          3KB  [===]                                    |
+  | Clone module         15KB  [===============]                        |
+  | Branch module         5KB  [=====]                                  |
+  | Compact module        4KB  [====]                                   |
+  | Shard module         10KB  [==========]                             |
+  | Promote module        6KB  [======]                                 |
+  +---------------------------------------------------------------------+
+  Total: 120KB                 [=========================================...]
+
++=============================================================================+
+|                     PERFORMANCE COMPARISON                                  |
++=============================================================================+
+
+  Metric            tiny         standard        full
+  ----------------------------------------------------------------
+  Parse Time        ~2ms         ~8ms            ~15ms
+  Cold Start        ~5ms         ~15ms           ~25ms
+  Memory            ~2MB         ~8MB            ~12MB
+
+  Cold Start Timeline (ms):
+  0ms      5ms      10ms     15ms     20ms     25ms     30ms
+  |--------|--------|--------|--------|--------|--------|
+  tiny     [===]                                          ~5ms
+  standard [============]                                 ~15ms
+  full     [===================]                          ~25ms
+
+  Memory Footprint (MB):
+  0MB      4MB      8MB      12MB     16MB     20MB
+  |--------|--------|--------|--------|--------|
+  tiny     [===]                                          ~2MB
+  standard [============]                                 ~8MB
+  full     [================]                             ~12MB
+
++=============================================================================+
+|                     CUSTOM MIXIN COMBINATIONS                               |
++=============================================================================+
+
+  Configuration                          Size    Cold Start  Use Case
+  ---------------------------------------------------------------------------
+  tiny                                   15KB    ~5ms        Rate limiter
+  tiny + withFs                          20KB    ~6ms        File storage
+  tiny + withFs + withGit                28KB    ~8ms        Code sandbox
+  tiny + withSchedule                    21KB    ~6ms        Cron jobs
+  tiny + withStores                      30KB    ~9ms        Entity CRUD
+  DO + withFs + withGit                  93KB    ~18ms       Dev environment
+  DO + withSharding                      95KB    ~19ms       Scalable store
+  DO + withBranching                     90KB    ~17ms       Versioned CMS
+
+  Visual Comparison (KB):
+  0        20       40       60       80      100      120
+  |--------|--------|--------|--------|--------|--------|
+  tiny                [===]
+  tiny+fs             [====]
+  tiny+fs+git         [======]
+  tiny+schedule       [====]
+  tiny+stores         [=======]
+  DO+fs+git           [======================================]
+  DO+sharding         [=======================================]
+  DO+branching        [=====================================]
+  full                [=========================================]
+
++=============================================================================+
+|                     REQUESTS PER SECOND VS COLD START                       |
++=============================================================================+
+
+  For high-volume scenarios (1000+ RPS), cold start latency compounds:
+
+  Bundle      Cold Start    At 1000 RPS        At 10000 RPS
+  ----------------------------------------------------------------
+  tiny        5ms           5,000 ms/s          50,000 ms/s
+  standard    15ms          15,000 ms/s         150,000 ms/s
+  full        25ms          25,000 ms/s         250,000 ms/s
+
+  Recommendation:
+  - Rate limiters, counters: Use tiny (saves ~10-20ms per cold start)
+  - Standard CRUD apps: Use DO (best feature/size balance)
+  - Multi-tenant/sharding: Use full (lifecycle ops justify overhead)
+```
+
+<Callout type="info">
+These visualizations use ASCII art for maximum compatibility across documentation formats. All diagrams render correctly in plain text, terminal output, and Markdown viewers.
+</Callout>
+
+---
+
+## Lifecycle Operation Reference
+
+| Operation | Description | Modes | Atomicity | Introduced In |
+|-----------|-------------|-------|-----------|---------------|
+| `clone()` | Copy state to new DO | atomic, staged, eventual, resumable | Configurable | DOFull |
+| `branch()` | Create git-like branch | Synchronous | Atomic | DOFull |
+| `checkout()` | Switch branch/version | Synchronous | Atomic | DOFull |
+| `merge()` | Merge branch into current | Synchronous | Atomic (with conflict detection) | DOFull |
+| `compact()` | Squash history, archive old | Synchronous | Atomic | DOFull |
+| `shard()` | Distribute to N DOs | Synchronous | Coordinator-managed | DOFull |
+| `unshard()` | Merge shards back | Synchronous | Best-effort | DOFull |
+| `promote()` | Elevate Thing to DO | Synchronous | Atomic (with lock) | DOFull |
+| `demote()` | Fold DO into parent | atomic, staged | Configurable | DOFull |

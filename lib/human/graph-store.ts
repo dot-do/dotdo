@@ -65,6 +65,7 @@
  */
 
 import type { GraphStore, GraphThing, GraphRelationship } from '../../db/graph/types'
+import { HUMAN_REQUEST_TYPE_IDS as CENTRALIZED_HUMAN_REQUEST_TYPE_IDS } from '../../db/graph/constants'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -332,19 +333,18 @@ export interface ListRequestsOptions {
 }
 
 // ============================================================================
-// CONSTANTS
+// CONSTANTS (from centralized db/graph/constants.ts)
 // ============================================================================
 
 /**
  * Type IDs for Human Request Things
+ *
+ * Re-exported from db/graph/constants.ts for backward compatibility.
+ * New code should import directly from db/graph/constants or db/graph.
+ *
+ * @see db/graph/constants.ts for the canonical definitions
  */
-export const HUMAN_REQUEST_TYPE_IDS: Record<HumanRequestType, number> = {
-  approval: 200,
-  task: 201,
-  decision: 202,
-  review: 203,
-  question: 204,
-} as const
+export const HUMAN_REQUEST_TYPE_IDS: Record<HumanRequestType, number> = CENTRALIZED_HUMAN_REQUEST_TYPE_IDS
 
 /**
  * Type names for Human Request Things

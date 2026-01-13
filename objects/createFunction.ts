@@ -1168,19 +1168,23 @@ function createParallelFunction(
 // MAIN FACTORY FUNCTION
 // ============================================================================
 
-// We use a non-async wrapper function to avoid TypeScript's thenable detection issue
-// FunctionInstance has a 'then' method for composition which conflicts with Promise.then
-function createFunctionImpl(
+/**
+ * Internal implementation of createFunction.
+ *
+ * Uses async/await for clearer error handling instead of manual promise chaining.
+ * Errors from any async operation (registry checks, storage, registration) will
+ * properly propagate as promise rejections.
+ *
+ * Note: We wrap the async implementation to return a non-thenable Promise
+ * because FunctionInstance has a 'then' method for composition which conflicts
+ * with TypeScript's thenable detection.
+ */
+async function createFunctionImplAsync(
   def: AnyFunctionDefinition,
   options: CreateFunctionOptions,
 ): Promise<FunctionInstance> {
-  // Wrap everything to ensure validation errors become Promise rejections
-  try {
-    // Validate definition (sync)
-    validate(def)
-  } catch (e) {
-    return Promise.reject(e)
-  }
+  // Validate definition (throws ValidationError if invalid)
+  validate(def)
 
   // Create instance (sync)
   const instance = createFunctionInstance(def, options)
@@ -1190,48 +1194,51 @@ function createFunctionImpl(
     options.durableObject.registerFunction(instance)
   }
 
-  // Build the promise chain for async operations
-  let promise: Promise<void> = Promise.resolve()
-
   // Check for duplicate names if registry provided
   if (options.registry && options.autoRegister !== false) {
-    promise = promise.then(async () => {
-      const existing = await options.registry!.has(def.name)
-      if (existing && !options.replace) {
-        throw new RegistrationError(`Function '${def.name}' already exists`)
-      }
-    })
+    const existing = await options.registry.has(def.name)
+    if (existing && !options.replace) {
+      throw new RegistrationError(`Function '${def.name}' already exists`)
+    }
   }
 
   // Store in state if provided
   if (options.state) {
-    promise = promise.then(() =>
-      options.state!.storage.put(`function:${def.name}`, {
-        name: def.name,
-        type: def.type,
-        description: def.description,
-        id: instance.id,
-        createdAt: instance.createdAt.toISOString(),
-      })
-    )
+    await options.state.storage.put(`function:${def.name}`, {
+      name: def.name,
+      type: def.type,
+      description: def.description,
+      id: instance.id,
+      createdAt: instance.createdAt.toISOString(),
+    })
   }
 
   // Auto-register with registry
   if (options.registry && options.autoRegister !== false) {
-    promise = promise.then(async () => {
-      if (options.replace) {
-        await options.registry!.unregister(def.name)
-        options.onEvent?.('function.replaced', { name: def.name, id: instance.id })
-      }
-      await options.registry!.register(instance)
-      options.onEvent?.('function.registered', { name: def.name, type: def.type, id: instance.id })
-    })
+    if (options.replace) {
+      await options.registry.unregister(def.name)
+      options.onEvent?.('function.replaced', { name: def.name, id: instance.id })
+    }
+    await options.registry.register(instance)
+    options.onEvent?.('function.registered', { name: def.name, type: def.type, id: instance.id })
   }
 
-  // We need to explicitly resolve with the instance to avoid the thenable issue
-  // where JavaScript would try to call instance.then() since it exists
+  return instance
+}
+
+/**
+ * Wrapper function to handle the thenable issue with FunctionInstance.
+ *
+ * FunctionInstance has a 'then' method for composition, which causes TypeScript
+ * to treat it as a thenable. We wrap the async implementation in a new Promise
+ * to avoid this issue.
+ */
+function createFunctionImpl(
+  def: AnyFunctionDefinition,
+  options: CreateFunctionOptions,
+): Promise<FunctionInstance> {
   return new Promise<FunctionInstance>((resolve, reject) => {
-    promise.then(() => resolve(instance)).catch(reject)
+    createFunctionImplAsync(def, options).then(resolve).catch(reject)
   })
 }
 

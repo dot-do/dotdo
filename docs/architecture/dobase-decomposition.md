@@ -1,4 +1,7 @@
-# DOBase Architecture and Decomposition
+---
+title: DOBase Architecture and Decomposition
+description: Architecture of the Durable Object class hierarchy in dotdo, with focus on DOBase, extension points, mixin system, and migration guidance.
+---
 
 This document describes the architecture of the Durable Object class hierarchy in dotdo, with focus on DOBase (exported as `DO`), its extension points, mixin system, and migration guidance.
 
@@ -6,41 +9,41 @@ This document describes the architecture of the Durable Object class hierarchy i
 
 ```
                               DurableObject (Cloudflare)
-                                       |
-                                       v
-                              +-----------------+
-                              |     DOTiny      |  ~15KB - Minimal base
-                              |   (DO export)   |  Identity, Storage, fetch()
-                              +-----------------+
-                                       |
-                                       v
-                              +-----------------+
-                              |     DOBase      |  ~120KB - Full features
-                              |   (DO export)   |  WorkflowContext, Stores, Events
-                              +-----------------+
-                                       |
-                                       v
-                              +-----------------+
-                              |     DOFull      |  ~200KB - Lifecycle ops
-                              |   (DO export)   |  Clone, Branch, Shard
-                              +-----------------+
-                                       |
-              +------------------------+------------------------+
-              |            |           |           |            |
-              v            v           v           v            v
-         +--------+   +--------+  +--------+  +--------+  +--------+
-         |Business|   |  App   |  |  Site  |  | Worker |  | Entity |
-         +--------+   +--------+  +--------+  +--------+  +--------+
-              |                                    |            |
-              v                                    v            v
-    +------------------+                     +--------+   +------------+
-    | DigitalBusiness  |                     | Agent  |   | Collection |
-    +------------------+                     +--------+   +------------+
-              |                              | Human  |   | Directory  |
-              v                              +--------+   +------------+
-         +--------+
-         |  SaaS  |
-         +--------+
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │     DOTiny      │  ~15KB - Minimal base
+                              │   (DO export)   │  Identity, Storage, fetch()
+                              └─────────────────┘
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │     DOBase      │  ~120KB - Full features
+                              │   (DO export)   │  WorkflowContext, Stores, Events
+                              └─────────────────┘
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │     DOFull      │  ~200KB - Lifecycle ops
+                              │   (DO export)   │  Clone, Branch, Shard
+                              └─────────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │            │           │           │            │
+              ▼            ▼           ▼           ▼            ▼
+         ┌────────┐   ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+         │Business│   │  App   │  │  Site  │  │ Worker │  │ Entity │
+         └────────┘   └────────┘  └────────┘  └────────┘  └────────┘
+              │                                    │            │
+              ▼                                    ▼            ▼
+    ┌──────────────────┐                     ┌────────┐   ┌────────────┐
+    │ DigitalBusiness  │                     │ Agent  │   │ Collection │
+    └──────────────────┘                     ├────────┤   ├────────────┤
+              │                              │ Human  │   │ Directory  │
+              ▼                              └────────┘   └────────────┘
+         ┌────────┐
+         │  SaaS  │
+         └────────┘
 ```
 
 ## Core Classes
@@ -610,3 +613,328 @@ class MyDO extends DO.with({ search: true }) {
 - Index: `/Users/nathanclevenger/projects/dotdo/objects/index.ts`
 - Stores: `/Users/nathanclevenger/projects/dotdo/db/stores.ts`
 - Transport: `/Users/nathanclevenger/projects/dotdo/objects/transport/`
+
+---
+
+## DOBase Decomposition Roadmap
+
+**Current State (2026-01-13):** DOBase.ts is 3,879 lines, combining 9 distinct capabilities identified in the architecture review.
+
+### Analysis: Capability Breakdown
+
+| Capability | Lines (est.) | Status | Location |
+|------------|-------------|--------|----------|
+| **Stores** | ~200 | EXTRACTED | `objects/modules/StoresModule.ts`, `objects/services/StoreManager.ts` |
+| **Transport/HTTP** | ~400 | EXTRACTED | `objects/transport/rest-router.ts`, `rpc-server.ts`, `mcp-server.ts`, `sync-engine.ts`, `capnweb-target.ts` |
+| **WorkflowContext ($)** | ~150 | IN DOBase | Lines 1094-1162 |
+| **Execution Modes** | ~200 | IN DOBase | Lines 1164-1407 (send, try, do) |
+| **Event Handlers** | ~200 | IN DOBase | Lines 2352-2840 ($.on system) |
+| **Scheduling** | ~50 | PARTIALLY EXTRACTED | `workflows/schedule-builder.ts`, `workflows/ScheduleManager.ts` |
+| **Actor Context** | ~30 | IN DOBase | Lines 700-728 |
+| **Iceberg Persistence** | ~450 | IN DOBase | Lines 1683-2131 |
+| **Location Detection** | ~150 | IN DOBase | Lines 912-1072 |
+| **Introspection** | ~200 | IN DOBase | Lines 3600-3816 |
+| **Resolution** | ~120 | IN DOBase | Lines 2843-2962 |
+| **Cross-DO RPC** | ~250 | IN DOBase | Lines 2428-2714 |
+| **Visibility/Auth** | ~100 | IN DOBase | Lines 3037-3145 |
+| **OKR Framework** | ~90 | IN DOBase | Lines 508-618 |
+| **Collection Accessors** | ~150 | IN DOBase | Lines 2226-2346 |
+
+### Extraction Priority
+
+#### Phase 1: Low-Hanging Fruit (Week 1-2)
+
+**1. LocationModule** (~150 lines)
+Extract location detection and caching into standalone module.
+
+```typescript
+// objects/modules/LocationModule.ts
+export class LocationModule {
+  private _cachedLocation?: DOLocation
+  private _locationHookCalled = false
+  private _extractedCoordinates?: { lat: number; lng: number }
+
+  async getLocation(): Promise<DOLocation>
+  async _detectLocation(): Promise<DOLocation>
+  extractCoordinatesFromRequest(request: Request): void
+}
+```
+
+**2. ActorContextModule** (~30 lines)
+Extract actor context management.
+
+```typescript
+// objects/modules/ActorContextModule.ts
+export class ActorContextModule {
+  private _currentActor = ''
+  private _currentActorContext: { userId?: string; orgId?: string } = {}
+
+  setActor(actor: string): void
+  clearActor(): void
+  getCurrentActor(): string
+  setActorContext(actor: { userId?: string; orgId?: string }): void
+  getActorContext(): { userId?: string; orgId?: string }
+  clearActorContext(): void
+}
+```
+
+**3. OKRModule** (~90 lines)
+Extract OKR framework.
+
+```typescript
+// objects/modules/OKRModule.ts
+export class OKRModule {
+  okrs: Record<string, OKR> = {}
+
+  defineOKR(definition: OKRDefinition): OKR
+}
+```
+
+#### Phase 2: Core Workflow (Week 3-4)
+
+**4. ExecutionModule** (~200 lines)
+Extract send/try/do execution modes with retry logic.
+
+```typescript
+// objects/modules/ExecutionModule.ts
+export class ExecutionModule {
+  static readonly DEFAULT_RETRY_POLICY: RetryPolicy
+  static readonly DEFAULT_TRY_TIMEOUT = 30000
+
+  private _stepCache: Map<string, { result: unknown; completedAt: number }>
+
+  send(event: string, data: unknown): void
+  async try<T>(action: string, data: unknown, options?: TryOptions): Promise<T>
+  async do<T>(action: string, data: unknown, options?: DoOptions): Promise<T>
+
+  protected calculateBackoffDelay(attempt: number, policy: RetryPolicy): number
+  protected generateStepId(action: string, data: unknown): string
+  protected async persistStepResult(stepId: string, result: unknown): Promise<void>
+  protected async loadPersistedSteps(): Promise<void>
+}
+```
+
+**5. EventHandlerModule** (~200 lines)
+Extract $.on system and event dispatch.
+
+```typescript
+// objects/modules/EventHandlerModule.ts
+export class EventHandlerModule {
+  private _eventHandlers: Map<string, HandlerRegistration[]>
+  private _handlerCounter = 0
+
+  createOnProxy(): OnProxy
+  registerHandler(eventKey: string, handler: EventHandler, options?: HandlerOptions): void
+  getEventHandlers(eventKey: string): Function[]
+  getHandlersByPriority(eventKey: string): Array<{ handler: Function; priority: number }>
+  async dispatchEventToHandlers(event: DomainEvent): Promise<EnhancedDispatchResult>
+  unregisterEventHandler(eventKey: string, handler: Function): boolean
+}
+```
+
+#### Phase 3: Persistence & Resolution (Week 5-6)
+
+**6. IcebergModule** (~450 lines)
+Extract Iceberg state persistence (largest single concern).
+
+```typescript
+// objects/modules/IcebergModule.ts
+export class IcebergModule {
+  private _snapshotSequence = 0
+  private _r2Client?: AuthorizedR2Client
+  private _icebergAdapter?: IcebergStateAdapter
+  private _pendingChanges = 0
+  private _lastCheckpointTimestamp = 0
+  private _checkpointTimer?: ReturnType<typeof setInterval>
+  private _icebergOptions: IcebergOptions = {}
+  private _fencingToken?: string
+
+  async loadFromIceberg(jwt?: string): Promise<void>
+  async saveToIceberg(): Promise<void>
+  configureIceberg(options: IcebergOptions): void
+  async acquireFencingToken(): Promise<string>
+  async releaseFencingToken(token: string): Promise<void>
+  onDataChange(): void
+
+  get pendingChanges(): number
+  get lastCheckpointTimestamp(): number
+  get hasFencingToken(): boolean
+  get currentFencingToken(): string | undefined
+}
+```
+
+**7. ResolutionModule** (~120 lines)
+Extract URL resolution logic.
+
+```typescript
+// objects/modules/ResolutionModule.ts
+export class ResolutionModule {
+  async resolve(url: string): Promise<Thing>
+  protected async resolveLocal(path: string, ref: string): Promise<Thing>
+  protected async resolveCrossDO(ns: string, path: string, ref: string): Promise<Thing>
+}
+```
+
+#### Phase 4: RPC & Auth (Week 7-8)
+
+**8. CrossDORpcModule** (~250 lines)
+Extract cross-DO RPC with circuit breakers.
+
+```typescript
+// objects/modules/CrossDORpcModule.ts
+export class CrossDORpcModule {
+  private static _circuitBreakers: Map<string, CircuitBreakerState>
+  private static readonly CIRCUIT_BREAKER_CONFIG = { ... }
+  private static readonly CROSS_DO_RETRY_CONFIG = { ... }
+  private static readonly CROSS_DO_TIMEOUT_MS = 30000
+
+  createDomainProxy(noun: string, id: string): DomainProxy
+  async invokeDomainMethod(noun: string, id: string, method: string, args: unknown[]): Promise<unknown>
+  async invokeCrossDOMethod(noun: string, id: string, method: string, args: unknown[], options?: { timeout?: number }): Promise<unknown>
+
+  private checkCircuitBreaker(targetNs: string): 'closed' | 'open' | 'half-open'
+  private recordCircuitBreakerSuccess(targetNs: string): void
+  private recordCircuitBreakerFailure(targetNs: string): void
+
+  static _resetTestState(): void
+}
+```
+
+**9. VisibilityModule** (~100 lines)
+Extract visibility/authorization helpers.
+
+```typescript
+// objects/modules/VisibilityModule.ts
+export class VisibilityModule {
+  canViewThing(thing: Thing | ThingEntity | null | undefined): boolean
+  assertCanView(thing: Thing | ThingEntity | null | undefined, message?: string): void
+  filterVisibleThings<T extends Thing | ThingEntity>(things: T[]): T[]
+  async getVisibleThing(id: string): Promise<ThingEntity | null>
+  getVisibility(thing: Thing | ThingEntity | null | undefined): 'public' | 'unlisted' | 'org' | 'user'
+  isOwner(thing: Thing | ThingEntity | null | undefined): boolean
+  isInThingOrg(thing: Thing | ThingEntity | null | undefined): boolean
+}
+```
+
+**10. IntrospectionModule** (~200 lines)
+Extract $introspect functionality.
+
+```typescript
+// objects/modules/IntrospectionModule.ts
+export class IntrospectionModule {
+  async $introspect(authContext?: AuthContext): Promise<DOSchema>
+
+  private determineRole(authContext?: AuthContext): VisibilityRole
+  private introspectClasses(role: VisibilityRole): DOClassSchema[]
+  private introspectStores(role: VisibilityRole): StoreSchema[]
+  private introspectStorage(role: VisibilityRole): StorageCapabilities
+  private async introspectNouns(): Promise<IntrospectNounSchema[]>
+  private async introspectVerbs(): Promise<VerbSchema[]>
+}
+```
+
+### Module Integration Pattern
+
+After extraction, DOBase becomes a thin orchestration layer:
+
+```typescript
+// objects/DOBase.ts (post-decomposition ~500 lines)
+export class DO<E extends Env = Env> extends DOTiny<E> {
+  // Injected modules
+  protected readonly _location: LocationModule
+  protected readonly _actor: ActorContextModule
+  protected readonly _okr: OKRModule
+  protected readonly _execution: ExecutionModule
+  protected readonly _eventHandlers: EventHandlerModule
+  protected readonly _iceberg: IcebergModule
+  protected readonly _resolution: ResolutionModule
+  protected readonly _crossDO: CrossDORpcModule
+  protected readonly _visibility: VisibilityModule
+  protected readonly _introspection: IntrospectionModule
+
+  // WorkflowContext ($) - delegated proxy
+  readonly $: WorkflowContext
+
+  constructor(ctx: DurableObjectState, env: E) {
+    super(ctx, env)
+
+    // Initialize modules
+    this._location = new LocationModule(ctx, env)
+    this._actor = new ActorContextModule()
+    // ... etc
+
+    // Create delegating $ proxy
+    this.$ = this.createWorkflowContext()
+  }
+
+  // Public accessors delegate to modules
+  get things() { return this._stores.things }
+  get rels() { return this._stores.rels }
+  // ... etc
+
+  // HTTP handling delegates to transport
+  protected override async handleFetch(request: Request): Promise<Response> {
+    // Minimal routing logic, delegates to transport modules
+  }
+}
+```
+
+### Benefits of Decomposition
+
+1. **Testability**: Each module can be unit tested in isolation
+2. **Maintainability**: Smaller files are easier to understand and modify
+3. **Reusability**: Modules can be composed in different configurations
+4. **Bundle Size**: Tree-shaking can eliminate unused modules
+5. **Cognitive Load**: Developers only need to understand relevant modules
+6. **Parallel Development**: Different teams can work on modules independently
+
+### Migration Strategy
+
+1. **Extract to separate files** without changing DOBase interface
+2. **Add delegation** in DOBase to new modules
+3. **Verify tests pass** after each extraction
+4. **Deprecate direct access** to extracted code paths
+5. **Document module boundaries** and interfaces
+
+### Estimated Timeline
+
+| Phase | Duration | Deliverable |
+|-------|----------|-------------|
+| Phase 1 | 1-2 weeks | LocationModule, ActorContextModule, OKRModule |
+| Phase 2 | 2 weeks | ExecutionModule, EventHandlerModule |
+| Phase 3 | 2 weeks | IcebergModule, ResolutionModule |
+| Phase 4 | 2 weeks | CrossDORpcModule, VisibilityModule, IntrospectionModule |
+| Integration | 1 week | DOBase thin orchestrator, documentation |
+| **Total** | **8-9 weeks** | Complete decomposition |
+
+### Already Extracted
+
+The following have already been moved to separate modules:
+
+1. **StoreManager** (`objects/services/StoreManager.ts`) - Store lifecycle management
+2. **StoresModule** (`objects/modules/StoresModule.ts`) - Alternative store accessor implementation
+3. **REST Router** (`objects/transport/rest-router.ts`) - REST API handling
+4. **RPC Server** (`objects/transport/rpc-server.ts`) - JSON-RPC 2.0 + Chain RPC
+5. **MCP Server** (`objects/transport/mcp-server.ts`) - Model Context Protocol
+6. **Sync Engine** (`objects/transport/sync-engine.ts`) - WebSocket sync for TanStack DB
+7. **Cap'n Web Target** (`objects/transport/capnweb-target.ts`) - Promise pipelining
+8. **Schedule Builder** (`workflows/schedule-builder.ts`) - Fluent CRON DSL
+9. **Schedule Manager** (`workflows/ScheduleManager.ts`) - Alarm scheduling
+10. **Iceberg State Adapter** (`objects/persistence/iceberg-state.ts`) - Snapshot serialization
+
+### Remaining in DOBase (to extract)
+
+From 3,879 lines, approximately **1,500-2,000 lines** remain embedded:
+- WorkflowContext proxy creation (~70 lines)
+- Execution modes (send/try/do) (~240 lines)
+- Event handler registration & dispatch (~490 lines)
+- Iceberg auto-checkpoint & fencing (~450 lines)
+- Location detection & caching (~160 lines)
+- Cross-DO RPC with circuit breakers (~290 lines)
+- Resolution (local/cross-DO) (~120 lines)
+- Visibility helpers (~110 lines)
+- Introspection (~220 lines)
+- Actor context (~50 lines)
+- OKR framework (~110 lines)
+- Collection accessors (~120 lines)
+- HTTP handler routing (~130 lines)

@@ -23,22 +23,6 @@ function Logo() {
 }
 
 // ============================================================================
-// Lazy Route Components (imported inline to avoid circular deps)
-// ============================================================================
-
-function WorkflowsPage() {
-  return <div data-route="workflows" />
-}
-
-function SandboxesPage() {
-  return <div data-route="sandboxes" />
-}
-
-function BrowsersPage() {
-  return <div data-route="browsers" />
-}
-
-// ============================================================================
 // Shell Props
 // ============================================================================
 
@@ -50,16 +34,17 @@ interface ShellProps {
 // Shell Component
 // ============================================================================
 
+/**
+ * Shell wraps admin content with DeveloperDashboard chrome.
+ * Provides consistent branding and theming across admin routes.
+ *
+ * @param children - Content to render inside the dashboard
+ */
 export function Shell({ children }: ShellProps) {
   return (
     <DeveloperDashboard
       branding={{ name: 'dotdo', logo: <Logo /> }}
       theme="stripe"
-      customRoutes={[
-        { path: '/workflows', element: <WorkflowsPage /> },
-        { path: '/sandboxes', element: <SandboxesPage /> },
-        { path: '/browsers', element: <BrowsersPage /> },
-      ]}
     >
       {children}
     </DeveloperDashboard>

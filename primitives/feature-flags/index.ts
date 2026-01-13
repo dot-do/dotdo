@@ -132,6 +132,8 @@ import type {
   Variant,
 } from './types'
 
+import { murmurHash3 } from '../../db/primitives/utils/murmur3'
+
 // Re-export types
 export type {
   FeatureFlag,
@@ -323,34 +325,43 @@ export class RuleEngine {
 }
 
 /**
- * Deterministic percentage rollout using hashing
+ * Deterministic percentage rollout using MurmurHash3 for consistent hashing
  */
 export class PercentageRollout {
   /**
    * Generate a deterministic hash value between 0 and 100
+   * Uses MurmurHash3 for excellent distribution properties.
+   *
+   * @param key - User/bucket key
+   * @param flagKey - Feature flag key
+   * @param salt - Optional salt for rebucketing (changing salt rebuckets all users)
    */
-  hash(key: string, flagKey: string): number {
-    const combined = `${flagKey}:${key}`
-    let hash = 0
+  hash(key: string, flagKey: string, salt?: string): number {
+    // Build hash input: flagKey.salt.key or flagKey.flagKey.key (salt defaults to flagKey)
+    // This ensures different salts produce different hash distributions
+    const effectiveSalt = salt ?? flagKey
+    const hashInput = `${flagKey}.${effectiveSalt}.${key}`
 
-    for (let i = 0; i < combined.length; i++) {
-      const char = combined.charCodeAt(i)
-      hash = ((hash << 5) - hash + char) | 0
-    }
+    // Use MurmurHash3 with seed 0 for deterministic results
+    const hashValue = murmurHash3(hashInput, 0)
 
-    // Convert to positive number and normalize to 0-100
-    const normalized = Math.abs(hash) % 100
-    return normalized
+    // Normalize to 0-100 using modulo 10000 for 0.01% precision, then scale
+    const bucket = hashValue % 10000
+    return (bucket / 10000) * 100
   }
 
   /**
    * Check if a user is included in the rollout percentage
+   * @param bucketKey - User/bucket key
+   * @param flagKey - Feature flag key
+   * @param percentage - Rollout percentage (0-100)
+   * @param salt - Optional salt for rebucketing
    */
-  isIncluded(bucketKey: string, flagKey: string, percentage: number): boolean {
+  isIncluded(bucketKey: string, flagKey: string, percentage: number, salt?: string): boolean {
     if (percentage >= 100) return true
     if (percentage <= 0) return false
 
-    const hashValue = this.hash(bucketKey, flagKey)
+    const hashValue = this.hash(bucketKey, flagKey, salt)
     return hashValue < percentage
   }
 }
@@ -729,7 +740,8 @@ export class FeatureFlagClient {
       const isIncluded = this.rollout.isIncluded(
         bucketKey,
         flagKey,
-        flag.rollout.percentage
+        flag.rollout.percentage,
+        flag.rollout.salt
       )
       return {
         value: isIncluded ? (flag.defaultValue || true) : (typeof flag.defaultValue === 'boolean' ? false : flag.defaultValue),

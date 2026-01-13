@@ -166,6 +166,24 @@ export class TypeConverter {
       return value
     }
 
+    // Date-time string to integer (timestamp) - check BEFORE generic string-to-integer
+    if (
+      fromType === 'string' &&
+      toType === 'integer' &&
+      options.sourceFormat === 'date-time'
+    ) {
+      return new Date(value as string).getTime()
+    }
+
+    // Date-time string to number (timestamp) - similar case
+    if (
+      fromType === 'string' &&
+      toType === 'number' &&
+      options.sourceFormat === 'date-time'
+    ) {
+      return new Date(value as string).getTime()
+    }
+
     // String to number
     if (fromType === 'string' && toType === 'number') {
       return parseFloat(value as string)
@@ -219,15 +237,6 @@ export class TypeConverter {
     // String to array
     if (fromType === 'string' && toType === 'array') {
       return (value as string).split(',').map((s) => s.trim())
-    }
-
-    // Date-time string to integer (timestamp)
-    if (
-      fromType === 'string' &&
-      toType === 'integer' &&
-      options.sourceFormat === 'date-time'
-    ) {
-      return new Date(value as string).getTime()
     }
 
     // Integer to date-time string
@@ -308,12 +317,21 @@ export class FlatteningStrategy {
   }
 
   /**
-   * Check if a path should be flattened
+   * Convert a path using separator to dot notation for comparison
    */
-  private shouldFlatten(path: string): boolean {
+  private toDotPath(path: string): string {
+    if (this.separator === '.') return path
+    return path.split(this.separator).join('.')
+  }
+
+  /**
+   * Check if a path should be flattened (uses dot notation internally)
+   * The path parameter is in dot notation for comparison with include/exclude paths
+   */
+  private shouldFlatten(dotPath: string): boolean {
     // If excludePaths contains this path prefix, don't flatten
     for (const excludePath of this.excludePaths) {
-      if (path === excludePath || path.startsWith(excludePath + '.')) {
+      if (dotPath === excludePath || dotPath.startsWith(excludePath + '.')) {
         return false
       }
     }
@@ -321,7 +339,7 @@ export class FlatteningStrategy {
     // If includePaths is specified, only flatten those paths
     if (this.includePaths.size > 0) {
       for (const includePath of this.includePaths) {
-        if (path === includePath || path.startsWith(includePath + '.')) {
+        if (dotPath === includePath || dotPath.startsWith(includePath + '.')) {
           return true
         }
       }
@@ -329,6 +347,19 @@ export class FlatteningStrategy {
     }
 
     return true
+  }
+
+  /**
+   * Check if a path is specifically included in includePaths (for partial flattening)
+   */
+  private isIncludedPath(dotPath: string): boolean {
+    if (this.includePaths.size === 0) return false
+    for (const includePath of this.includePaths) {
+      if (dotPath === includePath || dotPath.startsWith(includePath + '.')) {
+        return true
+      }
+    }
+    return false
   }
 
   /**
@@ -355,14 +386,17 @@ export class FlatteningStrategy {
   flatten(obj: Record<string, unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {}
 
+    // Process object recursively, tracking both dotPath (for include/exclude checks)
+    // and separatorPath (for output keys)
     const flattenRecursive = (
       current: unknown,
-      path: string,
+      dotPath: string,
+      separatorPath: string,
       depth: number
     ): void => {
       // Handle null/undefined
       if (current === null || current === undefined) {
-        result[path] = current
+        result[separatorPath] = current
         return
       }
 
@@ -370,15 +404,16 @@ export class FlatteningStrategy {
       if (Array.isArray(current)) {
         if (this.arrayHandling === 'index') {
           current.forEach((item, index) => {
-            const newPath = path ? `${path}${this.separator}${index}` : String(index)
+            const newDotPath = dotPath ? `${dotPath}.${index}` : String(index)
+            const newSepPath = separatorPath ? `${separatorPath}${this.separator}${index}` : String(index)
             if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-              flattenRecursive(item, newPath, depth + 1)
+              flattenRecursive(item, newDotPath, newSepPath, depth + 1)
             } else {
-              result[newPath] = item
+              result[newSepPath] = item
             }
           })
         } else {
-          result[path] = this.handleArray(current, path)
+          result[separatorPath] = this.handleArray(current, separatorPath)
         }
         return
       }
@@ -387,51 +422,190 @@ export class FlatteningStrategy {
       if (typeof current === 'object' && !(current instanceof Date)) {
         // Check depth limit
         if (depth >= this.maxDepth) {
-          result[path] = current
+          result[separatorPath] = current
           return
         }
 
         // Check if we should flatten this path
-        if (path && !this.shouldFlatten(path)) {
-          result[path] = current
+        if (dotPath && !this.shouldFlatten(dotPath)) {
+          result[separatorPath] = current
           return
         }
 
         for (const [key, value] of Object.entries(current)) {
-          const newPath = path ? `${path}${this.separator}${key}` : key
-          flattenRecursive(value, newPath, depth + 1)
+          const newDotPath = dotPath ? `${dotPath}.${key}` : key
+          const newSepPath = separatorPath ? `${separatorPath}${this.separator}${key}` : key
+          flattenRecursive(value, newDotPath, newSepPath, depth + 1)
         }
         return
       }
 
       // Handle primitives
-      result[path] = current
+      result[separatorPath] = current
     }
 
-    for (const [key, value] of Object.entries(obj)) {
-      if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)) {
-        if (!this.shouldFlatten(key)) {
-          result[key] = value
-        } else if (this.maxDepth === 0) {
-          result[key] = value
-        } else {
-          flattenRecursive(value, key, 1)
-        }
-      } else if (Array.isArray(value)) {
-        if (this.arrayHandling === 'index') {
-          value.forEach((item, index) => {
-            const newPath = `${key}${this.separator}${index}`
-            if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-              flattenRecursive(item, newPath, 1)
+    // When we have includePaths, we need special handling:
+    // - Paths not under includePaths should be preserved (not flattened)
+    // - Paths under includePaths should be flattened
+    const processTopLevel = (
+      obj: Record<string, unknown>,
+      dotPath: string,
+      separatorPath: string,
+      depth: number
+    ): void => {
+      for (const [key, value] of Object.entries(obj)) {
+        const newDotPath = dotPath ? `${dotPath}.${key}` : key
+        const newSepPath = separatorPath ? `${separatorPath}${this.separator}${key}` : key
+
+        if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)) {
+          // Check if this path or any child is included
+          const isThisPathIncluded = this.includePaths.size > 0 && this.isIncludedPath(newDotPath)
+          const hasIncludedChild = this.includePaths.size > 0 &&
+            [...this.includePaths].some(p => p.startsWith(newDotPath + '.'))
+
+          if (this.includePaths.size > 0 && !isThisPathIncluded && !hasIncludedChild) {
+            // Not in includePaths and no children in includePaths - copy as-is
+            if (separatorPath) {
+              // We're nested, need to handle this in parent result
+              if (!(separatorPath in result)) {
+                result[separatorPath] = {}
+              }
+              (result[separatorPath] as Record<string, unknown>)[key] = value
             } else {
-              result[newPath] = item
+              if (!(key in result)) {
+                result[key] = {}
+              }
+              Object.assign(result[key] as Record<string, unknown>, value)
             }
-          })
+          } else if (hasIncludedChild && !isThisPathIncluded) {
+            // Has included children but this path itself is not included
+            // We need to preserve non-included siblings
+            processTopLevel(value as Record<string, unknown>, newDotPath, newSepPath, depth + 1)
+          } else if (isThisPathIncluded) {
+            // This path is included - flatten it
+            flattenRecursive(value, newDotPath, newSepPath, depth + 1)
+          } else if (!this.shouldFlatten(newDotPath)) {
+            result[newSepPath] = value
+          } else if (this.maxDepth === 0 || depth >= this.maxDepth) {
+            result[newSepPath] = value
+          } else {
+            flattenRecursive(value, newDotPath, newSepPath, depth + 1)
+          }
+        } else if (Array.isArray(value)) {
+          if (this.arrayHandling === 'index') {
+            value.forEach((item, index) => {
+              const itemDotPath = `${newDotPath}.${index}`
+              const itemSepPath = `${newSepPath}${this.separator}${index}`
+              if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                flattenRecursive(item, itemDotPath, itemSepPath, depth + 1)
+              } else {
+                result[itemSepPath] = item
+              }
+            })
+          } else {
+            result[newSepPath] = this.handleArray(value, newSepPath)
+          }
         } else {
-          result[key] = this.handleArray(value, key)
+          // Primitive value - check if we should put it in a nested object or flat
+          if (this.includePaths.size > 0 && !this.isIncludedPath(newDotPath)) {
+            // Not included - put in nested structure
+            if (separatorPath) {
+              if (!(separatorPath in result)) {
+                result[separatorPath] = {}
+              }
+              (result[separatorPath] as Record<string, unknown>)[key] = value
+            } else {
+              result[key] = value
+            }
+          } else {
+            result[newSepPath] = value
+          }
         }
-      } else {
-        result[key] = value
+      }
+    }
+
+    // Handle top-level entries
+    if (this.includePaths.size > 0) {
+      // With includePaths, use the special processing
+      for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)) {
+          const isKeyIncluded = this.isIncludedPath(key)
+          const hasIncludedChild = [...this.includePaths].some(p => p.startsWith(key + '.'))
+
+          if (!isKeyIncluded && !hasIncludedChild) {
+            // Not in includePaths - preserve the object
+            result[key] = value
+          } else if (hasIncludedChild && !isKeyIncluded) {
+            // Has children in includePaths, process selectively
+            // Initialize this key as an object for non-flattened children
+            result[key] = {}
+            for (const [childKey, childValue] of Object.entries(value)) {
+              const childDotPath = `${key}.${childKey}`
+              const childSepPath = `${key}${this.separator}${childKey}`
+
+              if (typeof childValue === 'object' && childValue !== null && !Array.isArray(childValue) && !(childValue instanceof Date)) {
+                if (this.isIncludedPath(childDotPath)) {
+                  // This child is in includePaths - flatten it
+                  flattenRecursive(childValue, childDotPath, childSepPath, 2)
+                } else {
+                  // Not in includePaths - preserve in parent object
+                  (result[key] as Record<string, unknown>)[childKey] = childValue
+                }
+              } else {
+                // Primitive or array at child level - keep in parent
+                (result[key] as Record<string, unknown>)[childKey] = childValue
+              }
+            }
+          } else {
+            // This key is included - flatten it
+            flattenRecursive(value, key, key, 1)
+          }
+        } else if (Array.isArray(value)) {
+          if (this.arrayHandling === 'index') {
+            value.forEach((item, index) => {
+              const itemDotPath = `${key}.${index}`
+              const itemSepPath = `${key}${this.separator}${index}`
+              if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                flattenRecursive(item, itemDotPath, itemSepPath, 1)
+              } else {
+                result[itemSepPath] = item
+              }
+            })
+          } else {
+            result[key] = this.handleArray(value, key)
+          }
+        } else {
+          result[key] = value
+        }
+      }
+    } else {
+      // No includePaths - use standard processing
+      for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)) {
+          if (!this.shouldFlatten(key)) {
+            result[key] = value
+          } else if (this.maxDepth === 0) {
+            result[key] = value
+          } else {
+            flattenRecursive(value, key, key, 1)
+          }
+        } else if (Array.isArray(value)) {
+          if (this.arrayHandling === 'index') {
+            value.forEach((item, index) => {
+              const itemDotPath = `${key}.${index}`
+              const itemSepPath = `${key}${this.separator}${index}`
+              if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                flattenRecursive(item, itemDotPath, itemSepPath, 1)
+              } else {
+                result[itemSepPath] = item
+              }
+            })
+          } else {
+            result[key] = this.handleArray(value, key)
+          }
+        } else {
+          result[key] = value
+        }
       }
     }
 
@@ -490,6 +664,7 @@ export class ContractSchemaMapper {
   private validateDestination: boolean
   private autoConvertTypes: boolean
   private flattenSource?: FlatteningStrategy
+  private flattenSourceSeparator: string
   private typeConverter: TypeConverter
 
   // Reverse mapping lookup
@@ -503,6 +678,7 @@ export class ContractSchemaMapper {
     this.validateDestination = options.validateDestination ?? false
     this.autoConvertTypes = options.autoConvertTypes ?? false
     this.typeConverter = new TypeConverter()
+    this.flattenSourceSeparator = '_'
 
     // Build reverse mapping
     this.reverseMapping = new Map()
@@ -514,16 +690,24 @@ export class ContractSchemaMapper {
 
     // Setup flattening strategy if enabled
     if (options.flattenSource?.enabled) {
+      this.flattenSourceSeparator = options.flattenSource.separator || '_'
       this.flattenSource = new FlatteningStrategy({
-        separator: options.flattenSource.separator || '_',
+        separator: this.flattenSourceSeparator,
       })
     }
   }
 
   /**
    * Get nested value from object
+   * First checks for exact key match (for flattened sources), then tries path traversal
    */
   private getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+    // If source was flattened, try exact key match first
+    if (this.flattenSource && path in obj) {
+      return obj[path]
+    }
+
+    // Otherwise, traverse the path
     const parts = path.split('.')
     let current: unknown = obj
     for (const part of parts) {
@@ -581,6 +765,18 @@ export class ContractSchemaMapper {
   }
 
   /**
+   * Convert a flattened field path back to dot notation for schema lookup
+   */
+  private toSchemaPath(field: string): string {
+    // If source was flattened, the field name uses the separator
+    // Convert back to dot notation for schema lookup
+    if (this.flattenSource && this.flattenSourceSeparator !== '.') {
+      return field.split(this.flattenSourceSeparator).join('.')
+    }
+    return field
+  }
+
+  /**
    * Convert value based on source and destination types
    */
   private convertValue(
@@ -592,9 +788,12 @@ export class ContractSchemaMapper {
       return value
     }
 
-    const sourceType = this.getFieldType(this.sourceContract.schema, sourceField)
+    // Convert flattened source field to schema path for type lookup
+    const sourceSchemaPath = this.toSchemaPath(sourceField)
+
+    const sourceType = this.getFieldType(this.sourceContract.schema, sourceSchemaPath)
     const destType = this.getFieldType(this.destinationContract.schema, destField)
-    const sourceFormat = this.getFieldFormat(this.sourceContract.schema, sourceField)
+    const sourceFormat = this.getFieldFormat(this.sourceContract.schema, sourceSchemaPath)
     const destFormat = this.getFieldFormat(this.destinationContract.schema, destField)
 
     if (!sourceType || !destType) {
@@ -778,7 +977,8 @@ export interface AutoMapResult {
 }
 
 /**
- * Calculate string similarity (Levenshtein-based)
+ * Calculate string similarity for field name matching
+ * Uses multiple heuristics to detect common naming patterns
  */
 function stringSimilarity(a: string, b: string): number {
   const aLower = a.toLowerCase()
@@ -786,20 +986,56 @@ function stringSimilarity(a: string, b: string): number {
 
   if (aLower === bLower) return 1
 
-  // Check if one contains the other
-  if (aLower.includes(bLower) || bLower.includes(aLower)) {
-    const shorter = Math.min(a.length, b.length)
-    const longer = Math.max(a.length, b.length)
-    return shorter / longer
+  // Normalize by splitting on common separators (snake_case, camelCase)
+  const aNormalized = aLower.replace(/[_-]/g, '').replace(/([a-z])([A-Z])/g, '$1$2').toLowerCase()
+  const bNormalized = bLower.replace(/[_-]/g, '').replace(/([a-z])([A-Z])/g, '$1$2').toLowerCase()
+
+  // Extract meaningful parts (split by underscore, hyphen, or camelCase boundaries)
+  const aParts = aLower.split(/[_-]|(?=[A-Z])/).filter(p => p.length > 0)
+  const bParts = bLower.split(/[_-]|(?=[A-Z])/).filter(p => p.length > 0)
+
+  // Check if one is a suffix/prefix of the other (common pattern: id -> user_id)
+  if (bParts.length > 0 && bParts[bParts.length - 1] === aLower) {
+    // a is the suffix of b (e.g., 'id' is suffix of 'user_id')
+    return 0.8 // High score for suffix matches
+  }
+  if (aParts.length > 0 && aParts[aParts.length - 1] === bLower) {
+    return 0.8
   }
 
-  // Simple character overlap
+  // Check if one contains the other as a word boundary
+  const aWithBoundaries = `_${aLower}_`
+  const bWithBoundaries = `_${bLower}_`
+  if (bWithBoundaries.includes(`_${aLower}_`) || aWithBoundaries.includes(`_${bLower}_`)) {
+    const shorter = Math.min(a.length, b.length)
+    const longer = Math.max(a.length, b.length)
+    return Math.max(0.6, shorter / longer)
+  }
+
+  // Check if one contains the other
+  if (aNormalized.includes(bNormalized) || bNormalized.includes(aNormalized)) {
+    const shorter = Math.min(a.length, b.length)
+    const longer = Math.max(a.length, b.length)
+    return Math.max(0.5, shorter / longer)
+  }
+
+  // Calculate word overlap score
+  const aPartSet = new Set(aParts)
+  const bPartSet = new Set(bParts)
+  const intersection = [...aPartSet].filter((p) => bPartSet.has(p)).length
+  if (intersection > 0) {
+    const union = new Set([...aPartSet, ...bPartSet]).size
+    const wordScore = intersection / union
+    if (wordScore >= 0.5) return wordScore
+  }
+
+  // Fallback: character overlap (Jaccard similarity)
   const aChars = new Set(aLower.split(''))
   const bChars = new Set(bLower.split(''))
-  const intersection = [...aChars].filter((c) => bChars.has(c)).length
-  const union = new Set([...aChars, ...bChars]).size
+  const charIntersection = [...aChars].filter((c) => bChars.has(c)).length
+  const charUnion = new Set([...aChars, ...bChars]).size
 
-  return intersection / union
+  return charIntersection / charUnion
 }
 
 /**
@@ -859,7 +1095,8 @@ export function autoMapSchemas(
   }
 
   // Second pass: similarity-based suggestions
-  if (options.useSimilarity) {
+  // Also run similarity matching if checkTypeCompatibility is set (need suggestions to check)
+  if (options.useSimilarity || options.checkTypeCompatibility) {
     const threshold = options.similarityThreshold ?? 0.5
 
     for (const sourceField of Object.keys(sourceProps)) {

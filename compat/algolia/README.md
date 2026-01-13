@@ -1,4 +1,4 @@
-# algolia.do
+# @dotdo/algolia
 
 **Algolia for Cloudflare Workers.** Edge-native search. FTS5-powered. Zero dependencies.
 
@@ -7,13 +7,13 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Why algolia.do?
+## Why @dotdo/algolia?
 
 **Edge workers can't run Algolia.** The official SDK expects HTTP connections to Algolia's servers with API keys that shouldn't be exposed in client-side code.
 
 **AI agents need search.** They need full-text search, faceting, filtering, and instant results without network latency.
 
-**algolia.do gives you both:**
+**@dotdo/algolia gives you both:**
 
 ```typescript
 import algoliasearch from '@dotdo/algolia'
@@ -311,25 +311,25 @@ const client = algoliasearch('APP_ID', 'API_KEY', {
 ## How It Works
 
 ```
-+----------------------------------------------------------+
-|                      @dotdo/algolia                       |
-+----------------------------------------------------------+
-|  Algolia Client API (initIndex, search, browse, etc.)    |
-+----------------------------------------------------------+
-|  Search Index                     |  Filter Parser       |
-|  - saveObject/saveObjects         |  - Boolean (AND/OR)  |
-|  - search/browse                  |  - Numeric (<, >, =) |
-|  - getObject/getObjects           |  - Facet filters     |
-|  - partialUpdate                  |  - Tag filters       |
-|  - delete/clear                   |  - Negation (NOT)    |
-+----------------------------------+------------------------+
-|  FTS Engine                       |  Facet Engine        |
-|  - Tokenization                   |  - Value counting    |
-|  - Scoring                        |  - Facet search      |
-|  - Highlighting                   |  - Array support     |
-+----------------------------------------------------------+
-|              In-Memory Storage / DO SQLite                |
-+----------------------------------------------------------+
+┌──────────────────────────────────────────────────────────┐
+│                      @dotdo/algolia                       │
+├──────────────────────────────────────────────────────────┤
+│  Algolia Client API (initIndex, search, browse, etc.)    │
+├───────────────────────────────┬──────────────────────────┤
+│  Search Index                 │  Filter Parser           │
+│  - saveObject/saveObjects     │  - Boolean (AND/OR)      │
+│  - search/browse              │  - Numeric (<, >, =)     │
+│  - getObject/getObjects       │  - Facet filters         │
+│  - partialUpdate              │  - Tag filters           │
+│  - delete/clear               │  - Negation (NOT)        │
+├───────────────────────────────┼──────────────────────────┤
+│  FTS Engine                   │  Facet Engine            │
+│  - Tokenization               │  - Value counting        │
+│  - Scoring                    │  - Facet search          │
+│  - Highlighting               │  - Array support         │
+├───────────────────────────────┴──────────────────────────┤
+│              In-Memory Storage / DO SQLite                │
+└──────────────────────────────────────────────────────────┘
 ```
 
 **Edge Layer (Algolia API)**
@@ -420,7 +420,7 @@ const client = algoliasearch('APP_ID', 'API_KEY', {
 
 MIT
 
-## Links
+## Related
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://algolia.do)

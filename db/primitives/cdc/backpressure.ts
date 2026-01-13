@@ -1274,11 +1274,12 @@ export class AdaptiveBatcher<T> {
       // Adapt batch size based on latency
       if (this.options.targetLatencyMs) {
         if (processingTime < this.options.targetLatencyMs * 0.8) {
-          // Processing fast, increase batch size
-          this.adjustBatchSize(this.currentBatchSize * 1.1)
+          // Processing fast, increase batch size more aggressively
+          // Use a larger multiplier to overcome smoothing
+          this.adjustBatchSize(this.currentBatchSize * 1.5)
         } else if (processingTime > this.options.targetLatencyMs * 1.2) {
           // Processing slow, decrease batch size
-          this.adjustBatchSize(this.currentBatchSize * 0.9)
+          this.adjustBatchSize(this.currentBatchSize * 0.7)
         }
       }
     }
@@ -1288,7 +1289,7 @@ export class AdaptiveBatcher<T> {
   }
 
   private adjustBatchSize(newSize: number): void {
-    const smoothingFactor = this.options.smoothingFactor ?? 0.2
+    const smoothingFactor = this.options.smoothingFactor ?? 0.3
 
     // Apply exponential moving average for smooth adjustment
     const smoothedSize = this.currentBatchSize * (1 - smoothingFactor) + newSize * smoothingFactor

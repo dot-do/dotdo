@@ -40,6 +40,7 @@
 
 import { type MetricsCollector, noopMetrics, MetricNames } from '../observability'
 import { murmurHash3 } from '../utils/murmur3'
+import { type DeliveryAnalytics, type DeliveryEvent } from './delivery-analytics'
 
 // =============================================================================
 // Duration Helpers
@@ -287,24 +288,81 @@ export interface RetryResult {
 // Types - Digest
 // =============================================================================
 
+export type DigestSchedulePreset = 'daily' | 'weekly' | 'hourly' | 'custom'
+
+export interface DigestSchedule {
+  /** Schedule preset for common intervals */
+  preset?: DigestSchedulePreset
+  /** Custom interval (used when preset is 'custom' or not specified) */
+  interval?: Duration
+  /** Specific time of day to send (HH:mm format, e.g., '09:00') */
+  sendAt?: string
+  /** Day of week to send (0-6, Sunday=0, used with 'weekly' preset) */
+  sendOnDay?: number
+  /** Timezone for scheduling (default: 'UTC') */
+  timezone?: string
+}
+
+export type DigestGroupBy = 'none' | 'category' | 'sender' | 'category_and_sender'
+
+export interface DigestGroupingConfig {
+  /** How to group notifications within the digest */
+  groupBy: DigestGroupBy
+  /** Sort groups by item count (descending) */
+  sortByCount?: boolean
+  /** Maximum groups to include */
+  maxGroups?: number
+}
+
 export interface DigestConfig {
   enabled: boolean
-  interval: Duration
+  /** Schedule configuration (replaces simple interval) */
+  schedule?: DigestSchedule
+  /** Legacy interval support (deprecated, use schedule instead) */
+  interval?: Duration
   channels: ChannelType[]
   categories?: string[]
   minItems?: number
   maxItems?: number
   templateId?: string
+  /** Grouping configuration for intelligent notification organization */
+  grouping?: DigestGroupingConfig
+  /** Subject template for digest emails */
+  subjectTemplate?: string
+}
+
+export interface DigestItem extends NotificationContent {
+  category?: string
+  sender?: string
+  priority?: 'low' | 'normal' | 'high' | 'critical'
+  metadata?: Record<string, unknown>
+  timestamp: Date
+}
+
+export interface DigestGroup {
+  key: string
+  label: string
+  items: DigestItem[]
 }
 
 export interface DigestBatch {
   userId: string
   digestId: string
-  items: NotificationContent[]
+  items: DigestItem[]
+  /** Grouped items (if grouping is enabled) */
+  groups?: DigestGroup[]
   channels: ChannelType[]
   recipient: Recipient
   createdAt: Date
   scheduledAt: Date
+}
+
+export interface DigestSummary {
+  userId: string
+  digestId: string
+  totalItems: number
+  groups: DigestGroup[]
+  generatedAt: Date
 }
 
 // =============================================================================
@@ -340,6 +398,8 @@ export interface NotificationRouterOptions {
   globalRateLimit?: RateLimitConfig
   deduplicationWindow?: Duration
   metrics?: MetricsCollector
+  /** Delivery analytics instance for tracking events */
+  analytics?: DeliveryAnalytics
 }
 
 // =============================================================================
@@ -410,6 +470,7 @@ export class NotificationRouter {
   private options: NotificationRouterOptions
   private defaultRetryPolicy: RetryPolicy
   private metrics: MetricsCollector
+  private analytics?: DeliveryAnalytics
   private stats: NotificationStats = {
     totalSent: 0,
     totalFailed: 0,
@@ -420,6 +481,7 @@ export class NotificationRouter {
 
   constructor(options?: NotificationRouterOptions) {
     this.options = options ?? {}
+    this.analytics = options?.analytics
     this.defaultRetryPolicy = {
       maxAttempts: options?.defaultRetryPolicy?.maxAttempts ?? 3,
       backoffMultiplier: options?.defaultRetryPolicy?.backoffMultiplier ?? 2,
@@ -643,6 +705,25 @@ export class NotificationRouter {
         }
 
         deliveries.push(delivery)
+
+        // Track delivery event in analytics
+        if (this.analytics) {
+          void this.analytics.trackDelivery({
+            notificationId,
+            channel,
+            event: deliveryResult.success ? 'sent' : 'failed',
+            timestamp: new Date(),
+            messageId: deliveryResult.messageId,
+            recipient: this.getRecipientAddress(options.recipient, channel),
+            userId: options.userId,
+            metadata: {
+              ...options.metadata,
+              attempts: deliveryResult.attempts,
+              sentAt: delivery.sentAt?.toISOString(),
+              error: deliveryResult.error,
+            },
+          })
+        }
 
         if (deliveryResult.success) {
           successCount++
@@ -1198,12 +1279,182 @@ export class NotificationRouter {
     this.digests.set(digestId, config)
   }
 
+  /**
+   * Calculate the interval in milliseconds from a DigestConfig
+   * Supports both legacy interval and new schedule configuration
+   */
+  private getDigestIntervalMs(config: DigestConfig): number {
+    // Use new schedule configuration if available
+    if (config.schedule) {
+      const schedule = config.schedule
+
+      // Handle presets
+      if (schedule.preset) {
+        switch (schedule.preset) {
+          case 'hourly':
+            return 60 * 60 * 1000 // 1 hour
+          case 'daily':
+            return 24 * 60 * 60 * 1000 // 24 hours
+          case 'weekly':
+            return 7 * 24 * 60 * 60 * 1000 // 7 days
+          case 'custom':
+            if (schedule.interval) {
+              return schedule.interval.toMillis()
+            }
+            break
+        }
+      }
+
+      // Use custom interval from schedule
+      if (schedule.interval) {
+        return schedule.interval.toMillis()
+      }
+    }
+
+    // Fall back to legacy interval
+    if (config.interval) {
+      return config.interval.toMillis()
+    }
+
+    // Default to 24 hours
+    return 24 * 60 * 60 * 1000
+  }
+
+  /**
+   * Group digest items based on grouping configuration
+   */
+  private groupDigestItems(items: DigestItem[], grouping?: DigestGroupingConfig): DigestGroup[] {
+    if (!grouping || grouping.groupBy === 'none') {
+      return [{ key: 'all', label: 'All Notifications', items }]
+    }
+
+    const groupMap = new Map<string, DigestItem[]>()
+
+    for (const item of items) {
+      let key: string
+      let label: string
+
+      switch (grouping.groupBy) {
+        case 'category':
+          key = item.category ?? 'uncategorized'
+          label = this.formatGroupLabel(key, 'category')
+          break
+        case 'sender':
+          key = item.sender ?? 'unknown'
+          label = this.formatGroupLabel(key, 'sender')
+          break
+        case 'category_and_sender':
+          const cat = item.category ?? 'uncategorized'
+          const sender = item.sender ?? 'unknown'
+          key = `${cat}:${sender}`
+          label = `${this.formatGroupLabel(cat, 'category')} from ${sender}`
+          break
+        default:
+          key = 'all'
+          label = 'All Notifications'
+      }
+
+      const existing = groupMap.get(key) ?? []
+      existing.push(item)
+      groupMap.set(key, existing)
+    }
+
+    // Convert to array of groups
+    let groups: DigestGroup[] = Array.from(groupMap.entries()).map(([key, groupItems]) => ({
+      key,
+      label: this.formatGroupLabel(key, grouping.groupBy),
+      items: groupItems,
+    }))
+
+    // Sort by count if configured
+    if (grouping.sortByCount) {
+      groups.sort((a, b) => b.items.length - a.items.length)
+    }
+
+    // Limit groups if configured
+    if (grouping.maxGroups && groups.length > grouping.maxGroups) {
+      groups = groups.slice(0, grouping.maxGroups)
+    }
+
+    return groups
+  }
+
+  /**
+   * Format a group key into a human-readable label
+   */
+  private formatGroupLabel(key: string, type: DigestGroupBy): string {
+    if (key === 'all') return 'All Notifications'
+    if (key === 'uncategorized') return 'Other'
+    if (key === 'unknown') return 'Unknown Sender'
+
+    // Handle category_and_sender composite keys
+    if (type === 'category_and_sender' && key.includes(':')) {
+      const [cat, sender] = key.split(':')
+      return `${this.capitalizeFirst(cat ?? '')} from ${sender}`
+    }
+
+    // Capitalize and format the key
+    return this.capitalizeFirst(key.replace(/_/g, ' '))
+  }
+
+  private capitalizeFirst(str: string): string {
+    return str.charAt(0).toUpperCase() + str.slice(1)
+  }
+
+  /**
+   * Generate a default summary template for digest notifications
+   */
+  private generateDefaultDigestSummary(batch: DigestBatch, config: DigestConfig): NotificationContent {
+    const itemCount = batch.items.length
+    const groups = batch.groups ?? this.groupDigestItems(batch.items, config.grouping)
+
+    // Generate subject
+    let subject: string
+    if (config.subjectTemplate) {
+      subject = this.renderVariables(config.subjectTemplate, {
+        count: itemCount,
+        digestId: batch.digestId,
+      })
+    } else {
+      subject = `Your ${batch.digestId.replace(/_/g, ' ')} - ${itemCount} notification${itemCount !== 1 ? 's' : ''}`
+    }
+
+    // Generate body
+    let body = `You have ${itemCount} notification${itemCount !== 1 ? 's' : ''}.\n\n`
+
+    if (groups.length > 1) {
+      // Multiple groups - organize by group
+      for (const group of groups) {
+        body += `## ${group.label} (${group.items.length})\n`
+        for (const item of group.items.slice(0, 10)) {
+          // Limit to 10 items per group
+          body += `- ${item.subject ?? item.body.slice(0, 100)}\n`
+        }
+        if (group.items.length > 10) {
+          body += `  ...and ${group.items.length - 10} more\n`
+        }
+        body += '\n'
+      }
+    } else {
+      // Single group or no grouping - list all items
+      for (const item of batch.items.slice(0, 20)) {
+        body += `- ${item.subject ?? item.body.slice(0, 100)}\n`
+      }
+      if (batch.items.length > 20) {
+        body += `\n...and ${batch.items.length - 20} more notifications`
+      }
+    }
+
+    return { subject, body }
+  }
+
   private addToDigest(
     options: NotificationOptions,
     config: DigestConfig,
     notificationId: string
   ): NotificationResult {
     const digestKey = `${options.userId}:${options.digest}`
+    const intervalMs = this.getDigestIntervalMs(config)
 
     let batch = this.pendingDigests.get(digestKey)
     if (!batch) {
@@ -1214,18 +1465,28 @@ export class NotificationRouter {
         channels: config.channels,
         recipient: options.recipient,
         createdAt: new Date(),
-        scheduledAt: new Date(Date.now() + config.interval.toMillis()),
+        scheduledAt: new Date(Date.now() + intervalMs),
       }
       this.pendingDigests.set(digestKey, batch)
 
       // Schedule digest delivery
       const timer = setTimeout(() => {
         this.flushDigestInternal(digestKey, config)
-      }, config.interval.toMillis())
+      }, intervalMs)
       this.digestTimers.set(digestKey, timer)
     }
 
-    batch.items.push(options.content)
+    // Create DigestItem with enhanced metadata
+    const digestItem: DigestItem = {
+      ...options.content,
+      category: options.category,
+      sender: options.metadata?.sender as string | undefined,
+      priority: options.priority,
+      metadata: options.metadata,
+      timestamp: new Date(),
+    }
+
+    batch.items.push(digestItem)
 
     // Check if batch is full
     if (config.maxItems && batch.items.length >= config.maxItems) {
@@ -1253,6 +1514,10 @@ export class NotificationRouter {
 
     this.pendingDigests.delete(digestKey)
 
+    // Group items if grouping is configured
+    const groups = this.groupDigestItems(batch.items, config.grouping)
+    batch.groups = groups
+
     // Build digest notification
     const payload: NotificationPayload = {
       notificationId: generateId(),
@@ -1262,14 +1527,23 @@ export class NotificationRouter {
       items: batch.items,
     }
 
-    // If we have a template, render it
+    // If we have a template, render it with enhanced variables
     if (config.templateId) {
       const rendered = await this.renderTemplate(config.templateId, {
         items: batch.items,
         count: batch.items.length,
+        groups: groups,
+        groupCount: groups.length,
+        digestId: batch.digestId,
+        generatedAt: new Date().toISOString(),
       })
       payload.subject = rendered.subject
       payload.body = rendered.body
+    } else {
+      // Use default summary template
+      const defaultContent = this.generateDefaultDigestSummary(batch, config)
+      payload.subject = defaultContent.subject
+      payload.body = defaultContent.body
     }
 
     // Send digest to first available channel
@@ -1297,10 +1571,71 @@ export class NotificationRouter {
     await this.flushDigestInternal(digestKey, config)
   }
 
-  async getPendingDigest(userId: string, digestId: string): Promise<NotificationContent[]> {
+  async getPendingDigest(userId: string, digestId: string): Promise<DigestItem[]> {
     const digestKey = `${userId}:${digestId}`
     const batch = this.pendingDigests.get(digestKey)
     return batch?.items ?? []
+  }
+
+  /**
+   * Get a summary of the pending digest including grouped items
+   */
+  async getDigestSummary(userId: string, digestId: string): Promise<DigestSummary | undefined> {
+    const digestKey = `${userId}:${digestId}`
+    const batch = this.pendingDigests.get(digestKey)
+    const config = this.digests.get(digestId)
+
+    if (!batch) return undefined
+
+    const groups = this.groupDigestItems(batch.items, config?.grouping)
+
+    return {
+      userId,
+      digestId,
+      totalItems: batch.items.length,
+      groups,
+      generatedAt: new Date(),
+    }
+  }
+
+  /**
+   * Get all configured digest configurations
+   */
+  getDigestConfigs(): Map<string, DigestConfig> {
+    return new Map(this.digests)
+  }
+
+  /**
+   * Update user's digest scheduling preferences
+   */
+  async setDigestSchedule(userId: string, digestId: string, schedule: DigestSchedule): Promise<void> {
+    const prefs = await this.getPreferences(userId)
+
+    if (!prefs.digestPreferences) {
+      prefs.digestPreferences = {}
+    }
+
+    prefs.digestPreferences[digestId] = {
+      enabled: true,
+      interval: schedule.interval,
+    }
+
+    await this.setPreferences(userId, prefs)
+
+    // Reschedule if there's a pending digest
+    const digestKey = `${userId}:${digestId}`
+    const existingTimer = this.digestTimers.get(digestKey)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+      const config = this.digests.get(digestId)
+      if (config) {
+        const newIntervalMs = this.getDigestIntervalMs({ ...config, schedule })
+        const timer = setTimeout(() => {
+          this.flushDigestInternal(digestKey, config)
+        }, newIntervalMs)
+        this.digestTimers.set(digestKey, timer)
+      }
+    }
   }
 
   // ===========================================================================
@@ -1337,6 +1672,47 @@ export class NotificationRouter {
 
   getStats(): NotificationStats {
     return { ...this.stats }
+  }
+
+  // ===========================================================================
+  // Analytics Integration
+  // ===========================================================================
+
+  /**
+   * Attach delivery analytics to this router
+   * Analytics will automatically track all delivery events
+   */
+  attachAnalytics(analytics: DeliveryAnalytics): void {
+    this.analytics = analytics
+  }
+
+  /**
+   * Get the attached analytics instance
+   */
+  getAnalytics(): DeliveryAnalytics | undefined {
+    return this.analytics
+  }
+
+  /**
+   * Get recipient address for a specific channel
+   */
+  private getRecipientAddress(recipient: Recipient, channel: ChannelType): string | undefined {
+    switch (channel) {
+      case 'email':
+        return recipient.email
+      case 'sms':
+        return recipient.phone
+      case 'push':
+        return recipient.deviceToken
+      case 'slack':
+        return recipient.slackUserId
+      case 'webhook':
+        return recipient.webhookUrl
+      case 'in-app':
+        return undefined // No external address
+      default:
+        return undefined
+    }
   }
 
   // ===========================================================================
