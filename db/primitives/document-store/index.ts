@@ -121,6 +121,7 @@ export type {
   ProjectStage,
   ProjectionExpression,
   GroupStage,
+  GroupSpec,
   GroupId,
   AccumulatorExpression,
   CustomAccumulator,

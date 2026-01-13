@@ -244,12 +244,28 @@ export class CypherParser {
         continue
       }
 
-      // Numbers
-      if (isDigit(ch) || (ch === '.' && isDigit(input[pos + 1]))) {
+      // Numbers - but be careful about .. range operator
+      if (isDigit(ch) || (ch === '.' && isDigit(input[pos + 1]) && input[pos + 1] !== '.')) {
         let numStr = ''
-        while (pos < input.length && (isDigit(input[pos]) || input[pos] === '.')) {
-          numStr += input[pos]
-          pos++
+        let hasDecimal = false
+        while (pos < input.length) {
+          const c = input[pos]!
+          if (isDigit(c)) {
+            numStr += c
+            pos++
+          } else if (c === '.' && !hasDecimal) {
+            // Check for range operator ..
+            if (input[pos + 1] === '.') {
+              // This is the start of .., stop parsing number
+              break
+            }
+            // Regular decimal point
+            hasDecimal = true
+            numStr += c
+            pos++
+          } else {
+            break
+          }
         }
         tokens.push(createToken(TokenType.NUMBER, numStr, start))
         continue
@@ -905,15 +921,19 @@ export class CypherParser {
   }
 
   private parseReturnColumn(): ColumnSpec {
-    // Check for aggregate functions
     const token = this.current()
+
+    // Check for aggregate functions
     if (token.type === TokenType.KEYWORD && ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'COLLECT'].includes(token.value)) {
       const fnName = token.value
       this.advance()
       this.match('(')
 
       let columnArg = '*'
-      if (this.current().value !== ')') {
+      if (this.current().type === TokenType.OPERATOR && this.current().value === '*') {
+        this.advance()
+        columnArg = '*'
+      } else if (this.current().type !== TokenType.RPAREN) {
         columnArg = this.parseColumnRef()
       }
 
@@ -929,6 +949,16 @@ export class CypherParser {
         alias,
         include: true,
       }
+    }
+
+    // Check for number literal (e.g., RETURN 1)
+    if (token.type === TokenType.NUMBER) {
+      const value = this.advance().value
+      let alias: string | undefined
+      if (this.matchKeyword('AS')) {
+        alias = this.parseIdentifier()
+      }
+      return { source: value, alias, include: true }
     }
 
     // Regular column

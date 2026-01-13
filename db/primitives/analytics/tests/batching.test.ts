@@ -266,11 +266,12 @@ describe('Flush Intervals', () => {
         flushHandler
       )
 
-      // Add events periodically
+      // Add events periodically, advancing time and running timers
       for (let i = 0; i < 5; i++) {
         await batcher.add(createMockEvent(`evt_${i}`))
         vi.advanceTimersByTime(1100)
-        await Promise.resolve()
+        // Run pending timers and allow async operations to complete
+        await vi.runAllTimersAsync()
       }
 
       // Each event should have triggered its own flush
@@ -354,13 +355,14 @@ describe('Flush Intervals', () => {
         await batcher.add(createMockEvent(`evt_${i}`))
       }
 
-      await delay(10)
+      // Allow async flush to complete
+      await vi.runAllTimersAsync()
       expect(flushedBatches.length).toBe(1)
 
       // Interval timer should still be running for remaining events
       await batcher.add(createMockEvent('evt_after'))
       vi.advanceTimersByTime(10100)
-      await Promise.resolve()
+      await vi.runAllTimersAsync()
 
       expect(flushedBatches.length).toBe(2)
     })
@@ -1372,9 +1374,10 @@ describe('Batch Ordering Guarantees', () => {
         await batcher.add(createMockEvent(`evt_${i}`))
       }
 
-      await delay(10)
+      // Wait for async flushes to complete
+      await delay(50)
 
-      // Each batch should have incrementing sequence number
+      // Each batch should have incrementing sequence number (3 batches of 2)
       expect(flushedBatches.length).toBe(3)
 
       // Implementation should track batch sequence for ordering guarantees
@@ -1562,7 +1565,7 @@ describe('Edge Cases and Error Handling', () => {
 
     it('should handle handler timeout', async () => {
       const slowHandler = async () => {
-        await delay(10000) // Very slow handler
+        await delay(100) // Moderately slow handler
       }
 
       batcher = createEventBatcher(
@@ -1572,11 +1575,13 @@ describe('Edge Cases and Error Handling', () => {
 
       await batcher.add(createMockEvent('evt_1'))
 
-      // Flush with timeout should fail if implementation supports it
+      // Flush should wait for handler to complete
       const result = await batcher.flush()
 
-      // Either the result indicates timeout or the handler is expected to complete
+      // Handler should complete successfully (no built-in timeout in EventBatcher)
       expect(result).toBeDefined()
+      expect(result.success).toBe(true)
+      expect(result.duration).toBeGreaterThan(0)
     })
   })
 

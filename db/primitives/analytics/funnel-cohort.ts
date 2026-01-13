@@ -400,9 +400,9 @@ export class FunnelAnalyzer {
 
   constructor(config: FunnelConfig) {
     this.config = {
-      conversionWindow: 30 * 24 * 60 * 60 * 1000, // 30 days default
-      strictOrder: true,
       ...config,
+      conversionWindow: config.conversionWindow ?? 30 * 24 * 60 * 60 * 1000, // 30 days default
+      strictOrder: config.strictOrder ?? true,
     }
     this.userIdProp = config.userIdProperty || 'userId'
     this.timestampProp = config.timestampProperty || 'timestamp'

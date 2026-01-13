@@ -556,10 +556,13 @@ export type ProjectionExpression =
 
 /** Group stage - aggregate by key */
 export interface GroupStage {
-  $group: {
-    _id: GroupId
-    [field: string]: AccumulatorExpression
-  }
+  $group: GroupSpec
+}
+
+/** Group specification */
+export interface GroupSpec {
+  _id: GroupId
+  [field: string]: GroupId | AccumulatorExpression
 }
 
 /** Group ID specification */

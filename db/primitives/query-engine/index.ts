@@ -218,3 +218,37 @@ export {
   type ExecutionStats,
   type ExecutionResult,
 } from './executor/execution-engine'
+
+// =============================================================================
+// Memory Configuration
+// =============================================================================
+
+export {
+  // Constants
+  MEMORY_BUDGETS,
+  type MemoryBudgetKey,
+
+  // Size Estimation
+  estimateRowSetSize,
+  estimateHashTableSize,
+  estimateSortBufferSize,
+
+  // Decision Functions
+  shouldSpillToDisk,
+  shouldAbortQuery,
+  shouldUseStreaming,
+  shouldUseExternalSort,
+  isHashJoinBuildSideTooLarge,
+
+  // Memory Pressure
+  assessMemoryPressure,
+  type MemoryPressureLevel,
+  type MemoryPressureState,
+
+  // Batch Size
+  calculateOptimalBatchSize,
+
+  // Execution Hints
+  generateExecutionHints,
+  type ExecutionHints,
+} from './memory-config'
