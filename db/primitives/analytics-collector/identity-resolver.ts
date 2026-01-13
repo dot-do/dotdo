@@ -307,8 +307,7 @@ export class IdentityResolver {
       throw new Error('userId or anonymousId is required')
     }
 
-    // Check for identity merge scenario: new userId with existing anonymousId
-    // This happens when an anonymous user signs up with a new user ID
+    // Check for identity merge scenarios
     const existingUserCanonical = userId
       ? this.userToCanonical.get(userId)
       : undefined
@@ -316,7 +315,11 @@ export class IdentityResolver {
       ? this.anonymousToCanonical.get(anonymousId)
       : undefined
 
-    // If both exist and are different identities, we need to merge
+    // Determine the canonical identity to use
+    let canonicalId: string
+    let identity: ResolvedIdentity
+
+    // Case 1: Both userId and anonymousId map to existing but DIFFERENT identities
     if (
       existingUserCanonical &&
       existingAnonCanonical &&
@@ -331,17 +334,52 @@ export class IdentityResolver {
       if (mergeRecord) {
         merges.push(mergeRecord)
       }
-    }
-
-    // Find or create canonical identity
-    // Priority: user ID identity > anonymous ID identity > create new
-    let canonicalId = existingUserCanonical || existingAnonCanonical
-    let identity: ResolvedIdentity
-
-    if (canonicalId) {
+      canonicalId = existingUserCanonical
       identity = this.identities.get(canonicalId)!
-    } else {
-      // Create new identity
+    }
+    // Case 2: userId exists - use its identity
+    else if (existingUserCanonical) {
+      canonicalId = existingUserCanonical
+      identity = this.identities.get(canonicalId)!
+    }
+    // Case 3: userId is NEW but anonymousId already exists
+    // This is the key merge scenario: a new user claiming an existing anonymous ID
+    else if (userId && existingAnonCanonical) {
+      // The anonymous identity already belongs to a user (or is standalone)
+      // We need to check if that identity already has a user
+      const existingIdentity = this.identities.get(existingAnonCanonical)!
+      if (existingIdentity.userIds.length > 0 && !existingIdentity.userIds.includes(userId)) {
+        // The anonymous ID belongs to a different user - merge scenario!
+        // Create a new identity for the new user first
+        canonicalId = generateCanonicalId()
+        identity = createEmptyIdentity()
+        this.identities.set(canonicalId, identity)
+        this.options.onIdentityCreated?.(identity)
+
+        // Now merge the existing identity into the new one
+        const mergeRecord = this.mergeIdentities(
+          existingAnonCanonical,
+          canonicalId,
+          'identify'
+        )
+        if (mergeRecord) {
+          merges.push(mergeRecord)
+        }
+        // Refresh identity reference after merge
+        identity = this.identities.get(canonicalId)!
+      } else {
+        // Anonymous ID exists but has no other user - just add this user to it
+        canonicalId = existingAnonCanonical
+        identity = existingIdentity
+      }
+    }
+    // Case 4: Only anonymousId exists (no userId provided or userId doesn't exist)
+    else if (existingAnonCanonical) {
+      canonicalId = existingAnonCanonical
+      identity = this.identities.get(canonicalId)!
+    }
+    // Case 5: Neither exists - create new identity
+    else {
       canonicalId = generateCanonicalId()
       identity = createEmptyIdentity()
       this.identities.set(canonicalId, identity)
@@ -361,7 +399,7 @@ export class IdentityResolver {
     // Add anonymous ID if provided
     if (anonymousId) {
       // Check if this anonymous ID belongs to a different identity
-      // (may have changed after the merge above)
+      // (may have changed after merges above)
       const currentAnonCanonical = this.anonymousToCanonical.get(anonymousId)
 
       if (currentAnonCanonical && currentAnonCanonical !== canonicalId) {

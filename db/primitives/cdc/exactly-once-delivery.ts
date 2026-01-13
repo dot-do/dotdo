@@ -1071,12 +1071,12 @@ export class ExactlyOnceDelivery<T = unknown> {
     // Restore prepared transactions
     this.preparedTransactions.clear()
     for (const [txId, prepared] of state.preparedTransactions) {
-      this.preparedTransactions.set(txId, prepared)
+      this.preparedTransactions.set(txId, prepared as PreparedTransaction<T>)
     }
 
     // Restore DLQ
     this.deadLetterQueue.length = 0
-    this.deadLetterQueue.push(...state.deadLetterQueue)
+    this.deadLetterQueue.push(...(state.deadLetterQueue as DeadLetterEntry<T>[]))
 
     // Log checkpoint restore
     if (this.options.enableTransactionLogging) {

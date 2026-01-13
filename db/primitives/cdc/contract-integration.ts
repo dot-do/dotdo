@@ -252,8 +252,13 @@ function validateValue(
     const expectedTypes = Array.isArray(schema.type) ? schema.type : [schema.type]
 
     if (!expectedTypes.includes(actualType as typeof expectedTypes[number])) {
-      // Special case: integer is also valid as number
-      if (!(actualType === 'number' && expectedTypes.includes('integer') && Number.isInteger(value))) {
+      // Special case: integer is also valid as number, and number type accepts integers
+      const isIntegerMatchingNumber =
+        actualType === 'integer' && expectedTypes.includes('number')
+      const isNumberMatchingInteger =
+        actualType === 'number' && expectedTypes.includes('integer') && Number.isInteger(value)
+
+      if (!isIntegerMatchingNumber && !isNumberMatchingInteger) {
         if (!(value === null && expectedTypes.includes('null'))) {
           errors.push({
             path: path || 'root',

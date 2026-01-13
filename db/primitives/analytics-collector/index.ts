@@ -372,6 +372,207 @@ function parseUTMParams(url: string): CampaignInfo | undefined {
 }
 
 // ============================================================================
+// VALIDATION HELPERS
+// ============================================================================
+
+const MAX_EVENT_NAME_LENGTH = 200
+const MAX_USER_ID_LENGTH = 256
+const MAX_PROPERTIES_SIZE = 500 * 1024 // 500KB
+const MAX_NESTING_DEPTH = 10
+const MAX_TIMESTAMP_FUTURE_MS = 60 * 60 * 1000 // 1 hour
+const MAX_TIMESTAMP_PAST_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+function validateEventName(eventName: string): string {
+  if (!eventName || eventName.trim() === '') {
+    throw new Error('event name is required')
+  }
+
+  const trimmed = eventName.trim()
+
+  if (trimmed.length > MAX_EVENT_NAME_LENGTH) {
+    throw new Error(`event name exceeds maximum length of ${MAX_EVENT_NAME_LENGTH} characters`)
+  }
+
+  // Check for invalid characters (control characters like null byte)
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1F\x7F]/.test(trimmed)) {
+    throw new Error('event name contains invalid characters')
+  }
+
+  return trimmed
+}
+
+function validateUserId(userId: string | undefined): void {
+  if (userId === undefined) return
+
+  if (userId.trim() === '') return // Empty string handled by required check
+
+  if (userId.length > MAX_USER_ID_LENGTH) {
+    throw new Error(`userId exceeds maximum length of ${MAX_USER_ID_LENGTH} characters`)
+  }
+}
+
+function validateAnonymousId(anonymousId: string | undefined): void {
+  if (anonymousId === undefined) return
+
+  if (anonymousId.trim() === '') return // Empty string handled by required check
+
+  if (anonymousId.length > MAX_NESTING_DEPTH) {
+    // Check actual length limit
+    if (anonymousId.length > MAX_USER_ID_LENGTH) {
+      throw new Error(`anonymousId exceeds maximum length of ${MAX_USER_ID_LENGTH} characters`)
+    }
+  }
+}
+
+function validateMessageId(messageId: string | undefined): void {
+  if (messageId === undefined) return
+
+  // Must be alphanumeric with hyphens and underscores only
+  if (!/^[a-zA-Z0-9_-]+$/.test(messageId)) {
+    throw new Error('messageId must be alphanumeric with hyphens')
+  }
+}
+
+function checkCircularReference(obj: unknown, seen: WeakSet<object> = new WeakSet()): void {
+  if (obj === null || typeof obj !== 'object') return
+
+  if (seen.has(obj as object)) {
+    throw new Error('properties contain circular reference')
+  }
+
+  seen.add(obj as object)
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      checkCircularReference(item, seen)
+    }
+  } else {
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      checkCircularReference((obj as Record<string, unknown>)[key], seen)
+    }
+  }
+}
+
+function getObjectDepth(obj: unknown, currentDepth = 0): number {
+  if (obj === null || typeof obj !== 'object') return currentDepth
+
+  if (Array.isArray(obj)) {
+    let maxDepth = currentDepth
+    for (const item of obj) {
+      const itemDepth = getObjectDepth(item, currentDepth + 1)
+      if (itemDepth > maxDepth) maxDepth = itemDepth
+    }
+    return maxDepth
+  }
+
+  let maxDepth = currentDepth
+  for (const key of Object.keys(obj as Record<string, unknown>)) {
+    const itemDepth = getObjectDepth((obj as Record<string, unknown>)[key], currentDepth + 1)
+    if (itemDepth > maxDepth) maxDepth = itemDepth
+  }
+  return maxDepth
+}
+
+function serializeProperties(properties: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!properties) return properties
+
+  // Check for circular references first
+  checkCircularReference(properties)
+
+  // Check nesting depth
+  const depth = getObjectDepth(properties)
+  if (depth > MAX_NESTING_DEPTH) {
+    throw new Error(`properties exceed maximum nesting depth of ${MAX_NESTING_DEPTH}`)
+  }
+
+  // Serialize and check size
+  const serialized = serializeValue(properties) as Record<string, unknown>
+  const jsonStr = JSON.stringify(serialized)
+
+  if (jsonStr.length > MAX_PROPERTIES_SIZE) {
+    throw new Error('properties exceed maximum size of 500KB')
+  }
+
+  return serialized
+}
+
+function serializeValue(value: unknown): unknown {
+  if (value === null) return null
+  if (value === undefined) return undefined
+
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(serializeValue)
+  }
+
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [key, val] of Object.entries(value)) {
+      if (val !== undefined) {
+        result[key] = serializeValue(val)
+      }
+    }
+    return result
+  }
+
+  return value
+}
+
+function parseAndValidateTimestamp(timestamp: Date | string | number | undefined, validateRange = true): string {
+  if (timestamp === undefined) {
+    return new Date().toISOString()
+  }
+
+  let date: Date
+
+  if (timestamp instanceof Date) {
+    date = timestamp
+  } else if (typeof timestamp === 'number') {
+    // Detect if it's seconds or milliseconds
+    // If less than a reasonable millisecond timestamp (year 2001), assume seconds
+    if (timestamp < 1000000000000) {
+      date = new Date(timestamp * 1000)
+    } else {
+      date = new Date(timestamp)
+    }
+  } else if (typeof timestamp === 'string') {
+    date = new Date(timestamp)
+    if (isNaN(date.getTime())) {
+      throw new Error('invalid timestamp format')
+    }
+  } else {
+    throw new Error('invalid timestamp format')
+  }
+
+  // Validate timestamp range
+  if (validateRange) {
+    const now = Date.now()
+    const tsTime = date.getTime()
+
+    if (tsTime > now + MAX_TIMESTAMP_FUTURE_MS) {
+      throw new Error('timestamp cannot be more than 1 hour in the future')
+    }
+
+    if (tsTime < now - MAX_TIMESTAMP_PAST_MS) {
+      throw new Error('timestamp cannot be more than 30 days in the past')
+    }
+  }
+
+  return date.toISOString()
+}
+
+function isValidIdentifier(userId?: string, anonymousId?: string): boolean {
+  // Check if we have at least one valid identifier
+  const hasValidUserId = userId !== undefined && userId.trim() !== ''
+  const hasValidAnonymousId = anonymousId !== undefined && anonymousId.trim() !== ''
+  return hasValidUserId || hasValidAnonymousId
+}
+
+// ============================================================================
 // ANALYTICS COLLECTOR CLASS
 // ============================================================================
 
@@ -556,13 +757,24 @@ export class AnalyticsCollector {
       throw new Error('Analytics is closed')
     }
 
-    if (!event.userId && !event.anonymousId) {
+    // Validate identifiers
+    if (!isValidIdentifier(event.userId, event.anonymousId)) {
       throw new Error('userId or anonymousId is required')
     }
+    validateUserId(event.userId)
+    validateAnonymousId(event.anonymousId)
 
-    if (!event.event) {
-      throw new Error('event name is required')
-    }
+    // Validate event name
+    const validatedEventName = validateEventName(event.event)
+
+    // Validate messageId format if provided
+    validateMessageId(event.messageId)
+
+    // Validate and parse timestamp
+    const validatedTimestamp = parseAndValidateTimestamp(event.timestamp as Date | string | number | undefined)
+
+    // Validate and serialize properties
+    const validatedProperties = serializeProperties(event.properties)
 
     const session = this.getOrCreateSession(
       event.userId,
@@ -574,14 +786,11 @@ export class AnalyticsCollector {
     const queuedEvent: QueuedEvent = {
       type: 'track',
       messageId: event.messageId || generateId(),
-      timestamp:
-        event.timestamp instanceof Date
-          ? event.timestamp.toISOString()
-          : event.timestamp || new Date().toISOString(),
+      timestamp: validatedTimestamp,
       userId: event.userId,
       anonymousId: event.anonymousId,
-      event: event.event,
-      properties: event.properties,
+      event: validatedEventName,
+      properties: validatedProperties,
       context: this.enrichContext(event.context),
       integrations: event.integrations,
     }

@@ -6,9 +6,32 @@
  * - ROLLUP: Hierarchical subtotals
  * - Grouping sets: Custom dimension combinations
  * - Unified Analytics API: Fluent builder for all primitives
+ * - EventBatcher: Event batching with dead-letter queue and replay
  *
  * @module db/primitives/analytics
  */
+
+// ============================================================================
+// Event Batching with Dead Letter Queue and Replay
+// ============================================================================
+
+export {
+  // Factory function
+  createEventBatcher,
+
+  // Classes
+  EventBatcher,
+
+  // Types
+  type BatchConfig,
+  type BatchEvent,
+  type FlushResult,
+  type BatchStats,
+  type DeadLetterEntry,
+  type ReplayOptions,
+  type ReplayResult,
+  type DeadLetterStats,
+} from './event-batcher'
 
 export {
   // Grouping set generators

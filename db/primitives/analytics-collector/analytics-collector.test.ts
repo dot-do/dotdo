@@ -245,7 +245,7 @@ describe('Track Event', () => {
     })
 
     it('should use provided timestamp', async () => {
-      const customTime = new Date('2025-06-15T12:00:00Z')
+      const customTime = new Date(Date.now() - 1000) // 1 second ago
       await analytics.track({
         event: 'Test Event',
         userId: 'user_123',
@@ -637,15 +637,17 @@ describe('Track Event', () => {
 
   describe('timestamp handling', () => {
     it('should accept ISO 8601 string timestamp', async () => {
+      const recentDate = new Date(Date.now() - 5000) // 5 seconds ago
+      const isoString = recentDate.toISOString()
       await analytics.track({
         event: 'Test Event',
         userId: 'user_123',
-        timestamp: '2025-06-15T12:30:45.123Z',
+        timestamp: isoString,
       })
 
       await analytics.flush()
       expect((mockDest.events[0] as { timestamp: string }).timestamp).toBe(
-        '2025-06-15T12:30:45.123Z'
+        isoString
       )
     })
 

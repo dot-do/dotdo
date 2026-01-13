@@ -900,25 +900,70 @@ export class EdgePostgres {
   }
 
   /**
-   * Restore database state from FSX checkpoint
+   * Restore database state from FSX checkpoint.
+   *
+   * Supports both:
+   * - New chunked checkpoint format (checkpoint:meta + checkpoint:chunk:N)
+   * - Legacy single-value checkpoint format (for backward compatibility)
    */
   private async restoreFromCheckpoint(pg: PGlite): Promise<void> {
-    // Load checkpoint data from storage
-    // If storage access fails, let the error propagate to indicate initialization failure
-    const checkpointData = await this.ctx.storage.get<string>(
-      STORAGE_KEYS.CHECKPOINT
+    // First, try to load chunked checkpoint (new format)
+    const meta = await this.ctx.storage.get<CheckpointMeta>(
+      STORAGE_KEYS.CHECKPOINT_META
     )
 
-    if (checkpointData) {
-      try {
-        // Parse the checkpoint SQL and execute it to restore state
-        await pg.exec(checkpointData)
+    let checkpointSql: string | undefined
 
-        // Load checkpoint version
+    if (meta && meta.chunkCount > 0) {
+      // New chunked format - read all chunks and concatenate
+      try {
+        const chunks: string[] = []
+        for (let i = 0; i < meta.chunkCount; i++) {
+          const chunk = await this.ctx.storage.get<string>(
+            `${STORAGE_KEYS.CHECKPOINT_CHUNK_PREFIX}${i}`
+          )
+          if (chunk === undefined) {
+            console.warn(`Missing checkpoint chunk ${i} of ${meta.chunkCount}`)
+            break
+          }
+          chunks.push(chunk)
+        }
+
+        if (chunks.length === meta.chunkCount) {
+          checkpointSql = chunks.join('')
+
+          // Decompress if needed
+          if (meta.compressed) {
+            checkpointSql = decompressCheckpoint(checkpointSql)
+          }
+
+          this.checkpointVersion = meta.version
+        }
+      } catch (error) {
+        console.warn('Failed to restore chunked checkpoint:', error)
+      }
+    }
+
+    // Fall back to legacy single-value checkpoint
+    if (!checkpointSql) {
+      const legacyCheckpoint = await this.ctx.storage.get<string>(
+        STORAGE_KEYS.CHECKPOINT
+      )
+      if (legacyCheckpoint) {
+        checkpointSql = legacyCheckpoint
+
+        // Load checkpoint version from legacy storage
         const version = await this.ctx.storage.get<number>(
           STORAGE_KEYS.CHECKPOINT_VERSION
         )
         this.checkpointVersion = version ?? 0
+      }
+    }
+
+    // Execute checkpoint SQL if we have any
+    if (checkpointSql) {
+      try {
+        await pg.exec(checkpointSql)
       } catch (error) {
         // If SQL execution fails, log but don't fail initialization
         // This handles corrupt checkpoint data gracefully
@@ -1145,10 +1190,17 @@ export class EdgePostgres {
   // ==========================================================================
 
   /**
-   * Save database state to FSX storage
+   * Save database state to FSX storage using chunked storage.
    *
    * Creates a checkpoint of the current database state that can be
-   * restored on cold start.
+   * restored on cold start. Uses chunked storage to handle large
+   * checkpoints that exceed DO storage value limits.
+   *
+   * Features:
+   * - Splits checkpoint SQL into 100 KB chunks
+   * - Applies dictionary-based compression for SQL patterns
+   * - Warns when checkpoint size exceeds 1 MB
+   * - Maintains backward compatibility with legacy checkpoints
    *
    * @throws {CheckpointError} If the checkpoint fails to save
    *
@@ -1167,12 +1219,80 @@ export class EdgePostgres {
     try {
       // Export the database state as SQL
       const checkpointSql = await this.generateCheckpointSql()
+      const originalSize = checkpointSql.length
 
-      // Save to FSX storage
-      await this.ctx.storage.put(STORAGE_KEYS.CHECKPOINT, checkpointSql)
+      // Warn if checkpoint is large
+      if (originalSize > CHECKPOINT_SIZE_WARNING_THRESHOLD) {
+        console.warn(
+          `[EdgePostgres] Large checkpoint detected: ${formatBytes(originalSize)}. ` +
+          `Consider using R2 storage for very large datasets.`
+        )
+      }
 
-      // Increment and save version
+      // Apply compression for larger checkpoints (> 10 KB)
+      let dataToStore = checkpointSql
+      let compressed = false
+      if (originalSize > 10 * 1024) {
+        dataToStore = compressCheckpoint(checkpointSql)
+        compressed = true
+
+        const compressionRatio = (1 - dataToStore.length / originalSize) * 100
+        if (compressionRatio > 10) {
+          console.debug(
+            `[EdgePostgres] Checkpoint compressed: ${formatBytes(originalSize)} -> ${formatBytes(dataToStore.length)} (${compressionRatio.toFixed(1)}% reduction)`
+          )
+        }
+      }
+
+      // Split into chunks
+      const chunks = chunkString(dataToStore, MAX_CHUNK_SIZE)
+
+      if (chunks.length > MAX_CHUNKS) {
+        throw new CheckpointError(
+          `Checkpoint too large: ${chunks.length} chunks exceeds maximum of ${MAX_CHUNKS}. ` +
+          `Total size: ${formatBytes(originalSize)}. Consider using R2 storage for very large datasets.`
+        )
+      }
+
+      // Get current chunk count to know how many old chunks to clean up
+      const oldMeta = await this.ctx.storage.get<CheckpointMeta>(
+        STORAGE_KEYS.CHECKPOINT_META
+      )
+      const oldChunkCount = oldMeta?.chunkCount ?? 0
+
+      // Increment version
       this.checkpointVersion++
+
+      // Store chunks
+      for (let i = 0; i < chunks.length; i++) {
+        await this.ctx.storage.put(
+          `${STORAGE_KEYS.CHECKPOINT_CHUNK_PREFIX}${i}`,
+          chunks[i]
+        )
+      }
+
+      // Store metadata
+      const meta: CheckpointMeta = {
+        chunkCount: chunks.length,
+        totalSize: originalSize,
+        compressed,
+        version: this.checkpointVersion,
+        createdAt: new Date().toISOString(),
+      }
+      await this.ctx.storage.put(STORAGE_KEYS.CHECKPOINT_META, meta)
+
+      // Clean up old chunks that are no longer needed
+      for (let i = chunks.length; i < oldChunkCount; i++) {
+        await this.ctx.storage.delete(
+          `${STORAGE_KEYS.CHECKPOINT_CHUNK_PREFIX}${i}`
+        )
+      }
+
+      // Clean up legacy single-value checkpoint if it exists
+      // This migrates from old format to new chunked format
+      await this.ctx.storage.delete(STORAGE_KEYS.CHECKPOINT)
+
+      // Also update the version key for backward compatibility
       await this.ctx.storage.put(
         STORAGE_KEYS.CHECKPOINT_VERSION,
         this.checkpointVersion
@@ -1199,6 +1319,9 @@ export class EdgePostgres {
       this.dirty = false
       this.writeCount = 0
     } catch (error) {
+      if (error instanceof CheckpointError) {
+        throw error
+      }
       throw new CheckpointError(
         error instanceof Error ? error.message : 'Unknown error',
         error instanceof Error ? error : undefined

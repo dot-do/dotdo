@@ -1,7 +1,7 @@
 /**
- * Capability Mixins for Durable Objects
+ * Capabilities for Durable Objects
  *
- * This module exports all capability mixins that can be composed
+ * This module exports all capabilities that can be composed
  * with Durable Object classes to add optional features.
  *
  * @example
@@ -21,9 +21,9 @@
  * ```
  */
 
-// Infrastructure for creating custom mixins
+// Infrastructure for creating custom capabilities
 export {
-  createCapabilityMixin,
+  createCapability,
   type Constructor,
   type CapabilityContext,
   type CapabilityInit,

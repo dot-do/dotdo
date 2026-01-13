@@ -990,3 +990,46 @@ export * from './versioning'
 
 // Re-export registry for DO-backed contract storage
 export * from './registry'
+
+// Re-export evolution module
+export {
+  SchemaEvolution,
+  createSchemaEvolution,
+  isBackwardCompatible,
+  isForwardCompatible,
+  isFullyCompatible,
+  detectBreakingChanges,
+  suggestMigration,
+  DEFAULT_POLICIES,
+} from './evolution'
+
+export type {
+  CompatibilityMode,
+  EvolutionPolicy,
+  PolicyViolation,
+  SuggestedFix,
+  EvolutionResult,
+  MigrationOperation,
+  MigrationScript,
+} from './evolution'
+
+// Re-export runtime validator
+export {
+  ContractValidator,
+  ValidationException,
+  createValidator,
+  validateData,
+  validateBatch,
+} from './validator'
+
+export type {
+  StrictnessLevel,
+  ErrorStrategy,
+  ValidationOptions,
+  DeadLetterQueue,
+  ValidationTiming,
+  RuntimeValidationResult,
+  BatchValidationResult,
+  CustomValidator,
+  CustomValidationRule,
+} from './validator'

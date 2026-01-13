@@ -251,26 +251,129 @@ export class Clerk {
      * Update a user
      */
     updateUser: async (userId: string, params: UpdateUserParams): Promise<ClerkUser> => {
-      const user = await this.userManager.updateUser(userId, {
-        username: params.username,
-        password: params.password,
-        first_name: params.first_name ?? undefined,
-        last_name: params.last_name ?? undefined,
-        metadata: params.public_metadata,
-        app_metadata: {
-          ...params.private_metadata,
-          external_id: params.external_id,
-          unsafe_metadata: params.unsafe_metadata,
-        },
-      })
+      // First get existing user to merge app_metadata
+      const existingUser = await this.userManager.getUser(userId)
+      if (!existingUser) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
 
-      return this.toClerkUser(user)
+      // Handle skip_password_checks
+      const skipPasswordChecks = params.skip_password_checks ?? false
+      const passwordToUse = params.password
+
+      // Validate password unless skip_password_checks is true
+      if (passwordToUse && !skipPasswordChecks && passwordToUse.length < 8) {
+        throw new ClerkAPIError(422, [{ code: 'form_password_pwned', message: 'Password must be at least 8 characters' }])
+      }
+
+      // Build new app_metadata by merging existing with new values
+      const existingAppMetadata = existingUser.app_metadata ?? {}
+      const newAppMetadata: Record<string, unknown> = { ...existingAppMetadata }
+
+      // Update specific fields in app_metadata if provided
+      if (params.private_metadata !== undefined) {
+        newAppMetadata.private_metadata = params.private_metadata
+      }
+      if (params.unsafe_metadata !== undefined) {
+        newAppMetadata.unsafe_metadata = params.unsafe_metadata
+      }
+      if (params.external_id !== undefined) {
+        // Check for duplicate external_id
+        if (params.external_id) {
+          const existingUserId = await this.externalIdIndex.get(`external:${params.external_id}`)
+          if (existingUserId && existingUserId !== userId) {
+            throw new ClerkAPIError(422, [{ code: 'form_identifier_exists', message: 'A user with this external_id already exists' }])
+          }
+        }
+        // Update index
+        const oldExternalId = existingAppMetadata.external_id as string | undefined
+        if (oldExternalId && oldExternalId !== params.external_id) {
+          await this.externalIdIndex.put(`external:${oldExternalId}`, null as unknown as string, Date.now())
+        }
+        if (params.external_id) {
+          await this.externalIdIndex.put(`external:${params.external_id}`, userId, Date.now())
+        }
+        newAppMetadata.external_id = params.external_id
+      }
+      if (params.totp_secret !== undefined) {
+        newAppMetadata.totp_enabled = !!params.totp_secret
+        newAppMetadata.totp_secret = params.totp_secret
+        newAppMetadata.two_factor_enabled = !!params.totp_secret || !!(existingAppMetadata.backup_code_enabled)
+      }
+      if (params.backup_codes !== undefined) {
+        newAppMetadata.backup_code_enabled = !!params.backup_codes?.length
+        newAppMetadata.backup_codes = params.backup_codes
+        newAppMetadata.two_factor_enabled = !!(existingAppMetadata.totp_enabled) || !!params.backup_codes?.length
+      }
+      if (params.delete_self_enabled !== undefined) {
+        newAppMetadata.delete_self_enabled = params.delete_self_enabled
+      }
+      if (params.create_organization_enabled !== undefined) {
+        newAppMetadata.create_organization_enabled = params.create_organization_enabled
+      }
+      if (params.primary_email_address_id !== undefined) {
+        newAppMetadata.primary_email_address_id = params.primary_email_address_id
+      }
+      if (params.primary_phone_number_id !== undefined) {
+        newAppMetadata.primary_phone_number_id = params.primary_phone_number_id
+      }
+      if (params.password_digest !== undefined) {
+        newAppMetadata.password_digest = params.password_digest
+        newAppMetadata.password_enabled = true
+      }
+      if (skipPasswordChecks && passwordToUse) {
+        newAppMetadata.skip_password_hash = await this.hashSimplePassword(passwordToUse)
+        newAppMetadata.password_enabled = true
+      }
+
+      try {
+        // Check for duplicate username
+        if (params.username && params.username !== existingUser.username) {
+          const existingByUsername = await this.userManager.getUserByUsername(params.username)
+          if (existingByUsername && existingByUsername.id !== userId) {
+            throw new ClerkAPIError(422, [{ code: 'form_identifier_exists', message: 'A user with this username already exists' }])
+          }
+        }
+
+        const user = await this.userManager.updateUser(userId, {
+          username: params.username,
+          password: skipPasswordChecks ? undefined : passwordToUse,
+          first_name: params.first_name ?? undefined,
+          last_name: params.last_name ?? undefined,
+          metadata: params.public_metadata ?? existingUser.metadata,
+          app_metadata: newAppMetadata,
+        })
+
+        return this.toClerkUser(user)
+      } catch (error: unknown) {
+        if (error instanceof ClerkAPIError) {
+          throw error
+        }
+        if (error && typeof error === 'object' && 'code' in error) {
+          const authError = error as { code: string; message: string }
+          if (authError.code === 'user_exists') {
+            throw new ClerkAPIError(422, [{ code: 'form_identifier_exists', message: authError.message }])
+          }
+          if (authError.code === 'weak_password') {
+            throw new ClerkAPIError(422, [{ code: 'form_password_pwned', message: authError.message }])
+          }
+          if (authError.code === 'user_not_found') {
+            throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+          }
+        }
+        throw error
+      }
     },
 
     /**
      * Delete a user
      */
     deleteUser: async (userId: string): Promise<ClerkDeletedObject> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
       await this.userManager.deleteUser(userId)
 
       return {
@@ -1808,6 +1911,11 @@ export class Clerk {
     const deleteSelfEnabled = (user.app_metadata?.delete_self_enabled as boolean) ?? true
     const createOrganizationEnabled = (user.app_metadata?.create_organization_enabled as boolean) ?? true
 
+    // Get primary IDs, allowing overrides from app_metadata
+    const primaryEmailId = (user.app_metadata?.primary_email_address_id as string) ?? emailAddresses[0]?.id ?? null
+    const primaryPhoneId = (user.app_metadata?.primary_phone_number_id as string) ?? phoneNumbers[0]?.id ?? null
+    const primaryWeb3Id = (user.app_metadata?.primary_web3_wallet_id as string) ?? web3Wallets[0]?.id ?? null
+
     return {
       id: user.id,
       object: 'user',
@@ -1816,9 +1924,9 @@ export class Clerk {
       last_name: user.last_name ?? null,
       image_url: user.picture ?? '',
       has_image: !!user.picture,
-      primary_email_address_id: emailAddresses[0]?.id ?? null,
-      primary_phone_number_id: phoneNumbers[0]?.id ?? null,
-      primary_web3_wallet_id: web3Wallets[0]?.id ?? null,
+      primary_email_address_id: primaryEmailId,
+      primary_phone_number_id: primaryPhoneId,
+      primary_web3_wallet_id: primaryWeb3Id,
       password_enabled: passwordEnabled,
       two_factor_enabled: twoFactorEnabled,
       totp_enabled: totpEnabled,

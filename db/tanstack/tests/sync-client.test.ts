@@ -49,8 +49,8 @@ class MockWebSocket {
 
   constructor(url: string) {
     this.url = url
-    // Simulate async connection
-    setTimeout(() => this.simulateOpen(), 0)
+    // Note: We don't auto-open - tests must explicitly call simulateOpen()
+    // This allows tests to control the timing of connection establishment
   }
 
   addEventListener(type: string, listener: EventListener): void {
@@ -1198,5 +1198,222 @@ describe('SyncClient callback management', () => {
     // Note: disconnect() may still trigger internal close handling
     // The key test is that unsubscribe works
     expect(typeof unsubscribe).toBe('function')
+  })
+})
+
+// ============================================================================
+// TESTS: Heartbeat Handling
+// ============================================================================
+
+describe('SyncClient heartbeat handling', () => {
+  it('should respond to ping messages with pong', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    // Simulate ping message from server
+    const pingTimestamp = Date.now()
+    mockWebSocketInstances[0].simulateMessage({ type: 'ping', timestamp: pingTimestamp })
+
+    // Should have sent a pong response
+    await vi.waitFor(() => mockWebSocketInstances[0].sentMessages.length > 0)
+    const pongMessage = JSON.parse(mockWebSocketInstances[0].sentMessages[0])
+    expect(pongMessage.type).toBe('pong')
+    expect(pongMessage.timestamp).toBe(pingTimestamp)
+  })
+
+  it('should update lastActivityAt on any server message', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    // Initial activity should be recent
+    const initialAge = client.getLastActivityAge()
+    expect(initialAge).toBeLessThan(100) // Less than 100ms
+
+    // Wait a bit
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Age should have increased
+    const ageAfterWait = client.getLastActivityAge()
+    expect(ageAfterWait).toBeGreaterThanOrEqual(50)
+
+    // Simulate a message - should reset activity
+    mockWebSocketInstances[0].simulateMessage({ type: 'ping', timestamp: Date.now() })
+
+    const ageAfterMessage = client.getLastActivityAge()
+    expect(ageAfterMessage).toBeLessThan(50)
+  })
+
+  it('should not trigger onChange callbacks for ping messages', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+    const onChange = vi.fn()
+    client.onChange('Task', onChange)
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    // Simulate ping message
+    mockWebSocketInstances[0].simulateMessage({ type: 'ping', timestamp: Date.now() })
+
+    // onChange should not be called for ping
+    await new Promise((r) => setTimeout(r, 10))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+// ============================================================================
+// TESTS: Reconnection Enhancements
+// ============================================================================
+
+describe('SyncClient reconnection enhancements', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('should call onReconnect callback with attempt number', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+
+    const reconnectAttempts: number[] = []
+    client.onReconnect((attempt) => reconnectAttempts.push(attempt))
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    // Simulate unexpected disconnect
+    mockWebSocketInstances[0].simulateClose()
+
+    // First reconnect should fire callback with attempt 1
+    await vi.waitFor(() => reconnectAttempts.length > 0)
+    expect(reconnectAttempts[0]).toBe(1)
+
+    // Wait for reconnect attempt - note: the mock WebSocket auto-opens via setTimeout
+    // We need to advance timers enough to trigger the reconnect timer (1000ms)
+    // but then close the socket BEFORE the auto-open setTimeout(0) runs
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => mockWebSocketInstances.length > 1)
+
+    // The second socket's auto-open is scheduled via setTimeout(0).
+    // Close it immediately before advancing timers to prevent auto-open from resetting reconnectAttempts
+    mockWebSocketInstances[1].simulateClose()
+
+    // Second reconnect with attempt 2
+    await vi.waitFor(() => reconnectAttempts.length > 1)
+    expect(reconnectAttempts[1]).toBe(2)
+  })
+
+  it('should track reconnect attempt number', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+
+    expect(client.getReconnectAttempt()).toBe(0)
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    expect(client.getReconnectAttempt()).toBe(0)
+
+    // Simulate unexpected disconnect
+    mockWebSocketInstances[0].simulateClose()
+
+    // Reconnect attempt should be 1 (pending)
+    await vi.waitFor(() => client.getReconnectAttempt() === 1)
+    expect(client.getReconnectAttempt()).toBe(1)
+
+    // After successful reconnect, should reset to 0
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => mockWebSocketInstances.length > 1)
+    mockWebSocketInstances[1].simulateOpen()
+
+    await vi.waitFor(() => client.getReconnectAttempt() === 0)
+    expect(client.getReconnectAttempt()).toBe(0)
+  })
+
+  it('should allow removing onReconnect callback', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+
+    const reconnectAttempts: number[] = []
+    const unsubscribe = client.onReconnect((attempt) => reconnectAttempts.push(attempt))
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    // Unsubscribe before disconnect
+    unsubscribe()
+
+    // Simulate unexpected disconnect
+    mockWebSocketInstances[0].simulateClose()
+
+    // Wait a bit - callback should not be called
+    await vi.advanceTimersByTimeAsync(100)
+    expect(reconnectAttempts.length).toBe(0)
+  })
+
+  it('should track txid per collection for state resync', async () => {
+    const { createSyncClient } = await import('../sync-client')
+    const client = createSyncClient({ url: 'wss://test.example.com/sync' })
+
+    const connectPromise = client.connect()
+    await vi.waitFor(() => mockWebSocketInstances.length > 0)
+    mockWebSocketInstances[0].simulateOpen()
+    await connectPromise
+
+    client.subscribe('Task')
+
+    // Simulate initial message with txid
+    const initialMessage = {
+      type: 'initial',
+      collection: 'Task',
+      branch: null,
+      data: [{ $id: 'task-1', $type: 'Task', name: 'Task 1', createdAt: '2024-01-01', updatedAt: '2024-01-01' }],
+      txid: 100,
+    }
+    mockWebSocketInstances[0].simulateMessage(initialMessage)
+
+    // Simulate change message
+    const changeMessage = {
+      type: 'insert',
+      collection: 'Task',
+      branch: null,
+      key: 'task-2',
+      data: { $id: 'task-2', $type: 'Task', name: 'Task 2', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      txid: 150,
+    }
+    mockWebSocketInstances[0].simulateMessage(changeMessage)
+
+    // After reconnect, should re-subscribe (txid tracking is internal)
+    mockWebSocketInstances[0].simulateClose()
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => mockWebSocketInstances.length > 1)
+    mockWebSocketInstances[1].simulateOpen()
+
+    // Should re-subscribe to Task
+    await vi.waitFor(() => mockWebSocketInstances[1].sentMessages.length > 0)
+    const resubscribeMessage = JSON.parse(mockWebSocketInstances[1].sentMessages[0])
+    expect(resubscribeMessage.type).toBe('subscribe')
+    expect(resubscribeMessage.collection).toBe('Task')
   })
 })

@@ -1,7 +1,7 @@
 /**
- * VectorRouter - Tiered vector search routing
+ * VectorManager - Tiered vector search management
  *
- * Routes vector operations across multiple backends:
+ * Manages vector operations across multiple backends:
  * - Hot tier: libsql (SQLite F32_BLOB), edgevec (WASM HNSW)
  * - Warm tier: Cloudflare Vectorize
  * - Cold tier: ClickHouse ANN, Iceberg Parquet
@@ -200,13 +200,13 @@ export function createVectorEngine(
 }
 
 // ============================================================================
-// VECTOR ROUTER
+// VECTOR MANAGER
 // ============================================================================
 
 type TierName = 'hot' | 'warm' | 'cold'
 const TIER_ORDER: TierName[] = ['hot', 'warm', 'cold']
 
-export class VectorRouter {
+export class VectorManager {
   readonly config: VectorConfig
   private engines: Map<TierName, VectorEngine> = new Map()
   private bindings: unknown

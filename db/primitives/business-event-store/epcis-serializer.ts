@@ -1058,14 +1058,12 @@ ${eventListXml}
   // XML Generation Helpers
 
   private eventToXml(event: EPCISEvent): string {
-    // Single event XML includes namespace declarations at the event level
+    // Single event XML with namespace declarations at the root
     const eventXml = this.eventToXmlFragment(event, false)
-    // Insert namespace attributes into the opening tag
-    const eventType = event.type
-    const namespaceAttrs = ' xmlns:epcis="urn:epcglobal:epcis:xsd:2" xmlns:cbv="urn:epcglobal:cbv:xsd:1"'
-    const modifiedXml = eventXml.replace(`<${eventType}>`, `<${eventType}${namespaceAttrs}>`)
     return `<?xml version="1.0" encoding="UTF-8"?>
-${modifiedXml}`
+<epcis:EPCISEvent xmlns:epcis="urn:epcglobal:epcis:xsd:2" xmlns:cbv="urn:epcglobal:cbv:xsd:1">
+${eventXml}
+</epcis:EPCISEvent>`
   }
 
   private eventToXmlFragment(event: EPCISEvent, includeNamespace = false): string {

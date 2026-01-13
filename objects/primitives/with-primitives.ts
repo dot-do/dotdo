@@ -1,7 +1,7 @@
 /**
- * With Primitives Mixin
+ * withPrimitives Capability
  *
- * A capability mixin that adds the unified primitives to any Durable Object class.
+ * A capability that adds the unified primitives to any Durable Object class.
  * Provides zero-config access to:
  * - TemporalStore: Time-aware key-value storage
  * - WindowManager: Stream windowing and aggregation
@@ -29,7 +29,7 @@
  */
 
 import {
-  createCapabilityMixin,
+  createCapability,
   type Constructor,
   type CapabilityContext,
 } from '../mixins/infrastructure'
@@ -70,7 +70,7 @@ export { WindowManager }
 /**
  * Primitives capability interface
  *
- * Exposed via `this.$.primitives` when using the withPrimitives mixin.
+ * Exposed via `this.$.primitives` when using the withPrimitives capability.
  */
 export interface PrimitivesCapability {
   /**
@@ -220,7 +220,7 @@ function createPrimitivesCapability(ctx: CapabilityContext): PrimitivesCapabilit
 }
 
 /**
- * Primitives mixin
+ * withPrimitives capability
  *
  * Adds unified primitives capability to a Durable Object class.
  *
@@ -241,14 +241,14 @@ function createPrimitivesCapability(ctx: CapabilityContext): PrimitivesCapabilit
  *   }
  * }
  *
- * // Compose with other mixins
+ * // Compose with other capabilities
  * import { withFs } from 'dotdo/mixins'
  * class FullDO extends withFs(withPrimitives(DO)) {
  *   // Has both $.primitives and $.fs
  * }
  * ```
  */
-export const withPrimitives = createCapabilityMixin('primitives', createPrimitivesCapability)
+export const withPrimitives = createCapability('primitives', createPrimitivesCapability)
 
 /**
  * Type helper for classes using withPrimitives

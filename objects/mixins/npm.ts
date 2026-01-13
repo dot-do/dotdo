@@ -1,7 +1,7 @@
 /**
- * withNpm Mixin - NPM Package Management Capability for Durable Objects
+ * withNpm Capability - NPM Package Management Capability for Durable Objects
  *
- * This mixin adds the $.npm capability to Durable Objects, providing
+ * This capability adds the $.npm API to Durable Objects, providing
  * npm-like package management operations including resolution, installation,
  * and script execution.
  *
@@ -31,7 +31,7 @@
  * @see dotdo-zjxth for design details
  */
 
-import { createCapabilityMixin, type Constructor, type CapabilityContext } from './infrastructure'
+import { createCapability, type Constructor, type CapabilityContext } from './infrastructure'
 import type { FsCapability, WithFsContext } from './fs'
 
 // Core imports - shared with NpmDO for single source of truth
@@ -59,7 +59,7 @@ export interface BashResult {
 }
 
 /**
- * Configuration options for the withNpm mixin
+ * Configuration options for the withNpm capability
  */
 export interface WithNpmOptions {
   /** Custom npm registry URL (default: https://registry.npmjs.org) */
@@ -174,7 +174,7 @@ export interface NpmCapability {
 
   /**
    * Run an npm script from package.json.
-   * Requires withBash capability.
+   * Requires withBash.
    */
   run(script: string): Promise<BashResult>
 
@@ -414,7 +414,7 @@ class NpmModule implements NpmCapability {
 
   async run(script: string): Promise<BashResult> {
     if (!this.bash) {
-      throw new Error('withNpm.run() requires withBash capability. Apply withBash mixin to use npm scripts.')
+      throw new Error('withNpm.run() requires withBash capability. Apply withBash to use npm scripts.')
     }
 
     const packageJsonExists = await this.fs.exists('/package.json')
@@ -507,7 +507,7 @@ class NpmModule implements NpmCapability {
 }
 
 // ============================================================================
-// MIXIN IMPLEMENTATION
+// CAPABILITY IMPLEMENTATION
 // ============================================================================
 
 /**
@@ -518,7 +518,7 @@ function createNpmInit(options: WithNpmOptions = {}) {
     // Get fs capability from context
     const $ = ctx.$ as WithFsContext
     if (!$.fs) {
-      throw new Error('withNpm requires withFs capability. Apply withFs mixin first.')
+      throw new Error('withNpm requires withFs capability. Apply withFs first.')
     }
 
     // Get optional bash capability
@@ -532,18 +532,18 @@ function createNpmInit(options: WithNpmOptions = {}) {
 }
 
 /**
- * Base mixin without options - uses default configuration
+ * Base capability without options - uses default configuration
  */
-const baseNpmMixin = createCapabilityMixin<'npm', NpmCapability>('npm', createNpmInit())
+const baseNpmCapability = createCapability<'npm', NpmCapability>('npm', createNpmInit())
 
 /**
- * withNpm mixin - adds $.npm capability to a Durable Object class
+ * withNpm capability - adds $.npm capability to a Durable Object class
  *
- * This mixin provides npm-like package management operations backed by
+ * This capability provides npm-like package management operations backed by
  * the $.fs capability for storage.
  *
- * **Requires**: withFs capability must be applied first
- * **Optional**: withBash capability (required for $.npm.run())
+ * **Requires**: withFs must be applied first
+ * **Optional**: withBash (required for $.npm.run())
  *
  * @param Base - The base DO class to extend (must have withFs applied)
  * @param options - Optional configuration for the npm capability
@@ -584,9 +584,9 @@ export function withNpm<TBase extends Constructor<{ ctx: DurableObjectState; env
   options?: WithNpmOptions
 ): TBase & Constructor<{ hasCapability(name: string): boolean }> {
   if (options) {
-    const customMixin = createCapabilityMixin<'npm', NpmCapability>('npm', createNpmInit(options))
-    return customMixin(Base)
+    const customCapability = createCapability<'npm', NpmCapability>('npm', createNpmInit(options))
+    return customCapability(Base)
   }
 
-  return baseNpmMixin(Base)
+  return baseNpmCapability(Base)
 }

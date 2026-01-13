@@ -717,6 +717,233 @@ describe('EdgePostgres', () => {
       await db2.close()
       db = null as unknown as EdgePostgres
     })
+
+    it('should use chunked storage for checkpoints', async () => {
+      // Insert enough data to require multiple chunks (> 100 KB each)
+      // Each row is ~100 bytes, so 1000 rows = ~100 KB
+      await db.exec('CREATE TABLE chunked_test (id TEXT PRIMARY KEY, data TEXT)')
+
+      for (let i = 0; i < 200; i++) {
+        // Each value is ~500 bytes to create meaningful checkpoint size
+        const data = `data-${i}-${'x'.repeat(450)}`
+        await db.query('INSERT INTO chunked_test VALUES ($1, $2)', [`id-${i}`, data])
+      }
+
+      await db.checkpoint()
+
+      // Verify chunked metadata exists
+      const meta = await ctx.storage.get('edge_postgres_checkpoint_meta')
+      expect(meta).toBeDefined()
+      expect(typeof meta).toBe('object')
+      const checkpointMeta = meta as { chunkCount: number; totalSize: number; compressed: boolean; version: number }
+      expect(checkpointMeta.chunkCount).toBeGreaterThanOrEqual(1)
+      expect(checkpointMeta.totalSize).toBeGreaterThan(0)
+      expect(checkpointMeta.version).toBe(1)
+
+      // Verify chunk data exists
+      const chunk0 = await ctx.storage.get('edge_postgres_checkpoint_chunk:0')
+      expect(chunk0).toBeDefined()
+      expect(typeof chunk0).toBe('string')
+
+      await db.close()
+
+      // Restore from chunked checkpoint
+      const db2 = new EdgePostgres(ctx, env)
+      const result = await db2.query('SELECT COUNT(*) as count FROM chunked_test')
+      expect(result.rows[0].count).toBe(200)
+
+      await db2.close()
+      db = null as unknown as EdgePostgres
+    })
+
+    it('should apply compression to large checkpoints', async () => {
+      // Insert repetitive data that compresses well
+      await db.exec('CREATE TABLE compress_test (id TEXT PRIMARY KEY, type TEXT, value TEXT)')
+
+      for (let i = 0; i < 100; i++) {
+        await db.query(
+          'INSERT INTO compress_test VALUES ($1, $2, $3)',
+          [`id-${i}`, 'TEXT', 'value-' + 'x'.repeat(100)]
+        )
+      }
+
+      await db.checkpoint()
+
+      // Verify compression was applied
+      const meta = await ctx.storage.get('edge_postgres_checkpoint_meta') as { compressed: boolean; totalSize: number }
+      expect(meta).toBeDefined()
+      expect(meta.compressed).toBe(true)
+
+      // Verify data can be restored
+      await db.close()
+      const db2 = new EdgePostgres(ctx, env)
+      const result = await db2.query('SELECT COUNT(*) as count FROM compress_test')
+      expect(result.rows[0].count).toBe(100)
+
+      await db2.close()
+      db = null as unknown as EdgePostgres
+    })
+
+    it('should migrate from legacy checkpoint format', async () => {
+      // Simulate legacy checkpoint by directly writing to storage
+      const legacySql = `
+        CREATE TABLE IF NOT EXISTS legacy_table (id TEXT PRIMARY KEY, name TEXT);
+        INSERT INTO legacy_table (id, name) VALUES ('legacy-1', 'Legacy Item') ON CONFLICT DO NOTHING;
+      `
+      await ctx.storage.put('edge_postgres_checkpoint', legacySql)
+      await ctx.storage.put('edge_postgres_checkpoint_version', 5)
+      await db.close()
+
+      // Create new instance - should restore from legacy format
+      const db2 = new EdgePostgres(ctx, env)
+      const result = await db2.query('SELECT * FROM legacy_table')
+      expect(result.rows).toHaveLength(1)
+      expect(result.rows[0].name).toBe('Legacy Item')
+
+      // Checkpoint again - should migrate to chunked format
+      await db2.query('INSERT INTO legacy_table VALUES ($1, $2)', ['legacy-2', 'New Item'])
+      await db2.checkpoint()
+
+      // Verify legacy key was cleaned up
+      const legacyCheckpoint = await ctx.storage.get('edge_postgres_checkpoint')
+      expect(legacyCheckpoint).toBeUndefined()
+
+      // Verify new format exists
+      const meta = await ctx.storage.get('edge_postgres_checkpoint_meta')
+      expect(meta).toBeDefined()
+
+      await db2.close()
+      db = null as unknown as EdgePostgres
+    })
+
+    it('should clean up old chunks when checkpoint shrinks', async () => {
+      await db.exec('CREATE TABLE shrink_test (id TEXT PRIMARY KEY, data TEXT)')
+
+      // Insert lots of data
+      for (let i = 0; i < 100; i++) {
+        await db.query('INSERT INTO shrink_test VALUES ($1, $2)', [`id-${i}`, 'x'.repeat(500)])
+      }
+      await db.checkpoint()
+
+      const metaBefore = await ctx.storage.get('edge_postgres_checkpoint_meta') as { chunkCount: number }
+      const chunkCountBefore = metaBefore.chunkCount
+
+      // Delete most data
+      await db.query('DELETE FROM shrink_test WHERE id != $1', ['id-0'])
+      await db.checkpoint()
+
+      const metaAfter = await ctx.storage.get('edge_postgres_checkpoint_meta') as { chunkCount: number }
+
+      // Verify old chunks are cleaned up
+      expect(metaAfter.chunkCount).toBeLessThan(chunkCountBefore)
+
+      // Verify orphan chunks don't exist
+      for (let i = metaAfter.chunkCount; i < chunkCountBefore; i++) {
+        const orphanChunk = await ctx.storage.get(`edge_postgres_checkpoint_chunk:${i}`)
+        expect(orphanChunk).toBeUndefined()
+      }
+
+      await db.close()
+      db = null as unknown as EdgePostgres
+    })
+  })
+
+  // ==========================================================================
+  // CHUNKED CHECKPOINT WITH VECTORS
+  // ==========================================================================
+
+  describe('Chunked Checkpoint with Vectors', () => {
+    beforeEach(async () => {
+      db = new EdgePostgres(ctx, env, {
+        pglite: { extensions: ['pgvector'] },
+      })
+      await db.exec(`
+        CREATE EXTENSION IF NOT EXISTS vector;
+        CREATE TABLE IF NOT EXISTS vector_docs (
+          id TEXT PRIMARY KEY,
+          content TEXT,
+          embedding vector(128)
+        );
+      `)
+    })
+
+    it('should checkpoint and restore vector data across multiple chunks', async () => {
+      // Insert vector data - each 128-dim vector is ~1.5 KB as SQL text
+      // 100 rows = ~150 KB which should require multiple chunks
+      for (let i = 0; i < 100; i++) {
+        const embedding = Array.from({ length: 128 }, () => Math.random())
+        await db.query(
+          'INSERT INTO vector_docs VALUES ($1, $2, $3)',
+          [`doc-${i}`, `Content for document ${i}`, embedding]
+        )
+      }
+
+      await db.checkpoint()
+
+      // Verify chunked storage was used
+      const meta = await ctx.storage.get('edge_postgres_checkpoint_meta') as { chunkCount: number; totalSize: number }
+      expect(meta).toBeDefined()
+      expect(meta.chunkCount).toBeGreaterThanOrEqual(1)
+
+      await db.close()
+
+      // Restore and verify
+      const db2 = new EdgePostgres(ctx, env, {
+        pglite: { extensions: ['pgvector'] },
+      })
+
+      const countResult = await db2.query('SELECT COUNT(*) as count FROM vector_docs')
+      expect(countResult.rows[0].count).toBe(100)
+
+      // Verify vector search still works
+      const queryVector = Array.from({ length: 128 }, () => 0.5)
+      const searchResult = await db2.query(`
+        SELECT id FROM vector_docs ORDER BY embedding <-> $1 LIMIT 5
+      `, [queryVector])
+      expect(searchResult.rows).toHaveLength(5)
+
+      await db2.close()
+      db = null as unknown as EdgePostgres
+    })
+
+    it('should handle 1000+ vector rows (1536 dims simulation with smaller vectors)', async () => {
+      // Use 64-dim vectors to simulate the proportional challenge
+      // 1000 x 64-dim = similar proportional size challenge as 156 x 1536-dim
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS large_vector_test (
+          id TEXT PRIMARY KEY,
+          embedding vector(64)
+        );
+      `)
+
+      for (let i = 0; i < 500; i++) {
+        const embedding = Array.from({ length: 64 }, () => Math.random())
+        await db.query(
+          'INSERT INTO large_vector_test VALUES ($1, $2)',
+          [`vec-${i}`, embedding]
+        )
+      }
+
+      // This would have failed with the old single-value storage approach
+      await db.checkpoint()
+
+      const meta = await ctx.storage.get('edge_postgres_checkpoint_meta') as { chunkCount: number; totalSize: number }
+      expect(meta).toBeDefined()
+      expect(meta.totalSize).toBeGreaterThan(100 * 1024) // > 100 KB
+
+      await db.close()
+
+      // Verify restoration
+      const db2 = new EdgePostgres(ctx, env, {
+        pglite: { extensions: ['pgvector'] },
+      })
+
+      const result = await db2.query('SELECT COUNT(*) as count FROM large_vector_test')
+      expect(result.rows[0].count).toBe(500)
+
+      await db2.close()
+      db = null as unknown as EdgePostgres
+    })
   })
 
   // ==========================================================================

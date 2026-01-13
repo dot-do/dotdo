@@ -305,7 +305,7 @@ describe('DAGScheduleManager', () => {
 
       const updated = await manager.updateTrigger('my-dag', { type: 'cron', cron: '0 18 * * *' })
 
-      expect(updated.trigger.cron).toBe('0 18 * * *')
+      expect(updated.trigger.type === 'cron' && updated.trigger.cron).toBe('0 18 * * *')
       // Next run should be today at 6pm
       expect(updated.nextRunAt).toEqual(new Date('2026-01-12T18:00:00.000Z'))
     })
@@ -608,7 +608,7 @@ describe('Fluent API Integration', () => {
 
       const schedule = await every.day.at('noon').run(dag)
 
-      expect(schedule.trigger.cron).toBe('0 12 * * *')
+      expect(schedule.trigger.type === 'cron' && schedule.trigger.cron).toBe('0 12 * * *')
     })
 
     it("should schedule $.every.day.at('9:30am').run(dag)", async () => {
@@ -617,7 +617,7 @@ describe('Fluent API Integration', () => {
 
       const schedule = await every.day.at('9:30am').run(dag)
 
-      expect(schedule.trigger.cron).toBe('30 9 * * *')
+      expect(schedule.trigger.type === 'cron' && schedule.trigger.cron).toBe('30 9 * * *')
     })
   })
 
@@ -628,7 +628,7 @@ describe('Fluent API Integration', () => {
 
       const schedule = await every.Monday.at('9am').run(dag)
 
-      expect(schedule.trigger.cron).toBe('0 9 * * 1')
+      expect(schedule.trigger.type === 'cron' && schedule.trigger.cron).toBe('0 9 * * 1')
     })
 
     it('should schedule $.every.Friday.at5pm.run(dag)', async () => {
@@ -637,7 +637,7 @@ describe('Fluent API Integration', () => {
 
       const schedule = await every.Friday.at5pm.run(dag)
 
-      expect(schedule.trigger.cron).toBe('0 17 * * 5')
+      expect(schedule.trigger.type === 'cron' && schedule.trigger.cron).toBe('0 17 * * 5')
     })
 
     it("should schedule $.every.weekday.at('8am').run(dag)", async () => {
@@ -646,7 +646,7 @@ describe('Fluent API Integration', () => {
 
       const schedule = await every.weekday.at('8am').run(dag)
 
-      expect(schedule.trigger.cron).toBe('0 8 * * 1-5')
+      expect(schedule.trigger.type === 'cron' && schedule.trigger.cron).toBe('0 8 * * 1-5')
     })
 
     it("should schedule $.every.weekend.at('10am').run(dag)", async () => {
@@ -655,7 +655,7 @@ describe('Fluent API Integration', () => {
 
       const schedule = await every.weekend.at('10am').run(dag)
 
-      expect(schedule.trigger.cron).toBe('0 10 * * 0,6')
+      expect(schedule.trigger.type === 'cron' && schedule.trigger.cron).toBe('0 10 * * 0,6')
     })
   })
 

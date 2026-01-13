@@ -1,10 +1,10 @@
 /**
- * Mixin Infrastructure Tests (RED TDD)
+ * Capability Infrastructure Tests (RED TDD)
  *
- * These tests verify the capability mixin infrastructure in DOBase.
+ * These tests verify the capability infrastructure in DOBase.
  * Tests should FAIL initially until the infrastructure is implemented.
  *
- * The mixin infrastructure enables:
+ * The capability infrastructure enables:
  * - Opt-in capabilities via withX(Base) pattern
  * - Capability detection via hasCapability()
  * - Lazy initialization of capability APIs
@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // These imports will FAIL until infrastructure is implemented
 import {
-  createCapabilityMixin,
+  createCapability,
   type Constructor,
   type CapabilityInit,
   type CapabilityMixin,
@@ -134,7 +134,7 @@ function resetTracker() {
 // TESTS: hasCapability()
 // ============================================================================
 
-describe('Mixin Infrastructure', () => {
+describe('Capability Infrastructure', () => {
   beforeEach(() => {
     resetTracker()
   })
@@ -164,13 +164,13 @@ describe('Mixin Infrastructure', () => {
   })
 
   // ==========================================================================
-  // TESTS: Mixin adds capability to $ context
+  // TESTS: Capability adds capability to $ context
   // ==========================================================================
 
-  describe('Mixin adds capability to $ context', () => {
-    it('mixin adds capability to $ context', () => {
-      // Create a test mixin using createCapabilityMixin
-      const withTestA = createCapabilityMixin<'testA', TestCapabilityA>(
+  describe('Capability adds capability to $ context', () => {
+    it('capability adds capability to $ context', () => {
+      // Create a test capability using createCapability
+      const withTestA = createCapability<'testA', TestCapabilityA>(
         'testA',
         () => {
           initializationTracker.capabilityA.initialized = true
@@ -197,7 +197,7 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('capability API methods are callable', () => {
-      const withTestA = createCapabilityMixin<'testA', TestCapabilityA>(
+      const withTestA = createCapability<'testA', TestCapabilityA>(
         'testA',
         () => {
           let value = 0
@@ -222,13 +222,13 @@ describe('Mixin Infrastructure', () => {
   })
 
   // ==========================================================================
-  // TESTS: Mixins compose in correct order
+  // TESTS: Capabilities compose in correct order
   // ==========================================================================
 
-  describe('Mixins compose in correct order', () => {
+  describe('Capabilities compose in correct order', () => {
     it('withB(withA(DOBase)) has both capabilities', () => {
-      // Create two mixins
-      const withA = createCapabilityMixin<'a', TestCapabilityA>(
+      // Create two capabilities
+      const withA = createCapability<'a', TestCapabilityA>(
         'a',
         () => {
           initializationTracker.capabilityA.initialized = true
@@ -240,7 +240,7 @@ describe('Mixin Infrastructure', () => {
         }
       )
 
-      const withB = createCapabilityMixin<'b', TestCapabilityB>(
+      const withB = createCapability<'b', TestCapabilityB>(
         'b',
         () => {
           initializationTracker.capabilityB.initialized = true
@@ -267,13 +267,13 @@ describe('Mixin Infrastructure', () => {
       expect((doInstance.$ as any).b).toBeDefined()
     })
 
-    it('static capabilities array contains all mixin capabilities', () => {
-      const withA = createCapabilityMixin<'a', TestCapabilityA>(
+    it('static capabilities array contains all capability names', () => {
+      const withA = createCapability<'a', TestCapabilityA>(
         'a',
         () => ({ getValue: () => 0, increment: () => {} })
       )
 
-      const withB = createCapabilityMixin<'b', TestCapabilityB>(
+      const withB = createCapability<'b', TestCapabilityB>(
         'b',
         () => ({ getMessage: () => '', setMessage: () => {} })
       )
@@ -287,12 +287,12 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('composition order does not affect capability availability', () => {
-      const withA = createCapabilityMixin<'a', TestCapabilityA>(
+      const withA = createCapability<'a', TestCapabilityA>(
         'a',
         () => ({ getValue: () => 0, increment: () => {} })
       )
 
-      const withB = createCapabilityMixin<'b', TestCapabilityB>(
+      const withB = createCapability<'b', TestCapabilityB>(
         'b',
         () => ({ getMessage: () => '', setMessage: () => {} })
       )
@@ -322,7 +322,7 @@ describe('Mixin Infrastructure', () => {
 
   describe('Capability initialization is lazy', () => {
     it('capability is NOT initialized on DO construction', () => {
-      const withLazy = createCapabilityMixin<'lazy', LazyCapability>(
+      const withLazy = createCapability<'lazy', LazyCapability>(
         'lazy',
         () => {
           initializationTracker.lazy.initialized = true
@@ -343,7 +343,7 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('capability is initialized on first $ property access', () => {
-      const withLazy = createCapabilityMixin<'lazy', LazyCapability>(
+      const withLazy = createCapability<'lazy', LazyCapability>(
         'lazy',
         () => {
           initializationTracker.lazy.initialized = true
@@ -370,7 +370,7 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('capability is cached after first initialization', () => {
-      const withLazy = createCapabilityMixin<'lazy', LazyCapability>(
+      const withLazy = createCapability<'lazy', LazyCapability>(
         'lazy',
         () => {
           initializationTracker.lazy.count++
@@ -397,7 +397,7 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('accessing one capability does not initialize others', () => {
-      const withA = createCapabilityMixin<'a', TestCapabilityA>(
+      const withA = createCapability<'a', TestCapabilityA>(
         'a',
         () => {
           initializationTracker.capabilityA.initialized = true
@@ -406,7 +406,7 @@ describe('Mixin Infrastructure', () => {
         }
       )
 
-      const withB = createCapabilityMixin<'b', TestCapabilityB>(
+      const withB = createCapability<'b', TestCapabilityB>(
         'b',
         () => {
           initializationTracker.capabilityB.initialized = true
@@ -438,7 +438,7 @@ describe('Mixin Infrastructure', () => {
       // This is primarily a compile-time test
       // If this test file compiles, the types are working
 
-      const withTyped = createCapabilityMixin<'typed', { greet: (name: string) => string }>(
+      const withTyped = createCapability<'typed', { greet: (name: string) => string }>(
         'typed',
         () => ({
           greet: (name: string) => `Hello, ${name}!`,
@@ -458,7 +458,7 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('base WorkflowContext methods remain accessible', () => {
-      const withTest = createCapabilityMixin<'test', { value: number }>(
+      const withTest = createCapability<'test', { value: number }>(
         'test',
         () => ({ value: 42 })
       )
@@ -478,28 +478,28 @@ describe('Mixin Infrastructure', () => {
   })
 
   // ==========================================================================
-  // TESTS: createCapabilityMixin helper
+  // TESTS: createCapability helper
   // ==========================================================================
 
-  describe('createCapabilityMixin helper', () => {
-    it('returns a valid mixin function', () => {
-      const mixin = createCapabilityMixin('test', () => ({ hello: () => 'world' }))
+  describe('createCapability helper', () => {
+    it('returns a valid capability function', () => {
+      const capability = createCapability('test', () => ({ hello: () => 'world' }))
 
-      expect(typeof mixin).toBe('function')
+      expect(typeof capability).toBe('function')
     })
 
-    it('mixin function accepts a class constructor', () => {
-      const mixin = createCapabilityMixin('test', () => ({ value: 1 }))
+    it('capability function accepts a class constructor', () => {
+      const capability = createCapability('test', () => ({ value: 1 }))
 
       // Should not throw
-      const ExtendedClass = mixin(DO)
+      const ExtendedClass = capability(DO)
       expect(ExtendedClass).toBeDefined()
       expect(typeof ExtendedClass).toBe('function')
     })
 
     it('returned class can be instantiated', () => {
-      const mixin = createCapabilityMixin('test', () => ({ value: 1 }))
-      const ExtendedClass = mixin(DO)
+      const capability = createCapability('test', () => ({ value: 1 }))
+      const ExtendedClass = capability(DO)
 
       const state = createMockState()
       const env = createMockEnv()
@@ -512,12 +512,12 @@ describe('Mixin Infrastructure', () => {
     it('init function receives context with state, env, and $', () => {
       let receivedContext: any = null
 
-      const mixin = createCapabilityMixin('test', (ctx) => {
+      const capability = createCapability('test', (ctx) => {
         receivedContext = ctx
         return { value: 1 }
       })
 
-      const ExtendedClass = mixin(DO)
+      const ExtendedClass = capability(DO)
       const state = createMockState()
       const env = createMockEnv()
       const instance = new ExtendedClass(state, env as any)
@@ -537,8 +537,8 @@ describe('Mixin Infrastructure', () => {
   // ==========================================================================
 
   describe('Edge cases', () => {
-    it('same mixin applied twice is idempotent', () => {
-      const withTest = createCapabilityMixin<'test', { value: number }>(
+    it('same capability applied twice is idempotent', () => {
+      const withTest = createCapability<'test', { value: number }>(
         'test',
         () => {
           initializationTracker.lazy.count++
@@ -560,13 +560,13 @@ describe('Mixin Infrastructure', () => {
       expect(initializationTracker.lazy.count).toBe(1)
     })
 
-    it('capability with same name in different mixins uses last applied', () => {
-      const withTestV1 = createCapabilityMixin<'test', { version: number }>(
+    it('capability with same name in different definitions uses last applied', () => {
+      const withTestV1 = createCapability<'test', { version: number }>(
         'test',
         () => ({ version: 1 })
       )
 
-      const withTestV2 = createCapabilityMixin<'test', { version: number }>(
+      const withTestV2 = createCapability<'test', { version: number }>(
         'test',
         () => ({ version: 2 })
       )
@@ -581,8 +581,8 @@ describe('Mixin Infrastructure', () => {
       expect((instance.$ as any).test.version).toBe(2)
     })
 
-    it('mixin preserves constructor signature', () => {
-      const withTest = createCapabilityMixin('test', () => ({ value: 1 }))
+    it('capability preserves constructor signature', () => {
+      const withTest = createCapability('test', () => ({ value: 1 }))
       const ExtendedClass = withTest(DO)
 
       // Should still require state and env
@@ -594,12 +594,12 @@ describe('Mixin Infrastructure', () => {
     })
 
     it('capability can access other capabilities via $', () => {
-      const withFirst = createCapabilityMixin<'first', { getValue: () => number }>(
+      const withFirst = createCapability<'first', { getValue: () => number }>(
         'first',
         () => ({ getValue: () => 100 })
       )
 
-      const withSecond = createCapabilityMixin<'second', { getDoubled: () => number }>(
+      const withSecond = createCapability<'second', { getDoubled: () => number }>(
         'second',
         (ctx) => ({
           getDoubled: () => {
@@ -626,8 +626,8 @@ describe('Mixin Infrastructure', () => {
   // ==========================================================================
 
   describe('Subclassing', () => {
-    it('custom DO subclass can use mixins', () => {
-      const withTest = createCapabilityMixin<'test', { value: number }>(
+    it('custom DO subclass can use capabilities', () => {
+      const withTest = createCapability<'test', { value: number }>(
         'test',
         () => ({ value: 42 })
       )
@@ -652,8 +652,8 @@ describe('Mixin Infrastructure', () => {
       expect((instance.$ as any).test.value).toBe(42)
     })
 
-    it('can extend mixin-enhanced class', () => {
-      const withTest = createCapabilityMixin<'test', { value: number }>(
+    it('can extend capability-enhanced class', () => {
+      const withTest = createCapability<'test', { value: number }>(
         'test',
         () => ({ value: 42 })
       )
@@ -687,12 +687,12 @@ describe('Mixin Infrastructure', () => {
  * They primarily check that the types compile correctly.
  */
 describe('Type-level tests', () => {
-  it('createCapabilityMixin has correct type signature', () => {
+  it('createCapability has correct type signature', () => {
     // If this compiles, the type signature is correct
-    type MixinFn = typeof createCapabilityMixin
+    type CapabilityFn = typeof createCapability
 
     // Should accept name and init function
-    const _: MixinFn = createCapabilityMixin
+    const _: CapabilityFn = createCapability
     expect(_).toBeDefined()
   })
 
@@ -712,8 +712,8 @@ describe('Type-level tests', () => {
 
   it('CapabilityMixin type is correctly defined', () => {
     // CapabilityMixin should be a function that transforms a class
-    const mixin = createCapabilityMixin('test', () => ({ v: 1 }))
-    const _: CapabilityMixin<'test', { v: number }> = mixin
+    const capability = createCapability('test', () => ({ v: 1 }))
+    const _: CapabilityMixin<'test', { v: number }> = capability
     expect(_).toBeDefined()
   })
 })

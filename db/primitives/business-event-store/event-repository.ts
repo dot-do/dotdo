@@ -552,7 +552,11 @@ class InMemoryEventRepository implements EventRepository {
   }
 
   async rebuildIndexes(): Promise<void> {
-    // Clear all indexes
+    // Collect all events first before clearing
+    const allEvents = Array.from(this.events.values())
+
+    // Clear primary storage and all indexes
+    this.events.clear()
     this.byWhat.clear()
     this.byWhen = new BTreeIndex()
     this.byWhere.clear()
@@ -566,10 +570,7 @@ class InMemoryEventRepository implements EventRepository {
     this.byWhyWhen.clear()
 
     // Re-index all events
-    for (const event of this.events.values()) {
-      // Re-store will re-index (but we need to avoid duplicating in primary storage)
-      const id = event.id
-      this.events.delete(id)
+    for (const event of allEvents) {
       await this.store(event)
     }
 
@@ -622,8 +623,8 @@ class InMemoryEventRepository implements EventRepository {
 
     for (const objectId of whats) {
       // Check for wildcard
-      if (objectId.endsWith('.*')) {
-        const prefix = objectId.slice(0, -2)
+      if (this.isWildcardPattern(objectId)) {
+        const prefix = this.getWildcardPrefix(objectId)
         for (const [key, index] of this.byWhatWhen) {
           if (key.startsWith(prefix)) {
             const ids = index.range(
@@ -701,8 +702,8 @@ class InMemoryEventRepository implements EventRepository {
       const whats = Array.isArray(query.what) ? query.what : [query.what]
 
       for (const pattern of whats) {
-        if (pattern.endsWith('.*')) {
-          const prefix = pattern.slice(0, -2)
+        if (this.isWildcardPattern(pattern)) {
+          const prefix = this.getWildcardPrefix(pattern)
           for (const [key, ids] of this.byWhat) {
             if (key.startsWith(prefix)) {
               for (const id of ids) {
@@ -861,6 +862,42 @@ class InMemoryEventRepository implements EventRepository {
   private applyFilters(events: BusinessEvent[], query: EventQuery): BusinessEvent[] {
     let result = events
 
+    // Filter by where (location) - needed when compound indexes don't cover this dimension
+    if (query.where) {
+      const wheres = Array.isArray(query.where) ? query.where : [query.where]
+      result = result.filter((event) => event.where && wheres.includes(event.where))
+    }
+
+    // Filter by why (business step) - needed when compound indexes don't cover this dimension
+    if (query.why) {
+      const whys = Array.isArray(query.why) ? query.why : [query.why]
+      result = result.filter((event) => event.why && whys.includes(event.why))
+    }
+
+    // Filter by who (party)
+    if (query.who) {
+      const whos = Array.isArray(query.who) ? query.who : [query.who]
+      result = result.filter((event) => event.who && whos.includes(event.who))
+    }
+
+    // Filter by how (disposition)
+    if (query.how) {
+      const hows = Array.isArray(query.how) ? query.how : [query.how]
+      result = result.filter((event) => event.how && hows.includes(event.how))
+    }
+
+    // Filter by type
+    if (query.type) {
+      const types = Array.isArray(query.type) ? query.type : [query.type]
+      result = result.filter((event) => types.includes(event.type))
+    }
+
+    // Filter by action
+    if (query.action) {
+      const actions = Array.isArray(query.action) ? query.action : [query.action]
+      result = result.filter((event) => event.action && actions.includes(event.action))
+    }
+
     // Filter by extensions
     if (query.extensions) {
       result = result.filter((event) => {
@@ -875,6 +912,26 @@ class InMemoryEventRepository implements EventRepository {
     }
 
     return result
+  }
+
+  /**
+   * Check if a pattern matches with wildcard support (* or .*)
+   */
+  private isWildcardPattern(pattern: string): boolean {
+    return pattern.endsWith('*')
+  }
+
+  /**
+   * Get the prefix from a wildcard pattern
+   */
+  private getWildcardPrefix(pattern: string): string {
+    if (pattern.endsWith('.*')) {
+      return pattern.slice(0, -2)
+    }
+    if (pattern.endsWith('*')) {
+      return pattern.slice(0, -1)
+    }
+    return pattern
   }
 }
 

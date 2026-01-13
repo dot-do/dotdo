@@ -386,3 +386,82 @@ export {
   type AgentLoopStep,
   type AgentLoopEvent,
 } from './loop'
+
+// ============================================================================
+// Structured Output Parser
+// ============================================================================
+
+export {
+  // Parser functions
+  parseStructuredOutput,
+  createStructuredOutputParser,
+  extractJson,
+  coerceType,
+  // Error class
+  StructuredOutputError,
+  // Types
+  type ParsePhase,
+  type CoercionTarget,
+  type StructuredOutputOptions,
+} from './structured-output'
+
+// ============================================================================
+// Tool Result Caching
+// ============================================================================
+
+export {
+  // Core class
+  ToolResultCache,
+  // Factory functions
+  createToolCache,
+  createCacheHooks,
+  // Hook integration
+  withCaching,
+  // Tool wrapper
+  cacheable,
+  // Cached execution utility
+  executeCached,
+  // Key generation utilities
+  generateCacheKey,
+  stableStringify,
+  // Storage implementation
+  InMemoryCacheStorage,
+  // Types
+  type CacheableToolDefinition,
+  type CacheEntry,
+  type CacheStats,
+  type ToolCacheConfig,
+  type CacheStorage,
+} from './tool-cache'
+
+// ============================================================================
+// Cost Tracking
+// ============================================================================
+
+export {
+  // Core class
+  CostTracker,
+  // Factory function
+  createCostTracker,
+  // Agent integration
+  withCostTracking,
+  // Utility functions
+  calculateCost,
+  estimateCost,
+  mergeTrackerStats,
+  // Error class
+  BudgetExceededError,
+  // Default pricing table
+  MODEL_PRICING,
+  // Types
+  type ModelPricing,
+  type PricingTable,
+  type CostBudget,
+  type CostTrackerConfig,
+  type UsageRecord,
+  type UsageStats,
+  type ModelUsage,
+  type ProviderUsage,
+  type RecordUsageInput,
+  type AgentWithCostTracking,
+} from './cost-tracker'

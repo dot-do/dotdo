@@ -235,8 +235,10 @@ export class BatchWriter<T> {
   }
 
   private cleanupDedupCache(): void {
-    // Periodically clean up expired entries
-    if (this.seenMessageIds.size > 1000) {
+    // Clean up expired entries when cache gets large
+    // Use a lower threshold (50) to ensure cleanup runs often enough for small dedup windows
+    const threshold = Math.min(50, Math.floor(this.options.maxQueueSize / 10))
+    if (this.seenMessageIds.size > threshold) {
       const now = Date.now()
       const expiry = this.options.dedupWindow
       for (const [key, timestamp] of this.seenMessageIds) {

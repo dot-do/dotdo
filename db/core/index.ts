@@ -3,10 +3,10 @@
  *
  * Shared infrastructure for DO-backed database adapters:
  * - Types: Config types for sharding, replication, tiering, vectors
- * - ShardRouter: DO-level sharding to handle 10GB limit
+ * - ShardManager: DO-level sharding to handle 10GB limit
  * - ReplicaManager: Geo-distribution and replication
  * - TierManager: Hot/warm/cold data tiering
- * - VectorRouter: Tiered vector search routing
+ * - VectorManager: Tiered vector search management
  *
  * Note: Stream infrastructure has been moved to streaming/core
  */
@@ -58,9 +58,9 @@ export {
   DEFAULT_VECTOR_CONFIG,
 } from './types'
 
-// Shard router
+// Shard manager
 export {
-  ShardRouter,
+  ShardManager,
   consistentHash,
   rangeHash,
   simpleHash,
@@ -88,9 +88,9 @@ export {
 } from './tier'
 export type { HotStorage, ColdStorage, TierBindings } from './tier'
 
-// Vector router
+// Vector manager
 export {
-  VectorRouter,
+  VectorManager,
   createVectorEngine,
   cosineSimilarity,
   euclideanDistance,

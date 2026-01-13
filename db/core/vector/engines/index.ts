@@ -1,7 +1,7 @@
 /**
  * Vector Engines
  *
- * Backend implementations for the VectorRouter:
+ * Backend implementations for the VectorManager:
  * - LibSQLEngine: F32_BLOB vectors in SQLite (hot tier)
  * - EdgeVecEngine: WASM HNSW via Workers RPC (hot tier)
  * - VectorizeEngine: Cloudflare Vectorize (warm tier)

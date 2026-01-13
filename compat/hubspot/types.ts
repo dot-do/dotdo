@@ -956,3 +956,350 @@ export interface ClientConfig {
 export interface RequestOptions {
   headers?: Record<string, string>
 }
+
+// =============================================================================
+// Forms Types
+// =============================================================================
+
+/**
+ * Form type
+ */
+export type FormType = 'hubspot' | 'embedded' | 'standalone' | 'popup' | 'banner'
+
+/**
+ * Form state
+ */
+export type FormState = 'draft' | 'published' | 'archived'
+
+/**
+ * Field type options
+ */
+export type FormFieldType =
+  | 'text'
+  | 'textarea'
+  | 'select'
+  | 'radio'
+  | 'checkbox'
+  | 'booleancheckbox'
+  | 'number'
+  | 'file'
+  | 'date'
+  | 'phonenumber'
+  | 'email'
+
+/**
+ * Form field definition
+ */
+export interface FormField {
+  name: string
+  label: string
+  fieldType: FormFieldType
+  description?: string
+  placeholder?: string
+  defaultValue?: string
+  required: boolean
+  hidden: boolean
+  validation?: FormFieldValidation
+  dependentFieldFilters?: FormDependentFieldFilter[]
+  options?: FormFieldOption[]
+  objectTypeId?: string
+  propertyName?: string
+}
+
+/**
+ * Field validation rules
+ */
+export interface FormFieldValidation {
+  name: string
+  message?: string
+  blocksFormSubmission: boolean
+  data?: string
+  useDefaultBlockList?: boolean
+  minAllowedValue?: number
+  maxAllowedValue?: number
+  minLength?: number
+  maxLength?: number
+  regex?: string
+}
+
+/**
+ * Dependent field filter
+ */
+export interface FormDependentFieldFilter {
+  dependentFieldName: string
+  dependentOperator: 'SET_ANY' | 'NOT_SET' | 'EQUAL' | 'NOT_EQUAL'
+  dependentFieldValues?: string[]
+}
+
+/**
+ * Field option for select/radio/checkbox
+ */
+export interface FormFieldOption {
+  label: string
+  value: string
+  displayOrder: number
+  hidden?: boolean
+  description?: string
+}
+
+/**
+ * Field group within a form
+ */
+export interface FormFieldGroup {
+  groupType: 'default_group' | 'progressive' | 'dependent'
+  richTextType?: 'TEXT' | 'HTML'
+  richText?: string
+  fields: FormField[]
+}
+
+/**
+ * Form styling configuration
+ */
+export interface FormStyle {
+  fontFamily?: string
+  labelTextColor?: string
+  helpTextColor?: string
+  legalConsentTextColor?: string
+  submitColor?: string
+  submitFontColor?: string
+  submitAlignment?: 'left' | 'center' | 'right'
+  backgroundWidth?: 'content' | 'form'
+  backgroundColor?: string
+}
+
+/**
+ * Legal consent options
+ */
+export interface FormLegalConsentOptions {
+  type: 'implicit' | 'legitimate_interest' | 'explicit'
+  subscriptionTypeIds?: number[]
+  lawfulBasis?: string
+  privacyText?: string
+  communicationConsentText?: string
+  processingConsentText?: string
+  processingConsentCheckboxLabel?: string
+  communicationConsentCheckboxes?: Array<{
+    subscriptionTypeId: number
+    label: string
+    required: boolean
+  }>
+}
+
+/**
+ * Form configuration
+ */
+export interface FormConfiguration {
+  language?: string
+  cloneable?: boolean
+  postSubmitAction?: {
+    type: 'redirect_url' | 'inline_message' | 'schedule_meeting'
+    value?: string
+    meetingLink?: string
+  }
+  editable?: boolean
+  archivable?: boolean
+  recaptchaEnabled?: boolean
+  notifyRecipients?: string[]
+  notifyOwner?: boolean
+  createNewContactForNewEmail?: boolean
+  prePopulateKnownValues?: boolean
+  allowLinkToResetKnownValues?: boolean
+  lifecycleStage?: string
+}
+
+/**
+ * Form definition
+ */
+export interface Form {
+  id: string
+  name: string
+  formType: FormType
+  state: FormState
+  fieldGroups: FormFieldGroup[]
+  submitButtonText: string
+  style?: FormStyle
+  legalConsentOptions?: FormLegalConsentOptions
+  configuration: FormConfiguration
+  displayOptions?: {
+    cssClass?: string
+    submitButtonClass?: string
+    renderRawHtml?: boolean
+  }
+  redirectUrl?: string
+  inlineMessage?: string
+  thankYouMessageJson?: string
+  portalId?: number
+  guid?: string
+  version?: number
+  createdAt: string
+  updatedAt: string
+  archived: boolean
+  archivedAt?: string
+}
+
+/**
+ * Form submission field
+ */
+export interface FormSubmissionField {
+  name: string
+  value: string
+  objectTypeId?: string
+}
+
+/**
+ * Submission context
+ */
+export interface FormSubmissionContext {
+  hutk?: string
+  pageUri?: string
+  pageName?: string
+  pageId?: string
+  ipAddress?: string
+  timestamp?: string
+  sfdcCampaignId?: string
+  goToWebinarWebinarKey?: string
+}
+
+/**
+ * Legal consent in submission
+ */
+export interface FormSubmissionLegalConsent {
+  legitimateInterest?: {
+    subscriptionTypeId: number
+    value: boolean
+    legalBasis: string
+    text: string
+  }
+  consent?: {
+    consentToProcess: boolean
+    text: string
+    communications?: Array<{
+      subscriptionTypeId: number
+      value: boolean
+      text: string
+    }>
+  }
+}
+
+/**
+ * Form submission input
+ */
+export interface FormSubmissionInput {
+  fields: FormSubmissionField[]
+  context?: FormSubmissionContext
+  legalConsentOptions?: FormSubmissionLegalConsent
+  skipValidation?: boolean
+}
+
+/**
+ * Form submission result
+ */
+export interface FormSubmission {
+  id: string
+  formId: string
+  submittedAt: string
+  values: Record<string, string>
+  pageUrl?: string
+  pageName?: string
+  ipAddress?: string
+  contactId?: string
+  conversionId?: string
+}
+
+/**
+ * Submission result
+ */
+export interface FormSubmissionResult {
+  redirectUri?: string
+  inlineMessage?: string
+  errors?: FormValidationError[]
+}
+
+/**
+ * Form validation error
+ */
+export interface FormValidationError {
+  errorType: string
+  message: string
+  fieldName?: string
+}
+
+/**
+ * Form create input
+ */
+export interface CreateFormInput {
+  name: string
+  formType?: FormType
+  fieldGroups: FormFieldGroup[]
+  submitButtonText?: string
+  style?: FormStyle
+  legalConsentOptions?: FormLegalConsentOptions
+  configuration?: Partial<FormConfiguration>
+  displayOptions?: Form['displayOptions']
+  redirectUrl?: string
+  inlineMessage?: string
+}
+
+/**
+ * Form update input
+ */
+export interface UpdateFormInput {
+  name?: string
+  fieldGroups?: FormFieldGroup[]
+  submitButtonText?: string
+  style?: FormStyle
+  legalConsentOptions?: FormLegalConsentOptions
+  configuration?: Partial<FormConfiguration>
+  displayOptions?: Form['displayOptions']
+  redirectUrl?: string
+  inlineMessage?: string
+}
+
+/**
+ * List forms options
+ */
+export interface ListFormsOptions {
+  limit?: number
+  after?: string
+  formTypes?: FormType[]
+  state?: FormState
+}
+
+/**
+ * Form list result
+ */
+export interface FormListResult<T> {
+  results: T[]
+  paging?: {
+    next?: { after: string }
+  }
+}
+
+/**
+ * Form batch result
+ */
+export interface FormBatchResult<T> {
+  status: 'COMPLETE' | 'PENDING' | 'PROCESSING'
+  results: T[]
+  errors: Array<{ status: string; message: string; context?: Record<string, unknown> }>
+}
+
+/**
+ * Forms storage interface
+ */
+export interface FormsStorage {
+  get<T>(key: string): Promise<T | undefined>
+  put<T>(key: string, value: T): Promise<void>
+  delete(key: string): Promise<boolean>
+  list(options?: { prefix?: string; limit?: number }): Promise<Map<string, unknown>>
+}
+
+/**
+ * Form statistics
+ */
+export interface FormStats {
+  totalSubmissions: number
+  submissionsLast24h: number
+  submissionsLast7d: number
+  submissionsLast30d: number
+}

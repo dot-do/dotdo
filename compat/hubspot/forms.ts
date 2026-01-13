@@ -41,336 +41,57 @@
  * @module @dotdo/hubspot/forms
  */
 
-// =============================================================================
-// Types
-// =============================================================================
+import type {
+  Form,
+  FormType,
+  FormState,
+  FormField,
+  FormFieldType,
+  FormFieldGroup,
+  FormFieldValidation,
+  FormStyle,
+  FormLegalConsentOptions,
+  FormConfiguration,
+  FormSubmission,
+  FormSubmissionInput,
+  FormSubmissionResult,
+  FormValidationError,
+  CreateFormInput,
+  UpdateFormInput,
+  ListFormsOptions,
+  FormListResult,
+  FormsStorage,
+  FormStats,
+} from './types'
 
-/**
- * Form type
- */
-export type FormType = 'hubspot' | 'embedded' | 'standalone' | 'popup' | 'banner'
-
-/**
- * Form state
- */
-export type FormState = 'draft' | 'published' | 'archived'
-
-/**
- * Field type options
- */
-export type FieldType =
-  | 'text'
-  | 'textarea'
-  | 'select'
-  | 'radio'
-  | 'checkbox'
-  | 'booleancheckbox'
-  | 'number'
-  | 'file'
-  | 'date'
-  | 'phonenumber'
-
-/**
- * Form field definition
- */
-export interface FormField {
-  name: string
-  label: string
-  fieldType: FieldType
-  description?: string
-  placeholder?: string
-  defaultValue?: string
-  required: boolean
-  hidden: boolean
-  validation?: FieldValidation
-  dependentFieldFilters?: DependentFieldFilter[]
-  options?: FieldOption[]
-  objectTypeId?: string
-  propertyName?: string
+// Re-export types for backward compatibility
+export type {
+  Form,
+  FormType,
+  FormState,
+  FormField,
+  FormFieldGroup,
+  FormSubmission,
+  FormSubmissionInput,
+  CreateFormInput,
+  UpdateFormInput,
+  ListFormsOptions,
+  FormsStorage,
 }
 
-/**
- * Field validation rules
- */
-export interface FieldValidation {
-  name: string
-  message?: string
-  blocksFormSubmission: boolean
-  data?: string
-  useDefaultBlockList?: boolean
-  minAllowedValue?: number
-  maxAllowedValue?: number
-  minLength?: number
-  maxLength?: number
-  regex?: string
-}
-
-/**
- * Dependent field filter
- */
-export interface DependentFieldFilter {
-  dependentFieldName: string
-  dependentOperator: 'SET_ANY' | 'NOT_SET' | 'EQUAL' | 'NOT_EQUAL'
-  dependentFieldValues?: string[]
-}
-
-/**
- * Field option for select/radio/checkbox
- */
-export interface FieldOption {
-  label: string
-  value: string
-  displayOrder: number
-  hidden?: boolean
-  description?: string
-}
-
-/**
- * Field group within a form
- */
-export interface FieldGroup {
-  groupType: 'default_group' | 'progressive' | 'dependent'
-  richTextType?: 'TEXT' | 'HTML'
-  richText?: string
-  fields: FormField[]
-}
-
-/**
- * Form styling configuration
- */
-export interface FormStyle {
-  fontFamily?: string
-  labelTextColor?: string
-  helpTextColor?: string
-  legalConsentTextColor?: string
-  submitColor?: string
-  submitFontColor?: string
-  submitAlignment?: 'left' | 'center' | 'right'
-  backgroundWidth?: 'content' | 'form'
-  backgroundColor?: string
-}
-
-/**
- * Legal consent options
- */
-export interface LegalConsentOptions {
-  type: 'implicit' | 'legitimate_interest' | 'explicit'
-  subscriptionTypeIds?: number[]
-  lawfulBasis?: string
-  privacyText?: string
-  communicationConsentText?: string
-  processingConsentText?: string
-  processingConsentCheckboxLabel?: string
-  communicationConsentCheckboxes?: Array<{
-    subscriptionTypeId: number
-    label: string
-    required: boolean
-  }>
-}
-
-/**
- * Form configuration
- */
-export interface FormConfiguration {
-  language?: string
-  cloneable?: boolean
-  postSubmitAction?: {
-    type: 'redirect_url' | 'inline_message' | 'schedule_meeting'
-    value?: string
-    meetingLink?: string
-  }
-  editable?: boolean
-  archivable?: boolean
-  recaptchaEnabled?: boolean
-  notifyRecipients?: string[]
-  notifyOwner?: boolean
-  createNewContactForNewEmail?: boolean
-  prePopulateKnownValues?: boolean
-  allowLinkToResetKnownValues?: boolean
-  lifecycleStage?: string
-}
-
-/**
- * Form definition
- */
-export interface Form {
-  id: string
-  name: string
-  formType: FormType
-  state: FormState
-  fieldGroups: FieldGroup[]
-  submitButtonText: string
-  style?: FormStyle
-  legalConsentOptions?: LegalConsentOptions
-  configuration: FormConfiguration
-  displayOptions?: {
-    cssClass?: string
-    submitButtonClass?: string
-    renderRawHtml?: boolean
-  }
-  redirectUrl?: string
-  inlineMessage?: string
-  thankYouMessageJson?: string
-  portalId?: number
-  guid?: string
-  version?: number
-  createdAt: string
-  updatedAt: string
-  archived: boolean
-  archivedAt?: string
-}
-
-/**
- * Form submission field
- */
-export interface SubmissionField {
-  name: string
-  value: string
-  objectTypeId?: string
-}
-
-/**
- * Submission context
- */
-export interface SubmissionContext {
-  hutk?: string
-  pageUri?: string
-  pageName?: string
-  pageId?: string
-  ipAddress?: string
-  timestamp?: string
-  sfdcCampaignId?: string
-  goToWebinarWebinarKey?: string
-}
-
-/**
- * Legal consent in submission
- */
-export interface SubmissionLegalConsent {
-  legitimateInterest?: {
-    subscriptionTypeId: number
-    value: boolean
-    legalBasis: string
-    text: string
-  }
-  consent?: {
-    consentToProcess: boolean
-    text: string
-    communications?: Array<{
-      subscriptionTypeId: number
-      value: boolean
-      text: string
-    }>
-  }
-}
-
-/**
- * Form submission input
- */
-export interface FormSubmissionInput {
-  fields: SubmissionField[]
-  context?: SubmissionContext
-  legalConsentOptions?: SubmissionLegalConsent
-  skipValidation?: boolean
-}
-
-/**
- * Form submission result
- */
-export interface FormSubmission {
-  id: string
-  formId: string
-  submittedAt: string
-  values: Record<string, string>
-  pageUrl?: string
-  pageName?: string
-  ipAddress?: string
-  contactId?: string
-  conversionId?: string
-}
-
-/**
- * Submission result
- */
-export interface SubmissionResult {
-  redirectUri?: string
-  inlineMessage?: string
-  errors?: Array<{
-    errorType: string
-    message: string
-    fieldName?: string
-  }>
-}
-
-/**
- * Form create input
- */
-export interface CreateFormInput {
-  name: string
-  formType?: FormType
-  fieldGroups: FieldGroup[]
-  submitButtonText?: string
-  style?: FormStyle
-  legalConsentOptions?: LegalConsentOptions
-  configuration?: Partial<FormConfiguration>
-  displayOptions?: Form['displayOptions']
-  redirectUrl?: string
-  inlineMessage?: string
-}
-
-/**
- * Form update input
- */
-export interface UpdateFormInput {
-  name?: string
-  fieldGroups?: FieldGroup[]
-  submitButtonText?: string
-  style?: FormStyle
-  legalConsentOptions?: LegalConsentOptions
-  configuration?: Partial<FormConfiguration>
-  displayOptions?: Form['displayOptions']
-  redirectUrl?: string
-  inlineMessage?: string
-}
-
-/**
- * List options
- */
-export interface ListFormsOptions {
-  limit?: number
-  after?: string
-  formTypes?: FormType[]
-  state?: FormState
-}
-
-/**
- * List result
- */
-export interface ListResult<T> {
-  results: T[]
-  paging?: {
-    next?: { after: string }
-  }
-}
-
-/**
- * Batch result
- */
-export interface BatchResult<T> {
-  status: 'COMPLETE' | 'PENDING' | 'PROCESSING'
-  results: T[]
-  errors: Array<{ status: string; message: string; context?: Record<string, unknown> }>
-}
-
-/**
- * Storage interface
- */
-export interface FormsStorage {
-  get<T>(key: string): Promise<T | undefined>
-  put<T>(key: string, value: T): Promise<void>
-  delete(key: string): Promise<boolean>
-  list(options?: { prefix?: string; limit?: number }): Promise<Map<string, unknown>>
-}
+// Legacy type aliases for backward compatibility
+export type FieldType = FormFieldType
+export type FieldGroup = FormFieldGroup
+export type FieldValidation = FormFieldValidation
+export type FieldOption = import('./types').FormFieldOption
+export type DependentFieldFilter = import('./types').FormDependentFieldFilter
+export type LegalConsentOptions = FormLegalConsentOptions
+export type SubmissionField = import('./types').FormSubmissionField
+export type SubmissionContext = import('./types').FormSubmissionContext
+export type SubmissionLegalConsent = import('./types').FormSubmissionLegalConsent
+export type SubmissionResult = FormSubmissionResult
+export type ListResult<T> = FormListResult<T>
+export type BatchResult<T> = import('./types').FormBatchResult<T>
 
 // =============================================================================
 // Error Class
@@ -412,6 +133,286 @@ function now(): string {
 }
 
 // =============================================================================
+// Field Validators - Modular Validation System
+// =============================================================================
+
+/**
+ * Validator function type
+ */
+type FieldValidator = (
+  field: FormField,
+  value: string | undefined,
+) => FormValidationError | null
+
+/**
+ * Validate required fields
+ */
+const validateRequired: FieldValidator = (field, value) => {
+  if (field.required && (!value || value.trim() === '')) {
+    return {
+      errorType: 'REQUIRED_FIELD',
+      message: `Field "${field.label}" is required`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate email format
+ */
+const validateEmail: FieldValidator = (field, value) => {
+  if (field.fieldType !== 'email' && field.fieldType !== 'text') return null
+  if (!value || value.trim() === '') return null
+
+  // Only validate if fieldType is email or field name suggests email
+  const isEmailField = field.fieldType === 'email' ||
+    field.name.toLowerCase().includes('email')
+
+  if (!isEmailField) return null
+
+  // RFC 5322 compliant email regex (simplified but thorough)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(value)) {
+    return {
+      errorType: 'INVALID_EMAIL',
+      message: `Invalid email format for "${field.label}"`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate phone number format
+ */
+const validatePhoneNumber: FieldValidator = (field, value) => {
+  if (field.fieldType !== 'phonenumber') return null
+  if (!value || value.trim() === '') return null
+
+  const phoneRegex = /^[\d\s+\-().]+$/
+  if (!phoneRegex.test(value)) {
+    return {
+      errorType: 'INVALID_PHONE',
+      message: `Invalid phone number format for "${field.label}"`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate number format
+ */
+const validateNumber: FieldValidator = (field, value) => {
+  if (field.fieldType !== 'number') return null
+  if (!value || value.trim() === '') return null
+
+  if (isNaN(Number(value))) {
+    return {
+      errorType: 'INVALID_NUMBER',
+      message: `Invalid number format for "${field.label}"`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate minimum length
+ */
+const validateMinLength: FieldValidator = (field, value) => {
+  if (!field.validation?.minLength) return null
+  if (!value || value.trim() === '') return null
+
+  if (value.length < field.validation.minLength) {
+    return {
+      errorType: 'MIN_LENGTH',
+      message: field.validation.message ??
+        `"${field.label}" must be at least ${field.validation.minLength} characters`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate maximum length
+ */
+const validateMaxLength: FieldValidator = (field, value) => {
+  if (!field.validation?.maxLength) return null
+  if (!value || value.trim() === '') return null
+
+  if (value.length > field.validation.maxLength) {
+    return {
+      errorType: 'MAX_LENGTH',
+      message: field.validation.message ??
+        `"${field.label}" must be at most ${field.validation.maxLength} characters`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate minimum allowed value (for numbers)
+ */
+const validateMinValue: FieldValidator = (field, value) => {
+  if (field.validation?.minAllowedValue === undefined) return null
+  if (!value || value.trim() === '') return null
+
+  const numValue = Number(value)
+  if (!isNaN(numValue) && numValue < field.validation.minAllowedValue) {
+    return {
+      errorType: 'MIN_VALUE',
+      message: field.validation.message ??
+        `"${field.label}" must be at least ${field.validation.minAllowedValue}`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate maximum allowed value (for numbers)
+ */
+const validateMaxValue: FieldValidator = (field, value) => {
+  if (field.validation?.maxAllowedValue === undefined) return null
+  if (!value || value.trim() === '') return null
+
+  const numValue = Number(value)
+  if (!isNaN(numValue) && numValue > field.validation.maxAllowedValue) {
+    return {
+      errorType: 'MAX_VALUE',
+      message: field.validation.message ??
+        `"${field.label}" must be at most ${field.validation.maxAllowedValue}`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate regex pattern
+ */
+const validateRegex: FieldValidator = (field, value) => {
+  if (!field.validation?.regex) return null
+  if (!value || value.trim() === '') return null
+
+  const regex = new RegExp(field.validation.regex)
+  if (!regex.test(value)) {
+    return {
+      errorType: 'REGEX_MISMATCH',
+      message: field.validation.message ??
+        `"${field.label}" does not match the required format`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Validate select/radio options
+ */
+const validateOptions: FieldValidator = (field, value) => {
+  if (!['select', 'radio'].includes(field.fieldType)) return null
+  if (!value || value.trim() === '') return null
+  if (!field.options || field.options.length === 0) return null
+
+  const validValues = field.options
+    .filter(opt => !opt.hidden)
+    .map(opt => opt.value)
+
+  if (!validValues.includes(value)) {
+    return {
+      errorType: 'INVALID_OPTION',
+      message: `Invalid option selected for "${field.label}"`,
+      fieldName: field.name,
+    }
+  }
+  return null
+}
+
+/**
+ * Default validators applied to all fields
+ */
+const DEFAULT_VALIDATORS: FieldValidator[] = [
+  validateRequired,
+  validateEmail,
+  validatePhoneNumber,
+  validateNumber,
+  validateMinLength,
+  validateMaxLength,
+  validateMinValue,
+  validateMaxValue,
+  validateRegex,
+  validateOptions,
+]
+
+/**
+ * Form Validator class for modular field validation
+ */
+export class FormValidator {
+  private validators: FieldValidator[]
+
+  constructor(validators: FieldValidator[] = DEFAULT_VALIDATORS) {
+    this.validators = validators
+  }
+
+  /**
+   * Add a custom validator
+   */
+  addValidator(validator: FieldValidator): void {
+    this.validators.push(validator)
+  }
+
+  /**
+   * Validate a single field
+   */
+  validateField(field: FormField, value: string | undefined): FormValidationError[] {
+    const errors: FormValidationError[] = []
+
+    for (const validator of this.validators) {
+      const error = validator(field, value)
+      if (error) {
+        errors.push(error)
+        // Stop on first error for this field (required check should fail fast)
+        if (error.errorType === 'REQUIRED_FIELD') break
+      }
+    }
+
+    return errors
+  }
+
+  /**
+   * Validate all fields in a form submission
+   */
+  validateSubmission(
+    form: Form,
+    input: FormSubmissionInput
+  ): FormValidationError[] {
+    const errors: FormValidationError[] = []
+    const submittedFields = new Map(input.fields.map(f => [f.name, f.value]))
+
+    for (const group of form.fieldGroups) {
+      for (const field of group.fields) {
+        // Skip hidden fields
+        if (field.hidden) continue
+
+        const value = submittedFields.get(field.name)
+        const fieldErrors = this.validateField(field, value)
+        errors.push(...fieldErrors)
+      }
+    }
+
+    return errors
+  }
+}
+
+// Default form validator instance
+const defaultValidator = new FormValidator()
+
+// =============================================================================
 // HubSpotForms Class
 // =============================================================================
 
@@ -421,6 +422,7 @@ function now(): string {
 export class HubSpotForms {
   private storage: FormsStorage
   private onSubmission?: (submission: FormSubmission) => Promise<void>
+  private validator: FormValidator
 
   private readonly PREFIX = {
     form: 'form:',
@@ -428,9 +430,14 @@ export class HubSpotForms {
     formSubmissions: 'form_submissions:', // form_id -> submission_ids
   }
 
-  constructor(storage: FormsStorage, onSubmission?: (submission: FormSubmission) => Promise<void>) {
+  constructor(
+    storage: FormsStorage,
+    onSubmission?: (submission: FormSubmission) => Promise<void>,
+    validator: FormValidator = defaultValidator
+  ) {
     this.storage = storage
     this.onSubmission = onSubmission
+    this.validator = validator
   }
 
   // ===========================================================================
@@ -569,7 +576,7 @@ export class HubSpotForms {
   /**
    * List all forms
    */
-  async listForms(options?: ListFormsOptions): Promise<ListResult<Form>> {
+  async listForms(options?: ListFormsOptions): Promise<FormListResult<Form>> {
     const formsMap = await this.storage.list({ prefix: this.PREFIX.form })
     const forms: Form[] = []
 
@@ -640,12 +647,12 @@ export class HubSpotForms {
   /**
    * Submit to a form
    */
-  async submitForm(formId: string, input: FormSubmissionInput): Promise<SubmissionResult> {
+  async submitForm(formId: string, input: FormSubmissionInput): Promise<FormSubmissionResult> {
     const form = await this.getForm(formId)
 
     // Validate fields if not skipped
     if (!input.skipValidation) {
-      const errors = this.validateSubmission(form, input)
+      const errors = this.validator.validateSubmission(form, input)
       if (errors.length > 0) {
         return { errors }
       }
@@ -719,7 +726,7 @@ export class HubSpotForms {
   async listSubmissions(
     formId: string,
     options?: { limit?: number; after?: string }
-  ): Promise<ListResult<FormSubmission>> {
+  ): Promise<FormListResult<FormSubmission>> {
     const indexKey = `${this.PREFIX.formSubmissions}${formId}`
     const submissionIds = await this.storage.get<string[]>(indexKey) ?? []
 
@@ -929,7 +936,7 @@ export class HubSpotForms {
   /**
    * Add a field group to a form
    */
-  async addFieldGroup(formId: string, group: FieldGroup): Promise<Form> {
+  async addFieldGroup(formId: string, group: FormFieldGroup): Promise<Form> {
     const form = await this.getForm(formId)
     form.fieldGroups.push(group)
     return this.updateForm(formId, { fieldGroups: form.fieldGroups })
@@ -962,132 +969,15 @@ export class HubSpotForms {
   }
 
   // ===========================================================================
-  // Validation
-  // ===========================================================================
-
-  /**
-   * Validate a submission against form fields
-   */
-  private validateSubmission(
-    form: Form,
-    input: FormSubmissionInput
-  ): Array<{ errorType: string; message: string; fieldName?: string }> {
-    const errors: Array<{ errorType: string; message: string; fieldName?: string }> = []
-    const submittedFields = new Map(input.fields.map((f) => [f.name, f.value]))
-
-    for (const group of form.fieldGroups) {
-      for (const field of group.fields) {
-        const value = submittedFields.get(field.name)
-
-        // Required field validation
-        if (field.required && (!value || value.trim() === '')) {
-          errors.push({
-            errorType: 'REQUIRED_FIELD',
-            message: `Field "${field.label}" is required`,
-            fieldName: field.name,
-          })
-          continue
-        }
-
-        // Skip validation for empty optional fields
-        if (!value || value.trim() === '') continue
-
-        // Type-specific validation
-        if (field.fieldType === 'phonenumber') {
-          const phoneRegex = /^[\d\s+\-().]+$/
-          if (!phoneRegex.test(value)) {
-            errors.push({
-              errorType: 'INVALID_PHONE',
-              message: `Invalid phone number format for "${field.label}"`,
-              fieldName: field.name,
-            })
-          }
-        }
-
-        if (field.fieldType === 'number') {
-          if (isNaN(Number(value))) {
-            errors.push({
-              errorType: 'INVALID_NUMBER',
-              message: `Invalid number format for "${field.label}"`,
-              fieldName: field.name,
-            })
-          }
-        }
-
-        // Custom validation rules
-        if (field.validation) {
-          const validation = field.validation
-
-          if (validation.minLength && value.length < validation.minLength) {
-            errors.push({
-              errorType: 'MIN_LENGTH',
-              message: validation.message ?? `"${field.label}" must be at least ${validation.minLength} characters`,
-              fieldName: field.name,
-            })
-          }
-
-          if (validation.maxLength && value.length > validation.maxLength) {
-            errors.push({
-              errorType: 'MAX_LENGTH',
-              message: validation.message ?? `"${field.label}" must be at most ${validation.maxLength} characters`,
-              fieldName: field.name,
-            })
-          }
-
-          if (validation.minAllowedValue !== undefined) {
-            const numValue = Number(value)
-            if (!isNaN(numValue) && numValue < validation.minAllowedValue) {
-              errors.push({
-                errorType: 'MIN_VALUE',
-                message: validation.message ?? `"${field.label}" must be at least ${validation.minAllowedValue}`,
-                fieldName: field.name,
-              })
-            }
-          }
-
-          if (validation.maxAllowedValue !== undefined) {
-            const numValue = Number(value)
-            if (!isNaN(numValue) && numValue > validation.maxAllowedValue) {
-              errors.push({
-                errorType: 'MAX_VALUE',
-                message: validation.message ?? `"${field.label}" must be at most ${validation.maxAllowedValue}`,
-                fieldName: field.name,
-              })
-            }
-          }
-
-          if (validation.regex) {
-            const regex = new RegExp(validation.regex)
-            if (!regex.test(value)) {
-              errors.push({
-                errorType: 'REGEX_MISMATCH',
-                message: validation.message ?? `"${field.label}" does not match the required format`,
-                fieldName: field.name,
-              })
-            }
-          }
-        }
-      }
-    }
-
-    return errors
-  }
-
-  // ===========================================================================
   // Statistics
   // ===========================================================================
 
   /**
    * Get form statistics
    */
-  async getFormStats(formId: string): Promise<{
-    totalSubmissions: number
-    submissionsLast24h: number
-    submissionsLast7d: number
-    submissionsLast30d: number
-  }> {
+  async getFormStats(formId: string): Promise<FormStats> {
     const submissions = await this.listSubmissions(formId, { limit: 10000 })
-    const now = Date.now()
+    const currentTime = Date.now()
 
     let last24h = 0
     let last7d = 0
@@ -1095,7 +985,7 @@ export class HubSpotForms {
 
     for (const submission of submissions.results) {
       const submittedAt = new Date(submission.submittedAt).getTime()
-      const age = now - submittedAt
+      const age = currentTime - submittedAt
 
       if (age <= 24 * 60 * 60 * 1000) last24h++
       if (age <= 7 * 24 * 60 * 60 * 1000) last7d++
@@ -1132,6 +1022,13 @@ export class HubSpotForms {
     for (const key of indices.keys()) {
       await this.storage.delete(key as string)
     }
+  }
+
+  /**
+   * Get the validator instance for customization
+   */
+  getValidator(): FormValidator {
+    return this.validator
   }
 }
 

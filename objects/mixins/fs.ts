@@ -1,7 +1,7 @@
 /**
- * withFs Mixin - Filesystem Capability for Durable Objects
+ * withFs Capability - Filesystem Capability for Durable Objects
  *
- * This mixin adds the $.fs capability to Durable Objects, providing a
+ * This capability adds the $.fs API to Durable Objects, providing a
  * SQLite-backed filesystem with tiered storage support (SQLite hot tier,
  * R2 warm/cold tiers).
  *
@@ -24,7 +24,7 @@
  * @see dotdo-dipdv for design details
  */
 
-import { createCapabilityMixin, type Constructor, type CapabilityContext } from './infrastructure'
+import { createCapability, type Constructor, type CapabilityContext } from './infrastructure'
 import { FsModule, type FsModuleConfig } from 'fsx.do'
 import type {
   ReadOptions,
@@ -53,7 +53,7 @@ export { FsModule } from 'fsx.do'
 // ============================================================================
 
 /**
- * Configuration options for the withFs mixin
+ * Configuration options for the withFs capability
  */
 export interface WithFsOptions {
   /** Base path prefix for all file operations (default: '/') */
@@ -132,7 +132,7 @@ export interface WithFsContext {
 }
 
 // ============================================================================
-// MIXIN IMPLEMENTATION
+// CAPABILITY IMPLEMENTATION
 // ============================================================================
 
 /**
@@ -216,14 +216,14 @@ function createFsInit(options: WithFsOptions = {}) {
 }
 
 /**
- * Base mixin without options - uses default configuration
+ * Base capability without options - uses default configuration
  */
-const baseFsMixin = createCapabilityMixin<'fs', FsCapability>('fs', createFsInit())
+const baseFsCapability = createCapability<'fs', FsCapability>('fs', createFsInit())
 
 /**
- * withFs mixin - adds $.fs capability to a Durable Object class
+ * withFs capability - adds $.fs capability to a Durable Object class
  *
- * This mixin provides filesystem operations backed by SQLite (hot tier)
+ * This capability provides filesystem operations backed by SQLite (hot tier)
  * and optionally R2 (warm/cold tiers) for larger files.
  *
  * @param Base - The base DO class to extend
@@ -257,11 +257,11 @@ export function withFs<TBase extends Constructor<{ ctx: DurableObjectState; env:
   options?: WithFsOptions
 ): TBase & Constructor<{ hasCapability(name: string): boolean }> {
   if (options) {
-    // Create a new mixin with custom options
-    const customMixin = createCapabilityMixin<'fs', FsCapability>('fs', createFsInit(options))
-    return customMixin(Base)
+    // Create a new capability with custom options
+    const customCapability = createCapability<'fs', FsCapability>('fs', createFsInit(options))
+    return customCapability(Base)
   }
 
-  // Use the base mixin with default options
-  return baseFsMixin(Base)
+  // Use the base capability with default options
+  return baseFsCapability(Base)
 }

@@ -85,16 +85,18 @@ describe('SOQL Lexer', () => {
     it('should tokenize aggregate functions', () => {
       const tokens = tokenize('SELECT COUNT(Id), SUM(Amount), AVG(Score) FROM Opportunity')
 
+      // SELECT, COUNT, (, Id, ), ,, SUM, (, Amount, ), ,, AVG, (, Score, ), FROM, Opportunity
       expect(tokens[1].type).toBe(TokenType.COUNT)
-      expect(tokens[5].type).toBe(TokenType.SUM)
-      expect(tokens[9].type).toBe(TokenType.AVG)
+      expect(tokens[6].type).toBe(TokenType.SUM)
+      expect(tokens[11].type).toBe(TokenType.AVG)
     })
 
     it('should handle escaped strings', () => {
       const tokens = tokenize("WHERE Name = 'O\\'Brien'")
 
-      expect(tokens[2].type).toBe(TokenType.STRING)
-      expect(tokens[2].value).toBe("O'Brien")
+      // WHERE, Name, =, 'O\'Brien'
+      expect(tokens[3].type).toBe(TokenType.STRING)
+      expect(tokens[3].value).toBe("O'Brien")
     })
 
     it('should throw on unterminated string', () => {

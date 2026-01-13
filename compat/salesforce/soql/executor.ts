@@ -136,9 +136,15 @@ export class Executor {
       records = records.filter((record) => this.evaluateWhere(record, ast.where!))
     }
 
-    // Apply GROUP BY (simplified - just unique values)
+    // Check if we have aggregate functions
+    const hasAggregates = ast.fields.some((f) => f.type === 'AggregateField')
+
+    // Apply GROUP BY or aggregate all records
     if (ast.groupBy && ast.groupBy.length > 0) {
       records = this.applyGroupBy(records, ast.groupBy, ast.fields)
+    } else if (hasAggregates) {
+      // No GROUP BY but has aggregates - aggregate all records as one group
+      records = this.applyAggregateAll(records, ast.fields)
     }
 
     // Apply HAVING
@@ -152,7 +158,7 @@ export class Executor {
     }
 
     // Get total before pagination
-    const totalSize = records.length
+    const totalSize = hasAggregates && !ast.groupBy ? 1 : records.length
 
     // Apply OFFSET
     if (ast.offset !== undefined) {
@@ -164,14 +170,30 @@ export class Executor {
       records = records.slice(0, ast.limit)
     }
 
-    // Project fields
-    const projected = records.map((record) => this.projectFields(record, ast.fields))
+    // Project fields (skip for aggregate results which are already projected)
+    const projected = hasAggregates
+      ? records
+      : records.map((record) => this.projectFields(record, ast.fields))
 
     return {
       totalSize,
       done: true,
       records: projected as T[],
     }
+  }
+
+  private applyAggregateAll(records: SObjectRecord[], fields: FieldNode[]): SObjectRecord[] {
+    const row: SObjectRecord = {}
+
+    for (const field of fields) {
+      if (field.type === 'AggregateField') {
+        const value = this.computeAggregate(records, field.function, field.field)
+        const alias = field.alias || `${field.function}${field.field ? `_${field.field}` : ''}`
+        row[alias] = value
+      }
+    }
+
+    return [row]
   }
 
   private evaluateWhere(record: SObjectRecord, where: WhereNode): boolean {

@@ -1,8 +1,24 @@
 /**
- * @dotdo/clerk - Webhook Signature Verification
+ * @dotdo/clerk - Webhook Signature Verification and Event Handling
  *
- * Clerk uses Svix for webhooks. This module provides signature verification
- * compatible with Clerk's webhook format.
+ * Clerk uses Svix for webhooks. This module provides:
+ * - Signature verification compatible with Clerk's webhook format
+ * - High-level event handler with type-safe routing
+ * - Cloudflare Workers-optimized async verification
+ *
+ * ## Architecture
+ *
+ * The webhook system is split into two main components:
+ *
+ * 1. **Webhook** - Low-level signature verification
+ *    - HMAC-SHA256 signature validation using Web Crypto API
+ *    - Timestamp validation with configurable tolerance
+ *    - Secure constant-time signature comparison
+ *
+ * 2. **WebhookHandler** - High-level event routing
+ *    - Type-safe event registration with `.on()`
+ *    - Catch-all handler with `.onAll()`
+ *    - Built-in fetch handler for Workers
  *
  * @example Basic Verification
  * ```typescript
@@ -61,15 +77,46 @@
 
 import type { ClerkWebhookEvent, ClerkWebhookEventType } from './types'
 
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/** Default tolerance for timestamp validation (5 minutes) */
+const DEFAULT_TOLERANCE_SECONDS = 300
+
+/** Prefix for Clerk/Svix webhook secrets */
+const SECRET_PREFIX = 'whsec_'
+
+/** Signature version identifier */
+const SIGNATURE_VERSION = 'v1'
+
+// ============================================================================
+// ERROR CLASSES
+// ============================================================================
+
 /**
- * Webhook verification error
+ * Error thrown when webhook signature verification fails.
+ *
+ * This error is thrown for various verification failures:
+ * - Missing required headers (svix-id, svix-timestamp, svix-signature)
+ * - Invalid or expired timestamp
+ * - Invalid signature
+ * - Malformed JSON payload
  */
 export class WebhookVerificationError extends Error {
-  constructor(message: string) {
+  /** Error code for programmatic handling */
+  readonly code: string
+
+  constructor(message: string, code = 'verification_failed') {
     super(message)
     this.name = 'WebhookVerificationError'
+    this.code = code
   }
 }
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
 
 /**
  * Svix webhook headers (Clerk uses Svix for webhooks)
@@ -88,8 +135,12 @@ export interface WebhookVerifyOptions {
   tolerance?: number
 }
 
+// ============================================================================
+// WEBHOOK CLASS - Low-level signature verification
+// ============================================================================
+
 /**
- * Webhook class for verifying Clerk webhook signatures
+ * Webhook class for verifying Clerk webhook signatures.
  *
  * Clerk webhooks use the Svix signature scheme which consists of:
  * - svix-id: A unique message ID
@@ -97,28 +148,44 @@ export interface WebhookVerifyOptions {
  * - svix-signature: HMAC-SHA256 signature(s)
  *
  * The signature is computed as:
+ * ```
  * HMAC-SHA256(secret, `${svix-id}.${svix-timestamp}.${payload}`)
+ * ```
+ *
+ * @example
+ * ```typescript
+ * const webhook = new Webhook('whsec_...')
+ *
+ * const event = await webhook.verify(payload, {
+ *   'svix-id': headers.get('svix-id'),
+ *   'svix-timestamp': headers.get('svix-timestamp'),
+ *   'svix-signature': headers.get('svix-signature'),
+ * })
+ * ```
  */
 export class Webhook {
-  private secretBytes: Uint8Array
+  private readonly secretBytes: Uint8Array
 
   /**
    * Create a new Webhook instance
    * @param secret - Webhook signing secret (with or without 'whsec_' prefix)
    */
   constructor(secret: string) {
-    // Clerk/Svix secrets are base64 encoded after the 'whsec_' prefix
-    let secretKey = secret
-    if (secretKey.startsWith('whsec_')) {
-      secretKey = secretKey.slice(6) // Remove 'whsec_' prefix
-    }
+    this.secretBytes = this.parseSecret(secret)
+  }
 
-    // Decode base64 secret
+  /**
+   * Parse the webhook secret, handling both prefixed and raw formats
+   */
+  private parseSecret(secret: string): Uint8Array {
+    // Clerk/Svix secrets are base64 encoded after the 'whsec_' prefix
+    const secretKey = secret.startsWith(SECRET_PREFIX) ? secret.slice(SECRET_PREFIX.length) : secret
+
+    // Attempt base64 decode, fall back to raw string
     try {
-      this.secretBytes = this.base64Decode(secretKey)
+      return this.base64Decode(secretKey)
     } catch {
-      // If not valid base64, use as raw string
-      this.secretBytes = new TextEncoder().encode(secretKey)
+      return new TextEncoder().encode(secretKey)
     }
   }
 

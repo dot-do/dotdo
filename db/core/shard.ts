@@ -1,5 +1,5 @@
 /**
- * ShardRouter - DO-level sharding for the compat layer
+ * ShardManager - DO-level sharding for the compat layer
  *
  * Handles the 10GB per DO limit by distributing data across multiple DOs:
  * - Consistent hashing: Minimal key redistribution when adding shards
@@ -8,18 +8,18 @@
  *
  * @example
  * ```typescript
- * const router = new ShardRouter(env.DO, {
+ * const manager = new ShardManager(env.DO, {
  *   key: 'tenant_id',
  *   count: 16,
  *   algorithm: 'consistent',
  * })
  *
  * // Route to specific shard
- * const stub = await router.getShardStub('tenant-123')
+ * const stub = await manager.getShardStub('tenant-123')
  * await stub.fetch('/query', { method: 'POST', body: sql })
  *
  * // Fan out to all shards
- * const results = await router.queryAll('/query', { body: aggregateSql })
+ * const results = await manager.queryAll('/query', { body: aggregateSql })
  * ```
  */
 import type { ShardConfig } from './types'
@@ -331,7 +331,7 @@ export function extractShardKey(
 }
 
 // ============================================================================
-// SHARD ROUTER CLASS
+// SHARD MANAGER CLASS
 // ============================================================================
 
 /**
@@ -344,9 +344,9 @@ export interface ShardQueryResult<T = unknown> {
 }
 
 /**
- * ShardRouter - Routes requests to appropriate DO shards
+ * ShardManager - Manages and routes requests to appropriate DO shards
  */
-export class ShardRouter {
+export class ShardManager {
   private namespace: DurableObjectNamespace
   private _config: ShardConfig
 

@@ -947,13 +947,6 @@ describe('Nested Object Validation', () => {
 
     const event = createUserInsertEvent(user)
     const result = await stream.processEvent(event)
-
-    // Debug: check dead letter queue if validation failed
-    if (!result) {
-      const dlq = stream.getDeadLetterQueue()
-      console.log('DLQ Errors:', JSON.stringify(dlq[0]?.errors, null, 2))
-    }
-
     expect(result?.isValid).toBe(true)
   })
 

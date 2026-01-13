@@ -26,6 +26,9 @@ import type {
   JsonSchema,
 } from '../types'
 
+// Import StructuredOutputError for error recovery tests
+import { StructuredOutputError } from '../structured-output'
+
 // ============================================================================
 // RED PHASE STUBS
 // These types/functions don't exist yet - they define the expected API
@@ -1035,6 +1038,586 @@ describe('[RED] Provider structured output integration', () => {
       })
 
       expect(mockCreate).toBeDefined()
+    })
+  })
+})
+
+// ============================================================================
+// RED PHASE: Union Types and Discriminated Unions
+// These tests MUST fail until union type support is implemented
+// ============================================================================
+
+// Stub for union schema conversion - not yet implemented
+const zodUnionToJsonSchema: any = () => {
+  throw new Error('[RED] zodUnionToJsonSchema is not implemented yet')
+}
+
+const zodDiscriminatedUnionToJsonSchema: any = () => {
+  throw new Error('[RED] zodDiscriminatedUnionToJsonSchema is not implemented yet')
+}
+
+describe('[RED] Union type support', () => {
+  describe('z.union() - standard union types', () => {
+    it('converts z.union() to JSON Schema oneOf', () => {
+      // z.union([z.string(), z.number()]) should become:
+      // { oneOf: [{ type: 'string' }, { type: 'number' }] }
+      const schema = z.union([z.string(), z.number()])
+
+      const jsonSchema = zodUnionToJsonSchema(schema)
+
+      expect(jsonSchema).toEqual({
+        oneOf: [
+          { type: 'string' },
+          { type: 'number' },
+        ],
+      })
+    })
+
+    it('handles union of objects with different shapes', () => {
+      const SuccessSchema = z.object({
+        success: z.literal(true),
+        data: z.string(),
+      })
+
+      const ErrorSchema = z.object({
+        success: z.literal(false),
+        error: z.string(),
+      })
+
+      const ResultSchema = z.union([SuccessSchema, ErrorSchema])
+
+      const jsonSchema = zodUnionToJsonSchema(ResultSchema)
+
+      expect(jsonSchema.oneOf).toHaveLength(2)
+      expect(jsonSchema.oneOf[0].properties.success.const).toBe(true)
+      expect(jsonSchema.oneOf[1].properties.success.const).toBe(false)
+    })
+
+    it('validates data against union schema', () => {
+      const schema = z.union([
+        z.object({ type: z.literal('text'), content: z.string() }),
+        z.object({ type: z.literal('image'), url: z.string().url() }),
+      ])
+
+      // Both should be valid
+      expect(schema.parse({ type: 'text', content: 'hello' })).toBeDefined()
+      expect(schema.parse({ type: 'image', url: 'https://example.com/img.png' })).toBeDefined()
+
+      // Invalid type should fail
+      expect(() => schema.parse({ type: 'video', src: 'test' })).toThrow()
+    })
+
+    it('converts union with nullable to JSON Schema with null type', () => {
+      // z.union([z.string(), z.null()]) should become:
+      // { oneOf: [{ type: 'string' }, { type: 'null' }] }
+      // or { type: ['string', 'null'] }
+      const schema = z.union([z.string(), z.null()])
+
+      const jsonSchema = zodUnionToJsonSchema(schema)
+
+      // Accept either format
+      expect(
+        jsonSchema.oneOf !== undefined ||
+        (Array.isArray(jsonSchema.type) && jsonSchema.type.includes('null'))
+      ).toBe(true)
+    })
+  })
+
+  describe('z.discriminatedUnion() - tagged unions', () => {
+    it('converts discriminated union to JSON Schema with discriminator', () => {
+      const EventSchema = z.discriminatedUnion('type', [
+        z.object({ type: z.literal('click'), x: z.number(), y: z.number() }),
+        z.object({ type: z.literal('keypress'), key: z.string() }),
+        z.object({ type: z.literal('scroll'), delta: z.number() }),
+      ])
+
+      const jsonSchema = zodDiscriminatedUnionToJsonSchema(EventSchema)
+
+      // Should have oneOf with discriminator property info
+      expect(jsonSchema.oneOf).toHaveLength(3)
+      expect(jsonSchema.discriminator).toEqual({ propertyName: 'type' })
+    })
+
+    it('validates discriminated union data correctly', () => {
+      const MessageSchema = z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('user'), text: z.string(), userId: z.string() }),
+        z.object({ kind: z.literal('system'), text: z.string(), severity: z.enum(['info', 'warning', 'error']) }),
+        z.object({ kind: z.literal('assistant'), text: z.string(), model: z.string() }),
+      ])
+
+      // Valid messages
+      expect(MessageSchema.parse({ kind: 'user', text: 'hello', userId: 'u1' })).toBeDefined()
+      expect(MessageSchema.parse({ kind: 'system', text: 'alert', severity: 'warning' })).toBeDefined()
+      expect(MessageSchema.parse({ kind: 'assistant', text: 'hi', model: 'gpt-4' })).toBeDefined()
+
+      // Invalid - wrong discriminator value
+      expect(() => MessageSchema.parse({ kind: 'unknown', text: 'test' })).toThrow()
+
+      // Invalid - missing discriminator
+      expect(() => MessageSchema.parse({ text: 'test' })).toThrow()
+    })
+
+    it('handles complex nested discriminated unions', () => {
+      const ActionSchema = z.discriminatedUnion('action', [
+        z.object({
+          action: z.literal('create'),
+          resource: z.discriminatedUnion('resourceType', [
+            z.object({ resourceType: z.literal('user'), name: z.string() }),
+            z.object({ resourceType: z.literal('project'), title: z.string() }),
+          ]),
+        }),
+        z.object({
+          action: z.literal('delete'),
+          resourceId: z.string(),
+        }),
+      ])
+
+      // This tests nested discriminated unions
+      const jsonSchema = zodDiscriminatedUnionToJsonSchema(ActionSchema)
+
+      expect(jsonSchema.oneOf).toHaveLength(2)
+      // The create action should have its own nested discriminated union
+    })
+  })
+
+  describe('union type coercion', () => {
+    it('coerces values to match first valid union variant', () => {
+      // When coercion is enabled, should try to coerce to match union
+      const schema = z.union([z.number(), z.string()])
+
+      // "42" should coerce to number 42 as first match
+      // This requires the structured output parser to understand unions
+      const response = '{"value": "42"}'
+
+      // This should fail until union coercion is implemented
+      const parser = createStructuredAgent({
+        id: 'union-test',
+        name: 'Union Test Agent',
+        instructions: 'Return union data',
+        model: 'gpt-4o',
+        outputSchema: z.object({ value: schema }),
+        coerceTypes: true,
+      })
+
+      expect(parser).toBeDefined()
+    })
+  })
+})
+
+// ============================================================================
+// RED PHASE: Error Recovery with Schema Hints
+// These tests define retry behavior with schema guidance
+// ============================================================================
+
+// Stub for schema-guided retry
+const createSchemaGuidedRetry: any = () => {
+  throw new Error('[RED] createSchemaGuidedRetry is not implemented yet')
+}
+
+const generateSchemaHint: any = () => {
+  throw new Error('[RED] generateSchemaHint is not implemented yet')
+}
+
+describe('[RED] Error recovery with schema hints', () => {
+  describe('generateSchemaHint()', () => {
+    it('generates human-readable schema description for LLM', () => {
+      const schema = z.object({
+        approved: z.boolean().describe('Whether the item is approved'),
+        score: z.number().min(0).max(100).describe('Score from 0 to 100'),
+        tags: z.array(z.string()).describe('List of tags'),
+      })
+
+      const hint = generateSchemaHint(schema)
+
+      // Should produce a clear description the LLM can understand
+      expect(hint).toContain('approved')
+      expect(hint).toContain('boolean')
+      expect(hint).toContain('score')
+      expect(hint).toContain('0')
+      expect(hint).toContain('100')
+      expect(hint).toContain('tags')
+      expect(hint).toContain('array')
+    })
+
+    it('includes enum values in hint', () => {
+      const schema = z.object({
+        status: z.enum(['pending', 'approved', 'rejected']),
+      })
+
+      const hint = generateSchemaHint(schema)
+
+      expect(hint).toContain('pending')
+      expect(hint).toContain('approved')
+      expect(hint).toContain('rejected')
+    })
+
+    it('shows nested object structure', () => {
+      const schema = z.object({
+        user: z.object({
+          profile: z.object({
+            name: z.string(),
+            age: z.number().optional(),
+          }),
+        }),
+      })
+
+      const hint = generateSchemaHint(schema)
+
+      expect(hint).toContain('user')
+      expect(hint).toContain('profile')
+      expect(hint).toContain('name')
+      expect(hint).toContain('age')
+      expect(hint).toContain('optional')
+    })
+  })
+
+  describe('createSchemaGuidedRetry()', () => {
+    it('creates retry function that includes schema hint in error message', async () => {
+      const schema = z.object({
+        approved: z.boolean(),
+        reason: z.string(),
+      })
+
+      const retryFn = createSchemaGuidedRetry(schema, {
+        maxRetries: 3,
+        generatePrompt: (error: StructuredOutputError, hint: string) => {
+          return `Your previous response was invalid: ${error.message}\n\nPlease return JSON matching this schema:\n${hint}`
+        },
+      })
+
+      expect(retryFn).toBeDefined()
+      expect(typeof retryFn).toBe('function')
+    })
+
+    it('uses validation error path to generate specific fix prompt', async () => {
+      const schema = z.object({
+        items: z.array(z.object({
+          id: z.number(),
+          name: z.string(),
+        })),
+      })
+
+      const error = new StructuredOutputError({
+        message: 'Expected number, received string',
+        phase: 'validate',
+        rawOutput: '{"items": [{"id": "abc", "name": "test"}]}',
+        path: ['items', 0, 'id'],
+        expected: 'number',
+        received: 'abc',
+      })
+
+      const retryFn = createSchemaGuidedRetry(schema, { maxRetries: 2 })
+      const prompt = await retryFn.getFixPrompt(error)
+
+      // Should mention the specific path that failed
+      expect(prompt).toContain('items[0].id')
+      expect(prompt).toContain('number')
+    })
+
+    it('includes example valid JSON in retry prompt', async () => {
+      const schema = z.object({
+        decision: z.enum(['approve', 'reject']),
+        confidence: z.number().min(0).max(1),
+      })
+
+      const retryFn = createSchemaGuidedRetry(schema, {
+        includeExample: true,
+      })
+
+      const error = new StructuredOutputError({
+        message: 'Invalid enum value',
+        phase: 'validate',
+        rawOutput: '{"decision": "maybe", "confidence": 0.5}',
+      })
+
+      const prompt = await retryFn.getFixPrompt(error)
+
+      // Should include a valid example
+      expect(prompt).toMatch(/example|sample/i)
+      expect(prompt).toMatch(/"decision":\s*"(approve|reject)"/)
+    })
+  })
+
+  describe('integration: agent with schema-guided retry', () => {
+    it('automatically retries with schema hints on validation failure', async () => {
+      const schema = z.object({
+        analysis: z.object({
+          sentiment: z.enum(['positive', 'negative', 'neutral']),
+          confidence: z.number().min(0).max(1),
+          keywords: z.array(z.string()).min(1),
+        }),
+      })
+
+      // Agent should automatically retry with schema guidance when output is invalid
+      const agent = createStructuredAgent({
+        id: 'analysis-agent',
+        name: 'Analysis Agent',
+        instructions: 'Analyze the given text',
+        model: 'gpt-4o',
+        outputSchema: schema,
+        schemaGuidedRetry: {
+          enabled: true,
+          maxRetries: 3,
+          includeExample: true,
+        },
+      })
+
+      // When LLM returns invalid output, agent should retry with schema hints
+      // This is the expected behavior to implement
+      expect(agent.config.schemaGuidedRetry?.enabled).toBe(true)
+    })
+
+    it('preserves conversation context across retries', async () => {
+      const schema = z.object({
+        summary: z.string().min(10),
+        keyPoints: z.array(z.string()).min(1),
+      })
+
+      const agent = createStructuredAgent({
+        id: 'summary-agent',
+        name: 'Summary Agent',
+        instructions: 'Summarize the input',
+        model: 'gpt-4o',
+        outputSchema: schema,
+        schemaGuidedRetry: {
+          enabled: true,
+          preserveContext: true,  // Keep original prompt context
+        },
+      })
+
+      // Retries should maintain the original request context
+      expect(agent.config.schemaGuidedRetry?.preserveContext).toBe(true)
+    })
+  })
+})
+
+// ============================================================================
+// RED PHASE: Advanced Schema Features
+// Tests for additional JSON schema features
+// ============================================================================
+
+// Stub for advanced schema conversion
+const zodToJsonSchemaAdvanced: any = () => {
+  throw new Error('[RED] zodToJsonSchemaAdvanced is not implemented yet')
+}
+
+describe('[RED] Advanced schema features', () => {
+  describe('z.literal() support', () => {
+    it('converts z.literal() to JSON Schema const', () => {
+      const schema = z.object({
+        version: z.literal(1),
+        type: z.literal('config'),
+      })
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.properties.version.const).toBe(1)
+      expect(jsonSchema.properties.type.const).toBe('config')
+    })
+  })
+
+  describe('z.tuple() support', () => {
+    it('converts z.tuple() to JSON Schema array with items', () => {
+      const schema = z.tuple([z.string(), z.number(), z.boolean()])
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.type).toBe('array')
+      expect(jsonSchema.items).toHaveLength(3)
+      expect(jsonSchema.items[0].type).toBe('string')
+      expect(jsonSchema.items[1].type).toBe('number')
+      expect(jsonSchema.items[2].type).toBe('boolean')
+      expect(jsonSchema.minItems).toBe(3)
+      expect(jsonSchema.maxItems).toBe(3)
+    })
+  })
+
+  describe('z.record() support', () => {
+    it('converts z.record() to JSON Schema additionalProperties', () => {
+      const schema = z.record(z.string(), z.number())
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.type).toBe('object')
+      expect(jsonSchema.additionalProperties.type).toBe('number')
+    })
+  })
+
+  describe('z.intersection() support', () => {
+    it('converts z.intersection() to JSON Schema allOf', () => {
+      const BaseSchema = z.object({ id: z.string() })
+      const ExtendedSchema = z.object({ name: z.string() })
+      const CombinedSchema = z.intersection(BaseSchema, ExtendedSchema)
+
+      const jsonSchema = zodToJsonSchemaAdvanced(CombinedSchema)
+
+      expect(jsonSchema.allOf).toHaveLength(2)
+      expect(jsonSchema.allOf[0].properties.id).toBeDefined()
+      expect(jsonSchema.allOf[1].properties.name).toBeDefined()
+    })
+  })
+
+  describe('string format constraints', () => {
+    it('includes format for z.string().email()', () => {
+      const schema = z.object({
+        email: z.string().email(),
+        url: z.string().url(),
+        uuid: z.string().uuid(),
+        datetime: z.string().datetime(),
+      })
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.properties.email.format).toBe('email')
+      expect(jsonSchema.properties.url.format).toBe('uri')
+      expect(jsonSchema.properties.uuid.format).toBe('uuid')
+      expect(jsonSchema.properties.datetime.format).toBe('date-time')
+    })
+  })
+
+  describe('array constraints', () => {
+    it('includes minItems and maxItems for z.array()', () => {
+      const schema = z.object({
+        tags: z.array(z.string()).min(1).max(10),
+      })
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.properties.tags.minItems).toBe(1)
+      expect(jsonSchema.properties.tags.maxItems).toBe(10)
+    })
+  })
+
+  describe('string length constraints', () => {
+    it('includes minLength and maxLength for z.string()', () => {
+      const schema = z.object({
+        username: z.string().min(3).max(20),
+        bio: z.string().max(500).optional(),
+      })
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.properties.username.minLength).toBe(3)
+      expect(jsonSchema.properties.username.maxLength).toBe(20)
+      expect(jsonSchema.properties.bio.maxLength).toBe(500)
+    })
+  })
+
+  describe('z.default() handling', () => {
+    it('includes default values in JSON Schema', () => {
+      const schema = z.object({
+        enabled: z.boolean().default(true),
+        count: z.number().default(0),
+        name: z.string().default('untitled'),
+      })
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      expect(jsonSchema.properties.enabled.default).toBe(true)
+      expect(jsonSchema.properties.count.default).toBe(0)
+      expect(jsonSchema.properties.name.default).toBe('untitled')
+    })
+  })
+
+  describe('z.refine() and z.transform()', () => {
+    it('preserves base type for refined schemas', () => {
+      const schema = z.object({
+        age: z.number().refine((n) => n >= 0, 'Age must be non-negative'),
+        email: z.string().email().transform((s) => s.toLowerCase()),
+      })
+
+      const jsonSchema = zodToJsonSchemaAdvanced(schema)
+
+      // Refinements/transforms should not break JSON Schema generation
+      expect(jsonSchema.properties.age.type).toBe('number')
+      expect(jsonSchema.properties.email.type).toBe('string')
+    })
+  })
+})
+
+// ============================================================================
+// RED PHASE: Streaming Structured Output
+// Tests for streaming JSON output parsing
+// ============================================================================
+
+// Stub for streaming parser
+const createStreamingStructuredParser: any = () => {
+  throw new Error('[RED] createStreamingStructuredParser is not implemented yet')
+}
+
+describe('[RED] Streaming structured output', () => {
+  describe('createStreamingStructuredParser()', () => {
+    it('parses partial JSON as it streams', async () => {
+      const schema = z.object({
+        items: z.array(z.object({
+          name: z.string(),
+          value: z.number(),
+        })),
+      })
+
+      const parser = createStreamingStructuredParser(schema)
+
+      // Simulate streaming chunks
+      const chunks = [
+        '{"items": [',
+        '{"name": "first",',
+        ' "value": 1},',
+        '{"name": "second",',
+        ' "value": 2}',
+        ']}',
+      ]
+
+      const partials: unknown[] = []
+      for (const chunk of chunks) {
+        const partial = await parser.feed(chunk)
+        if (partial) partials.push(partial)
+      }
+
+      const final = await parser.complete()
+
+      expect(final).toEqual({
+        items: [
+          { name: 'first', value: 1 },
+          { name: 'second', value: 2 },
+        ],
+      })
+    })
+
+    it('emits partial objects as they become valid', async () => {
+      const schema = z.object({
+        title: z.string(),
+        sections: z.array(z.object({
+          heading: z.string(),
+          content: z.string(),
+        })),
+      })
+
+      const parser = createStreamingStructuredParser(schema, {
+        emitPartials: true,
+      })
+
+      const events: unknown[] = []
+      parser.on('partial', (data: unknown) => events.push(data))
+
+      // Feed partial data
+      await parser.feed('{"title": "My Doc", "sections": [')
+      await parser.feed('{"heading": "Intro", "content": "Hello"}')
+
+      // Should have emitted partial with title and first section
+      expect(events.length).toBeGreaterThan(0)
+    })
+
+    it('validates final output against schema', async () => {
+      const schema = z.object({
+        count: z.number().min(0),
+      })
+
+      const parser = createStreamingStructuredParser(schema)
+
+      await parser.feed('{"count": -5}')
+
+      // Final validation should fail
+      await expect(parser.complete()).rejects.toThrow()
     })
   })
 })

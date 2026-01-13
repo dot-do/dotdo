@@ -1,5 +1,5 @@
 /**
- * ShardRouter tests
+ * ShardManager tests
  *
  * Tests for DO-level sharding to handle 10GB limit per DO:
  * - Consistent hashing algorithm
@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ShardConfig } from './types'
 import {
-  ShardRouter,
+  ShardManager,
   consistentHash,
   rangeHash,
   simpleHash,
@@ -191,10 +191,10 @@ describe('extractShardKey', () => {
 })
 
 // ============================================================================
-// SHARD ROUTER TESTS
+// SHARD MANAGER TESTS
 // ============================================================================
 
-describe('ShardRouter', () => {
+describe('ShardManager', () => {
   // Mock DurableObjectNamespace
   const createMockNamespace = () => {
     const stubs = new Map<string, any>()
@@ -214,7 +214,7 @@ describe('ShardRouter', () => {
   }
 
   let mockNamespace: ReturnType<typeof createMockNamespace>
-  let router: ShardRouter
+  let manager: ShardManager
 
   beforeEach(() => {
     mockNamespace = createMockNamespace()
@@ -222,8 +222,8 @@ describe('ShardRouter', () => {
 
   describe('constructor', () => {
     it('should create with default config', () => {
-      router = new ShardRouter(mockNamespace as any)
-      expect(router).toBeInstanceOf(ShardRouter)
+      manager = new ShardManager(mockNamespace as any)
+      expect(manager).toBeInstanceOf(ShardManager)
     })
 
     it('should accept custom shard config', () => {
@@ -232,21 +232,21 @@ describe('ShardRouter', () => {
         count: 16,
         algorithm: 'consistent',
       }
-      router = new ShardRouter(mockNamespace as any, config)
-      expect(router.config).toEqual(config)
+      manager = new ShardManager(mockNamespace as any, config)
+      expect(manager.config).toEqual(config)
     })
   })
 
   describe('getShardId', () => {
     it('should return correct shard for consistent algorithm', () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
       })
 
-      const shard1 = router.getShardId('tenant-1')
-      const shard2 = router.getShardId('tenant-1')
+      const shard1 = manager.getShardId('tenant-1')
+      const shard2 = manager.getShardId('tenant-1')
       expect(shard1).toBe(shard2) // Consistent
 
       expect(shard1).toBeGreaterThanOrEqual(0)
@@ -254,26 +254,26 @@ describe('ShardRouter', () => {
     })
 
     it('should return correct shard for hash algorithm', () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'hash',
       })
 
-      const shard = router.getShardId('tenant-1')
+      const shard = manager.getShardId('tenant-1')
       expect(shard).toBeGreaterThanOrEqual(0)
       expect(shard).toBeLessThan(4)
     })
 
     it('should return correct shard for range algorithm', () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'year',
         count: 4,
         algorithm: 'range',
       })
 
       // Range sharding on years
-      const shard = router.getShardId('2024')
+      const shard = manager.getShardId('2024')
       expect(shard).toBeGreaterThanOrEqual(0)
       expect(shard).toBeLessThan(4)
     })
@@ -281,13 +281,13 @@ describe('ShardRouter', () => {
 
   describe('getShardStub', () => {
     it('should return DO stub for shard key', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
       })
 
-      const stub = await router.getShardStub('tenant-123')
+      const stub = await manager.getShardStub('tenant-123')
 
       expect(mockNamespace.idFromName).toHaveBeenCalled()
       expect(mockNamespace.get).toHaveBeenCalled()
@@ -296,14 +296,14 @@ describe('ShardRouter', () => {
     })
 
     it('should route same key to same stub', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
       })
 
-      const stub1 = await router.getShardStub('tenant-123')
-      const stub2 = await router.getShardStub('tenant-123')
+      const stub1 = await manager.getShardStub('tenant-123')
+      const stub2 = await manager.getShardStub('tenant-123')
 
       // Should call idFromName with same shard name
       const calls = mockNamespace.idFromName.mock.calls
@@ -312,13 +312,13 @@ describe('ShardRouter', () => {
     })
 
     it('should route to shard-N naming convention', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
       })
 
-      await router.getShardStub('some-key')
+      await manager.getShardStub('some-key')
 
       const shardName = mockNamespace.idFromName.mock.calls[0][0]
       expect(shardName).toMatch(/^shard-\d+$/)
@@ -327,13 +327,13 @@ describe('ShardRouter', () => {
 
   describe('getShardStubForSql', () => {
     it('should extract key and route to shard', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
       })
 
-      const stub = await router.getShardStubForSql(
+      const stub = await manager.getShardStubForSql(
         "SELECT * FROM users WHERE tenant_id = 'abc123'"
       )
 
@@ -341,13 +341,13 @@ describe('ShardRouter', () => {
     })
 
     it('should return undefined for cross-shard queries', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
       })
 
-      const stub = await router.getShardStubForSql(
+      const stub = await manager.getShardStubForSql(
         "SELECT * FROM users WHERE name = 'John'"
       )
 
@@ -357,7 +357,7 @@ describe('ShardRouter', () => {
 
   describe('queryAll', () => {
     it('should fan out query to all shards', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
@@ -371,7 +371,7 @@ describe('ShardRouter', () => {
         )
       }
 
-      const results = await router.queryAll('/query', {
+      const results = await manager.queryAll('/query', {
         method: 'POST',
         body: JSON.stringify({ sql: 'SELECT COUNT(*) FROM users' }),
       })
@@ -381,7 +381,7 @@ describe('ShardRouter', () => {
     })
 
     it('should handle partial failures gracefully', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 4,
         algorithm: 'consistent',
@@ -391,7 +391,7 @@ describe('ShardRouter', () => {
       const stub0 = mockNamespace.get({ toString: () => `id-shard-0` })
       stub0.fetch.mockRejectedValueOnce(new Error('Shard unavailable'))
 
-      const results = await router.queryAll('/query', {
+      const results = await manager.queryAll('/query', {
         method: 'POST',
         body: JSON.stringify({ sql: 'SELECT * FROM users' }),
       })
@@ -402,7 +402,7 @@ describe('ShardRouter', () => {
     })
 
     it('should merge results from all shards', async () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 2,
         algorithm: 'consistent',
@@ -418,7 +418,7 @@ describe('ShardRouter', () => {
         new Response(JSON.stringify({ rows: [{ id: 3 }, { id: 4 }] }))
       )
 
-      const results = await router.queryAll('/query', {
+      const results = await manager.queryAll('/query', {
         method: 'POST',
         body: JSON.stringify({ sql: 'SELECT * FROM users' }),
       })
@@ -429,25 +429,25 @@ describe('ShardRouter', () => {
 
   describe('shardCount', () => {
     it('should return configured shard count', () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'tenant_id',
         count: 16,
         algorithm: 'consistent',
       })
 
-      expect(router.shardCount).toBe(16)
+      expect(manager.shardCount).toBe(16)
     })
   })
 
   describe('shardKey', () => {
     it('should return configured shard key', () => {
-      router = new ShardRouter(mockNamespace as any, {
+      manager = new ShardManager(mockNamespace as any, {
         key: 'org_id',
         count: 8,
         algorithm: 'hash',
       })
 
-      expect(router.shardKey).toBe('org_id')
+      expect(manager.shardKey).toBe('org_id')
     })
   })
 })
@@ -554,7 +554,7 @@ describe('consistentHash performance', () => {
 // INTEGRATION TESTS
 // ============================================================================
 
-describe('ShardRouter integration', () => {
+describe('ShardManager integration', () => {
   it('should work with realistic tenant isolation', async () => {
     const mockNamespace = {
       idFromName: vi.fn((name: string) => ({ toString: () => `id-${name}` })),
@@ -565,7 +565,7 @@ describe('ShardRouter integration', () => {
       })),
     }
 
-    const router = new ShardRouter(mockNamespace as any, {
+    const manager = new ShardManager(mockNamespace as any, {
       key: 'tenant_id',
       count: 16,
       algorithm: 'consistent',
@@ -576,7 +576,7 @@ describe('ShardRouter integration', () => {
     const shardAssignments = new Set<number>()
 
     for (const tenantId of tenantIds) {
-      const shardId = router.getShardId(tenantId)
+      const shardId = manager.getShardId(tenantId)
       shardAssignments.add(shardId)
     }
 

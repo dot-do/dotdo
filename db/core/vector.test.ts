@@ -1,7 +1,7 @@
 /**
- * VectorRouter tests
+ * VectorManager tests
  *
- * Tests for tiered vector search routing:
+ * Tests for tiered vector search management:
  * - Engine support (libsql, edgevec, vectorize, clickhouse, iceberg)
  * - Routing strategies (cascade, parallel, smart)
  * - Tiered storage (hot/warm/cold)
@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { VectorConfig, VectorTierConfig } from './types'
 import {
-  VectorRouter,
+  VectorManager,
   createVectorEngine,
   cosineSimilarity,
   euclideanDistance,
@@ -206,17 +206,17 @@ describe('createVectorEngine', () => {
 })
 
 // ============================================================================
-// VECTOR ROUTER TESTS
+// VECTOR MANAGER TESTS
 // ============================================================================
 
-describe('VectorRouter', () => {
+describe('VectorManager', () => {
   describe('constructor', () => {
-    it('should create router with default config', () => {
-      const router = new VectorRouter({} as any)
-      expect(router).toBeInstanceOf(VectorRouter)
+    it('should create manager with default config', () => {
+      const manager = new VectorManager({} as any)
+      expect(manager).toBeInstanceOf(VectorManager)
     })
 
-    it('should create router with custom config', () => {
+    it('should create manager with custom config', () => {
       const config: VectorConfig = {
         tiers: {
           hot: { engine: 'libsql', dimensions: 128 },
@@ -224,9 +224,9 @@ describe('VectorRouter', () => {
         },
         routing: { strategy: 'cascade' },
       }
-      const router = new VectorRouter({} as any, config)
-      expect(router.config.tiers.hot?.engine).toBe('libsql')
-      expect(router.config.tiers.warm?.engine).toBe('vectorize')
+      const manager = new VectorManager({} as any, config)
+      expect(manager.config.tiers.hot?.engine).toBe('libsql')
+      expect(manager.config.tiers.warm?.engine).toBe('vectorize')
     })
 
     it('should initialize engines for each tier', () => {
@@ -237,30 +237,30 @@ describe('VectorRouter', () => {
         },
         routing: { strategy: 'cascade' },
       }
-      const router = new VectorRouter({} as any, config)
-      expect(router.hasEngine('hot')).toBe(true)
-      expect(router.hasEngine('warm')).toBe(false)
-      expect(router.hasEngine('cold')).toBe(true)
+      const manager = new VectorManager({} as any, config)
+      expect(manager.hasEngine('hot')).toBe(true)
+      expect(manager.hasEngine('warm')).toBe(false)
+      expect(manager.hasEngine('cold')).toBe(true)
     })
   })
 
   describe('insert', () => {
     it('should insert vector into hot tier', async () => {
       const mockHot = createMockEngine('libsql')
-      const router = new VectorRouter({} as any)
-      router._setEngine('hot', mockHot as any)
+      const manager = new VectorManager({} as any)
+      manager._setEngine('hot', mockHot as any)
 
-      await router.insert('vec-1', [0.1, 0.2, 0.3], { label: 'test' })
+      await manager.insert('vec-1', [0.1, 0.2, 0.3], { label: 'test' })
 
       expect(mockHot.insert).toHaveBeenCalledWith('vec-1', [0.1, 0.2, 0.3], { label: 'test' })
     })
 
     it('should batch insert multiple vectors', async () => {
       const mockHot = createMockEngine('libsql')
-      const router = new VectorRouter({} as any)
-      router._setEngine('hot', mockHot as any)
+      const manager = new VectorManager({} as any)
+      manager._setEngine('hot', mockHot as any)
 
-      await router.insertBatch([
+      await manager.insertBatch([
         { id: 'vec-1', vector: [0.1, 0.2], metadata: {} },
         { id: 'vec-2', vector: [0.3, 0.4], metadata: {} },
       ])
@@ -270,10 +270,10 @@ describe('VectorRouter', () => {
 
     it('should insert into specific tier', async () => {
       const mockWarm = createMockEngine('vectorize')
-      const router = new VectorRouter({} as any)
-      router._setEngine('warm', mockWarm as any)
+      const manager = new VectorManager({} as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      await router.insert('vec-1', [0.1, 0.2], {}, 'warm')
+      await manager.insert('vec-1', [0.1, 0.2], {}, 'warm')
 
       expect(mockWarm.insert).toHaveBeenCalled()
     })
@@ -286,13 +286,13 @@ describe('VectorRouter', () => {
         { id: 'vec-1', score: 0.95, metadata: {} },
       ])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: { hot: { engine: 'libsql', dimensions: 3 } },
         routing: { strategy: 'cascade' },
       })
-      router._setEngine('hot', mockHot as any)
+      manager._setEngine('hot', mockHot as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 10 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 10 })
 
       expect(mockHot.search).toHaveBeenCalled()
       expect(results).toHaveLength(1)
@@ -307,17 +307,17 @@ describe('VectorRouter', () => {
         { id: 'vec-2', score: 0.8, metadata: {} },
       ])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'cascade', fallback: true },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 10 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 10 })
 
       expect(mockHot.search).toHaveBeenCalled()
       expect(mockWarm.search).toHaveBeenCalled()
@@ -329,17 +329,17 @@ describe('VectorRouter', () => {
       const mockWarm = createMockEngine('vectorize')
       mockHot.search.mockResolvedValue([])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'cascade', fallback: false },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 10 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 10 })
 
       expect(mockHot.search).toHaveBeenCalled()
       expect(mockWarm.search).not.toHaveBeenCalled()
@@ -354,17 +354,17 @@ describe('VectorRouter', () => {
       mockHot.search.mockResolvedValue([{ id: 'hot-1', score: 0.9, metadata: {} }])
       mockWarm.search.mockResolvedValue([{ id: 'warm-1', score: 0.85, metadata: {} }])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'parallel' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 10 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 10 })
 
       expect(mockHot.search).toHaveBeenCalled()
       expect(mockWarm.search).toHaveBeenCalled()
@@ -377,17 +377,17 @@ describe('VectorRouter', () => {
       mockHot.search.mockResolvedValue([{ id: 'hot-1', score: 0.8, metadata: {} }])
       mockWarm.search.mockResolvedValue([{ id: 'warm-1', score: 0.95, metadata: {} }])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'parallel' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 10 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 10 })
 
       expect(results[0].id).toBe('warm-1') // Higher score first
       expect(results[1].id).toBe('hot-1')
@@ -405,17 +405,17 @@ describe('VectorRouter', () => {
         { id: 'warm-2', score: 0.65, metadata: {} },
       ])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'parallel' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 2 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 2 })
 
       expect(results).toHaveLength(2)
       expect(results[0].id).toBe('hot-1') // 0.9
@@ -430,17 +430,17 @@ describe('VectorRouter', () => {
       mockHot.count.mockResolvedValue(100) // Small dataset
       mockHot.search.mockResolvedValue([{ id: 'hot-1', score: 0.9, metadata: {} }])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           cold: { engine: 'iceberg', dimensions: 3 },
         },
         routing: { strategy: 'smart' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('cold', mockCold as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('cold', mockCold as any)
 
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 10 })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 10 })
 
       expect(mockHot.search).toHaveBeenCalled()
       expect(mockCold.search).not.toHaveBeenCalled()
@@ -453,18 +453,18 @@ describe('VectorRouter', () => {
       mockCold.count.mockResolvedValue(1000000) // Large dataset
       mockCold.search.mockResolvedValue([{ id: 'cold-1', score: 0.9, metadata: {} }])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           cold: { engine: 'iceberg', dimensions: 3 },
         },
         routing: { strategy: 'smart' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('cold', mockCold as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('cold', mockCold as any)
 
       // Trigger smart routing to cold tier
-      const results = await router.search([0.1, 0.2, 0.3], { limit: 1000, tier: 'cold' })
+      const results = await manager.search([0.1, 0.2, 0.3], { limit: 1000, tier: 'cold' })
 
       expect(mockCold.search).toHaveBeenCalled()
     })
@@ -475,10 +475,10 @@ describe('VectorRouter', () => {
       const mockHot = createMockEngine('libsql')
       mockHot.delete.mockResolvedValue(true)
 
-      const router = new VectorRouter({} as any)
-      router._setEngine('hot', mockHot as any)
+      const manager = new VectorManager({} as any)
+      manager._setEngine('hot', mockHot as any)
 
-      const result = await router.delete('vec-1')
+      const result = await manager.delete('vec-1')
 
       expect(mockHot.delete).toHaveBeenCalledWith('vec-1')
       expect(result).toBe(true)
@@ -490,17 +490,17 @@ describe('VectorRouter', () => {
       mockHot.delete.mockResolvedValue(true)
       mockWarm.delete.mockResolvedValue(true)
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'cascade' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      await router.deleteFromAllTiers('vec-1')
+      await manager.deleteFromAllTiers('vec-1')
 
       expect(mockHot.delete).toHaveBeenCalledWith('vec-1')
       expect(mockWarm.delete).toHaveBeenCalledWith('vec-1')
@@ -515,17 +515,17 @@ describe('VectorRouter', () => {
         { id: 'vec-1', vector: [0.1, 0.2], score: 1, metadata: { label: 'test' } },
       ])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 2 },
           warm: { engine: 'vectorize', dimensions: 2 },
         },
         routing: { strategy: 'cascade' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      await router.promote('vec-1', 'hot', 'warm')
+      await manager.promote('vec-1', 'hot', 'warm')
 
       expect(mockWarm.insert).toHaveBeenCalled()
       expect(mockHot.delete).toHaveBeenCalledWith('vec-1')
@@ -538,17 +538,17 @@ describe('VectorRouter', () => {
         { id: 'vec-1', vector: [0.1, 0.2], score: 1, metadata: {} },
       ])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           warm: { engine: 'vectorize', dimensions: 2 },
           cold: { engine: 'iceberg', dimensions: 2 },
         },
         routing: { strategy: 'cascade' },
       })
-      router._setEngine('warm', mockWarm as any)
-      router._setEngine('cold', mockCold as any)
+      manager._setEngine('warm', mockWarm as any)
+      manager._setEngine('cold', mockCold as any)
 
-      await router.demote('vec-1', 'warm', 'cold')
+      await manager.demote('vec-1', 'warm', 'cold')
 
       expect(mockCold.insert).toHaveBeenCalled()
       expect(mockWarm.delete).toHaveBeenCalledWith('vec-1')
@@ -560,10 +560,10 @@ describe('VectorRouter', () => {
       const mockHot = createMockEngine('libsql')
       mockHot.count.mockResolvedValue(42)
 
-      const router = new VectorRouter({} as any)
-      router._setEngine('hot', mockHot as any)
+      const manager = new VectorManager({} as any)
+      manager._setEngine('hot', mockHot as any)
 
-      const count = await router.count('hot')
+      const count = await manager.count('hot')
 
       expect(count).toBe(42)
     })
@@ -574,17 +574,17 @@ describe('VectorRouter', () => {
       mockHot.count.mockResolvedValue(100)
       mockWarm.count.mockResolvedValue(200)
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 3 },
           warm: { engine: 'vectorize', dimensions: 3 },
         },
         routing: { strategy: 'cascade' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const count = await router.countAll()
+      const count = await manager.countAll()
 
       expect(count).toBe(300)
     })
@@ -597,10 +597,10 @@ describe('VectorRouter', () => {
         { id: 'vec-1', vector: [0.1, 0.2], score: 1, metadata: { label: 'test' } },
       ])
 
-      const router = new VectorRouter({} as any)
-      router._setEngine('hot', mockHot as any)
+      const manager = new VectorManager({} as any)
+      manager._setEngine('hot', mockHot as any)
 
-      const result = await router.getById('vec-1')
+      const result = await manager.getById('vec-1')
 
       expect(result).toBeDefined()
       expect(result?.id).toBe('vec-1')
@@ -614,17 +614,17 @@ describe('VectorRouter', () => {
         { id: 'vec-1', vector: [0.1, 0.2], score: 1, metadata: {} },
       ])
 
-      const router = new VectorRouter({} as any, {
+      const manager = new VectorManager({} as any, {
         tiers: {
           hot: { engine: 'libsql', dimensions: 2 },
           warm: { engine: 'vectorize', dimensions: 2 },
         },
         routing: { strategy: 'cascade' },
       })
-      router._setEngine('hot', mockHot as any)
-      router._setEngine('warm', mockWarm as any)
+      manager._setEngine('hot', mockHot as any)
+      manager._setEngine('warm', mockWarm as any)
 
-      const result = await router.getById('vec-1')
+      const result = await manager.getById('vec-1')
 
       expect(result?.id).toBe('vec-1')
     })
@@ -635,15 +635,15 @@ describe('VectorRouter', () => {
 // SEARCH OPTIONS TESTS
 // ============================================================================
 
-describe('VectorRouter search options', () => {
+describe('VectorManager search options', () => {
   it('should support filter parameter', async () => {
     const mockHot = createMockEngine('libsql')
     mockHot.search.mockResolvedValue([])
 
-    const router = new VectorRouter({} as any)
-    router._setEngine('hot', mockHot as any)
+    const manager = new VectorManager({} as any)
+    manager._setEngine('hot', mockHot as any)
 
-    await router.search([0.1, 0.2], {
+    await manager.search([0.1, 0.2], {
       limit: 10,
       filter: { category: 'embeddings' },
     })
@@ -661,10 +661,10 @@ describe('VectorRouter search options', () => {
       { id: 'vec-2', score: 0.5, metadata: {} },
     ])
 
-    const router = new VectorRouter({} as any)
-    router._setEngine('hot', mockHot as any)
+    const manager = new VectorManager({} as any)
+    manager._setEngine('hot', mockHot as any)
 
-    const results = await router.search([0.1, 0.2], {
+    const results = await manager.search([0.1, 0.2], {
       limit: 10,
       threshold: 0.7,
     })
@@ -679,10 +679,10 @@ describe('VectorRouter search options', () => {
       { id: 'vec-1', score: 0.9, vector: [0.1, 0.2], metadata: {} },
     ])
 
-    const router = new VectorRouter({} as any)
-    router._setEngine('hot', mockHot as any)
+    const manager = new VectorManager({} as any)
+    manager._setEngine('hot', mockHot as any)
 
-    const results = await router.search([0.1, 0.2], {
+    const results = await manager.search([0.1, 0.2], {
       limit: 10,
       includeVectors: true,
     })
@@ -695,7 +695,7 @@ describe('VectorRouter search options', () => {
 // INTEGRATION TESTS
 // ============================================================================
 
-describe('VectorRouter integration', () => {
+describe('VectorManager integration', () => {
   it('should work with realistic tiered config', async () => {
     const config: VectorConfig = {
       tiers: {
@@ -706,12 +706,12 @@ describe('VectorRouter integration', () => {
       routing: { strategy: 'cascade', fallback: true, rerank: true },
     }
 
-    const router = new VectorRouter({} as any, config)
+    const manager = new VectorManager({} as any, config)
 
-    expect(router.config.tiers.hot?.engine).toBe('libsql')
-    expect(router.config.tiers.warm?.engine).toBe('vectorize')
-    expect(router.config.tiers.cold?.engine).toBe('iceberg')
-    expect(router.config.routing.rerank).toBe(true)
+    expect(manager.config.tiers.hot?.engine).toBe('libsql')
+    expect(manager.config.tiers.warm?.engine).toBe('vectorize')
+    expect(manager.config.tiers.cold?.engine).toBe('iceberg')
+    expect(manager.config.routing.rerank).toBe(true)
   })
 
   it('should use ClickHouse with specific index', async () => {
@@ -722,8 +722,8 @@ describe('VectorRouter integration', () => {
       routing: { strategy: 'cascade' },
     }
 
-    const router = new VectorRouter({} as any, config)
+    const manager = new VectorManager({} as any, config)
 
-    expect(router.config.tiers.hot?.index).toBe('usearch')
+    expect(manager.config.tiers.hot?.index).toBe('usearch')
   })
 })

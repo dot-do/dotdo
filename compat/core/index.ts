@@ -4,7 +4,7 @@
  * Stream infrastructure for Cloudflare Pipelines integration.
  *
  * Note: Shard, Replica, Tier, and Vector infrastructure has been moved to db/core
- * @see db/core for ShardRouter, ReplicaManager, TierManager, VectorRouter
+ * @see db/core for ShardManager, ReplicaManager, TierManager, VectorManager
  */
 
 // Re-export streaming/core for backwards compatibility

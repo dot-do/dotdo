@@ -1,8 +1,8 @@
 /**
- * Capability Mixin Infrastructure
+ * Capability Infrastructure
  *
  * This module provides the infrastructure for adding optional capabilities
- * to Durable Object classes via mixins. Capabilities are:
+ * to Durable Object classes. Capabilities are:
  * - Opt-in: Only added when explicitly composed with withX(Base)
  * - Lazy-initialized: API created on first $ property access
  * - Type-safe: TypeScript inference for capability APIs on $ context
@@ -10,7 +10,7 @@
  *
  * @example
  * ```typescript
- * const withFS = createCapabilityMixin('fs', (ctx) => ({
+ * const withFS = createCapability('fs', (ctx) => ({
  *   read: (path: string) => ctx.sql.exec(`SELECT * FROM files WHERE path = ?`, [path]),
  *   write: (path: string, content: string) => // ...
  * }))
@@ -53,14 +53,14 @@ export interface CapabilityContext {
 export type CapabilityInit<API> = (ctx: CapabilityContext) => API
 
 /**
- * Mixin function type - transforms a base class into an extended class
+ * Capability function type - transforms a base class into an extended class
  */
 export type CapabilityMixin<Name extends string, API> = <TBase extends Constructor<DOBase>>(
   Base: TBase
 ) => TBase & Constructor<{ hasCapability(name: string): boolean }>
 
 /**
- * Base interface that DO classes must implement to support capability mixins
+ * Base interface that DO classes must implement to support capabilities
  */
 interface DOBase {
   ctx: DurableObjectState
@@ -87,9 +87,9 @@ const CAPABILITY_CACHE = Symbol.for('dotdo.capabilityCache')
 const CAPABILITY_INITS = Symbol.for('dotdo.capabilityInits')
 
 /**
- * Create a capability mixin that adds a named capability to a DO class.
+ * Create a capability that adds a named capability to a DO class.
  *
- * The mixin:
+ * The capability:
  * 1. Adds the capability name to a static `capabilities` array
  * 2. Provides a `hasCapability(name)` method for runtime capability detection
  * 3. Wraps the `$` getter with a Proxy for lazy capability initialization
@@ -97,9 +97,9 @@ const CAPABILITY_INITS = Symbol.for('dotdo.capabilityInits')
  *
  * @param name - Capability name (e.g., 'fs', 'git', 'bash')
  * @param init - Initialization function that returns the capability API
- * @returns Mixin function that transforms a base class
+ * @returns Capability function that transforms a base class
  */
-export function createCapabilityMixin<Name extends string, API>(
+export function createCapability<Name extends string, API>(
   name: Name,
   init: CapabilityInit<API>
 ): CapabilityMixin<Name, API> {
@@ -185,7 +185,7 @@ export function createCapabilityMixin<Name extends string, API>(
 
         // If still undefined, something is wrong
         if (base$ === undefined) {
-          throw new Error(`Capability mixin '${name}': base $ context is undefined`)
+          throw new Error(`Capability '${name}': base $ context is undefined`)
         }
 
         const cache = this[CAPABILITY_CACHE]

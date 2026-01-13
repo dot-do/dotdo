@@ -236,6 +236,74 @@ export interface RelationshipRecord {
 }
 
 // ============================================================================
+// DO FEATURE CONFIGURATION
+// ============================================================================
+
+/**
+ * Configuration for DO features that can be eagerly initialized.
+ *
+ * By default, all features are available in the base DO class but are
+ * lazily initialized (tables created on first access). Use `DO.with()`
+ * to eagerly initialize specific features when the DO starts.
+ *
+ * @example
+ * ```typescript
+ * // Enable search and vectors eager initialization
+ * class SearchableDO extends DO.with({ search: true, vectors: true }) { }
+ * ```
+ */
+export interface DOFeatureConfig {
+  /**
+   * Things store - CRUD operations for domain entities.
+   * Initializes the `things` and `nouns` tables.
+   */
+  things?: boolean
+
+  /**
+   * Relationships store - Graph relationships between Things.
+   * Initializes the `relationships` table.
+   */
+  relationships?: boolean
+
+  /**
+   * Actions store - Action logging and lifecycle tracking.
+   * Initializes the `actions` table.
+   */
+  actions?: boolean
+
+  /**
+   * Events store - Event emission and streaming.
+   * Initializes the `events` table.
+   */
+  events?: boolean
+
+  /**
+   * Search store - Full-text and semantic search.
+   * Initializes the `search` table with FTS capabilities.
+   */
+  search?: boolean
+
+  /**
+   * Vectors - Vector embeddings for semantic search.
+   * Initializes embedding columns in the `search` table.
+   * Note: Full vector index functionality is in VectorShardDO.
+   */
+  vectors?: boolean
+
+  /**
+   * Objects store - DO registry and cross-DO resolution.
+   * Initializes the `objects` table.
+   */
+  objects?: boolean
+
+  /**
+   * Dead Letter Queue - Failed events for retry.
+   * Initializes the `dlq` table.
+   */
+  dlq?: boolean
+}
+
+// ============================================================================
 // OKR (OBJECTIVES AND KEY RESULTS) TYPES
 // ============================================================================
 
@@ -311,6 +379,117 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    * Empty by default in base DO class.
    */
   static capabilities: string[] = []
+
+  /**
+   * Configuration for features that should be eagerly initialized.
+   * When features are specified here, their tables are created on DO start
+   * rather than lazily on first access.
+   */
+  static _eagerFeatures: DOFeatureConfig = {}
+
+  /**
+   * Create a DO subclass with specified features eagerly initialized.
+   *
+   * By default, all DO features (search, vectors, relationships, events, etc.)
+   * are available but initialized lazily - their tables are created on first access.
+   * Use `DO.with()` to eagerly initialize specific features when the DO starts.
+   *
+   * @param features - Features to eagerly initialize on DO creation
+   * @returns A class that extends DO with eager initialization for specified features
+   *
+   * @example
+   * ```typescript
+   * // Base DO - everything available, all lazy init
+   * class MyDO extends DO { }
+   *
+   * // Eager init for specific features
+   * class SearchableDO extends DO.with({ search: true, vectors: true }) { }
+   *
+   * // Configure multiple features
+   * class FullFeaturedDO extends DO.with({
+   *   search: true,
+   *   vectors: true,
+   *   relationships: true,
+   *   events: true,
+   *   actions: true,
+   *   things: true,
+   * }) { }
+   * ```
+   */
+  static with<E extends Env = Env>(features: DOFeatureConfig): typeof DO<E> {
+    // Capture features in closure for the returned class
+    const eagerFeatures = { ...features }
+
+    // Create a new class that extends DO with eager initialization
+    class DOWithFeatures extends (this as unknown as typeof DO<E>) {
+      // Store the feature config for introspection
+      static override _eagerFeatures = eagerFeatures
+
+      constructor(ctx: DurableObjectState, env: E) {
+        super(ctx, env)
+
+        // Use blockConcurrencyWhile to ensure eager initialization completes
+        // before any requests are processed
+        ctx.blockConcurrencyWhile(async () => {
+          await this._initializeEagerFeatures(eagerFeatures)
+        })
+      }
+    }
+
+    return DOWithFeatures as typeof DO<E>
+  }
+
+  /**
+   * Initialize features that are configured for eager initialization.
+   * Called during DO construction when using DO.with().
+   *
+   * @param features - Feature configuration from DO.with()
+   */
+  protected async _initializeEagerFeatures(features: DOFeatureConfig): Promise<void> {
+    // Access each feature's getter to trigger lazy initialization
+    // This creates the tables and initializes the stores
+
+    if (features.things) {
+      // Access things store to initialize things and nouns tables
+      void this.things
+    }
+
+    if (features.relationships) {
+      // Access rels store to initialize relationships table
+      void this.rels
+    }
+
+    if (features.actions) {
+      // Access actions store to initialize actions table
+      void this.actions
+    }
+
+    if (features.events) {
+      // Access events store to initialize events table
+      void this.events
+    }
+
+    if (features.search) {
+      // Access search store to initialize search table
+      void this.search
+    }
+
+    if (features.vectors) {
+      // For vectors, we initialize the search store which handles embeddings
+      // The full vector index functionality is in VectorShardDO
+      void this.search
+    }
+
+    if (features.objects) {
+      // Access objects store to initialize DO registry
+      void this.objects
+    }
+
+    if (features.dlq) {
+      // Access DLQ store to initialize dead letter queue
+      void this.dlq
+    }
+  }
 
   /**
    * Check if this DO instance has a specific capability.

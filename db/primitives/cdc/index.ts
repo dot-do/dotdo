@@ -427,3 +427,28 @@ export {
   type CoordinatedSnapshotOptions,
   type WALDemuxerOptions,
 } from './multi-table-coordinator'
+
+// =============================================================================
+// BACKPRESSURE
+// =============================================================================
+
+export {
+  // Class
+  BackpressureController,
+  // Factory functions
+  createBackpressureController,
+  createInMemoryDiskBuffer,
+  // Class (disk buffer implementation)
+  InMemoryDiskBuffer,
+  // Enums
+  OverflowStrategy,
+  BackpressureState,
+  // Metric names
+  BackpressureMetrics,
+  // Types
+  type BufferedEvent,
+  type BackpressureStats,
+  type DiskBuffer,
+  type BackpressureOptions,
+  type ControllableSource,
+} from './backpressure'

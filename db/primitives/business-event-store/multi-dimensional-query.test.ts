@@ -840,7 +840,7 @@ describe('Multi-dimensional Query - Compound Queries', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query by What + When (object events in time range)', async () => {
+  it('should query by What + When (object events in time range)', async () => {
     const event1 = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-01T10:00:00Z'),
@@ -876,7 +876,7 @@ describe('Multi-dimensional Query - Compound Queries', () => {
     expect(result.items[0]?.id).toBe(event2.id)
   })
 
-  it.fails('should query by What + Where (object at location)', async () => {
+  it('should query by What + Where (object at location)', async () => {
     const event1 = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -907,7 +907,7 @@ describe('Multi-dimensional Query - Compound Queries', () => {
     expect(result.items[0]?.id).toBe(event1.id)
   })
 
-  it.fails('should query by What + Why (object business steps)', async () => {
+  it('should query by What + Why (object business steps)', async () => {
     const event1 = new ObjectEvent({
       what: [ORDER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -938,7 +938,7 @@ describe('Multi-dimensional Query - Compound Queries', () => {
     expect(result.items[0]?.id).toBe(event1.id)
   })
 
-  it.fails('should query by Where + When + Why (location events in time range with reason)', async () => {
+  it('should query by Where + When + Why (location events in time range with reason)', async () => {
     const event1 = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1080,7 +1080,7 @@ describe('Multi-dimensional Query - Pagination and Cursors', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should return paginated results with cursor', async () => {
+  it('should return paginated results with cursor', async () => {
     // Create 25 events
     const events: BusinessEvent[] = []
     for (let i = 0; i < 25; i++) {
@@ -1127,7 +1127,7 @@ describe('Multi-dimensional Query - Pagination and Cursors', () => {
     expect(page3.cursor).toBeUndefined()
   })
 
-  it.fails('should support cursor-based iteration with stable ordering', async () => {
+  it('should support cursor-based iteration with stable ordering', async () => {
     // Create events with same timestamp (tests secondary sort)
     const timestamp = new Date('2024-06-15T10:00:00Z')
     const events: BusinessEvent[] = []
@@ -1162,7 +1162,7 @@ describe('Multi-dimensional Query - Pagination and Cursors', () => {
     expect(new Set(ids).size).toBe(10)
   })
 
-  it.fails('should include total count when requested', async () => {
+  it('should include total count when requested', async () => {
     // Create 50 events
     const events: BusinessEvent[] = []
     for (let i = 0; i < 50; i++) {
@@ -1186,7 +1186,7 @@ describe('Multi-dimensional Query - Pagination and Cursors', () => {
     expect(result.hasMore).toBe(true)
   })
 
-  it.fails('should support ascending and descending order', async () => {
+  it('should support ascending and descending order', async () => {
     const event1 = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1267,7 +1267,7 @@ describe('Multi-dimensional Query - Query Builder API', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should support fluent query builder API', async () => {
+  it('should support fluent query builder API', async () => {
     const event1 = new ObjectEvent({
       what: [ORDER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1295,7 +1295,7 @@ describe('Multi-dimensional Query - Query Builder API', () => {
     expect(result.items[0]?.id).toBe(event1.id)
   })
 
-  it.fails('should support query builder with type filtering', async () => {
+  it('should support query builder with type filtering', async () => {
     const objectEvent = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1319,7 +1319,7 @@ describe('Multi-dimensional Query - Query Builder API', () => {
     expect(result.items[0]?.type).toBe('TransactionEvent')
   })
 
-  it.fails('should support query builder with action filtering', async () => {
+  it('should support query builder with action filtering', async () => {
     const addEvent = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1347,7 +1347,7 @@ describe('Multi-dimensional Query - Query Builder API', () => {
     expect(result.items.every((e) => ['ADD', 'DELETE'].includes(e.action!))).toBe(true)
   })
 
-  it.fails('should support query builder count operation', async () => {
+  it('should support query builder count operation', async () => {
     // Create 50 events
     const events: BusinessEvent[] = []
     for (let i = 0; i < 50; i++) {
@@ -1369,7 +1369,7 @@ describe('Multi-dimensional Query - Query Builder API', () => {
     expect(count).toBe(50)
   })
 
-  it.fails('should support whatPrefix for type-based queries', async () => {
+  it('should support whatPrefix for type-based queries', async () => {
     const event1 = new ObjectEvent({
       what: ['customer:cust_001'],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1397,7 +1397,7 @@ describe('Multi-dimensional Query - Query Builder API', () => {
     expect(result.items.every((e) => e.what[0]?.startsWith('customer:'))).toBe(true)
   })
 
-  it.fails('should support cursor chaining in query builder', async () => {
+  it('should support cursor chaining in query builder', async () => {
     // Create 25 events
     const events: BusinessEvent[] = []
     for (let i = 0; i < 25; i++) {
@@ -1450,7 +1450,7 @@ describe('Multi-dimensional Query - Edge Cases', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should handle empty query gracefully', async () => {
+  it('should handle empty query gracefully', async () => {
     const event = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1464,7 +1464,7 @@ describe('Multi-dimensional Query - Edge Cases', () => {
     expect(result.items).toHaveLength(1)
   })
 
-  it.fails('should handle query with no matches', async () => {
+  it('should handle query with no matches', async () => {
     const event = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -1498,7 +1498,7 @@ describe('Multi-dimensional Query - Edge Cases', () => {
     expect(result.items).toHaveLength(1)
   })
 
-  it.fails('should handle very large time ranges efficiently', async () => {
+  it('should handle very large time ranges efficiently', async () => {
     // Create events spread over a year
     const events: BusinessEvent[] = []
     for (let month = 1; month <= 12; month++) {
@@ -1526,7 +1526,7 @@ describe('Multi-dimensional Query - Edge Cases', () => {
     expect(duration).toBeLessThan(100) // Should be fast
   })
 
-  it.fails('should handle special characters in identifiers', async () => {
+  it('should handle special characters in identifiers', async () => {
     const specialId = 'customer:special/chars:with:colons/and/slashes'
 
     const event = new ObjectEvent({
@@ -1542,7 +1542,7 @@ describe('Multi-dimensional Query - Edge Cases', () => {
     expect(result.items[0]?.what).toContain(specialId)
   })
 
-  it.fails('should handle Unicode in dimension values', async () => {
+  it('should handle Unicode in dimension values', async () => {
     const unicodeLocation = 'warehouse:Tokyo-\u6771\u4eac'
     const unicodeWhy = '\u51fa\u8377-shipping'
 

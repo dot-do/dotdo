@@ -24,6 +24,13 @@ import {
   verifyWebhookSignature,
   createInAppAdapter,
   InMemoryInAppStorage,
+  createDiscordAdapter,
+  createDiscordEmbed,
+  formatDiscordMarkdown,
+  isGSM7,
+  calculateSMSParts,
+  splitSMSMessage,
+  SMS_LIMITS,
 } from '../channels'
 
 // ============================================================================
@@ -610,6 +617,413 @@ describe('In-App Adapter', () => {
       const notifications = await storage.getByUser('user_1')
       expect(notifications[0].body).toBe('New')
       expect(notifications[1].body).toBe('Old')
+    })
+  })
+})
+
+// ============================================================================
+// Discord Adapter Tests
+// ============================================================================
+
+describe('Discord Adapter', () => {
+  describe('createDiscordAdapter()', () => {
+    it('creates Discord adapter with webhook URL', () => {
+      const adapter = createDiscordAdapter({
+        webhookUrl: 'https://discord.com/api/webhooks/123/token',
+      })
+
+      expect(adapter.type).toBe('webhook')
+    })
+
+    it('validates recipient with webhook URL', async () => {
+      const adapter = createDiscordAdapter({})
+
+      expect(await adapter.validateRecipient({ discordWebhookUrl: 'https://discord.com/api/webhooks/123/token' })).toBe(
+        true
+      )
+      expect(await adapter.validateRecipient({ discordChannelId: '123456789' })).toBe(true)
+      expect(await adapter.validateRecipient({ discordUserId: 'U123456' })).toBe(true)
+    })
+
+    it('validates recipient with default webhook URL', async () => {
+      const adapter = createDiscordAdapter({
+        webhookUrl: 'https://discord.com/api/webhooks/123/token',
+      })
+
+      expect(await adapter.validateRecipient({})).toBe(true)
+    })
+
+    it('invalidates recipient without Discord ID or webhook', async () => {
+      const adapter = createDiscordAdapter({})
+
+      expect(await adapter.validateRecipient({ email: 'test@example.com' })).toBe(false)
+    })
+
+    it('throws error when no webhook URL or bot token', async () => {
+      const adapter = createDiscordAdapter({})
+
+      await expect(
+        adapter.send({ notificationId: 'test_123', userId: 'user_1', body: 'Test' }, {})
+      ).rejects.toThrow(/webhook URL or bot token.*required/i)
+    })
+
+    it('sends message via custom send function', async () => {
+      const customSend = vi.fn().mockResolvedValue({ messageId: 'discord_123' })
+
+      const adapter = createDiscordAdapter({
+        webhookUrl: 'https://discord.com/api/webhooks/123/token',
+        customSend,
+      })
+
+      const result = await adapter.send(
+        { notificationId: 'test_123', userId: 'user_1', subject: 'Alert', body: 'Test message' },
+        {}
+      )
+
+      expect(customSend).toHaveBeenCalledOnce()
+      expect(result.messageId).toBe('discord_123')
+
+      // Verify payload structure
+      const payload = customSend.mock.calls[0][0]
+      expect(payload.content).toContain('**Alert**')
+      expect(payload.content).toContain('Test message')
+    })
+
+    it('creates embed for high priority messages', async () => {
+      const customSend = vi.fn().mockResolvedValue({ messageId: 'discord_456' })
+
+      const adapter = createDiscordAdapter({
+        webhookUrl: 'https://discord.com/api/webhooks/123/token',
+        customSend,
+      })
+
+      await adapter.send(
+        { notificationId: 'test_123', userId: 'user_1', subject: 'Critical Alert', body: 'System down', priority: 'critical' },
+        {}
+      )
+
+      const payload = customSend.mock.calls[0][0]
+      expect(payload.embeds).toBeDefined()
+      expect(payload.embeds.length).toBe(1)
+      expect(payload.embeds[0].title).toBe('Critical Alert')
+      expect(payload.embeds[0].description).toBe('System down')
+      expect(payload.embeds[0].color).toBe(0xff0000) // Red for critical
+    })
+  })
+
+  describe('createDiscordEmbed()', () => {
+    it('creates basic embed', () => {
+      const embed = createDiscordEmbed({
+        title: 'Test Title',
+        description: 'Test description',
+        color: '#ff0000',
+      })
+
+      expect(embed.title).toBe('Test Title')
+      expect(embed.description).toBe('Test description')
+      expect(embed.color).toBe(0xff0000)
+    })
+
+    it('creates embed with fields', () => {
+      const embed = createDiscordEmbed({
+        description: 'Test',
+        fields: [
+          { name: 'Field 1', value: 'Value 1', inline: true },
+          { name: 'Field 2', value: 'Value 2' },
+        ],
+      })
+
+      expect(embed.fields).toHaveLength(2)
+      expect(embed.fields![0].inline).toBe(true)
+    })
+
+    it('creates embed with timestamp', () => {
+      const embed = createDiscordEmbed({
+        description: 'Test',
+        timestamp: true,
+      })
+
+      expect(embed.timestamp).toBeDefined()
+    })
+
+    it('creates embed with author and footer', () => {
+      const embed = createDiscordEmbed({
+        description: 'Test',
+        author: { name: 'Bot', url: 'https://example.com' },
+        footer: 'Powered by dotdo',
+      })
+
+      expect(embed.author?.name).toBe('Bot')
+      expect(embed.footer?.text).toBe('Powered by dotdo')
+    })
+  })
+
+  describe('formatDiscordMarkdown()', () => {
+    it('converts HTML bold to Discord markdown', () => {
+      expect(formatDiscordMarkdown('<strong>bold</strong>')).toBe('**bold**')
+      expect(formatDiscordMarkdown('<b>bold</b>')).toBe('**bold**')
+    })
+
+    it('converts HTML italic to Discord markdown', () => {
+      expect(formatDiscordMarkdown('<em>italic</em>')).toBe('*italic*')
+      expect(formatDiscordMarkdown('<i>italic</i>')).toBe('*italic*')
+    })
+
+    it('converts HTML underline to Discord markdown', () => {
+      expect(formatDiscordMarkdown('<u>underline</u>')).toBe('__underline__')
+    })
+
+    it('converts HTML strikethrough to Discord markdown', () => {
+      expect(formatDiscordMarkdown('<s>strike</s>')).toBe('~~strike~~')
+    })
+
+    it('converts HTML code to Discord markdown', () => {
+      expect(formatDiscordMarkdown('<code>code</code>')).toBe('`code`')
+    })
+
+    it('converts HTML links to Discord markdown', () => {
+      expect(formatDiscordMarkdown('<a href="https://example.com">Link</a>')).toBe('[Link](https://example.com)')
+    })
+
+    it('converts line breaks', () => {
+      expect(formatDiscordMarkdown('line1<br>line2')).toBe('line1\nline2')
+      expect(formatDiscordMarkdown('line1<br/>line2')).toBe('line1\nline2')
+    })
+  })
+})
+
+// ============================================================================
+// SMS Multipart Tests
+// ============================================================================
+
+describe('SMS Character Limits and Multipart', () => {
+  describe('isGSM7()', () => {
+    it('returns true for basic ASCII text', () => {
+      expect(isGSM7('Hello World!')).toBe(true)
+      expect(isGSM7('Test 123')).toBe(true)
+    })
+
+    it('returns true for GSM-7 special characters', () => {
+      expect(isGSM7('Price: $100')).toBe(true)
+      expect(isGSM7('@user #hashtag')).toBe(true)
+    })
+
+    it('returns false for Unicode characters', () => {
+      expect(isGSM7('Hello ')).toBe(false) // emoji
+      expect(isGSM7('')).toBe(false) // Chinese
+      expect(isGSM7('')).toBe(false) // Japanese
+    })
+
+    it('handles extended GSM-7 characters', () => {
+      expect(isGSM7('Price: 100')).toBe(true) // Euro sign is extended GSM-7
+      expect(isGSM7('[brackets]')).toBe(true)
+    })
+  })
+
+  describe('calculateSMSParts()', () => {
+    it('returns 1 part for short GSM-7 messages', () => {
+      const result = calculateSMSParts('Hello World!')
+      expect(result.parts).toBe(1)
+      expect(result.encoding).toBe('GSM-7')
+      expect(result.charsPerPart).toBe(SMS_LIMITS.GSM7_SINGLE)
+    })
+
+    it('returns 1 part for messages at GSM-7 limit', () => {
+      const message = 'A'.repeat(160)
+      const result = calculateSMSParts(message)
+      expect(result.parts).toBe(1)
+    })
+
+    it('returns 2 parts for messages just over GSM-7 limit', () => {
+      const message = 'A'.repeat(161)
+      const result = calculateSMSParts(message)
+      expect(result.parts).toBe(2)
+      expect(result.charsPerPart).toBe(SMS_LIMITS.GSM7_MULTIPART)
+    })
+
+    it('calculates parts correctly for long messages', () => {
+      const message = 'A'.repeat(500)
+      const result = calculateSMSParts(message)
+      expect(result.parts).toBe(4) // 500 / 153 = 3.27, rounds up to 4
+    })
+
+    it('uses UCS-2 encoding for Unicode messages', () => {
+      const message = 'Hello  World'
+      const result = calculateSMSParts(message)
+      expect(result.encoding).toBe('UCS-2')
+      expect(result.charsPerPart).toBe(SMS_LIMITS.UCS2_SINGLE)
+    })
+
+    it('returns multiple parts for long Unicode messages', () => {
+      const message = ''.repeat(80) // 80 emojis > 70 UCS-2 limit
+      const result = calculateSMSParts(message)
+      expect(result.parts).toBe(2)
+      expect(result.charsPerPart).toBe(SMS_LIMITS.UCS2_MULTIPART)
+    })
+
+    it('accounts for extended GSM-7 characters taking 2 bytes', () => {
+      const message = ''.repeat(81) // 81 euro signs = 162 effective chars
+      const result = calculateSMSParts(message)
+      expect(result.parts).toBe(2)
+    })
+  })
+
+  describe('splitSMSMessage()', () => {
+    it('returns single element array for short messages', () => {
+      const parts = splitSMSMessage('Hello World!')
+      expect(parts).toHaveLength(1)
+      expect(parts[0]).toBe('Hello World!')
+    })
+
+    it('splits long messages into parts', () => {
+      const message = 'A'.repeat(400)
+      const parts = splitSMSMessage(message)
+      expect(parts.length).toBeGreaterThan(1)
+      expect(parts.every((p) => p.length <= SMS_LIMITS.GSM7_MULTIPART)).toBe(true)
+    })
+
+    it('tries to split at word boundaries', () => {
+      const words = 'word '.repeat(50) // ~250 chars
+      const parts = splitSMSMessage(words.trim())
+
+      // Each part should end with a complete word (no partial words)
+      for (const part of parts) {
+        expect(part.endsWith('word') || part.length <= SMS_LIMITS.GSM7_MULTIPART).toBe(true)
+      }
+    })
+
+    it('respects max parts limit', () => {
+      const message = 'A'.repeat(2000) // Would normally be ~13 parts
+      const parts = splitSMSMessage(message, 5)
+      expect(parts.length).toBeLessThanOrEqual(5)
+    })
+
+    it('truncates with indicator when exceeding max parts', () => {
+      const message = 'A'.repeat(2000)
+      const parts = splitSMSMessage(message, 3)
+      const combined = parts.join('')
+      expect(combined.endsWith('...')).toBe(true)
+    })
+  })
+
+  describe('createSMSAdapter() with multipart', () => {
+    it('sends single message for short text', async () => {
+      const sentPayloads: any[] = []
+      const customSend = vi.fn().mockImplementation((payload) => {
+        sentPayloads.push(payload)
+        return Promise.resolve({ messageId: `msg_${sentPayloads.length}` })
+      })
+
+      const adapter = createSMSAdapter({
+        provider: 'mock',
+        fromNumber: '+15551234567',
+        customSend,
+      })
+
+      const result = await adapter.send(
+        { notificationId: 'test_123', userId: 'user_1', body: 'Short message' },
+        { phone: '+15559876543' }
+      )
+
+      expect(customSend).toHaveBeenCalledOnce()
+      expect(sentPayloads[0].partNumber).toBeUndefined()
+      expect(sentPayloads[0].totalParts).toBeUndefined()
+    })
+
+    it('sends multiple messages for long text', async () => {
+      const sentPayloads: any[] = []
+      const customSend = vi.fn().mockImplementation((payload) => {
+        sentPayloads.push(payload)
+        return Promise.resolve({ messageId: `msg_${sentPayloads.length}` })
+      })
+
+      const adapter = createSMSAdapter({
+        provider: 'mock',
+        fromNumber: '+15551234567',
+        customSend,
+        enableMultipart: true,
+      })
+
+      const longMessage = 'A'.repeat(400) // Will require multiple parts
+      const result = await adapter.send(
+        { notificationId: 'test_123', userId: 'user_1', body: longMessage },
+        { phone: '+15559876543' }
+      )
+
+      expect(customSend).toHaveBeenCalledTimes(3) // 400 chars / 153 = ~2.6, rounds to 3
+      expect(sentPayloads[0].partNumber).toBe(1)
+      expect(sentPayloads[0].totalParts).toBe(3)
+      expect(sentPayloads[1].partNumber).toBe(2)
+      expect(sentPayloads[2].partNumber).toBe(3)
+      expect(result.messageId).toContain(',') // Combined message IDs
+    })
+
+    it('adds part indicators when enabled', async () => {
+      const sentPayloads: any[] = []
+      const customSend = vi.fn().mockImplementation((payload) => {
+        sentPayloads.push(payload)
+        return Promise.resolve({ messageId: `msg_${sentPayloads.length}` })
+      })
+
+      const adapter = createSMSAdapter({
+        provider: 'mock',
+        fromNumber: '+15551234567',
+        customSend,
+        enableMultipart: true,
+        addPartIndicators: true,
+      })
+
+      const longMessage = 'A'.repeat(400)
+      await adapter.send({ notificationId: 'test_123', userId: 'user_1', body: longMessage }, { phone: '+15559876543' })
+
+      expect(sentPayloads[0].body).toMatch(/^\(1\/3\)/)
+      expect(sentPayloads[1].body).toMatch(/^\(2\/3\)/)
+      expect(sentPayloads[2].body).toMatch(/^\(3\/3\)/)
+    })
+
+    it('preserves original body in payload', async () => {
+      const sentPayloads: any[] = []
+      const customSend = vi.fn().mockImplementation((payload) => {
+        sentPayloads.push(payload)
+        return Promise.resolve({ messageId: `msg_${sentPayloads.length}` })
+      })
+
+      const adapter = createSMSAdapter({
+        provider: 'mock',
+        fromNumber: '+15551234567',
+        customSend,
+      })
+
+      const longMessage = 'A'.repeat(400)
+      await adapter.send({ notificationId: 'test_123', userId: 'user_1', body: longMessage }, { phone: '+15559876543' })
+
+      // Each part should have the original body preserved
+      for (const payload of sentPayloads) {
+        expect(payload.originalBody).toBe(longMessage)
+      }
+    })
+
+    it('can disable multipart handling', async () => {
+      const sentPayloads: any[] = []
+      const customSend = vi.fn().mockImplementation((payload) => {
+        sentPayloads.push(payload)
+        return Promise.resolve({ messageId: `msg_${sentPayloads.length}` })
+      })
+
+      const adapter = createSMSAdapter({
+        provider: 'mock',
+        fromNumber: '+15551234567',
+        customSend,
+        enableMultipart: false,
+      })
+
+      const longMessage = 'A'.repeat(400)
+      await adapter.send({ notificationId: 'test_123', userId: 'user_1', body: longMessage }, { phone: '+15559876543' })
+
+      // Should send as single message without splitting
+      expect(customSend).toHaveBeenCalledOnce()
+      expect(sentPayloads[0].body).toBe(longMessage)
+      expect(sentPayloads[0].partNumber).toBeUndefined()
     })
   })
 })

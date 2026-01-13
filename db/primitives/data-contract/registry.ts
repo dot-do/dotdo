@@ -635,7 +635,8 @@ export class ContractRegistry {
     }
 
     if (filter?.deprecated !== undefined) {
-      filtered = filtered.filter(c => c.deprecated === filter.deprecated)
+      // Treat undefined/missing deprecated as false
+      filtered = filtered.filter(c => (c.deprecated ?? false) === filter.deprecated)
     }
 
     if (filter?.search) {
