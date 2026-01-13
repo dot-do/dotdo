@@ -35,58 +35,83 @@
  */
 
 // ============================================================================
-// TYPES - Import from consolidated module
+// TYPES
 // ============================================================================
-
-import type {
-  McpTool as McpToolType,
-  McpResource as McpResourceType,
-  McpSession as McpSessionType,
-  McpConfig as McpConfigType,
-  McpToolConfig,
-  JsonRpcRequest as JsonRpcRequestType,
-  JsonRpcResponse as JsonRpcResponseType,
-  JsonSchemaProperty,
-} from '../../types/mcp'
-
-import {
-  JSON_RPC_ERRORS as MCP_JSON_RPC_ERRORS,
-  jsonRpcError as mcpJsonRpcError,
-  jsonRpcSuccess as mcpJsonRpcSuccess,
-  MCP_PROTOCOL,
-} from '../../types/mcp'
-
-// Re-export types for backward compatibility
-export type {
-  McpToolType as McpTool,
-  McpResourceType as McpResource,
-  McpSessionType as McpSession,
-  McpConfigType as McpConfig,
-}
 
 /**
  * Tool configuration in $mcp.tools
- * @deprecated Use McpToolConfig from types/mcp.ts
  */
-export type ToolConfig = McpToolConfig
+export interface ToolConfig {
+  description: string
+  inputSchema: Record<string, { type: string; description?: string }>
+  required?: string[]
+}
+
+/**
+ * Static $mcp configuration on DO classes
+ */
+export interface McpConfig {
+  tools?: Record<string, ToolConfig>
+  resources?: string[]
+}
+
+/**
+ * MCP Tool definition (as returned by tools/list)
+ */
+export interface McpTool {
+  name: string
+  description: string
+  inputSchema: {
+    type: 'object'
+    properties: Record<string, { type: string; description?: string }>
+    required?: string[]
+  }
+}
+
+/**
+ * MCP Resource definition (as returned by resources/list)
+ */
+export interface McpResource {
+  uri: string
+  name: string
+  description?: string
+  mimeType?: string
+}
 
 /**
  * JSON-RPC 2.0 Request
- * @deprecated Use JsonRpcRequest from types/mcp.ts
  */
-export type JsonRpcRequest = JsonRpcRequestType
+export interface JsonRpcRequest {
+  jsonrpc: '2.0'
+  id?: string | number
+  method: string
+  params?: unknown
+}
 
 /**
  * JSON-RPC 2.0 Response
- * @deprecated Use JsonRpcResponse from types/mcp.ts
  */
-export type JsonRpcResponse = JsonRpcResponseType
+export interface JsonRpcResponse {
+  jsonrpc: '2.0'
+  id: string | number | null
+  result?: unknown
+  error?: {
+    code: number
+    message: string
+    data?: unknown
+  }
+}
 
-// Local type aliases for internal use
-type McpTool = McpToolType
-type McpResource = McpResourceType
-type McpSession = McpSessionType
-type McpConfig = McpConfigType
+/**
+ * MCP Session state
+ */
+export interface McpSession {
+  id: string
+  createdAt: Date
+  lastAccessedAt: Date
+  clientInfo?: { name: string; version: string }
+  protocolVersion: string
+}
 
 /**
  * DO instance type for MCP handler
@@ -106,25 +131,55 @@ interface DOClass {
 }
 
 // ============================================================================
-// JSON-RPC ERROR CODES - Re-export from consolidated module
+// JSON-RPC ERROR CODES
 // ============================================================================
 
-export const JSON_RPC_ERRORS = MCP_JSON_RPC_ERRORS
+export const JSON_RPC_ERRORS = {
+  PARSE_ERROR: -32700,
+  INVALID_REQUEST: -32600,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_PARAMS: -32602,
+  INTERNAL_ERROR: -32603,
+}
 
 // ============================================================================
 // MCP PROTOCOL CONSTANTS
 // ============================================================================
 
-const MCP_PROTOCOL_VERSION = MCP_PROTOCOL.VERSION
+const MCP_PROTOCOL_VERSION = '2024-11-05'
 const MCP_SERVER_NAME = 'dotdo-do-mcp-server'
 const MCP_SERVER_VERSION = '0.1.0'
 
 // ============================================================================
-// HELPER FUNCTIONS - Use consolidated module helpers
+// HELPER FUNCTIONS
 // ============================================================================
 
-const jsonRpcError = mcpJsonRpcError
-const jsonRpcSuccess = mcpJsonRpcSuccess
+/**
+ * Create a JSON-RPC error response
+ */
+function jsonRpcError(
+  id: string | number | null,
+  code: number,
+  message: string,
+  data?: unknown
+): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: { code, message, data },
+  }
+}
+
+/**
+ * Create a JSON-RPC success response
+ */
+function jsonRpcSuccess(id: string | number | null, result: unknown): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id,
+    result,
+  }
+}
 
 // ============================================================================
 // SCHEMA GENERATION
@@ -950,352 +1005,4 @@ export class McpHandler implements TransportHandler {
     this.handler = null
     this.DOClass = null
   }
-}
-
-// ============================================================================
-// GRAPH INTEGRATION
-// ============================================================================
-
-/**
- * Tool parameter definition stored in graph.
- */
-export interface ToolParameter {
-  name: string
-  type: string
-  description?: string
-  required?: boolean
-  schema?: Record<string, unknown>
-}
-
-/**
- * Tool definition stored as a Thing in the graph.
- * This is the structure stored in GraphThing.data.
- */
-export interface ToolThingData {
-  id: string
-  description: string
-  parameters: ToolParameter[]
-  handler?: string
-}
-
-/**
- * Query options for filtering tools from graph.
- */
-export interface ToolQuery {
-  /** Filter by tool ID prefix */
-  idPrefix?: string
-  /** Filter by specific tool IDs */
-  ids?: string[]
-}
-
-/**
- * GraphStore interface for type safety (minimal subset needed).
- * Full interface is in db/graph/types.ts.
- */
-interface GraphStoreMinimal {
-  getThingsByType(options: { typeName?: string; typeId?: number }): Promise<Array<{
-    id: string
-    typeId: number
-    typeName: string
-    data: Record<string, unknown> | null
-    createdAt: number
-    updatedAt: number
-    deletedAt: number | null
-  }>>
-  createRelationship(input: {
-    id: string
-    verb: string
-    from: string
-    to: string
-    data?: Record<string, unknown>
-  }): Promise<{
-    id: string
-    verb: string
-    from: string
-    to: string
-    data: Record<string, unknown> | null
-    createdAt: Date
-  }>
-  queryRelationshipsFrom(url: string, options?: { verb?: string }): Promise<Array<{
-    id: string
-    verb: string
-    from: string
-    to: string
-    data: Record<string, unknown> | null
-    createdAt: Date
-  }>>
-}
-
-/**
- * Convert a Tool Thing from the graph to MCP tool format.
- *
- * @param toolThing - The GraphThing representing a Tool
- * @returns MCP tool definition
- */
-export function toolThingToMcp(toolThing: {
-  id: string
-  data: Record<string, unknown> | null
-}): McpTool {
-  const data = toolThing.data as unknown as ToolThingData | null
-
-  if (!data) {
-    return {
-      name: toolThing.id,
-      description: 'Tool (no description)',
-      inputSchema: { type: 'object', properties: {} },
-    }
-  }
-
-  const properties: Record<string, { type: string; description?: string }> = {}
-  const required: string[] = []
-
-  for (const param of data.parameters || []) {
-    properties[param.name] = {
-      type: param.type,
-      ...(param.description && { description: param.description }),
-    }
-
-    if (param.required) {
-      required.push(param.name)
-    }
-  }
-
-  return {
-    name: data.id,
-    description: data.description,
-    inputSchema: {
-      type: 'object',
-      properties,
-      ...(required.length > 0 && { required }),
-    },
-  }
-}
-
-/**
- * Discover MCP tools from graph-stored Tool Things.
- *
- * Queries the graph for Things with typeName='Tool' and converts them
- * to MCP tool format.
- *
- * @param graph - GraphStore implementation to query
- * @param query - Optional filters for tool discovery
- * @returns Array of MCP tools discovered from the graph
- *
- * @example
- * ```typescript
- * const tools = await getMcpToolsFromGraph(graphStore)
- * // Returns all Tool Things as MCP tools
- *
- * const filtered = await getMcpToolsFromGraph(graphStore, { idPrefix: 'search' })
- * // Returns only tools with IDs starting with 'search'
- * ```
- */
-export async function getMcpToolsFromGraph(
-  graph: GraphStoreMinimal,
-  query?: ToolQuery
-): Promise<McpTool[]> {
-  try {
-    // Query Tool Things from graph
-    const toolThings = await graph.getThingsByType({ typeName: 'Tool' })
-
-    // Filter by query options
-    let filtered = toolThings
-
-    if (query?.idPrefix) {
-      filtered = filtered.filter((t) => {
-        const data = t.data as unknown as ToolThingData | null
-        return data?.id?.startsWith(query.idPrefix!) ?? false
-      })
-    }
-
-    if (query?.ids) {
-      const idSet = new Set(query.ids)
-      filtered = filtered.filter((t) => {
-        const data = t.data as unknown as ToolThingData | null
-        return data?.id ? idSet.has(data.id) : false
-      })
-    }
-
-    // Convert to MCP format
-    return filtered.map(toolThingToMcp)
-  } catch {
-    // Return empty array on error (graceful degradation)
-    return []
-  }
-}
-
-/**
- * Merge tools from static config and graph.
- *
- * Static config tools take precedence over graph tools with the same name.
- * This ensures backward compatibility while allowing dynamic tool discovery.
- *
- * @param staticTools - Tools from $mcp.tools static configuration
- * @param graph - Optional GraphStore for additional tool discovery
- * @returns Merged array of MCP tools
- *
- * @example
- * ```typescript
- * const merged = await getMergedMcpTools(staticTools, graphStore)
- * // Returns combined tools, static config wins on duplicates
- *
- * const backward = await getMergedMcpTools(staticTools, undefined)
- * // Returns only static tools (backward compatible)
- * ```
- */
-export async function getMergedMcpTools(
-  staticTools: McpTool[],
-  graph: GraphStoreMinimal | undefined
-): Promise<McpTool[]> {
-  // Start with static tools
-  const toolsByName = new Map<string, McpTool>()
-
-  for (const tool of staticTools) {
-    toolsByName.set(tool.name, tool)
-  }
-
-  // Add graph tools (only if not already defined)
-  if (graph) {
-    const graphTools = await getMcpToolsFromGraph(graph)
-
-    for (const tool of graphTools) {
-      if (!toolsByName.has(tool.name)) {
-        toolsByName.set(tool.name, tool)
-      }
-    }
-  }
-
-  return Array.from(toolsByName.values())
-}
-
-// ============================================================================
-// INVOCATION TRACKING
-// ============================================================================
-
-/**
- * Input for tracking a tool invocation.
- */
-export interface TrackInvocationInput {
-  /** Session ID making the invocation */
-  sessionId: string
-  /** Tool ID being invoked */
-  toolId: string
-  /** Input arguments to the tool */
-  input: Record<string, unknown>
-}
-
-/**
- * Input for completing a tool invocation.
- */
-export interface CompleteInvocationInput {
-  /** Result from successful execution */
-  result?: unknown
-  /** Error message if execution failed */
-  error?: string
-  /** Duration in milliseconds */
-  duration: number
-}
-
-/**
- * Track a tool invocation by creating a relationship in the graph.
- *
- * Creates an 'invoke' relationship from the session to the tool with
- * input data and timestamp.
- *
- * @param graph - GraphStore to record the invocation
- * @param input - Invocation details (session, tool, input)
- * @returns The created relationship
- *
- * @example
- * ```typescript
- * const invocation = await trackToolInvocation(graph, {
- *   sessionId: 'session-123',
- *   toolId: 'tool-search',
- *   input: { query: 'hello' }
- * })
- * // Creates: session-123 --invoke--> tool-search
- * ```
- */
-export async function trackToolInvocation(
-  graph: GraphStoreMinimal,
-  input: TrackInvocationInput
-): Promise<{
-  id: string
-  verb: string
-  from: string
-  to: string
-  data: Record<string, unknown> | null
-  createdAt: Date
-}> {
-  const invocationId = `inv-${crypto.randomUUID()}`
-  const startedAt = Date.now()
-
-  return graph.createRelationship({
-    id: invocationId,
-    verb: 'invoke',
-    from: `do://sessions/${input.sessionId}`,
-    to: input.toolId,
-    data: {
-      input: input.input,
-      startedAt,
-    },
-  })
-}
-
-/**
- * Complete a tool invocation by updating the relationship with results.
- *
- * Changes the verb from 'invoke' to 'invoked' and adds output/error data.
- *
- * Note: Since GraphStore doesn't support relationship updates, we create
- * a new 'invoked' relationship that supersedes the original 'invoke'.
- *
- * @param graph - GraphStore to record the completion
- * @param invocationId - Original invocation relationship ID
- * @param completion - Result or error details
- * @returns The completed relationship
- *
- * @example
- * ```typescript
- * const completed = await completeToolInvocation(graph, invocationId, {
- *   result: { items: [...] },
- *   duration: 150
- * })
- * ```
- */
-export async function completeToolInvocation(
-  graph: GraphStoreMinimal,
-  invocationId: string,
-  completion: CompleteInvocationInput
-): Promise<{
-  id: string
-  verb: string
-  from: string
-  to: string
-  data: Record<string, unknown> | null
-  createdAt: Date
-}> {
-  // Get the original invocation to preserve context
-  // Since we can't update relationships, we create a new 'invoked' record
-  const completedId = `${invocationId}-completed`
-
-  const data: Record<string, unknown> = {
-    duration: completion.duration,
-  }
-
-  if (completion.result !== undefined) {
-    data.output = completion.result
-  }
-
-  if (completion.error !== undefined) {
-    data.error = completion.error
-  }
-
-  return graph.createRelationship({
-    id: completedId,
-    verb: 'invoked',
-    from: `do://invocations/${invocationId}`,
-    to: `do://invocations/${invocationId}`,
-    data,
-  })
 }

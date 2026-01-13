@@ -4,36 +4,23 @@
  * GREEN PHASE: Implements cascade chain resolution using graph relationships
  *
  * @see dotdo-mvzvj - [GREEN] Cascade Chain Graph Resolution
- * @see dotdo-8pjkw - [GREEN] FunctionGraphAdapter - Core Implementation
  *
  * Design:
  * - Functions are Things with type='Function' and data containing handler, type, etc.
  * - Cascade chains use 'cascadesTo' relationships with priority and optional conditions
  * - Chain resolution traverses the graph, handling cycles via visited set
  * - Priority ordering determines fallback order when multiple cascades exist
- * - Versioning via FunctionVersion Things with parent relationships
- * - Ownership via 'ownedBy' and 'implements' relationships
  *
  * Thing Types:
- * - CodeFunction (typeId: 100)
- * - GenerativeFunction (typeId: 101)
- * - AgenticFunction (typeId: 102)
- * - HumanFunction (typeId: 103)
- * - FunctionVersion (typeId: 110)
- * - FunctionRef (typeId: 111)
- * - FunctionBlob (typeId: 112)
+ * - Function: { name, type, handler, config }
  *
  * Relationships:
  * - Function `cascadesTo` Function (fallback chain with priority)
- * - FunctionVersion `versionOf` Function (versioning relationships)
- * - FunctionVersion `parent` FunctionVersion (version history chain)
- * - FunctionVersion `hasContent` FunctionBlob (code content reference)
- * - Function `ownedBy` Org (ownership)
- * - Function `implements` Interface (interface implementation)
+ * - Function `version` Function (versioning relationships)
+ * - Function `dependsOn` Function (dependency relationships)
  */
 
 import type { GraphStore, GraphThing, GraphRelationship } from '../types'
-import { createHash } from 'crypto'
 
 // ============================================================================
 // TYPES
@@ -102,133 +89,13 @@ export interface GetCascadeChainOptions {
   includeDisabled?: boolean
 }
 
-/**
- * FunctionVersion Thing data structure (like a git commit)
- */
-export interface FunctionVersionData {
-  /** Content-addressable hash */
-  sha: string
-  /** Version message (like commit message) */
-  message: string
-  /** Author information */
-  author: {
-    name: string
-    email: string
-    timestamp: number
-  }
-  /** Reference to parent Function ID */
-  functionId: string
-  /** Previous version SHA (null for initial version) */
-  parentSha?: string
-}
-
-/**
- * FunctionBlob Thing data structure (like a git blob)
- */
-export interface FunctionBlobData {
-  /** Size of content in bytes */
-  size: number
-  /** External storage reference (e.g., 'r2:functions/sha256-abc') */
-  contentRef: string
-  /** MIME type ('text/typescript', 'application/javascript', etc.) */
-  contentType: string
-  /** SHA-256 hash of content */
-  hash: string
-}
-
-/**
- * Options for creating a function version
- */
-export interface CreateVersionOptions {
-  /** Function ID to create version for */
-  functionId: string
-  /** Code content (string or binary) */
-  content: string | Uint8Array
-  /** Version message */
-  message: string
-  /** Optional author (defaults to 'system') */
-  author?: { name: string; email: string }
-  /** Parent version SHA (for version chain) */
-  parentSha?: string
-}
-
-/**
- * Configuration for cascade relationships
- */
-export interface CascadeConfig {
-  /** Priority for ordering (lower = higher priority) */
-  priority?: number
-  /** Optional condition expression */
-  condition?: string
-  /** Additional metadata */
-  metadata?: Record<string, unknown>
-}
-
 // ============================================================================
 // TYPE IDS (constants for graph things)
 // ============================================================================
 
-/**
- * Type IDs for Function-related graph things
- *
- * Convention:
- * - CodeFunction: 100
- * - GenerativeFunction: 101
- * - AgenticFunction: 102
- * - HumanFunction: 103
- * - FunctionVersion: 110
- * - FunctionRef: 111
- * - FunctionBlob: 112
- */
-export const TYPE_IDS = {
-  // Function types by kind
-  CodeFunction: 100,
-  GenerativeFunction: 101,
-  AgenticFunction: 102,
-  HumanFunction: 103,
-  // Legacy: generic Function type (uses kind-specific ID at runtime)
-  Function: 100,
-  // Versioning types
-  FunctionVersion: 110,
-  FunctionRef: 111,
-  FunctionBlob: 112,
+const TYPE_IDS = {
+  Function: 200,
 } as const
-
-/**
- * Map function type string to typeId
- */
-function getTypeIdForFunctionType(type: FunctionType): number {
-  switch (type) {
-    case 'code':
-      return TYPE_IDS.CodeFunction
-    case 'generative':
-      return TYPE_IDS.GenerativeFunction
-    case 'agentic':
-      return TYPE_IDS.AgenticFunction
-    case 'human':
-      return TYPE_IDS.HumanFunction
-    default:
-      return TYPE_IDS.CodeFunction
-  }
-}
-
-/**
- * Map typeId to function type name
- */
-function getTypeNameForTypeId(typeId: number): string {
-  switch (typeId) {
-    case TYPE_IDS.CodeFunction:
-      return 'CodeFunction'
-    case TYPE_IDS.GenerativeFunction:
-      return 'GenerativeFunction'
-    case TYPE_IDS.AgenticFunction:
-      return 'AgenticFunction'
-    case TYPE_IDS.HumanFunction:
-      return 'HumanFunction'
-    default:
-      return 'Function'
-  }
-}
 
 // ============================================================================
 // URL BUILDERS
@@ -236,22 +103,6 @@ function getTypeNameForTypeId(typeId: number): string {
 
 function functionUrl(id: string): string {
   return `do://functions/${id}`
-}
-
-function versionUrl(sha: string): string {
-  return `do://functions/versions/${sha}`
-}
-
-function blobUrl(hash: string): string {
-  return `do://functions/blobs/${hash}`
-}
-
-function orgUrl(id: string): string {
-  return `do://orgs/${id}`
-}
-
-function interfaceUrl(id: string): string {
-  return `do://interfaces/${id}`
 }
 
 // ============================================================================
@@ -273,61 +124,6 @@ function generateId(): string {
 function extractIdFromUrl(url: string): string | null {
   const match = url.match(/do:\/\/functions\/(.+)$/)
   return match?.[1] ?? null
-}
-
-/**
- * Valid function type names for type checking
- */
-const FUNCTION_TYPE_NAMES = [
-  'Function',
-  'CodeFunction',
-  'GenerativeFunction',
-  'AgenticFunction',
-  'HumanFunction',
-] as const
-
-/**
- * Check if a typeName represents a function type
- */
-function isFunctionTypeName(typeName: string): boolean {
-  return FUNCTION_TYPE_NAMES.includes(typeName as typeof FUNCTION_TYPE_NAMES[number])
-}
-
-/**
- * Extract SHA from a version URL (do://functions/versions/abc -> abc)
- */
-function extractShaFromVersionUrl(url: string): string | null {
-  const match = url.match(/do:\/\/functions\/versions\/(.+)$/)
-  return match?.[1] ?? null
-}
-
-/**
- * Generate a content-addressable hash from content
- */
-function hashContent(content: Uint8Array | string): string {
-  const data = typeof content === 'string' ? Buffer.from(content) : content
-  return createHash('sha256').update(data).digest('hex').substring(0, 40)
-}
-
-/**
- * Get content size in bytes
- */
-function getContentSize(content: Uint8Array | string): number {
-  if (typeof content === 'string') {
-    return Buffer.byteLength(content, 'utf8')
-  }
-  return content.length
-}
-
-/**
- * Default author identity
- */
-function defaultAuthor(): { name: string; email: string; timestamp: number } {
-  return {
-    name: 'system',
-    email: 'system@dotdo.dev',
-    timestamp: Date.now(),
-  }
 }
 
 // ============================================================================
@@ -379,17 +175,9 @@ export class FunctionGraphAdapter {
 
   /**
    * Create a Function Thing
-   *
-   * Creates a function with the appropriate type ID based on function type:
-   * - code: CodeFunction (100)
-   * - generative: GenerativeFunction (101)
-   * - agentic: AgenticFunction (102)
-   * - human: HumanFunction (103)
    */
   async createFunction(data: FunctionData, options?: { id?: string }): Promise<GraphThing> {
     const id = options?.id ?? generateId()
-    const typeId = getTypeIdForFunctionType(data.type)
-    const typeName = getTypeNameForTypeId(typeId)
 
     const functionData: FunctionData = {
       name: data.name,
@@ -403,8 +191,8 @@ export class FunctionGraphAdapter {
 
     const fn = await this.store.createThing({
       id,
-      typeId,
-      typeName,
+      typeId: TYPE_IDS.Function,
+      typeName: 'Function',
       data: functionData as unknown as Record<string, unknown>,
     })
 
@@ -416,49 +204,20 @@ export class FunctionGraphAdapter {
    */
   async getFunction(id: string): Promise<GraphThing | null> {
     const fn = await this.store.getThing(id)
-    if (!fn) {
-      return null
-    }
-    // Check if it's any of the function type names
-    if (!isFunctionTypeName(fn.typeName)) {
-      return null
-    }
-    // Exclude soft-deleted functions
-    if (fn.deletedAt !== null) {
+    if (!fn || fn.typeName !== 'Function') {
       return null
     }
     return fn
   }
 
   /**
-   * Get all functions of a specific type (code, generative, agentic, human)
+   * Get all functions of a specific type
    */
   async getFunctionsByType(type: FunctionType): Promise<GraphThing[]> {
-    const typeId = getTypeIdForFunctionType(type)
-    const typeName = getTypeNameForTypeId(typeId)
-    return this.store.getThingsByType({ typeName })
-  }
-
-  /**
-   * Get all functions regardless of type
-   */
-  async getAllFunctions(): Promise<GraphThing[]> {
-    const results: GraphThing[] = []
-
-    // Query all function type names
-    const typeNames = ['CodeFunction', 'GenerativeFunction', 'AgenticFunction', 'HumanFunction', 'Function']
-
-    for (const typeName of typeNames) {
-      const functions = await this.store.getThingsByType({ typeName })
-      results.push(...functions)
-    }
-
-    // Dedupe by ID (in case some are stored with legacy 'Function' type)
-    const seen = new Set<string>()
-    return results.filter((fn) => {
-      if (seen.has(fn.id)) return false
-      seen.add(fn.id)
-      return true
+    const functions = await this.store.getThingsByType({ typeName: 'Function' })
+    return functions.filter((fn) => {
+      const data = fn.data as FunctionData
+      return data.type === type
     })
   }
 
@@ -485,15 +244,15 @@ export class FunctionGraphAdapter {
 
   /**
    * Delete a Function Thing (soft delete)
-   * Returns the deleted function or null if not found
    */
-  async deleteFunction(id: string): Promise<GraphThing | null> {
+  async deleteFunction(id: string): Promise<boolean> {
     const fn = await this.getFunction(id)
     if (!fn) {
-      return null
+      return false
     }
 
-    return this.store.deleteThing(id)
+    const result = await this.store.deleteThing(id)
+    return result !== null
   }
 
   // ==========================================================================
@@ -636,7 +395,7 @@ export class FunctionGraphAdapter {
 
       // Get the function
       const fn = await this.store.getThing(currentId)
-      if (!fn || !isFunctionTypeName(fn.typeName)) {
+      if (!fn || fn.typeName !== 'Function') {
         break
       }
 
@@ -716,7 +475,7 @@ export class FunctionGraphAdapter {
       visited.add(currentId)
 
       const fn = await this.store.getThing(currentId)
-      if (!fn || !isFunctionTypeName(fn.typeName)) {
+      if (!fn || fn.typeName !== 'Function') {
         break
       }
 
@@ -830,331 +589,6 @@ export class FunctionGraphAdapter {
     }
 
     return sources
-  }
-
-  // ==========================================================================
-  // VERSIONING
-  // ==========================================================================
-
-  /**
-   * Create a new version of a function (like git commit).
-   *
-   * @param functionId - ID of the function to version
-   * @param content - Code content (string or binary)
-   * @param message - Version message
-   * @param options - Optional author and parent SHA
-   * @returns The created FunctionVersion Thing
-   */
-  async createVersion(
-    functionId: string,
-    content: string | Uint8Array,
-    message: string,
-    options?: { author?: { name: string; email: string }; parentSha?: string }
-  ): Promise<GraphThing> {
-    // Verify function exists
-    const fn = await this.getFunction(functionId)
-    if (!fn) {
-      throw new Error(`Function '${functionId}' not found`)
-    }
-
-    // Generate content hash (SHA)
-    const sha = hashContent(content)
-    const size = getContentSize(content)
-    const author = options?.author ?? { name: 'system', email: 'system@dotdo.dev' }
-
-    // Check if version with this SHA already exists (content-addressable)
-    const existingVersion = await this.store.getThing(sha)
-    if (existingVersion) {
-      return existingVersion
-    }
-
-    // Create FunctionBlob if it doesn't exist
-    const blobId = `blob-${sha}`
-    const existingBlob = await this.store.getThing(blobId)
-    if (!existingBlob) {
-      const blobData: FunctionBlobData = {
-        size,
-        contentRef: `internal:${sha}`,
-        contentType: 'application/javascript',
-        hash: sha,
-      }
-
-      await this.store.createThing({
-        id: blobId,
-        typeId: TYPE_IDS.FunctionBlob,
-        typeName: 'FunctionBlob',
-        data: blobData as unknown as Record<string, unknown>,
-      })
-    }
-
-    // Create FunctionVersion
-    const versionData: FunctionVersionData = {
-      sha,
-      message,
-      author: {
-        ...author,
-        timestamp: Date.now(),
-      },
-      functionId,
-      parentSha: options?.parentSha,
-    }
-
-    const version = await this.store.createThing({
-      id: sha,
-      typeId: TYPE_IDS.FunctionVersion,
-      typeName: 'FunctionVersion',
-      data: versionData as unknown as Record<string, unknown>,
-    })
-
-    // Create versionOf relationship (version -> function)
-    await this.store.createRelationship({
-      id: `rel-versionOf-${sha}-${functionId}`,
-      verb: 'versionOf',
-      from: versionUrl(sha),
-      to: functionUrl(functionId),
-    })
-
-    // Create hasContent relationship (version -> blob)
-    await this.store.createRelationship({
-      id: `rel-hasContent-${sha}-${blobId}`,
-      verb: 'hasContent',
-      from: versionUrl(sha),
-      to: blobUrl(blobId),
-    })
-
-    // Create parent relationship if specified
-    if (options?.parentSha) {
-      await this.store.createRelationship({
-        id: `rel-parent-${sha}-${options.parentSha}`,
-        verb: 'parent',
-        from: versionUrl(sha),
-        to: versionUrl(options.parentSha),
-      })
-    }
-
-    return version
-  }
-
-  /**
-   * Get version history for a function.
-   *
-   * @param functionId - Function ID to get history for
-   * @param limit - Maximum number of versions to return
-   * @returns Array of FunctionVersion Things in order (most recent first)
-   */
-  async getVersionHistory(functionId: string, limit?: number): Promise<GraphThing[]> {
-    const maxLimit = limit ?? 100
-    const versions = await this.store.getThingsByType({ typeName: 'FunctionVersion' })
-
-    const functionVersions = versions.filter((v) => {
-      const data = v.data as FunctionVersionData
-      return data.functionId === functionId
-    })
-
-    // Sort by timestamp (most recent first)
-    functionVersions.sort((a, b) => {
-      const aData = a.data as FunctionVersionData
-      const bData = b.data as FunctionVersionData
-      return bData.author.timestamp - aData.author.timestamp
-    })
-
-    return functionVersions.slice(0, maxLimit)
-  }
-
-  /**
-   * Resolve a version reference (SHA or ref name like 'latest') to the actual version.
-   *
-   * @param functionId - Function ID
-   * @param ref - Version reference (SHA or ref name)
-   * @returns The resolved FunctionVersion Thing or null
-   */
-  async resolveVersion(functionId: string, ref: string): Promise<GraphThing | null> {
-    // Try as direct SHA first
-    if (/^[a-f0-9]{40}$/.test(ref)) {
-      const version = await this.store.getThing(ref)
-      if (version && version.typeName === 'FunctionVersion') {
-        const data = version.data as FunctionVersionData
-        if (data.functionId === functionId) {
-          return version
-        }
-      }
-    }
-
-    // Try as ref name (look up FunctionRef)
-    const refs = await this.store.getThingsByType({ typeName: 'FunctionRef' })
-    for (const refThing of refs) {
-      const refData = refThing.data as { name: string; functionId: string; targetSha: string }
-      if (refData.functionId === functionId && refData.name === ref) {
-        return this.store.getThing(refData.targetSha)
-      }
-    }
-
-    // Special case: 'latest' returns most recent version
-    if (ref === 'latest') {
-      const history = await this.getVersionHistory(functionId, 1)
-      return history.length > 0 ? history[0]! : null
-    }
-
-    return null
-  }
-
-  // ==========================================================================
-  // CASCADE CHAIN (Additional methods per issue spec)
-  // ==========================================================================
-
-  /**
-   * Set up a cascade relationship (alias for addCascade with CascadeConfig).
-   *
-   * @param fromId - Source function ID
-   * @param toId - Target function ID
-   * @param config - Cascade configuration
-   */
-  async setCascade(
-    fromId: string,
-    toId: string,
-    config?: CascadeConfig
-  ): Promise<GraphRelationship> {
-    return this.addCascade(fromId, toId, {
-      priority: config?.priority ?? 0,
-      condition: config?.condition,
-      metadata: config?.metadata,
-    })
-  }
-
-  /**
-   * Resolve the next function in the cascade chain (single step).
-   *
-   * @param functionId - Current function ID
-   * @returns The next function in the cascade chain, or null if end of chain
-   */
-  async resolveNextInCascade(functionId: string): Promise<GraphThing | null> {
-    const rels = await this.store.queryRelationshipsFrom(functionUrl(functionId), {
-      verb: 'cascadesTo',
-    })
-
-    if (rels.length === 0) {
-      return null
-    }
-
-    // Sort by priority and get first
-    rels.sort((a, b) => {
-      const priorityA = (a.data as CascadeRelationshipData | null)?.priority ?? 0
-      const priorityB = (b.data as CascadeRelationshipData | null)?.priority ?? 0
-      return priorityA - priorityB
-    })
-
-    const nextUrl = rels[0]!.to
-    const nextId = extractIdFromUrl(nextUrl)
-
-    if (!nextId) {
-      return null
-    }
-
-    return this.getFunction(nextId)
-  }
-
-  // ==========================================================================
-  // OWNERSHIP
-  // ==========================================================================
-
-  /**
-   * Set the owner organization of a function.
-   *
-   * @param functionId - Function ID
-   * @param orgId - Organization ID
-   * @returns The created ownership relationship
-   */
-  async setOwner(functionId: string, orgId: string): Promise<GraphRelationship> {
-    const fn = await this.getFunction(functionId)
-    if (!fn) {
-      throw new Error(`Function '${functionId}' not found`)
-    }
-
-    // Remove existing ownership relationships
-    const existingRels = await this.store.queryRelationshipsFrom(functionUrl(functionId), {
-      verb: 'ownedBy',
-    })
-    for (const rel of existingRels) {
-      await this.store.deleteRelationship(rel.id)
-    }
-
-    // Create new ownership relationship
-    return this.store.createRelationship({
-      id: `rel-ownedBy-${functionId}-${orgId}`,
-      verb: 'ownedBy',
-      from: functionUrl(functionId),
-      to: orgUrl(orgId),
-    })
-  }
-
-  /**
-   * Get the owner organization of a function.
-   *
-   * @param functionId - Function ID
-   * @returns The owner organization ID, or null if not set
-   */
-  async getOwner(functionId: string): Promise<string | null> {
-    const rels = await this.store.queryRelationshipsFrom(functionUrl(functionId), {
-      verb: 'ownedBy',
-    })
-
-    if (rels.length === 0) {
-      return null
-    }
-
-    const ownerUrl = rels[0]!.to
-    const match = ownerUrl.match(/do:\/\/orgs\/(.+)$/)
-    return match?.[1] ?? null
-  }
-
-  /**
-   * Set the interface a function implements.
-   *
-   * @param functionId - Function ID
-   * @param interfaceIdParam - Interface ID
-   * @returns The created implements relationship
-   */
-  async setInterface(functionId: string, interfaceIdParam: string): Promise<GraphRelationship> {
-    const fn = await this.getFunction(functionId)
-    if (!fn) {
-      throw new Error(`Function '${functionId}' not found`)
-    }
-
-    // Check if relationship already exists
-    const existingRels = await this.store.queryRelationshipsFrom(functionUrl(functionId), {
-      verb: 'implements',
-    })
-    const existing = existingRels.find(
-      (r) => r.to === interfaceUrl(interfaceIdParam)
-    )
-    if (existing) {
-      return existing
-    }
-
-    // Create new implements relationship
-    return this.store.createRelationship({
-      id: `rel-implements-${functionId}-${interfaceIdParam}`,
-      verb: 'implements',
-      from: functionUrl(functionId),
-      to: interfaceUrl(interfaceIdParam),
-    })
-  }
-
-  /**
-   * Get interfaces implemented by a function.
-   *
-   * @param functionId - Function ID
-   * @returns Array of interface IDs
-   */
-  async getInterfaces(functionId: string): Promise<string[]> {
-    const rels = await this.store.queryRelationshipsFrom(functionUrl(functionId), {
-      verb: 'implements',
-    })
-
-    return rels.map((r) => {
-      const match = r.to.match(/do:\/\/interfaces\/(.+)$/)
-      return match?.[1] ?? null
-    }).filter((id): id is string => id !== null)
   }
 
   // ==========================================================================

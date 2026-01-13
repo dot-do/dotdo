@@ -11,25 +11,13 @@
  * - `[]` Array
  * - `?` Optional
  * - `|` Union types
- *
- * This module now delegates to the centralized schema-parser for consistency.
  */
 
-import { type Operator } from './operators'
-import {
-  defaultParser,
-  type ParsedOperatorReference,
-  type OperatorDirection,
-  type OperatorMode,
-} from './schema-parser'
+import { OPERATORS, type Operator } from './operators'
 
-// Re-export types for backward compatibility
-export type { OperatorDirection, OperatorMode }
+export type OperatorDirection = 'forward' | 'backward'
+export type OperatorMode = 'exact' | 'fuzzy'
 
-/**
- * ParsedReference interface for backward compatibility
- * Identical to ParsedOperatorReference from schema-parser
- */
 export interface ParsedReference {
   prompt?: string
   operator: Operator
@@ -39,6 +27,62 @@ export interface ParsedReference {
   targets?: string[]
   isArray?: boolean
   isOptional?: boolean
+}
+
+// Regex to match operator and target
+// Group 1: optional prompt (everything before operator)
+// Group 2: operator (->|~>|<-|<~)
+// Group 3: target (everything after operator)
+const OPERATOR_REGEX = /^([\s\S]*?)(->|~>|<-|<~)(.+)$/
+
+/**
+ * Parse the target portion of a reference, extracting:
+ * - Type name(s)
+ * - Array modifier ([])
+ * - Optional modifier (?)
+ * - Union types (|)
+ */
+function parseTarget(target: string): {
+  target: string
+  targets?: string[]
+  isArray?: boolean
+  isOptional?: boolean
+} {
+  let remaining = target.trim()
+
+  // Check for optional modifier at the end
+  const isOptional = remaining.endsWith('?')
+  if (isOptional) {
+    remaining = remaining.slice(0, -1)
+  }
+
+  // Check for array modifier
+  const isArray = remaining.endsWith('[]')
+  if (isArray) {
+    remaining = remaining.slice(0, -2)
+  }
+
+  // Check for union types
+  const types = remaining.split('|').map((t) => t.trim())
+  const primaryTarget = types[0]
+
+  const result: ReturnType<typeof parseTarget> = {
+    target: primaryTarget!,
+  }
+
+  if (types.length > 1) {
+    result.targets = types
+  }
+
+  if (isArray) {
+    result.isArray = true
+  }
+
+  if (isOptional) {
+    result.isOptional = true
+  }
+
+  return result
 }
 
 /**
@@ -51,15 +95,43 @@ export interface ParsedReference {
  * parseReferenceOperator('->User')
  * // { operator: '->', direction: 'forward', mode: 'exact', target: 'User' }
  *
- * @example
  * parseReferenceOperator('What is the idea? <-Idea')
  * // { prompt: 'What is the idea?', operator: '<-', direction: 'backward', mode: 'exact', target: 'Idea' }
  *
- * @example
  * parseReferenceOperator('->User|Org[]')
  * // { operator: '->', direction: 'forward', mode: 'exact', target: 'User', targets: ['User', 'Org'], isArray: true }
  */
 export function parseReferenceOperator(field: string): ParsedReference | null {
-  // Delegate to centralized parser
-  return defaultParser.parseReference(field) as ParsedReference | null
+  if (!field) return null
+
+  const match = field.match(OPERATOR_REGEX)
+  if (!match) return null
+
+  const [, rawPrompt, op, rawTarget] = match
+  const operator = op as Operator
+
+  // Determine direction and mode from operator
+  const direction: OperatorDirection = operator.startsWith('<')
+    ? 'backward'
+    : 'forward'
+  const mode: OperatorMode = operator.includes('~') ? 'fuzzy' : 'exact'
+
+  // Parse the target
+  const targetInfo = parseTarget(rawTarget!)
+
+  // Build result
+  const result: ParsedReference = {
+    operator,
+    direction,
+    mode,
+    ...targetInfo,
+  }
+
+  // Add prompt if present (trim whitespace)
+  const prompt = rawPrompt?.trim()
+  if (prompt) {
+    result.prompt = prompt
+  }
+
+  return result
 }

@@ -8,44 +8,20 @@
  * - **Relationships**: Edges with verb-based predicates connecting Things
  * - **Verb Forms**: State encoding via verb conjugation (create/creating/created)
  * - **GraphEngine**: In-memory graph with traversals, path finding, and pattern matching
- * - **GraphStore**: Abstract interface for graph persistence
- * - **Stores**: SQLiteGraphStore and DocumentGraphStore implementations
- * - **Adapters**: File, Git, and Auth adapters on top of GraphStore
- * - **Analytics**: Columnar analytics for graph data
- * - **Event Delivery**: Guaranteed delivery for graph events
  *
  * @module db/graph
  *
  * @example
  * ```typescript
  * import {
- *   // Factory
- *   createGraphStore,
- *
- *   // Stores
- *   SQLiteGraphStore,
- *   DocumentGraphStore,
- *
- *   // Types
- *   GraphThing,
- *   GraphRelationship,
- *
- *   // Verb forms
- *   VerbFormStateMachine,
- *   parseVerbForm,
- *
- *   // In-memory engine
+ *   createThing, getThing, getThingsByType,
+ *   RelationshipsStore,
+ *   VerbFormStateMachine, parseVerbForm,
  *   GraphEngine
  * } from 'db/graph'
  *
- * // Create a GraphStore (factory pattern)
- * const store = await createGraphStore({
- *   backend: 'sqlite',  // or 'document'
- *   connectionString: ':memory:'
- * })
- *
  * // Create a Thing
- * const customer = await store.createThing({
+ * const customer = await createThing(db, {
  *   id: 'customer-alice',
  *   typeId: 1,
  *   typeName: 'Customer',
@@ -56,21 +32,6 @@
  * const state = parseVerbForm('creating') // { type: 'activity', baseVerb: 'create' }
  * ```
  */
-
-// ============================================================================
-// FACTORY - Unified entry point for creating GraphStore instances
-// ============================================================================
-
-export {
-  createGraphStore,
-  createSQLiteGraphStore,
-  createDocumentGraphStore,
-} from './factory'
-
-export type {
-  GraphStoreBackend,
-  CreateGraphStoreOptions,
-} from './factory'
 
 // ============================================================================
 // TYPES - Common types and interfaces
@@ -164,56 +125,12 @@ export { ActionLifecycleStore, createActionLifecycleStore } from './actions'
 // STORES - Concrete GraphStore implementations
 // ============================================================================
 
-// SQLiteGraphStore - Basic SQLite backend with Drizzle ORM
-export { SQLiteGraphStore } from './stores/sqlite'
-
-// DocumentGraphStore - Document-store style with MongoDB-like operators
-export { DocumentGraphStore } from './stores/document'
-
-// Re-export types from DocumentGraphStore
-export type {
-  IndexInfo,
-  QueryOperators,
-  LogicalQuery,
-  FindThingsQuery,
-  BulkUpdateFilter,
-  BulkUpdateOperations,
-  BulkUpdateResult,
-  BulkDeleteResult,
-  MatchStage,
-  GroupStage,
-  SortStage,
-  AggregationStage,
-  CollectionStats,
-  TransactionSession,
-} from './stores/document'
-
-// ============================================================================
-// EVENT DELIVERY - Guaranteed delivery for graph events
-// ============================================================================
-
-export { EventDeliveryStore } from './event-delivery'
-
-export type {
-  DeliverableEvent,
-  UnstreamedEventsOptions,
-  DeliveryResult,
-  PipelineConfig,
-} from './event-delivery'
-
-// ============================================================================
-// ANALYTICS - Columnar analytics backend for graph data
-// ============================================================================
-
-export { createGraphAnalytics } from './analytics'
-
-export type { GraphAnalytics } from './analytics'
+export { SQLiteGraphStore } from './stores'
 
 // ============================================================================
 // ADAPTERS - Domain-specific interfaces on top of GraphStore
 // ============================================================================
 
-// File Graph Adapter - Filesystem operations via the graph
 export {
   createFileGraphAdapter,
   FileGraphAdapterImpl,
@@ -228,52 +145,6 @@ export type {
   MkdirOptions,
   ContentStore,
 } from './adapters'
-
-// Git Graph Adapter - Git objects as Things
-export { GitGraphAdapter } from './adapters'
-
-export type {
-  GitIdentityData,
-  TreeEntryData,
-  CommitData,
-  TreeData,
-  BlobData,
-  RefData,
-} from './adapters'
-
-// Function Version Adapter - Function versioning with content-addressable storage
-export { FunctionVersionAdapter } from './adapters'
-
-export type {
-  FunctionVersionAdapterData,
-  FunctionVersionData,
-  FunctionBlobData,
-  FunctionRefData,
-} from './adapters'
-
-// Function Graph Adapter - Cascade chain resolution
-export { FunctionGraphAdapter, createFunctionGraphAdapter } from './adapters'
-
-export type {
-  FunctionType,
-  FunctionData,
-  CascadeRelationshipData,
-  CreateCascadeOptions,
-  CascadeChainEntry,
-  GetCascadeChainOptions,
-} from './adapters'
-
-// ============================================================================
-// AUTH ADAPTER - better-auth database adapter using Graph model
-// ============================================================================
-// Note: GraphAuthAdapter is exported from 'auth/adapters' not from this module.
-// This separation keeps auth concerns in the auth module while allowing
-// auth to use GraphStore as a storage backend.
-//
-// Usage:
-//   import { createGraphAuthAdapter, graphAuthAdapter } from '@/auth/adapters'
-//   const adapter = await createGraphAuthAdapter(graphStore)
-// ============================================================================
 
 // ============================================================================
 // GRAPH ENGINE - In-memory graph with traversals and algorithms

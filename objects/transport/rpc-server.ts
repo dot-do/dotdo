@@ -1774,7 +1774,7 @@ export function withRpcServer<T extends DOConstructor>(
   config?: RPCServerConfig
 ) {
   return class extends (Base as new (...args: any[]) => any) implements WithRpcServer {
-    /** @internal */ _rpcServer?: RPCServer
+    protected _rpcServer?: RPCServer
 
     get rpcServer(): RPCServer {
       if (!this._rpcServer) {
