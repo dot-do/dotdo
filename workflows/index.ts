@@ -201,3 +201,35 @@ export {
   type CostData,
   type SubscriptionData,
 } from './context/analytics'
+
+// WorkflowCore - Unified Workflow Primitives
+export {
+  WorkflowCore,
+  createWorkflowCore,
+  type WorkflowCoreOptions,
+  type WorkflowEvent,
+  type TimerHandle,
+  type CheckpointState,
+} from './core/workflow-core'
+
+// WorkflowHistory - Time-travel enabled workflow history
+export {
+  WorkflowHistory,
+  createWorkflowHistory,
+  type WorkflowHistoryOptions,
+  type HistoryEvent,
+  type HistoryCheckpoint,
+  type HistorySnapshot,
+  type RetentionPolicy,
+  type PruneStats,
+} from './core/workflow-history'
+
+// WorkflowCoreStorageStrategy - Unified storage for compat layers
+export {
+  WorkflowCoreStorageStrategy,
+  createWorkflowCoreStorageStrategy,
+  type WorkflowCoreStorageOptions,
+  type WorkflowStorageStrategy,
+  type StepExecutionOptions,
+  type CachedStepResult,
+} from './core/workflow-core-storage'

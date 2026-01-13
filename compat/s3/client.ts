@@ -621,7 +621,7 @@ export class S3Client {
     command: HeadObjectCommand,
     metadata: ResponseMetadata
   ): Promise<HeadObjectCommandOutput> {
-    const { Bucket, Key } = command.input
+    const { Bucket, Key, VersionId } = command.input
 
     // Check if bucket exists
     const exists = await this.backend.bucketExists(Bucket)
@@ -629,7 +629,7 @@ export class S3Client {
       throw new NoSuchBucket()
     }
 
-    const obj = await this.backend.headObject(Bucket, Key)
+    const obj = await this.backend.headObject(Bucket, Key, VersionId)
     if (!obj) {
       throw new NoSuchKey()
     }
@@ -645,6 +645,7 @@ export class S3Client {
       LastModified: obj.lastModified,
       Metadata: obj.metadata,
       StorageClass: obj.storageClass,
+      VersionId: obj.versionId,
       $metadata: metadata,
     }
   }

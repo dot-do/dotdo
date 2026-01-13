@@ -424,7 +424,7 @@ describe('Relationship Direction', () => {
   })
 
   describe('relationship URL construction', () => {
-    it('should use namespace-qualified URLs', async () => {
+    it('should use entity IDs in relationship from/to', async () => {
       const context: GenerationContext = {
         entity: { $id: 'entity-001', $type: 'Entity', name: 'Test' },
         namespace: 'https://acme.example.com.ai',
@@ -436,8 +436,27 @@ describe('Relationship Direction', () => {
         fieldName: 'related',
       }, context)
 
-      expect(result.relationship.from).toContain('https://acme.example.com.ai')
-      expect(result.relationship.to).toContain('https://acme.example.com.ai')
+      // Basic resolve uses entity IDs directly
+      expect(result.relationship.from).toMatch(/^related-/)
+      expect(result.relationship.to).toBe('entity-001')
+    })
+
+    it('should use namespace-qualified URLs in createReverseRelationship', async () => {
+      const resolver = new BackwardCascadeResolver()
+      const context: BackwardResolutionContext = {
+        entity: { $id: 'entity-001', $type: 'Entity', name: 'Test' },
+        namespace: 'https://acme.example.com.ai',
+      }
+
+      const generated = { $id: 'target-001', $type: 'Target', name: 'Generated' }
+      const relationship = await resolver.createReverseRelationship(
+        generated,
+        context,
+        { verb: 'owns' }
+      )
+
+      expect(relationship.from).toContain('https://acme.example.com.ai')
+      expect(relationship.to).toContain('https://acme.example.com.ai')
     })
   })
 })

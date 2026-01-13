@@ -88,6 +88,8 @@ export class EventDeliveryStore {
   private store: SQLiteGraphStore
   private sqlite: import('better-sqlite3').Database | null = null
   private pipelineConfig: PipelineConfig | null = null
+  /** Cache of delivery promises for idempotent delivery (prevents duplicate in-flight deliveries) */
+  private deliveryPromises: Map<string, Promise<DeliveryResult>> = new Map()
 
   constructor(store: SQLiteGraphStore) {
     this.store = store
@@ -246,9 +248,56 @@ export class EventDeliveryStore {
   }
 
   /**
-   * Deliver an event to configured pipeline
+   * Deliver an event to configured pipeline.
+   * This method returns an existing promise if delivery is already in progress,
+   * ensuring idempotent behavior for concurrent/sequential calls.
    */
-  async deliverEvent(eventId: string): Promise<DeliveryResult> {
+  deliverEvent(eventId: string): Promise<DeliveryResult> {
+    // SYNCHRONOUS check: If already streamed, return immediately without creating new promise
+    // This ensures idempotent behavior - the second call is truly a no-op
+    if (this.isEventStreamed(eventId)) {
+      const delivery = this.sqlite?.prepare(`
+        SELECT last_delivery_attempt FROM event_delivery WHERE event_id = ?
+      `).get(eventId) as { last_delivery_attempt: number | null } | undefined
+
+      return Promise.resolve({
+        success: true,
+        eventId,
+        deliveredAt: delivery?.last_delivery_attempt
+          ? new Date(delivery.last_delivery_attempt)
+          : undefined,
+      })
+    }
+
+    // Check if we already have a pending delivery for this event (concurrent deduplication)
+    const existingPromise = this.deliveryPromises.get(eventId)
+    if (existingPromise) {
+      return existingPromise
+    }
+
+    // Create and cache the delivery promise
+    const deliveryPromise = this.doDeliverEvent(eventId)
+    this.deliveryPromises.set(eventId, deliveryPromise)
+    return deliveryPromise
+  }
+
+  /**
+   * Synchronously check if an event is already streamed
+   */
+  private isEventStreamed(eventId: string): boolean {
+    if (!this.sqlite) return false
+
+    const delivery = this.sqlite.prepare(`
+      SELECT streamed FROM event_delivery WHERE event_id = ?
+    `).get(eventId) as { streamed: number } | undefined
+
+    return delivery?.streamed === 1
+  }
+
+  /**
+   * Internal delivery implementation
+   */
+  private async doDeliverEvent(eventId: string): Promise<DeliveryResult> {
     if (!this.sqlite) {
       throw new Error('SQLite connection not available')
     }

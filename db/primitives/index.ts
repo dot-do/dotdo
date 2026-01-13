@@ -344,3 +344,70 @@ export {
   type FieldComparator,
   type ConflictDetectorOptions,
 } from './sync'
+
+// =============================================================================
+// CACHE
+// =============================================================================
+
+// MultiTierCache - L1/L2/L3 hierarchical caching
+export {
+  createMultiTierCache,
+  InMemoryL2Storage,
+  MultiTierCacheMetrics,
+  type MultiTierCache,
+  type MultiTierCacheOptions,
+  type CacheEntry,
+  type CacheGetOptions,
+  type CacheSetOptions,
+  type CacheDeleteOptions,
+  type CacheStats,
+  type CacheLoader,
+  type L2Storage,
+  type WriteStrategy,
+  type EvictionPolicy,
+} from './multi-tier-cache'
+
+// HashStore - Redis-like hash operations
+export {
+  createHashStore,
+  HashStoreMetrics,
+  type HashStore,
+  type HashStoreOptions,
+  type HSetOptions,
+  type ScanOptions as HashScanOptions,
+} from './hash-store'
+
+// ListStore - Redis-like list operations
+export {
+  createListStore,
+  type ListStore,
+  type ListStoreOptions,
+  type ListPosition,
+  type ListDirection,
+  type LPosOptions,
+  type BlockingPopResult,
+  type LMPopResult,
+  type BlockingOptions,
+  type PushOptions,
+} from './list-store'
+
+// SortedSetStore - Redis-like sorted set operations
+export {
+  createSortedSetStore,
+  type SortedSetStore,
+  type SortedSetStoreOptions,
+  type ScoredMember,
+  type ZAddOptions,
+  type ZRangeByScoreOptions,
+  type ZRangeOptions,
+} from './sorted-set-store'
+
+// PubSubBroker - Redis-like pub/sub messaging
+export {
+  createPubSubBroker,
+  type PubSubBroker,
+  type PubSubOptions,
+  type PubSubMessage,
+  type SubscriptionHandle,
+  type ChannelStats,
+} from './pubsub-broker'

@@ -51,6 +51,48 @@ import {
   HeadObjectCommand,
   DeleteObjectCommand,
 } from './commands'
+import { validateBucketName, InvalidBucketName } from './errors'
+
+// =============================================================================
+// Input Validation
+// =============================================================================
+
+/**
+ * Maximum allowed key length for S3 objects
+ */
+const MAX_KEY_LENGTH = 1024
+
+/**
+ * Validates an S3 object key
+ *
+ * @param key - The key to validate
+ * @throws Error if the key is invalid
+ */
+function validateKey(key: string): void {
+  if (!key) {
+    throw new Error('Key is required')
+  }
+
+  if (key.length > MAX_KEY_LENGTH) {
+    throw new Error(`Key length (${key.length}) exceeds maximum allowed (${MAX_KEY_LENGTH})`)
+  }
+
+  // Check for null bytes
+  if (key.includes('\0')) {
+    throw new Error('Key cannot contain null bytes')
+  }
+}
+
+/**
+ * Validates bucket and key for presigned URL generation
+ */
+function validateInput(bucket: string, key: string): void {
+  if (!bucket) {
+    throw new InvalidBucketName({ message: 'Bucket is required' })
+  }
+  validateBucketName(bucket)
+  validateKey(key)
+}
 
 // =============================================================================
 // Types
@@ -254,6 +296,10 @@ export interface ExtendedPresigningArguments extends RequestPresigningArguments 
   customHeaders?: Record<string, string>
   /** Additional query parameters to include */
   queryParams?: Record<string, string>
+  /** Set of header names that must be signed */
+  signedHeaders?: Set<string>
+  /** Set of header names that should not be signed */
+  unsignableHeaders?: Set<string>
 }
 
 // =============================================================================
@@ -271,6 +317,8 @@ interface PresignOptions {
   secretAccessKey: string
   headers?: Record<string, string>
   queryParams?: Record<string, string>
+  signedHeaders?: Set<string>
+  unsignableHeaders?: Set<string>
 }
 
 async function createPresignedUrl(options: PresignOptions): Promise<string> {
@@ -285,6 +333,8 @@ async function createPresignedUrl(options: PresignOptions): Promise<string> {
     secretAccessKey,
     headers = {},
     queryParams = {},
+    signedHeaders: forceSignedHeaders,
+    unsignableHeaders,
   } = options
 
   const now = new Date()
@@ -306,13 +356,36 @@ async function createPresignedUrl(options: PresignOptions): Promise<string> {
     ),
   }
 
+  // If signedHeaders is specified, add them with empty values (they must be provided at request time)
+  if (forceSignedHeaders) {
+    for (const header of forceSignedHeaders) {
+      const lowerHeader = header.toLowerCase()
+      if (!allHeaders[lowerHeader]) {
+        allHeaders[lowerHeader] = ''
+      }
+    }
+  }
+
+  // Filter out unsignable headers
+  const headersToSign = Object.entries(allHeaders)
+    .filter(([name]) => {
+      if (unsignableHeaders?.has(name)) {
+        return false
+      }
+      return true
+    })
+    .reduce((acc, [k, v]) => {
+      acc[k] = v
+      return acc
+    }, {} as Record<string, string>)
+
   // Sort headers and build signed headers string
-  const sortedHeaderNames = Object.keys(allHeaders).sort()
+  const sortedHeaderNames = Object.keys(headersToSign).sort()
   const signedHeaders = sortedHeaderNames.join(';')
 
   // Build canonical headers string
   const canonicalHeaders =
-    sortedHeaderNames.map((name) => `${name}:${allHeaders[name].trim()}`).join('\n') + '\n'
+    sortedHeaderNames.map((name) => `${name}:${headersToSign[name].trim()}`).join('\n') + '\n'
 
   // Build query parameters
   const params: Record<string, string> = {
@@ -388,6 +461,13 @@ export async function getSignedUrl(
   command: PresignableCommand,
   options: ExtendedPresigningArguments = {}
 ): Promise<string> {
+  // Check for unsupported command types
+  const commandName = command.constructor.name
+  const supportedCommands = ['GetObjectCommand', 'PutObjectCommand', 'HeadObjectCommand', 'DeleteObjectCommand']
+  if (!supportedCommands.includes(commandName)) {
+    throw new Error(`Unsupported command type: ${commandName}. Only ${supportedCommands.join(', ')} are supported.`)
+  }
+
   // Determine expiration
   let expiresIn = options.expiresIn ?? DEFAULT_EXPIRY
 
@@ -405,6 +485,9 @@ export async function getSignedUrl(
 
   // Get command details
   const { method, bucket, key, contentType } = getCommandInfo(command)
+
+  // Validate bucket and key
+  validateInput(bucket, key)
 
   // Get client config
   const config = client.config || {}
@@ -434,6 +517,8 @@ export async function getSignedUrl(
     accessKeyId,
     secretAccessKey,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
+    signedHeaders: options.signedHeaders,
+    unsignableHeaders: options.unsignableHeaders,
     queryParams: options.queryParams,
   })
 }

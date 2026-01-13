@@ -7,3 +7,4 @@
  */
 
 export { SQLiteGraphStore } from './sqlite'
+export { DocumentGraphStore } from './document'

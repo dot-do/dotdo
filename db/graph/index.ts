@@ -1040,6 +1040,470 @@ export class GraphEngine {
   }
 
   // --------------------------------------------------------------------------
+  // CONNECTED COMPONENTS
+  // --------------------------------------------------------------------------
+
+  /**
+   * Find all connected components in the graph (treating edges as undirected).
+   * Returns an array of arrays, each inner array containing node IDs in one component.
+   */
+  async connectedComponents(): Promise<string[][]> {
+    const visited = new Set<string>()
+    const components: string[][] = []
+
+    for (const nodeId of this.nodes.keys()) {
+      if (visited.has(nodeId)) continue
+
+      // BFS to find all nodes in this component
+      const component: string[] = []
+      const queue = [nodeId]
+      visited.add(nodeId)
+
+      while (queue.length > 0) {
+        const current = queue.shift()!
+        component.push(current)
+
+        // Get neighbors in both directions (treat as undirected)
+        const edges = this.getNeighborEdges(current, 'BOTH')
+        for (const edge of edges) {
+          const neighborId = edge.from === current ? edge.to : edge.from
+          if (!visited.has(neighborId)) {
+            visited.add(neighborId)
+            queue.push(neighborId)
+          }
+        }
+      }
+
+      components.push(component)
+    }
+
+    return components
+  }
+
+  /**
+   * Find strongly connected components in a directed graph using Tarjan's algorithm.
+   * Returns an array of arrays, each inner array containing node IDs in one SCC.
+   */
+  async stronglyConnectedComponents(): Promise<string[][]> {
+    const indices = new Map<string, number>()
+    const lowlinks = new Map<string, number>()
+    const onStack = new Set<string>()
+    const stack: string[] = []
+    const sccs: string[][] = []
+    let index = 0
+
+    const strongConnect = (nodeId: string) => {
+      indices.set(nodeId, index)
+      lowlinks.set(nodeId, index)
+      index++
+      stack.push(nodeId)
+      onStack.add(nodeId)
+
+      // Consider successors (outgoing edges only for directed graph)
+      const edges = this.getNeighborEdges(nodeId, 'OUTGOING')
+      for (const edge of edges) {
+        const successorId = edge.to
+        if (!indices.has(successorId)) {
+          // Successor not yet visited
+          strongConnect(successorId)
+          lowlinks.set(nodeId, Math.min(lowlinks.get(nodeId)!, lowlinks.get(successorId)!))
+        } else if (onStack.has(successorId)) {
+          // Successor is in stack and hence in current SCC
+          lowlinks.set(nodeId, Math.min(lowlinks.get(nodeId)!, indices.get(successorId)!))
+        }
+      }
+
+      // If nodeId is a root node, pop the stack and generate an SCC
+      if (lowlinks.get(nodeId) === indices.get(nodeId)) {
+        const scc: string[] = []
+        let w: string
+        do {
+          w = stack.pop()!
+          onStack.delete(w)
+          scc.push(w)
+        } while (w !== nodeId)
+        sccs.push(scc)
+      }
+    }
+
+    for (const nodeId of this.nodes.keys()) {
+      if (!indices.has(nodeId)) {
+        strongConnect(nodeId)
+      }
+    }
+
+    return sccs
+  }
+
+  /**
+   * Check if the graph is connected (treating edges as undirected).
+   */
+  async isConnected(): Promise<boolean> {
+    if (this.nodes.size === 0) return true
+    const components = await this.connectedComponents()
+    return components.length === 1
+  }
+
+  /**
+   * Get the largest connected component.
+   */
+  async largestComponent(): Promise<string[]> {
+    const components = await this.connectedComponents()
+    if (components.length === 0) return []
+    return components.reduce((a, b) => (a.length >= b.length ? a : b))
+  }
+
+  // --------------------------------------------------------------------------
+  // CLOSENESS CENTRALITY
+  // --------------------------------------------------------------------------
+
+  /**
+   * Calculate closeness centrality for all nodes.
+   * Closeness = (n-1) / sum of shortest path distances to all other reachable nodes.
+   * For disconnected graphs, uses Wasserman-Faust formula.
+   */
+  async closenessCentrality(options?: CentralityOptions): Promise<Map<string, number>> {
+    const centrality = new Map<string, number>()
+    const nodeIds = Array.from(this.nodes.keys())
+    const n = nodeIds.length
+
+    if (n <= 1) {
+      for (const id of nodeIds) {
+        centrality.set(id, 0)
+      }
+      return centrality
+    }
+
+    for (const source of nodeIds) {
+      // BFS to find shortest paths from source to all reachable nodes
+      const distances = this.bfsDistances(source)
+
+      let totalDistance = 0
+      let reachable = 0
+
+      for (const [targetId, dist] of distances) {
+        if (targetId !== source && dist > 0) {
+          totalDistance += dist
+          reachable++
+        }
+      }
+
+      let closeness = 0
+      if (reachable > 0 && totalDistance > 0) {
+        // Wasserman-Faust formula for disconnected graphs
+        // C(i) = (r / (n-1)) * (r / sum_distances)
+        // where r = number of reachable nodes
+        if (options?.normalized) {
+          closeness = (reachable / (n - 1)) * (reachable / totalDistance)
+        } else {
+          closeness = reachable / totalDistance
+        }
+      }
+
+      centrality.set(source, closeness)
+    }
+
+    return centrality
+  }
+
+  /**
+   * BFS to compute distances from a source to all reachable nodes.
+   */
+  private bfsDistances(source: string): Map<string, number> {
+    const distances = new Map<string, number>()
+    distances.set(source, 0)
+    const queue = [source]
+
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const currentDist = distances.get(current)!
+
+      const edges = this.getNeighborEdges(current, 'OUTGOING')
+      for (const edge of edges) {
+        if (!distances.has(edge.to)) {
+          distances.set(edge.to, currentDist + 1)
+          queue.push(edge.to)
+        }
+      }
+    }
+
+    return distances
+  }
+
+  // --------------------------------------------------------------------------
+  // WEIGHTED SHORTEST PATH (Dijkstra)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Find shortest weighted path using Dijkstra's algorithm.
+   * Weight is read from edge properties using the specified weightProperty.
+   */
+  async dijkstra(
+    from: string,
+    to: string,
+    options?: { weightProperty?: string; maxWeight?: number }
+  ): Promise<{ path: PathResult; weight: number } | null> {
+    const weightProperty = options?.weightProperty ?? 'weight'
+    const maxWeight = options?.maxWeight ?? Infinity
+
+    if (from === to) {
+      const node = this.nodes.get(from)
+      if (!node) return null
+      return {
+        path: { nodes: [node], edges: [], length: 0 },
+        weight: 0,
+      }
+    }
+
+    if (!this.nodes.has(from) || !this.nodes.has(to)) {
+      return null
+    }
+
+    // Priority queue (simple array-based implementation)
+    const distances = new Map<string, number>()
+    const previous = new Map<string, { nodeId: string; edge: Edge }>()
+    const unvisited = new Set<string>(this.nodes.keys())
+
+    distances.set(from, 0)
+
+    while (unvisited.size > 0) {
+      // Find unvisited node with minimum distance
+      let minDist = Infinity
+      let current: string | null = null
+      for (const nodeId of unvisited) {
+        const dist = distances.get(nodeId) ?? Infinity
+        if (dist < minDist) {
+          minDist = dist
+          current = nodeId
+        }
+      }
+
+      if (current === null || minDist === Infinity) break
+      if (minDist > maxWeight) break
+
+      unvisited.delete(current)
+
+      if (current === to) {
+        // Reconstruct path
+        const nodes: Node[] = []
+        const edges: Edge[] = []
+        let curr: string | undefined = to
+
+        while (curr) {
+          nodes.unshift(this.nodes.get(curr)!)
+          const prev = previous.get(curr)
+          if (prev) {
+            edges.unshift(prev.edge)
+            curr = prev.nodeId
+          } else {
+            curr = undefined
+          }
+        }
+
+        return {
+          path: { nodes, edges, length: edges.length },
+          weight: distances.get(to)!,
+        }
+      }
+
+      // Explore neighbors
+      const neighborEdges = this.getNeighborEdges(current, 'OUTGOING')
+      for (const edge of neighborEdges) {
+        if (!unvisited.has(edge.to)) continue
+
+        const weight = (edge.properties[weightProperty] as number) ?? 1
+        const alt = (distances.get(current) ?? Infinity) + weight
+
+        if (alt < (distances.get(edge.to) ?? Infinity)) {
+          distances.set(edge.to, alt)
+          previous.set(edge.to, { nodeId: current, edge })
+        }
+      }
+    }
+
+    return null
+  }
+
+  // --------------------------------------------------------------------------
+  // MINIMUM SPANNING TREE (Kruskal's Algorithm)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Find minimum spanning tree using Kruskal's algorithm.
+   * Returns the edges in the MST.
+   */
+  async minimumSpanningTree(options?: { weightProperty?: string }): Promise<Edge[]> {
+    const weightProperty = options?.weightProperty ?? 'weight'
+
+    // Get all edges and sort by weight
+    const allEdges = Array.from(this.edges.values())
+    allEdges.sort((a, b) => {
+      const weightA = (a.properties[weightProperty] as number) ?? 1
+      const weightB = (b.properties[weightProperty] as number) ?? 1
+      return weightA - weightB
+    })
+
+    // Union-Find data structure
+    const parent = new Map<string, string>()
+    const rank = new Map<string, number>()
+
+    const find = (x: string): string => {
+      if (!parent.has(x)) {
+        parent.set(x, x)
+        rank.set(x, 0)
+      }
+      if (parent.get(x) !== x) {
+        parent.set(x, find(parent.get(x)!))
+      }
+      return parent.get(x)!
+    }
+
+    const union = (x: string, y: string): boolean => {
+      const rootX = find(x)
+      const rootY = find(y)
+      if (rootX === rootY) return false
+
+      const rankX = rank.get(rootX) ?? 0
+      const rankY = rank.get(rootY) ?? 0
+
+      if (rankX < rankY) {
+        parent.set(rootX, rootY)
+      } else if (rankX > rankY) {
+        parent.set(rootY, rootX)
+      } else {
+        parent.set(rootY, rootX)
+        rank.set(rootX, rankX + 1)
+      }
+      return true
+    }
+
+    // Build MST
+    const mst: Edge[] = []
+    for (const edge of allEdges) {
+      if (union(edge.from, edge.to)) {
+        mst.push(edge)
+      }
+    }
+
+    return mst
+  }
+
+  // --------------------------------------------------------------------------
+  // TOPOLOGICAL SORT
+  // --------------------------------------------------------------------------
+
+  /**
+   * Perform topological sort on a directed acyclic graph.
+   * Returns null if the graph has cycles.
+   */
+  async topologicalSort(): Promise<string[] | null> {
+    const inDegree = new Map<string, number>()
+    const nodeIds = Array.from(this.nodes.keys())
+
+    // Initialize in-degrees
+    for (const nodeId of nodeIds) {
+      inDegree.set(nodeId, 0)
+    }
+
+    // Calculate in-degrees
+    for (const edge of this.edges.values()) {
+      inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1)
+    }
+
+    // Queue of nodes with no incoming edges
+    const queue: string[] = []
+    for (const [nodeId, degree] of inDegree) {
+      if (degree === 0) {
+        queue.push(nodeId)
+      }
+    }
+
+    const result: string[] = []
+
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      result.push(current)
+
+      const edges = this.getNeighborEdges(current, 'OUTGOING')
+      for (const edge of edges) {
+        const newDegree = (inDegree.get(edge.to) ?? 1) - 1
+        inDegree.set(edge.to, newDegree)
+        if (newDegree === 0) {
+          queue.push(edge.to)
+        }
+      }
+    }
+
+    // If we processed all nodes, the graph is acyclic
+    if (result.length !== nodeIds.length) {
+      return null // Graph has a cycle
+    }
+
+    return result
+  }
+
+  /**
+   * Check if the graph has cycles.
+   */
+  async hasCycles(): Promise<boolean> {
+    const result = await this.topologicalSort()
+    return result === null
+  }
+
+  // --------------------------------------------------------------------------
+  // GRAPH DIAMETER AND RADIUS
+  // --------------------------------------------------------------------------
+
+  /**
+   * Calculate the eccentricity of a node (max distance to any reachable node).
+   */
+  async eccentricity(nodeId: string): Promise<number> {
+    const distances = this.bfsDistances(nodeId)
+    let maxDist = 0
+    for (const dist of distances.values()) {
+      if (dist > maxDist) maxDist = dist
+    }
+    return maxDist
+  }
+
+  /**
+   * Calculate graph diameter (maximum eccentricity).
+   */
+  async diameter(): Promise<number> {
+    let maxEcc = 0
+    for (const nodeId of this.nodes.keys()) {
+      const ecc = await this.eccentricity(nodeId)
+      if (ecc > maxEcc) maxEcc = ecc
+    }
+    return maxEcc
+  }
+
+  /**
+   * Calculate graph radius (minimum eccentricity).
+   */
+  async radius(): Promise<number> {
+    let minEcc = Infinity
+    for (const nodeId of this.nodes.keys()) {
+      const ecc = await this.eccentricity(nodeId)
+      if (ecc > 0 && ecc < minEcc) minEcc = ecc
+    }
+    return minEcc === Infinity ? 0 : minEcc
+  }
+
+  /**
+   * Find center nodes (nodes with eccentricity equal to radius).
+   */
+  async center(): Promise<Node[]> {
+    const rad = await this.radius()
+    const centerNodes: Node[] = []
+    for (const [nodeId, node] of this.nodes) {
+      const ecc = await this.eccentricity(nodeId)
+      if (ecc === rad) centerNodes.push(node)
+    }
+    return centerNodes
+  }
+
+  // --------------------------------------------------------------------------
   // STATISTICS
   // --------------------------------------------------------------------------
 

@@ -302,6 +302,7 @@ export interface ChargeProcessor {
 
   // Charge operations
   charge(options: ChargeCreateOptions): Promise<Charge>
+  create(options: ChargeCreateOptions): Promise<Charge>
   authorize(options: ChargeAuthorizeOptions): Promise<Charge>
   capture(chargeId: string, options?: ChargeCaptureOptions): Promise<Charge>
   void(chargeId: string): Promise<Charge>
@@ -332,6 +333,8 @@ export interface ChargeProcessor {
 
   // Event handling
   on(event: ChargeEventType | string, handler: ChargeEventHandler): Unsubscribe
+  getEventHandlers(event: string): ChargeEventHandler[]
+  processWebhook(event: { type: string; data: Record<string, unknown> }): Promise<void>
 }
 
 // =============================================================================
@@ -481,6 +484,11 @@ class ChargeProcessorImpl implements ChargeProcessor {
   // Charge Operations
   // =============================================================================
 
+  // Alias for charge()
+  async create(options: ChargeCreateOptions): Promise<Charge> {
+    return this.charge(options)
+  }
+
   async charge(options: ChargeCreateOptions): Promise<Charge> {
     // Validate
     this.validateChargeParams(options)
@@ -508,7 +516,8 @@ class ChargeProcessorImpl implements ChargeProcessor {
     const provider = providerName ? this.providers.get(providerName) : null
 
     let providerResult: ProviderChargeResult | null = null
-    let status: ChargeStatus = options.capture !== false ? 'succeeded' : 'requires_capture'
+    // Default to 'pending' when no provider, otherwise depends on capture mode
+    let status: ChargeStatus = 'pending'
 
     // Call provider if available
     if (provider) {
@@ -518,6 +527,9 @@ class ChargeProcessorImpl implements ChargeProcessor {
       } catch (e) {
         status = 'failed'
       }
+    } else {
+      // No provider - stay pending unless explicitly captured
+      status = 'pending'
     }
 
     const charge: Charge = {
@@ -533,8 +545,8 @@ class ChargeProcessorImpl implements ChargeProcessor {
       provider: providerName ?? undefined,
       providerChargeId: providerResult?.providerChargeId,
       authorizedAmount: options.amount,
-      capturedAmount: status === 'succeeded' ? options.amount : 0,
-      capturableAmount: status === 'requires_capture' ? options.amount : 0,
+      capturedAmount: status === 'succeeded' ? options.amount : undefined,
+      capturableAmount: status === 'requires_capture' || status === 'pending' ? options.amount : 0,
       refundedAmount: 0,
       refunds: [],
       threeDSecure: providerResult?.threeDSecure,
@@ -1010,6 +1022,17 @@ class ChargeProcessorImpl implements ChargeProcessor {
           currentHandlers.splice(idx, 1)
         }
       }
+    }
+  }
+
+  getEventHandlers(event: string): ChargeEventHandler[] {
+    return this.eventHandlers.get(event) ?? []
+  }
+
+  async processWebhook(event: { type: string; data: Record<string, unknown> }): Promise<void> {
+    const handlers = this.getEventHandlers(event.type)
+    for (const handler of handlers) {
+      await handler({ type: event.type as ChargeEventType, data: event.data })
     }
   }
 
