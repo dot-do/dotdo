@@ -457,19 +457,103 @@ $.on.*.created(handler)  // Wildcards
 
 ## Implementation Notes
 
-### Files to Create/Modify
+### Folder Structure
 
-1. `objects/Business.ts` - Base business DO
-2. `objects/SaaS.ts` - SaaS subclass with OKRs
-3. `objects/Startup.ts` - Startup subclass
-4. `objects/Service.ts` - Service-as-Software subclass
-5. `agents/named/sam.ts` - Support agent
-6. `agents/named/finn.ts` - Finance agent
-7. `agents/named/casey.ts` - Customer success agent
-8. `agents/named/dana.ts` - Data/analytics agent
-9. `lib/okrs/` - OKRs framework
-10. `lib/pricing/` - Pricing models
-11. `lib/support/` - ChatBox integration
+```
+objects/               # DO subclasses (business types)
+├── DO.ts              # Base DO with Goals/OKRs framework
+├── Business.ts        # Revenue, Costs, Profit
+├── DigitalBusiness.ts # + Traffic, Conversion, Engagement
+├── SaaS.ts            # + MRR, Churn, NRR, CAC, LTV
+├── Startup.ts         # + Runway, Burn, Growth, PMF
+├── Service.ts         # AI-delivered services
+├── Marketplace.ts     # + GMV, TakeRate, Liquidity
+├── API.ts             # + APICalls, Latency, ErrorRate
+├── Directory.ts       # + Listings, Search Volume, Clicks
+├── LocalBusiness.ts   # + Foot Traffic, Reviews, Bookings
+└── index.ts           # Re-exports all DO subclasses
+
+roles/                 # Pre-built agent roles (job functions)
+├── product.ts         # Product role: OKRs, capabilities
+├── engineering.ts     # Engineering role
+├── techLead.ts        # Tech Lead role
+├── marketing.ts       # Marketing role
+├── sales.ts           # Sales role
+├── qa.ts              # QA role
+├── support.ts         # Support role
+├── finance.ts         # Finance role
+├── customerSuccess.ts # Customer Success role
+├── data.ts            # Data/Analytics role
+├── types.ts           # Role type definitions
+└── index.ts           # Re-exports all roles
+
+agents/                # Pre-built named agents (implement roles)
+├── priya.ts           # implements: product
+├── ralph.ts           # implements: engineering
+├── tom.ts             # implements: techLead
+├── rae.ts             # implements: frontend (existing)
+├── mark.ts            # implements: marketing
+├── sally.ts           # implements: sales
+├── quinn.ts           # implements: qa
+├── sam.ts             # implements: support
+├── finn.ts            # implements: finance
+├── casey.ts           # implements: customerSuccess
+├── dana.ts            # implements: data
+├── types.ts           # Agent type definitions
+└── index.ts           # Re-exports all agents
+```
+
+### Role → Agent Relationship
+
+```typescript
+// roles/product.ts
+export const product = defineRole({
+  name: 'product',
+  okrs: ['FeatureAdoption', 'UserSatisfaction', 'TimeToValue'],
+  capabilities: ['spec', 'roadmap', 'prioritize', 'plan'],
+})
+
+// agents/priya.ts
+import { product } from '../roles'
+
+export const priya = defineAgent({
+  name: 'Priya',
+  domain: 'priya.do',
+  role: product,
+  persona: { voice: '...', style: '...', avatar: '...' },
+})
+
+// Usage - either works
+await priya`plan the roadmap`           // Named agent
+await product`plan the roadmap`         // Role (uses default agent)
+```
+
+### OKRs Framework
+
+```
+lib/okrs/              # OKRs framework
+├── types.ts           # OKR, KeyResult, Metric types
+├── define.ts          # defineOKR(), defineMetric()
+├── prebuilt.ts        # ~20 pre-built OKRs
+├── measurement.ts     # Metric measurement functions
+└── index.ts           # Re-exports
+
+lib/pricing/           # Pricing models
+├── types.ts           # Pricing model types
+├── outcome.ts         # Outcome-based pricing
+├── activity.ts        # Activity-based pricing
+├── seat.ts            # Seat/concurrency pricing
+├── credit.ts          # Credit-based pricing
+├── hybrid.ts          # Hybrid pricing
+└── index.ts           # Re-exports
+
+lib/support/           # Support integration
+├── types.ts           # Support types
+├── chatbox.ts         # MDXUI ChatBox integration
+├── routing.ts         # Topic-based routing
+├── escalation.ts      # Human escalation logic
+└── index.ts           # Re-exports
+```
 
 ### Dependencies
 
