@@ -29,7 +29,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 // Import CLI modules (will fail until implemented)
 // ============================================================================
 
-// @ts-expect-error - CLI link module not yet implemented
 import {
   link,
   unlink,
@@ -41,16 +40,13 @@ import {
   type OAuthCallbackResult,
   type LinkResult,
   type UnlinkResult,
-} from '../../commands/link'
+} from '../commands/link'
 
-// @ts-expect-error - CLI browser module not yet implemented
-import { openBrowser, type BrowserOptions } from '../../utils/browser'
+import { openBrowser, type BrowserOptions } from '../utils/browser'
 
-// @ts-expect-error - CLI config module not yet implemented
-import { getConfig, setConfig, type CLIConfig } from '../../utils/config'
+import { getConfig, setConfig, type CLIConfig } from '../utils/config'
 
-// @ts-expect-error - CLI auth module not yet implemented
-import { getSession, type Session } from '../../utils/auth'
+import { getSession, type Session } from '../utils/auth'
 
 // ============================================================================
 // Types
