@@ -93,8 +93,22 @@ export const globTool: AgentTool = {
       const { stdout } = await execAsync(`find "${cwd}" -name "${pattern}" -type f`, { cwd })
       const files = stdout.trim().split('\n').filter(Boolean)
       return { success: true, files }
-    } catch {
-      return { success: true, files: [] }
+    } catch (error) {
+      const err = error as { message?: string; stderr?: string; code?: string | number }
+      // Check if it's a "no matches" case (find returns 0 exit code with no output)
+      // vs an actual error (non-existent path, permission denied, etc.)
+      const errorMessage = err.message || err.stderr || 'Unknown error'
+
+      // "No such file or directory" errors should be propagated
+      if (errorMessage.includes('No such file or directory') ||
+          errorMessage.includes('ENOENT') ||
+          errorMessage.includes('Permission denied') ||
+          errorMessage.includes('EACCES')) {
+        return { success: false, error: errorMessage, files: [] }
+      }
+
+      // For other errors (e.g., command not found), still report the error
+      return { success: false, error: errorMessage, files: [] }
     }
   },
 }
@@ -142,9 +156,29 @@ export const grepTool: AgentTool = {
       const { stdout } = await execAsync(command)
       const files = stdout.trim().split('\n').filter(Boolean)
       return { success: true, files }
-    } catch {
-      // ripgrep not found or no matches
-      return { success: true, files: [] }
+    } catch (error) {
+      const err = error as { message?: string; stderr?: string; code?: string | number }
+      const errorMessage = err.message || err.stderr || 'Unknown error'
+
+      // ripgrep exit code 1 = no matches (not an error)
+      // ripgrep exit code 2 = error (bad pattern, no such file, etc.)
+      if (err.code === 1) {
+        // No matches found - this is normal, not an error
+        return { success: true, files: [] }
+      }
+
+      // "No such file or directory" or path errors should be propagated
+      if (errorMessage.includes('No such file or directory') ||
+          errorMessage.includes('ENOENT') ||
+          errorMessage.includes('Permission denied') ||
+          errorMessage.includes('EACCES') ||
+          errorMessage.includes('cannot be found') ||
+          err.code === 2) {
+        return { success: false, error: errorMessage, files: [] }
+      }
+
+      // For other errors (command not found, etc.), report the error
+      return { success: false, error: errorMessage, files: [] }
     }
   },
 }
@@ -153,3 +187,7 @@ export const grepTool: AgentTool = {
  * All shell and code search tools
  */
 export const SHELL_TOOLS: AgentTool[] = [bashTool, globTool, grepTool]
+
+// Additional exports for backwards compatibility and test access
+export { globTool as findTool }
+export { bashTool as execTool }

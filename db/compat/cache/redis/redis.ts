@@ -2792,7 +2792,10 @@ db0:keys=${this.storage.dbsize()},expires=0
         try {
           listener(...args)
         } catch (e) {
-          // Ignore listener errors
+          // Emit listener errors to 'error' event (unless this IS the error event)
+          if (event !== 'error') {
+            this.emit('error', e)
+          }
         }
       }
     }
