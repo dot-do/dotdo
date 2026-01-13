@@ -98,6 +98,10 @@
     {
       "tag": "v6",
       "new_classes": ["TestCollectionDO"]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["DO"]
     }
   ],
 

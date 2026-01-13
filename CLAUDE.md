@@ -54,13 +54,71 @@ npx vitest run path/to/test.ts        # Single file
 npx vitest --project=workers          # Workers runtime (miniflare)
 npx vitest --project=compat           # Compat layer tests
 npx vitest --project=agents           # Agent SDK tests
-npx vitest --project=objects          # DO tests (mocked runtime)
+npx vitest --project=objects          # DO tests (real miniflare runtime)
 npx vitest --project=lib              # Library utility tests
 npx vitest --project=workflows        # Workflow proxy tests
 npx playwright test tests/e2e/        # E2E browser tests
 ```
 
 See `vitest.workspace.ts` for all 80+ test workspaces organized by domain.
+
+### Testing Philosophy: NO MOCKS
+
+**Durable Objects require NO MOCKING.** Miniflare runs real DOs with real SQLite locally.
+
+#### Why No Mocks?
+
+- **Mocks hide real bugs** - We discovered schema wasn't being created because mocks bypassed real SQLite
+- **Miniflare is the real runtime** - It provides actual DO instances with actual storage
+- **Tests should verify real behavior** - Not mock behavior that may differ from production
+
+#### How to Test DOs
+
+```typescript
+import { env } from 'cloudflare:test'
+
+// Get real DO instance
+const stub = env.DO.get(env.DO.idFromName('test'))
+
+// Test via RPC (preferred - 95% of tests)
+const result = await stub.things.create({ $type: 'Customer', name: 'Alice' })
+expect(result.$id).toBeDefined()
+
+// Test via fetch (for HTTP API behavior - 5% of tests)
+const res = await stub.fetch('https://test.api.dotdo.dev/customers')
+expect(res.status).toBe(200)
+```
+
+#### What NOT to Do
+
+```typescript
+// WRONG - Never mock stores or storage
+const mockStore = createMockThingsStore() // DELETE THIS
+vi.mock('../db/stores')                    // DELETE THIS
+const ctx = { things: mockStore }          // DELETE THIS
+
+// WRONG - Never mock DO state
+const mockState = createMockState()        // DELETE THIS
+```
+
+#### Test Configuration
+
+Use `@cloudflare/vitest-pool-workers` with real wrangler config:
+
+```typescript
+// vitest.config.ts
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+
+export default defineWorkersConfig({
+  test: {
+    poolOptions: {
+      workers: {
+        wrangler: { configPath: './wrangler.jsonc' }
+      }
+    }
+  }
+})
+```
 
 ### Process Management (IMPORTANT)
 
