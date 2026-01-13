@@ -498,7 +498,7 @@ const users = await sql`SELECT * FROM users`
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://neon.do)

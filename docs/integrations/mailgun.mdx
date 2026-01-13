@@ -5,7 +5,7 @@ description: Drop-in replacement for mailgun.js with transactional email, templa
 
 # Mailgun
 
-Drop-in replacement for `mailgun.js`. Your existing `mailgun.js` code works unchanged - just swap the import.
+Drop-in replacement for `mailgun.js`. Same API, runs on Cloudflare Workers.
 
 ```typescript
 // Before
@@ -18,18 +18,18 @@ import { Mailgun } from '@dotdo/mailgun'
 
 Your existing Mailgun code works unchanged. No migration required.
 
-## Why @dotdo/mailgun?
+## Why mailgun.do?
 
-| Feature | @dotdo/mailgun | Mailgun |
-|---------|----------------|---------|
-| **API compatibility** | 100% compatible | Native |
-| **Runtime** | Edge (300+ cities) | Node.js |
-| **Cold start** | 0ms (V8 isolates) | Variable |
-| **Template storage** | DO SQLite | Mailgun servers |
-| **Exactly-once delivery** | Yes (idempotency keys) | No |
-| **Audit logs** | Built-in temporal store | Separate product |
-| **Outbox pattern** | Built-in transactions | DIY |
-| **FormData dependency** | Not needed | Required |
+| Feature | Mailgun | mailgun.do |
+|---------|---------|------------|
+| **API compatibility** | Native | 100% compatible |
+| **Runtime** | Node.js | Edge (300+ cities) |
+| **Cold start** | Variable | 0ms (V8 isolates) |
+| **Template storage** | Mailgun servers | DO SQLite |
+| **Exactly-once delivery** | No | Yes (idempotency keys) |
+| **Audit logs** | Separate product | Built-in temporal store |
+| **Outbox pattern** | DIY | Built-in transactions |
+| **FormData dependency** | Required | Not needed |
 
 ## Features
 

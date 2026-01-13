@@ -339,8 +339,7 @@ const nearby = await client.collections('stores').documents().search({
 Orama full-text search (runs entirely in the Worker).
 
 ```typescript
-import { create, insert, insertMultiple, search } from '@dotdo/orama'
-import { persist, restore } from '@dotdo/orama/plugin-data-persistence'
+import { create, insert, search } from '@dotdo/orama'
 
 // Create in-memory index
 const db = await create({

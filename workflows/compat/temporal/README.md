@@ -496,11 +496,14 @@ configure({
 
 ## Performance
 
-- **<5ms** workflow start latency (vs 50-200ms native)
-- **<2ms** signal delivery (vs 10-50ms native)
-- **<1ms** query response (vs 5-20ms native)
-- **Zero cold starts** (Durable Objects)
-- **Global distribution** (300+ Cloudflare locations)
+| Metric | temporal.do | Native Temporal |
+|--------|-------------|-----------------|
+| Workflow start latency | <5ms | 50-200ms |
+| Signal delivery | <2ms | 10-50ms |
+| Query response | <1ms | 5-20ms |
+| Activity dispatch | <3ms | 20-100ms |
+| Sleep precision | +/- 100ms | +/- 1s |
+| Global P99 latency | <50ms | Region-dependent |
 
 ## License
 

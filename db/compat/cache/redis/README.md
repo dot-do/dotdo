@@ -456,15 +456,15 @@ const redis = new Redis({
 
 ## Comparison
 
-| Feature | @dotdo/redis | Traditional Redis |
-|---------|--------------|-------------------|
-| Connection | None needed | TCP (not in Workers) |
-| Durability | Always durable | Optional persistence |
-| Latency | Local DO access | Network round-trip |
-| Scaling | Automatic sharding | Cluster setup |
-| Edge deployment | 300+ cities | Limited |
-| Cold starts | 0ms | N/A |
-| Per-agent isolation | Automatic | Manual |
+| Feature | Traditional Redis | redis.do |
+|---------|------------------|----------|
+| Connection | TCP (not in Workers) | None needed |
+| Durability | Optional persistence | Always durable |
+| Latency | Network round-trip | Local DO access |
+| Scaling | Cluster setup | Automatic sharding |
+| Edge deployment | Limited | 300+ cities |
+| Cold starts | N/A | 0ms |
+| Per-agent isolation | Manual | Automatic |
 
 ## Performance
 
@@ -485,7 +485,7 @@ const redis = new Redis({
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://redis.do)

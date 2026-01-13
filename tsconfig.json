@@ -36,7 +36,6 @@
   },
   "include": [
     "*.ts",
-    "agents/**/*",
     "api/**/*",
     "objects/**/*",
     "types/**/*",

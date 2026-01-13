@@ -1,7 +1,7 @@
 /**
  * Human Approval Workflows via Verb Form State Machine
  *
- * TDD GREEN Phase: All 66 tests pass with full implementation.
+ * TDD RED Phase: These tests should FAIL because the implementation doesn't exist yet.
  *
  * The key insight: verb form IS the state - no separate status column needed.
  *
@@ -29,7 +29,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 
 // ============================================================================
-// IMPORTS - Full implementation exists and all tests pass
+// IMPORTS THAT WILL FAIL - Implementation doesn't exist yet
 // ============================================================================
 
 import {

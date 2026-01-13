@@ -26,20 +26,6 @@ export type {
   RedisKey,
   RedisValue,
   ScanResult,
-  // Stream types
-  StreamEntryId,
-  StreamEntry,
-  StreamReadResult,
-  XAddOptions,
-  XReadOptions,
-  XRangeOptions,
-  XReadGroupOptions,
-  StreamGroupInfo,
-  StreamConsumerInfo,
-  StreamInfo,
-  PendingEntry,
-  XClaimOptions,
-  XAutoClaimResult,
 } from './types'
 
 // Error classes

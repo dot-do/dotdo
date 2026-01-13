@@ -1,5 +1,3 @@
-'use client'
-
 /**
  * TerminalEmbed Component
  *
@@ -23,11 +21,9 @@
  * - xterm.js is browser-only and requires dynamic import
  * - Terminal initialization is deferred to useEffect (client-side only)
  * - CSS is imported dynamically alongside the library
- * - This component must be imported via LazyTerminal for SSR safety
  *
  * @see api/routes/sandboxes.ts - Sandbox terminal WebSocket endpoint
  * @see objects/Sandbox.ts - Sandbox Durable Object
- * @see app/components/LazyTerminal.tsx - SSR-safe wrapper
  */
 
 import { useRef, useState, useEffect, useCallback } from 'react'

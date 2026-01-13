@@ -8,26 +8,6 @@
 import type { DurableObjectState } from './handler'
 
 // ============================================================================
-// DO INSTANCE INTERFACE
-// ============================================================================
-
-/**
- * Base interface for Durable Object instances.
- *
- * Defines the minimum contract that a DO instance must implement to be
- * compatible with transport layer mixins like `withAuth` and capnweb RPC handlers.
- *
- * The `fetch` method is the standard entry point for DO HTTP handling.
- */
-export interface DOInstance {
-  /**
-   * Handle incoming HTTP requests to the Durable Object.
-   * This is the standard Cloudflare Workers DO entry point.
-   */
-  fetch(request: Request): Promise<Response>
-}
-
-// ============================================================================
 // DO CONSTRUCTOR TYPES
 // ============================================================================
 
@@ -39,22 +19,15 @@ export interface DOInstance {
  * - `state`: The DurableObjectState providing access to storage and ID
  * - `env`: Environment bindings configured in wrangler.toml
  *
- * The generic parameter `T` specifies the instance type, defaulting to
- * `DOInstance` which requires a `fetch` method. This enables type-safe
- * mixin patterns without unsafe casts.
- *
- * Used by mixins like `withAuth` and capnweb RPC handlers to ensure type safety
+ * Used by mixins like `withRpcServer` and `withAuth` to ensure type safety
  * when extending DO classes.
  *
  * @example
  * ```typescript
- * // Use in a mixin function - type-safe, no casts needed
+ * // Use in a mixin function
  * function withMyFeature<T extends DOConstructor>(Base: T) {
  *   return class extends Base {
- *     async fetch(request: Request): Promise<Response> {
- *       // Can safely call super.fetch because DOInstance has fetch()
- *       return super.fetch(request)
- *     }
+ *     // Add features...
  *   }
  * }
  *
@@ -64,7 +37,7 @@ export interface DOInstance {
  * }
  * ```
  */
-export type DOConstructor<T extends DOInstance = DOInstance> = new (
+export type DOConstructor = new (
   state: DurableObjectState,
   env: Record<string, unknown>
-) => T
+) => any

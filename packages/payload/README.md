@@ -296,7 +296,7 @@ class ContentAgent extends DO {
 
 MIT
 
-## Related
+## Links
 
 - [Payload CMS](https://payloadcms.com)
 - [Cloudflare D1](https://developers.cloudflare.com/d1/)

@@ -205,7 +205,7 @@ await $.fs.write('deploy/bundle.js', bundle)
 ## Error Handling
 
 ```typescript
-import { FsError } from 'dotdo/fs'
+import { FsError } from 'dotdo/errors'
 
 try {
   await $.fs.read('nonexistent.txt')
@@ -264,15 +264,15 @@ interface FsStat {
 
 ## Comparison to Node.js fs
 
-| Feature | @dotdo/fsx | Node.js fs |
-|---------|------------|-----------|
-| Storage | SQLite + R2 | Local disk |
-| Transactions | Yes | No |
-| Tiered storage | Yes | No |
-| Edge deployment | Yes | No |
-| Watch (cross-DO) | Yes | No |
-| Max file size | 5GB (R2) | Disk limit |
-| Concurrent access | Per-DO isolation | File locks |
+| Feature | Node.js fs | fsx |
+|---------|-----------|-----|
+| Storage | Local disk | SQLite + R2 |
+| Transactions | No | Yes |
+| Tiered storage | No | Yes |
+| Edge deployment | No | Yes |
+| Watch (cross-DO) | No | Yes |
+| Max file size | Disk limit | 5GB (R2) |
+| Concurrent access | File locks | Per-DO isolation |
 
 ## Technical Details
 

@@ -3,135 +3,33 @@ title: Installation
 description: Get dotdo running locally in 2 minutes
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card'
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
-import { Callout } from 'fumadocs-ui/components/callout'
-
 # Installation
 
 Two minutes. That's all you need.
 
-## Prerequisites
-
-Before you begin, make sure you have:
-
-| Requirement | Version | Check Command |
-|-------------|---------|---------------|
-| Node.js | 18.0.0+ | `node --version` |
-| npm/pnpm/yarn/bun | Latest | `npm --version` |
-| Cloudflare account | Free tier works | [Sign up](https://dash.cloudflare.com/sign-up) |
-
-<Callout type="info">
-**Bun users:** dotdo works great with Bun 1.1.0+. The CLI uses Bun internally for faster execution.
-</Callout>
-
 ## Create a New Project
 
-The fastest way to get started is with `npx`:
+The fastest way to get started is with `npx dotdo init`:
 
-<Tabs items={['npm/npx', 'pnpm', 'yarn', 'bun']}>
-  <Tab value="npm/npx">
 ```bash
-npx dotdo@latest init my-startup
+npx dotdo init my-startup
 cd my-startup
 npm install
 ```
-  </Tab>
-  <Tab value="pnpm">
-```bash
-pnpm dlx dotdo@latest init my-startup
-cd my-startup
-pnpm install
-```
-  </Tab>
-  <Tab value="yarn">
-```bash
-yarn dlx dotdo@latest init my-startup
-cd my-startup
-yarn install
-```
-  </Tab>
-  <Tab value="bun">
-```bash
-bunx dotdo@latest init my-startup
-cd my-startup
-bun install
-```
-  </Tab>
-</Tabs>
 
-<Callout type="info">
-**How it works:** `npx dotdo@latest init` downloads and runs the dotdo CLI temporarily. You don't need to install dotdo globally - the CLI is included as a project dependency.
-</Callout>
-
-### Expected Output
-
-When the init command succeeds, you'll see:
-
-```
-Project "my-startup" created successfully!
-
-Next steps:
-  cd my-startup
-  npm install
-  npm run dev
-```
-
-### Initialize in Current Directory
-
-To initialize dotdo in an existing directory:
-
-```bash
-mkdir my-startup && cd my-startup
-npx dotdo@latest init .
-npm install
-```
-
-## What Got Created?
-
-After running `init`, your project contains:
+This creates a complete project structure:
 
 ```
 my-startup/
   src/
-    index.ts        # Your Durable Object class and worker entry point
-  wrangler.jsonc    # Cloudflare Workers configuration
-  package.json      # Project dependencies and scripts
-  tsconfig.json     # TypeScript configuration
+    index.ts        # Your DO class and worker entry point
+  wrangler.jsonc    # Cloudflare configuration
+  package.json
+  tsconfig.json
 ```
 
-Here's what each file does:
-
-| File | Purpose |
-|------|---------|
-| `src/index.ts` | Your main Durable Object class. This is where your business logic lives. Extends `DO` (basic) or `Startup` (with AI agents). |
-| `wrangler.jsonc` | Cloudflare Workers configuration. Defines your DO bindings, SQLite migrations, and deployment settings. |
-| `package.json` | Project metadata and dependencies. Includes `dotdo` as a dependency and scripts for dev/deploy. |
-| `tsconfig.json` | TypeScript settings optimized for Cloudflare Workers (ES2022 target, bundler resolution). |
-
-### The Generated Code
-
-The init command creates a minimal Durable Object:
-
-```typescript title="src/index.ts"
-import { DO } from 'dotdo'
-
-export class MyStartup extends DO {
-  static readonly $type = 'MyStartup'
-}
-
-// Re-export the simple worker as default
-export { default } from 'dotdo/workers/simple'
-```
-
-This gives you:
-- SQLite persistence (automatic)
-- REST API routing (automatic)
-- State management (automatic)
-
-## Add to Existing Project
-
-Already have a project? Add dotdo as a dependency:
+<Callout type="info">
+**Already have a project?** You can add dotdo to an existing project:
 
 <Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
   <Tab value="npm">
@@ -155,11 +53,7 @@ bun add dotdo
 ```
   </Tab>
 </Tabs>
-
-You'll need to manually create:
-1. A `wrangler.jsonc` with DO bindings (see [Project Configuration](#project-configuration))
-2. A Durable Object class extending `DO` or `Startup`
-3. TypeScript config with `@cloudflare/workers-types`
+</Callout>
 
 ## Project Configuration
 
@@ -182,20 +76,11 @@ The init command creates `wrangler.jsonc` with sensible defaults:
 }
 ```
 
-Key settings explained:
-
-| Setting | Value | Why |
-|---------|-------|-----|
-| `compatibility_flags` | `["nodejs_compat"]` | Enables Node.js APIs in Workers |
-| `new_sqlite_classes` | Your DO class | Enables built-in SQLite for persistence |
-
 <Callout type="warn">
 **First time using Wrangler?** Run `npx wrangler login` to authenticate with your Cloudflare account.
 </Callout>
 
 ## Verify Installation
-
-Start the development server:
 
 ```bash
 npm run dev
@@ -204,20 +89,17 @@ npm run dev
 You should see output similar to:
 
 ```
- ⛅️ wrangler 3.99.0
--------------------
-
 Starting local server...
-[wrangler:inf] Ready on http://localhost:8787
+Ready on http://localhost:8787
 ```
 
-Test your API:
+Test your API by making a request:
 
 ```bash
 curl http://localhost:8787
 ```
 
-You should receive a JSON response from your Durable Object.
+You should see a response from your Durable Object.
 
 ## Environment Variables
 
@@ -229,11 +111,11 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 <Callout type="warn">
-**These keys are required for AI agents.** Without at least one API key, the named agents (Priya, Ralph, Tom, etc.) can't call LLMs. See [API Keys](/docs/getting-started/api-keys) for details.
+**These keys are required.** Without at least one API key, the named agents (Priya, Ralph, Tom, etc.) can't call LLMs and your startup won't work. See [API Keys](/docs/getting-started/api-keys) for details on getting and configuring these keys.
 </Callout>
 
 <Callout type="error">
-Never commit `.dev.vars`. Add it to `.gitignore` if not already present.
+Never commit `.dev.vars`. It's already in `.gitignore`, but double-check.
 </Callout>
 
 For production, use Wrangler secrets:
@@ -245,7 +127,7 @@ npx wrangler secret put ANTHROPIC_API_KEY
 
 ## TypeScript Configuration
 
-The init command creates the right `tsconfig.json`:
+The init command creates the right `tsconfig.json`, but here's what matters:
 
 ```json title="tsconfig.json"
 {
@@ -267,9 +149,34 @@ Key settings:
 | `moduleResolution` | bundler | Wrangler bundles your code |
 | `types` | workers-types | Cloudflare globals like `DurableObject` |
 
-## Upgrade to Startup Class
+## Project Structure
 
-The init command creates a basic `DO` class. To build an AI-powered startup with agents, upgrade to the `Startup` class:
+After init, here's what you're working with:
+
+```
+my-startup/
+  src/
+    index.ts        # Your DO class and worker entry point
+  wrangler.jsonc    # Cloudflare deployment config
+  .dev.vars         # Local secrets (gitignored)
+  package.json
+  tsconfig.json
+```
+
+The key file is `src/index.ts`:
+
+```typescript title="src/index.ts"
+import { DO } from 'dotdo'
+
+export class MyStartup extends DO {
+  static readonly $type = 'MyStartup'
+}
+
+// Re-export the simple worker as default
+export { default } from 'dotdo/workers/simple'
+```
+
+This gives you a basic Durable Object. To build a full AI-powered startup, extend it with agents:
 
 ```typescript title="src/index.ts"
 import { Startup } from 'dotdo'
@@ -290,25 +197,21 @@ export class MyStartup extends Startup {
     sally`start selling`
   }
 }
-
-export { default } from 'dotdo/workers/simple'
 ```
-
-<Callout type="info">
-**DO vs Startup:** `DO` is the base Durable Object class providing REST routing, SQLite persistence, and state management. `Startup` extends `DO` with AI agent integration, human escalation, and workflow capabilities. Use `DO` for simple services; use `Startup` when you need AI agents.
-</Callout>
 
 ## Import Aliases
 
-The dotdo ecosystem uses domain-style imports like `agents.do` and `humans.do`. These are **path aliases** configured automatically by `npx dotdo init`.
+The dotdo ecosystem uses domain-style imports like `agents.do` and `humans.do`. These are **path aliases** that need to be configured in your project.
 
 <Callout type="warn">
-**Required for named agents and human escalation.** Without these aliases, you'll get "Cannot find module 'agents.do'" errors.
+**Required for named agents and human escalation.** Without these aliases, you'll get "Cannot find module 'agents.do'" errors when using code from the quickstart guide.
 </Callout>
 
-### Manual Setup (Existing Projects)
+### Automatic Setup
 
-If you added dotdo to an existing project, configure the aliases manually.
+If you used `npx dotdo init`, these are already configured. Skip to the next section.
+
+### Manual Setup
 
 Add path mappings to your `tsconfig.json`:
 
@@ -341,23 +244,11 @@ import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
 import { ceo, legal, cfo, cto, hr, support } from 'humans.do'
 ```
 
-## CLI Commands
-
-Once dotdo is installed, these commands are available:
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start local development server |
-| `npm run deploy` | Deploy to Cloudflare Workers |
-| `npx dotdo init` | Initialize in current directory |
-| `npx wrangler login` | Authenticate with Cloudflare |
-| `npx wrangler secret put KEY` | Set production secrets |
-
 ## Troubleshooting
 
 ### "Cannot find module 'agents.do'" or "Cannot find module 'humans.do'"
 
-These are path aliases, not npm packages. Add the path mappings to your `tsconfig.json` or `package.json` as shown in the [Import Aliases](#import-aliases) section.
+These are path aliases, not npm packages. Add the path mappings to your `tsconfig.json` or `package.json` as shown in the [Import Aliases](#import-aliases) section above.
 
 ### "Cannot find module 'dotdo'"
 
@@ -379,31 +270,8 @@ Another Wrangler instance is running. Kill it or use a different port:
 npm run dev -- --port 8788
 ```
 
-### "Could not find bun"
-
-The dotdo CLI requires Bun. Install it as a dev dependency or globally:
-
-```bash
-npm install -D bun
-# or
-curl -fsSL https://bun.sh/install | bash
-```
-
-## Next Steps
+## Next Step
 
 You're installed. Time to build.
 
-<Cards>
-  <Card title="Quickstart" href="/docs/getting-started/quickstart">
-    Build and deploy your first AI-powered startup in 5 minutes.
-  </Card>
-  <Card title="Core Concepts" href="/docs/concepts">
-    Understand Things, Events, Functions, and Promise Pipelining.
-  </Card>
-  <Card title="Architecture Overview" href="/docs/architecture">
-    Learn how V8 isolates, Durable Objects, and edge computing work together.
-  </Card>
-  <Card title="CLI Reference" href="/docs/cli">
-    Complete command documentation for development, deployment, and more.
-  </Card>
-</Cards>
+[Quickstart: Build your first startup in 5 minutes](/docs/getting-started/quickstart)

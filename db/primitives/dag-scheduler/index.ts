@@ -734,7 +734,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
           return result
         }
 
-        await options?.onTaskStart?.(task)
+        options?.onTaskStart?.(task)
 
         const timeout = task.timeout ?? options?.taskTimeout
         const output = await executeWithTimeout(() => task.execute(context), timeout)
@@ -742,7 +742,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
         result.status = 'success'
         result.output = output
         result.completedAt = new Date()
-        await options?.onTaskComplete?.(task, result)
+        options?.onTaskComplete?.(task, result)
         return result
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
@@ -756,7 +756,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
         result.status = 'failed'
         result.error = err
         result.completedAt = new Date()
-        await options?.onTaskComplete?.(task, result)
+        options?.onTaskComplete?.(task, result)
         return result
       }
     }
@@ -2015,39 +2015,3 @@ export function createDatasetSensorTask(
     dependencies: [],
   })
 }
-
-// ============================================================================
-// OBSERVABILITY - RE-EXPORT
-// ============================================================================
-
-export {
-  // Core observability types
-  type MetricEvent,
-  type MetricsCollector,
-  type TaskMetrics,
-  type DAGMetrics,
-  type PercentileResult,
-  type MetricsSnapshot,
-  type SLAConfig,
-  type SLAViolation,
-  type SLAMonitor,
-  type Observer,
-  type ObserverCallbacks,
-  type Span,
-  type Tracer,
-  type StructuredLogger,
-  type ObservableExecutorOptions,
-  type ObservableExecutor,
-  // Health check types
-  type DAGHealthStatus,
-  type DAGHealthCheckOptions,
-  type HealthEndpointResponse,
-  type HealthEndpointOptions,
-  // Factory functions
-  createMetricsCollector,
-  createSLAMonitor,
-  createObserver,
-  createObservableExecutor,
-  createDAGHealthCheck,
-  createHealthEndpointHandler,
-} from './observability'

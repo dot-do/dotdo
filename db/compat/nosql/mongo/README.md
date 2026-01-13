@@ -316,16 +316,16 @@ const uuid = UUID.generate()
 
 ## Comparison
 
-| Feature | @dotdo/mongo | Native MongoDB |
-|---------|--------------|---------------|
-| Connection pooling | Not needed | Required |
-| Cold starts | 0ms | ~500ms+ |
-| Edge deployment | Global (300+ cities) | Atlas only |
-| Scaling | Automatic | Manual sharding |
-| Per-agent isolation | Built-in | Complex |
+| Feature | Native MongoDB | @dotdo/mongo |
+|---------|---------------|--------------|
+| Connection pooling | Required | Not needed |
+| Cold starts | ~500ms+ | 0ms |
+| Edge deployment | Atlas only | Global (300+ cities) |
+| Scaling | Manual sharding | Automatic |
+| Per-agent isolation | Complex | Built-in |
 | Driver API | Full | Full |
-| Aggregation | Core stages | Full |
-| Transactions | Per-DO | ACID |
+| Aggregation | Full | Core stages |
+| Transactions | ACID | Per-DO |
 
 ## API Reference
 
@@ -505,7 +505,7 @@ try {
 
 MIT
 
-## Related
+## Links
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://mongo.do)

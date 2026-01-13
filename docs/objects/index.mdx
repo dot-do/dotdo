@@ -4,7 +4,6 @@ description: The DO class hierarchy - persistent, stateful actors that form the 
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
-import { Cards, Card } from 'fumadocs-ui/components/card'
 
 # Durable Objects
 
@@ -86,7 +85,7 @@ class CustomerService extends DO {
     })
 
     // Schedule recurring tasks
-    this.$.every.day.at9am(async () => {
+    this.$.every.day.at('9am')(async () => {
       await this.$.do('generate-daily-report', {})
     })
   }
@@ -104,7 +103,7 @@ Every DO has a `$` property (WorkflowContext) that provides:
 
 - **Execution modes**: `$.send()`, `$.try()`, `$.do()`
 - **Event subscriptions**: `$.on.Noun.verb(handler)`
-- **Scheduling**: `$.every.hour()`, `$.every.Monday.at9am`
+- **Scheduling**: `$.every.hour()`, `$.every.monday.at('9am')`
 - **AI functions**: `$.ai()`, `$.write()`, `$.summarize()`
 - **Domain resolution**: `$.Customer('123').notify()`
 
@@ -151,40 +150,7 @@ customer.getTypeHierarchy()        // ['Customer', 'Entity', 'DO']
 
 ## Next Steps
 
-<Cards>
-  <Card title="DO Base Class" href="/docs/objects/do">
-    Deep dive into the core DO functionality - identity, storage, and WorkflowContext.
-  </Card>
-  <Card title="Worker Class" href="/docs/objects/worker">
-    Building AI and Human workers with tasks, decisions, and approvals.
-  </Card>
-  <Card title="Agent Class" href="/docs/objects/agent">
-    AI workers with tools, memory, and autonomous execution.
-  </Card>
-  <Card title="Entity Class" href="/docs/objects/entity">
-    Domain modeling with schemas, CRUD, and indexed queries.
-  </Card>
-  <Card title="Lifecycle" href="/docs/objects/lifecycle">
-    DO lifecycle management - creation, persistence, and destruction.
-  </Card>
-  <Card title="Transport" href="/docs/objects/transport">
-    DO transport layer - REST, RPC, and WebSocket protocols.
-  </Card>
-</Cards>
-
-## Related
-
-<Cards>
-  <Card title="Workflows" href="/docs/workflows">
-    Durable workflow orchestration with the $ context DSL.
-  </Card>
-  <Card title="Architecture" href="/docs/architecture">
-    Technical deep dive into V8 isolates and DO internals.
-  </Card>
-  <Card title="Human Workers" href="/docs/humans">
-    Human-in-the-loop escalation and approval workflows.
-  </Card>
-  <Card title="Storage" href="/docs/storage">
-    Tiered storage architecture from DO SQLite to R2 and Iceberg.
-  </Card>
-</Cards>
+- [DO Base Class](/docs/objects/do) - Deep dive into the core DO functionality
+- [Worker Classes](/docs/objects/worker) - Building AI and Human workers
+- [Entity Class](/docs/objects/entity) - Domain modeling with schemas
+- [Startup Class](/docs/objects/startup) - Creating autonomous businesses

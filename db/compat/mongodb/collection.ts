@@ -48,20 +48,10 @@ import {
 // ============================================================================
 
 /**
- * Document with metadata scores attached (for text/vector search)
- */
-interface ScoredDocument<T extends Document> {
-  doc: WithId<T>
-  textScore?: number
-  vectorScore?: number
-}
-
-/**
  * Cursor implementation for find operations
  */
 class FindCursorImpl<T extends Document = Document> implements FindCursor<T> {
   private documents: WithId<T>[]
-  private scoredDocuments: ScoredDocument<T>[] | null = null
   private position = 0
   private _closed = false
   private _filter: Filter<T>
@@ -70,13 +60,10 @@ class FindCursorImpl<T extends Document = Document> implements FindCursor<T> {
   private _limit: number | null = null
   private _projection: Projection<T> | null = null
   private _transform: ((doc: WithId<T>) => unknown) | null = null
-  private _preFiltered = false
 
-  constructor(documents: WithId<T>[], filter: Filter<T>, options?: { preFiltered?: boolean; scoredDocuments?: ScoredDocument<T>[] }) {
+  constructor(documents: WithId<T>[], filter: Filter<T>) {
     this.documents = documents
     this._filter = filter
-    this._preFiltered = options?.preFiltered ?? false
-    this.scoredDocuments = options?.scoredDocuments ?? null
   }
 
   get closed(): boolean {
@@ -160,42 +147,26 @@ class FindCursorImpl<T extends Document = Document> implements FindCursor<T> {
   }
 
   private getResults(): WithId<T>[] {
-    // If pre-filtered (e.g., $text or $vector search), use scored documents
-    let scoredResults: ScoredDocument<T>[]
+    let results = this.documents.filter((doc) => evaluateFilterDirect(this._filter, doc))
 
-    if (this._preFiltered && this.scoredDocuments) {
-      scoredResults = this.scoredDocuments
-    } else if (this._preFiltered) {
-      // Pre-filtered but no scores
-      scoredResults = this.documents.map((doc) => ({ doc }))
-    } else {
-      // Apply filter normally
-      scoredResults = this.documents
-        .filter((doc) => evaluateFilterDirect(this._filter, doc))
-        .map((doc) => ({ doc }))
-    }
-
-    // Apply sort (check for $meta sort)
+    // Apply sort
     if (this._sort) {
-      scoredResults = this.applySortingWithScores(scoredResults, this._sort)
+      results = this.applySorting(results, this._sort)
     }
 
     // Apply skip
     if (this._skip !== null && this._skip > 0) {
-      scoredResults = scoredResults.slice(this._skip)
+      results = results.slice(this._skip)
     }
 
     // Apply limit
     if (this._limit !== null && this._limit > 0) {
-      scoredResults = scoredResults.slice(0, this._limit)
+      results = results.slice(0, this._limit)
     }
 
-    // Apply projection (with $meta support)
-    let results: WithId<T>[]
+    // Apply projection
     if (this._projection) {
-      results = this.applyProjectionWithMeta(scoredResults, this._projection)
-    } else {
-      results = scoredResults.map((s) => s.doc)
+      results = this.applyProjection(results, this._projection)
     }
 
     // Apply transform
@@ -204,120 +175,6 @@ class FindCursorImpl<T extends Document = Document> implements FindCursor<T> {
     }
 
     return results
-  }
-
-  private applySortingWithScores(documents: ScoredDocument<T>[], sort: Sort<T>): ScoredDocument<T>[] {
-    let sortSpec: Array<[string, SortDirection | { $meta: string }]>
-
-    if (typeof sort === 'string') {
-      sortSpec = [[sort, 1]]
-    } else if (Array.isArray(sort)) {
-      sortSpec = sort as Array<[string, SortDirection | { $meta: string }]>
-    } else {
-      sortSpec = Object.entries(sort) as Array<[string, SortDirection | { $meta: string }]>
-    }
-
-    return [...documents].sort((a, b) => {
-      for (const [field, direction] of sortSpec) {
-        // Check for $meta sort
-        if (typeof direction === 'object' && direction !== null && '$meta' in direction) {
-          const metaType = direction.$meta
-          let aScore: number, bScore: number
-
-          if (metaType === 'textScore') {
-            aScore = a.textScore ?? 0
-            bScore = b.textScore ?? 0
-          } else if (metaType === 'vectorSearchScore') {
-            aScore = a.vectorScore ?? 0
-            bScore = b.vectorScore ?? 0
-          } else {
-            continue
-          }
-
-          // Scores should be sorted descending by default
-          const cmp = bScore - aScore
-          if (cmp !== 0) return cmp
-          continue
-        }
-
-        const dir = this.normalizeDirection(direction as SortDirection)
-        const aValue = this.getFieldValue(a.doc, field)
-        const bValue = this.getFieldValue(b.doc, field)
-        const cmp = this.compareValues(aValue, bValue)
-
-        if (cmp !== 0) {
-          return cmp * dir
-        }
-      }
-      return 0
-    })
-  }
-
-  private applyProjectionWithMeta(scoredDocuments: ScoredDocument<T>[], projection: Projection<T>): WithId<T>[] {
-    const hasInclusions = Object.entries(projection).some(([key, value]) => {
-      if (key === '_id') return false
-      return value === 1 || value === true || (typeof value === 'object' && value !== null && '$meta' in value)
-    })
-    const excludeId = projection._id === 0 || projection._id === false
-
-    return scoredDocuments.map(({ doc, textScore, vectorScore }) => {
-      const result: Document = {}
-
-      if (hasInclusions) {
-        // Include mode
-        if (!excludeId && '_id' in doc) {
-          result._id = doc._id
-        }
-
-        for (const [key, value] of Object.entries(projection)) {
-          if (key === '_id') continue
-
-          // Handle $meta projection
-          if (typeof value === 'object' && value !== null && '$meta' in value) {
-            const metaType = (value as { $meta: string }).$meta
-            if (metaType === 'textScore') {
-              result[key] = textScore ?? 0
-            } else if (metaType === 'vectorSearchScore') {
-              result[key] = vectorScore ?? 0
-            }
-            continue
-          }
-
-          // Handle $elemMatch projection
-          if (typeof value === 'object' && value !== null && '$elemMatch' in value) {
-            const elemMatchCondition = (value as { $elemMatch: Record<string, unknown> }).$elemMatch
-            const fieldValue = doc[key as keyof typeof doc]
-            if (Array.isArray(fieldValue)) {
-              const matchingElement = fieldValue.find((item) => {
-                if (typeof item !== 'object' || item === null) return false
-                return evaluateFilterDirect(elemMatchCondition as Filter<Document>, item as WithId<Document>)
-              })
-              if (matchingElement !== undefined) {
-                result[key] = [matchingElement]
-              }
-            }
-            continue
-          }
-
-          if (value === 1 || value === true) {
-            if (key in doc) {
-              result[key] = doc[key]
-            }
-          }
-        }
-      } else {
-        // Exclude mode
-        for (const [key, value] of Object.entries(doc)) {
-          if (key === '_id' && excludeId) continue
-          if (key in projection && (projection[key as keyof typeof projection] === 0 || projection[key as keyof typeof projection] === false)) {
-            continue
-          }
-          result[key] = value
-        }
-      }
-
-      return result as WithId<T>
-    })
   }
 
   private applySorting(documents: WithId<T>[], sort: Sort<T>): WithId<T>[] {
@@ -592,162 +449,6 @@ export class Collection<T extends Document = Document> implements ICollection<T>
 
   find(filter: Filter<T> = {}, options?: FindOptions<T>): FindCursor<T> {
     const allDocs = Array.from(this.documents.values())
-
-    // Check for special operators that require index-based search
-    const filterObj = filter as Record<string, unknown>
-
-    // Handle $text operator (full-text search)
-    if ('$text' in filterObj) {
-      const textFilter = filterObj.$text as { $search: string; $language?: string; $caseSensitive?: boolean; $diacriticSensitive?: boolean }
-      const searchQuery = this.parseTextSearch(textFilter.$search, {
-        caseSensitive: textFilter.$caseSensitive,
-        diacriticSensitive: textFilter.$diacriticSensitive,
-      })
-
-      // Build search terms - include words from phrases when no positive terms
-      let searchTerms = searchQuery.positiveTerms
-      if (searchTerms.length === 0 && searchQuery.phrases.length > 0) {
-        // Extract words from phrases for index search
-        searchTerms = searchQuery.phrases.flatMap((phrase) => phrase.split(/\s+/))
-      }
-
-      // Use text index to search
-      const searchResults = this.indexManager.textSearch(searchTerms.join(' '))
-
-      // Create document map for quick lookup
-      const docMap = new Map<string, WithId<T>>()
-      for (const doc of allDocs) {
-        docMap.set(doc._id.toHexString(), doc)
-      }
-
-      // Filter results based on text search
-      const scoredDocs: Array<{ doc: WithId<T>; textScore: number }> = []
-      for (const result of searchResults) {
-        const doc = docMap.get(result.docId)
-        if (!doc) continue
-
-        // Apply negative term filtering
-        if (searchQuery.negativeTerms.length > 0) {
-          // Get text field value from the document
-          let hasNegativeTerm = false
-          for (const negTerm of searchQuery.negativeTerms) {
-            // Check all string fields for negative terms
-            const textContent = this.extractTextContent(doc).toLowerCase()
-            if (textContent.includes(negTerm.toLowerCase())) {
-              hasNegativeTerm = true
-              break
-            }
-          }
-          if (hasNegativeTerm) continue
-        }
-
-        // Apply phrase filtering
-        if (searchQuery.phrases.length > 0) {
-          const textContent = this.extractTextContent(doc).toLowerCase()
-          const hasAllPhrases = searchQuery.phrases.every((phrase) => textContent.includes(phrase.toLowerCase()))
-          if (!hasAllPhrases) continue
-        }
-
-        // Apply remaining filter conditions (excluding $text)
-        const remainingFilter = { ...filter }
-        delete (remainingFilter as Record<string, unknown>).$text
-        if (Object.keys(remainingFilter).length > 0) {
-          if (!evaluateFilterDirect(remainingFilter, doc)) continue
-        }
-
-        scoredDocs.push({ doc, textScore: result.score })
-      }
-
-      const cursor = new FindCursorImpl<T>(
-        scoredDocs.map((s) => s.doc),
-        {},
-        { preFiltered: true, scoredDocuments: scoredDocs }
-      )
-
-      if (options?.sort) {
-        cursor.sort(options.sort)
-      }
-      if (options?.skip !== undefined) {
-        cursor.skip(options.skip)
-      }
-      if (options?.limit !== undefined) {
-        cursor.limit(options.limit)
-      }
-      if (options?.projection) {
-        cursor.project(options.projection)
-      }
-
-      return cursor
-    }
-
-    // Handle $vector operator (vector similarity search)
-    if ('$vector' in filterObj) {
-      const vectorFilter = filterObj.$vector as {
-        $near: number[]
-        $k?: number
-        $minScore?: number
-        $maxDistance?: number
-        $path?: string
-      }
-      const queryVector = vectorFilter.$near
-      const k = vectorFilter.$k ?? 10
-      const minScore = vectorFilter.$minScore
-      const maxDistance = vectorFilter.$maxDistance
-      const vectorPath = vectorFilter.$path ?? 'embedding'
-
-      // Calculate cosine similarity for all documents with embeddings
-      const scoredDocs: Array<{ doc: WithId<T>; vectorScore: number; distance: number }> = []
-
-      for (const doc of allDocs) {
-        const docVector = this.getFieldValue(doc, vectorPath) as number[] | undefined
-        if (!docVector || !Array.isArray(docVector)) continue
-
-        const similarity = this.cosineSimilarity(queryVector, docVector)
-        const distance = 1 - similarity
-
-        // Apply minScore filter
-        if (minScore !== undefined && similarity < minScore) continue
-
-        // Apply maxDistance filter
-        if (maxDistance !== undefined && distance > maxDistance) continue
-
-        // Apply remaining filter conditions (excluding $vector)
-        const remainingFilter = { ...filter }
-        delete (remainingFilter as Record<string, unknown>).$vector
-        if (Object.keys(remainingFilter).length > 0) {
-          if (!evaluateFilterDirect(remainingFilter, doc)) continue
-        }
-
-        scoredDocs.push({ doc, vectorScore: similarity, distance })
-      }
-
-      // Sort by similarity (descending) and take top K
-      scoredDocs.sort((a, b) => b.vectorScore - a.vectorScore)
-      const topK = scoredDocs.slice(0, k)
-
-      const cursor = new FindCursorImpl<T>(
-        topK.map((s) => s.doc),
-        {},
-        { preFiltered: true, scoredDocuments: topK.map((s) => ({ doc: s.doc, vectorScore: s.vectorScore })) }
-      )
-
-      if (options?.sort) {
-        cursor.sort(options.sort)
-      }
-      if (options?.skip !== undefined) {
-        cursor.skip(options.skip)
-      }
-      if (options?.limit !== undefined) {
-        cursor.limit(options.limit)
-      }
-      if (options?.projection) {
-        cursor.project(options.projection)
-      }
-
-      return cursor
-    }
-
-    // Standard find operation
     const cursor = new FindCursorImpl<T>(allDocs, filter)
 
     if (options?.sort) {
@@ -764,85 +465,6 @@ export class Collection<T extends Document = Document> implements ICollection<T>
     }
 
     return cursor
-  }
-
-  /**
-   * Parse text search query to extract positive terms, negative terms, and phrases
-   */
-  private parseTextSearch(
-    query: string,
-    options?: { caseSensitive?: boolean; diacriticSensitive?: boolean }
-  ): { positiveTerms: string[]; negativeTerms: string[]; phrases: string[] } {
-    const positiveTerms: string[] = []
-    const negativeTerms: string[] = []
-    const phrases: string[] = []
-
-    // Extract quoted phrases
-    const phraseRegex = /"([^"]+)"/g
-    let match
-    let remainingQuery = query
-
-    while ((match = phraseRegex.exec(query)) !== null) {
-      phrases.push(match[1]!)
-      remainingQuery = remainingQuery.replace(match[0], '')
-    }
-
-    // Split remaining query into terms
-    const terms = remainingQuery.trim().split(/\s+/).filter((t) => t.length > 0)
-
-    for (const term of terms) {
-      if (term.startsWith('-')) {
-        negativeTerms.push(term.slice(1))
-      } else {
-        positiveTerms.push(term)
-      }
-    }
-
-    return { positiveTerms, negativeTerms, phrases }
-  }
-
-  /**
-   * Extract all text content from a document for phrase matching
-   */
-  private extractTextContent(doc: WithId<T>): string {
-    const textParts: string[] = []
-
-    const extractFromValue = (value: unknown): void => {
-      if (typeof value === 'string') {
-        textParts.push(value)
-      } else if (Array.isArray(value)) {
-        for (const item of value) {
-          extractFromValue(item)
-        }
-      } else if (value && typeof value === 'object') {
-        for (const v of Object.values(value)) {
-          extractFromValue(v)
-        }
-      }
-    }
-
-    extractFromValue(doc)
-    return textParts.join(' ')
-  }
-
-  /**
-   * Calculate cosine similarity between two vectors
-   */
-  private cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) return 0
-
-    let dotProduct = 0
-    let normA = 0
-    let normB = 0
-
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i]! * b[i]!
-      normA += a[i]! * a[i]!
-      normB += b[i]! * b[i]!
-    }
-
-    if (normA === 0 || normB === 0) return 0
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))
   }
 
   // ============================================================================

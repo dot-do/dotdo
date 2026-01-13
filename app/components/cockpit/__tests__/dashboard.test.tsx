@@ -329,17 +329,16 @@ describe('AgentStatus', () => {
 
     expect(screen.getByText('Priya')).toBeInTheDocument()
     expect(screen.getByText('Product')).toBeInTheDocument()
-    // Use getAllByText since multiple agents can have 'working' status
-    expect(screen.getAllByText('working').length).toBeGreaterThan(0)
+    expect(screen.getByText('working')).toBeInTheDocument()
   })
 
   it('applies correct status indicator', () => {
     render(<AgentStatus agents={mockAgents} />)
 
-    const items = screen.getAllByTestId('agent-status-item')
-    expect(items[0]).toHaveAttribute('data-status', 'working')
-    expect(items[1]).toHaveAttribute('data-status', 'idle')
-    expect(items[2]).toHaveAttribute('data-status', 'error')
+    const priyaItem = screen.getByTestId('agent-status-item')
+    expect(screen.getAllByTestId('agent-status-item')[0]).toHaveAttribute('data-status', 'working')
+    expect(screen.getAllByTestId('agent-status-item')[1]).toHaveAttribute('data-status', 'idle')
+    expect(screen.getAllByTestId('agent-status-item')[2]).toHaveAttribute('data-status', 'error')
   })
 
   it('renders avatar with first letter of name', () => {

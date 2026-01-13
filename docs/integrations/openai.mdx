@@ -22,11 +22,11 @@ const completion = await client.chat.completions.create({
 })
 ```
 
-## Why @dotdo/openai?
+## Why openai.do?
 
 | OpenAI SDK | openai.do |
 |------------|-----------|
-| Node.js only | Edge-compatible (Cloudflare Workers, Deno, Bun) |
+| Node.js only | Edge-compatible (Workers, Deno, Bun) |
 | No built-in retries | Automatic retries with exponential backoff |
 | Manual error handling | Typed errors with request IDs |
 
@@ -113,52 +113,6 @@ for await (const chunk of stream) {
   if (content) {
     process.stdout.write(content)
   }
-}
-```
-
-#### Streaming with Error Handling
-
-For production use, add proper error handling and timeout support:
-
-```typescript
-import OpenAI, { OpenAIError } from '@dotdo/openai'
-
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-// Create AbortController for timeout
-const controller = new AbortController()
-const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout
-
-try {
-  const stream = await client.chat.completions.create({
-    model: 'gpt-4',
-    messages: [{ role: 'user', content: 'Tell me a story' }],
-    stream: true,
-  }, {
-    signal: controller.signal,
-  })
-
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content
-    if (content) {
-      process.stdout.write(content)
-    }
-  }
-} catch (error) {
-  if (error instanceof Error && error.name === 'AbortError') {
-    console.error('Stream timed out or was cancelled')
-  } else if (error instanceof OpenAIError) {
-    console.error(`OpenAI error [${error.status}]: ${error.message}`)
-    // Handle specific errors (rate limit, auth, etc.)
-    if (error.status === 429) {
-      console.error('Rate limited - implement backoff')
-    }
-  } else {
-    console.error('Stream error:', error)
-  }
-  throw error
-} finally {
-  clearTimeout(timeoutId)
 }
 ```
 
@@ -352,17 +306,9 @@ console.log(stats)
 // {
 //   totalRequests: 100,
 //   totalTokens: 50000,
-//   totalInputTokens: 35000,
-//   totalOutputTokens: 15000,
-//   totalCostUsd: 1.58,
-//   averageLatencyMs: 445,
-//   successRate: 1,
 //   byProvider: {
 //     openai: { requests: 95, tokens: 47500, costUsd: 1.50, errors: 2, averageLatencyMs: 450 },
 //     anthropic: { requests: 5, tokens: 2500, costUsd: 0.08, errors: 0, averageLatencyMs: 380 }
-//   },
-//   byModel: {
-//     'gpt-4': { requests: 80, inputTokens: 28000, outputTokens: 12000, costUsd: 1.35, averageLatencyMs: 480 }
 //   }
 // }
 ```
@@ -437,19 +383,7 @@ Note: The `.stream` method currently simulates streaming by chunking the full re
 
 ## Assistants API
 
-The `AssistantsClient` provides an OpenAI Assistants-compatible API with an in-memory storage backend. You can import it as a class or use the factory function:
-
-```typescript
-// Class import
-import { AssistantsClient } from '@dotdo/openai'
-const client = new AssistantsClient({ apiKey: process.env.OPENAI_API_KEY })
-
-// Factory function (equivalent)
-import { createAssistantsClient } from '@dotdo/openai'
-const client = createAssistantsClient({ apiKey: process.env.OPENAI_API_KEY })
-```
-
-The client exposes four resource namespaces: `assistants`, `threads`, `messages`, and `runs`:
+The `AssistantsClient` provides an OpenAI Assistants-compatible API with an in-memory storage backend:
 
 ```typescript
 import { AssistantsClient } from '@dotdo/openai'
@@ -458,7 +392,7 @@ const client = new AssistantsClient({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-// Create an assistant via client.assistants
+// Create an assistant
 const assistant = await client.assistants.create({
   name: 'Math Tutor',
   instructions: 'You are a helpful math tutor.',
@@ -466,16 +400,16 @@ const assistant = await client.assistants.create({
   tools: [{ type: 'function', function: { name: 'calculate', parameters: {} } }],
 })
 
-// Create a thread via client.threads
+// Create a thread
 const thread = await client.threads.create()
 
-// Add a message via client.messages
+// Add a message
 await client.messages.create(thread.id, {
   role: 'user',
   content: 'Solve x^2 + 2x + 1 = 0',
 })
 
-// Create and poll for completion via client.runs
+// Create and poll for completion (convenience method)
 const run = await client.runs.createAndPoll(thread.id, {
   assistant_id: assistant.id,
 })
@@ -548,13 +482,7 @@ import type {
 } from '@dotdo/openai'
 
 // Client classes and errors
-import {
-  OpenAI,
-  OpenAIError,
-  AssistantsClient,
-  createAssistantsClient,  // Factory function
-  AssistantsAPIError,      // Assistants-specific error class
-} from '@dotdo/openai'
+import { OpenAI, OpenAIError, AssistantsClient } from '@dotdo/openai'
 
 // Multi-provider routing
 import { createOpenAIWithRuntime } from '@dotdo/openai'
@@ -584,25 +512,6 @@ try {
     } else if (error.status === 401) {
       console.error('Invalid API key')
     }
-  }
-}
-```
-
-### Assistants API Errors
-
-The Assistants API throws `AssistantsAPIError` for assistants-specific errors:
-
-```typescript
-import { AssistantsClient, AssistantsAPIError } from '@dotdo/openai'
-
-try {
-  const assistant = await client.assistants.retrieve('invalid-id')
-} catch (error) {
-  if (error instanceof AssistantsAPIError) {
-    console.error('Status:', error.status)   // 404
-    console.error('Code:', error.code)       // 'not_found'
-    console.error('Type:', error.type)       // 'invalid_request_error'
-    console.error('Message:', error.message)
   }
 }
 ```

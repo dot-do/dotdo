@@ -13,9 +13,6 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
 
-    // Add .js extensions to relative imports for Node.js compatibility
-    "rewriteRelativeImportExtensions": true,
-
     // Remove most path aliases for published package, keep stubs for missing deps
     "paths": {
       "fsx.do": ["./types/stubs/fsx.do.d.ts"],
@@ -31,10 +28,7 @@
     "stripInternal": true,
 
     // Skip checking declarations from dependencies
-    "skipLibCheck": true,
-
-    // Emit output even with type errors (the package has many pre-existing errors)
-    "noEmitOnError": false
+    "skipLibCheck": true
   },
   "include": [
     // All DO entry points
@@ -48,9 +42,7 @@
     "lib/**/*.ts",
     // Workflows (core only, not compat)
     "workflows/**/*.ts",
-    "metrics/**/*.ts",
-    // Streams (Cloudflare Pipelines SQL definitions)
-    "streams/**/*.ts"
+    "metrics/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -90,27 +82,13 @@
     "lib/executors/**/*",
     "lib/human/**/*",
     "lib/iterators/**/*",
-    "lib/storage/chunked-upload.ts",
-    "lib/support/escalation.ts",
-    // Objects with type errors that are not imported by critical paths
+    // Objects with type errors (will be fixed in separate PRs)
     "objects/StatelessDOState.ts",
     "objects/CollectionDO.ts",
     "objects/mixins/npm.ts",
     // Agents - has graph dependencies and type errors
     "agents/**/*",
     // Workflow error escalation
-    "workflows/errors/**/*",
-    // Workflow graph - has many type conversion issues
-    "workflows/graph/**/*",
-    // Workflow core - has type errors
-    "workflows/core/**/*",
-    // Workflow context shard - has type errors
-    "workflows/context/shard.ts",
-    // Object transport - has type errors
-    "objects/transport/**/*",
-    // Types with stub dependencies
-    "types/stubs/**/*",
-    // Store types with complex DB dependencies
-    "types/stores.ts"
+    "workflows/errors/**/*"
   ]
 }

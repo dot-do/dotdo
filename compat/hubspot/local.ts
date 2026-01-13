@@ -299,11 +299,6 @@ class LocalObjectApi<T extends CrmObject> {
         hs_object_id: id,
       }
 
-      // Add default pipeline for deals
-      if (this.objectType === 'deals' && !input.properties.pipeline) {
-        defaultProperties.pipeline = 'default'
-      }
-
       const obj: CrmObject = {
         id,
         properties: { ...defaultProperties, ...input.properties },
@@ -313,14 +308,6 @@ class LocalObjectApi<T extends CrmObject> {
       }
 
       await this.storage.put(`${this.PREFIX}${id}`, obj)
-
-      // Initialize property history
-      const historyKey = `${this.PREFIX}${id}:history`
-      const initialHistory: Record<string, Array<{ value: string | null; timestamp: string }>> = {}
-      for (const [propName, propValue] of Object.entries(obj.properties)) {
-        initialHistory[propName] = [{ value: propValue, timestamp }]
-      }
-      await this.storage.put(historyKey, initialHistory)
 
       // Handle associations
       if (input.associations) {
@@ -335,65 +322,16 @@ class LocalObjectApi<T extends CrmObject> {
       return obj as T
     },
 
-    getById: async (id: string, options?: string[] | {
-      properties?: string[]
-      associations?: string[]
-      propertiesWithHistory?: string[]
-    }): Promise<T & {
-      associations?: Record<string, unknown>
-      propertiesWithHistory?: Record<string, Array<{ value: string | null; timestamp: string }>>
-    }> => {
+    getById: async (id: string, properties?: string[]): Promise<T> => {
       const obj = await this.storage.get<T>(`${this.PREFIX}${id}`)
       if (!obj || obj.archived) {
         throw new Error(`${this.objectType} not found: ${id}`)
       }
-
-      // If options is just a string array (legacy), return the object as-is
-      if (Array.isArray(options) || !options) {
-        return obj
-      }
-
-      const result: T & {
-        associations?: Record<string, Array<{ toObjectId: string | number }>>
-        propertiesWithHistory?: Record<string, Array<{ value: string | null; timestamp: string }>>
-      } = { ...obj }
-
-      // Fetch associations if requested
-      if (options.associations && options.associations.length > 0) {
-        result.associations = {}
-        for (const assocType of options.associations) {
-          const prefix = `assoc:${this.objectType}:${id}:${assocType}:`
-          const map = await this.storage.list({ prefix })
-          const assocResults: Array<{ toObjectId: string | number }> = []
-          for (const value of map.values()) {
-            const assoc = value as any
-            assocResults.push({ toObjectId: assoc.to.id })
-          }
-          if (assocResults.length > 0) {
-            result.associations[assocType] = assocResults
-          }
-        }
-      }
-
-      // Fetch property history if requested
-      if (options.propertiesWithHistory && options.propertiesWithHistory.length > 0) {
-        const historyKey = `${this.PREFIX}${id}:history`
-        const history = await this.storage.get<Record<string, Array<{ value: string | null; timestamp: string }>>>(historyKey)
-        if (history) {
-          result.propertiesWithHistory = {}
-          for (const propName of options.propertiesWithHistory) {
-            if (history[propName]) {
-              result.propertiesWithHistory[propName] = history[propName]
-            }
-          }
-        }
-      }
-
-      return result
+      return obj
     },
 
     update: async (id: string, input: UpdateObjectInput): Promise<T> => {
-      const obj = await this.basicApi.getById(id) as T
+      const obj = await this.basicApi.getById(id)
       const timestamp = now()
 
       const updated: T = {
@@ -407,17 +345,6 @@ class LocalObjectApi<T extends CrmObject> {
       }
 
       await this.storage.put(`${this.PREFIX}${id}`, updated)
-
-      // Update property history
-      const historyKey = `${this.PREFIX}${id}:history`
-      const history = await this.storage.get<Record<string, Array<{ value: string | null; timestamp: string }>>>(historyKey) ?? {}
-      for (const [propName, propValue] of Object.entries(input.properties)) {
-        if (!history[propName]) {
-          history[propName] = []
-        }
-        history[propName].push({ value: propValue, timestamp })
-      }
-      await this.storage.put(historyKey, history)
 
       // Trigger webhook for each changed property
       for (const propName of Object.keys(input.properties)) {
@@ -511,15 +438,7 @@ class LocalObjectApi<T extends CrmObject> {
         filtered.sort((a, b) => {
           const aVal = a.properties[sort.propertyName] ?? ''
           const bVal = b.properties[sort.propertyName] ?? ''
-          // Try numeric comparison first, fall back to string comparison
-          const aNum = Number(aVal)
-          const bNum = Number(bVal)
-          let cmp: number
-          if (!isNaN(aNum) && !isNaN(bNum)) {
-            cmp = aNum - bNum
-          } else {
-            cmp = String(aVal).localeCompare(String(bVal))
-          }
+          const cmp = String(aVal).localeCompare(String(bVal))
           return sort.direction === 'DESCENDING' ? -cmp : cmp
         })
       }
@@ -619,42 +538,13 @@ class LocalObjectApi<T extends CrmObject> {
     },
   }
 
-  // Extended basicApi methods for deals
-  extendedBasicApi = {
-    getStageHistory: async (id: string): Promise<Array<{
-      stageId: string
-      enteredAt: string
-      exitedAt?: string
-      durationMs?: number
-    }>> => {
-      const historyKey = `${this.PREFIX}${id}:stage_history`
-      const history = await this.storage.get<Array<{
-        stageId: string
-        enteredAt: string
-        exitedAt?: string
-        durationMs?: number
-      }>>(historyKey)
-      return history ?? []
-    },
-  }
-
   // Helper methods
   protected async getAllObjects(): Promise<T[]> {
     const map = await this.storage.list({ prefix: this.PREFIX })
-    const objects: T[] = []
-    for (const [key, value] of map.entries()) {
-      // Filter out history entries and other non-object entries
-      if (key.includes(':history')) continue
-      const obj = value as any
-      // Verify it's a CRM object (has properties)
-      if (obj && obj.properties && obj.id) {
-        objects.push(obj as T)
-      }
-    }
-    return objects
+    return Array.from(map.values()) as T[]
   }
 
-  protected matchesFilter(obj: CrmObject, filter: SearchFilter): boolean {
+  private matchesFilter(obj: CrmObject, filter: SearchFilter): boolean {
     const value = obj.properties[filter.propertyName]
 
     switch (filter.operator) {
@@ -722,652 +612,6 @@ class LocalObjectApi<T extends CrmObject> {
         propertyValue,
       })
     }
-  }
-}
-
-// =============================================================================
-// Local Deals Object API (extends LocalObjectApi with deal-specific features)
-// =============================================================================
-
-class LocalDealsObjectApi extends LocalObjectApi<CrmObject> {
-  private pipelinesApi: LocalPipelinesApi
-
-  constructor(
-    storage: InMemoryStorage,
-    onObjectChange?: (event: TriggerEventInput) => Promise<void>,
-    pipelinesApi?: LocalPipelinesApi
-  ) {
-    super(storage, 'deals', onObjectChange)
-    // Will be set after pipelines are initialized
-    this.pipelinesApi = pipelinesApi!
-  }
-
-  setPipelinesApi(pipelinesApi: LocalPipelinesApi): void {
-    this.pipelinesApi = pipelinesApi
-  }
-
-  // Override basicApi to add deal-specific methods
-  override basicApi = {
-    ...super.basicApi,
-
-    create: async (input: CreateObjectInput): Promise<CrmObject> => {
-      // Validate stage exists in pipeline
-      const pipelineId = input.properties.pipeline || 'default'
-      const stageId = input.properties.dealstage
-
-      if (stageId && this.pipelinesApi) {
-        try {
-          await this.pipelinesApi.pipelineStagesApi.getById('deals', pipelineId, stageId)
-        } catch {
-          throw new Error(`Invalid stage "${stageId}" for pipeline "${pipelineId}"`)
-        }
-      }
-
-      // Call parent create
-      const id = generateId()
-      const timestamp = now()
-
-      const defaultProperties: Record<string, string | null> = {
-        createdate: timestamp,
-        lastmodifieddate: timestamp,
-        hs_object_id: id,
-        pipeline: pipelineId,
-      }
-
-      // Check for rotation config and assign owner if not already set
-      let assignedOwner: string | null = null
-      if (!input.properties.hubspot_owner_id && stageId) {
-        const rotationKey = `rotation:deals:${pipelineId}`
-        const rotationConfig = await this.storage.get<{
-          enabled: boolean
-          method: 'round_robin' | 'weighted'
-          ownerIds?: string[]
-          weights?: Record<string, number>
-          triggerStage: string
-        }>(rotationKey)
-
-        if (rotationConfig?.enabled && rotationConfig.triggerStage === stageId) {
-          if (rotationConfig.method === 'round_robin' && rotationConfig.ownerIds && rotationConfig.ownerIds.length > 0) {
-            // Get current rotation index
-            const rotationIndexKey = `rotation_index:deals:${pipelineId}`
-            const currentIndex = await this.storage.get<number>(rotationIndexKey) ?? 0
-            assignedOwner = rotationConfig.ownerIds[currentIndex % rotationConfig.ownerIds.length]
-            // Update rotation index
-            await this.storage.put(rotationIndexKey, (currentIndex + 1) % rotationConfig.ownerIds.length)
-          } else if (rotationConfig.method === 'weighted' && rotationConfig.weights) {
-            // Weighted random selection
-            const ownerIds = Object.keys(rotationConfig.weights)
-            const totalWeight = Object.values(rotationConfig.weights).reduce((sum, w) => sum + w, 0)
-            let random = Math.random() * totalWeight
-            for (const ownerId of ownerIds) {
-              random -= rotationConfig.weights[ownerId]
-              if (random <= 0) {
-                assignedOwner = ownerId
-                break
-              }
-            }
-          }
-        }
-      }
-
-      const obj: CrmObject = {
-        id,
-        properties: {
-          ...defaultProperties,
-          ...input.properties,
-          ...(assignedOwner ? { hubspot_owner_id: assignedOwner } : {}),
-        },
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        archived: false,
-      }
-
-      await this.storage.put(`${this.PREFIX}${id}`, obj)
-
-      // Initialize property history
-      const historyKey = `${this.PREFIX}${id}:history`
-      const initialHistory: Record<string, Array<{ value: string | null; timestamp: string }>> = {}
-      for (const [propName, propValue] of Object.entries(obj.properties)) {
-        initialHistory[propName] = [{ value: propValue, timestamp }]
-      }
-      await this.storage.put(historyKey, initialHistory)
-
-      // Initialize stage history
-      if (stageId) {
-        const stageHistoryKey = `${this.PREFIX}${id}:stage_history`
-        await this.storage.put(stageHistoryKey, [{
-          stage: stageId,
-          enteredAt: timestamp,
-          timeInStageMs: 0,
-        }])
-      }
-
-      return obj
-    },
-
-    getById: async (id: string, options?: string[] | {
-      properties?: string[]
-      associations?: string[]
-      propertiesWithHistory?: string[]
-    }): Promise<CrmObject & {
-      associations?: Record<string, unknown>
-      propertiesWithHistory?: Record<string, Array<{ value: string | null; timestamp: string }>>
-    }> => {
-      const obj = await this.storage.get<CrmObject>(`${this.PREFIX}${id}`)
-      if (!obj || obj.archived) {
-        throw new Error(`deals not found: ${id}`)
-      }
-
-      // If options is just a string array (legacy), return the object as-is
-      if (Array.isArray(options) || !options) {
-        return obj
-      }
-
-      const result: CrmObject & {
-        associations?: Record<string, Array<{ toObjectId: string | number }>>
-        propertiesWithHistory?: Record<string, Array<{ value: string | null; timestamp: string }>>
-      } = { ...obj }
-
-      // Fetch associations if requested
-      if (options.associations && options.associations.length > 0) {
-        result.associations = {}
-        for (const assocType of options.associations) {
-          const prefix = `assoc:deals:${id}:${assocType}:`
-          const map = await this.storage.list({ prefix })
-          const assocResults: Array<{ toObjectId: string | number }> = []
-          for (const value of map.values()) {
-            const assoc = value as any
-            assocResults.push({ toObjectId: assoc.to.id })
-          }
-          if (assocResults.length > 0) {
-            result.associations[assocType] = assocResults
-          }
-        }
-      }
-
-      // Fetch property history if requested
-      if (options.propertiesWithHistory && options.propertiesWithHistory.length > 0) {
-        const historyKey = `${this.PREFIX}${id}:history`
-        const history = await this.storage.get<Record<string, Array<{ value: string | null; timestamp: string }>>>(historyKey)
-        if (history) {
-          result.propertiesWithHistory = {}
-          for (const propName of options.propertiesWithHistory) {
-            if (history[propName]) {
-              result.propertiesWithHistory[propName] = history[propName]
-            }
-          }
-        }
-      }
-
-      return result
-    },
-
-    update: async (id: string, input: UpdateObjectInput): Promise<CrmObject> => {
-      const obj = await this.basicApi.getById(id) as CrmObject
-      const timestamp = now()
-      const oldStage = obj.properties.dealstage
-      const newStage = input.properties.dealstage
-      const pipelineId = input.properties.pipeline || obj.properties.pipeline || 'default'
-
-      // Validate stage exists in pipeline if changing stage
-      if (newStage && newStage !== oldStage && this.pipelinesApi) {
-        try {
-          await this.pipelinesApi.pipelineStagesApi.getById('deals', pipelineId, newStage)
-        } catch {
-          throw new Error(`Invalid stage "${newStage}" for pipeline "${pipelineId}"`)
-        }
-      }
-
-      const updated: CrmObject = {
-        ...obj,
-        properties: {
-          ...obj.properties,
-          ...input.properties,
-          lastmodifieddate: timestamp,
-        },
-        updatedAt: timestamp,
-      }
-
-      await this.storage.put(`${this.PREFIX}${id}`, updated)
-
-      // Update property history
-      const historyKey = `${this.PREFIX}${id}:history`
-      const history = await this.storage.get<Record<string, Array<{ value: string | null; timestamp: string }>>>(historyKey) ?? {}
-      for (const [propName, propValue] of Object.entries(input.properties)) {
-        if (!history[propName]) {
-          history[propName] = []
-        }
-        history[propName].push({ value: propValue, timestamp })
-      }
-      await this.storage.put(historyKey, history)
-
-      // Update stage history if stage changed
-      if (newStage && newStage !== oldStage) {
-        const stageHistoryKey = `${this.PREFIX}${id}:stage_history`
-        const stageHistory = await this.storage.get<Array<{
-          stage: string
-          enteredAt: string
-          exitedAt?: string
-          timeInStageMs: number
-        }>>(stageHistoryKey) ?? []
-
-        // Close out the previous stage
-        if (stageHistory.length > 0) {
-          const lastEntry = stageHistory[stageHistory.length - 1]
-          if (!lastEntry.exitedAt) {
-            lastEntry.exitedAt = timestamp
-            const enteredTime = new Date(lastEntry.enteredAt).getTime()
-            lastEntry.timeInStageMs = new Date(timestamp).getTime() - enteredTime
-          }
-        }
-
-        // Add new stage entry
-        stageHistory.push({
-          stage: newStage,
-          enteredAt: timestamp,
-          timeInStageMs: 0,
-        })
-
-        await this.storage.put(stageHistoryKey, stageHistory)
-      }
-
-      return updated
-    },
-
-    getPage: async (options?: {
-      limit?: number
-      after?: string
-      properties?: string[]
-    }): Promise<SearchResult<CrmObject>> => {
-      const objects = await this.getAllObjects()
-      const active = objects.filter((o) => !o.archived)
-
-      // Sort by createdAt
-      active.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-
-      // Pagination
-      const limit = options?.limit ?? 100
-      let startIndex = 0
-      if (options?.after) {
-        const afterIndex = active.findIndex((o) => o.id === options.after)
-        if (afterIndex !== -1) {
-          startIndex = afterIndex + 1
-        }
-      }
-
-      const paged = active.slice(startIndex, startIndex + limit)
-      const hasMore = startIndex + limit < active.length
-
-      return {
-        total: active.length,
-        results: paged,
-        paging: hasMore
-          ? { next: { after: paged[paged.length - 1]?.id ?? '' } }
-          : undefined,
-      }
-    },
-
-    archive: async (id: string): Promise<void> => {
-      const obj = await this.basicApi.getById(id)
-      const timestamp = now()
-
-      const archived: CrmObject = {
-        ...obj,
-        archived: true,
-        archivedAt: timestamp,
-        updatedAt: timestamp,
-      }
-
-      await this.storage.put(`${this.PREFIX}${id}`, archived)
-    },
-
-    getStageHistory: async (id: string): Promise<Array<{
-      stage: string
-      enteredAt: string
-      exitedAt?: string
-      timeInStageMs: number
-    }>> => {
-      const stageHistoryKey = `${this.PREFIX}${id}:stage_history`
-      const history = await this.storage.get<Array<{
-        stage: string
-        enteredAt: string
-        exitedAt?: string
-        timeInStageMs: number
-      }>>(stageHistoryKey)
-
-      if (!history || history.length === 0) {
-        return []
-      }
-
-      // Calculate current time in stage for the active stage
-      const result = [...history]
-      const lastEntry = result[result.length - 1]
-      if (!lastEntry.exitedAt) {
-        const enteredTime = new Date(lastEntry.enteredAt).getTime()
-        lastEntry.timeInStageMs = Date.now() - enteredTime
-      }
-
-      return result
-    },
-  }
-
-  // Extended search API with forecast methods
-  override searchApi = {
-    doSearch: async (input: SearchInput): Promise<SearchResult<CrmObject>> => {
-      const objects = await this.getAllObjects()
-      const active = objects.filter((o) => !o.archived)
-
-      let filtered = active
-
-      // Apply filters
-      if (input.filterGroups && input.filterGroups.length > 0) {
-        filtered = active.filter((obj) =>
-          input.filterGroups!.some((group) =>
-            group.filters.every((filter) => this.matchesFilter(obj, filter))
-          )
-        )
-      }
-
-      // Apply query (simple text search)
-      if (input.query) {
-        const query = input.query.toLowerCase()
-        filtered = filtered.filter((obj) =>
-          Object.values(obj.properties).some(
-            (v) => v && String(v).toLowerCase().includes(query)
-          )
-        )
-      }
-
-      // Apply sorting
-      if (input.sorts && input.sorts.length > 0) {
-        const sort = input.sorts[0]
-        filtered.sort((a, b) => {
-          const aVal = a.properties[sort.propertyName] ?? ''
-          const bVal = b.properties[sort.propertyName] ?? ''
-          // Try numeric comparison first, fall back to string comparison
-          const aNum = Number(aVal)
-          const bNum = Number(bVal)
-          let cmp: number
-          if (!isNaN(aNum) && !isNaN(bNum)) {
-            cmp = aNum - bNum
-          } else {
-            cmp = String(aVal).localeCompare(String(bVal))
-          }
-          return sort.direction === 'DESCENDING' ? -cmp : cmp
-        })
-      }
-
-      // Pagination
-      const limit = input.limit ?? 100
-      let startIndex = 0
-      if (input.after) {
-        const afterIndex = filtered.findIndex((o) => o.id === input.after)
-        if (afterIndex !== -1) {
-          startIndex = afterIndex + 1
-        }
-      }
-
-      const paged = filtered.slice(startIndex, startIndex + limit)
-      const hasMore = startIndex + limit < filtered.length
-
-      return {
-        total: filtered.length,
-        results: paged,
-        paging: hasMore
-          ? { next: { after: paged[paged.length - 1]?.id ?? '' } }
-          : undefined,
-      }
-    },
-
-    getForecast: async (options: {
-      pipelineId: string
-      startDate: string
-      endDate: string
-    }): Promise<{
-      totalValue: number
-      weightedValue: number
-      dealCount: number
-    }> => {
-      const startTime = new Date(options.startDate).getTime()
-      const endTime = new Date(options.endDate).getTime()
-
-      const dealsMap = await this.storage.list({ prefix: this.PREFIX })
-      let totalValue = 0
-      let weightedValue = 0
-      let dealCount = 0
-
-      // Get pipeline for probability data
-      let pipeline: Pipeline | null = null
-      if (this.pipelinesApi) {
-        try {
-          pipeline = await this.pipelinesApi.pipelinesApi.getById('deals', options.pipelineId)
-        } catch {
-          // Ignore if pipeline not found
-        }
-      }
-
-      for (const [key, value] of dealsMap.entries()) {
-        if (key.includes(':history') || key.includes(':stage_history')) continue
-        const deal = value as any
-        if (!deal.id || !deal.properties || deal.archived) continue
-
-        const inPipeline = deal.properties.pipeline === options.pipelineId ||
-          (options.pipelineId === 'default' && !deal.properties.pipeline)
-        if (!inPipeline) continue
-
-        // Check if deal close date is within range
-        const closeDateStr = deal.properties.closedate
-        if (closeDateStr) {
-          const closeTime = new Date(closeDateStr).getTime()
-          if (closeTime < startTime || closeTime > endTime) continue
-        }
-
-        // Only include open deals (not closed)
-        const stage = deal.properties.dealstage
-        if (stage === 'closedwon' || stage === 'closedlost') continue
-
-        const amount = Number(deal.properties.amount) || 0
-        totalValue += amount
-        dealCount++
-
-        // Calculate weighted value based on stage probability
-        let probability = 0.5 // default
-        if (pipeline) {
-          const stageData = pipeline.stages.find((s) => s.id === stage)
-          if (stageData?.metadata?.probability) {
-            probability = Number(stageData.metadata.probability)
-          }
-        }
-        weightedValue += amount * probability
-      }
-
-      return { totalValue, weightedValue, dealCount }
-    },
-
-    getForecastByOwner: async (options: {
-      pipelineId: string
-      startDate: string
-      endDate: string
-    }): Promise<{
-      owners: Array<{
-        ownerId: string
-        totalValue: number
-        weightedValue: number
-        dealCount: number
-      }>
-    }> => {
-      const startTime = new Date(options.startDate).getTime()
-      const endTime = new Date(options.endDate).getTime()
-
-      const dealsMap = await this.storage.list({ prefix: this.PREFIX })
-      const ownerData = new Map<string, { totalValue: number; weightedValue: number; dealCount: number }>()
-
-      // Get pipeline for probability data
-      let pipeline: Pipeline | null = null
-      if (this.pipelinesApi) {
-        try {
-          pipeline = await this.pipelinesApi.pipelinesApi.getById('deals', options.pipelineId)
-        } catch {
-          // Ignore
-        }
-      }
-
-      for (const [key, value] of dealsMap.entries()) {
-        if (key.includes(':history') || key.includes(':stage_history')) continue
-        const deal = value as any
-        if (!deal.id || !deal.properties || deal.archived) continue
-
-        const inPipeline = deal.properties.pipeline === options.pipelineId ||
-          (options.pipelineId === 'default' && !deal.properties.pipeline)
-        if (!inPipeline) continue
-
-        // Check close date range
-        const closeDateStr = deal.properties.closedate
-        if (closeDateStr) {
-          const closeTime = new Date(closeDateStr).getTime()
-          if (closeTime < startTime || closeTime > endTime) continue
-        }
-
-        const stage = deal.properties.dealstage
-        if (stage === 'closedwon' || stage === 'closedlost') continue
-
-        const ownerId = deal.properties.hubspot_owner_id || 'unassigned'
-        const amount = Number(deal.properties.amount) || 0
-
-        let probability = 0.5
-        if (pipeline) {
-          const stageData = pipeline.stages.find((s) => s.id === stage)
-          if (stageData?.metadata?.probability) {
-            probability = Number(stageData.metadata.probability)
-          }
-        }
-
-        if (!ownerData.has(ownerId)) {
-          ownerData.set(ownerId, { totalValue: 0, weightedValue: 0, dealCount: 0 })
-        }
-        const data = ownerData.get(ownerId)!
-        data.totalValue += amount
-        data.weightedValue += amount * probability
-        data.dealCount++
-      }
-
-      return {
-        owners: Array.from(ownerData.entries()).map(([ownerId, data]) => ({
-          ownerId,
-          ...data,
-        })),
-      }
-    },
-
-    getMonthlyForecast: async (options: {
-      pipelineId: string
-      year: number
-    }): Promise<{
-      months: Array<{
-        month: number
-        totalValue: number
-        weightedValue: number
-        dealCount: number
-      }>
-    }> => {
-      const months = Array.from({ length: 12 }, (_, i) => ({
-        month: i + 1,
-        totalValue: 0,
-        weightedValue: 0,
-        dealCount: 0,
-      }))
-
-      const dealsMap = await this.storage.list({ prefix: this.PREFIX })
-
-      // Get pipeline for probability
-      let pipeline: Pipeline | null = null
-      if (this.pipelinesApi) {
-        try {
-          pipeline = await this.pipelinesApi.pipelinesApi.getById('deals', options.pipelineId)
-        } catch {
-          // Ignore
-        }
-      }
-
-      for (const [key, value] of dealsMap.entries()) {
-        if (key.includes(':history') || key.includes(':stage_history')) continue
-        const deal = value as any
-        if (!deal.id || !deal.properties || deal.archived) continue
-
-        const inPipeline = deal.properties.pipeline === options.pipelineId ||
-          (options.pipelineId === 'default' && !deal.properties.pipeline)
-        if (!inPipeline) continue
-
-        const closeDateStr = deal.properties.closedate
-        if (!closeDateStr) continue
-
-        const closeDate = new Date(closeDateStr)
-        if (closeDate.getFullYear() !== options.year) continue
-
-        const stage = deal.properties.dealstage
-        if (stage === 'closedwon' || stage === 'closedlost') continue
-
-        const monthIndex = closeDate.getMonth() // 0-based
-        const amount = Number(deal.properties.amount) || 0
-
-        let probability = 0.5
-        if (pipeline) {
-          const stageData = pipeline.stages.find((s) => s.id === stage)
-          if (stageData?.metadata?.probability) {
-            probability = Number(stageData.metadata.probability)
-          }
-        }
-
-        months[monthIndex].totalValue += amount
-        months[monthIndex].weightedValue += amount * probability
-        months[monthIndex].dealCount++
-      }
-
-      return { months }
-    },
-
-    findStaleDeals: async (options: {
-      pipelineId: string
-      daysInStage: number
-    }): Promise<{
-      results: Array<CrmObject & { staleDays: number }>
-      total: number
-    }> => {
-      const dealsMap = await this.storage.list({ prefix: this.PREFIX })
-      const staleDeals: Array<CrmObject & { staleDays: number }> = []
-      const thresholdMs = options.daysInStage * 24 * 60 * 60 * 1000
-      const nowTime = Date.now()
-
-      for (const [key, value] of dealsMap.entries()) {
-        if (key.includes(':history') || key.includes(':stage_history')) continue
-        const deal = value as any
-        if (!deal.id || !deal.properties || deal.archived) continue
-
-        const inPipeline = deal.properties.pipeline === options.pipelineId ||
-          (options.pipelineId === 'default' && !deal.properties.pipeline)
-        if (!inPipeline) continue
-
-        // Skip closed deals
-        const stage = deal.properties.dealstage
-        if (stage === 'closedwon' || stage === 'closedlost') continue
-
-        // Check how long the deal has been in current stage
-        const updatedAt = new Date(deal.updatedAt).getTime()
-        const daysInStage = Math.floor((nowTime - updatedAt) / (24 * 60 * 60 * 1000))
-
-        if (daysInStage >= options.daysInStage) {
-          staleDeals.push({
-            ...deal,
-            staleDays: daysInStage,
-          })
-        }
-      }
-
-      return {
-        results: staleDeals,
-        total: staleDeals.length,
-      }
-    },
   }
 }
 
@@ -1442,39 +686,6 @@ class LocalAssociationsApi {
         return { results }
       },
 
-      // Alias for getPage - HubSpot API uses getAll in some places
-      getAll: async (
-        fromObjectType: string,
-        fromObjectId: string,
-        toObjectType: string
-      ): Promise<{
-        results: Array<{
-          toObjectId: string | number
-          associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
-        }>
-        paging?: { next?: { after: string } }
-      }> => {
-        const prefix = `assoc:${fromObjectType}:${fromObjectId}:${toObjectType}:`
-        const map = await this.storage.list({ prefix })
-        const results: Array<{
-          toObjectId: string | number
-          associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
-        }> = []
-
-        for (const value of map.values()) {
-          const assoc = value as any
-          results.push({
-            toObjectId: assoc.to.id,
-            associationTypes: assoc.types.map((t: any) => ({
-              category: t.associationCategory,
-              typeId: t.associationTypeId,
-            })),
-          })
-        }
-
-        return { results }
-      },
-
       archive: async (
         fromObjectType: string,
         fromObjectId: string,
@@ -1512,43 +723,6 @@ class LocalAssociationsApi {
         }
 
         return { status: 'COMPLETE', results, errors: [] }
-      },
-
-      read: async (
-        fromObjectType: string,
-        toObjectType: string,
-        input: { inputs: Array<{ id: string }> }
-      ): Promise<{
-        results: Array<{
-          from: { id: string }
-          to: Array<{
-            toObjectId: string | number
-            associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
-          }>
-        }>
-        errors: Array<{ status: string; message: string; context?: Record<string, unknown> }>
-      }> => {
-        const results: Array<{
-          from: { id: string }
-          to: Array<{
-            toObjectId: string | number
-            associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
-          }>
-        }> = []
-
-        for (const item of input.inputs) {
-          const associations = await this.v4.basicApi.getAll(
-            fromObjectType,
-            item.id,
-            toObjectType
-          )
-          results.push({
-            from: { id: item.id },
-            to: associations.results,
-          })
-        }
-
-        return { results, errors: [] }
       },
 
       archive: async (
@@ -1697,19 +871,19 @@ class LocalPipelinesApi {
   }
 
   private async initDefaultPipelines(): Promise<void> {
-    // Default deals pipeline with probability metadata
+    // Default deals pipeline
     const dealsPipeline: Pipeline = {
       id: 'default',
       label: 'Sales Pipeline',
       displayOrder: 0,
       stages: [
-        { id: 'appointmentscheduled', label: 'Appointment Scheduled', displayOrder: 0, metadata: { probability: '0.2' } },
-        { id: 'qualifiedtobuy', label: 'Qualified to Buy', displayOrder: 1, metadata: { probability: '0.4' } },
-        { id: 'presentationscheduled', label: 'Presentation Scheduled', displayOrder: 2, metadata: { probability: '0.6' } },
-        { id: 'decisionmakerboughtin', label: 'Decision Maker Bought-In', displayOrder: 3, metadata: { probability: '0.8' } },
-        { id: 'contractsent', label: 'Contract Sent', displayOrder: 4, metadata: { probability: '0.9' } },
-        { id: 'closedwon', label: 'Closed Won', displayOrder: 5, metadata: { probability: '1.0', isClosed: 'true' } },
-        { id: 'closedlost', label: 'Closed Lost', displayOrder: 6, metadata: { probability: '0', isClosed: 'true' } },
+        { id: 'appointmentscheduled', label: 'Appointment Scheduled', displayOrder: 0 },
+        { id: 'qualifiedtobuy', label: 'Qualified to Buy', displayOrder: 1 },
+        { id: 'presentationscheduled', label: 'Presentation Scheduled', displayOrder: 2 },
+        { id: 'decisionmakerboughtin', label: 'Decision Maker Bought-In', displayOrder: 3 },
+        { id: 'contractsent', label: 'Contract Sent', displayOrder: 4 },
+        { id: 'closedwon', label: 'Closed Won', displayOrder: 5 },
+        { id: 'closedlost', label: 'Closed Lost', displayOrder: 6 },
       ],
     }
     await this.storage.put('pipelines:deals:default', dealsPipeline)
@@ -1778,273 +952,6 @@ class LocalPipelinesApi {
       pipeline.archived = true
       pipeline.updatedAt = now()
       await this.storage.put(`pipelines:${objectType}:${pipelineId}`, pipeline)
-    },
-
-    // Analytics methods
-    getWeightedValue: async (objectType: string, pipelineId: string): Promise<{
-      weightedValue: number
-      totalValue: number
-      dealCount: number
-    }> => {
-      const pipeline = await this.pipelinesApi.getById(objectType, pipelineId)
-
-      // Get all deals in this pipeline
-      const dealsMap = await this.storage.list({ prefix: 'crm:deals:' })
-      const deals = Array.from(dealsMap.values()).filter((d: any) => {
-        if (d.id && d.properties && !d.archived) {
-          return d.properties.pipeline === pipelineId || (pipelineId === 'default' && !d.properties.pipeline)
-        }
-        return false
-      }) as CrmObject[]
-
-      let totalValue = 0
-      let weightedValue = 0
-      let dealCount = 0
-
-      for (const deal of deals) {
-        const amount = Number(deal.properties.amount) || 0
-        const stage = pipeline.stages.find((s) => s.id === deal.properties.dealstage)
-        const probability = stage?.metadata?.probability ? Number(stage.metadata.probability) : 0
-
-        totalValue += amount
-        weightedValue += amount * probability
-        dealCount++
-      }
-
-      return { weightedValue, totalValue, dealCount }
-    },
-
-    getDealVelocity: async (objectType: string, pipelineId: string): Promise<{
-      averageDaysToClose: number
-      dealsClosed: number
-    }> => {
-      // Get all deals in this pipeline that are closed
-      const dealsMap = await this.storage.list({ prefix: 'crm:deals:' })
-      const closedDeals = Array.from(dealsMap.values()).filter((d: any) => {
-        if (d.id && d.properties && !d.archived) {
-          const inPipeline = d.properties.pipeline === pipelineId || (pipelineId === 'default' && !d.properties.pipeline)
-          const isClosed = d.properties.dealstage === 'closedwon' || d.properties.dealstage === 'closedlost'
-          return inPipeline && isClosed
-        }
-        return false
-      }) as CrmObject[]
-
-      if (closedDeals.length === 0) {
-        return { averageDaysToClose: 0, dealsClosed: 0 }
-      }
-
-      let totalDays = 0
-      for (const deal of closedDeals) {
-        const createdAt = new Date(deal.createdAt).getTime()
-        const updatedAt = new Date(deal.updatedAt).getTime()
-        const days = (updatedAt - createdAt) / (1000 * 60 * 60 * 24)
-        totalDays += days
-      }
-
-      return {
-        averageDaysToClose: totalDays / closedDeals.length,
-        dealsClosed: closedDeals.length,
-      }
-    },
-
-    getConversionRates: async (objectType: string, pipelineId: string): Promise<{
-      stages: Array<{
-        stageId: string
-        entryCount: number
-        exitCount: number
-        conversionRate: number
-      }>
-    }> => {
-      const pipeline = await this.pipelinesApi.getById(objectType, pipelineId)
-
-      // Get all deals in this pipeline
-      const dealsMap = await this.storage.list({ prefix: 'crm:deals:' })
-      const deals = Array.from(dealsMap.values()).filter((d: any) => {
-        if (d.id && d.properties && !d.archived) {
-          return d.properties.pipeline === pipelineId || (pipelineId === 'default' && !d.properties.pipeline)
-        }
-        return false
-      }) as CrmObject[]
-
-      const stageCounts = new Map<string, { entry: number; exit: number }>()
-      for (const stage of pipeline.stages) {
-        stageCounts.set(stage.id, { entry: 0, exit: 0 })
-      }
-
-      // Count deals by stage
-      for (const deal of deals) {
-        const stageId = deal.properties.dealstage
-        if (stageId && stageCounts.has(stageId)) {
-          const count = stageCounts.get(stageId)!
-          count.entry++
-        }
-      }
-
-      // Calculate conversion rates based on stage position
-      const stages = pipeline.stages.map((stage, index) => {
-        const counts = stageCounts.get(stage.id) || { entry: 0, exit: 0 }
-        const nextStage = pipeline.stages[index + 1]
-        const nextCounts = nextStage ? stageCounts.get(nextStage.id) : undefined
-        const exitCount = nextCounts?.entry ?? 0
-
-        return {
-          stageId: stage.id,
-          entryCount: counts.entry,
-          exitCount,
-          conversionRate: counts.entry > 0 ? (exitCount / counts.entry) * 100 : 0,
-        }
-      })
-
-      return { stages }
-    },
-
-    getWinRate: async (objectType: string, pipelineId: string): Promise<{
-      winRate: number
-      wonCount: number
-      lostCount: number
-      totalClosed: number
-    }> => {
-      // Get all closed deals in this pipeline
-      const dealsMap = await this.storage.list({ prefix: 'crm:deals:' })
-      let wonCount = 0
-      let lostCount = 0
-
-      for (const deal of dealsMap.values() as IterableIterator<any>) {
-        if (deal.id && deal.properties && !deal.archived) {
-          const inPipeline = deal.properties.pipeline === pipelineId || (pipelineId === 'default' && !deal.properties.pipeline)
-          if (inPipeline) {
-            if (deal.properties.dealstage === 'closedwon') wonCount++
-            if (deal.properties.dealstage === 'closedlost') lostCount++
-          }
-        }
-      }
-
-      const totalClosed = wonCount + lostCount
-      const winRate = totalClosed > 0 ? (wonCount / totalClosed) * 100 : 0
-
-      return { winRate, wonCount, lostCount, totalClosed }
-    },
-
-    getLossReasons: async (objectType: string, pipelineId: string): Promise<{
-      reasons: Array<{
-        reason: string
-        count: number
-        percentage: number
-      }>
-    }> => {
-      // Get all lost deals in this pipeline
-      const dealsMap = await this.storage.list({ prefix: 'crm:deals:' })
-      const reasonCounts = new Map<string, number>()
-      let totalLost = 0
-
-      for (const deal of dealsMap.values() as IterableIterator<any>) {
-        if (deal.id && deal.properties && !deal.archived) {
-          const inPipeline = deal.properties.pipeline === pipelineId || (pipelineId === 'default' && !deal.properties.pipeline)
-          if (inPipeline && deal.properties.dealstage === 'closedlost') {
-            totalLost++
-            const reason = deal.properties.closed_lost_reason || 'Unknown'
-            reasonCounts.set(reason, (reasonCounts.get(reason) || 0) + 1)
-          }
-        }
-      }
-
-      const reasons = Array.from(reasonCounts.entries()).map(([reason, count]) => ({
-        reason,
-        count,
-        percentage: totalLost > 0 ? (count / totalLost) * 100 : 0,
-      }))
-
-      return { reasons }
-    },
-
-    configureRotation: async (objectType: string, pipelineId: string, config: {
-      enabled: boolean
-      method: 'round_robin' | 'weighted'
-      ownerIds?: string[]
-      weights?: Record<string, number>
-      triggerStage: string
-    }): Promise<{
-      enabled: boolean
-      method: 'round_robin' | 'weighted'
-      ownerIds?: string[]
-      weights?: Record<string, number>
-      triggerStage: string
-    }> => {
-      // Store rotation config
-      const rotationKey = `rotation:${objectType}:${pipelineId}`
-      await this.storage.put(rotationKey, config)
-      return config
-    },
-
-    configureStaleAlerts: async (objectType: string, pipelineId: string, config: {
-      enabled: boolean
-      thresholdDays: Record<string, number>
-      notifyOwner: boolean
-      notifyManager: boolean
-    }): Promise<{
-      enabled: boolean
-      thresholdDays: Record<string, number>
-      notifyOwner: boolean
-      notifyManager: boolean
-    }> => {
-      // Store stale alerts config
-      const alertsKey = `stale_alerts:${objectType}:${pipelineId}`
-      await this.storage.put(alertsKey, config)
-      return config
-    },
-
-    getHealthScore: async (objectType: string, pipelineId: string): Promise<{
-      score: number
-      factors: {
-        staleDealsPercentage: number
-        averageVelocity: number
-        winRate: number
-      }
-    }> => {
-      const velocity = await this.pipelinesApi.getDealVelocity(objectType, pipelineId)
-      const winRateData = await this.pipelinesApi.getWinRate(objectType, pipelineId)
-
-      // Get stale deals count
-      const dealsMap = await this.storage.list({ prefix: 'crm:deals:' })
-      let staleCount = 0
-      let totalOpenDeals = 0
-      const staleDaysThreshold = 30
-
-      for (const deal of dealsMap.values() as IterableIterator<any>) {
-        if (deal.id && deal.properties && !deal.archived) {
-          const inPipeline = deal.properties.pipeline === pipelineId || (pipelineId === 'default' && !deal.properties.pipeline)
-          const isOpen = deal.properties.dealstage !== 'closedwon' && deal.properties.dealstage !== 'closedlost'
-          if (inPipeline && isOpen) {
-            totalOpenDeals++
-            const daysInStage = (Date.now() - new Date(deal.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
-            if (daysInStage >= staleDaysThreshold) {
-              staleCount++
-            }
-          }
-        }
-      }
-
-      const staleDealsPercentage = totalOpenDeals > 0 ? (staleCount / totalOpenDeals) * 100 : 0
-
-      // Calculate overall score (higher is better)
-      // Win rate contributes 40%, velocity 30%, stale deals 30%
-      const velocityScore = velocity.averageDaysToClose > 0 ? Math.max(0, 100 - velocity.averageDaysToClose) : 100
-      const staleScore = 100 - staleDealsPercentage
-
-      const score = Math.round(
-        winRateData.winRate * 0.4 +
-        velocityScore * 0.3 +
-        staleScore * 0.3
-      )
-
-      return {
-        score: Math.max(0, Math.min(100, score)),
-        factors: {
-          staleDealsPercentage,
-          averageVelocity: velocity.averageDaysToClose,
-          winRate: winRateData.winRate,
-        },
-      }
     },
   }
 
@@ -2205,7 +1112,7 @@ export class HubSpotLocal {
   readonly crm: {
     contacts: LocalObjectApi<CrmObject>
     companies: LocalObjectApi<CrmObject>
-    deals: LocalDealsObjectApi
+    deals: LocalObjectApi<CrmObject>
     tickets: LocalObjectApi<CrmObject>
     lineItems: LocalObjectApi<CrmObject>
     products: LocalObjectApi<CrmObject>
@@ -2255,25 +1162,18 @@ export class HubSpotLocal {
       })
     })
 
-    // Initialize pipelines first (needed by deals API)
-    const pipelines = new LocalPipelinesApi(this.storage)
-
-    // Initialize deals API with pipeline reference
-    const dealsApi = new LocalDealsObjectApi(this.storage, onObjectChange)
-    dealsApi.setPipelinesApi(pipelines)
-
     // Initialize CRM APIs
     this.crm = {
       contacts: new LocalObjectApi(this.storage, 'contacts', onObjectChange),
       companies: new LocalObjectApi(this.storage, 'companies', onObjectChange),
-      deals: dealsApi,
+      deals: new LocalObjectApi(this.storage, 'deals', onObjectChange),
       tickets: new LocalObjectApi(this.storage, 'tickets', onObjectChange),
       lineItems: new LocalObjectApi(this.storage, 'line_items', onObjectChange),
       products: new LocalObjectApi(this.storage, 'products', onObjectChange),
       quotes: new LocalObjectApi(this.storage, 'quotes', onObjectChange),
       associations: new LocalAssociationsApi(this.storage),
       properties: new LocalPropertiesApi(this.storage),
-      pipelines,
+      pipelines: new LocalPipelinesApi(this.storage),
       owners: new LocalOwnersApi(this.storage),
       objects: new LocalEngagementObjectsApi(this.storage),
       schemas: {

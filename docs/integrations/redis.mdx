@@ -24,7 +24,7 @@ await redis.hset('session:abc', { userId: '123', role: 'admin' })
 await redis.expire('session:abc', 3600)
 ```
 
-## Why @dotdo/redis?
+## Why redis.do?
 
 | ioredis/node-redis | @dotdo/redis |
 |-------------------|--------------|
@@ -99,13 +99,13 @@ await redis.expire('session:abc', 3600)
 - Geospatial (`GEOADD`, `GEODIST`, `GEOSEARCH`)
 - Lexicographic range queries (`ZLEXCOUNT`, `ZRANGEBYLEX`)
 
-## Quick Start
-
-### Install
+## Installation
 
 ```bash
 npm install @dotdo/redis
 ```
+
+## Quick Start
 
 ```typescript
 import { Redis, createClient } from '@dotdo/redis'

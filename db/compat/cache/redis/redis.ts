@@ -72,56 +72,6 @@ interface ZSetEntry {
 }
 
 // ============================================================================
-// STREAM TYPES
-// ============================================================================
-
-/**
- * Stream entry stored in memory
- */
-interface StreamEntryData {
-  id: string
-  fields: string[]
-}
-
-/**
- * Consumer group state
- */
-interface ConsumerGroupState {
-  name: string
-  lastDeliveredId: string
-  consumers: Map<string, ConsumerState>
-  pendingEntries: Map<string, PendingEntryData>
-}
-
-/**
- * Consumer state within a group
- */
-interface ConsumerState {
-  name: string
-  lastSeen: number
-  pendingCount: number
-}
-
-/**
- * Pending entry data
- */
-interface PendingEntryData {
-  id: string
-  consumer: string
-  deliveryTime: number
-  deliveryCount: number
-}
-
-/**
- * Stream data structure
- */
-interface StreamData {
-  entries: StreamEntryData[]
-  lastGeneratedId: string
-  groups: Map<string, ConsumerGroupState>
-}
-
-// ============================================================================
 // IN-MEMORY STORAGE
 // ============================================================================
 
@@ -131,7 +81,6 @@ const sharedHashes = new Map<string, Map<string, string>>()
 const sharedLists = new Map<string, string[]>()
 const sharedSets = new Map<string, Set<string>>()
 const sharedZsets = new Map<string, ZSetEntry[]>()
-const sharedStreams = new Map<string, StreamData>()
 const sharedExpiries = new Map<string, number>()
 const sharedTypes = new Map<string, string>()
 
@@ -146,7 +95,6 @@ class RedisStorage {
   private lists = sharedLists
   private sets = sharedSets
   private zsets = sharedZsets
-  private streams = sharedStreams
 
   // TTL tracking (expiry timestamp in ms)
   private expiries = sharedExpiries
@@ -219,8 +167,7 @@ class RedisStorage {
       this.hashes.delete(prefixedKey) ||
       this.lists.delete(prefixedKey) ||
       this.sets.delete(prefixedKey) ||
-      this.zsets.delete(prefixedKey) ||
-      this.streams.delete(prefixedKey)
+      this.zsets.delete(prefixedKey)
     this.expiries.delete(prefixedKey)
     this.types.delete(prefixedKey)
     return existed

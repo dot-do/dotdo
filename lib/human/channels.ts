@@ -139,16 +139,6 @@ export interface NotificationChannel {
   priority: NotificationPriority
 }
 
-// Backwards compatibility aliases
-/** @deprecated Use NotificationChannel instead */
-export type HumanNotificationChannel = NotificationChannel
-/** @deprecated Use HumanChannelType instead */
-export type ChannelType = HumanChannelType
-/** @deprecated Use ChannelSendResult instead */
-export type SendResult = ChannelSendResult
-/** @deprecated Use HumanNotificationPayload instead */
-export type NotificationPayload = HumanNotificationPayload
-
 // ============================================================================
 // CHANNEL REGISTRY
 // ============================================================================
