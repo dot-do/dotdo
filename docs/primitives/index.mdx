@@ -126,6 +126,18 @@ class BuildAgent extends withBash(withGit(withFs(DO)), {
 }
 ```
 
+## Technical Details
+
+Each primitive is implemented as a standalone package in `primitives/`:
+
+| Package | README | Tests | Description |
+|---------|--------|-------|-------------|
+| **fsx** | [README](https://github.com/dotdo/dotdo/blob/main/primitives/fsx/README.md) | 3,000+ | POSIX filesystem on SQLite + R2 |
+| **gitx** | [README](https://github.com/dotdo/dotdo/blob/main/primitives/gitx/README.md) | 5,600+ | Full Git protocol on R2 |
+| **bashx** | [README](https://github.com/dotdo/dotdo/blob/main/primitives/bashx/README.md) | 1,400+ | AST-based safe shell execution |
+| **npmx** | [README](https://github.com/dotdo/dotdo/blob/main/primitives/npmx/README.md) | - | Package management for edge |
+| **pyx** | [README](https://github.com/dotdo/dotdo/blob/main/primitives/pyx/README.md) | - | Python execution on edge |
+
 ## Next Steps
 
 Dive into each primitive:

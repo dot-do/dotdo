@@ -1,0 +1,681 @@
+---
+title: DO Transport Layer
+description: Expose Durable Objects via REST, RPC, MCP, WebSocket Sync, and Cap'n Web protocols with unified authentication.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# DO Transport Layer
+
+The transport layer provides multiple protocols for exposing Durable Objects to clients. Each protocol serves different use cases: REST for web APIs, RPC for efficient method calls, MCP for AI tool integration, and WebSocket sync for real-time updates.
+
+## Overview
+
+The transport layer is organized around a handler chain pattern, where each protocol is implemented as a `TransportHandler`:
+
+| Protocol | Path | Use Case |
+|----------|------|----------|
+| REST | `/:type/:id` | Web APIs, CRUD operations, JSON-LD responses |
+| RPC | `/rpc` | JSON-RPC 2.0, method invocation |
+| MCP | `/mcp` | AI tool integration (Model Context Protocol) |
+| Sync | WebSocket | Real-time data synchronization |
+| Cap'n Web | `/` (root) | Promise pipelining, efficient batching |
+
+<Callout type="info">
+All transport handlers share a common authentication layer. Configure auth once and it applies to all protocols.
+</Callout>
+
+## Handler Chain
+
+The `HandlerChain` routes requests to the appropriate handler based on path and content type:
+
+```typescript
+import { HandlerChain, AuthHandler, RestHandler, McpHandler } from 'dotdo/transport'
+
+const chain = new HandlerChain({ debug: true })
+
+// Higher priority = checked first
+chain.use(new AuthHandler({ jwtSecret: 'secret' }), 100)
+chain.use(new McpHandler({ path: '/mcp' }), 50)
+chain.use(new RestHandler(), 30)
+
+// In DO.fetch():
+async fetch(request: Request): Promise<Response> {
+  return chain.handle(request, {
+    env: this.env,
+    ctx: this.ctx,
+    state: this.ctx,
+    instance: this,
+  })
+}
+```
+
+### Builder Pattern
+
+Use the `HandlerChainBuilder` for a fluent configuration API:
+
+```typescript
+import { HandlerChainBuilder } from 'dotdo/transport'
+
+const chain = HandlerChainBuilder.create()
+  .withDebug(true)
+  .withLogger(console)
+  .withAuth(authHandler)
+  .withFallback(async (req) => new Response('Not found', { status: 404 }))
+  .use(restHandler, 50)
+  .use(rpcHandler, 40)
+  .build()
+```
+
+## REST API
+
+The REST router automatically generates CRUD endpoints from your DO's Things store with JSON-LD compatible responses.
+
+### Automatic Routes
+
+```
+GET /              HATEOAS index with collections
+GET /:type         List items (paginated)
+GET /:type/:id     Get single item
+POST /:type        Create item
+PUT /:type/:id     Replace item
+PATCH /:type/:id   Merge update item
+DELETE /:type/:id  Delete item
+GET /:type/:id/edit  Monaco editor UI
+```
+
+### Response Format
+
+Responses use JSON-LD format with `$context`, `$type`, and `$id` fields:
+
+```json
+{
+  "$context": "https://schema.org.ai",
+  "$type": "Customer",
+  "$id": "https://acme.do/customers/cust-123",
+  "name": "Acme Corp",
+  "email": "contact@acme.com",
+  "links": {
+    "self": "https://acme.do/customers/cust-123",
+    "collection": "https://acme.do/customers",
+    "edit": "https://acme.do/customers/cust-123/edit"
+  },
+  "actions": {
+    "update": { "method": "PUT", "href": "https://acme.do/customers/cust-123" },
+    "delete": { "method": "DELETE", "href": "https://acme.do/customers/cust-123" }
+  }
+}
+```
+
+### Collection Responses
+
+```json
+{
+  "$context": "https://schema.org.ai",
+  "$type": "Collection",
+  "$id": "https://acme.do/customers",
+  "count": 42,
+  "items": [
+    { "$type": "Customer", "$id": "https://acme.do/customers/cust-1", "name": "..." }
+  ],
+  "links": {
+    "home": "https://acme.do",
+    "first": "https://acme.do/customers",
+    "next": "https://acme.do/customers?after=cust-10"
+  },
+  "actions": {
+    "create": { "method": "POST", "href": "https://acme.do/customers" }
+  }
+}
+```
+
+### REST Autowire
+
+Automatically generate REST endpoints from DO methods using static configuration or decorators:
+
+```typescript
+import { DO } from 'dotdo'
+import { rest } from 'dotdo/transport'
+
+class UserService extends DO {
+  // Static configuration
+  static $rest = {
+    getUser: { method: 'GET', path: '/users/:id' },
+    createUser: { method: 'POST', path: '/users' },
+    searchUsers: {
+      method: 'GET',
+      path: '/users/search',
+      queryParams: ['q', 'limit'],
+      rateLimit: { requests: 100, windowMs: 60000, keyBy: 'ip' },
+    },
+  }
+
+  // Or use decorators
+  @rest({ method: 'GET', path: '/users/:id' })
+  async getUser(id: string) {
+    return this.things.get(id)
+  }
+
+  @rest({
+    method: 'POST',
+    path: '/users',
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 1 },
+        email: { type: 'string', format: 'email' },
+      },
+      required: ['name', 'email'],
+    },
+  })
+  async createUser(data: { name: string; email: string }) {
+    return this.things.create({ $type: 'User', ...data })
+  }
+}
+```
+
+### REST Route Configuration
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `method` | `HttpMethod` | HTTP method (GET, POST, PUT, DELETE, PATCH) |
+| `path` | `string` | URL path with `:param` placeholders |
+| `queryParams` | `string[]` | Query parameters to extract |
+| `rateLimit` | `object` | Rate limiting config |
+| `throttle` | `object` | Burst limiting config |
+| `auth` | `boolean` | Require authentication |
+| `roles` | `string[]` | Required roles |
+| `scopes` | `string[]` | Required OAuth scopes |
+| `cache` | `object` | Cache-Control configuration |
+| `schema` | `JsonSchema` | Request body validation |
+| `produces` | `ContentType[]` | Response content types |
+| `consumes` | `ContentType[]` | Request content types |
+
+## RPC Server
+
+The RPC server supports JSON-RPC 2.0 for efficient method invocation:
+
+### JSON-RPC 2.0
+
+```bash
+# Single method call
+curl -X POST https://acme.do/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "getUser",
+    "params": ["user-123"],
+    "id": 1
+  }'
+
+# Response
+{
+  "jsonrpc": "2.0",
+  "result": { "id": "user-123", "name": "Alice" },
+  "id": 1
+}
+```
+
+### Batch Requests
+
+```json
+[
+  { "jsonrpc": "2.0", "method": "getUser", "params": ["user-1"], "id": 1 },
+  { "jsonrpc": "2.0", "method": "getUser", "params": ["user-2"], "id": 2 }
+]
+```
+
+### Collection RPC Pattern
+
+Use `{Noun}.{method}` pattern for typed collection access:
+
+```bash
+# Create a task
+curl -X POST https://acme.do/rpc \
+  -d '{"jsonrpc":"2.0","method":"Task.create","params":[{"title":"Ship it"}],"id":1}'
+
+# List tasks
+curl -X POST https://acme.do/rpc \
+  -d '{"jsonrpc":"2.0","method":"Task.list","params":[{"limit":10}],"id":2}'
+
+# Get specific task
+curl -X POST https://acme.do/rpc \
+  -d '{"jsonrpc":"2.0","method":"Task.get","params":["task-123"],"id":3}'
+```
+
+### RPC Server Configuration
+
+```typescript
+import { RPCServer } from 'dotdo/transport'
+
+const rpcServer = new RPCServer(doInstance, {
+  maxPipelineDepth: 20,
+  exposedMethods: ['getUser', 'createUser', 'search'],
+  blockedMethods: ['internalMethod'],
+})
+
+// Check if method is exposed
+rpcServer.isRpcExposed('getUser') // true
+
+// Get all exposed methods
+rpcServer.methods // ['getUser', 'createUser', 'search']
+```
+
+## MCP Server (Model Context Protocol)
+
+Expose DO methods as AI tools using the Model Context Protocol:
+
+### Configuration
+
+```typescript
+import { DO } from 'dotdo'
+
+class TaskManager extends DO {
+  static $mcp = {
+    tools: {
+      createTask: {
+        description: 'Create a new task',
+        inputSchema: {
+          title: { type: 'string', description: 'Task title' },
+          priority: { type: 'string', description: 'Priority level' },
+        },
+        required: ['title'],
+      },
+      searchTasks: {
+        description: 'Search tasks by query',
+        inputSchema: {
+          query: { type: 'string', description: 'Search query' },
+          limit: { type: 'number', description: 'Max results' },
+        },
+        required: ['query'],
+      },
+    },
+    resources: ['tasks', 'users'],
+  }
+
+  async createTask(title: string, priority?: string) {
+    return this.things.create({ $type: 'Task', name: title, data: { priority } })
+  }
+
+  async searchTasks(query: string, limit = 10) {
+    return this.search.query(query, { limit })
+  }
+
+  // Resource accessor
+  async getTasks() {
+    return this.things.list({ type: 'Task' })
+  }
+}
+```
+
+### MCP Protocol
+
+MCP uses JSON-RPC 2.0 with session management:
+
+```bash
+# Initialize session
+curl -X POST https://acme.do/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}'
+
+# Response includes session ID
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "tools": { "listChanged": true },
+      "resources": { "subscribe": true, "listChanged": true }
+    },
+    "serverInfo": { "name": "dotdo-do-mcp-server", "version": "0.1.0" }
+  },
+  "id": 1
+}
+# Header: Mcp-Session-Id: <session-id>
+```
+
+### Tool Discovery and Invocation
+
+```bash
+# List available tools
+curl -X POST https://acme.do/mcp \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":2}'
+
+# Call a tool
+curl -X POST https://acme.do/mcp \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "createTask",
+      "arguments": { "title": "Review PR", "priority": "high" }
+    },
+    "id": 3
+  }'
+```
+
+### Resource Access
+
+```bash
+# List resources
+curl -X POST https://acme.do/mcp \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{"jsonrpc":"2.0","method":"resources/list","params":{},"id":4}'
+
+# Read a resource
+curl -X POST https://acme.do/mcp \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "resources/read",
+    "params": { "uri": "do://acme.do/tasks" },
+    "id": 5
+  }'
+```
+
+### SSE Notifications
+
+MCP supports Server-Sent Events for real-time notifications:
+
+```bash
+# Open SSE stream
+curl -X GET https://acme.do/mcp \
+  -H "Mcp-Session-Id: <session-id>" \
+  -H "Accept: text/event-stream"
+```
+
+## Real-Time Sync (WebSocket)
+
+The `SyncEngine` provides WebSocket-based real-time synchronization with TanStack DB:
+
+### Server Setup
+
+```typescript
+import { SyncEngine } from 'dotdo/transport'
+
+class MyDO extends DO {
+  private syncEngine: SyncEngine
+
+  async initialize() {
+    this.syncEngine = new SyncEngine(this.things)
+    this.syncEngine.startHeartbeat()
+  }
+
+  async handleWebSocket(request: Request): Promise<Response> {
+    const { 0: client, 1: server } = new WebSocketPair()
+    server.accept()
+
+    // Authenticate and accept connection
+    const user = await this.authenticateWebSocket(request)
+    this.syncEngine.accept(server, user)
+
+    return new Response(null, { status: 101, webSocket: client })
+  }
+}
+```
+
+### Client Protocol
+
+```typescript
+// Subscribe to a collection
+ws.send(JSON.stringify({
+  type: 'subscribe',
+  collection: 'tasks',
+  branch: 'main',
+  query: { limit: 100 }
+}))
+
+// Receive initial state
+// { type: 'initial', collection: 'tasks', branch: 'main', items: [...], txid: 42 }
+
+// Receive real-time changes
+// { type: 'insert', collection: 'tasks', branch: 'main', txid: 43, key: 'task-1', data: {...} }
+// { type: 'update', collection: 'tasks', branch: 'main', txid: 44, key: 'task-1', data: {...} }
+// { type: 'delete', collection: 'tasks', branch: 'main', txid: 45, key: 'task-1' }
+
+// Respond to pings
+ws.onmessage = (e) => {
+  const msg = JSON.parse(e.data)
+  if (msg.type === 'ping') {
+    ws.send(JSON.stringify({ type: 'pong', timestamp: msg.timestamp }))
+  }
+}
+
+// Unsubscribe
+ws.send(JSON.stringify({ type: 'unsubscribe', collection: 'tasks' }))
+```
+
+### Server-Side Broadcasting
+
+```typescript
+// Notify clients of changes
+this.syncEngine.onThingCreated(thing, rowid)
+this.syncEngine.onThingUpdated(thing, rowid)
+this.syncEngine.onThingDeleted('Task', 'task-123', 'main', rowid)
+```
+
+### Connection Metrics
+
+```typescript
+const metrics = this.syncEngine.getMetrics()
+// {
+//   activeConnections: 42,
+//   subscriptionsByCollection: Map { 'tasks' => 30, 'users' => 12 },
+//   totalSubscriptions: 42
+// }
+
+// Listen for connection events
+this.syncEngine.onConnectionState((event) => {
+  if (event.type === 'timeout') {
+    console.log(`Connection ${event.socketId} timed out after ${event.lastPongAge}ms`)
+  }
+})
+```
+
+## Cap'n Web Protocol
+
+Cap'n Web provides promise pipelining for efficient batched RPC:
+
+### Why Cap'n Web?
+
+- **Promise pipelining**: Chain method calls without waiting for intermediate results
+- **Single round-trip**: Multiple dependent calls execute in one network request
+- **Pass-by-reference**: Send object references instead of serializing entire objects
+
+### Server Integration
+
+```typescript
+import { handleCapnWebRpc, isCapnWebRequest } from 'dotdo/transport'
+
+class MyDO extends DO {
+  async fetch(request: Request): Promise<Response> {
+    // Root endpoint handles Cap'n Web RPC
+    if (isCapnWebRequest(request)) {
+      return handleCapnWebRpc(request, this, {
+        includeStackTraces: this.env.DEBUG === 'true',
+      })
+    }
+
+    return super.fetch(request)
+  }
+}
+```
+
+### Client Usage
+
+```typescript
+import { RpcClient } from 'capnweb'
+
+// Connect to DO
+const client = new RpcClient('https://acme.do')
+
+// Promise pipelining - these execute in a single round-trip!
+const user = client.getUser('user-123')
+const orders = user.getOrders()
+const total = orders.calculateTotal()
+
+// Only await at the end
+console.log(await total) // Single network request for all three calls
+```
+
+### Internal Methods Protection
+
+The Cap'n Web target automatically hides internal DO methods:
+
+```typescript
+import { isInternalMember, createCapnWebTarget } from 'dotdo/transport'
+
+// These are automatically blocked from RPC:
+isInternalMember('fetch')      // true - lifecycle method
+isInternalMember('alarm')      // true - lifecycle method
+isInternalMember('_users')     // true - private property
+isInternalMember('db')         // true - internal state
+isInternalMember('greet')      // false - exposed method
+```
+
+## Authentication Layer
+
+The auth layer provides unified authentication across all transport protocols:
+
+### Configuration
+
+```typescript
+import { createAuthMiddleware, AuthHandler } from 'dotdo/transport'
+
+const authHandler = new AuthHandler({
+  jwtSecret: process.env.JWT_SECRET,
+  trustedIssuers: ['https://id.org.ai'],
+  audience: 'dotdo',
+  publicRoutes: ['/health', '/api/public'],
+  protectedRoutes: ['/api/admin'],
+  defaultRequireAuth: true,
+})
+```
+
+### Method-Level Auth
+
+```typescript
+class SecureService extends DO {
+  static $auth = {
+    getPublicData: { public: true },
+    getUserProfile: { requireAuth: true },
+    adminAction: {
+      requireAuth: true,
+      roles: ['admin'],
+    },
+    premiumFeature: {
+      requireAuth: true,
+      permissions: ['premium:access'],
+    },
+    rateLimitedMethod: {
+      requireAuth: true,
+      rateLimit: { requests: 10, window: '1m' },
+    },
+  }
+}
+```
+
+### Supported Auth Methods
+
+| Method | Header/Parameter | Description |
+|--------|------------------|-------------|
+| JWT | `Authorization: Bearer <token>` | JSON Web Token |
+| API Key | `X-API-Key: dk_live_...` | API key authentication |
+| Session | `X-Session-Id: <id>` | Session-based auth |
+| Query Token | `?token=<jwt>` | WebSocket auth |
+| Request Signing | `X-Signature`, `X-Signature-Timestamp` | HMAC request signing |
+
+### Auth Context
+
+Authenticated requests receive an `AuthContext`:
+
+```typescript
+interface AuthContext {
+  authenticated: boolean
+  user?: {
+    id: string
+    email?: string
+    name?: string
+    roles: string[]
+    permissions: string[]
+    organizationId?: string
+  }
+  session?: {
+    id: string
+    createdAt: Date
+    expiresAt: Date
+    refreshable: boolean
+  }
+  apiKey?: {
+    id: string
+    name: string
+    scopes: string[]
+    rateLimit?: { requests: number; window: string }
+  }
+  token?: {
+    type: 'jwt' | 'oauth' | 'api_key'
+    issuer?: string
+    audience?: string
+    expiresAt: Date
+    claims?: Record<string, unknown>
+  }
+}
+```
+
+### Rate Limiting
+
+```typescript
+const authMiddleware = createAuthMiddleware({
+  jwtSecret: 'secret',
+})
+
+// Check rate limit
+const result = authMiddleware.checkRateLimit('user-123', {
+  requests: 100,
+  window: '1m',
+  keyPrefix: 'api',
+})
+
+if (!result.allowed) {
+  return new Response('Too many requests', {
+    status: 429,
+    headers: result.headers, // X-RateLimit-* headers
+  })
+}
+```
+
+## Request Chaining
+
+The chain module enables middleware composition:
+
+```typescript
+import { HandlerChain, wrapWithMiddleware } from 'dotdo/transport'
+
+// Wrap a handler with middleware
+const protectedRest = wrapWithMiddleware(authHandler, restHandler)
+
+// Use in chain
+const chain = new HandlerChain()
+chain.use(protectedRest, 50)
+
+// Middleware passes if status < 400, otherwise returns error response
+```
+
+### Handler Priority
+
+| Handler | Typical Priority | Description |
+|---------|-----------------|-------------|
+| Auth | 100 | Authentication/authorization |
+| MCP | 50 | Model Context Protocol |
+| RPC | 40 | JSON-RPC methods |
+| REST | 30 | RESTful CRUD |
+| Fallback | 0 | Default handler |
+
+## See Also
+
+- [DO Base Class](/docs/objects/do) - Core Durable Object functionality
+- [WorkflowContext](/docs/concepts/workflow-context) - Event handling and scheduling
+- [Security](/docs/security/authentication) - Authentication deep dive
+- [MCP](/docs/mcp/index) - Model Context Protocol guide

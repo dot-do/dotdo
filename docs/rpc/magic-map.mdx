@@ -5,6 +5,10 @@ description: The .map() that runs on the server - transform collections without 
 
 import { Callout } from 'fumadocs-ui/components/callout'
 
+<Callout type="info" title="Part of RPC">
+This page is part of the [Cap'n Web RPC](/docs/rpc) documentation.
+</Callout>
+
 # Magic Map
 
 When you call `.map()` on an RpcPromise, it doesn't execute locally. It **records** the callback, sends it to the server, and **replays** it there. The entire transformation happens where the data lives—in a single round trip.

@@ -53,3 +53,10 @@ See `compat/sql/clickhouse/spikes/` for working prototypes:
 - `do-cost-optimization.ts` - Columnar storage strategies
 - `json-columnar.ts` - Typed JSON column extraction
 - `iceberg-index-accelerator.ts` - Query acceleration over R2
+
+## Related Documentation
+
+- [Storage Architecture](/docs/storage/) - User-facing documentation with tiered storage overview
+- [Hot Tier](/docs/storage/hot-tier) - DO SQLite hot tier documentation
+- [Warm Tier](/docs/storage/warm-tier) - R2 + Iceberg/Parquet warm tier documentation
+- [Cold Tier](/docs/storage/cold-tier) - ClickHouse + R2 Archive cold tier documentation

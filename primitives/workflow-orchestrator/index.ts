@@ -1,8 +1,145 @@
 /**
- * WorkflowOrchestrator
+ * @module workflow-orchestrator
  *
- * A comprehensive workflow orchestration system with DAG execution,
- * retries, compensation, pause/resume, and sub-workflows.
+ * Workflow Orchestrator Primitive - DAG-based workflow execution for the dotdo platform.
+ *
+ * Provides a powerful workflow engine with directed acyclic graph (DAG) execution,
+ * automatic retries, compensation (saga pattern), pause/resume capabilities, and
+ * rich event handling. Built for complex, multi-step business processes.
+ *
+ * ## Features
+ *
+ * - **DAG execution** with parallel step processing
+ * - **Automatic retries** with configurable backoff strategies
+ * - **Compensation handlers** for rollback on failure (saga pattern)
+ * - **Pause/resume** for long-running workflows
+ * - **Step conditions** for conditional execution
+ * - **Input mapping** for step data transformation
+ * - **Workflow timeouts** with cancellation
+ * - **Event triggers** for workflow initiation
+ * - **Fluent builder** for workflow definition
+ *
+ * @example Basic Workflow
+ * ```typescript
+ * import { WorkflowOrchestrator, WorkflowBuilder } from 'dotdo/primitives/workflow-orchestrator'
+ *
+ * const workflow = new WorkflowBuilder('order-processing')
+ *   .name('Order Processing')
+ *   .step('validate', async (ctx) => {
+ *     const order = ctx.inputs.order
+ *     if (!order.items.length) throw new Error('Empty order')
+ *     return { valid: true }
+ *   })
+ *   .step('reserve-inventory', async (ctx) => {
+ *     return await reserveItems(ctx.inputs.order.items)
+ *   }, { dependencies: ['validate'] })
+ *   .step('charge-payment', async (ctx) => {
+ *     return await chargeCard(ctx.inputs.payment)
+ *   }, { dependencies: ['validate'] })
+ *   .step('fulfill', async (ctx) => {
+ *     const inventory = ctx.getStepOutput('reserve-inventory')
+ *     const payment = ctx.getStepOutput('charge-payment')
+ *     return await createFulfillment(inventory, payment)
+ *   }, { dependencies: ['reserve-inventory', 'charge-payment'] })
+ *   .build()
+ *
+ * const orchestrator = new WorkflowOrchestrator()
+ * orchestrator.register(workflow)
+ *
+ * const execution = await orchestrator.execute('order-processing', {
+ *   order: { items: [...] },
+ *   payment: { cardToken: '...' },
+ * })
+ * ```
+ *
+ * @example Compensation for Rollback
+ * ```typescript
+ * const workflow = new WorkflowBuilder('saga-booking')
+ *   .step('book-flight', async (ctx) => {
+ *     return await bookFlight(ctx.inputs.flight)
+ *   }, {
+ *     compensation: async (ctx, output) => {
+ *       await cancelFlight(output.confirmationId)
+ *     },
+ *   })
+ *   .step('book-hotel', async (ctx) => {
+ *     return await bookHotel(ctx.inputs.hotel)
+ *   }, {
+ *     dependencies: ['book-flight'],
+ *     compensation: async (ctx, output) => {
+ *       await cancelHotel(output.reservationId)
+ *     },
+ *   })
+ *   .step('book-car', async (ctx) => {
+ *     // If this fails, book-hotel and book-flight compensations run
+ *     return await bookCar(ctx.inputs.car)
+ *   }, { dependencies: ['book-hotel'] })
+ *   .build()
+ * ```
+ *
+ * @example Conditional Steps
+ * ```typescript
+ * const workflow = new WorkflowBuilder('conditional-workflow')
+ *   .step('check-eligibility', async (ctx) => {
+ *     return { eligible: ctx.inputs.score > 700 }
+ *   })
+ *   .step('premium-offer', async (ctx) => {
+ *     return await createPremiumOffer()
+ *   }, {
+ *     dependencies: ['check-eligibility'],
+ *     condition: (ctx) => ctx.getStepOutput('check-eligibility')?.eligible === true,
+ *   })
+ *   .step('standard-offer', async (ctx) => {
+ *     return await createStandardOffer()
+ *   }, {
+ *     dependencies: ['check-eligibility'],
+ *     condition: (ctx) => ctx.getStepOutput('check-eligibility')?.eligible === false,
+ *   })
+ *   .build()
+ * ```
+ *
+ * @example Retries with Backoff
+ * ```typescript
+ * const workflow = new WorkflowBuilder('resilient-workflow')
+ *   .retry({
+ *     maxAttempts: 3,
+ *     delayMs: 1000,
+ *     backoffMultiplier: 2,
+ *     maxDelayMs: 10000,
+ *   })
+ *   .step('external-api', async (ctx) => {
+ *     return await callExternalApi()
+ *   })
+ *   .build()
+ * ```
+ *
+ * @example Pause and Resume
+ * ```typescript
+ * const execution = await orchestrator.execute('long-workflow', inputs)
+ *
+ * // Pause at any point
+ * await orchestrator.pause(execution.id)
+ *
+ * // Resume later
+ * await orchestrator.resume(execution.id)
+ *
+ * // Or cancel with compensation
+ * await orchestrator.cancel(execution.id)
+ * ```
+ *
+ * @example Event-Triggered Workflows
+ * ```typescript
+ * const workflow = new WorkflowBuilder('event-workflow')
+ *   .trigger({ type: 'event', config: { eventName: 'user.signup' } })
+ *   .step('welcome-email', sendWelcomeEmail)
+ *   .step('provision-account', provisionAccount)
+ *   .build()
+ *
+ * // Trigger via event
+ * const workflowIds = orchestrator.getTriggerManager().matchEvent('user.signup')
+ * ```
+ *
+ * @packageDocumentation
  */
 
 import type {

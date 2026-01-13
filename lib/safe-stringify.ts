@@ -86,7 +86,9 @@ export function safeStringify(value: unknown, options?: SafeStringifyOptions): s
       }
 
       // Handle Date
-      if (obj instanceof Date) return obj.toISOString()
+      if (obj instanceof Date) {
+        return isNaN(obj.getTime()) ? 'Invalid Date' : obj.toISOString()
+      }
 
       // Handle RegExp
       if (obj instanceof RegExp) return obj.toString()
@@ -124,6 +126,11 @@ export function safeStringify(value: unknown, options?: SafeStringifyOptions): s
 
   const serialized = serialize(value, 0)
   const jsonString = JSON.stringify(serialized, null, 2)
+
+  // Handle undefined (JSON.stringify returns undefined for undefined input)
+  if (jsonString === undefined) {
+    return 'null'
+  }
 
   // Final length check
   if (jsonString.length > opts.maxLength) {
@@ -377,7 +384,9 @@ export function safeSerialize(value: unknown, options?: SafeStringifyOptions): u
       }
 
       // Handle Date
-      if (obj instanceof Date) return obj.toISOString()
+      if (obj instanceof Date) {
+        return isNaN(obj.getTime()) ? 'Invalid Date' : obj.toISOString()
+      }
 
       // Handle RegExp
       if (obj instanceof RegExp) return obj.toString()

@@ -1,29 +1,179 @@
 /**
- * StateManager - A comprehensive state management primitive for dotdo
+ * @module state-manager
  *
- * Features:
- * - Redux-like state management with reducers and actions
- * - Middleware support for logging, thunks, and persistence
- * - Combined reducers for modular state slices
- * - Memoized selectors for derived state
- * - Transactions with commit/rollback semantics
- * - Undo/redo with configurable history limit
- * - State snapshots for time-travel debugging
- * - Persistence adapters for state hydration
+ * State Manager Primitive - Redux-like state management for the dotdo platform.
  *
- * @example
+ * Provides predictable state container with middleware support, memoized selectors,
+ * transactional updates, undo/redo time-travel, and persistence. Designed for
+ * both client-side and Durable Object state management.
+ *
+ * ## Features
+ *
+ * - **Redux pattern** with reducers and actions
+ * - **Middleware chain** for logging, async, and persistence
+ * - **Combined reducers** for modular state slices
+ * - **Memoized selectors** for efficient derived state
+ * - **Transactions** with automatic rollback on error
+ * - **Undo/redo** with configurable history limit
+ * - **Snapshots** for time-travel debugging
+ * - **Persistence** adapters for state hydration
+ *
+ * @example Basic State Management
  * ```typescript
- * const reducer = (state = { count: 0 }, action) => {
+ * import { StateManager } from 'dotdo/primitives/state-manager'
+ *
+ * interface State { count: number }
+ * type Action = { type: 'INCREMENT' } | { type: 'DECREMENT' } | { type: 'SET'; value: number }
+ *
+ * const reducer = (state: State = { count: 0 }, action: Action): State => {
  *   switch (action.type) {
  *     case 'INCREMENT': return { count: state.count + 1 }
+ *     case 'DECREMENT': return { count: state.count - 1 }
+ *     case 'SET': return { count: action.value }
  *     default: return state
  *   }
  * }
  *
  * const manager = new StateManager(reducer, { count: 0 })
- * manager.subscribe((state) => console.log(state))
+ *
+ * const unsubscribe = manager.subscribe((state) => {
+ *   console.log('State changed:', state)
+ * })
+ *
  * manager.dispatch({ type: 'INCREMENT' })
+ * console.log(manager.getState()) // { count: 1 }
  * ```
+ *
+ * @example Combined Reducers
+ * ```typescript
+ * import { StateManager, combineReducers } from 'dotdo/primitives/state-manager'
+ *
+ * const counterReducer = (state = 0, action) => {
+ *   switch (action.type) {
+ *     case 'INCREMENT': return state + 1
+ *     default: return state
+ *   }
+ * }
+ *
+ * const todosReducer = (state = [], action) => {
+ *   switch (action.type) {
+ *     case 'ADD_TODO': return [...state, action.payload]
+ *     default: return state
+ *   }
+ * }
+ *
+ * const rootReducer = combineReducers({
+ *   counter: counterReducer,
+ *   todos: todosReducer,
+ * })
+ *
+ * const manager = new StateManager(rootReducer)
+ * ```
+ *
+ * @example Memoized Selectors
+ * ```typescript
+ * import { createSelector } from 'dotdo/primitives/state-manager'
+ *
+ * const selectTodos = (state) => state.todos
+ * const selectFilter = (state) => state.filter
+ *
+ * const selectFilteredTodos = createSelector(
+ *   [selectTodos, selectFilter],
+ *   (todos, filter) => todos.filter((t) => t.status === filter)
+ * )
+ *
+ * // Only recomputes when todos or filter change
+ * const filtered = manager.select(selectFilteredTodos)
+ * ```
+ *
+ * @example Middleware
+ * ```typescript
+ * import { StateManager, loggerMiddleware, thunkMiddleware } from 'dotdo/primitives/state-manager'
+ *
+ * const manager = new StateManager(
+ *   reducer,
+ *   initialState,
+ *   [loggerMiddleware, thunkMiddleware]
+ * )
+ *
+ * // Thunk action for async operations
+ * const fetchData = () => async (dispatch, getState) => {
+ *   dispatch({ type: 'LOADING' })
+ *   const data = await api.fetchData()
+ *   dispatch({ type: 'LOADED', payload: data })
+ * }
+ *
+ * manager.dispatch(fetchData())
+ * ```
+ *
+ * @example Transactions with Rollback
+ * ```typescript
+ * try {
+ *   manager.transaction((dispatch) => {
+ *     dispatch({ type: 'DEBIT', amount: 100 })
+ *     dispatch({ type: 'CREDIT', account: 'other', amount: 100 })
+ *     // If any dispatch throws, all changes are rolled back
+ *   })
+ * } catch (error) {
+ *   console.log('Transaction failed, state unchanged')
+ * }
+ * ```
+ *
+ * @example Undo/Redo
+ * ```typescript
+ * const manager = new StateManager(reducer, initialState, [], {
+ *   historyLimit: 50,
+ * })
+ *
+ * manager.dispatch({ type: 'INCREMENT' })
+ * manager.dispatch({ type: 'INCREMENT' })
+ *
+ * console.log(manager.getState().count) // 2
+ *
+ * manager.undo()
+ * console.log(manager.getState().count) // 1
+ *
+ * manager.redo()
+ * console.log(manager.getState().count) // 2
+ *
+ * if (manager.canUndo()) manager.undo()
+ * ```
+ *
+ * @example Snapshots and Restore
+ * ```typescript
+ * // Create a snapshot for debugging
+ * const snapshot = manager.snapshot()
+ * console.log('Snapshot ID:', snapshot.id, 'at', new Date(snapshot.timestamp))
+ *
+ * // Make changes
+ * manager.dispatch({ type: 'DANGEROUS_ACTION' })
+ *
+ * // Restore to snapshot
+ * manager.restore(snapshot)
+ * ```
+ *
+ * @example Persistence
+ * ```typescript
+ * const localStorageAdapter = {
+ *   save: async (key, state) => localStorage.setItem(key, JSON.stringify(state)),
+ *   load: async (key) => {
+ *     const data = localStorage.getItem(key)
+ *     return data ? JSON.parse(data) : null
+ *   },
+ * }
+ *
+ * const manager = new StateManager(reducer, initialState, [], {
+ *   persistence: { adapter: localStorageAdapter, key: 'app-state' },
+ * })
+ *
+ * // Hydrate from storage
+ * await manager.hydrate()
+ *
+ * // Persist current state
+ * await manager.persist()
+ * ```
+ *
+ * @packageDocumentation
  */
 
 export * from './types'

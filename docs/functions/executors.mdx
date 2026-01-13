@@ -1,146 +1,117 @@
 ---
 title: Function Executors
-description: Deep dive into the four function executor types - Code, Generative, Agentic, and Human
+description: Unified execution patterns for code, AI, and human-in-the-loop functions
 ---
 
 # Function Executors
 
-Function executors are the runtime engines that power dotdo's four function types. Each executor provides specialized execution semantics, error handling, and lifecycle management for its function type.
+Function Executors are the core execution engine for dotdo's function system. They provide a unified interface for running functions across four distinct execution strategies, each optimized for different use cases.
 
-## Overview
+## The Executor Pattern
 
-| Executor | Purpose | Use Case |
-|----------|---------|----------|
-| `CodeFunctionExecutor` | V8 isolate execution | Deterministic business logic |
-| `GenerativeFunctionExecutor` | LLM model calls | AI-powered text generation |
-| `AgenticFunctionExecutor` | Multi-step AI with tools | Autonomous task orchestration |
-| `HumanFunctionExecutor` | Human-in-the-loop | Approvals, manual input |
+The executor pattern in dotdo follows a consistent architecture:
 
-All executors share a common base class (`BaseFunctionExecutor`) that provides:
-
-- **Retry logic** with configurable backoff strategies
-- **Event emission** for observability
-- **State management** via Durable Object storage
-- **Middleware pipeline** for cross-cutting concerns
-- **Timeout handling** with cancellation support
-
-## BaseFunctionExecutor
-
-The abstract base class extracts common patterns used by all executor types.
-
-### Common Configuration
+1. **Unified Interface**: All executors share common patterns for initialization, execution, and result handling
+2. **Durable Object Integration**: Executors operate within Durable Object contexts for state persistence
+3. **Retry and Timeout**: Built-in retry logic with configurable backoff strategies
+4. **Event Emission**: Lifecycle events for observability and debugging
+5. **Metrics Collection**: Duration, resource usage, and execution statistics
 
 ```typescript
-interface BaseExecutorOptions {
-  state: DurableObjectState    // DO state for persistence
-  env: Record<string, unknown> // Environment bindings
-  logger?: Logger              // Optional custom logger
-  onEvent?: EventHandler       // Event callback
-  middleware?: ExecutionMiddleware[]  // Middleware stack
+// All executors follow this pattern
+const result = await executor.execute(input, options)
+
+if (result.success) {
+  console.log('Result:', result.result)
+  console.log('Duration:', result.duration, 'ms')
+  console.log('Metrics:', result.metrics)
+} else {
+  console.error('Error:', result.error)
 }
 ```
 
-### Retry Strategies
+## Executor Types
 
-All executors support configurable retry logic:
-
-```typescript
-interface RetryConfig {
-  maxAttempts: number           // Total execution attempts
-  delay: number                 // Base delay in milliseconds
-  backoff?: 'fixed' | 'exponential' | 'exponential-jitter' | 'linear'
-  increment?: number            // For linear backoff
-  maxDelay?: number             // Cap maximum delay
-  retryIf?: (error: Error) => boolean  // Custom retry predicate
-  retryOnTimeout?: boolean      // Retry after timeout errors
-  onRetry?: (info: RetryInfo) => void  // Retry callback
-}
-```
-
-**Backoff Strategies:**
-
-| Strategy | Formula | Use Case |
-|----------|---------|----------|
-| `fixed` | `delay` | Consistent wait between retries |
-| `exponential` | `delay * 2^attempt` | Backing off for rate limits |
-| `exponential-jitter` | `delay * 2^attempt * random(0.5, 1.5)` | Distributed systems |
-| `linear` | `delay + increment * attempt` | Gradual increase |
-
-### Middleware Pipeline
-
-Add cross-cutting concerns to any executor:
-
-```typescript
-import { BaseFunctionExecutor } from 'dotdo/executors'
-
-const executor = new CodeFunctionExecutor(options)
-
-// Add middleware
-executor
-  .use(loggingMiddleware)
-  .use(authMiddleware)
-  .use(rateLimitMiddleware)
-
-// Middleware signature
-type ExecutionMiddleware = (
-  ctx: MiddlewareContext,
-  next: () => Promise<unknown>
-) => Promise<unknown>
-```
-
----
+| Executor | Best For | Speed | Cost | Use When |
+|----------|----------|-------|------|----------|
+| `CodeFunctionExecutor` | Deterministic logic | Fastest | Lowest | You have explicit rules or transformations |
+| `GenerativeFunctionExecutor` | Content generation | Fast | Medium | You need AI for single completions |
+| `AgenticFunctionExecutor` | Complex reasoning | Medium | Higher | You need AI with tools in a loop |
+| `HumanFunctionExecutor` | Judgment calls | Slowest | Highest | You need human review or approval |
+| `CascadeExecutor` | Automatic escalation | Varies | Optimized | You want fallback between types |
+| `ParallelStepExecutor` | Concurrent steps | Fast | Varies | You have independent parallel work |
 
 ## CodeFunctionExecutor
 
-Executes TypeScript/JavaScript handlers in a controlled V8 isolate environment with sandboxing, timeouts, and resource limits.
+Executes TypeScript/JavaScript handlers in a controlled, optionally sandboxed environment.
 
 ### Features
 
-- **Context injection** - env, state, services, logging, events
-- **Sandboxed execution** - restricted globals for security
-- **Timeout handling** - configurable execution limits
-- **Retry logic** - exponential backoff, fixed, or linear strategies
-- **Streaming output** - async iterator support
-- **Resource limits** - memory, CPU time, output size
+- Sandboxed execution with restricted globals
+- Timeout and cancellation via AbortSignal
+- Retry logic with four backoff strategies
+- Resource limits (memory, CPU, output size)
+- Input/output schema validation
+- Streaming output support
 
 ### Basic Usage
 
 ```typescript
-import { CodeFunctionExecutor } from 'dotdo/executors'
+import { CodeFunctionExecutor } from 'lib/executors/CodeFunctionExecutor'
 
 const executor = new CodeFunctionExecutor({
-  state: ctx.state,
-  env: ctx.env,
+  state: this.state,           // Durable Object state
+  env: this.env,               // Environment bindings
   services: {
-    ai: { generate: aiGenerate },
-    kv: { get: kvGet, put: kvPut },
-    db: { query: dbQuery },
-    queue: { send: queueSend },
-    fetch: globalThis.fetch
+    ai: this.ai,               // AI service
+    kv: this.kv,               // KV storage
+    db: this.db,               // Database
+    queue: this.queue,         // Queue
+    fetch: fetch,              // Fetch API
   },
   logger: console,
-  onEvent: (event, data) => console.log(event, data)
+  onEvent: (event, data) => {
+    console.log(`[${event}]`, data)
+  },
 })
 
 const result = await executor.execute(
   async (input, ctx) => {
-    const { items } = input as { items: Array<{ price: number; qty: number }> }
-    return items.reduce((sum, item) => sum + item.price * item.qty, 0)
+    ctx.log.info('Processing order', { orderId: input.orderId })
+
+    // Access services through context
+    const order = await ctx.services.db.query(
+      'SELECT * FROM orders WHERE id = ?',
+      [input.orderId]
+    )
+
+    // Persist state
+    await ctx.state.put(`order:${input.orderId}:processed`, true)
+
+    return { order: order[0], processed: true }
   },
-  { items: [{ price: 10, qty: 2 }] },
-  { timeout: 5000, sandboxed: true }
+  { orderId: 'ORD-123' },
+  {
+    timeout: 5000,
+    sandboxed: true,
+    retry: {
+      maxAttempts: 3,
+      delay: 100,
+      backoff: 'exponential',
+    },
+  }
 )
 ```
 
 ### Execution Context
 
-Every handler receives an `ExecutionContext`:
+Handlers receive a rich execution context:
 
 ```typescript
 interface ExecutionContext {
-  functionId: string
-  invocationId: string
-  env: Record<string, string>  // Read-only environment
+  functionId: string          // Function identifier
+  invocationId: string        // Unique invocation ID
+  env: Record<string, string> // Read-only environment variables
   state: {
     get: <T>(key: string) => Promise<T | null>
     put: <T>(key: string, value: T) => Promise<void>
@@ -152,278 +123,181 @@ interface ExecutionContext {
     kv: { get, put }
     db: { query }
     queue: { send }
-    fetch: (url, init?) => Promise<Response>
+    fetch: typeof fetch
   }
   log: { debug, info, warn, error }
   emit: (event: string, data: unknown) => Promise<void>
-  signal: AbortSignal
+  signal: AbortSignal         // Cancellation signal
 }
 ```
-
-### Execution Options
-
-```typescript
-interface ExecutionOptions {
-  functionId?: string           // Custom function ID
-  timeout?: number              // Execution timeout (default: 30000ms)
-  sandboxed?: boolean           // Enable sandbox (default: true)
-  exposeEnv?: string[]          // Whitelist env vars in sandbox
-  retry?: RetryConfig           // Retry configuration
-  signal?: AbortSignal          // Cancellation signal
-  streaming?: boolean           // Enable streaming output
-  resourceLimits?: {
-    maxMemory?: number          // Memory limit (default: 128MB)
-    maxCpuTime?: number         // CPU time limit in ms
-    maxOutputSize?: number      // Output size limit (default: 10MB)
-  }
-  inputSchema?: JSONSchema      // Validate input
-  outputSchema?: JSONSchema     // Validate output
-}
-```
-
-### Sandbox Security
-
-The sandbox restricts access to dangerous globals:
-
-**Restricted (blocked):**
-- `require`, `process`, `global`, `globalThis`
-- `eval`, `Function` (dynamic code execution)
-- Prototype modification (`__proto__`, `Object.prototype`)
-
-**Allowed:**
-- Standard JavaScript: `JSON`, `Math`, `Date`, `Array`, `Object`, etc.
-- Async primitives: `Promise`, `setTimeout`, `queueMicrotask`
-- Web APIs: `URL`, `fetch`, `Response`, `Request`, `Headers`
-- Typed arrays: `Uint8Array`, `ArrayBuffer`, `TextEncoder`
-- Crypto: `crypto`
 
 ### Streaming Execution
 
-For long-running operations:
-
 ```typescript
 const stream = await executor.executeStreaming(
-  async function* (input, ctx) {
+  async (input, ctx) => {
     for (const item of input.items) {
-      const processed = await processItem(item)
-      yield { type: 'chunk', data: processed }
+      // Emit progress chunks
+      await ctx.emit('stream.chunk', { data: `Processing ${item.name}` })
     }
+    return { total: input.items.length }
   },
-  { items: [...] }
+  { items: products }
 )
 
 for await (const chunk of stream) {
   if (chunk.type === 'chunk') {
-    console.log('Received:', chunk.data)
-  }
-  if (chunk.type === 'result') {
-    console.log('Final:', chunk.value)
+    console.log('Progress:', chunk.data)
+  } else if (chunk.type === 'result') {
+    console.log('Final result:', chunk.value)
   }
 }
-
-// Get final result
-const result = stream.result
 ```
 
-### Error Types
+### Retry Strategies
+
+Four backoff strategies are available:
 
 ```typescript
-import {
-  ExecutionTimeoutError,
-  ExecutionSandboxError,
-  ExecutionResourceError,
-  ExecutionRetryExhaustedError,
-  ExecutionCancelledError,
-  ExecutionValidationError
-} from 'dotdo/executors/CodeFunctionExecutor'
+// Fixed delay between retries
+{ backoff: 'fixed', delay: 100 }           // 100ms, 100ms, 100ms
+
+// Exponential backoff (doubles each retry)
+{ backoff: 'exponential', delay: 100 }     // 100ms, 200ms, 400ms
+
+// Exponential with random jitter (prevents thundering herd)
+{ backoff: 'exponential-jitter', delay: 100 }  // ~100ms, ~200ms, ~400ms
+
+// Linear increase
+{ backoff: 'linear', delay: 100, increment: 50 }  // 100ms, 150ms, 200ms
 ```
 
-| Error | When Thrown |
-|-------|-------------|
-| `ExecutionTimeoutError` | Function exceeded timeout |
-| `ExecutionSandboxError` | Accessed restricted globals |
-| `ExecutionResourceError` | Memory, CPU, or output limit exceeded |
-| `ExecutionRetryExhaustedError` | All retry attempts failed |
-| `ExecutionCancelledError` | AbortSignal triggered |
-| `ExecutionValidationError` | Input/output schema validation failed |
+Full retry configuration:
 
----
+```typescript
+const result = await executor.execute(handler, input, {
+  retry: {
+    maxAttempts: 5,
+    delay: 100,
+    backoff: 'exponential-jitter',
+    maxDelay: 10000,           // Cap at 10 seconds
+    retryOnTimeout: false,     // Don't retry timeouts
+    retryIf: (error) => {      // Custom retry condition
+      return error.message.includes('transient')
+    },
+    onRetry: ({ attempt, delay, error }) => {
+      console.log(`Retry ${attempt} after ${delay}ms: ${error.message}`)
+    },
+  },
+})
+```
+
+### Sandbox Security
+
+When `sandboxed: true`, the executor restricts access to dangerous globals:
+
+```typescript
+// These are blocked in sandboxed mode:
+// - require, process, global, globalThis
+// - eval, Function
+// - __proto__, Object.prototype modifications
+
+// These are allowed:
+// - JSON, Math, Date, Array, Object, String, Number
+// - Promise, Set, Map, Symbol, Proxy, Reflect
+// - Error classes, RegExp, typed arrays
+// - URL, URLSearchParams, fetch, Response, Request
+// - crypto, TextEncoder, TextDecoder
+// - setTimeout, clearTimeout, setInterval, clearInterval
+```
 
 ## GenerativeFunctionExecutor
 
-Calls LLM models (Claude, GPT, etc.) with prompt templates, structured output, and streaming support.
+Executes AI-powered generation with language models.
 
 ### Features
 
-- **Multi-model support** - Claude, GPT, and other providers
-- **Prompt templates** - Variable substitution with `{{variable}}`
-- **Structured output** - JSON Schema validation
-- **Streaming** - Real-time token streaming
-- **Tool calling** - Model-driven tool execution
-- **Conversation history** - Persistent context across calls
-- **Rate limit handling** - Automatic retry with backoff
+- Prompt template substitution with `{{variables}}`
+- Structured output with JSON schema validation
+- Streaming support
+- Tool execution
+- Conversation history management
+- Retry logic for rate limits
 
 ### Basic Usage
 
 ```typescript
-import { GenerativeFunctionExecutor } from 'dotdo/executors'
+import { GenerativeFunctionExecutor } from 'lib/executors/GenerativeFunctionExecutor'
 
 const executor = new GenerativeFunctionExecutor({
-  state: ctx.state,
-  env: ctx.env,
-  aiService: {
-    generate: aiGenerate,
-    stream: aiStream,
-    generateWithTools: aiGenerateWithTools
-  },
-  onEvent: (event, data) => console.log(event, data)
+  state: this.state,
+  env: this.env,
+  aiService: this.ai,
+  onEvent: (event, data) => console.log(event, data),
 })
 
 const result = await executor.execute({
   model: 'claude-sonnet-4-20250514',
-  prompt: 'Summarize this article: {{text}}',
-  variables: { text: 'Long article content...' },
+  prompt: 'Summarize this article in 3 bullet points: {{text}}',
+  variables: { text: articleContent },
   temperature: 0.7,
-  maxTokens: 500
+  maxTokens: 500,
 })
-```
-
-### Execution Options
-
-```typescript
-interface GenerativeOptions {
-  model: string                 // Required: model identifier
-  prompt?: string | ((input) => string)  // Prompt template or function
-  messages?: Message[]          // Chat messages (alternative to prompt)
-  systemPrompt?: string         // System message
-  variables?: Record<string, unknown>    // Template variables
-
-  // Model parameters
-  temperature?: number          // 0-2, default: 1
-  maxTokens?: number            // Max output tokens
-  topP?: number                 // 0-1, nucleus sampling
-  topK?: number                 // Top-k sampling
-  stopSequences?: string[]      // Stop generation sequences
-  presencePenalty?: number      // -2 to 2
-  frequencyPenalty?: number     // -2 to 2
-
-  // Structured output
-  schema?: JSONSchema           // Output schema validation
-  coerceTypes?: boolean         // Coerce string "true" -> boolean true
-  lenientParsing?: boolean      // Handle trailing commas, etc.
-  schemaRetries?: number        // Retry on schema failure
-
-  // Tool calling
-  tools?: ToolDefinition[]      // Available tools
-  parallelToolCalls?: boolean   // Execute tools in parallel
-  maxToolIterations?: number    // Max tool call rounds (default: 10)
-
-  // Reliability
-  timeout?: number              // Request timeout
-  maxRetries?: number           // Retry attempts
-  retryDelay?: number           // Base retry delay
-  retryBackoff?: 'linear' | 'exponential'
-  retryOnRateLimit?: boolean    // Retry on 429 errors
-  retryOnTimeout?: boolean      // Retry on timeouts
-
-  // Conversation
-  conversationId?: string       // Persist conversation
-  loadHistory?: boolean         // Load previous messages
-  saveHistory?: boolean         // Save to conversation history
-}
-```
-
-### Prompt Templates
-
-Variable substitution with `{{variable}}` syntax:
-
-```typescript
-const result = await executor.execute({
-  model: 'claude-sonnet-4-20250514',
-  prompt: `Translate the following from {{sourceLang}} to {{targetLang}}:
-
-{{text}}`,
-  variables: {
-    sourceLang: 'English',
-    targetLang: 'Spanish',
-    text: 'Hello, world!'
-  }
-})
-```
-
-**Nested access:**
-```typescript
-prompt: 'User {{user.name}} from {{user.address.city}}'
-variables: {
-  user: {
-    name: 'Alice',
-    address: { city: 'New York' }
-  }
-}
 ```
 
 ### Structured Output
 
-Validate and parse JSON responses:
-
 ```typescript
-const result = await executor.execute<{
-  sentiment: 'positive' | 'negative' | 'neutral'
-  confidence: number
-  keywords: string[]
-}>({
+const result = await executor.execute({
   model: 'claude-sonnet-4-20250514',
-  prompt: 'Analyze sentiment: {{text}}',
-  variables: { text: 'Great product!' },
+  prompt: 'Extract entities from: {{text}}',
+  variables: { text: 'John works at Acme Corp in New York' },
   schema: {
     type: 'object',
     properties: {
-      sentiment: { type: 'string', enum: ['positive', 'negative', 'neutral'] },
-      confidence: { type: 'number' },
-      keywords: { type: 'array', items: { type: 'string' } }
+      people: { type: 'array', items: { type: 'string' } },
+      organizations: { type: 'array', items: { type: 'string' } },
+      locations: { type: 'array', items: { type: 'string' } },
     },
-    required: ['sentiment', 'confidence', 'keywords']
+    required: ['people', 'organizations', 'locations'],
   },
-  schemaRetries: 2  // Retry with feedback if validation fails
+  schemaRetries: 2,      // Retry with feedback if schema validation fails
+  coerceTypes: true,     // Coerce string "123" to number 123
+  lenientParsing: true,  // Handle trailing commas, markdown code blocks
 })
 
-// result.result.sentiment === 'positive'
+// result = {
+//   people: ['John'],
+//   organizations: ['Acme Corp'],
+//   locations: ['New York']
+// }
 ```
 
 ### Streaming
-
-Real-time token streaming:
 
 ```typescript
 const stream = await executor.executeStreaming({
   model: 'claude-sonnet-4-20250514',
   prompt: 'Write a story about {{topic}}',
-  variables: { topic: 'a robot' }
+  variables: { topic: 'space exploration' },
 })
 
 for await (const chunk of stream) {
   if (chunk.type === 'text') {
     process.stdout.write(chunk.text)
-  }
-  if (chunk.type === 'done') {
-    console.log('\nTokens used:', chunk.usage)
+  } else if (chunk.type === 'done') {
+    console.log('\n\nTokens used:', chunk.usage)
   }
 }
-
-// Convert to full text or JSON
-const text = await stream.toText()
-const json = await stream.toJSON<StoryOutput>()
 ```
 
-### Tool Calling
-
-Enable model-driven tool execution:
+### Tool Execution
 
 ```typescript
 const result = await executor.execute({
   model: 'claude-sonnet-4-20250514',
   prompt: 'What is the weather in {{city}}?',
-  variables: { city: 'Tokyo' },
+  variables: { city: 'San Francisco' },
   tools: [
     {
       name: 'get_weather',
@@ -431,538 +305,540 @@ const result = await executor.execute({
       inputSchema: {
         type: 'object',
         properties: {
-          city: { type: 'string' }
+          city: { type: 'string' },
         },
-        required: ['city']
+        required: ['city'],
       },
-      execute: async ({ city }) => {
-        const response = await fetch(`https://api.weather.com/v1/${city}`)
-        return response.json()
-      }
-    }
+      execute: async (input) => {
+        return { temperature: 65, conditions: 'sunny' }
+      },
+    },
   ],
+  maxToolIterations: 5,
   parallelToolCalls: true,
-  maxToolIterations: 5
 })
 ```
 
-### Error Types
-
-```typescript
-import {
-  GenerativeModelError,
-  GenerativeValidationError,
-  GenerativeRateLimitError,
-  GenerativeTimeoutError,
-  GenerativeAbortError,
-  GenerativeSchemaError,
-  GenerativeToolError
-} from 'dotdo/executors/GenerativeFunctionExecutor'
-```
-
----
-
 ## AgenticFunctionExecutor
 
-Orchestrates multi-step AI tasks with tool access, iteration control, and loop detection.
+Orchestrates multi-step AI agents with tool access and iteration limits.
 
 ### Features
 
-- **Agent loop** - Think -> Act -> Observe cycle
-- **Tool orchestration** - Discovery, validation, and execution
-- **Iteration limits** - Prevent runaway agents
-- **Loop detection** - Detect stuck or cycling agents
-- **Step callbacks** - Observe each agent step
-- **Parallel tool calls** - Execute independent tools concurrently
-- **State management** - Persistent memory across steps
+- Agent runner with tool loop
+- Tool discovery and execution
+- Iteration limits and convergence detection
+- Step callbacks for observability
+- Parallel tool execution
+- Memory/conversation history
 
 ### Basic Usage
 
 ```typescript
-import { AgenticFunctionExecutor } from 'dotdo/executors'
+import { AgenticFunctionExecutor } from 'lib/executors/AgenticFunctionExecutor'
 
 const executor = new AgenticFunctionExecutor({
-  state: ctx.state,
-  env: ctx.env,
-  ai: {
-    complete: async (params) => {
-      // Call your AI provider
-      return { text: '...', toolCalls: [], stopReason: 'end_turn' }
-    }
-  },
+  state: this.state,
+  env: this.env,
+  ai: this.ai,
   tools: {
-    search_code: {
-      name: 'search_code',
-      description: 'Search for code patterns in the codebase',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search query' }
-        },
-        required: ['query']
-      },
-      execute: async ({ query }, ctx) => {
-        return searchCodebase(query)
-      }
+    web_search: {
+      name: 'web_search',
+      description: 'Search the web',
+      parameters: { type: 'object', properties: { query: { type: 'string' } } },
+      execute: async (params) => searchWeb(params.query),
     },
-    edit_file: {
-      name: 'edit_file',
-      description: 'Edit a file in the codebase',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string' },
-          content: { type: 'string' }
-        },
-        required: ['path', 'content']
-      },
-      execute: async ({ path, content }, ctx) => {
-        return editFile(path, content)
-      }
-    }
+    file_read: {
+      name: 'file_read',
+      description: 'Read a file',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      execute: async (params) => readFile(params.path),
+    },
   },
-  onEvent: (event, data) => console.log(event, data)
+  onEvent: (event, data) => console.log(event, data),
 })
-```
 
-### Execution Options
-
-```typescript
-interface ExecutionOptions {
-  goal: string                  // What the agent should accomplish
-  model: string                 // Model to use for reasoning
-  input?: unknown               // Additional input data
-  systemPrompt?: string         // Custom system prompt
-  tools?: string[]              // Which tools to enable
-  maxIterations?: number        // Iteration limit (default: 10)
-  authorizedTools?: string[]    // Pre-authorized tools
-  integrations?: Record<string, Integration>  // External integrations
-
-  // Callbacks
-  onStep?: (step: AgentStep) => void | Promise<void>
-  onToolCall?: (call: ToolCall, ctx: AgentContext) => ToolCall | null | Promise<...>
-  onToolResult?: (result: ToolResult) => void | Promise<void>
-  onComplete?: (result: AgentResult) => void | Promise<void>
-
-  // Reliability
-  signal?: AbortSignal          // Cancellation
-  detectLoops?: boolean         // Enable loop detection
-  loopThreshold?: number        // Repeated calls before error (default: 3)
-  parallelToolCalls?: boolean   // Execute tools in parallel
-  maxConcurrency?: number       // Parallel tool limit
-  aiRetry?: RetryConfig         // AI call retry config
-
-  // Context
-  maxContextTokens?: number     // Limit context window
-  conversationHistory?: Message[]  // Pre-seed conversation
-  outputSchema?: JSONSchema     // Structured final output
-}
+const result = await executor.execute({
+  goal: 'Research TypeScript best practices and summarize key points',
+  model: 'claude-sonnet-4-20250514',
+  tools: ['web_search', 'file_read'],
+  maxIterations: 15,
+  systemPrompt: 'You are a senior software engineer conducting research.',
+  onStep: async (step) => {
+    console.log(`Step ${step.iteration}: ${step.type}`)
+    if (step.thought) console.log(`  Thought: ${step.thought}`)
+    if (step.toolCalls) console.log(`  Tools: ${step.toolCalls.map(t => t.name).join(', ')}`)
+  },
+})
 ```
 
 ### Agent Steps
 
-Each iteration produces an `AgentStep`:
+The agent emits steps as it progresses:
 
 ```typescript
 interface AgentStep {
   iteration: number
   type: 'thinking' | 'tool_call' | 'tool_result' | 'final_answer'
-  thought?: string              // Agent's reasoning
-  toolCalls?: ToolCall[]        // Tools being called
-  toolResults?: ToolResult[]    // Results from tool execution
-  answer?: string               // Final answer (if complete)
+  thought?: string
+  toolCalls?: ToolCall[]
+  toolResults?: ToolResult[]
+  answer?: string
   timestamp: Date
   duration?: number
 }
 ```
 
-### Tool Definition
-
-```typescript
-interface ToolDefinition {
-  name: string
-  description: string
-  parameters: {
-    type: string
-    properties?: Record<string, PropertySchema>
-    required?: string[]
-  }
-  execute: (params: Record<string, unknown>, ctx: AgentContext) => Promise<unknown>
-  requiresAuthorization?: boolean  // Needs explicit authorization
-  retryConfig?: {
-    maxRetries: number
-    delay: number
-  }
-}
-```
-
-### Agent Context
-
-Tools receive an `AgentContext`:
-
-```typescript
-interface AgentContext {
-  agentId: string
-  invocationId: string
-  currentIteration: number
-  maxIterations: number
-  state: {
-    get: <T>(key: string) => Promise<T | null>
-    set: <T>(key: string, value: T) => Promise<void>
-    delete: (key: string) => Promise<boolean>
-    getAll: () => Promise<Record<string, unknown>>
-  }
-  ai: AIService
-  log: Logger
-  emit: (event: string, data: unknown) => Promise<void>
-  signal: AbortSignal
-  integration?: { provider: string; credentials?: Record<string, unknown> }
-}
-```
-
-### Example: Code Review Agent
-
-```typescript
-const result = await executor.execute({
-  goal: 'Review the pull request and provide feedback',
-  model: 'claude-sonnet-4-20250514',
-  input: { prNumber: 42 },
-  systemPrompt: `You are a senior code reviewer.
-Check for:
-- Code style and best practices
-- Potential bugs or security issues
-- Test coverage`,
-  tools: ['get_pr_diff', 'get_file', 'list_files', 'add_comment'],
-  maxIterations: 20,
-  onStep: (step) => {
-    if (step.type === 'thinking') {
-      console.log('Agent thinking:', step.thought)
-    }
-    if (step.type === 'tool_call') {
-      console.log('Calling tools:', step.toolCalls?.map(t => t.name))
-    }
-  },
-  detectLoops: true,
-  loopThreshold: 3
-})
-
-console.log('Review complete:', result.result)
-console.log('Iterations:', result.iterations)
-console.log('Tool calls:', result.toolCallCount)
-```
-
 ### Loop Detection
 
-Prevent agents from repeating the same actions:
+Prevent agents from getting stuck:
 
 ```typescript
 const result = await executor.execute({
-  goal: 'Find and fix the bug',
+  goal: 'Complete the task',
   model: 'claude-sonnet-4-20250514',
-  tools: ['search_code', 'run_tests', 'edit_file'],
-  detectLoops: true,
-  loopThreshold: 3  // Error after 3 identical tool calls
+  tools: ['search', 'read'],
+  detectLoops: true,      // Enable loop detection
+  loopThreshold: 3,       // Fail after 3 identical tool calls
+})
+```
+
+### Tool Authorization
+
+Control which tools can be executed:
+
+```typescript
+const result = await executor.execute({
+  goal: 'Send a report',
+  model: 'claude-sonnet-4-20250514',
+  tools: ['email_send', 'slack_post'],
+  authorizedTools: ['slack_post'],  // Only allow Slack
+  integrations: {
+    slack: { provider: 'slack', credentials: { token: '...' } },
+  },
+})
+```
+
+## HumanFunctionExecutor
+
+Queues tasks for human input through notification channels.
+
+### Features
+
+- Multi-channel support (Slack, email, in-app)
+- Structured forms for data collection
+- Timeout and default responses
+- Escalation chains
+- Approval workflows (sequential, parallel, conditional)
+- Response validation
+
+### Basic Usage
+
+```typescript
+import { HumanFunctionExecutor } from 'lib/executors/HumanFunctionExecutor'
+
+const executor = new HumanFunctionExecutor({
+  state: this.state,
+  env: this.env,
+  channels: {
+    slack: slackChannel,
+    email: emailChannel,
+  },
+  notificationService: this.notifications,
+  onEvent: (event, data) => console.log(event, data),
 })
 
-if (result.error instanceof AgentConvergenceError) {
-  console.log('Agent got stuck in a loop')
+const result = await executor.execute({
+  prompt: 'Approve refund of ${{amount}} for customer {{customerId}}',
+  input: { amount: 150.00, customerId: 'CUST-456' },
+  channel: 'slack',
+  timeout: 14400000,  // 4 hours
+  actions: [
+    { value: 'approve', label: 'Approve', style: 'primary' },
+    { value: 'reject', label: 'Reject', style: 'danger' },
+  ],
+})
+
+if (result.success) {
+  console.log(`Decision: ${result.response.action} by ${result.respondedBy}`)
 }
 ```
 
-### Error Types
+### Form Fields
+
+Collect structured data from humans:
 
 ```typescript
+const result = await executor.execute({
+  prompt: 'Review and classify this support ticket',
+  channel: 'in-app',
+  timeout: 3600000,
+  form: {
+    fields: [
+      {
+        name: 'category',
+        type: 'select',
+        label: 'Category',
+        required: true,
+        options: ['billing', 'technical', 'general'],
+      },
+      {
+        name: 'priority',
+        type: 'select',
+        label: 'Priority',
+        required: true,
+        options: ['low', 'medium', 'high', 'critical'],
+      },
+      {
+        name: 'notes',
+        type: 'text',
+        label: 'Notes',
+        required: false,
+      },
+      {
+        name: 'escalate',
+        type: 'boolean',
+        label: 'Escalate to manager',
+        default: false,
+      },
+    ],
+  },
+})
+```
+
+### Escalation
+
+Automatically escalate if no response:
+
+```typescript
+const result = await executor.execute({
+  prompt: 'Approve contract renewal',
+  channel: 'slack',
+  timeout: 28800000,    // 8 hours total
+  escalation: {
+    timeout: 7200000,   // First escalation after 2 hours
+    to: 'manager-channel',
+    next: {
+      timeout: 14400000,  // Second escalation after 4 more hours
+      to: 'vp-channel',
+    },
+  },
+})
+```
+
+### Approval Workflows
+
+Three workflow types for complex approvals:
+
+```typescript
+// Sequential: Each level must approve before the next
+const result = await executor.execute({
+  prompt: 'Approve large purchase order',
+  channel: 'slack',
+  approval: {
+    type: 'sequential',
+    levels: [
+      { name: 'manager', users: ['manager@company.com'] },
+      { name: 'director', users: ['director@company.com'] },
+      { name: 'vp', users: ['vp@company.com'] },
+    ],
+  },
+})
+
+// Parallel: Any N of M must approve
+const result = await executor.execute({
+  prompt: 'Approve policy change',
+  channel: 'slack',
+  approval: {
+    type: 'parallel',
+    users: ['alice@company.com', 'bob@company.com', 'carol@company.com'],
+    requiredApprovals: 2,  // 2 of 3 must approve
+  },
+})
+
+// Conditional: Route based on input
+const result = await executor.execute({
+  prompt: 'Approve expense',
+  channel: 'slack',
+  input: { amount: 5000 },
+  approval: {
+    type: 'conditional',
+    conditions: [
+      { when: (input) => input.amount < 1000, users: ['manager@company.com'] },
+      { when: (input) => input.amount < 10000, users: ['director@company.com'] },
+      { when: (input) => true, users: ['cfo@company.com'], sequential: true },
+    ],
+  },
+})
+```
+
+## CascadeExecutor
+
+Automatically escalates through function types on failure.
+
+### Cascade Order
+
+The cascade tries handlers in order of speed/cost:
+
+1. **Code** - Fastest, cheapest, deterministic
+2. **Generative** - AI inference, single call
+3. **Agentic** - AI + tools, multi-step
+4. **Human** - Slowest, most expensive, guaranteed judgment
+
+### Basic Usage
+
+```typescript
+import { CascadeExecutor } from 'lib/executors/CascadeExecutor'
+
+const executor = new CascadeExecutor({
+  state: this.state,
+  env: this.env,
+  handlers: {
+    code: async (input, ctx) => {
+      // Try deterministic logic first
+      if (canComputeDeterministically(input)) {
+        return computeResult(input)
+      }
+      throw new Error('Cannot compute deterministically')
+    },
+    generative: async (input, ctx) => {
+      // Fall back to AI
+      return await this.ai.generate({
+        model: 'claude-sonnet-4-20250514',
+        prompt: `Process: ${JSON.stringify(input)}`,
+      })
+    },
+    human: async (input, ctx) => {
+      // Last resort: ask a human
+      return await requestHumanInput(input)
+    },
+  },
+})
+
+const result = await executor.execute({
+  input: { query: 'complex decision' },
+  handlers: executor.handlers,
+})
+
+console.log(`Resolved by: ${result.method}`)  // 'code', 'generative', 'agentic', or 'human'
+console.log('Cascade path:', result.cascade.steps)
+```
+
+### Explicit Type Override
+
+Skip the cascade and use a specific type:
+
+```typescript
+// Force human review
+const result = await executor.execute({
+  input: { contract: 'important-contract' },
+  type: 'human',  // Skip code/generative/agentic
+  handlers: { human: humanHandler },
+})
+
+// Start from generative (skip code)
+const result = await executor.execute({
+  input: { query: 'creative task' },
+  startFrom: 'generative',  // Skip code, try generative -> agentic -> human
+  handlers: allHandlers,
+})
+```
+
+### Event Context (5W+H)
+
+Track the full context of execution:
+
+```typescript
+const result = await executor.execute({
+  input: { orderId: 'ORD-123' },
+  handlers: myHandlers,
+  eventContext: {
+    actor: 'system',
+    object: 'order',
+    type: 'Order',
+    verb: 'processed',
+    ns: 'commerce',
+    location: 'us-west-2',
+  },
+  emitEvent: true,  // Emit 5W+H event on completion
+})
+
+// result.event contains:
+// {
+//   actor: 'system',
+//   object: 'order',
+//   type: 'Order',
+//   verb: 'processed',
+//   ns: 'commerce',
+//   method: 'code',  // HOW it was resolved
+//   cascade: { steps: [...] },
+//   timestamp: Date,
+//   recorded: Date,
+// }
+```
+
+## ParallelStepExecutor
+
+Executes multiple workflow steps concurrently.
+
+### Basic Usage
+
+```typescript
+import { ParallelStepExecutor, step } from 'lib/executors/ParallelStepExecutor'
+
+const executor = new ParallelStepExecutor([
+  step('fetchUser', async (ctx) => fetchUser(ctx.input.userId)),
+  step('fetchOrders', async (ctx) => fetchOrders(ctx.input.userId)),
+  step('fetchRecommendations', async (ctx) => getRecommendations(ctx.input.userId)),
+])
+
+const result = await executor.execute({
+  input: { userId: 'user-123' },
+  workflowInstanceId: 'wf-456',
+})
+
+// result.results = {
+//   fetchUser: { status: 'completed', output: user },
+//   fetchOrders: { status: 'completed', output: orders },
+//   fetchRecommendations: { status: 'completed', output: recommendations },
+// }
+// result.merged = { fetchUser: user, fetchOrders: orders, ... }
+```
+
+### Execution Modes
+
+```typescript
+// Fail fast: Stop on first error
+new ParallelStepExecutor(steps, { mode: 'failFast' })
+
+// Wait for all: Collect all results regardless of errors
+new ParallelStepExecutor(steps, { mode: 'waitForAll' })
+
+// Allow partial failure: Continue even if some steps fail
+new ParallelStepExecutor(steps, { mode: 'allowPartialFailure' })
+```
+
+### Custom Output Merger
+
+```typescript
+const executor = new ParallelStepExecutor(steps, {
+  merge: (results) => ({
+    combined: {
+      user: results.fetchUser,
+      orders: results.fetchOrders,
+    },
+    hasRecommendations: !!results.fetchRecommendations,
+  }),
+})
+```
+
+## Creating Custom Executors
+
+Extend `BaseFunctionExecutor` for custom execution patterns:
+
+```typescript
+import {
+  BaseFunctionExecutor,
+  type BaseExecutorOptions,
+  type FunctionType,
+} from 'lib/executors/BaseFunctionExecutor'
+
+interface CustomExecutorOptions extends BaseExecutorOptions {
+  customSetting: string
+}
+
+class CustomExecutor extends BaseFunctionExecutor<CustomExecutorOptions> {
+  private customSetting: string
+
+  constructor(options: CustomExecutorOptions) {
+    super(options)
+    this.customSetting = options.customSetting
+  }
+
+  getFunctionType(): FunctionType {
+    return 'code'  // or 'generative', 'agentic', 'human'
+  }
+
+  protected async executeCore<TInput, TOutput>(
+    input: TInput,
+    options: Record<string, unknown>
+  ): Promise<TOutput> {
+    // Custom execution logic
+    const result = await this.customLogic(input)
+
+    // Use inherited methods
+    await this.emit('custom.completed', { result })
+
+    return result as TOutput
+  }
+
+  private async customLogic<T>(input: T): Promise<T> {
+    // Your logic here
+    return input
+  }
+}
+```
+
+### Inherited Utilities
+
+`BaseFunctionExecutor` provides:
+
+```typescript
+// State wrapper for DO storage
+const state = this.createStateWrapper()
+await state.put('key', value)
+const value = await state.get<T>('key')
+
+// Event emission
+await this.emit('event.name', { data })
+
+// Retry with backoff
+const { result, retryCount } = await this.executeWithRetry(
+  () => riskyOperation(),
+  retryConfig,
+  signal
+)
+
+// Timeout handling
+const result = await this.executeWithTimeout(
+  () => slowOperation(),
+  5000,
+  signal
+)
+
+// Middleware pipeline
+const result = await this.applyMiddleware(ctx, () => coreLogic())
+
+// Template interpolation
+const prompt = this.interpolateTemplate('Hello {{name}}', { name: 'World' })
+```
+
+## Error Handling
+
+Each executor has specific error classes:
+
+```typescript
+// CodeFunctionExecutor errors
+import {
+  ExecutionTimeoutError,
+  ExecutionSandboxError,
+  ExecutionResourceError,
+  ExecutionRetryExhaustedError,
+  ExecutionCancelledError,
+  ExecutionValidationError,
+} from 'lib/executors/CodeFunctionExecutor'
+
+// AgenticFunctionExecutor errors
 import {
   AgentMaxIterationsError,
   AgentToolExecutionError,
   AgentConvergenceError,
   AgentToolNotFoundError,
   AgentToolAuthorizationError,
-  AgentCancelledError
-} from 'dotdo/executors/AgenticFunctionExecutor'
-```
+  AgentCancelledError,
+} from 'lib/executors/AgenticFunctionExecutor'
 
----
-
-## HumanFunctionExecutor
-
-Queues tasks for human input with multi-channel delivery, escalation, and approval workflows.
-
-### Features
-
-- **Multi-channel** - Slack, email, in-app notifications
-- **Escalation chains** - Automatic timeout escalation
-- **Approval workflows** - Sequential, parallel, or conditional
-- **Form validation** - Structured response collection
-- **Reminders** - Send reminders before timeout
-- **Audit logging** - Track all decisions
-
-### Basic Usage
-
-```typescript
-import { HumanFunctionExecutor } from 'dotdo/executors'
-
-const executor = new HumanFunctionExecutor({
-  state: ctx.state,
-  env: ctx.env,
-  channels: {
-    slack: {
-      name: 'slack',
-      type: 'slack',
-      send: async (payload) => slackBot.postMessage(payload),
-      waitForResponse: async ({ timeout }) => slackBot.waitForAction(timeout),
-      updateMessage: async (id, payload) => slackBot.updateMessage(id, payload)
-    },
-    email: {
-      name: 'email',
-      type: 'email',
-      send: async (payload) => sendEmail(payload),
-      waitForResponse: async ({ timeout }) => pollEmailResponses(timeout)
-    }
-  },
-  notificationService: {
-    send: sendNotification,
-    waitForResponse: waitForResponse,
-    getDeliveryStatus: getStatus,
-    cancelPending: cancelPending
-  },
-  onEvent: (event, data) => console.log(event, data)
-})
-```
-
-### Task Definition
-
-```typescript
-interface TaskDefinition {
-  prompt: string | ((input) => string)  // Message to send
-  channel: string | string[]    // Delivery channel(s)
-  timeout: number               // Response deadline (ms)
-  input?: unknown               // Template variables
-  actions?: ActionDefinition[]  // Quick action buttons
-  form?: FormDefinition         // Structured form
-
-  // Channel options
-  channelOptions?: Record<string, ChannelOptions>
-  updateOnResponse?: boolean    // Update message after response
-
-  // Timeouts
-  defaultOnTimeout?: { action: string; reason: string }
-  escalation?: EscalationConfig
-  reminder?: { before: number; message: string }
-
-  // Approval workflows
-  approval?: ApprovalWorkflow
-
-  // Reliability
-  delivery?: {
-    maxRetries: number
-    retryDelay: number
-    backoff?: 'fixed' | 'exponential'
-  }
-  fallbackChannel?: string
-  confirmDelivery?: boolean
-
-  // Validation
-  responseSchema?: JSONSchema
-  validateResponse?: (response) => boolean | string
-  transformResponse?: (response) => HumanResponse
-  applyDefaults?: boolean
-
-  // Cancellation
-  signal?: AbortSignal
-
-  // Callbacks
-  onSend?: (payload) => NotificationPayload | void
-  onResponse?: (response) => HumanResponse | void
-}
-```
-
-### Example: Approval Request
-
-```typescript
-const result = await executor.execute({
-  prompt: (input) => {
-    const { customerId, amount, reason } = input
-    return `**Refund Request**
-Customer: ${customerId}
-Amount: $${amount.toFixed(2)}
-Reason: ${reason}
-
-Please approve or reject.`
-  },
-  channel: 'slack',
-  timeout: 4 * 60 * 60 * 1000,  // 4 hours
-  input: {
-    customerId: 'CUST-456',
-    amount: 150.00,
-    reason: 'Product defect'
-  },
-  actions: [
-    { value: 'approve', label: 'Approve', style: 'primary' },
-    { value: 'reject', label: 'Reject', style: 'danger' }
-  ],
-  form: {
-    fields: [
-      {
-        name: 'notes',
-        type: 'text',
-        label: 'Notes',
-        required: false
-      }
-    ]
-  },
-  escalation: {
-    timeout: 2 * 60 * 60 * 1000,  // Escalate after 2 hours
-    to: 'ceo-channel'
-  },
-  reminder: {
-    before: 30 * 60 * 1000,  // 30 min before timeout
-    message: 'Reminder: Refund request still pending'
-  }
-})
-
-if (result.success) {
-  console.log(`${result.response.action} by ${result.respondedBy}`)
-  console.log('Notes:', result.response.data.notes)
-}
-```
-
-### Multi-Channel Delivery
-
-Send to multiple channels, first response wins:
-
-```typescript
-const result = await executor.execute({
-  prompt: 'Urgent: Server down. Acknowledge?',
-  channel: ['slack', 'email', 'in-app'],
-  timeout: 15 * 60 * 1000,  // 15 minutes
-  channelOptions: {
-    slack: { slackChannel: '#oncall' },
-    email: { to: 'oncall@company.com', subject: 'URGENT: Server Down' },
-    'in-app': { userId: 'user-123', priority: 'critical', pushNotification: true }
-  }
-})
-
-console.log(`Responded via ${result.channel}`)
-```
-
-### Approval Workflows
-
-**Sequential Approval:**
-```typescript
-const result = await executor.execute({
-  prompt: 'Approve large purchase: $50,000',
-  channel: 'slack',
-  timeout: 24 * 60 * 60 * 1000,
-  approval: {
-    type: 'sequential',
-    levels: [
-      { name: 'manager', users: ['@alice'] },
-      { name: 'director', users: ['@bob'] },
-      { name: 'cfo', users: ['@carol'] }
-    ]
-  }
-})
-
-// result.response.approvals = [
-//   { userId: 'alice', action: 'approve', timestamp: ... },
-//   { userId: 'bob', action: 'approve', timestamp: ... },
-//   { userId: 'carol', action: 'approve', timestamp: ... }
-// ]
-```
-
-**Parallel Approval (quorum):**
-```typescript
-const result = await executor.execute({
-  prompt: 'Vote on proposal',
-  channel: 'slack',
-  timeout: 48 * 60 * 60 * 1000,
-  approval: {
-    type: 'parallel',
-    users: ['@alice', '@bob', '@carol', '@dave', '@eve'],
-    requiredApprovals: 3,  // Need 3 of 5
-    failFast: true         // Stop early if impossible
-  }
-})
-
-console.log('Approval count:', result.response.approvalCount)
-console.log('Rejection count:', result.response.rejectionCount)
-```
-
-**Conditional Approval:**
-```typescript
-const result = await executor.execute({
-  prompt: 'Approve expense: ${{amount}}',
-  channel: 'slack',
-  timeout: 8 * 60 * 60 * 1000,
-  input: { amount: 5000 },
-  approval: {
-    type: 'conditional',
-    conditions: [
-      {
-        when: (input) => input.amount < 1000,
-        users: ['@manager']
-      },
-      {
-        when: (input) => input.amount < 10000,
-        users: ['@director'],
-        sequential: true
-      },
-      {
-        when: (input) => input.amount >= 10000,
-        users: ['@director', '@cfo'],
-        sequential: true
-      }
-    ]
-  }
-})
-```
-
-### Form Validation
-
-```typescript
-const result = await executor.execute({
-  prompt: 'Complete the order review',
-  channel: 'slack',
-  timeout: 60 * 60 * 1000,
-  form: {
-    fields: [
-      {
-        name: 'status',
-        type: 'select',
-        label: 'Status',
-        required: true,
-        options: ['approve', 'reject', 'need-more-info']
-      },
-      {
-        name: 'quantity',
-        type: 'number',
-        label: 'Approved Quantity',
-        required: false,
-        validation: (value) => value >= 0 || 'Must be non-negative'
-      },
-      {
-        name: 'notes',
-        type: 'text',
-        label: 'Notes',
-        required: false,
-        default: ''
-      },
-      {
-        name: 'categories',
-        type: 'multiselect',
-        label: 'Categories',
-        options: ['electronics', 'clothing', 'food', 'other']
-      }
-    ]
-  },
-  applyDefaults: true
-})
-```
-
-### Error Types
-
-```typescript
+// HumanFunctionExecutor errors
 import {
   HumanTimeoutError,
   HumanChannelError,
@@ -970,55 +846,43 @@ import {
   HumanEscalationError,
   HumanApprovalRejectedError,
   HumanCancelledError,
-  HumanNotificationFailedError
-} from 'dotdo/executors/HumanFunctionExecutor'
+  HumanNotificationFailedError,
+} from 'lib/executors/HumanFunctionExecutor'
+
+// CascadeExecutor errors
+import {
+  CascadeExhaustedError,
+  CascadeTimeoutError,
+  CascadeSkippedError,
+} from 'lib/executors/CascadeExecutor'
 ```
 
----
+## Integration with Workflows
 
-## Choosing the Right Executor
-
-| Scenario | Executor | Why |
-|----------|----------|-----|
-| Calculate totals, validate data | Code | Fast, deterministic |
-| Generate text, summarize | Generative | Single LLM call |
-| Research task, multi-step problem | Agentic | Tool-using agent loop |
-| Need human approval | Human | Notification + wait |
-| AI with fallback to human | Agentic + Human | Cascade pattern |
-
-### Cascade Pattern
-
-Combine executors for complex workflows:
+Executors integrate with the `$` workflow context:
 
 ```typescript
-const codeResult = await codeExecutor.execute(validateInput, input)
-if (!codeResult.success) return codeResult
+import { $ } from 'workflows'
 
-const aiResult = await agenticExecutor.execute({
-  goal: 'Analyze and recommend action',
-  input: codeResult.result
-})
+// Use $.do for durable execution with retries
+const result = await $.do(
+  async () => executor.execute(input, options)
+)
 
-if (aiResult.result.confidence < 0.8) {
-  // Escalate to human
-  const humanResult = await humanExecutor.execute({
-    prompt: `AI recommendation (${aiResult.result.confidence} confidence):
-${aiResult.result.recommendation}
+// Use $.try for single attempt
+const result = await $.try(
+  async () => executor.execute(input, options)
+)
 
-Please verify and approve.`,
-    channel: 'slack',
-    timeout: 60 * 60 * 1000
-  })
-  return humanResult
-}
-
-return aiResult
+// Use $.send for fire-and-forget
+$.send({ type: 'function.executed', result })
 ```
 
 ## Related
 
+- [Functions Overview](/docs/functions) - Function types and createFunction factory
 - [createFunction Factory](/docs/functions/create-function) - High-level function creation
-- [Function Composition](/docs/functions/composition) - Chain and combine functions
-- [Function Middleware](/docs/functions/middleware) - Cross-cutting concerns
-- [Agents](/docs/agents) - Named agents (Priya, Ralph, etc.)
-- [Humans](/docs/humans) - Human escalation patterns
+- [Function Middleware](/docs/functions/middleware) - Logging, auth, caching
+- [Workflows](/docs/workflows) - Orchestrating function execution
+- [Agents](/docs/agents) - AI agent configuration
+- [Humans](/docs/humans/escalation) - Human-in-the-loop patterns

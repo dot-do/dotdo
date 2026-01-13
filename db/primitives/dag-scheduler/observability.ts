@@ -711,73 +711,8 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
   const { metricsCollector, slaMonitor, observer, observers = [], tracer, logger } = options
   const allObservers = observer ? [observer, ...observers] : observers
 
-  // Create the base executor with our instrumented callbacks
-  const baseExecutor = createParallelExecutor({
-    onTaskStart: async (task) => {
-      const runId = 'current' // Will be set properly in execute
-
-      // Record metrics
-      if (metricsCollector) {
-        metricsCollector.recordTaskStart('', runId, task.id)
-      }
-
-      // Log
-      if (logger) {
-        logger.info('Task started', { taskId: task.id, runId })
-      }
-
-      // Call observers
-      for (const obs of allObservers) {
-        try {
-          await obs.onTaskStart?.(task, runId)
-        } catch {
-          // Ignore observer errors
-        }
-      }
-    },
-
-    onTaskComplete: async (task, result) => {
-      const runId = 'current' // Will be set properly in execute
-
-      // Record metrics
-      if (metricsCollector) {
-        const duration =
-          result.completedAt && result.startedAt
-            ? result.completedAt.getTime() - result.startedAt.getTime()
-            : 0
-        metricsCollector.recordTaskComplete('', runId, task.id, result.status, duration, result.error)
-      }
-
-      // Check SLAs
-      if (slaMonitor && result.completedAt && result.startedAt) {
-        const duration = result.completedAt.getTime() - result.startedAt.getTime()
-        slaMonitor.checkTaskDuration('', runId, task.id, duration)
-      }
-
-      // Log
-      if (logger) {
-        if (result.status === 'success') {
-          logger.info('Task completed', { taskId: task.id, runId, status: result.status })
-        } else if (result.status === 'failed') {
-          logger.error('Task failed', {
-            taskId: task.id,
-            runId,
-            status: result.status,
-            error: result.error,
-          })
-        }
-      }
-
-      // Call observers
-      for (const obs of allObservers) {
-        try {
-          await obs.onTaskComplete?.(task, runId, result)
-        } catch {
-          // Ignore observer errors
-        }
-      }
-    },
-  })
+  // We don't use these callbacks from the base executor because we instrument differently
+  const baseExecutor = createParallelExecutor()
 
   // Wrap the execute method to add DAG-level instrumentation
   const wrappedExecute = async (dag: DAG, executeOptions?: Parameters<typeof baseExecutor.execute>[1]) => {

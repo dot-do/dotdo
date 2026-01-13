@@ -1,6 +1,85 @@
 /**
- * Cache Manager Primitive
- * Comprehensive caching system for the dotdo platform
+ * @module cache-manager
+ *
+ * Cache Manager Primitive - High-performance caching system for the dotdo platform.
+ *
+ * Provides multiple eviction strategies, tiered caching, tag-based invalidation,
+ * and binary serialization for edge-optimized data access. Designed for both
+ * in-memory and Durable Object-backed storage.
+ *
+ * ## Cache Strategies
+ *
+ * - **CacheManager** - Basic TTL-based caching with statistics
+ * - **LRUCache** - Least Recently Used eviction for hot data
+ * - **LFUCache** - Least Frequently Used eviction for popularity-based caching
+ * - **FIFOCache** - First In First Out for predictable eviction
+ * - **TieredCache** - Multi-level caching with automatic promotion
+ *
+ * ## Features
+ *
+ * - **TTL support** with automatic expiration
+ * - **Tag-based invalidation** for grouped cache clearing
+ * - **Cache warming** for pre-populating frequently accessed data
+ * - **Hit/miss statistics** for monitoring and optimization
+ * - **Binary serialization** via MsgPack for compact storage
+ *
+ * @example Basic Caching
+ * ```typescript
+ * import { CacheManager } from 'dotdo/primitives/cache-manager'
+ *
+ * const cache = new CacheManager<User>({ ttl: 60000 })
+ *
+ * // Set with tags for grouped invalidation
+ * cache.set('user:123', userData, { tags: ['users', 'tenant:acme'] })
+ *
+ * // Get or compute
+ * const user = cache.getOrSet('user:456', () => fetchUser(456))
+ *
+ * // Check stats
+ * const { hits, misses, hitRate } = cache.stats()
+ * ```
+ *
+ * @example LRU Cache with Size Limit
+ * ```typescript
+ * import { LRUCache } from 'dotdo/primitives/cache-manager'
+ *
+ * const cache = new LRUCache<Product>({
+ *   maxSize: 1000,
+ *   ttl: 300000,
+ * })
+ *
+ * cache.set('product:abc', product)
+ * // Least recently used items evicted when maxSize exceeded
+ * ```
+ *
+ * @example Tiered Caching
+ * ```typescript
+ * import { TieredCache, LRUCache, CacheManager } from 'dotdo/primitives/cache-manager'
+ *
+ * const tiered = new TieredCache([
+ *   { name: 'hot', cache: new LRUCache({ maxSize: 100 }), promoteOnAccess: true },
+ *   { name: 'warm', cache: new CacheManager({ ttl: 300000 }) },
+ * ])
+ *
+ * // Items accessed frequently get promoted to hot tier
+ * const data = tiered.get('key')
+ * ```
+ *
+ * @example Tag-Based Invalidation
+ * ```typescript
+ * import { CacheManager, TagInvalidator } from 'dotdo/primitives/cache-manager'
+ *
+ * const cache = new CacheManager()
+ * const invalidator = new TagInvalidator(cache)
+ *
+ * cache.set('user:1', data1, { tags: ['users'] })
+ * cache.set('user:2', data2, { tags: ['users'] })
+ *
+ * // Invalidate all user entries
+ * const count = invalidator.invalidate({ tags: ['users'] })
+ * ```
+ *
+ * @packageDocumentation
  */
 
 export * from './types'

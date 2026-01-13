@@ -1,16 +1,62 @@
 /**
- * Iceberg Column Statistics
+ * Iceberg Column Statistics for Predicate Pushdown
  *
- * Extracts and filters using column statistics from Iceberg manifest entries.
- * Column statistics (lower_bound, upper_bound, null_count) enable efficient
- * file pruning without reading Parquet data.
+ * Provides extraction and filtering using column statistics from Iceberg manifest
+ * entries. This is a critical component for lakehouse query optimization - column
+ * statistics enable efficient file pruning without reading Parquet data, reducing
+ * I/O by orders of magnitude for selective queries.
  *
- * Key concepts:
- * - Each manifest entry contains column stats for its data file
- * - lower_bound/upper_bound are binary-encoded column min/max values
- * - Used for predicate pushdown (e.g., "which files might contain id='charge'?")
+ * ## Predicate Pushdown in Lakehouse Architecture
  *
- * @see https://iceberg.apache.org/spec/#manifests
+ * When executing a query like `WHERE id = 'charge'`, the system:
+ *
+ * 1. **Manifest-level Pruning**: Skip manifests where partition bounds exclude the value
+ * 2. **File-level Pruning**: Skip data files where column stats exclude the value
+ * 3. **Row-group Pruning**: Skip Parquet row groups where stats exclude the value
+ *
+ * This module handles step 2 - file-level pruning using column statistics stored
+ * in manifest entries.
+ *
+ * ## Statistics Structure
+ *
+ * Each manifest entry contains per-column statistics:
+ *
+ * | Field | Description |
+ * |-------|-------------|
+ * | `lowerBound` | Minimum value (binary-encoded) |
+ * | `upperBound` | Maximum value (binary-encoded) |
+ * | `nullCount` | Number of null values |
+ * | `nanCount` | Number of NaN values (floats) |
+ * | `valueCount` | Total non-null values |
+ *
+ * ## Binary Encoding
+ *
+ * Iceberg uses single-value serialization (little-endian for numerics, UTF-8 for
+ * strings). Use {@link encodeValue} and {@link decodeValue} for conversion.
+ *
+ * @example File Selection with Statistics
+ * ```typescript
+ * // Find files that may contain the target ID
+ * const candidates = selectFilesForValue(entries, {
+ *   fieldId: 3,        // 'id' column
+ *   value: 'charge',
+ *   columnType: 'string'
+ * })
+ *
+ * // candidates contains only files where lower <= 'charge' <= upper
+ * ```
+ *
+ * @example Direct Range Filtering
+ * ```typescript
+ * // Filter entries by ID range
+ * const filtered = filterByIdRange(entries, idFieldId, 'charge')
+ *
+ * // filtered contains entries that might contain the ID
+ * ```
+ *
+ * @see https://iceberg.apache.org/spec/#manifests - Manifest specification
+ * @see https://iceberg.apache.org/spec/#single-value-serialization - Value encoding
+ * @module db/iceberg/stats
  */
 
 // ============================================================================

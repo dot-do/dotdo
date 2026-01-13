@@ -1,12 +1,73 @@
 /**
- * SchemaEvolution - Dynamic schema management primitive
+ * SchemaEvolution - Dynamic Schema Management Primitive
  *
- * Provides automatic schema evolution capabilities:
- * - Infer schema from JSON data samples
- * - Detect schema differences (added/removed/changed fields)
- * - Check compatibility between schema versions
- * - Apply schema evolutions
- * - Schema versioning with rollback support
+ * Provides automatic schema evolution capabilities with compatibility checking,
+ * versioning, and rollback support. Designed for schemaless-first architectures
+ * that gradually introduce schema validation.
+ *
+ * ## Features
+ * - **Schema Inference** - Automatically infer schema from JSON samples
+ * - **Diff Detection** - Identify added/removed/changed fields between versions
+ * - **Compatibility Modes** - BACKWARD, FORWARD, FULL, NONE checking
+ * - **Version History** - Track schema versions with rollback capability
+ * - **Retention Policies** - Memory-efficient history management
+ * - **Type Coercion** - Safe type widening (int -> float, string -> text)
+ *
+ * ## Compatibility Modes
+ * | Mode | Description |
+ * |------|-------------|
+ * | BACKWARD | New schema can read old data (safe addition of optional fields) |
+ * | FORWARD | Old schema can read new data (safe removal of fields) |
+ * | FULL | Both backward and forward compatible |
+ * | NONE | No compatibility checking |
+ *
+ * @example Schema Inference
+ * ```typescript
+ * import { SchemaEvolution } from 'dotdo/db/primitives/schema-evolution'
+ *
+ * const evolution = new SchemaEvolution()
+ *
+ * // Infer schema from sample data
+ * const schema = evolution.infer([
+ *   { id: 1, name: 'Alice', email: 'alice@example.com' },
+ *   { id: 2, name: 'Bob', email: null, tags: ['admin'] },
+ * ])
+ *
+ * // Schema: { id: int, name: string, email: string?, tags: array<string>? }
+ * ```
+ *
+ * @example Compatibility Checking
+ * ```typescript
+ * const evolution = new SchemaEvolution({ compatibilityMode: 'BACKWARD' })
+ *
+ * // Register initial schema
+ * evolution.registerSchema(schemaV1, 'Initial schema')
+ *
+ * // Check if new schema is compatible
+ * const result = evolution.checkCompatibility(schemaV2)
+ * if (!result.compatible) {
+ *   console.error('Breaking changes:', result.breakingChanges)
+ * }
+ * ```
+ *
+ * @example Schema Versioning
+ * ```typescript
+ * const evolution = new SchemaEvolution({
+ *   retentionPolicy: { maxVersions: 10 },
+ * })
+ *
+ * // Evolve schema over time
+ * evolution.evolve(addFieldMigration)
+ * evolution.evolve(renameFieldMigration)
+ *
+ * // Rollback to previous version if needed
+ * evolution.rollback()
+ *
+ * // Get version history
+ * const history = evolution.getHistory()
+ * ```
+ *
+ * @module db/primitives/schema-evolution
  */
 
 import { Duration, toMillis } from './utils/duration'

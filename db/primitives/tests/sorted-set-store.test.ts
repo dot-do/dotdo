@@ -978,5 +978,335 @@ describe('SortedSetStore', () => {
       const members = await store.zrange('inf', 0, -1)
       expect(members).toEqual(['min', 'max'])
     })
+
+    it('should handle concurrent updates to same member', async () => {
+      const store = createTestStore()
+
+      // Rapid updates should all be consistent
+      await store.zadd('concurrent', 100, 'alice')
+      await store.zadd('concurrent', 200, 'alice')
+      await store.zadd('concurrent', 150, 'alice')
+      await store.zadd('concurrent', 300, 'alice')
+
+      expect(await store.zscore('concurrent', 'alice')).toBe(300)
+      expect(await store.zcard('concurrent')).toBe(1)
+    })
+
+    it('should handle member removal then re-add', async () => {
+      const store = createTestStore()
+
+      await store.zadd('reuse', 100, 'alice')
+      await store.zrem('reuse', 'alice')
+      await store.zadd('reuse', 200, 'alice')
+
+      expect(await store.zscore('reuse', 'alice')).toBe(200)
+      expect(await store.zcard('reuse')).toBe(1)
+    })
+
+    it('should handle score updates that change ordering multiple times', async () => {
+      const store = createTestStore()
+
+      await store.zaddMulti('shuffle', [
+        { member: 'a', score: 1 },
+        { member: 'b', score: 2 },
+        { member: 'c', score: 3 },
+      ])
+
+      // Move 'a' to the end
+      await store.zadd('shuffle', 10, 'a')
+      expect(await store.zrange('shuffle', 0, -1)).toEqual(['b', 'c', 'a'])
+
+      // Move 'a' back to the beginning
+      await store.zadd('shuffle', 0, 'a')
+      expect(await store.zrange('shuffle', 0, -1)).toEqual(['a', 'b', 'c'])
+
+      // Move 'c' to the middle
+      await store.zadd('shuffle', 1.5, 'c')
+      expect(await store.zrange('shuffle', 0, -1)).toEqual(['a', 'c', 'b'])
+    })
+  })
+
+  // ============================================================================
+  // COMPOSITE OPERATIONS (simulating ZUNIONSTORE / ZINTERSTORE semantics)
+  // ============================================================================
+
+  describe('composite operations (union/intersection patterns)', () => {
+    it('should simulate ZUNIONSTORE with SUM aggregate', async () => {
+      const store = createTestStore()
+
+      // Set A: leaderboard:day1
+      await store.zaddMulti('leaderboard:day1', [
+        { member: 'alice', score: 100 },
+        { member: 'bob', score: 200 },
+        { member: 'charlie', score: 150 },
+      ])
+
+      // Set B: leaderboard:day2
+      await store.zaddMulti('leaderboard:day2', [
+        { member: 'bob', score: 50 },
+        { member: 'charlie', score: 100 },
+        { member: 'david', score: 300 },
+      ])
+
+      // Manual union with SUM aggregate into leaderboard:total
+      const setA = await store.zrangeWithScores('leaderboard:day1', 0, -1)
+      const setB = await store.zrangeWithScores('leaderboard:day2', 0, -1)
+
+      const unionMap = new Map<string, number>()
+      for (const { member, score } of setA) {
+        unionMap.set(member, (unionMap.get(member) ?? 0) + score)
+      }
+      for (const { member, score } of setB) {
+        unionMap.set(member, (unionMap.get(member) ?? 0) + score)
+      }
+
+      for (const [member, score] of unionMap) {
+        await store.zadd('leaderboard:total', score, member)
+      }
+
+      // Verify union results
+      expect(await store.zcard('leaderboard:total')).toBe(4)
+      expect(await store.zscore('leaderboard:total', 'alice')).toBe(100) // only in day1
+      expect(await store.zscore('leaderboard:total', 'bob')).toBe(250) // 200 + 50
+      expect(await store.zscore('leaderboard:total', 'charlie')).toBe(250) // 150 + 100
+      expect(await store.zscore('leaderboard:total', 'david')).toBe(300) // only in day2
+    })
+
+    it('should simulate ZINTERSTORE with MIN aggregate', async () => {
+      const store = createTestStore()
+
+      // Set A
+      await store.zaddMulti('set:a', [
+        { member: 'alice', score: 100 },
+        { member: 'bob', score: 200 },
+        { member: 'charlie', score: 150 },
+      ])
+
+      // Set B
+      await store.zaddMulti('set:b', [
+        { member: 'bob', score: 50 },
+        { member: 'charlie', score: 200 },
+        { member: 'david', score: 300 },
+      ])
+
+      // Manual intersection with MIN aggregate
+      const setA = await store.zrangeWithScores('set:a', 0, -1)
+      const setB = await store.zrangeWithScores('set:b', 0, -1)
+
+      const mapB = new Map(setB.map(({ member, score }) => [member, score]))
+
+      for (const { member, score: scoreA } of setA) {
+        const scoreB = mapB.get(member)
+        if (scoreB !== undefined) {
+          await store.zadd('set:intersection', Math.min(scoreA, scoreB), member)
+        }
+      }
+
+      // Verify intersection results
+      expect(await store.zcard('set:intersection')).toBe(2) // bob and charlie
+      expect(await store.zscore('set:intersection', 'bob')).toBe(50) // min(200, 50)
+      expect(await store.zscore('set:intersection', 'charlie')).toBe(150) // min(150, 200)
+      expect(await store.zscore('set:intersection', 'alice')).toBeNull() // not in both
+      expect(await store.zscore('set:intersection', 'david')).toBeNull() // not in both
+    })
+
+    it('should simulate weighted union', async () => {
+      const store = createTestStore()
+
+      // Weighted scores for different categories
+      await store.zaddMulti('category:tech', [
+        { member: 'article1', score: 100 },
+        { member: 'article2', score: 80 },
+      ])
+
+      await store.zaddMulti('category:business', [
+        { member: 'article1', score: 50 },
+        { member: 'article3', score: 120 },
+      ])
+
+      // Weights: tech = 2x, business = 1x
+      const tech = await store.zrangeWithScores('category:tech', 0, -1)
+      const business = await store.zrangeWithScores('category:business', 0, -1)
+
+      const weightedUnion = new Map<string, number>()
+      for (const { member, score } of tech) {
+        weightedUnion.set(member, (weightedUnion.get(member) ?? 0) + score * 2)
+      }
+      for (const { member, score } of business) {
+        weightedUnion.set(member, (weightedUnion.get(member) ?? 0) + score * 1)
+      }
+
+      for (const [member, score] of weightedUnion) {
+        await store.zadd('combined', score, member)
+      }
+
+      expect(await store.zscore('combined', 'article1')).toBe(250) // 100*2 + 50*1
+      expect(await store.zscore('combined', 'article2')).toBe(160) // 80*2
+      expect(await store.zscore('combined', 'article3')).toBe(120) // 120*1
+    })
+  })
+
+  // ============================================================================
+  // RANKING USE CASES
+  // ============================================================================
+
+  describe('ranking use cases', () => {
+    it('should implement a leaderboard with ranking', async () => {
+      const store = createTestStore()
+
+      // Add players with scores
+      await store.zaddMulti('leaderboard', [
+        { member: 'player1', score: 1500 },
+        { member: 'player2', score: 2300 },
+        { member: 'player3', score: 1800 },
+        { member: 'player4', score: 2100 },
+        { member: 'player5', score: 1200 },
+      ])
+
+      // Get top 3 players (highest scores first)
+      const top3 = await store.zrevrangeWithScores('leaderboard', 0, 2)
+      expect(top3).toEqual([
+        { member: 'player2', score: 2300 },
+        { member: 'player4', score: 2100 },
+        { member: 'player3', score: 1800 },
+      ])
+
+      // Get a specific player's rank
+      const player3Rank = await store.zrevrank('leaderboard', 'player3')
+      expect(player3Rank).toBe(2) // 0-indexed, so 3rd place
+
+      // Get players around a specific rank (neighbors)
+      const player3Index = 2 // player3 is at index 2 in descending order
+      const neighbors = await store.zrevrangeWithScores(
+        'leaderboard',
+        Math.max(0, player3Index - 1),
+        player3Index + 1
+      )
+      expect(neighbors.map((n) => n.member)).toEqual(['player4', 'player3', 'player1'])
+    })
+
+    it('should implement time-based sliding window with scores', async () => {
+      const store = createTestStore()
+
+      const now = Date.now()
+
+      // Add events with timestamps as scores
+      await store.zaddMulti('events:hourly', [
+        { member: 'event1', score: now - 3600000 - 1 }, // > 1 hour ago
+        { member: 'event2', score: now - 1800000 }, // 30 min ago
+        { member: 'event3', score: now - 600000 }, // 10 min ago
+        { member: 'event4', score: now - 60000 }, // 1 min ago
+      ])
+
+      // Get events in the last hour
+      const lastHour = await store.zrangebyscore('events:hourly', now - 3600000, now)
+      expect(lastHour).toEqual(['event2', 'event3', 'event4'])
+
+      // Remove events older than 1 hour
+      const removed = await store.zremrangebyscore('events:hourly', -Infinity, now - 3600000)
+      expect(removed).toBe(1) // event1
+
+      // Verify remaining events
+      expect(await store.zcard('events:hourly')).toBe(3)
+    })
+
+    it('should implement rate limiting with sorted set', async () => {
+      const store = createTestStore()
+
+      const userId = 'user123'
+      const windowKey = `ratelimit:${userId}`
+      const windowMs = 60000 // 1 minute window
+      const maxRequests = 10
+
+      const now = Date.now()
+
+      // Simulate requests
+      for (let i = 0; i < 12; i++) {
+        const requestTime = now - (11 - i) * 5000 // Spread over ~55 seconds
+        await store.zadd(windowKey, requestTime, `request:${i}`)
+      }
+
+      // Clean up requests outside the window
+      await store.zremrangebyscore(windowKey, -Infinity, now - windowMs)
+
+      // Count requests in window
+      const requestCount = await store.zcount(windowKey, now - windowMs, now)
+
+      // Check if rate limited
+      const isRateLimited = requestCount >= maxRequests
+      expect(isRateLimited).toBe(true)
+    })
+
+    it('should implement priority queue with zpopmin', async () => {
+      const store = createTestStore()
+
+      // Add tasks with priority (lower = higher priority)
+      await store.zaddMulti('task:queue', [
+        { member: 'send-email', score: 3 },
+        { member: 'process-payment', score: 1 },
+        { member: 'generate-report', score: 5 },
+        { member: 'notify-user', score: 2 },
+      ])
+
+      // Process tasks in priority order
+      const task1 = await store.zpopmin('task:queue')
+      expect(task1?.member).toBe('process-payment')
+
+      const task2 = await store.zpopmin('task:queue')
+      expect(task2?.member).toBe('notify-user')
+
+      const task3 = await store.zpopmin('task:queue')
+      expect(task3?.member).toBe('send-email')
+
+      // Remaining tasks
+      expect(await store.zcard('task:queue')).toBe(1)
+    })
+  })
+
+  // ============================================================================
+  // CONCURRENT ACCESS PATTERNS
+  // ============================================================================
+
+  describe('concurrent access patterns', () => {
+    it('should handle concurrent zadd operations correctly', async () => {
+      const store = createTestStore()
+
+      // Simulate concurrent adds
+      const operations = Array.from({ length: 100 }, (_, i) =>
+        store.zadd('concurrent', i, `member${i}`)
+      )
+
+      await Promise.all(operations)
+
+      expect(await store.zcard('concurrent')).toBe(100)
+
+      // Verify ordering is maintained
+      const first10 = await store.zrange('concurrent', 0, 9)
+      expect(first10).toEqual([
+        'member0',
+        'member1',
+        'member2',
+        'member3',
+        'member4',
+        'member5',
+        'member6',
+        'member7',
+        'member8',
+        'member9',
+      ])
+    })
+
+    it('should handle concurrent zincrby operations', async () => {
+      const store = createTestStore()
+
+      await store.zadd('counter', 0, 'item')
+
+      // Simulate 100 concurrent increments
+      const increments = Array.from({ length: 100 }, () => store.zincrby('counter', 1, 'item'))
+
+      await Promise.all(increments)
+
+      expect(await store.zscore('counter', 'item')).toBe(100)
+    })
   })
 })

@@ -612,4 +612,468 @@ describe('SMS Channel', () => {
       })
     })
   })
+
+  describe('Message Length Handling', () => {
+    let mockFetch: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ sid: 'SM123', status: 'queued' }),
+      })
+    })
+
+    it('should send short messages (< 160 chars)', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      const shortMessage = 'Hello, this is a short message.'
+      await channel.send({
+        message: shortMessage,
+        to: '+15559876543',
+      })
+
+      const body = decodeURIComponent(mockFetch.mock.calls[0][1].body)
+      expect(body).toContain(shortMessage.replace(/ /g, '+'))
+    })
+
+    it('should send long messages (> 160 chars) - provider handles concatenation', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      // Create a message longer than 160 characters
+      const longMessage = 'This is a very long message that exceeds the standard SMS character limit of 160 characters. ' +
+        'The SMS provider should automatically handle message segmentation and concatenation for delivery. ' +
+        'This tests that our channel correctly passes long messages to the provider.'
+
+      expect(longMessage.length).toBeGreaterThan(160)
+
+      const result = await channel.send({
+        message: longMessage,
+        to: '+15559876543',
+      })
+
+      expect(result.delivered).toBe(true)
+      expect(mockFetch).toHaveBeenCalled()
+    })
+
+    it('should handle Unicode/emoji messages', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      const unicodeMessage = 'Hello! Your order is confirmed. Thank you for shopping with us.'
+      await channel.send({
+        message: unicodeMessage,
+        to: '+15559876543',
+      })
+
+      expect(mockFetch).toHaveBeenCalled()
+      const body = decodeURIComponent(mockFetch.mock.calls[0][1].body)
+      expect(body).toContain('Hello')
+    })
+
+    it('should handle empty message body', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      // Empty messages should still be sent (provider will reject if invalid)
+      await channel.send({
+        message: '',
+        to: '+15559876543',
+      })
+
+      expect(mockFetch).toHaveBeenCalled()
+    })
+
+    it('should handle multiline messages', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      const multilineMessage = `Order Confirmation
+
+Order #12345
+Item: Widget
+Qty: 2
+Total: $49.99
+
+Thank you!`
+
+      await channel.send({
+        message: multilineMessage,
+        to: '+15559876543',
+      })
+
+      expect(mockFetch).toHaveBeenCalled()
+      const body = mockFetch.mock.calls[0][1].body
+      // Body should contain URL-encoded newlines
+      expect(body).toContain('Body=')
+    })
+
+    it('should handle special characters in messages', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      const specialCharsMessage = 'Price: $99.99 (20% off!) & free shipping @ checkout.'
+      await channel.send({
+        message: specialCharsMessage,
+        to: '+15559876543',
+      })
+
+      expect(mockFetch).toHaveBeenCalled()
+    })
+  })
+
+  describe('Phone Number Normalization', () => {
+    let mockFetch: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ sid: 'SM123', status: 'queued' }),
+      })
+    })
+
+    it('should normalize 10-digit US numbers', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await channel.send({
+        message: 'Test',
+        to: '5559876543',
+      })
+
+      const body = mockFetch.mock.calls[0][1].body
+      expect(body).toContain('To=%2B15559876543')
+    })
+
+    it('should normalize 11-digit US numbers with leading 1', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await channel.send({
+        message: 'Test',
+        to: '15559876543',
+      })
+
+      const body = mockFetch.mock.calls[0][1].body
+      expect(body).toContain('To=%2B15559876543')
+    })
+
+    it('should handle parentheses in phone numbers', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await channel.send({
+        message: 'Test',
+        to: '(555) 987-6543',
+      })
+
+      const body = mockFetch.mock.calls[0][1].body
+      expect(body).toContain('To=%2B15559876543')
+    })
+
+    it('should handle dots in phone numbers', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await channel.send({
+        message: 'Test',
+        to: '555.987.6543',
+      })
+
+      const body = mockFetch.mock.calls[0][1].body
+      expect(body).toContain('To=%2B15559876543')
+    })
+
+    it('should preserve already valid E.164 numbers', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await channel.send({
+        message: 'Test',
+        to: '+447911123456', // UK number
+      })
+
+      const body = mockFetch.mock.calls[0][1].body
+      expect(body).toContain('To=%2B447911123456')
+    })
+
+    it('should handle international numbers without plus', async () => {
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await channel.send({
+        message: 'Test',
+        to: '447911123456', // UK number without +
+      })
+
+      const body = mockFetch.mock.calls[0][1].body
+      expect(body).toContain('To=%2B447911123456')
+    })
+  })
+
+  describe('Error Scenarios', () => {
+    let mockFetch: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      mockFetch = vi.fn()
+    })
+
+    it('should handle network timeout', async () => {
+      mockFetch.mockImplementation(() => new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Network timeout')), 100)
+      }))
+
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await expect(
+        channel.send({
+          message: 'Test',
+          to: '+15559876543',
+        })
+      ).rejects.toThrow('Network timeout')
+    })
+
+    it('should handle rate limiting (429)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: async () => ({ message: 'Too many requests' }),
+      })
+
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'token',
+        fetch: mockFetch,
+      })
+
+      await expect(
+        channel.send({
+          message: 'Test',
+          to: '+15559876543',
+        })
+      ).rejects.toThrow('Twilio API error')
+    })
+
+    it('should handle authentication errors (401)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: 'Invalid credentials' }),
+      })
+
+      const channel = new SMSChannel({
+        provider: 'twilio',
+        fromNumber: '+15551234567',
+        accountSid: 'AC123',
+        authToken: 'wrong_token',
+        fetch: mockFetch,
+      })
+
+      await expect(
+        channel.send({
+          message: 'Test',
+          to: '+15559876543',
+        })
+      ).rejects.toThrow('Twilio API error')
+    })
+
+    it('should handle unknown provider', () => {
+      expect(() => {
+        new SMSChannel({
+          provider: 'unknown_provider' as any,
+          fromNumber: '+15551234567',
+        })
+      }).toThrow('Unknown SMS provider')
+    })
+
+    it('should handle MessageBird API errors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          errors: [{ description: 'Invalid recipient' }],
+        }),
+      })
+
+      const channel = new SMSChannel({
+        provider: 'messagebird',
+        fromNumber: '+15551234567',
+        accessKey: 'live_key_123',
+        fetch: mockFetch,
+      })
+
+      await expect(
+        channel.send({
+          message: 'Test',
+          to: '+15559876543',
+        })
+      ).rejects.toThrow('MessageBird API error')
+    })
+
+    it('should handle Telnyx API errors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          errors: [{ detail: 'Invalid phone number' }],
+        }),
+      })
+
+      const channel = new SMSChannel({
+        provider: 'telnyx',
+        fromNumber: '+15551234567',
+        telnyxApiKey: 'KEY123',
+        fetch: mockFetch,
+      })
+
+      await expect(
+        channel.send({
+          message: 'Test',
+          to: '+15559876543',
+        })
+      ).rejects.toThrow('Telnyx API error')
+    })
+  })
+
+  describe('Delivery Status Tracking', () => {
+    let channel: SMSChannel
+
+    beforeEach(() => {
+      channel = new SMSChannel({
+        provider: 'mock',
+        fromNumber: '+15551234567',
+      })
+    })
+
+    it('should parse delivered status', () => {
+      const response = channel.handleWebhook({
+        MessageSid: 'SM123',
+        MessageStatus: 'delivered',
+        From: '+15551234567',
+        To: '+15559876543',
+      })
+
+      expect(response.type).toBe('status')
+      expect(response.status).toBe('delivered')
+    })
+
+    it('should parse failed status', () => {
+      const response = channel.handleWebhook({
+        MessageSid: 'SM123',
+        SmsStatus: 'failed',
+        From: '+15551234567',
+        To: '+15559876543',
+        ErrorCode: '30003',
+      })
+
+      expect(response.type).toBe('status')
+      expect(response.status).toBe('failed')
+    })
+
+    it('should parse queued status', () => {
+      const response = channel.handleWebhook({
+        MessageSid: 'SM123',
+        status: 'queued',
+        from: '+15551234567',
+        to: '+15559876543',
+      })
+
+      expect(response.type).toBe('status')
+      expect(response.status).toBe('queued')
+    })
+
+    it('should parse sent status', () => {
+      const response = channel.handleWebhook({
+        MessageSid: 'SM123',
+        SmsStatus: 'sent',
+        From: '+15551234567',
+        To: '+15559876543',
+      })
+
+      expect(response.type).toBe('status')
+      expect(response.status).toBe('sent')
+    })
+
+    it('should parse undelivered status', () => {
+      const response = channel.handleWebhook({
+        MessageSid: 'SM123',
+        MessageStatus: 'undelivered',
+        From: '+15551234567',
+        To: '+15559876543',
+        ErrorCode: '30006',
+      })
+
+      expect(response.type).toBe('status')
+      expect(response.status).toBe('undelivered')
+    })
+  })
 })

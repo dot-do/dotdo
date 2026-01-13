@@ -1,15 +1,74 @@
 /**
- * ParallelStepExecutor - Parallel step execution for workflows
+ * @module lib/executors/ParallelStepExecutor
  *
- * Provides:
- * - step() helper for defining parallel steps
- * - Concurrent execution of grouped steps
- * - Fail-fast or wait-for-all modes
- * - Output merging from parallel steps
+ * ParallelStepExecutor - Execute workflow steps in parallel with configurable modes.
  *
- * Usage:
+ * This executor enables concurrent execution of multiple workflow steps, providing
+ * significant performance improvements for operations that can run independently.
+ * It supports multiple execution modes, automatic output merging, and granular
+ * control over failure handling.
+ *
+ * ## Features
+ *
+ * - **Parallel Execution**: Run multiple steps concurrently
+ * - **Execution Modes**: Fail-fast, wait-for-all, or allow partial failure
+ * - **Output Merging**: Automatically combine results from all steps
+ * - **Timeout Handling**: Per-step and group-level timeouts
+ * - **Retry Support**: Configurable retries per step
+ * - **Step Lifecycle Callbacks**: Track start and completion of each step
+ * - **Resume Capability**: Continue from partially completed executions
+ *
+ * ## Execution Modes
+ *
+ * - **failFast** (default): Stop all steps on first failure
+ * - **waitForAll**: Wait for all steps to complete, then report failures
+ * - **allowPartialFailure**: Continue even if some steps fail
+ *
+ * ## Integration with Workflows
+ *
+ * The `step()` helper function creates step definitions that integrate
+ * seamlessly with the WorkflowRuntime's `.parallel()` method.
+ *
+ * @example Basic Parallel Execution
  * ```typescript
- * workflow
+ * import { ParallelStepExecutor, step } from 'dotdo/lib/executors'
+ *
+ * // Define parallel steps
+ * const steps = [
+ *   step('checkInventory', async (ctx) => {
+ *     return await inventoryService.check(ctx.input.productId)
+ *   }),
+ *   step('checkPayment', async (ctx) => {
+ *     return await paymentService.validate(ctx.input.paymentMethod)
+ *   }),
+ *   step('calculateShipping', async (ctx) => {
+ *     return await shippingService.estimate(ctx.input.address)
+ *   })
+ * ]
+ *
+ * // Create executor and run
+ * const executor = new ParallelStepExecutor(steps, { mode: 'failFast' })
+ *
+ * const result = await executor.execute({
+ *   input: orderData,
+ *   workflowInstanceId: 'wf-123',
+ *   $: domainProxy,
+ *   emit: (event, data) => console.log(event, data),
+ *   waitForEvent: async (name, opts) => eventManager.wait(name, opts)
+ * })
+ *
+ * if (result.failedCount === 0) {
+ *   const { checkInventory, checkPayment, calculateShipping } = result.merged
+ *   console.log('All checks passed:', { inventory, payment, shipping })
+ * }
+ * ```
+ *
+ * @example Workflow Integration
+ * ```typescript
+ * import { step } from 'dotdo/lib/executors'
+ *
+ * // Use with WorkflowRuntime
+ * const workflow = new WorkflowRuntime(state, env)
  *   .step('validate', validateOrder)
  *   .parallel([
  *     step('checkInventory', checkStock),
@@ -18,8 +77,131 @@
  *   ])
  *   .step('confirm', confirmOrder)
  *
- * // Parallel outputs merged: { checkInventory: {...}, checkPayment: {...}, checkShipping: {...} }
+ * // Parallel outputs are merged and available in next step
+ * // confirmOrder receives: {
+ * //   checkInventory: { available: true },
+ * //   checkPayment: { valid: true },
+ * //   checkShipping: { cost: 9.99 }
+ * // }
  * ```
+ *
+ * @example Wait for All with Error Handling
+ * ```typescript
+ * // Continue execution even if some steps fail
+ * const executor = new ParallelStepExecutor(steps, {
+ *   mode: 'waitForAll' // Wait for all, then report errors
+ * })
+ *
+ * try {
+ *   const result = await executor.execute(context)
+ * } catch (error) {
+ *   if (error instanceof ParallelExecutionError) {
+ *     console.log('Failed steps:', error.errors.length)
+ *     console.log('First failure:', error.failedStep)
+ *     // Access all errors
+ *     for (const err of error.errors) {
+ *       console.log('Error:', err.message)
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * @example Allow Partial Failure
+ * ```typescript
+ * // Some steps can fail without failing the entire execution
+ * const executor = new ParallelStepExecutor(steps, {
+ *   mode: 'allowPartialFailure'
+ * })
+ *
+ * const result = await executor.execute(context)
+ *
+ * // Check which steps succeeded
+ * for (const [name, stepResult] of Object.entries(result.results)) {
+ *   if (stepResult.status === 'completed') {
+ *     console.log(`${name}: success`, stepResult.output)
+ *   } else if (stepResult.status === 'failed') {
+ *     console.log(`${name}: failed`, stepResult.error?.message)
+ *   }
+ * }
+ *
+ * console.log('Completed:', result.completedCount)
+ * console.log('Failed:', result.failedCount)
+ * ```
+ *
+ * @example Timeouts and Retries
+ * ```typescript
+ * // Configure timeouts and retries per step
+ * const steps = [
+ *   step('fastOperation', handler, {
+ *     timeout: '5s',
+ *     retries: 0
+ *   }),
+ *   step('slowOperation', handler, {
+ *     timeout: '30s',
+ *     retries: 3,
+ *     retryDelay: '1s'
+ *   })
+ * ]
+ *
+ * // Or set group-level timeout
+ * const executor = new ParallelStepExecutor(steps, {
+ *   timeout: '1m', // All steps must complete within 1 minute
+ *   mode: 'failFast'
+ * })
+ * ```
+ *
+ * @example Custom Output Merging
+ * ```typescript
+ * // Customize how parallel results are merged
+ * const executor = new ParallelStepExecutor(steps, {
+ *   merge: (results) => {
+ *     // results is { stepName: output, ... }
+ *     return {
+ *       summary: Object.keys(results).length + ' steps completed',
+ *       data: results,
+ *       timestamp: new Date()
+ *     }
+ *   }
+ * })
+ * ```
+ *
+ * @example Step Lifecycle Callbacks
+ * ```typescript
+ * // Track step execution progress
+ * const executor = new ParallelStepExecutor(steps, { mode: 'waitForAll' })
+ *
+ * const result = await executor.execute(
+ *   context,
+ *   (stepName) => console.log(`Starting: ${stepName}`),
+ *   (stepName, result) => {
+ *     console.log(`Completed: ${stepName}`)
+ *     console.log(`  Status: ${result.status}`)
+ *     console.log(`  Duration: ${result.duration}ms`)
+ *     if (result.error) {
+ *       console.log(`  Error: ${result.error.message}`)
+ *     }
+ *   }
+ * )
+ * ```
+ *
+ * @example Resume from Partial Execution
+ * ```typescript
+ * // Resume with already-completed steps
+ * const completedSteps = new Map([
+ *   ['checkInventory', { name: 'checkInventory', status: 'completed', output: { available: true } }]
+ * ])
+ *
+ * // Only remaining steps will execute
+ * const result = await executor.execute(
+ *   context,
+ *   onStart,
+ *   onComplete,
+ *   completedSteps // Pass previously completed steps
+ * )
+ * ```
+ *
+ * @see {@link WorkflowRuntime} for full workflow orchestration
+ * @see {@link StepContext} for the context passed to step handlers
  */
 
 import type { StepContext, WorkflowStepConfig } from '../../objects/WorkflowRuntime'

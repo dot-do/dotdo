@@ -1,15 +1,83 @@
 /**
- * CDCStream - Change Data Capture engine
+ * CDCStream - Change Data Capture Engine
  *
  * Captures row-level changes (INSERT/UPDATE/DELETE) as ordered streams,
  * enabling real-time data synchronization and event-driven architectures.
+ * Provides Kafka-like consumer groups with offset tracking.
  *
- * Features:
- * - Capture inserts, updates, deletes with before/after states
- * - Ordered change streams per entity
- * - Consumer groups with offset tracking
- * - Replay from any offset
- * - Filtering by entity, operation, fields
+ * ## Features
+ * - **Before/After State** - Full document snapshots for each change
+ * - **Ordered Streams** - Sequential offsets per entity
+ * - **Consumer Groups** - Multiple consumers with offset tracking
+ * - **Replay Support** - Re-process changes from any offset or timestamp
+ * - **Filtering** - By operation type, fields, key patterns, predicates
+ * - **Transaction Correlation** - Group changes by transaction ID
+ * - **Lag Monitoring** - Track consumer progress vs latest offset
+ *
+ * ## Use Cases
+ * - Real-time data synchronization between services
+ * - Materialized view maintenance
+ * - Audit logging with full change history
+ * - Event sourcing / CQRS patterns
+ * - Search index updates
+ *
+ * @example Basic Usage
+ * ```typescript
+ * import { createCDCStream } from 'dotdo/db/primitives/cdc-stream'
+ *
+ * const cdc = createCDCStream()
+ *
+ * // Enable CDC on entity
+ * await cdc.enable('users')
+ *
+ * // Capture changes
+ * await cdc.capture('users', {
+ *   operation: 'INSERT',
+ *   key: 'user-123',
+ *   after: { id: 'user-123', name: 'Alice', email: 'alice@example.com' },
+ * })
+ *
+ * await cdc.capture('users', {
+ *   operation: 'UPDATE',
+ *   key: 'user-123',
+ *   before: { id: 'user-123', name: 'Alice', email: 'alice@example.com' },
+ *   after: { id: 'user-123', name: 'Alice Smith', email: 'alice@example.com' },
+ * })
+ * ```
+ *
+ * @example Consumer Groups
+ * ```typescript
+ * // Create consumer with group ID for offset tracking
+ * const consumer = cdc.createConsumer('users', {
+ *   groupId: 'search-indexer',
+ *   startOffset: 'earliest',
+ *   autoCommit: false,
+ * })
+ *
+ * // Process changes
+ * for await (const change of consumer) {
+ *   await updateSearchIndex(change)
+ *   await consumer.commit() // Commit offset after processing
+ * }
+ *
+ * // Check consumer lag
+ * const lag = await cdc.getConsumerLag('users', 'search-indexer')
+ * ```
+ *
+ * @example Filtered Replay
+ * ```typescript
+ * // Replay only DELETE operations from last 24 hours
+ * await cdc.replay('users', {
+ *   fromTimestamp: Date.now() - 24 * 60 * 60 * 1000,
+ *   batchSize: 100,
+ * }, async (change) => {
+ *   if (change.operation === 'DELETE') {
+ *     await archiveUser(change.before)
+ *   }
+ * })
+ * ```
+ *
+ * @module db/primitives/cdc-stream
  */
 
 // ============================================================================

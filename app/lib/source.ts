@@ -1,22 +1,64 @@
 import { loader, type InferPageType, type InferMetaType } from 'fumadocs-core/source'
 import type { PageTree } from 'fumadocs-core/server'
 import {
-  // MINIMAL set for build debugging
+  // Site and App MDX content
+  site,
+  appContent,
+  // Documentation collections
   gettingStarted,
   concepts,
   api,
 } from 'fumadocs-mdx:collections/server'
 
 /**
- * MINIMAL source loaders for build debugging
+ * Static MDX Build System Source Loaders
  *
- * The full 27 collection setup causes 8GB+ memory usage during SSR build.
- * Using minimal set to get a working build first.
- *
- * NOTE: No rootDocsSource - /docs redirects to /docs/getting-started
+ * Provides source loaders for:
+ * 1. Landing Page (/) - Site.mdx
+ * 2. Consumer App (/app) - App.mdx
+ * 3. Docs (/docs) - fumadocs collections
  *
  * @see docs/plans/2026-01-12-fumadocs-static-prerender-design.md
  */
+
+// =============================================================================
+// Site and App MDX Sources
+// =============================================================================
+
+/**
+ * Site source - Landing page from Site.mdx
+ */
+export const siteSource = loader({
+  source: site.toFumadocsSource(),
+  baseUrl: '/',
+})
+
+/**
+ * App content source - Dashboard from App.mdx
+ */
+export const appContentSource = loader({
+  source: appContent.toFumadocsSource(),
+  baseUrl: '/app',
+})
+
+/**
+ * Get Site.mdx content for landing page
+ */
+export function getSitePage() {
+  // Site.mdx is at root, so empty slug array
+  return siteSource.getPage([])
+}
+
+/**
+ * Get App.mdx content for dashboard
+ */
+export function getAppPage() {
+  return appContentSource.getPage([])
+}
+
+// =============================================================================
+// Documentation Sources
+// =============================================================================
 
 // Core documentation
 export const gettingStartedSource = loader({

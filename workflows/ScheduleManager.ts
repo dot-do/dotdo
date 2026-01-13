@@ -1,17 +1,156 @@
 /**
- * ScheduleManager - Manages cron-triggered workflow schedules
+ * @module workflows/ScheduleManager
  *
- * Provides:
- * - Schedule registration with cron expressions
- * - Cron expression parsing (standard 5-field format)
- * - Next run time calculation with timezone support
- * - Schedule listing, updating, and deletion
- * - Integration with DO alarm API for execution
+ * ScheduleManager - Runtime for Cron-Triggered Workflow Schedules
  *
- * This is the runtime for scheduled workflow triggers in DOs.
+ * This module provides the schedule management runtime for Durable Objects,
+ * enabling cron-based scheduling with timezone support and integration
+ * with the DO alarm API for reliable execution.
+ *
+ * ## Schedule Registration
+ *
+ * Register schedules using standard cron expressions or fluent DSL:
+ *
+ * @example Basic scheduling
+ * ```typescript
+ * class MyWorkflow extends DurableObject {
+ *   private scheduleManager: ScheduleManager
+ *
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env)
+ *     this.scheduleManager = new ScheduleManager(ctx.state)
+ *
+ *     // Register handler for schedule triggers
+ *     this.scheduleManager.onScheduleTrigger(async (schedule) => {
+ *       console.log(`Running ${schedule.name}`)
+ *       await this.runScheduledTask(schedule)
+ *     })
+ *   }
+ *
+ *   async setup() {
+ *     // Register a schedule
+ *     await this.scheduleManager.schedule('0 9 * * 1', 'weekly-report', {
+ *       timezone: 'America/New_York'
+ *     })
+ *   }
+ *
+ *   async alarm() {
+ *     // DO alarm triggers schedule execution
+ *     await this.scheduleManager.handleAlarm()
+ *   }
+ * }
+ * ```
+ *
+ * ## Cron Expression Format
+ *
+ * Standard 5-field cron expressions are supported:
+ *
+ * ```
+ * ┌───────────── minute (0-59)
+ * │ ┌───────────── hour (0-23)
+ * │ │ ┌───────────── day of month (1-31)
+ * │ │ │ ┌───────────── month (1-12)
+ * │ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+ * │ │ │ │ │
+ * * * * * *
+ * ```
+ *
+ * @example Cron patterns
+ * ```typescript
+ * // Every Monday at 9am
+ * await manager.schedule('0 9 * * 1', 'monday-standup')
+ *
+ * // Every day at 6pm
+ * await manager.schedule('0 18 * * *', 'daily-summary')
+ *
+ * // Every 5 minutes
+ * await manager.schedule('*​/5 * * * *', 'health-check')
+ *
+ * // First day of month at midnight
+ * await manager.schedule('0 0 1 * *', 'monthly-billing')
+ *
+ * // Weekdays at 8:30am
+ * await manager.schedule('30 8 * * 1-5', 'weekday-standup')
+ * ```
+ *
+ * ## Timezone Support
+ *
+ * Schedules can be configured with IANA timezone identifiers:
+ *
+ * @example Timezone-aware scheduling
+ * ```typescript
+ * // Run at 9am New York time
+ * await manager.schedule('0 9 * * *', 'ny-morning', {
+ *   timezone: 'America/New_York'
+ * })
+ *
+ * // Run at 6pm Tokyo time
+ * await manager.schedule('0 18 * * *', 'tokyo-evening', {
+ *   timezone: 'Asia/Tokyo'
+ * })
+ * ```
+ *
+ * ## Schedule Management
+ *
+ * Full CRUD operations for schedules:
+ *
+ * @example Managing schedules
+ * ```typescript
+ * // List all schedules
+ * const schedules = await manager.listSchedules()
+ *
+ * // Get specific schedule
+ * const schedule = await manager.getSchedule('weekly-report')
+ *
+ * // Update schedule
+ * await manager.updateSchedule('weekly-report', {
+ *   cronExpression: '0 10 * * 1',  // Change to 10am
+ *   enabled: false  // Pause schedule
+ * })
+ *
+ * // Delete schedule
+ * await manager.deleteSchedule('weekly-report')
+ * ```
+ *
+ * ## Integration with DO Alarms
+ *
+ * The ScheduleManager automatically sets DO alarms for the next scheduled run:
+ *
+ * @example Alarm integration
+ * ```typescript
+ * class MyWorkflow extends DurableObject {
+ *   async alarm() {
+ *     // This is called by the DO alarm API
+ *     await this.scheduleManager.handleAlarm()
+ *     // handleAlarm:
+ *     // 1. Finds all schedules due to run
+ *     // 2. Calls the trigger handler for each
+ *     // 3. Updates lastRunAt and nextRunAt
+ *     // 4. Sets alarm for next scheduled run
+ *   }
+ * }
+ * ```
+ *
+ * Storage Layer: Uses graph Things for schedule persistence.
+ * @see dotdo-2n693 - [REFACTOR] Migrate ScheduleManager to use graph Things
+ *
+ * @see {@link ScheduleManager} - The main class
+ * @see {@link parseCronExpression} - Cron parser
+ * @see {@link getNextRunTime} - Next run calculator
  */
 
 /// <reference types="@cloudflare/workers-types" />
+
+import {
+  createSchedule as createScheduleThing,
+  getScheduleByName,
+  listSchedules as listScheduleThings,
+  updateSchedule as updateScheduleThing,
+  deleteScheduleByName,
+  recordTriggerEvent,
+  type ScheduleThing,
+  type ScheduleStatus,
+} from './graph/schedule-thing'
 
 // ============================================================================
 // ERROR CLASSES
@@ -89,13 +228,27 @@ export interface NextRunTimeOptions {
 type ScheduleTriggerHandler = (schedule: Schedule) => void | Promise<void>
 
 // ============================================================================
-// STORAGE KEYS
+// HELPER FUNCTIONS
 // ============================================================================
 
-const SCHEDULE_PREFIX = 'schedule:'
-
-function scheduleKey(name: string): string {
-  return `${SCHEDULE_PREFIX}${name}`
+/**
+ * Convert a ScheduleThing to the public Schedule interface.
+ */
+function scheduleThingToSchedule(thing: ScheduleThing): Schedule {
+  const data = thing.data!
+  return {
+    id: thing.id,
+    name: data.name,
+    cronExpression: data.cronExpression,
+    status: data.status,
+    nextRunAt: data.nextRunAt ? new Date(data.nextRunAt) : null,
+    lastRunAt: data.lastRunAt ? new Date(data.lastRunAt) : null,
+    runCount: data.runCount,
+    timezone: data.timezone,
+    metadata: data.metadata,
+    createdAt: new Date(thing.createdAt),
+    updatedAt: new Date(thing.updatedAt),
+  }
 }
 
 // ============================================================================
@@ -212,22 +365,47 @@ function parseField(field: string, min: number, max: number, fieldName: string):
 }
 
 /**
- * Parse a cron expression string into a structured CronExpression object
+ * Parse a cron expression string into a structured CronExpression object.
  *
- * Supports standard 5-field format:
- * - minute (0-59)
- * - hour (0-23)
- * - day of month (1-31)
- * - month (1-12)
- * - day of week (0-6, where 0 = Sunday)
+ * Supports standard 5-field cron format with extensions for readability.
  *
- * Supports:
- * - Wildcards (*)
- * - Ranges (1-5)
- * - Lists (1,3,5)
- * - Steps (star/15, 0-30/10)
- * - Month names (JAN-DEC)
- * - Day names (SUN-SAT)
+ * ## Fields
+ *
+ * | Position | Field | Range | Example |
+ * |----------|-------|-------|---------|
+ * | 1 | minute | 0-59 | `0`, `30`, `*​/5` |
+ * | 2 | hour | 0-23 | `9`, `0-12`, `*` |
+ * | 3 | day of month | 1-31 | `1`, `15`, `1,15` |
+ * | 4 | month | 1-12 | `1`, `JAN`, `*` |
+ * | 5 | day of week | 0-6 | `0`, `MON`, `1-5` |
+ *
+ * ## Supported Syntax
+ *
+ * - **Wildcards**: `*` matches all values
+ * - **Ranges**: `1-5` matches 1, 2, 3, 4, 5
+ * - **Lists**: `1,3,5` matches 1, 3, or 5
+ * - **Steps**: `*​/15` (every 15), `0-30/10` (0, 10, 20, 30)
+ * - **Month names**: `JAN`, `FEB`, ..., `DEC`
+ * - **Day names**: `SUN`, `MON`, ..., `SAT`
+ *
+ * @param expression - The cron expression string to parse
+ * @returns Parsed CronExpression object
+ * @throws InvalidCronExpressionError if the expression is malformed
+ *
+ * @example
+ * ```typescript
+ * // Every Monday at 9am
+ * const cron = parseCronExpression('0 9 * * 1')
+ * // { minute: [0], hour: [9], dayOfMonth: '*', month: '*', dayOfWeek: [1] }
+ *
+ * // Every 5 minutes
+ * const cron2 = parseCronExpression('*​/5 * * * *')
+ * // { minute: [0,5,10,15,20,25,30,35,40,45,50,55], ... }
+ *
+ * // Weekdays at 8:30am
+ * const cron3 = parseCronExpression('30 8 * * MON-FRI')
+ * // { minute: [30], hour: [8], ..., dayOfWeek: [1,2,3,4,5] }
+ * ```
  */
 export function parseCronExpression(expression: string): CronExpression {
   if (!expression || typeof expression !== 'string') {
@@ -350,11 +528,41 @@ function getTimeComponents(date: Date, timezone?: string): {
 }
 
 /**
- * Calculate the next run time for a cron expression
+ * Calculate the next run time for a cron expression.
  *
- * @param cron - Parsed cron expression
- * @param options - Optional timezone and reference time
+ * Iterates through future times to find the next moment that matches
+ * all fields in the cron expression. Supports timezone-aware calculation.
+ *
+ * @param cron - Parsed cron expression object
+ * @param options - Optional configuration
+ * @param options.timezone - IANA timezone (e.g., 'America/New_York')
+ * @param options.from - Reference time (defaults to now)
  * @returns The next Date when the schedule should run (in UTC)
+ *
+ * @example Basic usage
+ * ```typescript
+ * const cron = parseCronExpression('0 9 * * 1')  // Monday 9am
+ * const nextRun = getNextRunTime(cron)
+ * console.log(nextRun)  // Next Monday at 9am UTC
+ * ```
+ *
+ * @example With timezone
+ * ```typescript
+ * const cron = parseCronExpression('0 9 * * *')  // Daily 9am
+ * const nextRun = getNextRunTime(cron, {
+ *   timezone: 'America/New_York'
+ * })
+ * // Returns UTC time that corresponds to 9am in New York
+ * ```
+ *
+ * @example From specific time
+ * ```typescript
+ * const cron = parseCronExpression('0 9 * * *')
+ * const nextRun = getNextRunTime(cron, {
+ *   from: new Date('2024-01-15T08:00:00Z')
+ * })
+ * // Returns 2024-01-15T09:00:00Z
+ * ```
  */
 export function getNextRunTime(cron: CronExpression, options: NextRunTimeOptions = {}): Date {
   const now = options.from || new Date()
@@ -398,37 +606,134 @@ export function getNextRunTime(cron: CronExpression, options: NextRunTimeOptions
 // SCHEDULE MANAGER
 // ============================================================================
 
+/**
+ * Schedule Manager for Durable Objects.
+ *
+ * Manages cron-based schedules with full CRUD operations, timezone support,
+ * and integration with the Durable Object alarm API for reliable execution.
+ *
+ * @example Basic usage
+ * ```typescript
+ * class MyWorkflow extends DurableObject {
+ *   private scheduleManager: ScheduleManager
+ *
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env)
+ *     this.scheduleManager = new ScheduleManager(ctx.state)
+ *
+ *     this.scheduleManager.onScheduleTrigger(async (schedule) => {
+ *       await this.runTask(schedule.name)
+ *     })
+ *   }
+ *
+ *   async registerSchedules() {
+ *     await this.scheduleManager.schedule('0 9 * * 1', 'weekly-sync')
+ *     await this.scheduleManager.schedule('0 0 1 * *', 'monthly-report')
+ *   }
+ *
+ *   async alarm() {
+ *     await this.scheduleManager.handleAlarm()
+ *   }
+ * }
+ * ```
+ *
+ * @example Schedule with metadata
+ * ```typescript
+ * await scheduleManager.schedule('0 9 * * *', 'daily-sync', {
+ *   timezone: 'America/New_York',
+ *   metadata: {
+ *     target: 'salesforce',
+ *     priority: 'high'
+ *   }
+ * })
+ * ```
+ */
 export class ScheduleManager {
   private readonly storage: DurableObjectStorage
+  /** Graph database for schedule Things (uses storage as db key for isolation) */
+  private readonly db: object
   private triggerHandler: ScheduleTriggerHandler | null = null
 
+  /**
+   * Create a new ScheduleManager.
+   *
+   * @param state - The Durable Object state, providing storage access
+   */
   constructor(state: DurableObjectState) {
     this.storage = state.storage
+    // Use the storage object as the db key for isolation between DOs
+    this.db = state.storage
   }
 
   /**
-   * Register a handler to be called when a schedule triggers
+   * Register a handler to be called when a schedule triggers.
+   *
+   * The handler is invoked during `handleAlarm()` for each schedule
+   * that is due to run. Only one handler can be registered at a time.
+   *
+   * @param handler - Async function called with the triggering schedule
+   *
+   * @example
+   * ```typescript
+   * scheduleManager.onScheduleTrigger(async (schedule) => {
+   *   console.log(`Running: ${schedule.name}`)
+   *   console.log(`Cron: ${schedule.cronExpression}`)
+   *   console.log(`Run count: ${schedule.runCount}`)
+   *
+   *   if (schedule.metadata?.target === 'salesforce') {
+   *     await syncSalesforce()
+   *   }
+   * })
+   * ```
    */
   onScheduleTrigger(handler: ScheduleTriggerHandler): void {
     this.triggerHandler = handler
   }
 
   /**
-   * Register a new cron schedule
+   * Register a new cron schedule.
+   *
+   * Creates a schedule that will trigger at times matching the cron expression.
+   * The schedule is persisted and survives DO hibernation.
    *
    * @param cronExpression - Standard 5-field cron expression
    * @param name - Unique name for the schedule
-   * @param options - Optional timezone, metadata, and enabled flag
-   * @returns The created schedule
+   * @param options - Optional configuration
+   * @param options.timezone - IANA timezone for cron evaluation
+   * @param options.metadata - Arbitrary data to attach to the schedule
+   * @param options.enabled - Whether the schedule is active (default: true)
+   * @returns The created schedule object
+   * @throws ScheduleValidationError if name already exists
+   * @throws InvalidCronExpressionError if cron is malformed
+   *
+   * @example Basic schedule
+   * ```typescript
+   * const schedule = await manager.schedule('0 9 * * 1', 'weekly-report')
+   * console.log(schedule.nextRunAt)  // Next Monday 9am
+   * ```
+   *
+   * @example With options
+   * ```typescript
+   * const schedule = await manager.schedule('0 18 * * *', 'daily-sync', {
+   *   timezone: 'Asia/Tokyo',
+   *   metadata: { region: 'apac', priority: 1 },
+   *   enabled: true
+   * })
+   * ```
+   *
+   * @example Create disabled schedule
+   * ```typescript
+   * // Create but don't run until explicitly enabled
+   * const schedule = await manager.schedule('0 0 * * *', 'migration', {
+   *   enabled: false
+   * })
+   *
+   * // Later, enable it
+   * await manager.updateSchedule('migration', { enabled: true })
+   * ```
    */
   async schedule(cronExpression: string, name: string, options: ScheduleOptions = {}): Promise<Schedule> {
-    // Check for duplicate name
-    const existing = await this.storage.get(scheduleKey(name))
-    if (existing) {
-      throw new ScheduleValidationError(`Schedule with name "${name}" already exists`)
-    }
-
-    // Parse and validate cron expression
+    // Parse and validate cron expression first
     const cron = parseCronExpression(cronExpression)
 
     // Calculate next run time (if enabled)
@@ -439,67 +744,64 @@ export class ScheduleManager {
       nextRunAt = getNextRunTime(cron, { timezone: options.timezone })
     }
 
-    const now = new Date()
-    const schedule: Schedule = {
-      id: crypto.randomUUID(),
-      name,
-      cronExpression,
-      status: enabled ? 'active' : 'paused',
-      nextRunAt,
-      lastRunAt: null,
-      runCount: 0,
-      timezone: options.timezone,
-      metadata: options.metadata,
-      createdAt: now,
-      updatedAt: now,
+    const status: ScheduleStatus = enabled ? 'active' : 'paused'
+
+    try {
+      // Create schedule Thing in graph store
+      const scheduleThing = await createScheduleThing(this.db, {
+        name,
+        cronExpression,
+        status,
+        nextRunAt,
+        timezone: options.timezone,
+        metadata: options.metadata,
+      })
+
+      // Set alarm for next run if enabled
+      if (enabled && nextRunAt) {
+        await this.updateAlarm()
+      }
+
+      return scheduleThingToSchedule(scheduleThing)
+    } catch (error) {
+      // Convert graph Thing errors to ScheduleValidationError
+      if (error instanceof Error && error.message.includes('already exists')) {
+        throw new ScheduleValidationError(`Schedule with name "${name}" already exists`)
+      }
+      throw error
     }
-
-    // Persist to storage
-    await this.storage.put(scheduleKey(name), schedule)
-
-    // Set alarm for next run if enabled
-    if (enabled && nextRunAt) {
-      await this.updateAlarm()
-    }
-
-    return schedule
   }
 
   /**
    * Get a schedule by name
    */
   async getSchedule(name: string): Promise<Schedule | null> {
-    const schedule = await this.storage.get(scheduleKey(name))
-    return (schedule as Schedule) || null
+    const scheduleThing = await getScheduleByName(this.db, name)
+    if (!scheduleThing) {
+      return null
+    }
+    return scheduleThingToSchedule(scheduleThing)
   }
 
   /**
    * List all registered schedules
    */
   async listSchedules(options: ScheduleListOptions = {}): Promise<Schedule[]> {
-    const map = await this.storage.list({ prefix: SCHEDULE_PREFIX })
-    const schedules: Schedule[] = []
+    const scheduleThings = await listScheduleThings(this.db, {
+      status: options.status,
+    })
 
-    for (const [, value] of map) {
-      const schedule = value as Schedule
-      if (!options.status || schedule.status === options.status) {
-        schedules.push(schedule)
-      }
-    }
-
-    return schedules
+    return scheduleThings.map(scheduleThingToSchedule)
   }
 
   /**
    * Delete a schedule
    */
   async deleteSchedule(name: string): Promise<void> {
-    const existing = await this.storage.get(scheduleKey(name))
-    if (!existing) {
+    const deleted = await deleteScheduleByName(this.db, name)
+    if (!deleted) {
       throw new ScheduleNotFoundError(name)
     }
-
-    await this.storage.delete(scheduleKey(name))
 
     // Update alarm for remaining schedules
     await this.updateAlarm()
@@ -509,56 +811,100 @@ export class ScheduleManager {
    * Update a schedule
    */
   async updateSchedule(name: string, options: ScheduleUpdateOptions): Promise<Schedule> {
-    const existing = await this.storage.get(scheduleKey(name))
+    const existing = await getScheduleByName(this.db, name)
     if (!existing) {
       throw new ScheduleNotFoundError(name)
     }
 
-    const schedule = existing as Schedule
-    const now = new Date()
+    // Build update object
+    const updates: {
+      cronExpression?: string
+      status?: ScheduleStatus
+      nextRunAt?: Date | null
+      timezone?: string
+      metadata?: Record<string, unknown>
+    } = {}
 
     // Update cron expression if provided
     if (options.cronExpression !== undefined) {
       parseCronExpression(options.cronExpression) // Validate
-      schedule.cronExpression = options.cronExpression
+      updates.cronExpression = options.cronExpression
     }
 
     // Update timezone if provided
     if (options.timezone !== undefined) {
-      schedule.timezone = options.timezone
+      updates.timezone = options.timezone
     }
 
     // Update metadata if provided
     if (options.metadata !== undefined) {
-      schedule.metadata = options.metadata
+      updates.metadata = options.metadata
     }
 
     // Update enabled status if provided
     if (options.enabled !== undefined) {
-      schedule.status = options.enabled ? 'active' : 'paused'
+      updates.status = options.enabled ? 'active' : 'paused'
     }
 
-    // Recalculate next run time
-    if (schedule.status === 'active') {
-      const cron = parseCronExpression(schedule.cronExpression)
-      schedule.nextRunAt = getNextRunTime(cron, { timezone: schedule.timezone })
+    // Calculate new status (use update or existing)
+    const newStatus = updates.status ?? existing.data!.status
+
+    // Recalculate next run time based on new status
+    if (newStatus === 'active') {
+      const cronExpr = updates.cronExpression ?? existing.data!.cronExpression
+      const timezone = updates.timezone ?? existing.data!.timezone
+      const cron = parseCronExpression(cronExpr)
+      updates.nextRunAt = getNextRunTime(cron, { timezone })
     } else {
-      schedule.nextRunAt = null
+      updates.nextRunAt = null
     }
 
-    schedule.updatedAt = now
-
-    // Persist updated schedule
-    await this.storage.put(scheduleKey(name), schedule)
+    const updatedThing = await updateScheduleThing(this.db, existing.id, updates)
+    if (!updatedThing) {
+      throw new ScheduleNotFoundError(name)
+    }
 
     // Update alarm
     await this.updateAlarm()
 
-    return schedule
+    return scheduleThingToSchedule(updatedThing)
   }
 
   /**
-   * Handle a DO alarm - triggers any schedules due to run
+   * Handle a DO alarm - triggers any schedules due to run.
+   *
+   * This method should be called from the Durable Object's `alarm()` method.
+   * It finds all active schedules that are due, triggers them, and sets
+   * the next alarm.
+   *
+   * For each due schedule:
+   * 1. Calls the registered trigger handler
+   * 2. Records the trigger event for auditing
+   * 3. Updates lastRunAt and increments runCount
+   * 4. Calculates and stores the next run time
+   *
+   * After processing, sets the DO alarm for the next scheduled run.
+   *
+   * @example Integration with DO alarm
+   * ```typescript
+   * class MyWorkflow extends DurableObject {
+   *   private scheduleManager: ScheduleManager
+   *
+   *   constructor(ctx: DurableObjectState, env: Env) {
+   *     super(ctx, env)
+   *     this.scheduleManager = new ScheduleManager(ctx.state)
+   *
+   *     this.scheduleManager.onScheduleTrigger(async (schedule) => {
+   *       await this.executeScheduledTask(schedule)
+   *     })
+   *   }
+   *
+   *   // Called by Cloudflare when alarm fires
+   *   async alarm() {
+   *     await this.scheduleManager.handleAlarm()
+   *   }
+   * }
+   * ```
    */
   async handleAlarm(): Promise<void> {
     const now = new Date()
@@ -573,15 +919,27 @@ export class ScheduleManager {
         await this.triggerHandler(schedule)
       }
 
+      // Record trigger event as relationship
+      // This creates a 'triggered' relationship for audit/tracking
+      await recordTriggerEvent(
+        this.db,
+        schedule.id,
+        `do://schedules/${schedule.id}/triggers/${Date.now()}`
+      )
+
       // Update schedule: lastRunAt, runCount, nextRunAt
       const cron = parseCronExpression(schedule.cronExpression)
-      schedule.lastRunAt = now
-      schedule.runCount += 1
-      schedule.nextRunAt = getNextRunTime(cron, { timezone: schedule.timezone, from: now })
-      schedule.updatedAt = now
+      const nextRunAt = getNextRunTime(cron, { timezone: schedule.timezone, from: now })
 
-      // Persist updated schedule
-      await this.storage.put(scheduleKey(schedule.name), schedule)
+      // Get the thing by name and update it
+      const thing = await getScheduleByName(this.db, schedule.name)
+      if (thing) {
+        await updateScheduleThing(this.db, thing.id, {
+          lastRunAt: now,
+          runCount: schedule.runCount + 1,
+          nextRunAt,
+        })
+      }
     }
 
     // Set alarm for next due schedule

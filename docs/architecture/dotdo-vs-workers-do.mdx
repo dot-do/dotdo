@@ -1,0 +1,388 @@
+---
+title: dotdo vs workers.do Architecture
+description: Understanding the layered separation between runtime infrastructure and platform products
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# dotdo vs workers.do Architecture
+
+This document clarifies the architectural distinction between **dotdo** (the runtime/infrastructure layer) and **workers.do** (the platform/product layer). Understanding this separation is crucial for knowing where code belongs and how the ecosystem fits together.
+
+## The Two-Layer Model
+
+```
+                              PLATFORM ECOSYSTEM
+                              ==================
+
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                         PRODUCT LAYER (workers.do)                       │
+    │                                                                          │
+    │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+    │   │  agents.do  │  │  teams.do   │  │  humans.do  │  │ workflows.do│    │
+    │   │             │  │             │  │             │  │             │    │
+    │   │ Named Agents│  │ Team Roles  │  │ Human-in-   │  │ Visual      │    │
+    │   │ (Priya,     │  │ (engineering│  │ the-Loop    │  │ Workflow    │    │
+    │   │ Ralph, Tom) │  │ product,    │  │ Approvals   │  │ Builder     │    │
+    │   │             │  │ sales)      │  │             │  │             │    │
+    │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘    │
+    │          │                │                │                │           │
+    │          └────────────────┴────────────────┴────────────────┘           │
+    │                                    │                                     │
+    │                     Business-as-Code Syntax                              │
+    │            priya\`define the MVP\` / ralph\`build ${spec}\`                │
+    │                                                                          │
+    └──────────────────────────────────────┬──────────────────────────────────┘
+                                           │
+                                           │ imports from
+                                           ▼
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                        RUNTIME LAYER (dotdo)                             │
+    │                                                                          │
+    │   ┌───────────────────────────────────────────────────────────────────┐ │
+    │   │                    Durable Object Classes                          │ │
+    │   │  DO │ DOBase │ DOTiny │ Entity │ Collection │ Directory │ Workflow │ │
+    │   │  Worker │ Agent (base) │ Human (base)                              │ │
+    │   └───────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    │   ┌───────────────────────────────────────────────────────────────────┐ │
+    │   │                    Extended Primitives                             │ │
+    │   │  fsx (filesystem) │ gitx (git) │ bashx (shell) │ npmx │ pyx       │ │
+    │   └───────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    │   ┌───────────────────────────────────────────────────────────────────┐ │
+    │   │                    Infrastructure Primitives                       │ │
+    │   │  rate-limiter │ circuit-breaker │ cache-manager │ task-queue      │ │
+    │   │  secret-store │ token-manager │ permission-engine │ 40+ more      │ │
+    │   └───────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    │   ┌───────────────────────────────────────────────────────────────────┐ │
+    │   │                    Compat SDKs (40+ APIs)                          │ │
+    │   │  @dotdo/postgres │ @dotdo/redis │ @dotdo/kafka │ @dotdo/mongo     │ │
+    │   │  @dotdo/stripe │ @dotdo/supabase │ @dotdo/openai │ ...            │ │
+    │   └───────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    │   ┌───────────────────────────────────────────────────────────────────┐ │
+    │   │                    Core Infrastructure                             │ │
+    │   │  Cap'n Web RPC │ $ Context │ Stores │ SQLite/Drizzle │ Tiered     │ │
+    │   │  Event System │ Scheduling │ Sharding │ Replication               │ │
+    │   └───────────────────────────────────────────────────────────────────┘ │
+    │                                                                          │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                           │
+                                           │ runs on
+                                           ▼
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                     CLOUDFLARE PLATFORM                                  │
+    │   V8 Isolates │ Durable Objects │ R2 │ KV │ Pipelines │ 300+ Cities    │
+    └─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Analogy: Node.js vs Heroku
+
+The relationship between dotdo and workers.do mirrors the relationship between **Node.js** and **Heroku**:
+
+| Aspect | dotdo | workers.do |
+|--------|-------|------------|
+| **Role** | Runtime/Framework | Platform/Product |
+| **Analogy** | Node.js | Heroku |
+| **Users** | Infrastructure developers | Founders, teams, businesses |
+| **Package** | `dotdo` | `agents.do`, `teams.do`, `humans.do` |
+| **Focus** | Low-level primitives | High-level abstractions |
+| **Exports** | DO classes, primitives, compat layers | Named agents, teams, workflows |
+
+## What dotdo Provides
+
+dotdo is the **runtime layer** - it provides the fundamental building blocks:
+
+### Durable Object Base Classes
+
+```typescript
+import { DO, DOBase, Entity, Collection, Worker, Agent } from 'dotdo'
+
+// Base classes for building any DO-backed system
+export class MyService extends DOBase {
+  // REST router, SQLite, persistence, RPC
+}
+```
+
+### Extended Primitives
+
+Edge-native implementations of things V8 isolates lack:
+
+| Primitive | Package | Description |
+|-----------|---------|-------------|
+| **fsx** | `fsx.do` | POSIX filesystem on SQLite |
+| **gitx** | `gitx.do` | Git on R2 object storage |
+| **bashx** | `bashx.do` | Shell execution without VMs |
+| **npmx** | `npmx.do` | Package management |
+| **pyx** | `pyx.do` | Python via Pyodide |
+
+### Infrastructure Primitives (44 total)
+
+Building blocks for distributed systems:
+
+- **Circuit Breaker** - Fault tolerance
+- **Rate Limiter** - Request throttling
+- **Cache Manager** - Multi-tier caching
+- **Task Queue** - Background job processing
+- **Secret Store** - Encrypted secrets
+- **Token Manager** - JWT/OAuth tokens
+- **Permission Engine** - RBAC/ABAC access control
+- And 37 more...
+
+### Compat SDKs (40+ APIs)
+
+Drop-in replacements backed by Durable Objects:
+
+```typescript
+import { createClient } from '@dotdo/supabase'
+import { Kafka } from '@dotdo/kafka'
+import { Redis } from '@dotdo/redis'
+
+// Same API, but running on edge with automatic sharding
+```
+
+### Core Infrastructure
+
+- **Cap'n Web RPC** - Promise pipelining
+- **$ Context** - Workflow execution ($.do, $.try, $.send)
+- **Event System** - $.on.Noun.verb event handlers
+- **Scheduling** - $.every.day.at9am DSL
+- **Stores** - things, rels, actions, events, search
+- **Tiered Storage** - SQLite -> R2/Iceberg -> ClickHouse
+
+## What workers.do Provides
+
+workers.do is the **product layer** - it provides the user-facing experience:
+
+### Named Agents
+
+Pre-configured AI agents with personas:
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+const spec = await priya`define the MVP for ${hypothesis}`
+let app = await ralph`build ${spec}`
+
+do {
+  app = await ralph`improve ${app} per ${tom}`
+} while (!await tom.approve(app))
+
+mark`announce the launch`
+sally`start selling`
+```
+
+| Agent | Role | Expertise |
+|-------|------|-----------|
+| **Priya** | Product | Specs, roadmaps, user stories |
+| **Ralph** | Engineering | Code, architecture, implementation |
+| **Tom** | Tech Lead | Reviews, standards, decisions |
+| **Mark** | Marketing | Content, launches, positioning |
+| **Sally** | Sales | Outreach, closing, relationships |
+| **Quinn** | QA | Testing, quality, validation |
+| **Rae** | Frontend | React, components, design systems |
+| **Casey** | Customer Success | Onboarding, retention |
+| **Finn** | Finance | Budgets, forecasting |
+| **Dana** | Data | Analytics, metrics, insights |
+
+### Teams and Roles
+
+Organizational abstractions:
+
+```typescript
+import { engineering, product, sales, marketing } from 'teams.do'
+
+// Teams are collections of workers with shared context
+const review = await engineering.review(pullRequest)
+const campaign = await marketing.launch(product)
+```
+
+### Human Workers
+
+Human-in-the-loop with notification channels:
+
+```typescript
+import { legal, ceo, seniorAccountant } from 'humans.do'
+
+// Human escalation with SLA
+const approved = await ceo`approve the partnership`
+
+// Conditional escalation
+if (refund.amount > 10000) {
+  await seniorAccountant`approve ${refund}` // SLA: 4 hours
+}
+```
+
+### Business-as-Code Syntax
+
+The high-level DSL for autonomous businesses:
+
+```typescript
+import { Startup } from 'workers.do'
+
+export class MyStartup extends Startup {
+  async launch() {
+    const spec = priya`define the MVP`
+    const app = ralph`build ${spec}`
+    await tom.approve(app)
+    mark`announce the launch`
+    sally`start selling`
+  }
+}
+```
+
+### Platform Services
+
+Hosted services that run on dotdo:
+
+- **llm.do** - Multi-provider LLM gateway
+- **payments.do** - Payment processing
+- **auth.do** - Authentication
+- **storage.do** - File storage
+- **search.do** - Full-text search
+
+## Dependency Direction
+
+The dependency flows **one way**: workers.do imports dotdo, never the reverse.
+
+```
+workers.do
+    │
+    ├── agents.do     ─┐
+    ├── teams.do       │
+    ├── humans.do      ├──► all import from dotdo
+    ├── workflows.do   │
+    └── ...           ─┘
+            │
+            ▼
+         dotdo
+            │
+            ▼
+    Cloudflare Platform
+```
+
+### Package Dependencies
+
+```json
+// workers.do/package.json
+{
+  "dependencies": {
+    "dotdo": "^0.1.0"
+  }
+}
+
+// agents.do/package.json
+{
+  "dependencies": {
+    "dotdo": "^0.1.0"
+  }
+}
+```
+
+## Where Code Belongs
+
+Use this decision tree:
+
+```
+Is this code...
+├─ A DO base class or primitive?
+│   └─ dotdo (objects/, primitives/, lib/)
+├─ An API compatibility layer?
+│   └─ dotdo (compat/, packages/)
+├─ A named agent with persona?
+│   └─ workers.do (agents/)
+├─ A team or role abstraction?
+│   └─ workers.do (teams/)
+├─ Human workflow/escalation?
+│   └─ workers.do (humans/)
+├─ Business-as-Code syntax?
+│   └─ workers.do
+└─ Platform service (llm.do, etc)?
+    └─ workers.do (services/)
+```
+
+### Examples
+
+| Code | Location | Reason |
+|------|----------|--------|
+| `class DO extends DurableObject` | dotdo | Core runtime primitive |
+| `class Agent extends Worker` | dotdo | Base class for agents |
+| `const ralph = createNamedAgent(...)` | workers.do | Product-level persona |
+| `@dotdo/redis` | dotdo | Compat SDK |
+| `class Startup extends DO` | workers.do | Business-as-Code abstraction |
+| `$.on.Customer.created()` | dotdo | Event system primitive |
+| `priya\`define the MVP\`` | workers.do | Product syntax |
+
+## Current State vs Target State
+
+<Callout type="warning">
+Currently, some code that belongs in workers.do exists in dotdo. This is a migration in progress.
+</Callout>
+
+### Currently in dotdo (should move to workers.do)
+
+| Item | Current Location | Target |
+|------|------------------|--------|
+| Named agents (priya, ralph) | `agents/named/` | workers.do/agents/ |
+| Startup, SaaS, Marketplace classes | `objects/` | workers.do/objects/ |
+| Business-as-Code examples | `CLAUDE.md` | workers.do/README.md |
+
+### Abstract Interfaces (stay in dotdo)
+
+The **base classes** and **interfaces** stay in dotdo. workers.do extends them:
+
+```typescript
+// dotdo exports the base
+export { Agent, type AgentConfig } from 'dotdo/objects'
+
+// workers.do extends it
+import { Agent } from 'dotdo/objects'
+
+class Priya extends Agent {
+  persona = PERSONAS.priya
+  // Product-specific implementation
+}
+```
+
+## README Positioning
+
+### dotdo README Should Emphasize
+
+- Edge-native runtime for Durable Objects
+- Extended primitives (fsx, gitx, bashx)
+- 40+ API-compatible SDKs
+- Cap'n Web RPC / promise pipelining
+- Tiered storage architecture
+- Infrastructure primitives
+
+### workers.do README Should Emphasize
+
+- Business-as-Code framework
+- Named AI agents (priya, ralph, tom)
+- Teams and roles
+- Human-in-the-loop workflows
+- "Build your 1-Person Unicorn"
+- Platform services
+
+## Summary Table
+
+| | **dotdo** | **workers.do** |
+|---|---|---|
+| **Tagline** | Edge-native runtime for Durable Objects | Build your 1-Person Unicorn |
+| **Role** | Runtime/Framework | Platform/Product |
+| **Analogy** | Node.js | Heroku |
+| **Users** | Infrastructure developers | Founders, teams, businesses |
+| **Package** | `dotdo` | `agents.do`, `teams.do`, `humans.do` |
+| **Exports** | DO, Entity, primitives, compat | Named agents, teams, workflows |
+| **Focus** | Low-level building blocks | High-level abstractions |
+| **Syntax** | `$.on.Customer.created()` | `priya\`define the MVP\`` |
+| **Dependency** | Imports from Cloudflare | Imports from dotdo |
+
+## Related Documentation
+
+- [DO Class Hierarchy](/docs/architecture/do-hierarchy) - Understanding the three-tier bundle system
+- [Data Model](/docs/architecture/data-model) - Things, Actions, Events, Relationships
+- [Edge Computing](/docs/architecture/edge-computing) - V8 Isolates and global distribution
+- [Scalability](/docs/architecture/scalability) - Sharding and replication

@@ -42,6 +42,64 @@ import {
 } from './tests/config/vitest.shared'
 
 /**
+ * Workspace timeout presets for different test types
+ */
+const TIMEOUTS = {
+  default: { testTimeout: 10_000, hookTimeout: 10_000 },
+  slow: { testTimeout: 15_000, hookTimeout: 15_000 },
+  wasm: { testTimeout: 30_000, hookTimeout: 30_000 },
+} as const
+
+/**
+ * Workers pool options for different DO configurations
+ * Centralized to avoid duplication and ensure consistency
+ */
+const WORKERS_POOL_OPTIONS = {
+  default: {
+    workers: {
+      wrangler: { configPath: './wrangler.jsonc' },
+      isolatedStorage: true,
+      singleWorker: true,
+    },
+  },
+  doTest: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
+      isolatedStorage: false,
+      singleWorker: true,
+    },
+  },
+  workersTest: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.test.jsonc') },
+      isolatedStorage: false,
+      singleWorker: true,
+    },
+  },
+  simpleDo: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.simple-do.jsonc') },
+      isolatedStorage: false,
+      singleWorker: true,
+    },
+  },
+  browserDo: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.browser-do-test.jsonc') },
+      isolatedStorage: false,
+      singleWorker: true,
+    },
+  },
+  duckdbWorker: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'packages/duckdb-worker/wrangler.jsonc') },
+      isolatedStorage: true,
+      singleWorker: true,
+    },
+  },
+} as const
+
+/**
  * Creates a Node.js test workspace configuration
  * Reduces boilerplate for node-based test workspaces
  */
@@ -63,6 +121,37 @@ function createNodeWorkspace(
       setupFiles,
     },
     resolve: nodeResolveConfig,
+  }
+}
+
+/**
+ * Creates a Workers test workspace configuration
+ * Reduces boilerplate for Workers-based test workspaces
+ */
+function createWorkersWorkspace(
+  name: string,
+  include: string[],
+  options: {
+    poolOptions?: (typeof WORKERS_POOL_OPTIONS)[keyof typeof WORKERS_POOL_OPTIONS]
+    timeouts?: (typeof TIMEOUTS)[keyof typeof TIMEOUTS]
+    setupFiles?: string[]
+    exclude?: string[]
+  } = {}
+) {
+  const { poolOptions = WORKERS_POOL_OPTIONS.default, timeouts = TIMEOUTS.slow, setupFiles, exclude } = options
+
+  return {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      globals: sharedTestConfig?.globals,
+      name,
+      include,
+      exclude: exclude ? [...defaultExcludes, ...exclude] : defaultExcludes,
+      sequence: { concurrent: false },
+      ...timeouts,
+      ...(setupFiles ? { setupFiles } : {}),
+      poolOptions: poolOptions as unknown as Record<string, unknown>,
+    },
   }
 }
 
@@ -91,7 +180,7 @@ export default defineWorkspace([
   createNodeWorkspace('graph', ['db/graph/**/*.test.ts']),
 
   // TanStack DB integration tests (sync engine, collection options, rpc client)
-  createNodeWorkspace('tanstack', ['db/tanstack/**/*.test.ts', 'db/tanstack/tests/**/*.test.ts']),
+  createNodeWorkspace('tanstack', ['db/tanstack/**/*.test.ts']),
 
   // EdgeVec vector index persistence tests
   createNodeWorkspace('edgevec', ['db/edgevec/**/*.test.ts']),
@@ -114,8 +203,12 @@ export default defineWorkspace([
   // DO transport layer tests (REST router, edit UI, auth layer, RPC, etc.)
   createNodeWorkspace('objects-transport', ['objects/transport/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, storage, auth, namespace, response, triggers, cache, payments, iterators, tools, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts', 'lib/storage/tests/**/*.test.ts', 'lib/auth/tests/**/*.test.ts', 'lib/namespace/tests/**/*.test.ts', 'lib/response/tests/**/*.test.ts', 'lib/triggers/tests/**/*.test.ts', 'lib/cache/tests/**/*.test.ts', 'lib/payments/tests/**/*.test.ts', 'lib/iterators/tests/**/*.test.ts', 'lib/tools/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, etc.)
+  // Uses glob pattern to capture all lib subdirectory tests
+  createNodeWorkspace('lib', [
+    'lib/tests/**/*.test.ts',
+    'lib/*/tests/**/*.test.ts',
+  ]),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
@@ -143,6 +236,9 @@ export default defineWorkspace([
 
   // App hooks tests (file structure verification for TDD)
   createNodeWorkspace('app-hooks', ['app/lib/hooks/**/*.test.ts']),
+
+  // App shell tests (navigation configuration, routing utilities)
+  createNodeWorkspace('app-shell', ['app/lib/shell/**/*.test.ts']),
 
   // App React component tests (jsdom environment for React testing)
   {
@@ -283,6 +379,18 @@ export default defineWorkspace([
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
 
+  // @dotdo/mongo package tests (MongoDB-compatible client with in-memory backend)
+  createNodeWorkspace('mongo', ['packages/mongo/tests/**/*.test.ts']),
+
+  // @dotdo/redis package tests (Redis-compatible in-memory data store)
+  createNodeWorkspace('redis', ['packages/redis/tests/**/*.test.ts']),
+
+  // @dotdo/postgres package tests (PostgreSQL-compatible client with in-memory backend)
+  createNodeWorkspace('postgres', ['packages/postgres/tests/**/*.test.ts']),
+
+  // @dotdo/sendgrid package tests (SendGrid SDK compat layer)
+  createNodeWorkspace('sendgrid', ['packages/sendgrid/tests/**/*.test.ts']),
+
   // @dotdo/kafka package tests (Kafka-compatible message queue)
   createNodeWorkspace('kafka', ['packages/kafka/tests/**/*.test.ts']),
 
@@ -302,6 +410,9 @@ export default defineWorkspace([
   createNodeWorkspace('duckdb-distributed', [
     'packages/duckdb-worker/src/distributed/tests/**/*.test.ts',
   ]),
+
+  // @dotdo/duckdb package tests (DuckDB compat layer with dotdo extensions)
+  createNodeWorkspace('duckdb', ['packages/duckdb/tests/**/*.test.ts']),
 
   // @dotdo/worker-helpers package tests (Customer Worker Helpers)
   createNodeWorkspace('worker-helpers', ['packages/worker-helpers/tests/**/*.test.ts']),
@@ -503,246 +614,69 @@ export default defineWorkspace([
   // ============================================
 
   // Runtime integration tests using Cloudflare Workers pool
-  // NOTE: api/tests/routes tests are now in api-routes project (node environment)
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      // Use only compatible settings from sharedTestConfig (NOT pool/poolOptions - those come from extended config)
-      globals: sharedTestConfig?.globals,
-      testTimeout: sharedTestConfig?.testTimeout,
-      hookTimeout: sharedTestConfig?.hookTimeout,
-      reporters: sharedTestConfig?.reporters,
-      snapshotFormat: sharedTestConfig?.snapshotFormat,
-      bail: sharedTestConfig?.bail,
-      name: 'workers',
-      include: [
-        'api/tests/infrastructure/**/*.test.ts',
-        'api/tests/middleware/**/*.test.ts',
-      ],
-      exclude: defaultExcludes,
-      setupFiles: ['./api/tests/middleware/setup.ts'],
-      // Workers tests need sequential execution for stability
-      sequence: {
-        concurrent: false,
-      },
-    },
-  },
+  createWorkersWorkspace('workers', [
+    'api/tests/infrastructure/**/*.test.ts',
+    'api/tests/middleware/**/*.test.ts',
+  ], {
+    timeouts: TIMEOUTS.default,
+    setupFiles: ['./api/tests/middleware/setup.ts'],
+  }),
 
   // Worker integration tests (real miniflare runtime)
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig?.globals,
-      name: 'workers-integration',
-      include: ['workers/**/*.test.ts'],
-      exclude: [...defaultExcludes, 'workers/observability-tail/**', 'workers/do-rest-integration.test.ts', 'workers/tests/**'],
-      sequence: { concurrent: false },
-      // Override pool options to use workers-specific wrangler config
-      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.test.jsonc') },
-          // Note: isolatedStorage disabled due to storage stack issues with proxy handler tests
-          // Tests don't rely on storage state between runs
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  createWorkersWorkspace('workers-integration', ['workers/**/*.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.workersTest,
+    exclude: ['workers/observability-tail/**', 'workers/do-rest-integration.test.ts', 'workers/tests/**'],
+  }),
 
   // DO integration tests (DOBase REST router with real SQLite storage)
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig?.globals,
-      name: 'do-integration',
-      include: ['workers/do-rest-integration.test.ts'],
-      exclude: defaultExcludes,
-      sequence: { concurrent: false },
-      // Override pool options to use DO-specific wrangler config with SQLite
-      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
-          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
-          // Tests use unique namespaces (uniqueNs()) for isolation instead
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  createWorkersWorkspace('do-integration', ['workers/do-rest-integration.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
 
-  // DO identity and schema tests (RED phase - tests expected to fail)
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig?.globals,
-      name: 'do-identity',
-      include: ['objects/tests/do-identity-schema.test.ts'],
-      exclude: defaultExcludes,
-      sequence: { concurrent: false },
-      // Override pool options to use DO-specific wrangler config with SQLite
-      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
-          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
-          // Tests use unique namespaces (uniqueNs()) for isolation instead
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  // DO identity and schema tests
+  createWorkersWorkspace('do-identity', ['objects/tests/do-identity-schema.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
 
   // Simple DO RPC test (verifies Workers RPC works with minimal DO)
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      globals: sharedTestConfig?.globals,
-      name: 'simple-do-rpc',
-      include: ['objects/tests/simple-do-rpc.test.ts'],
-      exclude: defaultExcludes,
-      sequence: { concurrent: false },
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.simple-do.jsonc') },
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  createWorkersWorkspace('simple-do-rpc', ['objects/tests/simple-do-rpc.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.simpleDo,
+  }),
 
-  // DO RPC direct method access tests (RED phase - tests expected to fail)
-  // Tests Workers RPC pattern: stub.things.create(), stub.rels.query(), etc.
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig?.globals,
-      name: 'do-rpc',
-      include: ['objects/tests/do-rpc.test.ts', 'objects/tests/do-rpc-flat.test.ts'],
-      exclude: defaultExcludes,
-      sequence: { concurrent: false },
-      // Override pool options to use DO-specific wrangler config with SQLite
-      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
-          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
-          // Tests use unique namespaces (uniqueNs()) for isolation instead
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  // DO RPC direct method access tests (stub.things.create(), stub.rels.query(), etc.)
+  createWorkersWorkspace('do-rpc', [
+    'objects/tests/do-rpc.test.ts',
+    'objects/tests/do-rpc-flat.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
 
-  // DO Clickable API E2E tests (RED phase - tests expected to fail)
-  // Tests the "clickable" API pattern where every link is fetchable
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig?.globals,
-      name: 'clickable-api',
-      include: ['objects/tests/clickable-api-e2e.test.ts'],
-      exclude: defaultExcludes,
-      sequence: { concurrent: false },
-      // Override pool options to use DO-specific wrangler config with SQLite
-      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
-          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
-          // Tests use unique namespaces (uniqueNs()) for isolation instead
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  // DO Clickable API E2E tests (every link is fetchable pattern)
+  createWorkersWorkspace('clickable-api', ['objects/tests/clickable-api-e2e.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
 
-  // Browser DO integration tests (Browser lifecycle, routes, screencast with mock session)
-  // Uses TestBrowserDO with mock Browse session to test DO behavior without real browser
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      globals: sharedTestConfig?.globals,
-      name: 'browser-do',
-      include: [
-        'objects/tests/browser-do-lifecycle.test.ts',
-        'objects/tests/browser-do-routes.test.ts',
-        'objects/tests/browser-do-screencast.test.ts',
-      ],
-      exclude: defaultExcludes,
-      sequence: { concurrent: false },
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.browser-do-test.jsonc') },
-          isolatedStorage: false,
-          singleWorker: true,
-        },
-      } as unknown as Record<string, unknown>,
-    },
-  },
+  // Browser DO integration tests (lifecycle, routes, screencast with mock session)
+  createWorkersWorkspace('browser-do', [
+    'objects/tests/browser-do-lifecycle.test.ts',
+    'objects/tests/browser-do-routes.test.ts',
+    'objects/tests/browser-do-screencast.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.browserDo,
+  }),
 
   // DuckDB WASM tests - require Workers runtime for WASM instantiation
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      ...sharedTestConfig,
-      name: 'duckdb-wasm',
-      include: ['db/compat/sql/duckdb-wasm/tests/**/*.test.ts'],
-      exclude: defaultExcludes,
-      // Workers tests need sequential execution for stability
-      sequence: {
-        concurrent: false,
-      },
-    },
-  },
+  createWorkersWorkspace('duckdb-wasm', ['db/compat/sql/duckdb-wasm/tests/**/*.test.ts']),
 
   // DuckDB VSS (Vector Similarity Search) extension tests
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      ...sharedTestConfig,
-      name: 'duckdb-vss',
-      include: ['db/compat/sql/duckdb-wasm/vss/tests/**/*.test.ts'],
-      exclude: defaultExcludes,
-      // VSS tests need longer timeout for extension loading
-      testTimeout: 30_000,
-      hookTimeout: 30_000,
-      // Workers tests need sequential execution for stability
-      sequence: {
-        concurrent: false,
-      },
-    },
-  },
+  createWorkersWorkspace('duckdb-vss', ['db/compat/sql/duckdb-wasm/vss/tests/**/*.test.ts'], {
+    timeouts: TIMEOUTS.wasm,
+  }),
 
   // DuckDB FTS (Full Text Search) extension tests
-  {
-    extends: './tests/config/vitest.workers.config.ts',
-    test: {
-      ...sharedTestConfig,
-      name: 'duckdb-fts',
-      include: ['db/compat/sql/duckdb-wasm/fts/tests/**/*.test.ts'],
-      exclude: defaultExcludes,
-      // FTS tests need longer timeout for extension loading
-      testTimeout: 30_000,
-      hookTimeout: 30_000,
-      // Workers tests need sequential execution for stability
-      sequence: {
-        concurrent: false,
-      },
-    },
-  },
+  createWorkersWorkspace('duckdb-fts', ['db/compat/sql/duckdb-wasm/fts/tests/**/*.test.ts'], {
+    timeouts: TIMEOUTS.wasm,
+  }),
 
   // @dotdo/duckdb-worker package Workers tests
   {

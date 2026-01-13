@@ -1,14 +1,87 @@
 /**
  * HNSW Index Implementation
  *
- * Hierarchical Navigable Small World graph for approximate nearest neighbor search.
- * Optimized for Cloudflare Workers with:
- * - Configurable M and efConstruction parameters
- * - Support for cosine, L2, and dot product metrics
- * - Binary serialization for R2 persistence
- * - Memory-efficient Float32Array storage
+ * Hierarchical Navigable Small World (HNSW) graph for approximate nearest neighbor search.
+ * This implementation is optimized for Cloudflare Workers edge computing environment.
+ *
+ * ## Algorithm Overview
+ *
+ * HNSW builds a multi-layer graph where:
+ * - Layer 0 contains all vectors with dense connections
+ * - Higher layers contain exponentially fewer nodes with sparse connections
+ * - Search starts from the top layer and descends to layer 0
+ * - This provides O(log N) search complexity
+ *
+ * ## Key Parameters
+ *
+ * - **M**: Maximum connections per node (default: 16). Higher M = better recall, more memory
+ * - **efConstruction**: Build-time search depth (default: 200). Higher = better index quality
+ * - **ef**: Search-time depth (default: 40). Higher = better recall, slower search
+ *
+ * ## Supported Metrics
+ *
+ * - **cosine**: Best for normalized embeddings (OpenAI, Cohere). Returns similarity [-1, 1]
+ * - **l2**: Euclidean distance. Returns distance, lower = more similar
+ * - **dot**: Inner product. Returns score, higher = more similar
+ *
+ * ## Memory Usage
+ *
+ * Approximate memory per vector: `D * 4 + M * 2 * 8 + overhead` bytes
+ * - 768-dim vectors with M=16: ~3.5KB per vector
+ * - 1536-dim vectors with M=16: ~6.5KB per vector
+ *
+ * @example Basic semantic search
+ * ```typescript
+ * import { createHNSWIndex } from 'db/edgevec/hnsw'
+ *
+ * // Create index for OpenAI text-embedding-3-small
+ * const index = createHNSWIndex({
+ *   dimensions: 768,
+ *   metric: 'cosine',
+ *   M: 16,
+ *   efConstruction: 200
+ * })
+ *
+ * // Insert document embeddings
+ * const embedding = await openai.embeddings.create({
+ *   model: 'text-embedding-3-small',
+ *   input: 'Hello world'
+ * })
+ * index.insert('doc-1', new Float32Array(embedding.data[0].embedding))
+ *
+ * // Search for similar documents
+ * const queryEmbedding = await openai.embeddings.create({
+ *   model: 'text-embedding-3-small',
+ *   input: 'greeting message'
+ * })
+ * const results = index.search(new Float32Array(queryEmbedding.data[0].embedding), {
+ *   k: 10,
+ *   ef: 100  // Higher ef for better recall
+ * })
+ *
+ * // Results: [{ id: 'doc-1', score: 0.95 }, ...]
+ * ```
+ *
+ * @example Persistence with R2
+ * ```typescript
+ * // Save index to R2
+ * const serialized = index.serialize()
+ * await env.R2.put('indices/my-index.bin', serialized)
+ *
+ * // Load index from R2
+ * const data = await env.R2.get('indices/my-index.bin')
+ * const loadedIndex = HNSWIndexImpl.deserialize(await data.arrayBuffer())
+ * ```
+ *
+ * @example JSON export for debugging
+ * ```typescript
+ * const json = index.toJSON()
+ * console.log(`Index has ${json.nodes.length} nodes`)
+ * console.log(`Entry point: ${json.entryPointId}`)
+ * ```
  *
  * @module db/edgevec/hnsw
+ * @see {@link https://arxiv.org/abs/1603.09320 | Original HNSW Paper}
  */
 
 // ============================================================================
@@ -359,6 +432,31 @@ class MaxHeap {
 // HNSW IMPLEMENTATION
 // ============================================================================
 
+/**
+ * HNSW Index Implementation.
+ *
+ * The main class implementing the HNSW algorithm for approximate nearest
+ * neighbor search. This class manages the multi-layer graph structure,
+ * handles insertions and deletions, and provides efficient similarity search.
+ *
+ * @example Creating and using an index
+ * ```typescript
+ * const index = new HNSWIndexImpl({
+ *   dimensions: 768,
+ *   metric: 'cosine',
+ *   M: 16,
+ *   efConstruction: 200
+ * })
+ *
+ * // Insert vectors
+ * for (const doc of documents) {
+ *   index.insert(doc.id, new Float32Array(doc.embedding))
+ * }
+ *
+ * // Search
+ * const results = index.search(queryVector, { k: 10, ef: 100 })
+ * ```
+ */
 export class HNSWIndexImpl implements HNSWIndex {
   private _config: ResolvedHNSWConfig
   private nodes: Map<string, HNSWNode> = new Map()
@@ -792,8 +890,12 @@ export class HNSWIndexImpl implements HNSWIndex {
     const visited = new Set<string>([entryId])
     const entryDist = this.distance(query, this.vectors.get(entryId)!)
 
-    const candidates = new MinHeap()
-    const results = new MaxHeap()
+    // For higherIsBetter (cosine/dot): use MaxHeap for candidates (best first), MinHeap for results (track worst to evict)
+    // For lowerIsBetter (l2): use MinHeap for candidates (best first), MaxHeap for results (track worst to evict)
+    // Candidates: we want to explore the BEST candidates first
+    // Results: we need to track the WORST result to know when to evict
+    const candidates = this.higherIsBetter ? new MaxHeap() : new MinHeap()
+    const results = this.higherIsBetter ? new MinHeap() : new MaxHeap()
 
     candidates.push({ id: entryId, distance: entryDist })
     results.push({ id: entryId, distance: entryDist })
@@ -802,12 +904,14 @@ export class HNSWIndexImpl implements HNSWIndex {
       const current = candidates.pop()!
 
       // Check if we can stop
+      // The worst result is what peek() returns from our results heap
       const worstResult = results.peek()
       if (
         worstResult &&
         results.size() >= ef &&
         this.isBetter(worstResult.distance, current.distance)
       ) {
+        // The current best candidate is worse than our worst result, so stop
         break
       }
 
@@ -835,7 +939,7 @@ export class HNSWIndexImpl implements HNSWIndex {
           results.push({ id: neighborId, distance: dist })
 
           if (results.size() > ef) {
-            results.pop()
+            results.pop() // Remove the worst result
           }
         }
       }
@@ -911,7 +1015,37 @@ export class HNSWIndexImpl implements HNSWIndex {
 // ============================================================================
 
 /**
- * Create a new HNSW index
+ * Create a new HNSW index with the given configuration.
+ *
+ * This is the recommended way to create an HNSW index. The function
+ * validates the configuration and returns an initialized index ready for use.
+ *
+ * @param config - Index configuration including dimensions and metric
+ * @returns A new HNSW index instance
+ *
+ * @example Create index for semantic search
+ * ```typescript
+ * const index = createHNSWIndex({
+ *   dimensions: 768,
+ *   metric: 'cosine',
+ *   M: 16,
+ *   efConstruction: 200
+ * })
+ * ```
+ *
+ * @example Create index for image similarity (Euclidean)
+ * ```typescript
+ * const index = createHNSWIndex({
+ *   dimensions: 512,
+ *   metric: 'l2',
+ *   M: 32,
+ *   efConstruction: 400
+ * })
+ * ```
+ *
+ * @throws {Error} If dimensions is not positive
+ * @throws {Error} If M is less than 2
+ * @throws {Error} If efConstruction is less than M
  */
 export function createHNSWIndex(config: HNSWConfig): HNSWIndex {
   return new HNSWIndexImpl(config)

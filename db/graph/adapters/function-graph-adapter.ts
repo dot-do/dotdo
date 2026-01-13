@@ -254,6 +254,10 @@ function interfaceUrl(id: string): string {
   return `do://interfaces/${id}`
 }
 
+function principalUrl(id: string): string {
+  return `do://principals/${id}`
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -1155,6 +1159,153 @@ export class FunctionGraphAdapter {
       const match = r.to.match(/do:\/\/interfaces\/(.+)$/)
       return match?.[1] ?? null
     }).filter((id): id is string => id !== null)
+  }
+
+  /**
+   * Get all functions owned by an organization.
+   *
+   * @param orgId - Organization ID
+   * @returns Array of Function Things owned by the org
+   */
+  async getFunctionsByOrg(orgId: string): Promise<GraphThing[]> {
+    // Query all relationships pointing to this org with verb 'ownedBy'
+    const rels = await this.store.queryRelationshipsTo(orgUrl(orgId), {
+      verb: 'ownedBy',
+    })
+
+    const functions: GraphThing[] = []
+
+    for (const rel of rels) {
+      // Extract function ID from the 'from' URL (do://functions/...)
+      const funcId = extractIdFromUrl(rel.from)
+      if (funcId) {
+        const fn = await this.getFunction(funcId)
+        if (fn) {
+          functions.push(fn)
+        }
+      }
+    }
+
+    return functions
+  }
+
+  /**
+   * Get all functions implementing an interface.
+   *
+   * @param interfaceId - Interface ID
+   * @returns Array of Function Things implementing the interface
+   */
+  async getFunctionsByInterface(interfaceId: string): Promise<GraphThing[]> {
+    // Query all relationships pointing to this interface with verb 'implements'
+    const rels = await this.store.queryRelationshipsTo(interfaceUrl(interfaceId), {
+      verb: 'implements',
+    })
+
+    const functions: GraphThing[] = []
+
+    for (const rel of rels) {
+      // Extract function ID from the 'from' URL (do://functions/...)
+      const funcId = extractIdFromUrl(rel.from)
+      if (funcId) {
+        const fn = await this.getFunction(funcId)
+        if (fn) {
+          functions.push(fn)
+        }
+      }
+    }
+
+    return functions
+  }
+
+  // ==========================================================================
+  // ACCESS CONTROL
+  // ==========================================================================
+
+  /**
+   * Grant access to a function for a principal.
+   *
+   * Access levels:
+   * - 'read': Can view function details
+   * - 'execute': Can execute the function (implies read)
+   * - 'admin': Can modify/delete the function (implies read + execute)
+   *
+   * @param functionId - Function ID
+   * @param principalId - Principal ID (user, team, or org:orgId)
+   * @param permission - Permission level ('read', 'execute', or 'admin')
+   * @returns The created access relationship
+   */
+  async grantAccess(
+    functionId: string,
+    principalId: string,
+    permission: 'read' | 'execute' | 'admin'
+  ): Promise<GraphRelationship> {
+    const fn = await this.getFunction(functionId)
+    if (!fn) {
+      throw new Error(`Function '${functionId}' not found`)
+    }
+
+    // Map permission to verb
+    const verbMap = {
+      read: 'canRead',
+      execute: 'canExecute',
+      admin: 'canAdmin',
+    } as const
+
+    const verb = verbMap[permission]
+
+    // Create access relationship (principal -> function)
+    // Note: The relationship goes FROM principal TO function
+    // e.g., "user-123 canRead function-abc"
+    return this.store.createRelationship({
+      id: `rel-${verb}-${principalId}-${functionId}-${Date.now()}`,
+      verb,
+      from: principalUrl(principalId),
+      to: functionUrl(functionId),
+    })
+  }
+
+  /**
+   * Check if a principal has a specific permission on a function.
+   *
+   * Permission hierarchy:
+   * - admin implies execute and read
+   * - execute implies read
+   *
+   * @param functionId - Function ID
+   * @param principalId - Principal ID
+   * @param permission - Permission to check ('read', 'execute', or 'admin')
+   * @returns true if principal has the permission
+   */
+  async hasAccess(
+    functionId: string,
+    principalId: string,
+    permission: 'read' | 'execute' | 'admin'
+  ): Promise<boolean> {
+    // Query all access relationships from this principal to this function
+    const rels = await this.store.queryRelationshipsFrom(principalUrl(principalId))
+
+    // Filter to relationships pointing to this function
+    const funcUrl = functionUrl(functionId)
+    const accessRels = rels.filter((r) => r.to === funcUrl)
+
+    // Check what permissions the principal has
+    const hasAdmin = accessRels.some((r) => r.verb === 'canAdmin')
+    const hasExecute = accessRels.some((r) => r.verb === 'canExecute')
+    const hasRead = accessRels.some((r) => r.verb === 'canRead')
+
+    // Apply permission hierarchy
+    switch (permission) {
+      case 'admin':
+        return hasAdmin
+      case 'execute':
+        // admin implies execute
+        return hasExecute || hasAdmin
+      case 'read':
+        // admin and execute both imply read
+        return hasRead || hasExecute || hasAdmin
+      default:
+        return false
+    }
   }
 
   // ==========================================================================

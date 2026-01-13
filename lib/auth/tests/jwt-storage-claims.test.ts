@@ -278,3 +278,363 @@ describe('StorageClaims interface', () => {
     }
   })
 })
+
+// ============================================================================
+// Storage Permission Claims Tests
+// ============================================================================
+
+describe('Storage permission claims', () => {
+  describe('bucket access permissions', () => {
+    it('should extract bucket for read access', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { bucket: 'read-bucket' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.bucket).toBe('read-bucket')
+    })
+
+    it('should handle bucket names with special characters', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { bucket: 'dotdo-prod-us-west-2' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.bucket).toBe('dotdo-prod-us-west-2')
+    })
+
+    it('should handle bucket names with numbers', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { bucket: 'bucket123' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.bucket).toBe('bucket123')
+    })
+  })
+
+  describe('path prefix permissions', () => {
+    it('should extract path prefix for scoped access', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { path_prefix: '/users/user_123/' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.pathPrefix).toBe('/users/user_123/')
+    })
+
+    it('should handle deeply nested path prefixes', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { path_prefix: '/org/123/tenant/456/data/assets/' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.pathPrefix).toBe('/org/123/tenant/456/data/assets/')
+    })
+
+    it('should handle path prefix without leading slash', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { path_prefix: 'data/files' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.pathPrefix).toBe('data/files')
+    })
+
+    it('should handle root path prefix', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: { path_prefix: '/' },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.pathPrefix).toBe('/')
+    })
+  })
+
+  describe('combined bucket and path permissions', () => {
+    it('should extract both bucket and path prefix for scoped access', async () => {
+      const jwt = await createTestJwt({
+        org_id: 'org_123',
+        storage: {
+          bucket: 'dotdo-assets',
+          path_prefix: '/org_123/uploads/',
+        },
+      })
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.bucket).toBe('dotdo-assets')
+      expect(claims.pathPrefix).toBe('/org_123/uploads/')
+    })
+  })
+})
+
+// ============================================================================
+// Custom Claims Tests
+// ============================================================================
+
+describe('Custom claims handling', () => {
+  it('should ignore unknown top-level claims', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      custom_claim: 'custom_value',
+      another_claim: { nested: true },
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+    // Custom claims should not appear in the result
+    expect(claims).not.toHaveProperty('custom_claim')
+    expect(claims).not.toHaveProperty('another_claim')
+  })
+
+  it('should ignore unknown storage claims', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      storage: {
+        bucket: 'dotdo-prod',
+        path_prefix: '/v1',
+        unknown_field: 'should_be_ignored',
+        permissions: ['read', 'write'],
+      },
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.bucket).toBe('dotdo-prod')
+    expect(claims.pathPrefix).toBe('/v1')
+    expect(claims).not.toHaveProperty('unknown_field')
+    expect(claims).not.toHaveProperty('permissions')
+  })
+
+  it('should handle JWT with standard claims (iss, aud, jti)', async () => {
+    const jwt = await new SignJWT({
+      org_id: 'org_123',
+      iss: 'https://oauth.dotdo.dev',
+      aud: 'dotdo-api',
+      jti: 'unique-token-id',
+    })
+      .setSubject('user_123')
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(TEST_SECRET)
+
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+    expect(claims.subject).toBe('user_123')
+    // Standard claims should not pollute the result
+    expect(claims).not.toHaveProperty('iss')
+    expect(claims).not.toHaveProperty('aud')
+    expect(claims).not.toHaveProperty('jti')
+  })
+
+  it('should handle non-string storage values gracefully', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      storage: {
+        bucket: 123, // Invalid type - should be string
+        path_prefix: true, // Invalid type
+      },
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    // Implementation may coerce or return as-is
+    expect(claims.orgId).toBe('org_123')
+  })
+})
+
+// ============================================================================
+// Claim Validation Tests
+// ============================================================================
+
+describe('Claim validation', () => {
+  describe('org_id validation', () => {
+    it('should accept org_id with various valid formats', async () => {
+      const validOrgIds = [
+        'org_123',
+        'organization_acme',
+        'ORG_UPPERCASE',
+        'org-with-dashes',
+        'org.with.dots',
+        '12345',
+        'a',
+      ]
+
+      for (const orgId of validOrgIds) {
+        const jwt = await createTestJwt({ org_id: orgId })
+        const claims = await extractStorageClaims(jwt, TEST_SECRET)
+        expect(claims.orgId).toBe(orgId)
+      }
+    })
+
+    it('should reject undefined org_id', async () => {
+      const jwt = await createTestJwt({ org_id: undefined })
+      await expect(extractStorageClaims(jwt, TEST_SECRET)).rejects.toThrow('Missing org_id')
+    })
+  })
+
+  describe('subject validation', () => {
+    it('should handle missing subject gracefully', async () => {
+      const jwt = await new SignJWT({ org_id: 'org_123' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(TEST_SECRET)
+
+      const claims = await extractStorageClaims(jwt, TEST_SECRET)
+      expect(claims.orgId).toBe('org_123')
+      expect(claims.subject).toBeUndefined()
+    })
+
+    it('should accept various subject formats', async () => {
+      const subjects = [
+        'user_123',
+        'service_account_api',
+        'machine_client',
+        'email@example.com',
+        'uuid-1234-5678',
+      ]
+
+      for (const sub of subjects) {
+        const jwt = await new SignJWT({ org_id: 'org_123' })
+          .setSubject(sub)
+          .setProtectedHeader({ alg: 'HS256' })
+          .setIssuedAt()
+          .setExpirationTime('1h')
+          .sign(TEST_SECRET)
+
+        const claims = await extractStorageClaims(jwt, TEST_SECRET)
+        expect(claims.subject).toBe(sub)
+      }
+    })
+  })
+
+  describe('tenant_id validation', () => {
+    it('should accept various tenant_id formats', async () => {
+      const tenantIds = ['tenant_123', 'TENANT_UPPER', 'tenant-with-dashes', 'tenant.with.dots']
+
+      for (const tenantId of tenantIds) {
+        const jwt = await createTestJwt({ org_id: 'org_123', tenant_id: tenantId })
+        const claims = await extractStorageClaims(jwt, TEST_SECRET)
+        expect(claims.tenantId).toBe(tenantId)
+      }
+    })
+  })
+})
+
+// ============================================================================
+// Expiration Handling Tests
+// ============================================================================
+
+describe('Expiration handling', () => {
+  it('should reject expired JWT with clear error message', async () => {
+    const jwt = await createExpiredJwt()
+    await expect(extractStorageClaims(jwt, TEST_SECRET)).rejects.toThrow('JWT expired')
+  })
+
+  it('should accept JWT that expires far in the future', async () => {
+    const jwt = await new SignJWT({ org_id: 'org_123' })
+      .setSubject('user_123')
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('365d') // 1 year from now
+      .sign(TEST_SECRET)
+
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+  })
+
+  it('should accept JWT that expires in 1 second', async () => {
+    const jwt = await new SignJWT({ org_id: 'org_123' })
+      .setSubject('user_123')
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('10s') // Expires soon but still valid
+      .sign(TEST_SECRET)
+
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+  })
+
+  it('should handle JWT with past iat but valid exp', async () => {
+    const jwt = await new SignJWT({ org_id: 'org_123' })
+      .setSubject('user_123')
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 86400) // Issued 24 hours ago
+      .setExpirationTime('48h') // But expires 48 hours from issue = 24h from now
+      .sign(TEST_SECRET)
+
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+  })
+})
+
+// ============================================================================
+// Edge Cases and Security Tests
+// ============================================================================
+
+describe('Edge cases and security', () => {
+  it('should handle JWT with very long claims', async () => {
+    const longOrgId = 'org_' + 'a'.repeat(1000)
+    const jwt = await createTestJwt({ org_id: longOrgId })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe(longOrgId)
+  })
+
+  it('should handle JWT with unicode in claims', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_unicode_test',
+      storage: { path_prefix: '/data/emoji-\u2764/files' },
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.pathPrefix).toBe('/data/emoji-\u2764/files')
+  })
+
+  it('should handle JWT with special characters in path_prefix', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      storage: { path_prefix: '/path/with spaces/and+plus/file%20encoded' },
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.pathPrefix).toBe('/path/with spaces/and+plus/file%20encoded')
+  })
+
+  it('should reject JWT signed with none algorithm attack', async () => {
+    // Manually crafted JWT with "none" algorithm - should be rejected
+    const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url')
+    const payload = Buffer.from(JSON.stringify({ org_id: 'org_123', sub: 'attacker' })).toString(
+      'base64url'
+    )
+    const fakeJwt = `${header}.${payload}.`
+
+    await expect(extractStorageClaims(fakeJwt, TEST_SECRET)).rejects.toThrow('Invalid JWT')
+  })
+
+  it('should handle empty storage object', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      storage: {},
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+    expect(claims.bucket).toBeUndefined()
+    expect(claims.pathPrefix).toBeUndefined()
+  })
+
+  it('should handle null storage object', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      storage: null,
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+    expect(claims.bucket).toBeUndefined()
+    expect(claims.pathPrefix).toBeUndefined()
+  })
+
+  it('should handle storage as non-object type', async () => {
+    const jwt = await createTestJwt({
+      org_id: 'org_123',
+      storage: 'not-an-object',
+    })
+    const claims = await extractStorageClaims(jwt, TEST_SECRET)
+    expect(claims.orgId).toBe('org_123')
+    expect(claims.bucket).toBeUndefined()
+    expect(claims.pathPrefix).toBeUndefined()
+  })
+})

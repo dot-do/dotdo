@@ -1,5 +1,12 @@
 {
   "root": true,
   "title": "Platform",
-  "description": "Core platform concepts, architecture, and deployment"
+  "description": "Core platform concepts, architecture, and deployment",
+  "pages": [
+    "index",
+    "---Security---",
+    "security",
+    "compliance",
+    "audit-logging"
+  ]
 }

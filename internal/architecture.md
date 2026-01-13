@@ -1,567 +1,166 @@
----
-title: "dotdo Architecture Overview"
-description: Documentation for docs
----
+# dotdo Architecture Documentation
 
-# dotdo Architecture Overview
+This directory contains architecture documentation for the dotdo platform - the Business-as-Code framework for autonomous businesses run by AI agents.
 
-> **Build your 1-Person Unicorn.** Business-as-Code framework for autonomous businesses run by AI agents.
+## Overview
 
----
+dotdo is built on three foundational technologies:
 
-## 1. Core Philosophy
+1. **V8 Isolates + Durable Objects** - Virtual Chrome tabs with persistent state, running on edge (300+ cities, 0ms cold starts)
+2. **Cap'n Web RPC** - Promise pipelining for single round-trip network operations
+3. **Extended Primitives** - Edge-native implementations of filesystem, git, shell, and more
 
-### V8 Isolates + Durable Objects = Virtual Chrome Tabs
+## Documentation Index
 
-dotdo treats each Durable Object as a **virtual Chrome tab** with persistent state. Just as Chrome isolates tabs for security and performance, V8 Isolates provide:
+### Architecture Documents
 
-- **Memory isolation** - Each DO runs in its own V8 isolate
-- **State persistence** - SQLite storage survives across requests
-- **Concurrent execution** - Millions of DOs can run simultaneously
-- **Actor model** - Single-threaded execution within each DO eliminates race conditions
+| Document | Description |
+|----------|-------------|
+| [DOBase Decomposition](./architecture/dobase-decomposition.md) | Analysis of DOBase.ts (~104KB) decomposition strategy for tree-shaking and maintainability |
 
-```typescript
-// Each DO is like a persistent browser tab
-class MyStartup extends DO {
-  // State lives in SQLite, survives restarts
-  async fetch(request: Request) {
-    const data = await this.db.select().from(things)
-    return Response.json(data)
-  }
-}
-```
+### Research Spikes
 
-### Edge-First Architecture
+Research spikes investigate specific technical challenges and propose solutions. See [Spikes Index](./spikes/README.md) for the full list.
 
-Cloudflare Workers + Durable Objects run on **300+ cities globally**:
+#### Durable Object Patterns
 
-- **0ms cold starts** (when warm) - V8 Isolates spin up in microseconds
-- **~50ms cold starts** - When loading new isolate with SQLite state
-- **Single-digit latency** - Code runs close to users
-- **Automatic failover** - Cloudflare handles regional redundancy
+| Spike | Description |
+|-------|-------------|
+| [Cron Hibernation](./spikes/cron-hibernation.md) | Cron scheduling strategies using DO alarms with hibernation |
+| [Exactly-Once Hibernation](./spikes/exactly-once-hibernation.md) | Maintaining exactly-once processing across DO hibernation cycles |
+| [Long-Running Tasks](./spikes/long-running-tasks.md) | Coordination strategies for tasks exceeding 30s CPU time |
 
-### SQLite as Universal Storage Layer
+#### Distributed Query Processing
 
-Every DO has a built-in SQLite database via Drizzle ORM:
+| Spike | Description |
+|-------|-------------|
+| [Cross-DO Join Latency](./spikes/cross-do-join-latency.md) | Latency budgets for cross-DO joins in federated queries |
+| [Broadcast Join Strategy](./spikes/broadcast-join-strategy.md) | Broadcast joins without shuffle network in the DO model |
+| [Distributed Checkpoint Coordination](./spikes/distributed-checkpoint-coordination.md) | Chandy-Lamport style checkpointing across multiple DOs |
 
-```typescript
-// Initialize Drizzle with DO storage
-this.db = drizzle(ctx.storage, { schema })
+#### State Management
 
-// Type-safe queries
-const startups = await this.db
-  .select()
-  .from(things)
-  .where(eq(things.type, startupFK))
-```
+| Spike | Description |
+|-------|-------------|
+| [Checkpoint Size Limits](./spikes/checkpoint-size-limits.md) | DO storage limits and checkpoint strategies |
+| [State Recovery Latency](./spikes/state-recovery-latency.md) | State recovery strategies and latency analysis |
 
-SQLite provides:
-- **ACID transactions** - Consistent state within each DO
-- **JSON columns** - Flexible schema with `json_extract()` queries
-- **Full-text search** - FTS5 for text search
-- **Vector storage** - 128-dim MRL embeddings for semantic search
+#### Multi-Tenancy and Isolation
 
----
+| Spike | Description |
+|-------|-------------|
+| [Multi-Tenant Semantic Isolation](./spikes/multi-tenant-semantic-isolation.md) | Isolation patterns for multi-tenant semantic layers |
+| [Rate Limiting Isolates](./spikes/rate-limiting-isolates.md) | Rate limiting strategies in V8 isolate environment |
+| [OAuth Token Management](./spikes/oauth-token-management.md) | Token lifecycle management patterns |
 
-## 2. Package Structure
+#### Data Pipeline
 
-```
-dotdo/
-├── do/                    # Entry points (tiny, index, full)
-│   ├── index.ts           # Default export (all capabilities)
-│   ├── tiny.ts            # Minimal DO (~15KB)
-│   ├── fs.ts              # DO + filesystem
-│   ├── git.ts             # DO + filesystem + git
-│   ├── bash.ts            # DO + filesystem + bash
-│   └── full.ts            # DO + all capabilities (~120KB)
-│
-├── objects/               # DO classes
-│   ├── DO.ts              # Base class (identity, storage, $)
-│   ├── Worker.ts          # Execution context
-│   ├── Entity.ts          # Data entity (Customer, Invoice)
-│   ├── Agent.ts           # AI agent
-│   ├── Human.ts           # Human actor
-│   ├── Business.ts        # Business organization
-│   ├── App.ts             # Application
-│   ├── Site.ts            # Website/docs
-│   ├── Collection.ts      # Entity collection
-│   ├── Directory.ts       # Entity directory
-│   └── lifecycle/         # Lifecycle modules
-│       ├── Clone.ts       # DO cloning
-│       ├── Branch.ts      # Git-style branching
-│       ├── Compact.ts     # State compaction
-│       ├── Promote.ts     # Entity -> DO promotion
-│       └── Shard.ts       # Horizontal sharding
-│
-├── db/                    # Database layer
-│   ├── index.ts           # Schema exports
-│   ├── stores.ts          # Store accessors
-│   ├── things.ts          # Things table (entities)
-│   ├── relationships.ts   # Relationships table (edges)
-│   ├── actions.ts         # Actions table (audit log)
-│   ├── events.ts          # Events table (domain events)
-│   ├── search.ts          # Search index (FTS + vector)
-│   ├── branches.ts        # Git-style branches
-│   ├── auth.ts            # Auth tables (better-auth)
-│   ├── vault.ts           # Secure credential storage
-│   └── compat/            # Database compatibility layers
-│       ├── sql/           # postgres, mysql, planetscale
-│       ├── nosql/         # mongo, dynamodb, firebase
-│       ├── cache/         # redis
-│       └── graph/         # neo4j
-│
-├── lib/                   # Utilities
-│   └── mixins/            # Capability mixins
-│       ├── fs.ts          # Filesystem (fsx)
-│       ├── git.ts         # Git operations (gitx)
-│       └── bash.ts        # Shell execution (bashx)
-│
-├── workflows/             # $ context DSL
-│   ├── proxy.ts           # Pipeline proxy
-│   ├── on.ts              # Event subscription DSL
-│   ├── schedule-builder.ts # Cron scheduling
-│   ├── runtime.ts         # Workflow runtime
-│   └── context/           # Context extensions
-│       ├── flag.ts        # Feature flags
-│       ├── rate-limit.ts  # Rate limiting
-│       └── vault.ts       # Secrets
-│
-├── api/                   # HTTP layer
-│   └── routes/            # Hono routes
-│
-├── agents/                # Agent SDK
-│   ├── Agent.ts           # Multi-provider agent
-│   ├── Tool.ts            # Tool definitions
-│   └── Providers/         # LLM providers
-│
-└── app/                   # Frontend
-    └── components/        # TanStack Start + MDXUI
-```
+| Spike | Description |
+|-------|-------------|
+| [Pipelines R2 Catalog](./spikes/pipelines-r2-catalog.md) | R2-based data catalog for pipelines |
+| [Cross-DAG Dependency Triggers](./spikes/cross-dag-dependency-triggers.md) | Dependency management across DAG workflows |
+| [WAL Parsing JS](./spikes/wal-parsing-js.md) | Write-ahead log parsing in JavaScript |
 
----
+#### Query Engine
 
-## 3. DO Class Hierarchy
+| Spike | Description |
+|-------|-------------|
+| [Cost Estimation Without Statistics](./spikes/cost-estimation-without-statistics.md) | Query cost estimation strategies |
+| [Real-Time vs Cached Query Routing](./spikes/real-time-vs-cached-query-routing.md) | Query routing decision patterns |
+| [Large Dataset Pagination](./spikes/large-dataset-pagination.md) | Pagination strategies for large datasets |
+| [Memory Limits Intermediate Results](./spikes/memory-limits-intermediate-results.md) | Memory management for query processing |
+
+#### Vector Search and Embeddings
+
+| Spike | Description |
+|-------|-------------|
+| [Vector Search Infrastructure](./spikes/vector-search-infrastructure.md) | Vector search implementation patterns |
+| [Embedding Model Selection](./spikes/embedding-model-selection.md) | Criteria for embedding model selection |
+| [Similarity Threshold Calibration](./spikes/similarity-threshold-calibration.md) | Calibrating similarity thresholds |
+
+#### Performance
+
+| Spike | Description |
+|-------|-------------|
+| [Pre-Aggregation Storage](./spikes/pre-aggregation-storage.md) | Pre-computed aggregation strategies |
+| [Cascade Parallelization DO Routing](./spikes/cascade-parallelization-do-routing.md) | Parallel execution patterns in DO routing |
+
+### Design Plans
+
+Design plans document planned implementations. Located in `docs/plans/`.
+
+| Plan | Description |
+|------|-------------|
+| [Hono API Shape Design](./plans/2026-01-13-hono-api-shape-design.md) | Default API response shape for clickable URLs |
+| [Fumadocs Static Prerender](./plans/2026-01-12-fumadocs-static-prerender-design.md) | Static site generation design |
+| [Autonomous Agents OKRs](./plans/2026-01-13-autonomous-agents-okrs-design.md) | OKR tracking for AI agents |
+| [DO Start CLI](./plans/2026-01-13-do-start-cli-design.md) | CLI for DO development |
+| [E2E Perf Benchmark](./plans/2026-01-13-e2e-perf-benchmark-design.md) | End-to-end performance benchmarking |
+
+### Type Safety
+
+| Document | Description |
+|----------|-------------|
+| [as-unknown-as Audit](./type-safety/as-unknown-as-audit.md) | Audit of `as unknown as` patterns and remediation plan |
+
+## Key Architecture Concepts
+
+### DO Class Hierarchy
 
 ```
-DOTiny (~15KB)
-│   Identity (ns)
-│   SQLite (Drizzle)
-│   fetch() handler
-│
-DO (~80KB)
-│   + WorkflowContext ($)
-│   + Stores (things, rels, actions, events, search)
-│   + Event handlers ($.on.Noun.verb)
-│   + Scheduling ($.every)
-│   + Cross-DO RPC
-│
-DOFull (~120KB)
-    + Filesystem ($.fs)
-    + Git ($.git)
-    + Bash ($.bash)
-    + Lifecycle (clone, branch, compact, promote, shard)
+DurableObject (cloudflare:workers)
+    |
+    v
+DOTiny (~15KB) - Identity, storage, fetch
+    |
+    v
+DOBase (~104KB) - WorkflowContext, stores, events, scheduling
+    |
+    v
+DOFull (~70KB) - Lifecycle (fork, clone, branch), sharding
 ```
 
-### Entry Point Selection
+See [DOBase Decomposition](./architecture/dobase-decomposition.md) for the module extraction strategy.
 
-```typescript
-// Minimal - just identity and storage
-import { DO } from 'dotdo/tiny'
+### Cross-DO Communication
 
-// Standard - workflows, events, scheduling
-import { DO } from 'dotdo'
+Cross-DO calls have different latency profiles:
+- Same-colo: ~2-5ms p50
+- Cross-colo: ~50-150ms p50
 
-// Full - all capabilities including fs, git, bash
-import { DO } from 'dotdo/full'
+See [Cross-DO Join Latency](./spikes/cross-do-join-latency.md) for detailed analysis.
 
-// Selective - compose exactly what you need
-import { DO as BaseDO } from 'dotdo/tiny'
-import { withFs, withGit } from 'dotdo'
+### Checkpointing and Recovery
 
-class MyDO extends withGit(withFs(BaseDO)) {
-  // Has $.fs and $.git but not $.bash
-}
-```
+The platform supports exactly-once semantics through:
+- Storage-backed deduplication
+- Sequence numbers for ordering
+- Fencing tokens for epoch protection
+- Write-ahead logging
 
----
+See [Exactly-Once Hibernation](./spikes/exactly-once-hibernation.md) and [Distributed Checkpoint Coordination](./spikes/distributed-checkpoint-coordination.md).
 
-## 4. Key Abstractions
+### Scheduling and Alarms
 
-### Things - Universal Entities
+DO alarms provide at-least-once execution with millisecond precision. Key patterns:
+- Single-alarm coalescing for multiple schedules
+- Storage-persisted schedule state
+- Catch-up policies for missed executions
 
-Every entity in dotdo is a **Thing** with URL-based identity:
+See [Cron Hibernation](./spikes/cron-hibernation.md).
 
-```typescript
-interface Thing {
-  $id: string      // URL: 'https://startups.studio/headless.ly'
-  $type: string    // URL: 'https://startups.studio/Startup'
-  name?: string
-  data?: Record<string, unknown>
-  meta?: Record<string, unknown>
-  visibility?: 'public' | 'unlisted' | 'org' | 'user'
-  $version?: number
-  createdAt: Date
-  updatedAt: Date
-}
-```
+## Related Resources
 
-**URL Identity:**
-- `$id` is a fully qualified URL (unambiguous globally)
-- `$type` points to a Noun definition (schema + behavior)
-- Namespace (`ns`) is derived from the URL host
+### Code References
 
-### Relationships - Typed Edges
+- `objects/` - Durable Object implementations
+- `objects/DOBase.ts` - Core DO functionality
+- `objects/transport/` - HTTP, RPC, MCP handlers
+- `workflows/` - $ context DSL and scheduling
+- `db/primitives/` - Query engine and state management
 
-Relationships connect Things with typed verbs:
+### External Documentation
 
-```typescript
-interface Relationship {
-  id: string
-  verb: string      // 'manages', 'employs', 'owns'
-  from: string      // Thing $id
-  to: string        // Thing $id
-  data?: Record<string, unknown>
-  createdAt: Date
-}
-```
-
-### Actions - Recorded Operations
-
-Every operation is logged in an append-only audit trail:
-
-```typescript
-interface Action {
-  id: string
-  verb: string           // 'create', 'update', 'approve'
-  target: string         // Thing $id or namespace
-  actor: string          // 'Human/nathan', 'Agent/claude'
-  input: Record<string, unknown>
-  output?: unknown
-  durability: 'send' | 'try' | 'do'
-  status: ActionStatus
-  createdAt: Date
-  completedAt?: Date
-}
-
-type ActionStatus = 'pending' | 'running' | 'retrying' | 'completed' | 'failed'
-```
-
-### Events - Domain Events
-
-Domain events flow through the event system:
-
-```typescript
-interface DomainEvent {
-  id: string
-  verb: string           // 'signup', 'paid', 'shipped'
-  source: string         // Thing $id that emitted
-  data: unknown
-  timestamp: Date
-}
-```
-
----
-
-## 5. WorkflowContext ($)
-
-The `$` proxy is the primary API for workflow operations:
-
-### Execution Modes
-
-```typescript
-// Fire-and-forget (non-blocking, non-durable)
-$.send('notify', { user, message })
-
-// Single attempt with timeout (blocking, non-durable)
-const result = await $.try('validate', data, { timeout: 5000 })
-
-// Durable execution with retries (blocking, durable)
-const output = await $.do('process', order, {
-  retry: {
-    maxAttempts: 3,
-    initialDelayMs: 100,
-    maxDelayMs: 30000,
-    backoffMultiplier: 2,
-    jitter: true
-  }
-})
-```
-
-### Event Subscription
-
-```typescript
-// Subscribe to domain events
-$.on.Customer.created(async (event) => {
-  await $.send('welcome-email', { customer: event.data })
-})
-
-$.on.Payment.failed(async (event) => {
-  await $.do('retry-payment', event.data)
-})
-
-// With options
-$.on.Order.shipped.with({
-  priority: 'high',
-  timeout: 30000
-})(async (event) => {
-  // Handle high-priority order shipments
-})
-```
-
-### Scheduling
-
-```typescript
-// Fluent cron syntax
-$.every.Monday.at9am(async () => {
-  await $.do('weekly-report', {})
-})
-
-$.every.hour(async () => {
-  await $.try('health-check', {})
-})
-
-// Natural language
-$.every('daily at 6am', async () => {
-  await $.do('backup', {})
-})
-
-// Interval shortcuts
-$.every.minute(handler)    // '* * * * *'
-$.every.day.atnoon(handler) // '0 12 * * *'
-```
-
-### Cross-DO RPC
-
-```typescript
-// Call methods on other DOs
-await $.Customer(customerId).notify({ message: 'Hello!' })
-await $.Order(orderId).ship()
-
-// Chain operations
-const invoice = await $.Customer(id).orders().latest().invoice()
-```
-
-### AI Functions
-
-```typescript
-// Generation
-const content = await $.write`blog post about ${topic}`
-const summary = await $.summarize(document)
-const items = await $.list`10 marketing ideas for ${product}`
-const data = await $.extract({ name: 'string', email: 'email' }).from(text)
-
-// Classification
-const spam = await $.is`spam`(message)
-const category = await $.decide(['urgent', 'normal', 'low'])(ticket)
-```
-
-### Branching
-
-```typescript
-// Create a branch for experimentation
-await $.branch('feature/new-pricing')
-
-// Switch branches
-await $.checkout('feature/new-pricing')
-
-// Merge changes back
-await $.merge('main')
-```
-
----
-
-## 6. Compat Layer Architecture
-
-dotdo provides **API-compatible SDKs** for familiar database and service APIs:
-
-### Available Compat Layers
-
-| Category | SDKs |
-|----------|------|
-| SQL | `@dotdo/postgres`, `@dotdo/mysql`, `@dotdo/planetscale`, `@dotdo/neon`, `@dotdo/cockroach`, `@dotdo/tidb`, `@dotdo/duckdb` |
-| NoSQL | `@dotdo/mongo`, `@dotdo/dynamodb`, `@dotdo/firebase`, `@dotdo/couchdb`, `@dotdo/convex` |
-| Cache | `@dotdo/redis` |
-| Graph | `@dotdo/neo4j` |
-| BaaS | `@dotdo/supabase` |
-
-### Compat Architecture
-
-Each compat layer provides:
-
-1. **Familiar API** - Same method signatures as the original SDK
-2. **DO-backed storage** - Data stored in the DO's SQLite
-3. **SQL parsing** - Queries translated via `node-sql-parser` or `pgsql-parser`
-4. **Event emission** - Operations emit domain events
-
-```typescript
-// Using postgres compat layer
-import { Client } from '@dotdo/postgres'
-
-const client = new Client({ do: this })
-await client.connect()
-
-// Standard pg syntax, DO-backed storage
-const result = await client.query(
-  'SELECT * FROM users WHERE email = $1',
-  ['user@example.com.ai']
-)
-```
-
-### Shared Infrastructure
-
-Compat layers share:
-
-- **EventEmitter** - Consolidated event emission
-- **SQL Parser** - Query translation
-- **Connection pooling simulation** - Managed by DO lifecycle
-- **Type coercion** - SQLite <-> target DB type mapping
-
----
-
-## 7. Bundle Optimization Strategy
-
-### Lazy Loading
-
-Heavy operations are lazy-loaded to minimize cold start impact:
-
-```typescript
-// Stores are initialized on first access
-get things(): ThingsStore {
-  if (!this._things) {
-    this._things = new ThingsStore(this.getStoreContext())
-  }
-  return this._things
-}
-
-// Schedule manager loaded when scheduling is used
-protected get scheduleManager(): ScheduleManager {
-  if (!this._scheduleManager) {
-    this._scheduleManager = new ScheduleManager(this.ctx)
-  }
-  return this._scheduleManager
-}
-```
-
-### Mixin-Based Composition
-
-Capabilities are added via mixins, not inheritance:
-
-```typescript
-// Each mixin adds specific capabilities
-export const DO = withBash(withGit(withFs(BaseDO)))
-
-// Users can compose exactly what they need
-class MinimalDO extends BaseDO { }           // ~15KB
-class FsDO extends withFs(BaseDO) { }        // ~40KB
-class FullDO extends withBash(withGit(withFs(BaseDO))) { } // ~120KB
-```
-
-### Tree-Shakeable Exports
-
-Entry points are structured for tree-shaking:
-
-```typescript
-// do/tiny.ts - Minimal exports
-export { DO } from '../objects/DO'
-export const capabilities: string[] = []
-
-// do/full.ts - All capabilities
-export const DO = withBash(withGit(withFs(BaseDO)))
-export const capabilities = ['fs', 'git', 'bash']
-export { withFs, withGit, withBash }
-```
-
-### RPC Workers for Heavy Operations
-
-Heavy operations can be offloaded to separate Workers:
-
-```typescript
-// Lifecycle operations can be RPC'd to dedicated workers
-const shardResult = await this.env.LIFECYCLE_WORKER.shard(this.ns, options)
-
-// AI inference goes through API gateway
-const response = await this.env.AI_GATEWAY.complete(prompt)
-```
-
----
-
-## 8. Workers Proxy Layer
-
-dotdo provides proxy workers that route HTTP requests to Durable Objects based on hostname or path patterns.
-
-### API() Factory
-
-The `API()` factory creates minimal proxy workers with a clean, declarative API:
-
-```typescript
-import { API } from 'dotdo'
-
-// Hostname mode (default) - subdomain extraction
-// tenant.api.dotdo.dev → DO('tenant')
-export default API()
-
-// Path param routing (Express-style)
-// api.dotdo.dev/acme/users → DO('acme')
-export default API({ ns: '/:org' })
-
-// Nested path params (joined by colon)
-// api.dotdo.dev/acme/proj1/tasks → DO('acme:proj1')
-export default API({ ns: '/:org/:project' })
-
-// Fixed namespace (singleton DO)
-// All requests route to DO('main')
-export default API({ ns: 'main' })
-```
-
-### Routing Modes
-
-| Mode | Pattern | Example | DO Namespace |
-|------|---------|---------|--------------|
-| Hostname | `undefined` | `tenant.api.dotdo.dev/users` | `tenant` |
-| Path Param | `/:org` | `api.dotdo.dev/acme/users` | `acme` |
-| Nested Params | `/:org/:proj` | `api.dotdo.dev/acme/p1/tasks` | `acme:p1` |
-| Fixed | `main` | `api.dotdo.dev/users` | `main` |
-
-### Request Forwarding
-
-The proxy:
-
-1. **Auto-detects DO binding** - Finds the first `DurableObjectNamespace` in env
-2. **Resolves namespace** - Extracts from hostname subdomain or path params
-3. **Strips namespace from path** - `/acme/users` → `/users` (for path mode)
-4. **Preserves everything else** - Method, headers, body, query params
-
-```typescript
-// Incoming: POST https://tenant.api.dotdo.dev/users?active=true
-// Forwarded to DO('tenant'): POST /users?active=true
-```
-
-### Low-Level Access
-
-For advanced configuration, use `createProxyHandler` directly:
-
-```typescript
-import { createProxyHandler, type ProxyConfig } from './hostname-proxy'
-
-const config: ProxyConfig = {
-  mode: 'hostname',
-  hostname: { rootDomain: 'api.dotdo.dev' },
-  defaultNs: 'fallback'
-}
-
-export default { fetch: createProxyHandler(config) }
-```
-
----
-
-## Summary
-
-dotdo's architecture enables building autonomous businesses by combining:
-
-1. **V8 Isolates** - Secure, fast execution
-2. **Durable Objects** - Persistent state with SQLite
-3. **WorkflowContext ($)** - Intuitive API for events, scheduling, RPC
-4. **Compat Layers** - Familiar APIs backed by DO storage
-5. **Mixin Composition** - Pay only for capabilities you use
-
-This creates a platform where AI agents and humans can collaborate on running businesses, with the framework handling durability, identity, and infrastructure concerns.
+- [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)
+- [Cloudflare Workflows](https://developers.cloudflare.com/workflows/)
+- [CLAUDE.md](../CLAUDE.md) - Development guide for Claude Code

@@ -28,6 +28,12 @@ import {
   type ParallelOptions,
   type ParallelMode,
 } from '../lib/executors/ParallelStepExecutor'
+import {
+  type VerbFormEdge,
+  getEdgeState,
+  transitionEdge,
+  VerbFormStateMachine,
+} from '../db/graph/verb-forms'
 
 // Re-export for convenience
 export { ParallelExecutionError } from '../lib/executors/ParallelStepExecutor'
@@ -37,6 +43,73 @@ export { ParallelExecutionError } from '../lib/executors/ParallelStepExecutor'
 // ============================================================================
 
 export type WorkflowRuntimeState = 'pending' | 'running' | 'paused' | 'completed' | 'failed'
+
+/**
+ * Internal state relationship for graph-based state encoding.
+ * Uses verb form to encode state: start/starting/started, pause/pausing/paused, etc.
+ */
+interface WorkflowStateRelationship extends VerbFormEdge {
+  verb: 'start' | 'starting' | 'started' | 'pause' | 'pausing' | 'paused' | 'resume' | 'resuming' | 'resumed' | 'fail' | 'failing' | 'failed'
+}
+
+/**
+ * Maps verb form edge state to WorkflowRuntimeState.
+ * This provides backwards-compatible state values from the graph-based encoding.
+ */
+function getWorkflowStateFromEdge(edge: WorkflowStateRelationship | null): WorkflowRuntimeState {
+  if (!edge) {
+    return 'pending'
+  }
+
+  const edgeState = getEdgeState(edge)
+  const verb = edge.verb
+
+  // Map based on the combination of verb and its form type
+  if (verb === 'start' || verb === 'resume') {
+    // Action form = pending to start
+    return 'pending'
+  }
+
+  if (verb === 'starting' || verb === 'resuming') {
+    // Activity form = running
+    return 'running'
+  }
+
+  if (verb === 'started' || verb === 'resumed') {
+    // Event form of start/resume = completed (successfully ran)
+    return 'completed'
+  }
+
+  if (verb === 'pause' || verb === 'pausing') {
+    // Pause action/activity = pausing (transition state)
+    return 'running'
+  }
+
+  if (verb === 'paused') {
+    // Pause event = paused state
+    return 'paused'
+  }
+
+  if (verb === 'fail' || verb === 'failing') {
+    // Fail action/activity = still running (about to fail)
+    return 'running'
+  }
+
+  if (verb === 'failed') {
+    // Fail event = failed state
+    return 'failed'
+  }
+
+  // Default fallback based on edge state
+  switch (edgeState) {
+    case 'pending':
+      return 'pending'
+    case 'in_progress':
+      return 'running'
+    case 'completed':
+      return 'completed'
+  }
+}
 
 export interface WorkflowRuntimeConfig {
   /** Workflow name */
@@ -128,7 +201,12 @@ interface RegisteredStep {
 }
 
 interface PersistedWorkflowState {
+  /** @deprecated Use stateVerb for graph-based state. Kept for backwards compatibility. */
   status: WorkflowRuntimeState
+  /** Verb form encoding the state (e.g., 'starting', 'paused', 'failed') */
+  stateVerb?: string
+  /** The 'to' URL of the state relationship (result reference) */
+  stateVerbTo?: string | null
   currentStepIndex: number
   input: unknown
   output?: unknown
@@ -244,7 +322,17 @@ export class WorkflowRuntime {
   private readonly waitForEventManager: WaitForEventManager
   private readonly eventHandlers = new Map<string, Set<EventHandler>>()
 
+  /**
+   * @deprecated Use _stateRelationship for graph-based state. Kept for backwards compatibility.
+   */
   private _state: WorkflowRuntimeState = 'pending'
+
+  /**
+   * Graph-based state relationship using verb form encoding.
+   * The verb form (start/starting/started, etc.) encodes the workflow state.
+   */
+  private _stateRelationship: WorkflowStateRelationship | null = null
+
   private _steps: RegisteredStep[] = []
   private _stepResults: StepExecutionResult[] = []
   private _currentStepIndex = 0
@@ -299,7 +387,19 @@ export class WorkflowRuntime {
   }
 
   get state(): WorkflowRuntimeState {
+    // Use graph-based state if available, otherwise fall back to legacy _state
+    if (this._stateRelationship) {
+      return getWorkflowStateFromEdge(this._stateRelationship)
+    }
     return this._state
+  }
+
+  /**
+   * Gets the current state relationship edge for graph-based state queries.
+   * Returns null if workflow hasn't been started.
+   */
+  get stateRelationship(): Readonly<WorkflowStateRelationship> | null {
+    return this._stateRelationship
   }
 
   get options(): WorkflowRuntimeOptions {
@@ -361,11 +461,92 @@ export class WorkflowRuntime {
   }
 
   // ==========================================================================
+  // STATE RELATIONSHIP MANAGEMENT
+  // ==========================================================================
+
+  /**
+   * Creates a new state relationship edge with the given verb.
+   * The verb form encodes the state: action=pending, activity=in_progress, event=completed.
+   */
+  private createStateRelationship(
+    verb: WorkflowStateRelationship['verb'],
+    toUrl?: string
+  ): WorkflowStateRelationship {
+    return {
+      id: `workflow:${this._instanceId}:state:${Date.now()}`,
+      verb,
+      from: `workflow:${this._instanceId}`,
+      to: toUrl ?? null,
+      createdAt: new Date(),
+    }
+  }
+
+  /**
+   * Transitions the workflow state using graph-based verb forms.
+   * Creates a new state relationship edge by transitioning the current verb.
+   */
+  private transitionState(
+    transition: 'start' | 'complete' | 'cancel',
+    resultTo?: string
+  ): void {
+    if (!this._stateRelationship) {
+      throw new Error('Cannot transition state without an existing state relationship')
+    }
+
+    // Use transitionEdge to update the verb form
+    const transitioned = transitionEdge(this._stateRelationship, transition, resultTo) as WorkflowStateRelationship
+    this._stateRelationship = transitioned
+
+    // Keep legacy _state in sync for backwards compatibility
+    this._state = getWorkflowStateFromEdge(this._stateRelationship)
+  }
+
+  /**
+   * Sets the workflow to a specific verb-based state.
+   * Use this for direct state setting (e.g., during pause/fail operations).
+   */
+  private setStateVerb(verb: WorkflowStateRelationship['verb'], toUrl?: string): void {
+    this._stateRelationship = this.createStateRelationship(verb, toUrl)
+    // Keep legacy _state in sync
+    this._state = getWorkflowStateFromEdge(this._stateRelationship)
+  }
+
+  /**
+   * Migration helper: converts legacy status to verb form state relationship.
+   * This enables backwards compatibility with workflows persisted before the refactoring.
+   */
+  private migrateStatusToVerb(status: WorkflowRuntimeState): void {
+    // Map legacy status to appropriate verb form
+    switch (status) {
+      case 'pending':
+        // Pending = hasn't started yet, no relationship needed
+        this._stateRelationship = null
+        break
+      case 'running':
+        // Running = activity form of start
+        this.setStateVerb('starting')
+        break
+      case 'paused':
+        // Paused = event form of pause
+        this.setStateVerb('paused')
+        break
+      case 'completed':
+        // Completed = event form of start
+        this.setStateVerb('started', `workflow:${this._instanceId}:result`)
+        break
+      case 'failed':
+        // Failed = event form of fail
+        this.setStateVerb('failed', `workflow:${this._instanceId}:error`)
+        break
+    }
+  }
+
+  // ==========================================================================
   // STEP REGISTRATION
   // ==========================================================================
 
   registerStep(name: string, handler: (ctx: StepContext) => Promise<unknown>, config?: WorkflowStepConfig): void {
-    if (this._state !== 'pending') {
+    if (this.state !== 'pending') {
       throw new Error('Cannot register steps after workflow has started')
     }
 
@@ -396,7 +577,7 @@ export class WorkflowRuntime {
    * ```
    */
   parallel(steps: ParallelStepDefinition[], options: ParallelOptions = {}): this {
-    if (this._state !== 'pending') {
+    if (this.state !== 'pending') {
       throw new Error('Cannot register steps after workflow has started')
     }
 
@@ -439,12 +620,16 @@ export class WorkflowRuntime {
   // ==========================================================================
 
   async start(input: unknown): Promise<WorkflowExecutionResult> {
-    if (this._state !== 'pending') {
-      throw new WorkflowStateError(this._state, 'start')
+    if (this.state !== 'pending') {
+      throw new WorkflowStateError(this.state, 'start')
     }
 
     this._input = input
-    this._state = 'running'
+
+    // Create initial 'start' relationship and transition to 'starting' (running)
+    this.setStateVerb('start')
+    this.transitionState('start') // start -> starting (running)
+
     this._startedAt = new Date()
     this._initialized = true
 
@@ -454,8 +639,9 @@ export class WorkflowRuntime {
     try {
       await this.executeSteps()
 
-      if (this._state === 'running') {
-        this._state = 'completed'
+      if (this.state === 'running') {
+        // Transition to 'started' (completed)
+        this.transitionState('complete', `workflow:${this._instanceId}:result`)
         this._completedAt = new Date()
         this._output = this._stepResults[this._stepResults.length - 1]?.output
 
@@ -468,13 +654,14 @@ export class WorkflowRuntime {
       }
 
       return {
-        status: this._state,
+        status: this.state,
         output: this._output,
         duration: this.duration,
       }
     } catch (error) {
       if (this._options.onError === 'pause') {
-        this._state = 'paused'
+        // Set to 'paused' state directly
+        this.setStateVerb('paused')
         this._error = error instanceof Error ? error : new Error(String(error))
         await this.persistState()
         this.emit('workflow.paused', {
@@ -483,13 +670,14 @@ export class WorkflowRuntime {
           error: this._error,
         })
         return {
-          status: this._state,
+          status: this.state,
           error: this._error,
           duration: this.duration,
         }
       }
 
-      this._state = 'failed'
+      // Set to 'failed' state directly
+      this.setStateVerb('failed', `workflow:${this._instanceId}:error`)
       this._error = error instanceof Error ? error : new Error(String(error))
       this._completedAt = new Date()
 
@@ -505,21 +693,24 @@ export class WorkflowRuntime {
   }
 
   async pause(): Promise<void> {
-    if (this._state !== 'running') {
-      throw new WorkflowStateError(this._state, 'pause')
+    if (this.state !== 'running') {
+      throw new WorkflowStateError(this.state, 'pause')
     }
 
-    this._state = 'paused'
+    // Set to 'paused' state directly (pause verb in event form)
+    this.setStateVerb('paused')
     await this.persistState()
     this.emit('workflow.paused', { instanceId: this._instanceId })
   }
 
   async resume(): Promise<void> {
-    if (this._state !== 'paused') {
-      throw new WorkflowStateError(this._state, 'resume')
+    if (this.state !== 'paused') {
+      throw new WorkflowStateError(this.state, 'resume')
     }
 
-    this._state = 'running'
+    // Set to 'resuming' (running) state - resume verb in activity form
+    this.setStateVerb('resume')
+    this.transitionState('start') // resume -> resuming (running)
     this._error = undefined // Clear error on resume
 
     await this.persistState()
@@ -529,8 +720,9 @@ export class WorkflowRuntime {
     try {
       await this.executeSteps()
 
-      if (this._state === 'running') {
-        this._state = 'completed'
+      if (this.state === 'running') {
+        // Transition to 'resumed' (completed)
+        this.transitionState('complete', `workflow:${this._instanceId}:result`)
         this._completedAt = new Date()
         this._output = this._stepResults[this._stepResults.length - 1]?.output
 
@@ -543,13 +735,13 @@ export class WorkflowRuntime {
       }
     } catch (error) {
       if (this._options.onError === 'pause') {
-        this._state = 'paused'
+        this.setStateVerb('paused')
         this._error = error instanceof Error ? error : new Error(String(error))
         await this.persistState()
         return
       }
 
-      this._state = 'failed'
+      this.setStateVerb('failed', `workflow:${this._instanceId}:error`)
       this._error = error instanceof Error ? error : new Error(String(error))
       this._completedAt = new Date()
 
@@ -567,7 +759,20 @@ export class WorkflowRuntime {
     const state = await this.storage.get<PersistedWorkflowState>('workflow:state')
     if (!state) return
 
-    this._state = state.status
+    // Restore state relationship from persisted verb or migrate from legacy status
+    if (state.stateVerb) {
+      // New format: restore from verb
+      this._stateRelationship = this.createStateRelationship(
+        state.stateVerb as WorkflowStateRelationship['verb'],
+        state.stateVerbTo ?? undefined
+      )
+      this._state = getWorkflowStateFromEdge(this._stateRelationship)
+    } else {
+      // Legacy format: migrate from status to verb
+      this._state = state.status
+      this.migrateStatusToVerb(state.status)
+    }
+
     this._currentStepIndex = state.currentStepIndex
     this._input = state.input
     this._output = state.output
@@ -1122,7 +1327,11 @@ export class WorkflowRuntime {
 
   private async persistState(): Promise<void> {
     const state: PersistedWorkflowState = {
-      status: this._state,
+      // Legacy status field for backwards compatibility
+      status: this.state,
+      // New graph-based state encoding via verb forms
+      stateVerb: this._stateRelationship?.verb,
+      stateVerbTo: this._stateRelationship?.to,
       currentStepIndex: this._currentStepIndex,
       input: this._input,
       output: this._output,

@@ -1,4 +1,5 @@
 {
   "title": "EdgeVec",
+  "description": "Part of Database - Edge-native vector database with HNSW indexing",
   "pages": ["index", "hnsw", "quantization", "filtering", "persistence"]
 }

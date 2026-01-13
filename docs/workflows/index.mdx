@@ -813,6 +813,30 @@ describe('Workflow integration', () => {
 })
 ```
 
+## Technical Details
+
+For implementation details and architecture documentation:
+
+- **[workflows README](https://github.com/dotdo/dotdo/blob/main/workflows/README.md)** - Event-driven domain DSL design, `on`/`every`/`send` proxy implementation, PipelinePromise (capnweb-style lazy execution), and comparison of v1 vs v2 API
+
+### Compat Layers
+
+| Platform | README | Description |
+|----------|--------|-------------|
+| **Temporal** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/temporal/README.md) | Temporal workflow compatibility |
+| **Inngest** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/inngest/README.md) | Inngest event functions compatibility |
+| **QStash** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/qstash/README.md) | Upstash QStash compatibility |
+| **Trigger.dev** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/trigger/README.md) | Trigger.dev compatibility |
+
+### Key Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `on.ts` | Event DSL: on, every, send, when, waitFor, Domain |
+| `pipeline-promise.ts` | PipelinePromise implementation |
+| `schedule-builder.ts` | CRON via fluent DSL |
+| `context/` | Execution modes |
+
 ## Related
 
 - [Workflow Triggers](/docs/workflows/triggers) - Event, schedule, manual, and webhook triggers

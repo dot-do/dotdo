@@ -356,6 +356,22 @@ interface PushResult {
 | Edge deployment | No | Yes |
 | Multi-agent | Needs coordination | Native R2 consistency |
 
+## Technical Details
+
+For implementation details, architecture decisions, and contributor documentation:
+
+- **[gitx README](https://github.com/dotdo/dotdo/blob/main/primitives/gitx/README.md)** - Package documentation with 5,600+ tests, full Git protocol implementation (pack files, delta compression, smart HTTP), tiered storage architecture, MCP tools, and CLI reference
+
+### Key Implementation Details
+
+| Feature | Implementation |
+|---------|----------------|
+| SHA-1 hashing | `crypto.subtle` (Web Crypto API) |
+| Object storage | R2 with two-character prefix layout |
+| Refs storage | Durable Object metadata |
+| Pack engine | OFS_DELTA and REF_DELTA compression, MIDX support |
+| Wire protocol | Smart HTTP with capability negotiation |
+
 ## Next Steps
 
 - [fsx](/docs/primitives/fsx) - The filesystem that gitx tracks

@@ -667,3 +667,9 @@ import type {
   ChannelConfigFor,
 } from '../lib/channels'
 ```
+
+## Related Documentation
+
+- [Human Escalation](/docs/humans/escalation) - User-facing documentation for triggers, roles, SLAs, and channel configuration
+- [Approval Workflows](/docs/humans/approval-workflows) - Human-in-the-loop approval patterns
+- [Agent System](/docs/agents/) - AI agents and human escalation integration

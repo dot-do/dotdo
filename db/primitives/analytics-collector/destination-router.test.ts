@@ -1159,3 +1159,1222 @@ describe('Multiple Destinations Integration', () => {
     expect(auditEvents).toHaveLength(4)
   })
 })
+
+// ============================================================================
+// ROUTE MATCHING TESTS
+// ============================================================================
+
+describe('Route Matching', () => {
+  describe('event type matching', () => {
+    it('should match single event type', async () => {
+      const router = createDestinationRouter()
+      const dest = createMockDestination('track-only')
+      dest.eventTypes = ['track']
+      router.addDestination(dest)
+
+      await router.route([
+        createTestEvent({ type: 'track' }),
+        createTestEvent({ type: 'page' }),
+        createTestEvent({ type: 'identify' }),
+      ])
+
+      expect(dest.events).toHaveLength(1)
+      expect(dest.events[0].type).toBe('track')
+    })
+
+    it('should match multiple event types', async () => {
+      const router = createDestinationRouter()
+      const dest = createMockDestination('multi-type')
+      dest.eventTypes = ['track', 'page', 'screen']
+      router.addDestination(dest)
+
+      await router.route([
+        createTestEvent({ type: 'track' }),
+        createTestEvent({ type: 'page' }),
+        createTestEvent({ type: 'screen' }),
+        createTestEvent({ type: 'identify' }),
+        createTestEvent({ type: 'group' }),
+        createTestEvent({ type: 'alias' }),
+      ])
+
+      expect(dest.events).toHaveLength(3)
+      expect(dest.events.map((e) => e.type).sort()).toEqual(['page', 'screen', 'track'])
+    })
+
+    it('should match all event types when none specified', async () => {
+      const router = createDestinationRouter()
+      const dest = createMockDestination('all-types')
+      router.addDestination(dest)
+
+      const allTypes: Array<AnalyticsEvent['type']> = [
+        'track',
+        'page',
+        'screen',
+        'identify',
+        'group',
+        'alias',
+      ]
+      await router.route(allTypes.map((type) => createTestEvent({ type })))
+
+      expect(dest.events).toHaveLength(6)
+    })
+  })
+
+  describe('property-based matching', () => {
+    it('should match events by property value', async () => {
+      const router = createDestinationRouter()
+      const premiumDest = createMockDestination('premium')
+      premiumDest.filter = filterByProperty('plan', (v) => v === 'premium' || v === 'enterprise')
+      router.addDestination(premiumDest)
+
+      await router.route([
+        createTestEvent({ properties: { plan: 'free' } }),
+        createTestEvent({ properties: { plan: 'premium' } }),
+        createTestEvent({ properties: { plan: 'enterprise' } }),
+        createTestEvent({ properties: { plan: 'basic' } }),
+      ])
+
+      expect(premiumDest.events).toHaveLength(2)
+    })
+
+    it('should match events by numeric property range', async () => {
+      const router = createDestinationRouter()
+      const highValueDest = createMockDestination('high-value')
+      highValueDest.filter = filterByProperty('amount', (v) => typeof v === 'number' && v >= 1000)
+      router.addDestination(highValueDest)
+
+      await router.route([
+        createTestEvent({ properties: { amount: 50 } }),
+        createTestEvent({ properties: { amount: 500 } }),
+        createTestEvent({ properties: { amount: 1000 } }),
+        createTestEvent({ properties: { amount: 5000 } }),
+        createTestEvent({ properties: {} }), // No amount
+      ])
+
+      expect(highValueDest.events).toHaveLength(2)
+    })
+
+    it('should match events by nested property', async () => {
+      const router = createDestinationRouter()
+      const dest = createMockDestination('nested')
+      dest.filter = (event) => {
+        const metadata = event.properties?.metadata as Record<string, unknown> | undefined
+        return metadata?.important === true
+      }
+      router.addDestination(dest)
+
+      await router.route([
+        createTestEvent({ properties: { metadata: { important: true } } }),
+        createTestEvent({ properties: { metadata: { important: false } } }),
+        createTestEvent({ properties: { metadata: {} } }),
+        createTestEvent({ properties: {} }),
+      ])
+
+      expect(dest.events).toHaveLength(1)
+    })
+  })
+
+  describe('event name matching', () => {
+    it('should match events by exact name', async () => {
+      const router = createDestinationRouter()
+      const dest = createMockDestination('purchase-tracker')
+      dest.filter = includeEvents('Purchase Completed', 'Order Placed')
+      router.addDestination(dest)
+
+      await router.route([
+        createTestEvent({ event: 'Purchase Completed' }),
+        createTestEvent({ event: 'Order Placed' }),
+        createTestEvent({ event: 'Button Clicked' }),
+        createTestEvent({ event: 'Page Viewed' }),
+      ])
+
+      expect(dest.events).toHaveLength(2)
+    })
+
+    it('should match events by pattern (custom filter)', async () => {
+      const router = createDestinationRouter()
+      const dest = createMockDestination('error-tracker')
+      dest.filter = (event) => event.event?.toLowerCase().includes('error') ?? false
+      router.addDestination(dest)
+
+      await router.route([
+        createTestEvent({ event: 'Error Occurred' }),
+        createTestEvent({ event: 'API Error' }),
+        createTestEvent({ event: 'Validation Error Detected' }),
+        createTestEvent({ event: 'Success' }),
+        createTestEvent({ event: 'Button Clicked' }),
+      ])
+
+      expect(dest.events).toHaveLength(3)
+    })
+  })
+})
+
+// ============================================================================
+// MULTI-DESTINATION ROUTING TESTS
+// ============================================================================
+
+describe('Multi-Destination Routing', () => {
+  it('should fan-out events to all matching destinations', async () => {
+    const router = createDestinationRouter()
+
+    const dest1Events: AnalyticsEvent[] = []
+    const dest2Events: AnalyticsEvent[] = []
+    const dest3Events: AnalyticsEvent[] = []
+
+    router.addDestination({
+      name: 'dest1',
+      send: async (events) => dest1Events.push(...events),
+    })
+    router.addDestination({
+      name: 'dest2',
+      send: async (events) => dest2Events.push(...events),
+    })
+    router.addDestination({
+      name: 'dest3',
+      send: async (events) => dest3Events.push(...events),
+    })
+
+    const events = [createTestEvent(), createTestEvent(), createTestEvent()]
+    await router.route(events)
+
+    // All destinations should receive all events
+    expect(dest1Events).toHaveLength(3)
+    expect(dest2Events).toHaveLength(3)
+    expect(dest3Events).toHaveLength(3)
+  })
+
+  it('should apply different filters per destination', async () => {
+    const router = createDestinationRouter()
+
+    const trackDest: AnalyticsEvent[] = []
+    const pageDest: AnalyticsEvent[] = []
+    const identifyDest: AnalyticsEvent[] = []
+
+    router.addDestination({
+      name: 'track-dest',
+      eventTypes: ['track'],
+      send: async (events) => trackDest.push(...events),
+    })
+    router.addDestination({
+      name: 'page-dest',
+      eventTypes: ['page'],
+      send: async (events) => pageDest.push(...events),
+    })
+    router.addDestination({
+      name: 'identify-dest',
+      eventTypes: ['identify'],
+      send: async (events) => identifyDest.push(...events),
+    })
+
+    await router.route([
+      createTestEvent({ type: 'track' }),
+      createTestEvent({ type: 'track' }),
+      createTestEvent({ type: 'page' }),
+      createTestEvent({ type: 'identify' }),
+      createTestEvent({ type: 'identify' }),
+      createTestEvent({ type: 'identify' }),
+    ])
+
+    expect(trackDest).toHaveLength(2)
+    expect(pageDest).toHaveLength(1)
+    expect(identifyDest).toHaveLength(3)
+  })
+
+  it('should apply different transforms per destination', async () => {
+    const router = createDestinationRouter()
+
+    const rawDest: AnalyticsEvent[] = []
+    const anonymizedDest: AnalyticsEvent[] = []
+    const enrichedDest: AnalyticsEvent[] = []
+
+    router.addDestination({
+      name: 'raw',
+      send: async (events) => rawDest.push(...events),
+    })
+    router.addDestination({
+      name: 'anonymized',
+      transform: chainTransforms(
+        maskEventFields('userId', 'anonymousId'),
+        removeProperties('email', 'phone')
+      ),
+      send: async (events) => anonymizedDest.push(...events),
+    })
+    router.addDestination({
+      name: 'enriched',
+      transform: addProperties({ processedAt: 'now', version: '1.0' }),
+      send: async (events) => enrichedDest.push(...events),
+    })
+
+    await router.route([
+      createTestEvent({
+        userId: 'user_123',
+        anonymousId: 'anon_456',
+        properties: { email: 'test@example.com', phone: '555-1234', amount: 100 },
+      }),
+    ])
+
+    // Raw destination gets original event
+    expect(rawDest[0].userId).toBe('user_123')
+    expect(rawDest[0].properties?.email).toBe('test@example.com')
+
+    // Anonymized destination gets masked/stripped event
+    expect(anonymizedDest[0].userId).toBe('***MASKED***')
+    expect(anonymizedDest[0].anonymousId).toBe('***MASKED***')
+    expect(anonymizedDest[0].properties?.email).toBeUndefined()
+    expect(anonymizedDest[0].properties?.phone).toBeUndefined()
+    expect(anonymizedDest[0].properties?.amount).toBe(100)
+
+    // Enriched destination gets additional properties
+    expect(enrichedDest[0].properties?.processedAt).toBe('now')
+    expect(enrichedDest[0].properties?.version).toBe('1.0')
+  })
+
+  it('should handle partial failures across destinations', async () => {
+    const router = createDestinationRouter({
+      continueOnError: true,
+      defaultRetry: { maxAttempts: 0 },
+    })
+
+    const successDest1: AnalyticsEvent[] = []
+    const successDest2: AnalyticsEvent[] = []
+
+    router.addDestination({
+      name: 'success1',
+      priority: 10,
+      send: async (events) => successDest1.push(...events),
+    })
+    router.addDestination({
+      name: 'failing',
+      priority: 5,
+      send: async () => {
+        throw new Error('Destination failed')
+      },
+    })
+    router.addDestination({
+      name: 'success2',
+      priority: 1,
+      send: async (events) => successDest2.push(...events),
+    })
+
+    const result = await router.route([createTestEvent()])
+
+    // Overall result is failure, but successful destinations received events
+    expect(result.success).toBe(false)
+    expect(successDest1).toHaveLength(1)
+    expect(successDest2).toHaveLength(1)
+    expect(result.destinations.filter((d) => d.success)).toHaveLength(2)
+    expect(result.destinations.filter((d) => !d.success)).toHaveLength(1)
+  })
+})
+
+// ============================================================================
+// FALLBACK DESTINATION TESTS
+// ============================================================================
+
+describe('Fallback Destinations', () => {
+  it('should use fallback when primary destination fails', async () => {
+    const router = createDestinationRouter({
+      parallel: false,
+      continueOnError: true,
+      defaultRetry: { maxAttempts: 0 },
+    })
+
+    const primaryEvents: AnalyticsEvent[] = []
+    const fallbackEvents: AnalyticsEvent[] = []
+    let primaryFailed = false
+
+    router.addDestination({
+      name: 'primary',
+      priority: 10,
+      send: async () => {
+        throw new Error('Primary failed')
+      },
+      onError: () => {
+        primaryFailed = true
+      },
+    })
+
+    router.addDestination({
+      name: 'fallback',
+      priority: 5,
+      send: async (events) => {
+        if (primaryFailed) {
+          fallbackEvents.push(...events)
+        } else {
+          primaryEvents.push(...events)
+        }
+      },
+    })
+
+    await router.route([createTestEvent(), createTestEvent()])
+
+    expect(primaryFailed).toBe(true)
+    expect(fallbackEvents).toHaveLength(2)
+  })
+
+  it('should implement dead letter queue pattern', async () => {
+    const router = createDestinationRouter({
+      continueOnError: true,
+      defaultRetry: { maxAttempts: 1 },
+    })
+
+    const deadLetterQueue: Array<{ error: Error; events: AnalyticsEvent[] }> = []
+    const successfulEvents: AnalyticsEvent[] = []
+    let attemptCount = 0
+
+    router.addDestination({
+      name: 'main',
+      send: async () => {
+        attemptCount++
+        throw new Error('Delivery failed')
+      },
+      onError: (error, events) => {
+        // After all retries exhausted, push to DLQ
+        deadLetterQueue.push({ error, events })
+      },
+    })
+
+    router.addDestination({
+      name: 'backup',
+      send: async (events) => successfulEvents.push(...events),
+    })
+
+    await router.route([createTestEvent()])
+
+    expect(attemptCount).toBe(2) // Initial + 1 retry
+    expect(deadLetterQueue).toHaveLength(1)
+    expect(deadLetterQueue[0].events).toHaveLength(1)
+    expect(successfulEvents).toHaveLength(1) // Backup still succeeded
+  })
+
+  it('should cascade through multiple fallback levels', async () => {
+    const router = createDestinationRouter({
+      parallel: false,
+      continueOnError: true,
+      defaultRetry: { maxAttempts: 0 },
+    })
+
+    const deliveredTo: string[] = []
+    let level1Available = false
+    let level2Available = false
+
+    router.addDestination({
+      name: 'level1-primary',
+      priority: 30,
+      send: async () => {
+        if (!level1Available) throw new Error('Level 1 unavailable')
+        deliveredTo.push('level1')
+      },
+    })
+
+    router.addDestination({
+      name: 'level2-backup',
+      priority: 20,
+      send: async () => {
+        if (!level2Available) throw new Error('Level 2 unavailable')
+        deliveredTo.push('level2')
+      },
+    })
+
+    router.addDestination({
+      name: 'level3-fallback',
+      priority: 10,
+      send: async () => {
+        deliveredTo.push('level3')
+      },
+    })
+
+    // All fail except level 3
+    await router.route([createTestEvent()])
+    expect(deliveredTo).toContain('level3')
+
+    // Enable level 2
+    deliveredTo.length = 0
+    level2Available = true
+    await router.route([createTestEvent()])
+    expect(deliveredTo).toContain('level2')
+    expect(deliveredTo).toContain('level3') // Level 3 also receives (continueOnError)
+
+    // Enable level 1
+    deliveredTo.length = 0
+    level1Available = true
+    await router.route([createTestEvent()])
+    expect(deliveredTo).toContain('level1')
+    expect(deliveredTo).toContain('level2')
+    expect(deliveredTo).toContain('level3')
+  })
+})
+
+// ============================================================================
+// CONDITIONAL ROUTING TESTS
+// ============================================================================
+
+describe('Conditional Routing', () => {
+  describe('user-based routing', () => {
+    it('should route based on user segments', async () => {
+      const router = createDestinationRouter()
+
+      const betaEvents: AnalyticsEvent[] = []
+      const generalEvents: AnalyticsEvent[] = []
+
+      const betaUsers = new Set(['user_beta_1', 'user_beta_2', 'user_beta_3'])
+
+      router.addDestination({
+        name: 'beta-analytics',
+        filter: (event) => betaUsers.has(event.userId ?? ''),
+        send: async (events) => betaEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'general-analytics',
+        filter: (event) => !betaUsers.has(event.userId ?? ''),
+        send: async (events) => generalEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ userId: 'user_beta_1' }),
+        createTestEvent({ userId: 'user_regular' }),
+        createTestEvent({ userId: 'user_beta_2' }),
+        createTestEvent({ userId: 'user_another' }),
+      ])
+
+      expect(betaEvents).toHaveLength(2)
+      expect(generalEvents).toHaveLength(2)
+    })
+
+    it('should route VIP users to priority destinations', async () => {
+      const router = createDestinationRouter()
+
+      const vipEvents: AnalyticsEvent[] = []
+      const standardEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'vip-support',
+        filter: filterByProperty('customerTier', (v) => v === 'vip' || v === 'enterprise'),
+        transform: addProperties({ priority: 'high' }),
+        send: async (events) => vipEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'standard-queue',
+        filter: filterByProperty('customerTier', (v) => v !== 'vip' && v !== 'enterprise'),
+        send: async (events) => standardEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ properties: { customerTier: 'vip', issue: 'urgent' } }),
+        createTestEvent({ properties: { customerTier: 'free', issue: 'question' } }),
+        createTestEvent({ properties: { customerTier: 'enterprise', issue: 'critical' } }),
+        createTestEvent({ properties: { customerTier: 'basic', issue: 'minor' } }),
+      ])
+
+      expect(vipEvents).toHaveLength(2)
+      expect(vipEvents.every((e) => e.properties?.priority === 'high')).toBe(true)
+      expect(standardEvents).toHaveLength(2)
+    })
+  })
+
+  describe('context-based routing', () => {
+    it('should route based on event context', async () => {
+      const router = createDestinationRouter()
+
+      const mobileEvents: AnalyticsEvent[] = []
+      const webEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'mobile-analytics',
+        filter: (event) => {
+          const device = event.context?.device as Record<string, unknown> | undefined
+          return device?.type === 'mobile' || device?.type === 'tablet'
+        },
+        send: async (events) => mobileEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'web-analytics',
+        filter: (event) => {
+          const device = event.context?.device as Record<string, unknown> | undefined
+          return device?.type === 'desktop' || device?.type === 'web'
+        },
+        send: async (events) => webEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ context: { device: { type: 'mobile' } } }),
+        createTestEvent({ context: { device: { type: 'desktop' } } }),
+        createTestEvent({ context: { device: { type: 'tablet' } } }),
+        createTestEvent({ context: { device: { type: 'web' } } }),
+      ])
+
+      expect(mobileEvents).toHaveLength(2)
+      expect(webEvents).toHaveLength(2)
+    })
+
+    it('should route based on geo location', async () => {
+      const router = createDestinationRouter()
+
+      const euEvents: AnalyticsEvent[] = []
+      const usEvents: AnalyticsEvent[] = []
+      const otherEvents: AnalyticsEvent[] = []
+
+      const euCountries = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE'])
+      const usRegions = new Set(['US', 'CA'])
+
+      router.addDestination({
+        name: 'eu-analytics',
+        filter: (event) => {
+          const country = event.context?.location as Record<string, unknown> | undefined
+          return euCountries.has(country?.country as string)
+        },
+        send: async (events) => euEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'us-analytics',
+        filter: (event) => {
+          const country = event.context?.location as Record<string, unknown> | undefined
+          return usRegions.has(country?.country as string)
+        },
+        send: async (events) => usEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'other-analytics',
+        filter: (event) => {
+          const country = event.context?.location as Record<string, unknown> | undefined
+          const c = country?.country as string
+          return !euCountries.has(c) && !usRegions.has(c)
+        },
+        send: async (events) => otherEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ context: { location: { country: 'DE' } } }),
+        createTestEvent({ context: { location: { country: 'US' } } }),
+        createTestEvent({ context: { location: { country: 'JP' } } }),
+        createTestEvent({ context: { location: { country: 'FR' } } }),
+        createTestEvent({ context: { location: { country: 'CA' } } }),
+        createTestEvent({ context: { location: { country: 'AU' } } }),
+      ])
+
+      expect(euEvents).toHaveLength(2) // DE, FR
+      expect(usEvents).toHaveLength(2) // US, CA
+      expect(otherEvents).toHaveLength(2) // JP, AU
+    })
+  })
+
+  describe('time-based routing', () => {
+    it('should route based on timestamp', async () => {
+      const router = createDestinationRouter()
+
+      const recentEvents: AnalyticsEvent[] = []
+      const historicalEvents: AnalyticsEvent[] = []
+
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      router.addDestination({
+        name: 'recent-analytics',
+        filter: (event) => {
+          const eventTime = new Date(event.timestamp).getTime()
+          const cutoff = Date.now() - 12 * 60 * 60 * 1000 // 12 hours
+          return eventTime > cutoff
+        },
+        send: async (events) => recentEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'historical-analytics',
+        filter: (event) => {
+          const eventTime = new Date(event.timestamp).getTime()
+          const cutoff = Date.now() - 12 * 60 * 60 * 1000 // 12 hours
+          return eventTime <= cutoff
+        },
+        send: async (events) => historicalEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ timestamp: new Date().toISOString() }), // Now
+        createTestEvent({ timestamp: oneHourAgo }), // Recent
+        createTestEvent({ timestamp: oneDayAgo }), // Historical
+        createTestEvent({ timestamp: oneWeekAgo }), // Historical
+      ])
+
+      expect(recentEvents).toHaveLength(2) // Now and 1 hour ago
+      expect(historicalEvents).toHaveLength(2) // 1 day and 1 week ago
+    })
+  })
+
+  describe('complex conditional logic', () => {
+    it('should support AND conditions', async () => {
+      const router = createDestinationRouter()
+      const matchedEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'complex-and',
+        filter: andFilters(
+          filterByEventType('track'),
+          filterByProperty('amount', (v) => typeof v === 'number' && v > 100),
+          (event) => event.userId?.startsWith('premium_') ?? false
+        ),
+        send: async (events) => matchedEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ type: 'track', userId: 'premium_1', properties: { amount: 200 } }),
+        createTestEvent({ type: 'track', userId: 'regular_1', properties: { amount: 200 } }),
+        createTestEvent({ type: 'track', userId: 'premium_2', properties: { amount: 50 } }),
+        createTestEvent({ type: 'page', userId: 'premium_3', properties: { amount: 200 } }),
+      ])
+
+      expect(matchedEvents).toHaveLength(1)
+      expect(matchedEvents[0].userId).toBe('premium_1')
+    })
+
+    it('should support OR conditions', async () => {
+      const router = createDestinationRouter()
+      const matchedEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'complex-or',
+        filter: orFilters(
+          filterByProperty('priority', (v) => v === 'critical'),
+          filterByProperty('amount', (v) => typeof v === 'number' && v > 10000),
+          (event) => event.event === 'Error Occurred'
+        ),
+        send: async (events) => matchedEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ event: 'Purchase', properties: { priority: 'critical' } }),
+        createTestEvent({ event: 'Purchase', properties: { amount: 15000 } }),
+        createTestEvent({ event: 'Error Occurred', properties: {} }),
+        createTestEvent({ event: 'Click', properties: { amount: 50 } }),
+      ])
+
+      expect(matchedEvents).toHaveLength(3)
+    })
+
+    it('should support NOT conditions', async () => {
+      const router = createDestinationRouter()
+      const matchedEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'complex-not',
+        filter: andFilters(
+          filterByEventType('track'),
+          notFilter(excludeEvents('Internal Event', 'Debug Event', 'Test Event'))
+        ),
+        send: async (events) => matchedEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ type: 'track', event: 'Internal Event' }),
+        createTestEvent({ type: 'track', event: 'Debug Event' }),
+        createTestEvent({ type: 'track', event: 'Real Event' }),
+        createTestEvent({ type: 'track', event: 'Another Real Event' }),
+      ])
+
+      expect(matchedEvents).toHaveLength(2)
+    })
+  })
+})
+
+// ============================================================================
+// ROUTE PRIORITY TESTS
+// ============================================================================
+
+describe('Route Priority', () => {
+  it('should process high priority destinations first in sequential mode', async () => {
+    const router = createDestinationRouter({ parallel: false })
+    const processingOrder: string[] = []
+
+    router.addDestination({
+      name: 'low-priority',
+      priority: 1,
+      send: async () => processingOrder.push('low'),
+    })
+    router.addDestination({
+      name: 'medium-priority',
+      priority: 5,
+      send: async () => processingOrder.push('medium'),
+    })
+    router.addDestination({
+      name: 'high-priority',
+      priority: 10,
+      send: async () => processingOrder.push('high'),
+    })
+    router.addDestination({
+      name: 'critical-priority',
+      priority: 100,
+      send: async () => processingOrder.push('critical'),
+    })
+
+    await router.route([createTestEvent()])
+
+    expect(processingOrder).toEqual(['critical', 'high', 'medium', 'low'])
+  })
+
+  it('should handle equal priorities', async () => {
+    const router = createDestinationRouter({ parallel: false })
+    const processed: string[] = []
+
+    router.addDestination({
+      name: 'dest-a',
+      priority: 5,
+      send: async () => processed.push('a'),
+    })
+    router.addDestination({
+      name: 'dest-b',
+      priority: 5,
+      send: async () => processed.push('b'),
+    })
+    router.addDestination({
+      name: 'dest-c',
+      priority: 5,
+      send: async () => processed.push('c'),
+    })
+
+    await router.route([createTestEvent()])
+
+    // All should be processed, order may vary for equal priorities
+    expect(processed).toHaveLength(3)
+    expect(processed).toContain('a')
+    expect(processed).toContain('b')
+    expect(processed).toContain('c')
+  })
+
+  it('should default to priority 0', async () => {
+    const router = createDestinationRouter({ parallel: false })
+    const processingOrder: string[] = []
+
+    router.addDestination({
+      name: 'with-priority',
+      priority: 5,
+      send: async () => processingOrder.push('prioritized'),
+    })
+    router.addDestination({
+      name: 'without-priority',
+      // No priority specified, defaults to 0
+      send: async () => processingOrder.push('default'),
+    })
+
+    await router.route([createTestEvent()])
+
+    expect(processingOrder).toEqual(['prioritized', 'default'])
+  })
+
+  it('should support negative priorities', async () => {
+    const router = createDestinationRouter({ parallel: false })
+    const processingOrder: string[] = []
+
+    router.addDestination({
+      name: 'normal',
+      priority: 0,
+      send: async () => processingOrder.push('normal'),
+    })
+    router.addDestination({
+      name: 'low',
+      priority: -10,
+      send: async () => processingOrder.push('low'),
+    })
+    router.addDestination({
+      name: 'very-low',
+      priority: -100,
+      send: async () => processingOrder.push('very-low'),
+    })
+
+    await router.route([createTestEvent()])
+
+    expect(processingOrder).toEqual(['normal', 'low', 'very-low'])
+  })
+
+  it('should stop at failing high-priority destination when continueOnError=false', async () => {
+    const router = createDestinationRouter({
+      parallel: false,
+      continueOnError: false,
+      defaultRetry: { maxAttempts: 0 },
+    })
+    const processed: string[] = []
+
+    router.addDestination({
+      name: 'highest',
+      priority: 100,
+      send: async () => {
+        processed.push('highest')
+        throw new Error('Critical failure')
+      },
+    })
+    router.addDestination({
+      name: 'high',
+      priority: 50,
+      send: async () => processed.push('high'),
+    })
+    router.addDestination({
+      name: 'low',
+      priority: 10,
+      send: async () => processed.push('low'),
+    })
+
+    const result = await router.route([createTestEvent()])
+
+    expect(result.success).toBe(false)
+    expect(processed).toEqual(['highest'])
+    // Lower priority destinations never ran
+  })
+})
+
+// ============================================================================
+// ANALYTICS ROUTING SCENARIOS
+// ============================================================================
+
+describe('Analytics Routing Scenarios', () => {
+  describe('multi-provider analytics', () => {
+    it('should route to multiple analytics providers with different requirements', async () => {
+      const router = createDestinationRouter()
+
+      const googleAnalytics: AnalyticsEvent[] = []
+      const mixpanel: AnalyticsEvent[] = []
+      const amplitude: AnalyticsEvent[] = []
+      const segment: AnalyticsEvent[] = []
+
+      // Google Analytics - only page and screen events, limited properties
+      router.addDestination({
+        name: 'google-analytics',
+        eventTypes: ['page', 'screen'],
+        transform: removeProperties('userId', 'email', 'internalId'),
+        send: async (events) => googleAnalytics.push(...events),
+      })
+
+      // Mixpanel - all events, rename properties to match schema
+      router.addDestination({
+        name: 'mixpanel',
+        transform: renameProperties({
+          userId: 'distinct_id',
+          event: '$event_name',
+        }),
+        send: async (events) => mixpanel.push(...events),
+      })
+
+      // Amplitude - only track events, add device context
+      router.addDestination({
+        name: 'amplitude',
+        eventTypes: ['track'],
+        transform: addProperties({ platform: 'web', sdk_version: '1.0.0' }),
+        send: async (events) => amplitude.push(...events),
+      })
+
+      // Segment - all events with PII masking
+      router.addDestination({
+        name: 'segment',
+        transform: chainTransforms(
+          maskProperties('email', 'phone', 'ssn'),
+          maskEventFields('userId')
+        ),
+        send: async (events) => segment.push(...events),
+      })
+
+      const events = [
+        createTestEvent({
+          type: 'track',
+          userId: 'user_123',
+          event: 'Purchase Completed',
+          properties: { amount: 99.99, email: 'test@example.com' },
+        }),
+        createTestEvent({
+          type: 'page',
+          userId: 'user_123',
+          properties: { path: '/checkout', internalId: 'xyz' },
+        }),
+        createTestEvent({
+          type: 'identify',
+          userId: 'user_123',
+          traits: { email: 'test@example.com', phone: '555-1234' },
+        }),
+      ]
+
+      await router.route(events)
+
+      // Google Analytics: only page event, no userId
+      expect(googleAnalytics).toHaveLength(1)
+      expect(googleAnalytics[0].type).toBe('page')
+      expect(googleAnalytics[0].properties?.userId).toBeUndefined()
+      expect(googleAnalytics[0].properties?.internalId).toBeUndefined()
+
+      // Mixpanel: all events with renamed properties
+      expect(mixpanel).toHaveLength(3)
+
+      // Amplitude: only track event with added properties
+      expect(amplitude).toHaveLength(1)
+      expect(amplitude[0].type).toBe('track')
+      expect(amplitude[0].properties?.platform).toBe('web')
+
+      // Segment: all events with masked PII
+      expect(segment).toHaveLength(3)
+      expect(segment[0].userId).toBe('***MASKED***')
+      expect(segment[0].properties?.email).toBe('***MASKED***')
+    })
+  })
+
+  describe('compliance and data governance', () => {
+    it('should route GDPR-compliant data to EU destinations', async () => {
+      const router = createDestinationRouter()
+
+      const euAnalytics: AnalyticsEvent[] = []
+      const globalAnalytics: AnalyticsEvent[] = []
+
+      const piiFields = ['email', 'phone', 'address', 'ssn', 'ip']
+
+      router.addDestination({
+        name: 'eu-analytics',
+        transform: (event) => {
+          // Remove all PII for EU compliance
+          const newProps = { ...event.properties }
+          for (const field of piiFields) {
+            delete newProps[field]
+          }
+          return {
+            ...event,
+            userId: undefined,
+            anonymousId: event.anonymousId, // Keep anonymous ID only
+            properties: newProps,
+          }
+        },
+        send: async (events) => euAnalytics.push(...events),
+      })
+
+      router.addDestination({
+        name: 'global-analytics',
+        transform: maskProperties(...piiFields),
+        send: async (events) => globalAnalytics.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({
+          userId: 'user_123',
+          anonymousId: 'anon_456',
+          properties: {
+            email: 'test@example.com',
+            phone: '555-1234',
+            product: 'Widget',
+            amount: 99.99,
+          },
+        }),
+      ])
+
+      // EU analytics: completely stripped of PII
+      expect(euAnalytics[0].userId).toBeUndefined()
+      expect(euAnalytics[0].anonymousId).toBe('anon_456')
+      expect(euAnalytics[0].properties?.email).toBeUndefined()
+      expect(euAnalytics[0].properties?.phone).toBeUndefined()
+      expect(euAnalytics[0].properties?.product).toBe('Widget')
+
+      // Global analytics: PII masked but present
+      expect(globalAnalytics[0].properties?.email).toBe('***MASKED***')
+      expect(globalAnalytics[0].properties?.phone).toBe('***MASKED***')
+      expect(globalAnalytics[0].properties?.product).toBe('Widget')
+    })
+
+    it('should filter events based on consent flags', async () => {
+      const router = createDestinationRouter()
+
+      const marketingEvents: AnalyticsEvent[] = []
+      const analyticsEvents: AnalyticsEvent[] = []
+      const essentialEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'marketing',
+        filter: (event) => {
+          const consent = event.context?.consent as Record<string, boolean> | undefined
+          return consent?.marketing === true
+        },
+        send: async (events) => marketingEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'analytics',
+        filter: (event) => {
+          const consent = event.context?.consent as Record<string, boolean> | undefined
+          return consent?.analytics === true
+        },
+        send: async (events) => analyticsEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'essential',
+        // Essential always receives events
+        send: async (events) => essentialEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({
+          context: { consent: { marketing: true, analytics: true } },
+        }),
+        createTestEvent({
+          context: { consent: { marketing: false, analytics: true } },
+        }),
+        createTestEvent({
+          context: { consent: { marketing: false, analytics: false } },
+        }),
+        createTestEvent({
+          context: { consent: { marketing: true, analytics: false } },
+        }),
+      ])
+
+      expect(marketingEvents).toHaveLength(2)
+      expect(analyticsEvents).toHaveLength(2)
+      expect(essentialEvents).toHaveLength(4) // All events
+    })
+  })
+
+  describe('real-time vs batch processing', () => {
+    it('should route high-priority events to real-time pipeline', async () => {
+      const router = createDestinationRouter()
+
+      const realTimeEvents: AnalyticsEvent[] = []
+      const batchEvents: AnalyticsEvent[] = []
+
+      const realTimeEventNames = new Set([
+        'Error Occurred',
+        'Payment Failed',
+        'Security Alert',
+        'System Down',
+      ])
+
+      router.addDestination({
+        name: 'real-time-pipeline',
+        priority: 100,
+        filter: (event) => realTimeEventNames.has(event.event ?? ''),
+        send: async (events) => realTimeEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'batch-pipeline',
+        priority: 10,
+        filter: (event) => !realTimeEventNames.has(event.event ?? ''),
+        send: async (events) => batchEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ event: 'Error Occurred' }),
+        createTestEvent({ event: 'Page Viewed' }),
+        createTestEvent({ event: 'Payment Failed' }),
+        createTestEvent({ event: 'Button Clicked' }),
+        createTestEvent({ event: 'Security Alert' }),
+      ])
+
+      expect(realTimeEvents).toHaveLength(3)
+      expect(batchEvents).toHaveLength(2)
+    })
+  })
+
+  describe('A/B testing and experimentation', () => {
+    it('should route events to different experiment variants', async () => {
+      const router = createDestinationRouter()
+
+      const controlEvents: AnalyticsEvent[] = []
+      const variantAEvents: AnalyticsEvent[] = []
+      const variantBEvents: AnalyticsEvent[] = []
+
+      router.addDestination({
+        name: 'control',
+        filter: (event) => {
+          const experiment = event.properties?.experimentVariant
+          return experiment === 'control'
+        },
+        send: async (events) => controlEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'variant-a',
+        filter: (event) => {
+          const experiment = event.properties?.experimentVariant
+          return experiment === 'variant_a'
+        },
+        send: async (events) => variantAEvents.push(...events),
+      })
+
+      router.addDestination({
+        name: 'variant-b',
+        filter: (event) => {
+          const experiment = event.properties?.experimentVariant
+          return experiment === 'variant_b'
+        },
+        send: async (events) => variantBEvents.push(...events),
+      })
+
+      await router.route([
+        createTestEvent({ properties: { experimentVariant: 'control', action: 'click' } }),
+        createTestEvent({ properties: { experimentVariant: 'variant_a', action: 'click' } }),
+        createTestEvent({ properties: { experimentVariant: 'variant_b', action: 'click' } }),
+        createTestEvent({ properties: { experimentVariant: 'control', action: 'purchase' } }),
+        createTestEvent({ properties: { experimentVariant: 'variant_a', action: 'purchase' } }),
+      ])
+
+      expect(controlEvents).toHaveLength(2)
+      expect(variantAEvents).toHaveLength(2)
+      expect(variantBEvents).toHaveLength(1)
+    })
+  })
+
+  describe('cost optimization', () => {
+    it('should sample events for high-volume destinations', async () => {
+      const router = createDestinationRouter()
+
+      const fullFidelityEvents: AnalyticsEvent[] = []
+      const sampledEvents: AnalyticsEvent[] = []
+
+      // High-value events go to full-fidelity destination
+      router.addDestination({
+        name: 'full-fidelity',
+        filter: orFilters(
+          filterByProperty('amount', (v) => typeof v === 'number' && v > 100),
+          includeEvents('Error Occurred', 'Purchase Completed')
+        ),
+        send: async (events) => fullFidelityEvents.push(...events),
+      })
+
+      // Sample 10% of other events
+      let sampleCounter = 0
+      router.addDestination({
+        name: 'sampled',
+        filter: (event) => {
+          // Always include high-value
+          const amount = event.properties?.amount as number | undefined
+          if (amount && amount > 100) return false // Already in full-fidelity
+          if (event.event === 'Error Occurred' || event.event === 'Purchase Completed')
+            return false
+
+          // 10% sampling
+          sampleCounter++
+          return sampleCounter % 10 === 0
+        },
+        send: async (events) => sampledEvents.push(...events),
+      })
+
+      // Generate 100 low-value events
+      const events = Array(100)
+        .fill(null)
+        .map((_, i) =>
+          createTestEvent({
+            event: 'Page Viewed',
+            properties: { pageIndex: i, amount: 10 },
+          })
+        )
+
+      // Add some high-value events
+      events.push(
+        createTestEvent({ event: 'Purchase Completed', properties: { amount: 500 } }),
+        createTestEvent({ event: 'Error Occurred', properties: {} }),
+        createTestEvent({ properties: { amount: 200 } })
+      )
+
+      await router.route(events)
+
+      expect(fullFidelityEvents).toHaveLength(3) // High-value events
+      expect(sampledEvents).toHaveLength(10) // 10% of 100 low-value events
+    })
+  })
+})

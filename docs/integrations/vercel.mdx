@@ -537,25 +537,26 @@ BLOB_READ_WRITE_TOKEN=...
 EDGE_CONFIG=...
 
 # After (dotdo) - auto-configured from bindings
-# Add to wrangler.toml:
+# Add to wrangler.jsonc:
 ```
 
-```toml
-# wrangler.toml
-[vars]
-KV_REST_API_URL = "local"  # Uses DO storage
-
-[[kv_namespaces]]
-binding = "VERCEL_KV"
-id = "..."
-
-[[r2_buckets]]
-binding = "VERCEL_BLOB"
-bucket_name = "vercel-blob"
-
-[[durable_objects.bindings]]
-name = "EDGE_CONFIG"
-class_name = "EdgeConfigDO"
+```json title="wrangler.jsonc"
+{
+  "vars": {
+    "KV_REST_API_URL": "local"  // Uses DO storage
+  },
+  "kv_namespaces": [
+    { "binding": "VERCEL_KV", "id": "..." }
+  ],
+  "r2_buckets": [
+    { "binding": "VERCEL_BLOB", "bucket_name": "vercel-blob" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "EDGE_CONFIG", "class_name": "EdgeConfigDO" }
+    ]
+  }
+}
 ```
 
 ### Data Migration

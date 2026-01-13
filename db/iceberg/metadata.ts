@@ -1,9 +1,75 @@
 /**
- * Iceberg Metadata Parser
+ * Iceberg Table Metadata for Lakehouse Analytics
  *
  * Parses Iceberg table metadata.json files for fast point lookups.
  * This enables direct navigation to data files without R2 SQL overhead,
  * reducing query latency from 500ms-2s to 50-150ms.
+ *
+ * ## Role in Lakehouse Architecture
+ *
+ * The metadata.json file is the root of an Iceberg table and provides:
+ *
+ * - **Schema Evolution**: Track all schemas used by the table, enabling
+ *   column additions, deletions, and renames without rewriting data.
+ *
+ * - **Partition Evolution**: Change partitioning strategies over time
+ *   while maintaining compatibility with existing data files.
+ *
+ * - **Snapshot Management**: Atomic commits via snapshots enable ACID
+ *   transactions and time travel queries.
+ *
+ * - **Branch and Tag Support**: Named references (branches and tags)
+ *   provide Git-like versioning for lakehouse tables.
+ *
+ * ## Metadata Structure
+ *
+ * ```
+ * metadata.json
+ * ├── formatVersion          # 1 or 2
+ * ├── location               # Base path (e.g., s3://bucket/table)
+ * ├── currentSnapshotId      # Active snapshot for queries
+ * ├── schemas[]              # Schema evolution history
+ * │   ├── schemaId
+ * │   └── fields[]
+ * ├── partitionSpecs[]       # Partition evolution
+ * │   ├── specId
+ * │   └── fields[]           # Transform functions
+ * ├── snapshots[]            # Atomic table states
+ * │   ├── snapshotId
+ * │   ├── manifestList       # Path to manifest-list.avro
+ * │   └── summary            # Operation metrics
+ * └── refs{}                 # Branches and tags
+ * ```
+ *
+ * ## Performance Characteristics
+ *
+ * | Operation | Latency | Description |
+ * |-----------|---------|-------------|
+ * | Parse metadata.json | <5ms | JSON parsing |
+ * | Schema lookup | O(1) | Map by schemaId |
+ * | Snapshot lookup | O(1) | Map by snapshotId |
+ * | Full validation | <10ms | Structural validation |
+ *
+ * ## Example Usage
+ *
+ * ```typescript
+ * // Parse metadata with validation
+ * const result = parseMetadata(metadataJsonString)
+ * if (!result.success) {
+ *   console.error(`Parse failed [${result.code}]: ${result.error}`)
+ *   return
+ * }
+ *
+ * const { currentSnapshotId, currentSchema, location } = result.data
+ *
+ * // Time travel: query a specific snapshot
+ * const historicalSnapshot = metadata.snapshots.find(
+ *   s => s.timestampMs < targetTimestamp
+ * )
+ *
+ * // Schema evolution: get schema for historical data
+ * const schema = getSchemaById(metadata, historicalSnapshot.schemaId)
+ * ```
  *
  * Supports both Iceberg format version 1 (legacy) and version 2 (current).
  *

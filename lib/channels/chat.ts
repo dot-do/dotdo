@@ -90,6 +90,52 @@ export interface ChatChannelConfig {
 }
 
 /**
+ * Chat attachment
+ */
+export interface ChatAttachment {
+  /** Attachment type */
+  type: 'image' | 'file' | 'video' | 'audio' | 'document'
+  /** URL to the attachment */
+  url: string
+  /** Filename */
+  filename?: string
+  /** MIME type */
+  mimeType?: string
+  /** File size in bytes */
+  size?: number
+  /** Thumbnail URL (for images/videos) */
+  thumbnailUrl?: string
+  /** Caption/description */
+  caption?: string
+}
+
+/**
+ * Chat reaction
+ */
+export interface ChatReaction {
+  /** Emoji or reaction identifier */
+  emoji: string
+  /** Message ID to react to */
+  messageId: string
+  /** User who reacted */
+  userId?: string
+}
+
+/**
+ * Reaction action mapping (emoji to semantic action)
+ */
+export const REACTION_ACTION_MAP: Record<string, string> = {
+  '\u2705': 'approve',     // checkmark
+  '\u274C': 'reject',      // cross mark
+  '\uD83D\uDC4D': 'approve', // thumbs up
+  '\uD83D\uDC4E': 'reject',  // thumbs down
+  '\u2764\uFE0F': 'like',    // heart
+  '\uD83D\uDC40': 'seen',    // eyes
+  '\uD83E\uDD14': 'thinking', // thinking face
+  '\u2757': 'urgent',       // exclamation mark
+}
+
+/**
  * Chat message payload
  */
 export interface ChatSendPayload {
@@ -103,6 +149,10 @@ export interface ChatSendPayload {
   type?: 'text' | 'rich' | 'template'
   /** Metadata to include */
   metadata?: Record<string, unknown>
+  /** Thread ID for reply threading */
+  threadId?: string
+  /** Attachments */
+  attachments?: ChatAttachment[]
 }
 
 /**
@@ -131,6 +181,29 @@ export interface ChatSendResult {
   messageId?: string
   timestamp?: Date
   provider?: string
+  /** Thread ID if message started/continued a thread */
+  threadId?: string
+}
+
+/**
+ * Channel routing configuration
+ */
+export interface ChannelRoute {
+  /** Route pattern (e.g., 'support', 'sales', 'urgent') */
+  pattern: string
+  /** Target provider for this route */
+  provider: ChatProvider
+  /** Provider-specific config override */
+  config: Partial<ChatChannelConfig>
+}
+
+/**
+ * Reaction send result
+ */
+export interface ReactionSendResult {
+  success: boolean
+  messageId: string
+  emoji: string
 }
 
 /**
@@ -181,6 +254,14 @@ export interface ChatWebhookPayload {
   requestId?: string
   /** Timestamp */
   timestamp?: string | number
+  /** Thread ID */
+  threadId?: string
+  /** Reaction emoji */
+  reaction?: string
+  /** Attachments */
+  attachments?: ChatAttachment[]
+  /** Channel/route identifier */
+  channel?: string
 }
 
 /**

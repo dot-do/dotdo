@@ -1,0 +1,506 @@
+---
+title: Utility Types
+description: Helper types for common transformations and operations
+---
+
+# Utility Types
+
+dotdo provides a collection of utility types that simplify common type transformations and enable more expressive type definitions.
+
+## Deep Transformation Types
+
+Located in `/types/AIFunction.ts`:
+
+### DeepRequired
+
+Make all properties deeply required (removes optional modifiers recursively):
+
+```typescript
+/**
+ * Make all properties deeply required
+ */
+export type DeepRequired<T> = {
+  [K in keyof T]-?: T[K] extends object ? DeepRequired<T[K]> : T[K]
+}
+
+// Usage
+interface Config {
+  server?: {
+    port?: number
+    host?: string
+  }
+}
+
+type RequiredConfig = DeepRequired<Config>
+// {
+//   server: {
+//     port: number
+//     host: string
+//   }
+// }
+```
+
+### DeepPartial
+
+Make all properties deeply optional (opposite of DeepRequired):
+
+```typescript
+/**
+ * Make all properties deeply partial
+ */
+export type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
+}
+
+// Usage
+interface FullConfig {
+  server: {
+    port: number
+    host: string
+  }
+}
+
+type PartialConfig = DeepPartial<FullConfig>
+// {
+//   server?: {
+//     port?: number
+//     host?: string
+//   }
+// }
+```
+
+## ID Utility Types
+
+Located in `/types/ids.ts`:
+
+### UnbrandedId
+
+Extract the base type from a branded ID:
+
+```typescript
+/**
+ * Extracts the base string type from any branded ID type.
+ */
+export type UnbrandedId<T extends Brand<string, string>> =
+  T extends Brand<infer U, string> ? U : never
+
+// Usage
+type BaseType = UnbrandedId<ThingId>  // string
+```
+
+### AnyId
+
+Union of all branded ID types:
+
+```typescript
+/**
+ * Union type of all branded ID types.
+ */
+export type AnyId = ThingId | ActionId | EventId | NounId
+
+// Usage
+function logId(id: AnyId): void {
+  console.log(`ID: ${id}`)
+}
+```
+
+### IsBrandedId
+
+Type predicate for checking if a type is branded:
+
+```typescript
+/**
+ * Type to check if a type is a branded ID.
+ */
+export type IsBrandedId<T> = T extends Brand<string, string> ? true : false
+
+// Usage
+type CheckThing = IsBrandedId<ThingId>  // true
+type CheckString = IsBrandedId<string>  // false
+```
+
+## Event Utility Types
+
+Located in `/types/EventHandler.ts`:
+
+### ExtractNoun
+
+Extract the noun from an event key string:
+
+```typescript
+/**
+ * Extract the noun from an event key string
+ */
+export type ExtractNoun<T extends string> = T extends `${infer N}.${string}` ? N : never
+
+// Usage
+type Noun = ExtractNoun<'Customer.created'>  // 'Customer'
+```
+
+### ExtractVerb
+
+Extract the verb from an event key string:
+
+```typescript
+/**
+ * Extract the verb from an event key string
+ */
+export type ExtractVerb<T extends string> = T extends `${string}.${infer V}` ? V : never
+
+// Usage
+type Verb = ExtractVerb<'Customer.created'>  // 'created'
+```
+
+### EventKey
+
+Create an event key from noun and verb:
+
+```typescript
+/**
+ * Create an event key from noun and verb
+ */
+export type EventKey<Noun extends string, Verb extends string> = `${Noun}.${Verb}`
+
+// Usage
+type Key = EventKey<'Customer', 'created'>  // 'Customer.created'
+```
+
+## Result Unwrapping Types
+
+Located in `/types/AIFunction.ts`:
+
+### UnwrapResult
+
+Extract the value type from an execution result:
+
+```typescript
+/**
+ * Unwrap the output type from an execution result
+ */
+export type UnwrapResult<R> = R extends ExecutionResult<infer T, any> ? T : never
+
+// Usage
+type Result = AgenticExecutionResult<{ answer: string }>
+type Output = UnwrapResult<Result>  // { answer: string }
+```
+
+### OptionsForType
+
+Get the options type for a function type:
+
+```typescript
+/**
+ * Get the options type for a function type
+ */
+export type OptionsForType<T extends FunctionType> =
+  T extends 'code' ? CodeOptions :
+  T extends 'generative' ? GenerativeOptions :
+  T extends 'agentic' ? AgenticOptions :
+  T extends 'human' ? HumanOptions :
+  BaseExecutorOptions
+
+// Usage
+type AgentOpts = OptionsForType<'agentic'>  // AgenticOptions
+type CodeOpts = OptionsForType<'code'>      // CodeOptions
+```
+
+### ResultForType
+
+Get the result type for a function type:
+
+```typescript
+/**
+ * Get the result type for a function type
+ */
+export type ResultForType<T extends FunctionType, Output> =
+  T extends 'code' ? CodeExecutionResult<Output> :
+  T extends 'generative' ? GenerativeExecutionResult<Output> :
+  T extends 'agentic' ? AgenticExecutionResult<Output> :
+  T extends 'human' ? HumanExecutionResult<Output> :
+  ExecutionResult<Output>
+
+// Usage
+type GenResult = ResultForType<'generative', string>  // GenerativeExecutionResult<string>
+```
+
+### MetricsForType
+
+Get the metrics type for a function type:
+
+```typescript
+/**
+ * Get the metrics type for a function type
+ */
+export type MetricsForType<T extends FunctionType> =
+  T extends 'code' ? ExecutionMetrics :
+  T extends 'generative' ? GenerativeMetrics :
+  T extends 'agentic' ? AgenticMetrics :
+  T extends 'human' ? HumanMetrics :
+  ExecutionMetrics
+
+// Usage
+type AgentMetrics = MetricsForType<'agentic'>  // AgenticMetrics
+```
+
+## Binding Utility Types
+
+Located in `/types/CloudflareBindings.ts`:
+
+### WithRequiredBindings
+
+Create environment type with specific bindings required:
+
+```typescript
+/**
+ * Type helper for creating environment types with required bindings
+ */
+export type WithRequiredBindings<K extends keyof CloudflareEnv> = CloudflareEnv & {
+  [P in K]-?: NonNullable<CloudflareEnv[P]>
+}
+
+// Usage
+type MyEnv = WithRequiredBindings<'KV' | 'AI'>
+// CloudflareEnv with KV and AI guaranteed to be defined
+```
+
+### Preset Binding Types
+
+```typescript
+// Environment with storage bindings required
+export type WithStorage = WithRequiredBindings<'KV' | 'R2' | 'DB'>
+
+// Environment with AI binding required
+export type WithAI = CloudflareEnv & { AI: Ai }
+
+// Environment with full AI stack required
+export type WithFullAI = WithRequiredBindings<'AI' | 'VECTORS'>
+
+// Environment with messaging bindings required
+export type WithMessaging = WithRequiredBindings<'EVENTS_QUEUE' | 'JOBS_QUEUE' | 'WEBHOOKS_QUEUE'>
+
+// Environment with all queue bindings required
+export type WithQueues = WithRequiredBindings<'EVENTS_QUEUE' | 'JOBS_QUEUE' | 'WEBHOOKS_QUEUE' | 'DLQ_QUEUE'>
+
+// Environment with all core bindings required
+export type WithCoreBindings = WithRequiredBindings<'DO' | 'KV' | 'AI' | 'ASSETS'>
+```
+
+## Capability Utility Types
+
+Located in `/types/WorkflowContext.ts`:
+
+### Capability Composition
+
+```typescript
+/**
+ * WorkflowContext with required filesystem capability
+ */
+export type WithFs = WorkflowContext & { fs: FsCapability }
+
+/**
+ * WorkflowContext with required git capability
+ */
+export type WithGit = WorkflowContext & { git: GitCapability }
+
+/**
+ * WorkflowContext with required bash capability
+ */
+export type WithBash = WorkflowContext & { bash: BashCapability }
+
+/**
+ * WorkflowContext with all capabilities required
+ */
+export type WithAllCapabilities = WithFs & WithGit & WithBash
+
+/**
+ * WorkflowContext with rate limiting capability
+ */
+export type WithRateLimit = WorkflowContext & { rateLimit: RateLimitCapability }
+```
+
+## Template Utility Types
+
+Located in `/types/AIFunction.ts`:
+
+### ExtractTemplateParams
+
+Extract parameter names from template strings:
+
+```typescript
+/**
+ * Extract parameter names from a template string type
+ */
+export type ExtractTemplateParams<S extends string> =
+  S extends `${infer _}${'${'}${infer Param}${'}'}${infer Rest}`
+    ? Param | ExtractTemplateParams<Rest>
+    : never
+
+// Usage
+type Params = ExtractTemplateParams<'Hello ${name}, you have ${count} messages'>
+// 'name' | 'count'
+```
+
+## Visibility Utility Types
+
+Located in `/types/introspect.ts`:
+
+### VisibilityRole
+
+```typescript
+/**
+ * Visibility roles for access control
+ */
+export type VisibilityRole = 'public' | 'user' | 'admin' | 'system'
+```
+
+### StoreType
+
+```typescript
+/**
+ * Store types available in DO
+ */
+export type StoreType = 'things' | 'relationships' | 'actions' | 'events' | 'search' | 'objects' | 'dlq'
+```
+
+## Function Type Utilities
+
+Located in `/types/fn.ts`:
+
+### FunctionType
+
+```typescript
+/**
+ * The four implementation types for functions.
+ */
+export type FunctionType = 'code' | 'generative' | 'agentic' | 'human'
+```
+
+### TaggedResult
+
+```typescript
+/**
+ * Result type for tagged templates with named parameters.
+ */
+export type TaggedResult<
+  Out,
+  S extends string,
+  Opts extends Record<string, unknown> = {},
+> = (params: Record<string, unknown>, opts?: Opts) => Out
+```
+
+## Custom Utility Types
+
+You can create your own utility types following these patterns:
+
+### NonNullableKeys
+
+```typescript
+/**
+ * Get keys of T that are not nullable
+ */
+type NonNullableKeys<T> = {
+  [K in keyof T]: null extends T[K] ? never : undefined extends T[K] ? never : K
+}[keyof T]
+
+// Usage
+interface User {
+  id: string
+  name: string | null
+  email?: string
+}
+
+type RequiredKeys = NonNullableKeys<User>  // 'id'
+```
+
+### PickByType
+
+```typescript
+/**
+ * Pick properties of T that extend Type
+ */
+type PickByType<T, Type> = {
+  [K in keyof T as T[K] extends Type ? K : never]: T[K]
+}
+
+// Usage
+interface Mixed {
+  name: string
+  age: number
+  active: boolean
+}
+
+type StringProps = PickByType<Mixed, string>  // { name: string }
+```
+
+### Mutable
+
+```typescript
+/**
+ * Remove readonly modifiers from T
+ */
+type Mutable<T> = {
+  -readonly [K in keyof T]: T[K]
+}
+
+// Usage
+interface Frozen {
+  readonly id: string
+  readonly name: string
+}
+
+type Editable = Mutable<Frozen>  // { id: string; name: string }
+```
+
+## Best Practices
+
+### 1. Use Built-in Utility Types First
+
+TypeScript provides many utility types out of the box:
+
+```typescript
+// Prefer built-in types when available
+Partial<T>       // All properties optional
+Required<T>      // All properties required
+Readonly<T>      // All properties readonly
+Pick<T, K>       // Select specific properties
+Omit<T, K>       // Remove specific properties
+Record<K, V>     // Object with keys K and values V
+Exclude<T, U>    // Remove types from union
+Extract<T, U>    // Extract types from union
+NonNullable<T>   // Remove null and undefined
+Parameters<F>    // Function parameter types
+ReturnType<F>    // Function return type
+Awaited<T>       // Unwrap Promise type
+```
+
+### 2. Name Utility Types Descriptively
+
+```typescript
+// Good - clear intent
+type WithTimestamps<T> = T & { createdAt: Date; updatedAt: Date }
+type Nullable<T> = T | null
+
+// Avoid - unclear
+type X<T> = T & { createdAt: Date; updatedAt: Date }
+```
+
+### 3. Document Complex Types
+
+```typescript
+/**
+ * Extracts the value type from a Map.
+ * Returns never if T is not a Map.
+ *
+ * @example
+ * type Value = MapValue<Map<string, User>>  // User
+ */
+type MapValue<T> = T extends Map<any, infer V> ? V : never
+```
+
+## Implementation References
+
+- `/types/ids.ts` - ID utility types
+- `/types/AIFunction.ts` - Result and schema utility types
+- `/types/EventHandler.ts` - Event utility types
+- `/types/CloudflareBindings.ts` - Binding utility types
+- `/types/WorkflowContext.ts` - Capability utility types

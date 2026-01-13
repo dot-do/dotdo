@@ -544,10 +544,12 @@ export default {
 }
 ```
 
-```toml
-# wrangler.toml
-[triggers]
-crons = ["* * * * *"]  # Every minute
+```json title="wrangler.jsonc"
+{
+  "triggers": {
+    "crons": ["* * * * *"]  // Every minute
+  }
+}
 ```
 
 ### Multi-Region Health Checks

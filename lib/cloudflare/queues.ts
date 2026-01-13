@@ -15,6 +15,237 @@
  * - dotdo-dlq: Dead letter queue
  *
  * @module lib/cloudflare/queues
+ *
+ * @example Sending messages to queues
+ * ```typescript
+ * import {
+ *   createQueueClient,
+ *   createJobMessage,
+ *   createEventMessage,
+ *   createWorkflowTrigger
+ * } from './queues'
+ *
+ * // Create queue client from binding
+ * const queueClient = createQueueClient(env.JOBS_QUEUE)
+ *
+ * // Send a job message
+ * const jobResult = await queueClient.send(createJobMessage({
+ *   jobType: 'email.send',
+ *   payload: {
+ *     to: 'user@example.com',
+ *     subject: 'Welcome!',
+ *     template: 'welcome'
+ *   },
+ *   priority: 1 // High priority
+ * }))
+ *
+ * // Send a domain event
+ * const eventResult = await queueClient.send(createEventMessage({
+ *   verb: 'Customer.created',
+ *   source: 'https://api.dotdo.dev/customers/cust-123',
+ *   data: { customerId: 'cust-123', email: 'new@example.com' },
+ *   targets: ['webhook-handler', 'analytics-pipeline']
+ * }))
+ *
+ * // Trigger a workflow
+ * const workflowResult = await queueClient.send(createWorkflowTrigger({
+ *   workflowId: 'onboarding-flow',
+ *   input: { userId: 'user-123', plan: 'premium' }
+ * }))
+ * ```
+ *
+ * @example Batch message sending
+ * ```typescript
+ * const queueClient = createQueueClient(env.EVENTS_QUEUE)
+ *
+ * // Send multiple messages at once
+ * const messages = users.map(user => createEventMessage({
+ *   verb: 'User.invited',
+ *   source: 'https://api.dotdo.dev/invites',
+ *   data: { userId: user.id, email: user.email }
+ * }))
+ *
+ * const batchResult = await queueClient.sendBatch(messages, {
+ *   delaySeconds: 60 // Delay delivery by 1 minute
+ * })
+ *
+ * console.log(`Sent: ${batchResult.successful}/${batchResult.total}`)
+ * if (batchResult.failed > 0) {
+ *   for (const error of batchResult.results.filter(r => !r.success)) {
+ *     console.error(`Failed ${error.messageId}: ${error.error}`)
+ *   }
+ * }
+ * ```
+ *
+ * @example Consuming messages (queue handler)
+ * ```typescript
+ * import {
+ *   createMessageBatch,
+ *   processMessageBatch,
+ *   createJobHandler,
+ *   isJobMessage,
+ *   isEventMessage
+ * } from './queues'
+ *
+ * export default {
+ *   async queue(batch: MessageBatch, env: Env) {
+ *     // Wrap raw messages with typed helpers
+ *     const messages = createMessageBatch('dotdo-jobs', batch.messages, env.DLQ)
+ *
+ *     // Process with typed handler
+ *     const result = await processMessageBatch(messages, async (message) => {
+ *       if (isJobMessage(message)) {
+ *         switch (message.jobType) {
+ *           case 'email.send':
+ *             await sendEmail(message.payload)
+ *             break
+ *           case 'report.generate':
+ *             await generateReport(message.payload)
+ *             break
+ *         }
+ *       } else if (isEventMessage(message)) {
+ *         await deliverWebhook(message)
+ *       }
+ *     })
+ *
+ *     console.log(`Processed: ${result.succeeded}, Failed: ${result.failed}`)
+ *   }
+ * }
+ * ```
+ *
+ * @example Retry policies and backoff
+ * ```typescript
+ * import {
+ *   createRetryPolicy,
+ *   calculateBackoffDelay,
+ *   shouldSendToDLQ,
+ *   DEFAULT_RETRY_POLICY
+ * } from './queues'
+ *
+ * // Create custom retry policy
+ * const webhookRetryPolicy = createRetryPolicy({
+ *   maxAttempts: 5,
+ *   initialDelayMs: 5000, // 5 seconds
+ *   maxDelayMs: 3600000,  // 1 hour max
+ *   backoffMultiplier: 2,
+ *   jitter: true
+ * })
+ *
+ * // Calculate delay for attempt 3
+ * const delay = calculateBackoffDelay(3, webhookRetryPolicy)
+ * console.log(`Retry in ${delay}ms`)
+ *
+ * // Check if should send to DLQ
+ * if (shouldSendToDLQ(6, webhookRetryPolicy)) {
+ *   await sendToDLQ(env.DLQ, message, {
+ *     attempt: 6,
+ *     maxAttempts: 5,
+ *     error: 'Max retries exceeded'
+ *   })
+ * }
+ * ```
+ *
+ * @example Dead letter queue handling
+ * ```typescript
+ * import { sendToDLQ, createMessageBatch, isJobMessage } from './queues'
+ *
+ * // Manually send failed message to DLQ
+ * await sendToDLQ(env.DLQ, failedMessage, {
+ *   attempt: 3,
+ *   maxAttempts: 3,
+ *   error: 'Payment gateway timeout',
+ *   firstAttemptAt: '2024-01-15T10:00:00Z'
+ * })
+ *
+ * // DLQ consumer for manual review/replay
+ * export default {
+ *   async queue(batch: MessageBatch, env: Env) {
+ *     const messages = createMessageBatch('dotdo-dlq', batch.messages)
+ *
+ *     for (const msg of messages.messages) {
+ *       const body = msg.body
+ *       console.log(`DLQ message: ${body.id}`)
+ *       console.log(`  Type: ${body.type}`)
+ *       console.log(`  Attempts: ${body.retry?.attempt}`)
+ *       console.log(`  Last error: ${body.retry?.lastError}`)
+ *
+ *       // Notify operations team
+ *       await notifyOps({
+ *         messageId: body.id,
+ *         type: body.type,
+ *         error: body.retry?.lastError
+ *       })
+ *
+ *       msg.ack() // Remove from DLQ after handling
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * @example Type guards for message handling
+ * ```typescript
+ * import {
+ *   QueueMessage,
+ *   isJobMessage,
+ *   isEventMessage,
+ *   isWorkflowTrigger
+ * } from './queues'
+ *
+ * function handleMessage(message: QueueMessage) {
+ *   if (isJobMessage(message)) {
+ *     // TypeScript knows message is JobMessage
+ *     console.log(`Job: ${message.jobType}`)
+ *     console.log(`Priority: ${message.priority}`)
+ *   } else if (isEventMessage(message)) {
+ *     // TypeScript knows message is EventMessage
+ *     console.log(`Event: ${message.verb}`)
+ *     console.log(`Source: ${message.source}`)
+ *   } else if (isWorkflowTrigger(message)) {
+ *     // TypeScript knows message is WorkflowTrigger
+ *     console.log(`Workflow: ${message.workflowId}`)
+ *     console.log(`Input: ${JSON.stringify(message.input)}`)
+ *   }
+ * }
+ * ```
+ *
+ * @example Pre-configured queue settings
+ * ```typescript
+ * import { QUEUE_CONFIGS, createQueueConfig } from './queues'
+ *
+ * // Access pre-configured queues
+ * console.log(QUEUE_CONFIGS['dotdo-events'].batchSize) // 50
+ * console.log(QUEUE_CONFIGS['dotdo-jobs'].retryPolicy.maxAttempts) // 5
+ * console.log(QUEUE_CONFIGS['dotdo-webhooks'].maxConcurrency) // 10
+ *
+ * // Create custom queue config
+ * const customConfig = createQueueConfig({
+ *   name: 'my-custom-queue',
+ *   batchSize: 25,
+ *   maxConcurrency: 5,
+ *   dlqName: 'dotdo-dlq'
+ * })
+ * ```
+ *
+ * @example Wrangler.toml configuration
+ * ```toml
+ * # Producer binding (send to queue)
+ * [[queues.producers]]
+ * queue = "dotdo-jobs"
+ * binding = "JOBS_QUEUE"
+ *
+ * # Consumer binding (receive from queue)
+ * [[queues.consumers]]
+ * queue = "dotdo-jobs"
+ * max_batch_size = 10
+ * max_batch_timeout = 30
+ * max_retries = 3
+ * dead_letter_queue = "dotdo-dlq"
+ *
+ * # DLQ consumer
+ * [[queues.consumers]]
+ * queue = "dotdo-dlq"
+ * max_batch_size = 10
+ * ```
  */
 
 // ============================================================================

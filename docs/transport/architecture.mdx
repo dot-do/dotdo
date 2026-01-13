@@ -1,0 +1,629 @@
+---
+title: Transport Architecture
+description: Deep dive into the transport layer - handler chain, protocol handlers, and WebSocket sync
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Transport Architecture
+
+The transport layer in `objects/transport/` provides a unified, composable system for handling multiple protocols over HTTP and WebSocket. Every Durable Object automatically exposes REST, RPC, MCP, and Sync endpoints through a handler chain pattern.
+
+## System Overview
+
+```
+               ┌─────────────────────────────────────────────────────────┐
+               │                    Durable Object                       │
+               │                                                         │
+Request ──────▶│  ┌─────────────────────────────────────────────────┐   │
+               │  │              Handler Chain                       │   │
+               │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐    │   │
+               │  │  │  Auth  │▶│  MCP   │▶│  RPC   │▶│  REST  │    │   │
+               │  │  │  100   │ │   50   │ │   40   │ │   30   │    │   │
+               │  │  └────────┘ └────────┘ └────────┘ └────────┘    │   │
+               │  │                                                  │   │
+               │  │  ┌─────────────────────────────────────────┐    │   │
+               │  │  │          Sync Engine (WebSocket)         │    │   │
+               │  │  └─────────────────────────────────────────┘    │   │
+               │  └─────────────────────────────────────────────────┘   │
+               │                         ▼                               │
+Response ◀────│                   DO Methods                            │
+               └─────────────────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### Handler Chain (`chain.ts`)
+
+The `HandlerChain` routes requests to protocol-specific handlers based on priority. Higher priority handlers are checked first.
+
+```typescript
+import {
+  HandlerChain,
+  RestHandler,
+  RpcHandler,
+  McpHandler,
+  AuthHandler
+} from 'dotdo/transport'
+
+// Create a handler chain
+const chain = new HandlerChain({ debug: true })
+
+// Add handlers - higher priority = checked first
+chain.use(new AuthHandler({ jwtSecret: 'secret' }), 100)
+chain.use(new McpHandler(), 50)
+chain.use(new RpcHandler(), 40)
+chain.use(new RestHandler(), 30)
+
+// In DO fetch handler
+async fetch(request: Request): Promise<Response> {
+  return chain.handle(request, createHandlerContext({
+    env: this.env,
+    ctx: this.ctx,
+    state: this.state,
+    instance: this,
+  }))
+}
+```
+
+<Callout type="info" title="Priority System">
+The chain uses priorities to determine handler selection. When a request arrives, handlers are checked in priority order. The first handler whose `canHandle()` returns true processes the request.
+</Callout>
+
+### Transport Handler Interface (`handler.ts`)
+
+All protocol handlers implement the `TransportHandler` interface:
+
+```typescript
+interface TransportHandler {
+  // Handler identifier for logging
+  readonly name: string
+
+  // Check if this handler can process the request
+  canHandle(request: Request): CanHandleResult
+
+  // Process the request
+  handle(request: Request, context: HandlerContext): Promise<Response>
+
+  // Optional cleanup
+  dispose?(): void
+}
+
+interface CanHandleResult {
+  canHandle: boolean
+  priority?: number  // Override chain priority
+  reason?: string    // Debug info
+}
+
+interface HandlerContext {
+  env: Record<string, unknown>        // Cloudflare bindings
+  ctx: ExecutionContext               // Cloudflare context
+  state: DurableObjectState           // DO state
+  methods: Map<string, MethodInfo>    // Available methods
+  instance: Record<string, unknown>   // DO instance
+  auth?: AuthContext                  // Auth info (if authenticated)
+}
+```
+
+## Protocol Handlers
+
+### REST Handler (`rest-router.ts`)
+
+The REST handler provides standard HTTP CRUD operations with JSON-LD compatible responses.
+
+**Endpoints:**
+
+| Method | Route | Handler | Description |
+|--------|-------|---------|-------------|
+| GET | `/` | `handleGetIndex()` | HATEOAS index with collections |
+| GET | `/:type` | `handleListByType()` | List items of a type |
+| GET | `/:type/:id` | `handleGetById()` | Get single item |
+| GET | `/:type/:id/edit` | `handleEditUI()` | HTML editor page |
+| POST | `/:type` | `handleCreate()` | Create item |
+| PUT | `/:type/:id` | `handleUpdate()` | Replace item |
+| PATCH | `/:type/:id` | `handleUpdate()` | Merge update |
+| DELETE | `/:type/:id` | `handleDelete()` | Delete item |
+
+**Response Format:**
+
+```typescript
+// Single item
+{
+  "$context": "https://example.com",
+  "$id": "https://example.com/customers/cust-123",
+  "$type": "https://example.com/Customer",
+  "name": "Acme Corp",
+  "links": { "self": "...", "collection": "..." },
+  "actions": { "update": "...", "delete": "..." }
+}
+
+// Collection
+{
+  "$context": "https://example.com",
+  "$id": "https://example.com/customers",
+  "$type": "Collection",
+  "items": [...],
+  "count": 42,
+  "links": { "home": "...", "next": "..." },
+  "actions": { "create": "..." }
+}
+```
+
+**Usage:**
+
+```typescript
+import { RestHandler, handleRestRequest } from 'dotdo/transport'
+
+// As a handler in chain
+chain.use(new RestHandler(), 30)
+
+// Standalone function
+const response = await handleRestRequest(request, {
+  things: this.things,
+  ns: this.ns,
+  nouns: this.nouns,
+})
+```
+
+### RPC Handler (`rpc-server.ts`)
+
+The RPC handler supports multiple protocols:
+
+1. **JSON-RPC 2.0** - Standard JSON-RPC protocol
+2. **Cap'n Web RPC** - Promise pipelining for efficiency
+3. **Chain RPC** - Step-by-step chain execution
+4. **WebSocket** - Streaming RPC with subscriptions
+
+**Endpoints:**
+
+- `POST /rpc` - HTTP batch mode
+- `WebSocket /rpc` - Streaming mode
+
+**JSON-RPC 2.0 Example:**
+
+```typescript
+// Request
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "Customer.create",
+  "params": { "name": "Acme Corp" }
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": { "$id": "cust-123", "name": "Acme Corp" }
+}
+```
+
+**Collection RPC Pattern:**
+
+The RPC server supports `{Noun}.{method}` patterns for collection operations:
+
+```typescript
+// Available methods: create, update, delete, get, list, find
+{ "method": "Customer.create", "params": { "name": "Acme" } }
+{ "method": "Task.list", "params": { "limit": 10 } }
+{ "method": "Order.find", "params": { "status": "pending" } }
+```
+
+**WebSocket Subscriptions:**
+
+```typescript
+// Subscribe to events
+{ "jsonrpc": "2.0", "method": "subscribe", "params": { "event": "customer.created" } }
+
+// Server pushes notifications
+{ "jsonrpc": "2.0", "method": "customer.created", "params": { "id": "cust-123" } }
+```
+
+**Usage:**
+
+```typescript
+import { RpcHandler, RPCServer, withRpcServer } from 'dotdo/transport'
+
+// As a handler in chain
+chain.use(new RpcHandler({ maxPipelineDepth: 20 }), 40)
+
+// Create server directly
+const rpcServer = new RPCServer(doInstance, {
+  maxPipelineDepth: 20,
+  blockedMethods: ['sensitiveMethod'],
+})
+const response = await rpcServer.handleRpcRequest(request)
+
+// Using mixin pattern
+class MyDO extends withRpcServer(DOBase) {
+  // rpcServer automatically available
+}
+```
+
+### MCP Handler (`mcp-server.ts`)
+
+The MCP handler implements the Model Context Protocol for AI agent integration.
+
+**Configuration:**
+
+```typescript
+class MyDO extends DO {
+  static $mcp = {
+    tools: {
+      search: {
+        description: 'Search customers by query',
+        inputSchema: {
+          query: { type: 'string', description: 'Search term' },
+          limit: { type: 'number', description: 'Max results' },
+        },
+        required: ['query'],
+      },
+      createOrder: {
+        description: 'Create a new order',
+        inputSchema: {
+          customerId: { type: 'string' },
+          items: { type: 'array' },
+        },
+        required: ['customerId', 'items'],
+      },
+    },
+    resources: ['customers', 'orders'],
+  }
+
+  // Methods are called by MCP tools
+  search(query: string, limit?: number) { /* ... */ }
+  createOrder(customerId: string, items: any[]) { /* ... */ }
+}
+```
+
+**Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/mcp` | JSON-RPC requests |
+| GET | `/mcp` | SSE notification stream |
+| DELETE | `/mcp` | Terminate session |
+
+**MCP Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `initialize` | Start session, get capabilities |
+| `ping` | Health check |
+| `tools/list` | List available tools |
+| `tools/call` | Invoke a tool |
+| `resources/list` | List available resources |
+| `resources/read` | Read resource content |
+| `prompts/list` | List prompts (if any) |
+
+**Session Management:**
+
+```typescript
+// Initialize session
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": { "clientInfo": { "name": "Claude", "version": "1.0" } }
+}
+
+// Response includes session ID in header
+Mcp-Session-Id: abc123
+
+// Subsequent requests include session header
+```
+
+**Usage:**
+
+```typescript
+import { McpHandler, createMcpHandler, getMcpTools } from 'dotdo/transport'
+
+// As a handler in chain
+chain.use(new McpHandler({ path: '/mcp' }), 50)
+
+// Get tools for introspection
+const tools = getMcpTools(MyDO)
+```
+
+### Cap'n Web Target (`capnweb-target.ts`)
+
+The Cap'n Web integration provides official `capnweb` library support for promise pipelining.
+
+**Key Features:**
+
+- Promise pipelining (multiple calls in single round-trip)
+- Pass-by-reference (send object references)
+- Automatic method filtering (internal methods hidden)
+
+**Usage:**
+
+```typescript
+import { handleCapnWebRpc, createCapnWebTarget } from 'dotdo/transport'
+
+// In DO fetch handler for root endpoint
+async fetch(request: Request): Promise<Response> {
+  const url = new URL(request.url)
+
+  if (url.pathname === '/') {
+    return handleCapnWebRpc(request, this, {
+      includeStackTraces: false,
+    })
+  }
+
+  // ... other handlers
+}
+```
+
+**Client Usage:**
+
+```typescript
+import { Client } from 'capnweb'
+
+const client = new Client('wss://api.example.com/')
+
+// Promise pipelining - single round trip
+const spec = client.priya('define MVP')
+const app = client.ralph('build', spec)  // Passes unresolved promise
+const deployed = await client.tom('ship', app)
+```
+
+## Sync Engine (`sync-engine.ts`)
+
+The Sync Engine provides real-time WebSocket synchronization for TanStack DB integration.
+
+**Protocol:**
+
+| Direction | Message Type | Description |
+|-----------|--------------|-------------|
+| Client → Server | `subscribe` | Subscribe to collection |
+| Client → Server | `unsubscribe` | Unsubscribe |
+| Client → Server | `pong` | Heartbeat response |
+| Server → Client | `ping` | Heartbeat check |
+| Server → Client | `initial` | Full collection state |
+| Server → Client | `insert` | New item created |
+| Server → Client | `update` | Item modified |
+| Server → Client | `delete` | Item removed |
+
+**Usage:**
+
+```typescript
+import { SyncEngine } from 'dotdo/transport'
+
+class MyDO extends DO {
+  private syncEngine: SyncEngine
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.syncEngine = new SyncEngine(this.things)
+    this.syncEngine.startHeartbeat()
+  }
+
+  // Accept WebSocket connections
+  handleSyncWebSocket(ws: WebSocket, user?: UserContext) {
+    this.syncEngine.accept(ws, user)
+  }
+
+  // Broadcast changes
+  async createTask(data: TaskData) {
+    const task = await this.things.create({ $type: 'Task', ...data })
+    this.syncEngine.onThingCreated(task, task.version ?? 0)
+    return task
+  }
+}
+```
+
+**Connection Metrics:**
+
+```typescript
+const metrics = syncEngine.getMetrics()
+// {
+//   activeConnections: 42,
+//   subscriptionsByCollection: Map { 'Task' => 25, 'Order' => 17 },
+//   totalSubscriptions: 42
+// }
+```
+
+## Authentication (`auth-layer.ts`)
+
+The auth layer provides middleware for JWT validation, API keys, and permissions.
+
+**Configuration:**
+
+```typescript
+import { AuthHandler, createAuthMiddleware } from 'dotdo/transport'
+
+const authHandler = new AuthHandler({
+  jwtSecret: env.JWT_SECRET,
+  jwtIssuer: 'https://auth.example.com',
+  sessionStorage: createInMemorySessionStorage(),
+})
+
+// Add to chain with highest priority
+chain.use(authHandler, 100)
+```
+
+**Static Auth Config:**
+
+```typescript
+class MyDO extends DO {
+  static $auth = {
+    // Method-level auth
+    list: { public: true },
+    get: { public: true },
+    create: { requireAuth: true },
+    update: { requireAuth: true, roles: ['admin', 'editor'] },
+    delete: { requireAuth: true, roles: ['admin'] },
+
+    // Custom method
+    processPayment: {
+      requireAuth: true,
+      permissions: ['payments:write'],
+      rateLimit: { requests: 10, window: '1m' }
+    },
+  }
+}
+```
+
+## Handler Chain Builder
+
+For complex configurations, use the builder pattern:
+
+```typescript
+import { HandlerChainBuilder } from 'dotdo/transport'
+
+const chain = HandlerChainBuilder.create()
+  .withDebug(process.env.NODE_ENV !== 'production')
+  .withLogger(console)
+  .withTimeout(30000)
+  .withCaching(true)
+  .withAuth(authHandler)
+  .use(new McpHandler(), 50)
+  .use(new RpcHandler(), 40)
+  .use(new RestHandler(), 30)
+  .withFallback(async (req) => {
+    return new Response('Not Found', { status: 404 })
+  })
+  .build()
+```
+
+## Middleware Composition
+
+Wrap handlers with middleware:
+
+```typescript
+import { wrapWithMiddleware } from 'dotdo/transport'
+
+// Create protected REST handler
+const protectedRest = wrapWithMiddleware(authHandler, restHandler)
+chain.use(protectedRest, 30)
+
+// Middleware checks auth before REST processes
+```
+
+## Shared Utilities (`shared.ts`)
+
+Common utilities used across handlers:
+
+```typescript
+import {
+  parseJsonBody,
+  buildJsonResponse,
+  buildErrorResponse,
+  buildStreamingResponse,
+  mapErrorToStatus,
+  validateSchema,
+  extractPathParams,
+  parseQueryParams,
+  getBestContentType,
+} from 'dotdo/transport'
+
+// Parse request body safely
+const { success, data, error } = await parseJsonBody(request)
+
+// Build response with proper content type
+return buildJsonResponse(data, { status: 200 })
+
+// Build error response
+return buildErrorResponse(
+  { message: 'Not found', code: 'NOT_FOUND' },
+  404,
+  { debug: true }
+)
+```
+
+## Best Practices
+
+### 1. Handler Priority Guidelines
+
+| Handler | Recommended Priority | Reason |
+|---------|---------------------|--------|
+| Auth | 100 | Must check auth first |
+| MCP | 50 | Specific path (/mcp) |
+| RPC | 40 | Specific path (/rpc) |
+| Sync | 35 | WebSocket at /sync |
+| REST | 30 | Catches most paths |
+
+### 2. Error Handling
+
+```typescript
+// Handlers should catch errors and return proper responses
+async handle(request: Request, context: HandlerContext): Promise<Response> {
+  try {
+    const result = await this.processRequest(request, context)
+    return buildJsonResponse(result)
+  } catch (error) {
+    return buildErrorResponse(error, mapErrorToStatus(error))
+  }
+}
+```
+
+### 3. Context Discovery
+
+```typescript
+import { discoverMethods, createHandlerContext } from 'dotdo/transport'
+
+// Auto-discover methods for context
+const methods = discoverMethods(doInstance, {
+  blockedMethods: new Set(['internalMethod']),
+  includePrivate: false,
+})
+
+const context = createHandlerContext({
+  env, ctx, state, instance: doInstance, methods
+})
+```
+
+## Module Exports
+
+The transport layer exports all components from `objects/transport/index.ts`:
+
+```typescript
+import {
+  // Handler chain
+  HandlerChain,
+  HandlerChainBuilder,
+  createHandlerContext,
+  discoverMethods,
+  wrapWithMiddleware,
+
+  // Protocol handlers
+  RestHandler,
+  RpcHandler,
+  McpHandler,
+  AuthHandler,
+
+  // RPC utilities
+  RPCServer,
+  withRpcServer,
+  applyRpcIntegration,
+
+  // MCP utilities
+  createMcpHandler,
+  getMcpTools,
+  hasMcpConfig,
+
+  // Sync engine
+  SyncEngine,
+
+  // Shared utilities
+  parseJsonBody,
+  buildJsonResponse,
+  buildErrorResponse,
+  validateSchema,
+
+  // Types
+  type TransportHandler,
+  type HandlerContext,
+  type AuthContext,
+  type MethodInfo,
+} from 'dotdo/transport'
+```
+
+## Related Documentation
+
+- [Transport Decision Guide](/docs/transport) - Choosing the right protocol
+- [Protocol Comparison](/docs/transport/comparison) - Feature comparison table
+- [REST Transport](/docs/transport/rest) - REST API details
+- [Sync Protocol](/docs/transport/sync) - Real-time sync details
+- [RPC Protocol](/docs/rpc) - Full RPC documentation
+- [MCP Reference](/docs/mcp) - Model Context Protocol details

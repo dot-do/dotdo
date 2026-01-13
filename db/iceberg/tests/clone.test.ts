@@ -664,4 +664,420 @@ describe('DO Clone Operation', () => {
       expect(currentId).toBe(result2.snapshotId)
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // Test: Shallow vs Deep Clone Semantics
+  // ---------------------------------------------------------------------------
+  describe('shallow clone semantics (copy-on-write)', () => {
+    it('clone is O(1) regardless of data size - only writes metadata', async () => {
+      // Set up a source with many manifests to simulate large data
+      const largeSourceManifest: IcebergSnapshotManifest = {
+        'format-version': 2,
+        'table-uuid': 'large-source-uuid',
+        location: `do/${sourceDoId}`,
+        'last-updated-ms': Date.now(),
+        'last-column-id': 100,
+        'current-snapshot-id': sourceSnapshotId,
+        'parent-snapshot-id': null,
+        snapshots: [
+          {
+            'snapshot-id': sourceSnapshotId,
+            'parent-snapshot-id': null,
+            'timestamp-ms': Date.now(),
+            'manifest-list': `do/${sourceDoId}/metadata/manifest-list.json`,
+            summary: { operation: 'append', 'total-rows': '10000000' },
+          },
+        ],
+        schemas: [
+          {
+            'schema-id': 0,
+            type: 'struct',
+            fields: [{ id: 1, name: 'id', required: true, type: 'string' }],
+          },
+        ],
+        // Simulate 100 parquet files (typical for large dataset)
+        manifests: Array.from({ length: 100 }, (_, i) => ({
+          'manifest-path': `do/${sourceDoId}/data/table-${i}/part-${i}.parquet`,
+          'manifest-length': 1024 * 1024 * 10, // 10MB per file
+          'partition-spec-id': 0,
+          content: 0 as const,
+          'sequence-number': i + 1,
+          'added-files-count': 1,
+          'existing-files-count': 0,
+          'deleted-files-count': 0,
+          'added-rows-count': 100000, // 100k rows per file
+          table: `table-${i}`,
+          schema: 'CREATE TABLE t (id TEXT)',
+        })),
+      }
+
+      bucket._storage.set(
+        `do/${sourceDoId}/metadata/current.json`,
+        JSON.stringify({ current_snapshot_id: sourceSnapshotId })
+      )
+      bucket._storage.set(
+        `do/${sourceDoId}/metadata/${sourceSnapshotId}.json`,
+        JSON.stringify(largeSourceManifest)
+      )
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+
+      // Only 2 metadata files should be written (manifest + current pointer)
+      const targetKeys = Array.from(bucket._storage.keys()).filter((k) =>
+        k.startsWith(`do/${targetDoId}/`)
+      )
+      expect(targetKeys).toHaveLength(2)
+      expect(targetKeys.every((k) => k.includes('/metadata/'))).toBe(true)
+
+      // Despite 100 parquet files (1GB+ total), clone is instant
+      expect(result.manifestCount).toBe(100)
+      expect(result.rowCount).toBe(10000000) // 100 * 100k
+    })
+
+    it('shallow clone shares data file references without duplication', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+      const sourceManifest = await getManifest(bucket, sourceDoId, sourceSnapshotId)
+
+      // Verify all data paths are identical (shared, not copied)
+      const sourcePaths = sourceManifest.manifests.map((m) => m['manifest-path'])
+      const targetPaths = targetManifest.manifests.map((m) => m['manifest-path'])
+
+      expect(targetPaths).toEqual(sourcePaths)
+
+      // Verify source paths still reference source DO location (not rewritten)
+      // This is the key COW behavior - data files stay in original location
+      expect(targetPaths.every((p) => p.includes(`do/${sourceDoId}/`))).toBe(true)
+    })
+
+    it('independent lineage allows independent writes after clone', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+
+      // Clone has null parent (independent lineage)
+      expect(targetManifest['parent-snapshot-id']).toBeNull()
+      expect(targetManifest.snapshots[0]['parent-snapshot-id']).toBeNull()
+
+      // Future writes to clone would create new parquet files in target location
+      // The clone's location is set to target DO
+      expect(targetManifest.location).toBe(`do/${targetDoId}`)
+    })
+
+    it('clone metadata is independent from source metadata', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+      const sourceManifest = await getManifest(bucket, sourceDoId, sourceSnapshotId)
+
+      // table-uuid should be different (independent identity)
+      expect(targetManifest['table-uuid']).not.toBe(sourceManifest['table-uuid'])
+
+      // last-updated-ms should be more recent
+      expect(targetManifest['last-updated-ms']).toBeGreaterThanOrEqual(
+        sourceManifest['last-updated-ms']
+      )
+
+      // current-snapshot-id should be different
+      expect(targetManifest['current-snapshot-id']).not.toBe(
+        sourceManifest['current-snapshot-id']
+      )
+    })
+
+    it('time-travel capability is preserved on both source and clone', async () => {
+      const olderSnapshotId = '330e8400-e29b-41d4-a716-446655440000'
+
+      // Set up source with history
+      const sourceManifest = createSourceManifest(sourceDoId, sourceSnapshotId)
+      sourceManifest.snapshots.unshift({
+        'snapshot-id': olderSnapshotId,
+        'parent-snapshot-id': null,
+        'timestamp-ms': Date.now() - 120000,
+        'manifest-list': `do/${sourceDoId}/metadata/manifest-list-old.json`,
+        summary: { operation: 'append', 'total-rows': '50' },
+      })
+      sourceManifest.snapshots[1]['parent-snapshot-id'] = olderSnapshotId
+
+      bucket._storage.set(
+        `do/${sourceDoId}/metadata/current.json`,
+        JSON.stringify({ current_snapshot_id: sourceSnapshotId })
+      )
+      bucket._storage.set(
+        `do/${sourceDoId}/metadata/${sourceSnapshotId}.json`,
+        JSON.stringify(sourceManifest)
+      )
+
+      // Clone creates fresh history
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+
+      // Source retains its snapshot history (2 snapshots)
+      const sourceAfterClone = JSON.parse(
+        bucket._storage.get(`do/${sourceDoId}/metadata/${sourceSnapshotId}.json`)!
+      ) as IcebergSnapshotManifest
+      expect(sourceAfterClone.snapshots).toHaveLength(2)
+
+      // Clone has fresh history (1 snapshot - the clone operation)
+      expect(targetManifest.snapshots).toHaveLength(1)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Test: Cross-namespace Cloning
+  // ---------------------------------------------------------------------------
+  describe('cross-namespace cloning', () => {
+    it('clones from one namespace to another', async () => {
+      const sourceNs = 'production/payments.do'
+      const targetNs = 'staging/payments-copy.do'
+
+      setupSourceDO(bucket, sourceNs, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceNs, targetNs)
+
+      // Verify clone was created in target namespace
+      const currentKey = `do/${targetNs}/metadata/current.json`
+      expect(bucket._storage.has(currentKey)).toBe(true)
+
+      // Verify provenance tracks cross-namespace origin
+      expect(result.sourceRef.sourceDoId).toBe(sourceNs)
+    })
+
+    it('handles nested namespaces with special characters', async () => {
+      const sourceNs = 'org:acme/env:prod/tenant:customer-123'
+      const targetNs = 'org:acme/env:staging/tenant:customer-123-backup'
+
+      setupSourceDO(bucket, sourceNs, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceNs, targetNs)
+      const targetManifest = await getManifest(bucket, targetNs, result.snapshotId)
+
+      expect(targetManifest.location).toBe(`do/${targetNs}`)
+      expect(result.sourceRef.sourceDoId).toBe(sourceNs)
+    })
+
+    it('preserves data file references across namespaces', async () => {
+      const sourceNs = 'tenant-a/database.do'
+      const targetNs = 'tenant-b/database-copy.do'
+
+      setupSourceDO(bucket, sourceNs, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceNs, targetNs)
+      const targetManifest = await getManifest(bucket, targetNs, result.snapshotId)
+
+      // Data files should still reference source namespace (COW semantics)
+      const dataPath = targetManifest.manifests[0]['manifest-path']
+      expect(dataPath).toContain(`do/${sourceNs}/`)
+      expect(dataPath).not.toContain(`do/${targetNs}/`)
+    })
+
+    it('validates cross-namespace clone sources', async () => {
+      const sourceNs = 'ns-a/source.do'
+      const targetNs = 'ns-b/target.do'
+
+      setupSourceDO(bucket, sourceNs, sourceSnapshotId)
+
+      const validation = await validateClone(bucket, sourceNs, targetNs)
+
+      expect(validation.valid).toBe(true)
+      expect(validation.sourceSnapshotId).toBe(sourceSnapshotId)
+    })
+
+    it('clones across organizational boundaries', async () => {
+      // Simulate cloning from one org to another (common in multi-tenant systems)
+      const sourceNs = 'org-alpha/region-us/customers.do'
+      const targetNs = 'org-beta/region-eu/customers-mirror.do'
+
+      setupSourceDO(bucket, sourceNs, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceNs, targetNs)
+      const origin = await getCloneOrigin(bucket, targetNs)
+
+      expect(origin).not.toBeNull()
+      expect(origin!.sourceDoId).toBe(sourceNs)
+
+      // Clone is in target org's namespace
+      const targetManifest = await getManifest(bucket, targetNs, result.snapshotId)
+      expect(targetManifest.location).toBe(`do/${targetNs}`)
+    })
+
+    it('supports environment-based cloning (prod to staging)', async () => {
+      const prodNs = 'production/api/users.do'
+      const stagingNs = 'staging/api/users.do'
+
+      setupSourceDO(bucket, prodNs, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, prodNs, stagingNs)
+
+      // Staging clone should have independent identity
+      const stagingManifest = await getManifest(bucket, stagingNs, result.snapshotId)
+      const prodManifest = await getManifest(bucket, prodNs, sourceSnapshotId)
+
+      expect(stagingManifest['table-uuid']).not.toBe(prodManifest['table-uuid'])
+
+      // But should track it came from production
+      expect(stagingManifest['cloned-from']!.sourceDoId).toBe(prodNs)
+    })
+
+    it('handles cloning with URL-safe namespace characters', async () => {
+      // Test various namespace formats that might be used in URL routing
+      const testCases = [
+        { source: 'api.example.com/data', target: 'backup.example.com/data' },
+        { source: 'user_123/workspace', target: 'user_456/workspace' },
+        { source: '2024/01/archive', target: '2024/02/archive-copy' },
+      ]
+
+      for (const { source, target } of testCases) {
+        bucket._storage.clear()
+        setupSourceDO(bucket, source, sourceSnapshotId)
+
+        const result = await cloneDO(bucket, source, target)
+
+        expect(result.sourceRef.sourceDoId).toBe(source)
+
+        const origin = await getCloneOrigin(bucket, target)
+        expect(origin!.sourceDoId).toBe(source)
+      }
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Test: Metadata Integrity
+  // ---------------------------------------------------------------------------
+  describe('metadata integrity', () => {
+    it('preserves all schema fields during clone', async () => {
+      // Set up source with complex schema
+      const complexSchemaManifest: IcebergSnapshotManifest = {
+        'format-version': 2,
+        'table-uuid': 'complex-uuid',
+        location: `do/${sourceDoId}`,
+        'last-updated-ms': Date.now(),
+        'last-column-id': 20,
+        'current-snapshot-id': sourceSnapshotId,
+        'parent-snapshot-id': null,
+        snapshots: [
+          {
+            'snapshot-id': sourceSnapshotId,
+            'parent-snapshot-id': null,
+            'timestamp-ms': Date.now(),
+            'manifest-list': '',
+            summary: { operation: 'append' },
+          },
+        ],
+        schemas: [
+          {
+            'schema-id': 0,
+            type: 'struct',
+            fields: [
+              { id: 1, name: 'id', required: true, type: 'string' },
+              { id: 2, name: 'name', required: true, type: 'string' },
+              { id: 3, name: 'email', required: false, type: 'string' },
+              { id: 4, name: 'age', required: false, type: 'integer' },
+              { id: 5, name: 'balance', required: false, type: 'decimal(10,2)' },
+              { id: 6, name: 'tags', required: false, type: 'list<string>' },
+              { id: 7, name: 'metadata', required: false, type: 'map<string,string>' },
+              { id: 8, name: 'created_at', required: true, type: 'timestamp' },
+            ],
+          },
+          {
+            'schema-id': 1,
+            type: 'struct',
+            fields: [
+              { id: 10, name: 'order_id', required: true, type: 'string' },
+              { id: 11, name: 'customer_id', required: true, type: 'string' },
+              { id: 12, name: 'total', required: true, type: 'decimal(12,2)' },
+            ],
+          },
+        ],
+        manifests: [],
+      }
+
+      bucket._storage.set(
+        `do/${sourceDoId}/metadata/current.json`,
+        JSON.stringify({ current_snapshot_id: sourceSnapshotId })
+      )
+      bucket._storage.set(
+        `do/${sourceDoId}/metadata/${sourceSnapshotId}.json`,
+        JSON.stringify(complexSchemaManifest)
+      )
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+
+      expect(targetManifest.schemas).toEqual(complexSchemaManifest.schemas)
+      expect(targetManifest.schemas).toHaveLength(2)
+      expect(targetManifest.schemas[0].fields).toHaveLength(8)
+    })
+
+    it('preserves partition-spec-id in manifests', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+      const sourceManifest = await getManifest(bucket, sourceDoId, sourceSnapshotId)
+
+      for (let i = 0; i < targetManifest.manifests.length; i++) {
+        expect(targetManifest.manifests[i]['partition-spec-id']).toBe(
+          sourceManifest.manifests[i]['partition-spec-id']
+        )
+      }
+    })
+
+    it('preserves sequence numbers in manifests', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+      const sourceManifest = await getManifest(bucket, sourceDoId, sourceSnapshotId)
+
+      for (let i = 0; i < targetManifest.manifests.length; i++) {
+        expect(targetManifest.manifests[i]['sequence-number']).toBe(
+          sourceManifest.manifests[i]['sequence-number']
+        )
+      }
+    })
+
+    it('preserves file counts in manifest entries', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+      const sourceManifest = await getManifest(bucket, sourceDoId, sourceSnapshotId)
+
+      for (let i = 0; i < targetManifest.manifests.length; i++) {
+        expect(targetManifest.manifests[i]['added-files-count']).toBe(
+          sourceManifest.manifests[i]['added-files-count']
+        )
+        expect(targetManifest.manifests[i]['existing-files-count']).toBe(
+          sourceManifest.manifests[i]['existing-files-count']
+        )
+        expect(targetManifest.manifests[i]['deleted-files-count']).toBe(
+          sourceManifest.manifests[i]['deleted-files-count']
+        )
+      }
+    })
+
+    it('preserves table names in manifests', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+
+      expect(targetManifest.manifests[0].table).toBe('users')
+      expect(targetManifest.manifests[1].table).toBe('orders')
+    })
+
+    it('preserves schema DDL in manifests', async () => {
+      setupSourceDO(bucket, sourceDoId, sourceSnapshotId)
+
+      const result = await cloneDO(bucket, sourceDoId, targetDoId)
+      const targetManifest = await getManifest(bucket, targetDoId, result.snapshotId)
+
+      expect(targetManifest.manifests[0].schema).toContain('CREATE TABLE users')
+      expect(targetManifest.manifests[1].schema).toContain('CREATE TABLE orders')
+    })
+  })
 })

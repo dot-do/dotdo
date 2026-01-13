@@ -3,6 +3,12 @@ title: Hot Tier - DO SQLite
 description: Active working set with 50ms reads and 10GB per shard
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
+<Callout type="info" title="Part of Storage">
+This page is part of the [Storage](/docs/storage) tiered architecture documentation.
+</Callout>
+
 # Hot Tier: DO SQLite
 
 The hot tier is your active working set. Every Durable Object has its own SQLite database with sub-100ms reads and 10GB of storage per shard.

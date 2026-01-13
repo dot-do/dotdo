@@ -3,6 +3,12 @@ title: Integration Testing
 description: Testing with the Cloudflare Workers runtime and real bindings
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
+<Callout type="info" title="Part of Testing Guide">
+This page is part of the [Testing](/docs/guides/testing) guide, which is part of [Guides](/docs/guides).
+</Callout>
+
 # Integration Testing
 
 Integration tests run in the actual Workers runtime using `@cloudflare/vitest-pool-workers`. This provides access to real KV, Durable Objects, R2, and other bindings through Miniflare.

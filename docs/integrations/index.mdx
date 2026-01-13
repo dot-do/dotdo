@@ -5,13 +5,17 @@ description: Connect to external services, APIs, and third-party platforms
 
 # Integrations
 
-dotdo provides compatibility layers for popular services, allowing you to use familiar APIs while running on the edge.
+Individual integration guides for specific services. Each page provides detailed documentation for a single service SDK.
 
-## Overview
+## How Integrations Work
 
-Integrations let you connect your dotdo application to external services using the APIs you already know. Each integration is a drop-in replacement for the official SDK, backed by Durable Objects for edge-native performance.
+dotdo provides two levels of documentation:
 
-Key benefits:
+1. **Compat Categories** (`/docs/compat/`) - Overview pages that explain how groups of similar SDKs work (databases, messaging, search, vector, realtime, graph)
+2. **Individual Integrations** (`/docs/integrations/`) - Detailed guides for specific services
+
+Each integration is a drop-in replacement for the official SDK, backed by Durable Objects for edge-native performance:
+
 - **Familiar APIs** - Use the same methods and patterns you already know
 - **Edge-native** - Runs on Cloudflare's global network (300+ cities)
 - **DO-backed storage** - Persistent state without connection pooling issues
@@ -27,38 +31,84 @@ npm install @dotdo/algolia
 npm install @dotdo/pusher
 ```
 
-Configure in your `wrangler.toml`:
+Configure in your `wrangler.jsonc`:
 
-```toml
-[vars]
-STRIPE_SECRET_KEY = "sk_..."
-ALGOLIA_APP_ID = "..."
-ALGOLIA_API_KEY = "..."
+```json
+{
+  "vars": {
+    "STRIPE_SECRET_KEY": "sk_...",
+    "ALGOLIA_APP_ID": "...",
+    "ALGOLIA_API_KEY": "..."
+  }
+}
 ```
 
-## Available Integrations
+## Browse by Category
+
+### Databases
+Individual service guides - see [Database SDKs Overview](/docs/compat/databases) for architecture details.
+
+- [PostgreSQL](/docs/integrations/postgres) - PostgreSQL wire protocol
+- [PlanetScale](/docs/integrations/planetscale) - PlanetScale serverless driver
+- [MongoDB](/docs/integrations/mongodb) - MongoDB driver
+- [Neon](/docs/integrations/neon) - Neon serverless driver
+- [CouchDB](/docs/integrations/couchdb) - CouchDB document store
+- [ClickHouse](/docs/integrations/clickhouse) - ClickHouse analytics
+- [Convex](/docs/integrations/convex) - Convex reactive database
+- [Supabase](/docs/integrations/supabase) - Supabase client SDK
+- [Firebase](/docs/integrations/firebase) - Firebase Admin SDK
 
 ### Search
-- [Algolia](/docs/integrations/algolia) - Search as a Service
-- [Elasticsearch](/docs/compat/search) - Full-text search
+Individual service guides - see [Search SDKs Overview](/docs/compat/search) for architecture details.
 
-### Real-time
-- [Pusher](/docs/integrations/pusher) - Real-time messaging
-- [More Real-time](/docs/compat/realtime) - Ably, Socket.IO, and more
+- [Elasticsearch](/docs/integrations/elasticsearch) - Full-text search with Query DSL
+- [Algolia](/docs/integrations/algolia) - InstantSearch compatibility
+
+### Vector Databases
+Individual service guides - see [Vector SDKs Overview](/docs/compat/vector) for architecture details.
+
+- [Pinecone](/docs/integrations/pinecone) - Pinecone SDK with HNSW backend
+- [Weaviate](/docs/integrations/weaviate) - Weaviate client compatibility
+
+### Realtime
+Individual service guides - see [Realtime SDKs Overview](/docs/compat/realtime) for architecture details.
+
+- [Ably](/docs/integrations/ably) - Ably Realtime SDK
+- [Pusher](/docs/integrations/pusher) - Pusher Channels
+
+### Messaging & Queues
+Individual service guides - see [Messaging SDKs Overview](/docs/compat/messaging) for architecture details.
+
+- [Kafka](/docs/integrations/kafka) - KafkaJS compatibility
+- [Redis](/docs/integrations/redis) - ioredis/node-redis compatibility
+- [Upstash](/docs/integrations/upstash) - Upstash Redis and Kafka
+
+### Graph Databases
+Individual service guides - see [Graph SDKs Overview](/docs/compat/graph) for architecture details.
+
+- [Neo4j](/docs/integrations/neo4j) - Neo4j driver with Cypher support
 
 ### Email
 - [SendGrid](/docs/integrations/sendgrid) - Transactional email with templates
-- [More Messaging](/docs/compat/messaging) - Email, SMS, and more
+- [Mailgun](/docs/integrations/mailgun) - Email delivery
+- [Postmark](/docs/integrations/postmark) - Transactional email
+- [Resend](/docs/integrations/resend) - Modern email API
 
-### Databases
-- [Database SDKs](/docs/compat/databases) - Postgres, MongoDB, Supabase, Firebase, and more
+### AI Providers
+- [OpenAI](/docs/integrations/openai) - OpenAI API compatibility
+- [Anthropic](/docs/integrations/anthropic) - Anthropic Claude API
+- [Cohere](/docs/integrations/cohere) - Cohere embeddings and generation
+- [Google AI](/docs/integrations/google-ai) - Google AI/Gemini
 
-### Messaging & Queues
-- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS, and more
+### Authentication
+- [Clerk](/docs/integrations/clerk) - Clerk authentication
+- [Auth0](/docs/integrations/auth0) - Auth0 identity
+- [Supabase Auth](/docs/integrations/supabase-auth) - Supabase authentication
 
-### Vector & Graph
-- [Vector Databases](/docs/compat/vector) - Pinecone, Qdrant, Weaviate, Chroma
-- [Graph Databases](/docs/compat/graph) - Neo4j with Cypher support
+### Communication
+- [Slack](/docs/integrations/slack) - Slack API
+- [Discord](/docs/integrations/discord) - Discord API
+- [Twilio](/docs/integrations/twilio) - SMS and voice
 
 ## Quick Start
 
@@ -91,16 +141,16 @@ await pusher.trigger('my-channel', 'my-event', { message: 'hello' })
 ## Next Steps
 
 <Cards>
-  <Card title="Algolia" href="/docs/integrations/algolia">
-    Full-text search with faceting, typo tolerance, and instant results.
+  <Card title="Compat SDKs Overview" href="/docs/compat">
+    Understand the architecture behind all 38 API-compatible SDKs.
   </Card>
-  <Card title="Pusher" href="/docs/integrations/pusher">
-    Real-time channels for live updates and collaboration.
+  <Card title="Database SDKs" href="/docs/compat/databases">
+    Postgres, MySQL, MongoDB, Supabase, Firebase - learn the sharding and tiering architecture.
   </Card>
-  <Card title="SendGrid" href="/docs/integrations/sendgrid">
-    Transactional email with templates and exactly-once delivery.
+  <Card title="Messaging SDKs" href="/docs/compat/messaging">
+    Kafka, Redis, NATS, SQS - understand DO-native queues.
   </Card>
-  <Card title="Compat SDKs" href="/docs/compat">
-    Browse all 38 API-compatible SDKs.
+  <Card title="Search SDKs" href="/docs/compat/search">
+    Elasticsearch, Algolia, Meilisearch - FTS5-powered search at the edge.
   </Card>
 </Cards>

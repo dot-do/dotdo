@@ -27,7 +27,7 @@ dotdo loads configuration from multiple sources, with later sources overriding e
 | Priority | Source | Example |
 |----------|--------|---------|
 | 1 (lowest) | Default values | Built-in defaults |
-| 2 | `wrangler.toml` | Cloudflare config |
+| 2 | `wrangler.jsonc` | Cloudflare config |
 | 3 | `package.json` (`dotdo` field) | Package metadata |
 | 4 | `dotdo.config.ts` | TypeScript config |
 | 5 (highest) | Environment variables | `DOTDO_PORT` |
@@ -296,19 +296,21 @@ You can also configure dotdo in your `package.json`:
 
 This is useful for simple configurations that don't need TypeScript features.
 
-## wrangler.toml Integration
+## wrangler.jsonc Integration
 
-dotdo reads configuration from `wrangler.toml` or `wrangler.jsonc`:
+dotdo reads configuration from `wrangler.jsonc` (preferred) or `wrangler.toml`:
 
-```toml title="wrangler.toml"
-name = "my-app"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-
-[durable_objects]
-bindings = [
-  { name = "COUNTER", class_name = "Counter" }
-]
+```json title="wrangler.jsonc"
+{
+  "name": "my-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-01-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "COUNTER", "class_name": "Counter" }
+    ]
+  }
+}
 ```
 
 These values are automatically merged with your `do.config.ts`.

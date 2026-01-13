@@ -6,11 +6,78 @@ import react from '@vitejs/plugin-react'
 import mdx from 'fumadocs-mdx/vite'
 import path from 'node:path'
 
+/**
+ * Vite Configuration for TanStack Start + Fumadocs
+ *
+ * Optimizations:
+ * 1. Build - Minification, source maps, target optimization
+ * 2. Chunking - Vendor splitting + docs collection splitting
+ * 3. Assets - Inlining limits, naming patterns
+ * 4. Dev Server - HMR, CORS, dependency pre-bundling
+ * 5. SSR - Package bundling for SSR compatibility
+ *
+ * @see internal/plans/2026-01-12-fumadocs-static-prerender-design.md
+ */
 export default defineConfig({
+  // ============================================
+  // Development Server Configuration
+  // ============================================
   server: {
     port: 3000,
+    // Enable strict port - fail if 3000 is taken
+    strictPort: false,
+    // HMR configuration for faster development
+    hmr: {
+      overlay: true,
+    },
+    // CORS for development API calls
+    cors: true,
+    // Watch configuration - ignore large directories
+    watch: {
+      ignored: ['**/node_modules/**', '**/dist/**', '**/.git/**'],
+    },
   },
-  // SSR configuration - force Vite to bundle packages that export raw TSX or have SSR issues
+
+  // ============================================
+  // Preview Server (for production build testing)
+  // ============================================
+  preview: {
+    port: 3001,
+    strictPort: false,
+  },
+
+  // ============================================
+  // Dependency Optimization (Pre-bundling)
+  // ============================================
+  optimizeDeps: {
+    // Include heavy dependencies for faster dev startup
+    include: [
+      'react',
+      'react-dom',
+      'react/jsx-runtime',
+      '@tanstack/react-router',
+      '@tanstack/react-start',
+      'lucide-react',
+      'clsx',
+      'tailwind-merge',
+    ],
+    // Exclude packages that cause issues when pre-bundled
+    exclude: [
+      // MDX files need runtime processing
+      'fumadocs-mdx',
+      // Server-only should use our shim
+      'server-only',
+    ],
+    // Enable esbuild optimizations
+    esbuildOptions: {
+      target: 'es2022',
+    },
+  },
+
+  // ============================================
+  // SSR Configuration
+  // ============================================
+  // Force Vite to bundle packages that export raw TSX or have SSR issues
   // noExternal forces Vite to transform these packages during SSR build
   ssr: {
     noExternal: [
@@ -28,7 +95,15 @@ export default defineConfig({
       // fumadocs-typescript/ui imports server-only, bundle it to use our shim
       'fumadocs-typescript',
     ],
+    // Optimize SSR externals for faster builds
+    optimizeDeps: {
+      include: ['react', 'react-dom'],
+    },
   },
+
+  // ============================================
+  // Plugins
+  // ============================================
   plugins: [
     mdx(await import('./source.config')),
     tailwindcss(),
@@ -44,16 +119,21 @@ export default defineConfig({
       // Uses multi-collection splitting for memory-efficient builds
       // @see docs/plans/2026-01-12-fumadocs-static-prerender-design.md
       prerender: {
-        // DISABLED: Build runs out of memory (8GB) due to 28MB docs-sdks chunk
-        // TODO: Split integrations into smaller chunks, then re-enable
-        enabled: false,
+        // Enable static prerendering
+        enabled: true,
         // Lower concurrency to manage memory (default 14)
         concurrency: 2,
         // DISABLED: crawlLinks causes SSR timeout due to 28MB docs-sdks chunk
         // TODO: Re-enable after splitting integrations into smaller chunks
         crawlLinks: false,
-        // Explicit routes for prerendering (lightweight sections first)
+        // Explicit routes for prerendering
+        // Landing page and docs are prerendered as static HTML
         routes: [
+          // Landing page from Site.mdx
+          '/',
+          // Site.mdx alternate route
+          '/site',
+          // Documentation pages
           '/docs',
           '/docs/getting-started',
           '/docs/concepts',
@@ -64,20 +144,25 @@ export default defineConfig({
         filter: ({ path }) => {
           // Exclude admin routes (behind auth)
           if (path.startsWith('/admin')) return false
-          // Exclude app routes (behind auth)
-          if (path.startsWith('/app')) return false
+          // Exclude app routes (behind auth - except /app which could be landing)
+          if (path.startsWith('/app/')) return false
           // Exclude auth flows (redirects cause infinite loops)
           if (path.startsWith('/signup')) return false
           if (path.startsWith('/login')) return false
-          // Exclude homepage (SSR timeout issues with beacon components)
-          if (path === '/' || path === '') return false
-          // Prerender everything else
+          // Prerender everything else including landing page
           return true
         },
       },
     }),
-    react(),
+    react({
+      // Enable React Refresh for HMR
+      fastRefresh: true,
+    }),
   ],
+
+  // ============================================
+  // Module Resolution
+  // ============================================
   resolve: {
     alias: {
       '@tests/mocks': path.resolve(__dirname, '../tests/mocks'),
@@ -87,16 +172,116 @@ export default defineConfig({
       'server-only': path.resolve(__dirname, 'lib/shims/server-only.ts'),
     },
   },
+
+  // ============================================
+  // Build Configuration
+  // ============================================
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Target modern browsers for smaller bundles
+    target: 'es2022',
+    // Enable minification (uses esbuild by default)
+    minify: 'esbuild',
+    // Source maps for production debugging (hidden from browser devtools)
+    sourcemap: 'hidden',
+    // Report compressed size in build output
+    reportCompressedSize: true,
+    // Chunk size warning limit (500KB)
+    chunkSizeWarningLimit: 500,
+    // CSS configuration
+    cssMinify: true,
+    cssCodeSplit: true,
+    // Asset handling
+    assetsInlineLimit: 4096, // Inline assets < 4KB as base64
+    // Rollup-specific options
     rollupOptions: {
       output: {
-        // Split docs collections into separate chunks for smaller bundles
-        // Each collection gets its own chunk to avoid large monolithic bundles
-        // Paths match import.meta.glob patterns from fumadocs: ./../../docs/{collection}/
-        // Use specific patterns with trailing slash/path to avoid circular dependencies
+        // Asset file naming pattern
+        assetFileNames: (assetInfo) => {
+          // Put fonts in fonts directory
+          if (assetInfo.name?.match(/\.(woff2?|ttf|otf|eot)$/)) {
+            return 'assets/fonts/[name]-[hash][extname]'
+          }
+          // Put images in images directory
+          if (assetInfo.name?.match(/\.(png|jpe?g|gif|svg|webp|avif|ico)$/)) {
+            return 'assets/images/[name]-[hash][extname]'
+          }
+          // Default pattern for other assets
+          return 'assets/[name]-[hash][extname]'
+        },
+        // Chunk file naming pattern
+        chunkFileNames: 'assets/js/[name]-[hash].js',
+        // Entry file naming pattern
+        entryFileNames: 'assets/js/[name]-[hash].js',
+        // Manual chunks for optimal splitting
         manualChunks(id) {
+          // ============================================
+          // Vendor Chunks (node_modules)
+          // ============================================
+          if (id.includes('node_modules')) {
+            // React ecosystem - frequently used together
+            if (id.includes('react') || id.includes('scheduler') || id.includes('react-dom')) {
+              return 'vendor-react'
+            }
+            // TanStack libraries
+            if (id.includes('@tanstack')) {
+              return 'vendor-tanstack'
+            }
+            // Fumadocs libraries
+            if (id.includes('fumadocs')) {
+              return 'vendor-fumadocs'
+            }
+            // Radix UI components
+            if (id.includes('@radix-ui')) {
+              return 'vendor-radix'
+            }
+            // MDXUI components
+            if (id.includes('@mdxui')) {
+              return 'vendor-mdxui'
+            }
+            // Lucide icons (tree-shakeable, but large if fully imported)
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons'
+            }
+            // Other small utilities - group together
+            if (id.includes('clsx') || id.includes('tailwind-merge') || id.includes('class-variance-authority')) {
+              return 'vendor-utils'
+            }
+          }
+
+          // ============================================
+          // Documentation Chunks
+          // ============================================
+          // Split integrations into smaller category-based chunks
+          // This keeps each chunk under 500KB for efficient prerendering
+          const integrationsMatch = id.match(/\/docs\/integrations\/([a-z-]+)\.mdx/)
+          if (integrationsMatch) {
+            const filename = integrationsMatch[1]
+            // Categorize integrations by type
+            const databases = ['postgres', 'planetscale', 'mongodb', 'neon', 'couchdb', 'clickhouse', 'convex', 'supabase', 'firebase']
+            const search = ['elasticsearch', 'algolia']
+            const vector = ['pinecone', 'weaviate']
+            const realtime = ['ably', 'pusher']
+            const messaging = ['kafka', 'redis', 'upstash']
+            const email = ['sendgrid', 'mailgun', 'postmark', 'resend']
+            const ai = ['openai', 'anthropic', 'cohere', 'google-ai']
+            const auth = ['clerk', 'auth0', 'supabase-auth']
+            const communication = ['slack', 'discord', 'twilio']
+
+            if (databases.includes(filename)) return 'docs-sdks-databases'
+            if (search.includes(filename)) return 'docs-sdks-search'
+            if (vector.includes(filename)) return 'docs-sdks-vector'
+            if (realtime.includes(filename)) return 'docs-sdks-realtime'
+            if (messaging.includes(filename)) return 'docs-sdks-messaging'
+            if (email.includes(filename)) return 'docs-sdks-email'
+            if (ai.includes(filename)) return 'docs-sdks-ai'
+            if (auth.includes(filename)) return 'docs-sdks-auth'
+            if (communication.includes(filename)) return 'docs-sdks-communication'
+            // Remaining integrations (analytics, automation, etc.)
+            return 'docs-sdks-misc'
+          }
+
           // Extract the docs folder name from paths like: /docs/{folder}/ or docs/{folder}/
           const docsMatch = id.match(/\/docs\/([a-z-]+)\//)
           if (docsMatch) {
@@ -106,7 +291,7 @@ export default defineConfig({
               case 'concepts': return 'docs-concepts'
               case 'api': return 'docs-api'
               case 'getting-started': return 'docs-getting-started'
-              case 'integrations': return 'docs-sdks'
+              case 'integrations': return 'docs-sdks-misc' // Fallback for index.mdx etc
               case 'agents': return 'docs-agents'
               case 'cli': return 'docs-cli'
               case 'database': return 'docs-database'
@@ -130,10 +315,39 @@ export default defineConfig({
               case 'platform': return 'docs-platform'
               case 'transport': return 'docs-transport'
               case 'ui': return 'docs-ui'
+              case 'lib': return 'docs-lib'
             }
           }
         },
       },
+      // Tree-shaking optimization
+      treeshake: {
+        // Aggressive tree-shaking for smaller bundles
+        moduleSideEffects: 'no-external',
+        // Preserve pure annotations
+        annotations: true,
+      },
     },
+  },
+
+  // ============================================
+  // Environment Variables
+  // ============================================
+  // Expose env variables with VITE_ prefix
+  envPrefix: 'VITE_',
+
+  // ============================================
+  // Logging
+  // ============================================
+  logLevel: 'info',
+
+  // ============================================
+  // JSON Handling
+  // ============================================
+  json: {
+    // Enable named exports for JSON modules
+    namedExports: true,
+    // Stringify for smaller bundles
+    stringify: true,
   },
 })

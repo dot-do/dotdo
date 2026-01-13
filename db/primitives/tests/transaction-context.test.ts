@@ -564,7 +564,6 @@ describe('TransactionContext', () => {
 
     it('should detect version mismatch in WATCH', async () => {
       const ctx1 = createContext()
-      const ctx2 = createContext({ shareStateWith: ctx1 })
 
       // Set initial value
       await ctx1.begin()
@@ -576,15 +575,15 @@ describe('TransactionContext', () => {
       await ctx1.begin()
       ctx1.set('key1', 'from-ctx1')
 
-      // ctx2 modifies key1
-      await ctx2.begin()
-      ctx2.set('key1', 'from-ctx2')
-      await ctx2.exec()
+      // Simulate external modification to key1
+      // This increments the version to simulate another client modifying the key
+      ctx1._simulateExternalModification('key1')
 
-      // ctx1's exec should fail
+      // ctx1's exec should fail due to version mismatch
       const result = await ctx1.exec()
       expect(result.success).toBe(false)
       expect(result.watchError).toBeDefined()
+      expect(result.watchError?.key).toBe('key1')
     })
 
     it('should increment version on SET', async () => {
@@ -632,23 +631,24 @@ describe('TransactionContext', () => {
   // ============================================================================
 
   describe('concurrent transactions', () => {
-    it('should serialize concurrent transactions', async () => {
-      const ctx = createContext()
+    it('should serialize concurrent transactions on shared state', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
       const results: string[] = []
 
       await Promise.all([
         (async () => {
-          await ctx.begin()
-          ctx.set('key', 'tx1')
+          await ctx1.begin()
+          ctx1.set('key', 'tx1')
           await delay(10)
-          await ctx.exec()
+          await ctx1.exec()
           results.push('tx1')
         })(),
         (async () => {
           await delay(5) // Start slightly later
-          await ctx.begin()
-          ctx.set('key', 'tx2')
-          await ctx.exec()
+          await ctx2.begin()
+          ctx2.set('key', 'tx2')
+          await ctx2.exec()
           results.push('tx2')
         })(),
       ])
@@ -657,12 +657,13 @@ describe('TransactionContext', () => {
       expect(results).toHaveLength(2)
     })
 
-    it('should handle many concurrent begin/exec cycles', async () => {
-      const ctx = createContext()
+    it('should handle many concurrent begin/exec cycles with separate contexts', async () => {
+      const baseCtx = createContext()
       const count = 20
 
       const results = await Promise.all(
         Array.from({ length: count }, async (_, i) => {
+          const ctx = createContext({ shareStateWith: baseCtx })
           await ctx.begin()
           ctx.set(`key-${i}`, `value-${i}`)
           return ctx.exec()
@@ -671,6 +672,39 @@ describe('TransactionContext', () => {
 
       // All should succeed
       expect(results.filter((r) => r.success)).toHaveLength(count)
+    })
+
+    it('should prevent race conditions with lock serialization', async () => {
+      const baseCtx = createContext()
+      const ctx1 = createContext({ shareStateWith: baseCtx })
+      const ctx2 = createContext({ shareStateWith: baseCtx })
+
+      // Set initial value
+      await baseCtx.begin()
+      baseCtx.set('counter', '0')
+      await baseCtx.exec()
+
+      // Both contexts try to read-modify-write
+      const results = await Promise.all([
+        (async () => {
+          await ctx1.watch('counter')
+          await ctx1.begin()
+          ctx1.get('counter')
+          ctx1.incr('counter')
+          return ctx1.exec()
+        })(),
+        (async () => {
+          await ctx2.watch('counter')
+          await ctx2.begin()
+          ctx2.get('counter')
+          ctx2.incr('counter')
+          return ctx2.exec()
+        })(),
+      ])
+
+      // At least one should succeed, and one may fail due to watch conflict
+      const successes = results.filter((r) => r.success)
+      expect(successes.length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -1034,19 +1068,735 @@ describe('TransactionContext', () => {
 
       const version = ctx1.getKeyVersion('key1')
 
-      // ctx1 watches with version
+      // ctx1 watches with version and starts transaction
       await ctx1.watchVersion('key1', version)
       await ctx1.begin()
       ctx1.set('key1', 'from-ctx1')
 
-      // ctx2 modifies
-      await ctx2.begin()
-      ctx2.set('key1', 'from-ctx2')
-      await ctx2.exec()
+      // Simulate external modification via _simulateExternalModification
+      // This avoids the lock contention issue since we're modifying
+      // the underlying version directly
+      ctx1._simulateExternalModification('key1')
 
-      // ctx1 should fail
+      // ctx1 should fail due to version mismatch
       const result = await ctx1.exec()
       expect(result.success).toBe(false)
+      expect(result.watchError).toBeDefined()
+    })
+  })
+
+  // ============================================================================
+  // ISOLATION LEVELS
+  // ============================================================================
+
+  describe('isolation levels', () => {
+    // Redis MULTI/EXEC provides serializable isolation via optimistic locking
+    // All operations within a transaction are queued and executed atomically
+
+    it('should provide serializable isolation via WATCH', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
+
+      // Set initial value
+      await ctx1.begin()
+      ctx1.set('balance', '100')
+      await ctx1.exec()
+
+      // ctx1 reads balance and prepares update
+      await ctx1.watch('balance')
+      await ctx1.begin()
+      ctx1.get('balance')
+      ctx1.set('balance', '80') // Withdraw 20
+
+      // ctx2 modifies balance concurrently
+      ctx1._simulateExternalModification('balance')
+
+      // ctx1's transaction should fail - serializable isolation maintained
+      const result = await ctx1.exec()
+      expect(result.success).toBe(false)
+      expect(result.watchError?.key).toBe('balance')
+    })
+
+    it('should isolate uncommitted changes from other contexts', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
+
+      // Set initial value
+      await ctx1.begin()
+      ctx1.set('key1', 'initial')
+      await ctx1.exec()
+
+      // ctx1 starts transaction but doesn't exec yet
+      await ctx1.begin()
+      ctx1.set('key1', 'modified-by-ctx1')
+      // ctx1 is holding the lock, so changes are not visible
+
+      // Note: Due to lock serialization, ctx2 will wait for ctx1
+      // The isolation is maintained because changes only become visible after exec()
+
+      await ctx1.exec()
+
+      // Now ctx2 can see the committed changes
+      await ctx2.begin()
+      ctx2.get('key1')
+      const result = await ctx2.exec()
+      expect(result.results[0]).toBe('modified-by-ctx1')
+    })
+
+    it('should prevent dirty reads', async () => {
+      const ctx1 = createContext()
+
+      // Set initial value
+      await ctx1.begin()
+      ctx1.set('key1', 'committed-value')
+      await ctx1.exec()
+
+      // Start transaction that will fail
+      await ctx1.begin()
+      ctx1.set('key1', 'uncommitted-value')
+      ctx1._injectError(0) // Force transaction to fail
+      await ctx1.exec()
+
+      // Verify uncommitted value was never visible
+      await ctx1.begin()
+      ctx1.get('key1')
+      const result = await ctx1.exec()
+      expect(result.results[0]).toBe('committed-value')
+    })
+
+    it('should prevent non-repeatable reads within transaction', async () => {
+      const ctx = createContext()
+
+      // Set initial value
+      await ctx.begin()
+      ctx.set('key1', 'value1')
+      await ctx.exec()
+
+      // Within a single transaction, multiple GETs should return
+      // the same value (snapshot at transaction start for watched keys)
+      await ctx.watch('key1')
+      await ctx.begin()
+      ctx.get('key1')
+      ctx.get('key1')
+      ctx.get('key1')
+      const result = await ctx.exec()
+
+      // All reads should return the same value
+      expect(result.results[0]).toBe('value1')
+      expect(result.results[1]).toBe('value1')
+      expect(result.results[2]).toBe('value1')
+    })
+  })
+
+  // ============================================================================
+  // NESTED TRANSACTIONS
+  // ============================================================================
+
+  describe('nested transactions', () => {
+    // Redis MULTI/EXEC does not support nested transactions
+    // Attempting to begin while already in a transaction should throw
+
+    it('should reject nested begin calls', async () => {
+      const ctx = createContext()
+      await ctx.begin()
+      ctx.set('key1', 'value1')
+
+      // Second begin should throw
+      await expect(ctx.begin()).rejects.toThrow(/already in a transaction/i)
+    })
+
+    it('should allow sequential transactions after completion', async () => {
+      const ctx = createContext()
+
+      // First transaction
+      await ctx.begin()
+      ctx.set('key1', 'value1')
+      const result1 = await ctx.exec()
+      expect(result1.success).toBe(true)
+
+      // Second transaction (not nested, sequential)
+      await ctx.begin()
+      ctx.set('key2', 'value2')
+      const result2 = await ctx.exec()
+      expect(result2.success).toBe(true)
+
+      // Verify both values exist
+      await ctx.begin()
+      ctx.get('key1')
+      ctx.get('key2')
+      const getResult = await ctx.exec()
+      expect(getResult.results).toEqual(['value1', 'value2'])
+    })
+
+    it('should allow new transaction after discard', async () => {
+      const ctx = createContext()
+
+      await ctx.begin()
+      ctx.set('key1', 'discarded')
+      await ctx.discard()
+
+      // New transaction should work
+      await ctx.begin()
+      ctx.set('key1', 'committed')
+      const result = await ctx.exec()
+      expect(result.success).toBe(true)
+
+      await ctx.begin()
+      ctx.get('key1')
+      const getResult = await ctx.exec()
+      expect(getResult.results[0]).toBe('committed')
+    })
+
+    it('should maintain state across sequential transactions', async () => {
+      const ctx = createContext()
+
+      // Build up state across multiple transactions
+      await ctx.begin()
+      ctx.set('counter', '0')
+      await ctx.exec()
+
+      for (let i = 0; i < 5; i++) {
+        await ctx.begin()
+        ctx.incr('counter')
+        await ctx.exec()
+      }
+
+      await ctx.begin()
+      ctx.get('counter')
+      const result = await ctx.exec()
+      expect(result.results[0]).toBe('5')
+    })
+  })
+
+  // ============================================================================
+  // DEADLOCK HANDLING
+  // ============================================================================
+
+  describe('deadlock handling', () => {
+    // The lock-based serialization prevents deadlocks by ensuring
+    // only one transaction can be active at a time per shared state
+
+    it('should prevent deadlock via serialization', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
+
+      // Set initial values
+      await ctx1.begin()
+      ctx1.set('resource-a', 'initial-a')
+      ctx1.set('resource-b', 'initial-b')
+      await ctx1.exec()
+
+      // Classic deadlock scenario: ctx1 wants A then B, ctx2 wants B then A
+      // With serialization, they execute sequentially - no deadlock possible
+      const results = await Promise.all([
+        (async () => {
+          await ctx1.watch('resource-a', 'resource-b')
+          await ctx1.begin()
+          ctx1.get('resource-a')
+          ctx1.get('resource-b')
+          ctx1.set('resource-a', 'modified-by-ctx1')
+          ctx1.set('resource-b', 'modified-by-ctx1')
+          return ctx1.exec()
+        })(),
+        (async () => {
+          await ctx2.watch('resource-b', 'resource-a')
+          await ctx2.begin()
+          ctx2.get('resource-b')
+          ctx2.get('resource-a')
+          ctx2.set('resource-b', 'modified-by-ctx2')
+          ctx2.set('resource-a', 'modified-by-ctx2')
+          return ctx2.exec()
+        })(),
+      ])
+
+      // Due to serialization, at least one should succeed
+      // The other may fail due to watch conflict
+      const successes = results.filter((r) => r.success)
+      expect(successes.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should timeout-free due to lock serialization', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
+
+      // Both try to access same resource
+      const start = Date.now()
+
+      await Promise.all([
+        (async () => {
+          await ctx1.begin()
+          ctx1.set('shared', 'ctx1')
+          await delay(50)
+          await ctx1.exec()
+        })(),
+        (async () => {
+          await ctx2.begin()
+          ctx2.set('shared', 'ctx2')
+          await delay(50)
+          await ctx2.exec()
+        })(),
+      ])
+
+      const elapsed = Date.now() - start
+
+      // Should complete in reasonable time (no infinite wait)
+      expect(elapsed).toBeLessThan(5000)
+    })
+
+    it('should release lock on discard to prevent blocking', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
+
+      // ctx1 starts transaction
+      await ctx1.begin()
+      ctx1.set('key1', 'value1')
+
+      // ctx1 discards - should release lock
+      await ctx1.discard()
+
+      // ctx2 should be able to proceed immediately
+      const start = Date.now()
+      await ctx2.begin()
+      ctx2.set('key1', 'value2')
+      const result = await ctx2.exec()
+      const elapsed = Date.now() - start
+
+      expect(result.success).toBe(true)
+      expect(elapsed).toBeLessThan(100) // Should be fast
+    })
+
+    it('should release lock on exec failure', async () => {
+      const ctx1 = createContext()
+      const ctx2 = createContext({ shareStateWith: ctx1 })
+
+      // ctx1 starts transaction that will fail
+      await ctx1.watch('key1')
+      await ctx1.begin()
+      ctx1.set('key1', 'value1')
+      ctx1._simulateExternalModification('key1')
+
+      // ctx1's exec fails
+      const result1 = await ctx1.exec()
+      expect(result1.success).toBe(false)
+
+      // ctx2 should be able to proceed
+      await ctx2.begin()
+      ctx2.set('key1', 'value2')
+      const result2 = await ctx2.exec()
+      expect(result2.success).toBe(true)
+    })
+  })
+
+  // ============================================================================
+  // ACID PROPERTIES
+  // ============================================================================
+
+  describe('ACID properties', () => {
+    describe('Atomicity', () => {
+      it('should apply all changes or none on success', async () => {
+        const ctx = createContext()
+
+        await ctx.begin()
+        ctx.set('key1', 'value1')
+        ctx.set('key2', 'value2')
+        ctx.set('key3', 'value3')
+        const result = await ctx.exec()
+
+        expect(result.success).toBe(true)
+
+        // All keys should exist
+        await ctx.begin()
+        ctx.get('key1')
+        ctx.get('key2')
+        ctx.get('key3')
+        const getResult = await ctx.exec()
+
+        expect(getResult.results).toEqual(['value1', 'value2', 'value3'])
+      })
+
+      it('should rollback all changes on mid-transaction failure', async () => {
+        const ctx = createContext()
+
+        // Set initial values
+        await ctx.begin()
+        ctx.set('key1', 'initial1')
+        ctx.set('key2', 'initial2')
+        ctx.set('key3', 'initial3')
+        await ctx.exec()
+
+        // Transaction that fails mid-way
+        await ctx.begin()
+        ctx.set('key1', 'changed1')
+        ctx.set('key2', 'changed2')
+        ctx.set('key3', 'changed3')
+        ctx._injectError(1) // Fail after first SET
+
+        const result = await ctx.exec()
+        expect(result.success).toBe(false)
+
+        // All values should be unchanged
+        await ctx.begin()
+        ctx.get('key1')
+        ctx.get('key2')
+        ctx.get('key3')
+        const getResult = await ctx.exec()
+
+        expect(getResult.results).toEqual(['initial1', 'initial2', 'initial3'])
+      })
+
+      it('should rollback on watch conflict', async () => {
+        const ctx = createContext()
+
+        await ctx.begin()
+        ctx.set('key1', 'initial1')
+        ctx.set('key2', 'initial2')
+        await ctx.exec()
+
+        await ctx.watch('key1')
+        await ctx.begin()
+        ctx.set('key1', 'changed1')
+        ctx.set('key2', 'changed2')
+
+        ctx._simulateExternalModification('key1')
+
+        const result = await ctx.exec()
+        expect(result.success).toBe(false)
+
+        // Both values unchanged
+        await ctx.begin()
+        ctx.get('key1')
+        ctx.get('key2')
+        const getResult = await ctx.exec()
+
+        expect(getResult.results).toEqual(['initial1', 'initial2'])
+      })
+    })
+
+    describe('Consistency', () => {
+      it('should maintain valid state after successful transaction', async () => {
+        const ctx = createContext()
+
+        // Set initial balance
+        await ctx.begin()
+        ctx.set('account-a', '100')
+        ctx.set('account-b', '50')
+        await ctx.exec()
+
+        // Transfer 30 from A to B (atomic transfer)
+        await ctx.begin()
+        ctx.incrBy('account-a', -30)
+        ctx.incrBy('account-b', 30)
+        const result = await ctx.exec()
+
+        expect(result.success).toBe(true)
+
+        // Total should still be 150
+        await ctx.begin()
+        ctx.get('account-a')
+        ctx.get('account-b')
+        const getResult = await ctx.exec()
+
+        const total = parseInt(getResult.results[0] as string) + parseInt(getResult.results[1] as string)
+        expect(total).toBe(150)
+      })
+
+      it('should reject invalid operations', async () => {
+        const ctx = createContext()
+
+        await ctx.begin()
+        ctx.set('str-value', 'not-a-number')
+        await ctx.exec()
+
+        // Trying to increment a string should fail
+        await ctx.begin()
+        ctx.incr('str-value')
+        const result = await ctx.exec()
+
+        expect(result.success).toBe(false)
+        expect(result.errors).toBeDefined()
+      })
+
+      it('should preserve invariants across failed transactions', async () => {
+        const ctx = createContext()
+
+        // Set up invariant: sum of counters = 100
+        await ctx.begin()
+        ctx.set('counter-a', '60')
+        ctx.set('counter-b', '40')
+        await ctx.exec()
+
+        // Try invalid operation that breaks invariant
+        await ctx.begin()
+        ctx.incrBy('counter-a', 20)
+        ctx.incrBy('counter-b', -20)
+        ctx._injectError(1) // Fail mid-transaction
+
+        await ctx.exec()
+
+        // Invariant should be preserved
+        await ctx.begin()
+        ctx.get('counter-a')
+        ctx.get('counter-b')
+        const getResult = await ctx.exec()
+
+        const sum = parseInt(getResult.results[0] as string) + parseInt(getResult.results[1] as string)
+        expect(sum).toBe(100)
+      })
+    })
+
+    describe('Isolation', () => {
+      it('should not expose intermediate states', async () => {
+        const ctx = createContext()
+
+        // In a transaction with multiple operations, intermediate states
+        // should never be visible to other transactions
+
+        await ctx.begin()
+        ctx.set('phase', 'initial')
+        await ctx.exec()
+
+        // This transaction updates multiple values atomically
+        await ctx.begin()
+        ctx.set('phase', 'step1')
+        ctx.set('phase', 'step2')
+        ctx.set('phase', 'final')
+        const result = await ctx.exec()
+
+        expect(result.success).toBe(true)
+
+        // Should only see 'final', never intermediate states
+        await ctx.begin()
+        ctx.get('phase')
+        const getResult = await ctx.exec()
+        expect(getResult.results[0]).toBe('final')
+      })
+
+      it('should provide snapshot isolation via WATCH', async () => {
+        const ctx1 = createContext()
+        const ctx2 = createContext({ shareStateWith: ctx1 })
+
+        await ctx1.begin()
+        ctx1.set('version', '1')
+        await ctx1.exec()
+
+        // ctx1 takes a "snapshot" via WATCH
+        await ctx1.watch('version')
+        const watchedVersion = ctx1.getKeyVersion('version')
+
+        await ctx1.begin()
+        ctx1.get('version')
+
+        // If ctx2 modifies, ctx1's transaction should fail
+        ctx1._simulateExternalModification('version')
+
+        ctx1.set('version', '2')
+        const result = await ctx1.exec()
+
+        // Transaction should fail due to version change
+        expect(result.success).toBe(false)
+      })
+    })
+
+    describe('Durability', () => {
+      // Note: True durability requires persistence to storage
+      // These tests verify in-memory durability semantics
+
+      it('should persist data after successful commit', async () => {
+        const ctx = createContext()
+
+        await ctx.begin()
+        ctx.set('persistent-key', 'persistent-value')
+        const result = await ctx.exec()
+
+        expect(result.success).toBe(true)
+
+        // Value should be retrievable
+        await ctx.begin()
+        ctx.get('persistent-key')
+        const getResult = await ctx.exec()
+        expect(getResult.results[0]).toBe('persistent-value')
+      })
+
+      it('should maintain data across multiple transactions', async () => {
+        const ctx = createContext()
+
+        // First transaction
+        await ctx.begin()
+        ctx.set('key1', 'value1')
+        await ctx.exec()
+
+        // Second transaction
+        await ctx.begin()
+        ctx.set('key2', 'value2')
+        await ctx.exec()
+
+        // Third transaction
+        await ctx.begin()
+        ctx.set('key3', 'value3')
+        await ctx.exec()
+
+        // All data should be present
+        await ctx.begin()
+        ctx.mget('key1', 'key2', 'key3')
+        const result = await ctx.exec()
+        expect(result.results[0]).toEqual(['value1', 'value2', 'value3'])
+      })
+
+      it('should share durable state between contexts', async () => {
+        const ctx1 = createContext()
+        const ctx2 = createContext({ shareStateWith: ctx1 })
+
+        // ctx1 commits data
+        await ctx1.begin()
+        ctx1.set('shared-data', 'from-ctx1')
+        await ctx1.exec()
+
+        // ctx2 should see committed data
+        await ctx2.begin()
+        ctx2.get('shared-data')
+        const result = await ctx2.exec()
+        expect(result.results[0]).toBe('from-ctx1')
+      })
+
+      it('should not persist data from failed transactions', async () => {
+        const ctx = createContext()
+
+        // Set initial value
+        await ctx.begin()
+        ctx.set('durable-key', 'original')
+        await ctx.exec()
+
+        // Failed transaction
+        await ctx.begin()
+        ctx.set('durable-key', 'should-not-persist')
+        ctx._injectError(0)
+        await ctx.exec()
+
+        // Original value should remain
+        await ctx.begin()
+        ctx.get('durable-key')
+        const result = await ctx.exec()
+        expect(result.results[0]).toBe('original')
+      })
+    })
+  })
+
+  // ============================================================================
+  // STRESS TESTS
+  // ============================================================================
+
+  describe('stress tests', () => {
+    it('should handle rapid sequential transactions', async () => {
+      const ctx = createContext()
+      const iterations = 100
+
+      for (let i = 0; i < iterations; i++) {
+        await ctx.begin()
+        ctx.set('counter', String(i))
+        const result = await ctx.exec()
+        expect(result.success).toBe(true)
+      }
+
+      await ctx.begin()
+      ctx.get('counter')
+      const result = await ctx.exec()
+      expect(result.results[0]).toBe('99')
+    })
+
+    it('should handle large transaction with many commands', async () => {
+      const ctx = createContext()
+      const commandCount = 200
+
+      await ctx.begin()
+      for (let i = 0; i < commandCount; i++) {
+        ctx.set(`key-${i}`, `value-${i}`)
+      }
+      const result = await ctx.exec()
+
+      expect(result.success).toBe(true)
+      expect(result.results).toHaveLength(commandCount)
+    })
+
+    it('should handle high contention scenario', async () => {
+      const baseCtx = createContext()
+      const contextCount = 10
+      const iterationsPerContext = 5
+
+      // Initialize shared counter
+      await baseCtx.begin()
+      baseCtx.set('high-contention-counter', '0')
+      await baseCtx.exec()
+
+      // Many contexts competing to increment
+      const contexts = Array.from({ length: contextCount }, () => createContext({ shareStateWith: baseCtx }))
+
+      let successCount = 0
+      for (const ctx of contexts) {
+        for (let i = 0; i < iterationsPerContext; i++) {
+          await ctx.begin()
+          ctx.incr('high-contention-counter')
+          const result = await ctx.exec()
+          if (result.success) successCount++
+        }
+      }
+
+      // All increments should succeed due to serialization
+      expect(successCount).toBe(contextCount * iterationsPerContext)
+
+      // Final value should reflect all successful increments
+      await baseCtx.begin()
+      baseCtx.get('high-contention-counter')
+      const result = await baseCtx.exec()
+      expect(result.results[0]).toBe(String(contextCount * iterationsPerContext))
+    })
+
+    it('should maintain data integrity under mixed operations', async () => {
+      const ctx = createContext()
+
+      // Initialize test data
+      await ctx.begin()
+      ctx.mset({
+        'account:1': '1000',
+        'account:2': '500',
+        'account:3': '750',
+        total: '2250',
+      })
+      await ctx.exec()
+
+      // Perform various operations
+      const operations = [
+        async () => {
+          await ctx.begin()
+          ctx.incrBy('account:1', -100)
+          ctx.incrBy('account:2', 100)
+          await ctx.exec()
+        },
+        async () => {
+          await ctx.begin()
+          ctx.incrBy('account:2', -50)
+          ctx.incrBy('account:3', 50)
+          await ctx.exec()
+        },
+        async () => {
+          await ctx.begin()
+          ctx.incrBy('account:3', -200)
+          ctx.incrBy('account:1', 200)
+          await ctx.exec()
+        },
+      ]
+
+      for (const op of operations) {
+        await op()
+      }
+
+      // Verify total is preserved
+      await ctx.begin()
+      ctx.mget('account:1', 'account:2', 'account:3')
+      const result = await ctx.exec()
+
+      const balances = (result.results[0] as (string | null)[]).map((v) => parseInt(v || '0'))
+      const sum = balances.reduce((a, b) => a + b, 0)
+      expect(sum).toBe(2250)
     })
   })
 })

@@ -1,0 +1,623 @@
+/**
+ * Human Graph Types
+ *
+ * Type definitions for Users, Organizations, Roles, Sessions, and human-in-the-loop
+ * approval workflows in the graph model.
+ *
+ * @module db/graph/humans/types
+ */
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/**
+ * Type IDs for human-related Things in the graph
+ */
+export const HUMAN_TYPE_IDS = {
+  User: 10,
+  Organization: 11,
+  Role: 12,
+  Session: 13,
+  Account: 14,
+  Invitation: 15,
+  ApprovalRequest: 16,
+  Team: 17,
+  ApiKey: 18,
+  Verification: 19,
+} as const
+
+/**
+ * Type names for human-related Things
+ */
+export const HUMAN_TYPE_NAMES = {
+  User: 'User',
+  Organization: 'Org',
+  Role: 'Role',
+  Session: 'Session',
+  Account: 'Account',
+  Invitation: 'Invitation',
+  ApprovalRequest: 'ApprovalRequest',
+  Team: 'Team',
+  ApiKey: 'ApiKey',
+  Verification: 'Verification',
+} as const
+
+/**
+ * Relationship verbs for human graph edges
+ */
+export const HUMAN_VERBS = {
+  // Membership relationships
+  MEMBER_OF: 'memberOf',
+  BELONGS_TO: 'belongsTo',
+  MANAGES: 'manages',
+  OWNS: 'owns',
+
+  // Role relationships
+  HAS_ROLE: 'hasRole',
+
+  // Session relationships
+  AUTHENTICATED_BY: 'authenticatedBy',
+
+  // Account/OAuth relationships
+  LINKED_TO: 'linkedTo',
+
+  // Social relationships
+  FOLLOWS: 'follows',
+  INVITED_BY: 'invitedBy',
+
+  // Approval workflow verbs (verb form state encoding)
+  // Intent verbs
+  APPROVE: 'approve',
+  REJECT: 'reject',
+  REVIEW: 'review',
+  ASSIGN: 'assign',
+  ESCALATE: 'escalate',
+
+  // Activity verbs (in-progress)
+  APPROVING: 'approving',
+  REJECTING: 'rejecting',
+  REVIEWING: 'reviewing',
+  ASSIGNING: 'assigning',
+  ESCALATING: 'escalating',
+
+  // Completed verbs
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  REVIEWED: 'reviewed',
+  ASSIGNED: 'assigned',
+  ESCALATED: 'escalated',
+
+  // Notification relationships
+  NOTIFIED_VIA: 'notifiedVia',
+  DELIVERED_TO: 'deliveredTo',
+} as const
+
+// ============================================================================
+// STATUS TYPES
+// ============================================================================
+
+/**
+ * User status
+ */
+export type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending' | 'deleted'
+
+/**
+ * Organization status
+ */
+export type OrgStatus = 'active' | 'suspended' | 'archived'
+
+/**
+ * Invitation status
+ */
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'cancelled'
+
+/**
+ * Approval request status (via verb form encoding)
+ */
+export type ApprovalStatus = 'pending' | 'approving' | 'approved' | 'rejected' | 'expired' | 'cancelled'
+
+/**
+ * Notification priority
+ */
+export type NotificationPriority = 'urgent' | 'high' | 'normal' | 'low'
+
+/**
+ * Notification channel type
+ */
+export type NotificationChannelType = 'slack' | 'discord' | 'email' | 'sms' | 'webhook'
+
+// ============================================================================
+// USER TYPES
+// ============================================================================
+
+/**
+ * User Thing data structure
+ */
+export interface UserThingData {
+  /** Primary email address (unique identifier) */
+  email: string
+  /** Display name */
+  name?: string | null
+  /** Full display name */
+  displayName?: string | null
+  /** First name */
+  firstName?: string | null
+  /** Last name */
+  lastName?: string | null
+  /** User status */
+  status: UserStatus
+  /** Email verified flag */
+  emailVerified?: boolean
+  /** Profile image URL */
+  avatarUrl?: string | null
+  /** User bio/description */
+  bio?: string | null
+  /** Timezone (IANA format) */
+  timezone?: string | null
+  /** Locale (e.g., 'en-US') */
+  locale?: string | null
+  /** Phone number */
+  phone?: string | null
+  /** Phone verified flag */
+  phoneVerified?: boolean
+  /** External provider ID (for OAuth) */
+  externalId?: string | null
+  /** External provider name */
+  externalProvider?: string | null
+  /** Last sign-in timestamp (ms) */
+  lastSignInAt?: number | null
+  /** Last active timestamp (ms) */
+  lastActiveAt?: number | null
+  /** Notification preferences */
+  notificationPreferences?: NotificationPreferences
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature for GraphStore compatibility */
+  [key: string]: unknown
+}
+
+/**
+ * Notification preferences for a user
+ */
+export interface NotificationPreferences {
+  /** Preferred channels in order */
+  preferredChannels?: NotificationChannelType[]
+  /** Channels for urgent notifications */
+  urgentChannels?: NotificationChannelType[]
+  /** Disabled channels */
+  disabledChannels?: NotificationChannelType[]
+  /** Time-based routing */
+  schedule?: {
+    businessHours?: NotificationChannelType[]
+    afterHours?: NotificationChannelType[]
+    timezone?: string
+  }
+  /** Per-type settings */
+  byType?: Record<string, {
+    channels?: NotificationChannelType[]
+    enabled?: boolean
+  }>
+}
+
+// ============================================================================
+// ORGANIZATION TYPES
+// ============================================================================
+
+/**
+ * Organization Thing data structure
+ */
+export interface OrgThingData {
+  /** Organization name */
+  name: string
+  /** Unique slug for URL */
+  slug: string
+  /** Organization status */
+  status: OrgStatus
+  /** Logo URL */
+  logoUrl?: string | null
+  /** Description */
+  description?: string | null
+  /** DO namespace for routing */
+  tenantNs?: string | null
+  /** Settings */
+  settings?: OrgSettings
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature for GraphStore compatibility */
+  [key: string]: unknown
+}
+
+/**
+ * Organization settings
+ */
+export interface OrgSettings {
+  /** Default role for new members */
+  defaultRole?: string
+  /** Allowed domains for auto-join */
+  allowedDomains?: string[]
+  /** Whether invitations require admin approval */
+  requireInviteApproval?: boolean
+  /** SSO configuration */
+  sso?: {
+    enabled?: boolean
+    provider?: string
+    config?: Record<string, unknown>
+  }
+  /** Notification defaults */
+  notifications?: {
+    channels?: NotificationChannelType[]
+    escalationPolicy?: string
+  }
+}
+
+/**
+ * Organization membership data stored in relationship
+ */
+export interface OrgMembershipData {
+  /** Role within the organization (owner, admin, member, viewer) */
+  role: string
+  /** Joined timestamp */
+  joinedAt: number
+  /** Invited by user ID */
+  invitedBy?: string
+  /** Title/position in org */
+  title?: string
+  /** Department */
+  department?: string
+  /** Custom membership metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// ROLE TYPES
+// ============================================================================
+
+/**
+ * Permission string format: "action:resource" or "action:*" for wildcards
+ */
+export type PermissionString = string
+
+/**
+ * Hierarchy level (0-100, higher = more access)
+ */
+export type HierarchyLevel = number
+
+/**
+ * Role Thing data structure
+ */
+export interface RoleThingData {
+  /** Role name */
+  name: string
+  /** Permissions granted by this role */
+  permissions: PermissionString[]
+  /** Description */
+  description?: string
+  /** Hierarchy level for authorization */
+  hierarchyLevel?: HierarchyLevel
+  /** Whether this is a system role (cannot be deleted) */
+  isSystem?: boolean
+  /** Organization this role belongs to (null = global) */
+  orgId?: string | null
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+/**
+ * Role assignment data stored in hasRole relationship
+ */
+export interface RoleAssignmentData {
+  /** Organization context (for org-scoped roles) */
+  orgId?: string
+  /** When the role was assigned */
+  assignedAt: number
+  /** Who assigned the role */
+  assignedBy?: string
+  /** Expiration timestamp (for temporary roles) */
+  expiresAt?: number
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// SESSION TYPES
+// ============================================================================
+
+/**
+ * Session Thing data structure
+ */
+export interface SessionThingData {
+  /** Session token */
+  token: string
+  /** User ID this session belongs to */
+  userId: string
+  /** Expiration timestamp */
+  expiresAt: number
+  /** User agent string */
+  userAgent?: string | null
+  /** IP address */
+  ipAddress?: string | null
+  /** Device fingerprint */
+  deviceFingerprint?: string | null
+  /** Whether this is a fresh session */
+  isFresh?: boolean
+  /** Last activity timestamp */
+  lastActivityAt?: number
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// ACCOUNT (OAUTH) TYPES
+// ============================================================================
+
+/**
+ * Account (OAuth provider) Thing data structure
+ */
+export interface AccountThingData {
+  /** OAuth provider name */
+  provider: string
+  /** Provider's account ID */
+  providerAccountId: string
+  /** User ID this account is linked to */
+  userId: string
+  /** Access token */
+  accessToken?: string | null
+  /** Refresh token */
+  refreshToken?: string | null
+  /** Access token expiration */
+  accessTokenExpiresAt?: number | null
+  /** Refresh token expiration */
+  refreshTokenExpiresAt?: number | null
+  /** OAuth scopes */
+  scope?: string | null
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// INVITATION TYPES
+// ============================================================================
+
+/**
+ * Invitation Thing data structure
+ */
+export interface InvitationThingData {
+  /** Email address of invitee */
+  email: string
+  /** Organization ID */
+  orgId: string
+  /** Role to assign on acceptance */
+  role: string
+  /** Invitation status */
+  status: InvitationStatus
+  /** Invited by user ID */
+  invitedBy: string
+  /** Expiration timestamp */
+  expiresAt: number
+  /** Message to include */
+  message?: string
+  /** Invitation token */
+  token: string
+  /** When invitation was sent */
+  sentAt?: number
+  /** When invitation was accepted */
+  acceptedAt?: number
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// APPROVAL REQUEST TYPES
+// ============================================================================
+
+/**
+ * Approval request Thing data structure
+ *
+ * Status is encoded via verb form in the relationship:
+ * - approve (intent) -> approving (in-progress) -> approved/rejected (completed)
+ */
+export interface ApprovalRequestThingData {
+  /** Request title/subject */
+  title: string
+  /** Detailed message */
+  message: string
+  /** Request type */
+  type: 'approval' | 'review' | 'question' | 'task'
+  /** Priority */
+  priority: NotificationPriority
+  /** SLA in milliseconds */
+  sla?: number
+  /** Deadline timestamp */
+  deadline?: number
+  /** Requester ID (user or agent) */
+  requesterId: string
+  /** Target role (e.g., 'ceo', 'legal') */
+  targetRole?: string
+  /** Target user ID (if specific user) */
+  targetUserId?: string
+  /** Notification channel preference */
+  channel?: NotificationChannelType
+  /** Context data */
+  context?: Record<string, unknown>
+  /** Response data (when resolved) */
+  response?: ApprovalResponse
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+/**
+ * Approval response data
+ */
+export interface ApprovalResponse {
+  /** Whether approved */
+  approved: boolean
+  /** User who responded */
+  responderId: string
+  /** Response timestamp */
+  respondedAt: number
+  /** Reason/comment */
+  reason?: string
+  /** Additional response data */
+  data?: Record<string, unknown>
+}
+
+// ============================================================================
+// NOTIFICATION TYPES
+// ============================================================================
+
+/**
+ * Notification delivery data stored in relationship
+ */
+export interface NotificationDeliveryData {
+  /** Channel used */
+  channel: NotificationChannelType
+  /** Delivery timestamp */
+  deliveredAt: number
+  /** Message ID from channel */
+  messageId?: string
+  /** Delivery status */
+  status: 'pending' | 'delivered' | 'failed' | 'read'
+  /** Error message if failed */
+  error?: string
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// ESCALATION TYPES
+// ============================================================================
+
+/**
+ * Escalation data stored in escalatedTo relationship
+ */
+export interface EscalationData {
+  /** Original request ID */
+  requestId: string
+  /** Escalation level */
+  level: number
+  /** Reason for escalation */
+  reason?: string
+  /** Escalated at timestamp */
+  escalatedAt: number
+  /** Escalated by (user/system) */
+  escalatedBy?: string
+  /** SLA for this escalation level */
+  sla?: number
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// TEAM TYPES
+// ============================================================================
+
+/**
+ * Team Thing data structure
+ */
+export interface TeamThingData {
+  /** Team name */
+  name: string
+  /** Team slug */
+  slug: string
+  /** Organization ID */
+  orgId: string
+  /** Description */
+  description?: string
+  /** Team lead user ID */
+  leadId?: string
+  /** Custom metadata */
+  metadata?: Record<string, unknown>
+  /** Index signature */
+  [key: string]: unknown
+}
+
+// ============================================================================
+// URL SCHEMES
+// ============================================================================
+
+/**
+ * URL scheme helpers for human graph entities
+ */
+export const HumanUrls = {
+  user: (id: string) => `auth://users/${id}`,
+  org: (id: string) => `auth://orgs/${id}`,
+  role: (id: string) => `auth://roles/${id}`,
+  session: (id: string) => `auth://sessions/${id}`,
+  account: (id: string) => `auth://accounts/${id}`,
+  invitation: (id: string) => `auth://invitations/${id}`,
+  approval: (id: string) => `requests://approvals/${id}`,
+  team: (orgId: string, id: string) => `auth://orgs/${orgId}/teams/${id}`,
+
+  /** Extract ID from URL */
+  extractId: (url: string): string => {
+    const parts = url.split('/')
+    return parts[parts.length - 1]!
+  },
+
+  /** Extract entity type from URL */
+  extractType: (url: string): string | null => {
+    if (url.startsWith('auth://users/')) return 'User'
+    if (url.startsWith('auth://orgs/')) return 'Org'
+    if (url.startsWith('auth://roles/')) return 'Role'
+    if (url.startsWith('auth://sessions/')) return 'Session'
+    if (url.startsWith('auth://accounts/')) return 'Account'
+    if (url.startsWith('auth://invitations/')) return 'Invitation'
+    if (url.startsWith('requests://approvals/')) return 'ApprovalRequest'
+    return null
+  },
+} as const
+
+// ============================================================================
+// TYPE GUARDS
+// ============================================================================
+
+/**
+ * Type guard for UserThingData
+ */
+export function isUserThingData(data: unknown): data is UserThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.email === 'string' && typeof d.status === 'string'
+}
+
+/**
+ * Type guard for OrgThingData
+ */
+export function isOrgThingData(data: unknown): data is OrgThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.name === 'string' && typeof d.slug === 'string'
+}
+
+/**
+ * Type guard for RoleThingData
+ */
+export function isRoleThingData(data: unknown): data is RoleThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.name === 'string' && Array.isArray(d.permissions)
+}
+
+/**
+ * Type guard for ApprovalRequestThingData
+ */
+export function isApprovalRequestThingData(data: unknown): data is ApprovalRequestThingData {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  return typeof d.title === 'string' && typeof d.message === 'string' && typeof d.type === 'string'
+}
