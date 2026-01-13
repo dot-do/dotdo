@@ -103,6 +103,7 @@ export class EventEmitter {
 
   /**
    * Emit an event to all listeners
+   * Handles both sync and async handlers - async errors are emitted to 'error' event
    * @returns true if there were listeners, false otherwise
    */
   emit(event: string, ...args: unknown[]): boolean {
@@ -113,9 +114,17 @@ export class EventEmitter {
 
     for (const entry of handlers) {
       try {
-        entry.callback(...args)
+        const result = entry.callback(...args)
+        // Handle async handlers - catch promise rejections and emit to error
+        if (result instanceof Promise) {
+          result.catch((e) => {
+            if (event !== 'error') {
+              this.emit('error', e)
+            }
+          })
+        }
       } catch (e) {
-        // Emit to error handler if not error event
+        // Emit to error handler if not error event (sync errors)
         if (event !== 'error') {
           this.emit('error', e)
         }
@@ -161,6 +170,12 @@ export class EventEmitter {
     return Array.from(handlers).map((entry) => entry.callback)
   }
 }
+
+/**
+ * SharedEventEmitter - alias for EventEmitter
+ * Used by multiple compat layers (postgres, mysql, etc.)
+ */
+export { EventEmitter as SharedEventEmitter }
 
 // ============================================================================
 // TYPED EVENT EMITTER (for Ably-style APIs)
@@ -227,14 +242,45 @@ export class TypedEventEmitter<T = unknown> {
     if (listeners) {
       for (const entry of listeners) {
         try {
-          entry.callback(data)
+          const result = entry.callback(data)
+          // Handle async handlers - emit to 'error' event
+          if (result instanceof Promise) {
+            result.catch((error) => {
+              if (event !== 'error') {
+                this._emitError(error)
+              }
+            })
+          }
         } catch (error) {
-          console.error(`Error in event handler for ${event}:`, error)
+          // Emit to 'error' event instead of just logging (sync errors)
+          if (event !== 'error') {
+            this._emitError(error)
+          }
         }
         if (entry.once) {
           listeners.delete(entry)
         }
       }
+    }
+  }
+
+  /**
+   * Emit error to 'error' listeners, with console.error fallback
+   */
+  private _emitError(error: unknown): void {
+    const errorListeners = this._listeners.get('error')
+    if (errorListeners && errorListeners.size > 0) {
+      for (const entry of errorListeners) {
+        try {
+          entry.callback(error)
+        } catch {
+          // Avoid infinite loops - just log if error handler throws
+          console.error('Error in error handler:', error)
+        }
+      }
+    } else {
+      // Fallback to console.error if no error listeners
+      console.error('Unhandled event handler error:', error)
     }
   }
 }
@@ -308,9 +354,19 @@ export class PusherEventEmitter {
     if (listeners) {
       for (const callback of listeners) {
         try {
-          callback(data)
+          const result = callback(data)
+          // Handle async handlers
+          if (result instanceof Promise) {
+            result.catch((error) => {
+              if (event !== 'error') {
+                this._emitError(error)
+              }
+            })
+          }
         } catch (error) {
-          console.error(`Error in event handler for ${event}:`, error)
+          if (event !== 'error') {
+            this._emitError(error)
+          }
         }
       }
     }
@@ -318,10 +374,32 @@ export class PusherEventEmitter {
     // Call global listeners
     for (const callback of this._globalListeners) {
       try {
-        callback(event, data)
+        const result = callback(event, data)
+        // Handle async handlers
+        if (result instanceof Promise) {
+          result.catch((error) => this._emitError(error))
+        }
       } catch (error) {
-        console.error(`Error in global event handler:`, error)
+        this._emitError(error)
       }
+    }
+  }
+
+  /**
+   * Emit error to 'error' listeners, with console.error fallback
+   */
+  private _emitError(error: unknown): void {
+    const errorListeners = this._listeners.get('error')
+    if (errorListeners && errorListeners.size > 0) {
+      for (const callback of errorListeners) {
+        try {
+          callback(error)
+        } catch {
+          console.error('Error in error handler:', error)
+        }
+      }
+    } else {
+      console.error('Unhandled event handler error:', error)
     }
   }
 }
@@ -392,18 +470,34 @@ export class SocketIOEventEmitter {
 
     let hasListeners = false
 
-    // Notify catch-all listeners
+    // Notify catch-all listeners with error handling
     for (const listener of this._anyListeners) {
-      listener(event, ...args)
+      try {
+        const result = listener(event, ...args)
+        if (result instanceof Promise) {
+          result.catch((error) => this._emitError(error))
+        }
+      } catch (error) {
+        this._emitError(error)
+      }
     }
 
     if (listeners && listeners.size > 0) {
       hasListeners = true
       for (const listener of listeners) {
         try {
-          listener(...args)
+          const result = listener(...args)
+          if (result instanceof Promise) {
+            result.catch((error) => {
+              if (event !== 'error') {
+                this._emitError(error)
+              }
+            })
+          }
         } catch (e) {
-          console.error('Error in event listener:', e)
+          if (event !== 'error') {
+            this._emitError(e)
+          }
         }
       }
     }
@@ -412,15 +506,42 @@ export class SocketIOEventEmitter {
       hasListeners = true
       for (const listener of onceListeners) {
         try {
-          listener(...args)
+          const result = listener(...args)
+          if (result instanceof Promise) {
+            result.catch((error) => {
+              if (event !== 'error') {
+                this._emitError(error)
+              }
+            })
+          }
         } catch (e) {
-          console.error('Error in event listener:', e)
+          if (event !== 'error') {
+            this._emitError(e)
+          }
         }
       }
       this._onceEvents.delete(event)
     }
 
     return hasListeners
+  }
+
+  /**
+   * Emit error to 'error' listeners, with console.error fallback
+   */
+  private _emitError(error: unknown): void {
+    const errorListeners = this._events.get('error')
+    if (errorListeners && errorListeners.size > 0) {
+      for (const listener of errorListeners) {
+        try {
+          listener(error)
+        } catch {
+          console.error('Error in error handler:', error)
+        }
+      }
+    } else {
+      console.error('Unhandled event listener error:', error)
+    }
   }
 
   listeners(event: string): EventHandler[] {
