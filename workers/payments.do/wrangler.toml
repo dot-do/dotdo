@@ -1,0 +1,56 @@
+# payments.do - Payment Platform Service
+# Cloudflare Worker configuration
+
+name = "payments-do"
+main = "worker.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Routes
+routes = [
+  { pattern = "payments.dotdo.dev/*", zone_name = "dotdo.dev" },
+  { pattern = "api.payments.do/*", zone_name = "payments.do" }
+]
+
+# Durable Objects
+[durable_objects]
+bindings = [
+  { name = "CUSTOMERS", class_name = "CustomerDO" },
+  { name = "PAYMENT_STATES", class_name = "PaymentStateDO" },
+  { name = "WEBHOOK_LOGS", class_name = "WebhookLogDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CustomerDO", "PaymentStateDO", "WebhookLogDO"]
+
+# Environment variables (secrets should be set via wrangler secret)
+[vars]
+ENVIRONMENT = "production"
+
+# Development
+[env.dev]
+name = "payments-do-dev"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+
+# Staging
+[env.staging]
+name = "payments-do-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+# KV Namespace for caching (optional)
+# [[kv_namespaces]]
+# binding = "PAYMENTS_KV"
+# id = "your-kv-namespace-id"
+
+# Build config
+[build]
+command = "npm run build"
+
+[build.upload]
+format = "modules"
+main = "./dist/worker.js"
