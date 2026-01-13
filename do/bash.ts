@@ -20,8 +20,8 @@
  */
 
 import { DO as BaseDO } from '../objects/DO'
-import { withFs } from '../lib/capabilities/fs'
-import { withBash } from '../lib/capabilities/bash'
+import { withFs } from '../lib/mixins/fs'
+import { withBash } from '../lib/mixins/bash'
 
 // TODO: Configure executor and fs properly - these are placeholders
 export const DO = withBash(withFs(BaseDO), {

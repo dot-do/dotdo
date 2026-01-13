@@ -1472,7 +1472,7 @@ describe('@dotdo/twilio/conversations - Webhook Handling', () => {
 
       const handler = client.createWebhookHandler()
 
-      const request = new Request('https://example.com/', {
+      const request = new Request('https://example.com/webhook', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1007,5 +1007,5 @@ export class EscalationChainGraph {
 // EXPORTS
 // ============================================================================
 
-// EscalationChainGraph is already exported at class declaration
+export { EscalationChainGraph }
 export default EscalationChainGraph

@@ -18,8 +18,8 @@
  */
 
 import { DO as BaseDO } from '../objects/DO'
-import { withFs } from '../lib/capabilities/fs'
-import { withGit } from '../lib/capabilities/git'
+import { withFs } from '../lib/mixins/fs'
+import { withGit } from '../lib/mixins/git'
 
 export const DO = withGit(withFs(BaseDO))
 

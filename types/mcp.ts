@@ -505,17 +505,12 @@ export interface ToolParameter {
 /**
  * Tool definition stored as a Thing in the graph.
  * This is the structure stored in GraphThing.data.
- *
- * Index signature allows safe assignment from Record<string, unknown>
- * in type guards while maintaining type safety for known fields.
  */
 export interface ToolThingData {
   id: string
   description: string
   parameters: ToolParameter[]
   handler?: string
-  /** Index signature for compatibility with Record<string, unknown> */
-  [key: string]: unknown
 }
 
 /**
