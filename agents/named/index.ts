@@ -12,13 +12,15 @@
  * | Mark  | Marketing - content, launches |
  * | Sally | Sales - outreach, closing |
  * | Quinn | QA - testing, quality |
+ * | Rae   | Frontend - React, components, design systems |
  *
  * @example
  * ```ts
- * import { priya, ralph, tom } from 'agents.do'
+ * import { priya, ralph, tom, rae } from 'agents.do'
  *
  * const spec = await priya`define the MVP for ${hypothesis}`
  * let app = await ralph`build ${spec}`
+ * let ui = await rae`create the dashboard UI`
  *
  * do {
  *   app = await ralph`improve ${app} per ${tom}`
@@ -39,6 +41,7 @@ export {
   mark,
   sally,
   quinn,
+  rae,
   createNamedAgent,
   enableMockMode,
   disableMockMode,

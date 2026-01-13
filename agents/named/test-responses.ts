@@ -71,6 +71,61 @@ export const MVP_DEFINITION_RESPONSE = `# MVP Definition for Todo App
 This MVP focuses on core task management functionality, deferring advanced features like collaboration, tags, and integrations to future iterations.`
 
 /**
+ * React component response template for frontend agents
+ */
+export const REACT_COMPONENT_RESPONSE = `Here's a React component in TypeScript:
+
+\`\`\`tsx
+import React from 'react'
+
+interface ButtonProps {
+  /** Button text content */
+  children: React.ReactNode
+  /** Click handler */
+  onClick?: () => void
+  /** Button variant */
+  variant?: 'primary' | 'secondary' | 'outline'
+  /** Disabled state */
+  disabled?: boolean
+}
+
+/**
+ * A reusable button component with multiple variants.
+ */
+export function Button({
+  children,
+  onClick,
+  variant = 'primary',
+  disabled = false,
+}: ButtonProps) {
+  const baseStyles = 'px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2'
+
+  const variantStyles = {
+    primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
+    secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500',
+    outline: 'border-2 border-gray-300 text-gray-700 hover:bg-gray-100 focus:ring-gray-500',
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={\`\${baseStyles} \${variantStyles[variant]} \${disabled ? 'opacity-50 cursor-not-allowed' : ''}\`}
+    >
+      {children}
+    </button>
+  )
+}
+\`\`\`
+
+This component follows React best practices with:
+- TypeScript interfaces for type-safe props
+- Tailwind CSS for styling
+- Accessibility considerations (focus states, disabled handling)
+- Composable design with variants`
+
+/**
  * Hello world code response template for engineering agents
  */
 export const HELLO_WORLD_RESPONSE = `Here's a simple hello world function in TypeScript:
@@ -201,12 +256,34 @@ export function generateTechLeadResponse(prompt: string): string | null {
 }
 
 /**
+ * Generate response for frontend role (Rae)
+ *
+ * @param prompt - User's prompt
+ * @returns Response string if matched, null otherwise
+ */
+export function generateFrontendResponse(prompt: string): string | null {
+  const promptLower = prompt.toLowerCase()
+
+  if (
+    promptLower.includes('component') ||
+    promptLower.includes('button') ||
+    promptLower.includes('form') ||
+    promptLower.includes('react')
+  ) {
+    return REACT_COMPONENT_RESPONSE
+  }
+
+  return null
+}
+
+/**
  * Map of role-specific response generators
  */
 const ROLE_RESPONSE_GENERATORS: Record<AgentRole, ResponseGenerator | null> = {
   product: (_, prompt) => generateProductResponse(prompt),
   engineering: (_, prompt) => generateEngineeringResponse(prompt),
   'tech-lead': (_, prompt) => generateTechLeadResponse(prompt),
+  frontend: (_, prompt) => generateFrontendResponse(prompt),
   marketing: null,
   sales: null,
   qa: null,
