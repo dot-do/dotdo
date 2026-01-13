@@ -1231,6 +1231,7 @@ describe('Advanced Communication Patterns', () => {
           createAgentConfig('agent-b', 'B'),
           createAgentConfig('agent-c', 'C'),
         ],
+        messageBus: bus,
       })
     })
 

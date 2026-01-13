@@ -442,6 +442,16 @@ export class GraphMessageBus extends AgentMessageBus {
    * Send a message with graph persistence
    */
   async send<T>(message: AgentMessage<T>): Promise<MessageEnvelope<T>> {
+    // Assign ID if not provided (before graph persistence)
+    if (!message.id) {
+      message.id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    }
+
+    // Assign timestamp if not provided (before graph persistence)
+    if (!message.timestamp) {
+      message.timestamp = new Date()
+    }
+
     // Ensure agent nodes exist
     await this.ensureAgentNode(message.sender)
     await this.ensureAgentNode(message.recipient)

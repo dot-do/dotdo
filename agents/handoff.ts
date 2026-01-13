@@ -34,6 +34,7 @@ import type {
   ToolCall,
   ToolResult,
 } from './types'
+import type { GraphMessageBus } from './communication'
 
 // ============================================================================
 // Handoff Types
@@ -436,6 +437,10 @@ export interface HandoffProtocolConfig {
   preserveState?: boolean
   /** Whether to emit protocol messages via hooks (default: true) */
   emitProtocolMessages?: boolean
+
+  // Message Bus Integration
+  /** Optional message bus for tracking handoffs in graph storage */
+  messageBus?: GraphMessageBus
 }
 
 /**
@@ -572,6 +577,27 @@ export class HandoffProtocol {
       handoffReason: fullRequest.reason,
     })
     this.handoffChains.set(chainId, chain)
+
+    // Send handoff message through message bus if configured
+    if (this.config.messageBus) {
+      const conversationId = fullRequest.context.metadata?.conversationId as string | undefined
+      await this.config.messageBus.send({
+        id: `handoff-msg-${handoffId}`,
+        sender: fullRequest.sourceAgentId,
+        recipient: fullRequest.targetAgentId,
+        type: 'handoff',
+        payload: {
+          reason: fullRequest.reason,
+          reasonDescription: fullRequest.reasonDescription,
+        },
+        timestamp: new Date(),
+        metadata: {
+          handoffId,
+          conversationId,
+          ...fullRequest.context.metadata,
+        },
+      })
+    }
 
     try {
       // Transform context through hook if provided
