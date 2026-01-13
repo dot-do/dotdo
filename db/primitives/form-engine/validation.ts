@@ -199,9 +199,7 @@ export class FormValidator {
     }
 
     // Skip further validation if value is empty and not required
-    // Exception: minLength validation should still apply for empty values
-    const hasMinLengthRule = field.validation?.some((r) => r.type === 'minLength')
-    if (this.isEmpty(value) && !isRequired && !hasMinLengthRule) {
+    if (this.isEmpty(value) && !isRequired) {
       return errors
     }
 
@@ -601,10 +599,6 @@ export class FormValidator {
   }
 
   private isValidUrl(value: string): boolean {
-    // Must start with http:// or https://
-    if (!/^https?:\/\//i.test(value)) {
-      return false
-    }
     try {
       const url = new URL(value)
       return url.protocol === 'http:' || url.protocol === 'https:'

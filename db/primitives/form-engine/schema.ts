@@ -236,7 +236,7 @@ export function validateFormSchema(schema: FormSchema): SchemaValidationResult {
   const collectIds = (fields: FormField[]) => {
     for (const field of fields) {
       if (fieldIds.has(field.id)) {
-        errors.push(`duplicate field id: ${field.id}`)
+        errors.push(`Duplicate field id: ${field.id}`)
       }
       fieldIds.add(field.id)
 

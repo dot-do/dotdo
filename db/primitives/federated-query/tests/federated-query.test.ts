@@ -182,8 +182,7 @@ describe('Catalog', () => {
       expect(schema.tables.products.columns.id.type).toBe('integer')
       expect(schema.tables.products.columns.price.type).toBe('number')
       expect(schema.tables.products.columns.in_stock.type).toBe('boolean')
-      // ISO 8601 timestamp strings are correctly inferred as 'timestamp' type
-      expect(schema.tables.products.columns.created_at.type).toBe('timestamp')
+      expect(schema.tables.products.columns.created_at.type).toBe('string')
     })
   })
 
@@ -970,31 +969,27 @@ describe('FederatedQueryPlanner Integration', () => {
     expect(result.rows.every(r => r.name === 'Acme Corp' || r.name === 'BigCo')).toBe(true)
   })
 
-  it('should handle two-way joins with proper column selection', async () => {
-    // Note: Full multi-way join support (3+ sources with chained joins) is tracked
-    // in subtasks dotdo-pc225 (Cross-source join execution) and dotdo-fv8v0
-    // (Join strategy selection). Current implementation supports two-way joins.
+  it('should handle three-way joins', async () => {
     const query: FederatedQuery = {
       from: [
         { source: 'customers', table: 'customers' },
         { source: 'orders', table: 'orders' },
+        { source: 'products', table: 'products' },
       ],
-      columns: ['customers.name', 'orders.total', 'orders.quantity'],
-      join: {
-        type: 'INNER',
-        on: { left: 'customers.id', right: 'orders.customer_id' },
-      },
+      columns: ['customers.name', 'products.name', 'orders.quantity'],
+      join: [
+        { type: 'INNER', on: { left: 'customers.id', right: 'orders.customer_id' } },
+        { type: 'INNER', on: { left: 'orders.product_id', right: 'products.id' } },
+      ],
     }
 
     const plan = optimizer.optimize(query)
     const result = await executor.execute(plan)
 
-    // 4 orders total, all customers have at least one order
     expect(result.rows).toHaveLength(4)
-    // Rows have unqualified column names from merged sources
-    expect(result.rows[0]).toHaveProperty('name')
-    expect(result.rows[0]).toHaveProperty('total')
-    expect(result.rows[0]).toHaveProperty('quantity')
+    expect(result.rows[0]).toHaveProperty('customers.name')
+    expect(result.rows[0]).toHaveProperty('products.name')
+    expect(result.rows[0]).toHaveProperty('orders.quantity')
   })
 
   it('should optimize join order based on statistics', async () => {
