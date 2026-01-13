@@ -552,39 +552,38 @@ describe('Tree-Shaking Verification', () => {
     })
   })
 
-  describe('mixin composition pattern', () => {
-    it('mixin files exist and are independently structured', () => {
-      // Each mixin should exist as a separate file
-      expect(existsSync(join(PROJECT_ROOT, 'objects/mixins/fs.ts'))).toBe(true)
-      expect(existsSync(join(PROJECT_ROOT, 'objects/mixins/git.ts'))).toBe(true)
-      expect(existsSync(join(PROJECT_ROOT, 'objects/mixins/bash.ts'))).toBe(true)
+  describe('capability composition pattern', () => {
+    it('capability files exist and are independently structured', () => {
+      // Each capability should exist as a separate file
+      expect(existsSync(join(PROJECT_ROOT, 'objects/capabilities/fs.ts'))).toBe(true)
+      expect(existsSync(join(PROJECT_ROOT, 'objects/capabilities/infrastructure.ts'))).toBe(true)
+      expect(existsSync(join(PROJECT_ROOT, 'objects/capabilities/npm.ts'))).toBe(true)
     })
 
-    it('mixin index exports all mixins', () => {
-      const indexContent = readFileSync(join(PROJECT_ROOT, 'objects/mixins/index.ts'), 'utf-8')
+    it('capability index exports all capabilities', () => {
+      const indexContent = readFileSync(join(PROJECT_ROOT, 'objects/capabilities/index.ts'), 'utf-8')
 
       expect(indexContent).toMatch(/export.*withFs/)
-      expect(indexContent).toMatch(/export.*withGit/)
-      expect(indexContent).toMatch(/export.*withBash/)
+      expect(indexContent).toMatch(/export.*createCapability/)
     })
 
-    it('mixin files have clean dependency chains', () => {
+    it('capability files have clean dependency chains', () => {
       // fs.ts should not import git.ts or bash.ts
-      const fsMixinPath = join(PROJECT_ROOT, 'objects/mixins/fs.ts')
-      const fsMixinContent = readFileSync(fsMixinPath, 'utf-8')
+      const fsCapabilityPath = join(PROJECT_ROOT, 'objects/capabilities/fs.ts')
+      const fsCapabilityContent = readFileSync(fsCapabilityPath, 'utf-8')
 
-      expect(fsMixinContent).not.toMatch(/from ['"]\.\/git['"]/)
-      expect(fsMixinContent).not.toMatch(/from ['"]\.\/bash['"]/)
+      expect(fsCapabilityContent).not.toMatch(/from ['"]\.\/git['"]/)
+      expect(fsCapabilityContent).not.toMatch(/from ['"]\.\/bash['"]/)
     })
 
-    it('each mixin file exports its mixin function', () => {
-      const fsMixin = readFileSync(join(PROJECT_ROOT, 'objects/mixins/fs.ts'), 'utf-8')
-      const gitMixin = readFileSync(join(PROJECT_ROOT, 'objects/mixins/git.ts'), 'utf-8')
-      const bashMixin = readFileSync(join(PROJECT_ROOT, 'objects/mixins/bash.ts'), 'utf-8')
+    it('each capability file exports its capability function', () => {
+      const fsCapability = readFileSync(join(PROJECT_ROOT, 'lib/capabilities/fs.ts'), 'utf-8')
+      const gitCapability = readFileSync(join(PROJECT_ROOT, 'lib/capabilities/git.ts'), 'utf-8')
+      const bashCapability = readFileSync(join(PROJECT_ROOT, 'lib/capabilities/bash.ts'), 'utf-8')
 
-      expect(fsMixin).toMatch(/export\s+function\s+withFs/)
-      expect(gitMixin).toMatch(/export\s+function\s+withGit/)
-      expect(bashMixin).toMatch(/export\s+function\s+withBash/)
+      expect(fsCapability).toMatch(/export\s+function\s+withFs/)
+      expect(gitCapability).toMatch(/export\s+function\s+withGit/)
+      expect(bashCapability).toMatch(/export\s+function\s+withBash/)
     })
   })
 

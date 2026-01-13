@@ -1,12 +1,103 @@
 /**
- * HNSW Index Persistence to R2
+ * HNSW Index Persistence to R2 - Reliable Index Storage and Recovery
  *
- * Provides save/load functionality for HNSW indices to Cloudflare R2.
- * Features:
- * - Chunked storage for large indices
- * - Compression support
- * - Incremental backups
- * - Checksum validation
+ * This module provides save/load functionality for HNSW indices to Cloudflare R2
+ * object storage. It handles serialization, chunking, compression, and integrity
+ * validation for reliable index persistence.
+ *
+ * ## Features
+ *
+ * - **Chunked Storage**: Split large indices into manageable R2 objects (default 10MB)
+ * - **Optional Compression**: Gzip compression to reduce storage costs
+ * - **Checksum Validation**: SHA-256 checksums ensure data integrity
+ * - **Point-in-time Backups**: Timestamped backups for disaster recovery
+ * - **Manifest Tracking**: JSON manifests for index metadata and chunk locations
+ *
+ * ## Storage Layout
+ *
+ * ```
+ * edgevec/
+ *   my-index/
+ *     _manifest.json         <- Current index manifest
+ *     1704067200000/         <- Timestamped backup folder
+ *       chunk_0.bin          <- Index data chunk 0
+ *       chunk_1.bin          <- Index data chunk 1
+ *       ...
+ *     1704153600000/         <- Older backup
+ *       chunk_0.bin
+ *       ...
+ * ```
+ *
+ * ## Manifest Format
+ *
+ * ```json
+ * {
+ *   "name": "my-index",
+ *   "createdAt": 1704067200000,
+ *   "updatedAt": 1704067200000,
+ *   "vectorCount": 50000,
+ *   "dimensions": 768,
+ *   "config": { "M": 16, "efConstruction": 200, "metric": "cosine" },
+ *   "chunks": [
+ *     { "key": "edgevec/my-index/1704067200000/chunk_0.bin", "sizeBytes": 10485760, "checksum": "abc..." }
+ *   ],
+ *   "hasMetadata": true,
+ *   "version": "1.0.0"
+ * }
+ * ```
+ *
+ * ## Storage Cost Estimation
+ *
+ * | Vectors | Dimensions | Estimated Size | R2 Cost (~$0.015/GB/mo) |
+ * |---------|------------|----------------|-------------------------|
+ * | 10K     | 768        | ~35MB          | ~$0.01/mo               |
+ * | 100K    | 768        | ~350MB         | ~$0.05/mo               |
+ * | 1M      | 768        | ~3.5GB         | ~$0.05/mo               |
+ * | 10K     | 1536       | ~65MB          | ~$0.01/mo               |
+ *
+ * @example Saving an index to R2
+ * ```typescript
+ * import { HNSWPersistence } from 'db/edgevec/persistence'
+ *
+ * const persistence = new HNSWPersistence(env.R2, {
+ *   compression: 'gzip',     // Enable compression
+ *   maxChunkSizeMB: 10,      // 10MB chunks
+ *   validateChecksum: true   // Verify on load
+ * })
+ *
+ * // Save index with custom metadata
+ * await persistence.save('my-index', index, {
+ *   description: 'Product embeddings',
+ *   lastTrainingDate: '2024-01-01'
+ * })
+ * ```
+ *
+ * @example Loading an index from R2
+ * ```typescript
+ * // Load latest version
+ * const index = await persistence.load('my-index')
+ *
+ * // Load specific backup by timestamp
+ * const backups = await persistence.listBackups('my-index')
+ * const olderIndex = await persistence.loadBackup('my-index', backups[1].timestamp)
+ * ```
+ *
+ * @example Index management
+ * ```typescript
+ * // Get manifest without loading full index
+ * const manifest = await persistence.getManifest('my-index')
+ * console.log(`Vectors: ${manifest.vectorCount}`)
+ * console.log(`Dimensions: ${manifest.dimensions}`)
+ *
+ * // List all backups
+ * const backups = await persistence.listBackups('my-index')
+ * for (const backup of backups) {
+ *   console.log(`${new Date(backup.timestamp)}: ${backup.vectorCount} vectors`)
+ * }
+ *
+ * // Delete index and all backups
+ * await persistence.delete('my-index')
+ * ```
  *
  * @module db/edgevec/persistence
  */

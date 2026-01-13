@@ -299,6 +299,11 @@ class LocalObjectApi<T extends CrmObject> {
         hs_object_id: id,
       }
 
+      // Add default pipeline for deals
+      if (this.objectType === 'deals' && !input.properties.pipeline) {
+        defaultProperties.pipeline = 'default'
+      }
+
       const obj: CrmObject = {
         id,
         properties: { ...defaultProperties, ...input.properties },
@@ -308,6 +313,14 @@ class LocalObjectApi<T extends CrmObject> {
       }
 
       await this.storage.put(`${this.PREFIX}${id}`, obj)
+
+      // Initialize property history
+      const historyKey = `${this.PREFIX}${id}:history`
+      const initialHistory: Record<string, Array<{ value: string | null; timestamp: string }>> = {}
+      for (const [propName, propValue] of Object.entries(obj.properties)) {
+        initialHistory[propName] = [{ value: propValue, timestamp }]
+      }
+      await this.storage.put(historyKey, initialHistory)
 
       // Handle associations
       if (input.associations) {
@@ -322,16 +335,65 @@ class LocalObjectApi<T extends CrmObject> {
       return obj as T
     },
 
-    getById: async (id: string, properties?: string[]): Promise<T> => {
+    getById: async (id: string, options?: string[] | {
+      properties?: string[]
+      associations?: string[]
+      propertiesWithHistory?: string[]
+    }): Promise<T & {
+      associations?: Record<string, unknown>
+      propertiesWithHistory?: Record<string, Array<{ value: string | null; timestamp: string }>>
+    }> => {
       const obj = await this.storage.get<T>(`${this.PREFIX}${id}`)
       if (!obj || obj.archived) {
         throw new Error(`${this.objectType} not found: ${id}`)
       }
-      return obj
+
+      // If options is just a string array (legacy), return the object as-is
+      if (Array.isArray(options) || !options) {
+        return obj
+      }
+
+      const result: T & {
+        associations?: Record<string, Array<{ toObjectId: string | number }>>
+        propertiesWithHistory?: Record<string, Array<{ value: string | null; timestamp: string }>>
+      } = { ...obj }
+
+      // Fetch associations if requested
+      if (options.associations && options.associations.length > 0) {
+        result.associations = {}
+        for (const assocType of options.associations) {
+          const prefix = `assoc:${this.objectType}:${id}:${assocType}:`
+          const map = await this.storage.list({ prefix })
+          const assocResults: Array<{ toObjectId: string | number }> = []
+          for (const value of map.values()) {
+            const assoc = value as any
+            assocResults.push({ toObjectId: assoc.to.id })
+          }
+          if (assocResults.length > 0) {
+            result.associations[assocType] = assocResults
+          }
+        }
+      }
+
+      // Fetch property history if requested
+      if (options.propertiesWithHistory && options.propertiesWithHistory.length > 0) {
+        const historyKey = `${this.PREFIX}${id}:history`
+        const history = await this.storage.get<Record<string, Array<{ value: string | null; timestamp: string }>>>(historyKey)
+        if (history) {
+          result.propertiesWithHistory = {}
+          for (const propName of options.propertiesWithHistory) {
+            if (history[propName]) {
+              result.propertiesWithHistory[propName] = history[propName]
+            }
+          }
+        }
+      }
+
+      return result
     },
 
     update: async (id: string, input: UpdateObjectInput): Promise<T> => {
-      const obj = await this.basicApi.getById(id)
+      const obj = await this.basicApi.getById(id) as T
       const timestamp = now()
 
       const updated: T = {
@@ -345,6 +407,17 @@ class LocalObjectApi<T extends CrmObject> {
       }
 
       await this.storage.put(`${this.PREFIX}${id}`, updated)
+
+      // Update property history
+      const historyKey = `${this.PREFIX}${id}:history`
+      const history = await this.storage.get<Record<string, Array<{ value: string | null; timestamp: string }>>>(historyKey) ?? {}
+      for (const [propName, propValue] of Object.entries(input.properties)) {
+        if (!history[propName]) {
+          history[propName] = []
+        }
+        history[propName].push({ value: propValue, timestamp })
+      }
+      await this.storage.put(historyKey, history)
 
       // Trigger webhook for each changed property
       for (const propName of Object.keys(input.properties)) {
@@ -438,7 +511,15 @@ class LocalObjectApi<T extends CrmObject> {
         filtered.sort((a, b) => {
           const aVal = a.properties[sort.propertyName] ?? ''
           const bVal = b.properties[sort.propertyName] ?? ''
-          const cmp = String(aVal).localeCompare(String(bVal))
+          // Try numeric comparison first, fall back to string comparison
+          const aNum = Number(aVal)
+          const bNum = Number(bVal)
+          let cmp: number
+          if (!isNaN(aNum) && !isNaN(bNum)) {
+            cmp = aNum - bNum
+          } else {
+            cmp = String(aVal).localeCompare(String(bVal))
+          }
           return sort.direction === 'DESCENDING' ? -cmp : cmp
         })
       }
@@ -541,7 +622,17 @@ class LocalObjectApi<T extends CrmObject> {
   // Helper methods
   protected async getAllObjects(): Promise<T[]> {
     const map = await this.storage.list({ prefix: this.PREFIX })
-    return Array.from(map.values()) as T[]
+    const objects: T[] = []
+    for (const [key, value] of map.entries()) {
+      // Filter out history entries and other non-object entries
+      if (key.includes(':history')) continue
+      const obj = value as any
+      // Verify it's a CRM object (has properties)
+      if (obj && obj.properties && obj.id) {
+        objects.push(obj as T)
+      }
+    }
+    return objects
   }
 
   private matchesFilter(obj: CrmObject, filter: SearchFilter): boolean {
@@ -686,6 +777,39 @@ class LocalAssociationsApi {
         return { results }
       },
 
+      // Alias for getPage - HubSpot API uses getAll in some places
+      getAll: async (
+        fromObjectType: string,
+        fromObjectId: string,
+        toObjectType: string
+      ): Promise<{
+        results: Array<{
+          toObjectId: string | number
+          associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
+        }>
+        paging?: { next?: { after: string } }
+      }> => {
+        const prefix = `assoc:${fromObjectType}:${fromObjectId}:${toObjectType}:`
+        const map = await this.storage.list({ prefix })
+        const results: Array<{
+          toObjectId: string | number
+          associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
+        }> = []
+
+        for (const value of map.values()) {
+          const assoc = value as any
+          results.push({
+            toObjectId: assoc.to.id,
+            associationTypes: assoc.types.map((t: any) => ({
+              category: t.associationCategory,
+              typeId: t.associationTypeId,
+            })),
+          })
+        }
+
+        return { results }
+      },
+
       archive: async (
         fromObjectType: string,
         fromObjectId: string,
@@ -723,6 +847,43 @@ class LocalAssociationsApi {
         }
 
         return { status: 'COMPLETE', results, errors: [] }
+      },
+
+      read: async (
+        fromObjectType: string,
+        toObjectType: string,
+        input: { inputs: Array<{ id: string }> }
+      ): Promise<{
+        results: Array<{
+          from: { id: string }
+          to: Array<{
+            toObjectId: string | number
+            associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
+          }>
+        }>
+        errors: Array<{ status: string; message: string; context?: Record<string, unknown> }>
+      }> => {
+        const results: Array<{
+          from: { id: string }
+          to: Array<{
+            toObjectId: string | number
+            associationTypes: Array<{ category: AssociationCategory; typeId: number; label?: string }>
+          }>
+        }> = []
+
+        for (const item of input.inputs) {
+          const associations = await this.v4.basicApi.getAll(
+            fromObjectType,
+            item.id,
+            toObjectType
+          )
+          results.push({
+            from: { id: item.id },
+            to: associations.results,
+          })
+        }
+
+        return { results, errors: [] }
       },
 
       archive: async (

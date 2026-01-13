@@ -735,13 +735,65 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
       logger.info('DAG started', { dagId: dag.id, runId })
     }
 
-    // Call observers
+    // Call observers for DAG start
     for (const obs of allObservers) {
       try {
         await obs.onDAGStart?.(dag, runId)
       } catch {
         // Ignore observer errors
       }
+    }
+
+    // Wrap tasks with instrumented retry policies to capture retry events
+    const instrumentedTasks = new Map<string, TaskNode>()
+    for (const [taskId, task] of dag.tasks) {
+      const wrappedTask = { ...task }
+
+      // If task has a retry policy, wrap its onRetry callback
+      if (task.retryPolicy) {
+        const originalOnRetry = task.retryPolicy.onRetry
+        wrappedTask.retryPolicy = {
+          ...task.retryPolicy,
+          onRetry: (attempt: number, error: Error) => {
+            // Call original callback
+            originalOnRetry?.(attempt, error)
+
+            // Record metrics
+            if (metricsCollector) {
+              metricsCollector.recordRetry(dag.id, runId, task.id, attempt, error)
+            }
+
+            // Log retry
+            if (logger) {
+              logger.warn('Task retrying', {
+                taskId: task.id,
+                dagId: dag.id,
+                runId,
+                attempt,
+                error: error.message,
+              })
+            }
+
+            // Call observers for retry - Note: this is sync because onRetry is sync in the policy
+            for (const obs of allObservers) {
+              try {
+                // We need to call sync because the policy callback is sync
+                const result = obs.onRetry?.(task, attempt, error)
+                // If it returns a promise, we can't await it here, but we call it anyway
+              } catch {
+                // Ignore observer errors
+              }
+            }
+          },
+        }
+      }
+      instrumentedTasks.set(taskId, wrappedTask)
+    }
+
+    // Create instrumented DAG with wrapped tasks
+    const instrumentedDAG: DAG = {
+      ...dag,
+      tasks: instrumentedTasks,
     }
 
     // Create instrumented callbacks
@@ -764,7 +816,7 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
           logger.info('Task started', { taskId: task.id, dagId: dag.id, runId })
         }
 
-        // Call observers
+        // Call observers - await each one in sequence
         for (const obs of allObservers) {
           try {
             await obs.onTaskStart?.(task, runId)
@@ -821,7 +873,7 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
           }
         }
 
-        // Call observers
+        // Call observers - await each one in sequence to ensure ordering
         for (const obs of allObservers) {
           try {
             await obs.onTaskComplete?.(task, runId, result)
@@ -836,8 +888,8 @@ export function createObservableExecutor(options: ObservableExecutorOptions = {}
     }
 
     try {
-      // Execute the DAG
-      const result = await baseExecutor.execute(dag, instrumentedOptions)
+      // Execute the instrumented DAG
+      const result = await baseExecutor.execute(instrumentedDAG, instrumentedOptions)
 
       const duration = Date.now() - startTime
 

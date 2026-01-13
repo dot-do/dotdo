@@ -288,6 +288,37 @@ export {
 } from './destinations.js'
 
 // =============================================================================
+// Protocols (Schema Validation)
+// =============================================================================
+
+export {
+  // Tracking Plan
+  TrackingPlan,
+  createTrackingPlan,
+
+  // Schema Validator
+  SchemaValidator,
+  createSchemaValidator,
+
+  // Built-in tracking plans
+  ecommerceTrackingPlan,
+  saasTrackingPlan,
+
+  // Types
+  type PropertyType,
+  type PropertySchema,
+  type EventSchema,
+  type IdentifySchema,
+  type GroupSchema,
+  type TrackingPlanConfig,
+  type ViolationType,
+  type Violation,
+  type ValidationResult,
+  type SchemaValidatorOptions,
+  type ValidationStats,
+} from './protocols.js'
+
+// =============================================================================
 // Types
 // =============================================================================
 

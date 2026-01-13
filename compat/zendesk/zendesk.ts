@@ -113,6 +113,16 @@ import type {
   TargetCreateParams,
   TargetUpdateParams,
   TargetListResponse,
+  // SLA types
+  SLAPolicy,
+  SLAPolicyCreateParams,
+  SLAPolicyUpdateParams,
+  SLAPolicyListResponse,
+  SLAStatus,
+  SLABreachesResponse,
+  SLABreachesParams,
+  SLAAtRiskResponse,
+  SLAAtRiskParams,
 } from './types'
 
 // =============================================================================
@@ -234,6 +244,19 @@ export class TicketsResource extends ZendeskResource {
    */
   async listComments(ticketId: number, params?: CommentListParams, options?: RequestOptions): Promise<CommentListResponse> {
     return this.request<CommentListResponse>('GET', `/api/v2/tickets/${ticketId}/comments`, params, options)
+  }
+
+  /**
+   * Get SLA status for a ticket
+   */
+  async getSLAStatus(ticketId: number, options?: RequestOptions): Promise<SLAStatus | null> {
+    const response = await this.request<{ sla_status: SLAStatus | null }>(
+      'GET',
+      `/api/v2/tickets/${ticketId}/slas`,
+      undefined,
+      options
+    )
+    return response.sla_status
   }
 }
 
@@ -1081,6 +1104,119 @@ export class TargetsResource extends ZendeskResource {
 }
 
 // =============================================================================
+// SLA Policies Resource
+// =============================================================================
+
+/**
+ * SLA Policies resource for managing SLA policies
+ */
+export class SLAPoliciesResource extends ZendeskResource {
+  /**
+   * Create a new SLA policy
+   */
+  async create(params: SLAPolicyCreateParams, options?: RequestOptions): Promise<SLAPolicy> {
+    const response = await this.request<{ sla_policy: SLAPolicy }>(
+      'POST',
+      '/api/v2/slas/policies',
+      { sla_policy: params },
+      options
+    )
+    return response.sla_policy
+  }
+
+  /**
+   * Get an SLA policy by ID
+   */
+  async get(id: number, options?: RequestOptions): Promise<SLAPolicy> {
+    const response = await this.request<{ sla_policy: SLAPolicy }>(
+      'GET',
+      `/api/v2/slas/policies/${id}`,
+      undefined,
+      options
+    )
+    return response.sla_policy
+  }
+
+  /**
+   * Update an SLA policy
+   */
+  async update(id: number, params: SLAPolicyUpdateParams, options?: RequestOptions): Promise<SLAPolicy> {
+    const response = await this.request<{ sla_policy: SLAPolicy }>(
+      'PUT',
+      `/api/v2/slas/policies/${id}`,
+      { sla_policy: params },
+      options
+    )
+    return response.sla_policy
+  }
+
+  /**
+   * Delete an SLA policy
+   */
+  async delete(id: number, options?: RequestOptions): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/slas/policies/${id}`, undefined, options)
+  }
+
+  /**
+   * List all SLA policies
+   */
+  async list(options?: RequestOptions): Promise<SLAPolicyListResponse> {
+    return this.request<SLAPolicyListResponse>('GET', '/api/v2/slas/policies', undefined, options)
+  }
+
+  /**
+   * Reorder SLA policies
+   */
+  async reorder(policyIds: number[], options?: RequestOptions): Promise<SLAPolicyListResponse> {
+    return this.request<SLAPolicyListResponse>(
+      'PUT',
+      '/api/v2/slas/policies/reorder',
+      { sla_policy_ids: policyIds },
+      options
+    )
+  }
+
+  /**
+   * Get SLA breaches for a policy
+   */
+  async getBreaches(id: number, params?: SLABreachesParams, options?: RequestOptions): Promise<SLABreachesResponse> {
+    return this.request<SLABreachesResponse>(
+      'GET',
+      `/api/v2/slas/policies/${id}/breaches`,
+      params as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Get tickets at risk of SLA breach for a policy
+   */
+  async getAtRisk(id: number, params?: SLAAtRiskParams, options?: RequestOptions): Promise<SLAAtRiskResponse> {
+    return this.request<SLAAtRiskResponse>(
+      'GET',
+      `/api/v2/slas/policies/${id}/at_risk`,
+      params as Record<string, unknown>,
+      options
+    )
+  }
+}
+
+// =============================================================================
+// SLAs Resource (Container for SLA sub-resources)
+// =============================================================================
+
+/**
+ * SLAs resource container for SLA-related sub-resources
+ */
+export class SLAsResource {
+  readonly policies: SLAPoliciesResource
+
+  constructor(client: Client) {
+    this.policies = new SLAPoliciesResource(client)
+  }
+}
+
+// =============================================================================
 // Main Client
 // =============================================================================
 
@@ -1106,6 +1242,7 @@ export class Client {
   readonly groups: GroupsResource
   readonly webhooks: WebhooksResource
   readonly targets: TargetsResource
+  readonly slas: SLAsResource
 
   constructor(config: ClientConfig) {
     if (!config.subdomain) {
@@ -1148,6 +1285,7 @@ export class Client {
     this.groups = new GroupsResource(this)
     this.webhooks = new WebhooksResource(this)
     this.targets = new TargetsResource(this)
+    this.slas = new SLAsResource(this)
   }
 
   /**

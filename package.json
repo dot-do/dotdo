@@ -25,7 +25,7 @@
   "workspaces": [
     "packages/*"
   ],
-  "main": "./dist/do/base.js",
+  "main": "./dist/do/index.js",
   "bin": {
     "do": "./cli/bin.js",
     "dotdo": "./cli/bin.js"
@@ -33,16 +33,36 @@
   "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/base.js"
+      "types": "./dist/do/index.d.ts",
+      "default": "./dist/do/index.js"
     },
     "./tiny": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./dist/do/tiny.d.ts",
       "default": "./dist/do/tiny.js"
     },
     "./base": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./dist/do/base.d.ts",
       "default": "./dist/do/base.js"
+    },
+    "./fs": {
+      "types": "./dist/do/fs.d.ts",
+      "default": "./dist/do/fs.js"
+    },
+    "./git": {
+      "types": "./dist/do/git.d.ts",
+      "default": "./dist/do/git.js"
+    },
+    "./bash": {
+      "types": "./dist/do/bash.d.ts",
+      "default": "./dist/do/bash.js"
+    },
+    "./full": {
+      "types": "./dist/do/full.d.ts",
+      "default": "./dist/do/full.js"
+    },
+    "./mixins": {
+      "types": "./dist/lib/mixins/index.d.ts",
+      "default": "./dist/lib/mixins/index.js"
     },
     "./objects": {
       "types": "./dist/objects/index.d.ts",

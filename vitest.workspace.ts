@@ -97,6 +97,13 @@ const WORKERS_POOL_OPTIONS = {
       singleWorker: true,
     },
   },
+  doWithTest: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-with-test.jsonc') },
+      isolatedStorage: true,
+      singleWorker: true,
+    },
+  },
 } as const
 
 /**
@@ -106,17 +113,18 @@ const WORKERS_POOL_OPTIONS = {
 function createNodeWorkspace(
   name: string,
   include: string[],
-  options: { setupFiles?: string[] } = {}
+  options: { setupFiles?: string[]; exclude?: string[] } = {}
 ) {
   // Always include global setup, then any custom setup files
   const setupFiles = [GLOBAL_SETUP, ...(options.setupFiles ?? [])]
+  const exclude = options.exclude ? [...defaultExcludes, ...options.exclude] : defaultExcludes
 
   return {
     test: {
       ...sharedTestConfig,
       name,
       include,
-      exclude: defaultExcludes,
+      exclude,
       environment: 'node' as const,
       setupFiles,
     },
@@ -179,6 +187,9 @@ export default defineWorkspace([
   // Graph query engine and schema tests (Things + Relationships)
   createNodeWorkspace('graph', ['db/graph/**/*.test.ts']),
 
+  // Graph E2E tests (cross-DO operations with Miniflare)
+  createNodeWorkspace('graph-e2e', ['tests/e2e/graph/**/*.test.ts']),
+
   // TanStack DB integration tests (sync engine, collection options, rpc client)
   createNodeWorkspace('tanstack', ['db/tanstack/**/*.test.ts']),
 
@@ -203,7 +214,7 @@ export default defineWorkspace([
   // DO transport layer tests (REST router, edit UI, auth layer, RPC, etc.)
   createNodeWorkspace('objects-transport', ['objects/transport/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, etc.)
+  // Library utility tests (sqids, capabilities, executors, rpc, sql, logging, channels, etc.)
   // Uses glob pattern to capture all lib subdirectory tests
   createNodeWorkspace('lib', [
     'lib/tests/**/*.test.ts',
@@ -374,7 +385,10 @@ export default defineWorkspace([
   createNodeWorkspace('compat', ['compat/**/*.test.ts', 'db/compat/**/*.test.ts', 'search/compat/**/*.test.ts', 'config/compat/**/*.test.ts', 'storage/compat/**/*.test.ts']),
 
   // Database core tests (sharding, replication, tiering, vectors)
-  createNodeWorkspace('db-core', ['db/core/**/*.test.ts']),
+  // Note: shard-integration.test.ts runs in shard-integration workspace (Workers environment)
+  createNodeWorkspace('db-core', ['db/core/**/*.test.ts'], {
+    exclude: ['db/core/shard-integration.test.ts'],
+  }),
 
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
@@ -665,6 +679,11 @@ export default defineWorkspace([
     poolOptions: WORKERS_POOL_OPTIONS.browserDo,
   }),
 
+  // DO.with() eager initialization integration tests (real miniflare DOs)
+  createWorkersWorkspace('do-with-integration', ['objects/tests/do-with-integration.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.doWithTest,
+  }),
+
   // DuckDB WASM tests - require Workers runtime for WASM instantiation
   createWorkersWorkspace('duckdb-wasm', ['db/compat/sql/duckdb-wasm/tests/**/*.test.ts']),
 
@@ -676,6 +695,11 @@ export default defineWorkspace([
   // DuckDB FTS (Full Text Search) extension tests
   createWorkersWorkspace('duckdb-fts', ['db/compat/sql/duckdb-wasm/fts/tests/**/*.test.ts'], {
     timeouts: TIMEOUTS.wasm,
+  }),
+
+  // ShardManager integration tests (real DO stubs via miniflare)
+  createWorkersWorkspace('shard-integration', ['db/core/shard-integration.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.workersTest,
   }),
 
   // @dotdo/duckdb-worker package Workers tests
