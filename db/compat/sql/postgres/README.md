@@ -478,7 +478,7 @@ OFFSET n
 
 MIT
 
-## Links
+## Related
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://postgres.do)

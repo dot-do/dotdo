@@ -21,7 +21,7 @@ import type {
   Intent,
   ExecOptions,
   Program,
-} from '../../../lib/mixins/bash'
+} from '../../../lib/capabilities/bash'
 
 // ============================================================================
 // Test Utilities

@@ -288,6 +288,50 @@ export {
 } from './destinations.js'
 
 // =============================================================================
+// Protocols (Schema Validation)
+// =============================================================================
+
+export {
+  // Tracking Plan
+  TrackingPlan,
+  createTrackingPlan,
+
+  // Schema Validator
+  SchemaValidator,
+  createSchemaValidator,
+
+  // Violation Store
+  ViolationStore,
+  createViolationStore,
+
+  // Protocol Middleware
+  createProtocolMiddleware,
+  createValidatorWithStore,
+
+  // Built-in tracking plans
+  ecommerceTrackingPlan,
+  saasTrackingPlan,
+
+  // Types
+  type FormatType,
+  type PropertyType,
+  type PropertySchema,
+  type EventSchema,
+  type IdentifySchema,
+  type GroupSchema,
+  type TrackingPlanConfig,
+  type ViolationType,
+  type Violation,
+  type ValidationResult,
+  type SchemaValidatorOptions,
+  type ValidationStats,
+  type ViolationStoreOptions,
+  type ViolationSummary,
+  type ViolationExport,
+  type ProtocolMiddlewareOptions,
+} from './protocols.js'
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -338,6 +382,107 @@ export type {
   AnalyticsOptions,
   Callback,
 } from './types.js'
+
+// =============================================================================
+// Personas (Computed Traits & Audiences)
+// =============================================================================
+
+export {
+  // Computed Traits
+  ComputedTrait,
+  createComputedTrait,
+
+  // Audiences
+  Audience,
+  createAudience,
+  createEnhancedAudience,
+
+  // Personas Engine
+  PersonasEngine,
+  createPersonasEngine,
+
+  // Audience Builder DSL
+  AudienceBuilder,
+  audienceBuilder,
+
+  // Prebuilt Audiences
+  highValueCustomersAudience,
+  atRiskChurnAudience,
+  newUsersAudience,
+  enterprisePlanAudience,
+
+  // Types
+  type ComputedTraitType,
+  type ComputedTraitConfig,
+  type AudienceConfig,
+  type UserProfile,
+  type TraitResult,
+  type AudienceResult,
+  type PersonasEngineOptions,
+
+  // Extended Types
+  type TraitExpression,
+  type ExpressionComponents,
+  type ExpressionCondition,
+  type AudienceOperator,
+  type AudienceCondition,
+  type AudienceRule,
+  type EnhancedAudienceConfig,
+  type TraitHistoryEntry,
+  type TraitHistory,
+  type ExternalId,
+  type ExtendedUserProfile,
+} from './personas.js'
+
+// =============================================================================
+// Identity Resolution
+// =============================================================================
+
+export {
+  // Identity Resolver
+  IdentityResolver,
+  createIdentityResolver,
+
+  // Types
+  type IdentityType,
+  type IdentityNode,
+  type IdentityEdge,
+  type MergedProfile,
+  type MergeEvent,
+  type IdentityResolverOptions,
+  type IdentityExtractor,
+  type ProfileQuery,
+} from './identity.js'
+
+// =============================================================================
+// Source Definitions
+// =============================================================================
+
+export {
+  // Source class
+  Source,
+  createSource,
+
+  // Source manager
+  SourceManager,
+  createSourceManager,
+
+  // Built-in source templates
+  createWebsiteSource,
+  createServerSource,
+  createIOSSource,
+  createAndroidSource,
+  createCloudSource,
+
+  // Types
+  type SourceType,
+  type SourcePlatform,
+  type SourceConfig,
+  type SchemaSettings,
+  type EventTransformation,
+  type SourceValidationResult,
+  type SourceStats,
+} from './sources.js'
 
 // =============================================================================
 // Default Export

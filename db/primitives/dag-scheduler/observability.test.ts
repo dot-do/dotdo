@@ -881,3 +881,217 @@ describe('StructuredLogging', () => {
     expect(errorLog?.context.taskId).toBe('a')
   })
 })
+
+// ============================================================================
+// HEALTH CHECK INTEGRATION
+// ============================================================================
+
+import {
+  createDAGHealthCheck,
+  createHealthEndpointHandler,
+  type DAGHealthStatus,
+  type HealthEndpointResponse,
+} from './observability'
+
+describe('DAGHealthCheck', () => {
+  describe('createDAGHealthCheck', () => {
+    it('should return healthy status with no metrics', () => {
+      const healthCheck = createDAGHealthCheck()
+      const result = healthCheck()
+
+      expect(result.status).toBe('healthy')
+      expect(result.message).toBe('DAG scheduler is healthy')
+      expect(result.details.metricsAvailable).toBe(false)
+    })
+
+    it('should return healthy status with no failures', () => {
+      const collector = createMetricsCollector()
+      collector.recordTaskComplete('dag-1', 'run-1', 'task-a', 'success', 100)
+
+      const healthCheck = createDAGHealthCheck({ metricsCollector: collector })
+      const result = healthCheck()
+
+      expect(result.status).toBe('healthy')
+      expect(result.details.recentFailures).toBe(0)
+      expect(result.details.metricsAvailable).toBe(true)
+    })
+
+    it('should return degraded status with few failures', () => {
+      const collector = createMetricsCollector()
+      collector.recordTaskComplete('dag-1', 'run-1', 'task-a', 'failed', 100)
+
+      const healthCheck = createDAGHealthCheck({
+        metricsCollector: collector,
+        failureThreshold: 5,
+      })
+      const result = healthCheck()
+
+      expect(result.status).toBe('degraded')
+      expect(result.details.recentFailures).toBe(1)
+    })
+
+    it('should return unhealthy status with many failures', () => {
+      const collector = createMetricsCollector()
+      for (let i = 0; i < 5; i++) {
+        collector.recordTaskComplete('dag-1', `run-${i}`, 'task-a', 'failed', 100)
+      }
+
+      const healthCheck = createDAGHealthCheck({
+        metricsCollector: collector,
+        failureThreshold: 5,
+      })
+      const result = healthCheck()
+
+      expect(result.status).toBe('unhealthy')
+      expect(result.details.recentFailures).toBe(5)
+    })
+
+    it('should return degraded status with SLA violations', () => {
+      const collector = createMetricsCollector()
+      const monitor = createSLAMonitor()
+
+      monitor.registerTaskSLA('task-a', { maxDuration: 100 })
+      monitor.checkTaskDuration('dag-1', 'run-1', 'task-a', 150)
+
+      const healthCheck = createDAGHealthCheck({
+        metricsCollector: collector,
+        slaMonitor: monitor,
+        slaViolationThreshold: 1,
+      })
+      const result = healthCheck()
+
+      expect(result.status).toBe('degraded')
+      expect(result.details.slaViolations).toBe(1)
+    })
+
+    it('should track active DAGs and running tasks', () => {
+      const collector = createMetricsCollector()
+
+      // Start a DAG and task
+      collector.recordDAGStart('dag-1', 'run-1')
+      collector.recordTaskStart('dag-1', 'run-1', 'task-a')
+
+      const healthCheck = createDAGHealthCheck({ metricsCollector: collector })
+      const result = healthCheck()
+
+      expect(result.details.activeDags).toBe(1)
+      expect(result.details.runningTasks).toBe(1)
+
+      // Complete the task and DAG
+      collector.recordTaskComplete('dag-1', 'run-1', 'task-a', 'success', 100)
+      collector.recordDAGComplete('dag-1', 'run-1', 'completed', 100)
+
+      const result2 = healthCheck()
+      expect(result2.details.activeDags).toBe(0)
+      expect(result2.details.runningTasks).toBe(0)
+    })
+
+    it('should respect failure window', async () => {
+      const collector = createMetricsCollector()
+
+      // Record an old failure (outside window)
+      const oldTimestamp = Date.now() - 400000 // 400 seconds ago
+      collector.recordTaskComplete('dag-1', 'run-1', 'task-a', 'failed', 100, undefined, oldTimestamp)
+
+      const healthCheck = createDAGHealthCheck({
+        metricsCollector: collector,
+        failureWindowMs: 300000, // 5 minutes
+      })
+      const result = healthCheck()
+
+      // Old failure should be outside the window
+      expect(result.details.recentFailures).toBe(0)
+      expect(result.status).toBe('healthy')
+    })
+  })
+
+  describe('createHealthEndpointHandler', () => {
+    it('should return healthy response with no executor', async () => {
+      const handler = createHealthEndpointHandler({ version: '1.0.0' })
+      const result = await handler()
+
+      expect(result.status).toBe('healthy')
+      expect(result.version).toBe('1.0.0')
+      expect(result.timestamp).toBeDefined()
+      expect(result.checks).toEqual([])
+    })
+
+    it('should include DAG scheduler check when executor provided', async () => {
+      const collector = createMetricsCollector()
+      const executor = createObservableExecutor({ metricsCollector: collector })
+
+      const handler = createHealthEndpointHandler({ executor, version: '1.0.0' })
+      const result = await handler()
+
+      expect(result.checks.some((c) => c.name === 'dag-scheduler')).toBe(true)
+    })
+
+    it('should include metrics when executor has metrics collector', async () => {
+      const collector = createMetricsCollector()
+      collector.recordTaskComplete('dag-1', 'run-1', 'task-a', 'success', 100)
+      collector.recordDAGComplete('dag-1', 'run-1', 'completed', 500)
+
+      const executor = createObservableExecutor({ metricsCollector: collector })
+
+      const handler = createHealthEndpointHandler({ executor })
+      const result = await handler()
+
+      expect(result.metrics).toBeDefined()
+      expect(result.metrics?.taskRuns.success).toBe(1)
+      expect(result.metrics?.dagRuns.completed).toBe(1)
+    })
+
+    it('should run additional checks', async () => {
+      const handler = createHealthEndpointHandler({
+        additionalChecks: [
+          {
+            name: 'custom-check',
+            check: async () => ({ status: 'healthy', message: 'Custom check passed' }),
+          },
+        ],
+      })
+      const result = await handler()
+
+      expect(result.checks).toHaveLength(1)
+      expect(result.checks[0].name).toBe('custom-check')
+      expect(result.checks[0].status).toBe('healthy')
+      expect(result.checks[0].duration).toBeDefined()
+    })
+
+    it('should aggregate status from all checks', async () => {
+      const handler = createHealthEndpointHandler({
+        additionalChecks: [
+          {
+            name: 'healthy-check',
+            check: async () => ({ status: 'healthy', message: 'OK' }),
+          },
+          {
+            name: 'degraded-check',
+            check: async () => ({ status: 'degraded', message: 'Slow' }),
+          },
+        ],
+      })
+      const result = await handler()
+
+      expect(result.status).toBe('degraded')
+    })
+
+    it('should handle check failures gracefully', async () => {
+      const handler = createHealthEndpointHandler({
+        additionalChecks: [
+          {
+            name: 'failing-check',
+            check: async () => {
+              throw new Error('Check crashed')
+            },
+          },
+        ],
+      })
+      const result = await handler()
+
+      expect(result.status).toBe('unhealthy')
+      expect(result.checks[0].status).toBe('unhealthy')
+      expect(result.checks[0].message).toBe('Check crashed')
+    })
+  })
+})

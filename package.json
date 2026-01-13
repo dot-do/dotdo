@@ -25,7 +25,7 @@
   "workspaces": [
     "packages/*"
   ],
-  "main": "./dist/do/base.js",
+  "main": "./dist/do/index.js",
   "bin": {
     "do": "./cli/bin.js",
     "dotdo": "./cli/bin.js"
@@ -33,16 +33,36 @@
   "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
-      "default": "./dist/do/base.js"
+      "types": "./dist/do/index.d.ts",
+      "default": "./dist/do/index.js"
     },
     "./tiny": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./dist/do/tiny.d.ts",
       "default": "./dist/do/tiny.js"
     },
     "./base": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./dist/do/base.d.ts",
       "default": "./dist/do/base.js"
+    },
+    "./fs": {
+      "types": "./dist/do/fs.d.ts",
+      "default": "./dist/do/fs.js"
+    },
+    "./git": {
+      "types": "./dist/do/git.d.ts",
+      "default": "./dist/do/git.js"
+    },
+    "./bash": {
+      "types": "./dist/do/bash.d.ts",
+      "default": "./dist/do/bash.js"
+    },
+    "./full": {
+      "types": "./dist/do/full.d.ts",
+      "default": "./dist/do/full.js"
+    },
+    "./mixins": {
+      "types": "./dist/lib/capabilities/index.d.ts",
+      "default": "./dist/lib/capabilities/index.js"
     },
     "./objects": {
       "types": "./dist/objects/index.d.ts",
@@ -114,7 +134,7 @@
     "types": "wrangler types types/worker.d.ts -c wrangler.jsonc",
     "dev": "wrangler dev",
     "dev:app": "cd app && pnpm run dev",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsx scripts/fix-esm-imports.ts",
     "build:app": "cd app && pnpm run build",
     "build:metrics": "tsx scripts/build-metrics.ts",
     "build:clean": "rm -rf dist && pnpm run build",
@@ -152,7 +172,8 @@
     "primitives:npm": "tsx scripts/deploy-primitives.ts --npm",
     "submodules": "git submodule update --init --recursive",
     "build:snippets": "tsx scripts/build-snippets.ts",
-    "build:snippets:check": "tsx scripts/build-snippets.ts --check"
+    "build:snippets:check": "tsx scripts/build-snippets.ts --check",
+    "docs:api": "typedoc"
   },
   "dependencies": {
     "@better-auth/stripe": "^1.4.12",
@@ -280,6 +301,8 @@
     "smol-toml": "^1.6.0",
     "tailwindcss": "^4.1.0",
     "tsd": "^0.33.0",
+    "typedoc": "^0.28.16",
+    "typedoc-plugin-markdown": "^4.9.0",
     "typescript": "^5.7.0",
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "^5.0.0",

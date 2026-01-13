@@ -43,6 +43,64 @@ type PermissionScope = 'read' | 'write' | 'execute' | 'admin'
  */
 type AgentType = 'internal' | 'external' | 'system'
 
+/**
+ * Permission constraints on Tool -> Permission edge relationship
+ */
+interface PermissionConstraints {
+  maxRowsReturned?: number
+  allowedTables?: string[]
+  deniedColumns?: string[]
+}
+
+/**
+ * Node representing a permission with an ID
+ */
+interface PermissionNode {
+  id: string
+  label: string
+  properties: Record<string, unknown>
+}
+
+/**
+ * Audit log entry for permission check callbacks
+ */
+interface PermissionCheckAuditLog {
+  agentId: string
+  toolId: string
+  timestamp: number
+  allowed: boolean
+  reason?: string
+}
+
+/**
+ * Result of a permission check operation
+ */
+interface PermissionCheckResult {
+  allowed: boolean
+  missingPermissions?: string[]
+  reason?: string
+}
+
+/**
+ * Options for ToolPermissionChecker constructor
+ */
+interface ToolPermissionCheckerOptions {
+  cacheEnabled?: boolean
+  cacheTtlMs?: number
+  onPermissionCheck?: (log: PermissionCheckAuditLog) => void
+}
+
+/**
+ * Interface for ToolPermissionChecker (TDD - will be implemented)
+ */
+interface ToolPermissionCheckerInstance {
+  canAgentUseTool(agentId: string, toolId: string): Promise<PermissionCheckResult>
+  checkPermission(agentId: string, toolId: string): Promise<void>
+  getAgentPermissions(agentId: string): Promise<PermissionNode[]>
+  getToolRequiredPermissions(toolId: string): Promise<PermissionNode[]>
+  invalidateCache(agentId: string): void
+}
+
 // ============================================================================
 // 1. Tool Permission Relationships Tests
 // ============================================================================
@@ -175,8 +233,9 @@ describe('Tool Permission Relationships', () => {
       })
 
       expect(edge.properties.constraints).toBeDefined()
-      expect((edge.properties.constraints as any).maxRowsReturned).toBe(1000)
-      expect((edge.properties.constraints as any).allowedTables).toContain('users')
+      const constraints = edge.properties.constraints as PermissionConstraints
+      expect(constraints.maxRowsReturned).toBe(1000)
+      expect(constraints.allowedTables).toContain('users')
     })
   })
 })
@@ -964,7 +1023,7 @@ describe('ToolPermissionChecker Interface', () => {
 
 describe('ToolPermissionChecker Functional Tests', () => {
   let graph: GraphEngine
-  let checker: any // Will be ToolPermissionChecker once implemented
+  let checker: ToolPermissionCheckerInstance | undefined
 
   beforeEach(async () => {
     graph = new GraphEngine()
@@ -972,7 +1031,7 @@ describe('ToolPermissionChecker Functional Tests', () => {
     // Try to instantiate ToolPermissionChecker
     const graphModule = await import('../index')
     if (graphModule.ToolPermissionChecker) {
-      checker = new graphModule.ToolPermissionChecker(graph)
+      checker = new graphModule.ToolPermissionChecker(graph) as ToolPermissionCheckerInstance
     }
   })
 
@@ -1121,9 +1180,9 @@ describe('ToolPermissionChecker Functional Tests', () => {
       const permissions = await permChecker.getAgentPermissions(agent.id)
 
       expect(permissions).toHaveLength(3)
-      expect(permissions.map((p: any) => p.id)).toContain(perm1.id)
-      expect(permissions.map((p: any) => p.id)).toContain(perm2.id)
-      expect(permissions.map((p: any) => p.id)).toContain(perm3.id)
+      expect(permissions.map((p: PermissionNode) => p.id)).toContain(perm1.id)
+      expect(permissions.map((p: PermissionNode) => p.id)).toContain(perm2.id)
+      expect(permissions.map((p: PermissionNode) => p.id)).toContain(perm3.id)
     })
 
     it('filters out expired permissions', async () => {
@@ -1167,9 +1226,9 @@ describe('ToolPermissionChecker Functional Tests', () => {
       const required = await permChecker.getToolRequiredPermissions(tool.id)
 
       expect(required).toHaveLength(2)
-      expect(required.map((p: any) => p.id)).toContain(perm1.id)
-      expect(required.map((p: any) => p.id)).toContain(perm2.id)
-      expect(required.map((p: any) => p.id)).not.toContain(optionalPerm.id)
+      expect(required.map((p: PermissionNode) => p.id)).toContain(perm1.id)
+      expect(required.map((p: PermissionNode) => p.id)).toContain(perm2.id)
+      expect(required.map((p: PermissionNode) => p.id)).not.toContain(optionalPerm.id)
     })
 
     it('returns empty array for tools with no permission requirements', async () => {
@@ -1278,9 +1337,9 @@ describe('Audit Trail', () => {
     const graphModule = await import('../index')
     expect(graphModule.ToolPermissionChecker).toBeDefined()
 
-    const auditLogs: any[] = []
+    const auditLogs: PermissionCheckAuditLog[] = []
     const permChecker = new graphModule.ToolPermissionChecker(graph, {
-      onPermissionCheck: (log: any) => auditLogs.push(log),
+      onPermissionCheck: (log: PermissionCheckAuditLog) => auditLogs.push(log),
     })
 
     await permChecker.canAgentUseTool(agent.id, tool.id)
@@ -1301,9 +1360,9 @@ describe('Audit Trail', () => {
     const graphModule = await import('../index')
     expect(graphModule.ToolPermissionChecker).toBeDefined()
 
-    const auditLogs: any[] = []
+    const auditLogs: PermissionCheckAuditLog[] = []
     const permChecker = new graphModule.ToolPermissionChecker(graph, {
-      onPermissionCheck: (log: any) => auditLogs.push(log),
+      onPermissionCheck: (log: PermissionCheckAuditLog) => auditLogs.push(log),
     })
 
     await permChecker.canAgentUseTool(agent.id, tool.id)

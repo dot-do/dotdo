@@ -289,6 +289,7 @@ export interface WhatsAppSendResponse {
   errorCode: number | null
   errorMessage: string | null
   numSegments: number
+  num_media?: string
   price: string | null
   priceUnit: string
 }
@@ -556,6 +557,16 @@ export class TwilioWhatsApp {
     }
     if (!config.authToken) {
       throw new Error('authToken is required')
+    }
+
+    // Validate from number if provided
+    if (config.from !== undefined) {
+      if (!config.from) {
+        throw new Error('from number is required')
+      }
+      if (!config.from.startsWith('whatsapp:')) {
+        throw new Error('from must be in WhatsApp format (whatsapp:+...)')
+      }
     }
 
     this.accountSid = config.accountSid
@@ -1867,6 +1878,7 @@ export class TwilioWhatsApp {
       errorCode: message.error_code,
       errorMessage: message.error_message,
       numSegments: parseInt(message.num_segments, 10),
+      num_media: message.num_media,
       price: message.price,
       priceUnit: message.price_unit,
     }

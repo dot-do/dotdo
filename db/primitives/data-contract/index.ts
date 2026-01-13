@@ -1000,6 +1000,9 @@ export {
   isFullyCompatible,
   detectBreakingChanges,
   suggestMigration,
+  detectPotentialRenames,
+  createMigrationScript,
+  migrateData,
   formatSchemaDiff,
   DEFAULT_POLICIES,
 } from './evolution'
@@ -1012,6 +1015,8 @@ export type {
   EvolutionResult,
   MigrationOperation,
   MigrationScript,
+  FieldRename,
+  MigrationOptions,
 } from './evolution'
 
 // Re-export runtime validator
@@ -1037,3 +1042,25 @@ export type {
   StreamValidationSummary,
   StreamValidationOptions,
 } from './validator'
+
+// Re-export schema DSL for fluent schema definition
+export {
+  s,
+  contract,
+  fromZod,
+  fromJSONSchema,
+  zodToJSONSchema,
+  jsonSchemaToZod,
+  StringFieldBuilder,
+  NumberFieldBuilder,
+  BooleanFieldBuilder,
+  ArrayFieldBuilder,
+  ObjectFieldBuilder,
+} from './schema-dsl'
+
+export type {
+  ContractMetadata,
+  ContractDefinition,
+  ZodDataContract,
+  FieldBuilder,
+} from './schema-dsl'

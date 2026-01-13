@@ -51,6 +51,17 @@ export {
   TYPE_IDS as FUNCTION_TYPE_IDS,
 } from './function-graph-adapter'
 
+// Re-export centralized constants for convenience
+export {
+  AUTH_TYPE_IDS,
+  HUMAN_TYPE_IDS,
+  GIT_TYPE_IDS,
+  FUNCTION_TYPE_IDS as GRAPH_FUNCTION_TYPE_IDS,
+  HUMAN_EXECUTION_TYPE_IDS,
+  HUMAN_REQUEST_TYPE_IDS,
+  TYPE_IDS as ALL_TYPE_IDS,
+} from '../constants'
+
 export type {
   FunctionType,
   FunctionData,

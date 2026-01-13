@@ -36,24 +36,24 @@
  */
 
 // Re-export DO from full.ts (includes all capabilities)
-export { DO, capabilities, withFs, withGit, withBash } from './full'
+export { DO, capabilities, withFs, withGit, withBash } from './full.js'
 
 // Dashboard app - ready to deploy
-export { app } from './app'
+export { app } from './app.js'
 
 // Core Durable Object classes (excluding base DO which is overridden above)
-export { Agent, Human, Worker } from '../objects'
-export { Entity, Collection, Directory, Package, Product } from '../objects'
-export { Business, App, Site, SaaS } from '../objects'
-export { Workflow } from '../objects'
-export { Function } from '../objects'
-export { Service, API, SDK, CLI } from '../objects'
+export { Agent, Human, Worker } from '../objects/index.js'
+export { Entity, Collection, Directory, Package, Product } from '../objects/index.js'
+export { Business, App, Site, SaaS } from '../objects/index.js'
+export { Workflow } from '../objects/index.js'
+export { Function } from '../objects/index.js'
+export { Service, API, SDK, CLI } from '../objects/index.js'
 
 // Type definitions
-export * from '../types'
+export * from '../types/index.js'
 
 // Code snippets for common patterns
-export * from '../snippets'
+export * from '../snippets/index.js'
 
 // Note: Client SDK ($, RpcClient, etc.) is available via '@dotdo/client' package
 // The sdk/ directory re-exports from @dotdo/client which is not bundled in this package

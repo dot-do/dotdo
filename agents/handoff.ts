@@ -2,15 +2,25 @@
  * Agent Handoff Protocol
  *
  * Provides a unified protocol for agent-to-agent handoffs with:
- * - Context transfer between agents
- * - Handoff lifecycle hooks
- * - Handoff chain tracking
- * - Metadata preservation
+ * - **Handoff Message Format**: Structured messages for handoff initiation, acknowledgment, and completion
+ * - **Context Transfer**: Complete state and context preservation during handoffs
+ * - **State Preservation**: Ensures no data loss during agent transitions
+ * - **Acknowledgment Protocol**: Bidirectional confirmation of handoff receipt and acceptance
  *
  * Consolidates handoff patterns from:
  * - OpenAI Agents SDK (explicit handoffs)
  * - Claude SDK (subagent spawning)
  * - Mastra (workflow handoffs)
+ *
+ * ## Message Flow
+ * ```
+ * Source Agent                    Target Agent
+ *      |                               |
+ *      |------ HandoffMessage -------->|  (initiate)
+ *      |<----- HandoffAck -------------|  (acknowledge receipt)
+ *      |                               |  (target processes)
+ *      |<----- HandoffComplete --------|  (completion notification)
+ * ```
  *
  * @module agents/handoff
  */
@@ -47,10 +57,216 @@ export type HandoffReason =
 export type HandoffState =
   | 'pending' // Handoff initiated but not started
   | 'transferring' // Context being transferred
+  | 'acknowledged' // Target agent acknowledged receipt
   | 'active' // Target agent is executing
   | 'completed' // Handoff completed successfully
   | 'failed' // Handoff failed
   | 'cancelled' // Handoff was cancelled
+  | 'rejected' // Target agent rejected the handoff
+
+// ============================================================================
+// Handoff Message Format (Protocol Messages)
+// ============================================================================
+
+/**
+ * Message type for handoff protocol communication
+ */
+export type HandoffMessageType =
+  | 'handoff:initiate' // Source -> Target: Request handoff
+  | 'handoff:ack' // Target -> Source: Acknowledge receipt
+  | 'handoff:accept' // Target -> Source: Accept handoff
+  | 'handoff:reject' // Target -> Source: Reject handoff
+  | 'handoff:progress' // Target -> Source: Progress update
+  | 'handoff:complete' // Target -> Source: Completion notification
+  | 'handoff:error' // Either -> Either: Error notification
+
+/**
+ * Base structure for all handoff protocol messages
+ */
+export interface HandoffMessageBase {
+  /** Message type identifier */
+  type: HandoffMessageType
+  /** Unique handoff identifier this message belongs to */
+  handoffId: string
+  /** Sender agent ID */
+  senderId: string
+  /** Recipient agent ID */
+  recipientId: string
+  /** Message timestamp */
+  timestamp: Date
+  /** Correlation ID for request-response tracking */
+  correlationId?: string
+  /** Sequence number for ordering */
+  sequence?: number
+}
+
+/**
+ * Handoff initiation message (Source -> Target)
+ */
+export interface HandoffInitiateMessage extends HandoffMessageBase {
+  type: 'handoff:initiate'
+  /** Why this handoff is being made */
+  reason: HandoffReason
+  /** Human-readable description */
+  reasonDescription?: string
+  /** Full context to transfer */
+  context: HandoffContext
+  /** Priority level (lower = higher priority) */
+  priority?: number
+  /** Timeout in milliseconds */
+  timeoutMs?: number
+  /** Whether target must acknowledge before proceeding */
+  requireAck?: boolean
+}
+
+/**
+ * Handoff acknowledgment message (Target -> Source)
+ * Confirms that target received and understood the handoff request
+ */
+export interface HandoffAckMessage extends HandoffMessageBase {
+  type: 'handoff:ack'
+  /** Estimated time to process in milliseconds */
+  estimatedProcessingMs?: number
+  /** Whether the target agent is ready to accept */
+  ready: boolean
+  /** Optional message from target */
+  message?: string
+}
+
+/**
+ * Handoff acceptance message (Target -> Source)
+ * Confirms that target has accepted and will process the handoff
+ */
+export interface HandoffAcceptMessage extends HandoffMessageBase {
+  type: 'handoff:accept'
+  /** Optional message from target */
+  message?: string
+  /** Accepted at timestamp (may differ from message timestamp) */
+  acceptedAt: Date
+}
+
+/**
+ * Handoff rejection message (Target -> Source)
+ * Indicates target cannot or will not handle the handoff
+ */
+export interface HandoffRejectMessage extends HandoffMessageBase {
+  type: 'handoff:reject'
+  /** Reason for rejection */
+  rejectionReason: string
+  /** Rejection code for programmatic handling */
+  rejectionCode?: 'busy' | 'unauthorized' | 'unsupported' | 'timeout' | 'error' | 'custom'
+  /** Suggested alternative agent ID if available */
+  suggestAlternative?: string
+}
+
+/**
+ * Handoff progress message (Target -> Source)
+ * Provides progress updates during long-running handoffs
+ */
+export interface HandoffProgressMessage extends HandoffMessageBase {
+  type: 'handoff:progress'
+  /** Progress percentage (0-100) */
+  progress?: number
+  /** Current step description */
+  currentStep?: string
+  /** Estimated remaining time in milliseconds */
+  estimatedRemainingMs?: number
+  /** Partial results if available */
+  partialResults?: unknown
+}
+
+/**
+ * Handoff completion message (Target -> Source)
+ * Confirms successful completion with results
+ */
+export interface HandoffCompleteMessage extends HandoffMessageBase {
+  type: 'handoff:complete'
+  /** Final result from target agent */
+  result: AgentResult
+  /** Duration of processing in milliseconds */
+  durationMs: number
+  /** Completion summary */
+  summary?: string
+  /** Any follow-up actions needed */
+  followUp?: {
+    /** Whether another handoff is needed */
+    needsHandoff?: boolean
+    /** Suggested next agent */
+    suggestedAgent?: string
+    /** Instructions for next steps */
+    instructions?: string
+  }
+}
+
+/**
+ * Handoff error message (Either -> Either)
+ * Reports errors during handoff processing
+ */
+export interface HandoffErrorMessage extends HandoffMessageBase {
+  type: 'handoff:error'
+  /** Error message */
+  error: string
+  /** Error code for programmatic handling */
+  errorCode?: string
+  /** Stack trace if available */
+  stack?: string
+  /** Whether the handoff can be retried */
+  retryable: boolean
+  /** Suggested retry delay in milliseconds */
+  retryAfterMs?: number
+}
+
+/**
+ * Union type for all handoff messages
+ */
+export type HandoffMessage =
+  | HandoffInitiateMessage
+  | HandoffAckMessage
+  | HandoffAcceptMessage
+  | HandoffRejectMessage
+  | HandoffProgressMessage
+  | HandoffCompleteMessage
+  | HandoffErrorMessage
+
+// ============================================================================
+// State Preservation Types
+// ============================================================================
+
+/**
+ * Preserved state during handoff
+ * Ensures no data loss during agent transitions
+ */
+export interface PreservedState {
+  /** Snapshot of agent's internal state */
+  agentState?: Record<string, unknown>
+  /** Active conversation/session ID */
+  sessionId?: string
+  /** User/customer context */
+  userContext?: {
+    userId?: string
+    userProfile?: Record<string, unknown>
+    preferences?: Record<string, unknown>
+  }
+  /** Workflow state if part of a workflow */
+  workflowState?: {
+    workflowId?: string
+    currentStep?: string
+    stepHistory?: string[]
+    variables?: Record<string, unknown>
+  }
+  /** Any pending operations */
+  pendingOperations?: Array<{
+    type: string
+    data: unknown
+    createdAt: Date
+  }>
+  /** Checksum for state validation */
+  checksum?: string
+}
+
+// ============================================================================
+// Context Types (Enhanced)
+// ============================================================================
 
 /**
  * Context transferred during a handoff
@@ -70,6 +286,18 @@ export interface HandoffContext {
   instructions?: string
   /** Variables/state to pass along */
   variables?: Record<string, unknown>
+  /** Preserved state for seamless transition */
+  preservedState?: PreservedState
+  /** Conversation/task ID for tracking */
+  conversationId?: string
+  /** Files or attachments to transfer */
+  attachments?: Array<{
+    id: string
+    name: string
+    mimeType: string
+    url?: string
+    data?: string
+  }>
 }
 
 /**
@@ -114,6 +342,16 @@ export interface HandoffResult {
   durationMs?: number
   /** Next handoff if target agent initiated one */
   chainedHandoff?: HandoffResult
+
+  // Acknowledgment Protocol Fields
+  /** Acknowledgment received from target */
+  acknowledgment?: HandoffAckMessage
+  /** Acceptance message from target */
+  acceptance?: HandoffAcceptMessage
+  /** Rejection message if handoff was rejected */
+  rejection?: HandoffRejectMessage
+  /** Protocol messages exchanged during handoff */
+  protocolMessages?: HandoffMessage[]
 }
 
 /**
@@ -152,6 +390,20 @@ export interface HandoffHooks {
   onHandoffError?: (request: HandoffRequest, error: Error) => Promise<void>
   /** Called to validate if handoff is allowed */
   validateHandoff?: (request: HandoffRequest) => Promise<boolean>
+
+  // Acknowledgment Protocol Hooks
+  /** Called when acknowledgment is received from target */
+  onAckReceived?: (ack: HandoffAckMessage) => Promise<void>
+  /** Called when handoff is accepted by target */
+  onAccepted?: (accept: HandoffAcceptMessage) => Promise<void>
+  /** Called when handoff is rejected by target */
+  onRejected?: (reject: HandoffRejectMessage) => Promise<void>
+  /** Called when progress update is received */
+  onProgress?: (progress: HandoffProgressMessage) => Promise<void>
+  /** Called when protocol message is sent */
+  onMessageSent?: (message: HandoffMessage) => Promise<void>
+  /** Called when protocol message is received */
+  onMessageReceived?: (message: HandoffMessage) => Promise<void>
 }
 
 // ============================================================================
@@ -174,6 +426,16 @@ export interface HandoffProtocolConfig {
   maxChainDepth?: number
   /** Whether to include full message history in context */
   includeFullHistory?: boolean
+
+  // Acknowledgment Protocol Options
+  /** Whether to require acknowledgment before proceeding (default: true) */
+  requireAcknowledgment?: boolean
+  /** Timeout for waiting on acknowledgment in ms (default: 5000) */
+  ackTimeoutMs?: number
+  /** Whether to preserve state during handoffs (default: true) */
+  preserveState?: boolean
+  /** Whether to emit protocol messages via hooks (default: true) */
+  emitProtocolMessages?: boolean
 }
 
 /**
@@ -635,6 +897,374 @@ export function createProtocolHandoffTool(
         error: result.error?.message ?? 'Handoff failed',
       }
     },
+  })
+}
+
+// ============================================================================
+// Message Factory Functions (Acknowledgment Protocol)
+// ============================================================================
+
+/**
+ * Generate a unique handoff ID
+ */
+export function generateHandoffId(): string {
+  return `handoff-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * Generate a correlation ID for request-response tracking
+ */
+export function generateCorrelationId(): string {
+  return `corr-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * Create a handoff initiation message
+ */
+export function createInitiateMessage(
+  handoffId: string,
+  sourceAgentId: string,
+  targetAgentId: string,
+  reason: HandoffReason,
+  context: HandoffContext,
+  options: {
+    reasonDescription?: string
+    priority?: number
+    timeoutMs?: number
+    requireAck?: boolean
+    correlationId?: string
+  } = {}
+): HandoffInitiateMessage {
+  return {
+    type: 'handoff:initiate',
+    handoffId,
+    senderId: sourceAgentId,
+    recipientId: targetAgentId,
+    timestamp: new Date(),
+    correlationId: options.correlationId ?? generateCorrelationId(),
+    reason,
+    reasonDescription: options.reasonDescription,
+    context,
+    priority: options.priority,
+    timeoutMs: options.timeoutMs,
+    requireAck: options.requireAck ?? true,
+  }
+}
+
+/**
+ * Create an acknowledgment message (Target -> Source)
+ */
+export function createAckMessage(
+  initiateMessage: HandoffInitiateMessage,
+  ready: boolean,
+  options: {
+    estimatedProcessingMs?: number
+    message?: string
+  } = {}
+): HandoffAckMessage {
+  return {
+    type: 'handoff:ack',
+    handoffId: initiateMessage.handoffId,
+    senderId: initiateMessage.recipientId,
+    recipientId: initiateMessage.senderId,
+    timestamp: new Date(),
+    correlationId: initiateMessage.correlationId,
+    ready,
+    estimatedProcessingMs: options.estimatedProcessingMs,
+    message: options.message,
+  }
+}
+
+/**
+ * Create an acceptance message (Target -> Source)
+ */
+export function createAcceptMessage(
+  initiateMessage: HandoffInitiateMessage,
+  message?: string
+): HandoffAcceptMessage {
+  return {
+    type: 'handoff:accept',
+    handoffId: initiateMessage.handoffId,
+    senderId: initiateMessage.recipientId,
+    recipientId: initiateMessage.senderId,
+    timestamp: new Date(),
+    correlationId: initiateMessage.correlationId,
+    acceptedAt: new Date(),
+    message,
+  }
+}
+
+/**
+ * Create a rejection message (Target -> Source)
+ */
+export function createRejectMessage(
+  initiateMessage: HandoffInitiateMessage,
+  rejectionReason: string,
+  options: {
+    rejectionCode?: 'busy' | 'unauthorized' | 'unsupported' | 'timeout' | 'error' | 'custom'
+    suggestAlternative?: string
+  } = {}
+): HandoffRejectMessage {
+  return {
+    type: 'handoff:reject',
+    handoffId: initiateMessage.handoffId,
+    senderId: initiateMessage.recipientId,
+    recipientId: initiateMessage.senderId,
+    timestamp: new Date(),
+    correlationId: initiateMessage.correlationId,
+    rejectionReason,
+    rejectionCode: options.rejectionCode,
+    suggestAlternative: options.suggestAlternative,
+  }
+}
+
+/**
+ * Create a progress message (Target -> Source)
+ */
+export function createProgressMessage(
+  handoffId: string,
+  sourceAgentId: string,
+  targetAgentId: string,
+  options: {
+    progress?: number
+    currentStep?: string
+    estimatedRemainingMs?: number
+    partialResults?: unknown
+    correlationId?: string
+  } = {}
+): HandoffProgressMessage {
+  return {
+    type: 'handoff:progress',
+    handoffId,
+    senderId: targetAgentId,
+    recipientId: sourceAgentId,
+    timestamp: new Date(),
+    correlationId: options.correlationId,
+    progress: options.progress,
+    currentStep: options.currentStep,
+    estimatedRemainingMs: options.estimatedRemainingMs,
+    partialResults: options.partialResults,
+  }
+}
+
+/**
+ * Create a completion message (Target -> Source)
+ */
+export function createCompleteMessage(
+  initiateMessage: HandoffInitiateMessage,
+  result: AgentResult,
+  durationMs: number,
+  options: {
+    summary?: string
+    followUp?: {
+      needsHandoff?: boolean
+      suggestedAgent?: string
+      instructions?: string
+    }
+  } = {}
+): HandoffCompleteMessage {
+  return {
+    type: 'handoff:complete',
+    handoffId: initiateMessage.handoffId,
+    senderId: initiateMessage.recipientId,
+    recipientId: initiateMessage.senderId,
+    timestamp: new Date(),
+    correlationId: initiateMessage.correlationId,
+    result,
+    durationMs,
+    summary: options.summary,
+    followUp: options.followUp,
+  }
+}
+
+/**
+ * Create an error message (Either -> Either)
+ */
+export function createErrorMessage(
+  handoffId: string,
+  senderId: string,
+  recipientId: string,
+  error: string | Error,
+  options: {
+    errorCode?: string
+    retryable?: boolean
+    retryAfterMs?: number
+    correlationId?: string
+  } = {}
+): HandoffErrorMessage {
+  const err = error instanceof Error ? error : new Error(error)
+  return {
+    type: 'handoff:error',
+    handoffId,
+    senderId,
+    recipientId,
+    timestamp: new Date(),
+    correlationId: options.correlationId,
+    error: err.message,
+    errorCode: options.errorCode,
+    stack: err.stack,
+    retryable: options.retryable ?? false,
+    retryAfterMs: options.retryAfterMs,
+  }
+}
+
+// ============================================================================
+// State Preservation Utilities
+// ============================================================================
+
+/**
+ * Create a checksum for state validation
+ */
+function createStateChecksum(state: Record<string, unknown>): string {
+  const str = JSON.stringify(state)
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = (hash << 5) - hash + char
+    hash = hash & hash
+  }
+  return Math.abs(hash).toString(36)
+}
+
+/**
+ * Create a preserved state snapshot
+ */
+export function createPreservedState(
+  options: {
+    agentState?: Record<string, unknown>
+    sessionId?: string
+    userContext?: PreservedState['userContext']
+    workflowState?: PreservedState['workflowState']
+    pendingOperations?: PreservedState['pendingOperations']
+  } = {}
+): PreservedState {
+  const state: PreservedState = {
+    agentState: options.agentState,
+    sessionId: options.sessionId,
+    userContext: options.userContext,
+    workflowState: options.workflowState,
+    pendingOperations: options.pendingOperations,
+  }
+
+  // Calculate checksum for validation
+  state.checksum = createStateChecksum({
+    agentState: state.agentState,
+    sessionId: state.sessionId,
+    userContext: state.userContext,
+    workflowState: state.workflowState,
+  })
+
+  return state
+}
+
+/**
+ * Validate preserved state using checksum
+ */
+export function validatePreservedState(state: PreservedState): boolean {
+  if (!state.checksum) return true // No checksum to validate
+
+  const expectedChecksum = createStateChecksum({
+    agentState: state.agentState,
+    sessionId: state.sessionId,
+    userContext: state.userContext,
+    workflowState: state.workflowState,
+  })
+
+  return state.checksum === expectedChecksum
+}
+
+/**
+ * Merge preserved states (for chained handoffs)
+ */
+export function mergePreservedStates(
+  current: PreservedState,
+  incoming: PreservedState
+): PreservedState {
+  const merged: PreservedState = {
+    agentState: { ...current.agentState, ...incoming.agentState },
+    sessionId: incoming.sessionId ?? current.sessionId,
+    userContext: {
+      ...current.userContext,
+      ...incoming.userContext,
+    },
+    workflowState: incoming.workflowState ?? current.workflowState,
+    pendingOperations: [
+      ...(current.pendingOperations ?? []),
+      ...(incoming.pendingOperations ?? []),
+    ],
+  }
+
+  merged.checksum = createStateChecksum({
+    agentState: merged.agentState,
+    sessionId: merged.sessionId,
+    userContext: merged.userContext,
+    workflowState: merged.workflowState,
+  })
+
+  return merged
+}
+
+// ============================================================================
+// Context Transfer Utilities
+// ============================================================================
+
+/**
+ * Create a complete handoff context from an agent result with state preservation
+ */
+export function createCompleteHandoffContext(
+  result: AgentResult,
+  options: {
+    summary?: string
+    instructions?: string
+    variables?: Record<string, unknown>
+    metadata?: Record<string, unknown>
+    preservedState?: PreservedState
+    conversationId?: string
+    attachments?: HandoffContext['attachments']
+  } = {}
+): HandoffContext {
+  return {
+    messages: result.messages,
+    toolCalls: result.toolCalls,
+    toolResults: result.toolResults,
+    summary: options.summary,
+    instructions: options.instructions,
+    variables: options.variables,
+    metadata: options.metadata,
+    preservedState: options.preservedState,
+    conversationId: options.conversationId,
+    attachments: options.attachments,
+  }
+}
+
+/**
+ * Extract preserved state from handoff context
+ */
+export function extractPreservedState(context: HandoffContext): PreservedState | undefined {
+  return context.preservedState
+}
+
+/**
+ * Serialize context for transport (e.g., over network)
+ */
+export function serializeContext(context: HandoffContext): string {
+  return JSON.stringify(context, (key, value) => {
+    if (value instanceof Date) {
+      return { __type: 'Date', value: value.toISOString() }
+    }
+    return value
+  })
+}
+
+/**
+ * Deserialize context from transport
+ */
+export function deserializeContext(serialized: string): HandoffContext {
+  return JSON.parse(serialized, (key, value) => {
+    if (value && typeof value === 'object' && value.__type === 'Date') {
+      return new Date(value.value)
+    }
+    return value
   })
 }
 

@@ -362,7 +362,7 @@ export function parseFieldsets(searchParams: URLSearchParams): Record<string, st
  */
 export function parseIncludes(searchParams: URLSearchParams): string[] {
   const include = searchParams.get('include')
-  if (!include) {
+  if (include === null) {
     return []
   }
 

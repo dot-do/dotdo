@@ -1061,6 +1061,28 @@ export async function countLegacyMemories(storage: DurableObjectStorage): Promis
   return memoryMap.size
 }
 
+// ============================================================================
+// Re-exports from memory-graph.ts for backwards compatibility
+// ============================================================================
+
+// Re-export the standalone graph helper functions from memory-graph.ts
+// These are used directly with GraphStore instances
+export {
+  GraphBackedMemory,
+  createAgentMemory as createGraphBackedMemory,
+  getRecentMemories as getGraphRecentMemories,
+  searchMemories as searchGraphMemories,
+  shareMemory,
+  MEMORY_TYPE_ID as GRAPH_MEMORY_TYPE_ID,
+  MEMORY_TYPE_NAME as GRAPH_MEMORY_TYPE_NAME,
+  VERB_REMEMBERS,
+  VERB_SHARED_WITH,
+  type GraphBackedMemoryConfig,
+  type MemoryThingData,
+  type MemoryImportance,
+  type Memory as GraphMemory,
+} from './memory-graph'
+
 export default {
   createGraphMemory,
   createInMemoryAgentMemory,

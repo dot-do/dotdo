@@ -527,6 +527,22 @@ export interface SearchIndex {
   setSettings(settings: Settings, options?: SetSettingsOptions): Promise<TaskResponse>
   getSettings(): Promise<GetSettingsResponse>
 
+  // Synonyms
+  saveSynonym(synonym: Synonym, options?: { forwardToReplicas?: boolean }): Promise<SaveSynonymResponse>
+  saveSynonyms(synonyms: Synonym[], options?: { forwardToReplicas?: boolean; clearExistingSynonyms?: boolean }): Promise<SaveSynonymsResponse>
+  getSynonym(objectID: string): Promise<Synonym>
+  searchSynonyms(options?: SearchSynonymsOptions): Promise<SearchSynonymsResponse>
+  deleteSynonym(objectID: string, options?: { forwardToReplicas?: boolean }): Promise<DeleteSynonymResponse>
+  clearSynonyms(options?: { forwardToReplicas?: boolean }): Promise<ClearSynonymsResponse>
+
+  // Rules
+  saveRule(rule: Rule, options?: { forwardToReplicas?: boolean }): Promise<SaveRuleResponse>
+  saveRules(rules: Rule[], options?: { forwardToReplicas?: boolean; clearExistingRules?: boolean }): Promise<SaveRulesResponse>
+  getRule(objectID: string): Promise<Rule>
+  searchRules(options?: SearchRulesOptions): Promise<SearchRulesResponse>
+  deleteRule(objectID: string, options?: { forwardToReplicas?: boolean }): Promise<DeleteRuleResponse>
+  clearRules(options?: { forwardToReplicas?: boolean }): Promise<ClearRulesResponse>
+
   // Tasks
   waitTask(taskID: number): Promise<TaskResponse>
 
@@ -636,4 +652,218 @@ export class InvalidFilterError extends AlgoliaError {
     super(`Invalid filter: ${filter}`, 400)
     this.name = 'InvalidFilterError'
   }
+}
+
+// ============================================================================
+// SYNONYM TYPES
+// ============================================================================
+
+/**
+ * Synonym type
+ */
+export type SynonymType = 'synonym' | 'oneWaySynonym' | 'altCorrection1' | 'altCorrection2' | 'placeholder'
+
+/**
+ * Synonym object
+ */
+export interface Synonym {
+  objectID: string
+  type: SynonymType
+  /** For 'synonym' type: array of equivalent words */
+  synonyms?: string[]
+  /** For 'oneWaySynonym' type: the input word that triggers the synonyms */
+  input?: string
+  /** For 'placeholder' type: the placeholder token */
+  placeholder?: string
+  /** For 'placeholder' type: replacement words */
+  replacements?: string[]
+  /** For 'altCorrection' types: the word to correct */
+  word?: string
+  /** For 'altCorrection' types: corrections to suggest */
+  corrections?: string[]
+}
+
+/**
+ * Save synonym response
+ */
+export interface SaveSynonymResponse {
+  objectID: string
+  taskID: number
+  updatedAt: string
+}
+
+/**
+ * Save synonyms response
+ */
+export interface SaveSynonymsResponse {
+  taskID: number
+  updatedAt: string
+}
+
+/**
+ * Search synonyms options
+ */
+export interface SearchSynonymsOptions {
+  query?: string
+  type?: SynonymType
+  page?: number
+  hitsPerPage?: number
+}
+
+/**
+ * Search synonyms response
+ */
+export interface SearchSynonymsResponse {
+  hits: Synonym[]
+  nbHits: number
+  page: number
+  nbPages: number
+}
+
+/**
+ * Delete synonym response
+ */
+export interface DeleteSynonymResponse {
+  taskID: number
+  deletedAt: string
+}
+
+/**
+ * Clear synonyms response
+ */
+export interface ClearSynonymsResponse {
+  taskID: number
+  updatedAt: string
+}
+
+// ============================================================================
+// RULE TYPES
+// ============================================================================
+
+/**
+ * Rule condition
+ */
+export interface RuleCondition {
+  /** Pattern to match against query */
+  pattern?: string
+  /** Match anchoring */
+  anchoring?: 'is' | 'startsWith' | 'endsWith' | 'contains'
+  /** Context triggering the rule */
+  context?: string
+  /** Filters triggering the rule */
+  filters?: string
+  /** Alternative patterns for A/B testing */
+  alternatives?: {
+    typos?: boolean
+  }
+}
+
+/**
+ * Rule consequence - modifications to apply when rule triggers
+ */
+export interface RuleConsequence {
+  /** Query modification parameters */
+  params?: {
+    /** Query to replace the original */
+    query?: string | { edits?: { type: 'remove' | 'replace'; delete?: string; insert?: string }[] }
+    /** Automatic facet filters */
+    automaticFacetFilters?: Array<{ facet: string; disjunctive?: boolean; score?: number }>
+    /** Automatic optional facet filters */
+    automaticOptionalFacetFilters?: Array<{ facet: string; disjunctive?: boolean; score?: number }>
+    /** Filters to add */
+    filters?: string
+    /** Optional filters to add */
+    optionalFilters?: string | string[]
+    /** Numeric filters to add */
+    numericFilters?: string | string[]
+    /** Tag filters to add */
+    tagFilters?: string | string[]
+    /** Facet filters to add */
+    facetFilters?: string | string[] | string[][]
+  }
+  /** Promote specific objects */
+  promote?: Array<{ objectID: string; position: number } | { objectIDs: string[]; position: number }>
+  /** Filter out specific objects */
+  filterPromotes?: boolean
+  /** Hide specific objects */
+  hide?: Array<{ objectID: string }>
+  /** User data to return */
+  userData?: unknown
+}
+
+/**
+ * Rule object
+ */
+export interface Rule {
+  objectID: string
+  /** Conditions that trigger this rule (AND between multiple conditions) */
+  conditions?: RuleCondition[]
+  /** Single condition (legacy) */
+  condition?: RuleCondition
+  /** Modifications to apply when rule triggers */
+  consequence: RuleConsequence
+  /** Description for the rule */
+  description?: string
+  /** Is the rule enabled */
+  enabled?: boolean
+  /** Time ranges when rule is active */
+  validity?: Array<{ from: number; until: number }>
+}
+
+/**
+ * Save rule response
+ */
+export interface SaveRuleResponse {
+  objectID: string
+  taskID: number
+  updatedAt: string
+}
+
+/**
+ * Save rules response
+ */
+export interface SaveRulesResponse {
+  taskID: number
+  updatedAt: string
+}
+
+/**
+ * Search rules options
+ */
+export interface SearchRulesOptions {
+  query?: string
+  /** Filter by anchor */
+  anchoring?: RuleCondition['anchoring']
+  /** Filter by context */
+  context?: string
+  /** Only return enabled rules */
+  enabled?: boolean
+  page?: number
+  hitsPerPage?: number
+}
+
+/**
+ * Search rules response
+ */
+export interface SearchRulesResponse {
+  hits: Rule[]
+  nbHits: number
+  page: number
+  nbPages: number
+}
+
+/**
+ * Delete rule response
+ */
+export interface DeleteRuleResponse {
+  taskID: number
+  updatedAt: string
+}
+
+/**
+ * Clear rules response
+ */
+export interface ClearRulesResponse {
+  taskID: number
+  updatedAt: string
 }

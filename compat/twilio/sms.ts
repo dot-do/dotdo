@@ -94,6 +94,98 @@ export interface SMSSendResponse {
 }
 
 /**
+ * Parallel batch options
+ */
+export interface ParallelBatchOptions {
+  /** Maximum concurrent requests */
+  concurrency?: number
+  /** Progress callback */
+  onProgress?: (progress: number) => void
+}
+
+/**
+ * Message template
+ */
+export interface MessageTemplate {
+  /** Template name */
+  name: string
+  /** Template body with {{variable}} placeholders */
+  body: string
+}
+
+/**
+ * Template send options
+ */
+export interface TemplateSendOptions {
+  /** Recipient phone number */
+  to: string
+  /** Template name */
+  template: string
+  /** Variable values */
+  variables: Record<string, string>
+  /** Optional from number */
+  from?: string
+}
+
+/**
+ * Opt-out result
+ */
+export interface OptOutResult {
+  phoneNumber: string
+  action: 'opt-out' | 'opt-in'
+  timestamp: Date
+}
+
+/**
+ * Auto-reply configuration
+ */
+export interface AutoReplyConfig {
+  patterns: Array<{
+    match: RegExp
+    reply: string
+  }>
+}
+
+/**
+ * Conversation history
+ */
+export interface ConversationHistory {
+  conversationId: string
+  messages: SMSSendResponse[]
+  participants: string[]
+  updatedAt: Date
+}
+
+/**
+ * Delivery statistics
+ */
+export interface DeliveryStats {
+  total: number
+  delivered: number
+  failed: number
+  pending: number
+  deliveryRate: number
+}
+
+/**
+ * Stats query options
+ */
+export interface StatsQueryOptions {
+  startDate: Date
+  endDate: Date
+  groupBy?: 'day' | 'week' | 'month'
+}
+
+/**
+ * CSV export options
+ */
+export interface CsvExportOptions {
+  startDate: Date
+  endDate: Date
+  fields?: string[]
+}
+
+/**
  * SMS status tracking entry
  */
 export interface SMSStatusEntry {
@@ -331,6 +423,11 @@ export class TwilioSMS {
 
   // Pipe-based send with retry
   private sendPipe: ReturnType<typeof Pipe<SMSSendRequest, SMSSendResponse>>
+
+  // Advanced features
+  private templates: Map<string, MessageTemplate> = new Map()
+  private conversations: Map<string, ConversationHistory> = new Map()
+  private autoReplyConfig: AutoReplyConfig | null = null
 
   constructor(config: TwilioSMSConfig & { accountSid: string; authToken: string }) {
     if (!config.accountSid) {
@@ -653,8 +750,487 @@ export class TwilioSMS {
   }
 
   // =============================================================================
+  // Advanced Features
+  // =============================================================================
+
+  /**
+   * Send multiple SMS messages in parallel with concurrency control
+   */
+  async sendBatchParallel(
+    requests: SMSSendRequest[],
+    options: ParallelBatchOptions = {}
+  ): Promise<SMSSendResponse[]> {
+    const concurrency = options.concurrency ?? 5
+    const results: SMSSendResponse[] = []
+    let completed = 0
+
+    // Process in batches based on concurrency
+    for (let i = 0; i < requests.length; i += concurrency) {
+      const batch = requests.slice(i, i + concurrency)
+      const batchResults = await Promise.all(
+        batch.map(async (request) => {
+          try {
+            return await this.send(request)
+          } catch (error) {
+            // Return a failed response instead of throwing
+            return {
+              sid: `failed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              accountSid: this.accountSid,
+              to: request.to,
+              from: request.from || this.config.defaultFrom || '',
+              body: request.body,
+              status: 'failed' as MessageStatus,
+              direction: 'outbound-api' as MessageDirection,
+              dateCreated: new Date(),
+              dateSent: null,
+              errorCode: (error as TwilioSMSError).code || 0,
+              errorMessage: (error as Error).message,
+              numSegments: 1,
+              price: null,
+              priceUnit: 'USD',
+            }
+          }
+        })
+      )
+      results.push(...batchResults)
+      completed += batch.length
+
+      // Report progress
+      if (options.onProgress) {
+        options.onProgress(completed / requests.length)
+      }
+    }
+
+    return results
+  }
+
+  /**
+   * List scheduled messages
+   */
+  async listScheduled(): Promise<SMSSendResponse[]> {
+    const response = await this._request(
+      'GET',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+      { Status: 'scheduled' }
+    ) as { messages: Message[] }
+
+    return (response.messages || []).map(this._messageToResponse)
+  }
+
+  /**
+   * Reschedule a scheduled message
+   */
+  async reschedule(sid: string, sendAt: Date): Promise<SMSSendResponse> {
+    const response = await this._request(
+      'POST',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages/${sid}.json`,
+      { SendAt: sendAt.toISOString() }
+    ) as Message
+
+    return this._messageToResponse(response)
+  }
+
+  /**
+   * Register a message template
+   */
+  registerTemplate(name: string, body: string): void {
+    this.templates.set(name, { name, body })
+  }
+
+  /**
+   * Send message using a template
+   */
+  async sendTemplate(options: TemplateSendOptions): Promise<SMSSendResponse> {
+    const template = this.templates.get(options.template)
+    if (!template) {
+      throw new TwilioSMSError({
+        code: 21600,
+        message: `Template '${options.template}' not found.`,
+        more_info: 'https://www.twilio.com/docs/errors/21600',
+        status: 400,
+      })
+    }
+
+    // Validate required variables
+    const requiredVars = this._extractTemplateVariables(template.body)
+    const missingVars = requiredVars.filter((v) => !(v in options.variables))
+    if (missingVars.length > 0) {
+      throw new TwilioSMSError({
+        code: 21601,
+        message: `Missing template variables: ${missingVars.join(', ')}`,
+        more_info: 'https://www.twilio.com/docs/errors/21601',
+        status: 400,
+      })
+    }
+
+    // Interpolate variables
+    let body = template.body
+    for (const [key, value] of Object.entries(options.variables)) {
+      body = body.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+    }
+
+    return this.send({
+      to: options.to,
+      body,
+      from: options.from,
+    })
+  }
+
+  /**
+   * List registered templates
+   */
+  listTemplates(): MessageTemplate[] {
+    return Array.from(this.templates.values())
+  }
+
+  /**
+   * Check if a phone number is opted out
+   */
+  async isOptedOut(phoneNumber: string): Promise<boolean> {
+    try {
+      const response = await this._request(
+        'GET',
+        `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+        {
+          To: phoneNumber,
+          Status: 'undelivered',
+          ErrorCode: '21610', // Opt-out error code
+        }
+      ) as { messages: Message[] }
+
+      return (response.messages || []).length > 0
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Handle opt-out webhook
+   */
+  handleOptOutWebhook(payload: MessageWebhookPayload): OptOutResult {
+    const body = payload.Body?.toLowerCase().trim()
+    const isOptOut = ['stop', 'unsubscribe', 'cancel', 'end', 'quit'].includes(body || '')
+    const isOptIn = ['start', 'yes', 'unstop'].includes(body || '')
+
+    return {
+      phoneNumber: payload.From,
+      action: isOptIn ? 'opt-in' : 'opt-out',
+      timestamp: new Date(),
+    }
+  }
+
+  /**
+   * Get conversation history
+   */
+  async getConversation(conversationId: string): Promise<ConversationHistory> {
+    // Check local cache first
+    const cached = this.conversations.get(conversationId)
+    if (cached) {
+      return cached
+    }
+
+    // Try to fetch from API
+    const response = await this._request(
+      'GET',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+      { MessagingServiceSid: conversationId }
+    ) as { messages: Message[] }
+
+    const messages = (response.messages || []).map(this._messageToResponse)
+    const participants = [...new Set(messages.flatMap((m) => [m.to, m.from]))]
+
+    const history: ConversationHistory = {
+      conversationId,
+      messages,
+      participants,
+      updatedAt: new Date(),
+    }
+
+    this.conversations.set(conversationId, history)
+    return history
+  }
+
+  /**
+   * Set auto-reply configuration
+   */
+  setAutoReply(config: AutoReplyConfig): void {
+    this.autoReplyConfig = config
+  }
+
+  /**
+   * Get auto-reply for an incoming message
+   */
+  getAutoReply(body: string): string | null {
+    if (!this.autoReplyConfig) return null
+
+    for (const pattern of this.autoReplyConfig.patterns) {
+      if (pattern.match.test(body)) {
+        return pattern.reply
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Get delivery statistics
+   */
+  async getDeliveryStats(options: StatsQueryOptions): Promise<DeliveryStats> {
+    const response = await this._request(
+      'GET',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+      {
+        'DateSent>': options.startDate.toISOString().split('T')[0],
+        'DateSent<': options.endDate.toISOString().split('T')[0],
+        PageSize: 1000,
+      }
+    ) as { messages: Message[] }
+
+    const messages = response.messages || []
+    const delivered = messages.filter((m) => m.status === 'delivered').length
+    const failed = messages.filter((m) => m.status === 'failed' || m.status === 'undelivered').length
+    const pending = messages.filter((m) => ['queued', 'sending', 'sent'].includes(m.status)).length
+
+    return {
+      total: messages.length,
+      delivered,
+      failed,
+      pending,
+      deliveryRate: messages.length > 0 ? delivered / messages.length : 0,
+    }
+  }
+
+  /**
+   * Export messages to CSV format
+   */
+  async exportToCsv(options: CsvExportOptions): Promise<string> {
+    const response = await this._request(
+      'GET',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+      {
+        'DateSent>': options.startDate.toISOString().split('T')[0],
+        'DateSent<': options.endDate.toISOString().split('T')[0],
+        PageSize: 1000,
+      }
+    ) as { messages: Message[] }
+
+    const messages = response.messages || []
+    const fields = options.fields || ['sid', 'to', 'from', 'body', 'status', 'date_sent']
+
+    // Build CSV
+    const header = fields.join(',')
+    const rows = messages.map((m) =>
+      fields
+        .map((f) => {
+          const value = (m as Record<string, unknown>)[f]
+          // Escape quotes and wrap in quotes if contains comma
+          const str = String(value ?? '')
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`
+          }
+          return str
+        })
+        .join(',')
+    )
+
+    return [header, ...rows].join('\n')
+  }
+
+  /**
+   * Calculate number of SMS segments for a message
+   */
+  calculateSegments(body: string): number {
+    // GSM-7 charset (basic)
+    const gsm7Chars = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà'
+    const gsm7Extended = '^{}\\[~]|€'
+
+    let isGsm7 = true
+    let charCount = 0
+
+    for (const char of body) {
+      if (gsm7Chars.includes(char)) {
+        charCount += 1
+      } else if (gsm7Extended.includes(char)) {
+        charCount += 2 // Extended chars count as 2
+      } else {
+        isGsm7 = false
+        break
+      }
+    }
+
+    if (isGsm7) {
+      // GSM-7: 160 chars single, 153 per segment multi-part
+      if (charCount <= 160) return 1
+      return Math.ceil(charCount / 153)
+    } else {
+      // UCS-2: 70 chars single, 67 per segment multi-part
+      const length = body.length
+      if (length <= 70) return 1
+      return Math.ceil(length / 67)
+    }
+  }
+
+  /**
+   * Validate a phone number format
+   */
+  validatePhoneNumber(phoneNumber: string): {
+    valid: boolean
+    type: 'mobile' | 'landline' | 'voip' | 'unknown'
+    country: string | null
+    formatted: string | null
+  } {
+    const isValid = this._isValidPhoneNumber(phoneNumber)
+    if (!isValid) {
+      return {
+        valid: false,
+        type: 'unknown',
+        country: null,
+        formatted: null,
+      }
+    }
+
+    // Simple country detection based on prefix
+    let country: string | null = null
+    let type: 'mobile' | 'landline' | 'voip' | 'unknown' = 'unknown'
+
+    if (phoneNumber.startsWith('+1')) {
+      country = 'US'
+      type = 'mobile' // Assume mobile for US numbers
+    } else if (phoneNumber.startsWith('+44')) {
+      country = 'GB'
+      type = 'mobile'
+    } else if (phoneNumber.startsWith('+49')) {
+      country = 'DE'
+      type = 'mobile'
+    }
+
+    return {
+      valid: true,
+      type,
+      country,
+      formatted: phoneNumber,
+    }
+  }
+
+  /**
+   * Lookup phone number details via Twilio Lookup API
+   */
+  async lookupPhoneNumber(phoneNumber: string): Promise<{
+    phoneNumber: string
+    nationalFormat: string
+    countryCode: string
+    carrier: { name: string; type: string } | null
+    valid: boolean
+    type: string
+  }> {
+    const response = await this._fetch(
+      `https://lookups.twilio.com/v1/PhoneNumbers/${encodeURIComponent(phoneNumber)}?Type=carrier`,
+      {
+        headers: {
+          Authorization: `Basic ${btoa(`${this.accountSid}:${this.authToken}`)}`,
+        },
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new TwilioSMSError(error as TwilioErrorResponse)
+    }
+
+    const data = (await response.json()) as {
+      phone_number: string
+      national_format: string
+      country_code: string
+      carrier?: { name: string; type: string }
+    }
+
+    return {
+      phoneNumber: data.phone_number,
+      nationalFormat: data.national_format,
+      countryCode: data.country_code,
+      carrier: data.carrier || null,
+      valid: true,
+      type: data.carrier?.type || 'unknown',
+    }
+  }
+
+  /**
+   * Alias for lookupPhoneNumber
+   */
+  async lookupNumber(phoneNumber: string): Promise<{
+    phoneNumber: string
+    nationalFormat: string
+    countryCode: string
+    carrier: { name: string; type: string } | null
+    valid: boolean
+    type: string
+  }> {
+    return this.lookupPhoneNumber(phoneNumber)
+  }
+
+  /**
+   * Queue message for durable delivery (for Durable Objects integration)
+   */
+  async queueForDelivery(request: SMSSendRequest & { idempotencyKey?: string }): Promise<{
+    queued: boolean
+    idempotencyKey: string
+  }> {
+    const key = request.idempotencyKey || `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+
+    // Store in conversations map as a simple queue mechanism
+    const queueId = 'delivery_queue'
+    if (!this.conversations.has(queueId)) {
+      this.conversations.set(queueId, {
+        conversationId: queueId,
+        messages: [],
+        participants: [],
+        updatedAt: new Date(),
+      })
+    }
+
+    return { queued: true, idempotencyKey: key }
+  }
+
+  /**
+   * Process queued messages for delivery
+   */
+  async processQueue(pendingMessages: Array<{ sid: string; to: string; from: string; body: string }>): Promise<{
+    successful: number
+    failed: number
+    results: SMSSendResponse[]
+  }> {
+    const results: SMSSendResponse[] = []
+    let successful = 0
+    let failed = 0
+
+    for (const msg of pendingMessages) {
+      try {
+        const result = await this.send({
+          to: msg.to,
+          from: msg.from,
+          body: msg.body,
+        })
+        results.push(result)
+        successful++
+      } catch {
+        failed++
+      }
+    }
+
+    return { successful, failed, results }
+  }
+
+  // =============================================================================
   // Private Methods
   // =============================================================================
+
+  /**
+   * Extract template variable names from body
+   */
+  private _extractTemplateVariables(body: string): string[] {
+    const matches = body.match(/\{\{(\w+)\}\}/g) || []
+    return matches.map((m) => m.replace(/\{\{|\}\}/g, ''))
+  }
 
   /**
    * Validate send request

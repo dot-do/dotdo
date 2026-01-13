@@ -25,6 +25,7 @@
  */
 
 import type { GraphStore, GraphThing } from '../types'
+import { FUNCTION_VERSION_TYPE_IDS } from '../constants'
 import { createHash } from 'crypto'
 
 // ============================================================================
@@ -76,15 +77,14 @@ export interface FunctionRefData {
 }
 
 // ============================================================================
-// TYPE IDS (constants for graph things)
+// TYPE IDS (from centralized db/graph/constants.ts)
 // ============================================================================
 
-const TYPE_IDS = {
-  Function: 200,
-  FunctionVersion: 201,
-  FunctionBlob: 202,
-  FunctionRef: 203,
-} as const
+/**
+ * Type IDs for function versioning (gitx-style).
+ * Re-exported from db/graph/constants.ts for local use.
+ */
+const TYPE_IDS = FUNCTION_VERSION_TYPE_IDS
 
 // ============================================================================
 // URL BUILDERS

@@ -13,6 +13,17 @@ By the end, you'll have a deployed content site where Mark writes blog posts and
 
 ---
 
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- **Node.js 18+** installed
+- **Cloudflare account** with Workers enabled
+- **TypeScript** familiarity (basic understanding)
+- **OpenAI API key** or **Anthropic API key** (optional, for custom models)
+
+---
+
 <Steps>
 
 <Step>
@@ -419,7 +430,7 @@ app.get('/blog/:slug', async (c) => {
     return c.json({ error: 'Not found' }, 404)
   }
 
-  // Track view - fire and forget
+  // Fire-and-forget: track view
   $.send('Post.viewed', {
     slug: page.slug,
     source: c.req.header('Referer') ?? 'direct'
@@ -662,7 +673,7 @@ export class ContentScheduler extends DO {
       createdAt: new Date()
     }
 
-    // Notify (fire-and-forget)
+    // Fire-and-forget: notify team
     mark`summarize the content plan for the team: ${plan}`
   }
 

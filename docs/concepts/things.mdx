@@ -14,7 +14,7 @@ import { Callout } from 'fumadocs-ui/components/callout'
 const customer = await $.Thing('Customer/cust-123')
 
 // Things have identity and data
-console.log(customer.$id)   // 'https://app.example.com.ai/Customer/cust-123'
+console.log(customer.$id)   // 'https://app.example.com/Customer/cust-123'
 console.log(customer.$type) // 'Customer'
 console.log(customer.name)  // 'Alice'
 
@@ -81,7 +81,7 @@ Every Thing has a namespace (`ns`) derived from its `$id`:
 ```typescript
 const thing = await $.Thing('Customer/cust-123')
 
-console.log(thing.identity.ns)     // 'https://app.example.com.ai'
+console.log(thing.identity.ns)     // 'https://app.example.com'
 console.log(thing.identity.type)   // 'Customer'
 console.log(thing.identity.id)     // 'cust-123'
 console.log(thing.identity.path)   // 'Customer/cust-123'
@@ -94,7 +94,7 @@ The namespace determines which DO owns the Thing. Same namespace = same DO.
 Things use URL-based identity for global uniqueness:
 
 ```
-https://app.example.com.ai/Customer/cust-123
+https://app.example.com/Customer/cust-123
 └──────────┬─────────────┘└──┬───┘└──┬────┘
          namespace        type      id
 ```
@@ -109,10 +109,10 @@ https://app.example.com.ai/Customer/cust-123
 ```typescript
 // Create with explicit ID
 const customer = await things.create({
-  $id: 'https://app.example.com.ai/Customer/cust-123',
+  $id: 'https://app.example.com/Customer/cust-123',
   $type: 'Customer',
   name: 'Alice',
-  data: { email: 'alice@example.com.ai' }
+  data: { email: 'alice@example.com' }
 })
 
 // Or let the system generate a Sqid
@@ -121,7 +121,7 @@ const order = await things.create({
   name: 'Order #1234',
   data: { total: 99.99 }
 })
-// order.$id = 'https://app.example.com.ai/Order/a1b2c3d4'
+// order.$id = 'https://app.example.com/Order/a1b2c3d4'
 ```
 
 <Callout type="info">
@@ -143,7 +143,7 @@ create → update → (promote) → delete
 const things = thingDO.collection<Customer>('Customer')
 const customer = await things.create({
   name: 'Alice',
-  data: { email: 'alice@example.com.ai', plan: 'starter' }
+  data: { email: 'alice@example.com', plan: 'starter' }
 })
 
 // Via $.Thing with full path
@@ -166,7 +166,7 @@ await customer.update({
 // Read after update
 const updated = await $.Thing('Customer/cust-123')
 console.log(updated.data.plan) // 'professional'
-console.log(updated.data.email) // 'alice@example.com.ai' (preserved)
+console.log(updated.data.email) // 'alice@example.com' (preserved)
 ```
 
 ### Promote

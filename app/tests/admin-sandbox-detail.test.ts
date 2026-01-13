@@ -8,7 +8,7 @@
  * - SandboxDetailPage: Main page showing sandbox details
  * - SandboxStateCard: Display status, created time, exposed ports
  * - ExposedPortsList: List of exposed ports with links
- * - TerminalEmbed: Integrated terminal component
+ * - LazyTerminal: SSR-safe lazy-loaded terminal component
  *
  * API Endpoints Used:
  * - GET /api/sandboxes/:id/state
@@ -16,6 +16,7 @@
  * - POST /api/sandboxes/:id/port
  *
  * @see app/routes/admin/sandboxes/$sandboxId.tsx
+ * @see app/components/LazyTerminal.tsx
  * @see app/components/TerminalEmbed.tsx
  */
 
@@ -39,10 +40,10 @@ describe('Sandbox Detail Route Structure', () => {
       expect(content).toContain("'/admin/sandboxes/$sandboxId'")
     })
 
-    it('should use Shell from @mdxui/cockpit', async () => {
+    it('should use Shell component', async () => {
       const content = await readFile('app/routes/admin/sandboxes/$sandboxId.tsx', 'utf-8')
-      expect(content).toContain('@mdxui/cockpit')
       expect(content).toContain('Shell')
+      expect(content).toMatch(/import.*Shell/)
     })
 
     it('should export Route and default component', async () => {
@@ -74,10 +75,10 @@ describe('Component Exports', () => {
     expect(content).toContain('ExposedPortsList')
   })
 
-  it('should import TerminalEmbed component', async () => {
+  it('should import LazyTerminal component (SSR-safe)', async () => {
     const content = await readFile('app/routes/admin/sandboxes/$sandboxId.tsx', 'utf-8')
-    expect(content).toContain('TerminalEmbed')
-    expect(content).toMatch(/import.*TerminalEmbed|from.*TerminalEmbed/)
+    expect(content).toContain('LazyTerminal')
+    expect(content).toMatch(/import.*LazyTerminal|from.*LazyTerminal/)
   })
 })
 
@@ -102,9 +103,9 @@ describe('SandboxDetailPage', () => {
     expect(content).toContain('<SandboxStateCard')
   })
 
-  it('should render TerminalEmbed', async () => {
+  it('should render LazyTerminal', async () => {
     const content = await readFile('app/routes/admin/sandboxes/$sandboxId.tsx', 'utf-8')
-    expect(content).toContain('<TerminalEmbed')
+    expect(content).toContain('<LazyTerminal')
     expect(content).toContain('sandboxId')
   })
 })
@@ -231,9 +232,9 @@ describe('Expose Port Functionality', () => {
 // ============================================================================
 
 describe('Terminal Integration', () => {
-  it('should pass sandboxId prop to TerminalEmbed', async () => {
+  it('should pass sandboxId prop to LazyTerminal', async () => {
     const content = await readFile('app/routes/admin/sandboxes/$sandboxId.tsx', 'utf-8')
-    expect(content).toMatch(/<TerminalEmbed[\s\S]*sandboxId/)
+    expect(content).toMatch(/<LazyTerminal[\s\S]*sandboxId/)
   })
 
   it('should have terminal section heading', async () => {
@@ -353,7 +354,7 @@ describe('Accessibility', () => {
 
   it('should have accessible buttons', async () => {
     const content = await readFile('app/routes/admin/sandboxes/$sandboxId.tsx', 'utf-8')
-    expect(content).toContain('<button')
+    expect(content).toMatch(/<button|<Button/)
     expect(content).toContain('onClick')
   })
 

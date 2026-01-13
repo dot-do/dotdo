@@ -15,7 +15,7 @@
 
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
-import { TerminalEmbed } from '~/components/TerminalEmbed'
+import { LazyTerminal } from '~/components/LazyTerminal'
 import { Shell } from '~/components/ui/shell'
 import { Button } from '~/components/ui/button'
 
@@ -359,7 +359,7 @@ function SandboxDetailPage() {
           {/* Right Column - Terminal */}
           <div className="lg:col-span-2">
             <h2 className="text-lg font-medium mb-3">Terminal</h2>
-            <TerminalEmbed
+            <LazyTerminal
               sandboxId={sandboxId}
               className="h-96"
               onError={handleError}

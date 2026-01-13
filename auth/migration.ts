@@ -35,6 +35,7 @@ import { randomUUID } from 'crypto'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import type * as schema from '../db'
 import type { GraphStore } from '../db/graph/types'
+import { AUTH_TYPE_IDS } from '../db/graph/constants'
 
 // ============================================================================
 // TYPES
@@ -111,20 +112,14 @@ export interface VerificationResult {
 }
 
 // ============================================================================
-// CONSTANTS
+// CONSTANTS (from centralized db/graph/constants.ts)
 // ============================================================================
 
-const TYPE_IDS = {
-  User: 1,
-  Session: 2,
-  Account: 3,
-  Verification: 4,
-  JWKS: 5,
-  Organization: 6,
-  Member: 7,
-  Invitation: 8,
-  ApiKey: 9,
-} as const
+/**
+ * Type IDs for auth entities.
+ * Re-exported from db/graph/constants.ts for local use.
+ */
+const TYPE_IDS = AUTH_TYPE_IDS
 
 // ============================================================================
 // HELPER FUNCTIONS

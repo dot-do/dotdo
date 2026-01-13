@@ -873,3 +873,426 @@ export function createValidator<T>(
 ): (event: ChangeEvent<T>) => ValidatedChangeEvent<T> {
   return (event: ChangeEvent<T>) => validateChangeEvent(event, contract, options)
 }
+
+// ============================================================================
+// ALERTING
+// ============================================================================
+
+/**
+ * Alert severity levels
+ */
+export type AlertSeverity = 'info' | 'warning' | 'error' | 'critical'
+
+/**
+ * Schema violation alert
+ */
+export interface SchemaViolationAlert {
+  /** Alert ID */
+  id: string
+  /** When the alert was created */
+  timestamp: number
+  /** Alert severity */
+  severity: AlertSeverity
+  /** Alert type */
+  type: 'validation_failure' | 'schema_drift' | 'dead_letter_threshold' | 'error_rate_threshold'
+  /** Human-readable message */
+  message: string
+  /** Contract name */
+  contractName?: string
+  /** Contract version */
+  contractVersion?: string
+  /** Original event that caused the alert (if applicable) */
+  event?: ChangeEvent
+  /** Validation errors (if applicable) */
+  errors?: ValidationError[]
+  /** Schema drift report (if applicable) */
+  driftReport?: SchemaDriftReport
+  /** Additional context */
+  context?: Record<string, unknown>
+}
+
+/**
+ * Alert handler function
+ */
+export type AlertHandler = (alert: SchemaViolationAlert) => void | Promise<void>
+
+/**
+ * Alerting configuration
+ */
+export interface AlertingConfig {
+  /** Handlers for alerts */
+  handlers: AlertHandler[]
+  /** Minimum severity to trigger handlers */
+  minSeverity?: AlertSeverity
+  /** Enable alerts for every validation failure */
+  alertOnEveryFailure?: boolean
+  /** Dead letter queue threshold for critical alert */
+  deadLetterThreshold?: number
+  /** Error rate threshold (0-1) for warning */
+  errorRateThreshold?: number
+  /** Sample rate for drift detection (check every N events) */
+  driftCheckInterval?: number
+}
+
+/**
+ * Alert manager for schema violation monitoring
+ */
+export class SchemaAlertManager {
+  private config: AlertingConfig
+  private alertCount: number = 0
+  private lastDriftCheck: number = 0
+  private eventsSinceLastDriftCheck: ChangeEvent[] = []
+
+  constructor(config: AlertingConfig) {
+    this.config = {
+      minSeverity: 'warning',
+      alertOnEveryFailure: false,
+      deadLetterThreshold: 100,
+      errorRateThreshold: 0.1,
+      driftCheckInterval: 100,
+      ...config,
+    }
+  }
+
+  /**
+   * Generate an alert ID
+   */
+  private generateAlertId(): string {
+    return `alert-${Date.now()}-${(++this.alertCount).toString(36)}`
+  }
+
+  /**
+   * Check if alert should be triggered based on severity
+   */
+  private shouldAlert(severity: AlertSeverity): boolean {
+    const severityOrder: AlertSeverity[] = ['info', 'warning', 'error', 'critical']
+    const minIndex = severityOrder.indexOf(this.config.minSeverity!)
+    const currentIndex = severityOrder.indexOf(severity)
+    return currentIndex >= minIndex
+  }
+
+  /**
+   * Send an alert to all handlers
+   */
+  async sendAlert(alert: SchemaViolationAlert): Promise<void> {
+    if (!this.shouldAlert(alert.severity)) {
+      return
+    }
+
+    for (const handler of this.config.handlers) {
+      try {
+        await handler(alert)
+      } catch {
+        // Silently ignore handler errors to prevent cascading failures
+      }
+    }
+  }
+
+  /**
+   * Alert on validation failure
+   */
+  async alertValidationFailure(
+    event: ChangeEvent,
+    errors: ValidationError[],
+    contract: DataContract
+  ): Promise<void> {
+    if (!this.config.alertOnEveryFailure) {
+      return
+    }
+
+    await this.sendAlert({
+      id: this.generateAlertId(),
+      timestamp: Date.now(),
+      severity: 'warning',
+      type: 'validation_failure',
+      message: `Schema validation failed for event ${event.id}: ${errors.map((e) => e.message).join(', ')}`,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      event,
+      errors,
+    })
+  }
+
+  /**
+   * Alert on dead letter threshold exceeded
+   */
+  async alertDeadLetterThreshold(
+    queueSize: number,
+    contract?: DataContract
+  ): Promise<void> {
+    if (queueSize < (this.config.deadLetterThreshold ?? 100)) {
+      return
+    }
+
+    await this.sendAlert({
+      id: this.generateAlertId(),
+      timestamp: Date.now(),
+      severity: 'critical',
+      type: 'dead_letter_threshold',
+      message: `Dead letter queue size (${queueSize}) exceeds threshold (${this.config.deadLetterThreshold})`,
+      contractName: contract?.name,
+      contractVersion: contract?.version,
+      context: { queueSize, threshold: this.config.deadLetterThreshold },
+    })
+  }
+
+  /**
+   * Alert on error rate threshold exceeded
+   */
+  async alertErrorRateThreshold(
+    metrics: ContractValidationMetrics,
+    contract?: DataContract
+  ): Promise<void> {
+    if (metrics.totalEvents === 0) return
+
+    const errorRate = metrics.invalidEvents / metrics.totalEvents
+    if (errorRate < (this.config.errorRateThreshold ?? 0.1)) {
+      return
+    }
+
+    await this.sendAlert({
+      id: this.generateAlertId(),
+      timestamp: Date.now(),
+      severity: 'error',
+      type: 'error_rate_threshold',
+      message: `Error rate (${(errorRate * 100).toFixed(1)}%) exceeds threshold (${((this.config.errorRateThreshold ?? 0.1) * 100).toFixed(1)}%)`,
+      contractName: contract?.name,
+      contractVersion: contract?.version,
+      context: {
+        errorRate,
+        threshold: this.config.errorRateThreshold,
+        totalEvents: metrics.totalEvents,
+        invalidEvents: metrics.invalidEvents,
+      },
+    })
+  }
+
+  /**
+   * Check for schema drift and alert if detected
+   */
+  async checkAndAlertDrift(
+    event: ChangeEvent,
+    contract: DataContract
+  ): Promise<void> {
+    this.eventsSinceLastDriftCheck.push(event)
+
+    if (this.eventsSinceLastDriftCheck.length < (this.config.driftCheckInterval ?? 100)) {
+      return
+    }
+
+    const report = detectSchemaDrift(this.eventsSinceLastDriftCheck, contract)
+    this.eventsSinceLastDriftCheck = []
+    this.lastDriftCheck = Date.now()
+
+    if (!report.hasDrift) {
+      return
+    }
+
+    await this.sendAlert({
+      id: this.generateAlertId(),
+      timestamp: Date.now(),
+      severity: 'warning',
+      type: 'schema_drift',
+      message: `Schema drift detected: ${report.unexpectedFields.length} unexpected fields, ${report.missingRequiredFields.length} missing required fields, ${report.typeMismatches.length} type mismatches`,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      driftReport: report,
+    })
+  }
+}
+
+/**
+ * Create a schema alert manager
+ */
+export function createAlertManager(config: AlertingConfig): SchemaAlertManager {
+  return new SchemaAlertManager(config)
+}
+
+// ============================================================================
+// CDC STREAM MIDDLEWARE
+// ============================================================================
+
+/**
+ * Options for the contract validation middleware
+ */
+export interface ContractMiddlewareOptions<T = unknown> {
+  /** Data contract to validate against */
+  contract: DataContract | string
+  /** Schema registry for lookup */
+  registry?: SchemaRegistry
+  /** Validation mode */
+  mode?: ValidationMode
+  /** Action on violation */
+  onViolation?: ViolationAction
+  /** Alert manager for notifications */
+  alertManager?: SchemaAlertManager
+  /** Schema drift detection settings */
+  driftDetection?: {
+    enabled: boolean
+    sampleSize?: number
+  }
+  /** Custom error handler */
+  onError?: (event: ChangeEvent<T>, errors: ValidationError[]) => void
+}
+
+/**
+ * Middleware result
+ */
+export interface MiddlewareResult<T> {
+  /** Whether event should continue processing */
+  pass: boolean
+  /** Validated event (if passed) */
+  event?: ValidatedChangeEvent<T>
+  /** Validation errors (if failed) */
+  errors?: ValidationError[]
+}
+
+/**
+ * Contract validation middleware for CDCStream
+ *
+ * This can be used to wrap CDCStream handlers with contract validation.
+ * It provides a functional approach to integrating validation into existing pipelines.
+ */
+export class ContractMiddleware<T = unknown> {
+  private contract: DataContract | null = null
+  private registry: SchemaRegistry
+  private options: ContractMiddlewareOptions<T>
+  private eventBuffer: ChangeEvent<T>[] = []
+  private initialized: boolean = false
+
+  constructor(options: ContractMiddlewareOptions<T>) {
+    this.options = options
+    this.registry = options.registry ?? createRegistry()
+  }
+
+  /**
+   * Initialize the middleware (load contract if needed)
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return
+
+    if (typeof this.options.contract === 'string') {
+      this.contract = await this.registry.get(this.options.contract)
+    } else {
+      this.contract = this.options.contract
+    }
+    this.initialized = true
+  }
+
+  /**
+   * Validate a single event
+   */
+  async validate(event: ChangeEvent<T>): Promise<MiddlewareResult<T>> {
+    if (!this.initialized) {
+      await this.initialize()
+    }
+
+    if (!this.contract) {
+      throw new Error('Contract not loaded')
+    }
+
+    const validated = validateChangeEvent(event, this.contract, {
+      validateBefore: true,
+      validateAfter: true,
+      mode: this.options.mode ?? 'strict',
+    })
+
+    // Check for drift if enabled
+    if (this.options.driftDetection?.enabled && this.options.alertManager) {
+      await this.options.alertManager.checkAndAlertDrift(event, this.contract)
+    }
+
+    if (validated.isValid) {
+      return { pass: true, event: validated }
+    }
+
+    // Handle invalid event
+    const errors = [
+      ...(validated.beforeValidation?.errors ?? []),
+      ...(validated.afterValidation?.errors ?? []),
+    ]
+
+    // Call custom error handler
+    if (this.options.onError) {
+      this.options.onError(event, errors)
+    }
+
+    // Send alert if configured
+    if (this.options.alertManager) {
+      await this.options.alertManager.alertValidationFailure(event, errors, this.contract)
+    }
+
+    // Determine if event should pass based on violation action
+    const action = this.options.onViolation ?? 'dead-letter'
+    if (action === 'pass-through') {
+      return { pass: true, event: validated, errors }
+    }
+
+    return { pass: false, errors }
+  }
+
+  /**
+   * Wrap a CDCStream change handler with validation
+   */
+  wrap<O = T>(
+    handler: (event: ChangeEvent<O>) => Promise<void>
+  ): (event: ChangeEvent<T>) => Promise<void> {
+    return async (event: ChangeEvent<T>) => {
+      const result = await this.validate(event)
+      if (result.pass && result.event) {
+        await handler(result.event as unknown as ChangeEvent<O>)
+      }
+    }
+  }
+
+  /**
+   * Get the loaded contract
+   */
+  getContract(): DataContract | null {
+    return this.contract
+  }
+}
+
+/**
+ * Create a contract validation middleware
+ */
+export function createContractMiddleware<T = unknown>(
+  options: ContractMiddlewareOptions<T>
+): ContractMiddleware<T> {
+  return new ContractMiddleware(options)
+}
+
+/**
+ * Higher-order function to wrap a change handler with contract validation
+ */
+export function withContractValidation<T, O = T>(
+  contract: DataContract,
+  handler: (event: ValidatedChangeEvent<O>) => Promise<void>,
+  options?: {
+    mode?: ValidationMode
+    onViolation?: ViolationAction
+    onError?: (event: ChangeEvent<T>, errors: ValidationError[]) => void
+  }
+): (event: ChangeEvent<T>) => Promise<void> {
+  return async (event: ChangeEvent<T>) => {
+    const validated = validateChangeEvent(event, contract, {
+      mode: options?.mode ?? 'strict',
+    })
+
+    if (!validated.isValid) {
+      if (options?.onError) {
+        const errors = [
+          ...(validated.beforeValidation?.errors ?? []),
+          ...(validated.afterValidation?.errors ?? []),
+        ]
+        options.onError(event, errors)
+      }
+
+      if (options?.onViolation !== 'pass-through') {
+        return // Skip invalid events by default
+      }
+    }
+
+    await handler(validated as unknown as ValidatedChangeEvent<O>)
+  }
+}

@@ -1,38 +1,24 @@
 /**
  * Landing Page Route (/)
  *
- * Renders the landing page from Site.mdx with full MDX component support.
+ * Renders the landing page with support for Site.mdx content.
  * Also handles content negotiation for API requests (JSON responses).
  *
- * ## MDX Source
- * Content is loaded from Site.mdx at root via fumadocs-mdx.
+ * ## Pattern for Static MDX Build
  *
- * ## Components Available in Site.mdx
- * - AgentGrid, Agent - Display team agents
- * - FeatureGrid, Feature - Display features
- * - CTA - Call to action buttons
- * - Hero, Section, CodeBlock - Layout components
+ * This route demonstrates the static MDX build pattern:
+ * 1. Server loads metadata from Site.mdx via fumadocs-mdx
+ * 2. Client renders using MDX components
+ * 3. Falls back to static content if MDX not available
+ *
+ * Consumers can customize by editing Site.mdx at root.
  */
 
 'use client'
 
 import { createFileRoute, Link } from '@tanstack/react-router'
 import * as React from 'react'
-import { createServerFn } from '@tanstack/react-start'
 import { buildResponse } from '../../lib/response/linked-data'
-import { getSitePage } from '../lib/source'
-import browserCollections from 'fumadocs-mdx:collections/browser'
-import defaultMdxComponents from 'fumadocs-ui/mdx'
-import {
-  AgentGrid,
-  Agent,
-  FeatureGrid,
-  Feature,
-  CTA,
-  Hero,
-  Section,
-  CodeBlock,
-} from '../mdx-components'
 
 // =============================================================================
 // Navigation Component
@@ -80,64 +66,6 @@ function Navigation({ logo, items, cta }: NavigationProps) {
   )
 }
 
-// =============================================================================
-// Server Loader for Site.mdx
-// =============================================================================
-
-const siteLoader = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  try {
-    const page = getSitePage()
-    if (page) {
-      return {
-        path: page.path,
-        frontmatter: page.data,
-        hasMdx: true,
-      }
-    }
-  } catch {
-    // Site.mdx not found, fall back to static content
-  }
-  return {
-    path: '',
-    frontmatter: {
-      title: 'dotdo - Build your 1-Person Unicorn',
-      description: 'Deploy a startup with product, engineering, marketing, and sales.',
-    },
-    hasMdx: false,
-  }
-})
-
-// =============================================================================
-// Site MDX Client Loader
-// =============================================================================
-
-// Create client loader for Site MDX content
-const siteClientLoader = browserCollections.site?.createClientLoader({
-  component(
-    { toc, frontmatter, default: MDX },
-    props: { className?: string },
-  ) {
-    return (
-      <article className={props.className}>
-        <MDX
-          components={{
-            ...defaultMdxComponents,
-            AgentGrid,
-            Agent,
-            FeatureGrid,
-            Feature,
-            CTA,
-            Hero,
-            Section,
-            CodeBlock,
-          }}
-        />
-      </article>
-    )
-  },
-})
 
 // =============================================================================
 // Route Configuration
@@ -145,14 +73,6 @@ const siteClientLoader = browserCollections.site?.createClientLoader({
 
 export const Route = createFileRoute('/')({
   component: Home,
-  loader: async () => {
-    const data = await siteLoader()
-    // Preload MDX content if available
-    if (data.hasMdx && siteClientLoader) {
-      await siteClientLoader.preload(data.path)
-    }
-    return data
-  },
   server: {
     handlers: {
       GET: async ({ request }) => {
@@ -186,23 +106,23 @@ export const Route = createFileRoute('/')({
       },
     },
   },
-  head: ({ loaderData }) => ({
+  head: () => ({
     meta: [
-      { title: loaderData?.frontmatter?.title || 'dotdo - Build your 1-Person Unicorn' },
-      { name: 'description', content: loaderData?.frontmatter?.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
+      { title: 'dotdo - Build your 1-Person Unicorn' },
+      { name: 'description', content: 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
       // OpenGraph tags
-      { property: 'og:title', content: loaderData?.frontmatter?.title || 'dotdo - Build your 1-Person Unicorn' },
-      { property: 'og:description', content: loaderData?.frontmatter?.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
+      { property: 'og:title', content: 'dotdo - Build your 1-Person Unicorn' },
+      { property: 'og:description', content: 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
       { property: 'og:type', content: 'website' },
       { property: 'og:url', content: 'https://dotdo.dev/' },
       { property: 'og:site_name', content: 'dotdo' },
-      { property: 'og:image', content: loaderData?.frontmatter?.ogImage || 'https://dotdo.dev/og-image.png' },
+      { property: 'og:image', content: 'https://dotdo.dev/og-image.png' },
       // Twitter Card tags
       { name: 'twitter:card', content: 'summary_large_image' },
       { name: 'twitter:site', content: '@dotdodev' },
-      { name: 'twitter:title', content: loaderData?.frontmatter?.title || 'dotdo - Build your 1-Person Unicorn' },
-      { name: 'twitter:description', content: loaderData?.frontmatter?.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
-      { name: 'twitter:image', content: loaderData?.frontmatter?.ogImage || 'https://dotdo.dev/og-image.png' },
+      { name: 'twitter:title', content: 'dotdo - Build your 1-Person Unicorn' },
+      { name: 'twitter:description', content: 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.' },
+      { name: 'twitter:image', content: 'https://dotdo.dev/og-image.png' },
       // Additional SEO
       { name: 'robots', content: 'index, follow' },
       { name: 'author', content: 'dotdo' },
@@ -301,8 +221,6 @@ function FallbackContent() {
 // =============================================================================
 
 function Home() {
-  const data = Route.useLoaderData()
-
   return (
     <div className="min-h-screen bg-background">
       <Navigation
@@ -315,14 +233,7 @@ function Home() {
       />
 
       <main>
-        {/* Render MDX content if available, otherwise use fallback */}
-        {data.hasMdx && siteClientLoader ? (
-          siteClientLoader.useContent(data.path, {
-            className: 'site-content prose prose-neutral dark:prose-invert max-w-none',
-          })
-        ) : (
-          <FallbackContent />
-        )}
+        <FallbackContent />
       </main>
 
       <Footer />
