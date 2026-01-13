@@ -685,6 +685,134 @@ export class HubSpotWorkflows {
       )
     }
 
+    // Validate at least one enrollment trigger
+    if (!input.enrollmentTriggers || input.enrollmentTriggers.length === 0) {
+      throw new HubSpotWorkflowError(
+        'At least one enrollment trigger is required',
+        'INVALID_INPUT',
+        400
+      )
+    }
+
+    // Validate enrollment triggers
+    const validTriggerTypes: EnrollmentTriggerType[] = [
+      'formSubmission', 'listMembership', 'propertyChange', 'pageView', 'event', 'manual', 'api'
+    ]
+    for (const trigger of input.enrollmentTriggers) {
+      if (!validTriggerTypes.includes(trigger.type)) {
+        throw new HubSpotWorkflowError(
+          `Invalid trigger type: ${trigger.type}. Must be one of: ${validTriggerTypes.join(', ')}`,
+          'INVALID_INPUT',
+          400
+        )
+      }
+
+      // Validate specific trigger requirements
+      switch (trigger.type) {
+        case 'formSubmission':
+          if (!('formId' in trigger) || !trigger.formId) {
+            throw new HubSpotWorkflowError(
+              'Form submission trigger requires formId',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'listMembership':
+          if (!('listId' in trigger) || !trigger.listId) {
+            throw new HubSpotWorkflowError(
+              'List membership trigger requires listId',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'propertyChange':
+          if (!('property' in trigger) || !trigger.property) {
+            throw new HubSpotWorkflowError(
+              'Property change trigger requires property name',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'event':
+          if (!('eventName' in trigger) || !trigger.eventName) {
+            throw new HubSpotWorkflowError(
+              'Event trigger requires eventName',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+      }
+    }
+
+    // Validate actions
+    const validActionTypes: WorkflowActionType[] = [
+      'setProperty', 'sendEmail', 'delay', 'branch', 'webhook', 'createTask',
+      'notification', 'createRecord', 'updateRecord', 'copyProperty', 'clearProperty',
+      'incrementProperty', 'rotate', 'randomSplit', 'goalReached'
+    ]
+    for (const action of input.actions) {
+      if (!validActionTypes.includes(action.type)) {
+        throw new HubSpotWorkflowError(
+          `Invalid action type: ${action.type}. Must be one of: ${validActionTypes.join(', ')}`,
+          'INVALID_INPUT',
+          400
+        )
+      }
+
+      // Validate specific action requirements
+      switch (action.type) {
+        case 'sendEmail':
+          if (!('emailId' in action) || !action.emailId) {
+            throw new HubSpotWorkflowError(
+              'Send email action requires emailId',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'setProperty':
+          if (!('property' in action) || !action.property) {
+            throw new HubSpotWorkflowError(
+              'Set property action requires property name',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'webhook':
+          if (!('url' in action) || !action.url) {
+            throw new HubSpotWorkflowError(
+              'Webhook action requires url',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'createTask':
+          if (!('title' in action) || !action.title) {
+            throw new HubSpotWorkflowError(
+              'Create task action requires title',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+        case 'notification':
+          if (!('message' in action) || !action.message) {
+            throw new HubSpotWorkflowError(
+              'Notification action requires message',
+              'INVALID_INPUT',
+              400
+            )
+          }
+          break
+      }
+    }
+
     const id = `wf-${crypto.randomUUID()}`
     const now = new Date().toISOString()
 
@@ -1396,6 +1524,9 @@ export class HubSpotWorkflows {
 
     await this.storage.set(`enrollment:${workflowId}:${contactId}`, enrollment)
 
+    // Increment enrollment count for max enrollments tracking
+    await this.incrementEnrollmentCount(workflowId, contactId)
+
     // Start execution
     if (workflow.actions.length > 0) {
       this.queueActionExecution(enrollment.id, workflow.actions[0].id)
@@ -1727,7 +1858,8 @@ export class HubSpotWorkflows {
 
   private queueActionExecution(enrollmentId: string, actionId: string): void {
     this.executionQueue.push({ enrollmentId, actionId })
-    this.processQueue()
+    // Use setTimeout to make queue processing truly async (allows tests to verify intermediate states)
+    setTimeout(() => this.processQueue(), 0)
   }
 
   private async processQueue(): Promise<void> {
@@ -2242,8 +2374,16 @@ export class HubSpotWorkflows {
   }
 
   private async getEnrollmentCount(workflowId: string, contactId: string): Promise<number> {
-    // In a full implementation, this would track historical enrollments
-    return 1
+    // Get enrollment history count from storage
+    const countKey = `enrollment_count:${workflowId}:${contactId}`
+    const count = await this.storage.get<number>(countKey)
+    return count ?? 0
+  }
+
+  private async incrementEnrollmentCount(workflowId: string, contactId: string): Promise<void> {
+    const countKey = `enrollment_count:${workflowId}:${contactId}`
+    const count = await this.storage.get<number>(countKey) ?? 0
+    await this.storage.set(countKey, count + 1)
   }
 }
 

@@ -418,7 +418,7 @@ export const EventBusMetrics = {
  * Supports:
  * - Exact match: "orders.created" matches "orders.created"
  * - Single segment wildcard (*): "orders.*" matches "orders.created" but not "orders.us.created"
- * - Multi segment wildcard (**): "orders.**" matches "orders.created" and "orders.us.created"
+ * - Multi segment wildcard (**): "orders.**" matches "orders", "orders.created" and "orders.us.created"
  * - Single character wildcard (?): "orders.region-?" matches "orders.region-1"
  * - Character class ([abc]): "orders.region-[123]" matches "orders.region-1"
  */
@@ -426,6 +426,24 @@ function matchesPattern(topic: string, pattern: string): boolean {
   // Exact match
   if (topic === pattern) {
     return true
+  }
+
+  // Handle special case: pattern ending with .** should also match the prefix
+  // e.g., "orders.**" should match "orders"
+  if (pattern.endsWith('.**')) {
+    const prefix = pattern.slice(0, -3)
+    if (topic === prefix) {
+      return true
+    }
+  }
+
+  // Handle special case: pattern starting with **. should also match the suffix
+  // e.g., "**.shipped" should match "shipped"
+  if (pattern.startsWith('**.')) {
+    const suffix = pattern.slice(3)
+    if (topic === suffix) {
+      return true
+    }
   }
 
   // Convert pattern to regex
@@ -438,7 +456,16 @@ function matchesPattern(topic: string, pattern: string): boolean {
     if (char === '*') {
       // Check for ** (multi-segment wildcard)
       if (pattern[i + 1] === '*') {
-        regexPattern += '.*'
+        // ** can match zero or more segments
+        // If preceded by a dot, make the dot optional for zero-segment match
+        if (regexPattern.endsWith('\\.')) {
+          regexPattern = regexPattern.slice(0, -2) + '(?:\\..*)?'
+        } else if (i === 0) {
+          // ** at start - can match zero or more segments
+          regexPattern += '(?:.*\\.)?'
+        } else {
+          regexPattern += '.*'
+        }
         i += 2
         continue
       }

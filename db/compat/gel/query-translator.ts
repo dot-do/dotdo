@@ -671,14 +671,22 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
       const fieldName = field.name
 
       if (field.computed) {
-        // Computed field - field.computed is the expression
-        const exprSql = exprToSQL(field.computed, ctx)
-        columns.push(`${exprSql} AS ${quote(fieldName)}`)
-        ctx.columnMap.push({
-          sqlColumn: fieldName,
-          edgePath: [fieldName],
-          computed: true,
-        })
+        // Computed field - handle two formats for backwards compatibility:
+        // 1. Parser format: field.computed is the Expression directly
+        // 2. Test builder format: field.computed is boolean true, expression is in field.expression
+        const rawComputed = field.computed as unknown
+        const computedExpr = rawComputed === true
+          ? (field as unknown as { expression?: Expression }).expression
+          : (rawComputed as Expression | undefined)
+        if (computedExpr) {
+          const exprSql = exprToSQL(computedExpr, ctx)
+          columns.push(`${exprSql} AS ${quote(fieldName)}`)
+          ctx.columnMap.push({
+            sqlColumn: fieldName,
+            edgePath: [fieldName],
+            computed: true,
+          })
+        }
       } else if (field.shape && field.shape.fields) {
         // Nested shape - need a JOIN
         const linkInfo = findLink(ast.target, fieldName, ctx.options.schema)
@@ -781,7 +789,8 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
   // Add LIMIT - inline the value directly (not as parameter)
   if (ast.limit !== undefined) {
     // Handle LimitClause wrapper if present (for extended AST compatibility)
-    const limitExpr = (ast.limit as LimitClause).count ?? ast.limit
+    // Use unknown intermediate cast for type compatibility
+    const limitExpr = (ast.limit as unknown as LimitClause).count ?? ast.limit
     if (limitExpr.type === 'NumberLiteral') {
       sql += ` LIMIT ${(limitExpr as NumberLiteral).value}`
     } else {
@@ -793,7 +802,8 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
   // Add OFFSET - inline the value directly (not as parameter)
   if (ast.offset !== undefined) {
     // Handle OffsetClause wrapper if present (for extended AST compatibility)
-    const offsetExpr = (ast.offset as OffsetClause).count ?? ast.offset
+    // Use unknown intermediate cast for type compatibility
+    const offsetExpr = (ast.offset as unknown as OffsetClause).count ?? ast.offset
     if (offsetExpr.type === 'NumberLiteral') {
       sql += ` OFFSET ${(offsetExpr as NumberLiteral).value}`
     } else {

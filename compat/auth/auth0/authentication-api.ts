@@ -1252,10 +1252,16 @@ export class AuthenticationClient {
   private async generateIdToken(
     user: { id: string; email?: string; name?: string; first_name?: string; last_name?: string; picture?: string; email_verified?: boolean },
     clientId: string,
-    scope?: string
+    scope?: string,
+    nonce?: string
   ): Promise<string> {
     const claims: Record<string, unknown> = {
       auth_time: Math.floor(Date.now() / 1000),
+    }
+
+    // Add nonce if provided (required for implicit flow, optional for code flow)
+    if (nonce) {
+      claims.nonce = nonce
     }
 
     // Add claims based on scope
@@ -1281,6 +1287,48 @@ export class AuthenticationClient {
       subject: user.id,
       expiresIn: this.options.idTokenTTL,
     })
+  }
+
+  // ============================================================================
+  // HELPER METHODS
+  // ============================================================================
+
+  /**
+   * Generate a cryptographically secure random code (for authorization codes, device codes, etc.)
+   */
+  private generateSecureCode(): string {
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
+  /**
+   * Generate a PKCE code verifier (43-128 characters, URL-safe)
+   * Per RFC 7636, must be between 43 and 128 characters
+   */
+  private generateCodeVerifier(): string {
+    const bytes = new Uint8Array(32) // 32 bytes = 43 base64url characters
+    crypto.getRandomValues(bytes)
+    // Base64url encode (RFC 4648)
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+  }
+
+  /**
+   * Generate a user-friendly device code (for Device Authorization Grant)
+   * Format: XXXX-XXXX (8 characters, easy to type)
+   */
+  private generateUserCode(): string {
+    // Use only unambiguous characters (no 0/O, 1/I/L, etc.)
+    const charset = 'BCDFGHJKMNPQRSTVWXYZ2346789'
+    const bytes = new Uint8Array(8)
+    crypto.getRandomValues(bytes)
+    const chars = Array.from(bytes).map((b) => charset[b % charset.length])
+    return `${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}`
   }
 }
 

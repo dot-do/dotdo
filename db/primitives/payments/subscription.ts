@@ -644,7 +644,12 @@ export class SubscriptionManager {
     }
 
     // Calculate billing period based on anchor
+    // Use UTC date to avoid timezone issues
     const billingAnchor = options.billingCycleAnchor ?? now
+    const anchorDay = billingAnchor.getUTCDate()
+    const anchorMonth = billingAnchor.getUTCMonth()
+    const anchorYear = billingAnchor.getUTCFullYear()
+
     let periodStart: Date
     let periodEnd: Date
 
@@ -654,17 +659,17 @@ export class SubscriptionManager {
       periodEnd = addInterval(periodStart, plan.interval, plan.intervalCount)
     } else if (options.billingCycleAnchor) {
       // Use billing anchor to set period boundaries
-      periodStart = new Date(billingAnchor)
-      const nextEnd = addInterval(billingAnchor, plan.interval, plan.intervalCount)
+      // Create dates in UTC to match the input
+      periodStart = new Date(Date.UTC(anchorYear, anchorMonth, anchorDay))
+      const nextEnd = addIntervalUTC(periodStart, plan.interval, plan.intervalCount)
 
       // For monthly/yearly intervals, preserve the anchor day
-      const anchorDay = billingAnchor.getDate()
       if (plan.interval === 'month' || plan.interval === 'quarter') {
-        const maxDay = new Date(nextEnd.getFullYear(), nextEnd.getMonth() + 1, 0).getDate()
-        nextEnd.setDate(Math.min(anchorDay, maxDay))
+        const maxDay = new Date(Date.UTC(nextEnd.getUTCFullYear(), nextEnd.getUTCMonth() + 1, 0)).getUTCDate()
+        nextEnd.setUTCDate(Math.min(anchorDay, maxDay))
       } else if (plan.interval === 'year') {
-        nextEnd.setMonth(billingAnchor.getMonth())
-        nextEnd.setDate(anchorDay)
+        nextEnd.setUTCMonth(anchorMonth)
+        nextEnd.setUTCDate(anchorDay)
       }
       periodEnd = nextEnd
     } else {

@@ -1107,6 +1107,7 @@ export class HubSpotLocal {
   private storage: InMemoryStorage
   private webhooks: HubSpotWebhooks
   private forms: HubSpotForms
+  private _initialized: boolean = false
 
   readonly crm: {
     contacts: LocalObjectApi<CrmObject>
@@ -1130,8 +1131,16 @@ export class HubSpotLocal {
     }
   }
 
-  constructor(config?: { appId?: string; clientSecret?: string }) {
-    this.storage = new InMemoryStorage()
+  constructor(storage?: InMemoryStorage | { appId?: string; clientSecret?: string }) {
+    // If storage is an InMemoryStorage instance, use it directly
+    // Otherwise, create a new one (legacy config pattern)
+    if (storage instanceof InMemoryStorage) {
+      this.storage = storage
+    } else {
+      this.storage = new InMemoryStorage()
+    }
+
+    const config = storage instanceof InMemoryStorage ? undefined : storage
 
     // Initialize webhooks
     this.webhooks = new HubSpotWebhooks(this.storage, {
@@ -1217,10 +1226,66 @@ export class HubSpotLocal {
   }
 
   /**
+   * Initialize the HubSpot local instance with default pipelines and properties.
+   * This should be called after constructing the instance.
+   */
+  async initialize(): Promise<void> {
+    if (this._initialized) return
+
+    // Initialize default pipelines for deals and tickets
+    // Default deals pipeline
+    const existingDealPipelines = await this.storage.list({ prefix: 'pipelines:deals:' })
+    if (existingDealPipelines.size === 0) {
+      const dealsPipeline: Pipeline = {
+        id: 'default',
+        label: 'Sales Pipeline',
+        displayOrder: 0,
+        stages: [
+          { id: 'appointmentscheduled', label: 'Appointment Scheduled', displayOrder: 0 },
+          { id: 'qualifiedtobuy', label: 'Qualified to Buy', displayOrder: 1 },
+          { id: 'presentationscheduled', label: 'Presentation Scheduled', displayOrder: 2 },
+          { id: 'decisionmakerboughtin', label: 'Decision Maker Bought-In', displayOrder: 3 },
+          { id: 'contractsent', label: 'Contract Sent', displayOrder: 4 },
+          { id: 'closedwon', label: 'Closed Won', displayOrder: 5, metadata: { isClosed: 'true', probability: '1.0' } },
+          { id: 'closedlost', label: 'Closed Lost', displayOrder: 6, metadata: { isClosed: 'true', probability: '0' } },
+        ],
+        createdAt: now(),
+        updatedAt: now(),
+        archived: false,
+      }
+      await this.storage.put('pipelines:deals:default', dealsPipeline)
+    }
+
+    // Default tickets pipeline
+    const existingTicketPipelines = await this.storage.list({ prefix: 'pipelines:tickets:' })
+    if (existingTicketPipelines.size === 0) {
+      const ticketsPipeline: Pipeline = {
+        id: 'default',
+        label: 'Support Pipeline',
+        displayOrder: 0,
+        stages: [
+          { id: 'new', label: 'New', displayOrder: 0 },
+          { id: 'waiting', label: 'Waiting on Contact', displayOrder: 1 },
+          { id: 'inprogress', label: 'In Progress', displayOrder: 2 },
+          { id: 'resolved', label: 'Resolved', displayOrder: 3 },
+          { id: 'closed', label: 'Closed', displayOrder: 4 },
+        ],
+        createdAt: now(),
+        updatedAt: now(),
+        archived: false,
+      }
+      await this.storage.put('pipelines:tickets:default', ticketsPipeline)
+    }
+
+    this._initialized = true
+  }
+
+  /**
    * Clear all data (for testing)
    */
   async clear(): Promise<void> {
     this.storage.clear()
+    this._initialized = false
   }
 }
 

@@ -1489,3 +1489,529 @@ export function createSensor(options: SensorOptions): Sensor {
     },
   }
 }
+
+// ============================================================================
+// DAG SCHEDULE MANAGER
+// ============================================================================
+
+export {
+  createDAGScheduleManager,
+  createDAGScheduleEveryProxy,
+  type DAGScheduleManager,
+  type DAGScheduleManagerConfig,
+  type ScheduledDAG,
+  type RegisterOptions,
+  type ScheduledRunResult,
+  type ScheduledRunEvent,
+  type DAGScheduleBuilder,
+  type DAGScheduleTimeProxy,
+  type DAGScheduleEveryProxy,
+} from './schedule-manager'
+
+// ============================================================================
+// CROSS-DAG DEPENDENCIES AND ORCHESTRATION
+// ============================================================================
+
+/** Dataset definition for dataset-based triggers */
+export interface Dataset {
+  id: string
+  location: string
+  partitions?: Record<string, string>
+  metadata?: Record<string, unknown>
+}
+
+/** Dataset event types */
+export type DatasetEventType = 'created' | 'updated' | 'deleted' | 'partition_added'
+
+/** Dataset event */
+export interface DatasetEvent {
+  type: DatasetEventType
+  dataset: Dataset
+  timestamp: Date
+  partition?: Record<string, string>
+}
+
+/** Dataset trigger configuration */
+export interface DatasetTrigger {
+  type: 'dataset'
+  datasets: string[]
+  condition?: 'all' | 'any'
+  filter?: (event: DatasetEvent) => boolean
+}
+
+/** Cross-DAG shared state */
+export interface CrossDAGState {
+  get<T>(key: string): Promise<T | undefined>
+  set<T>(key: string, value: T, ttl?: number): Promise<void>
+  delete(key: string): Promise<void>
+  getDAGResult(dagId: string, runId?: string): Promise<DAGRun | undefined>
+  setDAGResult(dagId: string, runId: string, result: DAGRun): Promise<void>
+}
+
+/** DAG registry for managing multiple DAGs */
+export interface DAGRegistry {
+  register(dag: DAG): void
+  unregister(dagId: string): void
+  get(dagId: string): DAG | undefined
+  getAll(): DAG[]
+  getDependents(dagId: string): DAG[]
+  getDependencies(dagId: string): string[]
+  validateDependencies(): void
+}
+
+/** DAG orchestrator for coordinating cross-DAG execution */
+export interface DAGOrchestrator {
+  registry: DAGRegistry
+  state: CrossDAGState
+  executor: ParallelExecutor
+  trigger(dagId: string, payload?: unknown): Promise<DAGRun>
+  triggerDataset(event: DatasetEvent): Promise<DAGRun[]>
+  getRunHistory(dagId: string, limit?: number): Promise<DAGRun[]>
+  waitForDAG(dagId: string, condition?: ExternalDependency['condition']): Promise<DAGRun>
+  onDAGComplete(callback: DAGCompleteCallback): void
+}
+
+/** External DAG sensor - waits for another DAG to complete */
+export interface ExternalDAGSensor extends Sensor {
+  dagId: string
+  taskId?: string
+  condition: ExternalDependency['condition']
+  getResult(): DAGRun | undefined
+}
+
+/** Options for creating an external DAG sensor */
+export interface ExternalDAGSensorOptions {
+  orchestrator: DAGOrchestrator
+  dependency: ExternalDependency
+  interval?: number
+  timeout?: number
+}
+
+/** Create an external DAG sensor that waits for another DAG */
+export function createExternalDAGSensor(options: ExternalDAGSensorOptions): ExternalDAGSensor {
+  const { orchestrator, dependency, interval = 1000, timeout = 3600000 } = options
+  let lastResult: DAGRun | undefined
+
+  return {
+    id: `dag-sensor-${dependency.dagId}${dependency.taskId ? `-${dependency.taskId}` : ''}`,
+    dagId: dependency.dagId,
+    taskId: dependency.taskId,
+    condition: dependency.condition ?? 'success',
+
+    async wait(): Promise<boolean> {
+      const startTime = Date.now()
+      const condition = dependency.condition ?? 'success'
+
+      while (Date.now() - startTime < timeout) {
+        // Check for latest run of the target DAG
+        const runs = await orchestrator.getRunHistory(dependency.dagId, 1)
+        const run = runs[0]
+
+        if (run) {
+          // Check if specific task condition is met
+          if (dependency.taskId) {
+            const taskResult = run.taskResults.get(dependency.taskId)
+            if (taskResult) {
+              const meetsCondition =
+                condition === 'any' ||
+                (condition === 'completed' && (taskResult.status === 'success' || taskResult.status === 'failed')) ||
+                (condition === 'success' && taskResult.status === 'success')
+
+              if (meetsCondition) {
+                lastResult = run
+                return true
+              }
+            }
+          } else {
+            // Check DAG-level condition
+            const meetsCondition =
+              condition === 'any' ||
+              (condition === 'completed' && (run.status === 'completed' || run.status === 'failed')) ||
+              (condition === 'success' && run.status === 'completed')
+
+            if (meetsCondition) {
+              lastResult = run
+              return true
+            }
+          }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, interval))
+      }
+
+      throw new Error(`External DAG sensor timeout waiting for ${dependency.dagId}`)
+    },
+
+    getResult(): DAGRun | undefined {
+      return lastResult
+    },
+  }
+}
+
+/** Create an in-memory cross-DAG state store */
+export function createCrossDAGState(): CrossDAGState {
+  const store = new Map<string, { value: unknown; expiresAt?: number }>()
+  const dagResults = new Map<string, Map<string, DAGRun>>()
+
+  return {
+    async get<T>(key: string): Promise<T | undefined> {
+      const entry = store.get(key)
+      if (!entry) return undefined
+      if (entry.expiresAt && Date.now() > entry.expiresAt) {
+        store.delete(key)
+        return undefined
+      }
+      return entry.value as T
+    },
+
+    async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+      store.set(key, {
+        value,
+        expiresAt: ttl ? Date.now() + ttl : undefined,
+      })
+    },
+
+    async delete(key: string): Promise<void> {
+      store.delete(key)
+    },
+
+    async getDAGResult(dagId: string, runId?: string): Promise<DAGRun | undefined> {
+      const dagRuns = dagResults.get(dagId)
+      if (!dagRuns) return undefined
+      if (runId) return dagRuns.get(runId)
+      // Return most recent run
+      let latest: DAGRun | undefined
+      for (const run of dagRuns.values()) {
+        if (!latest || run.startedAt > latest.startedAt) {
+          latest = run
+        }
+      }
+      return latest
+    },
+
+    async setDAGResult(dagId: string, runId: string, result: DAGRun): Promise<void> {
+      let dagRuns = dagResults.get(dagId)
+      if (!dagRuns) {
+        dagRuns = new Map()
+        dagResults.set(dagId, dagRuns)
+      }
+      dagRuns.set(runId, result)
+    },
+  }
+}
+
+/** Create a DAG registry */
+export function createDAGRegistry(): DAGRegistry {
+  const dags = new Map<string, DAG>()
+
+  const registry: DAGRegistry = {
+    register(dag: DAG): void {
+      dags.set(dag.id, dag)
+    },
+
+    unregister(dagId: string): void {
+      dags.delete(dagId)
+    },
+
+    get(dagId: string): DAG | undefined {
+      return dags.get(dagId)
+    },
+
+    getAll(): DAG[] {
+      return [...dags.values()]
+    },
+
+    getDependents(dagId: string): DAG[] {
+      const dependents: DAG[] = []
+      for (const dag of dags.values()) {
+        for (const trigger of dag.triggers ?? []) {
+          if (trigger.type === 'dag-complete' && trigger.source.dagId === dagId) {
+            dependents.push(dag)
+            break
+          }
+        }
+      }
+      return dependents
+    },
+
+    getDependencies(dagId: string): string[] {
+      const dag = dags.get(dagId)
+      if (!dag) return []
+      const deps: string[] = []
+      for (const trigger of dag.triggers ?? []) {
+        if (trigger.type === 'dag-complete') {
+          deps.push(trigger.source.dagId)
+        }
+      }
+      return deps
+    },
+
+    validateDependencies(): void {
+      validateDAGDependencies([...dags.values()])
+    },
+  }
+
+  return registry
+}
+
+/** Validate cross-DAG dependencies for cycles */
+export function validateDAGDependencies(dags: DAG[]): void {
+  const dagMap = new Map(dags.map((d) => [d.id, d]))
+  const visited = new Set<string>()
+  const recursionStack = new Set<string>()
+  const cyclePath: string[] = []
+
+  function detectCycle(dagId: string, path: string[]): boolean {
+    visited.add(dagId)
+    recursionStack.add(dagId)
+
+    const dag = dagMap.get(dagId)
+    for (const trigger of dag?.triggers ?? []) {
+      if (trigger.type === 'dag-complete') {
+        const depId = trigger.source.dagId
+        if (!visited.has(depId)) {
+          if (detectCycle(depId, [...path, depId])) {
+            return true
+          }
+        } else if (recursionStack.has(depId)) {
+          // Found cycle - build the cycle path
+          const cycleStart = path.indexOf(depId)
+          if (cycleStart >= 0) {
+            cyclePath.push(...path.slice(cycleStart), depId)
+          } else {
+            cyclePath.push(...path, depId)
+          }
+          return true
+        }
+      }
+    }
+
+    recursionStack.delete(dagId)
+    return false
+  }
+
+  for (const dag of dags) {
+    if (!visited.has(dag.id)) {
+      if (detectCycle(dag.id, [dag.id])) {
+        throw new Error(`Circular DAG dependency detected: ${cyclePath.join(' -> ')}`)
+      }
+    }
+  }
+}
+
+/** Options for creating a DAG orchestrator */
+export interface DAGOrchestratorOptions {
+  executor?: ParallelExecutor
+  state?: CrossDAGState
+  registry?: DAGRegistry
+}
+
+/** Create a DAG orchestrator */
+export function createDAGOrchestrator(options?: DAGOrchestratorOptions): DAGOrchestrator {
+  const registry = options?.registry ?? createDAGRegistry()
+  const state = options?.state ?? createCrossDAGState()
+  const executor = options?.executor ?? createParallelExecutor()
+
+  const dagCompleteCallbacks: DAGCompleteCallback[] = []
+  const datasetSubscriptions = new Map<string, DAG[]>()
+
+  // Wire up the executor's onDAGComplete to trigger dependent DAGs
+  executor.onDAGComplete(async (dagId, result) => {
+    // Store the result
+    await state.setDAGResult(dagId, result.runId, result)
+
+    // Trigger all dependent DAGs
+    const dependents = registry.getDependents(dagId)
+    for (const dependent of dependents) {
+      const trigger = dependent.triggers?.find(
+        (t) => t.type === 'dag-complete' && t.source.dagId === dagId
+      )
+      if (trigger) {
+        const payload = trigger.payload?.(result)
+        // Execute dependent DAG
+        await executor.execute(dependent, { triggerPayload: payload })
+      }
+    }
+
+    // Fire user callbacks
+    for (const callback of dagCompleteCallbacks) {
+      try {
+        await callback(dagId, result)
+      } catch {
+        // Ignore callback errors
+      }
+    }
+  })
+
+  const orchestrator: DAGOrchestrator = {
+    registry,
+    state,
+    executor,
+
+    async trigger(dagId: string, payload?: unknown): Promise<DAGRun> {
+      const dag = registry.get(dagId)
+      if (!dag) {
+        throw new Error(`DAG ${dagId} not found in registry`)
+      }
+      const result = await executor.execute(dag, { triggerPayload: payload })
+      await state.setDAGResult(dagId, result.runId, result)
+      return result
+    },
+
+    async triggerDataset(event: DatasetEvent): Promise<DAGRun[]> {
+      const results: DAGRun[] = []
+      const subscribedDags = datasetSubscriptions.get(event.dataset.id) ?? []
+
+      for (const dag of subscribedDags) {
+        // Check if this DAG has a dataset trigger that matches
+        const datasetTrigger = dag.triggers?.find(
+          (t): t is DAGTrigger & { dataset?: DatasetTrigger } =>
+            'dataset' in t &&
+            (t as DAGTrigger & { dataset?: DatasetTrigger }).dataset?.datasets.includes(event.dataset.id) === true
+        )
+
+        if (datasetTrigger) {
+          const dsConfig = (datasetTrigger as unknown as { dataset: DatasetTrigger }).dataset
+          // Check filter if present
+          if (dsConfig.filter && !dsConfig.filter(event)) {
+            continue
+          }
+          const result = await executor.execute(dag, { triggerPayload: event })
+          results.push(result)
+        }
+      }
+
+      return results
+    },
+
+    async getRunHistory(dagId: string, limit?: number): Promise<DAGRun[]> {
+      const storeWithHistory = state as CrossDAGState & {
+        getDAGHistory?: (dagId: string, limit?: number) => Promise<DAGRun[]>
+      }
+
+      if (storeWithHistory.getDAGHistory) {
+        return storeWithHistory.getDAGHistory(dagId, limit)
+      }
+
+      // Fallback - return latest result if available
+      const result = await state.getDAGResult(dagId)
+      return result ? [result] : []
+    },
+
+    async waitForDAG(dagId: string, condition?: ExternalDependency['condition']): Promise<DAGRun> {
+      const sensor = createExternalDAGSensor({
+        orchestrator,
+        dependency: { dagId, condition: condition ?? 'success' },
+      })
+      await sensor.wait()
+      return sensor.getResult()!
+    },
+
+    onDAGComplete(callback: DAGCompleteCallback): void {
+      dagCompleteCallbacks.push(callback)
+    },
+  }
+
+  return orchestrator
+}
+
+/** Dataset-aware state store with event tracking */
+export interface DatasetAwareState extends CrossDAGState {
+  registerDataset(dataset: Dataset): void
+  emitDatasetEvent(event: DatasetEvent): Promise<void>
+  subscribeToDataset(datasetId: string, dag: DAG): void
+  unsubscribeFromDataset(datasetId: string, dagId: string): void
+  getDataset(datasetId: string): Dataset | undefined
+}
+
+/** Create a dataset-aware cross-DAG state store */
+export function createDatasetAwareState(): DatasetAwareState {
+  const baseState = createCrossDAGState()
+  const datasets = new Map<string, Dataset>()
+  const subscriptions = new Map<string, Map<string, DAG>>()
+  const eventCallbacks: ((event: DatasetEvent) => Promise<void>)[] = []
+
+  return {
+    ...baseState,
+
+    registerDataset(dataset: Dataset): void {
+      datasets.set(dataset.id, dataset)
+    },
+
+    async emitDatasetEvent(event: DatasetEvent): Promise<void> {
+      for (const callback of eventCallbacks) {
+        try {
+          await callback(event)
+        } catch {
+          // Ignore callback errors
+        }
+      }
+    },
+
+    subscribeToDataset(datasetId: string, dag: DAG): void {
+      let dagSubscriptions = subscriptions.get(datasetId)
+      if (!dagSubscriptions) {
+        dagSubscriptions = new Map()
+        subscriptions.set(datasetId, dagSubscriptions)
+      }
+      dagSubscriptions.set(dag.id, dag)
+    },
+
+    unsubscribeFromDataset(datasetId: string, dagId: string): void {
+      const dagSubscriptions = subscriptions.get(datasetId)
+      if (dagSubscriptions) {
+        dagSubscriptions.delete(dagId)
+      }
+    },
+
+    getDataset(datasetId: string): Dataset | undefined {
+      return datasets.get(datasetId)
+    },
+  }
+}
+
+/** Task that waits for an external DAG completion */
+export function createExternalDAGTask(
+  id: string,
+  orchestrator: DAGOrchestrator,
+  dependency: ExternalDependency
+): TaskNode {
+  return createTaskNode({
+    id,
+    execute: async () => {
+      const sensor = createExternalDAGSensor({
+        orchestrator,
+        dependency,
+      })
+      await sensor.wait()
+      return sensor.getResult()
+    },
+    dependencies: [],
+  })
+}
+
+/** Create a dataset sensor task */
+export function createDatasetSensorTask(
+  id: string,
+  datasetId: string,
+  state: DatasetAwareState,
+  options?: { interval?: number; timeout?: number }
+): TaskNode {
+  return createTaskNode({
+    id,
+    execute: async () => {
+      const sensor = createSensor({
+        id: `dataset-sensor-${datasetId}`,
+        poke: async () => {
+          const dataset = state.getDataset(datasetId)
+          return dataset !== undefined
+        },
+        interval: options?.interval ?? 1000,
+        timeout: options?.timeout ?? 3600000,
+      })
+      await sensor.wait()
+      return state.getDataset(datasetId)
+    },
+    dependencies: [],
+  })
+}

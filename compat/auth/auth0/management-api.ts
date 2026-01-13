@@ -21,6 +21,7 @@ import type {
   Auth0OrganizationMember,
   Auth0OrganizationInvitation,
   OrganizationConnection,
+  OrganizationBranding,
   CreateUserParams,
   UpdateUserParams,
   CreateConnectionParams,
@@ -79,6 +80,7 @@ export class ManagementClient {
   private orgMemberRoleStore: TemporalStore<string[]> // org_id:user_id -> role_ids
   private orgConnectionStore: TemporalStore<OrganizationConnection[]> // org_id -> connections
   private orgInvitationStore: TemporalStore<Auth0OrganizationInvitation>
+  private allOrganizationsStore: TemporalStore<string[]> // list of all org_ids
 
   constructor(options: ManagementAPIOptions) {
     this.options = options
@@ -96,6 +98,7 @@ export class ManagementClient {
     this.orgMemberRoleStore = createTemporalStore<string[]>()
     this.orgConnectionStore = createTemporalStore<OrganizationConnection[]>()
     this.orgInvitationStore = createTemporalStore<Auth0OrganizationInvitation>()
+    this.allOrganizationsStore = createTemporalStore<string[]>()
   }
 
   // ============================================================================
@@ -303,6 +306,28 @@ export class ManagementClient {
 
       const user = await this.userManager.getUser(params.id)
       return user?.identities ?? []
+    },
+
+    /**
+     * Get organizations for a user
+     */
+    getOrganizations: async (params: { id: string }): Promise<Auth0Organization[]> => {
+      // Get user's organization memberships by checking the user's organization membership index
+      const orgIds = (await this.userRoleStore.get(`user_orgs:${params.id}`)) ?? []
+      const organizations: Auth0Organization[] = []
+
+      for (const orgId of orgIds) {
+        try {
+          const org = await this.organizationStore.get(`org:${orgId}`)
+          if (org) {
+            organizations.push(org)
+          }
+        } catch {
+          // Organization may have been deleted
+        }
+      }
+
+      return organizations
     },
   }
 
@@ -749,6 +774,10 @@ export class ManagementClient {
       await this.organizationStore.put(`org:${id}`, organization, Date.now())
       await this.addOrganizationIndex(data.name, id)
 
+      // Add to list of all organizations
+      const allOrgs = (await this.allOrganizationsStore.get('all_orgs')) ?? []
+      await this.allOrganizationsStore.put('all_orgs', [...allOrgs, id], Date.now())
+
       // Store enabled connections separately
       if (data.enabled_connections?.length) {
         await this.orgConnectionStore.put(`org_connections:${id}`, data.enabled_connections, Date.now())
@@ -818,6 +847,9 @@ export class ManagementClient {
       }
       await this.removeOrganizationIndex(org.name)
       await this.organizationStore.put(`org:${params.id}`, null as unknown as Auth0Organization, Date.now())
+      // Remove from list of all organizations
+      const allOrgs = (await this.allOrganizationsStore.get('all_orgs')) ?? []
+      await this.allOrganizationsStore.put('all_orgs', allOrgs.filter((id) => id !== params.id), Date.now())
       // Clean up related data
       await this.orgMemberStore.put(`org_members:${params.id}`, null as unknown as string[], Date.now())
       await this.orgConnectionStore.put(`org_connections:${params.id}`, null as unknown as OrganizationConnection[], Date.now())
@@ -827,16 +859,44 @@ export class ManagementClient {
      * Get all organizations
      */
     getAll: async (params?: PaginationParams): Promise<Auth0Organization[] | PaginatedResponse<Auth0Organization>> => {
-      if (params?.include_totals) {
-        return {
-          start: params.page ?? 0,
-          limit: params.per_page ?? 50,
-          length: 0,
-          total: 0,
-          organizations: [],
+      const allOrgIds = (await this.allOrganizationsStore.get('all_orgs')) ?? []
+      const organizations: Auth0Organization[] = []
+
+      for (const orgId of allOrgIds) {
+        const org = await this.organizationStore.get(`org:${orgId}`)
+        if (org) {
+          // Fetch enabled connections
+          const connections = await this.orgConnectionStore.get(`org_connections:${orgId}`)
+          org.enabled_connections = connections ?? []
+
+          // Apply query filter if provided
+          if (params?.q) {
+            // Simple query parsing for name: prefix
+            const nameMatch = params.q.match(/^name:(.+)$/)
+            if (nameMatch && org.name !== nameMatch[1]) {
+              continue
+            }
+          }
+
+          organizations.push(org)
         }
       }
-      return []
+
+      if (params?.include_totals) {
+        const page = params.page ?? 0
+        const perPage = params.per_page ?? 50
+        const start = page * perPage
+        const paginatedOrgs = organizations.slice(start, start + perPage)
+        return {
+          start,
+          limit: perPage,
+          length: paginatedOrgs.length,
+          total: organizations.length,
+          organizations: paginatedOrgs,
+        }
+      }
+
+      return organizations
     },
 
     // ============================================================================
@@ -900,6 +960,14 @@ export class ManagementClient {
       const existingMembers = (await this.orgMemberStore.get(`org_members:${params.id}`)) ?? []
       const newMembers = [...new Set([...existingMembers, ...data.members])]
       await this.orgMemberStore.put(`org_members:${params.id}`, newMembers, Date.now())
+
+      // Track user-to-organization relationship for each member
+      for (const memberId of data.members) {
+        const userOrgs = (await this.userRoleStore.get(`user_orgs:${memberId}`)) ?? []
+        if (!userOrgs.includes(params.id)) {
+          await this.userRoleStore.put(`user_orgs:${memberId}`, [...userOrgs, params.id], Date.now())
+        }
+      }
     },
 
     /**
@@ -909,6 +977,13 @@ export class ManagementClient {
       const existingMembers = (await this.orgMemberStore.get(`org_members:${params.id}`)) ?? []
       const newMembers = existingMembers.filter((m) => !data.members.includes(m))
       await this.orgMemberStore.put(`org_members:${params.id}`, newMembers, Date.now())
+
+      // Remove user-to-organization relationship for each member
+      for (const memberId of data.members) {
+        const userOrgs = (await this.userRoleStore.get(`user_orgs:${memberId}`)) ?? []
+        const filteredOrgs = userOrgs.filter((orgId) => orgId !== params.id)
+        await this.userRoleStore.put(`user_orgs:${memberId}`, filteredOrgs, Date.now())
+      }
 
       // Clean up member roles
       for (const memberId of data.members) {
@@ -966,8 +1041,23 @@ export class ManagementClient {
     /**
      * Get organization enabled connections
      */
-    getEnabledConnections: async (params: { id: string }): Promise<OrganizationConnection[]> => {
-      return (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+    getEnabledConnections: async (params: { id: string; page?: number; per_page?: number; include_totals?: boolean }): Promise<OrganizationConnection[] | { enabled_connections: OrganizationConnection[]; total: number; start: number; limit: number }> => {
+      const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
+
+      if (params.include_totals) {
+        const page = params.page ?? 0
+        const perPage = params.per_page ?? 50
+        const start = page * perPage
+        const paginatedConnections = connections.slice(start, start + perPage)
+        return {
+          enabled_connections: paginatedConnections,
+          total: connections.length,
+          start,
+          limit: perPage,
+        }
+      }
+
+      return connections
     },
 
     /**
@@ -1008,13 +1098,13 @@ export class ManagementClient {
      * Get a specific enabled connection for an organization
      */
     getEnabledConnection: async (
-      params: { id: string; connectionId: string }
+      params: { id: string; connection_id: string }
     ): Promise<OrganizationConnection> => {
       const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
-      const connection = connections.find((c) => c.connection_id === params.connectionId)
+      const connection = connections.find((c) => c.connection_id === params.connection_id)
 
       if (!connection) {
-        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connectionId} not found for organization ${params.id}`)
+        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connection_id} not found for organization ${params.id}`)
       }
 
       return connection
@@ -1024,20 +1114,20 @@ export class ManagementClient {
      * Update an enabled connection for an organization
      */
     updateEnabledConnection: async (
-      params: { id: string; connectionId: string },
+      params: { id: string; connection_id: string },
       data: Partial<AddOrganizationConnectionParams>
     ): Promise<OrganizationConnection> => {
       const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
-      const index = connections.findIndex((c) => c.connection_id === params.connectionId)
+      const index = connections.findIndex((c) => c.connection_id === params.connection_id)
 
       if (index < 0) {
-        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connectionId} not found for organization ${params.id}`)
+        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connection_id} not found for organization ${params.id}`)
       }
 
       connections[index] = {
         ...connections[index],
         ...data,
-        connection_id: params.connectionId, // Can't change connection_id
+        connection_id: params.connection_id, // Can't change connection_id
       }
 
       await this.orgConnectionStore.put(`org_connections:${params.id}`, connections, Date.now())
@@ -1048,12 +1138,12 @@ export class ManagementClient {
     /**
      * Remove an enabled connection from an organization
      */
-    removeEnabledConnection: async (params: { id: string; connectionId: string }): Promise<void> => {
+    removeEnabledConnection: async (params: { id: string; connection_id: string }): Promise<void> => {
       const connections = (await this.orgConnectionStore.get(`org_connections:${params.id}`)) ?? []
-      const filtered = connections.filter((c) => c.connection_id !== params.connectionId)
+      const filtered = connections.filter((c) => c.connection_id !== params.connection_id)
 
       if (filtered.length === connections.length) {
-        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connectionId} not found for organization ${params.id}`)
+        throw new Auth0APIError(404, 'Not Found', `Connection ${params.connection_id} not found for organization ${params.id}`)
       }
 
       await this.orgConnectionStore.put(`org_connections:${params.id}`, filtered, Date.now())
@@ -1066,9 +1156,31 @@ export class ManagementClient {
     /**
      * Get organization invitations
      */
-    getInvitations: async (params: { id: string }): Promise<Auth0OrganizationInvitation[]> => {
-      // Simplified - would need proper listing in production
-      return []
+    getInvitations: async (params: { id: string; page?: number; per_page?: number; include_totals?: boolean }): Promise<Auth0OrganizationInvitation[] | { invitations: Auth0OrganizationInvitation[]; total: number; start: number; limit: number }> => {
+      const invitationIds = (await this.orgInvitationStore.get(`org_invitations:${params.id}`)) as unknown as string[] ?? []
+      const invitations: Auth0OrganizationInvitation[] = []
+
+      for (const invId of invitationIds) {
+        const invitation = await this.orgInvitationStore.get(`invitation:${invId}`)
+        if (invitation && invitation.organization_id === params.id) {
+          invitations.push(invitation)
+        }
+      }
+
+      if (params.include_totals) {
+        const page = params.page ?? 0
+        const perPage = params.per_page ?? 50
+        const start = page * perPage
+        const paginatedInvitations = invitations.slice(start, start + perPage)
+        return {
+          invitations: paginatedInvitations,
+          total: invitations.length,
+          start,
+          limit: perPage,
+        }
+      }
+
+      return invitations
     },
 
     /**
@@ -1107,6 +1219,9 @@ export class ManagementClient {
       await this.orgInvitationStore.put(`invitation:${invitationId}`, invitation, Date.now())
       // Index by ticket for lookup
       await this.orgInvitationStore.put(`invitation_ticket:${ticketId}`, invitation, Date.now())
+      // Add to organization's invitation list
+      const existingInvitations = (await this.orgInvitationStore.get(`org_invitations:${params.id}`)) as unknown as string[] ?? []
+      await this.orgInvitationStore.put(`org_invitations:${params.id}`, [...existingInvitations, invitationId] as unknown as Auth0OrganizationInvitation, Date.now())
 
       return invitation
     },
@@ -1132,7 +1247,53 @@ export class ManagementClient {
         if (invitation.ticket_id) {
           await this.orgInvitationStore.put(`invitation_ticket:${invitation.ticket_id}`, null as unknown as Auth0OrganizationInvitation, Date.now())
         }
+        // Remove from organization's invitation list
+        const existingInvitations = (await this.orgInvitationStore.get(`org_invitations:${params.id}`)) as unknown as string[] ?? []
+        const filteredInvitations = existingInvitations.filter((id) => id !== params.invitation_id)
+        await this.orgInvitationStore.put(`org_invitations:${params.id}`, filteredInvitations as unknown as Auth0OrganizationInvitation, Date.now())
       }
+    },
+
+    // ============================================================================
+    // ORGANIZATION BRANDING
+    // ============================================================================
+
+    /**
+     * Get organization branding
+     */
+    getBranding: async (params: { id: string }): Promise<OrganizationBranding> => {
+      const org = await this.organizations.get(params)
+      return org.branding ?? {}
+    },
+
+    /**
+     * Update organization branding
+     */
+    updateBranding: async (
+      params: { id: string },
+      data: OrganizationBranding
+    ): Promise<OrganizationBranding> => {
+      const org = await this.organizations.get(params)
+      const updatedBranding: OrganizationBranding = {
+        ...org.branding,
+        ...data,
+        colors: {
+          ...org.branding?.colors,
+          ...data.colors,
+        },
+      }
+      org.branding = updatedBranding
+      await this.organizationStore.put(`org:${params.id}`, org, Date.now())
+      return updatedBranding
+    },
+
+    /**
+     * Delete organization branding
+     */
+    deleteBranding: async (params: { id: string }): Promise<void> => {
+      const org = await this.organizations.get(params)
+      org.branding = undefined
+      await this.organizationStore.put(`org:${params.id}`, org, Date.now())
     },
   }
 

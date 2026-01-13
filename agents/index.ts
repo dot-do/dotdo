@@ -372,3 +372,17 @@ export {
   type TypedTemplateLiteral,
   type TypedInvokeOptions,
 } from './named'
+
+// ============================================================================
+// Agent Loop - Think, Act, Observe Pattern
+// ============================================================================
+
+export {
+  AgentLoop,
+  createAgentLoop,
+  runSingleCycle,
+  type AgentLoopConfig,
+  type AgentLoopInput,
+  type AgentLoopStep,
+  type AgentLoopEvent,
+} from './loop'

@@ -347,3 +347,83 @@ export {
   type SchemaRegistryOptions,
   type SchemaTransformerOptions,
 } from './schema-evolution'
+
+// =============================================================================
+// CONTRACT INTEGRATION
+// =============================================================================
+
+export {
+  // Classes
+  CDCContractStream,
+  // Factory functions
+  createCDCContractStream,
+  withContract,
+  createValidator,
+  // Validation functions
+  validateChangeEvent as validateEventAgainstContract,
+  detectSchemaDrift,
+  // Types
+  type ValidationMode,
+  type ViolationAction,
+  type CDCContractConfig,
+  type ValidatedChangeEvent,
+  type DeadLetterEvent,
+  type SchemaDriftReport,
+  type ContractValidationMetrics,
+  type CDCContractStreamOptions,
+} from './contract-integration'
+
+// =============================================================================
+// EXACTLY-ONCE DELIVERY
+// =============================================================================
+
+export {
+  // Class
+  ExactlyOnceDelivery,
+  // Factory
+  createExactlyOnceDelivery,
+  // Metric names
+  ExactlyOnceMetrics,
+  // Types
+  type IdempotencyKey,
+  type TransactionId,
+  type DeliveryStatus,
+  type LogEntryType,
+  type DeliveryEvent,
+  type DeliveryResult,
+  type TransactionLogEntry,
+  type PreparedTransaction,
+  type DeadLetterEntry as ExactlyOnceDeadLetterEntry,
+  type ProcessHandler,
+  type OffsetCommitHandler,
+  type DLQHandler,
+  type ExactlyOnceDeliveryStats,
+  type ExactlyOnceCheckpointState,
+  type ExactlyOnceDeliveryOptions,
+} from './exactly-once-delivery'
+
+// =============================================================================
+// MULTI-TABLE COORDINATION
+// =============================================================================
+
+export {
+  // Classes
+  MultiTableCoordinator,
+  MultiTableWALDemuxer,
+  // Factory functions
+  createMultiTableCoordinator,
+  createMultiTableWALDemuxer,
+  // Types
+  type ForeignKeyRelation,
+  type TableConfig,
+  type TableGroup,
+  type MultiTableTransaction,
+  type CoordinatedSnapshotState,
+  type CoordinatedSnapshotProgress,
+  type TableChangeEvent,
+  type TableChangeHandler,
+  type TransactionHandler,
+  type MultiTableCoordinatorOptions,
+  type CoordinatedSnapshotOptions,
+  type WALDemuxerOptions,
+} from './multi-table-coordinator'

@@ -1410,3 +1410,250 @@ describe('Integration: Complete conversation flow', () => {
     expect(lastPage.items[lastPage.items.length - 1].content).toBe('Message number 100')
   })
 })
+
+// =============================================================================
+// TDD Cycle 11: Thread Hierarchy (Parent/Child Threads)
+// =============================================================================
+
+describe('Thread hierarchy (parent/child threads)', () => {
+  let manager: ThreadManager
+
+  beforeEach(() => {
+    manager = createThreadManager()
+  })
+
+  it('should create a child thread with parentThreadId', async () => {
+    const parent = await manager.createThread({ title: 'Parent Thread' })
+    const child = await manager.createThread({
+      title: 'Child Thread',
+      parentThreadId: parent.id,
+    })
+
+    expect(child.parentThreadId).toBe(parent.id)
+  })
+
+  it('should get child threads for a parent', async () => {
+    const parent = await manager.createThread({ title: 'Parent Thread' })
+    const child1 = await manager.createThread({
+      title: 'Child 1',
+      parentThreadId: parent.id,
+    })
+    const child2 = await manager.createThread({
+      title: 'Child 2',
+      parentThreadId: parent.id,
+    })
+
+    const children = await manager.getChildThreads(parent.id)
+
+    expect(children).toHaveLength(2)
+    expect(children.map((c) => c.id)).toContain(child1.id)
+    expect(children.map((c) => c.id)).toContain(child2.id)
+  })
+
+  it('should return empty array when thread has no children', async () => {
+    const thread = await manager.createThread({ title: 'No Children' })
+
+    const children = await manager.getChildThreads(thread.id)
+
+    expect(children).toHaveLength(0)
+  })
+
+  it('should get parent thread', async () => {
+    const parent = await manager.createThread({ title: 'Parent Thread' })
+    const child = await manager.createThread({
+      title: 'Child Thread',
+      parentThreadId: parent.id,
+    })
+
+    const retrieved = await manager.getParentThread(child.id)
+
+    expect(retrieved).not.toBeNull()
+    expect(retrieved?.id).toBe(parent.id)
+    expect(retrieved?.title).toBe('Parent Thread')
+  })
+
+  it('should return null when thread has no parent', async () => {
+    const thread = await manager.createThread({ title: 'Root Thread' })
+
+    const parent = await manager.getParentThread(thread.id)
+
+    expect(parent).toBeNull()
+  })
+
+  it('should return null for non-existent thread when getting parent', async () => {
+    const parent = await manager.getParentThread('nonexistent')
+
+    expect(parent).toBeNull()
+  })
+
+  it('should filter threads by parentThreadId', async () => {
+    const parent = await manager.createThread({ title: 'Parent' })
+    await manager.createThread({ title: 'Child 1', parentThreadId: parent.id })
+    await manager.createThread({ title: 'Child 2', parentThreadId: parent.id })
+    await manager.createThread({ title: 'Root Thread' })
+
+    const children = await manager.listThreads({ parentThreadId: parent.id })
+
+    expect(children.items).toHaveLength(2)
+    expect(children.items.every((t) => t.parentThreadId === parent.id)).toBe(true)
+  })
+
+  it('should filter for root threads only (null parentThreadId)', async () => {
+    const parent = await manager.createThread({ title: 'Root 1' })
+    await manager.createThread({ title: 'Root 2' })
+    await manager.createThread({ title: 'Child', parentThreadId: parent.id })
+
+    const roots = await manager.listThreads({ parentThreadId: null })
+
+    expect(roots.items).toHaveLength(2)
+    expect(roots.items.every((t) => !t.parentThreadId)).toBe(true)
+  })
+
+  it('should support multiple levels of nesting', async () => {
+    const grandparent = await manager.createThread({ title: 'Level 0' })
+    const parent = await manager.createThread({
+      title: 'Level 1',
+      parentThreadId: grandparent.id,
+    })
+    const child = await manager.createThread({
+      title: 'Level 2',
+      parentThreadId: parent.id,
+    })
+
+    expect(child.parentThreadId).toBe(parent.id)
+
+    const parentOfChild = await manager.getParentThread(child.id)
+    expect(parentOfChild?.id).toBe(parent.id)
+
+    const grandparentOfChild = await manager.getParentThread(parent.id)
+    expect(grandparentOfChild?.id).toBe(grandparent.id)
+  })
+})
+
+// =============================================================================
+// TDD Cycle 12: Read/Unread Tracking
+// =============================================================================
+
+describe('Read/unread tracking', () => {
+  let manager: ThreadManager
+  let threadId: string
+
+  beforeEach(async () => {
+    manager = createThreadManager()
+    const thread = await manager.createThread({
+      participantIds: ['user_1', 'agent_1', 'ai_bot'],
+    })
+    threadId = thread.id
+  })
+
+  it('should mark a specific message as read', async () => {
+    const msg1 = await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+
+    await manager.markAsRead(threadId, 'user_1', msg1.id)
+
+    const lastRead = await manager.getLastReadMessageId(threadId, 'user_1')
+    expect(lastRead).toBe(msg1.id)
+  })
+
+  it('should mark all messages as read when no messageId provided', async () => {
+    await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+    const msg3 = await manager.appendMessage(threadId, { role: 'user', content: 'Third' })
+
+    await manager.markAsRead(threadId, 'user_1')
+
+    const lastRead = await manager.getLastReadMessageId(threadId, 'user_1')
+    expect(lastRead).toBe(msg3.id)
+  })
+
+  it('should return correct unread count', async () => {
+    const msg1 = await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+    await manager.appendMessage(threadId, { role: 'user', content: 'Third' })
+
+    await manager.markAsRead(threadId, 'agent_1', msg1.id)
+
+    const unread = await manager.getUnreadCount(threadId, 'agent_1')
+    expect(unread).toBe(2) // Second and Third are unread
+  })
+
+  it('should return all messages as unread when no read receipt', async () => {
+    await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+    await manager.appendMessage(threadId, { role: 'user', content: 'Third' })
+
+    const unread = await manager.getUnreadCount(threadId, 'agent_1')
+    expect(unread).toBe(3)
+  })
+
+  it('should return 0 unread when all messages are read', async () => {
+    await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+    await manager.appendMessage(threadId, { role: 'user', content: 'Third' })
+
+    await manager.markAsRead(threadId, 'agent_1')
+
+    const unread = await manager.getUnreadCount(threadId, 'agent_1')
+    expect(unread).toBe(0)
+  })
+
+  it('should track read status independently per participant', async () => {
+    const msg1 = await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+    const msg3 = await manager.appendMessage(threadId, { role: 'user', content: 'Third' })
+
+    // User read only first message, agent read all
+    await manager.markAsRead(threadId, 'user_1', msg1.id)
+    await manager.markAsRead(threadId, 'agent_1', msg3.id)
+
+    expect(await manager.getUnreadCount(threadId, 'user_1')).toBe(2)
+    expect(await manager.getUnreadCount(threadId, 'agent_1')).toBe(0)
+  })
+
+  it('should return null when getting last read for participant with no read receipt', async () => {
+    await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+
+    const lastRead = await manager.getLastReadMessageId(threadId, 'new_participant')
+    expect(lastRead).toBeNull()
+  })
+
+  it('should return 0 unread for empty thread', async () => {
+    const unread = await manager.getUnreadCount(threadId, 'user_1')
+    expect(unread).toBe(0)
+  })
+
+  it('should throw when marking non-existent message as read', async () => {
+    await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+
+    await expect(
+      manager.markAsRead(threadId, 'user_1', 'nonexistent_msg')
+    ).rejects.toThrow(/not found/i)
+  })
+
+  it('should throw when marking read on non-existent thread', async () => {
+    await expect(manager.markAsRead('nonexistent_thread', 'user_1')).rejects.toThrow(
+      /not found/i
+    )
+  })
+
+  it('should return 0 unread for non-existent thread', async () => {
+    const unread = await manager.getUnreadCount('nonexistent_thread', 'user_1')
+    expect(unread).toBe(0)
+  })
+
+  it('should handle read receipts correctly after new messages', async () => {
+    const msg1 = await manager.appendMessage(threadId, { role: 'user', content: 'First' })
+    await manager.markAsRead(threadId, 'agent_1', msg1.id)
+
+    // Verify 0 unread
+    expect(await manager.getUnreadCount(threadId, 'agent_1')).toBe(0)
+
+    // Add more messages
+    await manager.appendMessage(threadId, { role: 'assistant', content: 'Second' })
+    await manager.appendMessage(threadId, { role: 'user', content: 'Third' })
+
+    // Should have 2 unread
+    expect(await manager.getUnreadCount(threadId, 'agent_1')).toBe(2)
+  })
+})

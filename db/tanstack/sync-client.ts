@@ -18,6 +18,7 @@ import type {
   InitialMessage,
   ChangeMessage,
   ServerMessage,
+  PongMessage,
 } from './protocol'
 
 // =============================================================================
@@ -29,6 +30,12 @@ const RECONNECT_BASE_DELAY_MS = 1000
 
 /** Maximum delay for reconnection in milliseconds */
 const RECONNECT_MAX_DELAY_MS = 30000
+
+/** Heartbeat check interval (how often client checks for missed pings) */
+const HEARTBEAT_CHECK_INTERVAL_MS = 10000
+
+/** Max time since last ping before considering connection stale (client-side) */
+const HEARTBEAT_STALE_THRESHOLD_MS = 60000
 
 // =============================================================================
 // Types
@@ -107,6 +114,21 @@ export interface SyncClientInterface<T = SyncItem> {
    * Register callback for status changes
    */
   onStatusChange(callback: (status: ConnectionStatus) => void): () => void
+
+  /**
+   * Register callback for reconnection events
+   */
+  onReconnect(callback: (attempt: number) => void): () => void
+
+  /**
+   * Get current reconnection attempt number (0 if connected)
+   */
+  getReconnectAttempt(): number
+
+  /**
+   * Get time since last server activity (ping/message) in milliseconds
+   */
+  getLastActivityAge(): number
 }
 
 // =============================================================================
@@ -138,6 +160,9 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
   let intentionalDisconnect = false
   let reconnectAttempts = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null
+  let lastActivityAt: number = Date.now()
+  let lastTxidByCollection: Map<string, number> = new Map()
 
   // Callback registrations
   const initialCallbacks = new Map<string, Set<(items: T[], txid: number) => void>>()
@@ -146,6 +171,7 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
   const disconnectCallbacks = new Set<() => void>()
   const errorCallbacks = new Set<(error: Error) => void>()
   const statusChangeCallbacks = new Set<(status: ConnectionStatus) => void>()
+  const reconnectCallbacks = new Set<(attempt: number) => void>()
 
   // Connection promise tracking
   let connectResolve: (() => void) | null = null
@@ -169,12 +195,37 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
     }
   }
 
+  function sendPong(timestamp: number): void {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const pongMessage: PongMessage = {
+        type: 'pong',
+        timestamp,
+      }
+      try {
+        socket.send(JSON.stringify(pongMessage))
+      } catch {
+        // Socket send failed - silently ignore
+      }
+    }
+  }
+
   function handleMessage(event: MessageEvent): void {
     try {
       const data = typeof event.data === 'string' ? event.data : ''
       const message = JSON.parse(data) as ServerMessage<T>
 
+      // Update last activity timestamp for any message
+      lastActivityAt = Date.now()
+
+      if (message.type === 'ping') {
+        // Respond to heartbeat ping with pong
+        sendPong(message.timestamp)
+        return
+      }
+
       if (message.type === 'initial') {
+        // Track txid for state resync on reconnect
+        lastTxidByCollection.set(message.collection, message.txid)
         const callbacks = initialCallbacks.get(message.collection)
         if (callbacks) {
           for (const cb of callbacks) {
@@ -184,6 +235,8 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
       } else {
         // Change message (insert, update, delete)
         const change = message as ChangeMessage<T>
+        // Track latest txid per collection
+        lastTxidByCollection.set(change.collection, change.txid)
         const callbacks = changeCallbacks.get(change.collection)
         if (callbacks) {
           for (const cb of callbacks) {
@@ -209,6 +262,15 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
     )
     reconnectAttempts++
 
+    // Notify reconnect listeners
+    for (const cb of reconnectCallbacks) {
+      try {
+        cb(reconnectAttempts)
+      } catch {
+        // Ignore callback errors
+      }
+    }
+
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       // Don't await - fire and forget
@@ -216,6 +278,33 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
         // Will trigger another reconnect via close handler
       })
     }, delay)
+  }
+
+  function startHeartbeatCheck(): void {
+    if (heartbeatCheckTimer) return
+
+    heartbeatCheckTimer = setInterval(() => {
+      const activityAge = Date.now() - lastActivityAt
+      // If we haven't received any message (including pings) for too long,
+      // consider the connection stale and force a reconnect
+      if (activityAge > HEARTBEAT_STALE_THRESHOLD_MS && status === 'connected') {
+        // Force close and reconnect
+        if (socket) {
+          try {
+            socket.close(4001, 'Connection stale - no heartbeat')
+          } catch {
+            // Socket may already be closed
+          }
+        }
+      }
+    }, HEARTBEAT_CHECK_INTERVAL_MS)
+  }
+
+  function stopHeartbeatCheck(): void {
+    if (heartbeatCheckTimer) {
+      clearInterval(heartbeatCheckTimer)
+      heartbeatCheckTimer = null
+    }
   }
 
   function resubscribeAll(): void {
@@ -262,10 +351,14 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
 
         socket.addEventListener('open', () => {
           reconnectAttempts = 0
+          lastActivityAt = Date.now()
           setStatus('connected')
           connectResolve?.()
           connectResolve = null
           connectReject = null
+
+          // Start heartbeat monitoring
+          startHeartbeatCheck()
 
           // Re-subscribe to all pending subscriptions
           resubscribeAll()
@@ -279,6 +372,9 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
 
         socket.addEventListener('close', () => {
           socket = null
+
+          // Stop heartbeat monitoring
+          stopHeartbeatCheck()
 
           // Notify disconnect callbacks
           for (const cb of disconnectCallbacks) {
@@ -306,6 +402,9 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
 
     disconnect(): void {
       intentionalDisconnect = true
+
+      // Stop heartbeat monitoring
+      stopHeartbeatCheck()
 
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
@@ -420,6 +519,21 @@ export function createSyncClient<T = SyncItem>(config: SyncClientConfig): SyncCl
       return () => {
         statusChangeCallbacks.delete(callback)
       }
+    },
+
+    onReconnect(callback: (attempt: number) => void): () => void {
+      reconnectCallbacks.add(callback)
+      return () => {
+        reconnectCallbacks.delete(callback)
+      }
+    },
+
+    getReconnectAttempt(): number {
+      return reconnectAttempts
+    },
+
+    getLastActivityAge(): number {
+      return Date.now() - lastActivityAt
     },
   }
 

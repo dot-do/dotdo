@@ -318,26 +318,27 @@ function coerceToSchema(value: unknown, schema: z.ZodType<unknown>): unknown {
   const def = (schema as any)._def
   const type = def?.type ?? def?.typeName
 
-  // Handle primitives
-  const targetType = getZodTypeName(schema)
-  if (targetType && (typeof value !== 'object' || value === null)) {
-    const coerced = coerceType(value, targetType)
-    return coerced !== undefined ? coerced : value
-  }
-
-  // Handle nullable/optional wrappers
+  // Handle nullable/optional wrappers FIRST (before primitives)
+  // This ensures "null" string gets coerced to null for nullable schemas
   if (type === 'optional' || type === 'nullable' || type === 'default' ||
       type === 'ZodOptional' || type === 'ZodNullable' || type === 'ZodDefault') {
     if (value === null || value === undefined) {
       return value
     }
-    // Handle "null" string
+    // Handle "null" string - coerce to null for nullable schemas
     if (typeof value === 'string' && value.toLowerCase().trim() === 'null') {
       if (type === 'nullable' || type === 'ZodNullable') {
         return null
       }
     }
     return def.innerType ? coerceToSchema(value, def.innerType) : value
+  }
+
+  // Handle primitives
+  const targetType = getZodTypeName(schema)
+  if (targetType && (typeof value !== 'object' || value === null)) {
+    const coerced = coerceType(value, targetType)
+    return coerced !== undefined ? coerced : value
   }
 
   // Handle objects

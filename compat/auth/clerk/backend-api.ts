@@ -68,6 +68,19 @@ export class Clerk {
   private jwtTemplateStore: TemporalStore<ClerkJWTTemplate>
   private userOrgStore: TemporalStore<string[]> // user_id -> org_ids
   private orgMemberStore: TemporalStore<string[]> // org_id -> membership_ids
+  private externalIdIndex: TemporalStore<string> // external_id -> user_id
+  private web3Index: TemporalStore<string> // web3_wallet -> user_id
+  private verificationStore: TemporalStore<{
+    id: string
+    userId: string
+    type: string
+    identifier: string
+    code: string
+    expiresAt: number
+    attempts: number
+    createdAt: number
+  }>
+  private resetTokenStore: TemporalStore<{ userId: string; expiresAt: number }>
 
   constructor(options: ClerkClientOptions) {
     this.options = options
@@ -87,6 +100,10 @@ export class Clerk {
     this.jwtTemplateStore = createTemporalStore<ClerkJWTTemplate>()
     this.userOrgStore = createTemporalStore<string[]>()
     this.orgMemberStore = createTemporalStore<string[]>()
+    this.externalIdIndex = createTemporalStore<string>()
+    this.web3Index = createTemporalStore<string>()
+    this.verificationStore = createTemporalStore()
+    this.resetTokenStore = createTemporalStore()
   }
 
   // ============================================================================
@@ -155,32 +172,79 @@ export class Clerk {
      * Create a new user
      */
     createUser: async (params: CreateUserParams): Promise<ClerkUser> => {
-      const user = await this.userManager.createUser({
-        email: params.email_address?.[0],
-        phone: params.phone_number?.[0],
-        username: params.username,
-        password: params.password,
-        first_name: params.first_name ?? undefined,
-        last_name: params.last_name ?? undefined,
-        metadata: params.public_metadata,
-        app_metadata: {
-          ...params.private_metadata,
-          external_id: params.external_id,
-          unsafe_metadata: params.unsafe_metadata,
-        },
-      })
+      // Handle skip_password_checks and skip_password_requirement
+      const passwordToUse = params.skip_password_requirement ? undefined : params.password
+      const skipPasswordChecks = params.skip_password_checks ?? false
 
-      // Handle additional email addresses
-      if (params.email_address && params.email_address.length > 1) {
-        // Would add additional email addresses in production
+      // If password is too short and skip_password_checks is not set, we need to validate
+      if (passwordToUse && !skipPasswordChecks && passwordToUse.length < 8) {
+        throw new ClerkAPIError(422, [{ code: 'form_password_pwned', message: 'Password must be at least 8 characters' }])
       }
 
-      // Handle TOTP secret
-      if (params.totp_secret) {
-        // Would configure TOTP in production
-      }
+      try {
+        // Determine the password to pass to UserManager:
+        // - If skip_password_checks is true, we don't pass password to avoid validation
+        // - Otherwise, pass the password for normal validation
+        const passwordForUserManager = skipPasswordChecks ? undefined : passwordToUse
 
-      return this.toClerkUser(user)
+        // Create base user
+        const user = await this.userManager.createUser({
+          email: params.email_address?.[0],
+          phone: params.phone_number?.[0],
+          username: params.username,
+          password: passwordForUserManager,
+          first_name: params.first_name ?? undefined,
+          last_name: params.last_name ?? undefined,
+          metadata: params.public_metadata ?? {},
+          app_metadata: {
+            private_metadata: params.private_metadata ?? {},
+            external_id: params.external_id,
+            unsafe_metadata: params.unsafe_metadata ?? {},
+            // Store additional clerk-specific data
+            additional_email_addresses: params.email_address?.slice(1) ?? [],
+            additional_phone_numbers: params.phone_number?.slice(1) ?? [],
+            web3_wallets: params.web3_wallet ?? [],
+            totp_enabled: !!params.totp_secret,
+            totp_secret: params.totp_secret,
+            backup_code_enabled: !!params.backup_codes?.length,
+            backup_codes: params.backup_codes,
+            two_factor_enabled: !!params.totp_secret || !!params.backup_codes?.length,
+            delete_self_enabled: params.delete_self_enabled ?? true,
+            create_organization_enabled: params.create_organization_enabled ?? true,
+            password_enabled: !!passwordToUse || !!params.password_digest,
+            password_digest: params.password_digest,
+            custom_created_at: params.created_at ? new Date(params.created_at).getTime() : undefined,
+            // Store weak password hash if skip_password_checks is true
+            skip_password_hash: skipPasswordChecks && passwordToUse ? await this.hashSimplePassword(passwordToUse) : undefined,
+          },
+        })
+
+        // Store external_id index if provided
+        if (params.external_id) {
+          await this.externalIdIndex.put(`external:${params.external_id}`, user.id, Date.now())
+        }
+
+        // Store web3 wallet indexes
+        if (params.web3_wallet) {
+          for (const wallet of params.web3_wallet) {
+            await this.web3Index.put(`web3:${wallet.toLowerCase()}`, user.id, Date.now())
+          }
+        }
+
+        return this.toClerkUser(user)
+      } catch (error: unknown) {
+        // Convert AuthenticationError to ClerkAPIError
+        if (error && typeof error === 'object' && 'code' in error) {
+          const authError = error as { code: string; message: string }
+          if (authError.code === 'user_exists') {
+            throw new ClerkAPIError(422, [{ code: 'form_identifier_exists', message: authError.message }])
+          }
+          if (authError.code === 'weak_password') {
+            throw new ClerkAPIError(422, [{ code: 'form_password_pwned', message: authError.message }])
+          }
+        }
+        throw error
+      }
     },
 
     /**
@@ -330,6 +394,680 @@ export class Clerk {
       }
 
       return this.toClerkUser(user)
+    },
+
+    /**
+     * List users with optional filters
+     */
+    listUsers: async (params?: {
+      limit?: number
+      offset?: number
+      emailAddress?: string[]
+      phoneNumber?: string[]
+      externalId?: string[]
+      username?: string[]
+      userId?: string[]
+      query?: string
+      orderBy?: 'created_at' | 'updated_at' | 'last_sign_in_at' | '-created_at' | '-updated_at' | '-last_sign_in_at'
+    }): Promise<ClerkPaginatedList<ClerkUser>> => {
+      const users: ClerkUser[] = []
+      const seenIds = new Set<string>()
+
+      // Fetch by user IDs
+      if (params?.userId) {
+        for (const id of params.userId) {
+          if (!seenIds.has(id)) {
+            const user = await this.userManager.getUser(id)
+            if (user) {
+              users.push(this.toClerkUser(user))
+              seenIds.add(id)
+            }
+          }
+        }
+      }
+
+      // Fetch by email addresses
+      if (params?.emailAddress) {
+        for (const email of params.emailAddress) {
+          const user = await this.userManager.getUserByEmail(email)
+          if (user && !seenIds.has(user.id)) {
+            users.push(this.toClerkUser(user))
+            seenIds.add(user.id)
+          }
+        }
+      }
+
+      // Fetch by phone numbers
+      if (params?.phoneNumber) {
+        for (const phone of params.phoneNumber) {
+          const user = await this.userManager.getUserByPhone(phone)
+          if (user && !seenIds.has(user.id)) {
+            users.push(this.toClerkUser(user))
+            seenIds.add(user.id)
+          }
+        }
+      }
+
+      // Fetch by usernames
+      if (params?.username) {
+        for (const username of params.username) {
+          const user = await this.userManager.getUserByUsername(username)
+          if (user && !seenIds.has(user.id)) {
+            users.push(this.toClerkUser(user))
+            seenIds.add(user.id)
+          }
+        }
+      }
+
+      // Fetch by external IDs
+      if (params?.externalId) {
+        for (const extId of params.externalId) {
+          const storedUserId = await this.externalIdIndex.get(`external:${extId}`)
+          if (storedUserId && !seenIds.has(storedUserId)) {
+            const user = await this.userManager.getUser(storedUserId)
+            if (user) {
+              users.push(this.toClerkUser(user))
+              seenIds.add(storedUserId)
+            }
+          }
+        }
+      }
+
+      // Sort if orderBy is specified
+      if (params?.orderBy) {
+        const desc = params.orderBy.startsWith('-')
+        const field = params.orderBy.replace('-', '') as 'created_at' | 'updated_at' | 'last_sign_in_at'
+        users.sort((a, b) => {
+          const aVal = a[field] ?? 0
+          const bVal = b[field] ?? 0
+          return desc ? bVal - aVal : aVal - bVal
+        })
+      }
+
+      const limit = params?.limit ?? 10
+      const offset = params?.offset ?? 0
+
+      return {
+        data: users.slice(offset, offset + limit),
+        total_count: users.length,
+      }
+    },
+
+    /**
+     * Search users by query
+     */
+    searchUsers: async (query: string): Promise<ClerkPaginatedList<ClerkUser>> => {
+      const users: ClerkUser[] = []
+      const queryLower = query.toLowerCase()
+
+      // Search by email
+      const userByEmail = await this.userManager.getUserByEmail(queryLower)
+      if (userByEmail) {
+        users.push(this.toClerkUser(userByEmail))
+      }
+
+      // Search by username
+      const userByUsername = await this.userManager.getUserByUsername(queryLower)
+      if (userByUsername && !users.find((u) => u.id === userByUsername.id)) {
+        users.push(this.toClerkUser(userByUsername))
+      }
+
+      return {
+        data: users,
+        total_count: users.length,
+      }
+    },
+
+    /**
+     * Filter users by multiple criteria
+     */
+    filterUsers: async (params: {
+      emailAddress?: string[]
+      phoneNumber?: string[]
+      web3Wallet?: string[]
+      externalId?: string[]
+      username?: string[]
+    }): Promise<ClerkPaginatedList<ClerkUser>> => {
+      const users: ClerkUser[] = []
+      const seenIds = new Set<string>()
+
+      if (params.emailAddress) {
+        for (const email of params.emailAddress) {
+          const user = await this.userManager.getUserByEmail(email)
+          if (user && !seenIds.has(user.id)) {
+            users.push(this.toClerkUser(user))
+            seenIds.add(user.id)
+          }
+        }
+      }
+
+      if (params.phoneNumber) {
+        for (const phone of params.phoneNumber) {
+          const user = await this.userManager.getUserByPhone(phone)
+          if (user && !seenIds.has(user.id)) {
+            users.push(this.toClerkUser(user))
+            seenIds.add(user.id)
+          }
+        }
+      }
+
+      if (params.username) {
+        for (const username of params.username) {
+          const user = await this.userManager.getUserByUsername(username)
+          if (user && !seenIds.has(user.id)) {
+            users.push(this.toClerkUser(user))
+            seenIds.add(user.id)
+          }
+        }
+      }
+
+      if (params.externalId) {
+        for (const extId of params.externalId) {
+          const userId = await this.externalIdIndex.get(`external:${extId}`)
+          if (userId && !seenIds.has(userId)) {
+            const user = await this.userManager.getUser(userId)
+            if (user) {
+              users.push(this.toClerkUser(user))
+              seenIds.add(userId)
+            }
+          }
+        }
+      }
+
+      if (params.web3Wallet) {
+        for (const wallet of params.web3Wallet) {
+          const userId = await this.web3Index.get(`web3:${wallet.toLowerCase()}`)
+          if (userId && !seenIds.has(userId)) {
+            const user = await this.userManager.getUser(userId)
+            if (user) {
+              users.push(this.toClerkUser(user))
+              seenIds.add(userId)
+            }
+          }
+        }
+      }
+
+      return {
+        data: users,
+        total_count: users.length,
+      }
+    },
+
+    /**
+     * Get user by email address
+     */
+    getUserByEmail: async (email: string): Promise<ClerkUser | null> => {
+      const user = await this.userManager.getUserByEmail(email)
+      return user ? this.toClerkUser(user) : null
+    },
+
+    /**
+     * Get user by external ID
+     */
+    getUserByExternalId: async (externalId: string): Promise<ClerkUser | null> => {
+      const userId = await this.externalIdIndex.get(`external:${externalId}`)
+      if (!userId) return null
+      const user = await this.userManager.getUser(userId)
+      return user ? this.toClerkUser(user) : null
+    },
+
+    /**
+     * Update user metadata
+     */
+    updateUserMetadata: async (
+      userId: string,
+      params: {
+        publicMetadata?: Record<string, unknown>
+        privateMetadata?: Record<string, unknown>
+        unsafeMetadata?: Record<string, unknown>
+      }
+    ): Promise<ClerkUser> => {
+      const existingUser = await this.userManager.getUser(userId)
+      if (!existingUser) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      const newMetadata = params.publicMetadata ?? existingUser.metadata
+      const newPrivateMetadata = params.privateMetadata ?? (existingUser.app_metadata.private_metadata as Record<string, unknown>) ?? {}
+      const newUnsafeMetadata = params.unsafeMetadata ?? (existingUser.app_metadata.unsafe_metadata as Record<string, unknown>) ?? {}
+
+      const user = await this.userManager.updateUser(userId, {
+        metadata: newMetadata,
+        app_metadata: {
+          ...existingUser.app_metadata,
+          private_metadata: newPrivateMetadata,
+          unsafe_metadata: newUnsafeMetadata,
+        },
+      })
+
+      return this.toClerkUser(user)
+    },
+
+    /**
+     * Get user metadata
+     */
+    getUserMetadata: async (userId: string): Promise<{
+      publicMetadata: Record<string, unknown>
+      privateMetadata: Record<string, unknown>
+      unsafeMetadata: Record<string, unknown>
+    }> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      return {
+        publicMetadata: user.metadata ?? {},
+        privateMetadata: (user.app_metadata?.private_metadata as Record<string, unknown>) ?? {},
+        unsafeMetadata: (user.app_metadata?.unsafe_metadata as Record<string, unknown>) ?? {},
+      }
+    },
+
+    /**
+     * Update password
+     */
+    updatePassword: async (userId: string, newPassword: string): Promise<ClerkUser> => {
+      if (newPassword.length < 8) {
+        throw new ClerkAPIError(422, [{ code: 'form_password_pwned', message: 'Password must be at least 8 characters' }])
+      }
+
+      const user = await this.userManager.updateUser(userId, {
+        password: newPassword,
+      })
+
+      return this.toClerkUser(user)
+    },
+
+    /**
+     * Reset password (generate reset token)
+     */
+    resetPassword: async (userId: string): Promise<{ resetToken: string; expiresAt: number }> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      const resetToken = this.generateToken()
+      const expiresAt = Date.now() + 3600000 // 1 hour
+
+      await this.resetTokenStore.put(`reset:${resetToken}`, { userId, expiresAt }, Date.now())
+
+      return { resetToken, expiresAt }
+    },
+
+    /**
+     * Check password strength
+     */
+    checkPasswordStrength: (password: string): {
+      strength: 'very_weak' | 'weak' | 'fair' | 'strong' | 'very_strong'
+      score: number
+      warnings: string[]
+      suggestions: string[]
+    } => {
+      const warnings: string[] = []
+      const suggestions: string[] = []
+      let score = 0
+
+      // Length checks
+      if (password.length >= 8) score += 1
+      if (password.length >= 12) score += 1
+      if (password.length >= 16) score += 1
+      if (password.length < 8) {
+        warnings.push('Password is too short')
+        suggestions.push('Use at least 8 characters')
+      }
+
+      // Character diversity checks
+      if (/[a-z]/.test(password)) score += 1
+      else suggestions.push('Add lowercase letters')
+
+      if (/[A-Z]/.test(password)) score += 1
+      else suggestions.push('Add uppercase letters')
+
+      if (/[0-9]/.test(password)) score += 1
+      else suggestions.push('Add numbers')
+
+      if (/[^a-zA-Z0-9]/.test(password)) score += 1
+      else suggestions.push('Add special characters')
+
+      // Common patterns check
+      const commonPatterns = ['123456', 'password', 'qwerty', 'abc123', 'letmein', 'admin']
+      const lowerPassword = password.toLowerCase()
+      for (const pattern of commonPatterns) {
+        if (lowerPassword.includes(pattern)) {
+          score = Math.max(0, score - 2)
+          warnings.push('Contains common password pattern')
+          break
+        }
+      }
+
+      // Repeated characters
+      if (/(.)\1{2,}/.test(password)) {
+        score = Math.max(0, score - 1)
+        warnings.push('Contains repeated characters')
+      }
+
+      // Map score to strength
+      let strength: 'very_weak' | 'weak' | 'fair' | 'strong' | 'very_strong'
+      if (score <= 1) strength = 'very_weak'
+      else if (score <= 2) strength = 'weak'
+      else if (score <= 4) strength = 'fair'
+      else if (score <= 6) strength = 'strong'
+      else strength = 'very_strong'
+
+      return { strength, score, warnings, suggestions }
+    },
+
+    /**
+     * Create email verification
+     */
+    createEmailVerification: async (userId: string, email: string): Promise<{ verificationId: string; code: string }> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      // Check if email belongs to user
+      if (user.email?.toLowerCase() !== email.toLowerCase()) {
+        throw new ClerkAPIError(422, [{ code: 'resource_not_found', message: 'Email address not found for user' }])
+      }
+
+      const verificationId = this.generateId('ev')
+      const code = this.generateVerificationCode()
+      const now = Date.now()
+
+      await this.verificationStore.put(`verification:${verificationId}`, {
+        id: verificationId,
+        userId,
+        type: 'email',
+        identifier: email.toLowerCase(),
+        code,
+        expiresAt: now + 600000, // 10 minutes
+        attempts: 0,
+        createdAt: now,
+      }, now)
+
+      return { verificationId, code }
+    },
+
+    /**
+     * Verify email with code
+     */
+    verifyEmail: async (userId: string, code: string): Promise<ClerkUser> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      // Find verification by scanning
+      let found = false
+      const iterator = this.verificationStore.range('verification:', {})
+      let result = await iterator.next()
+      while (!result.done) {
+        const v = result.value as { id: string; userId: string; type: string; code: string; expiresAt: number; identifier: string }
+        if (v.userId === userId && v.type === 'email' && v.code === code) {
+          if (Date.now() > v.expiresAt) {
+            throw new ClerkAPIError(422, [{ code: 'verification_expired', message: 'Verification code has expired' }])
+          }
+          found = true
+          await this.verificationStore.put(`verification:${v.id}`, null as unknown as typeof v, Date.now())
+          break
+        }
+        result = await iterator.next()
+      }
+
+      if (!found) {
+        throw new ClerkAPIError(422, [{ code: 'verification_failed', message: 'Invalid verification code' }])
+      }
+
+      // Update user email_verified
+      const updated = await this.userManager.updateUser(userId, {
+        email_verified: true,
+      })
+
+      return this.toClerkUser(updated)
+    },
+
+    /**
+     * Create phone verification
+     */
+    createPhoneVerification: async (userId: string, phone: string): Promise<{ verificationId: string; code: string }> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      if (user.phone !== phone) {
+        throw new ClerkAPIError(422, [{ code: 'resource_not_found', message: 'Phone number not found for user' }])
+      }
+
+      const verificationId = this.generateId('pv')
+      const code = this.generateVerificationCode()
+      const now = Date.now()
+
+      await this.verificationStore.put(`verification:${verificationId}`, {
+        id: verificationId,
+        userId,
+        type: 'phone',
+        identifier: phone,
+        code,
+        expiresAt: now + 600000,
+        attempts: 0,
+        createdAt: now,
+      }, now)
+
+      return { verificationId, code }
+    },
+
+    /**
+     * Verify phone with code
+     */
+    verifyPhone: async (userId: string, code: string): Promise<ClerkUser> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      let found = false
+      const iterator = this.verificationStore.range('verification:', {})
+      let result = await iterator.next()
+      while (!result.done) {
+        const v = result.value as { id: string; userId: string; type: string; code: string; expiresAt: number }
+        if (v.userId === userId && v.type === 'phone' && v.code === code) {
+          if (Date.now() > v.expiresAt) {
+            throw new ClerkAPIError(422, [{ code: 'verification_expired', message: 'Verification code has expired' }])
+          }
+          found = true
+          await this.verificationStore.put(`verification:${v.id}`, null as unknown as typeof v, Date.now())
+          break
+        }
+        result = await iterator.next()
+      }
+
+      if (!found) {
+        throw new ClerkAPIError(422, [{ code: 'verification_failed', message: 'Invalid verification code' }])
+      }
+
+      const updated = await this.userManager.updateUser(userId, {
+        phone_verified: true,
+      })
+
+      return this.toClerkUser(updated)
+    },
+
+    /**
+     * Link external account
+     */
+    linkExternalAccount: async (
+      userId: string,
+      params: {
+        provider: string
+        token: string
+        providerUserId?: string
+        email?: string
+        firstName?: string
+        lastName?: string
+        imageUrl?: string
+        username?: string
+      }
+    ): Promise<{
+      id: string
+      object: 'external_account'
+      provider: string
+      provider_user_id: string
+      email_address: string
+      first_name: string | null
+      last_name: string | null
+      image_url: string | null
+      username: string | null
+      linked: boolean
+      verification: { status: string; strategy: string } | null
+    }> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      // Check for existing external account
+      const existingAccounts = (user.app_metadata?.external_accounts as Array<{ provider: string; provider_user_id: string }>) ?? []
+      const providerUserId = params.providerUserId ?? this.generateId('puid')
+
+      if (existingAccounts.find((a) => a.provider === params.provider && a.provider_user_id === providerUserId)) {
+        throw new ClerkAPIError(422, [{ code: 'external_account_exists', message: 'External account already linked' }])
+      }
+
+      const accountId = this.generateId('eac')
+      const now = Date.now()
+
+      const newAccount = {
+        id: accountId,
+        provider: params.provider,
+        provider_user_id: providerUserId,
+        email_address: params.email ?? '',
+        first_name: params.firstName ?? null,
+        last_name: params.lastName ?? null,
+        image_url: params.imageUrl ?? null,
+        username: params.username ?? null,
+        created_at: now,
+        updated_at: now,
+      }
+
+      await this.userManager.updateUser(userId, {
+        app_metadata: {
+          ...user.app_metadata,
+          external_accounts: [...existingAccounts, newAccount],
+        },
+      })
+
+      return {
+        id: accountId,
+        object: 'external_account',
+        provider: params.provider,
+        provider_user_id: providerUserId,
+        email_address: params.email ?? '',
+        first_name: params.firstName ?? null,
+        last_name: params.lastName ?? null,
+        image_url: params.imageUrl ?? null,
+        username: params.username ?? null,
+        linked: true,
+        verification: { status: 'verified', strategy: params.provider },
+      }
+    },
+
+    /**
+     * Unlink external account
+     */
+    unlinkExternalAccount: async (userId: string, accountId: string): Promise<ClerkDeletedObject> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      const existingAccounts = (user.app_metadata?.external_accounts as Array<{ id: string }>) ?? []
+      const accountIndex = existingAccounts.findIndex((a) => a.id === accountId)
+
+      if (accountIndex === -1) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'External account not found' }])
+      }
+
+      existingAccounts.splice(accountIndex, 1)
+
+      await this.userManager.updateUser(userId, {
+        app_metadata: {
+          ...user.app_metadata,
+          external_accounts: existingAccounts,
+        },
+      })
+
+      return {
+        id: accountId,
+        object: 'external_account',
+        deleted: true,
+      }
+    },
+
+    /**
+     * List external accounts
+     */
+    listExternalAccounts: async (userId: string): Promise<ClerkPaginatedList<{
+      id: string
+      object: 'external_account'
+      provider: string
+      provider_user_id: string
+      email_address: string
+      first_name: string | null
+      last_name: string | null
+      image_url: string | null
+      username: string | null
+    }>> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      const accounts = (user.app_metadata?.external_accounts as Array<{
+        id: string
+        provider: string
+        provider_user_id: string
+        email_address: string
+        first_name: string | null
+        last_name: string | null
+        image_url: string | null
+        username: string | null
+      }>) ?? []
+
+      return {
+        data: accounts.map((a) => ({
+          ...a,
+          object: 'external_account' as const,
+        })),
+        total_count: accounts.length,
+      }
+    },
+
+    /**
+     * Ban user with reason
+     */
+    banUser: async (userId: string, reason?: string): Promise<ClerkUser> => {
+      const user = await this.userManager.updateUser(userId, {
+        app_metadata: { banned: true, ban_reason: reason },
+      })
+      return this.toClerkUser(user)
+    },
+
+    /**
+     * Check if user is banned
+     */
+    isUserBanned: async (userId: string): Promise<{ banned: boolean; reason?: string }> => {
+      const user = await this.userManager.getUser(userId)
+      if (!user) {
+        throw new ClerkAPIError(404, [{ code: 'resource_not_found', message: 'User not found' }])
+      }
+
+      return {
+        banned: (user.app_metadata?.banned as boolean) ?? false,
+        reason: user.app_metadata?.ban_reason as string | undefined,
+      }
     },
   }
 
@@ -951,43 +1689,124 @@ export class Clerk {
     metadata: Record<string, unknown>
     app_metadata: Record<string, unknown>
   }): ClerkUser {
-    const now = Date.now()
+    const createdAtTs = (user.app_metadata?.custom_created_at as number) ?? new Date(user.created_at).getTime()
+    const updatedAtTs = new Date(user.updated_at).getTime()
 
-    const emailAddresses: ClerkEmailAddress[] = user.email
-      ? [
-          {
-            id: `email_${user.id}`,
-            object: 'email_address',
-            email_address: user.email,
-            reserved: false,
-            verification: user.email_verified
-              ? { status: 'verified', strategy: 'email_code', attempts: null, expire_at: null }
-              : null,
-            linked_to: [],
-            created_at: new Date(user.created_at).getTime(),
-            updated_at: new Date(user.updated_at).getTime(),
-          },
-        ]
-      : []
+    // Build email addresses array (primary + additional)
+    const emailAddresses: ClerkEmailAddress[] = []
+    if (user.email) {
+      emailAddresses.push({
+        id: `email_${user.id}`,
+        object: 'email_address',
+        email_address: user.email,
+        reserved: false,
+        verification: user.email_verified
+          ? { status: 'verified', strategy: 'email_code', attempts: null, expire_at: null }
+          : null,
+        linked_to: [],
+        created_at: createdAtTs,
+        updated_at: updatedAtTs,
+      })
+    }
+    // Add additional email addresses from app_metadata
+    const additionalEmails = (user.app_metadata?.additional_email_addresses as string[]) ?? []
+    additionalEmails.forEach((email, idx) => {
+      emailAddresses.push({
+        id: `email_${user.id}_${idx + 1}`,
+        object: 'email_address',
+        email_address: email,
+        reserved: false,
+        verification: null,
+        linked_to: [],
+        created_at: createdAtTs,
+        updated_at: updatedAtTs,
+      })
+    })
 
-    const phoneNumbers: ClerkPhoneNumber[] = user.phone
-      ? [
-          {
-            id: `phone_${user.id}`,
-            object: 'phone_number',
-            phone_number: user.phone,
-            reserved_for_second_factor: false,
-            default_second_factor: false,
-            reserved: false,
-            verification: user.phone_verified
-              ? { status: 'verified', strategy: 'phone_code', attempts: null, expire_at: null }
-              : null,
-            linked_to: [],
-            created_at: new Date(user.created_at).getTime(),
-            updated_at: new Date(user.updated_at).getTime(),
-          },
-        ]
-      : []
+    // Build phone numbers array (primary + additional)
+    const phoneNumbers: ClerkPhoneNumber[] = []
+    if (user.phone) {
+      phoneNumbers.push({
+        id: `phone_${user.id}`,
+        object: 'phone_number',
+        phone_number: user.phone,
+        reserved_for_second_factor: false,
+        default_second_factor: false,
+        reserved: false,
+        verification: user.phone_verified
+          ? { status: 'verified', strategy: 'phone_code', attempts: null, expire_at: null }
+          : null,
+        linked_to: [],
+        created_at: createdAtTs,
+        updated_at: updatedAtTs,
+      })
+    }
+    // Add additional phone numbers from app_metadata
+    const additionalPhones = (user.app_metadata?.additional_phone_numbers as string[]) ?? []
+    additionalPhones.forEach((phone, idx) => {
+      phoneNumbers.push({
+        id: `phone_${user.id}_${idx + 1}`,
+        object: 'phone_number',
+        phone_number: phone,
+        reserved_for_second_factor: false,
+        default_second_factor: false,
+        reserved: false,
+        verification: null,
+        linked_to: [],
+        created_at: createdAtTs,
+        updated_at: updatedAtTs,
+      })
+    })
+
+    // Build web3 wallets array from app_metadata
+    const web3WalletsData = (user.app_metadata?.web3_wallets as string[]) ?? []
+    const web3Wallets = web3WalletsData.map((wallet, idx) => ({
+      id: `web3_${user.id}_${idx}`,
+      object: 'web3_wallet' as const,
+      web3_wallet: wallet,
+      verification: null,
+      created_at: createdAtTs,
+      updated_at: updatedAtTs,
+    }))
+
+    // Build external accounts array from app_metadata
+    const externalAccountsData = (user.app_metadata?.external_accounts as Array<{
+      id: string
+      provider: string
+      provider_user_id: string
+      email_address: string
+      first_name: string | null
+      last_name: string | null
+      image_url: string | null
+      username: string | null
+    }>) ?? []
+
+    const externalAccounts = externalAccountsData.map((acc) => ({
+      id: acc.id,
+      object: 'external_account' as const,
+      provider: acc.provider,
+      identification_id: `idn_${acc.id}`,
+      provider_user_id: acc.provider_user_id,
+      approved_scopes: '',
+      email_address: acc.email_address,
+      first_name: acc.first_name,
+      last_name: acc.last_name,
+      image_url: acc.image_url,
+      username: acc.username,
+      public_metadata: {},
+      label: null,
+      created_at: createdAtTs,
+      updated_at: updatedAtTs,
+      verification: { status: 'verified' as const, strategy: acc.provider, attempts: null, expire_at: null },
+    }))
+
+    // Extract flags from app_metadata
+    const passwordEnabled = (user.app_metadata?.password_enabled as boolean) ?? true
+    const totpEnabled = (user.app_metadata?.totp_enabled as boolean) ?? false
+    const backupCodeEnabled = (user.app_metadata?.backup_code_enabled as boolean) ?? false
+    const twoFactorEnabled = (user.app_metadata?.two_factor_enabled as boolean) ?? (totpEnabled || backupCodeEnabled)
+    const deleteSelfEnabled = (user.app_metadata?.delete_self_enabled as boolean) ?? true
+    const createOrganizationEnabled = (user.app_metadata?.create_organization_enabled as boolean) ?? true
 
     return {
       id: user.id,
@@ -999,29 +1818,29 @@ export class Clerk {
       has_image: !!user.picture,
       primary_email_address_id: emailAddresses[0]?.id ?? null,
       primary_phone_number_id: phoneNumbers[0]?.id ?? null,
-      primary_web3_wallet_id: null,
-      password_enabled: true, // Assume password is set
-      two_factor_enabled: false,
-      totp_enabled: false,
-      backup_code_enabled: false,
+      primary_web3_wallet_id: web3Wallets[0]?.id ?? null,
+      password_enabled: passwordEnabled,
+      two_factor_enabled: twoFactorEnabled,
+      totp_enabled: totpEnabled,
+      backup_code_enabled: backupCodeEnabled,
       email_addresses: emailAddresses,
       phone_numbers: phoneNumbers,
-      web3_wallets: [],
-      external_accounts: [],
+      web3_wallets: web3Wallets,
+      external_accounts: externalAccounts,
       saml_accounts: [],
-      public_metadata: user.metadata,
-      private_metadata: (user.app_metadata.private_metadata as Record<string, unknown>) ?? {},
-      unsafe_metadata: (user.app_metadata.unsafe_metadata as Record<string, unknown>) ?? {},
-      external_id: (user.app_metadata.external_id as string) ?? null,
+      public_metadata: user.metadata ?? {},
+      private_metadata: (user.app_metadata?.private_metadata as Record<string, unknown>) ?? {},
+      unsafe_metadata: (user.app_metadata?.unsafe_metadata as Record<string, unknown>) ?? {},
+      external_id: (user.app_metadata?.external_id as string) ?? null,
       last_sign_in_at: user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() : null,
-      banned: (user.app_metadata.banned as boolean) ?? false,
-      locked: (user.app_metadata.locked as boolean) ?? false,
+      banned: (user.app_metadata?.banned as boolean) ?? false,
+      locked: (user.app_metadata?.locked as boolean) ?? false,
       lockout_expires_in_seconds: null,
       verification_attempts_remaining: null,
-      created_at: new Date(user.created_at).getTime(),
-      updated_at: new Date(user.updated_at).getTime(),
-      delete_self_enabled: true,
-      create_organization_enabled: true,
+      created_at: createdAtTs,
+      updated_at: updatedAtTs,
+      delete_self_enabled: deleteSelfEnabled,
+      create_organization_enabled: createOrganizationEnabled,
       last_active_at: user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() : null,
     }
   }
@@ -1065,6 +1884,38 @@ export class Clerk {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('')
     return `${prefix}_${hex}`
+  }
+
+  /**
+   * Generate a secure token
+   */
+  private generateToken(): string {
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
+  /**
+   * Generate a 6-digit verification code
+   */
+  private generateVerificationCode(): string {
+    const bytes = new Uint8Array(3)
+    crypto.getRandomValues(bytes)
+    const num = ((bytes[0]! << 16) | (bytes[1]! << 8) | bytes[2]!) % 1000000
+    return num.toString().padStart(6, '0')
+  }
+
+  /**
+   * Simple password hash for skip_password_checks
+   */
+  private async hashSimplePassword(password: string): Promise<string> {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return `sha256:${hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')}`
   }
 
   /**

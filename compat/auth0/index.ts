@@ -70,6 +70,8 @@ export { ManagementClient } from './management-client'
 export { UsersManager } from './users-manager'
 export { TicketsManager } from './tickets-manager'
 export { JobsManager } from './jobs-manager'
+export { RulesEngine } from './rules-engine'
+export { ActionsEngine } from './actions-engine'
 
 // ============================================================================
 // TYPE EXPORTS
@@ -124,6 +126,34 @@ export type {
 
   // Errors
   ManagementApiError,
+
+  // Rules types
+  Rule,
+  CreateRuleParams,
+  UpdateRuleParams,
+  RuleContext,
+  RuleRequest,
+  RuleCallback,
+  RuleFunction,
+  RuleExecutionResult,
+
+  // Actions types
+  ActionTrigger,
+  ActionStatus,
+  ActionRuntime,
+  Action,
+  CreateActionParams,
+  UpdateActionParams,
+  PostLoginEvent,
+  PostLoginApi,
+  PreUserRegistrationEvent,
+  PreUserRegistrationApi,
+  PostUserRegistrationEvent,
+  PostUserRegistrationApi,
+  PostChangePasswordEvent,
+  PostChangePasswordApi,
+  ActionExecutionResult,
+  ActionCommand,
 } from './types'
 
 export { Auth0ManagementError } from './types'
@@ -135,3 +165,5 @@ export { Auth0ManagementError } from './types'
 export type { GetUserParams, DeleteUserParams, UserIdParams, UsersManagerOptions } from './users-manager'
 export type { ChangePasswordTicketParams, VerifyEmailTicketParams, TicketsManagerOptions } from './tickets-manager'
 export type { VerifyEmailJobParams, JobResponse, UsersImportJobParams, UsersExportJobParams, JobsManagerOptions } from './jobs-manager'
+export type { RulesEngineOptions, RulesPipelineResult } from './rules-engine'
+export type { ActionsEngineOptions, TriggerBinding, FlowExecutionResult } from './actions-engine'

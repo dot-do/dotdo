@@ -390,4 +390,371 @@ describe('Auth0 Authentication API', () => {
       expect(challenge.challenge_type).toBe('otp')
     })
   })
+
+  describe('authorization code flow', () => {
+    it('should generate authorization code and exchange for tokens', async () => {
+      // Create user first
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'authcode@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      // Generate authorization code
+      const { code, redirect_url } = await auth.authorization.generateCode(user.user_id, {
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid profile email',
+        state: 'random-state-123',
+      })
+
+      expect(code).toBeDefined()
+      expect(code.length).toBeGreaterThan(0)
+      expect(redirect_url).toContain('https://app.example.com/callback')
+      expect(redirect_url).toContain(`code=${code}`)
+      expect(redirect_url).toContain('state=random-state-123')
+
+      // Exchange authorization code for tokens
+      const tokens = await auth.oauth.token({
+        grant_type: 'authorization_code',
+        client_id: 'test-client-id',
+        code,
+        redirect_uri: 'https://app.example.com/callback',
+      })
+
+      expect(tokens).toBeDefined()
+      expect(tokens.access_token).toBeDefined()
+      expect(tokens.id_token).toBeDefined()
+      expect(tokens.refresh_token).toBeDefined()
+      expect(tokens.token_type).toBe('Bearer')
+      expect(tokens.expires_in).toBeDefined()
+    })
+
+    it('should reject expired authorization code', async () => {
+      // This test would require mocking time or using a short expiry
+      // For now, we test that a non-existent code is rejected
+      await expect(
+        auth.oauth.token({
+          grant_type: 'authorization_code',
+          client_id: 'test-client-id',
+          code: 'invalid-code-that-does-not-exist',
+          redirect_uri: 'https://app.example.com/callback',
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+
+    it('should reject authorization code with wrong client_id', async () => {
+      // Create user
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'authcode-wrong-client@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      // Generate code for one client
+      const { code } = await auth.authorization.generateCode(user.user_id, {
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid',
+      })
+
+      // Try to exchange with different client
+      await expect(
+        auth.oauth.token({
+          grant_type: 'authorization_code',
+          client_id: 'different-client-id',
+          code,
+          redirect_uri: 'https://app.example.com/callback',
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+
+    it('should reject authorization code with wrong redirect_uri', async () => {
+      // Create user
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'authcode-wrong-redirect@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      // Generate code
+      const { code } = await auth.authorization.generateCode(user.user_id, {
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid',
+      })
+
+      // Try to exchange with different redirect_uri
+      await expect(
+        auth.oauth.token({
+          grant_type: 'authorization_code',
+          client_id: 'test-client-id',
+          code,
+          redirect_uri: 'https://malicious.example.com/callback',
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+  })
+
+  describe('PKCE flow', () => {
+    it('should generate PKCE code verifier and challenge', async () => {
+      const pkce = await auth.authorization.generatePKCE()
+
+      expect(pkce.code_verifier).toBeDefined()
+      expect(pkce.code_challenge).toBeDefined()
+      expect(pkce.code_challenge_method).toBe('S256')
+      // Code verifier should be between 43-128 characters per RFC 7636
+      expect(pkce.code_verifier.length).toBeGreaterThanOrEqual(43)
+      expect(pkce.code_verifier.length).toBeLessThanOrEqual(128)
+    })
+
+    it('should build PKCE authorization URL', async () => {
+      const result = await auth.authorization.buildPKCEAuthorizationUrl({
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid profile email',
+        state: 'pkce-state-123',
+      })
+
+      expect(result.url).toContain('https://test.auth0.com/authorize')
+      expect(result.url).toContain('code_challenge=')
+      expect(result.url).toContain('code_challenge_method=S256')
+      expect(result.url).toContain('response_type=code')
+      expect(result.code_verifier).toBeDefined()
+    })
+
+    it('should exchange authorization code with PKCE', async () => {
+      // Create user
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'pkce@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      // Generate PKCE parameters
+      const pkce = await auth.authorization.generatePKCE()
+
+      // Generate authorization code with PKCE
+      const { code } = await auth.authorization.generateCode(user.user_id, {
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid profile email',
+        code_challenge: pkce.code_challenge,
+        code_challenge_method: 'S256',
+      })
+
+      // Exchange with code_verifier
+      const tokens = await auth.oauth.token({
+        grant_type: 'authorization_code',
+        client_id: 'test-client-id',
+        code,
+        redirect_uri: 'https://app.example.com/callback',
+        code_verifier: pkce.code_verifier,
+      })
+
+      expect(tokens).toBeDefined()
+      expect(tokens.access_token).toBeDefined()
+      expect(tokens.id_token).toBeDefined()
+    })
+
+    it('should reject PKCE exchange without code_verifier', async () => {
+      // Create user
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'pkce-no-verifier@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      const pkce = await auth.authorization.generatePKCE()
+
+      // Generate code with PKCE
+      const { code } = await auth.authorization.generateCode(user.user_id, {
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid',
+        code_challenge: pkce.code_challenge,
+        code_challenge_method: 'S256',
+      })
+
+      // Try to exchange without code_verifier
+      await expect(
+        auth.oauth.token({
+          grant_type: 'authorization_code',
+          client_id: 'test-client-id',
+          code,
+          redirect_uri: 'https://app.example.com/callback',
+          // no code_verifier
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+
+    it('should reject PKCE exchange with wrong code_verifier', async () => {
+      // Create user
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'pkce-wrong-verifier@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      const pkce = await auth.authorization.generatePKCE()
+
+      // Generate code
+      const { code } = await auth.authorization.generateCode(user.user_id, {
+        client_id: 'test-client-id',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid',
+        code_challenge: pkce.code_challenge,
+        code_challenge_method: 'S256',
+      })
+
+      // Try with wrong verifier
+      await expect(
+        auth.oauth.token({
+          grant_type: 'authorization_code',
+          client_id: 'test-client-id',
+          code,
+          redirect_uri: 'https://app.example.com/callback',
+          code_verifier: 'wrong-code-verifier-that-does-not-match',
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+  })
+
+  describe('device code flow', () => {
+    it('should start device authorization', async () => {
+      const deviceAuth = await auth.device.authorize({
+        client_id: 'test-client-id',
+        scope: 'openid profile email',
+      })
+
+      expect(deviceAuth).toBeDefined()
+      expect(deviceAuth.device_code).toBeDefined()
+      expect(deviceAuth.user_code).toBeDefined()
+      expect(deviceAuth.verification_uri).toContain('test.auth0.com/activate')
+      expect(deviceAuth.verification_uri_complete).toContain(deviceAuth.user_code)
+      expect(deviceAuth.expires_in).toBeGreaterThan(0)
+      expect(deviceAuth.interval).toBeGreaterThan(0)
+
+      // User code should be in format XXXX-XXXX
+      expect(deviceAuth.user_code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/)
+    })
+
+    it('should return authorization_pending while waiting', async () => {
+      const deviceAuth = await auth.device.authorize({
+        client_id: 'test-client-id',
+        scope: 'openid',
+      })
+
+      // Polling before user authorization should return pending
+      await expect(
+        auth.oauth.token({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: 'test-client-id',
+          device_code: deviceAuth.device_code,
+        })
+      ).rejects.toThrow('Authorization pending')
+    })
+
+    it('should get device status', async () => {
+      const deviceAuth = await auth.device.authorize({
+        client_id: 'test-client-id',
+        scope: 'openid profile',
+      })
+
+      const status = await auth.device.getStatus(deviceAuth.user_code)
+
+      expect(status.status).toBe('pending')
+      expect(status.client_id).toBe('test-client-id')
+      expect(status.scope).toBe('openid profile')
+    })
+
+    it('should authorize device with user code', async () => {
+      // Create user
+      const user = await auth.database.signUp({
+        client_id: 'test-client-id',
+        email: 'device@example.com',
+        password: 'Test123!@#',
+        connection: 'Username-Password-Authentication',
+      })
+
+      // Start device flow
+      const deviceAuth = await auth.device.authorize({
+        client_id: 'test-client-id',
+        scope: 'openid profile email',
+      })
+
+      // User authorizes the device
+      await auth.device.authorizeUserCode(deviceAuth.user_code, user.user_id)
+
+      // Check status is now authorized
+      const status = await auth.device.getStatus(deviceAuth.user_code)
+      expect(status.status).toBe('authorized')
+
+      // Now token exchange should succeed
+      const tokens = await auth.oauth.token({
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        client_id: 'test-client-id',
+        device_code: deviceAuth.device_code,
+      })
+
+      expect(tokens).toBeDefined()
+      expect(tokens.access_token).toBeDefined()
+      expect(tokens.id_token).toBeDefined()
+      expect(tokens.refresh_token).toBeDefined()
+    })
+
+    it('should deny device authorization', async () => {
+      const deviceAuth = await auth.device.authorize({
+        client_id: 'test-client-id',
+        scope: 'openid',
+      })
+
+      // User denies
+      await auth.device.denyUserCode(deviceAuth.user_code)
+
+      // Check status
+      const status = await auth.device.getStatus(deviceAuth.user_code)
+      expect(status.status).toBe('denied')
+
+      // Token exchange should fail with access_denied
+      await expect(
+        auth.oauth.token({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: 'test-client-id',
+          device_code: deviceAuth.device_code,
+        })
+      ).rejects.toThrow('denied')
+    })
+
+    it('should reject invalid device code', async () => {
+      await expect(
+        auth.oauth.token({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: 'test-client-id',
+          device_code: 'invalid-device-code',
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+
+    it('should reject device code with wrong client_id', async () => {
+      const deviceAuth = await auth.device.authorize({
+        client_id: 'test-client-id',
+        scope: 'openid',
+      })
+
+      await expect(
+        auth.oauth.token({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: 'wrong-client-id',
+          device_code: deviceAuth.device_code,
+        })
+      ).rejects.toThrow(Auth0APIError)
+    })
+  })
 })

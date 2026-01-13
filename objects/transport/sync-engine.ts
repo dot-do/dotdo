@@ -531,9 +531,11 @@ export class SyncEngine {
     })
   }
 
-  private handleClose(socket: WebSocket): void {
+  private handleClose(socket: WebSocket, reason: 'close' | 'timeout' | 'error' = 'close'): void {
     const state = this.connections.get(socket)
     if (!state) return
+
+    const socketId = this.getSocketId(socket)
 
     // Remove all subscriptions
     Array.from(state.subscriptions.values()).forEach((sub) => {
@@ -549,6 +551,15 @@ export class SyncEngine {
 
     // Remove connection
     this.connections.delete(socket)
+
+    // Emit disconnected event (but not if it's a timeout since checkTimeouts() already emitted it)
+    if (reason !== 'timeout') {
+      this.emitConnectionState({
+        type: 'disconnected',
+        socketId,
+        reason,
+      })
+    }
   }
 
   private broadcast(collection: string, branch: string | null, message: ChangeMessage): void {

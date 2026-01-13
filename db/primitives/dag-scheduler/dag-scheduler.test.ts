@@ -23,6 +23,7 @@ import {
   type DAGRun,
   type TaskResult,
   type TaskStatus,
+  type TaskTemplate,
   // Dependency resolution
   type DependencyResolver,
   createDependencyResolver,
@@ -45,6 +46,7 @@ import {
   parseCronExpression,
   // Dynamic tasks
   type DynamicTaskGenerator,
+  type DynamicDependencyResolver,
   // Cross-DAG dependencies
   type ExternalDependency,
   type DAGTrigger,
@@ -53,6 +55,8 @@ import {
   // Factories
   createDAG,
   createTaskNode,
+  createTaskTemplate,
+  createTaskFromTemplate,
   dag,
   task,
 } from './index'
@@ -1636,6 +1640,489 @@ describe('DynamicTasks', () => {
       ).length
       expect(expandedCount).toBe(100)
     })
+  })
+
+  describe('async expand', () => {
+    it('should support async expand function', async () => {
+      const d = createDAG({
+        id: 'dag-1',
+        tasks: [
+          createTaskNode({
+            id: 'get-data',
+            execute: async () => ['a', 'b', 'c'],
+            dependencies: [],
+          }),
+          createTaskNode({
+            id: 'process',
+            execute: async () => {},
+            dependencies: ['get-data'],
+            dynamic: {
+              expand: async (items: string[]) => {
+                // Simulate async operation
+                await delay(10)
+                return items.map((item) =>
+                  createTaskNode({
+                    id: `process-${item}`,
+                    execute: async () => `processed-${item}`,
+                    dependencies: [],
+                  })
+                )
+              },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(run.taskResults.has('process-a')).toBe(true)
+      expect(run.taskResults.has('process-b')).toBe(true)
+      expect(run.taskResults.has('process-c')).toBe(true)
+    })
+  })
+
+  describe('nested dynamic expansion', () => {
+    it('should support nested dynamic tasks when allowNested is true', async () => {
+      const results: string[] = []
+
+      const d = createDAG({
+        id: 'dag-1',
+        tasks: [
+          createTaskNode({
+            id: 'root',
+            execute: async () => ['level1-a', 'level1-b'],
+            dependencies: [],
+          }),
+          createTaskNode({
+            id: 'expand-level1',
+            execute: async () => {},
+            dependencies: ['root'],
+            dynamic: {
+              allowNested: true,
+              expand: (items: string[]) =>
+                items.map((item) =>
+                  createTaskNode({
+                    id: item,
+                    execute: async () => {
+                      results.push(item)
+                      return [`${item}-child1`, `${item}-child2`]
+                    },
+                    dependencies: [],
+                    dynamic: {
+                      expand: (children: string[]) =>
+                        children.map((child) =>
+                          createTaskNode({
+                            id: child,
+                            execute: async () => {
+                              results.push(child)
+                              return `done-${child}`
+                            },
+                            dependencies: [],
+                          })
+                        ),
+                    },
+                  })
+                ),
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      // Level 1 tasks
+      expect(results).toContain('level1-a')
+      expect(results).toContain('level1-b')
+      // Level 2 tasks (nested)
+      expect(results).toContain('level1-a-child1')
+      expect(results).toContain('level1-a-child2')
+      expect(results).toContain('level1-b-child1')
+      expect(results).toContain('level1-b-child2')
+    })
+
+    it('should NOT expand nested tasks when allowNested is false', async () => {
+      const results: string[] = []
+
+      const d = createDAG({
+        id: 'dag-1',
+        tasks: [
+          createTaskNode({
+            id: 'root',
+            execute: async () => ['item'],
+            dependencies: [],
+          }),
+          createTaskNode({
+            id: 'expand',
+            execute: async () => {},
+            dependencies: ['root'],
+            dynamic: {
+              allowNested: false, // Explicitly false
+              expand: (items: string[]) =>
+                items.map((item) =>
+                  createTaskNode({
+                    id: `parent-${item}`,
+                    execute: async () => {
+                      results.push(`parent-${item}`)
+                      return ['child']
+                    },
+                    dependencies: [],
+                    dynamic: {
+                      expand: (children: string[]) =>
+                        children.map((child) =>
+                          createTaskNode({
+                            id: `nested-${child}`,
+                            execute: async () => {
+                              results.push(`nested-${child}`)
+                              return 'done'
+                            },
+                            dependencies: [],
+                          })
+                        ),
+                    },
+                  })
+                ),
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(results).toContain('parent-item')
+      // Nested task should NOT have been executed
+      expect(results).not.toContain('nested-child')
+    })
+  })
+
+  describe('expandedFrom tracking', () => {
+    it('should track expandedFrom on dynamically generated tasks', async () => {
+      const d = createDAG({
+        id: 'dag-1',
+        tasks: [
+          createTaskNode({
+            id: 'source',
+            execute: async () => [1, 2],
+            dependencies: [],
+          }),
+          createTaskNode({
+            id: 'generator',
+            execute: async () => {},
+            dependencies: ['source'],
+            dynamic: {
+              expand: (nums: number[]) =>
+                nums.map((n) =>
+                  createTaskNode({
+                    id: `child-${n}`,
+                    execute: async () => n * 10,
+                    dependencies: [],
+                  })
+                ),
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      // Note: expandedFrom is set during execution, not on TaskNode definition
+      // We verify the tasks were created from the generator
+      expect(run.taskResults.has('child-1')).toBe(true)
+      expect(run.taskResults.has('child-2')).toBe(true)
+    })
+  })
+})
+
+// ============================================================================
+// TASK TEMPLATES - PARAMETERIZED TASK CREATION
+// ============================================================================
+
+describe('TaskTemplates', () => {
+  describe('createTaskFromTemplate', () => {
+    it('should create task with static id', async () => {
+      const template = createTaskTemplate({
+        id: 'static-task',
+        execute: async (_ctx, params: { value: number }) => params.value * 2,
+        dependencies: [],
+      })
+
+      const task = createTaskFromTemplate(template, { value: 21 })
+
+      expect(task.id).toBe('static-task')
+      const result = await task.execute()
+      expect(result).toBe(42)
+    })
+
+    it('should create task with dynamic id', async () => {
+      const template = createTaskTemplate({
+        id: (params: { name: string }) => `task-${params.name}`,
+        execute: async (_ctx, params: { name: string }) => `Hello, ${params.name}`,
+        dependencies: [],
+      })
+
+      const task = createTaskFromTemplate(template, { name: 'world' })
+
+      expect(task.id).toBe('task-world')
+      const result = await task.execute()
+      expect(result).toBe('Hello, world')
+    })
+
+    it('should create task with dynamic dependencies', async () => {
+      const template = createTaskTemplate({
+        id: (params: { index: number }) => `task-${params.index}`,
+        execute: async () => 'done',
+        dependencies: (params: { index: number }) =>
+          params.index > 0 ? [`task-${params.index - 1}`] : [],
+      })
+
+      const task0 = createTaskFromTemplate(template, { index: 0 })
+      const task1 = createTaskFromTemplate(template, { index: 1 })
+      const task2 = createTaskFromTemplate(template, { index: 2 })
+
+      expect(task0.dependencies).toEqual([])
+      expect(task1.dependencies).toEqual(['task-0'])
+      expect(task2.dependencies).toEqual(['task-1'])
+    })
+
+    it('should create task with dynamic metadata', async () => {
+      const template = createTaskTemplate({
+        id: 'task',
+        execute: async () => 'done',
+        dependencies: [],
+        metadata: (params: { priority: string }) => ({
+          priority: params.priority,
+          createdAt: Date.now(),
+        }),
+      })
+
+      const task = createTaskFromTemplate(template, { priority: 'high' })
+
+      expect(task.metadata?.priority).toBe('high')
+      expect(task.metadata?.createdAt).toBeDefined()
+    })
+
+    it('should store templateParams on created task', async () => {
+      const template = createTaskTemplate({
+        id: 'task',
+        execute: async () => 'done',
+        dependencies: [],
+      })
+
+      const params = { foo: 'bar', count: 42 }
+      const task = createTaskFromTemplate(template, params)
+
+      expect(task.templateParams).toEqual(params)
+    })
+  })
+
+  describe('template with dynamic expansion', () => {
+    it('should use template to generate tasks in dynamic expansion', async () => {
+      const processTemplate = createTaskTemplate({
+        id: (params: { file: string }) => `process-${params.file}`,
+        execute: async (_ctx, params: { file: string }) => `processed-${params.file}`,
+        dependencies: [],
+      })
+
+      const d = createDAG({
+        id: 'dag-1',
+        tasks: [
+          createTaskNode({
+            id: 'list-files',
+            execute: async () => ['a.txt', 'b.txt', 'c.txt'],
+            dependencies: [],
+          }),
+          createTaskNode({
+            id: 'process',
+            execute: async () => {},
+            dependencies: ['list-files'],
+            dynamic: {
+              expand: (files: string[]) =>
+                files.map((file) => createTaskFromTemplate(processTemplate, { file })),
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(run.taskResults.get('process-a.txt')?.output).toBe('processed-a.txt')
+      expect(run.taskResults.get('process-b.txt')?.output).toBe('processed-b.txt')
+      expect(run.taskResults.get('process-c.txt')?.output).toBe('processed-c.txt')
+    })
+
+    it('should chain templates in dynamic expansion', async () => {
+      // Template that creates an extract task
+      const extractTemplate = createTaskTemplate({
+        id: (p: { source: string }) => `extract-${p.source}`,
+        execute: async (_ctx, p: { source: string }) => ({ source: p.source, data: [1, 2, 3] }),
+        dependencies: [],
+      })
+
+      // Template that creates a transform task, dynamically depending on the extract
+      const transformTemplate = createTaskTemplate({
+        id: (p: { source: string }) => `transform-${p.source}`,
+        execute: async (ctx, _p: { source: string }) => {
+          const upstream = ctx?.upstreamResults as Record<string, { data: number[] }>
+          const data = Object.values(upstream)[0]?.data ?? []
+          return data.map((n) => n * 2)
+        },
+        dependencies: (p: { source: string }) => [`extract-${p.source}`],
+      })
+
+      const sources = ['api', 'db']
+
+      // Use dynamic expansion to create both extract AND transform tasks
+      const d = createDAG({
+        id: 'etl',
+        tasks: [
+          createTaskNode({
+            id: 'get-sources',
+            execute: async () => sources,
+            dependencies: [],
+          }),
+          createTaskNode({
+            id: 'expand-pipeline',
+            execute: async () => {},
+            dependencies: ['get-sources'],
+            dynamic: {
+              expand: (srcs: string[]) => {
+                // Create both extract and transform tasks dynamically
+                const tasks: TaskNode[] = []
+                for (const source of srcs) {
+                  tasks.push(createTaskFromTemplate(extractTemplate, { source }))
+                  tasks.push(createTaskFromTemplate(transformTemplate, { source }))
+                }
+                return tasks
+              },
+            },
+          }),
+        ],
+      })
+
+      const executor = createParallelExecutor()
+      const run = await executor.execute(d)
+
+      expect(run.status).toBe('completed')
+      expect(run.taskResults.get('extract-api')?.output).toEqual({ source: 'api', data: [1, 2, 3] })
+      expect(run.taskResults.get('transform-api')?.output).toEqual([2, 4, 6])
+      expect(run.taskResults.get('transform-db')?.output).toEqual([2, 4, 6])
+    })
+  })
+})
+
+// ============================================================================
+// DYNAMIC DEPENDENCY RESOLUTION
+// ============================================================================
+
+describe('DynamicDependencyResolution', () => {
+  it('should resolve dependencies at runtime', async () => {
+    const d = createDAG({
+      id: 'dag-1',
+      tasks: [
+        createTaskNode({
+          id: 'a',
+          execute: async () => 'result-a',
+          dependencies: [],
+        }),
+        createTaskNode({
+          id: 'b',
+          execute: async () => 'result-b',
+          dependencies: [],
+        }),
+        createTaskNode({
+          id: 'selector',
+          execute: async () => ['a'], // Dynamically select which deps to use
+          dependencies: [],
+        }),
+        createTaskNode({
+          id: 'dynamic-consumer',
+          execute: async () => {},
+          dependencies: ['selector'],
+          dynamic: {
+            expand: (selectedDeps: string[]) => [
+              createTaskNode({
+                id: 'consumer',
+                execute: async (ctx) => {
+                  // Should only have the selected upstream results
+                  return Object.keys(ctx?.upstreamResults ?? {})
+                },
+                dependencies: selectedDeps,
+              }),
+            ],
+          },
+        }),
+      ],
+    })
+
+    const executor = createParallelExecutor()
+    const run = await executor.execute(d)
+
+    expect(run.status).toBe('completed')
+    // Consumer should have dependency on 'a' only
+    expect(run.taskResults.get('consumer')?.output).toEqual(['a'])
+  })
+
+  it('should handle dynamic dependencies with dynamicDependencies resolver', async () => {
+    let resolvedDeps: string[] = []
+
+    const d = createDAG({
+      id: 'dag-1',
+      tasks: [
+        createTaskNode({
+          id: 'task-1',
+          execute: async () => 'one',
+          dependencies: [],
+        }),
+        createTaskNode({
+          id: 'task-2',
+          execute: async () => 'two',
+          dependencies: [],
+        }),
+        createTaskNode({
+          id: 'config',
+          execute: async () => ({ useBoth: true }),
+          dependencies: [],
+        }),
+        createTaskNode({
+          id: 'expander',
+          execute: async () => {},
+          dependencies: ['config'],
+          dynamic: {
+            expand: (config: { useBoth: boolean }) => [
+              createTaskNode({
+                id: 'dynamic-task',
+                execute: async (ctx) => {
+                  resolvedDeps = Object.keys(ctx?.upstreamResults ?? {})
+                  return 'done'
+                },
+                dependencies: [], // Static deps empty
+                dynamicDependencies: {
+                  resolve: async () => {
+                    // Dynamically resolve dependencies
+                    return config.useBoth ? ['task-1', 'task-2'] : ['task-1']
+                  },
+                },
+              }),
+            ],
+          },
+        }),
+      ],
+    })
+
+    const executor = createParallelExecutor()
+    const run = await executor.execute(d)
+
+    expect(run.status).toBe('completed')
+    expect(resolvedDeps.sort()).toEqual(['task-1', 'task-2'])
   })
 })
 

@@ -307,8 +307,35 @@ export class IdentityResolver {
       throw new Error('userId or anonymousId is required')
     }
 
+    // Check for identity merge scenario: new userId with existing anonymousId
+    // This happens when an anonymous user signs up with a new user ID
+    const existingUserCanonical = userId
+      ? this.userToCanonical.get(userId)
+      : undefined
+    const existingAnonCanonical = anonymousId
+      ? this.anonymousToCanonical.get(anonymousId)
+      : undefined
+
+    // If both exist and are different identities, we need to merge
+    if (
+      existingUserCanonical &&
+      existingAnonCanonical &&
+      existingUserCanonical !== existingAnonCanonical
+    ) {
+      // Merge anonymous identity into user identity
+      const mergeRecord = this.mergeIdentities(
+        existingAnonCanonical,
+        existingUserCanonical,
+        'identify'
+      )
+      if (mergeRecord) {
+        merges.push(mergeRecord)
+      }
+    }
+
     // Find or create canonical identity
-    let canonicalId = this.findCanonicalId(userId, anonymousId)
+    // Priority: user ID identity > anonymous ID identity > create new
+    let canonicalId = existingUserCanonical || existingAnonCanonical
     let identity: ResolvedIdentity
 
     if (canonicalId) {
@@ -333,12 +360,14 @@ export class IdentityResolver {
 
     // Add anonymous ID if provided
     if (anonymousId) {
-      const existingCanonical = this.anonymousToCanonical.get(anonymousId)
+      // Check if this anonymous ID belongs to a different identity
+      // (may have changed after the merge above)
+      const currentAnonCanonical = this.anonymousToCanonical.get(anonymousId)
 
-      if (existingCanonical && existingCanonical !== canonicalId) {
+      if (currentAnonCanonical && currentAnonCanonical !== canonicalId) {
         // Anonymous ID belongs to different identity - merge!
         const mergeRecord = this.mergeIdentities(
-          existingCanonical,
+          currentAnonCanonical,
           canonicalId,
           'identify'
         )

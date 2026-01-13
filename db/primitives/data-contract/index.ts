@@ -984,3 +984,9 @@ export function createRegistry(): SchemaRegistry {
 
 // Re-export types used by tests
 export type { DataContract as Schema }
+
+// Re-export versioning module
+export * from './versioning'
+
+// Re-export registry for DO-backed contract storage
+export * from './registry'

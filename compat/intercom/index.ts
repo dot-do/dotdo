@@ -113,6 +113,30 @@ export {
   type IntercomLocalConfig,
 } from './local'
 
+// Re-export inbox routing
+export {
+  InboxRouter,
+  InboxNotFoundError,
+  InboxError,
+  type InboxRouterConfig,
+  type Inbox,
+  type CreateInboxInput,
+  type UpdateInboxInput,
+  type TeamMember,
+  type AssignmentRule,
+  type CreateAssignmentRuleInput,
+  type UpdateAssignmentRuleInput,
+  type RoundRobinStatus,
+  type RoundRobinConfig,
+  type SLAPolicy,
+  type CreateSLAPolicyInput,
+  type AdminWorkload,
+  type TeamWorkload,
+  type PriorityLevel,
+  type ConversationPriority,
+  type SLAStatus,
+} from './inbox'
+
 // Re-export types
 export type {
   // Core types

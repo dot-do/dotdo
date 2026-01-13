@@ -1123,3 +1123,76 @@ class InMemoryBusinessEventStore implements BusinessEventStore {
 export function createBusinessEventStore(): BusinessEventStore {
   return new InMemoryBusinessEventStore()
 }
+
+// Re-export EventSchema types and functions
+export {
+  // Schema types
+  type FiveWHSchema,
+  type WhatSchema,
+  type WhenSchema,
+  type WhereSchema,
+  type WhySchema,
+  type WhoSchema,
+  type HowSchema,
+  type DimensionValidationResult,
+  type EventValidationResult,
+  type CustomDimensionSchema,
+  type SchemaVersion,
+  type TypeMismatch,
+
+  // Validation functions - What
+  validateEPC,
+  validateWhatSchema,
+
+  // Validation functions - When
+  validateTimestampPrecision,
+  validateTimezoneOffset,
+  validateEventTiming,
+
+  // Validation functions - Where
+  validateLocation,
+  validateSourceDest,
+  validateLocationSemantics,
+
+  // Validation functions - Why
+  validateBusinessStep,
+  validateAgainstAllowedSteps,
+  categorizeBusinessStep,
+
+  // Validation functions - Who
+  validateParty,
+  validateActorTypeConsistency,
+  validateConfidence,
+  validateActorType,
+
+  // Validation functions - How
+  validateDisposition,
+  validateChannel,
+  validateSessionId,
+  validateDeviceId,
+  validateContext,
+
+  // Schema introspection
+  getWhatSchema,
+  getWhenSchema,
+  getWhereSchema,
+  getWhySchema,
+  getWhoSchema,
+  getHowSchema,
+  getFiveWHSchema,
+
+  // Complete validation
+  validateEventSchema,
+  validateEventTypeSchema,
+
+  // Extensibility
+  registerCustomDimension,
+  getCustomDimension,
+  validateExtensions,
+  getSchemaVersion,
+
+  // Type safety
+  detectTypeMismatches,
+  coerceToSchema,
+  enforceTypes,
+} from './event-schema'
