@@ -555,7 +555,7 @@ export class S3Client {
     command: GetObjectCommand,
     metadata: ResponseMetadata
   ): Promise<GetObjectCommandOutput> {
-    const { Bucket, Key, Range } = command.input
+    const { Bucket, Key, Range, VersionId } = command.input
 
     // Parse range if provided
     let rangeOptions: { start: number; end: number } | undefined
@@ -565,7 +565,7 @@ export class S3Client {
       const match = Range.match(/^bytes=(\d+)-(\d*)$/)
       if (match) {
         // We need to get the object size first for range requests
-        const headObj = await this.backend.headObject(Bucket, Key)
+        const headObj = await this.backend.headObject(Bucket, Key, VersionId)
         if (!headObj) {
           throw new NoSuchKey()
         }
@@ -578,7 +578,10 @@ export class S3Client {
       }
     }
 
-    const obj = await this.backend.getObject(Bucket, Key, rangeOptions ? { range: rangeOptions } : undefined)
+    const obj = await this.backend.getObject(Bucket, Key, {
+      range: rangeOptions,
+      versionId: VersionId,
+    })
     if (!obj) {
       throw new NoSuchKey()
     }
@@ -609,6 +612,7 @@ export class S3Client {
       ETag: obj.etag,
       LastModified: obj.lastModified,
       Metadata: obj.metadata,
+      VersionId: obj.versionId,
       $metadata: metadata,
     }
   }
