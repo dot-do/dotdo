@@ -8,6 +8,7 @@ import { doRoutes } from './routes/do'
 import { browsersRoutes } from './routes/browsers'
 import { sandboxesRoutes } from './routes/sandboxes'
 import { obsRoutes } from './routes/obs'
+import { authRoutes } from './routes/auth'
 import { analyticsRouter } from './analytics/router'
 import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
@@ -37,6 +38,8 @@ export type { CloudflareEnv }
  * @see CloudflareEnv in types/CloudflareBindings.ts for all available bindings
  */
 export interface Env extends CloudflareEnv {
+  /** D1 database - required for auth, sessions, users */
+  DB: D1Database
   /** KV namespace - required for sessions and caching */
   KV: KVNamespace
   /** Main Durable Object namespace - required for Things */
@@ -181,6 +184,10 @@ app.route('/api/obs', obsRoutes)
 // Mount Analytics API routes
 // Endpoints: /api/analytics/v1/search, /api/analytics/v1/lookup/:table/:key, /api/analytics/v1/query
 app.route('/api/analytics', analyticsRouter)
+
+// Mount Auth routes (better-auth integration)
+// Endpoints: /auth/callback, /auth/login, /auth/logout, /auth/session
+app.route('/auth', authRoutes)
 
 // Mount MCP routes
 app.route('/mcp', mcpRoutes)
