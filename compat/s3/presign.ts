@@ -228,8 +228,6 @@ function uriEncode(str: string, encodeSlash = true): string {
     .replace(/\(/g, '%28')
     .replace(/\)/g, '%29')
     .replace(/\*/g, '%2A')
-    // Encode dots in path segments that could be interpreted as path traversal
-    .replace(/\.\./g, '%2E%2E')
 
   if (!encodeSlash) {
     encoded = encoded.replace(/%2F/gi, '/')
@@ -428,16 +426,14 @@ async function createPresignedUrl(options: PresignOptions): Promise<string> {
   const signatureBuffer = await hmacSHA256(signingKey, stringToSign)
   const signature = arrayBufferToHex(signatureBuffer)
 
-  // Build final URL without using URL class to avoid path normalization
-  // (URL class normalizes ../ paths which breaks path traversal protection)
-  const paramEntries = Object.entries(params)
-  paramEntries.push(['X-Amz-Signature', signature])
-  const queryString = paramEntries
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join('&')
+  // Build final URL
+  const signedUrl = new URL(`${endpoint}${canonicalUri}`)
+  for (const [k, v] of Object.entries(params)) {
+    signedUrl.searchParams.set(k, v)
+  }
+  signedUrl.searchParams.set('X-Amz-Signature', signature)
 
-  return `${endpoint}${canonicalUri}?${queryString}`
+  return signedUrl.toString()
 }
 
 // =============================================================================

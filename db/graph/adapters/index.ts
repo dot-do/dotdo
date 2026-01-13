@@ -33,25 +33,3 @@ export type {
   BlobData,
   RefData,
 } from './git-graph-adapter'
-
-// FunctionVersionAdapter - function versioning with content-addressable storage
-export { FunctionVersionAdapter } from './function-version-adapter'
-
-export type {
-  FunctionData as FunctionVersionAdapterData,
-  FunctionVersionData,
-  FunctionBlobData,
-  FunctionRefData,
-} from './function-version-adapter'
-
-// FunctionGraphAdapter - cascade chain resolution via graph relationships
-export { FunctionGraphAdapter, createFunctionGraphAdapter } from './function-graph-adapter'
-
-export type {
-  FunctionType,
-  FunctionData,
-  CascadeRelationshipData,
-  CreateCascadeOptions,
-  CascadeChainEntry,
-  GetCascadeChainOptions,
-} from './function-graph-adapter'

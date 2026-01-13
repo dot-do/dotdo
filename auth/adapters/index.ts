@@ -10,7 +10,6 @@
 
 export {
   createGraphAuthAdapter,
-  graphAuthAdapter,
   type GraphAuthAdapter,
   type User,
   type Session,

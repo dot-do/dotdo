@@ -9,29 +9,44 @@
  */
 
 import { EventEmitter } from 'events'
-import type {
-  McpTool as BaseMcpTool,
-  JsonRpcMessage as BaseJsonRpcMessage,
-  JsonRpcRequest as BaseJsonRpcRequest,
-  JsonRpcResponse as BaseJsonRpcResponse,
-  JsonRpcNotification as BaseJsonRpcNotification,
-  McpClientInfo,
-} from '../types/mcp'
 
 // ============================================================================
-// Type Exports - Re-export base types for backward compatibility
+// Type Exports
 // ============================================================================
 
-// Use base types from consolidated module
-export type JsonRpcMessage = BaseJsonRpcMessage
-export type JsonRpcRequest = BaseJsonRpcRequest
-export type JsonRpcResponse = BaseJsonRpcResponse
-export type JsonRpcNotification = BaseJsonRpcNotification
-export type McpTool = BaseMcpTool
+export interface JsonRpcMessage {
+  jsonrpc: '2.0'
+  id?: string | number | null
+  method?: string
+  params?: Record<string, unknown>
+  result?: unknown
+  error?: {
+    code: number
+    message: string
+    data?: unknown
+  }
+}
 
-// ============================================================================
-// Stdio-specific Types
-// ============================================================================
+export interface JsonRpcRequest extends JsonRpcMessage {
+  id: string | number
+  method: string
+  params?: Record<string, unknown>
+}
+
+export interface JsonRpcResponse extends JsonRpcMessage {
+  id: string | number | null
+  result?: unknown
+  error?: {
+    code: number
+    message: string
+    data?: unknown
+  }
+}
+
+export interface JsonRpcNotification extends JsonRpcMessage {
+  method: string
+  params?: Record<string, unknown>
+}
 
 export interface TransportOptions {
   stdin: NodeJS.ReadableStream | { on: Function; pipe: Function; destroy: Function }
@@ -51,13 +66,13 @@ export interface StdioSession {
   createdAt: number
   lastActivity: number
   state: 'created' | 'initialized' | 'running' | 'closed'
-  clientInfo?: McpClientInfo
+  clientInfo?: { name: string; version: string }
   transport?: McpStdioTransport
   inactivityTimeout?: number
 
   initialize(params: {
     protocolVersion: string
-    clientInfo: McpClientInfo
+    clientInfo: { name: string; version: string }
     capabilities: Record<string, unknown>
   }): void
   start(): void
@@ -71,6 +86,12 @@ export interface StdioSession {
   getTools(): McpTool[]
   on(event: string, callback: (...args: unknown[]) => void): void
   startTimeoutTimer(): void
+}
+
+export interface McpTool {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
 }
 
 export interface MessageFramer {

@@ -20,9 +20,6 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import * as schema from '../db'
 import { validateAuthEnv, isAuthEnvValidated } from './env-validation'
 import { safeJsonParse } from '../lib/safe-stringify'
-// Graph adapter for DO-based auth storage (alternative to drizzleAdapter)
-// import { graphAuthAdapter } from './adapters/graph'
-// import type { GraphStore } from '../db/graph/types'
 
 // ============================================================================
 // CONFIGURATION
@@ -70,9 +67,6 @@ export function createAuth(config: AuthConfig) {
   return betterAuth({
     baseURL,
 
-    // Use drizzleAdapter for D1/SQLite or graphAuthAdapter for GraphStore
-    // To use GraphStore instead:
-    //   database: graphAuthAdapter(graphStore),
     database: drizzleAdapter(db, {
       provider: 'sqlite',
       schema,

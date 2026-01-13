@@ -23,13 +23,6 @@ export {
   ForwardCascadeResolver,
   resolveForwardInsert,
   resolveForwardSearch,
-  // Session cache for within-generation caching
-  SessionCache,
-  // Semantic search helper
-  createSemanticSearchHelper,
-  // Factory with integrated caching
-  createForwardResolverWithCache,
-  // Types
   type ParsedReference,
   type GenerationContext,
   type ForwardCascadeResolverOptions,
@@ -37,11 +30,6 @@ export {
   type SemanticSearchOptions,
   type CreateRelationshipOptions,
   type ShorthandReference,
-  type EmbedFunction,
-  type VectorSearchFunction,
-  type EntityLoaderFunction,
-  type SemanticSearchHelperOptions,
-  type ForwardCascadeResolverWithCacheOptions,
 } from './forward'
 
 // Backward cascade resolver

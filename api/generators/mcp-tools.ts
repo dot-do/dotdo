@@ -21,10 +21,22 @@ import {
   getMethodMetadata,
   type ParameterInfo,
 } from '../../lib/auto-wiring'
-import type { McpTool } from '../../types/mcp'
 
-// Re-export McpTool for backward compatibility
-export type { McpTool }
+// ============================================================================
+// TYPES
+// ============================================================================
+
+/**
+ * MCP Tool definition matching the MCP protocol specification
+ */
+export interface McpTool {
+  /** The name of the tool (used in tools/call) */
+  name: string
+  /** Human-readable description of what the tool does */
+  description: string
+  /** JSON Schema for the tool's input parameters */
+  inputSchema: Record<string, unknown>
+}
 
 // ============================================================================
 // JSON SCHEMA GENERATOR

@@ -18,13 +18,8 @@ import { deriveReverseVerb, deriveVerbFromFieldName } from './verb-derivation'
 import {
   type Entity,
   type Relationship,
-  type SemanticSearchResult,
-  type BaseCascadeResolverOptions,
-  type GenerationContext as SharedGenerationContext,
-  type SearchOptions,
   generateEntityId,
   generateRelationshipId,
-  BaseCascadeResolver,
 } from './shared'
 
 // Re-export types and functions
@@ -93,16 +88,9 @@ export interface ParsedBackwardReference {
   thresholds?: Record<string, number>
 }
 
-/**
- * Options for BackwardCascadeResolver.
- * Extends BaseCascadeResolverOptions with backward-specific options.
- */
-export interface ResolverOptions extends BaseCascadeResolverOptions {
-  /** Custom generator function (backward-specific signature for compatibility) */
+export interface ResolverOptions {
   generator?: (context: GenerateContext) => Promise<Entity>
-  /** Custom searcher function (backward-specific signature for compatibility) */
   searcher?: (context: SearchContext) => Promise<MatchResult[]>
-  /** Error handling mode for search failures */
   onSearchError?: 'throw' | 'empty'
 }
 
@@ -143,55 +131,12 @@ async function defaultSearcher(_context: SearchContext): Promise<MatchResult[]> 
 // BackwardCascadeResolver Class
 // ============================================================================
 
-/**
- * Backward cascade resolver for <- and <~ operators.
- *
- * Extends BaseCascadeResolver with backward-specific relationship direction:
- * - from = target (generated/found entity)
- * - to = this (source entity)
- *
- * This is the inverse of ForwardCascadeResolver. When resolving backward
- * references, the generated or found entity points TO the current entity,
- * rather than FROM it.
- *
- * @example
- * ```typescript
- * const resolver = new BackwardCascadeResolver({
- *   generator: async (ctx) => aiService.generate(ctx),
- *   searcher: async (ctx) => vectorDB.search(ctx),
- * })
- *
- * // Employee <- Manager: Manager points TO Employee
- * const result = await resolver.resolve({
- *   operator: '<-',
- *   targetType: 'Manager',
- *   fieldName: 'manager',
- * }, { entity: employee, namespace: 'https://example.com.ai' })
- * // result.relationship: { from: manager.$id, to: employee.$id }
- * ```
- */
-export class BackwardCascadeResolver extends BaseCascadeResolver {
+export class BackwardCascadeResolver {
   private generator: (context: GenerateContext) => Promise<Entity>
   private searcher: (context: SearchContext) => Promise<MatchResult[]>
   private onSearchError: 'throw' | 'empty'
 
   constructor(options: ResolverOptions = {}) {
-    // Map backward-specific options to base options
-    super({
-      ...options,
-      // Map the backward-specific generator to the base generate interface
-      generate: options.generator
-        ? async (opts) => options.generator!({
-            type: opts.type,
-            prompt: opts.prompt,
-            parentEntity: opts.context.parentEntity,
-            namespace: '', // Will be provided by resolve context
-            previousGenerations: opts.context.previousGenerations,
-          })
-        : undefined,
-    })
-
-    // Keep backward-specific handlers for compatibility
     this.generator = options.generator || defaultGenerator
     this.searcher = options.searcher || defaultSearcher
     this.onSearchError = options.onSearchError || 'throw'
@@ -219,18 +164,11 @@ export class BackwardCascadeResolver extends BaseCascadeResolver {
     }
   }
 
-  /**
-   * Resolve a backward insert (<-) reference.
-   *
-   * Generates a new entity and creates a relationship FROM the generated
-   * entity TO the current entity (inverse of forward insert).
-   */
   private async resolveInsert(
     ref: BackwardReference,
     context: BackwardResolutionContext
   ): Promise<BackwardResolutionResult> {
-    // Generate new entity using the backward-specific generator
-    // (maintains compatibility with existing tests)
+    // Generate new entity
     const generated = await this.generator({
       type: ref.targetType,
       prompt: ref.prompt,
@@ -239,16 +177,12 @@ export class BackwardCascadeResolver extends BaseCascadeResolver {
       previousGenerations: context.previousGenerations,
     })
 
-    // Store the generated entity using base class method
-    await this.storeEntity(generated)
-
     // Set backref field if specified
     if (ref.backrefField) {
       generated[ref.backrefField] = context.entity.$id
     }
 
     // Create relationship with correct backward direction
-    // Backward: from=target (generated), to=this (current entity)
     const verb = this.deriveBackwardVerb(ref.verb, ref.fieldName)
 
     const relationship: Relationship = {
@@ -269,12 +203,6 @@ export class BackwardCascadeResolver extends BaseCascadeResolver {
     }
   }
 
-  /**
-   * Resolve a backward search (<~) reference.
-   *
-   * Performs semantic search for entities that point TO the current entity.
-   * Unlike forward search, backward search is read-only (no generation).
-   */
   private async resolveSearch(
     ref: BackwardReference,
     context: BackwardResolutionContext
@@ -394,17 +322,9 @@ export class BackwardCascadeResolver extends BaseCascadeResolver {
     return matches
   }
 
-  /**
-   * Derives the verb for a relationship.
-   * Uses explicit verb if provided, otherwise derives from field name.
-   */
   private deriveVerb(verb?: string, fieldName?: string): string {
     if (verb) return verb
     if (fieldName) {
-      // Check custom verb mapping from base class first
-      const mapped = this.getVerb(fieldName)
-      if (mapped !== fieldName) return mapped
-
       // Try to derive verb from field name
       return deriveVerbFromFieldName(fieldName)
     }

@@ -308,7 +308,7 @@ export interface ChargeProcessor {
   void(chargeId: string): Promise<Charge>
 
   // Refund operations
-  refund(chargeId: string, amountOrOptions?: number | ChargeRefundOptions): Promise<Refund>
+  refund(chargeId: string, options?: ChargeRefundOptions): Promise<Refund>
   listRefunds(chargeId: string): Promise<Refund[]>
   getRefundsForCharge(chargeId: string): Promise<Refund[]>
 
@@ -516,16 +516,10 @@ class ChargeProcessorImpl implements ChargeProcessor {
     const provider = providerName ? this.providers.get(providerName) : null
 
     let providerResult: ProviderChargeResult | null = null
-    // Determine initial status based on capture option
+    // Default to 'pending' when no provider, otherwise depends on capture mode
     let status: ChargeStatus = 'pending'
-    if (options.capture === true) {
-      status = 'succeeded'
-    } else if (options.capture === false) {
-      status = 'requires_capture'
-    }
-    // status = 'pending' when capture is undefined
 
-    // Call provider if available - provider result overrides status
+    // Call provider if available
     if (provider) {
       try {
         providerResult = await provider.charge({ ...options, currency })
@@ -533,6 +527,9 @@ class ChargeProcessorImpl implements ChargeProcessor {
       } catch (e) {
         status = 'failed'
       }
+    } else {
+      // No provider - stay pending unless explicitly captured
+      status = 'pending'
     }
 
     const charge: Charge = {
@@ -548,8 +545,8 @@ class ChargeProcessorImpl implements ChargeProcessor {
       provider: providerName ?? undefined,
       providerChargeId: providerResult?.providerChargeId,
       authorizedAmount: options.amount,
-      capturedAmount: status === 'succeeded' ? options.amount : 0,
-      capturableAmount: (status === 'requires_capture' || status === 'pending') ? options.amount : 0,
+      capturedAmount: status === 'succeeded' ? options.amount : undefined,
+      capturableAmount: status === 'requires_capture' || status === 'pending' ? options.amount : 0,
       refundedAmount: 0,
       refunds: [],
       threeDSecure: providerResult?.threeDSecure,
@@ -752,7 +749,7 @@ class ChargeProcessorImpl implements ChargeProcessor {
   // Refund Operations
   // =============================================================================
 
-  async refund(chargeId: string, amountOrOptions?: number | ChargeRefundOptions): Promise<Refund> {
+  async refund(chargeId: string, options?: ChargeRefundOptions): Promise<Refund> {
     const charge = this.charges.get(chargeId)
     if (!charge) {
       throw new Error('Charge not found')
@@ -761,11 +758,6 @@ class ChargeProcessorImpl implements ChargeProcessor {
     if (charge.status !== 'succeeded' && charge.status !== 'partially_refunded') {
       throw new Error('Cannot refund uncaptured charge')
     }
-
-    // Handle both number and options object
-    const options: ChargeRefundOptions | undefined = typeof amountOrOptions === 'number'
-      ? { amount: amountOrOptions }
-      : amountOrOptions
 
     const refundedSoFar = charge.refundedAmount ?? 0
     const availableForRefund = (charge.capturedAmount ?? charge.amount) - refundedSoFar

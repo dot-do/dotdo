@@ -306,12 +306,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
   /**
    * Derive identity (ns) from the incoming request URL if not already set.
-   * The ns is the first subdomain from the request URL's hostname.
+   * The ns is the full hostname from the request URL.
    *
    * Examples:
-   * - https://acme.api.dotdo.dev/foo → ns = 'acme'
-   * - https://localhost:8787/bar → ns = 'localhost'
-   * - https://single-domain.dev/bar → ns = 'single-domain'
+   * - https://acme.api.dotdo.dev/foo → ns = 'acme.api.dotdo.dev'
+   * - https://localhost:8787/bar → ns = 'localhost:8787'
    *
    * @param request - The incoming request
    */
@@ -323,16 +322,13 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     try {
       const url = new URL(request.url)
-      const hostname = url.hostname
-
-      // Extract first subdomain (e.g., 'acme' from 'acme.api.dotdo.dev')
-      const parts = hostname.split('.')
-      const ns = parts[0] ?? hostname
+      // Use host (hostname:port) for full identity
+      const host = url.host
 
       // Set ns if it's empty
-      if (!this.ns && ns) {
+      if (!this.ns && host) {
         // @ts-expect-error - Setting readonly property after construction
-        this.ns = ns
+        this.ns = host
       }
 
       this._identityDerived = true

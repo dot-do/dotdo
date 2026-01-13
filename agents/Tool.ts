@@ -5,19 +5,6 @@
  * - Zod schemas (Vercel AI SDK, Mastra)
  * - JSON Schema (OpenAI, Devin)
  * - MCP-compatible (Claude SDK)
- *
- * This module provides:
- * - `tool()` - Create in-memory tool definitions (original API, fully compatible)
- * - `persistentTool()` - Create tools with optional graph persistence
- * - `ToolThingRegistry` - Hybrid in-memory + graph tool registry
- *
- * Tool Things Integration:
- * Tools can be persisted as Things in the DO Graph for discovery, sharing,
- * and management across agent instances. The execute function handlers are
- * stored in an in-memory registry (not serialized).
- *
- * @see dotdo-vxnoy - [REFACTOR] Unify agents/Tool.ts with Tool Things
- * @module agents/Tool
  */
 
 import { z } from 'zod'
@@ -47,38 +34,6 @@ export {
   ValidationError,
   type ValidationResult,
 }
-
-// ============================================================================
-// Tool Things Integration (Graph Persistence)
-// ============================================================================
-
-// Re-export tool-thing integration for graph-backed tools
-export {
-  // Core conversion functions
-  toolToThing,
-  thingToTool,
-  // Persistent tool creation
-  persistentTool,
-  // Graph store operations
-  loadToolFromGraph,
-  listToolsFromGraph,
-  deleteToolFromGraph,
-  // Handler registry (for advanced use cases)
-  registerHandler,
-  getHandler,
-  unregisterHandler,
-  clearHandlerRegistry,
-  getHandlerCount,
-  // Registry class
-  ToolThingRegistry,
-  createToolThingRegistry,
-  // Types
-  type ToolThingData,
-  type PersistentToolOptions,
-  // Constants
-  TOOL_TYPE_NAME,
-  TOOL_TYPE_ID,
-} from './tool-thing'
 
 // ============================================================================
 // Tool Creation Helper
