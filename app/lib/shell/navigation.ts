@@ -81,6 +81,16 @@ export type LabelMap = Record<string, string>
  *
  * These are ordered by importance and frequency of use.
  * The first item (Dashboard) is the default landing page.
+ *
+ * ## Keyboard Shortcuts
+ * All shortcuts use the `g` prefix (vim-style "go to" pattern):
+ * - `g d` - Dashboard
+ * - `g p` - Projects
+ * - `g w` - Workflows
+ * - `g s` - Settings
+ *
+ * @see appLabelMap for breadcrumb labels
+ * @see appPageMetadata for page titles/descriptions
  */
 export const appNavItems: NavItem[] = [
   {
@@ -150,6 +160,18 @@ export const appLabelMap: LabelMap = {
  *
  * These are ordered for administrative workflows:
  * overview > settings > monitoring > integrations > team > billing
+ *
+ * ## Keyboard Shortcuts
+ * All shortcuts use the `g` prefix (vim-style "go to" pattern):
+ * - `g o` - Overview (dashboard)
+ * - `g s` - Settings
+ * - `g r` - Requests (activity)
+ * - `g k` - API Keys
+ * - `g t` - Team members
+ * - `g b` - Billing
+ *
+ * @see adminLabelMap for breadcrumb labels
+ * @see adminPageMetadata for page titles/descriptions
  */
 export const adminNavItems: NavItem[] = [
   {

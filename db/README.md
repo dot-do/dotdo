@@ -29,12 +29,24 @@ Columnar:    1000 records = 6 row writes    = 99.4% savings
 
 ## Key Components
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Columnar Storage** | `compat/sql/clickhouse/` | Column-per-row DO storage |
-| **JSON Columns** | `compat/sql/clickhouse/` | ClickHouse JSON type for typed subcolumns |
-| **Query Accelerator** | `compat/sql/clickhouse/` | Index layer over R2 Iceberg |
-| **Things + Relationships** | `core/` | Graph data model |
+| Component | Location | Purpose | Status |
+|-----------|----------|---------|--------|
+| **Columnar Storage** | `compat/sql/clickhouse/` | Column-per-row DO storage | |
+| **JSON Columns** | `compat/sql/clickhouse/` | ClickHouse JSON type for typed subcolumns | |
+| **Query Accelerator** | `compat/sql/clickhouse/` | Index layer over R2 Iceberg | |
+| **Things + Relationships** | `core/` | Graph data model | |
+| **VectorManager** | `core/vector.ts` | Tiered vector search | **Stub** |
+
+### VectorManager (Experimental)
+
+The `VectorManager` in `core/vector.ts` provides a tiered vector search API designed for multiple backends:
+- Hot tier: libsql (SQLite F32_BLOB), edgevec (WASM HNSW)
+- Warm tier: Cloudflare Vectorize
+- Cold tier: ClickHouse ANN, Iceberg Parquet
+
+**Current status: Stub implementation.** All engine types currently use an in-memory backend. The API is functional for testing and development, but data is not persisted and production backends are not yet implemented.
+
+See the JSDoc in `core/vector.ts` for detailed documentation.
 
 ## Query Cost Comparison
 

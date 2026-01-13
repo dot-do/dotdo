@@ -1,4 +1,4 @@
-# couchdb.do
+# @dotdo/couchdb
 
 **CouchDB for Cloudflare Workers.** MapReduce on the edge. Sandboxed. Scales infinitely.
 
@@ -7,13 +7,13 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Why couchdb.do?
+## Why @dotdo/couchdb?
 
 **CouchDB views are powerful.** MapReduce lets you build any index. Compound keys. Multiple emits. Real-time filtering.
 
 **But CouchDB doesn't run on the edge.** No Cloudflare Workers support. No Durable Objects integration. No serverless scale.
 
-**couchdb.do gives you both:**
+**@dotdo/couchdb gives you both:**
 
 ```typescript
 import { parseMapFunction, executeMapFunction } from '@dotdo/couchdb'
@@ -377,16 +377,16 @@ Output: Executor function (doc) => EmitResult[]
 
 ## Comparison
 
-| Feature | CouchDB | couchdb.do |
-|---------|---------|------------|
+| Feature | @dotdo/couchdb | CouchDB |
+|---------|----------------|---------|
 | Map functions | Yes | Yes |
-| Reduce functions | Yes | Coming soon |
-| Edge-native | No | Yes |
-| Durable Objects | No | Yes |
+| Reduce functions | Coming soon | Yes |
+| Edge-native | Yes | No |
+| Durable Objects | Yes | No |
 | Sandboxed | Yes | Yes |
-| Function caching | No | Yes (LRU) |
-| Arrow functions | No | Yes |
-| Zero cold starts | No | Yes |
+| Function caching | Yes (LRU) | No |
+| Arrow functions | Yes | No |
+| Zero cold starts | Yes | No |
 
 ## Performance
 
@@ -400,7 +400,7 @@ Output: Executor function (doc) => EmitResult[]
 
 MIT
 
-## Links
+## Related
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://couchdb.do)

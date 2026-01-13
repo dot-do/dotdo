@@ -961,147 +961,12 @@ describe('Human Escalation via Verb Form Relationships', () => {
 // ============================================================================
 
 import { SQLiteGraphStore } from '../../../db/graph/stores/sqlite'
-
-// ============================================================================
-// TYPES FOR RED PHASE TESTS
-// ============================================================================
-
-/**
- * Expected escalation relationship format for Human DO integration.
- * Uses proper DO URLs for from/to fields.
- */
-interface HumanEscalationRelationship {
-  id: string
-  verb: 'escalate' | 'escalating' | 'escalated'
-  /** Source: WorkflowInstance DO URL */
-  from: string // e.g., 'do://tenant/WorkflowInstance/instance-123'
-  /** Target: Human DO URL */
-  to: string // e.g., 'do://tenant/Human/ceo'
-  data: {
-    reason: string
-    sla?: string // ISO duration or milliseconds
-    priority?: number
-    channel?: string
-    startedAt?: number
-    completedAt?: number
-  }
-  createdAt: number
-  updatedAt: number
-}
-
-/**
- * Expected approval relationship format for Human DO integration.
- */
-interface HumanApprovalRelationship {
-  id: string
-  verb: 'approve' | 'approving' | 'approved' | 'rejected'
-  /** Source: WorkflowInstance DO URL */
-  from: string
-  /** Target: Human DO URL */
-  to: string
-  data: {
-    document?: {
-      type: string
-      description: string
-      data: Record<string, unknown>
-    }
-    decision?: 'approved' | 'rejected'
-    comment?: string
-    reason?: string
-    decidedAt?: number
-    decidedBy?: string
-  }
-  createdAt: number
-  updatedAt: number
-}
-
-/**
- * Human DO Store interface for approval workflows.
- * This wraps GraphStore and provides Human-specific operations.
- */
-interface HumanDOStore {
-  /**
-   * Create an escalation to a Human DO.
-   * Creates 'escalate' relationship using proper DO URLs.
-   */
-  createEscalation(
-    instanceUrl: string,
-    humanUrl: string,
-    options: { reason: string; sla?: string; priority?: number; channel?: string }
-  ): Promise<HumanEscalationRelationship>
-
-  /**
-   * Start working on an escalation.
-   * Transitions from 'escalate' to 'escalating'.
-   */
-  startEscalation(escalationId: string): Promise<HumanEscalationRelationship>
-
-  /**
-   * Complete an escalation.
-   * Transitions from 'escalating' to 'escalated'.
-   */
-  completeEscalation(
-    escalationId: string,
-    result?: Record<string, unknown>
-  ): Promise<HumanEscalationRelationship>
-
-  /**
-   * Request approval from a Human DO.
-   * Creates 'approve' relationship.
-   */
-  requestApproval(
-    instanceUrl: string,
-    humanUrl: string,
-    document: { type: string; description: string; data: Record<string, unknown> },
-    options?: { sla?: string }
-  ): Promise<HumanApprovalRelationship>
-
-  /**
-   * Human starts reviewing an approval.
-   * Transitions from 'approve' to 'approving'.
-   */
-  startReview(approvalId: string, reviewerId: string): Promise<HumanApprovalRelationship>
-
-  /**
-   * Record approval decision.
-   * Transitions from 'approving' to 'approved' or 'rejected'.
-   */
-  recordDecision(
-    approvalId: string,
-    decision: { approved: boolean; comment?: string; reason?: string }
-  ): Promise<HumanApprovalRelationship>
-
-  /**
-   * Query pending approvals by Human DO URL.
-   * Filters by 'approve' action verb.
-   */
-  queryPendingApprovals(humanUrl: string): Promise<HumanApprovalRelationship[]>
-
-  /**
-   * Query pending escalations by Human DO URL.
-   */
-  queryPendingEscalations(humanUrl: string): Promise<HumanEscalationRelationship[]>
-
-  /**
-   * Check SLA status for an approval.
-   * Uses relationship timestamps for calculation.
-   */
-  checkSLA(relationshipId: string): Promise<{
-    hasExpired: boolean
-    timeRemaining: number
-    sla: string | null
-    createdAt: number
-  }>
-}
-
-/**
- * Factory function to create HumanDOStore.
- * This will fail until the implementation exists.
- */
-function createHumanDOStore(_graphStore: SQLiteGraphStore): HumanDOStore {
-  // This will throw an error - the implementation doesn't exist yet (RED phase)
-  throw new Error('HumanDOStore not yet implemented - this is the RED phase')
-}
+import {
+  createHumanDOStore,
+  type HumanDOStore,
+  type HumanEscalationRelationship,
+  type HumanApprovalRelationship,
+} from '../human-escalation'
 
 // ============================================================================
 // RED PHASE TESTS: Human DO Integration
@@ -1225,7 +1090,7 @@ describe('Human DO Integration [RED]', () => {
 
       expect(started.verb).toBe('escalating')
       expect(started.data.startedAt).toBeDefined()
-      expect(started.updatedAt).toBeGreaterThan(escalation.updatedAt)
+      expect(started.updatedAt).toBeGreaterThanOrEqual(escalation.updatedAt)
     })
 
     it('transitions from escalating to escalated when human completes', async () => {

@@ -34,6 +34,7 @@ import type {
   GraphRelationship,
   CreateRelationshipInput,
 } from '../../db/graph/types'
+import { HUMAN_EXECUTION_TYPE_IDS } from '../../db/graph/constants'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -97,15 +98,18 @@ export interface QueryTasksOptions {
 }
 
 // ============================================================================
-// CONSTANTS
+// CONSTANTS (from centralized db/graph/constants.ts)
 // ============================================================================
 
-/** Type IDs for Human-related Things */
-export const HUMAN_TYPE_IDS = {
-  HumanTask: 100,
-  HumanNotification: 101,
-  HumanAudit: 102,
-} as const
+/**
+ * Type IDs for Human-related Things.
+ *
+ * Re-exported from db/graph/constants.ts for backward compatibility.
+ * New code should import directly from db/graph/constants or db/graph.
+ *
+ * @see db/graph/constants.ts for the canonical definitions
+ */
+export const HUMAN_TYPE_IDS = HUMAN_EXECUTION_TYPE_IDS
 
 /** Verbs for Human-related Relationships */
 export const HUMAN_VERBS = {

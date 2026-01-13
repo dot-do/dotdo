@@ -1,31 +1,136 @@
 /**
- * DOCache - Cache Layer for Durable Objects
+ * @module DOCache
+ * @description Cache Layer for Durable Objects with advanced invalidation strategies
  *
- * STUB FILE: This is a placeholder to allow tests to run and fail on assertions.
- * Implementation is TODO.
+ * DOCache provides a high-performance caching layer designed specifically for
+ * Cloudflare Durable Objects. It combines the speed of in-memory caching with
+ * the durability of DO storage, offering multiple consistency levels and
+ * sophisticated invalidation strategies.
  *
- * This module will provide:
- * - TTL-based cache invalidation
- * - Event-based invalidation with dependency tracking
- * - Write-through caching
- * - Cross-DO cache invalidation messaging
- * - Cache warming strategies
- * - Observability metrics (hit/miss ratio, evictions, latency)
+ * **Core Features:**
+ * - TTL-based cache expiration with optional refresh-on-read
+ * - Dependency tracking for cascade invalidation
+ * - Write-through caching for consistency
+ * - Cross-DO cache invalidation via broadcast
+ * - Hot key detection and warming strategies
+ * - Comprehensive observability metrics
+ * - Optimistic concurrency with ETags
  *
- * @example
+ * **Consistency Levels:**
+ * | Level | Description | Use Case |
+ * |-------|-------------|----------|
+ * | `strong` | Bypasses cache, reads from storage | Financial data |
+ * | `session` | Read-your-writes within session | User sessions |
+ * | `eventual` | Standard cache behavior | Read-heavy workloads |
+ *
+ * **Eviction Policies:**
+ * | Policy | Description |
+ * |--------|-------------|
+ * | `lru` | Least Recently Used (default) |
+ * | `lfu` | Least Frequently Used |
+ * | `fifo` | First In, First Out |
+ *
+ * **Error Handling:**
+ * | Error | Cause |
+ * |-------|-------|
+ * | `CacheMissError` | Key not found in cache |
+ * | `CacheExpiredError` | Entry exists but expired |
+ * | `CacheInvalidatedError` | Entry was manually invalidated |
+ * | `ETagMismatchError` | Compare-and-swap conflict |
+ *
+ * @example Basic Cache Usage
  * ```typescript
- * const cache = new DOCache(state, env)
+ * const cache = new DOCache(state, env, { defaultTTL: 60000 })
  *
- * // Basic caching with TTL
- * await cache.set('user:123', userData, { ttl: 60000 })
- * const user = await cache.get('user:123')
+ * // Set with custom TTL
+ * await cache.set('user:123', userData, { ttl: 300000 }) // 5 minutes
  *
- * // Dependency-based invalidation
- * await cache.set('profile:123', profile, { dependencies: ['user:123'] })
- * await cache.invalidateCascade('user:123') // Invalidates profile too
+ * // Get with undefined on miss
+ * const user = await cache.get<User>('user:123')
  *
- * // Write-through with pattern invalidation
- * await cache.writeThrough('user:123', newData, { invalidatePattern: 'user:123:*' })
+ * // Get with error on miss
+ * try {
+ *   const user = await cache.getOrThrow<User>('user:123')
+ * } catch (e) {
+ *   if (e instanceof CacheMissError) {
+ *     // Handle cache miss
+ *   }
+ * }
+ * ```
+ *
+ * @example Dependency-Based Invalidation
+ * ```typescript
+ * // Profile depends on user - when user changes, profile is invalidated
+ * await cache.set('user:123', userData)
+ * await cache.set('profile:123', profileData, {
+ *   dependencies: ['user:123']
+ * })
+ *
+ * // This invalidates both user:123 AND profile:123
+ * await cache.invalidateCascade('user:123')
+ * ```
+ *
+ * @example Write-Through with Pattern Invalidation
+ * ```typescript
+ * // Update user and invalidate all related cache entries
+ * await cache.writeThrough('user:123', newUserData, {
+ *   invalidatePattern: 'user:123:*' // Invalidates user:123:profile, user:123:settings, etc.
+ * })
+ * ```
+ *
+ * @example Cross-DO Cache Invalidation
+ * ```typescript
+ * // Notify other DOs to invalidate their cached copies
+ * await cache.broadcastInvalidation('product:456', {
+ *   targetNamespaces: ['catalog-do', 'search-do', 'recommendation-do']
+ * })
+ * ```
+ *
+ * @example Optimistic Concurrency with ETags
+ * ```typescript
+ * // Get with ETag for optimistic locking
+ * const { value, etag } = await cache.setWithEtag('counter', 1)
+ *
+ * // Update only if ETag matches (no concurrent modification)
+ * try {
+ *   const updated = await cache.compareAndSwap('counter', value + 1, etag)
+ * } catch (e) {
+ *   if (e instanceof ETagMismatchError) {
+ *     // Another request modified the value - retry
+ *   }
+ * }
+ * ```
+ *
+ * @example Cache Warming
+ * ```typescript
+ * // Warm cache with bulk loader
+ * const cache = new DOCache(state, env, {
+ *   bulkLoader: async (keys) => {
+ *     const results = await db.query(keys)
+ *     return new Map(results.map(r => [r.id, r]))
+ *   }
+ * })
+ *
+ * // Warm specific keys
+ * await cache.warmMany(['user:1', 'user:2', 'user:3'])
+ *
+ * // Warm hot keys based on access patterns
+ * await cache.warmHotKeys(bulkLoader)
+ * ```
+ *
+ * @example Observability
+ * ```typescript
+ * const cache = new DOCache(state, env, { enableMetrics: true })
+ *
+ * // Get cache statistics
+ * const stats = await cache.getStats()
+ * console.log(`Hit ratio: ${stats.hitRatio * 100}%`)
+ * console.log(`Avg hit latency: ${stats.avgLatencyMs.hit}ms`)
+ *
+ * // Subscribe to invalidation events
+ * cache.onInvalidation((event) => {
+ *   console.log(`Key ${event.key} invalidated: ${event.type}`)
+ * })
  * ```
  */
 

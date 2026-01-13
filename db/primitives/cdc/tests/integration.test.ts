@@ -42,7 +42,9 @@ import {
   // Transform
   createTransformPipeline,
   filter,
+  filterSync,
   map,
+  mapSync,
   project,
   enrich,
   // Sink
@@ -1298,13 +1300,13 @@ describe('End-to-End CDC Pipeline', () => {
       // Setup sink
       const sink = createMemorySink<{ userId: string; displayName: string }>()
 
-      // Setup transform pipeline
+      // Setup transform pipeline using sync transformers for CDCStream integration
       const pipeline = createTransformPipeline<User, { userId: string; displayName: string }>()
         .pipe(
-          filter((e) => e.after !== null && e.after.age >= 18)
+          filterSync((e) => e.after !== null && e.after.age >= 18)
         )
         .pipe(
-          map((user) => ({
+          mapSync((user) => ({
             userId: user.id,
             displayName: `${user.name} (${user.age})`,
           }))
@@ -1313,7 +1315,7 @@ describe('End-to-End CDC Pipeline', () => {
       // Setup CDC stream
       const stream = createCDCStream<User, { userId: string; displayName: string }>({
         transform: (event) => {
-          const transformed = pipeline.transform(event)
+          const transformed = pipeline.transformSync(event)
           if (!transformed) {
             // Filtered out - return event with null after to indicate filtering
             return { ...event, after: null } as unknown as ChangeEvent<{ userId: string; displayName: string }>
@@ -1800,16 +1802,17 @@ describe('Performance Benchmarks', () => {
   })
 
   it('should maintain throughput under transform pipeline', async () => {
+    // Use sync transformers for CDCStream integration
     const pipeline = createTransformPipeline<User, { id: string; name: string }>()
-      .pipe(filter((e) => e.after !== null && e.after.age >= 18))
-      .pipe(map((u) => ({ id: u.id, name: u.name })))
+      .pipe(filterSync((e) => e.after !== null && e.after.age >= 18))
+      .pipe(mapSync((u) => ({ id: u.id, name: u.name })))
 
     const sink = createMemorySink<{ id: string; name: string }>()
     let transformedCount = 0
 
     const stream = createCDCStream<User, { id: string; name: string }>({
       transform: (event) => {
-        const transformed = pipeline.transform(event)
+        const transformed = pipeline.transformSync(event)
         if (transformed && transformed.after) {
           transformedCount++
           return { ...event, after: transformed.after, before: transformed.before } as ChangeEvent<{

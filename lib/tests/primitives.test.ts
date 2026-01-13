@@ -17,8 +17,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DO, type Env } from '../../objects/DO'
-import { withFs, type FsCapability, type WithFsContext } from '../mixins/fs'
-import { withGit, type WithGitContext } from '../mixins/git'
+import { withFs, type FsCapability, type WithFsContext } from '../capabilities/fs'
+import { withGit, type WithGitContext } from '../capabilities/git'
 import { DotdoNotImplementedError } from '../../workflows/compat/errors'
 
 // ============================================================================

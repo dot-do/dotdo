@@ -246,6 +246,91 @@ export interface ChatCompletionChunk {
 }
 
 // =============================================================================
+// Legacy Completions Types (deprecated but still supported)
+// =============================================================================
+
+/**
+ * Choice in a legacy completion response
+ * @deprecated Use chat completions instead
+ */
+export interface CompletionChoice {
+  text: string
+  index: number
+  logprobs: CompletionLogprobs | null
+  finish_reason: 'stop' | 'length' | 'content_filter' | null
+}
+
+/**
+ * Logprobs for legacy completion
+ */
+export interface CompletionLogprobs {
+  tokens: string[]
+  token_logprobs: number[]
+  top_logprobs: Record<string, number>[]
+  text_offset: number[]
+}
+
+/**
+ * Legacy completion response
+ * @deprecated Use chat completions instead
+ */
+export interface Completion {
+  id: string
+  object: 'text_completion'
+  created: number
+  model: string
+  choices: CompletionChoice[]
+  usage?: Usage
+  system_fingerprint?: string
+}
+
+/**
+ * Legacy completion request parameters
+ * @deprecated Use chat completions instead
+ */
+export interface CompletionCreateParams {
+  model: string
+  prompt: string | string[] | number[] | number[][]
+  suffix?: string | null
+  max_tokens?: number | null
+  temperature?: number | null
+  top_p?: number | null
+  n?: number | null
+  stream?: boolean | null
+  logprobs?: number | null
+  echo?: boolean | null
+  stop?: string | string[] | null
+  presence_penalty?: number | null
+  frequency_penalty?: number | null
+  best_of?: number | null
+  logit_bias?: Record<string, number> | null
+  user?: string
+  seed?: number | null
+}
+
+/**
+ * Choice in a streaming legacy completion chunk
+ */
+export interface CompletionChunkChoice {
+  text: string
+  index: number
+  logprobs: CompletionLogprobs | null
+  finish_reason: 'stop' | 'length' | 'content_filter' | null
+}
+
+/**
+ * Streaming legacy completion chunk
+ */
+export interface CompletionChunk {
+  id: string
+  object: 'text_completion'
+  created: number
+  model: string
+  choices: CompletionChunkChoice[]
+  system_fingerprint?: string
+}
+
+// =============================================================================
 // Embedding Types
 // =============================================================================
 

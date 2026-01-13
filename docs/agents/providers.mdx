@@ -1,0 +1,782 @@
+---
+title: Agent Providers
+description: Multi-provider agent SDK supporting Claude, OpenAI, Vercel AI, Devin, and Voice agents
+---
+
+# Agent Providers
+
+One SDK. Five providers. Unified interface.
+
+<Callout type="info">
+**New to agents?** Start with the [Provider Setup](/docs/agents#provider-setup) and [Your First Agent](/docs/agents#your-first-agent) sections for a step-by-step introduction.
+</Callout>
+
+## Quick Start
+
+```typescript
+import { createClaudeProvider } from 'agents/providers'
+
+// 1. Create provider with your API key
+const provider = createClaudeProvider({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+})
+
+// 2. Create an agent
+const agent = provider.createAgent({
+  id: 'my-agent',
+  name: 'Assistant',
+  instructions: 'You are a helpful assistant.',
+  model: 'claude-sonnet-4-20250514',
+})
+
+// 3. Run it
+const result = await agent.run({ prompt: 'Hello!' })
+console.log(result.text)
+```
+
+---
+
+## All Providers
+
+```typescript
+import { createClaudeProvider, createOpenAIProvider, createVercelProvider, createDevinProvider, createVapiProvider } from 'agents/providers'
+
+// Same agent interface across all providers
+const claude = createClaudeProvider({ apiKey: process.env.ANTHROPIC_API_KEY })
+const openai = createOpenAIProvider({ apiKey: process.env.OPENAI_API_KEY })
+const vercel = createVercelProvider()
+const devin = createDevinProvider({ apiKey: process.env.DEVIN_API_KEY })
+const voice = createVapiProvider({ apiKey: process.env.VAPI_API_KEY })
+
+// Create agents from any provider - same API
+const agent = claude.createAgent({
+  id: 'my-agent',
+  name: 'My Agent',
+  instructions: 'You are a helpful assistant.',
+  model: 'claude-sonnet-4-20250514',
+})
+
+// Run or stream - works identically across providers
+const result = await agent.run({ prompt: 'Hello!' })
+```
+
+---
+
+## Provider Interface
+
+All providers implement the same interface:
+
+```typescript
+interface AgentProvider {
+  readonly name: string
+  readonly version: string
+
+  // Create an agent
+  createAgent(config: AgentConfig): Agent
+
+  // Session-based providers (Claude v2, Devin)
+  createSession?(options: CreateSessionOptions): Promise<Session>
+  getSession?(sessionId: string): Promise<Session | null>
+  sendMessage?(options: SendMessageOptions): Promise<AgentResult>
+  streamMessage?(options: SendMessageOptions): AgentStreamResult
+
+  // List available models
+  listModels?(): Promise<string[]>
+}
+```
+
+---
+
+## Claude Provider
+
+Anthropic Claude integration supporting both standard Messages API and v2 beta session API.
+
+### Configuration
+
+```typescript
+import { createClaudeProvider } from 'agents/providers'
+
+const provider = createClaudeProvider({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  defaultModel: 'claude-sonnet-4-20250514',
+  useV2: false,               // Enable v2 beta session API
+  permissionMode: 'auto',     // 'auto' | 'confirm' | 'deny'
+})
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` | `string` | `ANTHROPIC_API_KEY` | Anthropic API key |
+| `defaultModel` | `string` | `claude-sonnet-4-20250514` | Default model for agents |
+| `useV2` | `boolean` | `false` | Enable v2 beta session API |
+| `permissionMode` | `string` | `auto` | Tool permission mode |
+
+### Creating Agents
+
+```typescript
+const agent = provider.createAgent({
+  id: 'claude-assistant',
+  name: 'Claude Assistant',
+  instructions: 'You are a helpful coding assistant.',
+  model: 'claude-sonnet-4-20250514',
+  tools: [
+    {
+      name: 'read_file',
+      description: 'Read a file from the filesystem',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      execute: async ({ path }) => fs.readFile(path, 'utf-8'),
+    },
+  ],
+})
+
+// Run to completion
+const result = await agent.run({
+  prompt: 'Read the package.json and summarize it',
+})
+
+// Or stream
+for await (const event of agent.stream({ prompt: 'Write a haiku' })) {
+  if (event.type === 'text-delta') {
+    process.stdout.write(event.data.textDelta)
+  }
+}
+```
+
+### V2 Session API (Beta)
+
+```typescript
+const provider = createClaudeProvider({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  useV2: true,
+})
+
+// Create a persistent session
+const session = await provider.createSession({
+  agentId: 'claude-assistant',
+  initialPrompt: 'You are helping me build a web app.',
+})
+
+// Send messages within the session
+const response = await provider.sendMessage({
+  sessionId: session.id,
+  message: 'Create a React component for user profile',
+})
+
+// Stream responses
+const stream = provider.streamMessage({
+  sessionId: session.id,
+  message: 'Add form validation',
+})
+
+for await (const event of stream) {
+  // Handle events
+}
+```
+
+### Available Models
+
+```typescript
+const models = await provider.listModels()
+// ['claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', ...]
+```
+
+| Model | Use Case |
+|-------|----------|
+| `claude-opus-4-20250514` | Most capable, complex reasoning |
+| `claude-sonnet-4-20250514` | Balanced performance and cost |
+| `claude-3-5-sonnet-20241022` | Production workloads |
+| `claude-3-haiku-20240307` | Fast, lightweight tasks |
+
+---
+
+## OpenAI Provider
+
+OpenAI Agents SDK integration with handoff support and multi-agent orchestration.
+
+### Configuration
+
+```typescript
+import { createOpenAIProvider } from 'agents/providers'
+
+const provider = createOpenAIProvider({
+  apiKey: process.env.OPENAI_API_KEY,
+  organization: 'org-xxx',
+  defaultModel: 'gpt-4o',
+  useResponsesApi: true,  // Use Responses API (vs deprecated Assistants)
+})
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` | `string` | `OPENAI_API_KEY` | OpenAI API key |
+| `organization` | `string` | - | Organization ID |
+| `defaultModel` | `string` | `gpt-4o` | Default model |
+| `useResponsesApi` | `boolean` | `true` | Use new Responses API |
+
+### Creating Agents
+
+```typescript
+const agent = provider.createAgent({
+  id: 'gpt-assistant',
+  name: 'GPT Assistant',
+  instructions: 'You are a code reviewer.',
+  model: 'gpt-4o',
+  tools: [
+    {
+      name: 'analyze_code',
+      description: 'Analyze code for issues',
+      inputSchema: z.object({ code: z.string() }),
+      execute: async ({ code }) => analyzeCode(code),
+    },
+  ],
+})
+
+const result = await agent.run({
+  prompt: 'Review this TypeScript function',
+  messages: [
+    { role: 'user', content: 'function add(a, b) { return a + b }' },
+  ],
+})
+```
+
+### Multi-Agent Handoffs
+
+OpenAI provider supports agent handoffs - transferring conversations between specialized agents.
+
+```typescript
+// Define specialist agents
+const codeAgent = provider.createAgent({
+  id: 'code-agent',
+  name: 'Code Agent',
+  instructions: 'You write code.',
+  model: 'gpt-4o',
+})
+
+const reviewAgent = provider.createAgent({
+  id: 'review-agent',
+  name: 'Review Agent',
+  instructions: 'You review code.',
+  model: 'gpt-4o',
+})
+
+// Create orchestrator with handoff targets
+const orchestrator = provider.createAgent({
+  id: 'orchestrator',
+  name: 'Orchestrator',
+  instructions: 'Route requests to the appropriate agent.',
+  model: 'gpt-4o',
+  handoffs: [codeAgent.config, reviewAgent.config],
+})
+
+// Orchestrator can hand off to specialists
+const result = await orchestrator.run({
+  prompt: 'Write a sorting function and then review it',
+})
+```
+
+Handoffs work by adding synthetic tools for each target agent:
+
+- `handoff_to_code-agent` - Transfer to code writing agent
+- `handoff_to_review-agent` - Transfer to code review agent
+
+### Available Models
+
+```typescript
+const models = await provider.listModels()
+// ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-preview', 'o1-mini', ...]
+```
+
+| Model | Use Case |
+|-------|----------|
+| `gpt-4o` | Most capable, multimodal |
+| `gpt-4o-mini` | Fast, cost-effective |
+| `gpt-4-turbo` | High performance |
+| `o1-preview` | Advanced reasoning |
+| `o1-mini` | Lightweight reasoning |
+
+---
+
+## Vercel AI Provider
+
+Vercel AI SDK integration for model-agnostic agent development.
+
+### Configuration
+
+```typescript
+import { createVercelProvider } from 'agents/providers'
+
+const provider = createVercelProvider({
+  defaultModel: 'gpt-4o',
+  apiKey: process.env.OPENAI_API_KEY,
+  baseUrl: 'https://api.openai.com',
+})
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `defaultModel` | `string` | `gpt-4o` | Default model |
+| `apiKey` | `string` | - | API key (if needed) |
+| `baseUrl` | `string` | - | Base URL override |
+
+### Why Vercel Provider?
+
+The Vercel AI SDK provides a unified interface across many model providers. Use the Vercel provider when you want:
+
+- Model agnosticism - switch between OpenAI, Anthropic, Google, etc.
+- Compatibility with Vercel AI SDK ecosystem
+- Built-in streaming primitives
+
+### Creating Agents
+
+```typescript
+const agent = provider.createAgent({
+  id: 'vercel-agent',
+  name: 'Vercel Agent',
+  instructions: 'You are a helpful assistant.',
+  model: 'gpt-4o',
+  tools: [
+    {
+      name: 'search',
+      description: 'Search the web',
+      inputSchema: z.object({ query: z.string() }),
+      execute: async ({ query }) => search(query),
+    },
+  ],
+})
+
+// Streaming with Vercel primitives
+const stream = agent.stream({ prompt: 'Search for TypeScript tutorials' })
+
+for await (const event of stream) {
+  if (event.type === 'text-delta') {
+    process.stdout.write(event.data.textDelta)
+  }
+}
+
+// Or await final result
+const result = await stream.result
+```
+
+### Multi-Provider Models
+
+Vercel AI SDK supports multiple providers through `@ai-sdk/*` packages:
+
+```typescript
+// Using different providers via model string
+const openaiAgent = provider.createAgent({
+  model: 'gpt-4o',          // OpenAI
+  // ...
+})
+
+const claudeAgent = provider.createAgent({
+  model: 'claude-3-5-sonnet-20241022',  // Anthropic
+  // ...
+})
+
+const geminiAgent = provider.createAgent({
+  model: 'gemini-1.5-pro',  // Google
+  // ...
+})
+```
+
+### Available Models
+
+```typescript
+const models = await provider.listModels()
+// Multi-provider list:
+// ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet-20241022', 'gemini-1.5-pro', ...]
+```
+
+---
+
+## Devin Provider
+
+Cognition Devin API integration for autonomous coding sessions.
+
+<Callout type="info">
+Devin is different from other providers. It's a session-based autonomous agent that operates in a sandboxed environment. Sessions can run for extended periods and produce artifacts like pull requests.
+</Callout>
+
+### Configuration
+
+```typescript
+import { createDevinProvider } from 'agents/providers'
+
+const provider = createDevinProvider({
+  apiKey: process.env.DEVIN_API_KEY,
+  baseUrl: 'https://api.devin.ai/v1',
+  maxAcuLimit: 10,        // Max ACU per session
+  knowledgeIds: [],       // Default knowledge bases
+  secretIds: [],          // Default secrets
+  pollIntervalMs: 5000,   // Status polling interval
+})
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` | `string` | Required | Devin API key |
+| `baseUrl` | `string` | `https://api.devin.ai/v1` | API endpoint |
+| `maxAcuLimit` | `number` | `10` | Max ACU limit per session |
+| `knowledgeIds` | `string[]` | `[]` | Default knowledge IDs |
+| `secretIds` | `string[]` | `[]` | Default secret IDs |
+| `pollIntervalMs` | `number` | `5000` | Polling interval (ms) |
+
+### Session-Based Workflow
+
+Devin operates through sessions rather than direct completions:
+
+```typescript
+// Create a session with initial prompt
+const session = await provider.createSession({
+  agentId: 'devin',
+  initialPrompt: 'Build a REST API for user management with authentication',
+  knowledgeIds: ['repo-context-123'],
+  maxAcuLimit: 20,
+})
+
+console.log('Session URL:', session.metadata?.url)
+// https://app.devin.ai/sessions/xxx - view in browser
+
+// Poll for status
+let currentSession = await provider.getSession(session.id)
+while (currentSession?.status === 'running') {
+  await new Promise(r => setTimeout(r, 5000))
+  currentSession = await provider.getSession(session.id)
+}
+
+// Check result
+if (currentSession?.status === 'completed') {
+  console.log('PR:', currentSession.metadata?.pullRequest?.url)
+}
+```
+
+### Sending Messages
+
+Interact with running sessions:
+
+```typescript
+// Send a follow-up message
+const result = await provider.sendMessage({
+  sessionId: session.id,
+  message: 'Add rate limiting to the API endpoints',
+})
+
+// Stream session updates
+const stream = provider.streamMessage({
+  sessionId: session.id,
+  message: 'Add tests for the user service',
+})
+
+for await (const event of stream) {
+  if (event.type === 'text-delta') {
+    console.log(event.data.textDelta)
+  }
+}
+```
+
+### File Attachments
+
+Upload files for Devin to reference:
+
+```typescript
+const file = new File(['code content'], 'reference.ts', { type: 'text/typescript' })
+const attachment = await provider.uploadAttachment(file)
+
+const session = await provider.createSession({
+  agentId: 'devin',
+  initialPrompt: 'Refactor this code following the attached reference',
+  attachments: [attachment],
+})
+```
+
+### Session Status
+
+| Status | Description |
+|--------|-------------|
+| `pending` | Session created, not started |
+| `running` | Devin is actively working |
+| `waiting_for_input` | Paused, needs user input |
+| `completed` | Session finished successfully |
+| `failed` | Session encountered an error |
+
+---
+
+## Voice Provider
+
+Voice agent support via Vapi and LiveKit integrations.
+
+<Callout type="info">
+Voice agents follow the STT (Speech-to-Text) to LLM to TTS (Text-to-Speech) pipeline. They're designed for real-time voice interactions over phone or web.
+</Callout>
+
+### Vapi Configuration
+
+```typescript
+import { createVapiProvider } from 'agents/providers'
+
+const provider = createVapiProvider({
+  apiKey: process.env.VAPI_API_KEY,
+  defaultModel: 'gpt-4o',
+  transcriber: {
+    provider: 'deepgram',
+    model: 'nova-2',
+    language: 'en',
+  },
+  voice: {
+    provider: 'elevenlabs',
+    voiceId: 'rachel',
+  },
+})
+```
+
+### Vapi Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` | `string` | Required | Vapi API key |
+| `defaultModel` | `string` | `gpt-4o` | LLM model |
+| `transcriber` | `TranscriberConfig` | Deepgram nova-2 | STT config |
+| `voice` | `TTSConfig` | ElevenLabs rachel | TTS config |
+
+### Transcriber Options
+
+| Provider | Models |
+|----------|--------|
+| `deepgram` | nova-2, nova, base |
+| `whisper` | whisper-1 |
+| `azure` | Various Azure Speech models |
+
+### Voice Options
+
+| Provider | Description |
+|----------|-------------|
+| `elevenlabs` | High-quality voices with emotion |
+| `azure` | Azure Speech Service voices |
+| `playht` | PlayHT voice synthesis |
+| `openai` | OpenAI TTS voices |
+
+### Creating Voice Agents
+
+```typescript
+const agent = provider.createAgent({
+  id: 'phone-support',
+  name: 'Phone Support Agent',
+  instructions: 'You are a helpful customer support agent. Speak naturally and concisely.',
+  model: 'gpt-4o',
+  voice: {
+    transcriber: {
+      provider: 'deepgram',
+      model: 'nova-2',
+      language: 'en',
+      keywords: ['support', 'billing', 'technical'],
+    },
+    voice: {
+      provider: 'elevenlabs',
+      voiceId: 'rachel',
+      speed: 1.0,
+      stability: 0.5,
+      similarityBoost: 0.75,
+    },
+    bargeIn: true,          // Allow user to interrupt
+    silenceTimeoutMs: 3000, // End turn after 3s silence
+  },
+  tools: [
+    {
+      name: 'lookup_order',
+      description: 'Look up order status',
+      inputSchema: z.object({ orderId: z.string() }),
+      execute: async ({ orderId }) => lookupOrder(orderId),
+      interruptible: true, // Can be called while speaking
+    },
+  ],
+})
+```
+
+### Voice Sessions
+
+```typescript
+// Start a voice session
+const session = await agent.startSession()
+
+// Listen for events
+const stream = agent.stream({ prompt: 'Hello, how can I help you today?' })
+
+for await (const event of stream) {
+  switch (event.type) {
+    case 'speech-start':
+      console.log('Agent started speaking')
+      break
+    case 'speech-end':
+      console.log('Agent finished:', event.data.text)
+      break
+    case 'user-speech-start':
+      console.log('User started speaking')
+      break
+    case 'user-speech-end':
+      console.log('User said:', event.data.text)
+      break
+    case 'tool-call':
+      console.log('Tool called:', event.data)
+      break
+  }
+}
+```
+
+### Voice Events
+
+| Event | Description |
+|-------|-------------|
+| `session-start` | Voice session connected |
+| `session-end` | Voice session ended |
+| `user-speech-start` | User started speaking |
+| `user-speech-end` | User finished speaking |
+| `transcript-delta` | Incremental transcription |
+| `transcript-final` | Final transcription |
+| `speech-start` | Agent started speaking |
+| `speech-end` | Agent finished speaking |
+
+### LiveKit Configuration
+
+For WebRTC-based voice agents:
+
+```typescript
+import { createLiveKitProvider } from 'agents/providers'
+
+const provider = createLiveKitProvider({
+  serverUrl: 'wss://your-livekit-server.com',
+  apiKey: process.env.LIVEKIT_API_KEY,
+  apiSecret: process.env.LIVEKIT_API_SECRET,
+  defaultModel: 'gpt-4o',
+})
+```
+
+---
+
+## Unified Tool System
+
+Tools work identically across all providers. Define once, use everywhere.
+
+### Tool Definition
+
+```typescript
+import { z } from 'zod'
+import type { ToolDefinition } from 'agents/types'
+
+const searchTool: ToolDefinition = {
+  name: 'search',
+  description: 'Search for information',
+  inputSchema: z.object({
+    query: z.string().describe('Search query'),
+    limit: z.number().optional().describe('Max results'),
+  }),
+  execute: async ({ query, limit = 10 }) => {
+    return await searchApi(query, limit)
+  },
+}
+
+// Use with any provider
+const agent = provider.createAgent({
+  id: 'search-agent',
+  tools: [searchTool],
+  // ...
+})
+```
+
+### JSON Schema Tools
+
+Tools can also use JSON Schema instead of Zod:
+
+```typescript
+const tool: ToolDefinition = {
+  name: 'get_weather',
+  description: 'Get weather for a location',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      location: { type: 'string', description: 'City name' },
+      unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
+    },
+    required: ['location'],
+  },
+  execute: async ({ location, unit }) => getWeather(location, unit),
+}
+```
+
+---
+
+## Streaming
+
+All providers support streaming with a unified event interface.
+
+### Stream Events
+
+```typescript
+const stream = agent.stream({ prompt: 'Write a story' })
+
+for await (const event of stream) {
+  switch (event.type) {
+    case 'text-delta':
+      process.stdout.write(event.data.textDelta)
+      break
+    case 'tool-call-start':
+      console.log('Tool starting:', event.data.toolName)
+      break
+    case 'tool-call-delta':
+      // Incremental tool arguments
+      break
+    case 'tool-call-end':
+      console.log('Tool called:', event.data)
+      break
+    case 'tool-result':
+      console.log('Tool result:', event.data.result)
+      break
+    case 'error':
+      console.error('Error:', event.data.error)
+      break
+    case 'done':
+      console.log('Final result:', event.data.finalResult)
+      break
+  }
+}
+```
+
+### Awaiting Stream Results
+
+```typescript
+const stream = agent.stream({ prompt: 'Hello' })
+
+// Await final values
+const text = await stream.text
+const toolCalls = await stream.toolCalls
+const usage = await stream.usage
+const result = await stream.result
+```
+
+---
+
+## Provider Selection Guide
+
+| Provider | Best For | Strengths |
+|----------|----------|-----------|
+| **Claude** | Coding, analysis, long-form | Best code generation, extended thinking |
+| **OpenAI** | General-purpose, vision | Multimodal, wide ecosystem |
+| **Vercel** | Model agnostic apps | Provider flexibility, streaming |
+| **Devin** | Autonomous coding | Full development workflow, PRs |
+| **Voice** | Phone/web voice | Real-time speech, natural conversation |
+
+---
+
+## Related
+
+- [Agent System](/docs/agents) - Agent architecture overview
+- [Named Agents](/docs/agents/named-agents) - Priya, Ralph, Tom, Mark, Sally, Quinn
+- [Agent Tools](/docs/agents/tools) - Tool definitions and patterns
+- [Custom Agents](/docs/agents/custom-agents) - Building domain-specific agents

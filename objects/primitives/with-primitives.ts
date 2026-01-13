@@ -32,7 +32,7 @@ import {
   createCapability,
   type Constructor,
   type CapabilityContext,
-} from '../mixins/infrastructure'
+} from '../capabilities/infrastructure'
 
 import {
   createDOPrimitiveFactory,
@@ -242,7 +242,7 @@ function createPrimitivesCapability(ctx: CapabilityContext): PrimitivesCapabilit
  * }
  *
  * // Compose with other capabilities
- * import { withFs } from 'dotdo/mixins'
+ * import { withFs } from 'dotdo/capabilities'
  * class FullDO extends withFs(withPrimitives(DO)) {
  *   // Has both $.primitives and $.fs
  * }

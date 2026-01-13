@@ -70,6 +70,9 @@ import type {
   SalesforceErrorData,
   OAuthError,
   Limits,
+  ConvertLeadOptions,
+  ConvertLeadResult,
+  ConvertLeadBatchResult,
 } from './types'
 
 // =============================================================================
@@ -345,6 +348,55 @@ export class SObjectResource {
       builder.where(conditions)
     }
     return builder
+  }
+
+  /**
+   * Convert a Lead to Account/Contact/Opportunity (Lead-specific operation)
+   */
+  async convertLead(options: ConvertLeadOptions): Promise<ConvertLeadResult> {
+    if (this.type !== 'Lead') {
+      throw new SalesforceError(
+        { errorCode: 'INVALID_OPERATION', message: 'convertLead is only available for Lead sobject' },
+        400
+      )
+    }
+
+    const url = `${this.conn.instanceUrl}/services/data/v${this.conn.version}/sobjects/Lead/${options.leadId}/convert`
+    const response = await this.conn._request<ConvertLeadResult | SalesforceErrorData[]>('POST', url, options)
+
+    if (Array.isArray(response)) {
+      throw new SalesforceError(response[0], 400)
+    }
+
+    return response
+  }
+
+  /**
+   * Convert multiple Leads in batch using the Actions API
+   */
+  async convertLeads(optionsArray: ConvertLeadOptions[]): Promise<ConvertLeadBatchResult[]> {
+    if (this.type !== 'Lead') {
+      throw new SalesforceError(
+        { errorCode: 'INVALID_OPERATION', message: 'convertLeads is only available for Lead sobject' },
+        400
+      )
+    }
+
+    const url = `${this.conn.instanceUrl}/services/data/v${this.conn.version}/actions/standard/convertLead`
+    const body = {
+      inputs: optionsArray.map((options) => ({
+        leadId: options.leadId,
+        convertedStatus: options.convertedStatus,
+        accountId: options.accountId,
+        contactId: options.contactId,
+        opportunityName: options.opportunityName,
+        doNotCreateOpportunity: options.doNotCreateOpportunity,
+        overwriteLeadSource: options.overwriteLeadSource,
+        sendNotificationEmail: options.sendNotificationEmail,
+      })),
+    }
+
+    return this.conn._request<ConvertLeadBatchResult[]>('POST', url, body)
   }
 }
 

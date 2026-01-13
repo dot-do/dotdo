@@ -537,3 +537,18 @@ export {
   type ListChargesOptions,
   type StatusHistoryEntry,
 } from './charge-processor'
+
+// Provider Failover - Multi-provider failover with circuit breakers and health checks
+export {
+  createChargeProviderFailover,
+  ChargeProviderFailover,
+  type CircuitState as ProviderCircuitState,
+  type ProviderHealthStatus,
+  type ProviderRegistration,
+  type CircuitBreakerConfig as ProviderCircuitBreakerConfig,
+  type HealthCheckConfig as ProviderHealthCheckConfig,
+  type ProviderFailoverConfig,
+  type ProviderHealthMetrics,
+  type FailoverStats,
+  type FailoverResult,
+} from './provider-failover'

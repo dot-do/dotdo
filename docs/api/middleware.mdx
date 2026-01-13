@@ -203,7 +203,7 @@ import { generateJWT } from 'dotdo/api/middleware/auth'
 
 const token = await generateJWT({
   sub: 'user-123',
-  email: 'user@example.com.ai',
+  email: 'user@example.com',
   role: 'user',
   permissions: ['read', 'write'],
 }, 'your-secret', '1h')

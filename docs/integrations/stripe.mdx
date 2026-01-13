@@ -1,0 +1,631 @@
+---
+title: Stripe
+description: Drop-in replacement for the Stripe SDK with edge compatibility, local testing mode, and webhook signature verification.
+---
+
+# Stripe
+
+Drop-in replacement for the Stripe JavaScript SDK (`stripe`). Your existing Stripe code works unchanged - just swap the import.
+
+```typescript
+// Before: Stripe SDK
+import Stripe from 'stripe'
+
+// After: dotdo (import from compat/stripe)
+import { Stripe } from 'compat/stripe'
+
+// Code stays the same
+const stripe = new Stripe('sk_test_xxx')
+
+const customer = await stripe.customers.create({
+  email: 'customer@example.com',
+  name: 'John Doe',
+})
+
+const subscription = await stripe.subscriptions.create({
+  customer: customer.id,
+  items: [{ price: 'price_xxx' }],
+})
+```
+
+## Prerequisites
+
+Before integrating Stripe with dotdo, you need:
+
+### 1. Create a Stripe Account
+
+If you do not have a Stripe account, [create one at stripe.com](https://dashboard.stripe.com/register). The registration process takes only a few minutes.
+
+### 2. Obtain Your API Keys
+
+Stripe uses API keys for authentication. You will need both a **secret key** (server-side) and optionally a **publishable key** (client-side).
+
+**Finding your API keys:**
+
+1. Log in to your [Stripe Dashboard](https://dashboard.stripe.com)
+2. Navigate to **Developers > API keys**
+3. Copy your keys:
+   - **Secret key** (`sk_test_...` or `sk_live_...`) - Used in your server code
+   - **Publishable key** (`pk_test_...` or `pk_live_...`) - Used in client-side code (Stripe.js)
+
+### 3. Test Mode vs Live Mode
+
+Stripe provides separate environments for development and production:
+
+| Mode | Key Prefix | Purpose |
+|------|------------|---------|
+| **Test mode** | `sk_test_`, `pk_test_` | Development and testing. No real charges. |
+| **Live mode** | `sk_live_`, `pk_live_` | Production. Processes real payments. |
+
+**Recommendations:**
+
+- **Always use test mode keys during development** - Test transactions appear in your dashboard but do not process real payments
+- Use Stripe's [test card numbers](https://docs.stripe.com/testing#cards) for simulating different scenarios:
+  - `4242 4242 4242 4242` - Successful payment
+  - `4000 0000 0000 0002` - Card declined
+  - `4000 0000 0000 3220` - 3D Secure required
+- Toggle between test and live mode using the switch in the top-right of your Stripe Dashboard
+
+## Environment Variables
+
+Set up these environment variables in your project:
+
+```bash
+# Required: Your Stripe secret key
+STRIPE_SECRET_KEY=sk_test_your_secret_key_here
+
+# Required for webhooks: Your webhook signing secret
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+
+# Optional: Publishable key (for client-side Stripe.js)
+STRIPE_PUBLISHABLE_KEY=pk_test_your_publishable_key_here
+```
+
+**Environment variable checklist:**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `STRIPE_SECRET_KEY` | Yes | Server-side API authentication |
+| `STRIPE_WEBHOOK_SECRET` | Yes (if using webhooks) | Verifies webhook signatures |
+| `STRIPE_PUBLISHABLE_KEY` | No | Client-side Stripe.js initialization |
+
+**Security best practices:**
+
+- Never commit API keys to version control
+- Use different keys for development (`sk_test_`) and production (`sk_live_`)
+- Store secrets in environment variables or a secrets manager
+- Restrict API key permissions in the Stripe Dashboard when possible
+
+## Configure Webhooks
+
+Webhooks allow Stripe to notify your application about events (payments, subscription changes, etc.) in real-time.
+
+### Setting Up Webhook Endpoints in Stripe Dashboard
+
+1. Go to your [Stripe Dashboard](https://dashboard.stripe.com)
+2. Navigate to **Developers > Webhooks**
+3. Click **Add endpoint**
+4. Enter your endpoint URL:
+   - Production: `https://your-domain.com/webhooks/stripe`
+   - For local development, see the Stripe CLI section below
+5. Select events to listen for. Common events include:
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.payment_succeeded`
+   - `invoice.payment_failed`
+   - `checkout.session.completed`
+   - `payment_intent.succeeded`
+   - `payment_intent.payment_failed`
+6. Click **Add endpoint**
+
+### Obtaining Your Webhook Secret
+
+After creating your webhook endpoint:
+
+1. Click on the newly created endpoint in the Webhooks list
+2. Under **Signing secret**, click **Reveal** to see your webhook secret
+3. Copy the secret (starts with `whsec_`)
+4. Add it to your environment variables as `STRIPE_WEBHOOK_SECRET`
+
+### Local Development with Stripe CLI
+
+For local webhook testing, use the [Stripe CLI](https://docs.stripe.com/stripe-cli) to forward events to your local server.
+
+**Installing the Stripe CLI:**
+
+```bash
+# macOS (Homebrew)
+brew install stripe/stripe-cli/stripe
+
+# Windows (Scoop)
+scoop install stripe
+
+# Linux (apt)
+curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg
+echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" | sudo tee -a /etc/apt/sources.list.d/stripe.list
+sudo apt update && sudo apt install stripe
+```
+
+**Authenticating the CLI:**
+
+```bash
+stripe login
+```
+
+This opens a browser window to authenticate with your Stripe account.
+
+**Forwarding webhooks to localhost:**
+
+```bash
+# Forward events to your local server
+stripe listen --forward-to localhost:8787/webhooks/stripe
+
+# The CLI outputs a webhook signing secret (whsec_...)
+# Use this secret for local development
+```
+
+**Testing specific events:**
+
+```bash
+# Trigger a test event
+stripe trigger payment_intent.succeeded
+
+# Trigger subscription events
+stripe trigger customer.subscription.created
+```
+
+**Example workflow:**
+
+1. Start your local dev server: `npm run dev`
+2. In another terminal: `stripe listen --forward-to localhost:8787/webhooks/stripe`
+3. Copy the `whsec_...` secret from the CLI output
+4. Set `STRIPE_WEBHOOK_SECRET` to this value for local development
+5. Trigger test events: `stripe trigger payment_intent.succeeded`
+
+## Why @dotdo/stripe?
+
+| Stripe SDK | dotdo Stripe |
+|------------|--------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Requires connection pooling | Stateless HTTP requests |
+| No local testing mode | In-memory mode for testing |
+| Webhook verification separate | Built-in webhook utilities |
+| Limited retry configuration | Configurable retries with exponential backoff |
+
+**This is a compatibility layer.** It can either forward to real Stripe APIs (production) or run entirely locally for testing and development. The API surface matches Stripe's official SDK.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Customers**
+- `customers.create()`, `customers.retrieve()`, `customers.update()`, `customers.del()`
+- `customers.list()`, `customers.search()`
+
+**Subscriptions**
+- `subscriptions.create()`, `subscriptions.retrieve()`, `subscriptions.update()`
+- `subscriptions.cancel()`, `subscriptions.list()`, `subscriptions.search()`
+- `subscriptions.resume()`
+
+**Payment Intents**
+- `paymentIntents.create()`, `paymentIntents.retrieve()`, `paymentIntents.update()`
+- `paymentIntents.confirm()`, `paymentIntents.capture()`, `paymentIntents.cancel()`
+- `paymentIntents.list()`, `paymentIntents.search()`, `paymentIntents.incrementAuthorization()`
+
+**Charges**
+- `charges.create()`, `charges.retrieve()`, `charges.update()`
+- `charges.capture()`, `charges.list()`, `charges.search()`
+
+**Refunds**
+- `refunds.create()`, `refunds.retrieve()`, `refunds.update()`
+- `refunds.cancel()`, `refunds.list()`
+
+**Payment Methods**
+- `paymentMethods.create()`, `paymentMethods.retrieve()`, `paymentMethods.update()`
+- `paymentMethods.attach()`, `paymentMethods.detach()`, `paymentMethods.list()`
+
+**Webhooks**
+- `Stripe.webhooks.constructEvent()` - Verify and parse webhook payloads
+- `Stripe.webhooks.verifySignature()` - Signature verification only
+- `Stripe.webhooks.generateTestHeaderString()` - Generate test signatures
+
+### Not Yet Implemented
+
+- Products API
+- Prices API
+- Invoices API
+- Checkout Sessions
+- Billing Portal
+- Connect (Accounts, Transfers)
+- Terminal
+- Radar
+- Issuing
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { Stripe } from 'compat/stripe'
+
+const stripe = new Stripe(env.STRIPE_SECRET_KEY)
+
+// Create a customer
+const customer = await stripe.customers.create({
+  email: 'customer@example.com',
+  name: 'Jane Doe',
+  metadata: {
+    userId: 'user_123',
+  },
+})
+
+console.log('Customer created:', customer.id)
+```
+
+### Payment Processing
+
+```typescript
+import { Stripe } from 'compat/stripe'
+
+const stripe = new Stripe(env.STRIPE_SECRET_KEY)
+
+// Create a payment intent
+const paymentIntent = await stripe.paymentIntents.create({
+  amount: 2000, // $20.00
+  currency: 'usd',
+  customer: 'cus_xxx',
+  payment_method: 'pm_xxx',
+  confirm: true,
+  automatic_payment_methods: {
+    enabled: true,
+    allow_redirects: 'never',
+  },
+})
+
+if (paymentIntent.status === 'succeeded') {
+  console.log('Payment successful!')
+}
+```
+
+### Subscription Management
+
+```typescript
+import { Stripe } from 'compat/stripe'
+
+const stripe = new Stripe(env.STRIPE_SECRET_KEY)
+
+// Create a subscription with expanded payment intent
+const subscription = await stripe.subscriptions.create({
+  customer: 'cus_xxx',
+  items: [{ price: 'price_monthly_pro' }],
+  payment_behavior: 'default_incomplete',
+  expand: ['latest_invoice.payment_intent'],
+})
+
+// Type-safe extraction of client_secret from expanded fields
+// When using expand, fields can be either string IDs or full objects
+let clientSecret: string | undefined
+
+const invoice = subscription.latest_invoice
+if (typeof invoice === 'object' && invoice !== null) {
+  // invoice is now the full Invoice object, not just a string ID
+  const paymentIntent = invoice.payment_intent
+  if (typeof paymentIntent === 'object' && paymentIntent !== null) {
+    // paymentIntent is now the full PaymentIntent object
+    clientSecret = paymentIntent.client_secret ?? undefined
+  }
+}
+
+// Use clientSecret for Stripe.js on the frontend
+console.log('Client secret for payment:', clientSecret)
+
+// Cancel at period end
+await stripe.subscriptions.update(subscription.id, {
+  cancel_at_period_end: true,
+})
+
+// Resume a paused subscription
+await stripe.subscriptions.resume(subscription.id, {
+  billing_cycle_anchor: 'now',
+})
+```
+
+### Webhook Handling
+
+```typescript
+import { Stripe } from 'compat/stripe'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const body = await request.text()
+    const signature = request.headers.get('stripe-signature')
+
+    try {
+      const event = await Stripe.webhooks.constructEvent(
+        body,
+        signature!,
+        env.STRIPE_WEBHOOK_SECRET
+      )
+
+      switch (event.type) {
+        case 'customer.subscription.created':
+          const subscription = event.data.object
+          console.log('New subscription:', subscription.id)
+          break
+
+        case 'invoice.payment_failed':
+          const invoice = event.data.object
+          console.log('Payment failed for:', invoice.customer)
+          break
+
+        case 'checkout.session.completed':
+          const session = event.data.object
+          console.log('Checkout completed:', session.id)
+          break
+      }
+
+      return new Response('OK', { status: 200 })
+    } catch (err) {
+      console.error('Webhook error:', err)
+      return new Response('Webhook Error', { status: 400 })
+    }
+  },
+}
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { Stripe, type StripeConfig } from 'compat/stripe'
+
+const config: StripeConfig = {
+  // API version (default: 2024-12-18.acacia)
+  apiVersion: '2024-12-18.acacia',
+
+  // Maximum network retries (default: 2)
+  maxNetworkRetries: 3,
+
+  // Request timeout in ms (default: 80000)
+  timeout: 30000,
+
+  // Custom fetch implementation
+  fetch: customFetch,
+
+  // Disable telemetry
+  telemetry: false,
+
+  // Custom host for testing
+  host: 'localhost',
+  port: 12111,
+  protocol: 'http',
+}
+
+const stripe = new Stripe('sk_test_xxx', config)
+```
+
+### Request Options
+
+```typescript
+// Per-request options
+const customer = await stripe.customers.create(
+  { email: 'test@example.com' },
+  {
+    // Use a different API key
+    apiKey: 'sk_other_xxx',
+
+    // Idempotency key for safe retries
+    idempotencyKey: 'create-customer-123',
+
+    // Connect: act on behalf of connected account
+    stripeAccount: 'acct_xxx',
+
+    // Override timeout
+    timeout: 10000,
+  }
+)
+```
+
+## Local Testing Mode
+
+Use `StripeLocal` for fully offline testing without hitting Stripe's API:
+
+```typescript
+import { StripeLocal } from 'compat/stripe'
+
+// Create a local Stripe instance
+const stripe = new StripeLocal({
+  // Optional: emit webhook events
+  onEvent: (type, data) => {
+    console.log('Webhook event:', type, data)
+  },
+})
+
+// All operations work locally
+const customer = await stripe.customers.create({
+  email: 'test@example.com',
+})
+
+const subscription = await stripe.subscriptions.create({
+  customer: customer.id,
+  items: [{ price: 'price_test' }],
+})
+
+// Time-travel queries (unique to local mode)
+const customerYesterday = await stripe.customers.retrieveAsOf(
+  customer.id,
+  Date.now() - 86400000
+)
+```
+
+### Testing Webhooks
+
+```typescript
+import { Stripe } from 'compat/stripe'
+
+// Generate test webhook signature
+const payload = JSON.stringify({
+  id: 'evt_test',
+  type: 'customer.created',
+  data: { object: { id: 'cus_test' } },
+})
+
+const signature = await Stripe.webhooks.generateTestHeaderString({
+  payload,
+  secret: 'whsec_test',
+  timestamp: Math.floor(Date.now() / 1000),
+})
+
+// Use in tests
+const event = await Stripe.webhooks.constructEvent(
+  payload,
+  signature,
+  'whsec_test'
+)
+```
+
+## Error Handling
+
+```typescript
+import { Stripe, StripeAPIError } from 'compat/stripe'
+
+const stripe = new Stripe(env.STRIPE_SECRET_KEY)
+
+try {
+  await stripe.paymentIntents.create({
+    amount: 100,
+    currency: 'usd',
+  })
+} catch (error) {
+  if (error instanceof StripeAPIError) {
+    console.log('Status:', error.statusCode)
+    console.log('Type:', error.type) // 'card_error', 'invalid_request_error', etc.
+    console.log('Code:', error.code) // 'card_declined', 'expired_card', etc.
+    console.log('Param:', error.param) // Which parameter caused the error
+    console.log('Request ID:', error.requestId)
+
+    // Handle specific error types
+    switch (error.type) {
+      case 'card_error':
+        // Card was declined
+        break
+      case 'invalid_request_error':
+        // Invalid parameters
+        break
+      case 'rate_limit_error':
+        // Too many requests
+        break
+    }
+  }
+}
+```
+
+## Types
+
+Full TypeScript support with all Stripe types:
+
+```typescript
+import type {
+  // Core types
+  Customer,
+  Subscription,
+  PaymentIntent,
+  Charge,
+  Refund,
+  PaymentMethod,
+
+  // Params
+  CustomerCreateParams,
+  SubscriptionCreateParams,
+  PaymentIntentCreateParams,
+
+  // Response types
+  ListResponse,
+  DeletedObject,
+
+  // Webhook types
+  WebhookEvent,
+  WebhookEventType,
+
+  // Error types
+  StripeError,
+} from 'compat/stripe'
+```
+
+## Workflow Integration
+
+Use Stripe with dotdo workflows for durable payment processing:
+
+```typescript
+import { $ } from 'dotdo'
+import { Stripe } from 'compat/stripe'
+
+export class PaymentWorkflow {
+  stripe = new Stripe(this.env.STRIPE_SECRET_KEY)
+
+  async processOrder(order: Order) {
+    // Durable payment intent creation
+    const paymentIntent = await $.do(() =>
+      this.stripe.paymentIntents.create({
+        amount: order.total,
+        currency: 'usd',
+        customer: order.customerId,
+        metadata: { orderId: order.id },
+      })
+    )
+
+    // Wait for payment confirmation
+    await $.on.PaymentIntent.succeeded({
+      filter: { id: paymentIntent.id },
+    })
+
+    // Process fulfillment
+    await $.do(() => this.fulfillOrder(order))
+  }
+}
+```
+
+## Migrating from Stripe SDK
+
+### 1. Update imports
+
+```typescript
+// Before
+import Stripe from 'stripe'
+
+// After
+import { Stripe } from 'compat/stripe'
+```
+
+### 2. Environment variables
+
+Keep your existing environment variables:
+
+```
+STRIPE_SECRET_KEY=sk_live_xxx
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+```
+
+### 3. Code changes
+
+Most code works unchanged. Check for:
+
+- **Unsupported resources**: Some advanced APIs not yet implemented
+- **Node.js APIs**: Replace any Node.js-specific code with edge-compatible alternatives
+- **Streaming**: Use standard fetch responses instead of Node streams
+
+## Next Steps
+
+<Cards>
+  <Card title="Shopify Integration" href="/docs/integrations/shopify">
+    E-commerce platform integration for multi-channel selling.
+  </Card>
+  <Card title="Workflows" href="/docs/workflows">
+    Build durable payment workflows with automatic retries.
+  </Card>
+  <Card title="Webhooks Guide" href="/docs/concepts/webhooks">
+    Learn about webhook handling patterns in dotdo.
+  </Card>
+</Cards>

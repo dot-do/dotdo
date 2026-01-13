@@ -998,6 +998,741 @@ npm run deploy  # Deploy to edge
 
 </Steps>
 
+## Data Migration
+
+Moving your data from Firebase to dotdo requires careful planning. Here's detailed guidance for different scenarios.
+
+### Exporting from Firestore
+
+Firebase provides several ways to export your data:
+
+```bash
+# Option 1: Firebase CLI export (recommended for small-medium datasets)
+firebase firestore:export gs://your-bucket/backup
+
+# Download from Cloud Storage
+gsutil -m cp -r gs://your-bucket/backup ./firebase-backup
+
+# Option 2: Use the Firebase Admin SDK for custom exports
+```
+
+```typescript
+// scripts/export-firestore.ts
+import admin from 'firebase-admin'
+import fs from 'fs'
+
+admin.initializeApp()
+const db = admin.firestore()
+
+async function exportCollection(collectionName: string) {
+  const snapshot = await db.collection(collectionName).get()
+  const data = snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+    // Convert Firestore timestamps to ISO strings
+    createdAt: doc.data().createdAt?.toDate?.()?.toISOString(),
+    updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString(),
+  }))
+
+  fs.writeFileSync(
+    `./export/${collectionName}.json`,
+    JSON.stringify(data, null, 2)
+  )
+
+  console.log(`Exported ${data.length} documents from ${collectionName}`)
+}
+
+async function main() {
+  const collections = ['users', 'products', 'orders', 'messages']
+
+  for (const collection of collections) {
+    await exportCollection(collection)
+  }
+}
+
+main()
+```
+
+### Schema Mapping
+
+Firestore and dotdo have different data models. Here's how to map them:
+
+| Firestore | dotdo Things Store | Notes |
+|-----------|-------------------|-------|
+| Document ID | `id` field | Auto-generated or specify manually |
+| `createdAt` (Timestamp) | `createdAt` (ISO string) | Auto-added by Things store |
+| `updatedAt` (Timestamp) | `updatedAt` (ISO string) | Auto-added by Things store |
+| Subcollections | Relationships | Use `userId`, `orderId`, etc. |
+| DocumentReference | String ID | Store the ID, not the reference |
+| GeoPoint | Object `{lat, lng}` | Or use separate lat/lng fields |
+| Array | Array | Same structure |
+| Map | Object | Same structure |
+
+```typescript
+// Transform Firestore data to dotdo format
+function transformDocument(firestoreDoc: any, collection: string) {
+  const transformed = { ...firestoreDoc }
+
+  // Convert Firestore-specific types
+  for (const [key, value] of Object.entries(transformed)) {
+    // DocumentReference → string ID
+    if (value?._path?.segments) {
+      transformed[key] = value._path.segments.slice(-1)[0]
+    }
+
+    // GeoPoint → {lat, lng}
+    if (value?._latitude !== undefined) {
+      transformed[key] = {
+        lat: value._latitude,
+        lng: value._longitude
+      }
+    }
+
+    // Timestamp → ISO string
+    if (value?.toDate) {
+      transformed[key] = value.toDate().toISOString()
+    }
+  }
+
+  return transformed
+}
+```
+
+### Importing to dotdo
+
+```bash
+# Import exported data to dotdo
+npx dotdo db:import ./export/users.json --collection User
+npx dotdo db:import ./export/products.json --collection Product
+npx dotdo db:import ./export/orders.json --collection Order
+```
+
+Or use the programmatic import for custom transformations:
+
+```typescript
+// scripts/import-to-dotdo.ts
+import { createClient } from '@dotdo/client'
+import usersData from './export/users.json'
+
+const dotdo = createClient({
+  url: process.env.DOTDO_URL,
+  key: process.env.DOTDO_KEY
+})
+
+async function importUsers() {
+  const BATCH_SIZE = 100
+
+  for (let i = 0; i < usersData.length; i += BATCH_SIZE) {
+    const batch = usersData.slice(i, i + BATCH_SIZE)
+
+    await Promise.all(
+      batch.map(user =>
+        dotdo.things.create('User', {
+          id: user.id,  // Preserve original Firebase ID
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          // Map other fields...
+        })
+      )
+    )
+
+    console.log(`Imported ${Math.min(i + BATCH_SIZE, usersData.length)}/${usersData.length} users`)
+  }
+}
+
+importUsers()
+```
+
+### Large Dataset Considerations
+
+For datasets larger than 100,000 documents:
+
+1. **Use streaming exports** instead of loading everything into memory:
+
+```typescript
+// Stream large collections
+async function* streamCollection(collectionName: string) {
+  let lastDoc = null
+  const PAGE_SIZE = 1000
+
+  while (true) {
+    let query = db.collection(collectionName)
+      .orderBy('__name__')
+      .limit(PAGE_SIZE)
+
+    if (lastDoc) {
+      query = query.startAfter(lastDoc)
+    }
+
+    const snapshot = await query.get()
+
+    if (snapshot.empty) break
+
+    for (const doc of snapshot.docs) {
+      yield { id: doc.id, ...doc.data() }
+    }
+
+    lastDoc = snapshot.docs[snapshot.docs.length - 1]
+  }
+}
+
+// Process in batches
+async function migrateCollection(name: string) {
+  const batch = []
+
+  for await (const doc of streamCollection(name)) {
+    batch.push(transformDocument(doc, name))
+
+    if (batch.length >= 100) {
+      await importBatch(batch)
+      batch.length = 0
+    }
+  }
+
+  if (batch.length > 0) {
+    await importBatch(batch)
+  }
+}
+```
+
+2. **Run migrations during low-traffic periods** to minimize impact on your Firebase billing and dotdo rate limits.
+
+3. **Use parallel workers** for independent collections:
+
+```bash
+# Run multiple imports in parallel (for independent collections)
+npx dotdo db:import ./users.json --collection User &
+npx dotdo db:import ./products.json --collection Product &
+npx dotdo db:import ./categories.json --collection Category &
+wait
+```
+
+4. **Monitor progress and resume on failure**:
+
+```typescript
+// Track migration progress
+const progress = await $.state.get('migration:progress') || {}
+
+async function migrateWithCheckpoint(collection: string) {
+  const lastId = progress[collection] || null
+
+  for await (const doc of streamCollection(collection, lastId)) {
+    await dotdo.things.create(collection, doc)
+
+    // Checkpoint every 1000 documents
+    if (doc._index % 1000 === 0) {
+      progress[collection] = doc.id
+      await $.state.put('migration:progress', progress)
+    }
+  }
+
+  progress[collection] = 'complete'
+  await $.state.put('migration:progress', progress)
+}
+```
+
+## Rollback Strategy
+
+A successful migration requires a solid rollback plan. Here's how to migrate with confidence.
+
+### Phase 1: Dual-Write Setup
+
+Before cutting over, run both systems in parallel:
+
+```typescript
+// lib/dual-write.ts
+import { initializeApp } from 'firebase/app'
+import { getFirestore, doc, setDoc, deleteDoc } from 'firebase/firestore'
+import { createClient } from '@dotdo/client'
+
+const firebase = getFirestore(initializeApp(config))
+const dotdo = createClient({ url: DOTDO_URL, key: DOTDO_KEY })
+
+// Feature flag to control migration phases
+const MIGRATION_PHASE = process.env.MIGRATION_PHASE || 'dual-write'
+
+export async function createUser(data: UserData) {
+  switch (MIGRATION_PHASE) {
+    case 'firebase-only':
+      // Original behavior
+      return await setDoc(doc(firebase, 'users', data.id), data)
+
+    case 'dual-write':
+      // Write to both systems
+      const [firebaseResult, dotdoResult] = await Promise.allSettled([
+        setDoc(doc(firebase, 'users', data.id), data),
+        dotdo.things.create('User', data)
+      ])
+
+      // Log any discrepancies
+      if (firebaseResult.status !== dotdoResult.status) {
+        console.error('Dual-write mismatch', { firebaseResult, dotdoResult })
+      }
+
+      return firebaseResult // Primary is still Firebase
+
+    case 'dotdo-primary':
+      // dotdo is primary, Firebase is backup
+      const result = await dotdo.things.create('User', data)
+
+      // Async write to Firebase (don't await)
+      setDoc(doc(firebase, 'users', data.id), data).catch(console.error)
+
+      return result
+
+    case 'dotdo-only':
+      // Migration complete
+      return await dotdo.things.create('User', data)
+  }
+}
+
+export async function getUser(id: string) {
+  switch (MIGRATION_PHASE) {
+    case 'firebase-only':
+    case 'dual-write':
+      // Read from Firebase (source of truth)
+      const docSnap = await getDoc(doc(firebase, 'users', id))
+      return docSnap.data()
+
+    case 'dotdo-primary':
+    case 'dotdo-only':
+      // Read from dotdo
+      return await dotdo.things.get('User', id)
+  }
+}
+```
+
+### Phase 2: Shadow Reads
+
+Verify dotdo returns the same data as Firebase:
+
+```typescript
+// middleware/shadow-read.ts
+export async function shadowRead(collection: string, id: string) {
+  const [firebaseData, dotdoData] = await Promise.all([
+    getFirestoreDoc(collection, id),
+    dotdo.things.get(collection, id)
+  ])
+
+  const differences = compareDocuments(firebaseData, dotdoData)
+
+  if (differences.length > 0) {
+    // Log to monitoring system
+    await logDifference({
+      collection,
+      id,
+      differences,
+      firebaseData,
+      dotdoData
+    })
+  }
+
+  // Return Firebase data (still source of truth)
+  return firebaseData
+}
+
+function compareDocuments(a: any, b: any): string[] {
+  const differences: string[] = []
+  const allKeys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})])
+
+  for (const key of allKeys) {
+    if (JSON.stringify(a?.[key]) !== JSON.stringify(b?.[key])) {
+      differences.push(key)
+    }
+  }
+
+  return differences
+}
+```
+
+### Phase 3: Cutover
+
+When ready to switch:
+
+```typescript
+// 1. Stop writes to Firebase
+// Set MIGRATION_PHASE=dotdo-primary
+
+// 2. Verify all data is synced
+async function verifySync() {
+  const collections = ['users', 'products', 'orders']
+
+  for (const collection of collections) {
+    const firebaseCount = await getFirestoreCount(collection)
+    const dotdoCount = await dotdo.things.count(collection)
+
+    if (firebaseCount !== dotdoCount) {
+      throw new Error(`Count mismatch in ${collection}: Firebase=${firebaseCount}, dotdo=${dotdoCount}`)
+    }
+
+    // Sample 1% of documents for deep comparison
+    const sampleSize = Math.ceil(firebaseCount * 0.01)
+    const samples = await getRandomSamples(collection, sampleSize)
+
+    for (const sample of samples) {
+      const dotdoDoc = await dotdo.things.get(collection, sample.id)
+      const differences = compareDocuments(sample, dotdoDoc)
+
+      if (differences.length > 0) {
+        console.warn(`Differences in ${collection}/${sample.id}:`, differences)
+      }
+    }
+  }
+
+  console.log('Sync verification complete')
+}
+
+// 3. Switch to dotdo-only
+// Set MIGRATION_PHASE=dotdo-only
+```
+
+### Rollback Procedures
+
+If issues arise after cutover:
+
+```typescript
+// Emergency rollback script
+// scripts/rollback-to-firebase.ts
+
+async function rollback() {
+  // 1. Switch back to Firebase
+  process.env.MIGRATION_PHASE = 'firebase-only'
+
+  // 2. Sync any writes that went to dotdo during cutover
+  const cutoverTimestamp = '2024-01-15T10:00:00Z'
+
+  const recentDotdoWrites = await dotdo.things.list('*', {
+    where: { updatedAt: { $gte: cutoverTimestamp } }
+  })
+
+  for (const doc of recentDotdoWrites) {
+    await setDoc(
+      doc(firebase, doc._type, doc.id),
+      excludeSystemFields(doc)
+    )
+  }
+
+  // 3. Alert team
+  await notify('Migration rolled back. Firebase is now primary.')
+}
+```
+
+### Keeping Firebase Running During Cutover
+
+To minimize risk, keep Firebase running as a hot standby:
+
+```typescript
+// config/migration.ts
+export const migrationConfig = {
+  // Keep Firebase SDK initialized
+  keepFirebaseAlive: true,
+
+  // Continue paying for Firebase (small cost for safety)
+  firebaseProject: 'my-app-backup',
+
+  // Auto-sync critical writes back to Firebase for 30 days
+  backupPeriodDays: 30,
+
+  // Collections to keep synced
+  criticalCollections: ['users', 'orders', 'payments']
+}
+
+// Middleware to backup writes
+app.use(async (c, next) => {
+  await next()
+
+  // After successful dotdo write, backup to Firebase
+  if (c.req.method === 'POST' || c.req.method === 'PUT') {
+    const collection = extractCollection(c.req.path)
+
+    if (migrationConfig.criticalCollections.includes(collection)) {
+      const data = await c.req.json()
+
+      // Async backup (don't block response)
+      backupToFirebase(collection, data).catch(console.error)
+    }
+  }
+})
+```
+
+## Validation Checklist
+
+Use this checklist to verify your migration is complete and correct.
+
+### Pre-Migration
+
+- [ ] **Inventory all collections** - List every Firestore collection and subcollection
+- [ ] **Document schema for each collection** - Field names, types, and relationships
+- [ ] **Identify data volumes** - Count documents per collection
+- [ ] **Map security rules** - Document Firebase rules to migrate to dotdo policies
+- [ ] **List Cloud Functions** - Map triggers to dotdo event handlers
+- [ ] **Backup Firebase data** - Create full export before starting
+
+### Data Integrity
+
+```typescript
+// scripts/validate-migration.ts
+
+async function validateMigration() {
+  const results = {
+    collections: {},
+    issues: []
+  }
+
+  const collections = ['users', 'products', 'orders', 'messages']
+
+  for (const collection of collections) {
+    // Count comparison
+    const firebaseCount = await getFirestoreCount(collection)
+    const dotdoCount = await dotdo.things.count(collection)
+
+    results.collections[collection] = {
+      firebaseCount,
+      dotdoCount,
+      match: firebaseCount === dotdoCount
+    }
+
+    if (firebaseCount !== dotdoCount) {
+      results.issues.push({
+        type: 'count_mismatch',
+        collection,
+        expected: firebaseCount,
+        actual: dotdoCount
+      })
+    }
+
+    // Sample validation (check 100 random documents)
+    const samples = await getRandomFirestoreDocs(collection, 100)
+
+    for (const firebaseDoc of samples) {
+      const dotdoDoc = await dotdo.things.get(collection, firebaseDoc.id)
+
+      if (!dotdoDoc) {
+        results.issues.push({
+          type: 'missing_document',
+          collection,
+          id: firebaseDoc.id
+        })
+        continue
+      }
+
+      // Compare fields (excluding system fields)
+      const fieldsToCompare = Object.keys(firebaseDoc)
+        .filter(k => !['_path', '_firestore'].includes(k))
+
+      for (const field of fieldsToCompare) {
+        const firebaseValue = normalizeValue(firebaseDoc[field])
+        const dotdoValue = normalizeValue(dotdoDoc[field])
+
+        if (JSON.stringify(firebaseValue) !== JSON.stringify(dotdoValue)) {
+          results.issues.push({
+            type: 'field_mismatch',
+            collection,
+            id: firebaseDoc.id,
+            field,
+            expected: firebaseValue,
+            actual: dotdoValue
+          })
+        }
+      }
+    }
+  }
+
+  return results
+}
+
+// Run validation
+const validation = await validateMigration()
+
+if (validation.issues.length > 0) {
+  console.error('Migration validation failed:')
+  console.table(validation.issues)
+  process.exit(1)
+} else {
+  console.log('Migration validation passed!')
+  console.table(validation.collections)
+}
+```
+
+### Functional Testing
+
+- [ ] **Authentication flows work** - Sign up, sign in, sign out, OAuth
+- [ ] **CRUD operations work** - Create, read, update, delete for each entity
+- [ ] **Real-time updates work** - WebSocket connections receive updates
+- [ ] **File uploads work** - Storage operations succeed
+- [ ] **Scheduled jobs run** - Cron equivalents execute correctly
+
+### Smoke Test Procedures
+
+```typescript
+// scripts/smoke-test.ts
+
+async function smokeTest() {
+  const tests = []
+
+  // Test 1: Create and read a user
+  tests.push(async () => {
+    const testUser = {
+      name: 'Smoke Test User',
+      email: `smoke-test-${Date.now()}@example.com`
+    }
+
+    const created = await dotdo.things.create('User', testUser)
+    const fetched = await dotdo.things.get('User', created.id)
+
+    assert(fetched.name === testUser.name, 'User creation/read failed')
+
+    // Cleanup
+    await dotdo.things.delete('User', created.id)
+
+    return 'User CRUD: PASS'
+  })
+
+  // Test 2: Query with filters
+  tests.push(async () => {
+    const results = await dotdo.things.list('Product', {
+      where: { category: 'electronics' },
+      limit: 10
+    })
+
+    assert(Array.isArray(results), 'Query returned non-array')
+
+    return 'Query filters: PASS'
+  })
+
+  // Test 3: Real-time connection
+  tests.push(async () => {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(DOTDO_WS_URL)
+      const timeout = setTimeout(() => reject('WebSocket timeout'), 5000)
+
+      ws.onopen = () => {
+        clearTimeout(timeout)
+        ws.close()
+        resolve('WebSocket: PASS')
+      }
+
+      ws.onerror = reject
+    })
+  })
+
+  // Test 4: API response times
+  tests.push(async () => {
+    const start = Date.now()
+    await dotdo.things.list('User', { limit: 1 })
+    const duration = Date.now() - start
+
+    assert(duration < 100, `API too slow: ${duration}ms`)
+
+    return `API latency: ${duration}ms - PASS`
+  })
+
+  // Run all tests
+  console.log('Running smoke tests...\n')
+
+  for (const test of tests) {
+    try {
+      const result = await test()
+      console.log(`✓ ${result}`)
+    } catch (error) {
+      console.error(`✗ ${error}`)
+      process.exit(1)
+    }
+  }
+
+  console.log('\nAll smoke tests passed!')
+}
+
+smokeTest()
+```
+
+### Comparison Testing
+
+Run the same operations against both systems and compare results:
+
+```typescript
+// scripts/comparison-test.ts
+
+async function compareApis() {
+  const operations = [
+    // List users
+    async () => ({
+      name: 'List users',
+      firebase: await firestore.collection('users').limit(10).get()
+        .then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
+      dotdo: await dotdo.things.list('User', { limit: 10 })
+    }),
+
+    // Get specific user
+    async () => ({
+      name: 'Get user by ID',
+      firebase: await firestore.collection('users').doc('user-123').get()
+        .then(d => ({ id: d.id, ...d.data() })),
+      dotdo: await dotdo.things.get('User', 'user-123')
+    }),
+
+    // Complex query
+    async () => ({
+      name: 'Complex query',
+      firebase: await firestore.collection('orders')
+        .where('status', '==', 'pending')
+        .where('total', '>=', 100)
+        .orderBy('total', 'desc')
+        .limit(5)
+        .get()
+        .then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
+      dotdo: await dotdo.things.list('Order', {
+        where: { status: 'pending', total: { $gte: 100 } },
+        orderBy: { field: 'total', direction: 'desc' },
+        limit: 5
+      })
+    })
+  ]
+
+  for (const op of operations) {
+    const result = await op()
+
+    const normalizedFirebase = normalizeResults(result.firebase)
+    const normalizedDotdo = normalizeResults(result.dotdo)
+
+    const match = JSON.stringify(normalizedFirebase) === JSON.stringify(normalizedDotdo)
+
+    console.log(`${result.name}: ${match ? '✓ MATCH' : '✗ MISMATCH'}`)
+
+    if (!match) {
+      console.log('  Firebase:', JSON.stringify(normalizedFirebase, null, 2))
+      console.log('  dotdo:', JSON.stringify(normalizedDotdo, null, 2))
+    }
+  }
+}
+
+function normalizeResults(data: any) {
+  // Remove system fields and normalize for comparison
+  if (Array.isArray(data)) {
+    return data.map(normalizeDoc).sort((a, b) => a.id.localeCompare(b.id))
+  }
+  return normalizeDoc(data)
+}
+
+function normalizeDoc(doc: any) {
+  if (!doc) return null
+
+  const { createdAt, updatedAt, _type, ...rest } = doc
+  return rest
+}
+```
+
+### Post-Migration Checklist
+
+- [ ] **All smoke tests pass** - Run automated test suite
+- [ ] **Error rates are stable** - Monitor for 24-48 hours
+- [ ] **Latency is acceptable** - p50, p95, p99 within targets
+- [ ] **No data discrepancies** - Comparison tests pass
+- [ ] **Team is notified** - Everyone knows the new system is live
+- [ ] **Runbook is ready** - Document how to handle issues
+- [ ] **Firebase backup retained** - Keep for 30+ days minimum
+
 ## Common Gotchas
 
 ### Server Timestamps

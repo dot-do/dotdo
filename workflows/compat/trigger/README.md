@@ -702,7 +702,7 @@ Output: { ok, id, status, output/error }
 
 MIT
 
-## Links
+## Related
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://trigger.do)

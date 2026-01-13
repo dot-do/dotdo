@@ -265,11 +265,8 @@ export class WorkflowExecutor {
           continue
         }
 
-        // Get node type implementation
+        // Get node type implementation (optional for trigger nodes)
         const nodeType = this.getNodeType(node.type)
-        if (!nodeType) {
-          throw new Error(`Unknown node type: ${node.type}`)
-        }
 
         // Build execution context
         const executeFunctions = this.buildExecuteFunctions(node, inputData, nodeOutputs, workflow)
@@ -277,10 +274,15 @@ export class WorkflowExecutor {
         // Execute the node
         let outputData: INodeExecutionData[][]
         try {
-          if (nodeType.execute) {
+          if (this.isTriggerNode(node)) {
+            // Trigger nodes just pass through their input data
+            outputData = [inputData]
+          } else if (!nodeType) {
+            throw new Error(`Unknown node type: ${node.type}`)
+          } else if (nodeType.execute) {
             outputData = await nodeType.execute.call(executeFunctions)
           } else {
-            // Trigger nodes just pass through
+            // Nodes without execute just pass through
             outputData = [inputData]
           }
         } catch (error) {

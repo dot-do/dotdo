@@ -1,0 +1,1078 @@
+---
+title: Notification Channels
+description: Delivering human escalations via Email, Slack, Discord, SMS, and MDXUI Chat
+---
+
+# Notification Channels
+
+When workflows escalate to humans, notifications need to reach them reliably. dotdo provides channel adapters for Email, Slack, Discord, SMS, and MDXUI Chat - each with approval buttons, forms, and webhook handling for responses.
+
+## Channel Types
+
+| Channel | Best For | Interactive | Provider Support |
+|---------|----------|-------------|------------------|
+| [Email](#email-channel) | Async approvals, audit trail | Link-based | SendGrid, Resend |
+| [Slack](#slack-channel) | Team collaboration | Buttons, forms | Webhooks, Bot API |
+| [Discord](#discord-channel) | Community, gaming | Buttons, reactions | Webhooks, Bot |
+| [SMS](#sms-channel) | Urgent, mobile | Reply-based | Twilio, MessageBird, Vonage, Telnyx |
+| [MDXUI Chat](#mdxui-chat-channel) | In-app, real-time | Full UI | Durable Objects |
+
+## Environment Setup
+
+Before using notification channels, configure the required environment variables in your `wrangler.toml` or `.env` file:
+
+```toml title="wrangler.toml"
+[vars]
+# Email (SendGrid)
+SENDGRID_API_KEY = "SG.xxxxx"
+EMAIL_FROM = "noreply@yourcompany.com"
+
+# Email (Resend)
+RESEND_API_KEY = "re_xxxxx"
+
+# Slack
+SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T.../B.../xxx"
+SLACK_BOT_TOKEN = "xoxb-..."
+
+# Discord
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/123/abc..."
+
+# SMS (Twilio)
+TWILIO_ACCOUNT_SID = "AC..."
+TWILIO_AUTH_TOKEN = "..."
+TWILIO_PHONE_NUMBER = "+15551234567"
+
+# SMS (MessageBird)
+MESSAGEBIRD_ACCESS_KEY = "..."
+
+# SMS (Vonage)
+VONAGE_API_KEY = "..."
+VONAGE_API_SECRET = "..."
+
+# SMS (Telnyx)
+TELNYX_API_KEY = "..."
+```
+
+<Callout type="warning">
+**Security:** Never commit API keys to version control. Use `wrangler secret put` for production deployments.
+</Callout>
+
+## Quick Start
+
+```typescript
+import { createChannel } from 'lib/channels'
+
+// Create a channel
+const slack = createChannel('slack', {
+  webhookUrl: 'https://hooks.slack.com/services/...',
+  botToken: 'xoxb-...',
+})
+
+// Send a notification
+await slack.send({
+  message: 'Approve this expense report?',
+  channel: '#approvals',
+})
+```
+
+## Email Channel
+
+The email channel supports both SendGrid and Resend providers. Approval emails include styled buttons that link to your approval endpoint.
+
+### SendGrid Setup
+
+1. **Create Account**: Sign up at [sendgrid.com](https://sendgrid.com)
+2. **Verify Sender Identity**:
+   - Go to Settings > Sender Authentication
+   - Either verify a single sender email or authenticate your domain
+   - Domain authentication is recommended for production
+
+3. **Create API Key**:
+   - Go to Settings > API Keys
+   - Click "Create API Key"
+   - Choose "Restricted Access" and enable:
+     - Mail Send > Full Access
+   - Copy the API key (shown only once)
+
+4. **Configure Environment**:
+   ```bash
+   wrangler secret put SENDGRID_API_KEY
+   # Paste your API key when prompted
+   ```
+
+### Resend Setup
+
+1. **Create Account**: Sign up at [resend.com](https://resend.com)
+2. **Verify Domain**:
+   - Go to Domains > Add Domain
+   - Add DNS records as instructed
+   - Wait for verification (usually minutes)
+
+3. **Create API Key**:
+   - Go to API Keys > Create API Key
+   - Copy the API key
+
+4. **Configure Environment**:
+   ```bash
+   wrangler secret put RESEND_API_KEY
+   ```
+
+### Configuration
+
+```typescript
+import { EmailChannel } from 'lib/channels'
+
+// SendGrid configuration
+const email = new EmailChannel({
+  provider: 'sendgrid',
+  apiKey: process.env.SENDGRID_API_KEY,
+  from: 'noreply@yourcompany.com',
+  tracking: { opens: true },
+})
+
+// Resend configuration
+const email = new EmailChannel({
+  provider: 'resend',
+  apiKey: process.env.RESEND_API_KEY,
+  from: 'approvals@yourcompany.com',
+})
+```
+
+### Using with Human DO
+
+```typescript
+import { Human } from 'dotdo'
+
+export class ApprovalManager extends Human {
+  async onStart() {
+    await this.setChannels([
+      {
+        type: 'email',
+        target: 'approvals@company.com',
+        priority: 'normal',
+      },
+    ])
+  }
+}
+```
+
+### Sending Approval Emails
+
+```typescript
+import { renderApprovalEmail, EmailChannel } from 'lib/channels'
+
+const email = new EmailChannel({
+  provider: 'sendgrid',
+  apiKey: process.env.SENDGRID_API_KEY,
+  from: 'noreply@yourcompany.com',
+})
+
+// Send with auto-generated HTML
+await email.send({
+  to: 'manager@company.com',
+  subject: 'Approval Required: Expense Report',
+  message: 'Please approve this expense report for $5,000',
+})
+
+// Or generate custom HTML with metadata
+const html = renderApprovalEmail({
+  message: 'Please approve this expense report',
+  requestId: 'req-123',
+  baseUrl: 'https://app.yourcompany.com',
+  metadata: {
+    requester: 'john@company.com',
+    amount: '$5,000',
+    category: 'Travel',
+  },
+})
+
+await email.send({
+  to: 'manager@company.com',
+  subject: 'Approval Required',
+  message: 'Approve expense',
+  html,
+})
+```
+
+### Handling Email Webhooks
+
+When users click approval links, handle the webhook:
+
+```typescript
+const webhook = {
+  event: 'click',
+  url: 'https://app.yourcompany.com/approve/req-123?action=approve',
+  email: 'manager@company.com',
+  timestamp: Date.now(),
+}
+
+const response = await email.handleWebhook(webhook)
+// { action: 'approve', requestId: 'req-123', userId: 'manager@company.com' }
+```
+
+### Plain Text Fallback
+
+For email clients that don't render HTML:
+
+```typescript
+const { html, text } = renderApprovalEmail({
+  message: 'Approve this purchase?',
+  requestId: 'req-123',
+  returnBoth: true,
+})
+```
+
+## Slack Channel
+
+The Slack channel uses [Block Kit](https://api.slack.com/block-kit) for rich interactive messages with buttons and forms.
+
+### Slack App Setup
+
+Before using Slack notifications, create a Slack App:
+
+1. **Create App**: Go to [api.slack.com/apps](https://api.slack.com/apps) and click "Create New App"
+2. **Choose "From scratch"** and name your app (e.g., "dotdo Approvals")
+3. **Add Incoming Webhooks**:
+   - Navigate to "Incoming Webhooks" in the sidebar
+   - Toggle "Activate Incoming Webhooks" to On
+   - Click "Add New Webhook to Workspace"
+   - Select the channel for notifications (e.g., `#approvals`)
+   - Copy the webhook URL
+
+4. **Add Bot Token** (optional, for interactive features):
+   - Navigate to "OAuth & Permissions"
+   - Add these scopes under "Bot Token Scopes":
+     - `chat:write` - Send messages
+     - `chat:write.public` - Send to any public channel
+     - `users:read` - Get user info
+   - Click "Install to Workspace"
+   - Copy the "Bot User OAuth Token" (starts with `xoxb-`)
+
+5. **Configure Interactivity** (for button clicks):
+   - Navigate to "Interactivity & Shortcuts"
+   - Toggle "Interactivity" to On
+   - Set Request URL to your webhook endpoint: `https://your-app.workers.dev/slack/interactions`
+   - Save Changes
+
+### Configuration
+
+```typescript
+import { SlackBlockKitChannel } from 'lib/channels'
+
+// Webhook-only (simpler, no bot token needed)
+const slack = new SlackBlockKitChannel({
+  webhookUrl: 'https://hooks.slack.com/services/T.../B.../xxx',
+})
+
+// With bot token (for posting to specific channels)
+const slack = new SlackBlockKitChannel({
+  webhookUrl: 'https://hooks.slack.com/services/...',
+  botToken: 'xoxb-...',
+})
+```
+
+### Using with Human DO
+
+The Human DO automatically uses Slack when `SLACK_WEBHOOK_URL` is configured:
+
+```typescript
+import { Human } from 'dotdo'
+
+export class ApprovalManager extends Human {
+  async onStart() {
+    await this.setChannels([
+      {
+        type: 'slack',
+        target: '#finance-approvals',
+        priority: 'high',
+      },
+    ])
+  }
+}
+```
+
+### Sending Approval Messages
+
+```typescript
+import { SlackBlockKitChannel, buildApprovalBlocks } from 'lib/channels'
+
+const slack = new SlackBlockKitChannel({
+  webhookUrl: process.env.SLACK_WEBHOOK_URL,
+  botToken: process.env.SLACK_BOT_TOKEN,
+})
+
+// Send with default Approve/Reject buttons
+await slack.send({
+  message: 'Approve this expense for $5,000?',
+  channel: '#approvals',
+})
+
+// Send with custom actions
+const blocks = buildApprovalBlocks({
+  message: 'Choose an action for this request',
+  requestId: 'req-123',
+  actions: [
+    { label: 'Approve', value: 'approve', style: 'primary' },
+    { label: 'Reject', value: 'reject', style: 'danger' },
+    { label: 'Delegate', value: 'delegate' },
+  ],
+})
+
+await slack.send({
+  message: 'Request pending',
+  channel: '#approvals',
+  blocks,
+})
+```
+
+### Building Forms
+
+Collect additional input from users:
+
+```typescript
+import { buildFormBlocks } from 'lib/channels'
+
+const formBlocks = buildFormBlocks({
+  fields: [
+    { name: 'reason', type: 'text', label: 'Reason for rejection' },
+    {
+      name: 'priority',
+      type: 'select',
+      label: 'Priority',
+      options: ['low', 'medium', 'high'],
+    },
+  ],
+})
+
+await slack.send({
+  message: 'Please provide details',
+  channel: '#approvals',
+  blocks: formBlocks,
+})
+```
+
+### Handling Interactions
+
+Process button clicks from Slack:
+
+```typescript
+// In your Slack interaction endpoint
+app.post('/slack/interactions', async (req, res) => {
+  const payload = JSON.parse(req.body.payload)
+
+  const response = await slack.handleInteraction(payload)
+  // {
+  //   action: 'approve',
+  //   userId: 'U123ABC',
+  //   requestId: 'req-123'
+  // }
+
+  // Resume your workflow with the response
+  await workflow.resume(response.requestId, response)
+
+  res.send({ response_action: 'clear' })
+})
+```
+
+## Discord Channel
+
+The Discord channel supports webhooks, rich embeds, and interactive buttons.
+
+### Discord Webhook Setup
+
+1. **Access Server Settings**:
+   - Right-click on your Discord server
+   - Select "Server Settings"
+
+2. **Create Webhook**:
+   - Go to "Integrations" > "Webhooks"
+   - Click "New Webhook"
+   - Name it (e.g., "dotdo Approvals")
+   - Select the channel for notifications
+   - Copy the Webhook URL
+
+3. **Configure Environment**:
+   ```bash
+   wrangler secret put DISCORD_WEBHOOK_URL
+   ```
+
+### Discord Bot Setup (Optional)
+
+For interactive buttons and advanced features:
+
+1. **Create Application**:
+   - Go to [discord.com/developers/applications](https://discord.com/developers/applications)
+   - Click "New Application"
+   - Name your application
+
+2. **Create Bot**:
+   - Go to "Bot" in the sidebar
+   - Click "Add Bot"
+   - Copy the Token
+
+3. **Set Permissions**:
+   - Go to "OAuth2" > "URL Generator"
+   - Select scopes: `bot`, `applications.commands`
+   - Select permissions: `Send Messages`, `Embed Links`, `Add Reactions`
+   - Copy the generated URL and open it to add the bot to your server
+
+4. **Configure Interactions**:
+   - Go to "General Information"
+   - Set "Interactions Endpoint URL" to: `https://your-app.workers.dev/discord/interactions`
+
+5. **Configure Environment**:
+   ```bash
+   wrangler secret put DISCORD_BOT_TOKEN
+   ```
+
+### Configuration
+
+```typescript
+import { DiscordChannel } from 'lib/channels'
+
+// Webhook only (simple notifications)
+const discord = new DiscordChannel({
+  webhookUrl: 'https://discord.com/api/webhooks/123/abc...',
+})
+
+// With bot token (for interactive features)
+const discord = new DiscordChannel({
+  webhookUrl: 'https://discord.com/api/webhooks/123/abc...',
+  botToken: 'Bot MTk...',
+})
+```
+
+### Using with Human DO
+
+```typescript
+import { Human } from 'dotdo'
+
+export class ApprovalManager extends Human {
+  async onStart() {
+    await this.setChannels([
+      {
+        type: 'discord',
+        target: '#approvals',
+        priority: 'high',
+      },
+    ])
+  }
+}
+```
+
+### Sending Messages with Embeds
+
+```typescript
+import { DiscordChannel, buildEmbed, buildActionRow } from 'lib/channels'
+
+const discord = new DiscordChannel({
+  webhookUrl: process.env.DISCORD_WEBHOOK_URL,
+})
+
+// Send with rich embed
+const embed = buildEmbed({
+  title: 'Approval Required',
+  description: 'Please review this expense report',
+  color: 0x5865f2, // Discord blurple
+  fields: [
+    { name: 'Requester', value: 'john@company.com', inline: true },
+    { name: 'Amount', value: '$10,000', inline: true },
+  ],
+  timestamp: true,
+})
+
+const buttons = buildActionRow({
+  actions: [
+    { label: 'Approve', value: 'approve', style: 'success' },
+    { label: 'Reject', value: 'reject', style: 'danger' },
+    { label: 'View Details', value: 'https://app.company.com/request/123', style: 'link' },
+  ],
+  requestId: 'req-123',
+})
+
+await discord.send({
+  message: 'New approval request',
+  mentions: ['<@&ROLE_ID>'], // Mention a role
+  embeds: [embed],
+  components: [buttons],
+})
+```
+
+### Button Styles
+
+Discord supports five button styles:
+
+| Style | Value | Use Case |
+|-------|-------|----------|
+| `primary` | 1 | Main action (blue) |
+| `secondary` | 2 | Secondary action (gray) |
+| `success` | 3 | Positive action (green) |
+| `danger` | 4 | Destructive action (red) |
+| `link` | 5 | External URL (gray with icon) |
+
+### Handling Reactions
+
+Discord also supports emoji reactions for simple approvals:
+
+```typescript
+const reaction = {
+  emoji: { name: '\u2705' }, // check mark emoji
+  user_id: '123456789',
+  message_id: '987654321',
+}
+
+const response = await discord.handleReaction(reaction)
+// { action: 'approve', userId: '123456789' }
+```
+
+Built-in emoji mappings:
+- `\u2705` (check mark) and `\uD83D\uDC4D` (thumbs up) map to `approve`
+- `\u274C` (cross mark) and `\uD83D\uDC4E` (thumbs down) map to `reject`
+
+## SMS Channel
+
+The SMS channel supports multiple providers and handles both outbound messages and inbound responses. Use SMS for urgent notifications that need immediate attention.
+
+### Twilio Setup
+
+1. **Create Account**: Sign up at [twilio.com](https://www.twilio.com)
+2. **Get a Phone Number**:
+   - Go to Phone Numbers > Manage > Buy a number
+   - Choose a number with SMS capability
+   - Note the phone number (E.164 format: `+15551234567`)
+
+3. **Get Credentials**:
+   - Go to your Dashboard
+   - Copy the "Account SID" and "Auth Token"
+
+4. **Configure Webhooks** (for inbound SMS responses):
+   - Go to Phone Numbers > Manage > Active numbers
+   - Click your number
+   - Under "Messaging", set the webhook URL:
+     - When a message comes in: `https://your-app.workers.dev/sms/webhook`
+     - HTTP POST
+
+5. **Configure Environment**:
+   ```bash
+   wrangler secret put TWILIO_ACCOUNT_SID
+   wrangler secret put TWILIO_AUTH_TOKEN
+   ```
+
+### MessageBird Setup
+
+1. **Create Account**: Sign up at [messagebird.com](https://messagebird.com)
+2. **Get API Key**:
+   - Go to Developers > API access
+   - Create a new access key
+   - Copy the key
+
+3. **Get a Number**:
+   - Go to Numbers > Buy a number
+   - Choose SMS-enabled number
+
+4. **Configure Webhooks**:
+   - Go to Flow Builder or API settings
+   - Set webhook URL for inbound messages
+
+5. **Configure Environment**:
+   ```bash
+   wrangler secret put MESSAGEBIRD_ACCESS_KEY
+   ```
+
+### Vonage (Nexmo) Setup
+
+1. **Create Account**: Sign up at [vonage.com](https://www.vonage.com)
+2. **Get Credentials**:
+   - Go to Dashboard
+   - Copy the API key and API secret
+
+3. **Get a Number**:
+   - Go to Numbers > Buy numbers
+   - Choose an SMS-enabled number
+
+4. **Configure Webhooks**:
+   - Go to Numbers > Your numbers
+   - Click the gear icon
+   - Set Inbound Webhook URL
+
+5. **Configure Environment**:
+   ```bash
+   wrangler secret put VONAGE_API_KEY
+   wrangler secret put VONAGE_API_SECRET
+   ```
+
+### Telnyx Setup
+
+1. **Create Account**: Sign up at [telnyx.com](https://telnyx.com)
+2. **Get API Key**:
+   - Go to Auth > API Keys
+   - Create a new key
+
+3. **Get a Number**:
+   - Go to Numbers > Search & Buy
+   - Purchase an SMS-enabled number
+
+4. **Create Messaging Profile**:
+   - Go to Messaging > Profiles
+   - Create a new profile
+   - Set webhook URL for inbound messages
+
+5. **Configure Environment**:
+   ```bash
+   wrangler secret put TELNYX_API_KEY
+   ```
+
+### Configuration
+
+```typescript
+import { SMSChannel } from 'lib/channels/sms'
+
+// Twilio
+const sms = new SMSChannel({
+  provider: 'twilio',
+  accountSid: process.env.TWILIO_ACCOUNT_SID,
+  authToken: process.env.TWILIO_AUTH_TOKEN,
+  fromNumber: '+15551234567',
+  statusCallbackUrl: 'https://app.company.com/sms/status',
+})
+
+// MessageBird
+const sms = new SMSChannel({
+  provider: 'messagebird',
+  accessKey: process.env.MESSAGEBIRD_ACCESS_KEY,
+  fromNumber: '+15551234567',
+})
+
+// Vonage (Nexmo)
+const sms = new SMSChannel({
+  provider: 'vonage',
+  apiKey: process.env.VONAGE_API_KEY,
+  apiSecret: process.env.VONAGE_API_SECRET,
+  fromNumber: '+15551234567',
+})
+
+// Telnyx
+const sms = new SMSChannel({
+  provider: 'telnyx',
+  telnyxApiKey: process.env.TELNYX_API_KEY,
+  fromNumber: '+15551234567',
+})
+```
+
+### Using with Human DO
+
+```typescript
+import { Human } from 'dotdo'
+
+export class ApprovalManager extends Human {
+  async onStart() {
+    await this.setChannels([
+      {
+        type: 'sms',
+        target: '+15559876543',
+        priority: 'urgent',
+      },
+    ])
+  }
+}
+```
+
+### Sending Notifications
+
+```typescript
+// Simple notification
+await sms.send({
+  message: 'Your order has shipped!',
+  to: '+15559876543',
+})
+
+// With MMS (Twilio and Telnyx)
+await sms.send({
+  message: 'Check out your receipt',
+  to: '+15559876543',
+  mediaUrl: ['https://example.com/receipt.pdf'],
+})
+```
+
+### Sending Approval Requests
+
+```typescript
+await sms.sendApproval({
+  message: 'Approve expense report for $5,000?',
+  to: '+15559876543',
+  requestId: 'req-123',
+  baseUrl: 'https://app.company.com',
+})
+
+// Sends:
+// "Approve expense report for $5,000?
+//
+// Approve: https://app.company.com/approve/req-123?action=approve
+// Reject: https://app.company.com/approve/req-123?action=reject"
+
+// Custom actions
+await sms.sendApproval({
+  message: 'How should we handle this refund?',
+  to: '+15559876543',
+  requestId: 'req-456',
+  actions: [
+    { label: 'Full Refund', value: 'full' },
+    { label: 'Partial Refund', value: 'partial' },
+    { label: 'Deny', value: 'deny' },
+  ],
+})
+```
+
+### Handling Inbound SMS
+
+Process user responses via webhook:
+
+```typescript
+app.post('/sms/webhook', async (req, res) => {
+  const response = sms.handleWebhook(req.body)
+
+  if (response.type === 'incoming') {
+    // User replied with "yes", "approve", "y", or "1"
+    if (response.action === 'approve') {
+      await workflow.resume(response.requestId, { approved: true })
+    } else if (response.action === 'reject') {
+      await workflow.resume(response.requestId, { approved: false })
+    }
+  } else if (response.type === 'status') {
+    // Delivery status update
+    console.log(`Message ${response.messageSid}: ${response.status}`)
+  }
+
+  res.send('<Response></Response>') // TwiML for Twilio
+})
+```
+
+Supported response keywords:
+- **Approve**: `yes`, `approve`, `y`, `1`
+- **Reject**: `no`, `reject`, `n`, `0`
+
+## MDXUI Chat Channel
+
+For in-app chat interfaces, the MDXUI channel delivers messages through Durable Objects with real-time support.
+
+### Configuration
+
+```typescript
+import { MDXUIChatChannel } from 'lib/channels'
+
+const chat = new MDXUIChatChannel({
+  env: {
+    USER_DO: env.USER_DO, // Durable Object binding
+  },
+  realtime: true,
+})
+```
+
+### Sending Messages
+
+```typescript
+// Send a chat message to a user
+await chat.send({
+  message: 'Your approval is needed for this request',
+  userId: 'user-123',
+})
+
+// Send with MDX content for rich rendering
+await chat.send({
+  message: 'Review this data',
+  userId: 'user-123',
+  mdxContent: `
+<Card>
+  <CardHeader>Expense Report</CardHeader>
+  <CardContent>
+    - Amount: $5,000
+    - Category: Travel
+    - Requester: John Doe
+  </CardContent>
+</Card>
+  `,
+})
+```
+
+### Waiting for Responses
+
+```typescript
+// Send and wait for user response
+await chat.send({
+  message: 'Do you approve this request?',
+  userId: 'user-123',
+})
+
+const response = await chat.waitForResponse({ timeout: 3600000 }) // 1 hour
+// { action: 'approve', data: { comment: 'Looks good!' } }
+```
+
+### Managing Conversations
+
+```typescript
+import { ChatConversation } from 'lib/channels'
+
+const conversation = new ChatConversation({
+  initialMessage: 'Please review this expense report',
+  userId: 'user-123',
+  actions: [
+    { label: 'Approve', value: 'approve' },
+    { label: 'Reject', value: 'reject' },
+  ],
+  form: {
+    fields: [
+      { name: 'comment', type: 'text', label: 'Add a comment' },
+      { name: 'urgent', type: 'boolean', label: 'Mark as urgent' },
+    ],
+  },
+})
+
+// Access conversation state
+console.log(conversation.messages)
+console.log(conversation.userId)
+
+// Add messages to the conversation
+conversation.addMessage({
+  role: 'user',
+  content: 'I have a question about this',
+})
+```
+
+## Channel Registry
+
+Use the channel registry to dynamically create channels:
+
+```typescript
+import { channelRegistry, createChannel } from 'lib/channels'
+
+// Check available channels
+console.log(channelRegistry.types()) // ['slack', 'discord', 'email', 'mdxui']
+
+// Create channel by type
+const channel = createChannel('slack', {
+  webhookUrl: 'https://hooks.slack.com/...',
+})
+
+// Register custom channels
+channelRegistry.register('custom', CustomChannel)
+```
+
+## Exactly-Once Delivery
+
+For critical notifications, use exactly-once delivery:
+
+```typescript
+import { createExactlyOnceChannelDelivery } from 'lib/channels'
+
+const delivery = createExactlyOnceChannelDelivery({
+  channel: slack,
+  storage: ctx.storage, // Durable Object storage
+  retryPolicy: {
+    maxAttempts: 3,
+    backoffMs: 1000,
+    maxBackoffMs: 30000,
+  },
+})
+
+// Deliver with idempotency key
+await delivery.deliver({
+  idempotencyKey: `approval-${requestId}`,
+  payload: {
+    message: 'Approval needed',
+    channel: '#approvals',
+  },
+})
+```
+
+## Multi-Channel Workflows
+
+Send to multiple channels simultaneously:
+
+```typescript
+import { EmailChannel, SlackBlockKitChannel, SMSChannel } from 'lib/channels'
+
+const channels = {
+  email: new EmailChannel({ provider: 'sendgrid', apiKey: '...', from: '...' }),
+  slack: new SlackBlockKitChannel({ webhookUrl: '...' }),
+  sms: new SMSChannel({ provider: 'twilio', accountSid: '...', authToken: '...', fromNumber: '...' }),
+}
+
+// Send to all configured channels
+async function notifyApprover(approver: Approver, request: Request) {
+  const promises = []
+
+  if (approver.email) {
+    promises.push(
+      channels.email.send({
+        to: approver.email,
+        subject: 'Approval Required',
+        message: request.summary,
+      })
+    )
+  }
+
+  if (approver.slackId) {
+    promises.push(
+      channels.slack.send({
+        message: `<@${approver.slackId}> ${request.summary}`,
+        channel: '#approvals',
+      })
+    )
+  }
+
+  if (approver.phone) {
+    promises.push(
+      channels.sms.sendApproval({
+        message: request.summary,
+        to: approver.phone,
+        requestId: request.id,
+      })
+    )
+  }
+
+  await Promise.all(promises)
+}
+```
+
+## HumanFunction Integration
+
+Channels integrate with the `HumanFunction` class for structured escalations:
+
+```typescript
+import { DO } from 'dotdo'
+
+export class ApprovalWorkflow extends DO {
+  escalation = this.HumanFunction({
+    trigger: 'refund > $10000',
+    role: 'senior-accountant',
+    sla: '4 hours',
+    channels: ['slack', 'email'], // Multiple channels
+  })
+
+  async processRefund(refund: Refund) {
+    if (refund.amount > 10000) {
+      const approval = await this.escalation({
+        message: `Approve refund of $${refund.amount}?`,
+        metadata: {
+          customer: refund.customerId,
+          reason: refund.reason,
+        },
+      })
+
+      if (!approval.approved) {
+        throw new Error('Refund rejected')
+      }
+    }
+
+    await this.issueRefund(refund)
+  }
+}
+```
+
+## Best Practices
+
+### Choose the Right Channel
+
+| Scenario | Recommended Channel |
+|----------|-------------------|
+| Async business approvals | Email |
+| Team collaboration | Slack |
+| Community moderation | Discord |
+| Urgent/mobile | SMS |
+| In-app workflows | MDXUI Chat |
+
+### Provide Context
+
+Always include enough information for humans to make informed decisions:
+
+```typescript
+// Good: Rich context
+await slack.send({
+  message: `
+*Refund Request*
+Customer: ${customer.name}
+Amount: $${refund.amount}
+Reason: ${refund.reason}
+Order Date: ${order.date}
+Previous Refunds: ${customer.refundCount}
+  `,
+  channel: '#approvals',
+})
+
+// Bad: Insufficient context
+await slack.send({
+  message: 'Approve refund?',
+  channel: '#approvals',
+})
+```
+
+### Handle Failures Gracefully
+
+```typescript
+try {
+  await channel.send(payload)
+} catch (error) {
+  // Fall back to another channel
+  await fallbackChannel.send(payload)
+
+  // Or queue for retry
+  await retryQueue.enqueue({ channel: 'slack', payload })
+}
+```
+
+### Monitor SLAs
+
+Track response times and escalate if needed:
+
+```typescript
+const startTime = Date.now()
+const response = await escalation.waitForResponse({ timeout: 4 * 60 * 60 * 1000 })
+
+if (!response) {
+  // Escalate to backup approver
+  await backupEscalation.send(payload)
+}
+
+const responseTime = Date.now() - startTime
+await metrics.record('approval.response_time', responseTime)
+```
+
+## Type Definitions
+
+```typescript
+// Shared types
+interface NotificationPayload {
+  message: string
+}
+
+interface NotificationResult {
+  delivered: boolean
+  messageId?: string
+}
+
+interface HumanResponse {
+  action: string
+  userId: string
+  requestId?: string
+  data?: Record<string, unknown>
+}
+
+// Channel type
+type ChannelType = 'slack' | 'discord' | 'email' | 'mdxui'
+
+// Action types
+interface Action {
+  label: string
+  value: string
+}
+
+interface StyledAction extends Action {
+  style?: 'primary' | 'secondary' | 'success' | 'danger' | 'link'
+}
+```
+
+## Next Steps
+
+- [Approval Workflows](/docs/humans/approval-workflows) - Building approval chains
+- [Escalation](/docs/humans/escalation) - Triggers, roles, and SLAs
+- [Human-in-the-Loop](/docs/humans/) - Overview of human integration

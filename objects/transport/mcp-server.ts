@@ -779,10 +779,10 @@ export function attachMcpHandler(instance: DOInstance, DOClass: DOClass): void {
   const sessions = getSessionStorage(instance)
 
   // Attach handleMcp method to instance
-  ;(instance as unknown as { handleMcp: (request: Request) => Promise<Response> }).handleMcp =
-    async function (request: Request): Promise<Response> {
-      return handler(instance, request, sessions)
-    }
+  // DOInstance has index signature, so direct assignment is type-safe
+  instance.handleMcp = async function (request: Request): Promise<Response> {
+    return handler(instance, request, sessions)
+  }
 }
 
 /**
@@ -978,6 +978,18 @@ export type ToolThingData = ToolThingDataType
 export type ToolQuery = ToolQueryType
 
 /**
+ * Type guard to check if data is ToolThingData
+ */
+function isToolThingData(data: Record<string, unknown> | null): data is ToolThingData {
+  if (!data) return false
+  return (
+    typeof data.id === 'string' &&
+    typeof data.description === 'string' &&
+    Array.isArray(data.parameters)
+  )
+}
+
+/**
  * GraphStore interface for type safety (minimal subset needed).
  * Full interface is in db/graph/types.ts.
  */
@@ -1053,16 +1065,16 @@ export async function getMcpToolsFromGraph(
 
     if (query?.idPrefix) {
       filtered = filtered.filter((t) => {
-        const data = t.data as unknown as ToolThingData | null
-        return data?.id?.startsWith(query.idPrefix!) ?? false
+        if (!isToolThingData(t.data)) return false
+        return t.data.id.startsWith(query.idPrefix!)
       })
     }
 
     if (query?.ids) {
       const idSet = new Set(query.ids)
       filtered = filtered.filter((t) => {
-        const data = t.data as unknown as ToolThingData | null
-        return data?.id ? idSet.has(data.id) : false
+        if (!isToolThingData(t.data)) return false
+        return idSet.has(t.data.id)
       })
     }
 

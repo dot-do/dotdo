@@ -128,6 +128,13 @@ export {
   // Types - Digest
   type DigestConfig,
   type DigestBatch,
+  type DigestItem,
+  type DigestGroup,
+  type DigestSummary,
+  type DigestSchedule,
+  type DigestSchedulePreset,
+  type DigestGroupBy,
+  type DigestGroupingConfig,
   // Types - Retry
   type RetryPolicy,
   type RetryResult,
@@ -202,3 +209,48 @@ export {
   // Types - Render
   type RenderOptions,
 } from './template-engine'
+
+// =============================================================================
+// Delivery Analytics Exports
+// =============================================================================
+
+export {
+  // Factory
+  createDeliveryAnalytics,
+  // Main class
+  DeliveryAnalytics,
+  // Types - Events
+  type DeliveryEventType,
+  type DeliveryEvent,
+  type OpenEvent,
+  type ClickEvent,
+  type BounceEvent,
+  type ComplaintEvent,
+  type BounceType,
+  type BounceCategory,
+  type ComplaintType,
+  // Types - Tracking
+  type TrackingConfig,
+  type TrackingUrls,
+  // Types - Webhook
+  type WebhookProvider,
+  type WebhookRequest,
+  type WebhookResult,
+  type WebhookHandler,
+  // Types - Metrics
+  type MetricsPeriod,
+  type MetricsQueryOptions,
+  type ChannelMetrics,
+  type MetricsDataPoint,
+  type TimeSeriesMetrics,
+  type AggregateMetrics,
+  // Types - Export
+  type ExportFormat,
+  type ExportOptions,
+  type ExportResult,
+  // Types - Suppression
+  type SuppressionEntry,
+  // Types - Storage & Options
+  type AnalyticsStorage,
+  type DeliveryAnalyticsOptions,
+} from './delivery-analytics'

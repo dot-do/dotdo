@@ -8,14 +8,18 @@
  * - Optimistic updates with loading states
  * - Success/error toast notifications
  * - Keyboard navigation support (Enter to submit, Escape to cancel)
+ * - Unsaved changes warning when navigating away
+ * - Accessibility improvements (ARIA labels, focus management)
  */
 
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useBlocker } from '@tanstack/react-router'
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Shell, UserProfile } from '~/components/ui/shell'
+import { Shell } from '~/components/ui/shell'
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Label } from '~/components/ui/label'
+import { ConfirmDialog } from '~/components/ui/confirm-dialog'
+import { useToast } from '~/components/ui/toast'
 
 export const Route = createFileRoute('/admin/settings/account')({
   component: AccountSettingsPage,
@@ -49,17 +53,49 @@ function validateName(name: string): string | undefined {
 function AccountSettingsPage() {
   const navigate = useNavigate()
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const toast = useToast()
 
   // Form state
   const [name, setName] = useState('John Doe')
-  const [originalName] = useState('John Doe')
+  const [originalName, setOriginalName] = useState('John Doe')
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
+  // Navigation blocking dialog state
+  const [showNavigationWarning, setShowNavigationWarning] = useState(false)
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null)
+
   // Track if form has unsaved changes
   const hasChanges = name !== originalName
+
+  // Block navigation when there are unsaved changes
+  const blocker = useBlocker({
+    condition: hasChanges && !isSubmitting,
+  })
+
+  // Handle blocker state changes
+  useEffect(() => {
+    if (blocker.status === 'blocked') {
+      setShowNavigationWarning(true)
+      setPendingNavigation(() => blocker.proceed)
+    }
+  }, [blocker.status])
+
+  // Handle browser beforeunload
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasChanges) {
+        e.preventDefault()
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?'
+        return e.returnValue
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasChanges])
 
   // Validate on blur
   const handleNameBlur = useCallback(() => {
@@ -101,17 +137,20 @@ function AccountSettingsPage() {
       // Simulate API call with optimistic update
       await new Promise((resolve) => setTimeout(resolve, 800))
 
-      // Success!
+      // Success! Update the original name so hasChanges becomes false
+      setOriginalName(name)
       setSubmitStatus('success')
+      toast.success('Your changes have been saved successfully.')
 
       // Clear success status after a delay
       setTimeout(() => setSubmitStatus('idle'), 3000)
     } catch (error) {
       setSubmitStatus('error')
+      toast.error('Failed to save changes. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
-  }, [name])
+  }, [name, toast])
 
   // Handle cancel - reset to original values
   const handleCancel = useCallback(() => {
@@ -308,6 +347,27 @@ function AccountSettingsPage() {
           Tip: Press <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">Esc</kbd> to cancel changes.
         </p>
       </div>
+
+      {/* Unsaved Changes Navigation Warning */}
+      <ConfirmDialog
+        open={showNavigationWarning}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowNavigationWarning(false)
+            setPendingNavigation(null)
+            blocker.reset?.()
+          }
+        }}
+        title="Unsaved Changes"
+        description="You have unsaved changes. Are you sure you want to leave this page? Your changes will be lost."
+        confirmLabel="Leave Page"
+        cancelLabel="Stay"
+        variant="destructive"
+        onConfirm={() => {
+          setShowNavigationWarning(false)
+          pendingNavigation?.()
+        }}
+      />
     </Shell>
   )
 }

@@ -4,7 +4,7 @@
  * Unified transport handlers for Durable Objects with:
  * - REST API (rest-autowire)
  * - MCP JSON-RPC (mcp-server)
- * - Cap'n Web RPC (rpc-server)
+ * - Cap'n Web RPC (capnweb-target)
  * - Authentication/Authorization (auth-layer)
  *
  * @example
@@ -13,15 +13,14 @@
  *   HandlerChain,
  *   RestHandler,
  *   McpHandler,
- *   RpcHandler,
  *   AuthHandler,
+ *   handleCapnWebRpc,
  * } from './transport'
  *
  * // Create handler chain
  * const chain = new HandlerChain({ debug: true })
  *   .use(new AuthHandler({ jwtSecret: 'secret' }), 100)
  *   .use(new McpHandler(), 50)
- *   .use(new RpcHandler(), 40)
  *   .use(new RestHandler(), 30)
  *
  * // In DO fetch handler
@@ -104,9 +103,15 @@ export type { RestHandlerOptions } from './rest-autowire'
 export { McpHandler, createMcpHandler, getMcpTools, hasMcpConfig } from './mcp-server'
 export type { McpHandlerOptions } from './mcp-server'
 
-// RPC handler
-export { RpcHandler, RPCServer, withRpcServer, applyRpcIntegration } from './rpc-server'
-export type { RpcHandlerOptions } from './rpc-server'
+// Cap'n Web RPC handler
+export {
+  handleCapnWebRpc,
+  isCapnWebRequest,
+  createCapnWebTarget,
+  isInternalMember,
+  DOBaseRpcTarget,
+} from './capnweb-target'
+export type { CapnWebOptions } from './capnweb-target'
 
 // Auth handler
 export {

@@ -1,4 +1,4 @@
-# supabase.do
+# @dotdo/supabase
 
 **Supabase for Cloudflare Workers.** Edge-native auth. Cryptographically secure. Zero dependencies.
 
@@ -7,13 +7,13 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Why supabase.do?
+## Why @dotdo/supabase?
 
 **Edge workers can't run Supabase.** The official SDK expects Node.js, PostgreSQL connections, and long-lived processes.
 
 **AI agents need authentication.** They need secure MFA, recovery codes, session management, and real-time subscriptions.
 
-**supabase.do gives you both:**
+**@dotdo/supabase gives you both:**
 
 ```typescript
 import { createClient } from '@dotdo/supabase'
@@ -425,7 +425,7 @@ if (randomValue < maxUnbiased) {
 
 MIT
 
-## Links
+## Related
 
 - [GitHub](https://github.com/dot-do/dotdo)
 - [Documentation](https://supabase.do)

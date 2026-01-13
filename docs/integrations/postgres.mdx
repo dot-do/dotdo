@@ -33,7 +33,7 @@ const similar = await db.query(`
 `, [queryEmbedding])
 ```
 
-## Why postgres.do?
+## Why @dotdo/postgres?
 
 | pg (Node.js) | @dotdo/postgres | @dotdo/edge-postgres |
 |--------------|-----------------|----------------------|
@@ -42,7 +42,9 @@ const similar = await db.query(`
 | Network latency | Edge-local | Edge-local |
 | pgvector support | No | Yes |
 
-## Installation
+## Quick Start
+
+### Install
 
 ```bash
 # pg-compatible layer
@@ -51,8 +53,6 @@ npm install @dotdo/postgres
 # Full EdgePostgres
 npm install @dotdo/edge-postgres
 ```
-
-## Quick Start
 
 ### pg-Compatible Client
 
@@ -474,18 +474,18 @@ interface EdgePostgresConfig {
 
 ### @dotdo/postgres vs pg
 
-| Feature | pg | @dotdo/postgres |
-|---------|-----|-----------------|
+| Feature | @dotdo/postgres | pg |
+|---------|-----------------|-----|
 | Client API | Yes | Yes |
 | Pool API | Yes | Yes |
 | Parameterized queries | Yes | Yes |
 | Transactions | Yes | Yes |
 | Connection events | Yes | Yes |
-| COPY commands | Yes | No |
-| Cursors | Yes | Partial |
-| Pub/Sub (LISTEN/NOTIFY) | Yes | No |
-| SSL/TLS | Yes | N/A (internal) |
-| Native bindings | Yes | Simulated |
+| COPY commands | No | Yes |
+| Cursors | Partial | Yes |
+| Pub/Sub (LISTEN/NOTIFY) | No | Yes |
+| SSL/TLS | N/A (internal) | Yes |
+| Native bindings | Simulated | Yes |
 
 ### EdgePostgres Features
 

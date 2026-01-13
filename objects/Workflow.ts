@@ -1,24 +1,125 @@
 /**
- * Workflow - Durable workflow execution using Graph Things
+ * @module Workflow
+ * @description Durable workflow execution engine using Graph Things
  *
- * Represents a long-running workflow with steps, state, and checkpoints.
- * Integrates with Cloudflare Workflows for durability.
+ * Workflow is a Durable Object that orchestrates long-running, multi-step
+ * processes with persistent state and checkpoints. It integrates with
+ * Cloudflare Workflows for durability and uses the graph-based Things store
+ * for all state management.
  *
- * MIGRATED: Now uses DOBase's ThingsStore and RelationshipsStore for all state.
- * - Workflow definitions stored as WorkflowDefinition Things
- * - Steps stored as WorkflowStep Things with relationships
- * - Instances stored as WorkflowInstance Things
- * - Step executions tracked as StepExecution Things with relationships
+ * **Core Features:**
+ * - Multi-step workflow definitions
+ * - Durable execution with automatic checkpointing
+ * - Pause/resume capabilities
+ * - Event-driven step triggering
+ * - Graph-based state storage for queryability
  *
- * Graph Structure:
+ * **Step Types:**
+ * | Type | Description | Use Case |
+ * |------|-------------|----------|
+ * | `do` | Execute a function | Business logic |
+ * | `sleep` | Wait for duration | Delays, rate limiting |
+ * | `waitForEvent` | Block until event | Human approval, webhooks |
+ *
+ * **Workflow States:**
+ * | State | Description |
+ * |-------|-------------|
+ * | `pending` | Not yet started |
+ * | `running` | Actively executing steps |
+ * | `paused` | Waiting for event or manual resume |
+ * | `completed` | All steps finished successfully |
+ * | `failed` | Step failed, execution stopped |
+ *
+ * **Graph Structure:**
  * ```
- * WorkflowDefinition --[has]--> WorkflowStep (ordered via 'follows' relationship)
+ * WorkflowDefinition --[hasStep]--> WorkflowStep --[follows]--> WorkflowStep
+ *                                       |
+ *                                       v
  * WorkflowInstance --[instanceOf]--> WorkflowDefinition
+ *        |
+ *        v
  * StepExecution --[executionOf]--> WorkflowStep
- * StepExecution --[partOf]--> WorkflowInstance
+ *        |
+ *        +--[partOf]--> WorkflowInstance
  * ```
  *
- * @see dotdo-4jg6v - [REFACTOR] Migrate Workflow.ts DO to use graph Things
+ * **HTTP Endpoints:**
+ * | Method | Path | Description |
+ * |--------|------|-------------|
+ * | GET | `/config` | Get workflow configuration |
+ * | PUT | `/config` | Set workflow configuration |
+ * | POST | `/start` | Start new workflow instance |
+ * | GET | `/instances` | List workflow instances |
+ * | GET | `/instance/:id` | Get instance details |
+ * | POST | `/instance/:id` | Control instance (pause/resume/event) |
+ * | GET | `/instances/failed` | List failed instances |
+ * | GET | `/steps/failed` | List failed step executions |
+ *
+ * @example Define a Workflow
+ * ```typescript
+ * const workflow = new Workflow(ctx, env)
+ *
+ * await workflow.configure({
+ *   name: 'order-fulfillment',
+ *   description: 'Process and fulfill customer orders',
+ *   steps: [
+ *     { name: 'validate', type: 'do', config: { action: 'validateOrder' } },
+ *     { name: 'charge', type: 'do', config: { action: 'processPayment' } },
+ *     { name: 'await-inventory', type: 'waitForEvent', config: { eventName: 'inventory.confirmed' } },
+ *     { name: 'ship', type: 'do', config: { action: 'createShipment' } },
+ *     { name: 'notify', type: 'do', config: { action: 'sendConfirmation' } }
+ *   ],
+ *   trigger: 'event',
+ *   schedule: undefined
+ * })
+ * ```
+ *
+ * @example Start Workflow Instance
+ * ```typescript
+ * // Start with input data
+ * const instance = await workflow.start({
+ *   orderId: 'ord_123',
+ *   customerId: 'cust_456',
+ *   items: [{ sku: 'WIDGET-1', qty: 2 }]
+ * })
+ *
+ * console.log(instance.id)      // 'abc-123-...'
+ * console.log(instance.status)  // 'running'
+ * ```
+ *
+ * @example Pause and Resume
+ * ```typescript
+ * // Pause a running instance
+ * await workflow.pauseInstance(instanceId)
+ *
+ * // Resume when ready
+ * await workflow.resumeInstance(instanceId)
+ * ```
+ *
+ * @example Send Event to Waiting Step
+ * ```typescript
+ * // Instance waiting at 'await-inventory' step
+ * await workflow.sendEvent(instanceId, 'inventory.confirmed', {
+ *   warehouseId: 'wh_east',
+ *   confirmedAt: new Date()
+ * })
+ * // Workflow continues to 'ship' step
+ * ```
+ *
+ * @example Query Workflow State
+ * ```typescript
+ * // Get failed instances for alerting
+ * const failed = await workflow.getInstancesByStatus('failed')
+ *
+ * // Get failed steps for debugging
+ * const failedSteps = await workflow.getFailedSteps()
+ * for (const { instanceId, step } of failedSteps) {
+ *   console.log(`Instance ${instanceId} failed at ${step.name}: ${step.error}`)
+ * }
+ * ```
+ *
+ * @see WorkflowFactory - Builder pattern for workflow definitions
+ * @see DO - Base Durable Object class
  */
 
 import { DO, Env } from './DO'

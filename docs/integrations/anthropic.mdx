@@ -24,11 +24,11 @@ const message = await client.messages.create({
 })
 ```
 
-## Why Use the Compat Layer?
+## Why @dotdo/anthropic?
 
 | Anthropic SDK | dotdo compat |
 |---------------|--------------|
-| Node.js runtime only | Edge-compatible (V8 isolates) |
+| Node.js runtime only | Edge-compatible (Cloudflare Workers, Deno, Bun) |
 | No built-in retry logic | Automatic retries with backoff |
 | Manual timeout handling | Configurable timeout (default 10min) |
 | Separate from your DO code | Native integration with Durable Objects |

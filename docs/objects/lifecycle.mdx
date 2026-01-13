@@ -272,7 +272,7 @@ class MyDO extends DO {
       await this.processHourlyTasks()
     })
 
-    this.$.every.day.at('9am')(async () => {
+    this.$.every.day.at9am(async () => {
       await this.sendDailyReport()
     })
 

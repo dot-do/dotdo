@@ -210,3 +210,69 @@ export {
   // Types - Events
   type AnalyticsEvent,
 } from './funnel-cohort'
+
+// ============================================================================
+// Process Mining
+// ============================================================================
+
+export {
+  // Process Discovery
+  ProcessDiscovery,
+  createProcessDiscovery,
+
+  // Bottleneck Analysis
+  BottleneckAnalyzer,
+  createBottleneckAnalyzer,
+
+  // Compliance Checking
+  ComplianceChecker,
+  createComplianceChecker,
+
+  // Performance Analysis
+  PerformanceAnalyzer,
+  createPerformanceAnalyzer,
+
+  // Fluent Builder
+  ProcessMiningBuilder,
+  processMining,
+
+  // Rule Builders
+  sequenceRule,
+  existenceRule,
+  absenceRule,
+  timingRule,
+  resourceRule,
+
+  // Types - Process Events
+  type ProcessEvent,
+  type ProcessCase,
+
+  // Types - Process Model
+  type ProcessTransition,
+  type ProcessActivity,
+  type ProcessModel,
+
+  // Types - Variants
+  type ProcessVariant,
+
+  // Types - Bottleneck Analysis
+  type BottleneckType,
+  type Bottleneck,
+  type BottleneckAnalysisResult,
+
+  // Types - Compliance
+  type ComplianceRule,
+  type ComplianceRuleDefinition,
+  type SequenceRule,
+  type ExistenceRule,
+  type AbsenceRule,
+  type TimingRule,
+  type ResourceRule,
+  type ComplianceViolation,
+  type ComplianceResult,
+
+  // Types - Performance
+  type ProcessPerformanceMetrics,
+  type ActivityMetrics,
+  type TimeSeriesMetrics,
+} from './process-mining'

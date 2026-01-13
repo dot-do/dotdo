@@ -19,13 +19,61 @@
  */
 
 import * as React from 'react'
-import { useState } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Button } from '@mdxui/primitives/button'
 import { Input } from '@mdxui/primitives/input'
 import { Label } from '@mdxui/primitives/label'
 import { Checkbox } from '@mdxui/primitives/checkbox'
 import { cn } from '@mdxui/primitives/lib/utils'
-import { Chrome, Github, Loader2 } from 'lucide-react'
+import { Chrome, Github, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/**
+ * Validate email format using RFC 5322 simplified pattern.
+ */
+function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(email)
+}
+
+/**
+ * Get user-friendly validation error message.
+ */
+function getValidationError(field: 'email' | 'password', value: string): string | null {
+  if (field === 'email') {
+    if (!value.trim()) return 'Email is required'
+    if (!isValidEmail(value)) return 'Please enter a valid email address'
+    return null
+  }
+  if (field === 'password') {
+    if (!value) return 'Password is required'
+    return null
+  }
+  return null
+}
+
+/**
+ * Map common auth error codes to user-friendly messages.
+ */
+function getAuthErrorMessage(error: string): string {
+  const errorMap: Record<string, string> = {
+    invalid_credentials: 'Invalid email or password. Please check your credentials and try again.',
+    account_locked: 'Your account has been temporarily locked due to too many failed attempts. Please try again later.',
+    account_disabled: 'Your account has been disabled. Please contact support.',
+    email_not_verified: 'Please verify your email address before signing in.',
+    rate_limited: 'Too many login attempts. Please wait a moment and try again.',
+    network_error: 'Unable to connect. Please check your internet connection.',
+    server_error: 'Something went wrong on our end. Please try again later.',
+  }
+  return errorMap[error] || error
+}
+
+// ============================================================================
+// Types
+// ============================================================================
 
 interface LoginFormProps {
   onSubmit?: (data: {
@@ -43,6 +91,10 @@ interface LoginFormProps {
   className?: string
 }
 
+// ============================================================================
+// Component
+// ============================================================================
+
 export function LoginForm({
   onSubmit,
   onOAuthClick,
@@ -58,15 +110,54 @@ export function LoginForm({
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [touched, setTouched] = useState<{ email: boolean; password: boolean }>({
+    email: false,
+    password: false,
+  })
 
-  const displayError = error || localError
+  // Compute validation errors only for touched fields
+  const emailError = useMemo(
+    () => (touched.email ? getValidationError('email', email) : null),
+    [email, touched.email]
+  )
+  const passwordError = useMemo(
+    () => (touched.password ? getValidationError('password', password) : null),
+    [password, touched.password]
+  )
+
+  // Format the display error with user-friendly message
+  const displayError = useMemo(() => {
+    const err = error || localError
+    if (!err) return null
+    return getAuthErrorMessage(err)
+  }, [error, localError])
+
+  // Clear error when user starts typing
+  const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value)
+    if (localError) setLocalError(null)
+  }, [localError])
+
+  const handlePasswordChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value)
+    if (localError) setLocalError(null)
+  }, [localError])
+
+  const handleBlur = useCallback((field: 'email' | 'password') => {
+    setTouched((prev) => ({ ...prev, [field]: true }))
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLocalError(null)
+    setTouched({ email: true, password: true })
 
-    if (!email || !password) {
-      setLocalError('Please fill in all fields')
+    // Validate all fields
+    const emailValidation = getValidationError('email', email)
+    const passwordValidation = getValidationError('password', password)
+
+    if (emailValidation || passwordValidation) {
+      setLocalError(emailValidation || passwordValidation || 'Please fill in all fields')
       return
     }
 
@@ -174,18 +265,33 @@ export function LoginForm({
       {/* Email field */}
       <div className="space-y-2">
         <Label htmlFor="login-email">Email</Label>
-        <Input
-          id="login-email"
-          data-testid="login-email-input"
-          type="email"
-          placeholder="name@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          autoComplete="email"
-          aria-describedby={displayError ? 'login-error' : undefined}
-          aria-invalid={!!displayError}
-        />
+        <div className="relative">
+          <Input
+            id="login-email"
+            data-testid="login-email-input"
+            type="email"
+            placeholder="name@example.com"
+            value={email}
+            onChange={handleEmailChange}
+            onBlur={() => handleBlur('email')}
+            required
+            autoComplete="email"
+            aria-describedby={emailError ? 'login-email-error' : displayError ? 'login-error' : undefined}
+            aria-invalid={!!emailError}
+            className={cn(emailError && 'border-destructive focus-visible:ring-destructive')}
+          />
+          {/* Email validation indicator */}
+          {email && touched.email && !emailError && (
+            <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" aria-hidden="true" />
+          )}
+        </div>
+        {/* Inline email error */}
+        {emailError && (
+          <p id="login-email-error" className="text-xs text-destructive flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" aria-hidden="true" />
+            {emailError}
+          </p>
+        )}
       </div>
 
       {/* Password field */}
@@ -207,12 +313,21 @@ export function LoginForm({
           type="password"
           placeholder="Enter your password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={handlePasswordChange}
+          onBlur={() => handleBlur('password')}
           required
           autoComplete="current-password"
-          aria-describedby={displayError ? 'login-error' : undefined}
-          aria-invalid={!!displayError}
+          aria-describedby={passwordError ? 'login-password-error' : displayError ? 'login-error' : undefined}
+          aria-invalid={!!passwordError}
+          className={cn(passwordError && 'border-destructive focus-visible:ring-destructive')}
         />
+        {/* Inline password error */}
+        {passwordError && (
+          <p id="login-password-error" className="text-xs text-destructive flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" aria-hidden="true" />
+            {passwordError}
+          </p>
+        )}
       </div>
 
       {/* Remember me checkbox */}

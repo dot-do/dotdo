@@ -36,7 +36,7 @@ export class MyStartup extends Startup {
     })
 
     // Scheduling
-    $.every.monday.at('9am')(() => this.weeklyReport())
+    $.every.Monday.at9am(() => this.weeklyReport())
   }
 }
 ```
@@ -153,7 +153,7 @@ $.on.Payment.failed(async ($, { orderId, reason }) => {
 ```typescript
 // Recurring schedules
 $.every.hour(() => this.syncInventory())
-$.every.monday.at('9am')(() => this.weeklyReport())
+$.every.Monday.at9am(() => this.weeklyReport())
 $.every(5).minutes(() => this.healthCheck())
 
 // One-time scheduling
