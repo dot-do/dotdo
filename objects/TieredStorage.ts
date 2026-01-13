@@ -600,6 +600,7 @@ export class TieredStorage {
 
   private async removeFromAllTiers(key: string): Promise<void> {
     this.hotCache.delete(key)
+    this.metadataCache.delete(key)
     if (this.warmKeys.has(key)) {
       await this.state.storage.delete(`tiered:warm:${key}`)
       this.warmKeys.delete(key)

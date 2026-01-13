@@ -723,6 +723,7 @@ describe('Role-Based Access Control (RBAC)', () => {
 describe('Auth Context Available in Request', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetJWKSCache()
   })
 
   it('sets auth context with userId from JWT sub claim', async () => {
@@ -732,8 +733,8 @@ describe('Auth Context Available in Request', () => {
     // Create a test app that reads auth context
     const testApp = new Hono<{ Variables: { auth: AuthContext } }>()
 
-    // TODO: Apply auth middleware here once implemented
-    // testApp.use('*', authMiddleware)
+    // Apply auth middleware
+    testApp.use('*', authMiddleware({ jwksUrl: 'https://test.example.com/.well-known/jwks.json' }))
 
     testApp.get('/whoami', (c) => {
       const auth = c.get('auth')
@@ -770,6 +771,9 @@ describe('Auth Context Available in Request', () => {
     // Create test app to verify email in context
     const testApp = new Hono<{ Variables: { auth: AuthContext } }>()
 
+    // Apply auth middleware
+    testApp.use('*', authMiddleware({ jwksUrl: 'https://test.example.com/.well-known/jwks.json' }))
+
     testApp.get('/profile', (c) => {
       const auth = c.get('auth')
       return c.json({ email: auth?.email })
@@ -792,6 +796,9 @@ describe('Auth Context Available in Request', () => {
     mockValidJWTVerification({ sub: 'admin-123', role: 'admin' })
 
     const testApp = new Hono<{ Variables: { auth: AuthContext } }>()
+
+    // Apply auth middleware
+    testApp.use('*', authMiddleware({ jwksUrl: 'https://test.example.com/.well-known/jwks.json' }))
 
     testApp.get('/role', (c) => {
       const auth = c.get('auth')
@@ -824,6 +831,9 @@ describe('Auth Context Available in Request', () => {
 
     const testApp = new Hono<{ Variables: { auth: AuthContext } }>()
 
+    // Apply auth middleware
+    testApp.use('*', authMiddleware({ jwksUrl: 'https://test.example.com/.well-known/jwks.json' }))
+
     testApp.get('/permissions', (c) => {
       const auth = c.get('auth')
       return c.json({ permissions: auth?.permissions })
@@ -844,6 +854,9 @@ describe('Auth Context Available in Request', () => {
   it('auth context is undefined for public routes', async () => {
     const testApp = new Hono<{ Variables: { auth?: AuthContext } }>()
 
+    // Apply auth middleware with public paths
+    testApp.use('*', authMiddleware({ publicPaths: ['/public'] }))
+
     testApp.get('/public', (c) => {
       const auth = c.get('auth')
       return c.json({ hasAuth: auth !== undefined })
@@ -862,7 +875,7 @@ describe('Auth Context Available in Request', () => {
 
     const testApp = new Hono<{ Variables: { auth: AuthContext; processed: boolean } }>()
 
-    // First middleware checks auth
+    // First middleware (runs before auth middleware)
     testApp.use('*', async (c, next) => {
       await next()
       // Auth should still be available after next()
@@ -871,6 +884,9 @@ describe('Auth Context Available in Request', () => {
         c.header('X-User-Id', auth.userId)
       }
     })
+
+    // Apply auth middleware
+    testApp.use('*', authMiddleware({ jwksUrl: 'https://test.example.com/.well-known/jwks.json' }))
 
     testApp.get('/chain', (c) => {
       c.set('processed', true)
