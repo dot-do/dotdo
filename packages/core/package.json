@@ -1,0 +1,64 @@
+{
+  "name": "@dotdo/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Core SDK infrastructure for dotdo - unified error handling and retry logic",
+  "author": "dotdo <hello@dotdo.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/dotdo-dev/dotdo/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/dotdo-dev/dotdo/issues"
+  },
+  "keywords": [
+    "dotdo",
+    "sdk",
+    "errors",
+    "retry",
+    "backoff",
+    "circuit-breaker",
+    "cloudflare",
+    "workers"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js",
+      "require": "./dist/errors.cjs"
+    },
+    "./retry": {
+      "types": "./dist/retry.d.ts",
+      "import": "./dist/retry.js",
+      "require": "./dist/retry.cjs"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "sideEffects": false
+}

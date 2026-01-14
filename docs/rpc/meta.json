@@ -5,7 +5,6 @@
   "pages": [
     "index",
     "understanding-promise-pipelining",
-    "when-to-await",
     "client",
     "server",
     "pipelines",

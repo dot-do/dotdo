@@ -1,0 +1,32 @@
+{
+  "name": "@dotdo/auth0",
+  "version": "0.1.0",
+  "description": "Auth0 SDK compat layer for Cloudflare Workers",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "auth0",
+    "authentication",
+    "cloudflare-workers",
+    "edge",
+    "dotdo"
+  ],
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
