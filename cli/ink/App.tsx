@@ -1,13 +1,16 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import { Box } from 'ink'
 import { Header } from './Header'
 import { Input } from './Input'
 import { Output } from './Output'
+import { createCompletionService } from '../services/ts-completions'
+import { join } from 'path'
 
 interface AppProps {
   doName: string
   user?: string
   onExecute: (code: string) => Promise<string>
+  typesPath?: string
 }
 
 interface OutputEntry {
@@ -15,16 +18,25 @@ interface OutputEntry {
   content: string
 }
 
-export function App({ doName, user, onExecute }: AppProps) {
+export function App({ doName, user, onExecute, typesPath }: AppProps) {
   const [entries, setEntries] = useState<OutputEntry[]>([])
-  const [completions] = useState<string[]>([
-    '$.things',
-    '$.events',
-    '$.actions',
-    '$.on',
-    '$.every',
-    'await',
-  ])
+  const [currentInput, setCurrentInput] = useState('')
+
+  // Create completion service with optional types path
+  const completionService = useMemo(() => {
+    const defaultTypesPath = typesPath || join(process.cwd(), '.do', 'types.d.ts')
+    return createCompletionService(defaultTypesPath)
+  }, [typesPath])
+
+  // Get dynamic completions based on current input
+  const completions = useMemo(() => {
+    if (!currentInput) {
+      // Default completions when input is empty
+      return ['$', 'await', 'const', 'let', 'async']
+    }
+    // Get completions at end of current input
+    return completionService.getCompletions(currentInput, currentInput.length)
+  }, [currentInput, completionService])
 
   const handleSubmit = useCallback(async (code: string) => {
     if (!code.trim()) return
@@ -68,6 +80,7 @@ export function App({ doName, user, onExecute }: AppProps) {
       <Input
         prompt={`${doName}> `}
         onSubmit={handleSubmit}
+        onChange={setCurrentInput}
         completions={completions}
       />
     </Box>

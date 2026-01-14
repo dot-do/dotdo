@@ -4,10 +4,11 @@ import { Box, Text, useInput } from 'ink'
 interface InputProps {
   prompt: string
   onSubmit: (value: string) => void
+  onChange?: (value: string) => void
   completions?: string[]
 }
 
-export function Input({ prompt, onSubmit, completions = [] }: InputProps) {
+export function Input({ prompt, onSubmit, onChange, completions = [] }: InputProps) {
   const [value, setValue] = useState('')
   const [showCompletions, setShowCompletions] = useState(false)
 
@@ -15,15 +16,24 @@ export function Input({ prompt, onSubmit, completions = [] }: InputProps) {
     if (key.return) {
       onSubmit(value)
       setValue('')
+      onChange?.('')
       setShowCompletions(false)
     } else if (key.backspace || key.delete) {
-      setValue(v => v.slice(0, -1))
+      setValue(v => {
+        const newValue = v.slice(0, -1)
+        onChange?.(newValue)
+        return newValue
+      })
     } else if (key.tab) {
       setShowCompletions(true)
     } else if (key.escape) {
       setShowCompletions(false)
     } else if (!key.ctrl && !key.meta && input) {
-      setValue(v => v + input)
+      setValue(v => {
+        const newValue = v + input
+        onChange?.(newValue)
+        return newValue
+      })
     }
   })
 
