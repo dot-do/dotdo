@@ -1,0 +1,40 @@
+{
+  "name": "@dotdo/sentry",
+  "version": "0.1.0",
+  "description": "Sentry SDK compat layer for Cloudflare Workers with edge-native performance",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "sentry",
+    "error-tracking",
+    "monitoring",
+    "observability",
+    "cloudflare",
+    "workers",
+    "edge",
+    "serverless"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "compat/sentry"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}

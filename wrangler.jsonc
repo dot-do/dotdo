@@ -113,16 +113,11 @@
     }
   ],
 
-  // Cloudflare Pipelines for event streaming and artifact storage
+  // Cloudflare Pipelines for artifact storage
   // Pipelines are created via CLI: npx wrangler pipelines create <name> ...
   // See: db/spikes/pipelines-write-path-design.md
   //
   // Pipeline configurations (to be created via wrangler CLI):
-  //
-  // events: Domain event pipeline for EventsStore streaming
-  //   npx wrangler pipelines create events \
-  //     --batch-max-mb 1 --batch-max-rows 10000 --batch-max-seconds 5 \
-  //     --r2 artifacts-lake --partition-by ns,year,month,day
   //
   // artifacts-preview: Small batches (100KB, 5s) for dev/testing
   //   npx wrangler pipelines create artifacts-preview \
@@ -140,10 +135,6 @@
   //     --r2 artifacts-lake --partition-by ns,type
   //
   "pipelines": [
-    {
-      "pipeline": "events",
-      "binding": "PIPELINE"
-    },
     {
       "pipeline": "artifacts-preview",
       "binding": "ARTIFACTS_PREVIEW"

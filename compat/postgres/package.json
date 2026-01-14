@@ -1,0 +1,41 @@
+{
+  "name": "@dotdo/postgres",
+  "version": "0.1.0",
+  "description": "PostgreSQL compat layer for Cloudflare Workers - pg (node-postgres) API backed by DO SQLite",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "pg",
+    "node-postgres",
+    "cloudflare",
+    "workers",
+    "sql",
+    "durable-objects",
+    "database"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "compat/postgres"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}

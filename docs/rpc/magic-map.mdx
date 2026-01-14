@@ -266,16 +266,15 @@ Server executes the whole thing, returns just the final result.
 
 ## Agent-Specific Map
 
-When using agents through the workflow proxy, mapping with agent calls triggers batch execution:
+When mapping with agent calls, each element triggers an agent:
 
 ```typescript
-// Agents accessed via workflow proxy for Magic Map support
-const tasks = $.Agent('priya')`break down ${spec} into tasks`
-const implementations = tasks.map(task => $.Agent('ralph')`implement ${task}`)
-await $.Agent('quinn')`test all: ${implementations}`
+const tasks = priya`break down ${spec} into tasks`
+const implementations = tasks.map(task => ralph`implement ${task}`)
+await quinn`test all: ${implementations}`
 ```
 
-Here, the `.map()` creates N agent calls - one per task. The server:
+Here, `tasks.map(task => ralph\`implement ${task}\`)` creates N ralph calls—one per task. The server:
 
 1. Runs Priya, gets list of tasks
 2. For each task, runs Ralph (potentially in parallel)
@@ -289,7 +288,7 @@ By default, mapped agent calls run in parallel. For sequential execution or rate
 
 ```typescript
 const implementations = tasks.map(
-  task => $.Agent('ralph')`implement ${task}`,
+  task => ralph`implement ${task}`,
   { concurrency: 3 }  // Max 3 parallel
 )
 ```
@@ -362,7 +361,3 @@ For a 10,000-item array where you need 100 emails:
 | `.sort(fn)` | Order elements |
 
 Keep callbacks simple. Let the server do the work. One round trip.
-
-## Related
-
-For the definitive guide on when to use Magic Map vs await-then-loop, see [When to Await](/docs/rpc/when-to-await).

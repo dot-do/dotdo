@@ -81,101 +81,25 @@ This gives us:
 Files automatically tier based on size and access patterns:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           fsx Tiered Storage                                 │
-├─────────────────────┬─────────────────────────┬─────────────────────────────┤
-│     Hot Tier        │       Warm Tier         │        Cold Tier            │
-│     (SQLite)        │       (R2)              │        (R2 Archive)         │
-├─────────────────────┼─────────────────────────┼─────────────────────────────┤
-│ • < 1ms latency     │ • 5-50ms latency        │ • 50-200ms latency          │
-│ • Per-DO isolation  │ • Shared across DOs     │ • Compressed/packed         │
-│ • Up to 1MB default │ • Up to 5GB per object  │ • Optimized for cost        │
-│ • ACID transactions │ • Read-after-write      │ • Infrequent access class   │
-└─────────────────────┴─────────────────────────┴─────────────────────────────┘
+┌─────────────────┐
+│   Hot Tier      │  SQLite in DO storage (< 64KB)
+│   (immediate)   │  Sub-millisecond access
+├─────────────────┤
+│   Warm Tier     │  R2 object storage (64KB - 5GB)
+│   (fast)        │  Single-digit ms latency
+├─────────────────┤
+│   Cold Tier     │  R2 with infrequent access class
+│   (archived)    │  Lowest cost, retrieval delay
+└─────────────────┘
 ```
 
-#### Size Limits and Thresholds
-
-| Tier | Max Object Size | Total Capacity | Use Case |
-|------|-----------------|----------------|----------|
-| **Hot** | 1 MB (configurable) | ~50 MB per DO | Frequently accessed, small files |
-| **Warm** | 5 GB | Unlimited | Large files, moderate access |
-| **Cold** | 5 GB | Unlimited | Historical data, backups |
-
-#### Automatic Tier Selection
-
-When you write a file, fsx automatically selects the appropriate tier:
-
+**Hot to warm promotion:**
 ```typescript
-// Tier selection based on file size (configurable)
-private selectTier(size: number): StorageTier {
-  if (size <= hotMaxSize) return 'hot'        // SQLite (default: <= 1MB)
-  if (size <= warmMaxSize) return 'warm'      // R2 (default: <= 100MB)
-  return 'cold'                                // R2 Archive
-}
-```
+// Small config stays in SQLite
+await $.fs.write('config.json', '{"port": 3000}')  // Hot tier
 
-**Examples:**
-```typescript
-// Small config stays in SQLite (hot tier)
-await $.fs.write('config.json', '{"port": 3000}')  // < 1MB -> Hot tier
-
-// Large dataset goes to R2 (warm tier)
-await $.fs.write('data/dump.csv', largeCsvData)    // > 1MB -> Warm tier
-
-// Check which tier a file is in
-const stat = await $.fs.stat('data/dump.csv')
-console.log(`Tier: ${stat.tier}`)  // 'hot', 'warm', or 'cold'
-```
-
-#### When Files Move Between Tiers
-
-**Automatic promotion** (cold/warm to hot):
-- Triggered when `accessCount >= promotionThreshold` (default: 3 accesses)
-- Only promotes if file fits in hot tier capacity
-- Happens transparently on read
-
-**Manual tier control:**
-```typescript
-// Manually demote old files to save hot tier space
-await $.fs.demote('/data/archive-2023.json', 'cold')
-
-// Force a file to stay in hot tier (pin)
-await $.fs.write('critical.json', data, { tier: 'hot' })
-```
-
-**Automatic demotion** (via maintenance):
-```typescript
-// Run periodically to demote files not accessed in 7+ days
-await tieredFs.runMaintenance()
-```
-
-#### Consistency Model
-
-fsx provides **strong consistency** for metadata and **eventual consistency** for large file content:
-
-| Operation | Consistency | Notes |
-|-----------|-------------|-------|
-| Metadata reads | Strong | SQLite in single DO |
-| Hot tier reads | Strong | SQLite SERIALIZABLE isolation |
-| Warm/cold reads | Eventual | R2 read-after-write consistency |
-| Directory listings | Strong | Metadata always in SQLite |
-| Atomic writes | Supported | Via `atomic: true` option |
-| Transactions | Full ACID | SQLite transactions |
-
-#### Behavior on DO Restart
-
-When a Durable Object restarts (after idle timeout or deployment):
-- **Metadata is persisted** in SQLite and survives restarts
-- **Hot tier file content** is persisted in SQLite
-- **Warm/cold content** is in R2 (always persistent)
-- **In-memory tier tracking cache** is rebuilt from metadata on first access
-
-```typescript
-// After DO restart, first read may be slightly slower
-// as tier tracking cache rebuilds
-const data = await $.fs.read('data/file.json')  // Cache rebuilt
-const data2 = await $.fs.read('data/file2.json')  // Fast (cache warm)
+// Large dataset moves to R2
+await $.fs.write('data/dump.csv', largeCsvData)    // Warm tier (R2)
 ```
 
 ## Glob Patterns

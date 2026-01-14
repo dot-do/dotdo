@@ -344,7 +344,7 @@ await $.broadcast('inventory-update', { sku, quantity })
 Sagas provide a way to maintain data consistency across distributed services without distributed transactions. Each step has a compensation that can undo its effects if a later step fails.
 
 ```typescript
-import { SagaBuilder, parallel } from '@dotdo/compat-temporal/saga'
+import { SagaBuilder, parallel } from 'dotdo/workflows/compat/temporal/saga'
 
 // Define the order fulfillment saga
 const orderSaga = new SagaBuilder()
@@ -414,7 +414,7 @@ on.Order.placed(async (event) => {
 Execute multiple steps concurrently while maintaining compensation guarantees:
 
 ```typescript
-import { SagaBuilder, parallel } from '@dotdo/compat-temporal/saga'
+import { SagaBuilder, parallel } from 'dotdo/workflows/compat/temporal/saga'
 
 const checkoutSaga = new SagaBuilder()
   .addStep(parallel({
@@ -821,14 +821,12 @@ For implementation details and architecture documentation:
 
 ### Compat Layers
 
-Workflow compat layers have been moved to the [compat repo](https://github.com/dotdo/compat).
-
-| Platform | Package | Description |
-|----------|---------|-------------|
-| **Temporal** | `@dotdo/compat-temporal` | Temporal workflow compatibility |
-| **Inngest** | `@dotdo/compat-inngest` | Inngest event functions compatibility |
-| **QStash** | `@dotdo/compat-qstash` | Upstash QStash compatibility |
-| **Trigger.dev** | `@dotdo/compat-trigger` | Trigger.dev compatibility |
+| Platform | README | Description |
+|----------|--------|-------------|
+| **Temporal** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/temporal/README.md) | Temporal workflow compatibility |
+| **Inngest** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/inngest/README.md) | Inngest event functions compatibility |
+| **QStash** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/qstash/README.md) | Upstash QStash compatibility |
+| **Trigger.dev** | [README](https://github.com/dotdo/dotdo/blob/main/workflows/compat/trigger/README.md) | Trigger.dev compatibility |
 
 ### Key Implementation Files
 

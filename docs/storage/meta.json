@@ -4,7 +4,6 @@
   "root": true,
   "pages": [
     "index",
-    "hierarchy",
     "durable-objects",
     "r2",
     "kv",

@@ -252,8 +252,6 @@ await stream.flush()
 
 ## Compat SDKs
 
-> **Note:** The streaming compat SDKs (`@dotdo/kafka`, `@dotdo/nats`, `@dotdo/sqs`, etc.) have been moved to the [compat repo](../../../compat/streaming-compat/). This streaming module contains the core infrastructure (EventStreamDO, StreamBridge, UnifiedQueryLayer).
-
 ### @dotdo/kafka
 
 Full kafkajs compatibility:

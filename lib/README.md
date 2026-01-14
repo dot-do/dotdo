@@ -24,14 +24,17 @@ lib/
 ├── iterators/       # Async iteration and aggregation utilities
 ├── logging/         # Structured logging infrastructure
 ├── namespace/       # Namespace resolution
+├── okrs/            # OKR definitions and prebuilt metrics
 ├── pagination/      # Pagination utilities
 ├── payments/        # Invoice and metering utilities
+├── pricing/         # Pricing models (outcome, credit, activity, seat)
 ├── rate-limit/      # Rate limiting utilities
 ├── response/        # Response builders (collection, linked-data, URLs)
 ├── rpc/             # RPC binding architecture
 ├── sandbox/         # Miniflare sandbox utilities
 ├── sql/             # SQL parser abstraction
 ├── storage/         # Authorized R2, chunked uploads, presigned URLs
+├── support/         # AI-driven customer support system
 ├── tools/           # Tool adapters and permissions
 ├── utils/           # General utilities
 ├── validation/      # Input validation and schema registry
@@ -851,6 +854,84 @@ const accessToken = await $.oauth.getAccessToken('user:123', 'google')
 
 ---
 
+## Pricing Models
+
+### pricing/
+
+Pricing models for SaaS applications.
+
+#### Model Types
+
+```typescript
+type PricingModel = 'outcome' | 'activity' | 'seat' | 'credit' | 'hybrid'
+```
+
+#### Outcome-Based Pricing
+
+```typescript
+import { createOutcomeTracker, calculateOutcomeCost } from 'lib/pricing'
+
+const tracker = createOutcomeTracker({
+  outcomes: {
+    'conversion': { value: 10.00 },
+    'signup': { value: 2.50 }
+  }
+})
+
+await tracker.record({ type: 'conversion', metadata: {...} })
+const summary = await tracker.getSummary()
+```
+
+#### Credit-Based Pricing
+
+```typescript
+import { createCreditAccount } from 'lib/pricing'
+
+const account = createCreditAccount({
+  initialBalance: 1000,
+  topUpThreshold: 100,
+  autoTopUp: { amount: 500, paymentMethodId: '...' }
+})
+
+const result = await account.consume(50, 'api-call')
+const balance = await account.getBalance()
+```
+
+#### Activity-Based Pricing
+
+```typescript
+import { createActivityTracker, calculateActivityCost } from 'lib/pricing'
+
+const tracker = createActivityTracker({
+  metrics: {
+    'api-calls': { rate: 0.001 },
+    'storage-gb': { rate: 0.10 }
+  }
+})
+
+await tracker.record('api-calls', 1)
+```
+
+#### Seat-Based Pricing
+
+```typescript
+import { createSeatManager } from 'lib/pricing'
+
+const seats = createSeatManager({
+  seatTypes: {
+    'viewer': { price: 0 },
+    'editor': { price: 10 },
+    'admin': { price: 25 }
+  },
+  maxSeats: { viewer: -1, editor: 50, admin: 5 }
+})
+
+await seats.acquire('user-123', 'editor')
+const status = await seats.getStatus()
+```
+
+---
+
 ## Logging
 
 ### logging/
@@ -909,6 +990,71 @@ const iterator = createBackpressureIterator(source, {
   highWaterMark: 100,
   lowWaterMark: 25
 })
+```
+
+---
+
+## OKRs
+
+### okrs/
+
+OKR (Objectives and Key Results) definitions and prebuilt metrics.
+
+```typescript
+import { defineOKR, defineMetric } from 'lib/okrs'
+import { ProductOKRs, SaaSKRs, EngineeringOKRs } from 'lib/okrs'
+
+const okr = defineOKR({
+  objective: 'Launch MVP successfully',
+  keyResults: [
+    { metric: 'ActiveUsers', target: 1000, current: 500 },
+    { metric: 'NPS', target: 50, current: 30 },
+  ],
+})
+
+console.log(okr.progress())    // 0.55
+console.log(okr.isComplete())  // false
+
+// Prebuilt OKRs for common business functions
+const productOKRs = ProductOKRs.featureAdoption({...})
+const saasOKRs = SaaSKRs.mrr({...})
+const engOKRs = EngineeringOKRs.buildVelocity({...})
+```
+
+---
+
+## Support System
+
+### support/
+
+AI-driven customer support system.
+
+```typescript
+import { createChatBox, createRouter, createAITopicDetector } from 'lib/support'
+
+const chatbox = createChatBox({
+  agents: { default: myAgent },
+  escalation: {
+    triggers: [
+      { type: 'keyword', value: 'urgent', escalateTo: 'human' },
+      { type: 'sentiment', threshold: -0.5, escalateTo: 'human' }
+    ]
+  }
+})
+
+const session = await chatbox.startSession({ customerId: 'cust-123' })
+const response = await session.sendMessage('I need help with my order')
+
+// Topic-based routing
+const router = createRouter({
+  topics: {
+    'billing': billingAgent,
+    'technical': techAgent,
+    'general': defaultAgent
+  }
+})
+
+const route = await router.route(message)
 ```
 
 ---

@@ -30,24 +30,7 @@
  */
 
 import type { EventStreamDO, BroadcastEvent } from './event-stream-do'
-
-/**
- * IcebergSink interface for cold tier queries.
- *
- * The full implementation lives in compat/streaming-compat/kafka/kafka-pipelines.ts
- * We only need the query method for UnifiedQueryLayer.
- */
-export interface IcebergSink {
-  /** Execute SQL query against Iceberg table */
-  query(sql: string): Promise<Record<string, unknown>[]>
-  /** Optional: Get partition statistics for query optimization */
-  getPartitionStats?(tableName: string, columnName: string): Promise<{
-    minValue?: unknown
-    maxValue?: unknown
-    nullCount?: number
-    distinctCount?: number
-  }>
-}
+import type { IcebergSink } from './compat/kafka/kafka-pipelines'
 
 // ============================================================================
 // ERROR CLASSES
