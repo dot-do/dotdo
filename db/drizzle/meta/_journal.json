@@ -15,6 +15,13 @@
       "when": 1768393089257,
       "tag": "0001_solid_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1768394157217,
+      "tag": "0002_stiff_red_hulk",
+      "breakpoints": true
     }
   ]
 }

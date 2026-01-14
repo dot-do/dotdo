@@ -348,9 +348,9 @@ program
 // Make REPL the default when no command given
 program.action(async () => {
   // Import dynamically to avoid circular dependency issues
-  const { replCommand: repl } = await import('./commands/repl')
-  const action = repl.action()
-  if (action) await action
+  const { replCommand } = await import('./commands/repl')
+  // Parse with empty arguments to trigger the repl command's action
+  await replCommand.parseAsync([], { from: 'user' })
 })
 
 // Parse arguments only when run directly (not when imported)

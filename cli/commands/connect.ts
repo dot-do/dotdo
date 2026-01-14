@@ -20,10 +20,27 @@ export interface ConnectOptions {
 }
 
 /**
+ * Validate that $id is a valid URL
+ */
+function isValidUrl($id: string): boolean {
+  try {
+    new URL($id)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Connect folder to a DO
  */
 export async function connectToDO(options: ConnectOptions): Promise<void> {
   const { $id, dir = process.cwd(), skipTypes = false, force = false } = options
+
+  // Validate URL
+  if (!isValidUrl($id)) {
+    throw new Error(`Invalid DO URL: ${$id}. Must be a valid URL like https://example.com`)
+  }
 
   // Check for existing config
   if (configExists(dir) && !force) {
@@ -32,13 +49,22 @@ export async function connectToDO(options: ConnectOptions): Promise<void> {
   }
 
   // Create config
-  const config: DO.Config = { $id }
-  await writeConfig(config, dir)
-  logger.success(`Connected to ${$id}`)
+  try {
+    const config: DO.Config = { $id }
+    await writeConfig(config, dir)
+    logger.success(`Connected to ${$id}`)
+  } catch (error) {
+    logger.error(`Failed to write config: ${error instanceof Error ? error.message : String(error)}`)
+    throw error
+  }
 
   // Generate types
   if (!skipTypes) {
-    await generateTypes({ $id, outputDir: dir, mockTypes: true })
+    try {
+      await generateTypes({ $id, outputDir: dir, mockTypes: true })
+    } catch (error) {
+      logger.warn(`Config created but type generation failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 }
 

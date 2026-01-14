@@ -13,6 +13,7 @@ import { sql } from 'drizzle-orm'
 // Wrangler bundler will inline this as a string via the Text rule
 import migration0000 from './0000_gray_revanche.sql'
 import migration0001 from './0001_solid_slayback.sql'
+import migration0002 from './0002_stiff_red_hulk.sql'
 import journal from './meta/_journal.json'
 
 /**
@@ -64,6 +65,7 @@ function hashSql(sqlContent: string): string {
 const migrationFiles: Record<string, string> = {
   '0000_gray_revanche': migration0000,
   '0001_solid_slayback': migration0001,
+  '0002_stiff_red_hulk': migration0002,
 }
 
 /**

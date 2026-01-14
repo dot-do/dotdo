@@ -30,6 +30,7 @@ import type { Env } from './types'
 import { analyticsRouter } from './analytics/router'
 
 export { DO } from '../objects/DO'
+export type { LocationInfo }
 
 // ============================================================================
 // DO ROUTING
@@ -66,6 +67,9 @@ interface NounConfig {
   storage: string
   ttlDays: number | null
   nsStrategy: string
+  consistencyMode?: 'strong' | 'eventual'
+  replicaRegions?: string[]
+  replicaCount?: number
 }
 
 /**
@@ -135,6 +139,44 @@ const STATIC_DO_ROUTES: Record<string, DORoute> = {
 }
 
 /**
+ * Location information for replica selection
+ */
+interface LocationInfo {
+  colo: string          // Cloudflare colo identifier
+  region: string        // AWS region code
+  lat: number           // Latitude
+  lon: number           // Longitude
+}
+
+/**
+ * Extract location info from Cloudflare headers
+ *
+ * Cloudflare provides location data via CF-IPCountry, CF-Metro-Code, etc.
+ * For testing/mock purposes, this provides a safe fallback.
+ *
+ * @param req - Hono request context
+ * @returns LocationInfo if available, undefined otherwise
+ */
+function extractLocationFromHeaders(req: any): LocationInfo | undefined {
+  try {
+    // Try to extract from Cloudflare headers
+    const colo = req.header('CF-Ray')?.split('-')[1] || 'unknown'
+    const region = req.header('CF-IPCountry') || 'unknown'
+    const lat = parseFloat(req.header('CF-IPLatitude') || '0')
+    const lon = parseFloat(req.header('CF-IPLongitude') || '0')
+
+    // Return if we have valid coordinates
+    if (!isNaN(lat) && !isNaN(lon) && region !== 'unknown') {
+      return { colo, region, lat, lon }
+    }
+  } catch {
+    // Silently fail - location info is optional
+  }
+
+  return undefined
+}
+
+/**
  * Get DO binding and namespace for a request
  *
  * Routing priority:
@@ -142,22 +184,33 @@ const STATIC_DO_ROUTES: Record<string, DORoute> = {
  * 2. Noun config from the nouns table (sharding, storage tier, etc.)
  * 3. Default: main DO binding with tenant namespace
  *
+ * With replica support:
+ * - Read operations (GET) to eventual consistency data route to replicas if available
+ * - Write operations (POST, PUT, DELETE) always route to primary
+ * - Strong consistency always uses primary
+ *
  * @param env - Cloudflare env with DO bindings
  * @param pathname - Request pathname
  * @param hostname - Request hostname for tenant derivation
- * @returns DO namespace binding and namespace string
+ * @param method - HTTP method (GET, POST, etc.) - defaults to 'GET'
+ * @param location - Request location info for replica selection
+ * @returns DO namespace binding, namespace string, and replica info
  */
 async function getDOBinding(
   env: Env,
   pathname: string,
-  hostname: string
-): Promise<{ ns: DurableObjectNamespace; nsName: string; nounConfig?: NounConfig } | null> {
+  hostname: string,
+  method?: string,
+  location?: LocationInfo
+): Promise<{ ns: DurableObjectNamespace; nsName: string; nounConfig?: NounConfig; isReplica?: boolean; replicaRegion?: string; locationHint?: LocationInfo } | null> {
   // Extract first path segment (e.g., '/browsers/123' → 'browsers')
   const segments = pathname.slice(1).split('/')
   const firstSegment = segments[0]?.toLowerCase() ?? ''
   const tenant = getTenantFromHostname(hostname)
+  const httpMethod = (method || 'GET').toUpperCase()
+  const isReadOperation = httpMethod === 'GET' || httpMethod === 'HEAD'
 
-  // 1. Check for static route overrides first
+  // 1. Check for static route overrides first (never use replicas for static routes)
   const staticRoute = STATIC_DO_ROUTES[firstSegment]
   if (staticRoute) {
     const binding = env[staticRoute.binding]
@@ -182,7 +235,7 @@ async function getDOBinding(
         break
     }
 
-    return { ns: binding, nsName }
+    return { ns: binding, nsName, isReplica: false }
   }
 
   // 2. Check noun config from the nouns table
@@ -220,7 +273,60 @@ async function getDOBinding(
         break
     }
 
-    return { ns: nsBinding, nsName, nounConfig: nounEntry }
+    // ========================================================================
+    // REPLICA ROUTING LOGIC
+    // ========================================================================
+    // For read operations with eventual consistency and replicas configured:
+    // - Route to nearest replica only if location is in replica regions
+    // For all other cases (writes, strong consistency, or location outside replicas):
+    // - Route to primary
+
+    if (isReadOperation && location &&
+        nounEntry.consistencyMode === 'eventual' &&
+        nounEntry.replicaRegions &&
+        nounEntry.replicaRegions.length > 0) {
+
+      // Check if location's region is in the replica regions
+      if (nounEntry.replicaRegions.includes(location.region)) {
+        // We have replicas configured and this is a read with eventual consistency
+        const replicaDO = (env as Record<string, unknown>).REPLICA_DO as DurableObjectNamespace | undefined
+
+        if (replicaDO) {
+          // Select the nearest replica based on location region
+          const selectedReplica = selectNearestReplica(
+            location.region,
+            nounEntry.replicaRegions,
+            location.lat,
+            location.lon
+          )
+
+          return {
+            ns: replicaDO,
+            nsName,
+            nounConfig: nounEntry,
+            isReplica: true,
+            replicaRegion: selectedReplica,
+            locationHint: location,
+          }
+        }
+      }
+      // If location is outside replica regions, fall back to primary below
+    }
+
+    // Default: primary binding
+    const result: { ns: DurableObjectNamespace; nsName: string; nounConfig?: NounConfig; isReplica?: boolean; locationHint?: LocationInfo } = {
+      ns: nsBinding,
+      nsName,
+      nounConfig: nounEntry,
+      isReplica: false,
+    }
+
+    // Include locationHint if location was provided
+    if (location) {
+      result.locationHint = location
+    }
+
+    return result
   }
 
   // 3. Default: use main DO binding with tenant namespace
@@ -231,7 +337,37 @@ async function getDOBinding(
   return {
     ns: env.DO,
     nsName: tenant,
+    isReplica: false,
   }
+}
+
+/**
+ * Select the nearest replica region based on location
+ *
+ * Strategy:
+ * 1. If location region is in available replicas, use it
+ * 2. Otherwise, use the first available replica (could be enhanced with lat/lon distance)
+ *
+ * @param currentRegion - Current region from location info
+ * @param replicaRegions - Available replica regions
+ * @param lat - Latitude for distance calculation (optional)
+ * @param lon - Longitude for distance calculation (optional)
+ * @returns Selected replica region
+ */
+function selectNearestReplica(
+  currentRegion: string,
+  replicaRegions: string[],
+  lat?: number,
+  lon?: number
+): string {
+  // If current region is in replicas, use it
+  if (replicaRegions.includes(currentRegion)) {
+    return currentRegion
+  }
+
+  // Otherwise, return the first replica (simple strategy)
+  // In production, could use lat/lon to calculate actual geographic distance
+  return replicaRegions[0] ?? 'unknown'
 }
 
 /**
@@ -691,8 +827,17 @@ app.all('/api/*', async (c) => {
   // Strip /api prefix for DO routing
   const pathWithoutApi = url.pathname.replace(/^\/api/, '') || '/'
 
+  // Extract location info from CF headers (if available)
+  const location = extractLocationFromHeaders(c.req)
+
   // Get appropriate DO binding based on route
-  const doBinding = await getDOBinding(env, pathWithoutApi, url.hostname)
+  const doBinding = await getDOBinding(
+    env,
+    pathWithoutApi,
+    url.hostname,
+    c.req.method,
+    location
+  )
   if (!doBinding) {
     return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
   }
@@ -717,8 +862,17 @@ app.all('*', async (c) => {
   const env = c.env
   const url = new URL(c.req.url)
 
+  // Extract location info from CF headers (if available)
+  const location = extractLocationFromHeaders(c.req)
+
   // Get appropriate DO binding based on route
-  const doBinding = await getDOBinding(env, url.pathname, url.hostname)
+  const doBinding = await getDOBinding(
+    env,
+    url.pathname,
+    url.hostname,
+    c.req.method,
+    location
+  )
   if (!doBinding) {
     return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
   }

@@ -28,7 +28,12 @@ async function executeCode($id: string, code: string): Promise<string> {
  * Start the REPL
  */
 export async function startRepl($id: string, user?: string): Promise<void> {
-  const doName = new URL($id).hostname
+  let doName: string
+  try {
+    doName = new URL($id).hostname
+  } catch {
+    throw new Error(`Invalid DO URL: ${$id}`)
+  }
 
   const { waitUntilExit } = render(
     React.createElement(App, {
@@ -91,12 +96,7 @@ export const replCommand = new Command('repl')
 
       // For now, just use first worker
       // TODO: Interactive selection with Ink
-      const firstWorker = workers[0]
-      if (!firstWorker) {
-        logger.error('No workers found. Deploy a DO first.')
-        process.exit(1)
-      }
-      $id = firstWorker.url
+      $id = workers[0].url
       logger.info(`Connecting to ${$id}`)
     }
 

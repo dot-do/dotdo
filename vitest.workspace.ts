@@ -637,6 +637,7 @@ export default defineWorkspace([
   createWorkersWorkspace('workers', [
     'api/tests/infrastructure/**/*.test.ts',
     'api/tests/middleware/**/*.test.ts',
+    'api/tests/url-normalization.test.ts',
   ], {
     timeouts: TIMEOUTS.default,
     setupFiles: ['./api/tests/middleware/setup.ts'],

@@ -37,8 +37,6 @@ export function App({ doName, user, onExecute }: AppProps) {
           content: `Commands:
   .help    - Show this help
   .clear   - Clear output
-  .types   - Regenerate types
-  .switch  - Switch DO
   Ctrl+C   - Exit`
         }])
         return

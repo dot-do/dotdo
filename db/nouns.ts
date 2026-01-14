@@ -45,6 +45,11 @@ export const nouns = sqliteTable('nouns', {
 
   // Namespace Strategy
   nsStrategy: text('ns_strategy').default('tenant'), // 'tenant' | 'singleton' | 'sharded'
+
+  // Replica Configuration
+  replicaRegions: text('replica_regions', { mode: 'json' }), // JSON array of regions
+  consistencyMode: text('consistency_mode').default('eventual'), // 'strong' | 'eventual' | 'causal'
+  replicaBinding: text('replica_binding'), // DO binding name pattern
 })
 
 // ============================================================================
