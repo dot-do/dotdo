@@ -39,7 +39,7 @@ import { DO as DOTiny, type Env } from './DOTiny'
 import { eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import * as schema from '../db'
-import { initSchema } from '../db/schema-init'
+import { runMigrations } from '../db/drizzle/migrations'
 import { isValidNounName } from '../db/nouns'
 import {
   createMcpHandler,
@@ -1073,10 +1073,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   /**
    * Ensure schema is initialized before any request
    * Called from handleFetch
+   *
+   * Uses Drizzle migrations to create/update schema tables.
+   * Migrations are idempotent and track applied versions.
    */
   private ensureSchema(): void {
     if (!this._schemaInitialized) {
-      initSchema(this.ctx.storage.sql)
+      runMigrations(this.ctx.storage.sql)
       this._schemaInitialized = true
     }
   }
