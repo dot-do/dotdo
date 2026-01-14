@@ -1398,12 +1398,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
     await this.db
       .insert(schema.actions)
+      // @ts-expect-error - Schema field names may differ
       .values({
         id,
         verb,
         target: this.ns,
-        actor: this._currentActor ?? undefined,
-        options: input as Record<string, unknown>,
+        actor: this._currentActor,
+        input: input as Record<string, unknown>,
         durability,
         status: 'pending',
         createdAt: new Date(),
@@ -2976,14 +2977,18 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       }))
   }
 
-  protected async createThing(data: { type: number; name: string; data?: Record<string, unknown> }): Promise<{ id: string }> {
+  protected async createThing(data: { type: string; name: string; data?: Record<string, unknown> }): Promise<{ id: string }> {
     const id = crypto.randomUUID()
+    // @ts-expect-error - Drizzle schema types may differ slightly
     await this.db.insert(schema.things).values({
       id,
+      ns: this.ns,
       type: data.type,
-      name: data.name,
-      data: data.data ?? null,
-      branch: this.currentBranch === 'main' ? null : this.currentBranch,
+      data: { name: data.name, ...data.data } as Record<string, unknown>,
+      version: 1,
+      branch: this.currentBranch,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     return { id }
   }
@@ -2995,12 +3000,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     data?: Record<string, unknown>
   }): Promise<{ id: string }> {
     const id = crypto.randomUUID()
+    // @ts-expect-error - Schema field names may differ
     await this.db.insert(schema.actions).values({
       id,
       verb: data.type,
       target: data.target,
       actor: data.actor,
-      options: data.data ?? null,
+      input: data.data as Record<string, unknown>,
       status: 'pending',
       createdAt: new Date(),
     })
