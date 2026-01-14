@@ -203,7 +203,7 @@ export function createEscalationTool(
     description: 'Escalate to a human for decisions requiring approval, sensitive operations, or edge cases',
     inputSchema: z.object({
       question: z.string().describe('The question or decision needed from a human'),
-      context: z.record(z.unknown()).optional().describe('Additional context for the human'),
+      context: z.record(z.string(), z.unknown()).optional().describe('Additional context for the human'),
     }),
     permission: 'auto',
     execute: async ({ question, context }) => {

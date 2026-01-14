@@ -13,7 +13,7 @@
  * @module agents/tool-execution-tracker
  */
 
-import type { GraphStore, GraphRelationship } from '../db/graph/types'
+import type { GraphStore, GraphRelationship } from '../../db/graph/types'
 
 // ============================================================================
 // TYPES

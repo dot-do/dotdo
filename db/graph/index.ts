@@ -601,6 +601,10 @@ export {
   type GraphExport,
   type PageRankOptions,
   type CentralityOptions,
+  // Optimization types
+  type LazyTraversalIterator,
+  type IndexHint,
+  type QueryHints,
 } from './graph-engine'
 
 // ============================================================================
@@ -714,3 +718,54 @@ export type {
   ToolExecutionContext,
   RegisteredTool,
 } from './tool-invocation'
+
+// ============================================================================
+// ADJACENCY INDEX - Columnar graph storage
+// ============================================================================
+
+export {
+  // Class
+  AdjacencyIndex,
+  // Factory
+  createAdjacencyIndex,
+} from './adjacency-index'
+
+export type {
+  // Types
+  AdjacencyEntry,
+  ReverseEntry,
+  EdgeDirection,
+  NeighborQueryOptions,
+  NeighborResult,
+  NodeDegree,
+  BloomFilterStats,
+  SupernodeConfig,
+  ShardInfo,
+  GraphStats as AdjacencyGraphStats,
+  IAdjacencyIndex,
+} from './adjacency-index'
+
+// ============================================================================
+// TRAVERSAL ENGINE - Graph traversal algorithms on AdjacencyIndex
+// ============================================================================
+
+export {
+  // Class
+  TraversalEngine,
+  // Factory
+  createTraversalEngine,
+} from './traversal-engine'
+
+export type {
+  // Options types
+  BFSOptions,
+  DFSOptions,
+  PathOptions,
+  AllPathsOptions,
+  // Result types
+  TraversalResult as AdjacencyTraversalResult,
+  Path,
+  ShortestPathResult,
+  CycleResult,
+  TraversalStats,
+} from './traversal-engine'

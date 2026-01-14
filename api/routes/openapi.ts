@@ -1,5 +1,5 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
-import type { Env } from '../index'
+import type { Env } from '../types'
 
 /**
  * OpenAPI Routes for /api/*

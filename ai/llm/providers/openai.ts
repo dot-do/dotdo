@@ -176,7 +176,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         stop_reason: null,
         stop_sequence: null,
         usage: { input_tokens: 0, output_tokens: 0 },
-      },
+      } as const,
     }
 
     // Start text content block

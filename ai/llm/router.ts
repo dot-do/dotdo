@@ -177,24 +177,27 @@ export class ModelRouter {
       // Check for provider prefix (e.g., "openai/gpt-4" or "anthropic/claude-3")
       const prefixMatch = resolvedModel.match(/^(openai|anthropic|google|workers-ai|ollama)\/(.+)$/i)
       if (prefixMatch) {
-        const [, providerPrefix, modelName] = prefixMatch
-        const provider = providerPrefix.toLowerCase() as LLMProvider
+        const providerPrefix = prefixMatch[1]
+        const modelName = prefixMatch[2]
+        if (providerPrefix && modelName) {
+          const provider = providerPrefix.toLowerCase() as LLMProvider
 
-        // Look up the model without prefix
-        mapping = this.mappingIndex.get(modelName.toLowerCase())
+          // Look up the model without prefix
+          mapping = this.mappingIndex.get(modelName.toLowerCase())
 
-        // If we find it, override the provider
-        if (mapping) {
-          mapping = { ...mapping, provider }
-        } else {
-          // Create an ad-hoc mapping for unknown models
-          mapping = {
-            from: resolvedModel,
-            provider,
-            to: modelName,
-            capabilities: ['streaming'],
-            costTier: 3,
-            avgLatencyMs: 500,
+          // If we find it, override the provider
+          if (mapping) {
+            mapping = { ...mapping, provider }
+          } else {
+            // Create an ad-hoc mapping for unknown models
+            mapping = {
+              from: resolvedModel,
+              provider,
+              to: modelName,
+              capabilities: ['streaming'],
+              costTier: 3,
+              avgLatencyMs: 500,
+            }
           }
         }
       }

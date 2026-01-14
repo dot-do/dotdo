@@ -19,8 +19,9 @@ import type {
 import { BaseAgent } from '../Agent'
 import { zodToJsonSchema, isZodSchema } from '../Tool'
 
-// Re-export for convenience
-export { generateText, streamText, tool as vercelTool } from 'ai'
+// Note: The Vercel AI SDK functions (generateText, streamText) are imported dynamically
+// to avoid module resolution conflicts with the local ai/ directory.
+// Users should import these directly from 'ai' package if needed.
 
 // ============================================================================
 // Provider Implementation
@@ -62,14 +63,36 @@ export class VercelProvider implements AgentProvider {
 
   private async generate(messages: Message[], config: AgentConfig): Promise<StepResult> {
     // Dynamic import to avoid bundling issues
-    const { generateText } = await import('ai')
+    // The 'ai' package is optional - install @vercel/ai-sdk to use this provider
+    let generateText: ((params: {
+      model: unknown
+      messages: unknown[]
+      tools?: Record<string, unknown>
+      [key: string]: unknown
+    }) => Promise<{
+      text: string
+      toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }>
+      finishReason: string
+      usage?: { promptTokens: number; completionTokens: number }
+    }>) | undefined
+
+    try {
+      const aiModule = await import('ai')
+      generateText = (aiModule as { generateText?: typeof generateText }).generateText
+    } catch {
+      throw new Error('Vercel AI SDK not installed. Run: npm install ai @ai-sdk/openai')
+    }
+
+    if (!generateText) {
+      throw new Error('generateText not found in ai module. Check ai package version.')
+    }
 
     const tools = this.convertTools(config.tools ?? [])
 
     const result = await generateText({
       model: this.getModel(config.model),
       messages: this.convertMessages(messages),
-      tools,
+      tools: Object.keys(tools).length > 0 ? tools : undefined,
       ...config.providerOptions,
     })
 
@@ -93,14 +116,39 @@ export class VercelProvider implements AgentProvider {
     messages: Message[],
     config: AgentConfig
   ): AsyncIterable<StreamEvent> {
-    const { streamText } = await import('ai')
+    // Define the expected type for streamText
+    type StreamTextResult = {
+      textStream: AsyncIterable<string>
+      text: string
+      toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }>
+      finishReason: string
+      usage?: { promptTokens: number; completionTokens: number }
+    }
+
+    let streamText: ((params: {
+      model: unknown
+      messages: unknown[]
+      tools?: Record<string, unknown>
+      [key: string]: unknown
+    }) => Promise<StreamTextResult>) | undefined
+
+    try {
+      const aiModule = await import('ai')
+      streamText = (aiModule as { streamText?: typeof streamText }).streamText
+    } catch {
+      throw new Error('Vercel AI SDK not installed. Run: npm install ai @ai-sdk/openai')
+    }
+
+    if (!streamText) {
+      throw new Error('streamText not found in ai module. Check ai package version.')
+    }
 
     const tools = this.convertTools(config.tools ?? [])
 
     const stream = await streamText({
       model: this.getModel(config.model),
       messages: this.convertMessages(messages),
-      tools,
+      tools: Object.keys(tools).length > 0 ? tools : undefined,
       ...config.providerOptions,
     })
 
@@ -112,14 +160,12 @@ export class VercelProvider implements AgentProvider {
       }
     }
 
-    const result = await stream
-
     yield {
       type: 'done',
       data: {
         finalResult: {
-          text: result.text,
-          toolCalls: result.toolCalls?.map((tc) => ({
+          text: stream.text,
+          toolCalls: stream.toolCalls?.map((tc) => ({
             id: tc.toolCallId,
             name: tc.toolName,
             arguments: tc.args as Record<string, unknown>,
@@ -127,11 +173,11 @@ export class VercelProvider implements AgentProvider {
           toolResults: [],
           messages,
           steps: 1,
-          finishReason: this.mapFinishReason(result.finishReason),
+          finishReason: this.mapFinishReason(stream.finishReason),
           usage: {
-            promptTokens: result.usage?.promptTokens ?? 0,
-            completionTokens: result.usage?.completionTokens ?? 0,
-            totalTokens: (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0),
+            promptTokens: stream.usage?.promptTokens ?? 0,
+            completionTokens: stream.usage?.completionTokens ?? 0,
+            totalTokens: (stream.usage?.promptTokens ?? 0) + (stream.usage?.completionTokens ?? 0),
           },
         },
       },

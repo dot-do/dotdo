@@ -18,7 +18,7 @@
  * @module agents/handoff-chain
  */
 
-import type { GraphStore, GraphRelationship } from '../db/graph/types'
+import type { GraphStore, GraphRelationship } from '../../db/graph/types'
 import type { HandoffHooks, HandoffRequest, HandoffResult } from './handoff'
 
 // ============================================================================

@@ -17,7 +17,7 @@
 
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext, Schema, JsonSchema } from './types'
-import type { GraphThing, GraphStore } from '../db/graph/types'
+import type { GraphThing, GraphStore } from '../../db/graph/types'
 import { zodToJsonSchema, isZodSchema } from './schema'
 
 // ============================================================================
@@ -128,6 +128,8 @@ export interface ToolThingData {
   permission?: 'auto' | 'confirm' | 'deny'
   /** Additional metadata */
   metadata?: Record<string, unknown>
+  /** Index signature for compatibility with Record<string, unknown> */
+  [key: string]: unknown
 }
 
 // ============================================================================

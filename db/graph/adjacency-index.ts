@@ -17,7 +17,15 @@
  * Uses real SQLite, NO MOCKS - per project testing philosophy.
  */
 
-import { nanoid } from 'nanoid'
+/**
+ * Generate a random ID similar to nanoid
+ * Uses crypto.randomUUID and takes a slice for shorter IDs
+ */
+function generateId(size: number = 21): string {
+  // Use crypto.randomUUID() which is available in modern Node.js and Cloudflare Workers
+  // Remove hyphens and take the first `size` characters
+  return crypto.randomUUID().replace(/-/g, '').slice(0, size)
+}
 
 // ============================================================================
 // Types
@@ -412,7 +420,7 @@ export class AdjacencyIndex implements IAdjacencyIndex {
   ): Promise<string> {
     await this.ensureInitialized()
 
-    const relId = nanoid()
+    const relId = generateId()
     const now = Date.now()
     const dataJson = data ? JSON.stringify(data) : null
 
@@ -771,7 +779,7 @@ export class AdjacencyIndex implements IAdjacencyIndex {
 
     const transaction = this.sqlite!.transaction(() => {
       for (const edge of edges) {
-        const relId = nanoid()
+        const relId = generateId()
         const dataJson = edge.data ? JSON.stringify(edge.data) : null
 
         insertOut.run(edge.from, edge.to, edge.type, relId, dataJson, now)

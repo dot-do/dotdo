@@ -214,8 +214,8 @@ function defaultSummarizer(messages: Message[]): string {
 
   // Include first and last user message topics
   if (userMessages.length > 0) {
-    const first = userMessages[0]
-    const last = userMessages[userMessages.length - 1]
+    const first = userMessages[0]!
+    const last = userMessages[userMessages.length - 1]!
     const firstContent = typeof first.content === 'string' ? first.content : '[complex content]'
     const lastContent = typeof last.content === 'string' ? last.content : '[complex content]'
 

@@ -154,12 +154,346 @@ export const EdgeNotFoundError = EdgeNotFoundErrorBase
 // GRAPH ENGINE
 // ============================================================================
 
+// ============================================================================
+// QUERY CACHE
+// ============================================================================
+
+interface CacheEntry<T> {
+  value: T
+  timestamp: number
+  accessCount: number
+}
+
+interface CacheOptions {
+  maxSize?: number
+  ttl?: number // Time-to-live in milliseconds
+  enabled?: boolean
+}
+
+/**
+ * LRU Cache with TTL support for graph query results.
+ * Provides O(1) lookups with automatic eviction of stale entries.
+ */
+class QueryCache<K, V> {
+  private cache: Map<K, CacheEntry<V>> = new Map()
+  private readonly maxSize: number
+  private readonly ttl: number
+  private enabled: boolean = true
+  private hits: number = 0
+  private misses: number = 0
+
+  constructor(options: CacheOptions = {}) {
+    this.maxSize = options.maxSize ?? 1000
+    this.ttl = options.ttl ?? 30000 // 30 seconds default
+    this.enabled = options.enabled ?? true
+  }
+
+  get(key: K): V | undefined {
+    if (!this.enabled) return undefined
+
+    const entry = this.cache.get(key)
+    if (!entry) {
+      this.misses++
+      return undefined
+    }
+
+    // Check TTL
+    if (Date.now() - entry.timestamp > this.ttl) {
+      this.cache.delete(key)
+      this.misses++
+      return undefined
+    }
+
+    // Update access count for LRU
+    entry.accessCount++
+    this.hits++
+    return entry.value
+  }
+
+  set(key: K, value: V): void {
+    if (!this.enabled) return
+
+    // Evict if at capacity
+    if (this.cache.size >= this.maxSize) {
+      this.evictLRU()
+    }
+
+    this.cache.set(key, {
+      value,
+      timestamp: Date.now(),
+      accessCount: 1,
+    })
+  }
+
+  invalidate(key?: K): void {
+    if (key !== undefined) {
+      this.cache.delete(key)
+    } else {
+      this.cache.clear()
+    }
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled
+    if (!enabled) {
+      this.cache.clear()
+    }
+  }
+
+  getStats(): { hits: number; misses: number; size: number; hitRate: number } {
+    const total = this.hits + this.misses
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      size: this.cache.size,
+      hitRate: total > 0 ? this.hits / total : 0,
+    }
+  }
+
+  private evictLRU(): void {
+    let minAccess = Infinity
+    let minKey: K | undefined
+
+    for (const [key, entry] of this.cache) {
+      // Also evict expired entries
+      if (Date.now() - entry.timestamp > this.ttl) {
+        this.cache.delete(key)
+        continue
+      }
+
+      if (entry.accessCount < minAccess) {
+        minAccess = entry.accessCount
+        minKey = key
+      }
+    }
+
+    if (minKey !== undefined) {
+      this.cache.delete(minKey)
+    }
+  }
+}
+
+// ============================================================================
+// LAZY ITERATOR FOR DEEP TRAVERSALS
+// ============================================================================
+
+/**
+ * Lazy iterator for efficient deep graph traversals.
+ * Yields nodes on-demand instead of loading entire result set into memory.
+ */
+export interface LazyTraversalIterator {
+  next(): Promise<{ done: boolean; value?: Node }>
+  take(n: number): Promise<Node[]>
+  toArray(): Promise<Node[]>
+  [Symbol.asyncIterator](): AsyncIterableIterator<Node>
+}
+
+// ============================================================================
+// INDEX HINTS
+// ============================================================================
+
+export type IndexHint = 'USE_LABEL_INDEX' | 'USE_TYPE_INDEX' | 'USE_PROPERTY_INDEX' | 'FORCE_SCAN'
+
+export interface QueryHints {
+  index?: IndexHint
+  batchSize?: number
+  useCache?: boolean
+  prefetch?: boolean
+}
+
+// ============================================================================
+// MIN HEAP FOR DIJKSTRA OPTIMIZATION
+// ============================================================================
+
+/**
+ * Binary MinHeap for efficient priority queue operations.
+ * Used to optimize Dijkstra's algorithm from O(V^2) to O((V+E) log V).
+ */
+class MinHeap<T> {
+  private heap: { value: T; priority: number }[] = []
+  private positions: Map<T, number> = new Map()
+
+  get size(): number {
+    return this.heap.length
+  }
+
+  isEmpty(): boolean {
+    return this.heap.length === 0
+  }
+
+  push(value: T, priority: number): void {
+    const node = { value, priority }
+    this.heap.push(node)
+    const index = this.heap.length - 1
+    this.positions.set(value, index)
+    this.bubbleUp(index)
+  }
+
+  pop(): { value: T; priority: number } | undefined {
+    if (this.heap.length === 0) return undefined
+
+    const min = this.heap[0]
+    const last = this.heap.pop()
+
+    if (this.heap.length > 0 && last) {
+      this.heap[0] = last
+      this.positions.set(last.value, 0)
+      this.bubbleDown(0)
+    }
+
+    if (min) {
+      this.positions.delete(min.value)
+    }
+
+    return min
+  }
+
+  decreasePriority(value: T, newPriority: number): void {
+    const index = this.positions.get(value)
+    if (index === undefined) return
+
+    const node = this.heap[index]
+    if (!node || newPriority >= node.priority) return
+
+    node.priority = newPriority
+    this.bubbleUp(index)
+  }
+
+  has(value: T): boolean {
+    return this.positions.has(value)
+  }
+
+  private bubbleUp(index: number): void {
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2)
+      const parent = this.heap[parentIndex]
+      const current = this.heap[index]
+
+      if (!parent || !current || parent.priority <= current.priority) break
+
+      // Swap
+      this.heap[parentIndex] = current
+      this.heap[index] = parent
+      this.positions.set(current.value, parentIndex)
+      this.positions.set(parent.value, index)
+
+      index = parentIndex
+    }
+  }
+
+  private bubbleDown(index: number): void {
+    const length = this.heap.length
+
+    while (true) {
+      const leftChild = 2 * index + 1
+      const rightChild = 2 * index + 2
+      let smallest = index
+
+      if (leftChild < length) {
+        const left = this.heap[leftChild]
+        const curr = this.heap[smallest]
+        if (left && curr && left.priority < curr.priority) {
+          smallest = leftChild
+        }
+      }
+
+      if (rightChild < length) {
+        const right = this.heap[rightChild]
+        const curr = this.heap[smallest]
+        if (right && curr && right.priority < curr.priority) {
+          smallest = rightChild
+        }
+      }
+
+      if (smallest === index) break
+
+      const current = this.heap[index]
+      const small = this.heap[smallest]
+      if (current && small) {
+        this.heap[index] = small
+        this.heap[smallest] = current
+        this.positions.set(small.value, index)
+        this.positions.set(current.value, smallest)
+      }
+
+      index = smallest
+    }
+  }
+}
+
+// ============================================================================
+// GRAPH ENGINE
+// ============================================================================
+
 export class GraphEngine {
   private nodes: Map<string, Node> = new Map()
   private edges: Map<string, Edge> = new Map()
   private outgoingEdges: Map<string, Set<string>> = new Map()
   private incomingEdges: Map<string, Set<string>> = new Map()
   private idCounter = 0
+
+  // Indexes for optimized queries
+  private labelIndex: Map<string, Set<string>> = new Map()
+  private typeIndex: Map<string, Set<string>> = new Map()
+  private propertyIndex: Map<string, Map<unknown, Set<string>>> = new Map()
+
+  // Query caches
+  private traversalCache: QueryCache<string, TraversalResult>
+  private shortestPathCache: QueryCache<string, PathResult | null>
+  private neighborCache: QueryCache<string, Node[]>
+
+  // Cache configuration
+  private cacheOptions: CacheOptions = {
+    maxSize: 1000,
+    ttl: 30000,
+    enabled: true,
+  }
+
+  constructor(cacheOptions?: CacheOptions) {
+    if (cacheOptions) {
+      this.cacheOptions = { ...this.cacheOptions, ...cacheOptions }
+    }
+    this.traversalCache = new QueryCache(this.cacheOptions)
+    this.shortestPathCache = new QueryCache(this.cacheOptions)
+    this.neighborCache = new QueryCache(this.cacheOptions)
+  }
+
+  // --------------------------------------------------------------------------
+  // CACHE MANAGEMENT
+  // --------------------------------------------------------------------------
+
+  /**
+   * Enable or disable query caching.
+   */
+  setCacheEnabled(enabled: boolean): void {
+    this.traversalCache.setEnabled(enabled)
+    this.shortestPathCache.setEnabled(enabled)
+    this.neighborCache.setEnabled(enabled)
+  }
+
+  /**
+   * Invalidate all caches. Call after graph mutations.
+   */
+  invalidateCache(): void {
+    this.traversalCache.invalidate()
+    this.shortestPathCache.invalidate()
+    this.neighborCache.invalidate()
+  }
+
+  /**
+   * Get cache statistics for monitoring.
+   */
+  getCacheStats(): {
+    traversal: ReturnType<QueryCache<string, TraversalResult>['getStats']>
+    shortestPath: ReturnType<QueryCache<string, PathResult | null>['getStats']>
+    neighbor: ReturnType<QueryCache<string, Node[]>['getStats']>
+  } {
+    return {
+      traversal: this.traversalCache.getStats(),
+      shortestPath: this.shortestPathCache.getStats(),
+      neighbor: this.neighborCache.getStats(),
+    }
+  }
 
   // --------------------------------------------------------------------------
   // NODE OPERATIONS
@@ -189,6 +523,15 @@ export class GraphEngine {
     this.outgoingEdges.set(id, new Set())
     this.incomingEdges.set(id, new Set())
 
+    // Update label index
+    if (!this.labelIndex.has(label)) {
+      this.labelIndex.set(label, new Set())
+    }
+    this.labelIndex.get(label)!.add(id)
+
+    // Invalidate caches on mutation
+    this.invalidateCache()
+
     return node
   }
 
@@ -206,14 +549,30 @@ export class GraphEngine {
       throw new NodeNotFoundError(id)
     }
 
+    const oldLabel = node.label
+    const newLabel = options?.label ?? node.label
+
     const updated: Node = {
       ...node,
-      label: options?.label ?? node.label,
+      label: newLabel,
       properties: { ...node.properties, ...properties },
       updatedAt: Date.now(),
     }
 
     this.nodes.set(id, updated)
+
+    // Update label index if label changed
+    if (oldLabel !== newLabel) {
+      this.labelIndex.get(oldLabel)?.delete(id)
+      if (!this.labelIndex.has(newLabel)) {
+        this.labelIndex.set(newLabel, new Set())
+      }
+      this.labelIndex.get(newLabel)!.add(id)
+    }
+
+    // Invalidate caches on mutation
+    this.invalidateCache()
+
     return updated
   }
 
@@ -235,19 +594,36 @@ export class GraphEngine {
       await this.deleteEdge(edgeId)
     }
 
+    // Update label index
+    this.labelIndex.get(node.label)?.delete(id)
+
     this.nodes.delete(id)
     this.outgoingEdges.delete(id)
     this.incomingEdges.delete(id)
 
+    // Invalidate caches on mutation
+    this.invalidateCache()
+
     return true
   }
 
-  async queryNodes(query: NodeQuery): Promise<Node[]> {
-    let results = Array.from(this.nodes.values())
+  async queryNodes(query: NodeQuery, hints?: QueryHints): Promise<Node[]> {
+    let results: Node[]
 
-    // Filter by label
-    if (query.label) {
-      results = results.filter((n) => n.label === query.label)
+    // Use label index for faster lookups when filtering by label
+    if (query.label && (hints?.index === 'USE_LABEL_INDEX' || hints?.index === undefined)) {
+      const nodeIds = this.labelIndex.get(query.label)
+      if (!nodeIds || nodeIds.size === 0) {
+        return []
+      }
+      results = Array.from(nodeIds).map(id => this.nodes.get(id)!).filter(Boolean)
+    } else {
+      results = Array.from(this.nodes.values())
+
+      // Filter by label if not using index
+      if (query.label) {
+        results = results.filter((n) => n.label === query.label)
+      }
     }
 
     // Filter by where clause
@@ -312,6 +688,15 @@ export class GraphEngine {
     this.outgoingEdges.get(fromId)!.add(id)
     this.incomingEdges.get(toId)!.add(id)
 
+    // Update type index
+    if (!this.typeIndex.has(type)) {
+      this.typeIndex.set(type, new Set())
+    }
+    this.typeIndex.get(type)!.add(id)
+
+    // Invalidate caches on mutation
+    this.invalidateCache()
+
     return edge
   }
 
@@ -331,6 +716,10 @@ export class GraphEngine {
     }
 
     this.edges.set(id, updated)
+
+    // Invalidate caches on mutation
+    this.invalidateCache()
+
     return updated
   }
 
@@ -340,19 +729,37 @@ export class GraphEngine {
       return false
     }
 
+    // Update type index
+    this.typeIndex.get(edge.type)?.delete(id)
+
     this.edges.delete(id)
     this.outgoingEdges.get(edge.from)?.delete(id)
     this.incomingEdges.get(edge.to)?.delete(id)
 
+    // Invalidate caches on mutation
+    this.invalidateCache()
+
     return true
   }
 
-  async queryEdges(query: EdgeQuery): Promise<Edge[]> {
-    let results = Array.from(this.edges.values())
+  async queryEdges(query: EdgeQuery, hints?: QueryHints): Promise<Edge[]> {
+    let results: Edge[]
 
-    if (query.type) {
-      results = results.filter((e) => e.type === query.type)
+    // Use type index for faster lookups when filtering by type
+    if (query.type && (hints?.index === 'USE_TYPE_INDEX' || hints?.index === undefined)) {
+      const edgeIds = this.typeIndex.get(query.type)
+      if (!edgeIds || edgeIds.size === 0) {
+        return []
+      }
+      results = Array.from(edgeIds).map(id => this.edges.get(id)!).filter(Boolean)
+    } else {
+      results = Array.from(this.edges.values())
+
+      if (query.type) {
+        results = results.filter((e) => e.type === query.type)
+      }
     }
+
     if (query.from) {
       results = results.filter((e) => e.from === query.from)
     }
@@ -374,11 +781,24 @@ export class GraphEngine {
   // TRAVERSAL OPERATIONS
   // --------------------------------------------------------------------------
 
-  async traverse(options: TraversalOptions): Promise<TraversalResult> {
+  /**
+   * BFS traversal with caching support.
+   */
+  async traverse(options: TraversalOptions, hints?: QueryHints): Promise<TraversalResult> {
     const startId = typeof options.start === 'string' ? options.start : options.start.id
 
     if (!this.nodes.has(startId)) {
       throw new NodeNotFoundError(startId)
+    }
+
+    // Check cache first
+    const useCache = hints?.useCache !== false
+    if (useCache) {
+      const cacheKey = this.getTraversalCacheKey(startId, options)
+      const cached = this.traversalCache.get(cacheKey)
+      if (cached) {
+        return cached
+      }
     }
 
     const visited = new Set<string>()
@@ -422,7 +842,101 @@ export class GraphEngine {
       }
     }
 
-    return { nodes: result, paths, depths }
+    const traversalResult = { nodes: result, paths, depths }
+
+    // Cache the result
+    if (useCache) {
+      const cacheKey = this.getTraversalCacheKey(startId, options)
+      this.traversalCache.set(cacheKey, traversalResult)
+    }
+
+    return traversalResult
+  }
+
+  /**
+   * Lazy BFS traversal that yields nodes on-demand.
+   * Useful for deep traversals where you may not need all results.
+   */
+  traverseLazy(options: TraversalOptions): LazyTraversalIterator {
+    const self = this
+    const startId = typeof options.start === 'string' ? options.start : options.start.id
+
+    if (!this.nodes.has(startId)) {
+      // Return empty iterator for non-existent start node
+      return {
+        async next() {
+          return { done: true }
+        },
+        async take(n: number) {
+          return []
+        },
+        async toArray() {
+          return []
+        },
+        async *[Symbol.asyncIterator]() {
+          // Empty iterator
+        },
+      }
+    }
+
+    const visited = new Set<string>([startId])
+    const queue: [string, number][] = [[startId, 0]]
+
+    async function* generator(): AsyncGenerator<Node> {
+      while (queue.length > 0) {
+        const [currentId, depth] = queue.shift()!
+
+        if (depth > 0) {
+          const node = self.nodes.get(currentId)
+          if (node) {
+            yield node
+          }
+        }
+
+        if (depth >= options.maxDepth) continue
+
+        const neighbors = self.getNeighborEdges(currentId, options.direction, options.filter?.type)
+
+        for (const edge of neighbors) {
+          const neighborId = edge.from === currentId ? edge.to : edge.from
+          if (!visited.has(neighborId)) {
+            visited.add(neighborId)
+            queue.push([neighborId, depth + 1])
+          }
+        }
+      }
+    }
+
+    const gen = generator()
+
+    return {
+      async next() {
+        const result = await gen.next()
+        return { done: result.done ?? false, value: result.value }
+      },
+      async take(n: number) {
+        const results: Node[] = []
+        for await (const node of gen) {
+          results.push(node)
+          if (results.length >= n) break
+        }
+        return results
+      },
+      async toArray() {
+        const results: Node[] = []
+        for await (const node of gen) {
+          results.push(node)
+        }
+        return results
+      },
+      [Symbol.asyncIterator]() {
+        return gen
+      },
+    }
+  }
+
+  private getTraversalCacheKey(startId: string, options: TraversalOptions): string {
+    return `${startId}:${options.direction}:${options.maxDepth}:${options.filter?.type ?? 'all'}`
   }
 
   async traverseDFS(options: TraversalOptions): Promise<TraversalResult> {
@@ -478,8 +992,20 @@ export class GraphEngine {
 
   async neighbors(
     id: string,
-    options?: { type?: string; direction?: 'OUTGOING' | 'INCOMING' | 'BOTH' }
+    options?: { type?: string; direction?: 'OUTGOING' | 'INCOMING' | 'BOTH' },
+    hints?: QueryHints
   ): Promise<Node[]> {
+    // Check cache first
+    const useCache = hints?.useCache !== false
+    const cacheKey = `${id}:${options?.direction ?? 'BOTH'}:${options?.type ?? 'all'}`
+
+    if (useCache) {
+      const cached = this.neighborCache.get(cacheKey)
+      if (cached) {
+        return cached
+      }
+    }
+
     const direction = options?.direction ?? 'BOTH'
     const edges = this.getNeighborEdges(id, direction, options?.type)
 
@@ -489,7 +1015,14 @@ export class GraphEngine {
       neighborIds.add(neighborId)
     }
 
-    return Array.from(neighborIds).map((nid) => this.nodes.get(nid)!)
+    const result = Array.from(neighborIds).map((nid) => this.nodes.get(nid)!)
+
+    // Cache the result
+    if (useCache) {
+      this.neighborCache.set(cacheKey, result)
+    }
+
+    return result
   }
 
   // --------------------------------------------------------------------------
@@ -499,13 +1032,25 @@ export class GraphEngine {
   async shortestPath(
     from: string,
     to: string,
-    options?: ShortestPathOptions
+    options?: ShortestPathOptions,
+    hints?: QueryHints
   ): Promise<PathResult | null> {
     if (from === to) {
       return {
         nodes: [this.nodes.get(from)!],
         edges: [],
         length: 0,
+      }
+    }
+
+    // Check cache first
+    const useCache = hints?.useCache !== false
+    const cacheKey = `${from}:${to}:${options?.maxDepth ?? 10}:${options?.relationshipTypes?.join(',') ?? 'all'}`
+
+    if (useCache) {
+      const cached = this.shortestPathCache.get(cacheKey)
+      if (cached !== undefined) {
+        return cached
       }
     }
 
@@ -526,11 +1071,16 @@ export class GraphEngine {
 
       for (const edge of edges) {
         if (edge.to === to) {
-          return {
+          const result = {
             nodes: [...path.nodes, this.nodes.get(to)!],
             edges: [...path.edges, edge],
             length: path.length + 1,
           }
+          // Cache the result
+          if (useCache) {
+            this.shortestPathCache.set(cacheKey, result)
+          }
+          return result
         }
 
         if (!visited.has(edge.to)) {
@@ -544,6 +1094,11 @@ export class GraphEngine {
           queue.push([edge.to, newPath])
         }
       }
+    }
+
+    // Cache the null result
+    if (useCache) {
+      this.shortestPathCache.set(cacheKey, null)
     }
 
     return null
@@ -1092,6 +1647,8 @@ export class GraphEngine {
   /**
    * Find shortest weighted path using Dijkstra's algorithm.
    * Weight is read from edge properties using the specified weightProperty.
+   *
+   * Optimized with MinHeap for O((V+E) log V) complexity instead of O(V^2).
    */
   async dijkstra(
     from: string,
@@ -1114,31 +1671,31 @@ export class GraphEngine {
       return null
     }
 
-    // Priority queue (simple array-based implementation)
+    // Use MinHeap for O((V+E) log V) complexity
     const distances = new Map<string, number>()
     const previous = new Map<string, { nodeId: string; edge: Edge }>()
-    const unvisited = new Set<string>(this.nodes.keys())
+    const visited = new Set<string>()
+    const heap = new MinHeap<string>()
 
     distances.set(from, 0)
+    heap.push(from, 0)
 
-    while (unvisited.size > 0) {
-      // Find unvisited node with minimum distance
-      let minDist = Infinity
-      let current: string | null = null
-      for (const nodeId of unvisited) {
-        const dist = distances.get(nodeId) ?? Infinity
-        if (dist < minDist) {
-          minDist = dist
-          current = nodeId
-        }
-      }
+    while (!heap.isEmpty()) {
+      const current = heap.pop()
+      if (!current) break
 
-      if (current === null || minDist === Infinity) break
-      if (minDist > maxWeight) break
+      const currentId = current.value
+      const currentDist = current.priority
 
-      unvisited.delete(current)
+      // Skip if already visited (for duplicate entries in heap)
+      if (visited.has(currentId)) continue
+      visited.add(currentId)
 
-      if (current === to) {
+      // Stop early if beyond max weight
+      if (currentDist > maxWeight) break
+
+      // Found the target
+      if (currentId === to) {
         // Reconstruct path
         const nodes: Node[] = []
         const edges: Edge[] = []
@@ -1162,16 +1719,23 @@ export class GraphEngine {
       }
 
       // Explore neighbors
-      const neighborEdges = this.getNeighborEdges(current, 'OUTGOING')
+      const neighborEdges = this.getNeighborEdges(currentId, 'OUTGOING')
       for (const edge of neighborEdges) {
-        if (!unvisited.has(edge.to)) continue
+        if (visited.has(edge.to)) continue
 
         const weight = (edge.properties[weightProperty] as number) ?? 1
-        const alt = (distances.get(current) ?? Infinity) + weight
+        const alt = currentDist + weight
 
         if (alt < (distances.get(edge.to) ?? Infinity)) {
           distances.set(edge.to, alt)
-          previous.set(edge.to, { nodeId: current, edge })
+          previous.set(edge.to, { nodeId: currentId, edge })
+
+          // Add to heap (or decrease priority if already there)
+          if (heap.has(edge.to)) {
+            heap.decreasePriority(edge.to, alt)
+          } else {
+            heap.push(edge.to, alt)
+          }
         }
       }
     }
@@ -1405,6 +1969,14 @@ export class GraphEngine {
     this.outgoingEdges.clear()
     this.incomingEdges.clear()
     this.idCounter = 0
+
+    // Clear indexes
+    this.labelIndex.clear()
+    this.typeIndex.clear()
+    this.propertyIndex.clear()
+
+    // Clear caches
+    this.invalidateCache()
   }
 
   // --------------------------------------------------------------------------
@@ -1429,12 +2001,24 @@ export class GraphEngine {
       this.nodes.set(node.id, node)
       this.outgoingEdges.set(node.id, new Set())
       this.incomingEdges.set(node.id, new Set())
+
+      // Rebuild label index
+      if (!this.labelIndex.has(node.label)) {
+        this.labelIndex.set(node.label, new Set())
+      }
+      this.labelIndex.get(node.label)!.add(node.id)
     }
 
     for (const edge of data.edges) {
       this.edges.set(edge.id, edge)
       this.outgoingEdges.get(edge.from)?.add(edge.id)
       this.incomingEdges.get(edge.to)?.add(edge.id)
+
+      // Rebuild type index
+      if (!this.typeIndex.has(edge.type)) {
+        this.typeIndex.set(edge.type, new Set())
+      }
+      this.typeIndex.get(edge.type)!.add(edge.id)
     }
   }
 

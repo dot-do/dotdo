@@ -26,16 +26,7 @@
     "baseUrl": ".",
     "paths": {
       "dotdo": ["./index.ts"],
-      "dotdo/*": ["./*"],
-      // Core libraries (pure, zero deps)
-      "@dotdo/fsx": ["./do/capabilities/fsx/core/index.ts"],
-      "@dotdo/bashx": ["./do/capabilities/bashx/core/index.ts"],
-      // Service layers (Cloudflare DO integration)
-      "fsx.do": ["./do/capabilities/fsx/src/index.ts"],
-      "fsx.do/*": ["./do/capabilities/fsx/src/*"],
-      "bashx.do": ["./do/capabilities/bashx/src/index.ts"],
-      "bashx.do/do": ["./do/capabilities/bashx/src/do/index.ts"],
-      "bashx.do/*": ["./do/capabilities/bashx/src/*"]
+      "dotdo/*": ["./*"]
     },
 
     // Better error messages and IDE experience
@@ -64,12 +55,8 @@
     "examples",
     "packages",
     "primitives",
-    "ai/primitives",
-    "do/capabilities/bashx",
-    "do/capabilities/gitx",
-    "do/capabilities/fsx",
-    "do/capabilities/npmx",
-    "do/capabilities/pyx",
+    "ai/primitives/**/*",
+    "do/capabilities/**/*",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/tests/**/*.ts",

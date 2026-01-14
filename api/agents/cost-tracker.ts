@@ -439,7 +439,7 @@ export class CostTracker {
           requestCount: 0,
         }
       }
-      const modelStats = stats.byModel[record.model]
+      const modelStats = stats.byModel[record.model]!
       modelStats.promptTokens += record.promptTokens
       modelStats.completionTokens += record.completionTokens
       modelStats.totalTokens += record.promptTokens + record.completionTokens

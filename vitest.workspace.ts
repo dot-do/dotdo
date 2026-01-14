@@ -97,6 +97,13 @@ const WORKERS_POOL_OPTIONS = {
       singleWorker: true,
     },
   },
+  geoReplication: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.geo-replication.jsonc') },
+      isolatedStorage: false,
+      singleWorker: true,
+    },
+  },
   doWithTest: {
     workers: {
       wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-with-test.jsonc') },
@@ -206,7 +213,23 @@ export default defineWorkspace([
   createNodeWorkspace('edge-postgres', ['db/edge-postgres/**/*.test.ts']),
 
   // Durable Objects tests (mocked runtime)
-  createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
+  // Excludes tests requiring cloudflare:test (handled by Workers workspaces)
+  createNodeWorkspace('objects', ['objects/tests/**/*.test.ts'], {
+    exclude: [
+      // geo-replication.test.ts is now Node-compatible and runs here
+      '**/do-geo-replication.test.ts', // Workers integration tests
+      '**/do-rpc*.test.ts',
+      '**/do-shard-unshard.test.ts',
+      '**/do-compact-merge.test.ts',
+      '**/storage-stores-comprehensive.test.ts',
+      '**/clickable-api-e2e.test.ts',
+      '**/do-identity-schema.test.ts',
+      '**/simple-do-rpc.test.ts',
+      '**/browser-do-*.test.ts',
+      '**/do-with-integration.test.ts',
+      '**/do-promote-demote.test.ts',
+    ],
+  }),
 
   // do/ entry point module tests
   createNodeWorkspace('do', ['do/tests/**/*.test.ts']),
@@ -688,6 +711,14 @@ export default defineWorkspace([
   // DO Compact/Merge lifecycle tests (DOFull operations with real miniflare DOs)
   createWorkersWorkspace('do-compact-merge', ['objects/tests/do-compact-merge.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
+
+  // Geo-Replication Workers integration tests (multi-region data replication)
+  // Note: geo-replication.test.ts now runs in 'objects' workspace (Node-compatible)
+  createWorkersWorkspace('geo-replication', [
+    'objects/tests/do-geo-replication.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.geoReplication,
   }),
 
   // DO Clickable API E2E tests (every link is fetchable pattern)

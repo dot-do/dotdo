@@ -13,7 +13,7 @@
  * @module agents/communication
  */
 
-import type { GraphEngine, Edge, Node } from '../db/graph'
+import type { GraphEngine, Edge, Node } from '../../db/graph'
 
 // ============================================================================
 // Types

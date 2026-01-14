@@ -9,7 +9,7 @@
  */
 
 import { defineAgent } from './define'
-import { support } from '../roles'
+import { support } from '../../lib/roles/support'
 
 /**
  * Sam - Support Agent

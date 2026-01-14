@@ -5,7 +5,7 @@
  * Returns 1 for exact match, 0 for mismatch.
  */
 
-import type { FunctionType, TypeClassifierResult } from '../../lib/type-classifier'
+import type { FunctionType, TypeClassifierResult } from '../../../lib/type-classifier'
 
 export interface TypeMatchInput {
   result: TypeClassifierResult

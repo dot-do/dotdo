@@ -127,6 +127,7 @@ import { event as createEvent } from '../lib/events'
 import type { Thing } from '../types/Thing'
 import type { ShardOptions, ShardResult, ShardStrategy, UnshardOptions } from '../types/Lifecycle'
 import { createShardModule, ShardModule } from './lifecycle/Shard'
+import { createGeoReplicationModule, GeoReplicationModule } from './GeoReplication'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -456,6 +457,32 @@ export class DO<E extends Env = Env> extends DOBase<E> {
       })
     }
     return this._shardModule
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GEO-REPLICATION MODULE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _geoModule?: GeoReplicationModule
+
+  /**
+   * Geo-replication module for multi-region data replication.
+   * Access via stub.geo.* for RPC calls.
+   */
+  get geo(): GeoReplicationModule {
+    if (!this._geoModule) {
+      this._geoModule = createGeoReplicationModule()
+      this._geoModule.initialize({
+        ns: this.ns,
+        currentBranch: this.currentBranch,
+        db: this.db,
+        env: this.env as unknown as import('../types/CloudflareBindings').CloudflareEnv,
+        ctx: this.ctx,
+        emitEvent: (verb: string, data?: unknown) => this.emitEvent(verb, data),
+        log: (message: string, data?: unknown) => console.log(`[${this.ns}] ${message}`, data),
+      })
+    }
+    return this._geoModule
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

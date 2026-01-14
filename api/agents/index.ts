@@ -585,7 +585,7 @@ export {
   type HandoffMessage,
   type PreservedState,
   type HandoffContext,
-  type HandoffRequest,
+  type HandoffRequest as ProtocolHandoffRequest,
   type HandoffResult,
   type HandoffChainEntry,
   type HandoffHooks,

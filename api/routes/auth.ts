@@ -16,7 +16,7 @@ import { drizzle } from 'drizzle-orm/d1'
 import { handleAuthRequest } from '../../auth'
 import type { AuthEnv } from '../../auth'
 import * as schema from '../../db'
-import type { Env } from '../index'
+import type { Env } from '../types'
 
 /**
  * Extended environment with auth-specific bindings

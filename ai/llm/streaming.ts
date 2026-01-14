@@ -213,7 +213,10 @@ export async function aggregateAnthropicStream(
         if (event.delta.type === 'text_delta') {
           content += event.delta.text
         } else if (event.delta.type === 'input_json_delta' && currentToolIndex >= 0) {
-          toolCalls[currentToolIndex].input += event.delta.partial_json
+          const currentToolCall = toolCalls[currentToolIndex]
+          if (currentToolCall) {
+            currentToolCall.input += event.delta.partial_json
+          }
         }
         break
 

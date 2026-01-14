@@ -16,7 +16,7 @@
  * @module agents/memory-graph
  */
 
-import type { GraphStore, GraphThing, GraphRelationship } from '../db/graph/types'
+import type { GraphStore, GraphThing, GraphRelationship } from '../../db/graph/types'
 
 // ============================================================================
 // Type Definitions
@@ -193,11 +193,13 @@ export class GraphBackedMemory {
     )
 
     // Collect memory IDs from owned relationships
-    const ownedMemoryIds = relationships.map((rel) => {
-      // Extract memory ID from URL like "do://memories/memory-123"
-      const parts = rel.to.split('/')
-      return parts[parts.length - 1]
-    })
+    const ownedMemoryIds: string[] = relationships
+      .map((rel) => {
+        // Extract memory ID from URL like "do://memories/memory-123"
+        const parts = rel.to.split('/')
+        return parts[parts.length - 1]
+      })
+      .filter((id): id is string => id !== undefined)
 
     // Collect memory IDs from shared relationships (need to look up original memory)
     const sharedMemoryIds: string[] = []
@@ -302,17 +304,19 @@ export async function getRecentMemories(
   // Sort relationships by createdAt descending (most recent first)
   // Use relationship timestamp for ordering since it captures when the memory was "remembered"
   const sortedRels = [...relationships].sort((a, b) => {
-    const timeDiff = b.createdAt - a.createdAt
+    const timeDiff = b.createdAt.getTime() - a.createdAt.getTime()
     if (timeDiff !== 0) return timeDiff
     // Secondary sort by ID for stability
     return b.id.localeCompare(a.id)
   })
 
   // Collect memory IDs in sorted order from owned relationships
-  const ownedMemoryIds = sortedRels.map((rel) => {
-    const parts = rel.to.split('/')
-    return parts[parts.length - 1]
-  })
+  const ownedMemoryIds: string[] = sortedRels
+    .map((rel) => {
+      const parts = rel.to.split('/')
+      return parts[parts.length - 1]
+    })
+    .filter((id): id is string => id !== undefined)
 
   // Collect memory IDs from shared relationships
   const sharedMemoryIds: string[] = []

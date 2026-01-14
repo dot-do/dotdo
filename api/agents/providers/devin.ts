@@ -106,10 +106,15 @@ export class DevinProvider implements AgentProvider {
         // Poll for completion
         const result = await this.waitForCompletion(session.id)
 
+        // Map AgentResult finishReason to StepResult finishReason
+        // StepResult doesn't have 'cancelled', so map it to 'error'
+        const finishReason: StepResult['finishReason'] =
+          result.finishReason === 'cancelled' ? 'error' : result.finishReason
+
         return {
           text: result.text,
           toolCalls: [],
-          finishReason: result.finishReason,
+          finishReason,
           usage: {
             promptTokens: 0,
             completionTokens: 0,
@@ -358,8 +363,9 @@ export class DevinProvider implements AgentProvider {
       }
 
       if (session.status === 'completed') {
+        const pullRequest = session.metadata?.pullRequest as { url?: string } | undefined
         return {
-          text: `Session completed. ${session.metadata?.pullRequest ? `PR: ${session.metadata.pullRequest.url}` : ''}`,
+          text: `Session completed. ${pullRequest?.url ? `PR: ${pullRequest.url}` : ''}`,
           toolCalls: [],
           toolResults: [],
           messages: session.messages,

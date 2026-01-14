@@ -139,8 +139,8 @@ export function LLM(_config?: LLMConfig): WorkerHandler {
     async fetch(request: Request, env: LLMEnv, ctx?: unknown): Promise<Response> {
       // Add configuration to request context if needed
       // For now, just pass through to routes
-
-      return routes.fetch(request, env, ctx)
+      // Cast ctx to the expected Hono ExecutionContext type
+      return routes.fetch(request, env, ctx as Parameters<typeof routes.fetch>[2])
     },
   }
 }

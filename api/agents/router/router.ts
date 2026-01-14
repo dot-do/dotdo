@@ -336,19 +336,19 @@ export class LLMRouter implements AgentProvider {
       case 'cost':
         return this.selectLowestCost(healthyProviders)
       default:
-        return healthyProviders[0]
+        return healthyProviders[0] ?? null
     }
   }
 
   private selectByPriority(providers: string[]): string {
     // Providers are already sorted by priority
-    return providers[0]
+    return providers[0]!
   }
 
   private selectRoundRobin(providers: string[]): string {
     const index = this.roundRobinIndex % providers.length
     this.roundRobinIndex++
-    return providers[index]
+    return providers[index]!
   }
 
   private selectWeighted(providers: string[]): string {
@@ -368,11 +368,11 @@ export class LLMRouter implements AgentProvider {
       }
     }
 
-    return providers[providers.length - 1]
+    return providers[providers.length - 1]!
   }
 
   private selectLeastLatency(providers: string[]): string {
-    let bestProvider = providers[0]
+    let bestProvider = providers[0]!
     let bestLatency = Infinity
 
     for (const name of providers) {
@@ -388,7 +388,7 @@ export class LLMRouter implements AgentProvider {
   }
 
   private selectLowestCost(providers: string[]): string {
-    let bestProvider = providers[0]
+    let bestProvider = providers[0]!
     let lowestCost = Infinity
 
     for (const name of providers) {

@@ -536,6 +536,111 @@ export interface Agent {
 }
 
 // ============================================================================
+// Agent Role and Persona Types
+// ============================================================================
+
+/**
+ * Agent role - the functional area the agent specializes in
+ */
+export type AgentRole =
+  | 'product'
+  | 'engineering'
+  | 'tech-lead'
+  | 'marketing'
+  | 'sales'
+  | 'qa'
+  | 'frontend'
+  | 'customer-success'
+  | 'finance'
+  | 'data'
+
+/**
+ * Agent persona - describes the agent's identity and behavior
+ */
+export interface AgentPersona {
+  /** Human-readable name */
+  name: string
+  /** Role/function of the agent */
+  role: AgentRole
+  /** Description of the agent */
+  description: string
+  /** Instructions/system prompt for the agent */
+  instructions?: string
+  /** Personality traits */
+  traits?: string[]
+  /** Capabilities the agent has */
+  capabilities?: string[]
+  /** Guidelines the agent follows */
+  guidelines?: string[]
+}
+
+/**
+ * Named agent personas lookup
+ */
+export const PERSONAS: Record<string, AgentPersona> = {
+  priya: {
+    name: 'Priya',
+    role: 'product',
+    description: 'Product manager - specs, roadmaps, MVP definition',
+    instructions: 'Your role is to define products, create specifications, and plan roadmaps.',
+  },
+  ralph: {
+    name: 'Ralph',
+    role: 'engineering',
+    description: 'Engineering lead - builds code, implements features',
+    instructions: 'Your role is to build, implement, and improve code based on specifications.',
+  },
+  tom: {
+    name: 'Tom',
+    role: 'tech-lead',
+    description: 'Tech Lead - architecture, code review, technical decisions',
+    instructions: 'Your role is to review code, make architectural decisions, and ensure quality.',
+  },
+  mark: {
+    name: 'Mark',
+    role: 'marketing',
+    description: 'Marketing lead - content, launches, announcements',
+    instructions: 'Your role is to create content, plan launches, and communicate value.',
+  },
+  sally: {
+    name: 'Sally',
+    role: 'sales',
+    description: 'Sales lead - outreach, pitches, closing deals',
+    instructions: 'Your role is to identify opportunities, pitch solutions, and close deals.',
+  },
+  quinn: {
+    name: 'Quinn',
+    role: 'qa',
+    description: 'QA lead - testing, quality assurance, bug finding',
+    instructions: 'Your role is to ensure quality, find bugs, and validate features.',
+  },
+  rae: {
+    name: 'Rae',
+    role: 'frontend',
+    description: 'Frontend engineer - React, components, design systems',
+    instructions: 'Your role is to build beautiful, accessible, and performant user interfaces.',
+  },
+  casey: {
+    name: 'Casey',
+    role: 'customer-success',
+    description: 'Customer success - onboarding, retention, customer advocacy',
+    instructions: 'Your role is to ensure customer success by guiding onboarding and building relationships.',
+  },
+  finn: {
+    name: 'Finn',
+    role: 'finance',
+    description: 'Finance lead - budgets, forecasting, financial analysis',
+    instructions: 'Your role is to manage finances, create forecasts, and provide financial analysis.',
+  },
+  dana: {
+    name: 'Dana',
+    role: 'data',
+    description: 'Data analyst - analytics, metrics, data-driven insights',
+    instructions: 'Your role is to analyze data, extract insights, and drive data-informed decisions.',
+  },
+}
+
+// ============================================================================
 // MCP Integration
 // ============================================================================
 
@@ -551,9 +656,9 @@ export type {
   McpToolResult,
   McpContent,
   AgentToolDefinition,
-} from '../types/mcp'
+} from '../../types/mcp'
 
 export {
   toolDefinitionToMcp,
   mcpToToolDefinition,
-} from '../types/mcp'
+} from '../../types/mcp'

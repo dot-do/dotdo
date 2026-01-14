@@ -8,9 +8,10 @@
  * @module agents/registry
  */
 
-import type { SQLiteGraphStore } from '../db/graph/stores/sqlite'
-import type { GraphThing } from '../db/graph/types'
-import { PERSONAS, type AgentRole, type AgentPersona } from './named/factory'
+import type { SQLiteGraphStore } from '../../db/graph/stores/sqlite'
+import type { GraphThing } from '../../db/graph/types'
+import type { AgentRole, AgentPersona } from './types'
+import { PERSONAS } from './types'
 
 // ============================================================================
 // CONSTANTS
@@ -65,6 +66,8 @@ export interface AgentThingData {
   handoffs?: string[]
   /** Optional: whether agent can spawn subagents */
   canSpawnSubagents?: boolean
+  /** Index signature for compatibility with Record<string, unknown> */
+  [key: string]: unknown
 }
 
 /**
@@ -139,7 +142,7 @@ export interface RegisterAgentInput {
  * Convert a GraphThing to an Agent with $ prefixed properties
  */
 function thingToAgent(thing: GraphThing): Agent {
-  const data = thing.data as AgentThingData
+  const data = thing.data as unknown as AgentThingData
   return {
     $id: thing.id,
     $type: thing.typeName,
@@ -467,7 +470,7 @@ export class AgentRegistry {
       return null
     }
 
-    const supervisorId = relationships[0].to.replace('do://agents/', '')
+    const supervisorId = relationships[0]!.to.replace('do://agents/', '')
     const thing = await this.store.getThing(supervisorId)
 
     if (!thing || thing.deletedAt !== null) {

@@ -26,7 +26,16 @@
  */
 
 import type { GraphStore, GraphRelationship } from './types'
-import { nanoid } from 'nanoid'
+
+/**
+ * Generate a random ID similar to nanoid
+ * Uses crypto.randomUUID and takes a slice for shorter IDs
+ */
+function generateId(size: number = 12): string {
+  // Use crypto.randomUUID() which is available in modern Node.js and Cloudflare Workers
+  // Remove hyphens and take the first `size` characters
+  return crypto.randomUUID().replace(/-/g, '').slice(0, size)
+}
 
 // ============================================================================
 // CONSTANTS
@@ -271,8 +280,8 @@ export class InvocationStore {
    * @returns The created Invocation
    */
   async startInvocation(input: CreateInvocationInput): Promise<Invocation> {
-    const invocationId = `inv-${nanoid(12)}`
-    const relationshipId = `rel-${nanoid(12)}`
+    const invocationId = `inv-${generateId(12)}`
+    const relationshipId = `rel-${generateId(12)}`
     const now = Date.now()
 
     const invocationData: InvocationData = {

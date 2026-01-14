@@ -297,7 +297,7 @@ export const DataAnalysisSchema = z.object({
     confidence: z.number().min(0).max(1).optional(),
     impact: z.enum(['low', 'medium', 'high']).optional(),
   })).describe('Key insights from data'),
-  metrics: z.record(z.number()).optional().describe('Key metrics'),
+  metrics: z.record(z.string(), z.number()).optional().describe('Key metrics'),
   trends: z.array(z.string()).optional().describe('Identified trends'),
   recommendations: z.array(z.string()).optional(),
   visualization: z.string().optional().describe('Suggested visualization type'),

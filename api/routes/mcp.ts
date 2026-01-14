@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { Env } from '../index'
+import type { Env } from '../types'
 import type {
   McpTool as BaseMcpTool,
   McpResource as BaseMcpResource,

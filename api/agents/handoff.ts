@@ -627,7 +627,7 @@ export class HandoffProtocol {
       const durationMs = Date.now() - startTime
 
       // Update chain
-      const chainEntry = chain[chain.length - 1]
+      const chainEntry = chain[chain.length - 1]!
       chainEntry.completedAt = new Date()
       chainEntry.summary = result.text?.slice(0, 200)
 

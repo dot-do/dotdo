@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { Env } from '../index'
+import type { Env } from '../types'
 import { ObsFilterSchema, validateObsFilter, matchesFilter } from '../../types/observability'
 import type { ObsFilter, ObservabilityEvent } from '../../types/observability'
 import { buildResponse, type ResponseOptions } from '../../lib/response/linked-data'

@@ -70,20 +70,53 @@ export class OpenAIProvider implements AgentProvider {
   private async generate(messages: Message[], config: AgentConfig): Promise<StepResult> {
     const OpenAI = (await import('openai')).default
     const client = new OpenAI({
-      apiKey: this.options.apiKey,
+      apiKey: this.options.apiKey ?? process.env.OPENAI_API_KEY,
       organization: this.options.organization,
     })
 
     const tools = this.convertTools(config.tools ?? [], config.handoffs)
 
-    const response = await client.chat.completions.create({
+    // Create params with proper typing
+    const createParams: Record<string, unknown> = {
       model: config.model,
-      messages: this.convertMessages(messages) as never[],
-      tools: tools.length > 0 ? tools : undefined,
+      messages: this.convertMessages(messages),
       ...config.providerOptions,
-    })
+    }
+    if (tools.length > 0) {
+      createParams.tools = tools
+    }
 
-    const choice = response.choices[0]
+    const response = await client.chat.completions.create(createParams as unknown as Parameters<typeof client.chat.completions.create>[0])
+
+    // Type the response for proper access
+    const typedResponse = response as {
+      choices: Array<{
+        message: {
+          content: string | null
+          tool_calls?: Array<{
+            id: string
+            function: { name: string; arguments: string }
+          }>
+        }
+        finish_reason: string | null
+      }>
+      usage?: {
+        prompt_tokens: number
+        completion_tokens: number
+        total_tokens: number
+      }
+    }
+
+    const choice = typedResponse.choices[0]
+    if (!choice) {
+      return {
+        text: undefined,
+        toolCalls: [],
+        finishReason: 'stop',
+        usage: undefined,
+      }
+    }
+
     const message = choice.message
 
     return {
@@ -94,11 +127,11 @@ export class OpenAIProvider implements AgentProvider {
         arguments: JSON.parse(tc.function.arguments),
       })),
       finishReason: this.mapFinishReason(choice.finish_reason),
-      usage: response.usage
+      usage: typedResponse.usage
         ? {
-            promptTokens: response.usage.prompt_tokens,
-            completionTokens: response.usage.completion_tokens,
-            totalTokens: response.usage.total_tokens,
+            promptTokens: typedResponse.usage.prompt_tokens,
+            completionTokens: typedResponse.usage.completion_tokens,
+            totalTokens: typedResponse.usage.total_tokens,
           }
         : undefined,
     }
@@ -110,24 +143,45 @@ export class OpenAIProvider implements AgentProvider {
   ): AsyncIterable<StreamEvent> {
     const OpenAI = (await import('openai')).default
     const client = new OpenAI({
-      apiKey: this.options.apiKey,
+      apiKey: this.options.apiKey ?? process.env.OPENAI_API_KEY,
       organization: this.options.organization,
     })
 
     const tools = this.convertTools(config.tools ?? [], config.handoffs)
 
-    const stream = await client.chat.completions.create({
+    // Create params with proper typing
+    const createParams: Record<string, unknown> = {
       model: config.model,
-      messages: this.convertMessages(messages) as never[],
-      tools: tools.length > 0 ? tools : undefined,
+      messages: this.convertMessages(messages),
       stream: true,
       ...config.providerOptions,
-    })
+    }
+    if (tools.length > 0) {
+      createParams.tools = tools
+    }
+
+    const stream = await client.chat.completions.create(createParams as unknown as Parameters<typeof client.chat.completions.create>[0])
+
+    // Type the stream chunks
+    type StreamChunk = {
+      choices: Array<{
+        delta: {
+          content?: string
+          tool_calls?: Array<{
+            index: number
+            id?: string
+            function?: { name?: string; arguments?: string }
+          }>
+        }
+      }>
+    }
 
     let text = ''
     const toolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map()
 
-    for await (const chunk of stream) {
+    // Cast through unknown to handle both stream and non-stream responses
+    for await (const rawChunk of stream as unknown as AsyncIterable<StreamChunk>) {
+      const chunk = rawChunk
       const delta = chunk.choices[0]?.delta
 
       if (delta?.content) {

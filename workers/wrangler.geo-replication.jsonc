@@ -1,0 +1,25 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "geo-replication-test",
+  "main": "./geo-replication-test-worker.ts",
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects - GeoDO with SQLite storage for geo-replication testing
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DO",
+        "class_name": "GeoDO"
+      }
+    ]
+  },
+
+  // Migrations - Enable SQLite for GeoDO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GeoDO"]
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { Env } from '../index'
+import type { Env } from '../types'
 
 // Default timeout for DO fetch calls (30 seconds)
 const DO_FETCH_TIMEOUT_MS = 30000

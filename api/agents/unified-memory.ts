@@ -17,7 +17,7 @@
  */
 
 import type { Message } from './types'
-import type { GraphThing, GraphStore, CreateRelationshipInput } from '../db/graph/types'
+import type { GraphThing, GraphStore, CreateRelationshipInput } from '../../db/graph/types'
 
 // ============================================================================
 // Core Types

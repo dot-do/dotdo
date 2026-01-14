@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { HUNCHMetrics } from '../metrics/hunch'
+import { HUNCHMetrics } from '../lib/metrics/hunch'
 import type { Env } from './types'
 
 /**

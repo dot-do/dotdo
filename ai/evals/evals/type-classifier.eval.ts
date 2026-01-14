@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { classifyFunctionType, type FunctionType, type TypeClassifierResult } from '../../lib/type-classifier'
+import { classifyFunctionType, type FunctionType, type TypeClassifierResult } from '../../../lib/type-classifier'
 import { TypeMatch } from '../scorers/type-match'
 
 // ============================================================================

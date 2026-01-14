@@ -212,7 +212,7 @@ export function validateCSRFToken(
  * @param b - Second string
  * @returns true if strings are equal
  */
-function timingSafeEqual(a: string, b: string): boolean {
+export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {
     // Still do constant-time comparison to avoid length timing leak
     let result = 0
