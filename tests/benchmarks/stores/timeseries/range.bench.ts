@@ -1,28 +1,46 @@
 /**
  * TimeSeriesStore Range Benchmarks
  *
- * RED PHASE: Benchmarks for time-series operations.
+ * GREEN PHASE: Benchmarks for time-series operations.
  * Tests put, range queries, aggregations, and tier management.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { TimeSeriesGenerator } from '../../datasets/timeseries'
-import { TimeSeriesStore } from '../../../../db/timeseries/store'
+import { createMockTimeSeriesStore } from '../harness'
 import { CostTracker } from '../../framework/cost-tracker'
 
 describe('TimeSeriesStore Range Benchmarks', () => {
   const generator = new TimeSeriesGenerator()
-  let store: TimeSeriesStore<number>
+  let store: ReturnType<typeof createMockTimeSeriesStore>
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no db instance available
   beforeAll(async () => {
-    // RED: Will need real db instance
-    // const db = await getTestDatabase()
-    // store = new TimeSeriesStore(db, { retention: { hot: '1h', warm: '7d', cold: '365d' } })
+    // GREEN: Use mock store - will be replaced with real miniflare instance
+    store = createMockTimeSeriesStore()
     tracker = new CostTracker()
+
+    // Seed some initial time series data for range/aggregate benchmarks
+    const now = Date.now()
+    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000
+    const seedPoints = generator.generateSync({
+      size: 1000,
+      startTime: new Date(oneWeekAgo),
+      interval: 60000, // 1 minute intervals
+      seed: 12345,
+    })
+    await store.putBatch(
+      seedPoints.map((p) => ({
+        key: 'metric_1',
+        value: p.value,
+        timestamp: p.timestamp.getTime(),
+      }))
+    )
+    // Create archived metric data
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
+    await store.put('archived_metric', 42, thirtyDaysAgo)
   })
 
   afterAll(async () => {

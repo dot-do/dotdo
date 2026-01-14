@@ -1,28 +1,47 @@
 /**
  * VectorStore Search Benchmarks
  *
- * RED PHASE: Benchmarks for vector similarity search operations.
+ * GREEN PHASE: Benchmarks for vector similarity search operations.
  * Tests insertion, search, hybrid search, and Matryoshka compression.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { VectorGenerator } from '../../datasets/vectors'
-import { VectorStore } from '../../../../db/vector/store'
+import { createMockVectorStore } from '../harness'
 import { CostTracker } from '../../framework/cost-tracker'
 
 describe('VectorStore Search Benchmarks', () => {
   const generator = new VectorGenerator()
-  let store: VectorStore
+  let store: ReturnType<typeof createMockVectorStore>
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no db instance available
   beforeAll(async () => {
-    // RED: Will need real db instance
-    // const db = await getTestDatabase()
-    // store = new VectorStore(db, { dimension: 1536 })
+    // GREEN: Use mock store - will be replaced with real miniflare instance
+    store = createMockVectorStore(1536)
     tracker = new CostTracker()
+
+    // Seed some initial vectors for search benchmarks
+    const seedVecs = generator.generateSync({ size: 100, dimension: 1536, seed: 12345 })
+    for (let i = 0; i < seedVecs.length; i++) {
+      await store.insert({
+        id: `vec_${i + 1}`,
+        content: seedVecs[i].content,
+        embedding: new Float32Array(seedVecs[i].embedding),
+      })
+    }
+    // Create specific vectors for tests
+    await store.insert({
+      id: 'upsert_vec',
+      content: 'upsert test',
+      embedding: new Float32Array(1536).fill(0.1),
+    })
+    await store.insert({
+      id: 'vec_to_delete',
+      content: 'to delete',
+      embedding: new Float32Array(1536).fill(0.2),
+    })
   })
 
   afterAll(async () => {

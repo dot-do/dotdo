@@ -1,10 +1,10 @@
 /**
  * Store Benchmarks - Barrel Export
  *
- * RED PHASE: Export all store benchmark files for unified test runs.
+ * GREEN PHASE: Export all store benchmark files for unified test runs.
  * These benchmarks test the core storage primitives of dotdo.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  *
  * Stores Covered:
  * - DocumentStore: Schema-free JSON documents with JSONPath queries

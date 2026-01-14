@@ -1,10 +1,10 @@
 /**
  * Workflow Lifecycle Benchmarks
  *
- * RED PHASE: Benchmarks for workflow engine operations.
+ * GREEN PHASE: Benchmarks for workflow engine operations.
  * Tests workflow execution, activities, signals, and queries.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll, beforeEach } from 'vitest'

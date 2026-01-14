@@ -1,10 +1,10 @@
 /**
  * Stream Throughput Benchmarks
  *
- * RED PHASE: Benchmarks for Kafka-inspired streaming operations.
+ * GREEN PHASE: Benchmarks for Kafka-inspired streaming operations.
  * Tests produce, consume, topic management, and consumer groups.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'

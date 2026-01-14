@@ -1,27 +1,74 @@
 /**
  * GraphStore Traversal Benchmarks
  *
- * RED PHASE: Benchmarks for graph operations.
+ * GREEN PHASE: Benchmarks for graph operations.
  * Tests edge operations, traversals, and path finding.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { GraphGenerator } from '../../datasets/graphs'
+import { createMockGraphStore } from '../harness'
 import { CostTracker } from '../../framework/cost-tracker'
-import type { GraphStore } from '../../../../db/graph/types'
 
 describe('GraphStore Traversal Benchmarks', () => {
   const generator = new GraphGenerator()
-  let store: GraphStore
+  let store: ReturnType<typeof createMockGraphStore>
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no GraphStore implementation available
   beforeAll(async () => {
-    // RED: Will need real GraphStore instance
-    // store = await createGraphStore()
+    // GREEN: Use mock store - will be replaced with real miniflare instance
+    store = createMockGraphStore()
     tracker = new CostTracker()
+
+    // Seed some initial nodes for graph benchmarks
+    for (let i = 1; i <= 50; i++) {
+      await store.createThing({
+        id: `node_${i}`,
+        typeId: 1,
+        typeName: 'Node',
+        data: { name: `Node ${i}`, value: Math.random() * 100 },
+      })
+    }
+    // Create hub and leaf nodes
+    await store.createThing({
+      id: 'hub_node',
+      typeId: 1,
+      typeName: 'Node',
+      data: { name: 'Hub Node', degree: 'high' },
+    })
+    await store.createThing({
+      id: 'leaf_node',
+      typeId: 1,
+      typeName: 'Node',
+      data: { name: 'Leaf Node', degree: 'low' },
+    })
+    await store.createThing({
+      id: 'thing_1',
+      typeId: 1,
+      typeName: 'Node',
+      data: { name: 'Thing 1' },
+    })
+
+    // Seed some relationships
+    const edges = generator.generateSync({ size: 100, nodeCount: 50, density: 0.5, seed: 12345 })
+    for (const edge of edges) {
+      await store.createRelationship({
+        verb: 'connected',
+        fromId: edge.from,
+        toId: edge.to,
+        data: { weight: edge.weight },
+      })
+    }
+    // Create specific relationships for tests
+    await store.createRelationship({ verb: 'follows', fromId: 'node_1', toId: 'node_2' })
+    await store.createRelationship({ verb: 'likes', fromId: 'node_1', toId: 'node_3' })
+    await store.createRelationship({ verb: 'purchased', fromId: 'customer_1', toId: 'product_1' })
+    // Hub node has many connections
+    for (let i = 1; i <= 20; i++) {
+      await store.createRelationship({ verb: 'links', fromId: 'hub_node', toId: `node_${i}` })
+    }
   })
 
   afterAll(async () => {

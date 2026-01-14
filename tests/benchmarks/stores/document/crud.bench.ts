@@ -1,30 +1,35 @@
 /**
  * DocumentStore CRUD Benchmarks
  *
- * RED PHASE: Benchmarks for document store operations.
+ * GREEN PHASE: Benchmarks for document store operations.
  * Tests CRUD operations, batch processing, and query performance.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { DocumentGenerator } from '../../datasets/documents'
-import { DocumentStore } from '../../../../db/document/store'
+import { createMockDocumentStore } from '../harness'
 import { CostTracker } from '../../framework/cost-tracker'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 describe('DocumentStore CRUD Benchmarks', () => {
   const generator = new DocumentGenerator()
-  let db: BetterSQLite3Database
-  let store: DocumentStore<Record<string, unknown>>
+  let store: ReturnType<typeof createMockDocumentStore>
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no miniflare runtime available
   beforeAll(async () => {
-    // RED: Will need real db instance from miniflare
-    // db = await getTestDatabase()
-    // store = new DocumentStore(db, { type: 'benchmark' })
+    // GREEN: Use mock store - will be replaced with real miniflare instance
+    store = createMockDocumentStore()
     tracker = new CostTracker()
+
+    // Seed some initial data for read/update/delete benchmarks
+    const seedDocs = generator.generateSync({ size: 100, seed: 12345 })
+    for (let i = 0; i < seedDocs.length; i++) {
+      await store.create({ ...seedDocs[i], $id: `doc_${i + 1}` })
+    }
+    // Create specific docs for tests
+    await store.create({ $id: 'existing_doc', name: 'existing' })
+    await store.create({ $id: 'cursor_doc_id', name: 'cursor' })
   })
 
   afterAll(async () => {

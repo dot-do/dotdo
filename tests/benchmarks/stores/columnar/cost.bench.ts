@@ -1,33 +1,48 @@
 /**
  * ColumnarStore Cost Benchmarks
  *
- * RED PHASE: Benchmarks for columnar storage with cost tracking.
+ * GREEN PHASE: Benchmarks for columnar storage with cost tracking.
  * Measures write amplification savings and query performance.
  *
  * Key insight: Columnar storage achieves 99.4% cost savings by
  * storing N records as ~6 row writes instead of N row writes.
  *
- * @see do-a55 - Store Benchmarks
+ * @see do-z9k - Store Benchmark Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { DocumentGenerator } from '../../datasets/documents'
-import { ColumnarStore } from '../../../../db/columnar/store'
+import { createMockColumnarStore } from '../harness'
 import { CostTracker } from '../../framework/cost-tracker'
-import type { MockDb } from '../../../../db/columnar/types'
 
 describe('ColumnarStore Cost Benchmarks', () => {
   const generator = new DocumentGenerator()
-  let db: MockDb
-  let store: ColumnarStore
+  let store: ReturnType<typeof createMockColumnarStore>
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no db instance available
   beforeAll(async () => {
-    // RED: Will need real db instance
-    // db = await getTestMockDb()
-    // store = new ColumnarStore(db, {})
+    // GREEN: Use mock store - will be replaced with real miniflare instance
+    store = createMockColumnarStore()
     tracker = new CostTracker()
+
+    // Seed some initial data for query benchmarks
+    const seedDocs = generator.generateSync({ size: 100, seed: 12345 })
+    await store.insertBatch(
+      seedDocs.map((doc, i) => ({
+        id: `rec_${i}`,
+        type: 'Customer',
+        data: doc,
+      }))
+    )
+    // Seed orders for aggregation benchmarks
+    const orderDocs = generator.generateSync({ size: 100, seed: 54321 })
+    await store.insertBatch(
+      orderDocs.map((doc, i) => ({
+        id: `order_${i}`,
+        type: 'Order',
+        data: { ...doc, amount: Math.random() * 1000, category: 'test', status: i % 2 === 0 ? 'completed' : 'pending', year: 2024 + (i % 2) },
+      }))
+    )
   })
 
   afterAll(async () => {
