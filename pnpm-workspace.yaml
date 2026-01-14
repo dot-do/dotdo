@@ -4,3 +4,4 @@ packages:
   - "app"
   - "db/payload"
   - "core"
+  - "ai/primitives/packages/*"

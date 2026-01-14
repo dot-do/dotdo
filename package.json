@@ -24,7 +24,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "core"
+    "core",
+    "ai/primitives/packages/*"
   ],
   "main": "./dist/do/index.js",
   "bin": {
@@ -179,6 +180,9 @@
   },
   "dependencies": {
     "@dotdo/core": "workspace:*",
+    "digital-workers": "workspace:*",
+    "digital-tools": "workspace:*",
+    "business-as-code": "workspace:*",
     "@better-auth/stripe": "^1.4.12",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.6.11",
