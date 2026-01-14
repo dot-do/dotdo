@@ -4,6 +4,8 @@
  * Type definitions for schema-free JSON document storage.
  */
 
+import type { CDCEmitter } from '../cdc'
+
 /**
  * Base document metadata fields
  */
@@ -115,6 +117,8 @@ export interface BloomFilter {
 export interface DocumentStoreOptions {
   type: string
   onEvent?: (event: CDCEvent) => void
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
 }
 
 /**

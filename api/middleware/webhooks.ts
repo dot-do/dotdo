@@ -745,7 +745,7 @@ export function webhooks(config?: WebhooksConfig): MiddlewareHandler {
         method: c.req.method,
         headers: c.req.raw.headers,
         body: c.req.raw.body,
-        // @ts-expect-error - duplex is needed for streaming bodies
+        // @ts-expect-error - duplex is required for streaming bodies but not in CF types
         duplex: 'half',
       })
 

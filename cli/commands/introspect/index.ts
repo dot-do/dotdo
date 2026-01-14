@@ -44,9 +44,9 @@ function parseArgs(args: string[]): IntrospectOptions {
     } else if (arg === '--verbose' || arg === '-v') {
       options.verbose = true
     } else if (arg === '--out' || arg === '-o') {
-      options.out = args[++i]
+      options.out = args[++i] ?? ''
     } else if (arg === '--root' || arg === '-r') {
-      options.root = args[++i]
+      options.root = args[++i] ?? ''
     } else if (!arg.startsWith('-')) {
       // Positional arg = root directory
       options.root = arg

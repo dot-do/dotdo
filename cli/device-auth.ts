@@ -121,7 +121,7 @@ export async function requestDeviceCode(options?: RequestDeviceCodeOptions): Pro
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
+    const errorData = await response.json().catch(() => ({})) as { error?: string; error_description?: string }
     const errorCode = errorData.error || 'unknown_error'
     const errorDescription = errorData.error_description || `Request failed with status ${response.status}`
     throw new Error(`${errorCode}: ${errorDescription}`)
@@ -168,7 +168,7 @@ export async function pollForToken(deviceCode: string, options: PollOptions): Pr
       return response.json()
     }
 
-    const errorData = await response.json().catch(() => ({ error: 'unknown_error' }))
+    const errorData = await response.json().catch(() => ({ error: 'unknown_error' })) as { error?: string; error_description?: string }
     const errorCode = errorData.error
 
     if (errorCode === 'authorization_pending') {

@@ -398,7 +398,7 @@ export class ToolRegistry {
         () => tool.execute(processedInput as any, context),
         timeout,
         toolName
-      )
+      ) as T
     } catch (error) {
       if (error instanceof ToolTimeoutError || error instanceof ToolPermissionError) {
         throw error

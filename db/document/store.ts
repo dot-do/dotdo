@@ -78,6 +78,8 @@ function getUnderlyingDb(db: BetterSQLite3Database): Database.Database {
   return (db as any)._client || (db as any).client
 }
 
+import type { CDCEmitter } from '../cdc'
+
 /**
  * DocumentStore class
  */
@@ -86,6 +88,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
   private sqlite: Database.Database
   private type: string
   private onEvent?: (event: CDCEvent) => void
+  private cdcEmitter?: CDCEmitter
   private bloomFilters: Map<string, SimpleBloomFilter> = new Map()
 
   constructor(db: BetterSQLite3Database, options: DocumentStoreOptions) {
@@ -93,6 +96,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     this.sqlite = getUnderlyingDb(db)
     this.type = options.type
     this.onEvent = options.onEvent
+    this.cdcEmitter = options.cdcEmitter
   }
 
   /**
@@ -113,6 +117,19 @@ export class DocumentStore<T extends Record<string, unknown>> {
   private emit(event: CDCEvent): void {
     if (this.onEvent) {
       this.onEvent(event)
+    }
+    // Also emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: event.op,
+        store: 'document',
+        table: event.table,
+        key: event.key,
+        before: event.before,
+        after: event.after,
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
   }
 

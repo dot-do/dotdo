@@ -6,6 +6,8 @@
  * @module db/vector/types
  */
 
+import type { CDCEmitter } from '../cdc'
+
 // ============================================================================
 // CONFIGURATION TYPES
 // ============================================================================
@@ -16,6 +18,8 @@ export interface VectorStoreOptions {
   useBinaryPrefilter?: boolean
   lazyInit?: boolean
   onCDC?: (event: CDCEvent) => void
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
 }
 
 export interface InsertOptions {

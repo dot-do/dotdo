@@ -658,7 +658,7 @@ export async function authMiddleware(request: Request): Promise<Response> {
 
   try {
     let user: AuthUser | null = null
-    let lastErrorMessage = ERROR_MESSAGES.AUTHENTICATION_REQUIRED
+    let lastErrorMessage: string = ERROR_MESSAGES.AUTHENTICATION_REQUIRED
     let authMethod: string | undefined
 
     // Try session cookie first (preferred)

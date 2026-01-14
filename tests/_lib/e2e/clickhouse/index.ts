@@ -243,8 +243,11 @@ export async function cleanupTestData(
 
   for (const table of tables) {
     try {
+      // SECURITY: table is from hardcoded array, namespace is escaped to prevent SQL injection
+      // Using ClickHouse parameterized syntax for the namespace value
       await client.command({
-        query: `ALTER TABLE ${table} DELETE WHERE ns = '${namespace}'`,
+        query: `ALTER TABLE ${table} DELETE WHERE ns = {namespace:String}`,
+        query_params: { namespace },
       })
     } catch (error) {
       // Ignore errors - table might not exist or be read-only

@@ -2,6 +2,8 @@
  * TypeScript types for TimeSeriesStore
  */
 
+import type { CDCEmitter } from '../cdc'
+
 export interface DataPoint<T = unknown> {
   key: string
   value: T
@@ -31,6 +33,8 @@ export interface TimeSeriesOptions<T = unknown> {
   maxVersionsPerKey?: number
   table?: string
   onCDC?: (event: CDCEvent) => void
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
 }
 
 export interface RangeQuery {

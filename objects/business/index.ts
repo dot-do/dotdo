@@ -2,6 +2,7 @@
  * Business Domain Durable Objects
  *
  * This module exports all business-related DO classes:
+ * - Organization: Top-level org structure with departments, teams, positions
  * - Business: Base business container with OKRs for Revenue, Costs, Profit
  * - DigitalBusiness: Extends Business with Traffic, Conversion, Engagement OKRs
  * - SaaS: Software-as-a-Service with MRR, Churn, NRR, CAC, LTV metrics
@@ -9,6 +10,27 @@
  * - Marketplace: Two-sided marketplace with GMV, TakeRate, Liquidity metrics
  * - Service: AI-delivered Services-as-Software with task and agent management
  */
+
+// Organization structure
+export {
+  Organization,
+  type OrganizationConfig,
+  type OrganizationSettings,
+  type Department,
+  type Team,
+  type Position,
+  type PositionRef,
+  type Budget,
+  type Address,
+  type TeamResources,
+  type TeamChannels,
+  type ApprovalChain,
+  type ApprovalLevel,
+  type ApproverSpec,
+  type EscalationRule,
+  type ResourceHierarchy,
+  type ResourceHierarchyNode,
+} from './Organization'
 
 // Base business class
 export { Business, type BusinessConfig } from './Business'

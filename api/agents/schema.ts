@@ -107,7 +107,7 @@ export function zodToJsonSchema(schema: z.ZodType<unknown>): JsonSchema {
     case 'array':
       return buildSchema({
         type: 'array',
-        items: def.element ? zodToJsonSchema(def.element) : {},
+        items: def.element ? zodToJsonSchema(def.element) : { type: 'string' },
         description,
       })
 
@@ -267,7 +267,7 @@ export function validateInput<T>(
     const firstIssue = result.error.issues[0]
     const error = new ValidationError({
       message: formatZodError(result.error),
-      path: firstIssue?.path ?? [],
+      path: (firstIssue?.path ?? []).filter((p): p is string | number => typeof p === 'string' || typeof p === 'number'),
       received: input,
       expected: firstIssue?.message ?? 'valid input',
     })
@@ -289,7 +289,7 @@ function formatZodError(error: z.ZodError): string {
   })
 
   if (issues.length === 1) {
-    return issues[0]
+    return issues[0] ?? 'Unknown validation error'
   }
 
   return `Validation failed:\n  - ${issues.join('\n  - ')}`

@@ -28,12 +28,15 @@ import type {
 // VECTOR STORE CLASS
 // ============================================================================
 
+import type { CDCEmitter } from '../cdc'
+
 export class VectorStore {
   readonly dimension: number
   readonly matryoshkaDims: number[]
   private readonly useBinaryPrefilter: boolean
   private readonly lazyInit: boolean
   private readonly onCDCCallback?: (event: CDCEvent) => void
+  private readonly cdcEmitter?: CDCEmitter
 
   private db: any
   private initialized = false
@@ -67,6 +70,7 @@ export class VectorStore {
     this.useBinaryPrefilter = options.useBinaryPrefilter ?? false
     this.lazyInit = options.lazyInit ?? false
     this.onCDCCallback = options.onCDC
+    this.cdcEmitter = options.cdcEmitter
 
     // Validate matryoshka dims don't exceed main dimension
     for (const dim of this.matryoshkaDims) {
@@ -133,6 +137,18 @@ export class VectorStore {
     }
     for (const subscriber of this.subscribers) {
       subscriber(event)
+    }
+    // Also emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: event.op,
+        store: 'vector',
+        table: event.table,
+        key: event.key,
+        after: event.after as Record<string, unknown> | undefined,
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
   }
 

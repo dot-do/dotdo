@@ -104,7 +104,7 @@ function emitEventType(entityName: string, events: string[]): string {
   for (const event of events) {
     // Parse event like "Customer.signup" or just "signup"
     const [noun, verb] = event.includes('.') ? event.split('.') : [entityName, event]
-    lines.push(`    '${noun}.${verb}': { ${noun.toLowerCase()}: ${noun} }`)
+    lines.push(`    '${noun ?? entityName}.${verb ?? event}': { ${(noun ?? entityName).toLowerCase()}: ${noun ?? entityName} }`)
   }
   return lines.join('\n')
 }

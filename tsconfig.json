@@ -1,66 +1,41 @@
 {
   "compilerOptions": {
-    // Build target
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "bundler",
+    "moduleResolution": "Bundler",
     "lib": ["ES2022"],
-
-    // Type checking
-    "types": ["@cloudflare/workers-types", "vite/client"],
+    "types": ["@cloudflare/workers-types"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
-
-    // Module interop
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-
-    // JSX support (Hono for API, React for app)
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-
-    // Import aliases (baseUrl required for paths to work)
     "baseUrl": ".",
     "paths": {
       "dotdo": ["./index.ts"],
       "dotdo/*": ["./*"]
     },
-
-    // Better error messages and IDE experience
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "*.ts",
-    "ai/**/*",
-    "api/**/*",
-    "auth/**/*",
-    "cli/**/*",
-    "db/**/*",
-    "do/**/*",
-    "lib/**/*",
-    "objects/**/*",
-    "streaming/**/*",
     "types/**/*",
-    "workers/**/*",
-    "workflows/**/*"
+    "db/relationships.ts",
+    "db/stores/**/*",
+    "do/tiny.ts",
+    "do/base.ts",
+    "do/index.ts"
   ],
   "exclude": [
     "node_modules",
+    "**/node_modules/**",
     "dist",
-    "app",
-    "examples",
-    "packages",
-    "primitives",
-    "ai/primitives/**/*",
-    "do/capabilities/**/*",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "**/tests/**/*.ts",
-    "api/tests/**/*",
-    "**/spikes/**"
+    "**/tests/**/*.ts"
   ]
 }

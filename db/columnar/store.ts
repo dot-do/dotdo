@@ -39,6 +39,8 @@ function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`
 }
 
+import type { CDCEmitter } from '../cdc'
+
 /**
  * ColumnarStore - Analytics-optimized columnar storage
  */
@@ -48,6 +50,7 @@ export class ColumnarStore {
   private bloomFalsePositiveRate: number
   private extractionThreshold: number
   private onCdc?: ColumnarStoreOptions['onCdc']
+  private cdcEmitter?: CDCEmitter
 
   // In-memory columnar data
   private columns: {
@@ -82,6 +85,7 @@ export class ColumnarStore {
     this.bloomFalsePositiveRate = options.bloomFalsePositiveRate ?? 0.1
     this.extractionThreshold = options.extractionThreshold ?? 0.8
     this.onCdc = options.onCdc
+    this.cdcEmitter = options.cdcEmitter
 
     // Initialize columns
     this.columns = {
@@ -190,16 +194,18 @@ export class ColumnarStore {
     this.totalRecordsInserted += records.length
 
     // Emit CDC event
+    const dateStr = new Date().toISOString().split('T')[0]
+    const types = [...new Set(records.map((r) => r.type))].join(',')
+    const partition = `type=${types}/dt=${dateStr}`
+
     if (this.onCdc) {
-      const dateStr = new Date().toISOString().split('T')[0]
-      const types = [...new Set(records.map((r) => r.type))].join(',')
       const cdcEvent = {
         type: 'cdc.batch_insert' as const,
         op: 'c' as const,
         store: 'columnar' as const,
         table: 'things',
         count: records.length,
-        partition: `type=${types}/dt=${dateStr}`,
+        partition,
         timestamp: now,
         batchId,
       }
@@ -209,6 +215,23 @@ export class ColumnarStore {
       } catch {
         // Don't block insert if CDC handler fails
       }
+    }
+
+    // Also emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: 'c',
+        store: 'columnar',
+        table: 'things',
+        key: batchId,
+        after: {
+          count: records.length,
+          partition,
+          types: [...new Set(records.map((r) => r.type))],
+        },
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
 
     return {

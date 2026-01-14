@@ -7,9 +7,9 @@
  * @module lib/agent/tools/types
  */
 
-import type { FSx } from '../../../primitives/fsx/core/fsx'
-import type { TieredExecutor } from '../../../primitives/bashx/src/do/tiered-executor'
-import type { SafetyClassification } from '../../../primitives/bashx/src/types'
+import type { FSx } from '../../../do/capabilities/fsx/core/fsx'
+import type { TieredExecutor } from '../../../do/capabilities/bashx/src/do/tiered-executor'
+import type { SafetyClassification } from '../../../do/capabilities/bashx/src/types'
 
 // ============================================================================
 // CORE INTERFACES

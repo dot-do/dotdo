@@ -423,8 +423,11 @@ export class ToolResultCache {
         if (!byTool[entry.toolName]) {
           byTool[entry.toolName] = { hits: 0, entries: 0 }
         }
-        byTool[entry.toolName].hits += entry.hits
-        byTool[entry.toolName].entries++
+        const toolStats = byTool[entry.toolName]
+        if (toolStats) {
+          toolStats.hits += entry.hits
+          toolStats.entries++
+        }
 
         // Estimate bytes (rough approximation)
         bytesUsed += key.length * 2 + JSON.stringify(entry.result).length * 2
@@ -569,7 +572,7 @@ export function withCaching(
 
     onPreToolUse: async (toolCall: ToolCall): Promise<ToolCallDecision> => {
       // Check cache first - if hit, return use_cached to skip execution
-      const cacheDecision = await cacheHooks.onPreToolUse(toolCall)
+      const cacheDecision = await cacheHooks.onPreToolUse?.(toolCall) ?? { action: 'allow' as const }
       if (cacheDecision.action === 'use_cached') {
         return cacheDecision
       }
@@ -584,7 +587,7 @@ export function withCaching(
 
     onPostToolUse: async (toolCall: ToolCall, result: ToolResult): Promise<void> => {
       // Store in cache (will skip if this was a cached result)
-      await cacheHooks.onPostToolUse(toolCall, result)
+      await cacheHooks.onPostToolUse?.(toolCall, result)
 
       // Call existing hooks
       if (existingHooks.onPostToolUse) {

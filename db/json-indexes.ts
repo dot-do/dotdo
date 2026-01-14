@@ -208,6 +208,18 @@ const VALID_TABLES = ['things', 'relationships'] as const
 const VALID_JSON_PATH_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
 
 /**
+ * Regex for valid verb filters.
+ *
+ * Security validation to prevent SQL injection in index creation.
+ * - Must start with letter or underscore
+ * - Can contain alphanumeric, underscore, hyphen
+ * - No SQL metacharacters allowed
+ *
+ * @internal
+ */
+const VALID_VERB_FILTER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]*$/
+
+/**
  * Prefix for all JSON path indexes to distinguish from regular indexes.
  * All JSON indexes start with 'idx_' followed by table name.
  * @internal
@@ -347,6 +359,28 @@ function validateTable(table: string): asserts table is 'things' | 'relationship
 }
 
 /**
+ * Validate verb filter for safety (prevent SQL injection).
+ *
+ * Ensures the verb filter contains only safe characters that cannot be used
+ * for SQL injection attacks. Throws an error if validation fails.
+ *
+ * @param verbFilter - Verb filter to validate
+ * @throws Error if verb filter is invalid
+ * @internal
+ */
+function validateVerbFilter(verbFilter: string): void {
+  if (!verbFilter || typeof verbFilter !== 'string') {
+    throw new Error('Invalid verb filter: verbFilter is required')
+  }
+
+  if (!VALID_VERB_FILTER_REGEX.test(verbFilter)) {
+    throw new Error(
+      `Invalid verb filter: '${verbFilter}'. Verb filter must contain only alphanumeric characters, underscores, and hyphens.`
+    )
+  }
+}
+
+/**
  * Build SQLite JSON path string.
  * @internal
  */
@@ -412,9 +446,15 @@ export async function createJsonIndex(
   db: any,
   options: JsonIndexOptions
 ): Promise<void> {
-  // Validate inputs
+  // Validate all inputs to prevent SQL injection
+  // SECURITY: validateTable ensures only 'things' or 'relationships' are allowed
   validateTable(options.table)
+  // SECURITY: validateIndexPath ensures path contains only safe alphanumeric/underscore/dot chars
   validateIndexPath(options.path)
+  // SECURITY: validateVerbFilter ensures verbFilter contains only safe alphanumeric/underscore/hyphen chars
+  if (options.verbFilter) {
+    validateVerbFilter(options.verbFilter)
+  }
 
   const indexName = options.typeId !== undefined
     ? getIndexName(options.table, options.path, options.typeId)
@@ -425,11 +465,17 @@ export async function createJsonIndex(
   const jsonPath = buildJsonPath(options.path)
 
   // Build CREATE INDEX statement
+  // NOTE: All interpolated values are validated above to contain only safe characters:
+  // - indexName: derived from validated table, path, and either typeId (number) or verbFilter (validated)
+  // - jsonPath: derived from validated path
+  // - typeId: is a number (cannot inject SQL)
+  // - verbFilter: validated to contain only safe characters
   let indexSql: string
 
   if (options.table === 'things') {
     if (options.typeId !== undefined) {
       // Partial index filtered by type - include type in index for composite filtering
+      // SECURITY: typeId is a number, cannot inject SQL
       indexSql = `CREATE INDEX IF NOT EXISTS ${indexName} ON things(type, json_extract(data, '${jsonPath}')) WHERE type = ${options.typeId}`
     } else {
       // Full index on all rows
@@ -439,6 +485,7 @@ export async function createJsonIndex(
     // relationships table
     if (options.verbFilter) {
       // Partial index filtered by verb
+      // SECURITY: verbFilter is validated above to contain only safe characters
       indexSql = `CREATE INDEX IF NOT EXISTS ${indexName} ON relationships(verb, json_extract(data, '${jsonPath}')) WHERE verb = '${options.verbFilter}'`
     } else {
       // Full index on all rows
@@ -532,10 +579,13 @@ export async function listJsonIndexes(
   db: any,
   table: 'things' | 'relationships'
 ): Promise<JsonIndexInfo[]> {
+  // SECURITY: validateTable ensures only 'things' or 'relationships' are allowed
+  // This prevents SQL injection since table value can only be one of two hardcoded strings
   validateTable(table)
 
   // Query sqlite_master for indexes on the table
   // Pattern matches: idx_{table}_data_*, idx_{table}_type*_data_*, idx_{table}_verb_*_data_*
+  // SECURITY: table is validated above to be only 'things' or 'relationships', so string interpolation is safe
   const querySql = `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '${table}' AND name LIKE 'idx_${table}%data_%'`
 
   let rows: Array<{ name: string }>

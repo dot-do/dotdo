@@ -15,7 +15,7 @@ import {
   Trigger,
   EventTimeTrigger,
   ProcessingTimeTrigger,
-} from '../../../db/window'
+} from '../window'
 
 // Test data types
 interface Metric {
@@ -520,7 +520,9 @@ describe('SessionWindow', () => {
       expect(sessions).toHaveLength(2)
 
       // Late event bridges the gap
-      await window.add({ userId: 'alice', type: 'click', timestamp: t + 1500000 }) // 25 min
+      // For bridging: event at t+31min → Session 1 extends to t+31min
+      // Gap to Session 2 at t+60min = 29min < 30min threshold → merge!
+      await window.add({ userId: 'alice', type: 'click', timestamp: t + 1860000 }) // ~31 min
 
       sessions = await window.getByKey('alice')
       expect(sessions).toHaveLength(1) // Merged into one
@@ -822,7 +824,7 @@ describe('WindowManager', () => {
       await manager.add({ timestamp: hour1 + 1000, value: 100 })
       await manager.add({ timestamp: hour2 + 1000, value: 200 })
 
-      expect(closeHandler).toHaveBeenCalledWith('hourly', expect.objectContaining({ count: 1 }))
+      expect(closeHandler).toHaveBeenCalledWith('hourly', expect.objectContaining({ count: 1 }), expect.anything())
     })
 
     it('emits windowClose with full window metadata', async () => {

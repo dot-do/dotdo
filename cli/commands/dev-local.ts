@@ -47,7 +47,7 @@ export const devCommand = new Command('dev')
       const instance = await adapter.start({
         port,
         host,
-        live: options.liveReload,
+        liveReload: options.liveReload,
       })
 
       console.log()

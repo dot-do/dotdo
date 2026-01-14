@@ -106,11 +106,12 @@ export async function recordMigration(
   batch: number
 ): Promise<void> {
   const now = new Date().toISOString()
-  const insertSql = `
-    INSERT INTO ${MIGRATIONS_TABLE} (name, batch, executed_at)
-    VALUES ('${name}', ${batch}, '${now}')
-  `
-  await runTrackingQuery(db, sql.raw(insertSql))
+  // Use parameterized query to prevent SQL injection
+  await runTrackingQueryWithParams(
+    db,
+    `INSERT INTO ${MIGRATIONS_TABLE} (name, batch, executed_at) VALUES (?, ?, ?)`,
+    [name, batch, now]
+  )
 }
 
 /**
@@ -120,8 +121,12 @@ export async function recordMigration(
  * @param name - Migration name to remove
  */
 export async function removeMigration(db: TrackingDb, name: string): Promise<void> {
-  const deleteSql = `DELETE FROM ${MIGRATIONS_TABLE} WHERE name = '${name}'`
-  await runTrackingQuery(db, sql.raw(deleteSql))
+  // Use parameterized query to prevent SQL injection
+  await runTrackingQueryWithParams(
+    db,
+    `DELETE FROM ${MIGRATIONS_TABLE} WHERE name = ?`,
+    [name]
+  )
 }
 
 /**
@@ -156,13 +161,12 @@ export async function getMigrationsForBatch(
   db: TrackingDb,
   batch: number
 ): Promise<AppliedMigration[]> {
-  const selectSql = `
-    SELECT id, name, batch, executed_at as executedAt
-    FROM ${MIGRATIONS_TABLE}
-    WHERE batch = ${batch}
-    ORDER BY id DESC
-  `
-  const rows = await runTrackingQueryAll(db, sql.raw(selectSql))
+  // Use parameterized query to prevent SQL injection
+  const rows = await runTrackingQueryAllWithParams(
+    db,
+    `SELECT id, name, batch, executed_at as executedAt FROM ${MIGRATIONS_TABLE} WHERE batch = ? ORDER BY id DESC`,
+    [batch]
+  )
   return rows.map((row: any) => ({
     id: row.id,
     name: row.name,
@@ -218,8 +222,12 @@ export async function getMigrationState(db: TrackingDb): Promise<MigrationState>
  * @returns True if migration is applied
  */
 export async function isMigrationApplied(db: TrackingDb, name: string): Promise<boolean> {
-  const selectSql = `SELECT 1 FROM ${MIGRATIONS_TABLE} WHERE name = '${name}' LIMIT 1`
-  const rows = await runTrackingQueryAll(db, sql.raw(selectSql))
+  // Use parameterized query to prevent SQL injection
+  const rows = await runTrackingQueryAllWithParams(
+    db,
+    `SELECT 1 FROM ${MIGRATIONS_TABLE} WHERE name = ? LIMIT 1`,
+    [name]
+  )
   return rows.length > 0
 }
 
@@ -265,6 +273,72 @@ async function runTrackingQuery(db: TrackingDb, query: any): Promise<void> {
     // Drizzle
     await (db as any).run(query)
   }
+}
+
+/**
+ * Run a parameterized tracking query (no result) - prevents SQL injection.
+ */
+async function runTrackingQueryWithParams(db: TrackingDb, sqlString: string, params: any[]): Promise<void> {
+  const connection = db.$client || db
+
+  if (typeof connection.prepare === 'function') {
+    // better-sqlite3
+    const stmt = connection.prepare(sqlString)
+    stmt.run(...params)
+  } else if (typeof connection.run === 'function') {
+    // D1 or other async sqlite
+    await connection.run(sqlString, params)
+  } else if (typeof (db as any).run === 'function') {
+    // Drizzle - use sql template tag with parameters
+    await (db as any).run(sql.raw(sqlString), params)
+  }
+}
+
+/**
+ * Run a parameterized tracking query and return all rows - prevents SQL injection.
+ */
+async function runTrackingQueryAllWithParams(db: TrackingDb, sqlString: string, params: any[]): Promise<any[]> {
+  const connection = db.$client || db
+
+  if (typeof connection.prepare === 'function') {
+    // better-sqlite3
+    try {
+      const stmt = connection.prepare(sqlString)
+      return stmt.all(...params)
+    } catch (error) {
+      // Table may not exist yet
+      if ((error as Error).message?.includes('no such table')) {
+        return []
+      }
+      throw error
+    }
+  }
+
+  if (typeof connection.all === 'function') {
+    // D1 or other async sqlite
+    try {
+      return await connection.all(sqlString, params)
+    } catch (error) {
+      if ((error as Error).message?.includes('no such table')) {
+        return []
+      }
+      throw error
+    }
+  }
+
+  if (typeof (db as any).all === 'function') {
+    // Drizzle
+    try {
+      return await (db as any).all(sql.raw(sqlString), params)
+    } catch (error) {
+      if ((error as Error).message?.includes('no such table')) {
+        return []
+      }
+      throw error
+    }
+  }
+
+  return []
 }
 
 /**

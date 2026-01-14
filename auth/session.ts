@@ -289,16 +289,16 @@ export function parseUserAgent(userAgent: string): { device: string; browser: st
   // Detect browser
   if (/Chrome/i.test(userAgent) && !/Edg/i.test(userAgent)) {
     const match = userAgent.match(/Chrome\/([\d.]+)/)
-    browser = match ? `Chrome ${match[1].split('.')[0]}` : 'Chrome'
+    browser = match ? `Chrome ${match[1]?.split('.')[0]}` : 'Chrome'
   } else if (/Safari/i.test(userAgent) && !/Chrome/i.test(userAgent)) {
     const match = userAgent.match(/Version\/([\d.]+)/)
-    browser = match ? `Safari ${match[1].split('.')[0]}` : 'Safari'
+    browser = match ? `Safari ${match[1]?.split('.')[0]}` : 'Safari'
   } else if (/Firefox/i.test(userAgent)) {
     const match = userAgent.match(/Firefox\/([\d.]+)/)
-    browser = match ? `Firefox ${match[1].split('.')[0]}` : 'Firefox'
+    browser = match ? `Firefox ${match[1]?.split('.')[0]}` : 'Firefox'
   } else if (/Edg/i.test(userAgent)) {
     const match = userAgent.match(/Edg\/([\d.]+)/)
-    browser = match ? `Edge ${match[1].split('.')[0]}` : 'Edge'
+    browser = match ? `Edge ${match[1]?.split('.')[0]}` : 'Edge'
   }
 
   return { device, browser }
@@ -492,7 +492,7 @@ export async function createNewSession(
 function extractClientIP(request: Request): string {
   return (
     request.headers.get('CF-Connecting-IP') ||
-    request.headers.get('X-Forwarded-For')?.split(',')[0].trim() ||
+    request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ||
     request.headers.get('X-Real-IP') ||
     'unknown'
   )

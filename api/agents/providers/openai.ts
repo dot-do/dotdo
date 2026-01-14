@@ -70,9 +70,9 @@ export class OpenAIProvider implements AgentProvider {
   private async generate(messages: Message[], config: AgentConfig): Promise<StepResult> {
     const OpenAI = (await import('openai')).default
     const client = new OpenAI({
-      apiKey: this.options.apiKey ?? process.env.OPENAI_API_KEY,
-      organization: this.options.organization,
-    })
+      apiKey: this.options.apiKey ?? process.env.OPENAI_API_KEY ?? '',
+      ...(this.options.organization ? { organization: this.options.organization } : {}),
+    } as Parameters<typeof OpenAI>[0])
 
     const tools = this.convertTools(config.tools ?? [], config.handoffs)
 
@@ -143,9 +143,9 @@ export class OpenAIProvider implements AgentProvider {
   ): AsyncIterable<StreamEvent> {
     const OpenAI = (await import('openai')).default
     const client = new OpenAI({
-      apiKey: this.options.apiKey ?? process.env.OPENAI_API_KEY,
-      organization: this.options.organization,
-    })
+      apiKey: this.options.apiKey ?? process.env.OPENAI_API_KEY ?? '',
+      ...(this.options.organization ? { organization: this.options.organization } : {}),
+    } as Parameters<typeof OpenAI>[0])
 
     const tools = this.convertTools(config.tools ?? [], config.handoffs)
 

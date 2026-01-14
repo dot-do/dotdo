@@ -1069,7 +1069,7 @@ export function isWorker(value: unknown): value is IWorker {
  */
 export function isAgent(value: unknown): value is IAgent {
   if (!isWorker(value)) return false
-  const a = value as Record<string, unknown>
+  const a = value as unknown as Record<string, unknown>
   return (
     typeof a.registerTool === 'function' &&
     typeof a.getTools === 'function' &&
@@ -1086,7 +1086,7 @@ export function isAgent(value: unknown): value is IAgent {
  */
 export function isHuman(value: unknown): value is IHuman {
   if (!isWorker(value)) return false
-  const h = value as Record<string, unknown>
+  const h = value as unknown as Record<string, unknown>
   return (
     typeof h.setChannels === 'function' &&
     typeof h.getChannels === 'function' &&

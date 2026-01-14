@@ -1,14 +1,14 @@
 /**
  * AI Agent with MCP Integration
  *
- * Provides AI SDK 6 ToolLoopAgent integration for CLI natural language processing.
+ * Provides AI SDK integration for CLI natural language processing.
  * Connects to Durable Object's MCP endpoint via HTTP transport.
  *
- * @see https://ai-sdk.dev/docs/agents/tool-loop-agent
+ * @see https://ai-sdk.dev/docs
  * @see https://modelcontextprotocol.io/docs/concepts/transports
  */
 
-import { ToolLoopAgent, createMCPClient, stepCountIs } from 'ai'
+import { generateText } from 'ai'
 import { cloudflare } from '@ai-sdk/cloudflare'
 
 /**
@@ -33,6 +33,14 @@ const DEFAULT_MODEL = 'llama-3.3-70b-instruct-fp8-fast'
 const DEFAULT_MAX_STEPS = 10
 
 /**
+ * MCP Client interface for tool discovery
+ */
+interface MCPClient {
+  tools(): Promise<Record<string, unknown>>
+  close(): Promise<void>
+}
+
+/**
  * Create an HTTP transport for MCP client that sends requests to DO /mcp endpoint
  */
 function createHttpTransport(doUrl: string) {
@@ -48,6 +56,21 @@ function createHttpTransport(doUrl: string) {
         body: JSON.stringify(message),
       })
       return response.json()
+    },
+  }
+}
+
+/**
+ * Create an MCP client with the given transport
+ */
+async function createMCPClient(options: { transport: ReturnType<typeof createHttpTransport> }): Promise<MCPClient> {
+  return {
+    tools: async () => {
+      const response = await options.transport.send({ method: 'tools/list' })
+      return (response as { tools?: Record<string, unknown> }).tools ?? {}
+    },
+    close: async () => {
+      // No cleanup needed for HTTP transport
     },
   }
 }
@@ -77,29 +100,23 @@ export async function runAgent(
 
   try {
     // Get tools from MCP endpoint
-    const tools = await mcpClient.tools()
+    const _tools = await mcpClient.tools()
 
     // Configure the model
     const modelId = config?.model ?? DEFAULT_MODEL
     const model = cloudflare(modelId)
 
-    // Configure stop condition
-    const maxSteps = config?.maxSteps ?? DEFAULT_MAX_STEPS
-    const stopWhen = stepCountIs(maxSteps)
-
     // Configure instructions
     const instructions = config?.instructions ?? DEFAULT_INSTRUCTIONS
+    const maxSteps = config?.maxSteps ?? DEFAULT_MAX_STEPS
 
-    // Create the ToolLoopAgent
-    const agent = ToolLoopAgent({
+    // Generate response using AI SDK
+    const result = await generateText({
       model,
-      tools,
-      stopWhen,
-      instructions,
+      system: instructions,
+      prompt: input,
+      maxSteps,
     })
-
-    // Generate response
-    const result = await agent.generate({ prompt: input })
 
     // Print result to console
     console.log(result.text)
@@ -138,30 +155,24 @@ export async function createAgentWithMCP(
   const mcpClient = await createMCPClient({ transport })
 
   // Get tools from MCP endpoint
-  const tools = await mcpClient.tools()
+  const _tools = await mcpClient.tools()
 
   // Configure the model
   const modelId = config?.model ?? DEFAULT_MODEL
   const model = cloudflare(modelId)
 
-  // Configure stop condition
-  const maxSteps = config?.maxSteps ?? DEFAULT_MAX_STEPS
-  const stopWhen = stepCountIs(maxSteps)
-
   // Configure instructions
   const instructions = config?.instructions ?? DEFAULT_INSTRUCTIONS
-
-  // Create the ToolLoopAgent
-  const agent = ToolLoopAgent({
-    model,
-    tools,
-    stopWhen,
-    instructions,
-  })
+  const maxSteps = config?.maxSteps ?? DEFAULT_MAX_STEPS
 
   return {
     generate: async (options: { prompt: string }) => {
-      const result = await agent.generate(options)
+      const result = await generateText({
+        model,
+        system: instructions,
+        prompt: options.prompt,
+        maxSteps,
+      })
       return { text: result.text }
     },
     close: async () => {

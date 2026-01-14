@@ -129,6 +129,7 @@ interface UserData {
   name: string | null
   emailVerified: boolean
   image: string | null
+  [key: string]: unknown
 }
 
 interface SessionData {
@@ -137,6 +138,7 @@ interface SessionData {
   userAgent: string | null
   ipAddress: string | null
   userId: string
+  [key: string]: unknown
 }
 
 interface AccountData {
@@ -148,6 +150,7 @@ interface AccountData {
   refreshTokenExpiresAt: number | null // timestamp
   scope: string | null
   userId: string
+  [key: string]: unknown
 }
 
 // ============================================================================

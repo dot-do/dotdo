@@ -56,7 +56,7 @@ async function fetchWithTimeout(
       headers: request.headers,
       body: hasBody ? request.body : undefined,
       signal: controller.signal,
-      // @ts-expect-error - duplex is required for Node.js but not in types
+      // @ts-expect-error - duplex is required for streaming bodies but not in CF types
       duplex: hasBody ? 'half' : undefined,
     })
     return await stub.fetch(requestWithSignal)
@@ -162,7 +162,7 @@ doRoutes.all('*', async (c) => {
       method: c.req.method,
       headers: c.req.raw.headers,
       body: hasBody ? c.req.raw.body : undefined,
-      // @ts-expect-error - duplex is required for Node.js but not in types
+      // @ts-expect-error - duplex is required for streaming bodies but not in CF types
       duplex: hasBody ? 'half' : undefined,
     })
 

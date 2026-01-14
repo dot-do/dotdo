@@ -20,6 +20,7 @@ import type {
   Snapshot,
   RetentionConfig,
 } from './types'
+import type { CDCEmitter } from '../cdc'
 
 function parseTimestamp(ts: number | Date | string): number {
   if (typeof ts === 'number') return ts
@@ -119,6 +120,7 @@ export class TimeSeriesStore<T = unknown> {
   private maxVersionsPerKey: number
   private tableName: string
   private onCDC?: (event: CDCEvent) => void
+  private cdcEmitter?: CDCEmitter
 
   // LRU cache for getAsOf
   private asOfCache = new LRUCache<string, T | undefined>(1000)
@@ -129,11 +131,24 @@ export class TimeSeriesStore<T = unknown> {
     this.maxVersionsPerKey = options.maxVersionsPerKey || 1000
     this.tableName = options.table || 'timeseries'
     this.onCDC = options.onCDC
+    this.cdcEmitter = options.cdcEmitter
   }
 
   private emitCDC(event: CDCEvent): void {
     if (this.onCDC) {
       this.onCDC(event)
+    }
+    // Also emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: event.op as 'c' | 'u' | 'd' | 'r',
+        store: 'timeseries',
+        table: event.table,
+        key: event.key,
+        after: event.after as Record<string, unknown> | undefined,
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
   }
 

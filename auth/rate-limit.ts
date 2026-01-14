@@ -620,7 +620,7 @@ export function getClientIP(request: Request): string {
   // X-Forwarded-For (check first IP in chain)
   const xff = request.headers.get('X-Forwarded-For')
   if (xff) {
-    const firstIP = xff.split(',')[0].trim()
+    const firstIP = xff.split(',')[0]?.trim()
     if (firstIP) {
       return firstIP
     }

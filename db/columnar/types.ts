@@ -4,6 +4,8 @@
  * TypeScript types for analytics-optimized columnar storage.
  */
 
+import type { CDCEmitter } from '../cdc'
+
 /** Record to be inserted into the columnar store */
 export interface ColumnarRecord {
   id?: string
@@ -137,6 +139,8 @@ export interface ColumnarStoreOptions {
   bloomFalsePositiveRate?: number
   extractionThreshold?: number
   onCdc?: CdcHandler
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
 }
 
 /** Mock database interface for testing */

@@ -18,7 +18,7 @@ import type {
   AuthContext,
 } from './types'
 import { GatewayRouter, RequestContext } from './router'
-import { safeJsonClone } from '../../../lib/safe-stringify'
+import { safeJsonClone } from '../../../../lib/safe-stringify'
 
 // ============================================================================
 // Types

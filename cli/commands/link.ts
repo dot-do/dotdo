@@ -465,7 +465,7 @@ export async function storeLinkedAccount(
   const scopes = tokens.scope ? tokens.scope.split(' ') : []
 
   const linkedAccount: LinkedAccount = {
-    id: existingIndex >= 0 ? accounts[existingIndex].id : generateId(),
+    id: existingIndex >= 0 ? accounts[existingIndex]!.id : generateId(),
     provider,
     providerAccountId: profile.providerAccountId,
     displayName: profile.displayName,
@@ -473,7 +473,7 @@ export async function storeLinkedAccount(
     avatarUrl: profile.avatarUrl,
     vaultRef,
     scopes,
-    createdAt: existingIndex >= 0 ? accounts[existingIndex].createdAt : now,
+    createdAt: existingIndex >= 0 ? accounts[existingIndex]!.createdAt : now,
     updatedAt: now,
     tokenExpiresAt,
     status: 'active',
@@ -569,7 +569,7 @@ export async function unlink(
     }
   }
 
-  const accountToRemove = accounts[accountIndex]
+  const accountToRemove = accounts[accountIndex]!
   const vaultRef = accountToRemove.vaultRef
 
   // Remove from accounts

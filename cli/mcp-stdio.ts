@@ -149,7 +149,7 @@ export function parseJsonRpcMessage(input: string): JsonRpcMessage {
     }
   }
 
-  return parsed as JsonRpcMessage
+  return parsed as unknown as JsonRpcMessage
 }
 
 /**
@@ -505,7 +505,7 @@ export function createStdioSession(options?: { inactivityTimeout?: number }): St
               content: [{ type: 'text', text: `Tool ${toolName} called with: ${JSON.stringify(args)}` }],
             })
           } else {
-            await transport.send({
+            await transport!.send({
               jsonrpc: '2.0',
               id: msg.id,
               error: { code: -32601, message: `Tool not found: ${toolName}` },

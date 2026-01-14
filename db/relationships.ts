@@ -117,7 +117,7 @@ export async function createRelationship(
   data: NewRelationship,
 ): Promise<Relationship> {
   const rows = await db.insert(relationships).values(data).returning()
-  return rows[0]
+  return rows[0]!
 }
 
 /**

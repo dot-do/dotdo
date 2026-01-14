@@ -6,6 +6,10 @@
  * The binary includes all dependencies and works without Bun installed.
  */
 
+// Note: This file requires Bun runtime - type checking happens separately
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const Bun: any
+
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -40,7 +44,7 @@ async function build(options: BuildOptions = {}): Promise<void> {
   console.log()
 
   for (const target of targets) {
-    const [, platform, arch] = target.split('-')
+    const [, platform, arch] = target?.split('-') ?? []
     const ext = platform === 'windows' ? '.exe' : ''
     const outfile = options.outfile ?? path.join(outDir, `dotdo-${platform}-${arch}${ext}`)
 

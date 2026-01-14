@@ -272,7 +272,7 @@ export class GraphMemoryAdapter implements AgentMemory {
 
     // Link to previous message if exists
     if (this.messages.length > 0) {
-      const prevId = this.messages[this.messages.length - 1].id
+      const prevId = this.messages[this.messages.length - 1]?.id
       if (prevId) {
         await this.store.createRelationship({
           id: `${prevId}-follows-${id}`,

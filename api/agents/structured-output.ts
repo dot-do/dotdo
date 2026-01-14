@@ -140,7 +140,7 @@ export function extractJson(input: string): unknown[] {
   let match: RegExpExecArray | null
 
   while ((match = codeBlockRegex.exec(input)) !== null) {
-    const content = match[1].trim()
+    const content = match[1]?.trim() ?? ''
     try {
       const parsed = JSON.parse(content)
       codeBlockResults.push(parsed)

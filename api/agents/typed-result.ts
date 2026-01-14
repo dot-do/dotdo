@@ -75,7 +75,7 @@ export interface ToolCallRecord {
  */
 export interface AgentResultMeta {
   /** Agent name that produced the result */
-  agent: string
+  agent?: string
   /** Model used (if known) */
   model?: string
   /** Execution time in milliseconds */

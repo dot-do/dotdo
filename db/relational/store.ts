@@ -15,10 +15,17 @@ import type {
   AnyTable,
   SchemaMap,
 } from './types'
+import type { CDCEmitter } from '../cdc'
 
 /** Generate a unique transaction ID */
 function generateTxId(): string {
   return `tx_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
+}
+
+/** Options for RelationalStore */
+export interface RelationalStoreOptions {
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
 }
 
 /**
@@ -28,6 +35,7 @@ export class RelationalStore<T extends SchemaMap> {
   readonly schema: T
   private data: Map<string, Map<string, Record<string, unknown>>> = new Map()
   private cdcHandlers: CDCEventHandler[] = []
+  private cdcEmitter?: CDCEmitter
   private seq = 0
   private migrations: Map<number, Migration> = new Map()
   private migrationHistory: MigrationHistoryEntry[] = []
@@ -40,8 +48,9 @@ export class RelationalStore<T extends SchemaMap> {
   // Track removed columns from migrations
   private removedColumns: Map<string, string[]> = new Map()
 
-  constructor(_db: unknown, schema: T) {
+  constructor(_db: unknown, schema: T, options?: RelationalStoreOptions) {
     this.schema = schema
+    this.cdcEmitter = options?.cdcEmitter
 
     // Initialize empty tables for each schema
     for (const tableName of Object.keys(schema)) {
@@ -363,6 +372,19 @@ export class RelationalStore<T extends SchemaMap> {
       for (const handler of this.cdcHandlers) {
         handler(fullEvent)
       }
+      // Also emit to unified CDC pipeline if configured
+      if (this.cdcEmitter) {
+        this.cdcEmitter.emit({
+          op: event.op,
+          store: 'relational',
+          table: event.table,
+          key: event.key,
+          before: event.before,
+          after: event.after,
+        }).catch(() => {
+          // Don't block on CDC pipeline errors
+        })
+      }
     }
   }
 
@@ -377,6 +399,19 @@ export class RelationalStore<T extends SchemaMap> {
     for (const event of this.pendingEvents) {
       for (const handler of this.cdcHandlers) {
         handler(event)
+      }
+      // Also emit to unified CDC pipeline if configured
+      if (this.cdcEmitter) {
+        this.cdcEmitter.emit({
+          op: event.op,
+          store: 'relational',
+          table: event.table,
+          key: event.key,
+          before: event.before,
+          after: event.after,
+        }).catch(() => {
+          // Don't block on CDC pipeline errors
+        })
       }
     }
     this.pendingEvents = []

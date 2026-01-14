@@ -174,7 +174,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         content: [],
         model,
         stop_reason: null,
-        stop_sequence: null,
+        stop_sequence: undefined,
         usage: { input_tokens: 0, output_tokens: 0 },
       } as const,
     }

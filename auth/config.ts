@@ -28,6 +28,7 @@ import { organization, admin, apiKey } from 'better-auth/plugins'
 // import { sso, oauthProvider } from 'better-auth/plugins'
 import { stripe } from '@better-auth/stripe'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import { eq } from 'drizzle-orm'
 import * as schema from '../db'
 import { validateAuthEnv, isAuthEnvValidated } from './env-validation'
 import { safeJsonParse } from '../lib/safe-stringify'
@@ -188,7 +189,7 @@ export function createAuth(config: AuthConfig) {
       },
 
       // Custom redirect handling for cross-domain OAuth
-      generateState: async ({ callbackURL }) => {
+      generateState: async ({ callbackURL }: { callbackURL: string }) => {
         // Store the return URL in state for cross-domain redirect
         const state = {
           id: crypto.randomUUID(),
@@ -212,7 +213,7 @@ export function createAuth(config: AuthConfig) {
         membershipLimit: 100,
 
         // Auto-provision tenant DO when org is created
-        async onOrganizationCreate({ organization }) {
+        async onOrganizationCreate({ organization }: { organization: { id: string; name: string } }) {
           // This hook would create the tenant DO
           // Implementation depends on your DO creation logic
         },
@@ -271,7 +272,7 @@ export function createAuth(config: AuthConfig) {
 
     callbacks: {
       // After OAuth completes, handle cross-domain redirect
-      async onOAuthSuccess({ user, session, state }) {
+      async onOAuthSuccess({ user, session, state }: { user: unknown; session: unknown; state: string }) {
         // Decode state to get return URL (safely parse to prevent crashes from malformed/tampered state)
         const decodedState = Buffer.from(state || '', 'base64url').toString()
         const stateData = safeJsonParse<{ id?: string; returnTo?: string; timestamp?: number }>(
@@ -405,7 +406,7 @@ export function createAuthWithGraph(config: GraphAuthConfig) {
       },
 
       // Custom redirect handling for cross-domain OAuth
-      generateState: async ({ callbackURL }) => {
+      generateState: async ({ callbackURL }: { callbackURL: string }) => {
         // Store the return URL in state for cross-domain redirect
         const state = {
           id: crypto.randomUUID(),
@@ -429,7 +430,7 @@ export function createAuthWithGraph(config: GraphAuthConfig) {
         membershipLimit: 100,
 
         // Auto-provision tenant DO when org is created
-        async onOrganizationCreate({ organization }) {
+        async onOrganizationCreate({ organization }: { organization: { id: string; name: string } }) {
           // This hook would create the tenant DO
           // Implementation depends on your DO creation logic
         },
@@ -477,7 +478,7 @@ export function createAuthWithGraph(config: GraphAuthConfig) {
 
     callbacks: {
       // After OAuth completes, handle cross-domain redirect
-      async onOAuthSuccess({ user, session, state }) {
+      async onOAuthSuccess({ user, session, state }: { user: unknown; session: unknown; state: string }) {
         // Decode state to get return URL (safely parse to prevent crashes from malformed/tampered state)
         const decodedState = Buffer.from(state || '', 'base64url').toString()
         const stateData = safeJsonParse<{ id?: string; returnTo?: string; timestamp?: number }>(
@@ -547,7 +548,7 @@ export async function exchangeCrossDomainToken(db: DrizzleD1Database<typeof sche
   }
 
   // Delete the token (one-time use)
-  await db.delete(schema.verifications).where((t, { eq }) => eq(t.id, verification.id))
+  await db.delete(schema.verifications).where(eq(schema.verifications.id, verification.id))
 
   return { sessionId: verification.value }
 }
@@ -707,7 +708,7 @@ export async function verifyCustomDomain(db: DrizzleD1Database<typeof schema>, d
         verifiedAt: new Date(),
         sslStatus: 'active',
       })
-      .where((t, { eq }) => eq(t.id, domainId))
+      .where(eq(schema.customDomains.id, domainId))
   }
 
   return verified

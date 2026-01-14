@@ -213,9 +213,11 @@ export const deployCommand = new Command('deploy')
         case 'fly':
           results[target] = await deployFly(options.name)
           break
-        default:
-          logger.error(`Unknown target: ${target}`)
-          results[target] = { success: false, error: `Unknown target: ${target}` }
+        default: {
+          const unknownTarget: string = target
+          logger.error(`Unknown target: ${unknownTarget}`)
+          ;(results as Record<string, DeployResult>)[unknownTarget] = { success: false, error: `Unknown target: ${unknownTarget}` }
+        }
       }
     }
 

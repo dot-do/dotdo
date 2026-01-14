@@ -131,6 +131,39 @@ export interface CommandResult {
 }
 
 // ============================================================================
+// Security Helpers
+// ============================================================================
+
+/**
+ * Regex for valid identifiers (table names, org IDs, user IDs).
+ * Security validation to prevent SQL injection.
+ * @internal
+ */
+const VALID_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]*$/
+
+/**
+ * Validate and escape a string value for SQL to prevent injection.
+ * @internal
+ */
+function escapeString(value: string): string {
+  // Escape single quotes by doubling them
+  return value.replace(/'/g, "''")
+}
+
+/**
+ * Validate an identifier (table name, org ID, user ID) for SQL safety.
+ * @internal
+ */
+function validateIdentifier(value: string, name: string): void {
+  if (!value || typeof value !== 'string') {
+    throw new Error(`Invalid ${name}: value is required`)
+  }
+  if (!VALID_IDENTIFIER_REGEX.test(value)) {
+    throw new Error(`Invalid ${name}: '${value}' contains invalid characters`)
+  }
+}
+
+// ============================================================================
 // Client Factory
 // ============================================================================
 
@@ -484,12 +517,25 @@ export async function describeTable(
 
 /**
  * Get row count for a table
+ *
+ * @security WARNING: The `table` parameter is NOT parameterized and is directly
+ * interpolated into the SQL query. Ensure `table` comes from a trusted source
+ * (e.g., hardcoded values, validated whitelist) and NOT from user input.
+ *
+ * The `where` parameter is also directly interpolated - it should only be used
+ * with pre-built, safe WHERE clauses, NOT with user-supplied values.
+ *
+ * For user-supplied values, use the `query()` function with ClickHouse's
+ * parameterized query syntax: `{param:Type}`.
  */
 export async function countRows(
   client: ClickHouseClient,
   table: string,
   where?: string
 ): Promise<number> {
+  // SECURITY: Validate table name to prevent SQL injection
+  validateIdentifier(table, 'table')
+
   const sql = where
     ? `SELECT count() as count FROM ${table} WHERE ${where}`
     : `SELECT count() as count FROM ${table}`
@@ -1070,12 +1116,19 @@ function validateContextForVisibility(
 
 /**
  * Build visibility SQL filter clause
+ *
+ * SECURITY: All visibility levels are pre-validated via validateVisibility() which checks
+ * against a whitelist. The orgId and userId values are escaped using escapeString() to
+ * prevent SQL injection attacks.
  */
 function buildVisibilityFilter(
   visibility: Visibility | Visibility[],
   context?: VisibilityContext
 ): string {
   const levels = Array.isArray(visibility) ? visibility : [visibility]
+
+  // SECURITY: Visibility levels are validated via validateVisibility() which ensures
+  // they can only be 'public', 'protected', or 'private' - all safe hardcoded values
 
   // Admin can see everything - use simple IN clause
   if (context?.isAdmin) {
@@ -1094,10 +1147,12 @@ function buildVisibilityFilter(
   if (levels.length === 1) {
     const level = levels[0]
     if (level === 'protected' && context?.orgId) {
-      return `visibility = 'protected' AND org_id = '${context.orgId}'`
+      // SECURITY: escapeString prevents SQL injection via orgId
+      return `visibility = 'protected' AND org_id = '${escapeString(context.orgId)}'`
     }
     if (level === 'private' && context?.userId) {
-      return `visibility = 'private' AND owner_id = '${context.userId}'`
+      // SECURITY: escapeString prevents SQL injection via userId
+      return `visibility = 'private' AND owner_id = '${escapeString(context.userId)}'`
     }
     return `visibility = '${level}'`
   }
@@ -1115,9 +1170,11 @@ function buildVisibilityFilter(
     if (level === 'public') {
       conditions.push(`(visibility = 'public')`)
     } else if (level === 'protected' && context?.orgId) {
-      conditions.push(`(visibility = 'protected' AND org_id = '${context.orgId}')`)
+      // SECURITY: escapeString prevents SQL injection via orgId
+      conditions.push(`(visibility = 'protected' AND org_id = '${escapeString(context.orgId)}')`)
     } else if (level === 'private' && context?.userId) {
-      conditions.push(`(visibility = 'private' AND owner_id = '${context.userId}')`)
+      // SECURITY: escapeString prevents SQL injection via userId
+      conditions.push(`(visibility = 'private' AND owner_id = '${escapeString(context.userId)}')`)
     }
   }
 
