@@ -542,8 +542,8 @@ describe('DO.move()', () => {
 
       await instance.move({ to: 'nrt' })
 
-      // Check pipeline events
-      const pipeline = env.PIPELINE!
+      // Check events pipeline
+      const pipeline = env.EVENTS!
       const events = pipeline.events as Array<{ verb: string }>
 
       const startedEvent = events.find(e => e.verb === 'move.started')

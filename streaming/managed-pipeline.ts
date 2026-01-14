@@ -17,7 +17,7 @@
  *   namespace: 'customer-ns',
  * })
  *
- * await pipeline.send([{ verb: 'Customer.created', data: { id: '123' } }])
+ * await pipeline.send([{ verb: 'Customer.created', source: 'customer-ns', timestamp: new Date().toISOString(), customerId: '123' }])
  * ```
  */
 
@@ -44,18 +44,24 @@ export interface ManagedPipelineConfig {
 }
 
 /**
- * Pipeline event format
+ * Pipeline event format - flat fields for R2/SQL compatibility
+ *
+ * Uses Noun.event semantic for verb field.
+ * All fields are flat (no nested objects).
  */
 export interface PipelineEvent {
+  /** Event type in Noun.event format (e.g., 'Customer.created') */
   verb: string
+  /** Origin of the event (DO namespace, worker name, etc.) */
   source: string
-  $context: string
-  data: unknown
+  /** ISO 8601 timestamp */
   timestamp: string
-  _meta?: {
-    ns: string
-    organizationId?: string
-  }
+  /** Context (tenant namespace) */
+  context?: string
+  /** Stringified data payload (for complex objects) */
+  data?: string
+  /** All other fields are flat at root level */
+  [key: string]: string | number | boolean | null | undefined
 }
 
 /**
@@ -180,25 +186,25 @@ export class ManagedPipeline implements Pipeline {
 // ============================================================================
 
 /**
- * Get pipeline - returns native binding or managed fallback
+ * Get pipeline - returns native EVENTS binding or managed fallback
  *
  * oauth.do is the default auth provider for all DOs, so we can always
  * fall back to the managed pipeline. The namespace identifies the tenant.
  *
- * @param env - Cloudflare env with optional PIPELINE binding
+ * @param env - Cloudflare env with optional EVENTS binding
  * @param namespace - DO namespace (used as tenant identifier)
  * @returns Pipeline interface (native or managed)
  */
 export function getPipeline(
-  env: { PIPELINE?: Pipeline },
+  env: { EVENTS?: Pipeline },
   namespace: string
 ): Pipeline {
-  // Prefer native pipeline binding if available
-  if (env.PIPELINE) {
-    return env.PIPELINE
+  // Prefer native EVENTS pipeline binding if available
+  if (env.EVENTS) {
+    return env.EVENTS
   }
 
-  // Fall back to managed pipeline via events.do
+  // Fall back to managed pipeline via workers.do/events
   // oauth.do is the default auth provider, so all DOs can send events
   return new ManagedPipeline({ namespace })
 }

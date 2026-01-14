@@ -292,7 +292,7 @@ describe('generateSetupCommands', () => {
     expect(script).toContain('--compression zstd')
     expect(script).toContain('wrangler pipelines create do_state_pipeline')
     expect(script).toContain('[[pipelines]]')
-    expect(script).toContain('binding = "PIPELINE"')
+    expect(script).toContain('binding = "EVENTS"')
   })
 })
 

@@ -86,6 +86,7 @@ import type { DODatabase, AppSchema } from '../types/drizzle'
 import * as schema from '../db'
 import { logBestEffortError } from '../lib/logging/error-logger'
 import { safeJsonParse } from '../lib/safe-stringify'
+import { event as createEvent, type Pipeline } from '../lib/events'
 
 // ============================================================================
 // SQL INJECTION PREVENTION
@@ -637,7 +638,7 @@ export interface ObjectsListOptions {
  *   currentBranch: 'main',
  *   env: {
  *     DO: env.DO,
- *     PIPELINE: env.PIPELINE,
+ *     EVENTS: env.EVENTS,
  *   },
  *   typeCache: new Map(),
  * }
@@ -660,7 +661,7 @@ export interface StoreContext {
       idFromString(id: string): { toString(): string }
       get(id: { toString(): string }): { fetch(request: Request): Promise<Response> }
     }
-    PIPELINE?: { send(data: unknown): Promise<void> }
+    EVENTS?: Pipeline
     AI?: { fetch(request: Request): Promise<Response> }
     /** R2 SQL binding for global object registry (cross-DO resolution fallback) */
     R2_SQL?: {
@@ -1181,18 +1182,17 @@ export class ThingsStore {
       })
     }
 
-    // Stream to Pipeline if configured
-    if (this.ctx.env.PIPELINE) {
+    // Stream to EVENTS pipeline if configured (flat fields, Noun.event verb)
+    if (this.ctx.env.EVENTS) {
       try {
-        await this.ctx.env.PIPELINE.send([{
-          verb: `${typeName}.created`,
+        await this.ctx.env.EVENTS.send([createEvent(`${typeName}.created`, {
           source: this.ctx.ns,
-          $context: this.ctx.ns,
-          $id: `${this.ctx.ns}/${typeName}/${id}`,
-          $type: typeName,
-          data: data.data,
-          timestamp: new Date().toISOString(),
-        }])
+          thingId: id,
+          thingType: typeName,
+          context: this.ctx.ns,
+          branch: branch || null,
+          data: typeof data.data === 'object' ? JSON.stringify(data.data) : String(data.data ?? ''),
+        })])
       } catch (error) {
         logBestEffortError(error, {
           operation: 'stream',
@@ -1766,17 +1766,15 @@ export class EventsStore {
       })
     }
 
-    // Stream to Pipeline if configured
-    if (this.ctx.env.PIPELINE) {
+    // Stream to EVENTS pipeline if configured (flat fields, Noun.event verb)
+    if (this.ctx.env.EVENTS) {
       try {
-        await this.ctx.env.PIPELINE.send([{
-          id,
-          verb: options.verb,
+        await this.ctx.env.EVENTS.send([createEvent(options.verb, {
           source: options.source,
-          $context: this.ctx.ns,
-          data: options.data,
-          timestamp: now.toISOString(),
-        }])
+          eventId: id,
+          context: this.ctx.ns,
+          data: typeof options.data === 'object' ? JSON.stringify(options.data) : String(options.data ?? ''),
+        })])
       } catch (error) {
         logBestEffortError(error, {
           operation: 'stream',
@@ -1807,16 +1805,14 @@ export class EventsStore {
 
     const now = new Date()
 
-    // Send to pipeline
-    if (this.ctx.env.PIPELINE) {
-      await this.ctx.env.PIPELINE.send([{
-        id: event.id,
-        verb: event.verb,
+    // Send to EVENTS pipeline (flat fields, Noun.event verb)
+    if (this.ctx.env.EVENTS) {
+      await this.ctx.env.EVENTS.send([createEvent(event.verb, {
         source: event.source,
-        $context: this.ctx.ns,
-        data: event.data,
-        timestamp: now.toISOString(),
-      }])
+        eventId: event.id,
+        context: this.ctx.ns,
+        data: typeof event.data === 'object' ? JSON.stringify(event.data) : String(event.data ?? ''),
+      })])
     }
 
     // Mark as streamed

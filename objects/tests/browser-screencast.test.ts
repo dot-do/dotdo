@@ -609,9 +609,9 @@ class TestBrowserDOWithScreencast {
       createdAt: new Date(),
     })
 
-    if (this.env.PIPELINE) {
+    if (this.env.EVENTS) {
       try {
-        await this.env.PIPELINE.send([
+        await this.env.EVENTS.send([
           {
             verb,
             source: this.ns,

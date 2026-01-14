@@ -111,10 +111,10 @@ class ExtendedTestDO extends TestDO {
   }
 
   async sendToPipeline(data: unknown): Promise<void> {
-    if (!this.env.PIPELINE) {
-      throw new Error('PIPELINE not configured')
+    if (!this.env.EVENTS) {
+      throw new Error('EVENTS not configured')
     }
-    await this.env.PIPELINE.send(data)
+    await this.env.EVENTS.send(data)
   }
 }
 
@@ -884,7 +884,7 @@ describe('Environment Bindings', () => {
       expect(env.AI).toBeDefined()
       expect(env.R2).toBeDefined()
       expect(env.KV).toBeDefined()
-      expect(env.PIPELINE).toBeDefined()
+      expect(env.EVENTS).toBeDefined()
     })
 
     it('allows overrides', () => {
@@ -1019,7 +1019,7 @@ describe('createMockDO', () => {
       expect(env.DO).toBeDefined()
       expect(env.AI).toBeDefined()
       expect(env.R2).toBeDefined()
-      expect(env.PIPELINE).toBeDefined()
+      expect(env.EVENTS).toBeDefined()
     })
 
     it('allows environment overrides', () => {
@@ -1056,7 +1056,7 @@ describe('createMockDO', () => {
 
       await instance.sendToPipeline({ event: 'test' })
 
-      expect(env.PIPELINE!.events).toContainEqual({ event: 'test' })
+      expect(env.EVENTS!.events).toContainEqual({ event: 'test' })
     })
   })
 

@@ -581,7 +581,7 @@ describe('DO Base Class', () => {
       const doInstance = new DO(mockState, envWithPipeline)
       const env = (doInstance as unknown as { env: Env }).env
 
-      expect(env.PIPELINE).toBe(mockPipeline)
+      expect(env.EVENTS).toBe(mockPipeline)
     })
 
     it('Env type accepts DO namespace binding', () => {
@@ -609,7 +609,7 @@ describe('DO Base Class', () => {
       const doInstance = new DO(mockState, envWithoutPipeline)
       const env = (doInstance as unknown as { env: Env }).env
 
-      expect(env.PIPELINE).toBeUndefined()
+      expect(env.EVENTS).toBeUndefined()
     })
 
     it('optional DO binding handles undefined', () => {

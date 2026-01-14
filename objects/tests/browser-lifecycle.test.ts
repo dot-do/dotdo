@@ -431,10 +431,10 @@ class TestBrowserDO {
       createdAt: new Date(),
     })
 
-    // Stream to Pipeline if configured
-    if (this.env.PIPELINE) {
+    // Stream to EVENTS pipeline if configured
+    if (this.env.EVENTS) {
       try {
-        await this.env.PIPELINE.send([{
+        await this.env.EVENTS.send([{
           verb,
           source: this.ns,
           data,

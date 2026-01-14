@@ -123,6 +123,7 @@
 
 import { DO as DOBase, type Env } from './DOBase'
 import * as schema from '../db'
+import { event as createEvent } from '../lib/events'
 import type { Thing } from '../types/Thing'
 import type { ShardOptions, ShardResult, ShardStrategy, UnshardOptions } from '../types/Lifecycle'
 import { createShardModule, ShardModule } from './lifecycle/Shard'
@@ -2329,15 +2330,13 @@ export class DO<E extends Env = Env> extends DOBase<E> {
       // Best-effort database insert
     }
 
-    if (this.env.PIPELINE) {
+    if (this.env.EVENTS) {
       try {
-        await this.env.PIPELINE.send([{
-          verb,
+        await this.env.EVENTS.send([createEvent(verb, {
           source: this.ns,
-          $context: this.ns,
-          data,
-          timestamp: new Date().toISOString(),
-        }])
+          context: this.ns,
+          data: typeof data === 'object' ? JSON.stringify(data) : String(data ?? ''),
+        })])
       } catch {
         // Best-effort streaming
       }

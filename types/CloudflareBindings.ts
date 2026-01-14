@@ -288,14 +288,19 @@ export interface QueueBindings {
  */
 export interface PipelineBindings {
   /**
-   * Primary pipeline for event streaming
-   */
-  PIPELINE?: Pipeline
-
-  /**
-   * Events pipeline for unified event delivery
+   * Unified events pipeline for ALL events
    *
-   * All events (routing, usage, RPC, custom) should flow through this pipeline.
+   * THE universal event stream for everything:
+   * - Domain events (Customer.created, Order.completed)
+   * - Telemetry (Request.routed, RPC.called)
+   * - Analytics (Session.started, Page.viewed)
+   * - Browser insights (Vitals.measured, Error.caught)
+   * - DB mutations (Thing.created, Thing.updated)
+   * - Workers logs (Worker.invoked, Worker.errored)
+   *
+   * All events use flat fields (no nesting) for R2/SQL compatibility.
+   * Uses Noun.event semantic for the verb field.
+   *
    * Falls back to HTTP POST to workers.do/events if not bound.
    *
    * @see lib/events/pipeline.ts

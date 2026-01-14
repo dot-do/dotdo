@@ -1,28 +1,29 @@
 /**
- * Events Pipeline Module
+ * Unified Events Pipeline
  *
- * Unified events pipeline for all event types:
- * - Routing events (request routing decisions)
- * - Usage events (API usage tracking)
- * - RPC events (Cap'n Web RPC metering)
- * - Custom events
+ * THE universal event stream for everything:
+ * - Domain events (Customer.created, Order.completed)
+ * - Telemetry (Request.routed, RPC.called)
+ * - Analytics (Session.started, Page.viewed)
+ * - Browser insights (Vitals.measured, Error.caught)
+ * - DB mutations (Thing.created, Thing.updated)
+ * - Workers logs (Worker.invoked, Worker.errored)
+ *
+ * All events use flat fields (no nesting) for R2/SQL compatibility.
+ * Uses Noun.event semantic for the verb field.
  *
  * @example
  * ```typescript
- * import { sendEvent, initEventSink, routingEvent } from 'lib/events'
+ * import { sendEvent, initEventSink, event } from 'lib/events'
  *
  * // Initialize with env bindings (enables direct pipeline access)
  * initEventSink(env)
  *
- * // Send events
- * await sendEvent(routingEvent({
- *   requestId: 'req-123',
- *   pathname: '/api/customers',
- *   method: 'GET',
- *   targetBinding: 'DO',
- *   isReplica: false,
- *   consistencyMode: 'eventual',
- *   durationMs: 5,
+ * // Send events - flat fields, Noun.event verb
+ * await sendEvent(event('Customer.created', {
+ *   source: 'tenant-123',
+ *   customerId: 'cust-456',
+ *   name: 'Acme Corp',
  * }))
  * ```
  */
@@ -35,11 +36,26 @@ export {
   sendEvent,
   hasEventsBinding,
 
-  // Event factories
+  // Generic event factory
+  event,
+
+  // Typed event factories
   routingEvent,
   usageEvent,
   rpcEvent,
-  genericEvent,
+  thingCreatedEvent,
+  thingUpdatedEvent,
+  thingDeletedEvent,
+  sessionStartedEvent,
+  pageViewedEvent,
+  vitalsEvent,
+  errorEvent,
+  workerInvokedEvent,
+  browserConnectedEvent,
+  browserDisconnectedEvent,
+  identifyEvent,
+  trackEvent,
+  groupEvent,
 
   // Types
   type BaseEvent,

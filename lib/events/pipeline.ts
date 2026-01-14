@@ -1,23 +1,42 @@
 /**
  * Unified Events Pipeline
  *
- * Sends all events to a pipeline - either via EVENTS binding or HTTP fallback.
+ * THE universal event stream for everything:
+ * - Domain events (Customer.created, Order.completed)
+ * - Telemetry (Request.routed, RPC.called)
+ * - Analytics (Session.started, Page.viewed)
+ * - Browser insights (Vitals.measured, Error.caught)
+ * - DB mutations (Thing.created, Thing.updated)
+ * - Workers logs (Worker.invoked, Worker.errored)
  *
- * Usage:
+ * All events use flat fields (no nesting) for R2/SQL compatibility.
+ * Uses Noun.event semantic for the verb field.
+ *
+ * @example
  * ```typescript
- * import { sendEvents, createEventSink } from 'lib/events/pipeline'
+ * import { sendEvent, initEventSink, event } from 'lib/events'
  *
- * // Direct send (auto-detects binding or uses HTTP)
- * await sendEvents([{ type: 'routing', ... }])
+ * // Initialize with env bindings (enables direct pipeline access)
+ * initEventSink(env)
  *
- * // Or create a sink for middleware
- * const sink = createEventSink(env)
- * await sink.send([event1, event2])
+ * // Send events - flat fields, Noun.event verb
+ * await sendEvent(event('Customer.created', {
+ *   source: 'tenant-123',
+ *   customerId: 'cust-456',
+ *   name: 'Acme Corp',
+ *   plan: 'enterprise',
+ * }))
+ *
+ * // Or use typed helpers
+ * await sendEvent(routingEvent({
+ *   source: 'api-router',
+ *   requestId: 'req-123',
+ *   pathname: '/api/customers',
+ *   method: 'GET',
+ *   targetBinding: 'DO',
+ *   durationMs: 5,
+ * }))
  * ```
- *
- * Priority:
- * 1. env.EVENTS binding (Pipeline) - direct pipeline access
- * 2. HTTP POST to workers.do/events - multi-tenant fallback
  */
 
 // ============================================================================
@@ -25,12 +44,19 @@
 // ============================================================================
 
 /**
- * Base event structure - all events must have type and timestamp
+ * Base event structure - all events are flat with Noun.event verb
+ *
+ * Fields are flat (no nesting) for R2/SQL/Streams compatibility.
  */
 export interface BaseEvent {
-  type: string
-  timestamp?: number
-  [key: string]: unknown
+  /** Event type in Noun.event format (e.g., 'Customer.created', 'Request.routed') */
+  verb: string
+  /** Origin of the event (DO namespace, worker name, browser sessionId, etc.) */
+  source: string
+  /** ISO 8601 timestamp */
+  timestamp: string
+  /** All other fields are flat at root level */
+  [key: string]: string | number | boolean | null | undefined
 }
 
 /**
@@ -61,7 +87,7 @@ export interface EventSink {
 /**
  * Multi-tenant events endpoint (forwards to Pipeline HTTP endpoint)
  */
-const EVENTS_ENDPOINT = 'https://workers.do/events'
+export const EVENTS_ENDPOINT = 'https://workers.do/events'
 
 /**
  * Request timeout for HTTP fallback (ms)
@@ -71,7 +97,7 @@ const HTTP_TIMEOUT = 5000
 /**
  * Max batch size for events
  */
-const MAX_BATCH_SIZE = 1000
+export const MAX_BATCH_SIZE = 1000
 
 // ============================================================================
 // Pipeline Sink (Direct binding)
@@ -80,16 +106,16 @@ const MAX_BATCH_SIZE = 1000
 /**
  * Event sink using direct Pipeline binding
  */
-class PipelineEventSink implements EventSink {
+export class PipelineEventSink implements EventSink {
   constructor(private pipeline: Pipeline) {}
 
   async send(events: BaseEvent[]): Promise<void> {
     if (events.length === 0) return
 
-    // Add timestamps if missing
+    // Ensure timestamps
     const timestampedEvents = events.map((e) => ({
       ...e,
-      timestamp: e.timestamp ?? Date.now(),
+      timestamp: e.timestamp || new Date().toISOString(),
     }))
 
     // Batch if needed
@@ -107,7 +133,7 @@ class PipelineEventSink implements EventSink {
 /**
  * Event sink using HTTP POST to workers.do/events
  */
-class HttpEventSink implements EventSink {
+export class HttpEventSink implements EventSink {
   constructor(
     private endpoint: string = EVENTS_ENDPOINT,
     private timeout: number = HTTP_TIMEOUT
@@ -116,10 +142,10 @@ class HttpEventSink implements EventSink {
   async send(events: BaseEvent[]): Promise<void> {
     if (events.length === 0) return
 
-    // Add timestamps if missing
+    // Ensure timestamps
     const timestampedEvents = events.map((e) => ({
       ...e,
-      timestamp: e.timestamp ?? Date.now(),
+      timestamp: e.timestamp || new Date().toISOString(),
     }))
 
     // Batch if needed
@@ -169,12 +195,9 @@ class HttpEventSink implements EventSink {
  * @returns EventSink that sends to pipeline or HTTP fallback
  */
 export function createEventSink(env?: EventsEnv): EventSink {
-  // Check for EVENTS binding
   if (env?.EVENTS) {
     return new PipelineEventSink(env.EVENTS)
   }
-
-  // Fallback to HTTP
   return new HttpEventSink()
 }
 
@@ -186,18 +209,11 @@ export function hasEventsBinding(env?: EventsEnv): boolean {
 }
 
 // ============================================================================
-// Convenience Functions
+// Global Sink
 // ============================================================================
 
-// Global sink instance (lazy initialized)
 let globalSink: EventSink | null = null
 
-/**
- * Get or create the global event sink
- *
- * For use when env is not readily available (e.g., utility functions).
- * Falls back to HTTP endpoint.
- */
 function getGlobalSink(): EventSink {
   if (!globalSink) {
     globalSink = new HttpEventSink()
@@ -209,8 +225,6 @@ function getGlobalSink(): EventSink {
  * Initialize the global sink with env bindings
  *
  * Call this early in request handling to enable direct pipeline access.
- *
- * @param env - Environment with optional EVENTS binding
  */
 export function initEventSink(env: EventsEnv): void {
   globalSink = createEventSink(env)
@@ -218,11 +232,6 @@ export function initEventSink(env: EventsEnv): void {
 
 /**
  * Send events to the pipeline
- *
- * Uses the global sink (HTTP fallback if not initialized with binding).
- * For best performance, call initEventSink(env) early in request handling.
- *
- * @param events - Events to send
  */
 export async function sendEvents(events: BaseEvent[]): Promise<void> {
   const sink = getGlobalSink()
@@ -231,43 +240,69 @@ export async function sendEvents(events: BaseEvent[]): Promise<void> {
 
 /**
  * Send a single event to the pipeline
- *
- * @param event - Event to send
  */
-export async function sendEvent(event: BaseEvent): Promise<void> {
-  await sendEvents([event])
+export async function sendEvent(ev: BaseEvent): Promise<void> {
+  await sendEvents([ev])
 }
 
 // ============================================================================
-// Event Type Helpers
+// Event Factory - Generic
 // ============================================================================
 
 /**
- * Create a routing event
+ * Create an event with Noun.event verb and flat fields
+ *
+ * @param verb - Event type in Noun.event format (e.g., 'Customer.created')
+ * @param fields - Flat fields for the event (source required, others optional)
+ *
+ * @example
+ * ```typescript
+ * event('Customer.created', {
+ *   source: 'tenant-123',
+ *   customerId: 'cust-456',
+ *   name: 'Acme Corp',
+ * })
+ * ```
  */
-export function routingEvent(data: {
+export function event(
+  verb: string,
+  fields: { source: string } & Record<string, string | number | boolean | null | undefined>
+): BaseEvent {
+  return {
+    verb,
+    timestamp: new Date().toISOString(),
+    ...fields,
+  }
+}
+
+// ============================================================================
+// Event Factories - Typed Helpers
+// ============================================================================
+
+/**
+ * Request.routed - API routing decision
+ */
+export function routingEvent(fields: {
+  source: string
   requestId: string
   pathname: string
   method: string
   targetBinding: string
-  isReplica: boolean
-  consistencyMode: string
+  isReplica?: boolean
+  consistencyMode?: string
   durationMs: number
   colo?: string
   region?: string
   replicaRegion?: string
 }): BaseEvent {
-  return {
-    type: 'routing',
-    timestamp: Date.now(),
-    ...data,
-  }
+  return event('Request.routed', fields)
 }
 
 /**
- * Create a usage event
+ * Usage.recorded - API usage tracking
  */
-export function usageEvent(data: {
+export function usageEvent(fields: {
+  source: string
   requestId: string
   endpoint: string
   method: string
@@ -278,17 +313,14 @@ export function usageEvent(data: {
   apiKeyId?: string
   tenantId?: string
 }): BaseEvent {
-  return {
-    type: 'usage',
-    timestamp: Date.now(),
-    ...data,
-  }
+  return event('Usage.recorded', fields)
 }
 
 /**
- * Create an RPC metering event
+ * RPC.called - Cap'n Web RPC metering
  */
-export function rpcEvent(data: {
+export function rpcEvent(fields: {
+  source: string
   requestId: string
   service: string
   method: string
@@ -300,31 +332,181 @@ export function rpcEvent(data: {
   inputTokens?: number
   outputTokens?: number
 }): BaseEvent {
-  return {
-    type: 'rpc',
-    timestamp: Date.now(),
-    ...data,
-  }
+  return event('RPC.called', fields)
 }
 
 /**
- * Create a generic event
+ * Thing.created - Domain entity created
  */
-export function genericEvent(type: string, data: Record<string, unknown>): BaseEvent {
-  return {
-    type,
-    timestamp: Date.now(),
-    ...data,
-  }
+export function thingCreatedEvent(fields: {
+  source: string
+  thingId: string
+  thingType: string
+  branch?: string
+  [key: string]: string | number | boolean | null | undefined
+}): BaseEvent {
+  return event(`${fields.thingType}.created`, fields)
+}
+
+/**
+ * Thing.updated - Domain entity updated
+ */
+export function thingUpdatedEvent(fields: {
+  source: string
+  thingId: string
+  thingType: string
+  branch?: string
+  version?: number
+  [key: string]: string | number | boolean | null | undefined
+}): BaseEvent {
+  return event(`${fields.thingType}.updated`, fields)
+}
+
+/**
+ * Thing.deleted - Domain entity deleted
+ */
+export function thingDeletedEvent(fields: {
+  source: string
+  thingId: string
+  thingType: string
+  branch?: string
+}): BaseEvent {
+  return event(`${fields.thingType}.deleted`, fields)
+}
+
+/**
+ * Session.started - Browser/user session started
+ */
+export function sessionStartedEvent(fields: {
+  source: string
+  sessionId: string
+  userId?: string
+  userAgent?: string
+  referrer?: string
+  pathname?: string
+}): BaseEvent {
+  return event('Session.started', fields)
+}
+
+/**
+ * Page.viewed - Page view event (Segment-style)
+ */
+export function pageViewedEvent(fields: {
+  source: string
+  sessionId: string
+  pathname: string
+  title?: string
+  referrer?: string
+  userId?: string
+}): BaseEvent {
+  return event('Page.viewed', fields)
+}
+
+/**
+ * Vitals.measured - Core Web Vitals
+ */
+export function vitalsEvent(fields: {
+  source: string
+  sessionId: string
+  pathname: string
+  metric: string // 'LCP' | 'FID' | 'CLS' | 'FCP' | 'TTFB'
+  value: number
+  rating?: string // 'good' | 'needs-improvement' | 'poor'
+}): BaseEvent {
+  return event('Vitals.measured', fields)
+}
+
+/**
+ * Error.caught - Client/server error
+ */
+export function errorEvent(fields: {
+  source: string
+  errorType: string
+  message: string
+  stack?: string
+  sessionId?: string
+  requestId?: string
+  pathname?: string
+}): BaseEvent {
+  return event('Error.caught', fields)
+}
+
+/**
+ * Worker.invoked - Workers tail log
+ */
+export function workerInvokedEvent(fields: {
+  source: string
+  requestId: string
+  method: string
+  pathname: string
+  statusCode: number
+  durationMs: number
+  colo?: string
+  rayId?: string
+}): BaseEvent {
+  return event('Worker.invoked', fields)
+}
+
+/**
+ * Browser.connected - Browser DO lifecycle
+ */
+export function browserConnectedEvent(fields: {
+  source: string
+  browserId: string
+  sessionId?: string
+}): BaseEvent {
+  return event('Browser.connected', fields)
+}
+
+/**
+ * Browser.disconnected - Browser DO lifecycle
+ */
+export function browserDisconnectedEvent(fields: {
+  source: string
+  browserId: string
+  sessionId?: string
+  durationMs?: number
+}): BaseEvent {
+  return event('Browser.disconnected', fields)
 }
 
 // ============================================================================
-// Exports
+// Segment-style Analytics Events
 // ============================================================================
 
-export {
-  PipelineEventSink,
-  HttpEventSink,
-  EVENTS_ENDPOINT,
-  MAX_BATCH_SIZE,
+/**
+ * User.identified - Segment identify() equivalent
+ */
+export function identifyEvent(fields: {
+  source: string
+  userId: string
+  anonymousId?: string
+  traits?: string // JSON stringified for flat storage
+}): BaseEvent {
+  return event('User.identified', fields)
+}
+
+/**
+ * Action.tracked - Segment track() equivalent
+ */
+export function trackEvent(fields: {
+  source: string
+  eventName: string
+  userId?: string
+  anonymousId?: string
+  properties?: string // JSON stringified for flat storage
+}): BaseEvent {
+  return event('Action.tracked', { ...fields, actionName: fields.eventName })
+}
+
+/**
+ * Group.joined - Segment group() equivalent
+ */
+export function groupEvent(fields: {
+  source: string
+  userId: string
+  groupId: string
+  traits?: string // JSON stringified for flat storage
+}): BaseEvent {
+  return event('Group.joined', fields)
 }

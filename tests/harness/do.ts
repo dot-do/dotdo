@@ -866,7 +866,7 @@ export function createMockEnv<E extends MockEnv = MockEnv>(
     AI: createMockAI(),
     R2: createMockR2(),
     KV: createMockKV(),
-    PIPELINE: createMockPipeline(),
+    EVENTS: createMockPipeline(),
     ...overrides,
   }
 
