@@ -2,6 +2,11 @@
 export * from './Thing'
 export * from './Tool'
 
+// Schema.org.ai type registry
+export * from './schema-registry'
+export { SCHEMA_BASE, schemaUrl, TypeRegistry, typeFromUrl } from './schema-registry'
+export type { SchemaType, SchemaUrl } from './schema-registry'
+
 // Cloudflare Bindings - unified type system
 export * from './CloudflareBindings'
 export type {
