@@ -15,17 +15,25 @@
  * @see README.md for full documentation
  */
 
-// Stub export - implementation TBD
-// This file exists to allow RED tests to import the module
-// All tests should FAIL until implementation is complete
+export { BlobStore } from './store'
 
-export class BlobStore {
-  constructor(..._args: unknown[]) {
-    throw new Error('BlobStore not implemented')
-  }
-}
+export type {
+  BlobMetadata,
+  BlobResult,
+  BlobGetResult,
+  ListResult,
+  BlobCDCEvent,
+  BlobStoreOptions,
+  PutOptions,
+  PutStreamOptions,
+  SignedUrlOptions,
+  UploadUrlOptions,
+  ListOptions,
+  QueryOptions,
+  UpdateMetadataOptions,
+  R2Bucket,
+  Database,
+} from './types'
 
-// Type exports - stubs for now
-export type BlobMetadata = never
-export type BlobResult = never
-export type BlobCDCEvent = never
+export { computeHash, getContentAddressedKey, getKeyAddressedPath, getHashHex } from './dedup'
+export { generateSignedUrl, generateUploadUrl, parseDuration } from './presigned'
