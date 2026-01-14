@@ -273,6 +273,9 @@ export default defineWorkspace([
   // Type definition tests
   createNodeWorkspace('types', ['types/tests/**/*.test.ts']),
 
+  // Nouns tests (DO-Noun integration, schema validation)
+  createNodeWorkspace('nouns', ['nouns/tests/**/*.test.ts']),
+
   // Evaluation storage tests
   createNodeWorkspace('evals', ['evals/tests/**/*.test.ts']),
 

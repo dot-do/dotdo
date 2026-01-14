@@ -1,5 +1,20 @@
+import { z } from 'zod'
 import { defineNoun } from '../types'
-import { SessionSchema } from '../../ai/primitives/packages/id.org.ai/src'
+
+/**
+ * Local Session schema (Zod v4 compatible)
+ *
+ * Mirrors the schema from id.org.ai but using the main project's Zod version
+ * to avoid Zod v3/v4 type incompatibility.
+ */
+export const SessionSchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/Session'),
+  identityId: z.string(),
+  token: z.string(),
+  expiresAt: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+})
 
 /**
  * Session - Active authentication session

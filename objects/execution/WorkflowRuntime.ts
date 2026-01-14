@@ -639,7 +639,7 @@ export class WorkflowRuntime {
     try {
       await this.executeSteps()
 
-      if (this.state === 'running') {
+      if ((this.state as WorkflowRuntimeState) === 'running') {
         // Transition to 'started' (completed)
         this.transitionState('complete', `workflow:${this._instanceId}:result`)
         this._completedAt = new Date()
@@ -654,7 +654,7 @@ export class WorkflowRuntime {
       }
 
       return {
-        status: this.state,
+        status: this.state as WorkflowRuntimeState,
         output: this._output,
         duration: this.duration,
       }
@@ -720,7 +720,7 @@ export class WorkflowRuntime {
     try {
       await this.executeSteps()
 
-      if (this.state === 'running') {
+      if ((this.state as WorkflowRuntimeState) === 'running') {
         // Transition to 'resumed' (completed)
         this.transitionState('complete', `workflow:${this._instanceId}:result`)
         this._completedAt = new Date()

@@ -36,7 +36,7 @@
  */
 
 import { DO as DOTiny, type Env } from './DOTiny'
-import { eq, sql } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import * as schema from '../../db'
 import { runMigrations } from '../../db/drizzle/migrations'
@@ -226,6 +226,8 @@ export interface ThingsCollection<T extends Thing = Thing> {
 export interface RelationshipsAccessor {
   create(data: { verb: string; from: string; to: string; data?: unknown }): Promise<{ id: string }>
   list(query?: { from?: string; to?: string; verb?: string }): Promise<RelationshipRecord[]>
+  delete(id: string): Promise<void>
+  deleteWhere(criteria: { from?: string; to?: string; verb?: string }): Promise<number>
 }
 
 export interface RelationshipRecord {
@@ -1079,7 +1081,8 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    */
   private ensureSchema(): void {
     if (!this._schemaInitialized) {
-      runMigrations(this.ctx.storage.sql)
+      // Cast SqlStorage to SqlInterface - types are compatible at runtime
+      runMigrations(this.ctx.storage.sql as Parameters<typeof runMigrations>[0])
       this._schemaInitialized = true
     }
   }
@@ -1591,7 +1594,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
     // Get pipeline (native binding or managed fallback via events.do)
     // oauth.do is the default auth provider, so all DOs can send to managed pipeline
-    const pipeline = getPipeline(this.env as { PIPELINE?: Pipeline }, this.ns)
+    const pipeline = getPipeline(this.env as { EVENTS?: Pipeline }, this.ns)
 
     // Attempt pipeline send with error capture and retry
     if (pipeline) {
@@ -2342,6 +2345,28 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
             data: r.data as Record<string, unknown> | null,
             createdAt: r.createdAt,
           }))
+      },
+      delete: async (id: string): Promise<void> => {
+        await this.db.delete(schema.relationships).where(eq(schema.relationships.id, id))
+      },
+      deleteWhere: async (criteria: { from?: string; to?: string; verb?: string }): Promise<number> => {
+        // Find matching relationships first
+        const toDelete = await this.relationships.list(criteria)
+        if (toDelete.length === 0) return 0
+
+        // Build conditions and delete
+        const conditions: ReturnType<typeof eq>[] = []
+        if (criteria.from) conditions.push(eq(schema.relationships.from, criteria.from))
+        if (criteria.to) conditions.push(eq(schema.relationships.to, criteria.to))
+        if (criteria.verb) conditions.push(eq(schema.relationships.verb, criteria.verb))
+
+        if (conditions.length === 1) {
+          await this.db.delete(schema.relationships).where(conditions[0])
+        } else if (conditions.length > 1) {
+          await this.db.delete(schema.relationships).where(and(...conditions as [any, any, ...any[]]))
+        }
+
+        return toDelete.length
       },
     }
   }

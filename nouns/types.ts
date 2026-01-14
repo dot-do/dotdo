@@ -28,6 +28,16 @@ export function defineNoun<T extends z.ZodType>(config: Noun<T>): Noun<T> {
 }
 
 /**
+ * AnyNoun - A Noun with any schema type.
+ *
+ * Use this type when you need to allow subclasses to override static noun
+ * properties with different schema types (e.g., Worker -> Agent, Business -> SaaS).
+ * The base class declares `static readonly noun: AnyNoun = ...` so subclasses
+ * can override with their own schema without type conflicts.
+ */
+export type AnyNoun = Noun<z.ZodType>
+
+/**
  * Collection wrapper - represents a collection of Nouns
  */
 export function Collection<T extends Noun>(noun: T): Noun & { itemType: T } {

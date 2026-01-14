@@ -21,6 +21,7 @@
 import { Business, BusinessConfig } from './Business'
 import { Env, OKR } from '../core/DO'
 import { Service as ServiceNoun } from '../../nouns/business/Service'
+import type { AnyNoun } from '../../nouns/types'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -179,7 +180,7 @@ export interface QualityRatingOptions {
 
 export class Service extends Business {
   static override readonly $type: string = ServiceNoun.$type
-  static readonly noun = ServiceNoun
+  static override readonly noun: AnyNoun = ServiceNoun
 
   // Internal state
   private tasks: Map<string, TaskRecord> = new Map()
@@ -489,7 +490,11 @@ export class Service extends Business {
 
     // Find appropriate escalation target
     const priority = options.priority || 'normal'
-    const target = config.escalationTargets.find((t) => t.priority === priority) || config.escalationTargets[0]
+    const target = config.escalationTargets.find((t) => t.priority === priority) ?? config.escalationTargets[0]
+
+    if (!target) {
+      throw new Error('No escalation targets configured')
+    }
 
     const result = await this.completeTask(taskId, {
       status: 'escalated',

@@ -121,7 +121,7 @@ export class ManagedPipeline implements Pipeline {
         _meta: {
           ns: this.config.namespace,
           organizationId: this.config.organizationId,
-          ...((e._meta as object) || {}),
+          ...((e._meta as unknown as object) || {}),
         },
       }
     })

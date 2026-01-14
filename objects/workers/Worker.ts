@@ -126,6 +126,7 @@
 
 import { DO, Env } from '../core/DO'
 import { Worker as WorkerNoun } from '../../nouns/workers/Worker'
+import type { AnyNoun } from '../../nouns/types'
 
 export type WorkerMode = 'autonomous' | 'supervised' | 'manual'
 
@@ -195,7 +196,8 @@ export interface Channel {
  */
 export class Worker extends DO {
   static override readonly $type: string = WorkerNoun.$type
-  static readonly noun = WorkerNoun
+  // Use AnyNoun to allow subclasses (Agent, Human) to override with their own noun types
+  static readonly noun: AnyNoun = WorkerNoun
 
   protected mode: WorkerMode = 'supervised'
 

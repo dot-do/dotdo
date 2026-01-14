@@ -1,5 +1,18 @@
+import { z } from 'zod'
 import { defineNoun } from '../types'
-import { IdentitySchema } from '../../ai/primitives/packages/id.org.ai/src'
+
+/**
+ * Local Identity schema (Zod v4 compatible)
+ *
+ * Mirrors the schema from id.org.ai but using the main project's Zod version
+ * to avoid Zod v3/v4 type incompatibility.
+ */
+export const IdentitySchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/Identity'),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
 
 /**
  * Identity - Base identity for humans and AI agents

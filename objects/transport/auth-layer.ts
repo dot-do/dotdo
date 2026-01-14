@@ -1225,14 +1225,23 @@ export function withAuth<T extends DOConstructor>(
   Base: T,
   options: AuthMiddlewareOptions = {}
 ) {
+  // @ts-expect-error - mixin pattern requires flexible constructor signature
   return class extends Base {
-    /** @internal */ _sessionStorage = options.sessionStorage || createInMemorySessionStorage()
-    /** @internal */ _authMiddleware = createAuthMiddleware({
-      ...options,
-      sessionStorage: this._sessionStorage,
-    })
+    /** @internal */ _sessionStorage: SessionStorage
+    /** @internal */ _authMiddleware: ReturnType<typeof createAuthMiddleware>
     /** @internal */ _refreshTokens = new Map<string, { userId: string; expiresAt: Date }>()
-    /** @internal */ _jwtSecret = options.jwtSecret || ''
+    /** @internal */ _jwtSecret: string
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(state: any, env: any) {
+      super(state, env)
+      this._sessionStorage = options.sessionStorage || createInMemorySessionStorage()
+      this._authMiddleware = createAuthMiddleware({
+        ...options,
+        sessionStorage: this._sessionStorage,
+      })
+      this._jwtSecret = options.jwtSecret || ''
+    }
 
     /**
      * Get $auth config from class

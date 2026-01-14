@@ -150,7 +150,7 @@ export class IcebergStateAdapter {
   private serializeToParquet(rows: unknown[]): ArrayBuffer {
     // Simplified - in real impl would use parquet-wasm
     const json = JSON.stringify(rows)
-    return new TextEncoder().encode(json).buffer
+    return new TextEncoder().encode(json).buffer as ArrayBuffer
   }
 
   private deserializeFromParquet(data: ArrayBuffer): unknown[] {

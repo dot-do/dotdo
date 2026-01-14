@@ -62,7 +62,8 @@ export interface CreateSessionOptions {
 }
 
 export interface SandboxEnv extends Env {
-  Sandbox: DurableObjectNamespace<CloudflareSandbox>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  Sandbox: DurableObjectNamespace<any>
 }
 
 // ============================================================================
@@ -93,6 +94,7 @@ interface WriteFileRequest {
 interface ExposePortRequest {
   port: number
   name?: string
+  protocol?: 'tcp' | 'udp'
 }
 
 // Terminal WebSocket types
@@ -577,20 +579,33 @@ export class SandboxDO extends DO<SandboxEnv> {
       }
 
       try {
-        const stream = await this.sandbox.execStream(body.command)
+        if (!this.sandbox?.execStream) {
+          return c.json({ error: 'Streaming execution not supported' }, 501)
+        }
+        const result = await this.sandbox.execStream(body.command)
+        const stream = result.stream
+
+        if (!stream) {
+          return c.json({ error: 'No stream available' }, 500)
+        }
 
         return new Response(
           new ReadableStream({
             async start(controller) {
               const encoder = new TextEncoder()
+              const reader = stream.getReader()
               try {
-                for await (const event of stream) {
-                  const sseData = `data: ${JSON.stringify(event)}\n\n`
+                while (true) {
+                  const { done, value } = await reader.read()
+                  if (done) break
+                  const sseData = `data: ${JSON.stringify({ output: value })}\n\n`
                   controller.enqueue(encoder.encode(sseData))
                 }
                 controller.close()
               } catch (err) {
                 controller.error(err)
+              } finally {
+                reader.releaseLock()
               }
             },
           }),
@@ -622,9 +637,7 @@ export class SandboxDO extends DO<SandboxEnv> {
       }
 
       try {
-        await this.sandbox.writeFile(body.path, body.content, {
-          encoding: body.encoding || 'utf-8',
-        })
+        await this.sandbox!.writeFile(body.path, body.content)
         return c.json({ success: true })
       } catch (err) {
         throw err
@@ -668,9 +681,7 @@ export class SandboxDO extends DO<SandboxEnv> {
       }
 
       try {
-        const result = await this.sandbox.exposePort(body.port, {
-          name: body.name,
-        })
+        const result = await this.sandbox.exposePort(body.port, body.protocol as 'tcp' | 'udp')
         return c.json(result)
       } catch (err) {
         throw err
@@ -684,7 +695,7 @@ export class SandboxDO extends DO<SandboxEnv> {
       }
 
       try {
-        const ports = await this.sandbox.getExposedPorts()
+        const ports = await (this.sandbox.getExposedPorts?.() ?? this.sandbox.listPorts())
         return c.json(ports)
       } catch (err) {
         throw err
@@ -701,7 +712,7 @@ export class SandboxDO extends DO<SandboxEnv> {
 
       if (this.sandbox && this.legacySessionStatus === 'running') {
         try {
-          state.exposedPorts = await this.sandbox.getExposedPorts()
+          state.exposedPorts = await (this.sandbox.getExposedPorts?.() ?? this.sandbox.listPorts())
         } catch {
           // Ignore errors getting ports
         }
@@ -906,46 +917,39 @@ export class SandboxDO extends DO<SandboxEnv> {
     }
 
     try {
-      // Use execStream for streaming output
-      const stream = await this.sandbox.execStream(command)
+      // Use execStream if available, otherwise fall back to exec
+      if (this.sandbox.execStream) {
+        const result = await this.sandbox.execStream(command)
+        const stream = result.stream
 
-      for await (const event of stream) {
-        let message: { type: string; data?: string; code?: number }
-
-        switch (event.type) {
-          case 'stdout':
-            message = { type: 'output', data: event.data }
-            // Buffer output for reconnection
-            if (event.data) {
-              session.outputBuffer.push(event.data)
+        if (stream) {
+          const reader = stream.getReader()
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              const message = { type: 'output', data: value }
+              session.outputBuffer.push(value)
+              this.broadcastToTerminal(session, message)
             }
-            break
-
-          case 'stderr':
-            // Include ANSI color codes for errors (red)
-            const errorData = `\x1b[31m${event.data}\x1b[0m`
-            message = { type: 'error', data: errorData }
-            // Buffer error output too
-            if (event.data) {
-              session.outputBuffer.push(errorData)
-            }
-            break
-
-          case 'complete':
-            message = { type: 'exit', code: event.exitCode ?? 0 }
-            break
-
-          case 'error':
-            const errMessage = `\x1b[31m${event.message}\x1b[0m`
-            message = { type: 'error', data: errMessage }
-            break
-
-          default:
-            continue
+          } finally {
+            reader.releaseLock()
+          }
         }
-
-        // Broadcast to all connected clients
-        this.broadcastToTerminal(session, message)
+        this.broadcastToTerminal(session, { type: 'exit', code: result.exitCode })
+      } else {
+        // Fallback to non-streaming exec
+        const result = await this.sandbox.exec(command)
+        if (result.stdout) {
+          session.outputBuffer.push(result.stdout)
+          this.broadcastToTerminal(session, { type: 'output', data: result.stdout })
+        }
+        if (result.stderr) {
+          const errorData = `\x1b[31m${result.stderr}\x1b[0m`
+          session.outputBuffer.push(errorData)
+          this.broadcastToTerminal(session, { type: 'error', data: errorData })
+        }
+        this.broadcastToTerminal(session, { type: 'exit', code: result.exitCode })
       }
     } catch (error) {
       this.broadcastToTerminal(session, {

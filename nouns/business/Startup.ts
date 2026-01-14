@@ -133,7 +133,7 @@ export const StartupSchema = z.object({
   sam: z.number().optional(),
   som: z.number().optional(),
 
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type StartupType = z.infer<typeof StartupSchema>

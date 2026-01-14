@@ -12,6 +12,7 @@
 
 import { DO, Env, type OKR } from '../core/DO'
 import { Business as BusinessNoun } from '../../nouns/business/Business'
+import type { AnyNoun } from '../../nouns/types'
 
 export interface BusinessConfig {
   name: string
@@ -22,7 +23,7 @@ export interface BusinessConfig {
 
 export class Business extends DO {
   static override readonly $type: string = BusinessNoun.$type
-  static readonly noun = BusinessNoun
+  static readonly noun: AnyNoun = BusinessNoun
 
   private config: BusinessConfig | null = null
 

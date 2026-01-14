@@ -55,7 +55,7 @@ export function createDO<T extends Noun>(noun: T) {
       if (existing) {
         await this.things.update(this.id, validated as Partial<ThingEntity>)
       } else {
-        await this.things.create({ $id: this.id, ...validated } as Partial<ThingEntity>)
+        await this.things.create({ $id: this.id, ...(validated as Record<string, unknown>) } as Partial<ThingEntity>)
       }
 
       await this.events.emit({

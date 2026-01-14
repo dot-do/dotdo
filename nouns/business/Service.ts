@@ -145,7 +145,7 @@ export const ServiceSchema = z.object({
   availableFrom: z.coerce.date().optional(),
   availableUntil: z.coerce.date().optional(),
 
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type ServiceType = z.infer<typeof ServiceSchema>

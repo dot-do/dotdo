@@ -92,6 +92,8 @@ declare module 'bashx.do/do' {
 
   export interface BashModuleOptions {
     executor?: BashExecutor
+    fs?: import('./capabilities').FsCapability
+    useNativeOps?: boolean
   }
 
   export interface WithBashConfig {
@@ -105,12 +107,13 @@ declare module 'bashx.do/do' {
   export type GetContainerFn = () => Promise<ContainerStub>
 
   export interface ContainerExecutorConfig {
-    getContainer: GetContainerFn
+    getContainer?: GetContainerFn
+    containerBinding?: unknown
     timeout?: number
   }
 
   export class BashModule implements BashCapability {
-    constructor(options?: BashModuleOptions)
+    constructor(executor: BashExecutor, options?: BashModuleOptions)
     exec(cmd: string, args?: string[], options?: ExecOptions): Promise<BashResult>
     run(cmd: string, options?: ExecOptions): Promise<BashResult>
     spawn(cmd: string, args?: string[], options?: SpawnOptions): Promise<SpawnHandle>
@@ -303,6 +306,13 @@ declare module 'rpc.do' {
 // SQL MIGRATIONS (raw SQL files)
 // =============================================================================
 
+// Generic declaration for .sql file imports
+declare module '*.sql' {
+  const content: string
+  export default content
+}
+
+// Specific declarations for known migrations
 declare module './0000_gray_revanche.sql' {
   const content: string
   export default content

@@ -59,7 +59,7 @@ export const BusinessSchema = z.object({
   teamSize: z.number().optional(),
   currency: CurrencySchema.optional(),
   financials: FinancialMetricsSchema.optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type BusinessType = z.infer<typeof BusinessSchema>

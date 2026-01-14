@@ -157,8 +157,9 @@
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult } from './Worker'
 import { Env } from '../core/DO'
-import type { AgentMemory as UnifiedAgentMemory, MemoryThing, MemoryType } from '../../agents/unified-memory'
+import type { AgentMemory as UnifiedAgentMemory, MemoryThing, MemoryType } from '../../api/agents/unified-memory'
 import { Agent as AgentNoun } from '../../nouns/workers/Agent'
+import type { AnyNoun } from '../../nouns/types'
 
 export interface Tool {
   name: string
@@ -194,7 +195,8 @@ export interface Memory {
 }
 
 export class Agent extends Worker {
-  static readonly noun = AgentNoun
+  // Override with Agent-specific noun (compatible via AnyNoun base type)
+  static override readonly noun: AnyNoun = AgentNoun
   static override readonly $type: string = AgentNoun.$type
 
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'autonomous'

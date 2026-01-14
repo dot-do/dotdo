@@ -70,7 +70,7 @@ export const PricingTierSchema = z.object({
   price: z.number(),
   billingPeriod: z.enum(['monthly', 'yearly', 'one-time']).optional(),
   features: z.array(z.string()).optional(),
-  limits: z.record(z.number()).optional(),
+  limits: z.record(z.string(), z.number()).optional(),
   recommended: z.boolean().optional(),
 })
 export type PricingTier = z.infer<typeof PricingTierSchema>
@@ -106,7 +106,7 @@ export const SaaSSchema = z.object({
   platforms: z.array(z.enum(['web', 'ios', 'android', 'desktop', 'api'])).optional(),
   integrations: z.array(z.string()).optional(),
 
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type SaaSType = z.infer<typeof SaaSSchema>

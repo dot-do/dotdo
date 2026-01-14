@@ -437,6 +437,43 @@ export interface SecretBindings {
    * Browserbase project ID
    */
   BROWSERBASE_PROJECT_ID?: string
+
+  // ---- Notification Channel Secrets ----
+
+  /**
+   * Slack incoming webhook URL for notifications
+   */
+  SLACK_WEBHOOK_URL?: string
+
+  /**
+   * SendGrid API key for email notifications
+   */
+  SENDGRID_API_KEY?: string
+
+  /**
+   * Default from address for email notifications
+   */
+  EMAIL_FROM?: string
+
+  /**
+   * Twilio account SID for SMS notifications
+   */
+  TWILIO_ACCOUNT_SID?: string
+
+  /**
+   * Twilio auth token for SMS notifications
+   */
+  TWILIO_AUTH_TOKEN?: string
+
+  /**
+   * Twilio phone number for SMS notifications
+   */
+  TWILIO_PHONE_NUMBER?: string
+
+  /**
+   * Discord incoming webhook URL for notifications
+   */
+  DISCORD_WEBHOOK_URL?: string
 }
 
 // ============================================================================

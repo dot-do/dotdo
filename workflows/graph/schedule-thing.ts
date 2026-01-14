@@ -68,6 +68,8 @@ export interface ScheduleThingData {
   timezone?: string
   /** Additional metadata */
   metadata?: Record<string, unknown>
+  /** Index signature for Record<string, unknown> compatibility */
+  [key: string]: unknown
 }
 
 /**

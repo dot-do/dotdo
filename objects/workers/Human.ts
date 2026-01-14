@@ -181,6 +181,7 @@ import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, Appro
 import { Env } from '../core/DO'
 import { Human as HumanNoun } from '../../nouns/workers/Human'
 import type { ThingEntity } from '../../db/stores'
+import type { AnyNoun } from '../../nouns/types'
 
 // Import shared types, utilities, and channel abstractions from lib/human
 import {
@@ -191,7 +192,8 @@ import {
   type HumanNotificationChannel,
   type NotificationPayload,
   type SendResult,
-} from '../../lib/human/channels'
+  type Priority,
+} from '../../lib/human/channels/index'
 import { createChannel, type ChannelConfig } from '../../lib/human/channel-factory'
 
 /**
@@ -254,7 +256,8 @@ const APPROVAL_REQUEST_TYPE = 'ApprovalRequest'
 
 export class Human extends Worker {
   static override readonly $type: string = HumanNoun.$type
-  static readonly noun = HumanNoun
+  // Override with Human-specific noun (compatible via AnyNoun base type)
+  static override readonly noun: AnyNoun = HumanNoun
 
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'manual'
   private channels: NotificationChannel[] = []
@@ -667,10 +670,12 @@ export class Human extends Worker {
 
     if (channelInstance) {
       // Use the shared channel abstraction for delivery
+      // Map NotificationPriority to Priority (both have same valid values except 'critical')
+      const priorityValue = 'priority' in channel ? channel.priority : 'normal'
       const payload: NotificationPayload = {
         requestId: requestId || `human-${this.ctx.id.toString()}-${Date.now()}`,
         message,
-        priority: 'priority' in channel ? channel.priority : 'normal',
+        priority: (priorityValue === 'critical' ? 'urgent' : priorityValue) as Priority,
       }
 
       try {
@@ -733,13 +738,13 @@ export class Human extends Worker {
           }
           break
         case 'sms':
-          if (this.env.TWILIO_ACCOUNT_SID && this.env.TWILIO_AUTH_TOKEN) {
+          if (this.env.TWILIO_ACCOUNT_SID && this.env.TWILIO_AUTH_TOKEN && this.env.TWILIO_PHONE_NUMBER) {
             return createChannel({
               type: 'sms',
               provider: 'twilio',
               accountSid: this.env.TWILIO_ACCOUNT_SID,
               authToken: this.env.TWILIO_AUTH_TOKEN,
-              from: this.env.TWILIO_PHONE_NUMBER,
+              fromNumber: this.env.TWILIO_PHONE_NUMBER,
             })
           }
           break
