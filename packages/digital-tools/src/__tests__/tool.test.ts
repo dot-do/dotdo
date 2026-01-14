@@ -21,15 +21,13 @@ describe('Tool types', () => {
       name: 'Stripe',
       description: 'Payment processing',
       provider: 'stripe',
-      apiVersion: '2023-10-16',
-      authentication: 'api_key',
+      authType: 'api_key',
       baseUrl: 'https://api.stripe.com'
     })
     expect(integration.$type).toBe('https://schema.org.ai/Integration')
     expect(integration.$id).toBe('https://schema.org.ai/integrations/stripe')
     expect(integration.provider).toBe('stripe')
-    expect(integration.apiVersion).toBe('2023-10-16')
-    expect(integration.authentication).toBe('api_key')
+    expect(integration.authType).toBe('api_key')
     expect(integration.baseUrl).toBe('https://api.stripe.com')
   })
 
@@ -38,13 +36,11 @@ describe('Tool types', () => {
       $id: 'https://schema.org.ai/capabilities/fsx',
       name: 'fsx',
       description: 'File system operations',
-      permissions: ['read', 'write', 'delete'],
-      scope: 'workspace'
+      permissions: ['read', 'write', 'delete']
     })
     expect(capability.$type).toBe('https://schema.org.ai/Capability')
     expect(capability.$id).toBe('https://schema.org.ai/capabilities/fsx')
     expect(capability.permissions).toEqual(['read', 'write', 'delete'])
-    expect(capability.scope).toBe('workspace')
   })
 
   it('Tool type discriminator works correctly', () => {
@@ -64,8 +60,7 @@ describe('Tool types', () => {
       name: 'GitHub',
       description: 'Code hosting and collaboration',
       provider: 'github',
-      apiVersion: '2022-11-28',
-      authentication: 'oauth',
+      authType: 'oauth',
       baseUrl: 'https://api.github.com'
     })
 
@@ -77,8 +72,7 @@ describe('Tool types', () => {
 
     // Integration-specific properties
     expect(integration.provider).toBeDefined()
-    expect(integration.apiVersion).toBeDefined()
-    expect(integration.authentication).toBeDefined()
+    expect(integration.authType).toBeDefined()
     expect(integration.baseUrl).toBeDefined()
   })
 
@@ -87,8 +81,7 @@ describe('Tool types', () => {
       $id: 'https://schema.org.ai/capabilities/bashx',
       name: 'bashx',
       description: 'Bash command execution',
-      permissions: ['execute'],
-      scope: 'system'
+      permissions: ['execute']
     })
 
     // Base Tool properties
@@ -99,6 +92,5 @@ describe('Tool types', () => {
 
     // Capability-specific properties
     expect(capability.permissions).toBeDefined()
-    expect(capability.scope).toBeDefined()
   })
 })

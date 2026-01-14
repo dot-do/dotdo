@@ -673,6 +673,13 @@ export default defineWorkspace([
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),
 
+  // Comprehensive storage stores tests (Things, Rels, Events, Actions)
+  createWorkersWorkspace('storage-stores', [
+    'objects/tests/storage-stores-comprehensive.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
+
   // DO Shard/Unshard operations tests (real miniflare DOs, no mocks)
   createWorkersWorkspace('do-shard-unshard', ['objects/tests/do-shard-unshard.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.doTest,

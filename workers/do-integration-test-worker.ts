@@ -18,8 +18,23 @@ import { RpcTarget } from 'cloudflare:workers'
 import type {
   ThingsStore,
   RelationshipsStore,
+  ActionsStore,
+  EventsStore,
   ThingEntity,
   RelationshipEntity,
+  ActionEntity,
+  EventEntity,
+  ThingsGetOptions,
+  ThingsListOptions,
+  ThingsUpdateOptions,
+  ThingsDeleteOptions,
+  RelationshipsListOptions,
+  RelationshipsTraversalOptions,
+  ActionsLogOptions,
+  ActionsListOptions,
+  EventsEmitOptions,
+  EventsListOptions,
+  EventsReplayOptions,
 } from '../db/stores'
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 
@@ -36,29 +51,28 @@ class ThingsRpc extends RpcTarget {
     super()
   }
 
-  async create(data: Partial<ThingEntity> & { type?: string }): Promise<ThingEntity> {
-    return this.store.create(data)
+  async create(data: Partial<ThingEntity> & { type?: string }, options?: { branch?: string }): Promise<ThingEntity> {
+    return this.store.create(data, options)
   }
 
-  async get(id: string): Promise<ThingEntity | null> {
-    return this.store.get(id)
+  async get(id: string, options?: ThingsGetOptions): Promise<ThingEntity | null> {
+    return this.store.get(id, options)
   }
 
-  async list(options?: { type?: string }): Promise<ThingEntity[]> {
+  async list(options?: ThingsListOptions): Promise<ThingEntity[]> {
     return this.store.list(options)
   }
 
-  async update(id: string, data: Partial<ThingEntity>): Promise<ThingEntity> {
-    return this.store.update(id, data)
+  async update(id: string, data: Partial<ThingEntity>, options?: ThingsUpdateOptions): Promise<ThingEntity> {
+    return this.store.update(id, data, options)
   }
 
-  async delete(id: string): Promise<ThingEntity | null> {
-    // Delete returns the deleted entity, but may throw if not found
-    try {
-      return await this.store.delete(id)
-    } catch {
-      return null
-    }
+  async delete(id: string, options?: ThingsDeleteOptions): Promise<ThingEntity> {
+    return this.store.delete(id, options)
+  }
+
+  async versions(id: string): Promise<ThingEntity[]> {
+    return this.store.versions(id)
   }
 
   async query(options: { type: string; where?: Record<string, unknown> }): Promise<ThingEntity[]> {
@@ -100,10 +114,12 @@ class RelsRpc extends RpcTarget {
     from: string
     to: string
     data?: Record<string, unknown>
-  }): Promise<RelationshipEntity & { $id: string }> {
-    const result = await this.store.create(data)
-    // Map id to $id for consistency with test expectations
-    return { ...result, $id: result.id }
+  }): Promise<RelationshipEntity> {
+    return this.store.create(data)
+  }
+
+  async list(options?: RelationshipsListOptions): Promise<RelationshipEntity[]> {
+    return this.store.list(options)
   }
 
   async query(options: {
@@ -116,8 +132,20 @@ class RelsRpc extends RpcTarget {
     return results.map((r) => ({ ...r, $id: r.id }))
   }
 
-  async delete(id: string): Promise<void> {
-    await this.store.delete(id)
+  async delete(id: string): Promise<RelationshipEntity> {
+    return this.store.delete(id)
+  }
+
+  async deleteWhere(options: { from?: string; to?: string; verb?: string }): Promise<number> {
+    return this.store.deleteWhere(options)
+  }
+
+  async from(url: string, options?: RelationshipsTraversalOptions): Promise<RelationshipEntity[]> {
+    return this.store.from(url, options)
+  }
+
+  async to(url: string, options?: RelationshipsTraversalOptions): Promise<RelationshipEntity[]> {
+    return this.store.to(url, options)
   }
 }
 
@@ -162,6 +190,82 @@ class SqlRpc extends RpcTarget {
     // For mutations, try to get rowsAffected
     // Note: Drizzle doesn't expose changes directly, so we return undefined
     return { rows }
+  }
+}
+
+/**
+ * RPC-enabled wrapper for EventsStore.
+ * Extends RpcTarget to enable Workers RPC pattern: stub.events.emit()
+ */
+class EventsRpc extends RpcTarget {
+  constructor(private store: EventsStore) {
+    super()
+  }
+
+  async emit(options: EventsEmitOptions): Promise<EventEntity> {
+    return this.store.emit(options)
+  }
+
+  async get(id: string): Promise<EventEntity | null> {
+    return this.store.get(id)
+  }
+
+  async list(options?: EventsListOptions): Promise<EventEntity[]> {
+    return this.store.list(options)
+  }
+
+  async replay(options: EventsReplayOptions): Promise<EventEntity[]> {
+    return this.store.replay(options)
+  }
+
+  async stream(id: string): Promise<EventEntity> {
+    return this.store.stream(id)
+  }
+
+  async streamPending(): Promise<number> {
+    return this.store.streamPending()
+  }
+}
+
+/**
+ * RPC-enabled wrapper for ActionsStore.
+ * Extends RpcTarget to enable Workers RPC pattern: stub.actions.log()
+ */
+class ActionsRpc extends RpcTarget {
+  constructor(private store: ActionsStore) {
+    super()
+  }
+
+  async log(options: ActionsLogOptions): Promise<ActionEntity> {
+    return this.store.log(options)
+  }
+
+  async get(id: string): Promise<ActionEntity | null> {
+    return this.store.get(id)
+  }
+
+  async list(options?: ActionsListOptions): Promise<ActionEntity[]> {
+    return this.store.list(options)
+  }
+
+  async complete(id: string, output: unknown): Promise<ActionEntity> {
+    return this.store.complete(id, output)
+  }
+
+  async fail(id: string, error: Error | Record<string, unknown>): Promise<ActionEntity> {
+    return this.store.fail(id, error)
+  }
+
+  async retry(id: string): Promise<ActionEntity> {
+    return this.store.retry(id)
+  }
+
+  async pending(): Promise<ActionEntity[]> {
+    return this.store.pending()
+  }
+
+  async failed(): Promise<ActionEntity[]> {
+    return this.store.failed()
   }
 }
 
@@ -229,6 +333,52 @@ const SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (ns, id)
   )`,
+
+  // Events table (append-only event log)
+  `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    verb TEXT NOT NULL,
+    source TEXT NOT NULL,
+    data TEXT,
+    action_id TEXT,
+    sequence INTEGER NOT NULL,
+    streamed INTEGER DEFAULT 0,
+    streamed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  // Indexes for events table
+  `CREATE INDEX IF NOT EXISTS events_verb_idx ON events(verb)`,
+  `CREATE INDEX IF NOT EXISTS events_source_idx ON events(source)`,
+  `CREATE INDEX IF NOT EXISTS events_sequence_idx ON events(sequence)`,
+  `CREATE INDEX IF NOT EXISTS events_streamed_idx ON events(streamed)`,
+
+  // Actions table (workflow action log)
+  `CREATE TABLE IF NOT EXISTS actions (
+    id TEXT PRIMARY KEY,
+    verb TEXT NOT NULL,
+    target TEXT NOT NULL,
+    actor TEXT,
+    input TEXT,
+    output TEXT,
+    options TEXT,
+    durability TEXT DEFAULT 'try',
+    status TEXT DEFAULT 'pending',
+    error TEXT,
+    request_id TEXT,
+    session_id TEXT,
+    workflow_id TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TEXT,
+    completed_at TEXT,
+    duration INTEGER
+  )`,
+
+  // Indexes for actions table
+  `CREATE INDEX IF NOT EXISTS actions_target_idx ON actions(target)`,
+  `CREATE INDEX IF NOT EXISTS actions_actor_idx ON actions(actor)`,
+  `CREATE INDEX IF NOT EXISTS actions_status_idx ON actions(status)`,
+  `CREATE INDEX IF NOT EXISTS actions_verb_idx ON actions(verb)`,
 ]
 
 // ============================================================================
@@ -252,6 +402,8 @@ export class TestDO extends DO<Env> {
   private _thingsRpc?: ThingsRpc
   private _relsRpc?: RelsRpc
   private _sqlRpc?: SqlRpc
+  private _eventsRpc?: EventsRpc
+  private _actionsRpc?: ActionsRpc
 
   /**
    * Direct RPC method to create a thing.
@@ -393,6 +545,22 @@ export class TestDO extends DO<Env> {
     return parentRels
   }
 
+  private get parentEvents(): EventsStore {
+    const parentEvents = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Object.getPrototypeOf(this)),
+      'events'
+    )?.get?.call(this)
+    return parentEvents
+  }
+
+  private get parentActions(): ActionsStore {
+    const parentActions = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Object.getPrototypeOf(this)),
+      'actions'
+    )?.get?.call(this)
+    return parentActions
+  }
+
   /**
    * RPC method to get the things store RpcTarget.
    * Returns an RpcTarget wrapper for ThingsStore.
@@ -426,10 +594,34 @@ export class TestDO extends DO<Env> {
     return this._sqlRpc
   }
 
+  /**
+   * RPC method to get the events store RpcTarget.
+   * Returns an RpcTarget wrapper for EventsStore.
+   */
+  getEvents(): EventsRpc {
+    if (!this._eventsRpc) {
+      this._eventsRpc = new EventsRpc(this.parentEvents)
+    }
+    return this._eventsRpc
+  }
+
+  /**
+   * RPC method to get the actions store RpcTarget.
+   * Returns an RpcTarget wrapper for ActionsStore.
+   */
+  getActions(): ActionsRpc {
+    if (!this._actionsRpc) {
+      this._actionsRpc = new ActionsRpc(this.parentActions)
+    }
+    return this._actionsRpc
+  }
+
   // Getter versions for compatibility with stub.things.create() pattern
   get things(): ThingsRpc { return this.getThings() }
   get rels(): RelsRpc { return this.getRels() }
   get sql(): SqlRpc { return this.getSql() }
+  get events(): EventsRpc { return this.getEvents() }
+  get actions(): ActionsRpc { return this.getActions() }
 
   /**
    * RPC-accessible $id property.
