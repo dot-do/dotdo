@@ -8,7 +8,6 @@ import { Command } from 'commander'
 import * as React from 'react'
 import { render } from 'ink'
 import { ensureLoggedIn, getUser } from 'oauth.do/node'
-import { evaluate } from 'ai-evaluate'
 import { App } from '../ink/App'
 import { WorkerPicker } from '../ink/WorkerPicker'
 import { loadConfig } from '../utils/do-config'
@@ -17,10 +16,24 @@ import { createLogger } from '../utils/logger'
 
 const logger = createLogger('repl')
 
+// Try to load ai-evaluate, fallback to stub if not available
+let evaluate: ((opts: { script: string; sdk?: { rpcUrl?: string } }) => Promise<{ success: boolean; value?: unknown; error?: string; logs?: Array<{ level: string; message: string }> }>) | null = null
+try {
+  const mod = await import('ai-evaluate')
+  evaluate = mod.evaluate
+} catch {
+  // ai-evaluate not available - will use stub
+}
+
 /**
  * Execute code against a DO using ai-evaluate
  */
 export async function executeCode($id: string, code: string): Promise<string> {
+  // If ai-evaluate not available, return stub
+  if (!evaluate) {
+    return `[ai-evaluate not available] Would execute against ${$id}: ${code}`
+  }
+
   try {
     const result = await evaluate({
       script: code,

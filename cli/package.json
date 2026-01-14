@@ -26,9 +26,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "ai-evaluate": "link:../../primitives.org.ai/packages/ai-evaluate",
-    "ai-functions": "link:../../primitives.org.ai/packages/ai-functions",
-    "ai-tests": "link:../../primitives.org.ai/packages/ai-tests",
     "commander": "^14.0.2",
     "ink": "^6.6.0",
     "miniflare": "^3.20241205.0",

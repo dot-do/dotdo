@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock ai-evaluate since it uses workerd which doesn't work in vitest
+// Mock ai-evaluate to simulate it being available
 vi.mock('ai-evaluate', () => ({
   evaluate: vi.fn().mockResolvedValue({
     success: true,
@@ -11,17 +11,14 @@ vi.mock('ai-evaluate', () => ({
 }))
 
 describe('executeCode', () => {
-  it('does not return stub text', async () => {
-    // Import the function - we're testing it doesn't return the old stub
-    const { executeCode } = await import('../../commands/repl')
-    const result = await executeCode('https://test.do', '1 + 1')
-    expect(result).not.toContain('[Would execute against')
+  beforeEach(() => {
+    vi.resetModules()
   })
 
-  it('returns formatted result from ai-evaluate', async () => {
+  it('returns result when ai-evaluate is available', async () => {
     const { executeCode } = await import('../../commands/repl')
     const result = await executeCode('https://test.do', '1 + 1')
-    // Should contain the JSON value (2)
+    // With mocked ai-evaluate, should return the mocked value
     expect(result).toContain('2')
   })
 

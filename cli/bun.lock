@@ -5,9 +5,6 @@
     "": {
       "name": "@dotdo/cli",
       "dependencies": {
-        "ai-evaluate": "link:../../primitives.org.ai/packages/ai-evaluate",
-        "ai-functions": "link:../../primitives.org.ai/packages/ai-functions",
-        "ai-tests": "link:../../primitives.org.ai/packages/ai-tests",
         "commander": "^14.0.2",
         "ink": "^6.6.0",
         "miniflare": "^3.20241205.0",
@@ -60,12 +57,6 @@
     "acorn": ["acorn@8.14.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-cl669nCJTZBsL97OF4kUQm5g5hC2uihk0NxY3WENAC0TYdILVkAyHymAntgxGkl7K+t0cXIrH5siy5S4XkFycA=="],
 
     "acorn-walk": ["acorn-walk@8.3.2", "", {}, "sha512-cjkyv4OtNCIeqhHrfS81QWXoCBPExR/J62oyEqepVw8WaQeSqpW2uhuLPh1m9eWhDuOo/jUXVTlifvesOWp/4A=="],
-
-    "ai-evaluate": ["ai-evaluate@link:../../primitives.org.ai/packages/ai-evaluate", {}],
-
-    "ai-functions": ["ai-functions@link:../../primitives.org.ai/packages/ai-functions", {}],
-
-    "ai-tests": ["ai-tests@link:../../primitives.org.ai/packages/ai-tests", { "bin": { "ai-tests": "./dist/cli.js" } }],
 
     "ansi-escapes": ["ansi-escapes@7.2.0", "", { "dependencies": { "environment": "^1.0.0" } }, "sha512-g6LhBsl+GBPRWGWsBtutpzBYuIIdBkLEvad5C/va/74Db018+5TZiyA26cZJAr3Rft5lprVqOIPxf5Vid6tqAw=="],
 
