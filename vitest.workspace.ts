@@ -395,6 +395,9 @@ export default defineWorkspace([
   // Streams transformation tests (Pipeline SQL transforms)
   createNodeWorkspace('streams', ['tests/streams/**/*.test.ts']),
 
+  // DB stream primitive tests (Kafka-inspired streaming)
+  createNodeWorkspace('db-stream', ['tests/db/stream/**/*.test.ts']),
+
   // Tail worker and other worker processing tests (non-runtime)
   createNodeWorkspace('tests-workers', ['tests/workers/**/*.test.ts']),
 

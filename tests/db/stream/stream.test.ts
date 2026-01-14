@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { Topic, Producer, Consumer, ConsumerGroup, AdminClient, ExactlyOnceContext } from '../../../db/stream'
+import { Topic, Producer, Consumer, ConsumerGroup, AdminClient, ExactlyOnceContext, _resetStorage } from '../../../db/stream'
 
 // Type definitions for test data
 interface OrderEvent {
@@ -30,6 +30,11 @@ interface LoginEvent {
 }
 
 describe('Stream Primitives', () => {
+  // Reset storage before each test for isolation
+  beforeEach(() => {
+    _resetStorage()
+  })
+
   // =============================================================================
   // TOPIC CRUD
   // =============================================================================
