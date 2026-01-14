@@ -277,10 +277,21 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
+   * Backing field for namespace. Use the `ns` getter for public access.
+   * Internal - allows lazy initialization while maintaining readonly public API.
+   */
+  private _ns: string = ''
+
+  /**
    * Namespace URL - the DO's identity
    * e.g., 'https://startups.studio'
+   *
+   * Readonly from outside the class but can be set internally during
+   * lazy initialization (via initialize() or deriveIdentityFromRequest()).
    */
-  readonly ns: string
+  get ns(): string {
+    return this._ns
+  }
 
   /**
    * Current branch (default: 'main')
@@ -349,8 +360,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       enumerable: true,
     })
 
-    // Initialize namespace from storage or derive from ID
-    this.ns = '' // Will be set during initialization
+    // Namespace will be set during initialization via initialize() or deriveIdentityFromRequest()
+    // The _ns field is already initialized to '' in the property declaration
 
     // Initialize Drizzle with SQLite via durable-sqlite driver
     this.db = drizzle(ctx.storage, { schema })
@@ -361,8 +372,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async initialize(config: { ns: string; parent?: string }): Promise<void> {
-    // @ts-expect-error - Setting readonly after construction
-    this.ns = config.ns
+    this._ns = config.ns
 
     // Store namespace
     await this.ctx.storage.put('ns', config.ns)
@@ -437,9 +447,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       const ns = parts[0] ?? hostname
 
       // Set ns if it's empty
-      if (!this.ns && ns) {
-        // @ts-expect-error - Setting readonly property after construction
-        this.ns = ns
+      if (!this._ns && ns) {
+        this._ns = ns
       }
 
       this._identityDerived = true
