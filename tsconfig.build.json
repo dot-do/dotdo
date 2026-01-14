@@ -67,7 +67,6 @@
     "cli/**/*",
     "auth/**/*",
     "api/**/*",
-    "agents/**/*",
     // DO capabilities (submodules)
     "do/capabilities/**/*",
     // Files with known build issues
