@@ -93,7 +93,7 @@ function buildLookupQuery(value: string, noun: string): Record<string, unknown> 
  */
 export interface RoutingResult {
   /** DO binding namespace */
-  binding: DurableObjectNamespace
+  ns: DurableObjectNamespace
   /** Namespace name (tenant, shard, singleton, etc.) */
   nsName: string
   /** Whether this routes to a replica */
@@ -126,7 +126,7 @@ const nounConfigCache = new Map<string, Map<string, NounConfig>>()
 /**
  * Fetch noun configuration from the DO
  */
-async function fetchNounConfig(
+export async function fetchNounConfig(
   env: Env,
   tenant: string
 ): Promise<Map<string, NounConfig>> {
@@ -209,7 +209,7 @@ export function getTenantFromHostname(hostname: string): string {
 /**
  * Simple hash function for sharding
  */
-function simpleHash(str: string): number {
+export function simpleHash(str: string): number {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) - hash) + str.charCodeAt(i)
@@ -221,7 +221,7 @@ function simpleHash(str: string): number {
 /**
  * Select the nearest replica region based on location
  */
-function selectNearestReplica(
+export function selectNearestReplica(
   currentRegion: string,
   replicaRegions: string[],
   lat?: number,
@@ -244,18 +244,19 @@ function selectNearestReplica(
  * 2. Noun config from the nouns table (sharding, storage tier, etc.)
  * 3. Default: main DO binding with tenant namespace
  */
-async function getDOBinding(
+export async function getDOBinding(
   env: Env,
   pathname: string,
   hostname: string,
-  method: string = 'GET'
+  method: string = 'GET',
+  location?: LocationInfo
 ): Promise<{
-  binding: DurableObjectNamespace
+  ns: DurableObjectNamespace
   nsName: string
   nounConfig?: NounConfig
   isReplica: boolean
   replicaRegion?: string
-  location?: LocationInfo
+  locationHint?: LocationInfo
 } | null> {
   // Extract first path segment (e.g., '/browsers/123' → 'browsers')
   const segments = pathname.slice(1).split('/')
@@ -289,7 +290,7 @@ async function getDOBinding(
         break
     }
 
-    return { binding, nsName, isReplica: false }
+    return { ns: binding, nsName, isReplica: false }
   }
 
   // 2. Check noun config from the nouns table
@@ -346,11 +347,12 @@ async function getDOBinding(
     }
 
     return {
-      binding: isReplica && (env as Record<string, unknown>).REPLICA_DO ? (env as Record<string, unknown>).REPLICA_DO as DurableObjectNamespace : nsBinding,
+      ns: isReplica && (env as Record<string, unknown>).REPLICA_DO ? (env as Record<string, unknown>).REPLICA_DO as DurableObjectNamespace : nsBinding,
       nsName,
       nounConfig: nounEntry,
       isReplica,
       replicaRegion,
+      locationHint: location,
     }
   }
 
@@ -360,7 +362,7 @@ async function getDOBinding(
   }
 
   return {
-    binding: env.DO,
+    ns: env.DO,
     nsName: tenant,
     isReplica: false,
   }
@@ -429,7 +431,7 @@ export async function routeRequest(
   }
 
   return {
-    binding: doBinding.binding,
+    ns: doBinding.ns,
     nsName: doBinding.nsName,
     isReplica: doBinding.isReplica,
     consistencyMode,
@@ -489,7 +491,4 @@ export function extractLocationFromHeaders(req: any): LocationInfo | undefined {
   return undefined
 }
 
-/**
- * Export the DO binding resolver for use in index.ts
- */
-export { getDOBinding, fetchNounConfig, selectNearestReplica }
+// All exports are done inline with function declarations above
