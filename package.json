@@ -134,6 +134,7 @@
     "types": "wrangler types types/worker.d.ts -c wrangler.jsonc",
     "dev": "wrangler dev",
     "dev:app": "cd app && pnpm run dev",
+    "cli": "bun run cli/bin.js",
     "build": "tsc -p tsconfig.build.json && tsx scripts/fix-esm-imports.ts",
     "build:app": "cd app && pnpm run build",
     "build:metrics": "tsx scripts/build-metrics.ts",
