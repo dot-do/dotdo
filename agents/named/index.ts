@@ -28,7 +28,7 @@
  *
  * do {
  *   app = await ralph`improve ${app} per ${tom}`
- * } while (!await tom.approve(app))
+ * } while (!(await tom.approve(app)).approved)
  * ```
  *
  * @module agents/named

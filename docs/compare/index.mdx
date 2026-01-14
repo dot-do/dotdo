@@ -1,0 +1,179 @@
+---
+title: Platform Comparisons
+description: How dotdo compares to other platforms for building AI-powered applications and autonomous businesses.
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Platform Comparisons
+
+dotdo is a unique combination: **Cloudflare's edge runtime** + **AI agents as first-class citizens** + **human escalation built-in**. This section compares dotdo to platforms you might already know.
+
+## At a Glance
+
+| Platform | Best For | dotdo Advantage |
+|----------|----------|-----------------|
+| [Vercel](/docs/compare/vs-vercel) | Frontend deployment | Built-in state, AI agents, human escalation |
+| [Firebase](/docs/compare/vs-firebase) | Real-time BaaS | Edge performance, predictable pricing, agents |
+| [Temporal](/docs/compare/vs-temporal) | Durable workflows | Simpler model, no replay, managed infrastructure |
+| [Cloudflare Workers](/docs/compare/vs-cloudflare-workers) | Low-level edge compute | Higher-level abstractions, 40+ compat SDKs |
+
+## Detailed Comparisons
+
+<Cards>
+  <Card title="dotdo vs Vercel" href="/docs/compare/vs-vercel">
+    Compare deployment platforms. Vercel excels at frontend; dotdo adds stateful backends, AI agents, and human-in-the-loop workflows.
+  </Card>
+  <Card title="dotdo vs Firebase" href="/docs/compare/vs-firebase">
+    Compare Backend-as-a-Service platforms. Firebase pioneered real-time; dotdo adds edge performance, AI agents, and predictable costs.
+  </Card>
+  <Card title="dotdo vs Temporal" href="/docs/compare/vs-temporal">
+    Compare workflow orchestration. Temporal uses replay-based durability; dotdo uses checkpoint-based recovery with simpler operations.
+  </Card>
+  <Card title="dotdo vs Cloudflare Workers" href="/docs/compare/vs-cloudflare-workers">
+    Compare abstraction levels. Workers is the platform; dotdo is a framework built on top with patterns for business applications.
+  </Card>
+</Cards>
+
+## Quick Decision Guide
+
+### Choose dotdo If
+
+- You're building **AI-powered products** where agents do real work
+- You need **human escalation** built into your workflows
+- You want **edge performance** with 0ms cold starts
+- You prefer **TypeScript** and familiar APIs (Postgres, Redis, etc.)
+- You're building **multi-tenant SaaS** with per-tenant isolation
+- You want **predictable pricing** without surprise bills
+
+### Consider Alternatives If
+
+- **Vercel**: You're deploying a static site or Next.js frontend only
+- **Firebase**: You're building a mobile app with Google ecosystem integration
+- **Temporal**: You need exactly-once semantics with complex saga patterns
+- **Raw Workers**: You want maximum control with no framework overhead
+
+## The dotdo Difference
+
+What makes dotdo unique:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Other Platforms                               │
+│                                                                  │
+│    Vercel      Firebase      Temporal      Raw Workers          │
+│      │            │             │               │                │
+│    Frontend    Real-time     Workflows      Platform            │
+│    Deploy        BaaS       Orchestration    Primitives         │
+│                                                                  │
+│    No AI       No AI         DIY AI         DIY Everything      │
+│    No State    Proprietary   Complex Ops    Manual APIs         │
+│    No Humans   No Agents     No Humans      No Abstractions     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                         dotdo                                    │
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  AI Agents          Human Escalation        Edge Runtime  │  │
+│  │  (identity,         (HumanFunction,         (Durable      │  │
+│  │   memory,            multi-channel,          Objects,      │  │
+│  │   tools)             SLA tracking)           0ms cold)     │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│  ┌───────────────────────────┴───────────────────────────────┐  │
+│  │              Things • Actions • Events • Relationships     │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│  ┌───────────────────────────┴───────────────────────────────┐  │
+│  │                40+ Compat SDKs                             │  │
+│  │   Postgres  Redis  Stripe  SendGrid  Supabase  MongoDB    │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│  ┌───────────────────────────┴───────────────────────────────┐  │
+│  │              Cloudflare Workers + Durable Objects          │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Common Migration Paths
+
+### From Vercel + External Services
+
+```typescript
+// Before: Vercel + Neon + Upstash + Clerk + SendGrid
+import { neon } from '@neondatabase/serverless'
+import { Redis } from '@upstash/redis'
+// ... multiple services, multiple bills
+
+// After: dotdo (everything built-in)
+export class MyApp extends DO {
+  // Database is local SQLite
+  // Cache is in-memory + SQLite
+  // Auth is org.ai
+  // Email is built-in channel
+}
+```
+
+### From Firebase
+
+```typescript
+// Before: Firebase Admin SDK
+import { initializeApp } from 'firebase-admin/app'
+import { getFirestore } from 'firebase-admin/firestore'
+
+// After: dotdo Firebase compat
+import { initializeApp, getFirestore } from '@dotdo/firebase'
+// Same API, runs on edge
+```
+
+### From Temporal
+
+```typescript
+// Before: Temporal workflow
+export async function myWorkflow() {
+  // Determinism required, replay-based
+  await proxyActivities().doSomething()
+}
+
+// After: dotdo workflow
+export class MyWorkflow extends DO {
+  // No determinism required, checkpoint-based
+  async run() {
+    await $.do('doSomething')
+  }
+}
+```
+
+### From Raw Workers
+
+```typescript
+// Before: Manual everything
+export class MyDO extends DurableObject {
+  // Manual schemas, routing, events, audit...
+}
+
+// After: Framework patterns
+export class MyApp extends DO {
+  // Built-in Things, Actions, Events, REST API...
+}
+```
+
+<Callout type="info">
+Each comparison page includes detailed migration guides and code examples.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started">
+    Try dotdo in 5 minutes.
+  </Card>
+  <Card title="Why dotdo?" href="/docs/why-dotdo">
+    The 1-Person Unicorn philosophy.
+  </Card>
+  <Card title="Architecture" href="/docs/architecture">
+    Deep dive into the technical foundation.
+  </Card>
+</Cards>

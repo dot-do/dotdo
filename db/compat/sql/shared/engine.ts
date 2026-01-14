@@ -269,7 +269,13 @@ export class InMemorySQLEngine implements SQLEngine {
       const trimmed = def.trim()
 
       // Skip constraint definitions
-      if (/^(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT|INDEX|KEY)/i.test(trimmed)) {
+      // Note: Standalone KEY (MySQL index) must be followed by identifier+parentheses or just parentheses
+      // to distinguish from column names like 'key'. We check for KEY followed by index syntax patterns.
+      const isConstraint =
+        /^(PRIMARY\s+KEY|UNIQUE(\s+KEY)?|FOREIGN\s+KEY|CHECK|CONSTRAINT|INDEX)/i.test(trimmed) ||
+        /^KEY\s*\(/i.test(trimmed) ||  // KEY (col)
+        /^KEY\s+[\w"`]+\s*\(/i.test(trimmed)  // KEY idx_name (col)
+      if (isConstraint) {
         const pkMatch = trimmed.match(/PRIMARY\s+KEY\s*\(([^)]+)\)/i)
         if (pkMatch) {
           primaryKey = pkMatch[1]!.split(',')[0]!.trim().replace(/["'`]/g, '').toLowerCase()
@@ -360,7 +366,7 @@ export class InMemorySQLEngine implements SQLEngine {
     // Handle ON DUPLICATE KEY UPDATE (MySQL upsert)
     const onDuplicateMatch = sql.match(/(.+?)\s+ON\s+DUPLICATE\s+KEY\s+UPDATE\s+(.+)$/i)
     if (onDuplicateMatch && this.dialect.supportsOnDuplicateKey) {
-      return this.executeUpsert(onDuplicateMatch[1]!, params)
+      return this.executeUpsert(onDuplicateMatch[1]!, onDuplicateMatch[2]!, params)
     }
 
     // Parse INSERT INTO table [(cols)] VALUES (...), (...), ... [RETURNING ...]
@@ -463,7 +469,7 @@ export class InMemorySQLEngine implements SQLEngine {
     }
   }
 
-  private executeUpsert(insertPart: string, params: SQLValue[]): ExecutionResult {
+  private executeUpsert(insertPart: string, updateClause: string, params: SQLValue[]): ExecutionResult {
     // Parse the INSERT part
     const match = insertPart.match(
       /INSERT\s+INTO\s+(?:"([^"]+)"|`([^`]+)`|(\w+))\s*(?:\(([^)]+)\))?\s*VALUES\s*\(([^)]+)\)/i
@@ -485,7 +491,7 @@ export class InMemorySQLEngine implements SQLEngine {
       resolveValuePart(v, params, paramIndex, this.dialect)
     )
 
-    // Build row values map
+    // Build row values map for INSERT
     const values = new Map<string, StorageValue>()
     for (let i = 0; i < specifiedCols.length; i++) {
       values.set(specifiedCols[i]!, insertValues[i] ?? null)
@@ -493,28 +499,66 @@ export class InMemorySQLEngine implements SQLEngine {
 
     const tableData = this.data.get(tableName) ?? []
 
-    // Check if row exists (by primary key)
+    // Check if row exists (by primary key or unique constraint)
+    let existingRowIndex = -1
     if (schema.primaryKey) {
       const pkValue = values.get(schema.primaryKey)
-      const existingRowIndex = tableData.findIndex(
+      existingRowIndex = tableData.findIndex(
         (r) => r.values.get(schema.primaryKey!) === pkValue
       )
+    }
+    // Also check unique constraints
+    if (existingRowIndex < 0) {
+      for (const constraint of schema.uniqueConstraints) {
+        const constraintValue = values.get(constraint)
+        existingRowIndex = tableData.findIndex(
+          (r) => r.values.get(constraint) === constraintValue && constraintValue !== null
+        )
+        if (existingRowIndex >= 0) break
+      }
+    }
 
-      if (existingRowIndex >= 0) {
-        // Update existing row
-        const existingRow = tableData[existingRowIndex]!
-        values.forEach((val, col) => {
-          existingRow.values.set(col, val)
-        })
-        return {
-          columns: [],
-          columnTypes: [],
-          rows: [],
-          affectedRows: 2, // MySQL returns 2 for upsert update
-          lastInsertRowid: pkValue as number,
-          changedRows: 1,
-          command: 'INSERT',
+    if (existingRowIndex >= 0) {
+      // Update existing row using the ON DUPLICATE KEY UPDATE clause
+      const existingRow = tableData[existingRowIndex]!
+
+      // Parse the update clause to get the actual update values
+      // updateClause is like "value = 10" or "value = ?"
+      const updateAssignments = parseSetClause(updateClause, params.slice(paramIndex.current), this.dialect)
+
+      for (const assignment of updateAssignments.assignments) {
+        if (assignment.expression) {
+          const currentValue = (existingRow.values.get(assignment.expression.sourceColumn) as number) ?? 0
+          let newValue: number
+          switch (assignment.expression.operator) {
+            case '+':
+              newValue = currentValue + assignment.expression.operand
+              break
+            case '-':
+              newValue = currentValue - assignment.expression.operand
+              break
+            case '*':
+              newValue = currentValue * assignment.expression.operand
+              break
+            case '/':
+              newValue = currentValue / assignment.expression.operand
+              break
+          }
+          existingRow.values.set(assignment.column, newValue)
+        } else {
+          existingRow.values.set(assignment.column, assignment.value ?? null)
         }
+      }
+
+      const pkValue = schema.primaryKey ? existingRow.values.get(schema.primaryKey) : existingRow.rowid
+      return {
+        columns: [],
+        columnTypes: [],
+        rows: [],
+        affectedRows: 2, // MySQL returns 2 for upsert update
+        lastInsertRowid: pkValue as number,
+        changedRows: 1,
+        command: 'INSERT',
       }
     }
 
@@ -598,17 +642,25 @@ export class InMemorySQLEngine implements SQLEngine {
       tableData = this.applyOrderBy(tableData, orderMatch[1]!)
     }
 
-    // Apply OFFSET first
-    const offsetMatch = restOfQuery.match(/OFFSET\s+(\d+)/i)
-    if (offsetMatch) {
-      const offset = parseInt(offsetMatch[1]!, 10)
-      tableData = tableData.slice(offset)
-    }
+    // Handle MySQL LIMIT offset, count syntax (LIMIT 1, 2 means skip 1, take 2)
+    const mysqlLimitMatch = restOfQuery.match(/LIMIT\s+(\d+)\s*,\s*(\d+)/i)
+    if (mysqlLimitMatch) {
+      const offset = parseInt(mysqlLimitMatch[1]!, 10)
+      const count = parseInt(mysqlLimitMatch[2]!, 10)
+      tableData = tableData.slice(offset, offset + count)
+    } else {
+      // Apply standard OFFSET first
+      const offsetMatch = restOfQuery.match(/OFFSET\s+(\d+)/i)
+      if (offsetMatch) {
+        const offset = parseInt(offsetMatch[1]!, 10)
+        tableData = tableData.slice(offset)
+      }
 
-    // Apply LIMIT
-    const limitMatch = restOfQuery.match(/LIMIT\s+(\d+)/i)
-    if (limitMatch) {
-      tableData = tableData.slice(0, parseInt(limitMatch[1]!, 10))
+      // Apply standard LIMIT
+      const limitMatch = restOfQuery.match(/LIMIT\s+(\d+)/i)
+      if (limitMatch) {
+        tableData = tableData.slice(0, parseInt(limitMatch[1]!, 10))
+      }
     }
 
     // Build result rows

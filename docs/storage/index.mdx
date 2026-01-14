@@ -102,6 +102,14 @@ For implementation details and architecture documentation:
 - **Iceberg navigation** - 50-150ms point lookups vs 500ms-2s R2 SQL
 - **Tiered architecture** - Automatic data flow from hot (DO SQLite) to warm (R2/Iceberg) to cold (ClickHouse)
 
+## Complete Reference
+
+<Cards>
+  <Card title="Storage Hierarchy" href="/docs/storage/hierarchy">
+    Complete guide explaining how ThingsStore, R2, Parquet, and Iceberg work together.
+  </Card>
+</Cards>
+
 ## Storage Tiers
 
 <Cards>
@@ -135,6 +143,7 @@ For implementation details and architecture documentation:
 
 ## Related
 
+- [Storage Hierarchy](/docs/storage/hierarchy) - Complete guide to the storage architecture
 - [Database](/docs/database) - SQL, document, vector, and time-series database primitives
 - [Database: Things](/docs/database/things) - Entity storage with append-only versioning
 - [Database: Stores](/docs/database/stores) - Typed store accessors

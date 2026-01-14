@@ -24,7 +24,7 @@ describe('ACIDTestBase', () => {
   describe('Abstract methods', () => {
     it('should have getConfig() as abstract method pattern', async () => {
       // ACIDTestBase uses the abstract class pattern with runtime checks
-      const { ACIDTestBase, ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ACIDTestBase, ConcreteACIDTest } = await import('../_lib/acid/base')
 
       // Verify ACIDTestBase is exported
       expect(ACIDTestBase).toBeDefined()
@@ -36,7 +36,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should require setup() to be implemented', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       // Create concrete subclass without setup implementation
       class IncompleteTest extends ACIDTestBase {
@@ -52,7 +52,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should require teardown() to be implemented', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       // Create concrete subclass without teardown implementation
       class IncompleteTest extends ACIDTestBase {
@@ -70,7 +70,7 @@ describe('ACIDTestBase', () => {
 
   describe('ACIDTestConfig', () => {
     it('should support isolation level none', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       class TestWithNoIsolation extends ACIDTestBase {
         getConfig() {
@@ -85,7 +85,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should support isolation level storage', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       class TestWithStorageIsolation extends ACIDTestBase {
         getConfig() {
@@ -100,7 +100,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should support isolation level full', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       class TestWithFullIsolation extends ACIDTestBase {
         getConfig() {
@@ -115,7 +115,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should support network configuration', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       class TestWithNetwork extends ACIDTestBase {
         getConfig() {
@@ -140,7 +140,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should support timeout configuration', async () => {
-      const { ACIDTestBase } = await import('../../testing/acid/base')
+      const { ACIDTestBase } = await import('../_lib/acid/base')
 
       class TestWithTimeout extends ACIDTestBase {
         getConfig() {
@@ -160,7 +160,7 @@ describe('ACIDTestBase', () => {
 
   describe('assertAtomic()', () => {
     it('should verify operation completes fully on success', async () => {
-      const { ACIDTestBase, ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ACIDTestBase, ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -177,7 +177,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should verify state matches expected after success', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -194,7 +194,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should verify state is rolled back on failure', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -215,7 +215,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should complete successfully when operation succeeds', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -239,7 +239,7 @@ describe('ACIDTestBase', () => {
 
   describe('assertConsistent()', () => {
     it('should pass when all invariants are satisfied', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -256,7 +256,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should fail when any invariant is violated', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -273,7 +273,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should report which invariant failed', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -296,7 +296,7 @@ describe('ACIDTestBase', () => {
 
   describe('assertIsolated()', () => {
     it('should verify concurrent operations do not interfere', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -317,7 +317,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should detect interference between operations', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -347,7 +347,7 @@ describe('ACIDTestBase', () => {
 
   describe('assertDurable()', () => {
     it('should verify state persists after simulated crash', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -360,7 +360,7 @@ describe('ACIDTestBase', () => {
     })
 
     it('should fail if state is lost after crash', async () => {
-      const { ConcreteACIDTest } = await import('../../testing/acid/base')
+      const { ConcreteACIDTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteACIDTest()
       await test.setup()
@@ -386,14 +386,14 @@ describe('ACIDTestBase', () => {
 describe('LifecycleTestBase', () => {
   describe('Inheritance', () => {
     it('should extend ACIDTestBase', async () => {
-      const { LifecycleTestBase, ACIDTestBase } = await import('../../testing/acid/base')
+      const { LifecycleTestBase, ACIDTestBase } = await import('../_lib/acid/base')
 
       // Check prototype chain
       expect(LifecycleTestBase.prototype instanceof ACIDTestBase).toBe(true)
     })
 
     it('should inherit ACID assertion methods', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
 
@@ -406,7 +406,7 @@ describe('LifecycleTestBase', () => {
 
   describe('assertLifecycleEvent()', () => {
     it('should verify lifecycle event was emitted', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -420,7 +420,7 @@ describe('LifecycleTestBase', () => {
     })
 
     it('should fail if event was not emitted', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -433,7 +433,7 @@ describe('LifecycleTestBase', () => {
     })
 
     it('should fail if event has wrong status', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -449,7 +449,7 @@ describe('LifecycleTestBase', () => {
     })
 
     it('should support all lifecycle operations', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -465,7 +465,7 @@ describe('LifecycleTestBase', () => {
     })
 
     it('should support all lifecycle statuses', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -483,7 +483,7 @@ describe('LifecycleTestBase', () => {
 
   describe('assertRollback()', () => {
     it('should handle operation failure gracefully', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -505,7 +505,7 @@ describe('LifecycleTestBase', () => {
     })
 
     it('should pass if operation succeeds without rollback', async () => {
-      const { ConcreteLifecycleTest } = await import('../../testing/acid/base')
+      const { ConcreteLifecycleTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteLifecycleTest()
       await test.setup()
@@ -533,14 +533,14 @@ describe('LifecycleTestBase', () => {
 describe('CrossDOTestBase', () => {
   describe('Inheritance', () => {
     it('should extend ACIDTestBase', async () => {
-      const { CrossDOTestBase, ACIDTestBase } = await import('../../testing/acid/base')
+      const { CrossDOTestBase, ACIDTestBase } = await import('../_lib/acid/base')
 
       // Check prototype chain
       expect(CrossDOTestBase.prototype instanceof ACIDTestBase).toBe(true)
     })
 
     it('should inherit ACID assertion methods', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
 
@@ -553,7 +553,7 @@ describe('CrossDOTestBase', () => {
 
   describe('cluster property', () => {
     it('should have a cluster property for DOs', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
 
@@ -564,7 +564,7 @@ describe('CrossDOTestBase', () => {
 
   describe('setupCluster()', () => {
     it('should create specified number of DOs', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -577,7 +577,7 @@ describe('CrossDOTestBase', () => {
     })
 
     it('should create DOs with unique IDs', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -593,7 +593,7 @@ describe('CrossDOTestBase', () => {
     })
 
     it('should support cluster size of 1', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -606,7 +606,7 @@ describe('CrossDOTestBase', () => {
     })
 
     it('should support large clusters', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -621,7 +621,7 @@ describe('CrossDOTestBase', () => {
 
   describe('assertResolution()', () => {
     it('should verify cross-DO resolution works', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -636,7 +636,7 @@ describe('CrossDOTestBase', () => {
     })
 
     it('should fail if resolution fails', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -658,7 +658,7 @@ describe('CrossDOTestBase', () => {
 
   describe('assertCircuitBreaker()', () => {
     it('should verify circuit breaker opens after failures', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -673,7 +673,7 @@ describe('CrossDOTestBase', () => {
     })
 
     it('should verify circuit breaker is closed initially', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -690,7 +690,7 @@ describe('CrossDOTestBase', () => {
     })
 
     it('should fail if circuit does not open when expected', async () => {
-      const { ConcreteCrossDOTest } = await import('../../testing/acid/base')
+      const { ConcreteCrossDOTest } = await import('../_lib/acid/base')
 
       const test = new ConcreteCrossDOTest()
       await test.setup()
@@ -716,7 +716,7 @@ describe('CrossDOTestBase', () => {
 
 describe('Type exports', () => {
   it('should export ACIDTestConfig type', async () => {
-    const module = await import('../../testing/acid/base')
+    const module = await import('../_lib/acid/base')
 
     // Type checking - these should compile
     const config: typeof module.ACIDTestConfig = undefined as any
@@ -724,7 +724,7 @@ describe('Type exports', () => {
   })
 
   it('should export ACIDTestContext type', async () => {
-    const module = await import('../../testing/acid/base')
+    const module = await import('../_lib/acid/base')
 
     // Type checking
     const context: typeof module.ACIDTestContext = undefined as any
@@ -732,7 +732,7 @@ describe('Type exports', () => {
   })
 
   it('should export LifecycleStatus type', async () => {
-    const module = await import('../../testing/acid/base')
+    const module = await import('../_lib/acid/base')
 
     // Type checking
     const status: typeof module.LifecycleStatus = undefined as any
