@@ -267,6 +267,44 @@ export interface DOConfig {
   parent?: string // Parent DO's ns
 }
 
+// ============================================================================
+// DO NAMESPACE (for do.config.ts usage)
+// ============================================================================
+
+/**
+ * DO namespace for configuration and type helpers.
+ *
+ * Used in do.config.ts files for the CLI REPL:
+ *
+ * @example
+ * ```typescript
+ * import type { DO } from 'dotdo'
+ *
+ * export default {
+ *   $id: 'my-namespace',
+ *   env: 'development'
+ * } satisfies DO.Config
+ * ```
+ */
+export namespace DO {
+  /**
+   * Configuration for a DO instance.
+   * Used in do.config.ts files.
+   */
+  export interface Config {
+    /** Unique identifier for this DO instance */
+    $id: string
+    /** Environment mode */
+    env?: 'production' | 'staging' | 'development'
+    /** Base URL for the DO (optional, derived from $id if not set) */
+    baseUrl?: string
+    /** Parent DO's $id (for hierarchical DOs) */
+    parent?: string
+    /** Additional metadata */
+    meta?: Record<string, unknown>
+  }
+}
+
 export interface Relationship {
   id: string
   verb: string
