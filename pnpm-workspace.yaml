@@ -3,3 +3,4 @@ packages:
   - "examples/*"
   - "app"
   - "db/payload"
+  - "core"

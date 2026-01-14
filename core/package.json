@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "description": "Foundational DO runtime for dotdo ecosystem",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "DO.ts",
+  "types": "DO.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./DO.ts",
+      "types": "./DO.ts"
+    },
+    "./context": {
+      "import": "./context.ts",
+      "types": "./context.ts"
     },
     "./rpc": {
-      "import": "./dist/rpc/index.js",
-      "types": "./dist/rpc/index.d.ts"
+      "import": "./rpc/index.ts",
+      "types": "./rpc/index.ts"
     }
   },
   "scripts": {
@@ -21,10 +25,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@org.ai/types": "workspace:^",
-    "ai-database": "workspace:^",
-    "drizzle-orm": "^0.38.0",
-    "hono": "^4.0.0"
+    "drizzle-orm": "^0.45.0"
   },
   "peerDependencies": {
     "@cloudflare/workers-types": "^4.0.0"

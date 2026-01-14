@@ -107,8 +107,9 @@ export class DOCore<
 
   /**
    * Backing field for namespace. Use the `ns` getter for public access.
+   * Protected to allow subclasses (like dotdo's DOTiny) to modify directly.
    */
-  private _ns: string = ''
+  protected _ns: string = ''
 
   /**
    * Namespace identifier - the DO's optional identity.

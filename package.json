@@ -23,7 +23,8 @@
   },
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "core"
   ],
   "main": "./dist/do/index.js",
   "bin": {
@@ -177,6 +178,7 @@
     "docs:api": "typedoc"
   },
   "dependencies": {
+    "@dotdo/core": "workspace:*",
     "@better-auth/stripe": "^1.4.12",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.6.11",

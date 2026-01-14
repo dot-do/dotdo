@@ -2,19 +2,26 @@
  * @module DOTiny
  * @description Minimal Durable Object Base Class (~15KB)
  *
- * DOTiny is the foundation of the DO hierarchy, providing the smallest possible
- * implementation for edge-native applications. It includes only essential features:
+ * DOTiny extends DOCore from @dotdo/core and is the foundation of the dotdo
+ * DO hierarchy. It adds dotdo-specific features on top of the core runtime.
  *
- * **Core Features:**
- * - Identity management (`ns`, `$type`, type hierarchy checking)
+ * **Core Features (inherited from DOCore):**
+ * - Identity management (`ns`, `$type`)
  * - Drizzle-powered SQLite storage via `ctx.storage`
  * - HTTP request handling with `fetch()` and `/health` endpoint
+ *
+ * **DOTiny Additions:**
+ * - Type hierarchy checking (`getTypeHierarchy()`, `isType()`, `extendsType()`)
  * - User context extraction from `X-User-*` headers
  * - Identity derivation from request URLs
+ * - Parent relationship support via `initialize()`
  *
  * **DO Class Hierarchy:**
  * ```
- * DOTiny (~15KB)        - Identity, db, fetch, toJSON
+ * DOCore (@dotdo/core)  - Base runtime (db, ns, storage)
+ *    |
+ *    v
+ * DOTiny (~15KB)        - + Type hierarchy, user context, identity derivation
  *    |
  *    v
  * DOBase (~80KB)        - + WorkflowContext, stores, events, scheduling
@@ -82,7 +89,8 @@
  * @see DOFull for lifecycle operations
  */
 
-import { DurableObject } from 'cloudflare:workers'
+// Import DOCore from @dotdo/core - the foundational DO runtime
+import { DOCore } from '@dotdo/core'
 import { drizzle } from 'drizzle-orm/durable-sqlite'
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 
@@ -194,7 +202,7 @@ export function extractUserFromRequest(req: Request): UserContext | null {
  * }
  * ```
  */
-export class DO<E extends Env = Env> extends DurableObject<E> {
+export class DO<E extends Env = Env> extends DOCore<typeof schema, E> {
   // ═══════════════════════════════════════════════════════════════════════════
   // TYPE DISCRIMINATOR
   // ═══════════════════════════════════════════════════════════════════════════
@@ -276,22 +284,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // IDENTITY
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Backing field for namespace. Use the `ns` getter for public access.
-   * Internal - allows lazy initialization while maintaining readonly public API.
-   */
-  private _ns: string = ''
-
-  /**
-   * Namespace URL - the DO's identity
-   * e.g., 'https://startups.studio'
-   *
-   * Readonly from outside the class but can be set internally during
-   * lazy initialization (via initialize() or deriveIdentityFromRequest()).
-   */
-  get ns(): string {
-    return this._ns
-  }
+  // NOTE: _ns and ns getter are inherited from DOCore (@dotdo/core)
+  // DOCore provides protected _ns and public ns getter
 
   /**
    * Current branch (default: 'main')
@@ -335,16 +329,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // STORAGE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // Use 'any' for schema type to allow subclasses to use extended schemas
+  // NOTE: db and storage getter are inherited from DOCore (@dotdo/core)
+  // The db is retyped with `any` to allow subclasses to use extended schemas
   // DOBase overrides this with the full schema type
-  protected db: DrizzleSqliteDODatabase<any>
-
-  /**
-   * Access to the raw DurableObjectStorage
-   */
-  protected get storage(): DurableObjectStorage {
-    return this.ctx.storage
-  }
+  // Using declare since we re-initialize it in constructor with dotdo's schema
+  protected declare db: DrizzleSqliteDODatabase<any>
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CONSTRUCTOR
@@ -361,9 +350,9 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     })
 
     // Namespace will be set during initialization via initialize() or deriveIdentityFromRequest()
-    // The _ns field is already initialized to '' in the property declaration
+    // The _ns field is inherited from DOCore and initialized to '' there
 
-    // Initialize Drizzle with SQLite via durable-sqlite driver
+    // Re-initialize Drizzle with dotdo's schema (overrides DOCore's empty schema)
     this.db = drizzle(ctx.storage, { schema })
   }
 
