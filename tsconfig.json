@@ -28,14 +28,14 @@
       "dotdo": ["./index.ts"],
       "dotdo/*": ["./*"],
       // Core libraries (pure, zero deps)
-      "@dotdo/fsx": ["./primitives/fsx/core/index.ts"],
-      "@dotdo/bashx": ["./primitives/bashx/core/index.ts"],
+      "@dotdo/fsx": ["./do/capabilities/fsx/core/index.ts"],
+      "@dotdo/bashx": ["./do/capabilities/bashx/core/index.ts"],
       // Service layers (Cloudflare DO integration)
-      "fsx.do": ["./primitives/fsx/src/index.ts"],
-      "fsx.do/*": ["./primitives/fsx/src/*"],
-      "bashx.do": ["./primitives/bashx/src/index.ts"],
-      "bashx.do/do": ["./primitives/bashx/src/do/index.ts"],
-      "bashx.do/*": ["./primitives/bashx/src/*"]
+      "fsx.do": ["./do/capabilities/fsx/src/index.ts"],
+      "fsx.do/*": ["./do/capabilities/fsx/src/*"],
+      "bashx.do": ["./do/capabilities/bashx/src/index.ts"],
+      "bashx.do/do": ["./do/capabilities/bashx/src/do/index.ts"],
+      "bashx.do/*": ["./do/capabilities/bashx/src/*"]
     },
 
     // Better error messages and IDE experience
@@ -45,15 +45,18 @@
   "include": [
     "*.ts",
     "agents/**/*",
+    "ai/**/*",
     "api/**/*",
-    "objects/**/*",
-    "types/**/*",
+    "auth/**/*",
+    "cli/**/*",
     "db/**/*",
+    "do/**/*",
     "lib/**/*",
-    "snippets/**/*",
-    "streams/**/*",
-    "workflows/**/*",
-    "evals/**/*"
+    "objects/**/*",
+    "streaming/**/*",
+    "types/**/*",
+    "workers/**/*",
+    "workflows/**/*"
   ],
   "exclude": [
     "node_modules",

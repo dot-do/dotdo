@@ -43,14 +43,12 @@
     "objects/**/*.ts",
     // Types and utilities
     "types/**/*.ts",
-    "snippets/**/*.ts",
     // Library (includes mixins for fs/git/bash capabilities)
     "lib/**/*.ts",
     // Workflows (core only, not compat)
     "workflows/**/*.ts",
-    "metrics/**/*.ts",
     // Streams (Cloudflare Pipelines SQL definitions)
-    "streams/**/*.ts"
+    "db/streams/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -58,58 +56,39 @@
     "app",
     "examples",
     "packages",
-    "primitives",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/tests/**",
     "**/spikes/**",
-    // Exclude compat layer - has many type errors and external deps
-    "compat/**/*",
+    // Exclude areas with type errors or external deps
     "streaming/**/*",
     "db/**/*",
-    "analytics/**/*",
-    "evals/**/*",
-    // workflows/compat has been moved to the compat repo
-    // Exclude files with known build issues (to be fixed in separate PRs)
+    "ai/**/*",
     "cli/**/*",
     "auth/**/*",
     "api/**/*",
-    // Missing dependencies
-    "do/payments/**/*",
-    // objects/mixins now uses lib/mixins which only imports types from @dotdo/fsx
-    // Files depending on @dotdo/client package (runtime not available during build)
+    "agents/**/*",
+    // DO capabilities (submodules)
+    "do/capabilities/**/*",
+    // Files with known build issues
     "lib/agent/**/*",
-    "sdk/**/*",
-    // Files depending on compat graph (db/compat)
-    "lib/tools/provider-bridge.ts",
-    // Directories that import from compat/ or have unresolved type errors
     "lib/tools/**/*",
-    "lib/benchmarks/**/*",
     "lib/validation/**/*",
     "lib/executors/**/*",
     "lib/human/**/*",
     "lib/iterators/**/*",
-    "lib/storage/chunked-upload.ts",
-    "lib/support/escalation.ts",
-    // Objects with type errors that are not imported by critical paths
+    // Objects with type errors
     "objects/StatelessDOState.ts",
     "objects/CollectionDO.ts",
     "objects/mixins/npm.ts",
-    // Agents - has graph dependencies and type errors
-    "agents/**/*",
-    // Workflow error escalation
-    "workflows/errors/**/*",
-    // Workflow graph - has many type conversion issues
-    "workflows/graph/**/*",
-    // Workflow core - has type errors
-    "workflows/core/**/*",
-    // Workflow context shard - has type errors
-    "workflows/context/shard.ts",
-    // Object transport - has type errors
     "objects/transport/**/*",
+    // Workflow areas with type errors
+    "workflows/errors/**/*",
+    "workflows/graph/**/*",
+    "workflows/core/**/*",
+    "workflows/context/shard.ts",
     // Types with stub dependencies
     "types/stubs/**/*",
-    // Store types with complex DB dependencies
     "types/stores.ts"
   ]
 }
