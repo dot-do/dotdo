@@ -212,6 +212,15 @@ export default defineWorkspace([
   // EdgePostgres tests (PGLite + FSX integration)
   createNodeWorkspace('edge-postgres', ['db/edge-postgres/**/*.test.ts']),
 
+  // BlobStore tests (R2 binary storage with SQLite metadata)
+  createNodeWorkspace('blob', ['tests/db/blob/**/*.test.ts']),
+
+  // TimeSeriesStore tests (time-indexed storage with retention, compaction, range queries)
+  createNodeWorkspace('timeseries', ['tests/db/timeseries/**/*.test.ts']),
+
+  // RelationalStore tests (Drizzle ORM integration with CDC)
+  createNodeWorkspace('relational', ['tests/db/relational/**/*.test.ts', 'db/relational/**/*.test.ts']),
+
   // Durable Objects tests (mocked runtime)
   // Excludes tests requiring cloudflare:test (handled by Workers workspaces)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts'], {
