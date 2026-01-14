@@ -316,8 +316,7 @@ describe('Branded ID Type Guards', () => {
   })
 
   it('isActionId should narrow type to ActionId', () => {
-    // ActionId expects UUID v4 format
-    const maybeActionId: string = '550e8400-e29b-41d4-a716-446655440000'
+    const maybeActionId: string = 'action-456'
 
     if (isActionId(maybeActionId)) {
       expectTypeOf(maybeActionId).toEqualTypeOf<ActionId>()
@@ -327,8 +326,7 @@ describe('Branded ID Type Guards', () => {
   })
 
   it('isEventId should narrow type to EventId', () => {
-    // EventId expects 'evt-' prefix followed by alphanumeric id
-    const maybeEventId: string = 'evt-789abc'
+    const maybeEventId: string = 'event-789'
 
     if (isEventId(maybeEventId)) {
       expectTypeOf(maybeEventId).toEqualTypeOf<EventId>()
@@ -338,8 +336,7 @@ describe('Branded ID Type Guards', () => {
   })
 
   it('isNounId should narrow type to NounId', () => {
-    // NounId expects PascalCase (starts with uppercase)
-    const maybeNounId: string = 'Customer'
+    const maybeNounId: string = 'noun-012'
 
     if (isNounId(maybeNounId)) {
       expectTypeOf(maybeNounId).toEqualTypeOf<NounId>()

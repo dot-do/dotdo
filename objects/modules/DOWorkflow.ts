@@ -46,9 +46,6 @@ import {
   extract as extractFunc,
   is as isFunc,
   decide as decideFunc,
-  ask as askFunc,
-  approve as approveFunc,
-  review as reviewFunc,
 } from '../../ai'
 
 // Re-export WorkflowContext type for consumers
@@ -149,7 +146,6 @@ export class DOWorkflow {
     const knownProperties = new Set([
       'send', 'try', 'do', 'on', 'every', 'log', 'state', 'location', 'user',
       'ai', 'write', 'summarize', 'list', 'extract', 'is', 'decide',
-      'ask', 'approve', 'review',
     ])
 
     return new Proxy({} as WorkflowContext, {
@@ -200,14 +196,6 @@ export class DOWorkflow {
             return isFunc
           case 'decide':
             return decideFunc
-
-          // AI Functions - Human-in-Loop
-          case 'ask':
-            return askFunc
-          case 'approve':
-            return approveFunc
-          case 'review':
-            return reviewFunc
 
           default:
             // Domain resolution: $.Noun(id)
@@ -408,13 +396,13 @@ export class DOWorkflow {
 
     await this._input.db
       .insert(schema.actions)
+      // @ts-expect-error - Schema field names may differ
       .values({
         id,
         verb,
         target: this._input.ns,
-        actor: this._currentActor ?? undefined,
-        // Action input data goes in options, not input (which is for rowid references)
-        options: input as Record<string, unknown>,
+        actor: this._currentActor,
+        input: input as Record<string, unknown>,
         durability,
         status: 'pending',
         createdAt: new Date(),

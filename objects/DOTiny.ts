@@ -95,109 +95,13 @@ import type { CloudflareEnv } from '../types/CloudflareBindings'
 // Import UserContext from types
 import type { UserContext } from '../types/WorkflowContext'
 
-// Import storage quota monitoring
-import {
-  StorageQuotaMonitor,
-  type StorageQuotaMonitorOptions,
-  type QuotaWarning,
-  type UsageStats,
-  type StorageSnapshot,
-  STORAGE_LIMITS,
-} from './StorageQuotaMonitor'
-
 // Re-export UserContext for consumers
 export type { UserContext }
-
-// Re-export storage types for consumers
-export type { StorageQuotaMonitorOptions, QuotaWarning, UsageStats, StorageSnapshot }
-export { STORAGE_LIMITS }
 
 /**
  * Env - Re-export of CloudflareEnv for backward compatibility
  */
 export type Env = CloudflareEnv
-
-// ============================================================================
-// STORAGE GUARD OPTIONS
-// ============================================================================
-
-/**
- * Configuration options for the storage size guard.
- * Set via static `storageGuardOptions` on your DO class.
- *
- * @example
- * ```typescript
- * class MyDO extends DO {
- *   static readonly storageGuardOptions: StorageGuardOptions = {
- *     totalLimit: 1024 * 1024,  // 1MB total limit
- *     throwOnExceed: true,       // Throw errors when exceeded
- *     warningThreshold: 0.8,     // Warn at 80%
- *   }
- * }
- * ```
- */
-export interface StorageGuardOptions {
-  /**
-   * Total storage limit in bytes (default: 256KB)
-   * Note: Cloudflare DO storage varies by plan (256KB-1GB)
-   */
-  totalLimit?: number
-
-  /**
-   * Maximum size per value in bytes (default: 128KB - Cloudflare's hard limit)
-   */
-  maxValueSize?: number
-
-  /**
-   * Maximum keys per batch operation (default: 128 - Cloudflare's hard limit)
-   */
-  maxBatchKeys?: number
-
-  /**
-   * Warning threshold as decimal (default: 0.8 = 80%)
-   * Warnings are emitted when usage exceeds this percentage
-   */
-  warningThreshold?: number
-
-  /**
-   * Whether to throw StorageQuotaExceededError when limits are exceeded (default: false)
-   * When false, only warnings are emitted
-   */
-  throwOnExceed?: boolean
-
-  /**
-   * Whether to emit warning events (default: true)
-   */
-  emitWarnings?: boolean
-}
-
-// ============================================================================
-// STORAGE QUOTA ERROR
-// ============================================================================
-
-/**
- * Error thrown when storage quota is exceeded and enforcement is enabled.
- * Contains the warning details for debugging and handling.
- */
-export class StorageQuotaExceededError extends Error {
-  readonly code = 'STORAGE_QUOTA_EXCEEDED'
-  readonly warning: QuotaWarning
-
-  constructor(warning: QuotaWarning) {
-    const percentStr = warning.percentage.toFixed(1)
-    super(
-      `Storage quota exceeded: ${warning.type} at ${percentStr}% of limit` +
-        (warning.key ? ` (key: ${warning.key})` : '')
-    )
-    this.name = 'StorageQuotaExceededError'
-    this.warning = warning
-
-    // Preserve stack trace in V8
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, StorageQuotaExceededError)
-    }
-  }
-}
 
 // ============================================================================
 // USER CONTEXT EXTRACTION
@@ -373,21 +277,10 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Backing field for namespace. Use the `ns` getter for public access.
-   * Internal - allows lazy initialization while maintaining readonly public API.
-   */
-  private _ns: string = ''
-
-  /**
    * Namespace URL - the DO's identity
    * e.g., 'https://startups.studio'
-   *
-   * Readonly from outside the class but can be set internally during
-   * lazy initialization (via initialize() or deriveIdentityFromRequest()).
    */
-  get ns(): string {
-    return this._ns
-  }
+  readonly ns: string
 
   /**
    * Current branch (default: 'main')
@@ -443,58 +336,6 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // STORAGE SIZE GUARD
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Storage quota monitor for tracking and limiting DO storage usage.
-   * Provides warnings at 80% capacity and can optionally throw when limits are exceeded.
-   *
-   * @example
-   * ```typescript
-   * // Check current storage usage
-   * const stats = this.storageGuard.getUsageStats()
-   * console.log(`Using ${stats.percentage.toFixed(1)}% of storage`)
-   *
-   * // Get largest keys consuming storage
-   * const largestKeys = this.storageGuard.getLargestKeys(5)
-   *
-   * // Listen for quota warnings
-   * this.storageGuard.onWarning((warning) => {
-   *   console.warn(`Storage warning: ${warning.type}`, warning)
-   * })
-   * ```
-   */
-  protected readonly storageGuard: StorageQuotaMonitor
-
-  /**
-   * Static configuration for storage guard options.
-   * Override in subclasses to customize storage limits.
-   *
-   * @example
-   * ```typescript
-   * class MyDO extends DO {
-   *   static readonly storageGuardOptions: StorageGuardOptions = {
-   *     totalLimit: 512 * 1024, // 512KB limit
-   *     throwOnExceed: true,    // Throw errors when limit exceeded
-   *     warningThreshold: 0.75, // Warn at 75%
-   *   }
-   * }
-   * ```
-   */
-  static readonly storageGuardOptions?: StorageGuardOptions
-
-  /**
-   * Whether storage guard enforcement is enabled.
-   * When enabled, operations that exceed limits will throw StorageQuotaExceededError.
-   * Override to disable enforcement while still tracking usage.
-   */
-  protected get storageGuardEnabled(): boolean {
-    const DOClass = this.constructor as typeof DO
-    return DOClass.storageGuardOptions?.throwOnExceed ?? false
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // CONSTRUCTOR
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -508,145 +349,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       enumerable: true,
     })
 
-    // Namespace will be set during initialization via initialize() or deriveIdentityFromRequest()
-    // The _ns field is already initialized to '' in the property declaration
+    // Initialize namespace from storage or derive from ID
+    this.ns = '' // Will be set during initialization
 
     // Initialize Drizzle with SQLite via durable-sqlite driver
     this.db = drizzle(ctx.storage, { schema })
-
-    // Initialize storage guard with class-level options
-    const DOClass = this.constructor as typeof DO
-    const guardOptions = DOClass.storageGuardOptions ?? {}
-    this.storageGuard = new StorageQuotaMonitor({
-      totalLimit: guardOptions.totalLimit,
-      warningThreshold: guardOptions.warningThreshold,
-      maxValueSize: guardOptions.maxValueSize,
-      maxBatchKeys: guardOptions.maxBatchKeys,
-      emitWarnings: guardOptions.emitWarnings ?? true,
-    })
-
-    // Register default warning handler that logs warnings
-    this.storageGuard.onWarning((warning) => {
-      this.onStorageWarning(warning)
-    })
-  }
-
-  /**
-   * Handle storage quota warnings. Override in subclasses for custom handling.
-   * Default implementation logs warnings to console.
-   *
-   * @param warning - The quota warning details
-   */
-  protected onStorageWarning(warning: QuotaWarning): void {
-    const percentStr = warning.percentage.toFixed(1)
-    const limitStr = this.formatBytes(warning.limit)
-    const usageStr = this.formatBytes(warning.currentUsage)
-
-    if (warning.wouldExceedLimit) {
-      console.error(
-        `[${this.ns}] STORAGE LIMIT EXCEEDED: ${warning.type} at ${percentStr}% (${usageStr}/${limitStr})`,
-        warning.key ? `Key: ${warning.key}` : ''
-      )
-    } else {
-      console.warn(
-        `[${this.ns}] Storage warning: ${warning.type} at ${percentStr}% (${usageStr}/${limitStr})`,
-        warning.key ? `Key: ${warning.key}` : ''
-      )
-    }
-  }
-
-  /**
-   * Format bytes to human-readable string
-   */
-  private formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes}B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-  }
-
-  /**
-   * Get current storage usage statistics.
-   * Use this to monitor storage consumption and take action before limits are hit.
-   *
-   * @returns Current storage usage stats including total bytes, key count, and percentage
-   */
-  getStorageUsage(): UsageStats {
-    return this.storageGuard.getUsageStats()
-  }
-
-  /**
-   * Get a snapshot of storage state for debugging and observability.
-   * Includes usage stats and the largest keys by size.
-   *
-   * @returns Storage snapshot with timestamp, stats, and largest keys
-   */
-  getStorageSnapshot(): StorageSnapshot {
-    return this.storageGuard.getSnapshot()
-  }
-
-  /**
-   * Check if a value can be stored without exceeding limits.
-   * Does NOT perform the write - use this for pre-validation.
-   *
-   * @param key - Storage key
-   * @param value - Value to check
-   * @returns null if OK, or QuotaWarning with details if would trigger warning/exceed limit
-   */
-  checkStorageBeforeWrite(key: string, value: unknown): QuotaWarning | null {
-    return this.storageGuard.checkBeforeWrite(key, value)
-  }
-
-  /**
-   * Guarded storage put that tracks usage and optionally enforces limits.
-   * Use this instead of this.ctx.storage.put() for automatic quota tracking.
-   *
-   * @param key - Storage key
-   * @param value - Value to store
-   * @throws StorageQuotaExceededError if storageGuardEnabled and limit would be exceeded
-   */
-  protected async guardedStoragePut<T>(key: string, value: T): Promise<void> {
-    const warning = this.storageGuard.checkBeforeWrite(key, value)
-
-    if (this.storageGuardEnabled && warning?.wouldExceedLimit) {
-      throw new StorageQuotaExceededError(warning)
-    }
-
-    await this.ctx.storage.put(key, value)
-    this.storageGuard.trackPut(key, value)
-  }
-
-  /**
-   * Guarded storage delete that tracks usage.
-   * Use this instead of this.ctx.storage.delete() for automatic quota tracking.
-   *
-   * @param key - Storage key to delete
-   * @returns true if key existed and was deleted
-   */
-  protected async guardedStorageDelete(key: string): Promise<boolean> {
-    const result = await this.ctx.storage.delete(key)
-    this.storageGuard.trackDelete(key)
-    return result
-  }
-
-  /**
-   * Guarded batch put that tracks usage and optionally enforces limits.
-   *
-   * @param entries - Object with key-value pairs to store
-   * @throws StorageQuotaExceededError if storageGuardEnabled and limit would be exceeded
-   */
-  protected async guardedStoragePutBatch<T>(entries: Record<string, T>): Promise<void> {
-    const warnings = this.storageGuard.checkBatchBeforeWriteAll(entries as Record<string, unknown>)
-    const exceedWarnings = warnings.filter((w) => w.wouldExceedLimit)
-
-    if (this.storageGuardEnabled && exceedWarnings.length > 0) {
-      throw new StorageQuotaExceededError(exceedWarnings[0])
-    }
-
-    await this.ctx.storage.put(entries)
-
-    for (const [key, value] of Object.entries(entries)) {
-      this.storageGuard.trackPut(key, value)
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -654,7 +361,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async initialize(config: { ns: string; parent?: string }): Promise<void> {
-    this._ns = config.ns
+    // @ts-expect-error - Setting readonly after construction
+    this.ns = config.ns
 
     // Store namespace
     await this.ctx.storage.put('ns', config.ns)
@@ -729,8 +437,9 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       const ns = parts[0] ?? hostname
 
       // Set ns if it's empty
-      if (!this._ns && ns) {
-        this._ns = ns
+      if (!this.ns && ns) {
+        // @ts-expect-error - Setting readonly property after construction
+        this.ns = ns
       }
 
       this._identityDerived = true
