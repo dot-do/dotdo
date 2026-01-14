@@ -28,10 +28,21 @@
     {
       "binding": "R2",
       "bucket_name": "dotdo-lake"
+    },
+    {
+      "binding": "EVENTS_ICEBERG_BUCKET",
+      "bucket_name": "events-iceberg"
     }
   ],
 
-  // AI and Pipelines need valid CF API token - uncomment in production
+  // AI binding - needs valid CF API token
   // "ai": { "binding": "AI" },
-  // "pipelines": [{ "pipeline": "events", "binding": "PIPELINE" }]
+
+  // Unified Events Pipeline - streams all event types to R2 Iceberg
+  "pipelines": [
+    {
+      "pipeline": "unified_events",
+      "binding": "UNIFIED_EVENTS_PIPELINE"
+    }
+  ]
 }

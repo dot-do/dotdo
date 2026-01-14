@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { WorkersDoClient, type Worker } from '../services/workers-do'
+import { WorkersDoClient, type Worker, type WorkersDoClientOptions } from '../services/workers-do'
 
 describe('WorkersDoClient', () => {
   it('creates client with auth token', () => {
@@ -35,5 +35,45 @@ describe('WorkersDoClient', () => {
   it('has get method', () => {
     const client = new WorkersDoClient('test-token')
     expect(typeof client.get).toBe('function')
+  })
+
+  it('has create method', () => {
+    const client = new WorkersDoClient('test-token')
+    expect(typeof client.create).toBe('function')
+  })
+
+  it('has isAvailable method', () => {
+    const client = new WorkersDoClient('test-token')
+    expect(typeof client.isAvailable).toBe('function')
+  })
+
+  describe('configuration options', () => {
+    it('accepts custom timeout', () => {
+      const options: WorkersDoClientOptions = { timeout: 5000 }
+      const client = new WorkersDoClient('test-token', options)
+      expect(client).toBeDefined()
+    })
+
+    it('accepts custom max retries', () => {
+      const options: WorkersDoClientOptions = { maxRetries: 5 }
+      const client = new WorkersDoClient('test-token', options)
+      expect(client).toBeDefined()
+    })
+
+    it('accepts custom retry base delay', () => {
+      const options: WorkersDoClientOptions = { retryBaseDelay: 500 }
+      const client = new WorkersDoClient('test-token', options)
+      expect(client).toBeDefined()
+    })
+
+    it('accepts all options together', () => {
+      const options: WorkersDoClientOptions = {
+        timeout: 15000,
+        maxRetries: 4,
+        retryBaseDelay: 2000,
+      }
+      const client = new WorkersDoClient('test-token', options)
+      expect(client).toBeDefined()
+    })
   })
 })

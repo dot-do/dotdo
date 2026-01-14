@@ -1,14 +1,50 @@
 /**
  * Geo-Replication Module
  *
- * Provides multi-region data replication capabilities for Durable Objects:
- * - Region configuration (primary/replica regions)
- * - Write forwarding to primary region
- * - Read routing to nearest replica
- * - Conflict resolution (LWW, vector clocks)
- * - Eventual consistency guarantees
- * - Failover scenarios
- * - Replication lag metrics
+ * Provides multi-region data replication capabilities for Durable Objects.
+ * This module implements a region-aware replication system with support for
+ * multiple consistency models and conflict resolution strategies.
+ *
+ * ## Features
+ *
+ * - **Region Configuration**: Primary/replica topology using IATA airport codes
+ * - **Write Forwarding**: All writes go to primary, then propagate to replicas
+ * - **Read Routing**: Intelligent routing to nearest replica based on caller location
+ * - **Conflict Resolution**: LWW (last-writer-wins), vector clocks, or manual resolution
+ * - **Consistency Models**: Eventual, strong, bounded-staleness, read-your-writes
+ * - **Failover**: Automatic replica promotion with configurable health checks
+ * - **Metrics**: Replication lag tracking with Prometheus export
+ *
+ * ## Architecture
+ *
+ * The module uses a storage key namespace scheme:
+ * - `geo:config` - Region configuration
+ * - `geo:data:*` - Replicated data entries
+ * - `geo:vc:*` - Vector clocks per key
+ * - `geo:conflict:*` - Detected conflicts
+ * - `geo:queue:*` - Per-region write queues (for partitioned replicas)
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * // Configure geo-replication
+ * await geo.configureRegion({
+ *   primary: 'ewr',
+ *   replicas: ['fra', 'sin'],
+ *   readPreference: 'nearest',
+ *   conflictResolution: 'lww',
+ * })
+ *
+ * // Write (automatically forwarded to primary)
+ * const result = await geo.write('user:123', { name: 'Alice' })
+ *
+ * // Read (routed to nearest replica)
+ * const data = await geo.read('user:123', { callerRegion: 'eu-central' })
+ * ```
+ *
+ * @module objects/GeoReplication
+ * @see /docs/architecture/geo-replication.mdx for architecture details
+ * @see /docs/deployment/geo-replication.mdx for usage guide
  */
 
 import type { LifecycleContext, LifecycleModule } from './lifecycle/types'
@@ -18,153 +54,359 @@ import type { LifecycleContext, LifecycleModule } from './lifecycle/types'
 // ============================================================================
 
 /**
- * Region configuration options
+ * Region configuration options for geo-replication setup.
+ *
+ * @example
+ * ```typescript
+ * const config: RegionConfig = {
+ *   primary: 'ewr',        // Newark - primary region (IATA code)
+ *   replicas: ['fra', 'sin'], // Frankfurt, Singapore
+ *   readPreference: 'nearest',
+ *   conflictResolution: 'lww',
+ *   consistency: 'eventual',
+ *   failover: { enabled: true, timeoutMs: 5000 },
+ *   monitoring: { lagAlertThresholdMs: 1000 }
+ * }
+ * ```
  */
 export interface RegionConfig {
+  /** Primary region IATA code (e.g., 'ewr', 'fra', 'sin') */
   primary: string
+  /** Replica region IATA codes */
   replicas: string[]
+  /**
+   * Read routing preference:
+   * - `nearest`: Route to geographically closest replica (default)
+   * - `primary`: Always read from primary (strong consistency)
+   * - `secondary`: Prefer secondary replicas (offload primary)
+   */
   readPreference?: 'nearest' | 'primary' | 'secondary'
+  /**
+   * Conflict resolution strategy:
+   * - `lww`: Last-Writer-Wins based on timestamp (default)
+   * - `vector-clock`: Detect concurrent writes, may require manual resolution
+   * - `manual`: All conflicts queued for application-level resolution
+   */
   conflictResolution?: 'lww' | 'vector-clock' | 'manual'
+  /**
+   * Consistency level:
+   * - `eventual`: Writes propagate asynchronously (default)
+   * - `strong`: Writes wait for quorum acknowledgment
+   * - `bounded-staleness`: Reads guaranteed fresh within maxStalenessMs
+   */
   consistency?: 'eventual' | 'strong' | 'bounded-staleness'
+  /** Maximum acceptable staleness in ms (for bounded-staleness mode) */
   maxStalenessMs?: number
+  /** Failover configuration */
   failover?: FailoverConfig
+  /** Monitoring and alerting configuration */
   monitoring?: MonitoringConfig
 }
 
+/**
+ * Information about an available region.
+ * Regions are identified by IATA airport codes.
+ */
 export interface RegionInfo {
+  /** IATA airport code (e.g., 'ewr', 'lhr', 'nrt') */
   code: string
+  /** Human-readable region name (e.g., 'Newark', 'London', 'Tokyo') */
   name: string
+  /** Continent name (e.g., 'North America', 'Europe', 'Asia') */
   continent: string
+  /** Whether this region is currently available for replication */
   isActive: boolean
+  /** Measured latency to this region in milliseconds (optional) */
   latencyMs?: number
 }
 
+/**
+ * Result of a geo-replication configuration operation.
+ * Returned by {@link GeoReplicationModule.configureRegion}.
+ */
 export interface GeoConfigResult {
+  /** Configured primary region IATA code */
   primary: string
+  /** Configured replica region IATA codes */
   replicas: string[]
+  /** ISO 8601 timestamp when configuration was applied */
   configuredAt: string
+  /** Configuration version (incremented on each change) */
   version: number
 }
 
+// ============================================================================
+// REPLICATION STATUS TYPES
+// ============================================================================
+
 /**
- * Replication types
+ * Status of replication to a specific region.
  */
 export interface ReplicationStatus {
+  /** Region IATA code */
   region: string
+  /** Current replication lag in milliseconds */
   lag: number
+  /** ISO 8601 timestamp of last successful sync */
   lastSync: string
+  /**
+   * Current sync status:
+   * - `synced`: Fully caught up with primary
+   * - `syncing`: Currently receiving updates
+   * - `behind`: Has pending updates to receive
+   * - `disconnected`: Cannot reach region
+   */
   status: 'synced' | 'syncing' | 'behind' | 'disconnected'
 }
 
+/**
+ * Result of a write operation.
+ * Returned by {@link GeoReplicationModule.write} and related methods.
+ */
 export interface WriteResult {
+  /** Key that was written */
   key: string
+  /** Primary region where write was applied */
   primaryRegion: string
+  /** Replica regions that received the propagated write */
   propagatedTo: string[]
-  timestamp: number
-}
-
-export interface ReadResult<T = unknown> {
-  value: T
-  sourceRegion: string
-  version: number
+  /** Unix timestamp (ms) when write was applied */
   timestamp: number
 }
 
 /**
- * Conflict resolution types
+ * Result of a read operation.
+ * Returned by {@link GeoReplicationModule.read} and related methods.
+ *
+ * @typeParam T - Type of the stored value
+ */
+export interface ReadResult<T = unknown> {
+  /** Retrieved value (undefined if key not found) */
+  value: T
+  /** Region from which the value was read */
+  sourceRegion: string
+  /** Version number of the value */
+  version: number
+  /** Unix timestamp (ms) when value was last written */
+  timestamp: number
+}
+
+// ============================================================================
+// CONFLICT RESOLUTION TYPES
+// ============================================================================
+
+/**
+ * Vector clock for tracking causality across regions.
+ *
+ * A vector clock is a map from region codes to logical timestamps.
+ * Two writes are concurrent if neither vector clock dominates the other.
+ *
+ * @example
+ * ```typescript
+ * // Write from us-east, then eu-west: us-east happens-before eu-west
+ * const vc1: VectorClock = { 'us-east': 1, 'eu-west': 0 }
+ * const vc2: VectorClock = { 'us-east': 1, 'eu-west': 1 }
+ *
+ * // Concurrent writes from different regions
+ * const vcA: VectorClock = { 'us-east': 1, 'eu-west': 0 }
+ * const vcB: VectorClock = { 'us-east': 0, 'eu-west': 1 }
+ * // Neither dominates -> CONFLICT
+ * ```
  */
 export interface VectorClock {
+  /** Map of region code to logical clock value */
   [region: string]: number
 }
 
+/**
+ * Information about a detected conflict between concurrent writes.
+ * Retrieved via {@link GeoReplicationModule.getConflicts}.
+ */
 export interface ConflictInfo {
+  /** Key where conflict was detected */
   key: string
+  /** Array of conflicting values with their metadata */
   conflictingValues: Array<{
+    /** The conflicting value */
     value: unknown
+    /** Region that wrote this value */
     region: string
+    /** Unix timestamp when value was written */
     timestamp: number
+    /** Vector clock at time of write */
     vectorClock: VectorClock
   }>
+  /** Resolved value (set after conflict resolution) */
   resolvedValue?: unknown
+  /** Resolution strategy that was applied */
   resolution?: 'lww' | 'vector-clock' | 'manual'
 }
 
+// ============================================================================
+// FAILOVER TYPES
+// ============================================================================
+
 /**
- * Failover types
+ * Record of a failover event.
+ * Retrieved via {@link GeoReplicationModule.getFailoverHistory}.
  */
 export interface FailoverEvent {
+  /** Region that was primary before failover */
   previousPrimary: string
+  /** Region that became primary after failover */
   newPrimary: string
+  /**
+   * Reason for failover:
+   * - `timeout`: Primary did not respond within timeout
+   * - `manual`: Operator-initiated failover
+   * - `health-check`: Automatic health check failure
+   */
   reason: 'timeout' | 'manual' | 'health-check'
+  /** ISO 8601 timestamp when failover occurred */
   timestamp: string
+  /** Whether any writes may have been lost during failover */
   dataLoss: boolean
 }
 
+/**
+ * Configuration for automatic failover behavior.
+ */
 export interface FailoverConfig {
+  /** Whether automatic failover is enabled */
   enabled: boolean
+  /** Timeout in ms before considering primary unavailable (default: 5000) */
   timeoutMs?: number
+  /** Minimum number of healthy replicas required for failover (default: 1) */
   minReplicas?: number
+  /** Interval in ms between health checks (default: 30000) */
   healthCheckIntervalMs?: number
 }
 
+/**
+ * Configuration for monitoring and alerting.
+ */
 export interface MonitoringConfig {
+  /** Replication lag threshold in ms that triggers an alert (default: 1000) */
   lagAlertThresholdMs?: number
 }
 
+// ============================================================================
+// METRICS TYPES
+// ============================================================================
+
 /**
- * Metrics types
+ * Replication lag metrics with percentile breakdown.
+ * Retrieved via {@link GeoReplicationModule.getReplicationLag}.
  */
 export interface ReplicationLagMetrics {
+  /** Maximum lag across all replicas in ms */
   maxLagMs: number
+  /** Average lag across all replicas in ms */
   avgLagMs: number
+  /** 50th percentile (median) lag in ms */
   p50LagMs: number
+  /** 95th percentile lag in ms */
   p95LagMs: number
+  /** 99th percentile lag in ms */
   p99LagMs: number
+  /** Per-region lag breakdown (region code -> lag ms) */
   byRegion: Record<string, number>
 }
 
+/**
+ * Current consistency configuration metrics.
+ * Retrieved via {@link GeoReplicationModule.getConsistencyConfig}.
+ */
 export interface ConsistencyMetrics {
+  /** Configured consistency level */
   level: 'eventual' | 'strong' | 'bounded-staleness'
+  /** Maximum staleness in ms (for bounded-staleness mode) */
   staleness?: number
+  /** Required quorum size for writes (for strong consistency mode) */
   quorumSize?: number
 }
 
+/**
+ * Status of the replication queue for a region.
+ * Used when a region is partitioned and writes are queued.
+ */
 export interface ReplicationQueueStatus {
+  /** Number of writes pending delivery to this region */
   pendingWrites: number
+  /** ISO 8601 timestamp of oldest queued write */
   oldestWrite?: string
 }
 
+/**
+ * Health status of a specific region.
+ */
 export interface RegionStatus {
+  /** Whether the region is healthy and reachable */
   healthy: boolean
+  /** ISO 8601 timestamp of last health check */
   lastCheck?: string
+  /** Response time of last health check in ms */
   responseTime?: number
 }
 
+/**
+ * Role of a region in the replication topology.
+ */
 export interface RegionRole {
+  /** Region's role: primary (accepts writes), replica (read-only), or unknown */
   role: 'primary' | 'replica' | 'unknown'
 }
 
+/**
+ * Detailed status of a replica region.
+ */
 export interface ReplicaStatus {
+  /**
+   * Current sync state:
+   * - `syncing`: Actively receiving updates
+   * - `synced`: Fully caught up with primary
+   * - `disconnected`: Cannot reach region
+   */
   state: 'syncing' | 'synced' | 'disconnected'
+  /** Current replication lag in ms (if syncing) */
   lag?: number
+  /** ISO 8601 timestamp of last successful sync */
   lastSync?: string
 }
 
+/**
+ * Active alert generated by the monitoring system.
+ */
 export interface Alert {
+  /** Alert type */
   type: 'replication-lag' | 'region-failure' | 'conflict'
+  /** Region related to the alert (if applicable) */
   region?: string
+  /** Human-readable alert message */
   message: string
+  /** ISO 8601 timestamp when alert was generated */
   timestamp: string
 }
 
+/**
+ * Single point in lag history for graphing/analysis.
+ */
 export interface LagHistoryPoint {
+  /** ISO 8601 timestamp */
   timestamp: string
+  /** Lag in milliseconds at this point */
   lagMs: number
 }
 
+/**
+ * Estimated time to complete pending replication.
+ */
 export interface ReplicationETA {
+  /** Number of writes pending delivery */
   pendingWrites: number
+  /** Estimated milliseconds until replication completes */
   estimatedCompletionMs: number
+  /** Estimated bytes remaining to transfer (if available) */
   bytesRemaining?: number
 }
 
@@ -226,34 +468,118 @@ const REGION_PROXIMITY: Map<string, string[]> = new Map([
 // GEO-REPLICATION MODULE
 // ============================================================================
 
+/**
+ * Geo-Replication Module for Durable Objects.
+ *
+ * This lifecycle module provides multi-region data replication with:
+ * - Region configuration using IATA airport codes
+ * - Write forwarding to primary region
+ * - Read routing to nearest replica
+ * - Conflict resolution (LWW, vector clocks, manual)
+ * - Automatic failover with configurable health checks
+ * - Replication lag metrics with Prometheus export
+ *
+ * ## Lifecycle Integration
+ *
+ * This module implements {@link LifecycleModule} and is initialized via
+ * the DO lifecycle system. Access it through `stub.geo.*` after wiring.
+ *
+ * ## Storage Keys
+ *
+ * The module uses the following storage key prefixes:
+ * - `geo:config` - Region configuration
+ * - `geo:data:*` - Replicated data entries
+ * - `geo:vc:*` - Vector clocks per key
+ * - `geo:conflict:*` - Detected conflicts
+ * - `geo:queue:*` - Per-region write queues
+ * - `geo:failover:history` - Failover event history
+ *
+ * @example
+ * ```typescript
+ * // Access via DO stub
+ * const stub = env.DO.get(env.DO.idFromName('my-do'))
+ *
+ * // Configure regions
+ * await stub.geo.configureRegion({
+ *   primary: 'ewr',
+ *   replicas: ['fra', 'sin'],
+ *   readPreference: 'nearest',
+ * })
+ *
+ * // Write (forwarded to primary)
+ * await stub.geo.write('user:123', { name: 'Alice' })
+ *
+ * // Read (routed to nearest replica)
+ * const data = await stub.geo.read('user:123', {
+ *   callerRegion: 'eu-central'
+ * })
+ * ```
+ *
+ * @implements {LifecycleModule}
+ */
 export class GeoReplicationModule implements LifecycleModule {
+  /** Lifecycle context injected during initialization */
   private ctx!: LifecycleContext
 
-  // State storage keys
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STORAGE KEY CONSTANTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Storage key for region configuration */
   private static readonly CONFIG_KEY = 'geo:config'
+  /** Storage key prefix for replicated data */
   private static readonly DATA_PREFIX = 'geo:data:'
+  /** Storage key prefix for vector clocks */
   private static readonly VECTOR_CLOCK_PREFIX = 'geo:vc:'
+  /** Storage key prefix for conflicts */
   private static readonly CONFLICT_PREFIX = 'geo:conflict:'
+  /** Storage key prefix for write queues (per region) */
   private static readonly QUEUE_PREFIX = 'geo:queue:'
+  /** Storage key prefix for metrics */
   private static readonly METRICS_PREFIX = 'geo:metrics:'
+  /** Storage key for failover history */
   private static readonly FAILOVER_HISTORY_KEY = 'geo:failover:history'
+  /** Storage key for active alerts */
   private static readonly ALERTS_KEY = 'geo:alerts'
+  /** Storage key prefix for lag history */
   private static readonly LAG_HISTORY_PREFIX = 'geo:lag:history:'
+  /** Storage key for routing cache */
   private static readonly ROUTING_CACHE_KEY = 'geo:routing:cache'
 
-  // In-memory caches
+  // ═══════════════════════════════════════════════════════════════════════════
+  // IN-MEMORY CACHES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Cache for routing decisions (caller region -> target region) */
   private routingCache: Map<string, { region: string; cachedAt: number }> = new Map()
+  /** Cache for measured latencies to each region */
   private latencyCache: Map<string, number> = new Map()
+  /** Sliding window of lag samples per region (for percentile calculation) */
   private lagSamples: Map<string, number[]> = new Map()
+  /** Registered conflict event listeners */
   private conflictListeners: Array<(event: ConflictInfo) => void> = []
 
-  // Simulated state for testing
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SIMULATION STATE (for testing)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Set of regions currently simulated as failed */
   private failedRegions: Set<string> = new Set()
+  /** Set of regions currently simulated as partitioned */
   private partitionedRegions: Set<string> = new Set()
+  /** Simulated lag values per region (for testing) */
   private simulatedLag: Map<string, number> = new Map()
+  /** Simulated backlog sizes per region (for testing) */
   private simulatedBacklog: Map<string, number> = new Map()
+  /** Session write tracking for read-your-writes consistency */
   private sessionWrites: Map<string, Map<string, unknown>> = new Map()
 
+  /**
+   * Initialize the module with lifecycle context.
+   * Called by the DO lifecycle system.
+   *
+   * @param context - Lifecycle context providing access to DO state and events
+   */
   initialize(context: LifecycleContext): void {
     this.ctx = context
   }
@@ -263,7 +589,27 @@ export class GeoReplicationModule implements LifecycleModule {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Configure geo-replication regions
+   * Configure geo-replication regions.
+   *
+   * Sets up the primary region and replica regions for data replication.
+   * Region codes must be valid IATA airport codes (e.g., 'ewr', 'fra', 'sin')
+   * or legacy region names (e.g., 'us-east', 'eu-west').
+   *
+   * @param config - Region configuration options
+   * @returns Configuration result with version number
+   * @throws {Error} If primary or replica region codes are invalid
+   *
+   * @example
+   * ```typescript
+   * const result = await geo.configureRegion({
+   *   primary: 'ewr',
+   *   replicas: ['fra', 'sin'],
+   *   readPreference: 'nearest',
+   *   conflictResolution: 'lww',
+   *   failover: { enabled: true, timeoutMs: 5000 }
+   * })
+   * console.log(`Configured v${result.version}`)
+   * ```
    */
   async configureRegion(config: RegionConfig): Promise<GeoConfigResult> {
     // Validate primary region
@@ -311,7 +657,17 @@ export class GeoReplicationModule implements LifecycleModule {
   }
 
   /**
-   * Get current region configuration
+   * Get the current region configuration.
+   *
+   * @returns Current configuration with primary, replicas, and version
+   * @throws {Error} If geo-replication has not been configured
+   *
+   * @example
+   * ```typescript
+   * const config = await geo.getRegionConfig()
+   * console.log(`Primary: ${config.primary}`)
+   * console.log(`Replicas: ${config.replicas.join(', ')}`)
+   * ```
    */
   async getRegionConfig(): Promise<GeoConfigResult> {
     const config = await this.ctx.ctx.storage.get<GeoConfigResult>(GeoReplicationModule.CONFIG_KEY)
@@ -327,7 +683,19 @@ export class GeoReplicationModule implements LifecycleModule {
   }
 
   /**
-   * List all available regions
+   * List all available regions for geo-replication.
+   *
+   * Returns information about all supported IATA regions including
+   * their names, continents, and availability status.
+   *
+   * @returns Array of region information objects
+   *
+   * @example
+   * ```typescript
+   * const regions = await geo.listAvailableRegions()
+   * const usRegions = regions.filter(r => r.continent === 'North America')
+   * console.log(`US regions: ${usRegions.map(r => r.code).join(', ')}`)
+   * ```
    */
   async listAvailableRegions(): Promise<RegionInfo[]> {
     return Array.from(VALID_REGIONS.values())
@@ -338,7 +706,24 @@ export class GeoReplicationModule implements LifecycleModule {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Write data with geo-replication
+   * Write data with geo-replication.
+   *
+   * The write is first applied to the primary region, then propagated
+   * to all replica regions. If a replica is partitioned, the write is
+   * queued for later delivery.
+   *
+   * @param key - Storage key for the data
+   * @param value - Value to store (will be JSON-serialized)
+   * @returns Write result with propagation information
+   * @throws {Error} If geo-replication is not configured
+   * @throws {Error} If primary region is unavailable
+   *
+   * @example
+   * ```typescript
+   * const result = await geo.write('user:123', { name: 'Alice', age: 30 })
+   * console.log(`Written to ${result.primaryRegion}`)
+   * console.log(`Propagated to: ${result.propagatedTo.join(', ')}`)
+   * ```
    */
   async write(key: string, value: unknown): Promise<WriteResult> {
     const config = await this.ctx.ctx.storage.get<GeoConfigResult & RegionConfig>(
@@ -400,7 +785,17 @@ export class GeoReplicationModule implements LifecycleModule {
   }
 
   /**
-   * Write with explicit timestamp (for conflict resolution testing)
+   * Write with explicit timestamp for Last-Writer-Wins conflict resolution.
+   *
+   * If existing data has a newer timestamp, the write is ignored.
+   * Useful for testing conflict resolution or when timestamp is
+   * determined externally.
+   *
+   * @param key - Storage key for the data
+   * @param value - Value to store
+   * @param timestamp - Unix timestamp (ms) to use for LWW comparison
+   * @returns Write result (propagatedTo empty if write was ignored)
+   * @throws {Error} If geo-replication is not configured
    */
   async writeWithTimestamp(key: string, value: unknown, timestamp: number): Promise<WriteResult> {
     const config = await this.ctx.ctx.storage.get<GeoConfigResult & RegionConfig>(
@@ -446,7 +841,20 @@ export class GeoReplicationModule implements LifecycleModule {
   }
 
   /**
-   * Write with vector clock (for conflict detection)
+   * Write with explicit vector clock for conflict detection.
+   *
+   * If the provided vector clock is concurrent with the existing one
+   * (neither dominates), a conflict is recorded. Use this when
+   * replicating writes from other regions or for testing.
+   *
+   * @param key - Storage key for the data
+   * @param value - Value to store
+   * @param vectorClock - Vector clock representing write causality
+   * @returns Write result
+   * @throws {Error} If geo-replication is not configured
+   *
+   * @see {@link getConflicts} to retrieve detected conflicts
+   * @see {@link resolveConflict} to manually resolve conflicts
    */
   async writeWithVectorClock(key: string, value: unknown, vectorClock: VectorClock): Promise<WriteResult> {
     const config = await this.ctx.ctx.storage.get<GeoConfigResult & RegionConfig>(
@@ -548,12 +956,38 @@ export class GeoReplicationModule implements LifecycleModule {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Read data with geo-routing
+   * Read data with intelligent geo-routing.
+   *
+   * Routes the read to the appropriate region based on:
+   * 1. Read preference configuration (nearest/primary/secondary)
+   * 2. Caller's location (for nearest routing)
+   * 3. Staleness bounds (for bounded-staleness consistency)
+   * 4. Region availability (falls back to primary if replica unavailable)
+   *
+   * @typeParam T - Expected type of the stored value
+   * @param key - Storage key to read
+   * @param options - Read options
+   * @param options.callerRegion - Caller's region for nearest routing
+   * @param options.requireFresh - Force fresh read (bounded-staleness mode)
+   * @returns Read result with value and source region
+   * @throws {Error} If geo-replication is not configured
+   *
+   * @example
+   * ```typescript
+   * // Read from nearest replica to EU
+   * const result = await geo.read<User>('user:123', {
+   *   callerRegion: 'eu-central'
+   * })
+   * console.log(`Read from: ${result.sourceRegion}`)
+   * console.log(`Value: ${result.value.name}`)
+   * ```
    */
   async read<T = unknown>(
     key: string,
     options?: {
+      /** Caller's region for nearest routing (IATA code or legacy name) */
       callerRegion?: string
+      /** Force fresh read even if bounded-staleness would allow stale data */
       requireFresh?: boolean
     }
   ): Promise<ReadResult<T>> {
@@ -774,7 +1208,29 @@ export class GeoReplicationModule implements LifecycleModule {
   }
 
   /**
-   * Trigger failover
+   * Trigger manual failover to promote a replica to primary.
+   *
+   * Selects the best available replica based on replication lag
+   * and promotes it to primary. The old primary (if not failed)
+   * becomes a replica. Records the failover event in history.
+   *
+   * @returns Failover event with details of the transition
+   * @throws {Error} If geo-replication is not configured
+   * @throws {Error} If no healthy replicas are available
+   *
+   * @example
+   * ```typescript
+   * // Simulate primary failure
+   * await geo.simulateRegionFailure('ewr')
+   *
+   * // Trigger failover
+   * const event = await geo.triggerFailover()
+   * console.log(`Failover: ${event.previousPrimary} -> ${event.newPrimary}`)
+   *
+   * // Check new topology
+   * const status = await geo.getReplicationStatus()
+   * console.log(`New primary: ${status.primary}`)
+   * ```
    */
   async triggerFailover(): Promise<FailoverEvent> {
     const config = await this.ctx.ctx.storage.get<GeoConfigResult & RegionConfig>(

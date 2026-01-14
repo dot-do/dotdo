@@ -13,6 +13,8 @@
  * @module unified-storage/in-memory-state-manager
  */
 
+import type { StateManagerMetrics } from './metrics'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -52,6 +54,12 @@ export interface InMemoryStateManagerOptions {
   maxBytes?: number
   /** Callback when entries are evicted */
   onEvict?: (entries: ThingData[]) => void
+  /** Memory pressure threshold as ratio of maxBytes (default: 0.8 = 80%) */
+  memoryPressureThreshold?: number
+  /** Callback when memory pressure is detected (approaching limit) */
+  onMemoryPressure?: (stats: MemoryStats) => void
+  /** Metrics collector for observability */
+  metrics?: StateManagerMetrics
 }
 
 /**
@@ -62,6 +70,30 @@ export interface StateManagerStats {
   dirtyCount: number
   estimatedBytes: number
   memoryUsageRatio: number
+}
+
+/**
+ * Detailed memory statistics
+ */
+export interface MemoryStats {
+  /** Current bytes used */
+  currentBytes: number
+  /** Maximum bytes allowed (Infinity if unlimited) */
+  maxBytes: number
+  /** Ratio of current to max (0 if unlimited) */
+  usageRatio: number
+  /** Peak bytes used during session */
+  peakBytes: number
+  /** Memory pressure threshold */
+  pressureThreshold: number
+  /** Whether memory pressure is currently active */
+  underPressure: boolean
+  /** Number of entries */
+  entryCount: number
+  /** Number of dirty entries */
+  dirtyCount: number
+  /** Average bytes per entry */
+  avgBytesPerEntry: number
 }
 
 // ============================================================================
@@ -204,15 +236,47 @@ export class InMemoryStateManager {
   private dirtySet: Set<string> = new Set()
   private lruTracker: LRUTracker = new LRUTracker()
   private totalBytes = 0
+  private sizeCache: Map<string, number> = new Map() // Cached sizes for O(1) updates
+
+  // Memory tracking
+  private peakBytes = 0
+  private memoryPressureThreshold: number
+  private memoryPressureTriggered = false
 
   private maxEntries: number
   private maxBytes: number
   private onEvict?: (entries: ThingData[]) => void
+  private onMemoryPressure?: (stats: MemoryStats) => void
+
+  // Metrics
+  private metrics?: StateManagerMetrics
 
   constructor(options: InMemoryStateManagerOptions = {}) {
     this.maxEntries = options.maxEntries ?? Infinity
     this.maxBytes = options.maxBytes ?? Infinity
     this.onEvict = options.onEvict
+    this.memoryPressureThreshold = options.memoryPressureThreshold ?? 0.8
+    this.onMemoryPressure = options.onMemoryPressure
+    this.metrics = options.metrics
+  }
+
+  /**
+   * Set metrics collector (can be set after construction)
+   */
+  setMetrics(metrics: StateManagerMetrics): void {
+    this.metrics = metrics
+    // Update metrics with current state
+    this.updateMetrics()
+  }
+
+  /**
+   * Update all metrics to current state
+   */
+  private updateMetrics(): void {
+    if (!this.metrics) return
+    this.metrics.entriesCount.set(this.store.size)
+    this.metrics.entriesBytes.set(this.totalBytes)
+    this.metrics.dirtyCount.set(this.dirtySet.size)
   }
 
   // ==========================================================================
@@ -239,14 +303,20 @@ export class InMemoryStateManager {
       $version: 1,
     }
 
-    // Store and track
+    // Store and track with cached size
     const size = this.calculateSize(thing)
     this.store.set($id, thing)
+    this.sizeCache.set($id, size)
     this.totalBytes += size
+    this.updatePeakBytes()
     this.dirtySet.add($id)
     this.lruTracker.touch($id)
 
-    // Check eviction AFTER adding new item
+    // Update metrics
+    this.updateMetrics()
+
+    // Check memory pressure and eviction
+    this.checkMemoryPressure()
     this.evictIfNeeded()
 
     return thing
@@ -258,8 +328,13 @@ export class InMemoryStateManager {
   get($id: string): ThingData | null {
     const thing = this.store.get($id)
     if (!thing) {
+      // Track cache miss
+      this.metrics?.cacheMisses.inc()
       return null
     }
+
+    // Track cache hit
+    this.metrics?.cacheHits.inc()
 
     // Update LRU order (read access)
     this.lruTracker.touch($id)
@@ -276,8 +351,8 @@ export class InMemoryStateManager {
       throw new Error(`Thing not found: ${$id}`)
     }
 
-    // Calculate old size
-    const oldSize = this.calculateSize(existing)
+    // Get cached old size (O(1) instead of recalculating)
+    const oldSize = this.sizeCache.get($id) ?? this.calculateSize(existing)
 
     // Merge updates, preserving $id and $type, incrementing $version
     const updated: ThingData = {
@@ -288,13 +363,22 @@ export class InMemoryStateManager {
       $version: (existing.$version ?? 0) + 1,
     }
 
-    // Update store
+    // Calculate new size and update cache
+    const newSize = this.calculateSize(updated)
     this.store.set($id, updated)
-    this.totalBytes = this.totalBytes - oldSize + this.calculateSize(updated)
+    this.sizeCache.set($id, newSize)
+    this.totalBytes = this.totalBytes - oldSize + newSize
+    this.updatePeakBytes()
 
     // Mark dirty and update LRU
     this.dirtySet.add($id)
     this.lruTracker.touch($id)
+
+    // Update metrics
+    this.updateMetrics()
+
+    // Check memory pressure
+    this.checkMemoryPressure()
 
     return updated
   }
@@ -308,11 +392,24 @@ export class InMemoryStateManager {
       return null
     }
 
-    // Remove from all tracking
-    this.totalBytes -= this.calculateSize(thing)
+    // Remove from all tracking (use cached size for O(1))
+    const size = this.sizeCache.get($id) ?? this.calculateSize(thing)
+    this.totalBytes -= size
     this.store.delete($id)
+    this.sizeCache.delete($id)
     this.dirtySet.delete($id)
     this.lruTracker.delete($id)
+
+    // Update metrics
+    this.updateMetrics()
+
+    // Reset memory pressure flag if we're now below threshold
+    if (this.memoryPressureTriggered && this.maxBytes !== Infinity) {
+      const ratio = this.totalBytes / this.maxBytes
+      if (ratio < this.memoryPressureThreshold) {
+        this.memoryPressureTriggered = false
+      }
+    }
 
     return thing
   }
@@ -349,6 +446,8 @@ export class InMemoryStateManager {
     for (const id of ids) {
       this.dirtySet.delete(id)
     }
+    // Update dirty count metric
+    this.metrics?.dirtyCount.set(this.dirtySet.size)
   }
 
   // ==========================================================================
@@ -363,10 +462,14 @@ export class InMemoryStateManager {
     for (const thing of things) {
       const size = this.calculateSize(thing)
       this.store.set(thing.$id, thing)
+      this.sizeCache.set(thing.$id, size)
       this.totalBytes += size
       this.lruTracker.touch(thing.$id)
       // NOT marked dirty - already persisted
     }
+    this.updatePeakBytes()
+    // Update metrics after bulk load
+    this.updateMetrics()
   }
 
   /**
@@ -388,9 +491,14 @@ export class InMemoryStateManager {
    */
   clear(): void {
     this.store.clear()
+    this.sizeCache.clear()
     this.dirtySet.clear()
     this.lruTracker.clear()
     this.totalBytes = 0
+    this.memoryPressureTriggered = false
+    // Note: peakBytes is NOT reset - it tracks session peak
+    // Update metrics
+    this.updateMetrics()
   }
 
   // ==========================================================================
@@ -458,11 +566,12 @@ export class InMemoryStateManager {
    */
   private evictIfNeeded(): void {
     const evictedEntries: ThingData[] = []
+    let evictedBytes = 0
 
     // Evict by count (prefer clean entries, but evict dirty if necessary)
     while (this.store.size > this.maxEntries) {
       // First try to find a clean entry
-      let lruId = this.lruTracker.getLRU(this.dirtySet)
+      const lruId = this.lruTracker.getLRU(this.dirtySet)
 
       if (!lruId) {
         break
@@ -471,8 +580,11 @@ export class InMemoryStateManager {
       const thing = this.store.get(lruId)
       if (thing) {
         evictedEntries.push(thing)
-        this.totalBytes -= this.calculateSize(thing)
+        const size = this.sizeCache.get(lruId) ?? this.calculateSize(thing)
+        evictedBytes += size
+        this.totalBytes -= size
         this.store.delete(lruId)
+        this.sizeCache.delete(lruId)
         this.dirtySet.delete(lruId)
         this.lruTracker.delete(lruId)
       }
@@ -489,16 +601,176 @@ export class InMemoryStateManager {
       const thing = this.store.get(lruId)
       if (thing) {
         evictedEntries.push(thing)
-        this.totalBytes -= this.calculateSize(thing)
+        const size = this.sizeCache.get(lruId) ?? this.calculateSize(thing)
+        evictedBytes += size
+        this.totalBytes -= size
         this.store.delete(lruId)
+        this.sizeCache.delete(lruId)
         this.dirtySet.delete(lruId)
         this.lruTracker.delete(lruId)
       }
     }
 
-    // Call onEvict callback if entries were evicted
-    if (evictedEntries.length > 0 && this.onEvict) {
-      this.onEvict(evictedEntries)
+    // Update metrics for evictions
+    if (evictedEntries.length > 0) {
+      this.metrics?.evictionsCount.inc(evictedEntries.length)
+      this.metrics?.evictionsBytes.inc(evictedBytes)
+      this.updateMetrics()
+
+      // Call onEvict callback
+      if (this.onEvict) {
+        this.onEvict(evictedEntries)
+      }
     }
+  }
+
+  /**
+   * Update peak bytes tracking
+   */
+  private updatePeakBytes(): void {
+    if (this.totalBytes > this.peakBytes) {
+      this.peakBytes = this.totalBytes
+    }
+  }
+
+  /**
+   * Check and trigger memory pressure callback if threshold exceeded
+   */
+  private checkMemoryPressure(): void {
+    if (this.maxBytes === Infinity || !this.onMemoryPressure) {
+      return
+    }
+
+    const ratio = this.totalBytes / this.maxBytes
+    const isPressure = ratio >= this.memoryPressureThreshold
+
+    // Only trigger once per pressure event (reset when below threshold)
+    if (isPressure && !this.memoryPressureTriggered) {
+      this.memoryPressureTriggered = true
+      this.onMemoryPressure(this.getMemoryStats())
+    }
+  }
+
+  // ==========================================================================
+  // Memory Monitoring
+  // ==========================================================================
+
+  /**
+   * Get detailed memory statistics
+   */
+  getMemoryStats(): MemoryStats {
+    const usageRatio = this.maxBytes === Infinity ? 0 : this.totalBytes / this.maxBytes
+    const entryCount = this.store.size
+
+    return {
+      currentBytes: this.totalBytes,
+      maxBytes: this.maxBytes,
+      usageRatio,
+      peakBytes: this.peakBytes,
+      pressureThreshold: this.memoryPressureThreshold,
+      underPressure: this.memoryPressureTriggered,
+      entryCount,
+      dirtyCount: this.dirtySet.size,
+      avgBytesPerEntry: entryCount > 0 ? Math.round(this.totalBytes / entryCount) : 0,
+    }
+  }
+
+  /**
+   * Reset peak memory tracking (useful for testing or new monitoring periods)
+   */
+  resetPeakBytes(): void {
+    this.peakBytes = this.totalBytes
+  }
+
+  // ==========================================================================
+  // Batch Operations
+  // ==========================================================================
+
+  /**
+   * Create multiple things in batch (more efficient than individual creates)
+   */
+  createBatch(inputs: CreateThingInput[]): ThingData[] {
+    const results: ThingData[] = []
+
+    for (const input of inputs) {
+      // Validate $type is provided
+      if (!input.$type) {
+        throw new Error('$type is required for all batch items')
+      }
+
+      // Generate ID if not provided
+      const $id = input.$id ?? this.generateId(input.$type)
+
+      // Create thing with version 1
+      const thing: ThingData = {
+        ...input,
+        $id,
+        $type: input.$type,
+        $version: 1,
+      }
+
+      // Store and track with cached size
+      const size = this.calculateSize(thing)
+      this.store.set($id, thing)
+      this.sizeCache.set($id, size)
+      this.totalBytes += size
+      this.dirtySet.add($id)
+      this.lruTracker.touch($id)
+
+      results.push(thing)
+    }
+
+    // Update peak and check pressure once after batch
+    this.updatePeakBytes()
+    this.updateMetrics()
+    this.checkMemoryPressure()
+    this.evictIfNeeded()
+
+    return results
+  }
+
+  /**
+   * Update multiple things in batch (more efficient than individual updates)
+   */
+  updateBatch(updates: Array<{ $id: string; updates: Partial<ThingData> }>): ThingData[] {
+    const results: ThingData[] = []
+
+    for (const { $id, updates: itemUpdates } of updates) {
+      const existing = this.store.get($id)
+      if (!existing) {
+        throw new Error(`Thing not found: ${$id}`)
+      }
+
+      // Get cached old size (O(1) instead of recalculating)
+      const oldSize = this.sizeCache.get($id) ?? this.calculateSize(existing)
+
+      // Merge updates, preserving $id and $type, incrementing $version
+      const updated: ThingData = {
+        ...existing,
+        ...itemUpdates,
+        $id: existing.$id, // Cannot change $id
+        $type: existing.$type, // Cannot change $type
+        $version: (existing.$version ?? 0) + 1,
+      }
+
+      // Calculate new size and update cache
+      const newSize = this.calculateSize(updated)
+      this.store.set($id, updated)
+      this.sizeCache.set($id, newSize)
+      this.totalBytes = this.totalBytes - oldSize + newSize
+
+      // Mark dirty and update LRU
+      this.dirtySet.add($id)
+      this.lruTracker.touch($id)
+
+      results.push(updated)
+    }
+
+    // Update peak and check pressure once after batch
+    this.updatePeakBytes()
+    this.updateMetrics()
+    this.checkMemoryPressure()
+
+    return results
   }
 }

@@ -26,6 +26,8 @@
  * ```
  */
 
+import type { PipelineEmitterMetrics } from './metrics'
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -86,6 +88,8 @@ export interface PipelineEmitterConfig {
   exponentialBackoff?: boolean
   /** Dead-letter queue for failed events */
   deadLetterQueue?: Pipeline
+  /** Metrics collector for observability */
+  metrics?: PipelineEmitterMetrics
 }
 
 /**
@@ -155,9 +159,11 @@ export class PipelineEmitter {
   private _bufferBytes: number = 0
   private flushTimer?: ReturnType<typeof setInterval>
   private _closed: boolean = false
+  private metrics?: PipelineEmitterMetrics
 
   constructor(pipeline: Pipeline, config: PipelineEmitterConfig) {
     this.pipeline = pipeline
+    this.metrics = config.metrics
 
     // Merge config with defaults
     this._config = Object.freeze({
@@ -173,6 +179,15 @@ export class PipelineEmitter {
 
     // Start auto-flush timer if interval > 0
     this.startAutoFlush()
+  }
+
+  /**
+   * Set metrics collector (can be set after construction)
+   */
+  setMetrics(metrics: PipelineEmitterMetrics): void {
+    this.metrics = metrics
+    // Update buffer gauge with current state
+    this.metrics.eventsBatched.set(this.buffer.length)
   }
 
   /**
@@ -261,6 +276,10 @@ export class PipelineEmitter {
     this._bufferBytes += eventBytes
     this.buffer.push(event)
 
+    // Update metrics
+    this.metrics?.eventsEmitted.inc()
+    this.metrics?.eventsBatched.set(this.buffer.length)
+
     // Check if we should flush immediately (flushInterval === 0)
     // or if batch thresholds are reached
     if (this._config.flushInterval === 0) {
@@ -286,6 +305,9 @@ export class PipelineEmitter {
     this.buffer = []
     this._bufferBytes = 0
 
+    // Update metrics for batched count
+    this.metrics?.eventsBatched.set(0)
+
     // Flush asynchronously (fire-and-forget)
     this.doFlush(events).catch(() => {
       // Errors handled internally by doFlush
@@ -306,6 +328,9 @@ export class PipelineEmitter {
     this.buffer = []
     this._bufferBytes = 0
 
+    // Update metrics for batched count
+    this.metrics?.eventsBatched.set(0)
+
     await this.doFlush(events)
   }
 
@@ -317,15 +342,27 @@ export class PipelineEmitter {
       return
     }
 
+    const startTime = performance.now()
     let lastError: Error | undefined
     let currentDelay = this._config.retryDelay
+    let retryCount = 0
 
     for (let attempt = 0; attempt < this._config.maxRetries; attempt++) {
       try {
         await this.pipeline.send(events)
+
+        // Success - record metrics
+        const duration = performance.now() - startTime
+        this.metrics?.flushCount.inc()
+        this.metrics?.flushLatency.observe(duration)
+
         return // Success
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
+        retryCount++
+
+        // Track retry
+        this.metrics?.retryCount.inc()
 
         // Wait before retry (except on last attempt)
         if (attempt < this._config.maxRetries - 1) {
@@ -339,10 +376,18 @@ export class PipelineEmitter {
       }
     }
 
+    // All retries failed - record error
+    this.metrics?.errorsCount.inc()
+
+    // Record the flush latency even on failure
+    const duration = performance.now() - startTime
+    this.metrics?.flushLatency.observe(duration)
+
     // Send to dead-letter queue if all retries failed and DLQ is configured
     if (this._config.deadLetterQueue && lastError) {
       try {
         await this._config.deadLetterQueue.send(events)
+        this.metrics?.dlqCount.inc()
       } catch {
         // Best effort - don't throw
       }

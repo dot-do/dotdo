@@ -23,6 +23,12 @@ import {
   type SqliteConnection,
   type IcebergReader,
 } from './cold-start-recovery'
+import {
+  MetricsCollector,
+  NoOpMetricsCollector,
+  type UnifiedStorageMetrics,
+  type MetricsSnapshot,
+} from './metrics'
 
 // Re-export types for test file imports
 export type {
@@ -32,6 +38,8 @@ export type {
   PipelineEmitter,
   LazyCheckpointer,
   ColdStartRecovery,
+  UnifiedStorageMetrics,
+  MetricsSnapshot,
 }
 
 // ============================================================================
@@ -52,6 +60,8 @@ export interface UnifiedStoreConfig {
   dirtyCountThreshold?: number
   /** Iceberg reader for recovery */
   iceberg?: IcebergReader
+  /** Enable metrics collection (default: false) */
+  enableMetrics?: boolean
 }
 
 /**
@@ -210,6 +220,9 @@ export class UnifiedStoreDO {
   public checkpointer: LazyCheckpointer
   public coldStartRecovery: ColdStartRecovery
 
+  // Metrics
+  private _metrics: UnifiedStorageMetrics
+
   // Internal state
   private checkpointTimer?: ReturnType<typeof setTimeout>
   private namespace: string
@@ -227,38 +240,74 @@ export class UnifiedStoreDO {
       columnarThreshold: config.columnarThreshold ?? 1000,
       dirtyCountThreshold: config.dirtyCountThreshold ?? 100,
       iceberg: config.iceberg,
+      enableMetrics: config.enableMetrics ?? false,
     }
 
-    // Initialize InMemoryStateManager
-    this.stateManager = new InMemoryStateManager()
+    // Initialize metrics collector
+    this._metrics = this.config.enableMetrics
+      ? new MetricsCollector()
+      : new NoOpMetricsCollector()
 
-    // Initialize PipelineEmitter
+    // Initialize InMemoryStateManager with metrics
+    this.stateManager = new InMemoryStateManager({
+      metrics: this._metrics.state,
+    })
+
+    // Initialize PipelineEmitter with metrics
     this.pipelineEmitter = new PipelineEmitter(env.PIPELINE, {
       namespace: this.namespace,
       flushInterval: 0, // Immediate flush for durability
+      metrics: this._metrics.pipeline,
     })
 
     // Create dirty tracker adapter
     const dirtyTracker = new StateManagerDirtyTracker(this.stateManager)
 
-    // Initialize LazyCheckpointer
+    // Initialize LazyCheckpointer with metrics
     this.checkpointer = new LazyCheckpointer({
       sql: state.storage.sql,
       dirtyTracker,
       intervalMs: this.config.checkpointInterval,
       columnarThreshold: this.config.columnarThreshold,
       dirtyCountThreshold: this.config.dirtyCountThreshold,
+      metrics: this._metrics.checkpoint,
     })
 
-    // Initialize ColdStartRecovery
+    // Initialize ColdStartRecovery with metrics
     this.coldStartRecovery = new ColdStartRecovery({
       namespace: this.namespace,
       sql: state.storage.sql as unknown as SqliteConnection,
       iceberg: config.iceberg,
+      metrics: this._metrics.recovery,
     })
 
     // Start checkpoint timer
     this.startCheckpointTimer()
+  }
+
+  // ==========================================================================
+  // METRICS
+  // ==========================================================================
+
+  /**
+   * Get the metrics collector
+   */
+  get metrics(): UnifiedStorageMetrics {
+    return this._metrics
+  }
+
+  /**
+   * Get a snapshot of all metrics
+   */
+  getMetricsSnapshot(): MetricsSnapshot {
+    return this._metrics.snapshot()
+  }
+
+  /**
+   * Reset all metrics
+   */
+  resetMetrics(): void {
+    this._metrics.reset()
   }
 
   // ==========================================================================

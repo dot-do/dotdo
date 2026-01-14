@@ -270,6 +270,726 @@ class ActionsRpc extends RpcTarget {
 }
 
 // ============================================================================
+// DOCUMENT TYPES
+// ============================================================================
+
+/**
+ * Document metadata fields
+ */
+interface DocumentMetadata {
+  $id: string
+  $type: string
+  $createdAt: number
+  $updatedAt: number
+  $version: number
+}
+
+/**
+ * Document with data and metadata
+ */
+type Document<T = Record<string, unknown>> = T & DocumentMetadata
+
+/**
+ * Query operators for filtering
+ */
+interface QueryOperators {
+  $eq?: unknown
+  $ne?: unknown
+  $gt?: unknown
+  $gte?: unknown
+  $lt?: unknown
+  $lte?: unknown
+  $in?: unknown[]
+  $nin?: unknown[]
+  $like?: string
+}
+
+/**
+ * Where clause for queries
+ */
+interface WhereClause {
+  [field: string]: unknown | QueryOperators
+  $and?: WhereClause[]
+  $or?: WhereClause[]
+}
+
+/**
+ * List options
+ */
+interface ListOptions {
+  type?: string
+  limit?: number
+  offset?: number
+  orderBy?: Record<string, 'asc' | 'desc'>
+}
+
+/**
+ * Query options
+ */
+interface QueryOptions {
+  type?: string
+  where?: WhereClause
+  limit?: number
+  offset?: number
+  orderBy?: Record<string, 'asc' | 'desc'>
+}
+
+/**
+ * Search options
+ */
+interface SearchOptions {
+  type?: string
+  query: string
+  fields?: string[]
+  where?: WhereClause
+  limit?: number
+}
+
+// ============================================================================
+// DOCUMENTS RPC
+// ============================================================================
+
+/**
+ * RPC-enabled wrapper for document storage.
+ * Extends RpcTarget to enable Workers RPC pattern: stub.documents.create()
+ *
+ * Provides schema-free JSON document storage with:
+ * - CRUD operations
+ * - JSONPath queries with operators
+ * - Full-text search via FTS5
+ * - Batch operations
+ */
+class DocumentsRpc extends RpcTarget {
+  constructor(private storage: DurableObjectStorage) {
+    super()
+  }
+
+  /**
+   * Generate a unique document ID
+   */
+  private generateId(): string {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 21)
+  }
+
+  /**
+   * Convert a dot-notation path to SQLite json_extract path
+   */
+  private toJsonPath(field: string): string {
+    if (field.startsWith('$')) return field
+    return `$.${field}`
+  }
+
+  /**
+   * Get field expression for SQL queries
+   */
+  private getFieldExpr(field: string): string {
+    if (field.startsWith('$')) {
+      return `"${field}"`
+    }
+    return `json_extract(data, '${this.toJsonPath(field)}')`
+  }
+
+  /**
+   * Build WHERE clause from query conditions
+   */
+  private buildWhereClause(where: WhereClause | undefined): { sql: string; params: unknown[] } {
+    if (!where || Object.keys(where).length === 0) {
+      return { sql: '1=1', params: [] }
+    }
+
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    // Handle $and
+    if ('$and' in where && where.$and) {
+      const andParts = where.$and.map(clause => this.buildWhereClause(clause))
+      const andConditions = andParts.map(p => `(${p.sql})`).join(' AND ')
+      conditions.push(`(${andConditions})`)
+      for (const p of andParts) params.push(...p.params)
+    }
+
+    // Handle $or
+    if ('$or' in where && where.$or) {
+      const orParts = where.$or.map(clause => this.buildWhereClause(clause))
+      const orConditions = orParts.map(p => `(${p.sql})`).join(' OR ')
+      conditions.push(`(${orConditions})`)
+      for (const p of orParts) params.push(...p.params)
+    }
+
+    // Handle field conditions
+    for (const [field, condition] of Object.entries(where)) {
+      if (field.startsWith('$')) continue // Skip logical operators
+
+      const fieldExpr = this.getFieldExpr(field)
+
+      if (condition && typeof condition === 'object' && !Array.isArray(condition)) {
+        const ops = condition as QueryOperators
+        if ('$eq' in ops) {
+          conditions.push(`${fieldExpr} = ?`)
+          params.push(ops.$eq)
+        }
+        if ('$ne' in ops) {
+          conditions.push(`${fieldExpr} != ?`)
+          params.push(ops.$ne)
+        }
+        if ('$gt' in ops) {
+          conditions.push(`${fieldExpr} > ?`)
+          params.push(ops.$gt)
+        }
+        if ('$gte' in ops) {
+          conditions.push(`${fieldExpr} >= ?`)
+          params.push(ops.$gte)
+        }
+        if ('$lt' in ops) {
+          conditions.push(`${fieldExpr} < ?`)
+          params.push(ops.$lt)
+        }
+        if ('$lte' in ops) {
+          conditions.push(`${fieldExpr} <= ?`)
+          params.push(ops.$lte)
+        }
+        if ('$in' in ops && ops.$in) {
+          const placeholders = ops.$in.map(() => '?').join(', ')
+          conditions.push(`${fieldExpr} IN (${placeholders})`)
+          params.push(...ops.$in)
+        }
+        if ('$nin' in ops && ops.$nin) {
+          const placeholders = ops.$nin.map(() => '?').join(', ')
+          conditions.push(`${fieldExpr} NOT IN (${placeholders})`)
+          params.push(...ops.$nin)
+        }
+        if ('$like' in ops) {
+          conditions.push(`${fieldExpr} LIKE ?`)
+          params.push(ops.$like)
+        }
+      } else {
+        // Simple equality
+        conditions.push(`${fieldExpr} = ?`)
+        params.push(condition)
+      }
+    }
+
+    return {
+      sql: conditions.length > 0 ? conditions.join(' AND ') : '1=1',
+      params,
+    }
+  }
+
+  /**
+   * Build ORDER BY clause
+   */
+  private buildOrderBy(orderBy?: Record<string, 'asc' | 'desc'>): string {
+    if (!orderBy) return ''
+    const parts = Object.entries(orderBy).map(([field, dir]) => {
+      const fieldExpr = this.getFieldExpr(field)
+      return `${fieldExpr} ${dir.toUpperCase()}`
+    })
+    return parts.length > 0 ? `ORDER BY ${parts.join(', ')}` : ''
+  }
+
+  /**
+   * Set a nested value in an object using dot notation
+   */
+  private setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+    const parts = path.split('.')
+    let current = obj
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = parts[i]
+      if (!(key in current) || typeof current[key] !== 'object' || current[key] === null) {
+        current[key] = {}
+      }
+      current = current[key] as Record<string, unknown>
+    }
+
+    current[parts[parts.length - 1]] = value
+  }
+
+  /**
+   * Convert row to document
+   */
+  private rowToDocument<T>(row: {
+    $id: string
+    $type: string
+    data: string
+    $createdAt: number
+    $updatedAt: number
+    $version: number
+  }): Document<T> {
+    const data = JSON.parse(row.data) as T
+    return {
+      ...data,
+      $id: row.$id,
+      $type: row.$type,
+      $createdAt: row.$createdAt,
+      $updatedAt: row.$updatedAt,
+      $version: row.$version,
+    } as Document<T>
+  }
+
+  /**
+   * Create a document
+   */
+  async create(input: Record<string, unknown>): Promise<Document> {
+    const now = Date.now()
+    const $id = (input.$id as string) || this.generateId()
+    const $type = input.$type as string
+
+    // Extract data (without system fields)
+    const { $id: _, $type: __, $createdAt: ___, $updatedAt: ____, $version: _____, ...data } = input
+
+    try {
+      this.storage.sql.exec(
+        `INSERT INTO documents ("$id", "$type", data, "$createdAt", "$updatedAt", "$version")
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        $id,
+        $type,
+        JSON.stringify(data),
+        now,
+        now,
+        1
+      )
+    } catch (e) {
+      const error = e as Error
+      if (error.message.includes('UNIQUE constraint failed') || error.message.includes('PRIMARY KEY')) {
+        throw new Error(`Document with $id "${$id}" already exists`)
+      }
+      throw e
+    }
+
+    // Index for full-text search
+    const title = (data as { title?: string }).title || ''
+    const content = (data as { content?: string }).content || ''
+    try {
+      this.storage.sql.exec(
+        `INSERT INTO documents_fts ("$id", title, content) VALUES (?, ?, ?)`,
+        $id,
+        title,
+        content
+      )
+    } catch {
+      // FTS index might fail if table doesn't exist, ignore
+    }
+
+    return {
+      ...data,
+      $id,
+      $type,
+      $createdAt: now,
+      $updatedAt: now,
+      $version: 1,
+    } as Document
+  }
+
+  /**
+   * Get a document by ID
+   */
+  async get($id: string): Promise<Document | null> {
+    const cursor = this.storage.sql.exec(
+      `SELECT "$id", "$type", data, "$createdAt", "$updatedAt", "$version"
+       FROM documents
+       WHERE "$id" = ? AND "$deletedAt" IS NULL`,
+      $id
+    )
+
+    const rows = cursor.toArray()
+    if (rows.length === 0) return null
+
+    return this.rowToDocument(rows[0] as {
+      $id: string
+      $type: string
+      data: string
+      $createdAt: number
+      $updatedAt: number
+      $version: number
+    })
+  }
+
+  /**
+   * Update a document
+   */
+  async update($id: string, updates: Record<string, unknown>): Promise<Document> {
+    const existing = await this.get($id)
+    if (!existing) {
+      throw new Error(`Document with $id "${$id}" not found`)
+    }
+
+    const now = Date.now()
+    const { $id: _, $type: __, $createdAt, $updatedAt: ___, $version, ...existingData } = existing
+
+    // Apply updates (handle dot notation)
+    const newData = { ...existingData } as Record<string, unknown>
+    for (const [key, value] of Object.entries(updates)) {
+      if (key.startsWith('$')) continue // Skip system fields
+      if (key.includes('.')) {
+        this.setNestedValue(newData, key, value)
+      } else {
+        newData[key] = value
+      }
+    }
+
+    const newVersion = $version + 1
+
+    this.storage.sql.exec(
+      `UPDATE documents
+       SET data = ?, "$updatedAt" = ?, "$version" = ?
+       WHERE "$id" = ?`,
+      JSON.stringify(newData),
+      now,
+      newVersion,
+      $id
+    )
+
+    // Update FTS index
+    const title = (newData as { title?: string }).title || ''
+    const content = (newData as { content?: string }).content || ''
+    try {
+      this.storage.sql.exec(
+        `UPDATE documents_fts SET title = ?, content = ? WHERE "$id" = ?`,
+        title,
+        content,
+        $id
+      )
+    } catch {
+      // FTS update might fail, ignore
+    }
+
+    return {
+      ...newData,
+      $id,
+      $type: existing.$type,
+      $createdAt,
+      $updatedAt: now,
+      $version: newVersion,
+    } as Document
+  }
+
+  /**
+   * Delete a document (soft delete)
+   */
+  async delete($id: string): Promise<boolean> {
+    const existing = await this.get($id)
+    if (!existing) return false
+
+    const now = Date.now()
+    this.storage.sql.exec(
+      `UPDATE documents SET "$deletedAt" = ? WHERE "$id" = ?`,
+      now,
+      $id
+    )
+
+    // Remove from FTS
+    try {
+      this.storage.sql.exec(
+        `DELETE FROM documents_fts WHERE "$id" = ?`,
+        $id
+      )
+    } catch {
+      // FTS delete might fail, ignore
+    }
+
+    return true
+  }
+
+  /**
+   * List documents of a type
+   */
+  async list(options: ListOptions = {}): Promise<Document[]> {
+    let sqlStr = `SELECT "$id", "$type", data, "$createdAt", "$updatedAt", "$version"
+                  FROM documents
+                  WHERE "$deletedAt" IS NULL`
+    const params: unknown[] = []
+
+    if (options.type) {
+      sqlStr += ` AND "$type" = ?`
+      params.push(options.type)
+    }
+
+    // Add ORDER BY
+    const orderBy = this.buildOrderBy(options.orderBy)
+    if (orderBy) {
+      sqlStr += ` ${orderBy}`
+    } else {
+      sqlStr += ` ORDER BY "$createdAt" DESC`
+    }
+
+    // Add LIMIT/OFFSET
+    if (options.limit !== undefined) {
+      sqlStr += ` LIMIT ?`
+      params.push(options.limit)
+      if (options.offset !== undefined) {
+        sqlStr += ` OFFSET ?`
+        params.push(options.offset)
+      }
+    }
+
+    const cursor = this.storage.sql.exec(sqlStr, ...params)
+    const rows = cursor.toArray()
+
+    return rows.map(row => this.rowToDocument(row as {
+      $id: string
+      $type: string
+      data: string
+      $createdAt: number
+      $updatedAt: number
+      $version: number
+    }))
+  }
+
+  /**
+   * Query documents with filters
+   */
+  async query(options: QueryOptions): Promise<Document[]> {
+    const { sql: whereCondition, params: whereParams } = this.buildWhereClause(options.where)
+
+    let sqlStr = `SELECT "$id", "$type", data, "$createdAt", "$updatedAt", "$version"
+                  FROM documents
+                  WHERE "$deletedAt" IS NULL`
+    const params: unknown[] = []
+
+    if (options.type) {
+      sqlStr += ` AND "$type" = ?`
+      params.push(options.type)
+    }
+
+    sqlStr += ` AND (${whereCondition})`
+    params.push(...whereParams)
+
+    // Add ORDER BY
+    const orderBy = this.buildOrderBy(options.orderBy)
+    if (orderBy) {
+      sqlStr += ` ${orderBy}`
+    } else {
+      sqlStr += ` ORDER BY "$createdAt" DESC`
+    }
+
+    // Add LIMIT/OFFSET
+    if (options.limit !== undefined) {
+      sqlStr += ` LIMIT ?`
+      params.push(options.limit)
+      if (options.offset !== undefined) {
+        sqlStr += ` OFFSET ?`
+        params.push(options.offset)
+      }
+    }
+
+    const cursor = this.storage.sql.exec(sqlStr, ...params)
+    const rows = cursor.toArray()
+
+    return rows.map(row => this.rowToDocument(row as {
+      $id: string
+      $type: string
+      data: string
+      $createdAt: number
+      $updatedAt: number
+      $version: number
+    }))
+  }
+
+  /**
+   * Full-text search
+   */
+  async search(options: SearchOptions): Promise<Document[]> {
+    const { query, type, where, fields, limit } = options
+
+    // Build FTS query
+    let sqlStr: string
+    const params: unknown[] = []
+
+    if (fields && fields.length > 0) {
+      // Search specific fields
+      const fieldConditions = fields.map(f => `${f}:${query}`).join(' OR ')
+      sqlStr = `SELECT d."$id", d."$type", d.data, d."$createdAt", d."$updatedAt", d."$version",
+                       bm25(documents_fts) as rank
+                FROM documents d
+                JOIN documents_fts fts ON d."$id" = fts."$id"
+                WHERE documents_fts MATCH ? AND d."$deletedAt" IS NULL`
+      params.push(fieldConditions)
+    } else {
+      // Search all indexed fields
+      sqlStr = `SELECT d."$id", d."$type", d.data, d."$createdAt", d."$updatedAt", d."$version",
+                       bm25(documents_fts) as rank
+                FROM documents d
+                JOIN documents_fts fts ON d."$id" = fts."$id"
+                WHERE documents_fts MATCH ? AND d."$deletedAt" IS NULL`
+      params.push(query)
+    }
+
+    if (type) {
+      sqlStr += ` AND d."$type" = ?`
+      params.push(type)
+    }
+
+    // Add additional where conditions
+    if (where) {
+      const { sql: whereCondition, params: whereParams } = this.buildWhereClause(where)
+      // Replace json_extract(data, with json_extract(d.data,
+      const adjustedWhere = whereCondition.replace(/json_extract\(data,/g, 'json_extract(d.data,')
+      sqlStr += ` AND (${adjustedWhere})`
+      params.push(...whereParams)
+    }
+
+    // Order by relevance
+    sqlStr += ` ORDER BY rank`
+
+    if (limit) {
+      sqlStr += ` LIMIT ?`
+      params.push(limit)
+    }
+
+    try {
+      const cursor = this.storage.sql.exec(sqlStr, ...params)
+      const rows = cursor.toArray()
+
+      return rows.map(row => this.rowToDocument(row as {
+        $id: string
+        $type: string
+        data: string
+        $createdAt: number
+        $updatedAt: number
+        $version: number
+      }))
+    } catch {
+      // FTS might not be set up, fall back to LIKE search
+      return this.fallbackSearch(options)
+    }
+  }
+
+  /**
+   * Fallback search using LIKE when FTS is not available
+   */
+  private async fallbackSearch(options: SearchOptions): Promise<Document[]> {
+    const { query, type, where, fields, limit } = options
+
+    let sqlStr = `SELECT "$id", "$type", data, "$createdAt", "$updatedAt", "$version"
+                  FROM documents
+                  WHERE "$deletedAt" IS NULL`
+    const params: unknown[] = []
+
+    if (type) {
+      sqlStr += ` AND "$type" = ?`
+      params.push(type)
+    }
+
+    // Search in fields or content
+    const searchFields = fields || ['title', 'content']
+    const likeConditions = searchFields.map(f => `${this.getFieldExpr(f)} LIKE ?`)
+    sqlStr += ` AND (${likeConditions.join(' OR ')})`
+    for (let i = 0; i < searchFields.length; i++) {
+      params.push(`%${query}%`)
+    }
+
+    // Add additional where conditions
+    if (where) {
+      const { sql: whereCondition, params: whereParams } = this.buildWhereClause(where)
+      sqlStr += ` AND (${whereCondition})`
+      params.push(...whereParams)
+    }
+
+    if (limit) {
+      sqlStr += ` LIMIT ?`
+      params.push(limit)
+    }
+
+    const cursor = this.storage.sql.exec(sqlStr, ...params)
+    const rows = cursor.toArray()
+
+    // Sort by relevance (count of query occurrences)
+    const docs = rows.map(row => this.rowToDocument(row as {
+      $id: string
+      $type: string
+      data: string
+      $createdAt: number
+      $updatedAt: number
+      $version: number
+    }))
+
+    // Sort by number of occurrences of query term
+    const lowerQuery = query.toLowerCase()
+    docs.sort((a, b) => {
+      const aStr = JSON.stringify(a).toLowerCase()
+      const bStr = JSON.stringify(b).toLowerCase()
+      const aCount = (aStr.match(new RegExp(lowerQuery, 'g')) || []).length
+      const bCount = (bStr.match(new RegExp(lowerQuery, 'g')) || []).length
+      return bCount - aCount
+    })
+
+    return docs
+  }
+
+  /**
+   * Create multiple documents atomically
+   */
+  async createMany(inputs: Record<string, unknown>[]): Promise<Document[]> {
+    // Check for duplicate $ids within the batch
+    const ids = inputs.map(i => i.$id).filter(Boolean) as string[]
+    const uniqueIds = new Set(ids)
+    if (ids.length !== uniqueIds.size) {
+      throw new Error('Duplicate $id in batch')
+    }
+
+    const documents: Document[] = []
+
+    // Create each document (DO storage auto-coalesces writes)
+    // Note: Durable Objects don't support explicit transactions via SQL,
+    // but writes within a single request are atomic
+    for (const input of inputs) {
+      const doc = await this.create(input)
+      documents.push(doc)
+    }
+
+    return documents
+  }
+
+  /**
+   * Update multiple documents matching filter
+   */
+  async updateMany(
+    filter: QueryOptions,
+    updates: Record<string, unknown>
+  ): Promise<number> {
+    const docs = await this.query(filter)
+    for (const doc of docs) {
+      await this.update(doc.$id, updates)
+    }
+    return docs.length
+  }
+
+  /**
+   * Delete multiple documents matching filter
+   */
+  async deleteMany(filter: QueryOptions): Promise<number> {
+    const docs = await this.query(filter)
+    for (const doc of docs) {
+      await this.delete(doc.$id)
+    }
+    return docs.length
+  }
+
+  /**
+   * Upsert a document
+   */
+  async upsert(
+    filter: { $id: string },
+    data: Record<string, unknown>
+  ): Promise<Document> {
+    const existing = await this.get(filter.$id)
+
+    if (existing) {
+      // Update - extract only non-system fields
+      const { $id: _, $type: __, $createdAt: ___, $updatedAt: ____, $version: _____, ...updates } = data
+      return this.update(filter.$id, updates)
+    } else {
+      // Create
+      return this.create({
+        ...data,
+        $id: filter.$id,
+      })
+    }
+  }
+}
+
+// ============================================================================
 // SCHEMA INITIALIZATION SQL
 // ============================================================================
 
@@ -389,6 +1109,31 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS actions_actor_idx ON actions(actor)`,
   `CREATE INDEX IF NOT EXISTS actions_status_idx ON actions(status)`,
   `CREATE INDEX IF NOT EXISTS actions_verb_idx ON actions(verb)`,
+
+  // Documents table (schema-free JSON document storage)
+  `CREATE TABLE IF NOT EXISTS documents (
+    "$id" TEXT PRIMARY KEY,
+    "$type" TEXT NOT NULL,
+    data TEXT NOT NULL,
+    "$createdAt" INTEGER NOT NULL,
+    "$updatedAt" INTEGER NOT NULL,
+    "$version" INTEGER NOT NULL DEFAULT 1,
+    "$deletedAt" INTEGER
+  )`,
+
+  // Indexes for documents table
+  `CREATE INDEX IF NOT EXISTS documents_type_idx ON documents("$type")`,
+  `CREATE INDEX IF NOT EXISTS documents_createdAt_idx ON documents("$createdAt")`,
+  `CREATE INDEX IF NOT EXISTS documents_updatedAt_idx ON documents("$updatedAt")`,
+
+  // FTS5 virtual table for full-text search on documents
+  `CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    "$id" UNINDEXED,
+    title,
+    content,
+    content=documents,
+    content_rowid=rowid
+  )`,
 ]
 
 // ============================================================================
@@ -414,6 +1159,7 @@ export class TestDO extends DO<Env> {
   private _sqlRpc?: SqlRpc
   private _eventsRpc?: EventsRpc
   private _actionsRpc?: ActionsRpc
+  private _documentsRpc?: DocumentsRpc
 
   /**
    * Direct RPC method to create a thing.
@@ -512,6 +1258,87 @@ export class TestDO extends DO<Env> {
    */
   async relsDelete(id: string): Promise<void> {
     await this.parentRels.delete(id)
+  }
+
+  // =========================================================================
+  // Flat Document Methods (for Workers RPC compatibility)
+  // =========================================================================
+
+  /**
+   * Direct RPC method to create a document.
+   */
+  async documentsCreate(input: Record<string, unknown>): Promise<Document> {
+    return this.getDocuments().create(input)
+  }
+
+  /**
+   * Direct RPC method to get a document by ID.
+   */
+  async documentsGet($id: string): Promise<Document | null> {
+    return this.getDocuments().get($id)
+  }
+
+  /**
+   * Direct RPC method to update a document.
+   */
+  async documentsUpdate($id: string, updates: Record<string, unknown>): Promise<Document> {
+    return this.getDocuments().update($id, updates)
+  }
+
+  /**
+   * Direct RPC method to delete a document.
+   */
+  async documentsDelete($id: string): Promise<boolean> {
+    return this.getDocuments().delete($id)
+  }
+
+  /**
+   * Direct RPC method to list documents.
+   */
+  async documentsList(options?: ListOptions): Promise<Document[]> {
+    return this.getDocuments().list(options || {})
+  }
+
+  /**
+   * Direct RPC method to query documents.
+   */
+  async documentsQuery(options: QueryOptions): Promise<Document[]> {
+    return this.getDocuments().query(options)
+  }
+
+  /**
+   * Direct RPC method to search documents.
+   */
+  async documentsSearch(options: SearchOptions): Promise<Document[]> {
+    return this.getDocuments().search(options)
+  }
+
+  /**
+   * Direct RPC method to create multiple documents.
+   */
+  async documentsCreateMany(inputs: Record<string, unknown>[]): Promise<Document[]> {
+    return this.getDocuments().createMany(inputs)
+  }
+
+  /**
+   * Direct RPC method to update multiple documents.
+   */
+  async documentsUpdateMany(filter: QueryOptions, updates: Record<string, unknown>): Promise<number> {
+    return this.getDocuments().updateMany(filter, updates)
+  }
+
+  /**
+   * Direct RPC method to delete multiple documents.
+   */
+  async documentsDeleteMany(filter: QueryOptions): Promise<number> {
+    return this.getDocuments().deleteMany(filter)
+  }
+
+  /**
+   * Direct RPC method to upsert a document.
+   */
+  async documentsUpsert(filter: { $id: string }, data: Record<string, unknown>): Promise<Document> {
+    return this.getDocuments().upsert(filter, data)
   }
 
   /**
@@ -626,12 +1453,24 @@ export class TestDO extends DO<Env> {
     return this._actionsRpc
   }
 
+  /**
+   * RPC method to get the documents store RpcTarget.
+   * Returns an RpcTarget wrapper for DocumentsRpc.
+   */
+  getDocuments(): DocumentsRpc {
+    if (!this._documentsRpc) {
+      this._documentsRpc = new DocumentsRpc(this.ctx.storage)
+    }
+    return this._documentsRpc
+  }
+
   // Getter versions for compatibility with stub.things.create() pattern
   get things(): ThingsRpc { return this.getThings() }
   get rels(): RelsRpc { return this.getRels() }
   get sql(): SqlRpc { return this.getSql() }
   get events(): EventsRpc { return this.getEvents() }
   get actions(): ActionsRpc { return this.getActions() }
+  get documents(): DocumentsRpc { return this.getDocuments() }
 
   /**
    * RPC-accessible $id property.

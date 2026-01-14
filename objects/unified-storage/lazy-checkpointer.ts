@@ -13,6 +13,8 @@
  * @module unified-storage/lazy-checkpointer
  */
 
+import type { CheckpointerMetrics, MetricCheckpointTrigger } from './metrics'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -105,6 +107,8 @@ export interface LazyCheckpointerOptions {
   onCheckpoint?: (stats: CheckpointStats) => void | Promise<void>
   /** Callback when an error occurs */
   onError?: (error: Error) => void
+  /** Metrics collector for observability */
+  metrics?: CheckpointerMetrics
 }
 
 // ============================================================================
@@ -144,6 +148,9 @@ export class LazyCheckpointer {
   private columnarWrites = 0
   private normalizedWrites = 0
 
+  // Metrics
+  private metrics?: CheckpointerMetrics
+
   constructor(options: LazyCheckpointerOptions) {
     this.sql = options.sql
     this.dirtyTracker = options.dirtyTracker
@@ -155,6 +162,14 @@ export class LazyCheckpointer {
     }
     this.onCheckpointCallback = options.onCheckpoint
     this.onErrorCallback = options.onError
+    this.metrics = options.metrics
+  }
+
+  /**
+   * Set metrics collector (can be set after construction)
+   */
+  setMetrics(metrics: CheckpointerMetrics): void {
+    this.metrics = metrics
   }
 
   /**
@@ -216,7 +231,7 @@ export class LazyCheckpointer {
    * Perform a checkpoint - persist all dirty entries to SQLite
    */
   async checkpoint(trigger: CheckpointTrigger = 'manual'): Promise<CheckpointStats> {
-    const startTime = Date.now()
+    const startTime = performance.now()
     const dirtyEntries = this.dirtyTracker.getDirtyEntries()
 
     if (dirtyEntries.size === 0) {
@@ -238,13 +253,15 @@ export class LazyCheckpointer {
     }
 
     let totalBytesWritten = 0
+    let totalRowsWritten = 0
     const keysToClean: string[] = []
 
     try {
       // Write each collection type
       for (const [type, entries] of entriesByType) {
-        const bytesWritten = this.writeCollection(type, entries)
+        const { bytesWritten, rowsWritten } = this.writeCollection(type, entries)
         totalBytesWritten += bytesWritten
+        totalRowsWritten += rowsWritten
 
         // Track keys for cleanup
         for (const entry of entries) {
@@ -255,12 +272,24 @@ export class LazyCheckpointer {
       // Clear dirty flags only after successful write
       this.dirtyTracker.clearDirty(keysToClean)
 
+      const durationMs = performance.now() - startTime
+
       const stats: CheckpointStats = {
         entityCount: dirtyEntries.size,
         bytesWritten: totalBytesWritten,
-        durationMs: Date.now() - startTime,
+        durationMs,
         trigger,
       }
+
+      // Update metrics
+      this.metrics?.checkpointCount.inc()
+      this.metrics?.checkpointLatency.observe(durationMs)
+      this.metrics?.rowsWritten.inc(totalRowsWritten)
+      this.metrics?.bytesWritten.inc(totalBytesWritten)
+
+      // Track trigger type
+      const metricTrigger = trigger as MetricCheckpointTrigger
+      this.metrics?.triggerCounts[metricTrigger]?.inc()
 
       // Call the callback
       await this.onCheckpointCallback?.(stats)
@@ -336,22 +365,31 @@ export class LazyCheckpointer {
   private writeCollection(
     type: string,
     entries: Array<{ key: string; data: unknown; size: number }>
-  ): number {
+  ): { bytesWritten: number; rowsWritten: number } {
     let bytesWritten = 0
+    let rowsWritten = 0
 
     if (entries.length < this.config.columnarThreshold) {
       // Columnar: write entire collection as single row
       bytesWritten = this.writeColumnar(type, entries)
+      rowsWritten = 1
       this.columnarWrites++
       this.totalRowWrites++
+
+      // Update metrics
+      this.metrics?.columnarWrites.inc()
     } else {
       // Normalized: write each entry as individual row
       bytesWritten = this.writeNormalized(type, entries)
+      rowsWritten = entries.length
       this.normalizedWrites += entries.length
       this.totalRowWrites += entries.length
+
+      // Update metrics
+      this.metrics?.normalizedWrites.inc(entries.length)
     }
 
-    return bytesWritten
+    return { bytesWritten, rowsWritten }
   }
 
   /**

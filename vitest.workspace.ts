@@ -225,6 +225,9 @@ export default defineWorkspace([
   // BlobStore tests (R2 binary storage with SQLite metadata)
   createNodeWorkspace('blob', ['tests/db/blob/**/*.test.ts']),
 
+  // CDC tests (Change Data Capture - unified event streaming from all stores)
+  createNodeWorkspace('cdc', ['tests/db/cdc/**/*.test.ts', 'db/cdc/**/*.test.ts']),
+
   // TimeSeriesStore tests (time-indexed storage with retention, compaction, range queries)
   createNodeWorkspace('timeseries', ['tests/db/timeseries/**/*.test.ts']),
 
@@ -409,6 +412,9 @@ export default defineWorkspace([
 
   // Streams transformation tests (Pipeline SQL transforms)
   createNodeWorkspace('streams', ['tests/streams/**/*.test.ts']),
+
+  // DB Streams transformer tests (DO Action → UnifiedEvent transforms)
+  createNodeWorkspace('db-streams', ['db/streams/**/*.test.ts']),
 
   // DB stream primitive tests (Kafka-inspired streaming)
   createNodeWorkspace('db-stream', ['tests/db/stream/**/*.test.ts']),

@@ -9,6 +9,8 @@
  * @module objects/unified-storage/cold-start-recovery
  */
 
+import type { RecoveryMetrics, MetricRecoverySource } from './metrics'
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -47,6 +49,8 @@ export interface RecoveryOptions {
   iceberg?: IcebergReader
   timeout?: number
   onProgress?: (progress: RecoveryProgress) => void
+  /** Metrics collector for observability */
+  metrics?: RecoveryMetrics
 }
 
 /**
@@ -116,12 +120,23 @@ export class ColdStartRecovery {
   private recoveryPromise: Promise<RecoveryResult> | null = null
   private startTime: number = 0
 
+  // Metrics
+  private metrics?: RecoveryMetrics
+
   constructor(options: RecoveryOptions) {
     this.namespace = options.namespace
     this.sql = options.sql
     this.iceberg = options.iceberg
     this.timeout = options.timeout ?? 30000 // 30s default
     this.onProgress = options.onProgress
+    this.metrics = options.metrics
+  }
+
+  /**
+   * Set metrics collector (can be set after construction)
+   */
+  setMetrics(metrics: RecoveryMetrics): void {
+    this.metrics = metrics
   }
 
   /**
@@ -203,11 +218,19 @@ export class ColdStartRecovery {
     } catch (error) {
       // SQLite failed (possibly corrupted), fall back to Iceberg
       console.warn('SQLite load failed, falling back to Iceberg:', error)
+      // Track recovery error
+      this.metrics?.errorsCount.inc()
     }
 
     // Fall back to Iceberg replay
     if (this.iceberg) {
-      return this.replayFromIceberg()
+      try {
+        return await this.replayFromIceberg()
+      } catch (error) {
+        // Iceberg replay failed
+        console.warn('Iceberg replay failed:', error)
+        this.metrics?.errorsCount.inc()
+      }
     }
 
     // No data anywhere
@@ -400,11 +423,19 @@ export class ColdStartRecovery {
     thingsLoaded: number,
     eventsReplayed: number
   ): RecoveryResult {
+    const durationMs = performance.now() - this.startTime
+
+    // Update metrics
+    this.metrics?.duration.observe(durationMs)
+    this.metrics?.sourceCount[source as MetricRecoverySource]?.inc()
+    this.metrics?.thingsLoaded.inc(thingsLoaded)
+    this.metrics?.eventsReplayed.inc(eventsReplayed)
+
     return {
       source,
       thingsLoaded,
       eventsReplayed,
-      durationMs: performance.now() - this.startTime,
+      durationMs,
       state: this.state,
     }
   }

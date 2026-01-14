@@ -455,6 +455,43 @@ export class NetworkError extends CLIError {
       url,
     })
   }
+
+  /**
+   * Create error for when a service is unreachable.
+   * Used when workers.do or other backend services cannot be contacted.
+   */
+  static serviceUnavailable(service: string, url?: string, cause?: Error): NetworkError {
+    return new NetworkError(`Unable to connect to ${service}`, {
+      code: ErrorCode.CONNECTION_FAILED,
+      url,
+      cause,
+      hint: `Check your internet connection or try again later. If the problem persists, ${service} may be temporarily unavailable.`,
+    })
+  }
+
+  /**
+   * Check if an error indicates a network/connection failure.
+   * Useful for determining if fallback behavior should be triggered.
+   */
+  static isNetworkError(error: unknown): boolean {
+    if (error instanceof NetworkError) {
+      return true
+    }
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase()
+      return (
+        message.includes('fetch failed') ||
+        message.includes('network') ||
+        message.includes('econnrefused') ||
+        message.includes('enotfound') ||
+        message.includes('etimedout') ||
+        message.includes('econnreset') ||
+        message.includes('bad rpc message') ||
+        message.includes('unable to connect')
+      )
+    }
+    return false
+  }
 }
 
 // ============================================================================

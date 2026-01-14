@@ -1,13 +1,47 @@
 /**
  * Replication Manager - Cross-DO State Replication
  *
- * Provides replication functionality for DO state persistence:
- * - Primary/replica topology
- * - Synchronous and asynchronous replication modes
- * - Conflict resolution
- * - Failover support
+ * Manages cross-DO state replication for high availability. This module
+ * provides the infrastructure for primary/replica topology management
+ * and WAL-based state synchronization.
+ *
+ * ## Features
+ *
+ * - **Topology Management**: Primary/replica/standalone roles
+ * - **Replication Modes**:
+ *   - `sync`: Wait for replica acknowledgment before returning
+ *   - `async`: Fire-and-forget, replicate in background
+ *   - `lazy`: Only sync when data is actually accessed
+ * - **Conflict Resolution**: primary-wins, replica-wins, last-write-wins, custom
+ * - **Failover**: Promote replicas to primary on failure
+ * - **Lag Tracking**: Monitor replication lag in LSN units
+ *
+ * ## Architecture
+ *
+ * The ReplicationManager works with the WAL (Write-Ahead Log) to stream
+ * changes from primary to replicas. Each DO can be:
+ *
+ * - **Primary**: Accepts writes, streams to replicas
+ * - **Replica**: Read-only, receives updates from primary
+ * - **Standalone**: Not participating in replication
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * // On primary DO
+ * const manager = new ReplicationManager(env, 'primary-ns')
+ * await manager.setPrimary()
+ * await manager.registerReplica('replica-1-ns')
+ * manager.start()
+ *
+ * // On replica DO
+ * const replicaManager = new ReplicationManager(env, 'replica-1-ns')
+ * await replicaManager.setReplica('primary-ns')
+ * replicaManager.start()
+ * ```
  *
  * @module objects/persistence/replication-manager
+ * @see /docs/architecture/geo-replication.mdx for architecture details
  */
 
 import type {
@@ -69,7 +103,37 @@ const DEFAULT_SYNC_TIMEOUT_MS = 30000
 // ============================================================================
 
 /**
- * Manages cross-DO state replication
+ * Manages cross-DO state replication for high availability.
+ *
+ * The ReplicationManager coordinates state synchronization between DO instances
+ * using a WAL (Write-Ahead Log) based approach. It supports three roles:
+ *
+ * - **Primary**: The authoritative source of truth, accepts all writes
+ * - **Replica**: Read-only copy that receives updates from primary
+ * - **Standalone**: Not participating in replication (default)
+ *
+ * @example
+ * ```typescript
+ * // Create and configure manager
+ * const manager = new ReplicationManager(env, 'my-namespace', {
+ *   config: {
+ *     mode: 'async',
+ *     maxLag: 100,
+ *     syncIntervalMs: 5000,
+ *   }
+ * })
+ *
+ * // Set as primary and register replicas
+ * await manager.setPrimary()
+ * await manager.registerReplica('replica-1')
+ * await manager.registerReplica('replica-2')
+ *
+ * // Start background sync
+ * manager.start()
+ *
+ * // Write data (will propagate to replicas)
+ * await manager.write('key', { data: 'value' })
+ * ```
  */
 export class ReplicationManager {
   private env: ReplicationEnv

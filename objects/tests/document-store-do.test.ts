@@ -1,18 +1,19 @@
 /**
- * DocumentStore Durable Object Integration Tests - RED Phase
+ * DocumentStore Durable Object Integration Tests - GREEN Phase
  *
- * TDD RED phase: These tests define the expected DocumentStore API when
- * integrated with Durable Objects. Tests should FAIL until the DocumentStore
- * is exposed via RPC on the DO.
+ * TDD GREEN phase: These tests verify the DocumentStore implementation works
+ * with Durable Objects using flat RPC methods (stub.documentsCreate(), etc).
  *
- * @see do-pzv - [RED] DocumentStore - Write failing tests for CRUD API
+ * @see do-25y - [GREEN] DocumentStore - Implement to pass tests
  *
  * This test file verifies:
- * 1. DocumentStore is accessible via RPC (stub.documents.*)
+ * 1. DocumentStore is accessible via flat RPC methods (stub.documentsCreate, etc.)
  * 2. CRUD operations work with real SQLite persistence
  * 3. JSONPath queries work for nested fields
  * 4. Soft delete behavior
  * 5. Full-text search capability
+ *
+ * Note: Uses flat RPC methods due to Workers RPC limitations with nested RpcTarget getters.
  *
  * Test Environment: cloudflare:test (real miniflare - NO MOCKS)
  */
@@ -79,7 +80,7 @@ function getDOStub(ns: string) {
 // TEST SUITE: DocumentStore CRUD Operations
 // ============================================================================
 
-describe('[RED] DocumentStore - CRUD Operations', () => {
+describe('[GREEN] DocumentStore - CRUD Operations', () => {
   // --------------------------------------------------------------------------
   // CREATE Tests
   // --------------------------------------------------------------------------
@@ -90,7 +91,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const stub = getDOStub(ns) as any
 
       // This test FAILS until stub.documents is exposed on the DO
-      const doc = await stub.documents.create({
+      const doc = await stub.documentsCreate({
         $type: 'Article',
         title: 'Hello World',
         content: 'This is the content.',
@@ -108,7 +109,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const stub = getDOStub(ns) as any
       const customId = `doc-${Date.now()}`
 
-      const doc = await stub.documents.create({
+      const doc = await stub.documentsCreate({
         $id: customId,
         $type: 'Article',
         title: 'Custom ID Article',
@@ -124,7 +125,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const stub = getDOStub(ns) as any
 
       const beforeCreate = Date.now()
-      const doc = await stub.documents.create({
+      const doc = await stub.documentsCreate({
         $type: 'Article',
         title: 'Timestamp Test',
         content: 'Testing timestamps.',
@@ -140,7 +141,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-version')
       const stub = getDOStub(ns) as any
 
-      const doc = await stub.documents.create({
+      const doc = await stub.documentsCreate({
         $type: 'Article',
         title: 'Version Test',
         content: 'Testing version.',
@@ -153,7 +154,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-nested')
       const stub = getDOStub(ns) as any
 
-      const doc = await stub.documents.create({
+      const doc = await stub.documentsCreate({
         $type: 'Article',
         title: 'Nested Data',
         content: 'Testing nested structures.',
@@ -176,7 +177,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const duplicateId = `dup-${Date.now()}`
 
       // First create succeeds
-      await stub.documents.create({
+      await stub.documentsCreate({
         $id: duplicateId,
         $type: 'Article',
         title: 'First',
@@ -185,7 +186,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
 
       // Second create with same ID should fail
       await expect(
-        stub.documents.create({
+        stub.documentsCreate({
           $id: duplicateId,
           $type: 'Article',
           title: 'Second',
@@ -204,13 +205,13 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-get')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Get Test',
         content: 'Testing retrieval.',
       })
 
-      const retrieved = await stub.documents.get(created.$id)
+      const retrieved = await stub.documentsGet(created.$id)
 
       expect(retrieved).not.toBeNull()
       expect(retrieved.$id).toBe(created.$id)
@@ -222,7 +223,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-get-null')
       const stub = getDOStub(ns) as any
 
-      const result = await stub.documents.get('non-existent-id')
+      const result = await stub.documentsGet('non-existent-id')
 
       expect(result).toBeNull()
     })
@@ -231,7 +232,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-get-nested')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Nested Get Test',
         content: 'Testing nested retrieval.',
@@ -242,7 +243,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
         },
       })
 
-      const retrieved = await stub.documents.get(created.$id)
+      const retrieved = await stub.documentsGet(created.$id)
 
       expect(retrieved.metadata.author).toBe('Bob')
       expect(retrieved.metadata.tags).toEqual(['test', 'nested'])
@@ -259,13 +260,13 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-update')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Original Title',
         content: 'Original content.',
       })
 
-      const updated = await stub.documents.update(created.$id, {
+      const updated = await stub.documentsUpdate(created.$id, {
         title: 'Updated Title',
       })
 
@@ -277,7 +278,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-update-nested')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Dot Notation Test',
         content: 'Testing dot notation.',
@@ -287,7 +288,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
         },
       })
 
-      const updated = await stub.documents.update(created.$id, {
+      const updated = await stub.documentsUpdate(created.$id, {
         'metadata.author': 'New Author',
       })
 
@@ -299,7 +300,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-update-version')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Version Test',
         content: 'Testing version increment.',
@@ -307,10 +308,10 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
 
       expect(created.$version).toBe(1)
 
-      const v2 = await stub.documents.update(created.$id, { title: 'V2' })
+      const v2 = await stub.documentsUpdate(created.$id, { title: 'V2' })
       expect(v2.$version).toBe(2)
 
-      const v3 = await stub.documents.update(created.$id, { title: 'V3' })
+      const v3 = await stub.documentsUpdate(created.$id, { title: 'V3' })
       expect(v3.$version).toBe(3)
     })
 
@@ -318,7 +319,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-update-timestamps')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Timestamp Test',
         content: 'Testing timestamp update.',
@@ -327,7 +328,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       // Wait a bit to ensure different timestamp
       await new Promise((resolve) => setTimeout(resolve, 10))
 
-      const updated = await stub.documents.update(created.$id, {
+      const updated = await stub.documentsUpdate(created.$id, {
         title: 'Updated Title',
       })
 
@@ -340,7 +341,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const stub = getDOStub(ns) as any
 
       await expect(
-        stub.documents.update('non-existent-id', { title: 'Test' })
+        stub.documentsUpdate('non-existent-id', { title: 'Test' })
       ).rejects.toThrow(/not found/i)
     })
 
@@ -348,13 +349,13 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-update-create-nested')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'No Metadata',
         content: 'No metadata initially.',
       })
 
-      const updated = await stub.documents.update(created.$id, {
+      const updated = await stub.documentsUpdate(created.$id, {
         'metadata.author': 'New Author',
       })
 
@@ -372,18 +373,18 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-delete')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Delete Test',
         content: 'Testing deletion.',
       })
 
-      const result = await stub.documents.delete(created.$id)
+      const result = await stub.documentsDelete(created.$id)
 
       expect(result).toBe(true)
 
       // Should not be retrievable after delete
-      const retrieved = await stub.documents.get(created.$id)
+      const retrieved = await stub.documentsGet(created.$id)
       expect(retrieved).toBeNull()
     })
 
@@ -391,13 +392,13 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-delete-success')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Success Delete',
         content: 'Testing success return.',
       })
 
-      const result = await stub.documents.delete(created.$id)
+      const result = await stub.documentsDelete(created.$id)
       expect(result).toBe(true)
     })
 
@@ -405,7 +406,7 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-delete-nonexistent')
       const stub = getDOStub(ns) as any
 
-      const result = await stub.documents.delete('non-existent-id')
+      const result = await stub.documentsDelete('non-existent-id')
       expect(result).toBe(false)
     })
 
@@ -413,16 +414,16 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
       const ns = uniqueNs('doc-delete-idempotent')
       const stub = getDOStub(ns) as any
 
-      const created = await stub.documents.create({
+      const created = await stub.documentsCreate({
         $type: 'Article',
         title: 'Idempotent Delete',
         content: 'Testing idempotency.',
       })
 
-      const firstDelete = await stub.documents.delete(created.$id)
+      const firstDelete = await stub.documentsDelete(created.$id)
       expect(firstDelete).toBe(true)
 
-      const secondDelete = await stub.documents.delete(created.$id)
+      const secondDelete = await stub.documentsDelete(created.$id)
       expect(secondDelete).toBe(false)
     })
   })
@@ -432,31 +433,31 @@ describe('[RED] DocumentStore - CRUD Operations', () => {
 // TEST SUITE: DocumentStore Query/List Operations
 // ============================================================================
 
-describe('[RED] DocumentStore - Query Operations', () => {
+describe('[GREEN] DocumentStore - Query Operations', () => {
   describe('list()', () => {
     it('lists all documents of a type', async () => {
       const ns = uniqueNs('doc-list')
       const stub = getDOStub(ns) as any
 
       // Create multiple documents
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Article 1',
         content: 'First article.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Article 2',
         content: 'Second article.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Note',
         title: 'Note 1',
         content: 'A note.',
       })
 
       // List only Articles
-      const articles = await stub.documents.list({ type: 'Article' })
+      const articles = await stub.documentsList({ type: 'Article' })
 
       expect(articles).toHaveLength(2)
       expect(articles.every((a: any) => a.$type === 'Article')).toBe(true)
@@ -468,14 +469,14 @@ describe('[RED] DocumentStore - Query Operations', () => {
 
       // Create 5 documents
       for (let i = 0; i < 5; i++) {
-        await stub.documents.create({
+        await stub.documentsCreate({
           $type: 'Article',
           title: `Article ${i}`,
           content: `Content ${i}`,
         })
       }
 
-      const limited = await stub.documents.list({
+      const limited = await stub.documentsList({
         type: 'Article',
         limit: 3,
       })
@@ -489,19 +490,19 @@ describe('[RED] DocumentStore - Query Operations', () => {
 
       // Create 5 documents
       for (let i = 0; i < 5; i++) {
-        await stub.documents.create({
+        await stub.documentsCreate({
           $type: 'Article',
           title: `Article ${i}`,
           content: `Content ${i}`,
         })
       }
 
-      const page1 = await stub.documents.list({
+      const page1 = await stub.documentsList({
         type: 'Article',
         limit: 2,
         orderBy: { title: 'asc' },
       })
-      const page2 = await stub.documents.list({
+      const page2 = await stub.documentsList({
         type: 'Article',
         limit: 2,
         offset: 2,
@@ -517,20 +518,20 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-list-deleted')
       const stub = getDOStub(ns) as any
 
-      const doc1 = await stub.documents.create({
+      const doc1 = await stub.documentsCreate({
         $type: 'Article',
         title: 'Keep Me',
         content: 'Kept.',
       })
-      const doc2 = await stub.documents.create({
+      const doc2 = await stub.documentsCreate({
         $type: 'Article',
         title: 'Delete Me',
         content: 'Deleted.',
       })
 
-      await stub.documents.delete(doc2.$id)
+      await stub.documentsDelete(doc2.$id)
 
-      const results = await stub.documents.list({ type: 'Article' })
+      const results = await stub.documentsList({ type: 'Article' })
 
       expect(results).toHaveLength(1)
       expect(results[0].$id).toBe(doc1.$id)
@@ -542,18 +543,18 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-eq')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Target',
         content: 'Find me.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Other',
         content: 'Not me.',
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: { title: 'Target' },
       })
@@ -566,20 +567,20 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-nested')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Alice Article',
         content: 'By Alice.',
         metadata: { author: 'Alice' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Bob Article',
         content: 'By Bob.',
         metadata: { author: 'Bob' },
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: { 'metadata.author': 'Alice' },
       })
@@ -592,20 +593,20 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-gt')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Low Priority',
         content: 'Low.',
         metadata: { priority: 1 },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'High Priority',
         content: 'High.',
         metadata: { priority: 5 },
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: { 'metadata.priority': { $gt: 3 } },
       })
@@ -618,26 +619,26 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-in')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Tech',
         content: 'Tech content.',
         metadata: { category: 'tech' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Science',
         content: 'Science content.',
         metadata: { category: 'science' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Sports',
         content: 'Sports content.',
         metadata: { category: 'sports' },
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: { 'metadata.category': { $in: ['tech', 'science'] } },
       })
@@ -653,23 +654,23 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-like')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Hello World',
         content: 'Greeting.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Hello Universe',
         content: 'Big greeting.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Goodbye World',
         content: 'Farewell.',
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: { title: { $like: 'Hello%' } },
       })
@@ -682,26 +683,26 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-and')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Premium Tech',
         content: 'Premium tech article.',
         metadata: { category: 'tech', tier: 'premium' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Free Tech',
         content: 'Free tech article.',
         metadata: { category: 'tech', tier: 'free' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Premium Science',
         content: 'Premium science.',
         metadata: { category: 'science', tier: 'premium' },
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: {
           $and: [
@@ -719,26 +720,26 @@ describe('[RED] DocumentStore - Query Operations', () => {
       const ns = uniqueNs('doc-query-or')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Tech',
         content: 'Tech.',
         metadata: { category: 'tech' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Science',
         content: 'Science.',
         metadata: { category: 'science' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Sports',
         content: 'Sports.',
         metadata: { category: 'sports' },
       })
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: {
           $or: [
@@ -757,29 +758,29 @@ describe('[RED] DocumentStore - Query Operations', () => {
 // TEST SUITE: DocumentStore Full-Text Search
 // ============================================================================
 
-describe('[RED] DocumentStore - Search Operations', () => {
+describe('[GREEN] DocumentStore - Search Operations', () => {
   describe('search()', () => {
     it('performs full-text search on content', async () => {
       const ns = uniqueNs('doc-search')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'JavaScript Guide',
         content: 'Learn JavaScript programming from scratch.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Python Guide',
         content: 'Learn Python programming from scratch.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Cooking Guide',
         content: 'Learn cooking techniques from professionals.',
       })
 
-      const results = await stub.documents.search({
+      const results = await stub.documentsSearch({
         type: 'Article',
         query: 'JavaScript',
       })
@@ -792,19 +793,19 @@ describe('[RED] DocumentStore - Search Operations', () => {
       const ns = uniqueNs('doc-search-multifield')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Introduction to React',
         content: 'Building user interfaces with components.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Building Components',
         content: 'An introduction to modular design.',
       })
 
       // Search should find "introduction" in both title and content
-      const results = await stub.documents.search({
+      const results = await stub.documentsSearch({
         type: 'Article',
         query: 'introduction',
         fields: ['title', 'content'],
@@ -817,18 +818,18 @@ describe('[RED] DocumentStore - Search Operations', () => {
       const ns = uniqueNs('doc-search-relevance')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'JavaScript Basics',
         content: 'JavaScript is a versatile language. JavaScript runs everywhere.',
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Web Development',
         content: 'JavaScript is used for web development.',
       })
 
-      const results = await stub.documents.search({
+      const results = await stub.documentsSearch({
         type: 'Article',
         query: 'JavaScript',
       })
@@ -842,20 +843,20 @@ describe('[RED] DocumentStore - Search Operations', () => {
       const ns = uniqueNs('doc-search-filter')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Premium JavaScript',
         content: 'Advanced JavaScript techniques.',
         metadata: { tier: 'premium' },
       })
-      await stub.documents.create({
+      await stub.documentsCreate({
         $type: 'Article',
         title: 'Free JavaScript',
         content: 'Basic JavaScript tutorial.',
         metadata: { tier: 'free' },
       })
 
-      const results = await stub.documents.search({
+      const results = await stub.documentsSearch({
         type: 'Article',
         query: 'JavaScript',
         where: { 'metadata.tier': 'premium' },
@@ -871,13 +872,13 @@ describe('[RED] DocumentStore - Search Operations', () => {
 // TEST SUITE: DocumentStore Batch Operations
 // ============================================================================
 
-describe('[RED] DocumentStore - Batch Operations', () => {
+describe('[GREEN] DocumentStore - Batch Operations', () => {
   describe('createMany()', () => {
     it('creates multiple documents in one call', async () => {
       const ns = uniqueNs('doc-create-many')
       const stub = getDOStub(ns) as any
 
-      const docs = await stub.documents.createMany([
+      const docs = await stub.documentsCreateMany([
         { $type: 'Article', title: 'Batch 1', content: 'Content 1' },
         { $type: 'Article', title: 'Batch 2', content: 'Content 2' },
         { $type: 'Article', title: 'Batch 3', content: 'Content 3' },
@@ -897,14 +898,14 @@ describe('[RED] DocumentStore - Batch Operations', () => {
       const stub = getDOStub(ns) as any
 
       await expect(
-        stub.documents.createMany([
+        stub.documentsCreateMany([
           { $id: 'dup', $type: 'Article', title: 'First', content: 'First' },
           { $id: 'dup', $type: 'Article', title: 'Second', content: 'Second' },
         ])
       ).rejects.toThrow()
 
       // Neither should be created
-      const result = await stub.documents.get('dup')
+      const result = await stub.documentsGet('dup')
       expect(result).toBeNull()
     })
   })
@@ -914,7 +915,7 @@ describe('[RED] DocumentStore - Batch Operations', () => {
       const ns = uniqueNs('doc-update-many')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.createMany([
+      await stub.documentsCreateMany([
         {
           $type: 'Article',
           title: 'Update 1',
@@ -935,14 +936,14 @@ describe('[RED] DocumentStore - Batch Operations', () => {
         },
       ])
 
-      const count = await stub.documents.updateMany(
+      const count = await stub.documentsUpdateMany(
         { type: 'Article', where: { 'metadata.status': 'draft' } },
         { 'metadata.status': 'published' }
       )
 
       expect(count).toBe(2)
 
-      const results = await stub.documents.query({
+      const results = await stub.documentsQuery({
         type: 'Article',
         where: { 'metadata.status': 'published' },
       })
@@ -955,7 +956,7 @@ describe('[RED] DocumentStore - Batch Operations', () => {
       const ns = uniqueNs('doc-delete-many')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.createMany([
+      await stub.documentsCreateMany([
         {
           $type: 'Article',
           title: 'Delete 1',
@@ -976,14 +977,14 @@ describe('[RED] DocumentStore - Batch Operations', () => {
         },
       ])
 
-      const count = await stub.documents.deleteMany({
+      const count = await stub.documentsDeleteMany({
         type: 'Article',
         where: { 'metadata.status': 'archived' },
       })
 
       expect(count).toBe(2)
 
-      const remaining = await stub.documents.list({ type: 'Article' })
+      const remaining = await stub.documentsList({ type: 'Article' })
       expect(remaining).toHaveLength(1)
       expect(remaining[0].title).toBe('Keep')
     })
@@ -994,13 +995,13 @@ describe('[RED] DocumentStore - Batch Operations', () => {
 // TEST SUITE: DocumentStore Upsert Operation
 // ============================================================================
 
-describe('[RED] DocumentStore - Upsert Operation', () => {
+describe('[GREEN] DocumentStore - Upsert Operation', () => {
   describe('upsert()', () => {
     it('inserts if document does not exist', async () => {
       const ns = uniqueNs('doc-upsert-insert')
       const stub = getDOStub(ns) as any
 
-      const result = await stub.documents.upsert(
+      const result = await stub.documentsUpsert(
         { $id: 'upsert-new' },
         {
           $id: 'upsert-new',
@@ -1018,14 +1019,14 @@ describe('[RED] DocumentStore - Upsert Operation', () => {
       const ns = uniqueNs('doc-upsert-update')
       const stub = getDOStub(ns) as any
 
-      await stub.documents.create({
+      await stub.documentsCreate({
         $id: 'upsert-existing',
         $type: 'Article',
         title: 'Original',
         content: 'Original content.',
       })
 
-      const result = await stub.documents.upsert(
+      const result = await stub.documentsUpsert(
         { $id: 'upsert-existing' },
         { title: 'Updated via Upsert' }
       )
@@ -1041,14 +1042,13 @@ describe('[RED] DocumentStore - Upsert Operation', () => {
 // TEST SUITE: Implementation Verification
 // ============================================================================
 
-describe('[RED] DocumentStore - Implementation Verification', () => {
-  it('stub.documents.create is callable and works', async () => {
+describe('[GREEN] DocumentStore - Implementation Verification', () => {
+  it('stub.documentsCreate is callable and works', async () => {
     const ns = uniqueNs('doc-impl-create')
     const stub = getDOStub(ns) as any
 
-    // This FAILS until DocumentsRpc is added to TestDO
-    // The actual method invocation is the real test
-    const doc = await stub.documents.create({
+    // Verify flat RPC method works
+    const doc = await stub.documentsCreate({
       $type: 'Test',
       title: 'Verification',
       content: 'Testing implementation.',
@@ -1058,51 +1058,51 @@ describe('[RED] DocumentStore - Implementation Verification', () => {
     expect(doc.$type).toBe('Test')
   })
 
-  it('stub.documents.get is callable and works', async () => {
+  it('stub.documentsGet is callable and works', async () => {
     const ns = uniqueNs('doc-impl-get')
     const stub = getDOStub(ns) as any
 
     // Create first
-    const created = await stub.documents.create({
+    const created = await stub.documentsCreate({
       $type: 'Test',
       title: 'Get Test',
       content: 'Content.',
     })
 
     // Then get
-    const doc = await stub.documents.get(created.$id)
+    const doc = await stub.documentsGet(created.$id)
 
     expect(doc).not.toBeNull()
     expect(doc.$id).toBe(created.$id)
   })
 
-  it('stub.documents.list is callable and works', async () => {
+  it('stub.documentsList is callable and works', async () => {
     const ns = uniqueNs('doc-impl-list')
     const stub = getDOStub(ns) as any
 
-    await stub.documents.create({
+    await stub.documentsCreate({
       $type: 'Test',
       title: 'List Test',
       content: 'Content.',
     })
 
-    const docs = await stub.documents.list({ type: 'Test' })
+    const docs = await stub.documentsList({ type: 'Test' })
 
     expect(Array.isArray(docs)).toBe(true)
     expect(docs.length).toBeGreaterThan(0)
   })
 
-  it('stub.documents.search is callable and works', async () => {
+  it('stub.documentsSearch is callable and works', async () => {
     const ns = uniqueNs('doc-impl-search')
     const stub = getDOStub(ns) as any
 
-    await stub.documents.create({
+    await stub.documentsCreate({
       $type: 'Test',
       title: 'Search Test',
       content: 'Searchable content.',
     })
 
-    const docs = await stub.documents.search({
+    const docs = await stub.documentsSearch({
       type: 'Test',
       query: 'Searchable',
     })

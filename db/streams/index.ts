@@ -8,6 +8,7 @@
  * - things: Thing versions for cross-DO queries
  * - events: Domain events for analytics
  * - actions: Audit log for SOC2 compliance
+ * - unified_events: 172-column unified observability events
  */
 
 /**
@@ -25,6 +26,7 @@ export const SQL_FILES = {
   things: './streams/things.sql',
   events: './streams/events.sql',
   actions: './streams/actions.sql',
+  unified_events: './streams/unified_events.sql',
 } as const
 
 // Target table names
@@ -32,6 +34,7 @@ export const TABLES = {
   things: 'do_things',
   events: 'do_events',
   actions: 'do_actions',
+  unified_events: 'unified_events',
 } as const
 
 // Source stream names
@@ -39,6 +42,7 @@ export const STREAMS = {
   things: 'things_stream',
   events: 'events_stream',
   actions: 'actions_stream',
+  unified_events: 'unified_events_stream',
 } as const
 
 /**

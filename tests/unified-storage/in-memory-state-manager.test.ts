@@ -328,10 +328,14 @@ describe('InMemoryStateManager', () => {
         onEvict: (entries) => evictedEntries.push(...entries),
       })
 
-      // When: Creating more things than max count
-      smallManager.create({ $type: 'Item', name: 'First' })
-      smallManager.create({ $type: 'Item', name: 'Second' })
-      smallManager.create({ $type: 'Item', name: 'Third' })
+      // When: Creating things and marking them clean for eviction
+      const first = smallManager.create({ $type: 'Item', name: 'First' })
+      const second = smallManager.create({ $type: 'Item', name: 'Second' })
+      const third = smallManager.create({ $type: 'Item', name: 'Third' })
+
+      // Mark as clean so they can be evicted
+      smallManager.markClean([first.$id, second.$id, third.$id])
+
       smallManager.create({ $type: 'Item', name: 'Fourth' }) // Should trigger eviction
 
       // Then: LRU entry should be evicted
@@ -348,16 +352,20 @@ describe('InMemoryStateManager', () => {
       })
 
       // When: Creating things that exceed byte limit
-      smallManager.create({
+      const doc1 = smallManager.create({
         $type: 'Document',
         name: 'Large Doc 1',
         data: { content: 'A'.repeat(200) },
       })
-      smallManager.create({
+      const doc2 = smallManager.create({
         $type: 'Document',
         name: 'Large Doc 2',
         data: { content: 'B'.repeat(200) },
       })
+
+      // Mark as clean so they can be evicted
+      smallManager.markClean([doc1.$id, doc2.$id])
+
       smallManager.create({
         $type: 'Document',
         name: 'Large Doc 3',
@@ -376,9 +384,13 @@ describe('InMemoryStateManager', () => {
         onEvict,
       })
 
-      // When: Triggering eviction
-      smallManager.create({ $type: 'Item', name: 'One' })
-      smallManager.create({ $type: 'Item', name: 'Two' })
+      // When: Creating items and marking some clean for eviction
+      const one = smallManager.create({ $type: 'Item', name: 'One' })
+      const two = smallManager.create({ $type: 'Item', name: 'Two' })
+
+      // Mark first one clean so it can be evicted
+      smallManager.markClean([one.$id])
+
       smallManager.create({ $type: 'Item', name: 'Three' }) // Triggers eviction
 
       // Then: Callback should have been called
@@ -401,13 +413,16 @@ describe('InMemoryStateManager', () => {
       const second = smallManager.create({ $type: 'Item', name: 'Second' })
       const third = smallManager.create({ $type: 'Item', name: 'Third' })
 
+      // Mark all as clean so they can be evicted
+      smallManager.markClean([first.$id, second.$id, third.$id])
+
       // When: Access first item (makes it recently used)
       smallManager.get(first.$id)
 
-      // And: Create a fourth item (triggers eviction)
+      // And: Create a fourth item (triggers eviction of clean entries)
       smallManager.create({ $type: 'Item', name: 'Fourth' })
 
-      // Then: Second item should be evicted (it was LRU), not first
+      // Then: Second item should be evicted (it was LRU clean), not first (recently accessed)
       expect(evictedEntries.length).toBe(1)
       expect(evictedEntries[0].name).toBe('Second')
     })

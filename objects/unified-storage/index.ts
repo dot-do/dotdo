@@ -1,14 +1,42 @@
 /**
- * Unified Storage Module
+ * @fileoverview Unified Storage Module - Cost-optimized DO storage using Pipeline-as-WAL
  *
- * Exports all unified storage components for the Durable Object architecture:
- * - InMemoryStateManager: Fast in-memory state with dirty tracking
- * - PipelineEmitter: Fire-and-forget event emission to Pipeline
- * - LazyCheckpointer: Lazy SQLite persistence with columnar optimization
- * - ColdStartRecovery: State recovery from SQLite or Iceberg
- * - UnifiedStoreDO: Main DO class integrating all components
+ * This module provides a complete storage architecture for Durable Objects that
+ * achieves 95%+ cost reduction through the Pipeline-as-WAL pattern.
+ *
+ * ## Components
+ *
+ * - **InMemoryStateManager**: O(1) reads/writes with dirty tracking and LRU eviction
+ * - **PipelineEmitter**: Fire-and-forget event emission to Cloudflare Pipeline
+ * - **LazyCheckpointer**: Batched SQLite persistence with columnar optimization
+ * - **ColdStartRecovery**: State recovery from SQLite or Iceberg
+ * - **UnifiedStoreDO**: Main DO class integrating all components
+ * - **MetricsCollector**: Observability and metrics collection
+ *
+ * ## Key Invariant
+ *
+ * Pipeline is the WAL (Write-Ahead Log). Events are durable in Pipeline
+ * BEFORE local SQLite persistence. This guarantees zero data loss while
+ * enabling batched persistence for cost optimization.
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * import { UnifiedStoreDO, MetricsCollector } from './unified-storage'
+ *
+ * export class MyDO {
+ *   private store: UnifiedStoreDO
+ *
+ *   constructor(state: DurableObjectState, env: Env) {
+ *     this.store = new UnifiedStoreDO(state, env, {
+ *       checkpointInterval: 5000,
+ *     })
+ *   }
+ * }
+ * ```
  *
  * @module objects/unified-storage
+ * @see README.md for detailed documentation
  */
 
 // InMemoryStateManager - O(1) reads/writes with dirty tracking
@@ -58,3 +86,60 @@ export {
 
 // UnifiedStoreDO - Main DO class
 export { UnifiedStoreDO, type UnifiedStoreConfig } from './unified-store-do'
+
+// Metrics - Observability and metrics collection
+export {
+  MetricsCollector,
+  NoOpMetricsCollector,
+  type Counter,
+  type Gauge,
+  type Histogram,
+  type StateManagerMetrics,
+  type PipelineEmitterMetrics,
+  type CheckpointerMetrics,
+  type RecoveryMetrics,
+  type UnifiedStorageMetrics,
+  type MetricsSnapshot,
+  type MetricCheckpointTrigger,
+  type MetricRecoverySource,
+} from './metrics'
+
+// WSProtocol - WebSocket message types and serialization
+export {
+  WSProtocol,
+  type WSMessage,
+  type CreateMessage,
+  type ReadMessage,
+  type UpdateMessage,
+  type DeleteMessage,
+  type BatchMessage,
+  type SubscribeMessage,
+  type UnsubscribeMessage,
+  type AckResponse,
+  type ReadResponse,
+  type ErrorResponse,
+  type SubscriptionUpdate,
+  type MessageType,
+  type ResponseType,
+  type SubscriptionEventType,
+  type ThingResponse,
+  type SerializeOptions,
+} from './ws-protocol'
+
+// WSOperationRouter - Routes WebSocket messages to state manager operations
+export {
+  WSOperationRouter,
+  type WSMessage as WSRouterMessage,
+  type WSCreateMessage,
+  type WSReadMessage,
+  type WSUpdateMessage,
+  type WSDeleteMessage,
+  type WSBatchMessage,
+  type WSAckResponse,
+  type WSReadResponse,
+  type WSErrorResponse,
+  type WSBatchResponse,
+  type WSBatchOperation,
+  type WSBatchOperationResult,
+  ErrorCodes,
+} from './ws-operation-router'

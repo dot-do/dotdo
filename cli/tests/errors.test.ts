@@ -338,6 +338,90 @@ describe('NetworkError', () => {
         expect(error.status).toBe(400)
       })
     })
+
+    describe('serviceUnavailable', () => {
+      it('creates service unavailable error with service name', () => {
+        const error = NetworkError.serviceUnavailable('workers.do')
+        expect(error.message).toBe('Unable to connect to workers.do')
+        expect(error.code).toBe(ErrorCode.CONNECTION_FAILED)
+        expect(error.hint).toContain('Check your internet connection')
+      })
+
+      it('includes url when provided', () => {
+        const error = NetworkError.serviceUnavailable('workers.do', 'https://workers.do')
+        expect(error.url).toBe('https://workers.do')
+      })
+
+      it('includes cause when provided', () => {
+        const cause = new Error('ECONNREFUSED')
+        const error = NetworkError.serviceUnavailable('workers.do', undefined, cause)
+        expect(error.cause).toBe(cause)
+      })
+
+      it('provides helpful hint with service name', () => {
+        const error = NetworkError.serviceUnavailable('api.example.com')
+        expect(error.hint).toContain('api.example.com may be temporarily unavailable')
+      })
+    })
+
+    describe('isNetworkError', () => {
+      it('returns true for NetworkError instances', () => {
+        const error = new NetworkError('Connection failed')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for fetch failed errors', () => {
+        const error = new Error('fetch failed')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for network errors', () => {
+        const error = new Error('Network request failed')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for ECONNREFUSED errors', () => {
+        const error = new Error('connect ECONNREFUSED 127.0.0.1:8787')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for ENOTFOUND errors', () => {
+        const error = new Error('getaddrinfo ENOTFOUND workers.do')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for ETIMEDOUT errors', () => {
+        const error = new Error('connect ETIMEDOUT')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for ECONNRESET errors', () => {
+        const error = new Error('read ECONNRESET')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for bad RPC message errors', () => {
+        const error = new Error('bad RPC message: {"service":"workers"}')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns true for unable to connect errors', () => {
+        const error = new Error('Unable to connect to workers.do')
+        expect(NetworkError.isNetworkError(error)).toBe(true)
+      })
+
+      it('returns false for regular errors', () => {
+        const error = new Error('Something went wrong')
+        expect(NetworkError.isNetworkError(error)).toBe(false)
+      })
+
+      it('returns false for non-Error values', () => {
+        expect(NetworkError.isNetworkError('string')).toBe(false)
+        expect(NetworkError.isNetworkError(null)).toBe(false)
+        expect(NetworkError.isNetworkError(undefined)).toBe(false)
+        expect(NetworkError.isNetworkError(42)).toBe(false)
+      })
+    })
   })
 })
 
