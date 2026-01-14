@@ -43,7 +43,11 @@ import type {
   ValidationResult,
   DistanceMetric,
   ClientCapabilities,
+  ShardMetrics,
+  LatencyStats,
+  FailedShardInfo,
 } from '../../types/analytics-api'
+import type { CoordinatedSearchResult } from '../../db/vector/search-coordinator'
 
 // ============================================================================
 // ROUTER SETUP
@@ -334,10 +338,70 @@ analyticsRouter.post('/v1/search', async (c) => {
 
   const request = validation.data!
 
-  // TODO: Route to VectorSearchCoordinatorDO when implemented
-  // For now, return a mock response structure
+  // Priority 1: Use VectorSearchCoordinatorDO if available
+  if (c.env.VECTOR_COORDINATOR) {
+    try {
+      // Get the coordinator DO stub
+      const coordinatorId = c.env.VECTOR_COORDINATOR.idFromName('default')
+      const coordinatorStub = c.env.VECTOR_COORDINATOR.get(coordinatorId)
 
-  // Check if VECTORS binding is available (Cloudflare Vectorize)
+      // Call the coordinator's search method via RPC
+      const coordinatorResult = await (coordinatorStub as unknown as {
+        search(query: Float32Array, k: number, options?: { minScore?: number; filter?: Record<string, unknown> }): Promise<CoordinatedSearchResult>
+      }).search(
+        new Float32Array(request.query),
+        request.k,
+        {
+          minScore: undefined, // TODO: Support minScore in API
+          filter: request.filters ? Object.fromEntries(request.filters.map(f => [f.field, f.value])) : undefined,
+        }
+      )
+
+      // Map coordinator results to API response format
+      const searchResults: VectorSearchResult[] = coordinatorResult.results.map((match) => ({
+        id: match.id,
+        score: match.score,
+        metadata: match.metadata,
+        sourceShard: match.sourceShard,
+        // TODO: Include vector if includeVectors is true
+      }))
+
+      const response: VectorSearchResponse = {
+        results: searchResults,
+        timing: {
+          total: coordinatorResult.totalLatencyMs,
+          centroidSearch: coordinatorResult.timingBreakdown?.scatterMs,
+          clusterLoad: coordinatorResult.timingBreakdown?.gatherMs,
+          rerank: coordinatorResult.timingBreakdown?.mergeMs,
+        },
+        stats: {
+          clustersSearched: coordinatorResult.shardMetrics?.length ?? 0,
+          vectorsScanned: coordinatorResult.totalVectorsScanned ?? 0,
+          cacheHitRate: 0, // TODO: Track cache hits in coordinator
+        },
+        // Include coordinator-specific fields
+        partial: coordinatorResult.partial,
+        failedShards: coordinatorResult.failedShards,
+        timedOutShards: coordinatorResult.timedOutShards,
+        skippedShards: coordinatorResult.skippedShards,
+        shardMetrics: coordinatorResult.shardMetrics,
+        latencyStats: coordinatorResult.latencyStats,
+      }
+
+      return c.json(response)
+    } catch (error) {
+      return c.json(
+        {
+          error: analyticsError('INTERNAL_ERROR', 'Coordinator search failed', {
+            message: error instanceof Error ? error.message : 'Unknown error',
+          }),
+        },
+        500
+      )
+    }
+  }
+
+  // Priority 2: Check if VECTORS binding is available (Cloudflare Vectorize)
   if (c.env.VECTORS) {
     try {
       // Use Vectorize as fallback/primary engine
@@ -442,38 +506,93 @@ analyticsRouter.get('/v1/lookup/:table/:key', async (c) => {
   // TODO: Route to IcebergMetadataDO when implemented
   // For now, check if R2 is available and attempt direct lookup
 
+  let metadataLookupTime = 0
+  let partitionPruneTime = 0
+  let pruningStats: {
+    totalManifests?: number
+    prunedManifests?: number
+    totalDataFiles?: number
+    prunedDataFiles?: number
+  } | undefined
+
   const metadataLookupStart = Date.now()
-  const metadataLookupTime = Date.now() - metadataLookupStart
+
+  // Build filters from partition hints
+  const filters: Array<{ column: string; operator: string; value: string | number }> = []
+  for (const [column, value] of Object.entries(partition)) {
+    if (value !== undefined) {
+      filters.push({ column, operator: 'eq', value })
+    }
+  }
+
+  // Priority 1: Use IcebergMetadataDO for partition planning if available
+  let objectPath: string | undefined
+  if (c.env.ICEBERG_METADATA) {
+    try {
+      const metadataId = c.env.ICEBERG_METADATA.idFromName('default')
+      const metadataStub = c.env.ICEBERG_METADATA.get(metadataId)
+
+      // Get partition plan from metadata DO
+      const plan = await (metadataStub as unknown as {
+        getPartitionPlan(tableId: string, filters: typeof filters): Promise<{
+          files: Array<{ filePath: string; partition: Record<string, string | number> }>
+          totalRecords: number
+          totalSizeBytes: number
+          pruningStats: { totalManifests: number; prunedManifests: number; totalDataFiles: number; prunedDataFiles: number }
+        }>
+      }).getPartitionPlan(table, filters)
+
+      metadataLookupTime = Date.now() - metadataLookupStart
+
+      const partitionPruneStart = Date.now()
+      // If we got exactly one file from the plan, use it
+      if (plan.files.length === 1) {
+        objectPath = plan.files[0]!.filePath
+      } else if (plan.files.length > 1) {
+        // For point lookup, we expect exactly one file after partition pruning
+        // Try first file or fall back to direct path
+        objectPath = plan.files[0]!.filePath
+      }
+      partitionPruneTime = Date.now() - partitionPruneStart
+      pruningStats = plan.pruningStats
+    } catch (error) {
+      // Fall back to direct R2 lookup
+      metadataLookupTime = Date.now() - metadataLookupStart
+    }
+  } else {
+    metadataLookupTime = Date.now() - metadataLookupStart
+  }
 
   const partitionPruneStart = Date.now()
-  const partitionPruneTime = Date.now() - partitionPruneStart
+
+  // If metadata DO didn't provide a path, construct it directly
+  if (!objectPath) {
+    const basePath = `data/${table}`
+    objectPath = `${basePath}/${key}.json`
+
+    // Apply partition path if available
+    if (Object.keys(partition).length > 0) {
+      const partitionPath = Object.entries(partition)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('/')
+      objectPath = `${basePath}/${partitionPath}/${key}.json`
+    }
+    partitionPruneTime = Date.now() - partitionPruneStart
+  }
 
   const dataFetchStart = Date.now()
 
   // Try R2 lookup if binding available
   if (c.env.R2) {
     try {
-      // Construct path based on table and key
-      // Convention: data/{table}/{partition_path}/{key}.parquet or data/{table}/{key}.json
-      const basePath = `data/${table}`
-      let objectPath = `${basePath}/${key}.json`
-
-      // Apply partition path if available
-      if (Object.keys(partition).length > 0) {
-        const partitionPath = Object.entries(partition)
-          .filter(([, v]) => v !== undefined)
-          .map(([k, v]) => `${k}=${v}`)
-          .join('/')
-        objectPath = `${basePath}/${partitionPath}/${key}.json`
-      }
-
       const object = await c.env.R2.get(objectPath)
 
       if (object) {
         const data = await object.json() as Record<string, unknown>
         const dataFetchTime = Date.now() - dataFetchStart
 
-        const response: PointLookupResponse = {
+        const response: PointLookupResponse & { pruningStats?: typeof pruningStats } = {
           found: true,
           data,
           timing: {
@@ -492,17 +611,57 @@ analyticsRouter.get('/v1/lookup/:table/:key', async (c) => {
           },
         }
 
+        // Include pruning stats if available
+        if (pruningStats) {
+          response.pruningStats = pruningStats
+        }
+
         return c.json(response)
       }
+
+      // Record not found (file doesn't exist in R2)
+      const dataFetchTime = Date.now() - dataFetchStart
+
+      const response: PointLookupResponse & { pruningStats?: typeof pruningStats } = {
+        found: false,
+        timing: {
+          total: Date.now() - startTime,
+          metadataLookup: metadataLookupTime,
+          partitionPrune: partitionPruneTime,
+          dataFetch: dataFetchTime,
+        },
+        source: {
+          table,
+          partition: Object.entries(partition)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => `${k}=${v}`)
+            .join('/') || 'default',
+          file: objectPath,
+        },
+      }
+
+      if (pruningStats) {
+        response.pruningStats = pruningStats
+      }
+
+      return c.json(response)
     } catch (error) {
-      // Fall through to not found
+      // R2 error - return 500
+      return c.json(
+        {
+          error: analyticsError('INTERNAL_ERROR', 'Point lookup failed', {
+            message: error instanceof Error ? error.message : 'Unknown error',
+          }),
+        },
+        500
+      )
     }
   }
 
-  // Record not found
+  // No R2 binding - return not found with 200
   const dataFetchTime = Date.now() - dataFetchStart
 
-  const response: PointLookupResponse = {
+  const response: PointLookupResponse & { pruningStats?: typeof pruningStats } = {
     found: false,
     timing: {
       total: Date.now() - startTime,
@@ -520,7 +679,11 @@ analyticsRouter.get('/v1/lookup/:table/:key', async (c) => {
     },
   }
 
-  return c.json(response, 404)
+  if (pruningStats) {
+    response.pruningStats = pruningStats
+  }
+
+  return c.json(response)
 })
 
 // ============================================================================

@@ -93,6 +93,12 @@ export interface DurableObjectBindings {
   VECTOR_SHARD?: DurableObjectNamespace
 
   /**
+   * Vector Search Coordinator Durable Object namespace for distributed search
+   * @see VectorSearchCoordinatorDO
+   */
+  VECTOR_COORDINATOR?: DurableObjectNamespace
+
+  /**
    * Observability Broadcaster Durable Object namespace
    */
   OBS_BROADCASTER?: DurableObjectNamespace

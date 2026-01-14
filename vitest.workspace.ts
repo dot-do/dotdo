@@ -242,6 +242,9 @@ export default defineWorkspace([
   // DB Proxy tests (fluent query builder)
   createNodeWorkspace('db-proxy', ['db/proxy/tests/**/*.test.ts']),
 
+  // DO Analytics tests (cross-DO query layer, aggregations, schema inference)
+  createNodeWorkspace('do-analytics', ['db/do-analytics/**/*.test.ts']),
+
   // Payload plugin tests
   createNodeWorkspace('payload', ['db/payload/tests/**/*.test.ts']),
 
@@ -309,7 +312,7 @@ export default defineWorkspace([
   createNodeWorkspace('harness', ['tests/harness/**/*.test.ts']),
 
   // ACID test suite (Phase 1-6 tests for consistency/durability)
-  createNodeWorkspace('acid', ['tests/acid/**/*.test.ts']),
+  createNodeWorkspace('acid', ['tests/acid/**/*.test.ts', 'testing/acid/**/*.test.ts', 'testing/e2e/**/*.test.ts']),
 
   // Test mocks infrastructure
   createNodeWorkspace('mocks', ['tests/mocks/**/*.test.ts']),
@@ -322,6 +325,9 @@ export default defineWorkspace([
 
   // Database migrations tests
   createNodeWorkspace('migrations', ['tests/migrations/**/*.test.ts']),
+
+  // DO Storage (libSQL adapter) tests
+  createNodeWorkspace('do-storage', ['db/do-storage/**/*.test.ts']),
 
   // Vault credential storage tests
   createNodeWorkspace('vault', ['tests/vault/**/*.test.ts']),
@@ -569,6 +575,24 @@ export default defineWorkspace([
     },
   },
 
+  // @dotdo/tanstack package tests (TanStack DB React integration - jsdom environment)
+  {
+    test: {
+      ...sharedTestConfig,
+      name: 'tanstack-react',
+      include: ['packages/tanstack/tests/**/*.test.ts', 'packages/tanstack/tests/**/*.test.tsx'],
+      exclude: defaultExcludes,
+      environment: 'jsdom' as const,
+      setupFiles: [GLOBAL_SETUP, './packages/tanstack/tests/setup.ts'],
+    },
+    resolve: {
+      alias: {
+        ...(nodeResolveConfig?.alias || {}),
+        '@dotdo/tanstack/react': resolve(PROJECT_ROOT, 'packages/tanstack/src/react/index.ts'),
+      },
+    },
+  },
+
   // Client context tests ($.db proxy for SaasKit)
   createNodeWorkspace('client-context', ['client/tests/**/*.test.ts']),
 
@@ -586,6 +610,9 @@ export default defineWorkspace([
 
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
+
+  // Metrics tests (HUNCH metrics pipeline, PMF tracking)
+  createNodeWorkspace('metrics', ['metrics/**/*.test.ts']),
 
   // Roles system tests (job functions with OKRs and capabilities)
   createNodeWorkspace('roles', ['roles/**/*.test.ts']),
@@ -610,6 +637,9 @@ export default defineWorkspace([
 
   // Vector search tests (VectorShardDO, similarity search)
   createNodeWorkspace('vector', ['tests/vector/**/*.test.ts']),
+
+  // Analytics API tests (vector search endpoint, query routing)
+  createNodeWorkspace('analytics-api', ['tests/analytics/**/*.test.ts']),
 
   // Iceberg metadata DO tests (metadata parsing, partition pruning)
   createNodeWorkspace('iceberg-do', ['tests/iceberg/**/*.test.ts']),
