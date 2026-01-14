@@ -1,160 +1,33 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dotdo",
-  "account_id": "b6641681fe423910342b9ffa1364c76d",
   "main": "api/index.ts",
   "compatibility_date": "2026-01-08",
-  "compatibility_flags": ["nodejs_compat"],
 
-  // Don't try to resolve optional browser automation packages
-  "find_additional_modules": false,
-
-  // Static assets configuration
-  "assets": {
-    "directory": "./dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
-  },
-
-  // Browser Rendering API (headless Chromium)
-  // NOTE: Disabled for local development - requires remote
-  // "browser": {
-  //   "binding": "BROWSER"
-  // },
-
-  // Workers AI
-  "ai": {
-    "binding": "AI"
-  },
-
-  // KV namespaces
-  "kv_namespaces": [
-    {
-      "binding": "KV",
-      "id": "placeholder-kv-id"
-    },
-    {
-      "binding": "TEST_KV",
-      "id": "placeholder-test-kv-id"
-    }
-  ],
-
-  // Durable Objects
   "durable_objects": {
     "bindings": [
       {
         "name": "DO",
-        "class_name": "ThingsDO"
-      },
-      {
-        "name": "TEST_DO",
-        "class_name": "TestDurableObject"
-      },
-      {
-        "name": "BROWSER_DO",
-        "class_name": "Browser"
-      },
-      {
-        "name": "SANDBOX_DO",
-        "class_name": "SandboxDO"
-      },
-      {
-        "name": "OBS_BROADCASTER",
-        "class_name": "ObservabilityBroadcaster"
-      },
-      {
-        "name": "COLLECTION_DO",
-        "class_name": "TestCollectionDO"
-      },
-      {
-        "name": "BASE_DO",
         "class_name": "DO"
       }
     ]
   },
 
-  // Migrations
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["DurableObject", "TestDurableObject"]
-    },
-    {
-      "tag": "v2",
-      "new_classes": ["Browser"]
-    },
-    {
-      "tag": "v3",
-      "renamed_classes": [{"from": "DurableObject", "to": "ThingsDO"}]
-    },
-    {
-      "tag": "v4",
-      "new_classes": ["ObservabilityBroadcaster"]
-    },
-    {
-      "tag": "v5",
-      "new_classes": ["SandboxDO"]
-    },
-    {
-      "tag": "v6",
-      "new_classes": ["TestCollectionDO"]
-    },
-    {
-      "tag": "v7",
       "new_sqlite_classes": ["DO"]
     }
   ],
 
-  // R2 Buckets
   "r2_buckets": [
     {
-      "binding": "ARTIFACTS_LAKE",
-      "bucket_name": "artifacts-lake"
+      "binding": "R2",
+      "bucket_name": "dotdo-lake"
     }
   ],
 
-  // Cloudflare Pipelines for event streaming and artifact storage
-  // Pipelines are created via CLI: npx wrangler pipelines create <name> ...
-  // See: db/spikes/pipelines-write-path-design.md
-  //
-  // Pipeline configurations (to be created via wrangler CLI):
-  //
-  // events: Domain event pipeline for EventsStore streaming
-  //   npx wrangler pipelines create events \
-  //     --batch-max-mb 1 --batch-max-rows 10000 --batch-max-seconds 5 \
-  //     --r2 artifacts-lake --partition-by ns,year,month,day
-  //
-  // artifacts-preview: Small batches (100KB, 5s) for dev/testing
-  //   npx wrangler pipelines create artifacts-preview \
-  //     --batch-max-mb 0.1 --batch-max-rows 1000 --batch-max-seconds 5 \
-  //     --r2 artifacts-lake --partition-by ns,type
-  //
-  // artifacts-build: Balanced batches (1MB, 30s) for CI/CD
-  //   npx wrangler pipelines create artifacts-build \
-  //     --batch-max-mb 1 --batch-max-rows 10000 --batch-max-seconds 30 \
-  //     --r2 artifacts-lake --partition-by ns,type
-  //
-  // artifacts-bulk: Large batches (5MB, 120s) for migrations/analytics
-  //   npx wrangler pipelines create artifacts-bulk \
-  //     --batch-max-mb 5 --batch-max-rows 100000 --batch-max-seconds 120 \
-  //     --r2 artifacts-lake --partition-by ns,type
-  //
-  "pipelines": [
-    {
-      "pipeline": "events",
-      "binding": "PIPELINE"
-    },
-    {
-      "pipeline": "artifacts-preview",
-      "binding": "ARTIFACTS_PREVIEW"
-    },
-    {
-      "pipeline": "artifacts-build",
-      "binding": "ARTIFACTS_BUILD"
-    },
-    {
-      "pipeline": "artifacts-bulk",
-      "binding": "ARTIFACTS_BULK"
-    }
-  ]
+  // AI and Pipelines need valid CF API token - uncomment in production
+  // "ai": { "binding": "AI" },
+  // "pipelines": [{ "pipeline": "events", "binding": "PIPELINE" }]
 }
