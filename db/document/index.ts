@@ -1,12 +1,9 @@
 /**
- * DocumentStore - Schema-free JSON document storage
+ * DocumentStore
  *
- * This is a stub file. Implementation is TBD.
- * See README.md for API specification.
+ * Schema-free JSON document storage with JSONPath queries.
  */
 
-// Export will be added when implementation is complete
-// export { DocumentStore } from './document-store'
-
-// Placeholder to make import fail with clear message
-throw new Error('DocumentStore not yet implemented. See db/document/README.md for specification.')
+export { DocumentStore } from './store'
+export * from './types'
+export { buildWhereClause, buildOrderByClause, toJsonPath } from './queries'
