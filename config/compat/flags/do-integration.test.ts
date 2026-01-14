@@ -25,7 +25,7 @@ import {
   type MockDOResult,
   type MockEnv,
   type MockDurableObjectNamespace,
-} from '../../testing/do'
+} from '../../../tests/_lib/do'
 
 // ============================================================================
 // TYPE DEFINITIONS FOR DO INTEGRATION TESTS

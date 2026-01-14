@@ -1,0 +1,168 @@
+{/**
+ * MDX Marketing Site Example
+ *
+ * A complete marketing landing page using just Site.mdx.
+ * No configuration needed. Run with: do start
+ *
+ * This demonstrates:
+ * - Zero-config MDX pattern
+ * - Content-first marketing site
+ * - MDXUI component integration
+ */}
+
+---
+title: "Acme Inc - Ship Faster with AI"
+description: "Build your 1-Person Unicorn with Business-as-Code"
+---
+
+export const Hero = ({ headline, subheadline, cta }) => (
+  <section style={{
+    padding: '6rem 2rem',
+    textAlign: 'center',
+    background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%)',
+    color: '#fff',
+    minHeight: '70vh',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center'
+  }}>
+    <h1 style={{ fontSize: '3.5rem', marginBottom: '1rem', fontWeight: 800 }}>{headline}</h1>
+    <p style={{ fontSize: '1.5rem', opacity: 0.8, maxWidth: '600px', marginBottom: '2rem' }}>{subheadline}</p>
+    <a href={cta.href} style={{
+      background: '#10b981',
+      color: '#fff',
+      padding: '1rem 2.5rem',
+      borderRadius: '8px',
+      textDecoration: 'none',
+      fontSize: '1.125rem',
+      fontWeight: 600,
+      transition: 'transform 0.2s'
+    }}>{cta.text}</a>
+  </section>
+)
+
+export const Features = ({ items }) => (
+  <section style={{ padding: '5rem 2rem', background: '#0f0f0f' }}>
+    <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '3rem', color: '#fff' }}>Why Choose Us</h2>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+      gap: '2rem',
+      maxWidth: '1200px',
+      margin: '0 auto'
+    }}>
+      {items.map((item, i) => (
+        <div key={i} style={{
+          background: '#1a1a1a',
+          padding: '2rem',
+          borderRadius: '12px',
+          borderLeft: '4px solid #10b981'
+        }}>
+          <h3 style={{ color: '#10b981', marginBottom: '0.75rem', fontSize: '1.25rem' }}>{item.title}</h3>
+          <p style={{ color: '#a1a1aa', lineHeight: 1.6 }}>{item.description}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+)
+
+export const Pricing = () => (
+  <section style={{ padding: '5rem 2rem', background: '#0a0a0a' }}>
+    <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '3rem', color: '#fff' }}>Simple Pricing</h2>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: '2rem',
+      maxWidth: '900px',
+      margin: '0 auto'
+    }}>
+      {[
+        { name: 'Starter', price: '$0', features: ['5 AI agents', '1,000 requests/mo', 'Community support'] },
+        { name: 'Pro', price: '$49', features: ['Unlimited agents', '100,000 requests/mo', 'Priority support', 'Custom domains'], popular: true },
+        { name: 'Enterprise', price: 'Custom', features: ['Unlimited everything', 'SLA guarantee', 'Dedicated support', 'Custom integrations'] }
+      ].map((plan, i) => (
+        <div key={i} style={{
+          background: plan.popular ? '#10b981' : '#1a1a1a',
+          padding: '2rem',
+          borderRadius: '12px',
+          textAlign: 'center',
+          transform: plan.popular ? 'scale(1.05)' : 'none'
+        }}>
+          {plan.popular && <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '2px' }}>Most Popular</span>}
+          <h3 style={{ fontSize: '1.5rem', margin: '0.5rem 0', color: plan.popular ? '#fff' : '#fff' }}>{plan.name}</h3>
+          <p style={{ fontSize: '2.5rem', fontWeight: 800, margin: '0.5rem 0', color: plan.popular ? '#fff' : '#10b981' }}>{plan.price}</p>
+          <p style={{ fontSize: '0.875rem', color: plan.popular ? 'rgba(255,255,255,0.8)' : '#a1a1aa' }}>{plan.price !== 'Custom' ? '/month' : 'Contact us'}</p>
+          <ul style={{ listStyle: 'none', padding: 0, margin: '1.5rem 0', textAlign: 'left' }}>
+            {plan.features.map((f, j) => (
+              <li key={j} style={{ padding: '0.5rem 0', color: plan.popular ? 'rgba(255,255,255,0.9)' : '#d4d4d4', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>{f}</li>
+            ))}
+          </ul>
+          <button style={{
+            width: '100%',
+            padding: '0.75rem',
+            background: plan.popular ? '#fff' : '#10b981',
+            color: plan.popular ? '#10b981' : '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontWeight: 600
+          }}>Get Started</button>
+        </div>
+      ))}
+    </div>
+  </section>
+)
+
+export const Footer = () => (
+  <footer style={{
+    padding: '3rem 2rem',
+    background: '#050505',
+    color: '#71717a',
+    textAlign: 'center'
+  }}>
+    <p>&copy; 2026 Acme Inc. Built with dotdo.</p>
+    <p style={{ marginTop: '0.5rem' }}>
+      <a href="/docs" style={{ color: '#10b981', marginRight: '1rem' }}>Docs</a>
+      <a href="/blog" style={{ color: '#10b981', marginRight: '1rem' }}>Blog</a>
+      <a href="https://github.com/acme" style={{ color: '#10b981' }}>GitHub</a>
+    </p>
+  </footer>
+)
+
+<Hero
+  headline="Ship 10x Faster"
+  subheadline="AI agents handle the repetitive work so you can focus on building your vision."
+  cta={{ text: "Start Building Free", href: "/app" }}
+/>
+
+<Features items={[
+  {
+    title: "AI-Powered Development",
+    description: "Priya writes specs, Ralph builds code, Tom reviews. Your AI team works 24/7."
+  },
+  {
+    title: "Human-in-the-Loop",
+    description: "Critical decisions escalate to humans. Approve launches, review contracts, sign off on budgets."
+  },
+  {
+    title: "Edge-First Architecture",
+    description: "Deploy to 300+ cities worldwide. Zero cold starts. Sub-millisecond latency."
+  },
+  {
+    title: "Business as Code",
+    description: "Define your business logic in TypeScript. Workflows, agents, and humans - all in code."
+  },
+  {
+    title: "Built-in Compliance",
+    description: "SOC2, GDPR, HIPAA ready. Audit logs, data residency, encryption at rest."
+  },
+  {
+    title: "Scale to Zero",
+    description: "Pay only for what you use. No idle servers. Perfect for startups and enterprises alike."
+  }
+]} />
+
+<Pricing />
+
+<Footer />

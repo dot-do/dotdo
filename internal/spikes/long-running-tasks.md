@@ -101,7 +101,7 @@ interface StepResult {
 }
 ```
 
-### CFWorkflowsBackend (`workflows/compat/backends/cloudflare-workflows.ts`)
+### CFWorkflowsBackend (moved to compat repo at `@dotdo/compat-workflows/backends/cloudflare-workflows.ts`)
 
 Native CF Workflows integration already exists:
 

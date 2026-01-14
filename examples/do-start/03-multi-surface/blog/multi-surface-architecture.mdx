@@ -1,0 +1,128 @@
+---
+title: Introducing Multi-Surface Architecture
+date: 2026-01-13
+author: Acme Engineering
+tags: [architecture, announcement]
+featured: true
+---
+
+# Introducing Multi-Surface Architecture
+
+We are excited to announce the general availability of multi-surface architecture in dotdo. This feature allows you to build complete applications with distinct frontend surfaces, all sharing the same backend.
+
+## The Problem
+
+Traditional web applications struggle with a common challenge: how do you serve different experiences to different audiences without duplicating infrastructure?
+
+- Marketing teams want a fast, SEO-optimized landing page
+- Product teams want a feature-rich dashboard
+- Admin teams need specialized tooling
+- Users need documentation and support content
+
+Previously, this meant:
+
+- Multiple repositories
+- Separate deployment pipelines
+- Duplicated authentication
+- Inconsistent data access
+
+## The Solution: Surfaces
+
+With dotdo surfaces, you define each frontend as a simple file:
+
+```
+my-app/
+  Site.mdx          # Marketing at /
+  App.tsx           # Dashboard at /app
+  Admin.tsx         # Admin panel at /admin
+  Docs.mdx          # Docs at /docs
+  Blog.mdx          # Blog at /blog
+```
+
+Each surface is:
+
+- **Independently developed** - Teams work on their surface
+- **Automatically routed** - No configuration needed
+- **Sharing the same backend** - One set of Durable Objects
+- **Type-safe** - Full TypeScript support
+
+## Zero Configuration
+
+The most powerful feature is that no configuration is required. Run `do start` and all surfaces are discovered and served automatically:
+
+```bash
+$ do start
+
+Discovered surfaces:
+  Site.mdx   -> /
+  App.tsx    -> /app
+  Admin.tsx  -> /admin
+  Docs.mdx   -> /docs
+  Blog.mdx   -> /blog
+
+Server running at http://localhost:4000
+```
+
+## Content Directories
+
+For content-heavy surfaces like Docs and Blog, simply create matching directories:
+
+```
+docs/
+  getting-started.mdx    # /docs/getting-started
+  api.mdx                # /docs/api
+  surfaces.mdx           # /docs/surfaces
+
+blog/
+  hello-world.mdx        # /blog/hello-world
+  announcement.mdx       # /blog/announcement
+```
+
+Content files are automatically routed based on their path.
+
+## Shared Durable Objects
+
+The real power comes from shared backend logic. Define a DO in any surface file:
+
+```tsx
+// In App.tsx
+export class Workspace extends DO {
+  async createProject(name: string) {
+    return this.things.create({ $type: 'Project', name })
+  }
+}
+```
+
+This DO is now available:
+
+- As a REST API at `/Workspace/:id`
+- From any surface via RPC
+- With automatic persistence
+
+## Try It Today
+
+Get started with the multi-surface example:
+
+```bash
+git clone https://github.com/dotdo/dotdo
+cd dotdo/examples/do-start/03-multi-surface
+do start
+```
+
+Then visit:
+
+- http://localhost:4000/ (Site)
+- http://localhost:4000/app (App)
+- http://localhost:4000/admin (Admin)
+- http://localhost:4000/docs (Docs)
+- http://localhost:4000/blog (Blog)
+
+## What's Next
+
+We are working on:
+
+- **Surface composition** - Embed surfaces within surfaces
+- **Surface middleware** - Auth, logging, analytics per surface
+- **Surface-specific configuration** - Fine-grained control
+
+Stay tuned for more updates!

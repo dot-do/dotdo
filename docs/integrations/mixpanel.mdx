@@ -1,0 +1,505 @@
+---
+title: "Mixpanel"
+description: "Drop-in replacement for Mixpanel SDK with edge compatibility and local development mode."
+---
+
+# Mixpanel
+
+Drop-in replacement for mixpanel-node SDK. Your existing analytics code works unchanged - just swap the import.
+
+```typescript
+// Before: Mixpanel
+import Mixpanel from 'mixpanel'
+
+// After: dotdo
+import { Mixpanel, init } from '@dotdo/mixpanel'
+
+// Code stays the same
+const mp = init('YOUR_TOKEN')
+mp.track('Signup', { userId: 'user-123', plan: 'premium' })
+```
+
+## Prerequisites
+
+Before integrating Mixpanel with dotdo, you need:
+
+### 1. Mixpanel Account
+
+1. Sign up at [mixpanel.com](https://mixpanel.com)
+2. Create a project
+
+### 2. Get Your Project Token
+
+1. Go to **Settings** > **Project Settings**
+2. Copy the **Project Token**
+3. For query APIs: Get your **API Secret** from the same page
+
+### 3. Environment Setup
+
+Store your credentials securely:
+
+```bash
+MIXPANEL_TOKEN=your_project_token_here
+MIXPANEL_SECRET=your_api_secret_here  # Optional, for query APIs
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MIXPANEL_TOKEN` | Yes (production) | Mixpanel project token |
+| `MIXPANEL_SECRET` | No | API secret for query APIs |
+
+## Why @dotdo/mixpanel?
+
+| mixpanel-node | @dotdo/mixpanel |
+|---------------|-----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Network calls required | Local mode for testing |
+| Limited TypeScript | Full TypeScript support |
+| External dependency | Works offline |
+
+**This is a compatibility layer.** It can either forward events to real Mixpanel APIs (production) or buffer events locally for testing and development.
+
+## Features
+
+### Implemented
+
+**Track Events**
+- `track()` - Track events
+- `alias()` - Create aliases
+- `identify()` - Set distinct_id
+- `import()` - Import historical events
+- `import_batch()` - Batch import
+
+**People (User Profiles)**
+- `people.set()` - Set properties
+- `people.set_once()` - Set once
+- `people.increment()` - Increment numeric
+- `people.append()` - Append to list
+- `people.union()` - Union with list
+- `people.remove()` - Remove from list
+- `people.unset()` - Delete properties
+- `people.delete()` - Delete user
+- `people.track_charge()` - Track revenue
+
+**Groups**
+- `groups.set()` - Set group properties
+- `groups.set_once()` - Set once
+- `groups.delete()` - Delete group
+- `groups.remove()` - Remove property
+- `groups.union()` - Union with list
+- `groups.unset()` - Delete properties
+
+**Query APIs (require secret)**
+- `export` - Raw data export
+- `jql` - JQL queries
+- `funnels` - Funnel analysis
+- `segmentation` - Segmentation reports
+- `retention` - Retention analysis
+- `cohorts` - Cohort management
+
+### Not Yet Implemented
+
+- Lookup Tables
+- Data Pipelines
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/mixpanel
+```
+
+### Basic Usage
+
+```typescript
+import { init, Mixpanel } from '@dotdo/mixpanel'
+
+// Initialize
+const mp = init(process.env.MIXPANEL_TOKEN)
+
+// Identify user for all subsequent calls
+mp.identify('user-123')
+
+// Track events
+mp.track('Page View', {
+  page: '/home',
+  referrer: 'google.com',
+})
+
+mp.track('Button Clicked', {
+  button: 'Sign Up',
+  variant: 'blue',
+})
+
+// Track with explicit distinct_id
+mp.track('Purchase', {
+  distinct_id: 'user-123',
+  product: 'Pro Plan',
+  revenue: 99.99,
+  currency: 'USD',
+})
+
+// Flush events to Mixpanel
+await mp.flush()
+```
+
+### People Profiles
+
+```typescript
+import { init } from '@dotdo/mixpanel'
+
+const mp = init(process.env.MIXPANEL_TOKEN)
+
+// Set user properties
+mp.people.set('user-123', {
+  $email: 'user@example.com',
+  $name: 'John Doe',
+  plan: 'premium',
+  signup_date: new Date().toISOString(),
+})
+
+// Set once (won't overwrite)
+mp.people.set_once('user-123', {
+  first_seen: new Date().toISOString(),
+})
+
+// Increment numeric properties
+mp.people.increment('user-123', {
+  page_views: 1,
+  login_count: 1,
+})
+
+// Track revenue
+mp.people.track_charge('user-123', 99.99, {
+  plan: 'premium',
+  period: 'monthly',
+})
+
+// Append to list
+mp.people.append('user-123', {
+  visited_pages: '/pricing',
+})
+
+// Union (unique values)
+mp.people.union('user-123', {
+  features_used: ['dashboard', 'reports'],
+})
+```
+
+### Groups
+
+```typescript
+import { init } from '@dotdo/mixpanel'
+
+const mp = init(process.env.MIXPANEL_TOKEN)
+
+// Set group properties
+mp.groups.set('company', 'company-456', {
+  name: 'Acme Inc',
+  plan: 'enterprise',
+  employees: 500,
+})
+
+// Track with group
+mp.track('Feature Used', {
+  distinct_id: 'user-123',
+  feature: 'analytics',
+  $groups: { company: 'company-456' },
+})
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { Mixpanel, type MixpanelConfig } from '@dotdo/mixpanel'
+
+const config: MixpanelConfig = {
+  // Required
+  token: process.env.MIXPANEL_TOKEN,
+
+  // Optional: API secret for query APIs
+  secret: process.env.MIXPANEL_SECRET,
+
+  // Batching
+  batch: true,
+  batchSize: 50,
+  batchFlushInterval: 10000, // 10 seconds
+
+  // Debugging
+  debug: false,
+
+  // Retry
+  maxRetries: 3,
+}
+
+const mp = new Mixpanel(config)
+```
+
+## Inbound - Local Development
+
+For local development and testing, use the in-memory transport:
+
+```typescript
+import { Mixpanel, InMemoryTransport } from '@dotdo/mixpanel'
+
+// Create in-memory transport
+const transport = new InMemoryTransport()
+
+const mp = new Mixpanel({
+  token: 'test-token',
+  transport,
+})
+
+// Track events (stored in memory)
+mp.identify('test-user')
+mp.track('Test Event', { value: 123 })
+
+// Inspect captured events in tests
+const events = transport.getEvents()
+expect(events).toHaveLength(1)
+expect(events[0].event).toBe('Test Event')
+
+// Clear between tests
+transport.clear()
+```
+
+## Outbound - Production
+
+For production, events are sent to Mixpanel:
+
+```typescript
+// worker.ts
+import { init } from '@dotdo/mixpanel'
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const mp = init(env.MIXPANEL_TOKEN)
+
+    // Extract user from request
+    const userId = request.headers.get('x-user-id')
+
+    if (userId) {
+      mp.identify(userId)
+
+      // Track page view
+      mp.track('API Request', {
+        path: new URL(request.url).pathname,
+        method: request.method,
+        userAgent: request.headers.get('user-agent'),
+      })
+    }
+
+    // Important: Flush before response
+    ctx.waitUntil(mp.flush())
+
+    return new Response('OK')
+  },
+}
+```
+
+## Query APIs
+
+Access Mixpanel's query APIs (requires API secret):
+
+```typescript
+import { Mixpanel } from '@dotdo/mixpanel'
+
+const mp = new Mixpanel({
+  token: process.env.MIXPANEL_TOKEN,
+  secret: process.env.MIXPANEL_SECRET,
+})
+
+// Export raw events
+const events = await mp.export.export({
+  from_date: '2025-01-01',
+  to_date: '2025-01-07',
+  event: 'Purchase',
+})
+
+for await (const event of events) {
+  console.log(event)
+}
+
+// Run JQL query
+const result = await mp.jql.query({
+  script: `
+    function main() {
+      return Events({
+        from_date: '2025-01-01',
+        to_date: '2025-01-07',
+        event_selectors: [{ event: 'Purchase' }]
+      })
+      .groupByUser(function(state, events) {
+        state.count = (state.count || 0) + events.length;
+        state.total = (state.total || 0) + events.reduce((sum, e) => sum + e.properties.amount, 0);
+        return state;
+      })
+      .reduce(mixpanel.reducer.count());
+    }
+  `,
+})
+
+// Get funnel data
+const funnel = await mp.funnels.get({
+  funnel_id: 12345,
+  from_date: '2025-01-01',
+  to_date: '2025-01-07',
+})
+
+// Get segmentation data
+const segmentation = await mp.segmentation.get({
+  event: 'Purchase',
+  from_date: '2025-01-01',
+  to_date: '2025-01-07',
+  on: 'properties["plan"]',
+})
+
+// Get retention data
+const retention = await mp.retention.get({
+  from_date: '2025-01-01',
+  to_date: '2025-01-07',
+  born_event: 'Signup',
+  event: 'Login',
+})
+
+// List cohorts
+const cohorts = await mp.cohorts.list()
+```
+
+## Error Handling
+
+```typescript
+import { init } from '@dotdo/mixpanel'
+
+const mp = init(process.env.MIXPANEL_TOKEN)
+
+// With callback
+mp.track('Test Event', { value: 1 }, (err) => {
+  if (err) {
+    console.error('Failed to track:', err.message)
+  }
+})
+
+// With async/await
+try {
+  await mp.flush()
+} catch (error) {
+  console.error('Failed to flush events:', error)
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support:
+
+```typescript
+import type {
+  // Config
+  MixpanelConfig,
+
+  // Events
+  TrackProperties,
+  TrackEvent,
+  ImportEvent,
+
+  // People
+  PeopleProperties,
+  PeopleUpdate,
+
+  // Groups
+  GroupUpdate,
+
+  // Query APIs
+  ExportOptions,
+  JQLOptions,
+  FunnelOptions,
+  SegmentationOptions,
+  RetentionOptions,
+
+  // Results
+  QueryResult,
+  FunnelResult,
+  SegmentationResult,
+  RetentionResult,
+
+  // Transport
+  Transport,
+  TrackResponse,
+  EngageResponse,
+} from '@dotdo/mixpanel'
+```
+
+## Workflow Integration
+
+Use Mixpanel with dotdo workflows for durable analytics:
+
+```typescript
+import { $ } from 'dotdo'
+import { init } from '@dotdo/mixpanel'
+
+export class ConversionTracker {
+  mp = init(this.env.MIXPANEL_TOKEN)
+
+  async trackConversion(userId: string, plan: string, amount: number) {
+    // Durable tracking
+    await $.do(() => {
+      this.mp.track('Subscription Started', {
+        distinct_id: userId,
+        plan,
+        amount,
+        currency: 'USD',
+      })
+
+      this.mp.people.set(userId, {
+        plan,
+        subscription_date: new Date().toISOString(),
+      })
+
+      this.mp.people.track_charge(userId, amount, { plan })
+
+      return this.mp.flush()
+    })
+  }
+}
+```
+
+## Migration from mixpanel
+
+### 1. Package Change
+
+```bash
+# Remove mixpanel
+npm uninstall mixpanel
+
+# Install dotdo package
+npm install @dotdo/mixpanel
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import Mixpanel from 'mixpanel'
+const mp = Mixpanel.init('token')
+
+// After
+import { init } from '@dotdo/mixpanel'
+const mp = init('token')
+```
+
+### 3. Code Compatibility
+
+Most code should work unchanged. Key differences:
+- Use `await mp.flush()` to ensure events are sent
+- `import()` method is async
+
+## Related
+
+- [Segment Integration](/docs/integrations/segment) - Segment analytics
+- [Amplitude Integration](/docs/integrations/amplitude) - Amplitude analytics
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

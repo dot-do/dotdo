@@ -1,0 +1,78 @@
+---
+title: Getting Started
+description: Quick start guide for the multi-surface example
+order: 1
+---
+
+# Getting Started
+
+Welcome to the multi-surface example! This guide will help you understand how the five surfaces work together.
+
+## Running the Example
+
+```bash
+# Navigate to the example
+cd examples/do-start/03-multi-surface
+
+# Start the dev server
+do start
+```
+
+## Available Surfaces
+
+After starting, you'll have access to:
+
+| Surface | URL | File |
+|---------|-----|------|
+| Site | http://localhost:4000/ | Site.mdx |
+| App | http://localhost:4000/app | App.tsx |
+| Admin | http://localhost:4000/admin | Admin.tsx |
+| Docs | http://localhost:4000/docs | Docs.mdx |
+| Blog | http://localhost:4000/blog | Blog.mdx |
+
+## How Discovery Works
+
+The CLI automatically discovers surface files:
+
+1. Checks root directory for `{Surface}.tsx` or `{Surface}.mdx`
+2. Falls back to `.do/` directory
+3. TSX takes priority over MDX for same-named files
+
+## Adding Content
+
+### Documentation
+
+Add new docs to the `docs/` folder:
+
+```mdx
+---
+title: My New Guide
+order: 2
+---
+
+# My New Guide
+
+Content here...
+```
+
+### Blog Posts
+
+Add new posts to the `blog/` folder:
+
+```mdx
+---
+title: My Post Title
+date: 2026-01-15
+author: Your Name
+---
+
+# My Post Title
+
+Content here...
+```
+
+## Next Steps
+
+- Explore each surface's source code
+- Try modifying a surface and see hot reload
+- Add new content to `docs/` or `blog/`

@@ -1,0 +1,577 @@
+---
+title: "Clerk"
+description: "Drop-in replacement for Clerk Backend SDK with edge compatibility and local development mode."
+---
+
+# Clerk
+
+Drop-in replacement for Clerk Backend SDK. Your existing authentication code works unchanged - just swap the import.
+
+```typescript
+// Before: Clerk
+import { Clerk } from '@clerk/backend'
+
+// After: dotdo (import from compat/auth/clerk)
+import { Clerk } from 'compat/auth/clerk'
+
+// Code stays the same
+const clerk = new Clerk({ secretKey: 'sk_test_xxx' })
+const user = await clerk.users.getUser('user_xxx')
+```
+
+## Prerequisites
+
+Before integrating Clerk with dotdo, you need:
+
+### 1. Clerk Account
+
+1. Sign up at [clerk.com](https://clerk.com)
+2. Create an application
+
+### 2. Get Your API Keys
+
+1. Go to **API Keys** in your Clerk Dashboard
+2. Copy your **Secret Key** (starts with `sk_`)
+3. Optionally copy your **Publishable Key** (starts with `pk_`)
+
+### 3. Environment Setup
+
+Store your keys securely:
+
+```bash
+CLERK_SECRET_KEY=sk_test_xxxxx
+CLERK_PUBLISHABLE_KEY=pk_test_xxxxx  # Optional
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CLERK_SECRET_KEY` | Yes (production) | Clerk secret key |
+| `CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key |
+
+## Why compat/auth/clerk?
+
+| @clerk/backend | compat/auth/clerk |
+|----------------|--------------|
+| Node.js focused | Edge-compatible (Cloudflare Workers) |
+| Network calls required | Local mode for testing |
+| External dependency | Works offline |
+| Limited webhook support | Full webhook handling |
+
+**This is a compatibility layer.** It can either forward to real Clerk APIs (production) or run entirely locally for testing and development.
+
+## Features
+
+### Implemented
+
+**Users**
+- `users.createUser()` - Create users
+- `users.updateUser()` - Update users
+- `users.getUser()` - Get by ID
+- `users.getUserList()` / `users.listUsers()` - List users
+- `users.deleteUser()` - Delete users
+- `users.banUser()` / `users.unbanUser()` - Ban/unban users
+- `users.lockUser()` / `users.unlockUser()` - Lock/unlock users
+- `users.isUserBanned()` - Check if user is banned
+- `users.resetPassword()` - Generate password reset token
+- `users.checkPasswordStrength()` - Client-side password strength check
+- `users.createEmailVerification()` / `users.verifyEmail()` - Email verification
+- `users.createPhoneVerification()` / `users.verifyPhone()` - Phone verification
+- Profile images, metadata, external accounts, Web3 wallets
+
+**Sessions**
+- `sessions.getSession()` - Get session
+- `sessions.createSession()` - Create session
+- `sessions.getSessionList()` / `sessions.listSessions()` - List sessions
+- `sessions.revokeSession()` - Revoke session
+- `sessions.verifySession()` - Verify token
+- `sessions.getToken()` - Get JWT
+
+**Organizations**
+- `organizations.createOrganization()` - Create org
+- `organizations.updateOrganization()` - Update org
+- `organizations.getOrganization()` - Get by ID/slug
+- `organizations.getOrganizationList()` - List orgs
+- `organizations.deleteOrganization()` - Delete org
+- Metadata, logos, memberships
+
+**Invitations**
+- `invitations.createOrganizationInvitation()` - Invite
+- `invitations.listOrganizationInvitations()` - List
+- `invitations.revokeOrganizationInvitation()` - Revoke
+- Bulk invitations
+
+**Webhooks**
+- Webhook signature verification
+- Event parsing with types
+- Idempotency support
+- Multiple storage backends
+
+### Not Yet Implemented
+
+- Sign-in tokens
+- SAML connections
+- Custom domains
+- Instance settings
+
+## Quick Start
+
+### Install
+
+```bash
+npm install dotdo
+```
+
+### Basic Usage
+
+```typescript
+import { Clerk } from 'compat/auth/clerk'
+
+const clerk = new Clerk({ secretKey: process.env.CLERK_SECRET_KEY })
+
+// Create a user
+const user = await clerk.users.createUser({
+  emailAddress: ['user@example.com'],
+  password: 'secure-password-123',
+  firstName: 'John',
+  lastName: 'Doe',
+})
+
+// Update user
+await clerk.users.updateUser(user.id, {
+  publicMetadata: { role: 'admin' },
+})
+
+// List users
+const { data: users, total_count } = await clerk.users.listUsers({
+  limit: 10,
+  orderBy: 'created_at',
+})
+
+// Get user by email
+const foundUser = await clerk.users.getUserByEmail('user@example.com')
+```
+
+### Sessions
+
+```typescript
+import { Clerk } from 'compat/auth/clerk'
+
+const clerk = new Clerk({ secretKey: process.env.CLERK_SECRET_KEY })
+
+// Create session for user
+const session = await clerk.sessions.createSession({
+  userId: 'user_xxx',
+})
+
+// Get session
+const sessionInfo = await clerk.sessions.getSession(session.id)
+
+// Verify session token
+const token = await clerk.sessions.verifySession(session.id, jwtToken)
+
+// List user's sessions
+const { data: sessions } = await clerk.sessions.listSessions({
+  userId: 'user_xxx',
+})
+
+// Revoke session
+await clerk.sessions.revokeSession(session.id)
+```
+
+### Organizations
+
+```typescript
+import { Clerk } from 'compat/auth/clerk'
+
+const clerk = new Clerk({ secretKey: process.env.CLERK_SECRET_KEY })
+
+// Create organization
+const org = await clerk.organizations.createOrganization({
+  name: 'Acme Inc',
+  slug: 'acme',
+  createdBy: 'user_xxx',
+})
+
+// Invite member
+await clerk.invitations.createOrganizationInvitation(org.id, {
+  emailAddress: 'member@example.com',
+  role: 'basic_member',
+  inviterUserId: 'user_xxx',
+})
+
+// List organizations for user
+const { data: orgs } = await clerk.organizations.listOrganizations({
+  userId: 'user_xxx',
+})
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { Clerk, type ClerkClientOptions } from 'compat/auth/clerk'
+
+const options: ClerkClientOptions = {
+  // Required
+  secretKey: process.env.CLERK_SECRET_KEY,
+
+  // Optional
+  publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+  apiUrl: 'https://api.clerk.com',
+  apiVersion: 'v1',
+}
+
+const clerk = new Clerk(options)
+```
+
+## Inbound - Local Development
+
+For local development, the SDK works without real API calls when no secret key is provided, or you can use the client with a test key for integration testing.
+
+```typescript
+import { Clerk } from 'compat/auth/clerk'
+
+// For testing, use test mode key
+const clerk = new Clerk({ secretKey: 'sk_test_xxx' })
+
+// Operations work the same
+const user = await clerk.users.createUser({
+  emailAddress: ['test@example.com'],
+})
+```
+
+## Outbound - Production
+
+For production, connect to the real Clerk API:
+
+```typescript
+// worker.ts
+import { Clerk } from 'compat/auth/clerk'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const clerk = new Clerk({ secretKey: env.CLERK_SECRET_KEY })
+
+    // Verify session from header
+    const sessionId = request.headers.get('x-clerk-session-id')
+    const sessionToken = request.headers.get('authorization')?.replace('Bearer ', '')
+
+    if (!sessionId || !sessionToken) {
+      return new Response('Unauthorized', { status: 401 })
+    }
+
+    try {
+      const { jwt } = await clerk.sessions.verifySession(sessionId, sessionToken)
+      // User is authenticated
+      return new Response('OK')
+    } catch (error) {
+      return new Response('Invalid session', { status: 401 })
+    }
+  },
+}
+```
+
+## Custom Session Validator
+
+Create a robust session validator with proper types and error handling:
+
+```typescript
+import { Clerk, type ClerkUser } from 'compat/auth/clerk'
+
+interface ValidatedSession {
+  userId: string
+  email: string | undefined
+  role: 'admin' | 'user'
+  expiresAt: Date
+  activeOrganizationId: string | undefined
+}
+
+function isValidRole(role: unknown): role is 'admin' | 'user' {
+  return role === 'admin' || role === 'user'
+}
+
+const validateClerkSession = async (
+  sessionId: string,
+  token: string
+): Promise<ValidatedSession | null> => {
+  const clerk = new Clerk({ secretKey: process.env.CLERK_SECRET_KEY })
+
+  try {
+    const { session } = await clerk.sessions.verifySession(sessionId, token)
+
+    if (!session || session.status !== 'active') {
+      console.warn('[auth] Session invalid or inactive:', session?.id)
+      return null
+    }
+
+    const user: ClerkUser = await clerk.users.getUser(session.userId)
+
+    // Safely access role with type guard
+    const rawRole = user.publicMetadata?.role
+    const role = isValidRole(rawRole) ? rawRole : 'user'
+
+    // Safely access email (may be undefined)
+    const primaryEmail = user.emailAddresses?.[0]?.emailAddress
+
+    return {
+      userId: user.id,
+      email: primaryEmail,
+      role,
+      expiresAt: new Date(session.expireAt),
+      activeOrganizationId: session.lastActiveOrganizationId ?? undefined,
+    }
+  } catch (error) {
+    console.error('[auth] Session validation failed:', error)
+    return null
+  }
+}
+```
+
+### Using with Auth Middleware
+
+```typescript
+import { authMiddleware } from 'dotdo/api/middleware/auth'
+
+app.use('*', authMiddleware({
+  // Extract session ID from Clerk's x-clerk-session-id header
+  // and token from Authorization: Bearer header
+  validateSession: async (token: string, c) => {
+    const sessionId = c.req.header('x-clerk-session-id')
+    if (!sessionId) {
+      console.warn('[auth] Missing x-clerk-session-id header')
+      return null
+    }
+    return validateClerkSession(sessionId, token)
+  },
+  sessionCache: env.KV,
+  sessionCacheTtl: 300,
+}))
+```
+
+## Webhooks
+
+Handle Clerk webhooks with signature verification:
+
+```typescript
+import { Webhook, createWebhookHandler, type ClerkWebhookEvent } from 'compat/auth/clerk'
+
+// Simple webhook verification
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const webhook = new Webhook(env.CLERK_WEBHOOK_SECRET)
+
+    const headers = {
+      'svix-id': request.headers.get('svix-id')!,
+      'svix-timestamp': request.headers.get('svix-timestamp')!,
+      'svix-signature': request.headers.get('svix-signature')!,
+    }
+
+    const body = await request.text()
+
+    try {
+      const event = webhook.verify(body, headers) as ClerkWebhookEvent
+
+      switch (event.type) {
+        case 'user.created':
+          console.log('User created:', event.data.id)
+          break
+        case 'session.created':
+          console.log('Session created:', event.data.id)
+          break
+        case 'organization.created':
+          console.log('Org created:', event.data.name)
+          break
+      }
+
+      return new Response('OK')
+    } catch (error) {
+      return new Response('Invalid signature', { status: 401 })
+    }
+  },
+}
+```
+
+### Typed Webhook Handler
+
+```typescript
+import { createWebhookHandler, type WebhookHandlerOptions } from 'compat/auth/clerk'
+
+const handler = createWebhookHandler({
+  secret: process.env.CLERK_WEBHOOK_SECRET,
+  onUserCreated: async (event) => {
+    console.log('User created:', event.data.email_addresses)
+  },
+  onSessionCreated: async (event) => {
+    console.log('Session:', event.data.user_id)
+  },
+  onOrganizationMembershipCreated: async (event) => {
+    console.log('Member joined:', event.data.organization.name)
+  },
+})
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    return handler.handleRequest(request)
+  },
+}
+```
+
+### Webhook Handler with Custom Events
+
+Use the fluent API to handle multiple event types:
+
+```typescript
+import { createWebhookHandler } from 'compat/auth/clerk'
+
+const handler = createWebhookHandler(process.env.CLERK_WEBHOOK_SECRET!)
+
+handler
+  .on('user.created', async (event) => {
+    await sendWelcomeEmail(event.data.email_addresses[0])
+  })
+  .on('user.deleted', async (event) => {
+    await cleanupUserData(event.data.id)
+  })
+  .on('organization.created', async (event) => {
+    await initializeOrgWorkspace(event.data.id)
+  })
+
+export default { fetch: handler.createHandler() }
+```
+
+## Error Handling
+
+```typescript
+import { Clerk, ClerkAPIError } from 'compat/auth/clerk'
+
+const clerk = new Clerk({ secretKey: process.env.CLERK_SECRET_KEY })
+
+try {
+  await clerk.users.getUser('invalid-id')
+} catch (error) {
+  if (error instanceof ClerkAPIError) {
+    console.log('Status:', error.status)
+    console.log('Code:', error.code)
+    console.log('Message:', error.message)
+    console.log('Errors:', error.errors)
+  }
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // User types
+  ClerkUser,
+  ClerkEmailAddress,
+  ClerkPhoneNumber,
+  CreateUserParams,
+  UpdateUserParams,
+
+  // Session types
+  ClerkSession,
+  ClerkSessionActor,
+  ClerkSessionClaims,
+
+  // Organization types
+  ClerkOrganization,
+  ClerkOrganizationMembership,
+  ClerkOrganizationInvitation,
+  CreateOrganizationParams,
+  UpdateOrganizationParams,
+  CreateInvitationParams,
+
+  // Webhook types
+  ClerkWebhookEvent,
+  ClerkWebhookEventType,
+  WebhookEventHandler,
+  WebhookHandlerOptions,
+
+  // Response types
+  ClerkPaginatedList,
+  ClerkDeletedObject,
+
+  // Error types
+  ClerkError,
+  ClerkErrorDetail,
+
+  // Config
+  ClerkClientOptions,
+} from 'compat/auth/clerk'
+```
+
+## Workflow Integration
+
+Use Clerk with dotdo workflows for durable auth operations:
+
+```typescript
+import { $ } from 'dotdo'
+import { Clerk } from 'compat/auth/clerk'
+
+export class UserOnboarding {
+  clerk = new Clerk({ secretKey: this.env.CLERK_SECRET_KEY })
+
+  async onboardUser(email: string, orgName: string) {
+    // Create user durably
+    const user = await $.do(() =>
+      this.clerk.users.createUser({
+        emailAddress: [email],
+      })
+    )
+
+    // Create organization
+    const org = await $.do(() =>
+      this.clerk.organizations.createOrganization({
+        name: orgName,
+        createdBy: user.id,
+      })
+    )
+
+    // Update user metadata
+    await $.do(() =>
+      this.clerk.users.updateUserMetadata(user.id, {
+        publicMetadata: { onboarded: true, orgId: org.id },
+      })
+    )
+
+    return { userId: user.id, orgId: org.id }
+  }
+}
+```
+
+## Migration from @clerk/backend
+
+### 1. Package Change
+
+```bash
+# Remove Clerk SDK
+npm uninstall @clerk/backend
+
+# Install dotdo package
+npm install dotdo
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import { Clerk } from '@clerk/backend'
+
+// After
+import { Clerk } from 'compat/auth/clerk'
+```
+
+### 3. Code Compatibility
+
+Your existing code should work unchanged. The API surface matches @clerk/backend.
+
+## Related
+
+- [Auth Overview](/docs/auth) - Authentication concepts
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

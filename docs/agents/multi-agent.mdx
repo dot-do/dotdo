@@ -85,19 +85,27 @@ const results = await Promise.all(
 )
 ```
 
-### Pipeline with Promise Pipelining
+### Sequential Agent Chains
 
-Use Magic Map for single round-trip execution:
+Chain agents with `.map()` for sequential transformations:
 
 ```typescript
-const sprint = await priya`plan the sprint`
-  .map(issue => ralph`build ${issue}`)
+// Each step waits for the previous to complete
+const result = await priya`plan the sprint`
+  .map(spec => ralph`build ${spec}`)
   .map(code => tom`review ${code}`)
-  .map(pr => quinn`test ${pr}`)
-  .map(pr => tom`merge ${pr}`)
+
+// For batch operations over arrays, use Promise.all
+const tasks = ['auth', 'dashboard', 'api']
+const reviewed = await Promise.all(
+  tasks.map(async task => {
+    const code = await ralph`implement ${task}`
+    return tom`review ${code}`
+  })
+)
 ```
 
-The `.map()` isn't JavaScript's array method. It records your callback, sends it to the server, and replays it for each result. All in one network round trip.
+The `.map()` on agent results transforms a single value (like `.then()`). For server-side Magic Map with batch execution, use the [workflow proxy](/docs/rpc/magic-map).
 
 ---
 
