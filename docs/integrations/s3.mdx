@@ -1,0 +1,452 @@
+---
+title: "S3"
+description: "Drop-in replacement for @aws-sdk/client-s3 with edge compatibility and R2 backend support."
+---
+
+# S3
+
+Drop-in replacement for @aws-sdk/client-s3 v3. Your existing AWS S3 code works unchanged - just swap the import.
+
+```typescript
+// Before: AWS SDK
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+
+// After: dotdo
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+
+// Code stays the same
+const client = new S3Client({ region: 'us-east-1' })
+await client.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'my-file.txt',
+  Body: 'Hello World',
+}))
+```
+
+## Prerequisites
+
+Before integrating S3 with dotdo, you need:
+
+### 1. Choose Your Backend
+
+dotdo S3 supports two backends:
+- **MemoryBackend**: In-memory storage for testing and development
+- **R2Backend**: Cloudflare R2 for production (S3-compatible object storage)
+
+### 2. R2 Setup (Production)
+
+For production, create an R2 bucket in your Cloudflare dashboard:
+
+1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. Navigate to **R2** > **Create bucket**
+3. Note your bucket name
+
+### 3. Environment Setup
+
+Add R2 binding to your `wrangler.toml`:
+
+```toml
+[[r2_buckets]]
+binding = "MY_BUCKET"
+bucket_name = "my-production-bucket"
+```
+
+## Environment Variables
+
+```bash
+# For local development (no external calls)
+# No environment variables required
+
+# For production with R2
+# Configure R2 binding in wrangler.toml instead of env vars
+```
+
+## Why @dotdo/s3?
+
+| @aws-sdk/client-s3 | @dotdo/s3 |
+|-------------------|-----------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| AWS S3 only | R2 backend (10x cheaper than S3) |
+| Network latency | Local testing with MemoryBackend |
+| Complex IAM configuration | Simple R2 bindings |
+
+**This is a compatibility layer.** It can use R2 backend for production or run entirely in-memory for testing. The API surface matches AWS SDK v3.
+
+## Features
+
+### Implemented
+
+**Bucket Operations**
+- `CreateBucketCommand` - Create new buckets
+- `DeleteBucketCommand` - Delete empty buckets
+- `HeadBucketCommand` - Check bucket existence
+- `ListBucketsCommand` - List all buckets
+
+**Object Operations**
+- `PutObjectCommand` - Upload objects
+- `GetObjectCommand` - Download objects with streaming
+- `HeadObjectCommand` - Get object metadata
+- `DeleteObjectCommand` - Delete single object
+- `DeleteObjectsCommand` - Batch delete
+- `CopyObjectCommand` - Copy between keys
+- `ListObjectsV2Command` - List with pagination
+
+**Multipart Uploads**
+- `CreateMultipartUploadCommand` - Initiate large uploads
+- `UploadPartCommand` - Upload parts
+- `CompleteMultipartUploadCommand` - Finalize upload
+- `AbortMultipartUploadCommand` - Cancel upload
+- `ListPartsCommand` - List uploaded parts
+- `ListMultipartUploadsCommand` - List active uploads
+
+**Presigned URLs**
+- `getSignedUrl()` - Generate presigned GET/PUT URLs
+
+**Advanced**
+- CORS configuration
+- Lifecycle rules
+- Bucket versioning
+
+### Not Yet Implemented
+
+- Bucket policies
+- Access control lists (ACLs)
+- Object lock
+- Replication
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/s3
+```
+
+### Basic Usage
+
+```typescript
+import {
+  S3Client,
+  CreateBucketCommand,
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+} from '@dotdo/s3'
+
+// In-memory storage (default for testing)
+const client = new S3Client({ region: 'auto' })
+
+// Create a bucket
+await client.send(new CreateBucketCommand({ Bucket: 'my-bucket' }))
+
+// Upload object
+await client.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'documents/report.pdf',
+  Body: pdfBuffer,
+  ContentType: 'application/pdf',
+}))
+
+// Download object
+const response = await client.send(new GetObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'documents/report.pdf',
+}))
+const content = await response.Body.transformToByteArray()
+
+// List objects with prefix
+const list = await client.send(new ListObjectsV2Command({
+  Bucket: 'my-bucket',
+  Prefix: 'documents/',
+  MaxKeys: 100,
+}))
+```
+
+### Multipart Upload (Large Files)
+
+```typescript
+import {
+  S3Client,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+} from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+// Initiate upload
+const { UploadId } = await client.send(new CreateMultipartUploadCommand({
+  Bucket: 'my-bucket',
+  Key: 'large-file.zip',
+}))
+
+// Upload parts (minimum 5MB per part, except last)
+const parts = []
+for (let i = 0; i < chunks.length; i++) {
+  const { ETag } = await client.send(new UploadPartCommand({
+    Bucket: 'my-bucket',
+    Key: 'large-file.zip',
+    UploadId,
+    PartNumber: i + 1,
+    Body: chunks[i],
+  }))
+  parts.push({ PartNumber: i + 1, ETag })
+}
+
+// Complete upload
+await client.send(new CompleteMultipartUploadCommand({
+  Bucket: 'my-bucket',
+  Key: 'large-file.zip',
+  UploadId,
+  MultipartUpload: { Parts: parts },
+}))
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { S3Client, type ExtendedS3ClientConfig } from '@dotdo/s3'
+
+const config: ExtendedS3ClientConfig = {
+  // AWS-compatible config
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAEXAMPLE',
+    secretAccessKey: 'SECRET',
+  },
+
+  // dotdo extensions
+  r2Bucket: env.MY_R2_BUCKET,        // R2 binding for production
+  useMemoryStorage: true,             // In-memory for testing
+
+  // Retry configuration
+  retryConfig: {
+    maxRetries: 3,
+    initialDelay: 1000,
+    maxDelay: 32000,
+    multiplier: 2,
+    jitter: 0.25,
+    timeoutBudget: 60000,
+  },
+}
+
+const client = new S3Client(config)
+```
+
+## Inbound - Local Development
+
+For local development and testing, use the in-memory backend:
+
+```typescript
+import { S3Client, _clearAll } from '@dotdo/s3'
+
+// Create client with memory storage (default)
+const client = new S3Client({ useMemoryStorage: true })
+
+// Operations work locally - no network calls
+await client.send(new PutObjectCommand({
+  Bucket: 'test-bucket',
+  Key: 'test.txt',
+  Body: 'test content',
+}))
+
+// Clear storage between tests
+_clearAll()
+```
+
+## Outbound - Production
+
+For production, connect to Cloudflare R2:
+
+```typescript
+// worker.ts
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Use R2 backend
+    const client = new S3Client({ r2Bucket: env.MY_BUCKET })
+
+    // Operations go to R2
+    await client.send(new PutObjectCommand({
+      Bucket: 'my-bucket',
+      Key: 'uploads/file.txt',
+      Body: await request.text(),
+    }))
+
+    return Response.json({ success: true })
+  },
+}
+```
+
+## Presigned URLs
+
+Generate presigned URLs for direct client uploads/downloads:
+
+```typescript
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+import { getSignedUrl } from '@dotdo/s3'
+
+const client = new S3Client({ r2Bucket: env.MY_BUCKET })
+
+// Generate upload URL (expires in 1 hour)
+const uploadUrl = await getSignedUrl(
+  client,
+  new PutObjectCommand({
+    Bucket: 'my-bucket',
+    Key: 'user-uploads/photo.jpg',
+  }),
+  { expiresIn: 3600 }
+)
+
+// Generate download URL
+const downloadUrl = await getSignedUrl(
+  client,
+  new GetObjectCommand({
+    Bucket: 'my-bucket',
+    Key: 'user-uploads/photo.jpg',
+  }),
+  { expiresIn: 3600 }
+)
+```
+
+## Error Handling
+
+```typescript
+import {
+  S3Client,
+  GetObjectCommand,
+  NoSuchBucket,
+  NoSuchKey,
+  S3ServiceException,
+} from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+try {
+  await client.send(new GetObjectCommand({
+    Bucket: 'my-bucket',
+    Key: 'missing-file.txt',
+  }))
+} catch (error) {
+  if (error instanceof NoSuchKey) {
+    console.log('Object not found')
+  } else if (error instanceof NoSuchBucket) {
+    console.log('Bucket does not exist')
+  } else if (error instanceof S3ServiceException) {
+    console.log('S3 error:', error.name, error.message)
+  }
+}
+```
+
+### Common Error Classes
+
+| Error | Description |
+|-------|-------------|
+| `NoSuchBucket` | Bucket does not exist |
+| `NoSuchKey` | Object key not found |
+| `BucketAlreadyExists` | Bucket name is taken |
+| `BucketNotEmpty` | Cannot delete non-empty bucket |
+| `NoSuchUpload` | Multipart upload not found |
+| `AccessDenied` | Permission denied |
+| `InvalidBucketName` | Invalid bucket name format |
+
+## TypeScript Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Client
+  S3ClientConfig,
+  ExtendedS3ClientConfig,
+
+  // Commands
+  PutObjectCommandInput,
+  PutObjectCommandOutput,
+  GetObjectCommandInput,
+  GetObjectCommandOutput,
+
+  // Objects
+  StreamingBody,
+  StorageClass,
+  ResponseMetadata,
+
+  // Backend
+  StorageBackend,
+} from '@dotdo/s3'
+```
+
+## Workflow Integration
+
+Use S3 with dotdo workflows for durable operations:
+
+```typescript
+import { $ } from 'dotdo'
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+
+export class FileProcessor {
+  s3 = new S3Client({ r2Bucket: this.env.FILES_BUCKET })
+
+  async processUpload(file: ArrayBuffer, key: string) {
+    // Durable upload with retries
+    const result = await $.do(() =>
+      this.s3.send(new PutObjectCommand({
+        Bucket: 'processed-files',
+        Key: key,
+        Body: new Uint8Array(file),
+      }))
+    )
+
+    return result.ETag
+  }
+}
+```
+
+## Migration from @aws-sdk/client-s3
+
+### 1. Package Change
+
+```bash
+# Remove AWS SDK
+npm uninstall @aws-sdk/client-s3
+
+# Install dotdo package
+npm install @dotdo/s3
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+
+// After
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+```
+
+### 3. Configuration Changes
+
+```typescript
+// Before: AWS credentials
+const client = new S3Client({
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+})
+
+// After: R2 binding (simpler)
+const client = new S3Client({
+  r2Bucket: env.MY_BUCKET,
+})
+```
+
+## Related
+
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs
+- [GCS Integration](/docs/integrations/gcs) - Google Cloud Storage
+- [Storage Overview](/docs/compat/databases) - Database and storage options

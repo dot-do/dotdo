@@ -19,7 +19,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 
 describe('Agent Tool Binding', () => {
-  const testDir = path.join(process.cwd(), '.test-agent-output')
+  const testDir = path.join(process.cwd(), 'tests', '.output', 'agent-tool-binding')
 
   beforeAll(() => {
     // Use mock mode to avoid API key issues during RED phase testing

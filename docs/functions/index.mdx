@@ -9,14 +9,16 @@ dotdo provides multiple function execution patterns for different use cases. Fun
 
 ## Function Types
 
-dotdo supports four function types:
+dotdo supports four function types, each optimized for different execution patterns:
 
-| Type | Description | Executor Class |
-|------|-------------|----------------|
-| `code` | TypeScript/JavaScript handlers executed in V8 isolates | `CodeFunctionExecutor` |
-| `generative` | AI-powered functions using language models | `GenerativeFunctionExecutor` |
-| `agentic` | Multi-step AI tasks with tool orchestration | `AgenticFunctionExecutor` |
-| `human` | Tasks requiring human input or approval | `HumanFunctionExecutor` |
+| Type | Description | Use When | Executor Class |
+|------|-------------|----------|----------------|
+| `code` | TypeScript/JavaScript handlers | Deterministic logic, calculations | `CodeFunctionExecutor` |
+| `generative` | Single LLM completion | Text generation, classification | `GenerativeFunctionExecutor` |
+| `agentic` | Multi-step AI with tools | Complex reasoning, research | `AgenticFunctionExecutor` |
+| `human` | Human-in-the-loop tasks | Approvals, judgment calls | `HumanFunctionExecutor` |
+
+See [Function Types](/docs/functions/types) for detailed documentation of each type, including when to use them, code examples, and workflow integration patterns.
 
 ## Creating Functions with createFunction()
 
@@ -121,6 +123,7 @@ See [Function Composition](/docs/functions/composition) for details.
 
 ## Related
 
+- [Function Types](/docs/functions/types) - Deep dive into Code, Generative, Agentic, and Human function types
 - [Concepts: Functions](/docs/concepts/functions) - Function abstraction with four types and cascade patterns
 - [SDK: DOFunction](/docs/sdk/functions) - Generic function type reference
 - [createFunction Factory](/docs/functions/create-function) - Creating function instances with validation and composition

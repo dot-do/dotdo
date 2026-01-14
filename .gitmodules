@@ -1,15 +1,18 @@
-[submodule "primitives/fsx"]
-	path = primitives/fsx
+[submodule "capabilities/fsx"]
+	path = capabilities/fsx
 	url = https://github.com/dot-do/fsx.git
-[submodule "primitives/bashx"]
-	path = primitives/bashx
+[submodule "capabilities/bashx"]
+	path = capabilities/bashx
 	url = https://github.com/dot-do/bashx.git
-[submodule "primitives/gitx"]
-	path = primitives/gitx
+[submodule "capabilities/gitx"]
+	path = capabilities/gitx
 	url = https://github.com/dot-do/gitx.git
-[submodule "primitives/npmx"]
-	path = primitives/npmx
+[submodule "capabilities/npmx"]
+	path = capabilities/npmx
 	url = https://github.com/dot-do/npmx.git
-[submodule "primitives/pyx"]
-	path = primitives/pyx
+[submodule "capabilities/pyx"]
+	path = capabilities/pyx
 	url = https://github.com/dot-do/pyx.git
+[submodule "ai/primitives"]
+	path = ai/primitives
+	url = https://github.com/dot-org-ai/primitives.org.ai.git

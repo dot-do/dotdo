@@ -1,0 +1,508 @@
+---
+title: "Zendesk"
+description: "Drop-in replacement for node-zendesk SDK with edge compatibility and local development mode."
+---
+
+# Zendesk
+
+Drop-in replacement for node-zendesk SDK. Your existing Zendesk code works unchanged - just swap the import.
+
+```typescript
+// Before: node-zendesk
+import Zendesk from 'node-zendesk'
+
+// After: dotdo
+import Zendesk from '@dotdo/zendesk'
+
+// Code stays the same
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: 'api_token',
+})
+```
+
+## Prerequisites
+
+Before integrating Zendesk with dotdo, you need:
+
+### 1. Zendesk Account
+
+1. Sign up at [zendesk.com](https://zendesk.com)
+2. Set up your support subdomain
+
+### 2. Create an API Token
+
+1. Go to **Admin** > **Channels** > **API**
+2. Enable Token Access
+3. Click **Add API token**
+4. Copy the token
+
+### 3. Environment Setup
+
+Store your credentials securely:
+
+```bash
+ZENDESK_SUBDOMAIN=mycompany
+ZENDESK_EMAIL=admin@example.com
+ZENDESK_TOKEN=your_api_token_here
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ZENDESK_SUBDOMAIN` | Yes | Your Zendesk subdomain |
+| `ZENDESK_EMAIL` | Yes | Admin email address |
+| `ZENDESK_TOKEN` | Yes (production) | API token |
+
+## Why @dotdo/zendesk?
+
+| node-zendesk | @dotdo/zendesk |
+|--------------|----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Network calls required | Local mode for testing |
+| External dependency | Works offline |
+| Limited TypeScript | Full TypeScript support |
+
+**This is a compatibility layer.** It can either forward to real Zendesk APIs (production) or run entirely locally for testing and development.
+
+## Features
+
+### Implemented
+
+**Tickets**
+- `tickets.create()` - Create tickets
+- `tickets.update()` - Update tickets
+- `tickets.get()` - Get ticket by ID
+- `tickets.list()` - List tickets
+- `tickets.search()` - Search tickets
+- `tickets.delete()` - Delete tickets
+- `tickets.createComment()` - Add comments
+- `tickets.listComments()` - List comments
+
+**Users**
+- `users.create()` - Create users
+- `users.update()` - Update users
+- `users.get()` - Get user by ID
+- `users.list()` - List users
+- `users.search()` - Search users
+- `users.delete()` - Delete users
+- `users.merge()` - Merge users
+
+**Organizations**
+- `organizations.create()` - Create organizations
+- `organizations.update()` - Update organizations
+- `organizations.get()` - Get by ID
+- `organizations.list()` - List all
+
+**Attachments**
+- `attachments.upload()` - Upload attachments
+- `attachments.get()` - Get attachment
+
+**Triggers & Automations**
+- `triggers.create()` - Create triggers
+- `triggers.update()` - Update triggers
+- `triggers.list()` - List triggers
+- `automations.create()` - Create automations
+- `automations.list()` - List automations
+
+**Views & Macros**
+- `views.create()` - Create views
+- `views.list()` - List views
+- `views.count()` - Get view counts
+- `views.tickets()` - Get view tickets
+- `macros.create()` - Create macros
+- `macros.list()` - List macros
+- `macros.apply()` - Apply macros
+
+**Groups**
+- `groups.create()` - Create groups
+- `groups.list()` - List groups
+- Group memberships
+
+**Webhooks**
+- `webhooks.create()` - Create webhooks
+- `webhooks.list()` - List webhooks
+- Signature verification
+
+**SLA Policies**
+- `slas.create()` - Create SLA policies
+- `slas.list()` - List policies
+- `slas.breaches()` - Get breaches
+- `slas.atRisk()` - Get at-risk tickets
+
+**Ticket Fields & Forms**
+- Custom fields
+- Ticket forms
+- Field options
+
+### Not Yet Implemented
+
+- Talk (voice)
+- Chat
+- Guide (help center authoring)
+- Gather (community forums)
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/zendesk
+```
+
+### Basic Usage
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: process.env.ZENDESK_SUBDOMAIN,
+  email: process.env.ZENDESK_EMAIL,
+  token: process.env.ZENDESK_TOKEN,
+})
+
+// Create a ticket
+const ticket = await client.tickets.create({
+  subject: 'Need help with billing',
+  description: 'I was charged incorrectly...',
+  priority: 'high',
+  type: 'problem',
+  requester: {
+    email: 'customer@example.com',
+    name: 'Jane Customer',
+  },
+})
+
+// Add a comment
+await client.tickets.createComment(ticket.id, {
+  body: 'Thank you for reaching out. I\'m looking into this now.',
+  public: true,
+})
+
+// Update ticket status
+await client.tickets.update(ticket.id, {
+  status: 'pending',
+  tags: ['billing', 'escalated'],
+})
+
+// Search tickets
+const results = await client.tickets.search('status:open priority:high')
+```
+
+### Users and Organizations
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: process.env.ZENDESK_SUBDOMAIN,
+  email: process.env.ZENDESK_EMAIL,
+  token: process.env.ZENDESK_TOKEN,
+})
+
+// Create organization
+const org = await client.organizations.create({
+  name: 'Acme Corporation',
+  domain_names: ['acme.com', 'acme.io'],
+})
+
+// Create user
+const user = await client.users.create({
+  name: 'John Doe',
+  email: 'john@acme.com',
+  role: 'end-user',
+  organization_id: org.id,
+})
+
+// Search users
+const users = await client.users.search({ query: 'john@acme.com' })
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import Zendesk, { type ClientConfig } from '@dotdo/zendesk'
+
+const config: ClientConfig = {
+  // Required
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: 'api_token',
+
+  // Optional: Custom user agent
+  userAgent: 'my-app/1.0',
+}
+
+const client = new Zendesk.Client(config)
+```
+
+## Inbound - Local Development
+
+For local development and testing, use the local implementation:
+
+```typescript
+import { ZendeskLocal, type ZendeskLocalConfig } from '@dotdo/zendesk'
+
+const zendesk = new ZendeskLocal()
+
+// Create tickets locally
+const ticket = await zendesk.tickets.create({
+  subject: 'Test ticket',
+  description: 'Testing locally',
+})
+
+// All operations work without network
+const found = await zendesk.tickets.get(ticket.id)
+```
+
+## Outbound - Production
+
+For production, connect to the real Zendesk API:
+
+```typescript
+// worker.ts
+import Zendesk from '@dotdo/zendesk'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new Zendesk.Client({
+      subdomain: env.ZENDESK_SUBDOMAIN,
+      email: env.ZENDESK_EMAIL,
+      token: env.ZENDESK_TOKEN,
+    })
+
+    // Create ticket from production
+    const ticket = await client.tickets.create({
+      subject: 'Auto-created from worker',
+      description: 'Error detected in production',
+      priority: 'urgent',
+    })
+
+    return Response.json({ ticketId: ticket.id })
+  },
+}
+```
+
+## Triggers and Automations
+
+Create automated workflows:
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: process.env.ZENDESK_SUBDOMAIN,
+  email: process.env.ZENDESK_EMAIL,
+  token: process.env.ZENDESK_TOKEN,
+})
+
+// Create trigger
+const trigger = await client.triggers.create({
+  title: 'Auto-assign urgent tickets',
+  conditions: {
+    all: [
+      { field: 'priority', operator: 'is', value: 'urgent' },
+      { field: 'status', operator: 'is', value: 'new' },
+    ],
+  },
+  actions: [
+    { field: 'group_id', value: 'priority-support-group-id' },
+    { field: 'status', value: 'open' },
+    {
+      field: 'notification_user',
+      value: ['requester_id', 'Your urgent request is being handled'],
+    },
+  ],
+})
+
+// Create automation
+const automation = await client.automations.create({
+  title: 'Close solved tickets after 3 days',
+  conditions: {
+    all: [
+      { field: 'status', operator: 'is', value: 'solved' },
+      { field: 'HOURS_SINCE_SOLVED', operator: 'greater_than', value: '72' },
+    ],
+  },
+  actions: [{ field: 'status', value: 'closed' }],
+})
+```
+
+## SLA Policies
+
+Manage service level agreements:
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: process.env.ZENDESK_SUBDOMAIN,
+  email: process.env.ZENDESK_EMAIL,
+  token: process.env.ZENDESK_TOKEN,
+})
+
+// Create SLA policy
+const sla = await client.slas.create({
+  title: 'Premium Support',
+  description: 'SLA for premium customers',
+  filter: {
+    all: [{ field: 'organization:tags', operator: 'contains', value: 'premium' }],
+  },
+  policy_metrics: [
+    {
+      priority: 'urgent',
+      metric: 'first_reply_time',
+      target: 30, // 30 minutes
+      business_hours: true,
+    },
+    {
+      priority: 'urgent',
+      metric: 'requester_wait_time',
+      target: 120, // 2 hours
+      business_hours: true,
+    },
+  ],
+})
+
+// Get SLA breaches
+const breaches = await client.slas.breaches({
+  since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+})
+
+// Get at-risk tickets
+const atRisk = await client.slas.atRisk({
+  metric: 'first_reply_time',
+})
+```
+
+## Error Handling
+
+```typescript
+import Zendesk, { ZendeskError } from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: process.env.ZENDESK_SUBDOMAIN,
+  email: process.env.ZENDESK_EMAIL,
+  token: process.env.ZENDESK_TOKEN,
+})
+
+try {
+  await client.tickets.get(999999)
+} catch (error) {
+  if (error instanceof ZendeskError) {
+    console.log('Status:', error.statusCode)
+    console.log('Message:', error.message)
+    console.log('Details:', error.details)
+  }
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Ticket types
+  Ticket,
+  TicketCreateParams,
+  TicketUpdateParams,
+  TicketListParams,
+  Comment,
+
+  // User types
+  User,
+  UserCreateParams,
+  UserUpdateParams,
+
+  // Organization types
+  Organization,
+  OrganizationCreateParams,
+
+  // Trigger types
+  Trigger,
+  TriggerCreateParams,
+  TriggerCondition,
+  TriggerAction,
+
+  // SLA types
+  SLAPolicy,
+  SLAPolicyCreateParams,
+  SLABreach,
+
+  // Config
+  ClientConfig,
+  ZendeskLocalConfig,
+} from '@dotdo/zendesk'
+```
+
+## Workflow Integration
+
+Use Zendesk with dotdo workflows for durable support operations:
+
+```typescript
+import { $ } from 'dotdo'
+import Zendesk from '@dotdo/zendesk'
+
+export class SupportWorkflow {
+  zendesk = new Zendesk.Client({
+    subdomain: this.env.ZENDESK_SUBDOMAIN,
+    email: this.env.ZENDESK_EMAIL,
+    token: this.env.ZENDESK_TOKEN,
+  })
+
+  async escalateTicket(ticketId: number) {
+    // Durable escalation
+    await $.do(() =>
+      this.zendesk.tickets.update(ticketId, {
+        priority: 'urgent',
+        tags: ['escalated'],
+      })
+    )
+
+    // Add internal note
+    await $.do(() =>
+      this.zendesk.tickets.createComment(ticketId, {
+        body: 'Ticket escalated automatically due to SLA breach risk',
+        public: false,
+      })
+    )
+  }
+}
+```
+
+## Migration from node-zendesk
+
+### 1. Package Change
+
+```bash
+# Remove node-zendesk
+npm uninstall node-zendesk
+
+# Install dotdo package
+npm install @dotdo/zendesk
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import Zendesk from 'node-zendesk'
+
+// After
+import Zendesk from '@dotdo/zendesk'
+```
+
+### 3. Code Compatibility
+
+Your existing code should work unchanged. The API surface matches node-zendesk.
+
+## Related
+
+- [Intercom Integration](/docs/integrations/intercom) - Intercom messaging
+- [Jira Integration](/docs/integrations/jira) - Atlassian Jira
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

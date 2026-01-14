@@ -1,0 +1,59 @@
+---
+title: Hello World - Our First Post
+date: 2026-01-13
+author: Acme Team
+tags: [announcement, getting-started]
+---
+
+# Hello World - Our First Post
+
+Welcome to the Acme blog! This is our very first post, demonstrating how the blog surface works in a multi-surface dotdo application.
+
+## What is Multi-Surface?
+
+Multi-surface architecture lets you build complete applications with distinct frontends:
+
+- **Site** - Your marketing and landing pages
+- **App** - The main user dashboard
+- **Admin** - Administrative controls
+- **Docs** - Documentation center
+- **Blog** - Company blog (you are here!)
+
+## Why It Matters
+
+Traditional approaches require separate repositories or complex monorepo setups. With dotdo, everything lives together:
+
+```
+my-project/
+  Site.mdx          # Marketing
+  App.tsx           # Dashboard
+  Admin.tsx         # Admin
+  Docs.mdx          # Documentation
+  Blog.mdx          # Blog
+  docs/             # Doc content
+  blog/             # Blog posts
+```
+
+All sharing the same:
+- Backend (Durable Objects)
+- Authentication
+- Database
+- Configuration
+
+## Getting Started
+
+Run this example yourself:
+
+```bash
+cd examples/do-start/03-multi-surface
+do start
+```
+
+Then visit:
+- http://localhost:4000/ (Site)
+- http://localhost:4000/app (App)
+- http://localhost:4000/admin (Admin)
+- http://localhost:4000/docs (Docs)
+- http://localhost:4000/blog (Blog)
+
+Stay tuned for more updates!

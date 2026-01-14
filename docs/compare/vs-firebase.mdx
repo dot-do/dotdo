@@ -1,0 +1,497 @@
+---
+title: dotdo vs Firebase
+description: Compare dotdo with Firebase for building real-time applications and AI-powered autonomous businesses.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Cards, Card } from 'fumadocs-ui/components/card'
+
+# dotdo vs Firebase
+
+Firebase pioneered Backend-as-a-Service with real-time sync, authentication, and hosting. dotdo takes that further with **AI agents as first-class citizens** and **business logic that runs autonomously**.
+
+## Quick Comparison
+
+| Feature | dotdo | Firebase |
+|---------|-------|----------|
+| **Primary Focus** | Autonomous business runtime | Real-time BaaS |
+| **Data Model** | Things, Actions, Events, Relationships | Documents, Collections |
+| **Real-time** | WebSocket per DO | Firebase Realtime DB / Firestore |
+| **Auth** | org.ai (AI + human identity) | Firebase Auth |
+| **Functions** | Durable (stateful, single-threaded) | Cloud Functions (stateless) |
+| **AI Agents** | First-class with identity | Not available |
+| **Vendor Lock-in** | Portable (standard APIs) | High (proprietary APIs) |
+| **Offline** | Client-side + DO sync | Firebase offline persistence |
+| **Pricing** | Predictable (per-request) | Usage-based (can spike) |
+
+## Architecture Differences
+
+### Firebase: Document Database + Cloud Functions
+
+Firebase uses Firestore (document database) with Cloud Functions for server logic.
+
+```typescript
+// Firebase Cloud Function
+import { onDocumentCreated } from 'firebase-functions/v2/firestore'
+import { getFirestore } from 'firebase-admin/firestore'
+
+export const onUserCreated = onDocumentCreated('users/{userId}', async (event) => {
+  const db = getFirestore()
+  const userData = event.data?.data()
+
+  // Write to another collection
+  await db.collection('analytics').add({
+    event: 'user_signup',
+    userId: event.params.userId,
+    timestamp: new Date(),
+  })
+
+  // Send welcome email (external service)
+  await sendWelcomeEmail(userData.email)
+})
+```
+
+Challenges:
+- **Cold starts** - Cloud Functions take 1-10 seconds on cold start
+- **No state** - Functions are stateless, must read/write Firestore for everything
+- **Trigger limits** - Complex workflows require chaining multiple triggers
+- **Vendor lock-in** - Firestore API is proprietary
+
+### dotdo: Durable Objects with Built-in State
+
+dotdo uses Durable Objects - stateful actors with local SQLite.
+
+```typescript
+// dotdo Durable Object
+export class UserService extends DO {
+  // State persists between requests
+  private emailQueue: string[] = []
+
+  async createUser(data: UserData) {
+    // Local SQLite write (~5ms)
+    const user = await this.things.create({
+      $type: 'User',
+      ...data,
+    })
+
+    // Event emission (triggers handlers)
+    await this.events.emit({
+      verb: 'signup',
+      source: user.$id,
+      data,
+    })
+
+    return user
+  }
+
+  // Handlers run in the same instance
+  handlers = {
+    'User.signup': async (event) => {
+      // In-memory queue batching
+      this.emailQueue.push(event.data.email)
+      await this.flushEmails()
+    },
+  }
+}
+```
+
+Benefits:
+- **0ms cold starts** (warm) - State is in-memory
+- **Single-threaded** - No race conditions
+- **Local storage** - SQLite queries are microseconds
+- **Portable** - Standard JavaScript/TypeScript
+
+## Real-time Sync
+
+### Firebase: Firestore Listeners
+
+```typescript
+// Firebase real-time listener
+import { doc, onSnapshot } from 'firebase/firestore'
+
+const unsubscribe = onSnapshot(
+  doc(db, 'orders', orderId),
+  (doc) => {
+    console.log('Order updated:', doc.data())
+  },
+  (error) => {
+    console.error('Listener error:', error)
+  }
+)
+```
+
+Firebase handles sync well, but:
+- **Per-document listeners** - Must subscribe to each document
+- **No computed views** - Can't subscribe to aggregations
+- **Bandwidth costs** - Charged per document read/write
+
+### dotdo: WebSocket per DO
+
+```typescript
+// dotdo WebSocket connection
+const ws = new WebSocket('wss://app.dotdo.dev/orders/ord_123')
+
+ws.onmessage = (event) => {
+  const { type, data } = JSON.parse(event.data)
+
+  switch (type) {
+    case 'thing.updated':
+      console.log('Order updated:', data)
+      break
+    case 'event.emitted':
+      console.log('Event:', data.verb, data)
+      break
+  }
+}
+
+// Server-side: automatic sync
+export class OrderService extends DO {
+  async updateOrder(id: string, data: OrderUpdate) {
+    const order = await this.things.update(id, data)
+    // All connected WebSockets receive the update automatically
+    return order
+  }
+}
+```
+
+dotdo advantages:
+- **Instance-level sync** - All changes to a DO broadcast to connected clients
+- **Events included** - Subscribe to business events, not just data changes
+- **No extra cost** - WebSocket included in DO request pricing
+
+## Authentication
+
+### Firebase Auth
+
+```typescript
+// Firebase Auth
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
+
+const auth = getAuth()
+const userCredential = await signInWithEmailAndPassword(auth, email, password)
+const user = userCredential.user
+
+// Access control via Firestore rules
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     match /users/{userId} {
+//       allow read, write: if request.auth.uid == userId;
+//     }
+//   }
+// }
+```
+
+Firebase Auth is solid but:
+- **Human-only** - No identity for AI agents
+- **Rules language** - Firestore rules are a separate DSL
+- **Limited providers** - Mainly social logins
+
+### dotdo: org.ai Identity
+
+```typescript
+// dotdo with org.ai
+import { auth } from 'dotdo'
+
+// Human authentication
+const session = await auth.signIn({ email, password })
+
+// Agent authentication (AI gets real identity)
+import { ralph } from 'agents.do'
+// ralph has ralph@agents.do email, @ralph-do GitHub, etc.
+
+// Access control in TypeScript
+export class SecureService extends DO {
+  async sensitiveOperation(ctx: Context) {
+    // Check if human or agent
+    if (ctx.actor.type === 'Agent' && !ctx.actor.permissions.includes('write')) {
+      throw new Error('Agents need explicit write permission')
+    }
+
+    // Humans and authorized agents can proceed
+    return this.doSensitiveWork()
+  }
+}
+```
+
+org.ai provides:
+- **AI identity** - Agents have emails, GitHub accounts, API keys
+- **Unified auth** - Same system for humans and AI
+- **TypeScript rules** - Access control in your language
+
+## Offline Support
+
+### Firebase: Client-Side Persistence
+
+```typescript
+// Firebase offline
+import { enableIndexedDbPersistence } from 'firebase/firestore'
+
+await enableIndexedDbPersistence(db)
+
+// Writes queue locally when offline
+await addDoc(collection(db, 'orders'), orderData)
+// Syncs when back online
+```
+
+### dotdo: Client + DO Sync
+
+```typescript
+// dotdo offline with @dotdo/sync
+import { SyncClient } from '@dotdo/sync'
+
+const sync = new SyncClient({
+  endpoint: 'wss://app.dotdo.dev',
+  offline: {
+    storage: 'indexeddb',
+    conflictResolution: 'server-wins', // or 'last-write-wins', 'manual'
+  },
+})
+
+// Local-first writes
+await sync.things.create({ $type: 'Order', ...orderData })
+// Queues locally, syncs to DO when online
+
+// Subscribe to sync status
+sync.on('sync', (status) => {
+  console.log(`${status.pending} changes pending sync`)
+})
+```
+
+Both handle offline well. dotdo adds:
+- **Configurable conflict resolution** - Choose your strategy
+- **Sync status events** - Know what's pending
+- **Server-side merge** - DOs can implement custom merge logic
+
+## Cloud Functions vs Durable Objects
+
+### Firebase: Event-Triggered Stateless Functions
+
+```typescript
+// Firebase: Chain of stateless functions
+export const step1 = onDocumentCreated('orders/{orderId}', async (event) => {
+  // Process order
+  await db.doc(`orders/${event.params.orderId}`).update({ step1: true })
+})
+
+export const step2 = onDocumentUpdated('orders/{orderId}', async (event) => {
+  if (event.data?.after.data().step1 && !event.data?.after.data().step2) {
+    // Continue processing
+    await db.doc(`orders/${event.params.orderId}`).update({ step2: true })
+  }
+})
+
+// Each function: cold start, read state, write state, terminate
+// No way to hold state between steps
+```
+
+Problems:
+- **No state** - Each function starts fresh
+- **Trigger chains** - Complex workflows need multiple triggers
+- **Race conditions** - Concurrent triggers can conflict
+- **Cold starts** - Each step may cold start (1-10s)
+
+### dotdo: Stateful Workflows
+
+```typescript
+// dotdo: Single stateful workflow
+export class OrderProcessor extends DO {
+  async processOrder(orderId: string) {
+    // State persists through the entire flow
+    const order = await this.things.get(orderId)
+
+    // Step 1: Validate
+    await this.validateOrder(order)
+    await this.things.update(orderId, { step: 'validated' })
+
+    // Step 2: Charge payment
+    const payment = await this.chargePayment(order)
+    await this.things.update(orderId, { step: 'paid', paymentId: payment.id })
+
+    // Step 3: Fulfill
+    await this.fulfillOrder(order)
+    await this.things.update(orderId, { step: 'fulfilled' })
+
+    // All in one instance, no cold starts between steps
+    // If it fails, retry from the last checkpoint
+  }
+}
+```
+
+Benefits:
+- **In-memory state** - No database round-trips between steps
+- **Single thread** - No race conditions
+- **Durable** - Survives crashes, resumes from checkpoints
+- **Fast** - Steps execute in microseconds, not seconds
+
+## AI Agents
+
+### Firebase: Not Built-in
+
+Firebase doesn't have AI agent support. You'd build it yourself:
+
+```typescript
+// DIY AI agent with Firebase
+export const aiHandler = onRequest(async (req, res) => {
+  // Call OpenAI
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4',
+    messages: req.body.messages,
+  })
+
+  // Store conversation in Firestore
+  await db.collection('conversations').add({
+    messages: req.body.messages,
+    response: response.choices[0].message,
+  })
+
+  res.json(response)
+})
+```
+
+You'd need to build:
+- Agent identity and authentication
+- Memory and context management
+- Tool execution and permissions
+- Human escalation flows
+- Audit trails
+
+### dotdo: First-Class Agents
+
+```typescript
+// dotdo: Agents are built-in
+import { priya, ralph, tom } from 'agents.do'
+import { ceo } from 'humans.do'
+
+export class ProductDevelopment extends DO {
+  async buildFeature(description: string) {
+    // Priya specs the feature
+    const spec = await priya`define requirements for: ${description}`
+
+    // Ralph builds it
+    const code = await ralph`implement ${spec}`
+
+    // Tom reviews it
+    const review = await tom`review ${code}`
+
+    // CEO approves major features
+    if (spec.estimatedImpact > 1000000) {
+      await ceo`approve ${spec.title} with projected impact ${spec.estimatedImpact}`
+    }
+
+    return code
+  }
+}
+```
+
+Agents have:
+- **Real identity** - Email, GitHub, API keys
+- **Persistent memory** - Conversation history, learned preferences
+- **Built-in tools** - File system, Git, bash, npm
+- **Human escalation** - Seamless handoff when needed
+
+## Pricing Comparison
+
+Scenario: 100K monthly users, 500K reads/day, 50K writes/day
+
+### Firebase
+
+| Component | Cost |
+|-----------|------|
+| Firestore (reads) | ~$180/mo (500K/day x 30) |
+| Firestore (writes) | ~$270/mo (50K/day x 30) |
+| Firestore (storage) | ~$18/mo (10GB) |
+| Cloud Functions | ~$40/mo (invocations + compute) |
+| Authentication | $0 (up to 50K MAU) |
+| Hosting | ~$10/mo |
+| **Total** | **~$518/mo** |
+
+<Callout type="warn">
+Firebase costs can spike unexpectedly. A viral feature or runaway query can generate bills in the thousands.
+</Callout>
+
+### dotdo
+
+| Component | Cost |
+|-----------|------|
+| DO requests (all ops) | ~$25/mo |
+| SQLite storage | ~$1.50/mo |
+| R2 overflow | ~$1.50/mo |
+| **Total** | **~$28/mo** |
+
+dotdo includes:
+- All reads/writes in request pricing
+- Auth (org.ai) built-in
+- Real-time sync built-in
+- Event streaming built-in
+
+## Migration Path
+
+### Use dotdo's Firebase Compat SDK
+
+```typescript
+// Before: Firebase SDK
+import { initializeApp } from 'firebase/app'
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore'
+
+const app = initializeApp(config)
+const db = getFirestore(app)
+
+const docRef = doc(db, 'users', 'alice')
+const docSnap = await getDoc(docRef)
+
+// After: dotdo Firebase compat
+import { initializeApp, getFirestore } from '@dotdo/firebase'
+
+const app = initializeApp({ projectId: 'my-app' })
+const db = getFirestore(app)
+
+const docRef = db.collection('users').doc('alice')
+const docSnap = await docRef.get()
+// Same API, runs on Durable Objects
+```
+
+### Gradual Migration
+
+1. **Start with new features** - Build new functionality on dotdo
+2. **Sync data** - Use CDC to replicate Firebase data to dotdo
+3. **Migrate reads** - Point read-heavy paths to dotdo
+4. **Migrate writes** - Move write paths once confident
+5. **Sunset Firebase** - Turn off Firebase when fully migrated
+
+## When to Choose Each
+
+### Choose Firebase If
+
+- **You're building a mobile app** - Firebase SDKs are excellent for iOS/Android
+- **You need real-time sync** - Firestore real-time is battle-tested
+- **You want Google ecosystem** - Analytics, Crashlytics, Remote Config integration
+- **Your team knows Firebase** - Existing expertise matters
+- **You don't need AI agents** - Standard CRUD without autonomous behavior
+
+### Choose dotdo If
+
+- **You're building with AI agents** - First-class agent support
+- **You need human escalation** - Built-in approval workflows
+- **You want predictable pricing** - No surprise bills
+- **You need portable code** - Standard APIs, not proprietary
+- **You're building autonomous businesses** - AI doing real work
+- **You need edge performance** - 300+ locations, 0ms cold starts
+
+## Summary
+
+Firebase is a mature BaaS for real-time applications, especially mobile. dotdo is for building **autonomous businesses** where AI agents operate alongside humans.
+
+If you're building a chat app or collaborative tool with real-time requirements and no AI agents, Firebase is solid. If you're building AI-powered products where agents have identity, memory, and the ability to escalate - dotdo is purpose-built for that.
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started">
+    Try dotdo in 5 minutes.
+  </Card>
+  <Card title="Firebase Compat" href="/docs/compat/databases">
+    Firebase-compatible APIs on dotdo.
+  </Card>
+  <Card title="Named Agents" href="/docs/agents">
+    Meet the AI workforce.
+  </Card>
+</Cards>

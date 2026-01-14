@@ -1,0 +1,308 @@
+{/**
+ * Config with Surfaces Example - Site Component (Marketing Landing)
+ *
+ * Marketing landing page served at /.
+ * Demonstrates explicit configuration vs auto-discovery.
+ */}
+
+---
+title: "ConfiguredApp - Explicit Configuration Demo"
+description: "Multi-surface application with do.config.ts"
+---
+
+export const Container = ({ children, style }) => (
+  <div style={{
+    fontFamily: 'system-ui, sans-serif',
+    background: 'linear-gradient(180deg, #0a0a0a 0%, #111827 100%)',
+    color: '#fff',
+    minHeight: '100vh',
+    ...style
+  }}>
+    {children}
+  </div>
+)
+
+export const Nav = () => (
+  <nav style={{
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '1rem 2rem',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    backdropFilter: 'blur(8px)',
+    position: 'sticky',
+    top: 0,
+    zIndex: 100,
+  }}>
+    <span style={{
+      fontSize: '1.25rem',
+      fontWeight: 700,
+      background: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+    }}>ConfiguredApp</span>
+    <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+      <a href="/docs" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: '0.9rem' }}>Docs</a>
+      <a href="/blog" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: '0.9rem' }}>Blog</a>
+      <a href="/admin" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: '0.9rem' }}>Admin</a>
+      <a href="/app" style={{
+        background: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)',
+        color: '#fff',
+        padding: '0.5rem 1.25rem',
+        borderRadius: '8px',
+        textDecoration: 'none',
+        fontWeight: 500,
+        fontSize: '0.9rem',
+      }}>Dashboard</a>
+    </div>
+  </nav>
+)
+
+export const Hero = () => (
+  <section style={{
+    padding: '8rem 2rem 6rem',
+    textAlign: 'center',
+    maxWidth: '900px',
+    margin: '0 auto',
+  }}>
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      background: 'rgba(239, 68, 68, 0.1)',
+      border: '1px solid rgba(239, 68, 68, 0.3)',
+      padding: '0.4rem 1rem',
+      borderRadius: '9999px',
+      fontSize: '0.875rem',
+      marginBottom: '2rem',
+    }}>
+      <span style={{ color: '#ef4444' }}>*</span>
+      <span style={{ color: '#ef4444' }}>Explicit Configuration</span>
+    </div>
+    <h1 style={{
+      fontSize: '3.5rem',
+      fontWeight: 800,
+      lineHeight: 1.1,
+      marginBottom: '1.5rem',
+      background: 'linear-gradient(135deg, #fff 0%, #a1a1aa 100%)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+    }}>
+      Zero-Config with<br />Complete Override Control
+    </h1>
+    <p style={{
+      fontSize: '1.25rem',
+      color: '#71717a',
+      lineHeight: 1.7,
+      marginBottom: '2.5rem',
+      maxWidth: '700px',
+      margin: '0 auto 2.5rem',
+    }}>
+      dotdo works great with zero configuration, but when you need control,
+      <code style={{ color: '#ef4444', background: 'rgba(0,0,0,0.3)', padding: '0.1rem 0.4rem', borderRadius: '4px', margin: '0 0.2rem' }}>do.config.ts</code>
+      gives you explicit surface paths, custom content directories, and environment-specific overrides.
+    </p>
+    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+      <a href="/app" style={{
+        background: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)',
+        color: '#fff',
+        padding: '0.9rem 2rem',
+        borderRadius: '10px',
+        textDecoration: 'none',
+        fontWeight: 600,
+      }}>Open Dashboard</a>
+      <a href="/docs" style={{
+        background: 'rgba(255,255,255,0.05)',
+        color: '#fff',
+        padding: '0.9rem 2rem',
+        borderRadius: '10px',
+        textDecoration: 'none',
+        fontWeight: 600,
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}>Read Docs</a>
+    </div>
+  </section>
+)
+
+export const ConfigShowcase = () => (
+  <section style={{ padding: '4rem 2rem', background: 'rgba(0,0,0,0.3)' }}>
+    <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+      <h2 style={{ textAlign: 'center', fontSize: '2rem', marginBottom: '1rem' }}>Configuration-Driven Surfaces</h2>
+      <p style={{ textAlign: 'center', color: '#71717a', marginBottom: '3rem', maxWidth: '600px', margin: '0 auto 3rem' }}>
+        Explicit paths in do.config.ts override auto-discovery, giving you full control over project structure.
+      </p>
+      <div style={{
+        background: 'rgba(0,0,0,0.5)',
+        border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: '16px',
+        padding: '2rem',
+        fontFamily: 'ui-monospace, monospace',
+        fontSize: '0.875rem',
+        overflow: 'auto',
+      }}>
+        <pre style={{ margin: 0, lineHeight: 1.7 }}>
+          <code style={{ color: '#71717a' }}>{`// do.config.ts\n`}</code>
+          <code style={{ color: '#fff' }}>{`import { `}</code>
+          <code style={{ color: '#ef4444' }}>{`defineConfig`}</code>
+          <code style={{ color: '#fff' }}>{` } from 'dotdo'\n\n`}</code>
+          <code style={{ color: '#fff' }}>{`export default `}</code>
+          <code style={{ color: '#ef4444' }}>{`defineConfig`}</code>
+          <code style={{ color: '#fff' }}>{`({\n`}</code>
+          <code style={{ color: '#71717a' }}>{`  // Custom file locations\n`}</code>
+          <code style={{ color: '#f97316' }}>{`  surfaces`}</code>
+          <code style={{ color: '#fff' }}>{`: {\n`}</code>
+          <code style={{ color: '#fff' }}>{`    app: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./src/App.tsx'`}</code>
+          <code style={{ color: '#fff' }}>{`,\n`}</code>
+          <code style={{ color: '#fff' }}>{`    admin: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./src/Admin.tsx'`}</code>
+          <code style={{ color: '#fff' }}>{`,\n`}</code>
+          <code style={{ color: '#fff' }}>{`    site: { shell: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./src/Site.mdx'`}</code>
+          <code style={{ color: '#fff' }}>{`, content: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./content/site/'`}</code>
+          <code style={{ color: '#fff' }}>{` },\n`}</code>
+          <code style={{ color: '#fff' }}>{`    docs: { shell: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./src/Docs.mdx'`}</code>
+          <code style={{ color: '#fff' }}>{`, content: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./content/docs/'`}</code>
+          <code style={{ color: '#fff' }}>{` },\n`}</code>
+          <code style={{ color: '#fff' }}>{`    blog: { shell: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./src/Blog.mdx'`}</code>
+          <code style={{ color: '#fff' }}>{`, content: `}</code>
+          <code style={{ color: '#10b981' }}>{`'./content/blog/'`}</code>
+          <code style={{ color: '#fff' }}>{` },\n`}</code>
+          <code style={{ color: '#fff' }}>{`  },\n`}</code>
+          <code style={{ color: '#fff' }}>{`})`}</code>
+        </pre>
+      </div>
+    </div>
+  </section>
+)
+
+export const Features = () => (
+  <section style={{ padding: '5rem 2rem' }}>
+    <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gap: '1.5rem',
+      }}>
+        {[
+          {
+            title: 'Explicit Surface Paths',
+            desc: 'Override auto-discovery with custom file locations in ./src/ or any directory.',
+            icon: '~',
+          },
+          {
+            title: 'Content Directories',
+            desc: 'Map MDX surfaces to custom content folders for docs, blog, and marketing pages.',
+            icon: '#',
+          },
+          {
+            title: 'Environment Overrides',
+            desc: 'Use DOTDO_PORT, DOTDO_HOST and other env vars to override config at runtime.',
+            icon: '$',
+          },
+          {
+            title: 'Durable Objects',
+            desc: 'Define DO bindings explicitly with custom class mappings and external references.',
+            icon: '@',
+          },
+          {
+            title: 'TypeScript Config',
+            desc: 'Full type safety and IDE autocompletion with defineConfig() helper.',
+            icon: '<>',
+          },
+          {
+            title: 'Zero Breaking Changes',
+            desc: 'Configuration is additive. Defaults work perfectly, config just adds control.',
+            icon: '*',
+          },
+        ].map((feature, i) => (
+          <div key={i} style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '12px',
+            padding: '1.5rem',
+            transition: 'border-color 0.2s',
+          }}>
+            <span style={{
+              display: 'inline-block',
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#ef4444',
+              textAlign: 'center',
+              lineHeight: '40px',
+              marginBottom: '1rem',
+              fontFamily: 'ui-monospace, monospace',
+              fontWeight: 700,
+            }}>{feature.icon}</span>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>{feature.title}</h3>
+            <p style={{ color: '#71717a', fontSize: '0.9rem', lineHeight: 1.6 }}>{feature.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+)
+
+export const Surfaces = () => (
+  <section style={{ padding: '4rem 2rem', background: 'rgba(0,0,0,0.3)' }}>
+    <h2 style={{ textAlign: 'center', fontSize: '2rem', marginBottom: '3rem' }}>All Five Surfaces</h2>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: '1rem',
+      maxWidth: '1000px',
+      margin: '0 auto',
+    }}>
+      {[
+        { name: 'Site', path: '/', desc: 'Marketing landing (you are here)', file: 'src/Site.mdx' },
+        { name: 'App', path: '/app', desc: 'Main dashboard', file: 'src/App.tsx' },
+        { name: 'Admin', path: '/admin', desc: 'Admin panel', file: 'src/Admin.tsx' },
+        { name: 'Docs', path: '/docs', desc: 'Documentation', file: 'src/Docs.mdx' },
+        { name: 'Blog', path: '/blog', desc: 'Company blog', file: 'src/Blog.mdx' },
+      ].map((surface, i) => (
+        <a key={i} href={surface.path} style={{
+          display: 'block',
+          background: 'rgba(255,255,255,0.02)',
+          padding: '1.25rem',
+          borderRadius: '12px',
+          textDecoration: 'none',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+            <span style={{ color: '#ef4444', fontWeight: 600 }}>{surface.name}</span>
+            <code style={{ fontSize: '0.75rem', color: '#525252', background: 'rgba(0,0,0,0.4)', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>{surface.path}</code>
+          </div>
+          <p style={{ color: '#71717a', fontSize: '0.875rem', marginBottom: '0.4rem' }}>{surface.desc}</p>
+          <code style={{ fontSize: '0.75rem', color: '#525252' }}>{surface.file}</code>
+        </a>
+      ))}
+    </div>
+  </section>
+)
+
+export const Footer = () => (
+  <footer style={{
+    padding: '2rem',
+    textAlign: 'center',
+    borderTop: '1px solid rgba(255,255,255,0.05)',
+    color: '#525252',
+    fontSize: '0.875rem',
+  }}>
+    Built with dotdo. Configuration is optional, but powerful when you need it.
+  </footer>
+)
+
+<Container>
+  <Nav />
+  <Hero />
+  <ConfigShowcase />
+  <Features />
+  <Surfaces />
+  <Footer />
+</Container>
