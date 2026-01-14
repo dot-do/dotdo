@@ -221,6 +221,9 @@ export default defineWorkspace([
   // RelationalStore tests (Drizzle ORM integration with CDC)
   createNodeWorkspace('relational', ['tests/db/relational/**/*.test.ts', 'db/relational/**/*.test.ts']),
 
+  // ColumnarStore tests (analytics-optimized columnar storage with 99.4% cost savings)
+  createNodeWorkspace('columnar', ['tests/db/columnar/**/*.test.ts', 'db/columnar/**/*.test.ts']),
+
   // Durable Objects tests (mocked runtime)
   // Excludes tests requiring cloudflare:test (handled by Workers workspaces)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts'], {
