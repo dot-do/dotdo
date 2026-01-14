@@ -43,7 +43,7 @@ function createMockPipeline() {
 
 function createSampleCDCEvent(overrides: Partial<UnifiedEvent> = {}): UnifiedEvent {
   return {
-    id: '01HQXYZ1234567890ABCDEFGHIJ',
+    id: '01HQXYZ123456789ABCDEFGHIJ',
     type: 'cdc.insert',
     timestamp: '2024-01-14T12:00:00.000Z',
     ns: 'startups.studio',
@@ -884,12 +884,12 @@ describe('Pipeline SQL Transform', () => {
 
     it('preserves id field', () => {
       const event = createSampleCDCEvent({
-        id: '01HQXYZ1234567890ABCDEFGHIJ',
+        id: '01HQXYZ123456789ABCDEFGHIJ',
       })
 
       const result = transformForPipeline(event)
 
-      expect(result.id).toBe('01HQXYZ1234567890ABCDEFGHIJ')
+      expect(result.id).toBe('01HQXYZ123456789ABCDEFGHIJ')
     })
 
     it('preserves type field', () => {
