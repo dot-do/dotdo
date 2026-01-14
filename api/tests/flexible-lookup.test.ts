@@ -55,6 +55,26 @@ function createTestApp(): Hono {
     await next()
   })
 
+  // Flexible lookup route handler
+  app.get('/api/customers/:lookup', async (c: Context) => {
+    const lookup = c.req.param('lookup')
+    const db = c.get('db')
+
+    // Build lookup query using the utility function
+    const query = buildLookupQuery(lookup, 'customers')
+
+    // Query the database with the constructed query
+    const result = await db.query.customers.findFirst({
+      where: query,
+    })
+
+    if (!result) {
+      return c.json({ error: 'Not found' }, 404)
+    }
+
+    return c.json(result)
+  })
+
   return app
 }
 
