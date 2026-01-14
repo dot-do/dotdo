@@ -332,10 +332,6 @@ export interface GenerationParsedField {
   conditionalPrompts?: Record<string, string>
   requiresContext?: string[]
   optional?: boolean
-  $model?: string
-  $maxTokens?: number
-  /** For arrays with explicit count like ['->Tweet', 5] */
-  arrayCount?: number
 }
 
 /**
