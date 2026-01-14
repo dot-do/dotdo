@@ -75,15 +75,18 @@ async function del(path: string): Promise<Response> {
 // ============================================================================
 
 describe('GET /api/health', () => {
-  it('returns status ok', async () => {
+  it('returns healthy status', async () => {
     const res = await get('/api/health')
 
     expect(res.status).toBe(200)
 
-    const body = await res.json() as { status?: string; timestamp?: string }
-    expect(body.status).toBe('ok')
-    // Health endpoint also includes timestamp
+    const body = await res.json() as { status?: string; timestamp?: string; version?: string; checks?: unknown }
+    // Status can be 'healthy', 'degraded', or 'unhealthy' depending on binding availability
+    expect(['healthy', 'degraded', 'unhealthy']).toContain(body.status)
+    // Health endpoint includes timestamp and version
     expect(body).toHaveProperty('timestamp')
+    expect(body).toHaveProperty('version')
+    expect(body).toHaveProperty('checks')
   })
 
   it('returns JSON content type', async () => {

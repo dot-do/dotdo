@@ -38,6 +38,7 @@ import {
   simpleHash,
   type NounConfig,
 } from './utils/router'
+import { getHealthStatus, type HealthStatus } from './utils/health'
 import { createRoutingSpan, addRoutingHeaders, RoutingDebugInfo } from './utils/routing-telemetry'
 import { parseConsistencyMode, shouldRouteToReplica } from './utils/consistency'
 
@@ -241,14 +242,36 @@ app.use('*', async (c, next) => {
 })
 
 // Health check - handled directly (not forwarded to DO)
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-  })
+// Returns detailed health status including cache stats and binding availability
+app.get('/api/health', async (c) => {
+  const health = await getHealthStatus(c.env, '0.1.0')
+
+  // Map health status to HTTP status code
+  // - healthy: 200 OK
+  // - degraded: 200 OK (still operational, just missing some features)
+  // - unhealthy: 503 Service Unavailable
+  const httpStatus = health.status === 'unhealthy' ? 503 : 200
+
+  return c.json(health, httpStatus)
 })
 
 app.all('/api/health', (c) => {
+  return c.json(
+    { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET' } },
+    405,
+    { Allow: 'GET' }
+  )
+})
+
+// Root health check (without /api prefix) for load balancers
+// This is a simpler endpoint that just returns basic status
+app.get('/health', async (c) => {
+  const health = await getHealthStatus(c.env, '0.1.0')
+  const httpStatus = health.status === 'unhealthy' ? 503 : 200
+  return c.json(health, httpStatus)
+})
+
+app.all('/health', (c) => {
   return c.json(
     { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET' } },
     405,
