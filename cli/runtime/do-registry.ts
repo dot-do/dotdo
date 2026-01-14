@@ -3,24 +3,12 @@
  *
  * Discovers, tracks, and manages Durable Object classes in the project.
  * Scans source files for DO class definitions and maintains a registry.
- *
- * OPTIMIZATION: TypeScript module is lazy-loaded (~100ms savings on cold start)
  */
 
 import { Logger, createLogger } from '../utils/logger'
 import * as fs from 'fs'
 import * as path from 'path'
-
-// Lazy-loaded TypeScript module for cold start optimization
-// The typescript module is ~100ms to load, so we defer it until actually needed
-let tsModule: typeof import('typescript') | null = null
-
-async function getTypeScript(): Promise<typeof import('typescript')> {
-  if (!tsModule) {
-    tsModule = await import('typescript')
-  }
-  return tsModule
-}
+import * as ts from 'typescript'
 
 /**
  * Simple DO class info returned by AST detection
@@ -33,7 +21,7 @@ export interface DOClass {
 /**
  * Cache for parsed ASTs to avoid re-parsing the same file
  */
-const astCache = new Map<string, unknown>() // ts.SourceFile, but typed as unknown for lazy loading
+const astCache = new Map<string, ts.SourceFile>()
 
 /**
  * Detect Durable Object classes using TypeScript AST parsing.
@@ -43,12 +31,10 @@ const astCache = new Map<string, unknown>() // ts.SourceFile, but typed as unkno
  * @param filePath - Path to the file (for error reporting)
  * @returns Array of detected DO classes
  */
-export async function detectDOClassesAST(content: string, filePath: string): Promise<DOClass[]> {
-  const ts = await getTypeScript()
-
+export function detectDOClassesAST(content: string, filePath: string): DOClass[] {
   // Check cache first
   const cacheKey = `${filePath}:${content.length}:${content.slice(0, 100)}`
-  let sourceFile = astCache.get(cacheKey) as import('typescript').SourceFile | undefined
+  let sourceFile = astCache.get(cacheKey)
 
   if (!sourceFile) {
     sourceFile = ts.createSourceFile(
@@ -68,7 +54,7 @@ export async function detectDOClassesAST(content: string, filePath: string): Pro
 
   const classes: DOClass[] = []
 
-  function visit(node: import('typescript').Node) {
+  function visit(node: ts.Node) {
     if (ts.isClassDeclaration(node)) {
       // Check heritage clause for DurableObject or DO
       const extendsClause = node.heritageClauses?.find(
@@ -192,30 +178,27 @@ export class DORegistry {
   private async extractDOClasses(filePath: string): Promise<DOClassInfo[]> {
     const content = fs.readFileSync(filePath, 'utf-8')
 
-    // Use AST-based detection (now async)
-    const detected = await detectDOClassesAST(content, filePath)
+    // Use AST-based detection
+    const detected = detectDOClassesAST(content, filePath)
 
     // Enrich with method detection using AST
-    const results: DOClassInfo[] = []
-    for (const cls of detected) {
-      const methods = await this.detectClassMethods(content, cls.name)
-      results.push({
+    return detected.map((cls) => {
+      const methods = this.detectClassMethods(content, cls.name)
+      return {
         className: cls.name,
         filePath: cls.filePath,
         exports: [cls.name],
         hasAlarm: methods.has('alarm'),
         hasFetch: methods.has('fetch'),
         hasWebSocket: methods.has('webSocketMessage') || methods.has('webSocketClose') || methods.has('webSocketError'),
-      })
-    }
-    return results
+      }
+    })
   }
 
   /**
    * Detect methods in a class using AST parsing
    */
-  private async detectClassMethods(content: string, className: string): Promise<Set<string>> {
-    const ts = await getTypeScript()
+  private detectClassMethods(content: string, className: string): Set<string> {
     const methods = new Set<string>()
 
     const sourceFile = ts.createSourceFile(
@@ -225,7 +208,7 @@ export class DORegistry {
       true
     )
 
-    function visit(node: import('typescript').Node) {
+    function visit(node: ts.Node) {
       if (ts.isClassDeclaration(node) && node.name?.text === className) {
         for (const member of node.members) {
           if (ts.isMethodDeclaration(member) && member.name) {

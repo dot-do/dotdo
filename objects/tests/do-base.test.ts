@@ -737,13 +737,12 @@ describe('DO Base Class', () => {
       expect(response.status).toBe(404)
     })
 
-    it('returns structured error JSON for unknown paths', async () => {
+    it('returns Not Found text for unknown paths', async () => {
       const request = new Request('http://test/unknown/path')
       const response = await doInstance.fetch(request)
 
-      const data = await response.json() as { $type: string; code: string; message: string }
-      expect(data.$type).toBe('Error')
-      expect(data.code).toBe('NOT_FOUND')
+      const text = await response.text()
+      expect(text).toBe('Not Found')
     })
   })
 

@@ -13,19 +13,9 @@
  * Unknown paths return 404.
  */
 
-import type { Hono } from 'hono'
+import { Hono } from 'hono'
 import type { Surface } from '../utils/discover'
 import { createBundler, type Bundler, type BundlerOptions } from './bundler'
-
-// Lazy-loaded Hono for cold start optimization
-let honoModule: typeof import('hono') | null = null
-
-async function getHono(): Promise<typeof import('hono')> {
-  if (!honoModule) {
-    honoModule = await import('hono')
-  }
-  return honoModule
-}
 
 /**
  * Options for creating a surface router
@@ -51,8 +41,7 @@ export interface SurfaceRouterOptions {
  * @param options - Surface router configuration
  * @returns Hono app configured with surface routes
  */
-export async function createSurfaceRouter(options: SurfaceRouterOptions): Promise<Hono> {
-  const { Hono } = await getHono()
+export function createSurfaceRouter(options: SurfaceRouterOptions): Hono {
   const { surfaces, renderSurface } = options
   const app = new Hono()
 

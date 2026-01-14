@@ -121,7 +121,6 @@ export { JobsManager } from './jobs-manager'
 export { RulesEngine } from './rules-engine'
 export { ActionsEngine } from './actions-engine'
 export { ConnectionsManager } from './custom-database'
-export { BrandingManager } from './branding-manager'
 
 // ============================================================================
 // TYPE EXPORTS
@@ -204,37 +203,6 @@ export type {
   PostChangePasswordApi,
   ActionExecutionResult,
   ActionCommand,
-
-  // Branding types
-  BrandingSettings,
-  UpdateBrandingSettingsParams,
-  UniversalLoginTemplate,
-  SetUniversalLoginTemplateParams,
-  BrandingTheme,
-  CreateBrandingThemeParams,
-  UpdateBrandingThemeParams,
-  BrandingColors,
-  BrandingFont,
-  BrandingPageBackground,
-  BrandingWidget,
-  ThemeColors,
-  ThemeFonts,
-  ThemeBorders,
-  FontTextStyle,
-  CustomTextPrompt,
-  CustomTextByLanguage,
-  SetCustomTextParams,
-
-  // Organization types
-  Organization,
-  OrganizationBranding,
-  CreateOrganizationParams,
-  UpdateOrganizationParams,
-  OrganizationMember,
-  OrganizationRole,
-  OrganizationConnection,
-  OrganizationInvitation,
-  CreateOrganizationInvitationParams,
 } from './types'
 
 export { Auth0ManagementError } from './types'
@@ -248,14 +216,6 @@ export type { ChangePasswordTicketParams, VerifyEmailTicketParams, TicketsManage
 export type { VerifyEmailJobParams, JobResponse, UsersImportJobParams, UsersExportJobParams, JobsManagerOptions } from './jobs-manager'
 export type { RulesEngineOptions, RulesPipelineResult } from './rules-engine'
 export type { ActionsEngineOptions, TriggerBinding, FlowExecutionResult } from './actions-engine'
-export type {
-  BrandingManagerOptions,
-  GetCustomTextParams,
-  DeleteCustomTextParams,
-  GetThemeParams,
-  UpdateThemeParams,
-  DeleteThemeParams,
-} from './branding-manager'
 export type {
   // Custom database types
   ConnectionsManagerOptions,

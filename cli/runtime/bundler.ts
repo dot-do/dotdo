@@ -15,17 +15,7 @@
 import { watch as fsWatch, type FSWatcher } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
-
-// Lazy-loaded esbuild for cold start optimization
-// esbuild is a native binary and can be slow to initialize
-let esbuildModule: typeof import('esbuild') | null = null
-
-async function getEsbuild(): Promise<typeof import('esbuild')> {
-  if (!esbuildModule) {
-    esbuildModule = await import('esbuild')
-  }
-  return esbuildModule
-}
+import { transform } from 'esbuild'
 
 /**
  * Result of compiling a file
@@ -79,8 +69,6 @@ interface CacheEntry {
  * Compile a TypeScript/TSX file using esbuild
  */
 async function compileTsx(filePath: string, sourceMaps: boolean): Promise<CompileResult> {
-  const { transform } = await getEsbuild()
-
   // Read the source file
   const source = await readFile(filePath, 'utf-8')
 
@@ -109,8 +97,6 @@ async function compileTsx(filePath: string, sourceMaps: boolean): Promise<Compil
  * Compile an MDX file using @mdx-js/mdx
  */
 async function compileMdx(filePath: string, sourceMaps: boolean): Promise<CompileResult> {
-  const { transform } = await getEsbuild()
-
   // Dynamic import @mdx-js/mdx
   const { compile } = await import('@mdx-js/mdx')
 

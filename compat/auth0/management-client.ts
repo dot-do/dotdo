@@ -72,7 +72,6 @@ import type { ManagementClientOptions, UserRecord } from './types'
 import { UsersManager } from './users-manager'
 import { TicketsManager } from './tickets-manager'
 import { JobsManager } from './jobs-manager'
-import { BrandingManager } from './branding-manager'
 
 // ============================================================================
 // MANAGEMENT CLIENT
@@ -104,11 +103,6 @@ export class ManagementClient {
    * Jobs manager for async operations
    */
   public readonly jobs: JobsManager
-
-  /**
-   * Branding manager for Universal Login customization
-   */
-  public readonly branding: BrandingManager
 
   // Internal user store reference for tickets/jobs
   private readonly usersStore: Map<string, UserRecord>
@@ -145,11 +139,6 @@ export class ManagementClient {
     this.jobs = new JobsManager({
       domain: this.domain,
       getUser: (userId: string) => this.usersStore.get(userId),
-    })
-
-    // Initialize branding manager
-    this.branding = new BrandingManager({
-      domain: this.domain,
     })
   }
 

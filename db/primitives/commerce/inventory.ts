@@ -74,63 +74,11 @@ export interface InventoryLocation {
   id: string
   name: string
   type: LocationType
-  priority?: number // Lower number = higher priority for fulfillment
-  isActive?: boolean
   coordinates?: { lat: number; lng: number }
   address?: string
   metadata?: Record<string, unknown>
   createdAt: Date
   updatedAt: Date
-}
-
-export type FulfillmentStrategy = 'priority' | 'nearest' | 'round-robin' | 'lowest-stock-first'
-
-export interface WarehouseAllocation {
-  locationId: string
-  locationName: string
-  quantity: number
-  availableAfterAllocation: number
-}
-
-export interface FulfillmentPlan {
-  variantId: string
-  requestedQuantity: number
-  canFulfill: boolean
-  allocations: WarehouseAllocation[]
-  shortfall: number
-}
-
-export interface AggregatedStock {
-  variantId: string
-  totalOnHand: number
-  totalReserved: number
-  totalAvailable: number
-  byLocation: {
-    locationId: string
-    locationName: string
-    onHand: number
-    reserved: number
-    available: number
-  }[]
-}
-
-export type TransferStatus = 'pending' | 'approved' | 'in_transit' | 'completed' | 'cancelled'
-
-export interface TransferRequest {
-  id: string
-  variantId: string
-  fromLocationId: string
-  toLocationId: string
-  quantity: number
-  status: TransferStatus
-  reason?: string
-  requestedBy?: string
-  approvedBy?: string
-  requestedAt: Date
-  approvedAt?: Date
-  completedAt?: Date
-  cancelledAt?: Date
-  cancellationReason?: string
 }
 
 export interface CreateReservationInput {
@@ -163,33 +111,14 @@ export interface CreateLocationInput {
   id?: string
   name: string
   type: LocationType
-  priority?: number
-  isActive?: boolean
   coordinates?: { lat: number; lng: number }
   address?: string
   metadata?: Record<string, unknown>
 }
 
-export interface CreateTransferRequestInput {
-  variantId: string
-  fromLocationId: string
-  toLocationId: string
-  quantity: number
-  reason?: string
-  requestedBy?: string
-}
-
-export interface FulfillmentOptions {
-  strategy?: FulfillmentStrategy
-  coordinates?: { lat: number; lng: number } // Required for 'nearest' strategy
-  excludeLocations?: string[]
-}
-
 export interface UpdateLocationInput {
   name?: string
   type?: LocationType
-  priority?: number
-  isActive?: boolean
   coordinates?: { lat: number; lng: number }
   address?: string
   metadata?: Record<string, unknown>
@@ -261,8 +190,6 @@ export interface InventoryManager {
   createLocation(input: CreateLocationInput): Promise<InventoryLocation>
   updateLocation(id: string, input: UpdateLocationInput): Promise<InventoryLocation>
   getLocation(id: string): Promise<InventoryLocation | null>
-  getAllLocations(): Promise<InventoryLocation[]>
-  deleteLocation(id: string): Promise<void>
   setStockAtLocation(variantId: string, locationId: string, quantity: number): Promise<void>
   getStockAtLocation(variantId: string, locationId: string): Promise<number>
   getInventoryLevelAtLocation(variantId: string, locationId: string): Promise<InventoryLevel>
@@ -279,39 +206,6 @@ export interface InventoryManager {
     quantity: number,
     coordinates: { lat: number; lng: number }
   ): Promise<{ locationId: string; distance: number } | null>
-
-  // Multi-warehouse fulfillment
-  getAggregatedStock(variantId: string): Promise<AggregatedStock>
-  planFulfillment(
-    variantId: string,
-    quantity: number,
-    options?: FulfillmentOptions
-  ): Promise<FulfillmentPlan>
-  reserveWithFulfillmentPlan(
-    plan: FulfillmentPlan,
-    referenceId: string,
-    referenceType: string,
-    ttl?: number
-  ): Promise<Reservation[]>
-  setLocationLowStockThreshold(
-    variantId: string,
-    locationId: string,
-    threshold: number
-  ): Promise<void>
-  getLowStockItemsAtLocation(locationId: string): Promise<InventoryLevel[]>
-
-  // Transfer requests (workflow-based transfers)
-  createTransferRequest(input: CreateTransferRequestInput): Promise<TransferRequest>
-  getTransferRequest(id: string): Promise<TransferRequest | null>
-  approveTransferRequest(id: string, approvedBy?: string): Promise<TransferRequest>
-  startTransfer(id: string): Promise<TransferRequest>
-  completeTransfer(id: string): Promise<TransferRequest>
-  cancelTransferRequest(id: string, reason?: string): Promise<TransferRequest>
-  getTransferRequestsByLocation(
-    locationId: string,
-    direction: 'from' | 'to' | 'both'
-  ): Promise<TransferRequest[]>
-  getPendingTransferRequests(): Promise<TransferRequest[]>
 }
 
 // =============================================================================
@@ -360,8 +254,6 @@ class InMemoryInventoryManager implements InventoryManager {
   private reservations: Map<string, Reservation> = new Map()
   private movements: Map<string, StockMovement[]> = new Map() // variantId -> movements
   private locations: Map<string, InventoryLocation> = new Map()
-  private transferRequests: Map<string, TransferRequest> = new Map()
-  private roundRobinIndex: number = 0
   private options: InventoryOptions
 
   constructor(options?: InventoryOptions) {
@@ -851,8 +743,6 @@ class InMemoryInventoryManager implements InventoryManager {
       id: input.id ?? generateId('loc'),
       name: input.name,
       type: input.type,
-      priority: input.priority ?? 100, // Default priority
-      isActive: input.isActive ?? true,
       coordinates: input.coordinates,
       address: input.address,
       metadata: input.metadata,
@@ -885,36 +775,6 @@ class InMemoryInventoryManager implements InventoryManager {
 
   async getLocation(id: string): Promise<InventoryLocation | null> {
     return this.locations.get(id) ?? null
-  }
-
-  async getAllLocations(): Promise<InventoryLocation[]> {
-    return Array.from(this.locations.values())
-  }
-
-  async deleteLocation(id: string): Promise<void> {
-    const location = this.locations.get(id)
-    if (!location) {
-      throw new Error('Location not found')
-    }
-
-    // Check if location has stock
-    const locationInventory = await this.getInventoryByLocation(id)
-    const hasStock = locationInventory.some((level) => level.onHand > 0 || level.reserved > 0)
-    if (hasStock) {
-      throw new Error('Cannot delete location with existing stock')
-    }
-
-    // Check for pending transfer requests
-    const pendingTransfers = await this.getTransferRequestsByLocation(id, 'both')
-    const hasPendingTransfers = pendingTransfers.some(
-      (t) => t.status === 'pending' || t.status === 'approved' || t.status === 'in_transit'
-    )
-    if (hasPendingTransfers) {
-      throw new Error('Cannot delete location with pending transfer requests')
-    }
-
-    this.locations.delete(id)
-    this.locationStock.delete(id)
   }
 
   async setStockAtLocation(
@@ -1018,7 +878,6 @@ class InMemoryInventoryManager implements InventoryManager {
 
     for (const [locationId, location] of this.locations) {
       if (!location.coordinates) continue
-      if (location.isActive === false) continue
 
       const available = await this.getStockAtLocation(variantId, locationId)
       if (available < quantity) continue
@@ -1036,449 +895,6 @@ class InMemoryInventoryManager implements InventoryManager {
     }
 
     return nearest
-  }
-
-  // Multi-warehouse fulfillment
-
-  async getAggregatedStock(variantId: string): Promise<AggregatedStock> {
-    let totalOnHand = 0
-    let totalReserved = 0
-
-    const byLocation: AggregatedStock['byLocation'] = []
-
-    for (const [locationId, location] of this.locations) {
-      if (location.isActive === false) continue
-
-      const data = this.getLocationStockData(variantId, locationId)
-      const available = data.onHand - data.reserved
-
-      if (data.onHand > 0 || data.reserved > 0) {
-        totalOnHand += data.onHand
-        totalReserved += data.reserved
-
-        byLocation.push({
-          locationId,
-          locationName: location.name,
-          onHand: data.onHand,
-          reserved: data.reserved,
-          available,
-        })
-      }
-    }
-
-    // Sort by priority (lower = higher priority)
-    byLocation.sort((a, b) => {
-      const locA = this.locations.get(a.locationId)
-      const locB = this.locations.get(b.locationId)
-      return (locA?.priority ?? 100) - (locB?.priority ?? 100)
-    })
-
-    return {
-      variantId,
-      totalOnHand,
-      totalReserved,
-      totalAvailable: totalOnHand - totalReserved,
-      byLocation,
-    }
-  }
-
-  async planFulfillment(
-    variantId: string,
-    quantity: number,
-    options?: FulfillmentOptions
-  ): Promise<FulfillmentPlan> {
-    const strategy = options?.strategy ?? 'priority'
-    const excludeLocations = new Set(options?.excludeLocations ?? [])
-
-    // Get all active locations with stock
-    const locationsWithStock: Array<{
-      locationId: string
-      location: InventoryLocation
-      available: number
-      distance?: number
-    }> = []
-
-    for (const [locationId, location] of this.locations) {
-      if (location.isActive === false) continue
-      if (excludeLocations.has(locationId)) continue
-
-      const data = this.getLocationStockData(variantId, locationId)
-      const available = data.onHand - data.reserved
-
-      if (available > 0) {
-        let distance: number | undefined
-        if (strategy === 'nearest' && options?.coordinates && location.coordinates) {
-          distance = haversineDistance(
-            options.coordinates.lat,
-            options.coordinates.lng,
-            location.coordinates.lat,
-            location.coordinates.lng
-          )
-        }
-
-        locationsWithStock.push({ locationId, location, available, distance })
-      }
-    }
-
-    // Sort based on strategy
-    switch (strategy) {
-      case 'priority':
-        locationsWithStock.sort((a, b) => (a.location.priority ?? 100) - (b.location.priority ?? 100))
-        break
-      case 'nearest':
-        if (!options?.coordinates) {
-          throw new Error('Coordinates required for nearest strategy')
-        }
-        locationsWithStock.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
-        break
-      case 'round-robin':
-        // Rotate the starting point based on round-robin index
-        const startIdx = this.roundRobinIndex % Math.max(1, locationsWithStock.length)
-        this.roundRobinIndex++
-        const rotated = [
-          ...locationsWithStock.slice(startIdx),
-          ...locationsWithStock.slice(0, startIdx),
-        ]
-        locationsWithStock.length = 0
-        locationsWithStock.push(...rotated)
-        break
-      case 'lowest-stock-first':
-        locationsWithStock.sort((a, b) => a.available - b.available)
-        break
-    }
-
-    // Allocate stock
-    const allocations: WarehouseAllocation[] = []
-    let remaining = quantity
-
-    for (const { locationId, location, available } of locationsWithStock) {
-      if (remaining <= 0) break
-
-      const allocateQty = Math.min(remaining, available)
-      allocations.push({
-        locationId,
-        locationName: location.name,
-        quantity: allocateQty,
-        availableAfterAllocation: available - allocateQty,
-      })
-      remaining -= allocateQty
-    }
-
-    return {
-      variantId,
-      requestedQuantity: quantity,
-      canFulfill: remaining === 0,
-      allocations,
-      shortfall: remaining,
-    }
-  }
-
-  async reserveWithFulfillmentPlan(
-    plan: FulfillmentPlan,
-    referenceId: string,
-    referenceType: string,
-    ttl?: number
-  ): Promise<Reservation[]> {
-    if (!plan.canFulfill) {
-      throw new Error(`Cannot fulfill: shortfall of ${plan.shortfall} units`)
-    }
-
-    const reservations: Reservation[] = []
-
-    try {
-      for (const allocation of plan.allocations) {
-        const reservation = await this.createReservation({
-          variantId: plan.variantId,
-          quantity: allocation.quantity,
-          referenceId,
-          referenceType,
-          locationId: allocation.locationId,
-          ttl,
-        })
-        reservations.push(reservation)
-      }
-      return reservations
-    } catch (error) {
-      // Rollback on failure
-      for (const reservation of reservations) {
-        await this.releaseReservation(reservation.id)
-      }
-      throw error
-    }
-  }
-
-  async setLocationLowStockThreshold(
-    variantId: string,
-    locationId: string,
-    threshold: number
-  ): Promise<void> {
-    const location = this.locations.get(locationId)
-    if (!location) {
-      throw new Error('Location not found')
-    }
-
-    const data = this.getLocationStockData(variantId, locationId)
-    const newData: StockData = {
-      ...data,
-      lowStockThreshold: threshold,
-    }
-    this.setLocationStockData(variantId, locationId, newData)
-  }
-
-  async getLowStockItemsAtLocation(locationId: string): Promise<InventoryLevel[]> {
-    const location = this.locations.get(locationId)
-    if (!location) {
-      throw new Error('Location not found')
-    }
-
-    const locationMap = this.locationStock.get(locationId)
-    if (!locationMap) return []
-
-    const lowStock: InventoryLevel[] = []
-
-    for (const [variantId, data] of locationMap) {
-      if (data.lowStockThreshold) {
-        const available = data.onHand - data.reserved
-        if (available < data.lowStockThreshold) {
-          lowStock.push({
-            variantId,
-            available,
-            reserved: data.reserved,
-            onHand: data.onHand,
-            lowStockThreshold: data.lowStockThreshold,
-            locationId,
-          })
-        }
-      }
-    }
-
-    return lowStock
-  }
-
-  // Transfer requests (workflow-based transfers)
-
-  async createTransferRequest(input: CreateTransferRequestInput): Promise<TransferRequest> {
-    const fromLocation = this.locations.get(input.fromLocationId)
-    if (!fromLocation) {
-      throw new Error('Source location not found')
-    }
-
-    const toLocation = this.locations.get(input.toLocationId)
-    if (!toLocation) {
-      throw new Error('Destination location not found')
-    }
-
-    // Validate sufficient stock at source
-    const data = this.getLocationStockData(input.variantId, input.fromLocationId)
-    const available = data.onHand - data.reserved
-    if (available < input.quantity && !this.options.allowOverselling) {
-      throw new Error('Insufficient stock at source location')
-    }
-
-    const request: TransferRequest = {
-      id: generateId('xfer'),
-      variantId: input.variantId,
-      fromLocationId: input.fromLocationId,
-      toLocationId: input.toLocationId,
-      quantity: input.quantity,
-      status: 'pending',
-      reason: input.reason,
-      requestedBy: input.requestedBy,
-      requestedAt: new Date(),
-    }
-
-    this.transferRequests.set(request.id, request)
-    return request
-  }
-
-  async getTransferRequest(id: string): Promise<TransferRequest | null> {
-    return this.transferRequests.get(id) ?? null
-  }
-
-  async approveTransferRequest(id: string, approvedBy?: string): Promise<TransferRequest> {
-    const request = this.transferRequests.get(id)
-    if (!request) {
-      throw new Error('Transfer request not found')
-    }
-
-    if (request.status !== 'pending') {
-      throw new Error('Transfer request is not pending')
-    }
-
-    // Re-validate stock availability
-    const data = this.getLocationStockData(request.variantId, request.fromLocationId)
-    const available = data.onHand - data.reserved
-    if (available < request.quantity && !this.options.allowOverselling) {
-      throw new Error('Insufficient stock at source location')
-    }
-
-    const updated: TransferRequest = {
-      ...request,
-      status: 'approved',
-      approvedBy,
-      approvedAt: new Date(),
-    }
-
-    this.transferRequests.set(id, updated)
-    return updated
-  }
-
-  async startTransfer(id: string): Promise<TransferRequest> {
-    const request = this.transferRequests.get(id)
-    if (!request) {
-      throw new Error('Transfer request not found')
-    }
-
-    if (request.status !== 'approved') {
-      throw new Error('Transfer request must be approved before starting')
-    }
-
-    // Reserve stock at source location (deduct on-hand, don't touch reserved)
-    const fromData = this.getLocationStockData(request.variantId, request.fromLocationId)
-    const available = fromData.onHand - fromData.reserved
-    if (available < request.quantity && !this.options.allowOverselling) {
-      throw new Error('Insufficient stock at source location')
-    }
-
-    // Deduct from source
-    this.setLocationStockData(request.variantId, request.fromLocationId, {
-      ...fromData,
-      onHand: fromData.onHand - request.quantity,
-    })
-
-    // Record outbound movement
-    this.addMovement(request.variantId, {
-      id: generateId('mov'),
-      variantId: request.variantId,
-      quantity: -request.quantity,
-      type: 'transfer',
-      reason: `Transfer to ${request.toLocationId}: ${request.reason ?? 'Stock transfer'}`,
-      fromLocationId: request.fromLocationId,
-      toLocationId: request.toLocationId,
-      timestamp: new Date(),
-    })
-
-    const updated: TransferRequest = {
-      ...request,
-      status: 'in_transit',
-    }
-
-    this.transferRequests.set(id, updated)
-    return updated
-  }
-
-  async completeTransfer(id: string): Promise<TransferRequest> {
-    const request = this.transferRequests.get(id)
-    if (!request) {
-      throw new Error('Transfer request not found')
-    }
-
-    if (request.status !== 'in_transit') {
-      throw new Error('Transfer must be in transit to complete')
-    }
-
-    // Add to destination
-    const toData = this.getLocationStockData(request.variantId, request.toLocationId)
-    this.setLocationStockData(request.variantId, request.toLocationId, {
-      ...toData,
-      onHand: toData.onHand + request.quantity,
-    })
-
-    // Record inbound movement
-    this.addMovement(request.variantId, {
-      id: generateId('mov'),
-      variantId: request.variantId,
-      quantity: request.quantity,
-      type: 'transfer',
-      reason: `Transfer from ${request.fromLocationId}: ${request.reason ?? 'Stock transfer'}`,
-      fromLocationId: request.fromLocationId,
-      toLocationId: request.toLocationId,
-      timestamp: new Date(),
-    })
-
-    const updated: TransferRequest = {
-      ...request,
-      status: 'completed',
-      completedAt: new Date(),
-    }
-
-    this.transferRequests.set(id, updated)
-    return updated
-  }
-
-  async cancelTransferRequest(id: string, reason?: string): Promise<TransferRequest> {
-    const request = this.transferRequests.get(id)
-    if (!request) {
-      throw new Error('Transfer request not found')
-    }
-
-    if (request.status === 'completed' || request.status === 'cancelled') {
-      throw new Error('Cannot cancel completed or already cancelled transfer')
-    }
-
-    // If in transit, need to return stock to source
-    if (request.status === 'in_transit') {
-      const fromData = this.getLocationStockData(request.variantId, request.fromLocationId)
-      this.setLocationStockData(request.variantId, request.fromLocationId, {
-        ...fromData,
-        onHand: fromData.onHand + request.quantity,
-      })
-
-      // Record reversal movement
-      this.addMovement(request.variantId, {
-        id: generateId('mov'),
-        variantId: request.variantId,
-        quantity: request.quantity,
-        type: 'adjustment',
-        reason: `Transfer cancelled: ${reason ?? 'Cancelled in transit'}`,
-        locationId: request.fromLocationId,
-        timestamp: new Date(),
-      })
-    }
-
-    const updated: TransferRequest = {
-      ...request,
-      status: 'cancelled',
-      cancelledAt: new Date(),
-      cancellationReason: reason,
-    }
-
-    this.transferRequests.set(id, updated)
-    return updated
-  }
-
-  async getTransferRequestsByLocation(
-    locationId: string,
-    direction: 'from' | 'to' | 'both'
-  ): Promise<TransferRequest[]> {
-    const results: TransferRequest[] = []
-
-    for (const request of this.transferRequests.values()) {
-      if (direction === 'from' && request.fromLocationId === locationId) {
-        results.push(request)
-      } else if (direction === 'to' && request.toLocationId === locationId) {
-        results.push(request)
-      } else if (
-        direction === 'both' &&
-        (request.fromLocationId === locationId || request.toLocationId === locationId)
-      ) {
-        results.push(request)
-      }
-    }
-
-    return results.sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime())
-  }
-
-  async getPendingTransferRequests(): Promise<TransferRequest[]> {
-    const results: TransferRequest[] = []
-
-    for (const request of this.transferRequests.values()) {
-      if (request.status === 'pending' || request.status === 'approved') {
-        results.push(request)
-      }
-    }
-
-    return results.sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime())
   }
 }
 

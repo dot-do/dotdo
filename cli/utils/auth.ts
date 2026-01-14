@@ -6,7 +6,6 @@
  */
 
 import { getStoredToken, type StoredToken } from '../device-auth'
-import { AuthError } from './errors'
 
 // ============================================================================
 // Types
@@ -199,18 +198,14 @@ export async function checkSession(): Promise<SessionResult> {
 /**
  * Get session or throw if not authenticated
  *
- * @throws AuthError if not authenticated
+ * @throws Error if not authenticated
  * @returns The current session
  */
 export async function requireSession(): Promise<Session> {
   const result = await checkSession()
 
   if (!result.authenticated || !result.session) {
-    // Check if this is an expiration issue
-    if (result.error?.toLowerCase().includes('expired')) {
-      throw AuthError.expired()
-    }
-    throw AuthError.notLoggedIn()
+    throw new Error(result.error || 'Not authenticated. Please login first.')
   }
 
   return result.session

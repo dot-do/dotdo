@@ -115,36 +115,6 @@ export {
   VideoUnsupportedError,
 } from '../video-transcode'
 
-export {
-  createMediaLibrary,
-  type MediaLibrary,
-  type MediaMetadata as LibraryMediaMetadata,
-  type MediaType as LibraryMediaType,
-  type ExifData as LibraryExifData,
-  type GpsCoordinates,
-  type ExposureSettings,
-  type LensInfo,
-  type ImageMetadata as LibraryImageMetadata,
-  type VideoMetadata as LibraryVideoMetadata,
-  type AudioMetadata as LibraryAudioMetadata,
-  type DocumentMetadata,
-  type AddMediaOptions,
-  type SearchOptions,
-  type SearchResult,
-  type FolderInfo,
-  type TagInfo,
-  type MediaLibraryConfig,
-  // Utility functions
-  detectMimeType as detectMimeTypeFromBytes,
-  getMimeTypeFromExtension as getMimeFromExtension,
-  getMediaTypeFromMime as getMediaTypeFromMimeType,
-  extractExifFromJpeg,
-  extractExifFromTiff,
-  extractImageDimensions,
-  extractImageMetadata as extractImageMeta,
-  imageHasAlpha,
-} from './media-library'
-
 // =============================================================================
 // Types
 // =============================================================================

@@ -114,15 +114,6 @@ export {
   type InventoryOptions,
   type LowStockAlert,
   type InventoryLocation,
-  type LocationType,
-  type FulfillmentStrategy,
-  type WarehouseAllocation,
-  type FulfillmentPlan,
-  type AggregatedStock,
-  type TransferStatus,
-  type TransferRequest,
-  type CreateTransferRequestInput,
-  type FulfillmentOptions,
 
   // Interface
   type InventoryManager,
@@ -209,63 +200,6 @@ export {
 } from './revenue-recognition'
 
 // =============================================================================
-// Fulfillment - Fulfillment orchestration
-// =============================================================================
-
-export {
-  // Status Types
-  type FulfillmentStatus as FulfillmentOrchestrationStatus,
-  type ShipmentStatus,
-  type ReturnStatus,
-  type ExchangeStatus,
-  type CarrierType,
-  type ServiceLevel,
-
-  // Provider Types
-  type FulfillmentProviderCapabilities,
-  type FulfillmentProvider,
-
-  // Shipping Types
-  type ShippingRate,
-  type PackageDimensions,
-  type Package,
-  type ShippingAddress,
-
-  // Fulfillment Types
-  type FulfillmentLineItem,
-  type FulfillmentOrder,
-  type TrackingEvent,
-  type Shipment as FulfillmentShipment,
-  type FulfillmentStatusEntry,
-  type DeliveryNotification,
-
-  // Return/Exchange Types
-  type ReturnRequest,
-  type ExchangeRequest,
-
-  // Input Types
-  type CreateProviderInput,
-  type UpdateProviderInput,
-  type CreateFulfillmentOrderInput,
-  type GetRatesInput,
-  type CreateShipmentInput,
-  type CreateReturnInput,
-  type CreateExchangeInput,
-  type SplitShipmentOptions,
-  type CarrierSelectionCriteria,
-  type NotificationInput,
-
-  // Metrics
-  type FulfillmentMetrics,
-
-  // Interface
-  type FulfillmentOrchestrator,
-
-  // Factory
-  createFulfillmentOrchestrator,
-} from './fulfillment'
-
-// =============================================================================
 // Commerce Engine - Unified interface
 // =============================================================================
 
@@ -274,7 +208,6 @@ import { createCartManager as _createCartManager } from './cart'
 import { createOrderManager as _createOrderManager } from './orders'
 import { createInventoryManager as _createInventoryManager } from './inventory'
 import { createPricingEngine as _createPricingEngine } from './pricing'
-import { createFulfillmentOrchestrator as _createFulfillmentOrchestrator } from './fulfillment'
 
 export interface CommerceEngine {
   catalog: import('./catalog').Catalog
@@ -282,7 +215,6 @@ export interface CommerceEngine {
   orders: import('./orders').OrderManager
   inventory: import('./inventory').InventoryManager
   pricing: import('./pricing').PricingEngine
-  fulfillment: import('./fulfillment').FulfillmentOrchestrator
 }
 
 export interface CommerceEngineOptions {
@@ -300,6 +232,5 @@ export function createCommerceEngine(options?: CommerceEngineOptions): CommerceE
     orders: _createOrderManager(),
     inventory: _createInventoryManager(options?.inventory),
     pricing: _createPricingEngine(),
-    fulfillment: _createFulfillmentOrchestrator(),
   }
 }

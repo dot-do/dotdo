@@ -6,7 +6,6 @@
 
 import { getConfig } from './config'
 import { getAuthHeaders, AuthError } from './auth'
-import { NetworkError, ErrorCode, ExitCode } from '../utils/errors'
 
 // ============================================================================
 // Types
@@ -29,46 +28,32 @@ export interface RPCRequestOptions {
   stream?: boolean
 }
 
-/**
- * Network error for RPC calls.
- * Extends the unified NetworkError from utils/errors.
- */
-export class RPCNetworkError extends NetworkError {
-  constructor(message: string, cause?: Error) {
-    super(`Network error: ${message}`, {
-      code: ErrorCode.CONNECTION_FAILED,
-      cause,
-    })
+export class RPCNetworkError extends Error {
+  constructor(message: string) {
+    super(`Network error: ${message}`)
     this.name = 'RPCNetworkError'
   }
 }
 
-/**
- * API error for RPC calls.
- * Extends the unified NetworkError from utils/errors.
- */
-export class RPCAPIError extends NetworkError {
-  constructor(message: string, status: number, errorCode?: string) {
-    super(message, {
-      code: errorCode ? (errorCode as typeof ErrorCode[keyof typeof ErrorCode]) : ErrorCode.API_ERROR,
-      status,
-    })
+export class RPCAPIError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
     this.name = 'RPCAPIError'
+    this.status = status
+    this.code = code
   }
 }
 
-/**
- * Rate limit error for RPC calls.
- * Extends RPCAPIError with retry information.
- */
-export class RPCRateLimitError extends NetworkError {
-  constructor(message: string, retryAfterSeconds?: number) {
-    super(message, {
-      code: ErrorCode.RATE_LIMITED,
-      exitCode: ExitCode.RATE_LIMITED,
-      retryAfter: retryAfterSeconds,
-    })
+export class RPCRateLimitError extends RPCAPIError {
+  retryAfter?: number
+
+  constructor(message: string, retryAfter?: number) {
+    super(message, 429, 'rate_limit_exceeded')
     this.name = 'RPCRateLimitError'
+    this.retryAfter = retryAfter
   }
 }
 

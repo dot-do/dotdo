@@ -268,7 +268,7 @@ describe('Auth Utility', () => {
     it('throws when not authenticated', async () => {
       mockGetStoredToken.mockResolvedValue(null)
 
-      await expect(requireSession()).rejects.toThrow(/not logged in|login/i)
+      await expect(requireSession()).rejects.toThrow(/not authenticated|login/i)
     })
 
     it('throws when session is expired without refresh token', async () => {

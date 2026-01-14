@@ -674,7 +674,7 @@ describe('Type Registration and Discovery', () => {
     })
   })
 
-  describe.skip('Type Discovery (NOT IMPLEMENTED - RED tests for future discovery module)', () => {
+  describe('Type Discovery', () => {
     it('discoverTypes finds all DO subclasses in module', async () => {
       const { discoverTypes } = await import('../discovery')
       const objectsModule = await import('../index')
@@ -717,7 +717,7 @@ describe('Type Registration and Discovery', () => {
 
   describe('Type Validation', () => {
     it('validateType checks for required $type property', async () => {
-      const { validateType } = await import('../../lib/validation')
+      const { validateType } = await import('../validation')
 
       // RED: Should reject classes without $type
       class InvalidDO extends DO {
@@ -728,7 +728,7 @@ describe('Type Registration and Discovery', () => {
     })
 
     it('validateType checks $type matches class name', async () => {
-      const { validateType } = await import('../../lib/validation')
+      const { validateType } = await import('../validation')
 
       // RED: Should reject mismatched $type
       class MismatchedDO extends DO {
@@ -739,7 +739,7 @@ describe('Type Registration and Discovery', () => {
     })
 
     it('validateType allows custom $type with explicit override', async () => {
-      const { validateType } = await import('../../lib/validation')
+      const { validateType } = await import('../validation')
 
       // RED: Should allow custom $type with explicit config
       class CustomDO extends DO {
@@ -750,7 +750,7 @@ describe('Type Registration and Discovery', () => {
     })
 
     it('validateType checks inheritance chain', async () => {
-      const { validateType } = await import('../../lib/validation')
+      const { validateType } = await import('../validation')
 
       // RED: Should verify class extends DO
       class NotADO {

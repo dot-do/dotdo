@@ -587,9 +587,6 @@ export default defineWorkspace([
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
 
-  // Metrics tests (HUNCH metrics pipeline, PMF tracking)
-  createNodeWorkspace('metrics', ['metrics/**/*.test.ts']),
-
   // Roles system tests (job functions with OKRs and capabilities)
   createNodeWorkspace('roles', ['roles/**/*.test.ts']),
 

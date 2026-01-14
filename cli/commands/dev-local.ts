@@ -11,7 +11,6 @@ import { createLogger } from '../utils/logger'
 import { loadConfigAsync } from '../utils/config'
 import { parsePort } from '../utils/validation'
 import { startTunnel } from './tunnel'
-import { spin, isInteractive, formatElapsed, createStopwatch } from '../utils/spinner'
 
 const logger = createLogger('dev')
 
@@ -27,17 +26,13 @@ export const devCommand = new Command('dev')
   .option('--live-reload', 'Enable live reload on file changes', true)
   .option('-c, --config <path>', 'Path to config file')
   .action(async (options) => {
-    const interactive = isInteractive()
-    const stopwatch = createStopwatch()
-
     // Pass logger for debug logging of parse errors
-    const configSpinner = interactive ? spin('Loading configuration...') : null
     const config = await loadConfigAsync(undefined, logger)
-    configSpinner?.succeed('Configuration loaded')
 
     const port = parsePort(options.port)
     const host = options.host
 
+    logger.info(`Starting development server...`)
     logger.debug('Options:', { port, host, tunnel: options.tunnel, persist: options.persist })
 
     // Create Miniflare adapter
@@ -48,52 +43,34 @@ export const devCommand = new Command('dev')
     })
 
     try {
-      // Start the runtime with spinner
-      const runtimeSpinner = interactive ? spin('Starting Miniflare runtime...', { style: 'dots' }) : null
-
+      // Start the runtime
       const instance = await adapter.start({
         port,
         host,
         live: options.liveReload,
       })
 
-      runtimeSpinner?.succeed(`Development server started`)
+      console.log()
+      console.log(`  Local:   ${instance.url}`)
 
       // Start tunnel if requested
-      let tunnelUrl: string | undefined
       if (options.tunnel) {
-        const tunnelSpinner = interactive ? spin('Setting up Cloudflare Tunnel...') : null
-        tunnelUrl = await startTunnel({
+        const tunnelUrl = await startTunnel({
           port,
           name: options.tunnelName,
           logger,
         })
-        tunnelSpinner?.succeed('Tunnel connected')
-      }
-
-      // Print server info
-      console.log()
-      console.log(`  Server ready in ${stopwatch.formatted()}`)
-      console.log()
-      console.log(`  Local:   ${instance.url}`)
-      if (tunnelUrl) {
         console.log(`  Tunnel:  ${tunnelUrl}`)
       }
+
       console.log()
       console.log('  Press Ctrl+C to stop')
       console.log()
 
       // Handle shutdown
       const shutdown = async () => {
-        const shutdownSpinner = interactive ? spin('Shutting down...') : null
-        if (!interactive) console.log('\nShutting down...')
-
-        try {
-          await instance.stop()
-          shutdownSpinner?.succeed('Server stopped')
-        } catch {
-          shutdownSpinner?.fail('Error during shutdown')
-        }
+        console.log('\nShutting down...')
+        await instance.stop()
         process.exit(0)
       }
 

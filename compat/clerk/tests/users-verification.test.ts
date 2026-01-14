@@ -1,15 +1,13 @@
 /**
- * @dotdo/clerk - Clerk Users Verification & Advanced Features Tests
+ * @dotdo/clerk - Clerk Users Verification & Advanced Features Tests (RED Phase)
  *
- * Tests for advanced Clerk user management features:
+ * These tests cover features that need to be implemented:
  * - Email verification
  * - Phone verification
  * - External account management
  * - Password management (updatePassword, resetPassword, checkPasswordStrength)
  * - Search and filter users
  * - User lookup by email/external_id
- * - Web3 wallet management
- * - Profile image management
  *
  * @see https://clerk.com/docs/reference/backend-api/tag/Users
  */
@@ -101,6 +99,7 @@ describe('@dotdo/clerk - Email Verification', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.createEmailVerification('user_test123', 'user@example.com')
 
       expect(result.id).toBe('ver_test123')
@@ -129,7 +128,8 @@ describe('@dotdo/clerk - Email Verification', () => {
       )
 
       await expect(
-          clerk.users.createEmailVerification('user_test123', 'other@example.com')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.createEmailVerification('user_test123', 'other@example.com')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -151,6 +151,7 @@ describe('@dotdo/clerk - Email Verification', () => {
       })
       mockFetch.mockResolvedValueOnce(createMockResponse(userWithVerifiedEmail))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.verifyEmail('user_test123', '123456')
 
       expect(result.email_addresses[0].verification?.status).toBe('verified')
@@ -179,7 +180,8 @@ describe('@dotdo/clerk - Email Verification', () => {
       )
 
       await expect(
-          clerk.users.verifyEmail('user_test123', '000000')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.verifyEmail('user_test123', '000000')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -212,6 +214,7 @@ describe('@dotdo/clerk - Phone Verification', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.createPhoneVerification('user_test123', '+15551234567')
 
       expect(result.id).toBe('ver_phone123')
@@ -240,7 +243,8 @@ describe('@dotdo/clerk - Phone Verification', () => {
       )
 
       await expect(
-          clerk.users.createPhoneVerification('user_test123', '+19999999999')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.createPhoneVerification('user_test123', '+19999999999')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -264,6 +268,7 @@ describe('@dotdo/clerk - Phone Verification', () => {
       })
       mockFetch.mockResolvedValueOnce(createMockResponse(userWithVerifiedPhone))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.verifyPhone('user_test123', '654321')
 
       expect(result.phone_numbers[0].verification?.status).toBe('verified')
@@ -285,7 +290,8 @@ describe('@dotdo/clerk - Phone Verification', () => {
       )
 
       await expect(
-          clerk.users.verifyPhone('user_test123', '000000')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.verifyPhone('user_test123', '000000')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -330,6 +336,7 @@ describe('@dotdo/clerk - External Accounts', () => {
       }
       mockFetch.mockResolvedValueOnce(createMockResponse(externalAccount))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.createExternalAccount('user_test123', {
         provider: 'google',
         token: 'google_oauth_token',
@@ -364,7 +371,8 @@ describe('@dotdo/clerk - External Accounts', () => {
       )
 
       await expect(
-          clerk.users.createExternalAccount('user_test123', {
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.createExternalAccount('user_test123', {
           provider: 'github',
           token: 'github_token',
           providerUserId: 'github_123',
@@ -383,6 +391,7 @@ describe('@dotdo/clerk - External Accounts', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.deleteExternalAccount('user_test123', 'eac_test123')
 
       expect(result.id).toBe('eac_test123')
@@ -411,7 +420,8 @@ describe('@dotdo/clerk - External Accounts', () => {
       )
 
       await expect(
-          clerk.users.deleteExternalAccount('user_test123', 'eac_nonexistent')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.deleteExternalAccount('user_test123', 'eac_nonexistent')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -463,6 +473,7 @@ describe('@dotdo/clerk - External Accounts', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.listExternalAccounts('user_test123')
 
       expect(result.data).toHaveLength(2)
@@ -485,6 +496,7 @@ describe('@dotdo/clerk - External Accounts', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.listExternalAccounts('user_test123')
 
       expect(result.data).toHaveLength(0)
@@ -515,6 +527,7 @@ describe('@dotdo/clerk - Password Management', () => {
       const updatedUser = mockUser({ password_enabled: true })
       mockFetch.mockResolvedValueOnce(createMockResponse(updatedUser))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.updatePassword('user_test123', 'NewSecurePassword123!')
 
       expect(result.password_enabled).toBe(true)
@@ -543,7 +556,8 @@ describe('@dotdo/clerk - Password Management', () => {
       )
 
       await expect(
-          clerk.users.updatePassword('user_test123', 'weak')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.updatePassword('user_test123', 'weak')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -557,6 +571,7 @@ describe('@dotdo/clerk - Password Management', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.resetPassword('user_test123')
 
       expect(result.reset_token).toBe('rst_token123')
@@ -585,13 +600,15 @@ describe('@dotdo/clerk - Password Management', () => {
       )
 
       await expect(
-          clerk.users.resetPassword('user_nonexistent')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.resetPassword('user_nonexistent')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
 
   describe('checkPasswordStrength', () => {
     it('should return very_weak for short passwords', () => {
+      // @ts-expect-error - Method not yet implemented
       const result = clerk.users.checkPasswordStrength('abc')
 
       expect(result.strength).toBe('very_weak')
@@ -600,6 +617,7 @@ describe('@dotdo/clerk - Password Management', () => {
     })
 
     it('should return weak for password without variety', () => {
+      // @ts-expect-error - Method not yet implemented
       const result = clerk.users.checkPasswordStrength('abcdefgh')
 
       expect(result.strength).toBe('weak')
@@ -607,6 +625,7 @@ describe('@dotdo/clerk - Password Management', () => {
     })
 
     it('should return strong for good passwords', () => {
+      // @ts-expect-error - Method not yet implemented
       const result = clerk.users.checkPasswordStrength('MyP@ssw0rd123!')
 
       expect(['strong', 'very_strong']).toContain(result.strength)
@@ -614,6 +633,7 @@ describe('@dotdo/clerk - Password Management', () => {
     })
 
     it('should return very_strong for excellent passwords', () => {
+      // @ts-expect-error - Method not yet implemented
       const result = clerk.users.checkPasswordStrength('MyV3ryStr0ng&P@ssw0rd!')
 
       expect(result.strength).toBe('very_strong')
@@ -621,6 +641,7 @@ describe('@dotdo/clerk - Password Management', () => {
     })
 
     it('should warn about common patterns', () => {
+      // @ts-expect-error - Method not yet implemented
       const result = clerk.users.checkPasswordStrength('password123')
 
       expect(result.warnings.some((w: string) => w.toLowerCase().includes('common'))).toBe(true)
@@ -655,6 +676,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.searchUsers('john')
 
       expect(result.data).toHaveLength(1)
@@ -673,6 +695,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.searchUsers('nonexistentuserxyz')
 
       expect(result.data).toHaveLength(0)
@@ -704,6 +727,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByEmail('user@example.com')
 
       expect(result).not.toBeNull()
@@ -723,6 +747,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByEmail('USER@EXAMPLE.COM')
 
       expect(result).not.toBeNull()
@@ -736,6 +761,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByEmail('nonexistent@example.com')
 
       expect(result).toBeNull()
@@ -752,6 +778,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByExternalId('ext_123')
 
       expect(result).not.toBeNull()
@@ -770,6 +797,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByExternalId('nonexistent_ext_id')
 
       expect(result).toBeNull()
@@ -786,6 +814,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByUsername('johndoe')
 
       expect(result).not.toBeNull()
@@ -804,6 +833,7 @@ describe('@dotdo/clerk - User Search and Lookup', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserByUsername('nonexistent_user')
 
       expect(result).toBeNull()
@@ -837,6 +867,7 @@ describe('@dotdo/clerk - User Metadata Retrieval', () => {
       })
       mockFetch.mockResolvedValueOnce(createMockResponse(user))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserMetadata('user_test123')
 
       expect(result.publicMetadata).toEqual({ role: 'admin' })
@@ -852,6 +883,7 @@ describe('@dotdo/clerk - User Metadata Retrieval', () => {
       })
       mockFetch.mockResolvedValueOnce(createMockResponse(user))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.getUserMetadata('user_test123')
 
       expect(result.publicMetadata).toEqual({})
@@ -875,7 +907,8 @@ describe('@dotdo/clerk - User Metadata Retrieval', () => {
       )
 
       await expect(
-          clerk.users.getUserMetadata('user_nonexistent')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.getUserMetadata('user_nonexistent')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -903,6 +936,7 @@ describe('@dotdo/clerk - User Ban Status', () => {
       const bannedUser = mockUser({ banned: true })
       mockFetch.mockResolvedValueOnce(createMockResponse(bannedUser))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.isUserBanned('user_test123')
 
       expect(result.banned).toBe(true)
@@ -912,6 +946,7 @@ describe('@dotdo/clerk - User Ban Status', () => {
       const unbannedUser = mockUser({ banned: false })
       mockFetch.mockResolvedValueOnce(createMockResponse(unbannedUser))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.isUserBanned('user_test123')
 
       expect(result.banned).toBe(false)
@@ -933,7 +968,8 @@ describe('@dotdo/clerk - User Ban Status', () => {
       )
 
       await expect(
-          clerk.users.isUserBanned('user_nonexistent')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.isUserBanned('user_nonexistent')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -970,6 +1006,7 @@ describe('@dotdo/clerk - Web3 Wallet Management', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.createWeb3Wallet('user_test123', walletAddress)
 
       expect(result.id).toBe('w3w_test123')
@@ -998,7 +1035,8 @@ describe('@dotdo/clerk - Web3 Wallet Management', () => {
       )
 
       await expect(
-          clerk.users.createWeb3Wallet('user_test123', 'invalid_wallet')
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.createWeb3Wallet('user_test123', 'invalid_wallet')
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -1013,6 +1051,7 @@ describe('@dotdo/clerk - Web3 Wallet Management', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.deleteWeb3Wallet('user_test123', 'w3w_test123')
 
       expect(result.id).toBe('w3w_test123')
@@ -1044,6 +1083,7 @@ describe('@dotdo/clerk - Web3 Wallet Management', () => {
         })
       )
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.listWeb3Wallets('user_test123')
 
       expect(result.data).toHaveLength(1)
@@ -1086,6 +1126,7 @@ describe('@dotdo/clerk - Profile Image Management', () => {
 
       const imageFile = new File(['image data'], 'profile.png', { type: 'image/png' })
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.uploadProfileImage('user_test123', imageFile)
 
       expect(result.has_image).toBe(true)
@@ -1116,7 +1157,8 @@ describe('@dotdo/clerk - Profile Image Management', () => {
       const textFile = new File(['not an image'], 'file.txt', { type: 'text/plain' })
 
       await expect(
-          clerk.users.uploadProfileImage('user_test123', textFile)
+        // @ts-expect-error - Method not yet implemented
+        clerk.users.uploadProfileImage('user_test123', textFile)
       ).rejects.toThrow(ClerkAPIError)
     })
   })
@@ -1130,6 +1172,7 @@ describe('@dotdo/clerk - Profile Image Management', () => {
       })
       mockFetch.mockResolvedValueOnce(createMockResponse(updatedUser))
 
+      // @ts-expect-error - Method not yet implemented
       const result = await clerk.users.deleteProfileImage('user_test123')
 
       expect(result.has_image).toBe(false)

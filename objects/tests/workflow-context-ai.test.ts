@@ -129,19 +129,6 @@ function createMockWorkflowContextWithAI(): WorkflowContextWithAI {
     }
   })
 
-  // Create human-in-loop functions
-  const askFunc = vi.fn().mockImplementation((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    return createMockPipelinePromise('Human response')
-  })
-
-  const approveFunc = vi.fn().mockImplementation((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    return createMockPipelinePromise(true)
-  })
-
-  const reviewFunc = vi.fn().mockImplementation((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    return createMockPipelinePromise({ approved: true, feedback: 'Looks good!' })
-  })
-
   return {
     ...baseContext,
     ai: aiFunc,
@@ -151,9 +138,6 @@ function createMockWorkflowContextWithAI(): WorkflowContextWithAI {
     extract: extractFunc,
     is: isFunc,
     decide: decideFunc,
-    ask: askFunc,
-    approve: approveFunc,
-    review: reviewFunc,
   } as unknown as WorkflowContextWithAI
 }
 
@@ -207,21 +191,6 @@ describe('Workflow Context AI Integration', () => {
     it('$ should have decide classification factory', () => {
       expect($.decide).toBeDefined()
       expect(typeof $.decide).toBe('function')
-    })
-
-    it('$ should have ask human-in-loop function', () => {
-      expect($.ask).toBeDefined()
-      expect(typeof $.ask).toBe('function')
-    })
-
-    it('$ should have approve human-in-loop function', () => {
-      expect($.approve).toBeDefined()
-      expect(typeof $.approve).toBe('function')
-    })
-
-    it('$ should have review human-in-loop function', () => {
-      expect($.review).toBeDefined()
-      expect(typeof $.review).toBe('function')
     })
   })
 
@@ -313,60 +282,6 @@ describe('Workflow Context AI Integration', () => {
       const { title, body } = result
       expect(title).toBeDefined()
       expect(body).toBeDefined()
-    })
-  })
-
-  // ==========================================================================
-  // 4b. HUMAN-IN-LOOP FUNCTIONS
-  // ==========================================================================
-
-  describe('Human-in-Loop Functions', () => {
-    it('$.ask`prompt` should return string PipelinePromise', async () => {
-      const result = $.ask`What priority should this bug have?`
-      expect(result).toBeInstanceOf(Promise)
-      const resolved = await result
-      expect(typeof resolved).toBe('string')
-    })
-
-    it('$.ask`prompt` should support interpolation', async () => {
-      const bugReport = 'Login button not working'
-      const result = $.ask`What priority for: ${bugReport}`
-      expect(result).toBeInstanceOf(Promise)
-    })
-
-    it('$.approve`prompt` should return boolean PipelinePromise', async () => {
-      const result = $.approve`Approve this expense?`
-      expect(result).toBeInstanceOf(Promise)
-      const resolved = await result
-      expect(typeof resolved).toBe('boolean')
-    })
-
-    it('$.approve`prompt` should support interpolation', async () => {
-      const amount = 500
-      const description = 'office supplies'
-      const result = $.approve`Approve expense $${amount} for ${description}?`
-      expect(result).toBeInstanceOf(Promise)
-    })
-
-    it('$.review`prompt` should return ReviewResult PipelinePromise', async () => {
-      const result = await $.review`Review this PR`
-      expect(result).toHaveProperty('approved')
-      expect(result).toHaveProperty('feedback')
-      expect(typeof result.approved).toBe('boolean')
-      expect(typeof result.feedback).toBe('string')
-    })
-
-    it('$.review`prompt` should support interpolation', async () => {
-      const prNumber = 123
-      const diff = '+ const x = 1;'
-      const result = $.review`Review PR #${prNumber}: ${diff}`
-      expect(result).toBeInstanceOf(Promise)
-    })
-
-    it('$.review result should be destructurable', async () => {
-      const { approved, feedback } = await $.review`Review this code`
-      expect(typeof approved).toBe('boolean')
-      expect(typeof feedback).toBe('string')
     })
   })
 

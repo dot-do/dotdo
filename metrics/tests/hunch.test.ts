@@ -213,7 +213,7 @@ let hunchRoutes: unknown | undefined
 
 beforeAll(async () => {
   try {
-    const module = await import('../hunch')
+    const module = await import('../../hunch')
     HUNCHMetrics = module.HUNCHMetrics ?? module.default
   } catch {
     // Module doesn't exist yet - this is expected in RED phase
