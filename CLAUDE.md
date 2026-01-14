@@ -15,109 +15,74 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### What belongs HERE (dotdo)
 
-- DO base classes (DOTiny, DOBase, DO)
-- Storage primitives (Things, Relationships, Events, Actions)
-- Extended primitives (fsx, gitx, bashx, npmx, pyx)
-- Compat layers (90 API replacements: redis, postgres, stripe, etc.)
+- DO class with SQLite storage (Things, Relationships, Events, Actions)
+- Minimal Hono passthrough worker
 - Cap'n Web RPC and transport layers
 - WorkflowContext ($) and event system
-- Generic Agent/Human/Worker base classes
+- Extended primitives in `do/capabilities/` (fsx, gitx, bashx, npmx, pyx)
+- AI module (`ai/`) with template literals and LLM routing
 
-### What belongs in workers.do (NOT here)
+### What belongs ELSEWHERE
 
-- Named agents (Priya, Ralph, Tom, Mark, Sally, Quinn)
-- Teams (Engineering, Product, Sales, Marketing)
-- Workflows (dev, review, sales, marketing)
-- Business-as-Code syntax for founders
-- The "Autonomous Startup" product experience
+- **workers.do repo**: Named agents (Priya, Ralph, Tom), Teams, Business-as-Code
+- **compat repo**: 90+ API-compatible SDKs (redis, postgres, stripe, etc.)
 
-**The example code below shows the USER experience (via workers.do), not what you build in THIS repo:**
+## Directory Structure (19 directories)
 
-```typescript
-// This is the PRODUCT experience (workers.do), not infrastructure (dotdo)
-import { Startup } from 'dotdo'
-import { priya, ralph, tom, mark, sally } from 'agents.do'  // <-- agents.do is from workers.do
-
-export class MyStartup extends Startup {
-  async launch() {
-    const spec = priya`define the MVP for ${this.hypothesis}`
-    let app = ralph`build ${spec}`
-
-    do {
-      app = ralph`improve ${app} per ${tom}`
-    } while (!await tom.approve(app))
-
-    mark`announce the launch`
-    sally`start selling`
-  }
-}
 ```
-
-## Core Architecture
-
-**V8 Isolates + Durable Objects:** Virtual Chrome tabs with persistent state, running on edge (300+ cities, 0ms cold starts).
-
-**Cap'n Web RPC:** Promise pipelining integration with `capnweb`. One network round trip for entire pipelines - unawaited promises pass directly to servers.
-
-**Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs), npmx, pyx - implemented as separate packages in `primitives/`.
-
-**Compat SDKs (90 layers):** Drop-in API replacements backed by Durable Objects. Located in `compat/`:
-
-- **AI/ML:** anthropic, cohere, google-ai, openai
-- **Analytics:** amplitude, analytics, cubejs, mixpanel, segment, vitals
-- **Auth:** auth, auth0, clerk, firebase-auth, supabase-auth
-- **Automation:** automation, n8n, zapier
-- **CRM/Sales:** close, freshdesk, helpscout, hubspot, intercom, pipedrive, salesforce, zendesk
-- **Databases:** couchdb, duckdb, neo4j, postgres, supabase
-- **DevOps:** datadog, doppler, flags, launchdarkly, sentry, vault
-- **E-commerce:** medusa, payload, shopify, square, stripe, tally, woocommerce
-- **Email/SMS:** convertkit, emails, klaviyo, mailchimp, messagebird, resend, sendgrid, twilio, vonage
-- **Messaging/Real-time:** ably, discord, fcm, onesignal, pubsub, pusher, slack, socketio, sqs
-- **Productivity:** calendly, docusign, jira, linear, quickbooks, zoom
-- **Search/Vector:** algolia, chroma, elasticsearch, meilisearch, pinecone, qdrant, typesense, weaviate
-- **Source Control:** github, gitlab
-- **Storage:** cloudinary, gcs, mapbox, s3
-- **Streaming:** airbyte, benthos, flink, metabase
-- **Other:** calls, contentful, crm, paypal
+api/           # Minimal Hono worker - passthrough to DO
+  agents/      # Agent SDK (providers, tools, memory)
+objects/       # Durable Object classes - the core runtime
+  DO.ts        # Main DO class with SQLite storage
+  DOBase.ts    # Base class with REST router, persistence
+types/         # Thing, Noun, Verb, WorkflowContext
+db/            # Database layer
+  streams/     # SQL schemas (things.sql, events.sql, etc.)
+  primitives/  # Storage innovations (columnar, time-series, etc.)
+do/            # DO-specific code
+  primitives/  # DO primitives (temporal-store, window-manager, etc.)
+  capabilities/ # Submodules: fsx, gitx, bashx, npmx, pyx
+ai/            # AI module
+  llm/         # Multi-provider LLM routing
+  evals/       # LLM evaluations
+  primitives/  # AI primitives submodule (primitives.org.ai)
+workflows/     # $ context DSL (on.ts, schedule-builder, pipeline-promise)
+streaming/     # Event streaming infrastructure
+workers/       # DO proxy workers, observability
+  public/      # Static asset configs
+app/           # TanStack Start frontend
+lib/           # Shared utilities (consolidated from roles, services, etc.)
+auth/          # better-auth configuration
+cli/           # CLI commands
+packages/      # Published @dotdo/* packages (client, react, rpc, etc.)
+docs/          # Documentation
+examples/      # Example code, templates, deploy configs
+tests/         # Test files and benchmarks
+scripts/       # Build scripts
+```
 
 ## Commands
 
 ```bash
 npm run dev          # Wrangler dev server
-npm run dev:app      # App dev server (TanStack Start)
 npm test             # Vitest watch mode
-npm run test:run     # Tests once (--reporter=dot)
+npm run test:run     # Tests once
 npm run typecheck    # TypeScript check
 npm run deploy       # Build + deploy
-npm run lint         # ESLint
 ```
 
 ### Running Tests
 
 ```bash
 npx vitest run path/to/test.ts        # Single file
-npx vitest --project=workers          # Workers runtime (miniflare)
-npx vitest --project=compat           # Compat layer tests
-npx vitest --project=agents           # Agent SDK tests
 npx vitest --project=objects          # DO tests (real miniflare runtime)
-npx vitest --project=lib              # Library utility tests
-npx vitest --project=workflows        # Workflow proxy tests
+npx vitest --project=workers          # Workers runtime
 npx playwright test tests/e2e/        # E2E browser tests
 ```
 
-See `vitest.workspace.ts` for all 80+ test workspaces organized by domain.
-
 ### Testing Philosophy: NO MOCKS
 
-**Durable Objects (DOs) require NO MOCKING.** Miniflare runs real DOs with real SQLite locally.
-
-#### Why No Mocks?
-
-- **Mocks hide real bugs** - We discovered schema wasn't being created because mocks bypassed real SQLite
-- **Miniflare is the real runtime** - It provides actual DO instances with actual storage
-- **Tests should verify real behavior** - Not mock behavior that may differ from production
-
-#### How to Test DOs
+**Durable Objects require NO MOCKING.** Miniflare runs real DOs with real SQLite locally.
 
 ```typescript
 import { env } from 'cloudflare:test'
@@ -125,125 +90,40 @@ import { env } from 'cloudflare:test'
 // Get real DO instance
 const stub = env.DO.get(env.DO.idFromName('test'))
 
-// Test via RPC (preferred - 95% of tests)
+// Test via RPC (preferred)
 const result = await stub.things.create({ $type: 'Customer', name: 'Alice' })
 expect(result.$id).toBeDefined()
 
-// Test via fetch (for HTTP API behavior - 5% of tests)
+// Test via fetch
 const res = await stub.fetch('https://test.api.dotdo.dev/customers')
 expect(res.status).toBe(200)
 ```
 
-#### What NOT to Do
+**Never mock stores or DO state** - use real miniflare instances.
+
+## Worker Architecture
+
+The worker is a minimal passthrough to the DO:
 
 ```typescript
-// WRONG - Never mock stores or storage
-const mockStore = createMockThingsStore() // DELETE THIS
-vi.mock('../db/stores')                    // DELETE THIS
-const ctx = { things: mockStore }          // DELETE THIS
+// api/index.ts - entire worker
+export { DO } from '../objects/DO'
 
-// WRONG - Never mock DO state
-const mockState = createMockState()        // DELETE THIS
-```
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+    const hostParts = url.hostname.split('.')
+    const ns = hostParts.length > 2 ? hostParts[0] : 'default'
 
-#### Test Configuration
+    const id = env.DO.idFromName(ns)
+    const stub = env.DO.get(id)
 
-Use `@cloudflare/vitest-pool-workers` with real wrangler config:
-
-```typescript
-// vitest.config.ts
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
-
-export default defineWorkersConfig({
-  test: {
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: './wrangler.jsonc' }
-      }
-    }
+    return stub.fetch(request)
   }
-})
+}
 ```
 
-### Process Management (IMPORTANT)
-
-**Vitest and Vite can consume excessive memory.** Follow these guidelines:
-
-1. **Never run multiple vitest/vite instances in parallel** - they spawn many child processes
-2. **Always run tests sequentially**, not in parallel background shells
-3. **Kill orphan processes** before starting new dev servers:
-   ```bash
-   pkill -9 -f vitest; pkill -9 -f vite
-   ```
-4. **Use `run` mode for CI/one-shot tests**, not watch mode:
-   ```bash
-   npx vitest run  # Good - runs once and exits
-   npx vitest      # Caution - watch mode stays running
-   ```
-5. **Check for zombie processes** if memory gets high:
-   ```bash
-   ps aux | grep -E "(vitest|vite|node)" | grep -v grep
-   ```
-
-**For subagents:** Run ONE test file at a time. Never launch parallel vitest processes.
-
-## Architecture
-
-```
-api/           # Hono HTTP (routes/, middleware/, generators/)
-objects/       # Durable Object (DO) classes - the core runtime
-  DOBase.ts    # Base class with REST router, SQLite, persistence (104K LOC)
-  Entity.ts    # Domain objects with CRUD
-  Startup.ts   # Business container
-  Agent.ts     # AI workers with tools
-  Human.ts     # Approval workflows
-  Workflow*.ts # Workflow runtime, factory, state machines
-types/         # Thing, Noun, Verb, WorkflowContext
-db/            # Drizzle schemas, iceberg/, edgevec/, parquet/, proxy/
-workflows/     # $ context DSL
-  on.ts        # Event handlers via two-level proxy
-  schedule-builder.ts  # CRON via fluent DSL
-  pipeline-promise.ts  # Promise pipelining
-  context/     # Execution modes
-compat/        # API-compatible SDKs (90 packages)
-agents/        # Multi-provider agent SDK
-  Agent.ts     # Core agent class
-  Tool.ts      # Tool definitions
-  providers/   # OpenAI, Anthropic, etc.
-  named/       # Priya, Ralph, Tom, etc.
-primitives/    # Edge-native implementations
-  fsx/         # Filesystem on SQLite
-  gitx/        # Git on R2
-  bashx/       # Shell without VMs
-  npmx/        # Package management
-  pyx/         # Python execution
-workers/       # DO proxy workers, observability tail
-app/           # TanStack Start frontend (MDXUI components)
-packages/      # Published @dotdo/* packages
-lib/           # Shared utilities (sqids, rpc, channels, humans, etc.)
-auth/          # better-auth configuration
-cli/           # CLI commands (device auth, config)
-```
-
-## DO Proxy Workers
-
-Route requests to DOs with the `API()` factory:
-
-```typescript
-import { API } from 'dotdo'
-
-// Hostname mode (default) - subdomain → DO namespace
-export default API()  // tenant.api.dotdo.dev → DO('tenant')
-
-// Path param routing (Express-style)
-export default API({ ns: '/:org' })  // api.dotdo.dev/acme/users → DO('acme')
-
-// Nested path params
-export default API({ ns: '/:org/:project' })  // → DO('acme:proj1')
-
-// Fixed namespace (singleton DO)
-export default API({ ns: 'main' })
-```
+Namespace derived from hostname: `tenant.api.dotdo.dev` → `DO('tenant')`
 
 ## Key APIs
 
@@ -263,97 +143,71 @@ $.every.Monday.at9am(handler)
 $.every.day.at('6pm')(handler)
 $.every.hour(handler)
 
-// Cross-DO RPC with circuit breakers
+// Cross-DO RPC
 await $.Customer(id).notify()
 ```
 
-## Named Agents
+## Issue Tracking (bd) with Hierarchical IDs
 
-Implemented in `agents/named/` with composable persona system:
+Beads uses hierarchical IDs for epic → task → subtask structure:
 
-| Agent | Role |
-|-------|------|
-| Priya | Product—specs, roadmaps |
-| Ralph | Engineering—builds code |
-| Tom | Tech Lead—architecture, review |
-| Mark | Marketing—content, launches |
-| Sally | Sales—outreach, closing |
-| Quinn | QA—testing, quality |
-
-## Human Escalation
-
-Template literal syntax in `lib/humans/`:
-
-```typescript
-import { Workflow } from 'dotdo'
-import { legal, ceo } from 'humans.do'
-
-// Template literal syntax for one-off approvals
-const approved = await ceo`approve the partnership`
-
-// Within a Workflow class for reusable escalations
-export class RefundWorkflow extends Workflow {
-  escalation = this.HumanFunction({
-    trigger: 'refund > $10000',
-    role: 'senior-accountant',
-    sla: '4 hours',
-  })
-}
+```
+do-ifi           [P0] [epic]  - dotdo Core Runtime
+├── do-ifi.1     [P1] [task]  - DO Storage Layer
+│   ├── do-ifi.1.1            - Things store
+│   ├── do-ifi.1.2            - Relationships store
+│   └── do-ifi.1.3            - Events store
+├── do-ifi.2     [P1] [task]  - Hono Worker Passthrough
+└── do-ifi.3     [P1] [task]  - Cap'n Web RPC
 ```
 
-Human notification channels (Slack, Discord, Email, MDXUI Chat) in `objects/Human.ts`.
-
-## Issue Tracking (bd)
+### Creating Hierarchical Issues
 
 ```bash
-bd ready                              # Find work
-bd update <id> --status in_progress   # Claim
+# Create epic
+bd create --type=epic --title="Feature X" --priority=0
+
+# Create task under epic (auto-generates do-xxx.1)
+bd create --type=task --parent=do-xxx --title="Subtask"
+
+# Create subtask (auto-generates do-xxx.1.1)
+bd create --type=task --parent=do-xxx.1 --title="Sub-subtask"
+```
+
+### Common Commands
+
+```bash
+bd ready                              # Find work (no blockers)
+bd list --status=open                 # All open issues
+bd show <id>                          # Issue details with hierarchy
+bd update <id> --status=in_progress   # Claim work
 bd close <id>                         # Complete
 bd sync                               # Sync with git
 ```
 
-### CRITICAL: Session Close Protocol
+### Session Close Protocol
 
-**NEVER end a session without completing this checklist:**
+**NEVER end a session without:**
 
 ```bash
-# 1. Verify bd sync succeeded (MUST show "Sync complete")
-bd sync
-
-# 2. Verify JSONL was actually updated
-git status .beads/issues.jsonl
-# If modified, the sync worked. If clean but you made changes, SYNC FAILED.
-
-# 3. Check issue count matches expectations
-wc -l .beads/issues.jsonl
-
-# 4. Commit and push everything
-git add .beads/issues.jsonl
-git commit -m "bd sync: <description>"
+bd sync              # Sync issues
+git status           # Check for changes
+git add -A && git commit -m "..."
 git push
-
-# 5. Verify push succeeded
-git status
 ```
 
-**WARNING SIGNS that sync failed:**
-- `bd sync` shows "refusing to export" or validation errors
-- `git status .beads/issues.jsonl` shows no changes after creating issues
-- Issue count in JSONL doesn't match `bd stats` total
+## Process Management
 
-**If sync fails:**
-1. Run `bd export --force` to force export
-2. If that fails, manually backup the SQLite: `cp .beads/beads.db .beads/beads.db.backup`
-3. Report the error - do NOT end session with unsynced data
+**Vitest/Vite consume memory.** Guidelines:
 
-**Data lives in TWO places:**
-- `.beads/beads.db` (SQLite) - local working copy, NOT versioned
-- `.beads/issues.jsonl` (JSONL) - git-tracked, THIS is the source of truth
+1. Never run multiple vitest instances in parallel
+2. Use `npx vitest run` (not watch mode) for CI
+3. Kill orphans: `pkill -9 -f vitest; pkill -9 -f vite`
 
-If JSONL isn't updated and pushed, **all issue tracking work is lost** when the SQLite resets.
+**For subagents:** Run ONE test file at a time.
 
 ## Related
 
-- [MDXUI](https://mdxui.dev) — UI components (Beacon for sites, Cockpit for apps)
-- [org.ai](https://id.org.ai) — Identity for AI + humans
-- [platform.do](https://platform.do) · [agents.do](https://agents.do) · [workers.do](https://workers.do)
+- [MDXUI](https://mdxui.dev) — UI components
+- [workers.do](https://workers.do) — Platform/Product layer
+- [compat repo](https://github.com/dot-do/compat) — API-compatible SDKs
