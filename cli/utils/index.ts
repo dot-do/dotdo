@@ -46,7 +46,34 @@ export {
   type ScaffoldOptions,
   type ScaffoldResult,
 } from './scaffold'
-export { parsePort } from './validation'
+export { parsePort, validatePhoneNumber, validateEmail, parseJSON } from './validation'
+export {
+  // Exit codes
+  ExitCode,
+  ErrorCode,
+  // Base error
+  CLIError,
+  // Specific errors
+  AuthError,
+  ValidationError,
+  NetworkError,
+  SandboxError,
+  MCPError,
+  CommandError,
+  ConfigError,
+  // Utilities
+  handleError,
+  withErrorHandling,
+  isCLIError,
+  hasErrorCode,
+  toCLIError,
+  // Types
+  type ExitCodeValue,
+  type ErrorCodeValue,
+  type StructuredError,
+  type CLIErrorOptions,
+  type HandleErrorOptions,
+} from './errors'
 export {
   formatSectionHeader,
   formatList,
@@ -64,3 +91,22 @@ export {
   getHomeBinDir,
   getLocalBinDir,
 } from './paths'
+export {
+  Spinner,
+  ProgressBar,
+  isInteractive,
+  supportsColor,
+  formatElapsed,
+  createStopwatch,
+  spin,
+  withSpinner,
+  printTimed,
+  printStatus,
+  runTasks,
+  type SpinnerOptions,
+  type SpinnerStyle,
+  type TimedResult,
+  type ProgressBarOptions,
+  type Task,
+  type TaskRunnerOptions,
+} from './spinner'

@@ -13,6 +13,7 @@ import { loadConfigAsync, findProjectRoot } from '../utils/config'
 import { spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
+import { spin, isInteractive, createStopwatch, printStatus, printTimed } from '../utils/spinner'
 
 const logger = createLogger('deploy')
 
@@ -22,13 +23,14 @@ interface DeployResult {
   success: boolean
   url?: string
   error?: string
+  elapsed?: number
 }
 
 /**
  * Deploy to Cloudflare Workers
  */
 async function deployCloudflare(): Promise<DeployResult> {
-  logger.info('Deploying to Cloudflare Workers...')
+  const stopwatch = createStopwatch()
 
   return new Promise((resolve) => {
     const proc = spawn('bunx', ['wrangler', 'deploy'], {
@@ -38,14 +40,14 @@ async function deployCloudflare(): Promise<DeployResult> {
 
     proc.on('exit', (code) => {
       if (code === 0) {
-        resolve({ success: true })
+        resolve({ success: true, elapsed: stopwatch.elapsed() })
       } else {
-        resolve({ success: false, error: `wrangler exited with code ${code}` })
+        resolve({ success: false, error: `wrangler exited with code ${code}`, elapsed: stopwatch.elapsed() })
       }
     })
 
     proc.on('error', (error) => {
-      resolve({ success: false, error: error.message })
+      resolve({ success: false, error: error.message, elapsed: stopwatch.elapsed() })
     })
   })
 }
@@ -76,7 +78,7 @@ function generateVercelConfig(projectRoot: string): void {
  * Deploy to Vercel
  */
 async function deployVercel(): Promise<DeployResult> {
-  logger.info('Deploying to Vercel...')
+  const stopwatch = createStopwatch()
 
   const projectRoot = findProjectRoot()
   generateVercelConfig(projectRoot)
@@ -89,14 +91,14 @@ async function deployVercel(): Promise<DeployResult> {
 
     proc.on('exit', (code) => {
       if (code === 0) {
-        resolve({ success: true })
+        resolve({ success: true, elapsed: stopwatch.elapsed() })
       } else {
-        resolve({ success: false, error: `vercel exited with code ${code}` })
+        resolve({ success: false, error: `vercel exited with code ${code}`, elapsed: stopwatch.elapsed() })
       }
     })
 
     proc.on('error', (error) => {
-      resolve({ success: false, error: error.message })
+      resolve({ success: false, error: error.message, elapsed: stopwatch.elapsed() })
     })
   })
 }
@@ -142,7 +144,7 @@ primary_region = "iad"
  * Deploy to Fly.io
  */
 async function deployFly(appName?: string): Promise<DeployResult> {
-  logger.info('Deploying to Fly.io...')
+  const stopwatch = createStopwatch()
 
   const projectRoot = findProjectRoot()
   const name = appName ?? path.basename(projectRoot)
@@ -156,14 +158,14 @@ async function deployFly(appName?: string): Promise<DeployResult> {
 
     proc.on('exit', (code) => {
       if (code === 0) {
-        resolve({ success: true })
+        resolve({ success: true, elapsed: stopwatch.elapsed() })
       } else {
-        resolve({ success: false, error: `flyctl exited with code ${code}` })
+        resolve({ success: false, error: `flyctl exited with code ${code}`, elapsed: stopwatch.elapsed() })
       }
     })
 
     proc.on('error', (error) => {
-      resolve({ success: false, error: error.message })
+      resolve({ success: false, error: error.message, elapsed: stopwatch.elapsed() })
     })
   })
 }
@@ -175,7 +177,13 @@ export const deployCommand = new Command('deploy')
   .option('--dry-run', 'Show what would be deployed')
   .option('-n, --name <name>', 'App name (for fly.io)')
   .action(async (options) => {
+    const interactive = isInteractive()
+    const totalStopwatch = createStopwatch()
+
+    // Load config with spinner
+    const configSpinner = interactive ? spin('Loading configuration...') : null
     const config = await loadConfigAsync()
+    configSpinner?.succeed('Configuration loaded')
 
     // Determine targets
     let targets: DeployTarget[] = []
@@ -193,49 +201,69 @@ export const deployCommand = new Command('deploy')
       targets = ['cloudflare'] // Default
     }
 
-    logger.info(`Deploying to: ${targets.join(', ')}`)
+    console.log()
+    console.log(`Deploying to: ${targets.join(', ')}`)
+    console.log()
 
     if (options.dryRun) {
-      logger.info('Dry run - no actual deployment')
+      printStatus('Dry run - no actual deployment', 'info')
       return
     }
 
     const results: Record<DeployTarget, DeployResult> = {} as Record<DeployTarget, DeployResult>
 
     for (const target of targets) {
+      const targetSpinner = interactive ? spin(`Deploying to ${target}...`, { style: 'dots' }) : null
+      if (!interactive) console.log(`Deploying to ${target}...`)
+
+      let result: DeployResult
+
       switch (target) {
         case 'cloudflare':
-          results[target] = await deployCloudflare()
+          targetSpinner?.update('Running wrangler deploy...')
+          result = await deployCloudflare()
           break
         case 'vercel':
-          results[target] = await deployVercel()
+          targetSpinner?.update('Running vercel deploy...')
+          result = await deployVercel()
           break
         case 'fly':
-          results[target] = await deployFly(options.name)
+          targetSpinner?.update('Running flyctl deploy...')
+          result = await deployFly(options.name)
           break
         default:
-          logger.error(`Unknown target: ${target}`)
-          results[target] = { success: false, error: `Unknown target: ${target}` }
+          result = { success: false, error: `Unknown target: ${target}` }
+      }
+
+      results[target] = result
+
+      if (result.success) {
+        targetSpinner?.succeed(`${target}: Deployed successfully`)
+      } else {
+        targetSpinner?.fail(`${target}: ${result.error}`)
       }
     }
 
     // Summary
     console.log()
     console.log('Deployment Summary')
-    console.log('─'.repeat(40))
+    console.log('-'.repeat(50))
 
     let allSuccess = true
     for (const [target, result] of Object.entries(results)) {
       if (result.success) {
-        logger.success(`${target}: Deployed successfully`)
+        printTimed(`${target}: Deployed successfully`, 'success', result.elapsed ?? 0)
         if (result.url) {
           console.log(`  URL: ${result.url}`)
         }
       } else {
-        logger.error(`${target}: Failed - ${result.error}`)
+        printTimed(`${target}: Failed - ${result.error}`, 'fail', result.elapsed ?? 0)
         allSuccess = false
       }
     }
+
+    console.log('-'.repeat(50))
+    printTimed(`Total deployment time`, allSuccess ? 'success' : 'fail', totalStopwatch.elapsed())
 
     if (!allSuccess) {
       process.exit(1)

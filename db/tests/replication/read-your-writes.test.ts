@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createMockDO, MockDOResult, MockEnv } from '../../../testing/do'
+import { createMockDO, MockDOResult, MockEnv } from '../../../tests/harness/do'
 import { DO } from '../../../objects/DO'
 import type { CloneOptions } from '../../../types/Lifecycle'
 import type { Thing } from '../../../db/things'
@@ -75,6 +75,8 @@ interface ReadOptions {
   allowStale?: boolean
   /** Prefer primary for guaranteed freshness */
   preferPrimary?: boolean
+  /** Enable causal consistency (wait for causal dependencies) */
+  causallyConsistent?: boolean
 }
 
 /**
@@ -98,7 +100,7 @@ interface ReadResult<T> {
 /**
  * RYW consistency mode
  */
-type RYWMode = 'strict' | 'eventual' | 'session'
+type RYWMode = 'strict' | 'eventual' | 'session' | 'bounded'
 
 /**
  * Replica handle with RYW support
@@ -145,6 +147,8 @@ interface ReplicaCloneOptions extends CloneOptions {
   rywMode?: RYWMode
   /** Max wait time for sequence catch-up */
   rywWaitTimeoutMs?: number
+  /** Max acceptable lag for bounded staleness mode */
+  maxLag?: number
 }
 
 // ============================================================================
@@ -1020,6 +1024,422 @@ describe('Read-Your-Writes Consistency', () => {
 
       // Session token should reference the namespace where write occurred
       expect(writeResult.ns).toBe('https://primary.test.do')
+    })
+  })
+
+  // ==========================================================================
+  // CONSISTENCY LEVELS (EXTENDED)
+  // ==========================================================================
+
+  describe('Bounded Staleness Consistency', () => {
+    it('should support bounded staleness with maxLag threshold', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'bounded' as RYWMode,
+        maxLag: 10, // Max 10 versions behind
+      }) as unknown as ReplicaWithRYW
+
+      // Write to primary within bounds
+      for (let i = 0; i < 5; i++) {
+        // @ts-expect-error - accessing internal method
+        await result.instance.writeThing?.({
+          id: `bounded-thing-${i}`,
+          type: 1,
+          data: { index: i },
+        })
+      }
+
+      // Read from replica - should succeed (within bounds)
+      const readResult = await replica.read<Thing>('thing-0')
+
+      // Should allow read when within bounded staleness
+      expect(readResult.data).toBeDefined()
+      expect(readResult.lag).toBeLessThanOrEqual(10)
+    })
+
+    it('should wait for sync when lag exceeds bounded staleness threshold', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'bounded' as RYWMode,
+        maxLag: 5,
+      }) as unknown as ReplicaWithRYW
+
+      // Write many items to exceed threshold
+      for (let i = 0; i < 20; i++) {
+        // @ts-expect-error - accessing internal method
+        await result.instance.writeThing?.({
+          id: `exceed-bounded-thing-${i}`,
+          type: 1,
+          data: { index: i },
+        })
+      }
+
+      // Start read (should wait for sync)
+      const readPromise = replica.read<Thing>('thing-0', {
+        waitTimeoutMs: 5000,
+      })
+
+      // Sync replica
+      await replica.sync()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const readResult = await readPromise
+
+      // Should have waited for sync
+      expect(readResult.lag).toBeLessThanOrEqual(5)
+    })
+
+    it('should return stale read if bounded wait times out with allowStale', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'bounded' as RYWMode,
+        maxLag: 2,
+      }) as unknown as ReplicaWithRYW
+
+      // Write to exceed bounds
+      for (let i = 0; i < 10; i++) {
+        // @ts-expect-error - accessing internal method
+        await result.instance.writeThing?.({
+          id: `stale-bounded-thing-${i}`,
+          type: 1,
+          data: {},
+        })
+      }
+
+      const readPromise = replica.read<Thing>('thing-0', {
+        waitTimeoutMs: 100,
+        allowStale: true,
+      })
+
+      await vi.advanceTimersByTimeAsync(200)
+
+      const readResult = await readPromise
+
+      expect(readResult.isStale).toBe(true)
+    })
+
+    it('should reject read if bounded wait times out without allowStale', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'bounded' as RYWMode,
+        maxLag: 2,
+      }) as unknown as ReplicaWithRYW
+
+      // Write to exceed bounds
+      for (let i = 0; i < 10; i++) {
+        // @ts-expect-error - accessing internal method
+        await result.instance.writeThing?.({
+          id: `reject-bounded-thing-${i}`,
+          type: 1,
+          data: {},
+        })
+      }
+
+      const readPromise = replica.read<Thing>('thing-0', {
+        waitTimeoutMs: 100,
+        allowStale: false,
+      })
+
+      await vi.advanceTimersByTimeAsync(200)
+
+      await expect(readPromise).rejects.toThrow(/bounded staleness|lag exceeded|timeout/i)
+    })
+
+    it('should combine bounded staleness with session token', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'bounded' as RYWMode,
+        maxLag: 5,
+      }) as unknown as ReplicaWithRYW
+
+      // Write with session
+      // @ts-expect-error - accessing internal method
+      const writeResult = await result.instance.writeThing?.({
+        id: 'combined-bounded-thing',
+        type: 1,
+        data: {},
+      }) as WriteResult
+
+      // Session token should still work with bounded mode
+      await replica.sync()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const readResult = await replica.read<Thing>('combined-bounded-thing', {
+        sessionToken: writeResult.sessionToken,
+      })
+
+      expect(readResult.data).toBeDefined()
+      expect(readResult.isStale).toBe(false)
+    })
+  })
+
+  // ==========================================================================
+  // CAUSAL CONSISTENCY
+  // ==========================================================================
+
+  describe('Causal Consistency', () => {
+    it('should respect causal ordering within a session', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'session',
+      }) as unknown as ReplicaWithRYW
+
+      // Write A depends on nothing
+      // @ts-expect-error - accessing internal method
+      const writeA = await result.instance.writeThing?.({
+        id: 'causal-a',
+        type: 1,
+        data: { value: 'A' },
+      }) as WriteResult
+
+      // Write B causally depends on A
+      // @ts-expect-error - accessing internal method
+      const writeB = await result.instance.writeThing?.({
+        id: 'causal-b',
+        type: 1,
+        data: { value: 'B', dependsOn: 'causal-a' },
+      }, { causalDependency: writeA.sequence }) as WriteResult
+
+      expect(writeB.sequence).toBeGreaterThan(writeA.sequence)
+
+      // Sync replica
+      await replica.sync()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // Reading B should imply A is also available
+      const readB = await replica.read<Thing>('causal-b', {
+        sessionToken: writeB.sessionToken,
+      })
+
+      expect(readB.data).toBeDefined()
+
+      // A should be readable if B is readable (causal ordering)
+      const readA = await replica.read<Thing>('causal-a')
+      expect(readA.data).toBeDefined()
+    })
+
+    it('should track causal dependencies between operations', async () => {
+      // @ts-expect-error - accessing internal method
+      const sessionManager = result.instance.sessions as SessionManager
+
+      const session = await sessionManager.createSession('causal-client')
+
+      // Track dependencies in session
+      // @ts-expect-error - accessing internal method
+      const write1 = await result.instance.writeThing?.({
+        id: 'dep-1',
+        type: 1,
+        data: {},
+      }, { sessionId: session.sessionId }) as WriteResult
+
+      // @ts-expect-error - accessing internal method
+      const write2 = await result.instance.writeThing?.({
+        id: 'dep-2',
+        type: 1,
+        data: { ref: 'dep-1' },
+      }, {
+        sessionId: session.sessionId,
+        causalDependency: write1.sequence,
+      }) as WriteResult
+
+      // The session should track that write2 depends on write1
+      // @ts-expect-error - accessing internal method
+      const causalDeps = await result.instance.getCausalDependencies?.(
+        session.sessionId,
+        write2.sequence
+      ) ?? []
+
+      expect(causalDeps).toContain(write1.sequence)
+    })
+
+    it('should wait for dependencies before returning reads', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        rywMode: 'session',
+      }) as unknown as ReplicaWithRYW
+
+      // Write with causal dependency
+      // @ts-expect-error - accessing internal method
+      const write1 = await result.instance.writeThing?.({
+        id: 'wait-dep-1',
+        type: 1,
+        data: {},
+      }) as WriteResult
+
+      // @ts-expect-error - accessing internal method
+      const write2 = await result.instance.writeThing?.({
+        id: 'wait-dep-2',
+        type: 1,
+        data: { dependsOn: 'wait-dep-1' },
+      }, { causalDependency: write1.sequence }) as WriteResult
+
+      // Request read with causal guarantee
+      const readPromise = replica.read<Thing>('wait-dep-2', {
+        sessionToken: write2.sessionToken,
+        causallyConsistent: true,
+        waitTimeoutMs: 5000,
+      })
+
+      // Sync replica
+      await replica.sync()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const readResult = await readPromise
+
+      // Should have waited for both dependencies
+      expect(readResult.data).toBeDefined()
+      expect(readResult.sequence).toBeGreaterThanOrEqual(write2.sequence)
+    })
+
+    it('should handle cross-session causal relationships', async () => {
+      // @ts-expect-error - accessing internal method
+      const sessionManager = result.instance.sessions as SessionManager
+
+      // Session A writes something
+      const sessionA = await sessionManager.createSession('client-a')
+      // @ts-expect-error - accessing internal method
+      const writeA = await result.instance.writeThing?.({
+        id: 'cross-session-a',
+        type: 1,
+        data: { origin: 'session-a' },
+      }, { sessionId: sessionA.sessionId }) as WriteResult
+
+      // Session B reads A's write and writes a response
+      const sessionB = await sessionManager.createSession('client-b')
+
+      // @ts-expect-error - accessing internal method
+      const writeB = await result.instance.writeThing?.({
+        id: 'cross-session-b',
+        type: 1,
+        data: { responseTo: 'cross-session-a' },
+      }, {
+        sessionId: sessionB.sessionId,
+        causalDependency: writeA.sequence, // Cross-session dependency
+      }) as WriteResult
+
+      // Write B should have a higher sequence than A
+      expect(writeB.sequence).toBeGreaterThan(writeA.sequence)
+
+      // Reading B should guarantee A is also visible
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+      }) as unknown as ReplicaWithRYW
+
+      await replica.sync()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const readB = await replica.read<Thing>('cross-session-b', {
+        sessionToken: writeB.sessionToken,
+        causallyConsistent: true,
+      })
+
+      const readA = await replica.read<Thing>('cross-session-a')
+
+      expect(readB.data).toBeDefined()
+      expect(readA.data).toBeDefined()
+    })
+
+    it('should timeout if causal dependencies cannot be satisfied', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+      }) as unknown as ReplicaWithRYW
+
+      // @ts-expect-error - accessing internal method
+      const write = await result.instance.writeThing?.({
+        id: 'causal-timeout-thing',
+        type: 1,
+        data: {},
+      }) as WriteResult
+
+      // Request read with high causal dependency that won't be met
+      const readPromise = replica.read<Thing>('causal-timeout-thing', {
+        minSequence: write.sequence + 100, // Higher than exists
+        causallyConsistent: true,
+        waitTimeoutMs: 100,
+        allowStale: false,
+      })
+
+      await vi.advanceTimersByTimeAsync(200)
+
+      await expect(readPromise).rejects.toThrow(/causal.*timeout|dependency.*not.*satisfied|timeout|sequence not reached/i)
+    })
+
+    it('should emit causal.wait event when waiting for dependencies', async () => {
+      const events: unknown[] = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        events.push({ type: verb, data })
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+      }) as unknown as ReplicaWithRYW
+
+      // @ts-expect-error - accessing internal method
+      const write = await result.instance.writeThing?.({
+        id: 'causal-wait-event-thing',
+        type: 1,
+        data: {},
+      }) as WriteResult
+
+      // Request with causal dependency
+      replica.read<Thing>('causal-wait-event-thing', {
+        sessionToken: write.sessionToken,
+        causallyConsistent: true,
+        waitTimeoutMs: 5000,
+      })
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      const causalEvent = events.find((e) =>
+        (e as Record<string, string>).type === 'causal.wait'
+      )
+      expect(causalEvent).toBeDefined()
+    })
+
+    it('should preserve causal ordering during batch writes', async () => {
+      // Write a batch where each item depends on the previous
+      const results: WriteResult[] = []
+
+      for (let i = 0; i < 5; i++) {
+        // @ts-expect-error - accessing internal method
+        const write = await result.instance.writeThing?.({
+          id: `batch-causal-${i}`,
+          type: 1,
+          data: { index: i, prev: i > 0 ? `batch-causal-${i - 1}` : null },
+        }, {
+          causalDependency: i > 0 ? results[i - 1].sequence : undefined,
+        }) as WriteResult
+        results.push(write)
+      }
+
+      // Each sequence should be strictly greater than the previous
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i].sequence).toBeGreaterThan(results[i - 1].sequence)
+      }
+
+      // Reading the last should imply all previous are available
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+      }) as unknown as ReplicaWithRYW
+
+      await replica.sync()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const lastResult = results[results.length - 1]
+      const readLast = await replica.read<Thing>('batch-causal-4', {
+        sessionToken: lastResult.sessionToken,
+        causallyConsistent: true,
+      })
+
+      expect(readLast.data).toBeDefined()
+
+      // All items should be readable
+      for (let i = 0; i < 5; i++) {
+        const read = await replica.read<Thing>(`batch-causal-${i}`)
+        expect(read.data).toBeDefined()
+      }
     })
   })
 

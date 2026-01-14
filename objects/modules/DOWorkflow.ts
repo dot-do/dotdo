@@ -46,6 +46,9 @@ import {
   extract as extractFunc,
   is as isFunc,
   decide as decideFunc,
+  ask as askFunc,
+  approve as approveFunc,
+  review as reviewFunc,
 } from '../../ai'
 
 // Re-export WorkflowContext type for consumers
@@ -146,6 +149,7 @@ export class DOWorkflow {
     const knownProperties = new Set([
       'send', 'try', 'do', 'on', 'every', 'log', 'state', 'location', 'user',
       'ai', 'write', 'summarize', 'list', 'extract', 'is', 'decide',
+      'ask', 'approve', 'review',
     ])
 
     return new Proxy({} as WorkflowContext, {
@@ -196,6 +200,14 @@ export class DOWorkflow {
             return isFunc
           case 'decide':
             return decideFunc
+
+          // AI Functions - Human-in-Loop
+          case 'ask':
+            return askFunc
+          case 'approve':
+            return approveFunc
+          case 'review':
+            return reviewFunc
 
           default:
             // Domain resolution: $.Noun(id)

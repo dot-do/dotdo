@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createMockDO, MockDOResult, MockEnv } from '../../../testing/do'
+import { createMockDO, MockDOResult, MockEnv } from '../../../tests/harness/do'
 import { DO } from '../../../objects/DO'
 import type { CloneOptions, CloneResult } from '../../../types/Lifecycle'
 import type { ColoCode, Region } from '../../../types/Location'
@@ -199,6 +199,19 @@ describe('Create Replica via clone({ asReplica: true })', () => {
       const metadata = await replica.getMetadata()
 
       expect(metadata.location).toBe('asia-pacific')
+    })
+
+    it('should track createdAt timestamp on replica', async () => {
+      const beforeCreate = new Date()
+      const target = 'https://replica.test.do'
+      const replica = await result.instance.clone(target, { asReplica: true }) as unknown as ReplicaHandle
+      const afterCreate = new Date()
+
+      const metadata = await replica.getMetadata()
+
+      expect(metadata.createdAt).toBeInstanceOf(Date)
+      expect(metadata.createdAt.getTime()).toBeGreaterThanOrEqual(beforeCreate.getTime())
+      expect(metadata.createdAt.getTime()).toBeLessThanOrEqual(afterCreate.getTime())
     })
   })
 
@@ -726,6 +739,108 @@ describe('Create Replica via clone({ asReplica: true })', () => {
       const staleEvent = events.find((e) => (e as Record<string, string>).type === 'replica.stale')
       // Stale event should be emitted when lag exceeds threshold
       expect(staleEvent).toBeDefined()
+    })
+
+    it('should emit replica.disconnected event when replica disconnects', async () => {
+      const events: unknown[] = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        events.push({ type: verb, data })
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const replica = await result.instance.clone('https://replica.test.do', { asReplica: true }) as unknown as ReplicaHandle
+
+      await replica.disconnect()
+
+      const disconnectedEvent = events.find((e) => (e as Record<string, string>).type === 'replica.disconnected')
+      expect(disconnectedEvent).toBeDefined()
+    })
+
+    it('should include replica namespace in event data', async () => {
+      const events: unknown[] = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        events.push({ type: verb, data })
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      await result.instance.clone('https://replica.test.do', { asReplica: true })
+
+      const createdEvent = events.find((e) => (e as Record<string, string>).type === 'replica.created') as { type: string; data: { replicaNs: string } } | undefined
+      expect(createdEvent).toBeDefined()
+      expect(createdEvent?.data?.replicaNs).toBe('https://replica.test.do')
+    })
+  })
+
+  // ==========================================================================
+  // EDGE CASES
+  // ==========================================================================
+
+  describe('Edge Cases', () => {
+    it('should handle bulk operations during initial sync', async () => {
+      // Primary has many items
+      for (let i = 50; i < 200; i++) {
+        result.sqlData.get('things')!.push({
+          id: `bulk-thing-${i}`,
+          type: 1,
+          data: { index: i },
+          version: 1,
+          branch: null,
+          deleted: false,
+        })
+      }
+
+      const replica = await result.instance.clone('https://replica.test.do', { asReplica: true }) as unknown as ReplicaHandle
+
+      // Wait for sync
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const metadata = await replica.getMetadata()
+      expect(metadata.status).toBe('active')
+      expect(metadata.lag).toBe(0)
+    })
+
+    it('should handle network timeout during sync gracefully', async () => {
+      const replica = await result.instance.clone('https://replica.test.do', {
+        asReplica: true,
+        syncMode: 'sync',
+      }) as unknown as ReplicaHandle
+
+      // Simulate network timeout scenario
+      await vi.advanceTimersByTimeAsync(120000) // 2 minutes
+
+      const metadata = await replica.getMetadata()
+      // Should be in a known state, not crashed
+      expect(['active', 'stale', 'disconnected', 'syncing']).toContain(metadata.status)
+    })
+
+    it('should handle empty primary gracefully', async () => {
+      // Create a primary with minimal data
+      const emptyPrimaryResult = createMockDO(DO, {
+        ns: 'https://empty-primary.test.do',
+        sqlData: new Map([
+          ['things', []],
+          ['objects', [{
+            ns: 'https://empty-primary.test.do',
+            class: 'DO',
+            primary: true,
+          }]],
+        ]),
+      })
+
+      // Creating replica from empty primary should either succeed or fail gracefully
+      const clonePromise = emptyPrimaryResult.instance.clone('https://replica.test.do', { asReplica: true })
+
+      // Should either succeed or throw a meaningful error
+      await expect(clonePromise).rejects.toThrow(/empty|no state|no data/i)
+    })
+
+    it('should handle replica creation with same namespace as primary', async () => {
+      // Attempting to create replica with same namespace as source should fail
+      await expect(async () => {
+        await result.instance.clone('https://primary.test.do', { asReplica: true })
+      }).rejects.toThrow(/same.*namespace|cannot.*self/i)
     })
   })
 })

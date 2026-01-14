@@ -6,13 +6,10 @@
  */
 
 import { getStoredToken } from '../device-auth'
+import { AuthError as BaseAuthError } from '../utils/errors'
 
-export class AuthError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'AuthError'
-  }
-}
+// Re-export AuthError for backward compatibility
+export { AuthError } from '../utils/errors'
 
 /**
  * Get the current access token or throw if not logged in
@@ -21,12 +18,12 @@ export async function getAccessToken(): Promise<string> {
   const token = await getStoredToken()
 
   if (!token) {
-    throw new AuthError('Not logged in. Run `do login` first.')
+    throw BaseAuthError.notLoggedIn()
   }
 
   // Check if token is expired (without refresh token)
   if (token.expires_at && token.expires_at < Date.now() && !token.refresh_token) {
-    throw new AuthError('Session expired. Run `do login` to re-authenticate.')
+    throw BaseAuthError.expired()
   }
 
   return token.access_token

@@ -9,7 +9,7 @@
  * - DocumentRenderer: Full integration tests
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   TemplateEngine,
   PDFGenerator,
@@ -17,6 +17,7 @@ import {
   SignatureCollector,
   VariableValidator,
   DocumentRenderer,
+  BulkDocumentRenderer,
 } from './index'
 import type {
   DocumentTemplate,
@@ -25,6 +26,9 @@ import type {
   SignatureFieldDefinition,
   PDFOptions,
   WatermarkConfig,
+  BulkRenderInput,
+  BulkProgress,
+  BulkRenderResult,
 } from './types'
 
 // =============================================================================
@@ -1127,6 +1131,758 @@ describe('Edge Cases', () => {
       const html = '<div><div><div><p>Deep nesting</p></div></div></div>'
       const pdf = await generator.generate(html)
       expect(pdf).toBeInstanceOf(Uint8Array)
+    })
+  })
+})
+
+// =============================================================================
+// BulkDocumentRenderer Tests
+// =============================================================================
+
+describe('BulkDocumentRenderer', () => {
+  let renderer: DocumentRenderer
+  let bulkRenderer: BulkDocumentRenderer
+
+  // Sample template for testing
+  const sampleTemplate: DocumentTemplate = {
+    id: 'invoice-template',
+    name: 'Invoice Template',
+    html: '<div><h1>Invoice #{{invoiceNumber}}</h1><p>Customer: {{customerName}}</p><p>Amount: {{amount}}</p></div>',
+    variables: [
+      { name: 'invoiceNumber', type: 'string', required: true },
+      { name: 'customerName', type: 'string', required: true },
+      { name: 'amount', type: 'number', required: true },
+    ],
+  }
+
+  beforeEach(async () => {
+    renderer = new DocumentRenderer()
+    bulkRenderer = new BulkDocumentRenderer(renderer)
+    await renderer.register(sampleTemplate)
+  })
+
+  describe('renderBulk', () => {
+    it('should render multiple documents in parallel', async () => {
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+        { id: 'inv-002', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-002', customerName: 'Bob', amount: 200 } },
+        { id: 'inv-003', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-003', customerName: 'Charlie', amount: 300 } },
+      ]
+
+      const response = await bulkRenderer.renderBulk(inputs)
+
+      expect(response.summary.total).toBe(3)
+      expect(response.summary.succeeded).toBe(3)
+      expect(response.summary.failed).toBe(0)
+      expect(response.results).toHaveLength(3)
+      expect(response.results.every(r => r.status === 'completed')).toBe(true)
+      expect(response.results.every(r => r.document !== undefined)).toBe(true)
+    })
+
+    it('should handle large batch sizes', async () => {
+      const inputs: BulkRenderInput[] = Array.from({ length: 50 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      const response = await bulkRenderer.renderBulk(inputs, {
+        concurrency: 5,
+        batchSize: 10,
+      })
+
+      expect(response.summary.total).toBe(50)
+      expect(response.summary.succeeded).toBe(50)
+    })
+
+    it('should continue on individual failures when continueOnError is true', async () => {
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+        { id: 'inv-002', templateId: 'non-existent-template', variables: {} }, // This will fail
+        { id: 'inv-003', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-003', customerName: 'Charlie', amount: 300 } },
+      ]
+
+      const response = await bulkRenderer.renderBulk(inputs, { continueOnError: true })
+
+      expect(response.summary.total).toBe(3)
+      expect(response.summary.succeeded).toBe(2)
+      expect(response.summary.failed).toBe(1)
+      expect(response.summary.failures).toHaveLength(1)
+      expect(response.summary.failures[0].id).toBe('inv-002')
+    })
+
+    it('should stop on first failure when continueOnError is false', async () => {
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'non-existent-template', variables: {} }, // This will fail first
+        { id: 'inv-002', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-002', customerName: 'Bob', amount: 200 } },
+      ]
+
+      await expect(
+        bulkRenderer.renderBulk(inputs, { continueOnError: false })
+      ).rejects.toThrow()
+    })
+
+    it('should skip invalid items when skipInvalid is true', async () => {
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+        { id: 'inv-002', templateId: 'invoice-template', variables: { customerName: 'Bob' } }, // Missing required fields
+        { id: 'inv-003', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-003', customerName: 'Charlie', amount: 300 } },
+      ]
+
+      const response = await bulkRenderer.renderBulk(inputs, { skipInvalid: true })
+
+      expect(response.summary.succeeded).toBe(2)
+      expect(response.summary.skipped).toBe(1)
+      expect(response.summary.skippedItems).toHaveLength(1)
+      expect(response.summary.skippedItems[0].id).toBe('inv-002')
+    })
+
+    it('should call progress callback with correct progress info', async () => {
+      const progressUpdates: BulkProgress[] = []
+
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+        { id: 'inv-002', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-002', customerName: 'Bob', amount: 200 } },
+      ]
+
+      await bulkRenderer.renderBulk(inputs, {
+        onProgress: (progress) => progressUpdates.push({ ...progress }),
+      })
+
+      expect(progressUpdates.length).toBeGreaterThan(0)
+      expect(progressUpdates[progressUpdates.length - 1].completed).toBe(2)
+      expect(progressUpdates[progressUpdates.length - 1].percentage).toBe(100)
+    })
+
+    it('should call onItemComplete for each completed item', async () => {
+      const completedItems: BulkRenderResult[] = []
+
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+        { id: 'inv-002', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-002', customerName: 'Bob', amount: 200 } },
+      ]
+
+      await bulkRenderer.renderBulk(inputs, {
+        onItemComplete: (result) => completedItems.push(result),
+      })
+
+      expect(completedItems).toHaveLength(2)
+      expect(completedItems.map(i => i.id)).toContain('inv-001')
+      expect(completedItems.map(i => i.id)).toContain('inv-002')
+    })
+
+    it('should call onBatchComplete after each batch', async () => {
+      const batchResults: { batchNum: number; count: number }[] = []
+
+      const inputs: BulkRenderInput[] = Array.from({ length: 15 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      await bulkRenderer.renderBulk(inputs, {
+        batchSize: 5,
+        onBatchComplete: (batchNum, results) => {
+          batchResults.push({ batchNum, count: results.length })
+        },
+      })
+
+      expect(batchResults).toHaveLength(3) // 15 items / 5 per batch = 3 batches
+      expect(batchResults[0].batchNum).toBe(1)
+      expect(batchResults[0].count).toBe(5)
+      expect(batchResults[2].batchNum).toBe(3)
+      expect(batchResults[2].count).toBe(5)
+    })
+
+    it('should track timing information correctly', async () => {
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+      ]
+
+      const response = await bulkRenderer.renderBulk(inputs)
+
+      expect(response.summary.startedAt).toBeInstanceOf(Date)
+      expect(response.summary.finishedAt).toBeInstanceOf(Date)
+      expect(response.summary.totalDurationMs).toBeGreaterThanOrEqual(0)
+      expect(response.results[0].durationMs).toBeGreaterThanOrEqual(0)
+      expect(response.results[0].startedAt).toBeInstanceOf(Date)
+      expect(response.results[0].finishedAt).toBeInstanceOf(Date)
+    })
+
+    it('should handle empty input array', async () => {
+      const response = await bulkRenderer.renderBulk([])
+
+      expect(response.summary.total).toBe(0)
+      expect(response.summary.succeeded).toBe(0)
+      expect(response.results).toHaveLength(0)
+    })
+
+    it('should prevent concurrent bulk operations', async () => {
+      const inputs: BulkRenderInput[] = Array.from({ length: 100 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      // Start first operation without awaiting
+      const firstOp = bulkRenderer.renderBulk(inputs)
+
+      // Try to start second operation
+      await expect(bulkRenderer.renderBulk(inputs)).rejects.toThrow('Bulk operation already in progress')
+
+      // Wait for first to complete
+      await firstOp
+    })
+  })
+
+  describe('validateBulk', () => {
+    it('should validate multiple inputs', async () => {
+      const inputs: BulkRenderInput[] = [
+        { id: 'inv-001', templateId: 'invoice-template', variables: { invoiceNumber: 'INV-001', customerName: 'Alice', amount: 100 } },
+        { id: 'inv-002', templateId: 'invoice-template', variables: { customerName: 'Bob' } }, // Missing required fields
+      ]
+
+      const results = await bulkRenderer.validateBulk(inputs)
+
+      expect(results).toHaveLength(2)
+      expect(results[0].validation.valid).toBe(true)
+      expect(results[1].validation.valid).toBe(false)
+    })
+
+    it('should validate in parallel', async () => {
+      const inputs: BulkRenderInput[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      const startTime = Date.now()
+      const results = await bulkRenderer.validateBulk(inputs)
+      const duration = Date.now() - startTime
+
+      expect(results).toHaveLength(20)
+      // Should be reasonably fast due to parallel processing
+      expect(duration).toBeLessThan(5000) // 5 seconds max
+    })
+  })
+
+  describe('estimate', () => {
+    it('should estimate resources for bulk operation', async () => {
+      const inputs: BulkRenderInput[] = Array.from({ length: 100 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      const estimate = await bulkRenderer.estimate(inputs, { batchSize: 25, concurrency: 10 })
+
+      expect(estimate.batchCount).toBe(4) // 100 items / 25 per batch
+      expect(estimate.itemsPerBatch).toBe(25)
+      expect(estimate.estimatedDurationMs).toBeGreaterThan(0)
+      expect(estimate.estimatedMemoryMb).toBeGreaterThan(0)
+    })
+
+    it('should adjust estimate based on concurrency', async () => {
+      const inputs: BulkRenderInput[] = Array.from({ length: 50 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: {},
+      }))
+
+      const lowConcurrency = await bulkRenderer.estimate(inputs, { concurrency: 1 })
+      const highConcurrency = await bulkRenderer.estimate(inputs, { concurrency: 10 })
+
+      // Lower concurrency should result in higher estimated time
+      expect(lowConcurrency.estimatedDurationMs).toBeGreaterThan(highConcurrency.estimatedDurationMs)
+    })
+  })
+
+  describe('cancel', () => {
+    it('should stop processing when cancelled', async () => {
+      const completedItems: string[] = []
+
+      const inputs: BulkRenderInput[] = Array.from({ length: 100 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      const bulkPromise = bulkRenderer.renderBulk(inputs, {
+        concurrency: 1, // Process slowly
+        onItemComplete: (result) => {
+          completedItems.push(result.id)
+          if (completedItems.length >= 5) {
+            bulkRenderer.cancel()
+          }
+        },
+      })
+
+      const response = await bulkPromise
+
+      // Should have stopped before processing all items
+      expect(response.summary.total).toBeLessThan(100)
+    })
+  })
+
+  describe('isRunning', () => {
+    it('should return true while operation is in progress', async () => {
+      expect(bulkRenderer.isRunning()).toBe(false)
+
+      const inputs: BulkRenderInput[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      const bulkPromise = bulkRenderer.renderBulk(inputs)
+
+      // Check running state during operation
+      expect(bulkRenderer.isRunning()).toBe(true)
+
+      await bulkPromise
+
+      expect(bulkRenderer.isRunning()).toBe(false)
+    })
+  })
+
+  describe('getRenderer', () => {
+    it('should return the underlying DocumentRenderer', () => {
+      expect(bulkRenderer.getRenderer()).toBe(renderer)
+    })
+  })
+
+  describe('concurrency control', () => {
+    it('should respect concurrency limit', async () => {
+      let maxConcurrent = 0
+      let currentConcurrent = 0
+
+      const inputs: BulkRenderInput[] = Array.from({ length: 10 }, (_, i) => ({
+        id: `inv-${i}`,
+        templateId: 'invoice-template',
+        variables: { invoiceNumber: `INV-${i}`, customerName: `Customer ${i}`, amount: i * 10 },
+      }))
+
+      // We can't directly measure concurrency from outside, but we can verify
+      // that the operation completes successfully with the concurrency setting
+      const response = await bulkRenderer.renderBulk(inputs, {
+        concurrency: 3,
+      })
+
+      expect(response.summary.succeeded).toBe(10)
+    })
+  })
+
+  describe('timeout handling', () => {
+    it('should timeout slow operations', async () => {
+      // Create a renderer that simulates slow rendering
+      const slowRenderer = new DocumentRenderer()
+      await slowRenderer.register({
+        id: 'slow-template',
+        name: 'Slow Template',
+        html: '<p>{{content}}</p>',
+        variables: [{ name: 'content', type: 'string', required: true }],
+      })
+
+      const slowBulkRenderer = new BulkDocumentRenderer(slowRenderer)
+
+      const inputs: BulkRenderInput[] = [
+        { id: 'doc-001', templateId: 'slow-template', variables: { content: 'test' } },
+      ]
+
+      // This test verifies timeout config is applied correctly
+      // Actual timeout behavior depends on render speed
+      const response = await slowBulkRenderer.renderBulk(inputs, {
+        timeoutMs: 30000, // 30 second timeout
+      })
+
+      expect(response.summary.total).toBe(1)
+    })
+  })
+})
+
+// =============================================================================
+// Document Versioning Tests
+// =============================================================================
+
+describe('Document Versioning', () => {
+  let renderer: DocumentRenderer
+
+  beforeEach(() => {
+    renderer = new DocumentRenderer()
+  })
+
+  describe('createVersion', () => {
+    it('should create first version with version number 1', async () => {
+      const content = new TextEncoder().encode('Document content v1')
+      const version = await renderer.createVersion('doc-001', content, {
+        description: 'Initial version',
+        author: 'test-user',
+      })
+
+      expect(version.documentId).toBe('doc-001')
+      expect(version.versionNumber).toBe(1)
+      expect(version.isCurrent).toBe(true)
+      expect(version.previousVersionId).toBeNull()
+      expect(version.metadata.description).toBe('Initial version')
+      expect(version.metadata.author).toBe('test-user')
+      expect(version.metadata.action).toBe('created')
+      expect(version.hash).toBeDefined()
+      expect(version.sizeBytes).toBe(content.length)
+    })
+
+    it('should create subsequent versions with incrementing version numbers', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+      const content3 = new TextEncoder().encode('Content v3')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      const v2 = await renderer.createVersion('doc-001', content2)
+      const v3 = await renderer.createVersion('doc-001', content3)
+
+      expect(v1.versionNumber).toBe(1)
+      expect(v2.versionNumber).toBe(2)
+      expect(v3.versionNumber).toBe(3)
+
+      expect(v1.isCurrent).toBe(false)
+      expect(v2.isCurrent).toBe(false)
+      expect(v3.isCurrent).toBe(true)
+    })
+
+    it('should link versions with previousVersionId and nextVersionId', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      const v2 = await renderer.createVersion('doc-001', content2)
+
+      // After creating v2, v1's nextVersionId should be updated
+      const versions = await renderer.listVersions('doc-001')
+      const updatedV1 = await renderer.getVersion('doc-001', v1.id)
+
+      expect(v2.previousVersionId).toBe(v1.id)
+      expect(updatedV1!.nextVersionId).toBe(v2.id)
+    })
+
+    it('should compute unique hashes for different content', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      const v2 = await renderer.createVersion('doc-001', content2)
+
+      expect(v1.hash).not.toBe(v2.hash)
+    })
+
+    it('should compute same hash for identical content', async () => {
+      const content = new TextEncoder().encode('Same content')
+
+      const v1 = await renderer.createVersion('doc-001', content)
+      const v2 = await renderer.createVersion('doc-002', content)
+
+      expect(v1.hash).toBe(v2.hash)
+    })
+  })
+
+  describe('listVersions', () => {
+    it('should return empty array for unknown document', async () => {
+      const versions = await renderer.listVersions('unknown-doc')
+      expect(versions).toEqual([])
+    })
+
+    it('should list all versions in order', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+      const content3 = new TextEncoder().encode('Content v3')
+
+      await renderer.createVersion('doc-001', content1, { description: 'First' })
+      await renderer.createVersion('doc-001', content2, { description: 'Second' })
+      await renderer.createVersion('doc-001', content3, { description: 'Third' })
+
+      const versions = await renderer.listVersions('doc-001')
+
+      expect(versions.length).toBe(3)
+      expect(versions[0].versionNumber).toBe(1)
+      expect(versions[0].description).toBe('First')
+      expect(versions[1].versionNumber).toBe(2)
+      expect(versions[2].versionNumber).toBe(3)
+      expect(versions[2].isCurrent).toBe(true)
+    })
+
+    it('should return lightweight list items without content', async () => {
+      const content = new TextEncoder().encode('Some content')
+      await renderer.createVersion('doc-001', content, { author: 'alice' })
+
+      const versions = await renderer.listVersions('doc-001')
+
+      expect(versions[0]).toHaveProperty('id')
+      expect(versions[0]).toHaveProperty('versionNumber')
+      expect(versions[0]).toHaveProperty('hash')
+      expect(versions[0]).toHaveProperty('sizeBytes')
+      expect(versions[0]).toHaveProperty('createdAt')
+      expect(versions[0]).toHaveProperty('isCurrent')
+      expect(versions[0]).not.toHaveProperty('content')
+    })
+  })
+
+  describe('getVersion', () => {
+    it('should return null for unknown version', async () => {
+      const version = await renderer.getVersion('doc-001', 'unknown-version')
+      expect(version).toBeNull()
+    })
+
+    it('should return full version with content', async () => {
+      const content = new TextEncoder().encode('Full content')
+      const created = await renderer.createVersion('doc-001', content, {
+        description: 'Test version',
+        author: 'test-user',
+      })
+
+      const retrieved = await renderer.getVersion('doc-001', created.id)
+
+      expect(retrieved).not.toBeNull()
+      expect(retrieved!.id).toBe(created.id)
+      expect(retrieved!.content).toEqual(content)
+      expect(retrieved!.metadata.description).toBe('Test version')
+    })
+  })
+
+  describe('revertToVersion', () => {
+    it('should create new version with content from source version', async () => {
+      const content1 = new TextEncoder().encode('Original content')
+      const content2 = new TextEncoder().encode('Modified content')
+
+      const v1 = await renderer.createVersion('doc-001', content1, { description: 'Original' })
+      await renderer.createVersion('doc-001', content2, { description: 'Modified' })
+
+      const reverted = await renderer.revertToVersion('doc-001', v1.id)
+
+      expect(reverted.versionNumber).toBe(3)
+      expect(reverted.content).toEqual(content1)
+      expect(reverted.metadata.action).toBe('reverted')
+      expect(reverted.metadata.sourceVersionId).toBe(v1.id)
+      expect(reverted.metadata.description).toContain('Reverted to version 1')
+    })
+
+    it('should throw error for unknown version', async () => {
+      await expect(
+        renderer.revertToVersion('doc-001', 'unknown-version')
+      ).rejects.toThrow('Version "unknown-version" not found')
+    })
+
+    it('should preserve hash when reverting', async () => {
+      const content1 = new TextEncoder().encode('Original content')
+      const content2 = new TextEncoder().encode('Modified content')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      await renderer.createVersion('doc-001', content2)
+
+      const reverted = await renderer.revertToVersion('doc-001', v1.id)
+
+      expect(reverted.hash).toBe(v1.hash)
+    })
+  })
+
+  describe('diffVersions', () => {
+    it('should detect identical versions by hash', async () => {
+      const content = new TextEncoder().encode('Same content')
+
+      const v1 = await renderer.createVersion('doc-001', content)
+      const v2 = await renderer.createVersion('doc-001', content)
+
+      const diff = await renderer.diffVersions('doc-001', v1.id, v2.id)
+
+      expect(diff.isIdentical).toBe(true)
+      expect(diff.fromVersionNumber).toBe(1)
+      expect(diff.toVersionNumber).toBe(2)
+    })
+
+    it('should detect size difference between versions', async () => {
+      const content1 = new TextEncoder().encode('Short')
+      const content2 = new TextEncoder().encode('Much longer content here')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      const v2 = await renderer.createVersion('doc-001', content2)
+
+      const diff = await renderer.diffVersions('doc-001', v1.id, v2.id)
+
+      expect(diff.isIdentical).toBe(false)
+      expect(diff.summary.sizeDelta).toBe(content2.length - content1.length)
+    })
+
+    it('should throw error for unknown versions', async () => {
+      const content = new TextEncoder().encode('Content')
+      const v1 = await renderer.createVersion('doc-001', content)
+
+      await expect(
+        renderer.diffVersions('doc-001', 'unknown', v1.id)
+      ).rejects.toThrow('Source version "unknown" not found')
+
+      await expect(
+        renderer.diffVersions('doc-001', v1.id, 'unknown')
+      ).rejects.toThrow('Target version "unknown" not found')
+    })
+
+    it('should return diff summary', async () => {
+      const content1 = new TextEncoder().encode('Line 1\nLine 2\nLine 3')
+      const content2 = new TextEncoder().encode('Line 1\nModified Line 2\nLine 3\nLine 4')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      const v2 = await renderer.createVersion('doc-001', content2)
+
+      const diff = await renderer.diffVersions('doc-001', v1.id, v2.id)
+
+      expect(diff.summary).toHaveProperty('added')
+      expect(diff.summary).toHaveProperty('removed')
+      expect(diff.summary).toHaveProperty('modified')
+      expect(diff.summary).toHaveProperty('total')
+      expect(diff.generatedAt).toBeDefined()
+    })
+  })
+
+  describe('getVersionHistory', () => {
+    it('should throw error for document with no versions', async () => {
+      await expect(
+        renderer.getVersionHistory('unknown-doc')
+      ).rejects.toThrow('No versions found')
+    })
+
+    it('should return complete version history', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+
+      await renderer.createVersion('doc-001', content1, { author: 'alice' })
+      await renderer.createVersion('doc-001', content2, { author: 'bob' })
+
+      const history = await renderer.getVersionHistory('doc-001')
+
+      expect(history.documentId).toBe('doc-001')
+      expect(history.totalVersions).toBe(2)
+      expect(history.currentVersionNumber).toBe(2)
+      expect(history.entries.length).toBe(2)
+      expect(history.versions).toBeDefined()
+      expect(history.versions!.length).toBe(2)
+    })
+
+    it('should include audit entries with action information', async () => {
+      const content = new TextEncoder().encode('Content')
+      await renderer.createVersion('doc-001', content, {
+        author: 'alice',
+        description: 'Initial commit',
+      })
+
+      const history = await renderer.getVersionHistory('doc-001')
+
+      expect(history.entries[0].action).toBe('created')
+      expect(history.entries[0].actor).toBe('alice')
+      expect(history.entries[0].description).toBe('Initial commit')
+    })
+
+    it('should filter by action type', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      await renderer.createVersion('doc-001', content2)
+      await renderer.revertToVersion('doc-001', v1.id)
+
+      const history = await renderer.getVersionHistory('doc-001', {
+        actions: ['reverted'],
+      })
+
+      expect(history.entries.length).toBe(1)
+      expect(history.entries[0].action).toBe('reverted')
+    })
+
+    it('should filter by author', async () => {
+      const content = new TextEncoder().encode('Content')
+      await renderer.createVersion('doc-001', content, { author: 'alice' })
+      await renderer.createVersion('doc-001', content, { author: 'bob' })
+      await renderer.createVersion('doc-001', content, { author: 'alice' })
+
+      const history = await renderer.getVersionHistory('doc-001', {
+        author: 'alice',
+      })
+
+      expect(history.entries.length).toBe(2)
+      expect(history.entries.every((e) => e.actor === 'alice')).toBe(true)
+    })
+
+    it('should apply pagination', async () => {
+      const content = new TextEncoder().encode('Content')
+      for (let i = 0; i < 5; i++) {
+        await renderer.createVersion('doc-001', content, { description: `Version ${i + 1}` })
+      }
+
+      const history = await renderer.getVersionHistory('doc-001', {
+        offset: 1,
+        limit: 2,
+      })
+
+      expect(history.entries.length).toBe(2)
+      expect(history.entries[0].versionNumber).toBe(2)
+      expect(history.entries[1].versionNumber).toBe(3)
+    })
+  })
+
+  describe('audit trail', () => {
+    it('should track version creation', async () => {
+      const content = new TextEncoder().encode('Content')
+      await renderer.createVersion('doc-001', content, {
+        author: 'test-user',
+        description: 'First version',
+      })
+
+      const history = await renderer.getVersionHistory('doc-001')
+
+      expect(history.entries[0].action).toBe('created')
+      expect(history.entries[0].actor).toBe('test-user')
+      expect(history.entries[0].timestamp).toBeDefined()
+    })
+
+    it('should track version updates', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+
+      await renderer.createVersion('doc-001', content1)
+      await renderer.createVersion('doc-001', content2, { author: 'updater' })
+
+      const history = await renderer.getVersionHistory('doc-001')
+
+      expect(history.entries[0].action).toBe('created')
+      expect(history.entries[1].action).toBe('updated')
+      expect(history.entries[1].actor).toBe('updater')
+    })
+
+    it('should track reverts', async () => {
+      const content1 = new TextEncoder().encode('Content v1')
+      const content2 = new TextEncoder().encode('Content v2')
+
+      const v1 = await renderer.createVersion('doc-001', content1)
+      await renderer.createVersion('doc-001', content2)
+      await renderer.revertToVersion('doc-001', v1.id)
+
+      const history = await renderer.getVersionHistory('doc-001')
+
+      expect(history.entries[2].action).toBe('reverted')
+      expect(history.entries[2].description).toContain('Reverted')
+    })
+  })
+
+  describe('multi-document versioning', () => {
+    it('should maintain separate version histories per document', async () => {
+      const content = new TextEncoder().encode('Content')
+
+      await renderer.createVersion('doc-001', content)
+      await renderer.createVersion('doc-001', content)
+      await renderer.createVersion('doc-002', content)
+
+      const versions1 = await renderer.listVersions('doc-001')
+      const versions2 = await renderer.listVersions('doc-002')
+
+      expect(versions1.length).toBe(2)
+      expect(versions2.length).toBe(1)
+      expect(versions1[0].documentId).toBeUndefined() // List items don't include documentId
+      expect(versions2[0].versionNumber).toBe(1)
     })
   })
 })

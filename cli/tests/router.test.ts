@@ -341,7 +341,7 @@ describe('Surface Router', () => {
 
   describe('Site surface at root (/)', () => {
     it('GET / returns Site surface content when Site exists', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: null,
@@ -361,7 +361,7 @@ describe('Surface Router', () => {
     })
 
     it('GET / returns 404 when no Site surface exists and no App fallback', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -380,7 +380,7 @@ describe('Surface Router', () => {
     })
 
     it('GET / returns App surface when no Site but App exists', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: '/project/App.tsx',
@@ -402,7 +402,7 @@ describe('Surface Router', () => {
 
   describe('App surface (/app/*)', () => {
     it('GET /app routes to App surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: '/project/App.tsx',
@@ -422,7 +422,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /app/dashboard routes to App surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: '/project/App.tsx',
@@ -441,7 +441,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /app/* returns 404 when App surface not configured', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: null,
@@ -461,7 +461,7 @@ describe('Surface Router', () => {
 
   describe('Admin surface (/admin/*)', () => {
     it('GET /admin routes to Admin surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -481,7 +481,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /admin/users routes to Admin surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -500,7 +500,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /admin/* returns 404 when Admin surface not configured', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -520,7 +520,7 @@ describe('Surface Router', () => {
 
   describe('Docs surface (/docs/*)', () => {
     it('GET /docs routes to Docs surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -540,7 +540,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /docs/getting-started routes to Docs surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -559,7 +559,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /docs/* returns 404 when Docs surface not configured', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -579,7 +579,7 @@ describe('Surface Router', () => {
 
   describe('Blog surface (/blog/*)', () => {
     it('GET /blog routes to Blog surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -599,7 +599,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /blog/my-first-post routes to Blog surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -618,7 +618,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /blog/* returns 404 when Blog surface not configured', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,
@@ -638,7 +638,7 @@ describe('Surface Router', () => {
 
   describe('Unknown routes (404 fallback)', () => {
     it('GET /unknown returns 404', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: '/project/App.tsx',
@@ -657,7 +657,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /api/something returns 404 (not a surface path)', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: '/project/App.tsx',
@@ -675,7 +675,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /random/nested/path returns 404', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: null,
@@ -695,7 +695,7 @@ describe('Surface Router', () => {
 
   describe('Site surface at /site/* path', () => {
     it('GET /site routes to Site surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: null,
@@ -714,7 +714,7 @@ describe('Surface Router', () => {
     })
 
     it('GET /site/about routes to Site surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: null,
@@ -735,7 +735,7 @@ describe('Surface Router', () => {
 
   describe('All surfaces configured', () => {
     it('routes all surfaces correctly when all are configured', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: '/project/Site.tsx',
           App: '/project/App.tsx',
@@ -772,7 +772,7 @@ describe('Surface Router', () => {
 
   describe('HTTP methods', () => {
     it('handles POST requests to App surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: '/project/App.tsx',
@@ -793,7 +793,7 @@ describe('Surface Router', () => {
     })
 
     it('handles PUT requests to Admin surface', async () => {
-      const router = createSurfaceRouter({
+      const router = await createSurfaceRouter({
         surfaces: {
           Site: null,
           App: null,

@@ -1483,3 +1483,7 @@ export class CloseClient {
 // =============================================================================
 
 export default CloseClient
+
+// Re-export sequences module
+export * from './sequences'
+export { SequenceClient, SequenceError } from './sequences'

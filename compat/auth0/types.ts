@@ -1292,3 +1292,501 @@ export type ActionCommand =
   | { type: 'redirect'; url: string; query?: Record<string, string> }
   | { type: 'challengeWith'; factor: { type: string; options?: Record<string, unknown> } }
   | { type: 'setSession'; key: string; value: unknown }
+
+// ============================================================================
+// BRANDING TYPES
+// ============================================================================
+
+/**
+ * Branding colors for Universal Login
+ * @see https://auth0.com/docs/api/management/v2#!/Branding/get_branding
+ */
+export interface BrandingColors {
+  /** Primary color for buttons and links */
+  primary?: string
+  /** Page background color */
+  page_background?: string
+}
+
+/**
+ * Branding font configuration
+ * @see https://auth0.com/docs/customize/universal-login-pages/universal-login-page-customization
+ */
+export interface BrandingFont {
+  /** URL to custom font */
+  url?: string
+}
+
+/**
+ * Branding settings for a tenant
+ * @see https://auth0.com/docs/api/management/v2#!/Branding/get_branding
+ */
+export interface BrandingSettings {
+  /** Brand colors */
+  colors?: BrandingColors
+  /** URL to logo image */
+  logo_url?: string
+  /** URL to favicon */
+  favicon_url?: string
+  /** Font configuration */
+  font?: BrandingFont
+}
+
+/**
+ * Parameters for updating branding settings
+ */
+export interface UpdateBrandingSettingsParams {
+  /** Brand colors */
+  colors?: Partial<BrandingColors>
+  /** URL to logo image */
+  logo_url?: string
+  /** URL to favicon */
+  favicon_url?: string
+  /** Font configuration */
+  font?: Partial<BrandingFont>
+}
+
+/**
+ * Universal Login template
+ * @see https://auth0.com/docs/customize/universal-login-pages/customize-new-universal-login-with-custom-html
+ */
+export interface UniversalLoginTemplate {
+  /** HTML template body */
+  body: string
+}
+
+/**
+ * Parameters for setting Universal Login template
+ */
+export interface SetUniversalLoginTemplateParams {
+  /** HTML template */
+  template: string
+}
+
+/**
+ * Theme colors for Universal Login (extended color set)
+ * @see https://auth0.com/docs/customize/universal-login-pages/new-experience/themes
+ */
+export interface ThemeColors {
+  /** Primary brand color */
+  primary: string
+  /** Page background color */
+  page_background: string
+  /** Base focus color for interactive elements */
+  base_focus_color: string
+  /** Base hover color for interactive elements */
+  base_hover_color: string
+  /** Body text color */
+  body_text: string
+  /** Error message color */
+  error: string
+  /** Header text color */
+  header: string
+  /** Icon color */
+  icons: string
+  /** Input field background color */
+  input_background: string
+  /** Input field border color */
+  input_border: string
+  /** Input filled text color */
+  input_filled_text: string
+  /** Input labels and placeholder color */
+  input_labels_placeholders: string
+  /** Links and focused components color */
+  links_focused_components: string
+  /** Primary button background color */
+  primary_button: string
+  /** Primary button label color */
+  primary_button_label: string
+  /** Secondary button border color */
+  secondary_button_border: string
+  /** Secondary button label color */
+  secondary_button_label: string
+  /** Success message color */
+  success: string
+  /** Widget background color */
+  widget_background: string
+  /** Widget border color */
+  widget_border: string
+}
+
+/**
+ * Font text style configuration
+ */
+export interface FontTextStyle {
+  /** Whether text is bold */
+  bold: boolean
+  /** Font size as percentage of reference size */
+  size: number
+}
+
+/**
+ * Theme fonts configuration
+ * @see https://auth0.com/docs/customize/universal-login-pages/new-experience/themes
+ */
+export interface ThemeFonts {
+  /** Body text style */
+  body_text: FontTextStyle
+  /** Button text style */
+  buttons_text: FontTextStyle
+  /** URL to custom font */
+  font_url: string
+  /** Input label style */
+  input_labels: FontTextStyle
+  /** Link style */
+  links: FontTextStyle
+  /** Link style (normal, underline) */
+  links_style: 'normal' | 'underline'
+  /** Reference text size in pixels */
+  reference_text_size: number
+  /** Subtitle style */
+  subtitle: FontTextStyle
+  /** Title style */
+  title: FontTextStyle
+}
+
+/**
+ * Theme borders configuration
+ * @see https://auth0.com/docs/customize/universal-login-pages/new-experience/themes
+ */
+export interface ThemeBorders {
+  /** Button border radius in pixels */
+  button_border_radius: number
+  /** Button border weight in pixels */
+  button_border_weight: number
+  /** Buttons style (rounded, sharp, pill) */
+  buttons_style: 'rounded' | 'sharp' | 'pill'
+  /** Input border radius in pixels */
+  input_border_radius: number
+  /** Input border weight in pixels */
+  input_border_weight: number
+  /** Inputs style (rounded, sharp, pill) */
+  inputs_style: 'rounded' | 'sharp' | 'pill'
+  /** Whether to show widget shadow */
+  show_widget_shadow: boolean
+  /** Widget border weight in pixels */
+  widget_border_weight: number
+  /** Widget corner radius in pixels */
+  widget_corner_radius: number
+}
+
+/**
+ * Widget configuration for Universal Login
+ * @see https://auth0.com/docs/customize/universal-login-pages/new-experience/themes
+ */
+export interface BrandingWidget {
+  /** Header text alignment */
+  header_text_alignment: 'left' | 'center' | 'right'
+  /** Logo height in pixels */
+  logo_height: number
+  /** Logo position */
+  logo_position: 'left' | 'center' | 'right' | 'none'
+  /** URL to logo image */
+  logo_url: string
+  /** Social buttons layout */
+  social_buttons_layout: 'top' | 'bottom'
+}
+
+/**
+ * Page background configuration
+ * @see https://auth0.com/docs/customize/universal-login-pages/new-experience/themes
+ */
+export interface BrandingPageBackground {
+  /** Background color */
+  background_color: string
+  /** Background image URL */
+  background_image_url: string
+  /** Page layout (center, left, right) */
+  page_layout: 'center' | 'left' | 'right'
+}
+
+/**
+ * Branding theme for Universal Login
+ * @see https://auth0.com/docs/api/management/v2#!/Branding/get_branding_themes
+ */
+export interface BrandingTheme {
+  /** Theme ID */
+  themeId: string
+  /** Display name */
+  displayName: string
+  /** Theme colors */
+  colors: ThemeColors
+  /** Theme fonts */
+  fonts: ThemeFonts
+  /** Theme borders */
+  borders: ThemeBorders
+  /** Widget configuration */
+  widget: BrandingWidget
+  /** Page background */
+  page_background: BrandingPageBackground
+  /** When theme was created */
+  created_at: string
+  /** When theme was last updated */
+  updated_at: string
+}
+
+/**
+ * Parameters for creating a branding theme
+ */
+export interface CreateBrandingThemeParams {
+  /** Display name (required) */
+  displayName: string
+  /** Theme colors */
+  colors?: Partial<ThemeColors>
+  /** Theme fonts */
+  fonts?: Partial<ThemeFonts>
+  /** Theme borders */
+  borders?: Partial<ThemeBorders>
+  /** Widget configuration */
+  widget?: Partial<BrandingWidget>
+  /** Page background */
+  page_background?: Partial<BrandingPageBackground>
+}
+
+/**
+ * Parameters for updating a branding theme
+ */
+export interface UpdateBrandingThemeParams {
+  /** Display name */
+  displayName?: string
+  /** Theme colors */
+  colors?: Partial<ThemeColors>
+  /** Theme fonts */
+  fonts?: Partial<ThemeFonts>
+  /** Theme borders */
+  borders?: Partial<ThemeBorders>
+  /** Widget configuration */
+  widget?: Partial<BrandingWidget>
+  /** Page background */
+  page_background?: Partial<BrandingPageBackground>
+}
+
+/**
+ * Custom text prompt types for Universal Login
+ * @see https://auth0.com/docs/customize/universal-login-pages/customize-text
+ */
+export type CustomTextPrompt =
+  | 'login'
+  | 'login-id'
+  | 'login-password'
+  | 'login-email-verification'
+  | 'signup'
+  | 'signup-id'
+  | 'signup-password'
+  | 'reset-password'
+  | 'consent'
+  | 'mfa'
+  | 'mfa-push'
+  | 'mfa-otp'
+  | 'mfa-voice'
+  | 'mfa-phone'
+  | 'mfa-webauthn'
+  | 'mfa-sms'
+  | 'mfa-email'
+  | 'mfa-recovery-code'
+  | 'status'
+  | 'device-flow'
+  | 'email-verification'
+  | 'email-otp-challenge'
+  | 'organizations'
+  | 'invitation'
+  | 'common'
+
+/**
+ * Custom text by language
+ * Key-value pairs for custom text strings
+ */
+export interface CustomTextByLanguage {
+  [key: string]: string | undefined
+  /** Page title */
+  title?: string
+  /** Description text */
+  description?: string
+  /** Button text */
+  buttonText?: string
+  /** Error message */
+  error?: string
+  /** Placeholder text */
+  placeholder?: string
+  /** Help text */
+  helpText?: string
+  /** Label text */
+  label?: string
+  /** Link text */
+  linkText?: string
+}
+
+/**
+ * Parameters for setting custom text
+ */
+export interface SetCustomTextParams {
+  /** Prompt screen */
+  prompt: CustomTextPrompt
+  /** Language code (e.g., 'en', 'es', 'fr') */
+  language: string
+  /** Custom text key-value pairs */
+  body: CustomTextByLanguage
+}
+
+// ============================================================================
+// ORGANIZATIONS TYPES
+// ============================================================================
+
+/**
+ * Auth0 Organization
+ * @see https://auth0.com/docs/manage-users/organizations
+ */
+export interface Organization {
+  /** Organization ID */
+  id: string
+  /** Organization name (URL-safe slug) */
+  name: string
+  /** Display name */
+  display_name: string
+  /** Organization metadata */
+  metadata?: Record<string, string>
+  /** Branding configuration */
+  branding?: OrganizationBranding
+  /** When organization was created */
+  created_at: string
+  /** When organization was last updated */
+  updated_at: string
+}
+
+/**
+ * Organization branding configuration
+ */
+export interface OrganizationBranding {
+  /** Logo URL */
+  logo_url?: string
+  /** Primary color */
+  colors?: {
+    primary?: string
+    page_background?: string
+  }
+}
+
+/**
+ * Parameters for creating an organization
+ */
+export interface CreateOrganizationParams {
+  /** Organization name (URL-safe slug) */
+  name: string
+  /** Display name */
+  display_name: string
+  /** Organization metadata */
+  metadata?: Record<string, string>
+  /** Branding configuration */
+  branding?: OrganizationBranding
+}
+
+/**
+ * Parameters for updating an organization
+ */
+export interface UpdateOrganizationParams {
+  /** Display name */
+  display_name?: string
+  /** Organization metadata */
+  metadata?: Record<string, string>
+  /** Branding configuration */
+  branding?: OrganizationBranding
+}
+
+/**
+ * Organization member
+ */
+export interface OrganizationMember {
+  /** User ID */
+  user_id: string
+  /** Email */
+  email?: string
+  /** Name */
+  name?: string
+  /** Picture URL */
+  picture?: string
+  /** Roles within the organization */
+  roles?: OrganizationRole[]
+}
+
+/**
+ * Organization role
+ */
+export interface OrganizationRole {
+  /** Role ID */
+  id: string
+  /** Role name */
+  name: string
+  /** Role description */
+  description?: string
+}
+
+/**
+ * Organization connection
+ */
+export interface OrganizationConnection {
+  /** Connection ID */
+  connection_id: string
+  /** Connection name */
+  connection: {
+    name: string
+    strategy: string
+  }
+  /** Whether auto-membership is enabled */
+  assign_membership_on_login: boolean
+  /** Whether connection is enabled for organization */
+  enabled: boolean
+}
+
+/**
+ * Organization invitation
+ */
+export interface OrganizationInvitation {
+  /** Invitation ID */
+  id: string
+  /** Organization ID */
+  organization_id: string
+  /** Inviter information */
+  inviter: {
+    name: string
+  }
+  /** Invitee information */
+  invitee: {
+    email: string
+  }
+  /** Invitation URL */
+  invitation_url?: string
+  /** Ticket ID for the invitation */
+  ticket_id?: string
+  /** Roles to assign */
+  roles?: string[]
+  /** Connection to use */
+  connection_id?: string
+  /** When invitation was created */
+  created_at: string
+  /** When invitation expires */
+  expires_at: string
+}
+
+/**
+ * Parameters for creating an organization invitation
+ */
+export interface CreateOrganizationInvitationParams {
+  /** Inviter information */
+  inviter: {
+    name: string
+  }
+  /** Invitee information */
+  invitee: {
+    email: string
+  }
+  /** Client ID for the invitation */
+  client_id: string
+  /** Connection ID (optional, uses first enabled connection if not provided) */
+  connection_id?: string
+  /** Roles to assign upon acceptance */
+  roles?: string[]
+  /** Time to live in seconds (default: 604800 = 7 days) */
+  ttl_sec?: number
+  /** Whether to send the invitation email */
+  send_invitation_email?: boolean
+}

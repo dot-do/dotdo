@@ -69,7 +69,9 @@ function extractStorageClaimsUnsafe(jwt: string): StorageClaims {
   // Decode payload (handle both base64 and base64url)
   let payload: Record<string, unknown>
   try {
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const part1 = parts[1]
+    if (!part1) throw new Error('Invalid JWT format')
+    const base64 = part1.replace(/-/g, '+').replace(/_/g, '/')
     payload = JSON.parse(atob(base64))
   } catch {
     throw new Error('Invalid JWT payload')
@@ -185,7 +187,7 @@ class InlineIcebergAdapter {
 
     const manifests: IcebergManifest[] = Object.keys(tables).map((table) => ({
       manifest_path: `${table}.manifest`,
-      added_data_files_count: tables[table].length,
+      added_data_files_count: (tables[table] ?? []).length,
     }))
 
     const dataFiles: IcebergDataFile[] = Object.keys(tables).map((table) => ({
@@ -307,17 +309,17 @@ export class StatelessDOState {
 
         if (upperQuery.startsWith('CREATE TABLE')) {
           const match = query.match(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/i)
-          if (match) {
+          if (match && match[1]) {
             const tableName = match[1]
             self.tables.set(tableName, self.tables.get(tableName) || [])
 
             // Extract column names from definition: CREATE TABLE test (id TEXT, name TEXT)
             const columnsMatch = query.match(/\(([^)]+)\)/i)
-            if (columnsMatch) {
+            if (columnsMatch && columnsMatch[1]) {
               const columnDefs = columnsMatch[1].split(',').map((c) => c.trim())
               const columnNames = columnDefs.map((def) => {
                 // Extract column name from "id TEXT PRIMARY KEY" or "name TEXT"
-                const colName = def.split(/\s+/)[0]
+                const colName = def.split(/\s+/)[0] ?? ''
                 return colName
               })
               self.tableSchemas.set(tableName, columnNames)
@@ -328,7 +330,7 @@ export class StatelessDOState {
 
         if (upperQuery.startsWith('INSERT INTO')) {
           const match = query.match(/INSERT INTO (\w+)/i)
-          if (match) {
+          if (match && match[1]) {
             const tableName = match[1]
             const table = self.tables.get(tableName) || []
 
@@ -337,7 +339,7 @@ export class StatelessDOState {
             // Parse VALUES: VALUES ('1', 'Test') or VALUES (?, ?)
             const valuesMatch = query.match(/VALUES\s*\(([^)]+)\)/i)
 
-            if (columnsMatch && valuesMatch) {
+            if (columnsMatch && columnsMatch[1] && valuesMatch && valuesMatch[1]) {
               // Named columns
               const columns = columnsMatch[1].split(',').map((c) => c.trim())
               const values =
@@ -353,7 +355,7 @@ export class StatelessDOState {
                     })
               const row = Object.fromEntries(columns.map((col, i) => [col, values[i]]))
               table.push(row)
-            } else if (valuesMatch) {
+            } else if (valuesMatch && valuesMatch[1]) {
               // No column names - use schema if available, else use col0, col1, etc.
               const values =
                 params.length > 0
@@ -385,15 +387,16 @@ export class StatelessDOState {
 
         if (upperQuery.startsWith('SELECT')) {
           const match = query.match(/FROM (\w+)/i)
-          if (match) {
-            return { toArray: () => self.tables.get(match[1]) || [] }
+          if (match && match[1]) {
+            const tableName = match[1]
+            return { toArray: () => self.tables.get(tableName) || [] }
           }
           return { toArray: () => [] }
         }
 
         if (upperQuery.startsWith('DELETE FROM')) {
           const match = query.match(/DELETE FROM (\w+)/i)
-          if (match) {
+          if (match && match[1]) {
             self.tables.set(match[1], [])
           }
           return { toArray: () => [] }

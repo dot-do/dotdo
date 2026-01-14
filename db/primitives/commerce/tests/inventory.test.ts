@@ -662,5 +662,500 @@ describe('InventoryManager', () => {
 
       expect(nearest?.locationId).toBe('loc-warehouse')
     })
+
+    it('should get all locations', async () => {
+      const locations = await inventory.getAllLocations()
+
+      expect(locations).toHaveLength(2)
+      expect(locations.map((l) => l.id)).toContain('loc-warehouse')
+      expect(locations.map((l) => l.id)).toContain('loc-store-1')
+    })
+
+    it('should delete location without stock', async () => {
+      await inventory.createLocation({
+        id: 'loc-temp',
+        name: 'Temporary',
+        type: 'warehouse',
+      })
+
+      await inventory.deleteLocation('loc-temp')
+
+      const location = await inventory.getLocation('loc-temp')
+      expect(location).toBeNull()
+    })
+
+    it('should not delete location with stock', async () => {
+      await inventory.setStockAtLocation('var-1', 'loc-warehouse', 100)
+
+      await expect(inventory.deleteLocation('loc-warehouse')).rejects.toThrow(
+        'Cannot delete location with existing stock'
+      )
+    })
+  })
+
+  // =============================================================================
+  // Multi-Warehouse Fulfillment Tests
+  // =============================================================================
+
+  describe('multi-warehouse fulfillment', () => {
+    let inventory: InventoryManager
+
+    beforeEach(async () => {
+      inventory = createInventoryManager({ multiLocation: true })
+
+      // Create warehouses with priorities
+      await inventory.createLocation({
+        id: 'wh-primary',
+        name: 'Primary Warehouse',
+        type: 'warehouse',
+        priority: 1,
+        coordinates: { lat: 40.7128, lng: -74.006 }, // NYC
+      })
+      await inventory.createLocation({
+        id: 'wh-secondary',
+        name: 'Secondary Warehouse',
+        type: 'warehouse',
+        priority: 2,
+        coordinates: { lat: 34.0522, lng: -118.2437 }, // LA
+      })
+      await inventory.createLocation({
+        id: 'wh-tertiary',
+        name: 'Tertiary Warehouse',
+        type: 'warehouse',
+        priority: 3,
+        coordinates: { lat: 41.8781, lng: -87.6298 }, // Chicago
+      })
+
+      // Set stock at each warehouse
+      await inventory.setStockAtLocation('var-1', 'wh-primary', 50)
+      await inventory.setStockAtLocation('var-1', 'wh-secondary', 100)
+      await inventory.setStockAtLocation('var-1', 'wh-tertiary', 30)
+    })
+
+    describe('getAggregatedStock', () => {
+      it('should return aggregated stock across all warehouses', async () => {
+        const agg = await inventory.getAggregatedStock('var-1')
+
+        expect(agg.variantId).toBe('var-1')
+        expect(agg.totalOnHand).toBe(180)
+        expect(agg.totalAvailable).toBe(180)
+        expect(agg.totalReserved).toBe(0)
+        expect(agg.byLocation).toHaveLength(3)
+      })
+
+      it('should sort locations by priority', async () => {
+        const agg = await inventory.getAggregatedStock('var-1')
+
+        expect(agg.byLocation[0].locationId).toBe('wh-primary')
+        expect(agg.byLocation[1].locationId).toBe('wh-secondary')
+        expect(agg.byLocation[2].locationId).toBe('wh-tertiary')
+      })
+
+      it('should account for reservations in aggregated stock', async () => {
+        await inventory.createReservation({
+          variantId: 'var-1',
+          quantity: 20,
+          referenceId: 'cart-1',
+          referenceType: 'cart',
+          locationId: 'wh-primary',
+        })
+
+        const agg = await inventory.getAggregatedStock('var-1')
+
+        expect(agg.totalOnHand).toBe(180)
+        expect(agg.totalReserved).toBe(20)
+        expect(agg.totalAvailable).toBe(160)
+        expect(agg.byLocation[0].reserved).toBe(20)
+        expect(agg.byLocation[0].available).toBe(30)
+      })
+
+      it('should exclude inactive locations', async () => {
+        await inventory.updateLocation('wh-tertiary', { isActive: false })
+
+        const agg = await inventory.getAggregatedStock('var-1')
+
+        expect(agg.byLocation).toHaveLength(2)
+        expect(agg.totalOnHand).toBe(150)
+      })
+    })
+
+    describe('planFulfillment', () => {
+      it('should plan fulfillment using priority strategy', async () => {
+        const plan = await inventory.planFulfillment('var-1', 60, {
+          strategy: 'priority',
+        })
+
+        expect(plan.canFulfill).toBe(true)
+        expect(plan.allocations).toHaveLength(2) // 50 from primary + 10 from secondary
+        expect(plan.allocations[0].locationId).toBe('wh-primary')
+        expect(plan.allocations[0].quantity).toBe(50)
+        expect(plan.allocations[1].locationId).toBe('wh-secondary')
+        expect(plan.allocations[1].quantity).toBe(10)
+      })
+
+      it('should plan fulfillment using nearest strategy', async () => {
+        const plan = await inventory.planFulfillment('var-1', 30, {
+          strategy: 'nearest',
+          coordinates: { lat: 41.0, lng: -87.0 }, // Near Chicago
+        })
+
+        expect(plan.canFulfill).toBe(true)
+        expect(plan.allocations[0].locationId).toBe('wh-tertiary')
+      })
+
+      it('should plan fulfillment using lowest-stock-first strategy', async () => {
+        const plan = await inventory.planFulfillment('var-1', 60, {
+          strategy: 'lowest-stock-first',
+        })
+
+        expect(plan.canFulfill).toBe(true)
+        // Should start from wh-tertiary (30), then wh-primary (50)
+        expect(plan.allocations[0].locationId).toBe('wh-tertiary')
+        expect(plan.allocations[0].quantity).toBe(30)
+        expect(plan.allocations[1].locationId).toBe('wh-primary')
+        expect(plan.allocations[1].quantity).toBe(30)
+      })
+
+      it('should report shortfall when cannot fulfill', async () => {
+        const plan = await inventory.planFulfillment('var-1', 200, {
+          strategy: 'priority',
+        })
+
+        expect(plan.canFulfill).toBe(false)
+        expect(plan.shortfall).toBe(20) // Need 200, have 180
+      })
+
+      it('should exclude specified locations', async () => {
+        const plan = await inventory.planFulfillment('var-1', 50, {
+          strategy: 'priority',
+          excludeLocations: ['wh-primary'],
+        })
+
+        expect(plan.canFulfill).toBe(true)
+        expect(plan.allocations[0].locationId).toBe('wh-secondary')
+      })
+
+      it('should exclude inactive locations', async () => {
+        await inventory.updateLocation('wh-primary', { isActive: false })
+
+        const plan = await inventory.planFulfillment('var-1', 50, {
+          strategy: 'priority',
+        })
+
+        expect(plan.allocations[0].locationId).toBe('wh-secondary')
+      })
+    })
+
+    describe('reserveWithFulfillmentPlan', () => {
+      it('should create reservations from fulfillment plan', async () => {
+        const plan = await inventory.planFulfillment('var-1', 60, {
+          strategy: 'priority',
+        })
+
+        const reservations = await inventory.reserveWithFulfillmentPlan(
+          plan,
+          'order-123',
+          'order'
+        )
+
+        expect(reservations).toHaveLength(2)
+
+        const level1 = await inventory.getInventoryLevelAtLocation('var-1', 'wh-primary')
+        const level2 = await inventory.getInventoryLevelAtLocation('var-1', 'wh-secondary')
+
+        expect(level1.reserved).toBe(50)
+        expect(level2.reserved).toBe(10)
+      })
+
+      it('should reject if plan cannot fulfill', async () => {
+        const plan = await inventory.planFulfillment('var-1', 200, {
+          strategy: 'priority',
+        })
+
+        await expect(
+          inventory.reserveWithFulfillmentPlan(plan, 'order-123', 'order')
+        ).rejects.toThrow('Cannot fulfill')
+      })
+    })
+
+    describe('location-specific low stock thresholds', () => {
+      it('should set and track low stock at specific location', async () => {
+        await inventory.setLocationLowStockThreshold('var-1', 'wh-primary', 60)
+
+        const lowStock = await inventory.getLowStockItemsAtLocation('wh-primary')
+
+        expect(lowStock).toHaveLength(1)
+        expect(lowStock[0].variantId).toBe('var-1')
+        expect(lowStock[0].available).toBe(50)
+        expect(lowStock[0].lowStockThreshold).toBe(60)
+      })
+
+      it('should not include items above threshold', async () => {
+        await inventory.setLocationLowStockThreshold('var-1', 'wh-secondary', 50)
+
+        const lowStock = await inventory.getLowStockItemsAtLocation('wh-secondary')
+
+        expect(lowStock).toHaveLength(0) // 100 available >= 50 threshold
+      })
+    })
+  })
+
+  // =============================================================================
+  // Transfer Request Workflow Tests
+  // =============================================================================
+
+  describe('transfer request workflow', () => {
+    let inventory: InventoryManager
+
+    beforeEach(async () => {
+      inventory = createInventoryManager({ multiLocation: true })
+
+      await inventory.createLocation({
+        id: 'wh-source',
+        name: 'Source Warehouse',
+        type: 'warehouse',
+      })
+      await inventory.createLocation({
+        id: 'wh-dest',
+        name: 'Destination Warehouse',
+        type: 'warehouse',
+      })
+
+      await inventory.setStockAtLocation('var-1', 'wh-source', 100)
+    })
+
+    describe('createTransferRequest', () => {
+      it('should create a pending transfer request', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+          reason: 'Rebalance stock',
+          requestedBy: 'user-1',
+        })
+
+        expect(request.id).toBeDefined()
+        expect(request.status).toBe('pending')
+        expect(request.variantId).toBe('var-1')
+        expect(request.quantity).toBe(20)
+        expect(request.requestedBy).toBe('user-1')
+      })
+
+      it('should reject if insufficient stock', async () => {
+        await expect(
+          inventory.createTransferRequest({
+            variantId: 'var-1',
+            fromLocationId: 'wh-source',
+            toLocationId: 'wh-dest',
+            quantity: 150,
+          })
+        ).rejects.toThrow('Insufficient stock')
+      })
+    })
+
+    describe('approveTransferRequest', () => {
+      it('should approve a pending transfer request', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        const approved = await inventory.approveTransferRequest(request.id, 'manager-1')
+
+        expect(approved.status).toBe('approved')
+        expect(approved.approvedBy).toBe('manager-1')
+        expect(approved.approvedAt).toBeDefined()
+      })
+
+      it('should reject approval if not pending', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(request.id)
+
+        await expect(inventory.approveTransferRequest(request.id)).rejects.toThrow(
+          'not pending'
+        )
+      })
+    })
+
+    describe('startTransfer', () => {
+      it('should start an approved transfer and deduct source stock', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(request.id)
+        const started = await inventory.startTransfer(request.id)
+
+        expect(started.status).toBe('in_transit')
+
+        const sourceStock = await inventory.getStockAtLocation('var-1', 'wh-source')
+        expect(sourceStock).toBe(80) // 100 - 20
+      })
+
+      it('should reject if not approved', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await expect(inventory.startTransfer(request.id)).rejects.toThrow(
+          'must be approved'
+        )
+      })
+    })
+
+    describe('completeTransfer', () => {
+      it('should complete transfer and add to destination', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(request.id)
+        await inventory.startTransfer(request.id)
+        const completed = await inventory.completeTransfer(request.id)
+
+        expect(completed.status).toBe('completed')
+        expect(completed.completedAt).toBeDefined()
+
+        const destStock = await inventory.getStockAtLocation('var-1', 'wh-dest')
+        expect(destStock).toBe(20)
+      })
+
+      it('should record movements for transfer', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(request.id)
+        await inventory.startTransfer(request.id)
+        await inventory.completeTransfer(request.id)
+
+        const movements = await inventory.getStockMovements('var-1', { type: 'transfer' })
+
+        expect(movements.length).toBeGreaterThanOrEqual(2) // Outbound and inbound
+      })
+    })
+
+    describe('cancelTransferRequest', () => {
+      it('should cancel a pending transfer', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        const cancelled = await inventory.cancelTransferRequest(request.id, 'No longer needed')
+
+        expect(cancelled.status).toBe('cancelled')
+        expect(cancelled.cancellationReason).toBe('No longer needed')
+      })
+
+      it('should restore stock when cancelling in-transit transfer', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(request.id)
+        await inventory.startTransfer(request.id)
+
+        // Stock is now 80
+        const stockBefore = await inventory.getStockAtLocation('var-1', 'wh-source')
+        expect(stockBefore).toBe(80)
+
+        await inventory.cancelTransferRequest(request.id, 'Lost in transit')
+
+        // Stock should be restored
+        const stockAfter = await inventory.getStockAtLocation('var-1', 'wh-source')
+        expect(stockAfter).toBe(100)
+      })
+
+      it('should not cancel completed transfer', async () => {
+        const request = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(request.id)
+        await inventory.startTransfer(request.id)
+        await inventory.completeTransfer(request.id)
+
+        await expect(inventory.cancelTransferRequest(request.id)).rejects.toThrow(
+          'Cannot cancel completed'
+        )
+      })
+    })
+
+    describe('transfer request queries', () => {
+      it('should get transfer requests by location', async () => {
+        await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 10,
+        })
+        await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        const fromSource = await inventory.getTransferRequestsByLocation('wh-source', 'from')
+        const toDest = await inventory.getTransferRequestsByLocation('wh-dest', 'to')
+        const bothSource = await inventory.getTransferRequestsByLocation('wh-source', 'both')
+
+        expect(fromSource).toHaveLength(2)
+        expect(toDest).toHaveLength(2)
+        expect(bothSource).toHaveLength(2)
+      })
+
+      it('should get pending transfer requests', async () => {
+        const r1 = await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 10,
+        })
+        await inventory.createTransferRequest({
+          variantId: 'var-1',
+          fromLocationId: 'wh-source',
+          toLocationId: 'wh-dest',
+          quantity: 20,
+        })
+
+        await inventory.approveTransferRequest(r1.id)
+        await inventory.startTransfer(r1.id)
+
+        const pending = await inventory.getPendingTransferRequests()
+
+        expect(pending).toHaveLength(1) // Only the second one is still pending
+      })
+    })
   })
 })

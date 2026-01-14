@@ -38,6 +38,8 @@ export {
   type GitLogEntry,
   type SyncResult,
   type PushResult,
+  type StashEntry,
+  type StashResult,
 } from './git'
 export {
   withBash,

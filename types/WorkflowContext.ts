@@ -206,6 +206,16 @@ export interface ExtractResult<T = Record<string, unknown>> {
 }
 
 /**
+ * Review result with approval status and feedback
+ */
+export interface ReviewResult {
+  approved: boolean
+  feedback: string
+  reviewer?: string
+  timestamp?: Date
+}
+
+/**
  * Template literal function type for AI functions
  */
 export type AITemplateLiteralFn<T> = (
@@ -397,6 +407,28 @@ export interface WorkflowContext extends Omit<WorkflowContextTypeBase, 'on' | 'e
    * const result = await sentiment`What is the sentiment? ${text}`
    */
   decide: DecideFn
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HUMAN-IN-LOOP FUNCTIONS - Template literal human workflows
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Ask a human for free-form input
+   * const answer = await $.ask`What priority should this bug have? ${bugReport}`
+   */
+  ask: AITemplateLiteralFn<string>
+
+  /**
+   * Request human approval (binary yes/no)
+   * const approved = await $.approve`Approve expense $${amount} for ${description}?`
+   */
+  approve: AITemplateLiteralFn<boolean>
+
+  /**
+   * Request human review with feedback
+   * const { approved, feedback } = await $.review`Review PR #${prNumber}: ${diff}`
+   */
+  review: AITemplateLiteralFn<ReviewResult>
 
   // ═══════════════════════════════════════════════════════════════════════════
   // DOMAIN RESOLUTION (cross-DO)

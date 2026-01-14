@@ -657,3 +657,217 @@ describe('GitModule Integration', () => {
     expect(keys.some(k => k.includes('refs/heads/main'))).toBe(true)
   })
 })
+
+describe('GitModule Stash Operations', () => {
+  let mockFs: MockFsCapability
+  let mockR2: MockR2Bucket
+  let gitModule: ReturnType<typeof createGitModule>
+
+  beforeEach(() => {
+    mockFs = new MockFsCapability()
+    mockR2 = new MockR2Bucket()
+    gitModule = createGitModule({
+      repo: 'org/repo',
+      branch: 'main',
+      r2: mockR2 as unknown as R2Bucket,
+      fs: mockFs as unknown as FsCapability,
+    })
+  })
+
+  describe('stashPush()', () => {
+    it('should save staged changes to stash', async () => {
+      mockFs._setFile('/test.txt', 'Hello, World!')
+      await gitModule.add('/test.txt')
+
+      const result = await gitModule.stashPush('WIP: test feature')
+
+      expect(result.index).toBe(0)
+      expect(result.message).toBe('WIP: test feature')
+
+      // Staged files should be cleared
+      const status = await gitModule.status()
+      expect(status.staged).toHaveLength(0)
+    })
+
+    it('should use default message if not provided', async () => {
+      mockFs._setFile('/test.txt', 'Hello, World!')
+      await gitModule.add('/test.txt')
+
+      const result = await gitModule.stashPush()
+
+      expect(result.message).toContain('WIP on main')
+    })
+
+    it('should throw error when no changes to stash', async () => {
+      await expect(gitModule.stashPush()).rejects.toThrow('No local changes to save')
+    })
+
+    it('should create multiple stash entries', async () => {
+      // First stash
+      mockFs._setFile('/first.txt', 'First')
+      await gitModule.add('/first.txt')
+      await gitModule.stashPush('First stash')
+
+      // Second stash
+      mockFs._setFile('/second.txt', 'Second')
+      await gitModule.add('/second.txt')
+      await gitModule.stashPush('Second stash')
+
+      const stashes = await gitModule.stashList()
+      expect(stashes).toHaveLength(2)
+      expect(stashes[0]!.message).toBe('Second stash')
+      expect(stashes[1]!.message).toBe('First stash')
+    })
+  })
+
+  describe('stashPop()', () => {
+    it('should restore stashed changes', async () => {
+      const content = 'Hello, World!'
+      mockFs._setFile('/test.txt', content)
+      await gitModule.add('/test.txt')
+      await gitModule.stashPush('WIP')
+
+      // File content is still there (we don't delete on stash)
+      // But staging is cleared
+      expect((await gitModule.status()).staged).toHaveLength(0)
+
+      // Pop the stash
+      const result = await gitModule.stashPop()
+
+      expect(result.success).toBe(true)
+      expect(result.message).toBe('WIP')
+
+      // Staged files should be restored
+      const status = await gitModule.status()
+      expect(status.staged).toContain('/test.txt')
+    })
+
+    it('should throw error when stash is empty', async () => {
+      await expect(gitModule.stashPop()).rejects.toThrow('No stash entries to pop')
+    })
+
+    it('should remove the stash entry after pop', async () => {
+      mockFs._setFile('/test.txt', 'Hello')
+      await gitModule.add('/test.txt')
+      await gitModule.stashPush('WIP')
+
+      await gitModule.stashPop()
+
+      const stashes = await gitModule.stashList()
+      expect(stashes).toHaveLength(0)
+    })
+  })
+
+  describe('stashApply()', () => {
+    it('should apply stash without removing it', async () => {
+      mockFs._setFile('/test.txt', 'Hello')
+      await gitModule.add('/test.txt')
+      await gitModule.stashPush('WIP')
+
+      const result = await gitModule.stashApply(0)
+
+      expect(result.success).toBe(true)
+
+      // Stash should still exist
+      const stashes = await gitModule.stashList()
+      expect(stashes).toHaveLength(1)
+    })
+
+    it('should apply specific stash by index', async () => {
+      // Create two stashes
+      mockFs._setFile('/first.txt', 'First')
+      await gitModule.add('/first.txt')
+      await gitModule.stashPush('First')
+
+      mockFs._setFile('/second.txt', 'Second')
+      await gitModule.add('/second.txt')
+      await gitModule.stashPush('Second')
+
+      // Apply the older stash (index 1)
+      const result = await gitModule.stashApply(1)
+
+      expect(result.success).toBe(true)
+      expect(result.message).toBe('First')
+    })
+
+    it('should throw error for invalid stash index', async () => {
+      await expect(gitModule.stashApply(0)).rejects.toThrow('Stash entry stash@{0} not found')
+    })
+  })
+
+  describe('stashList()', () => {
+    it('should return empty array when no stashes', async () => {
+      const stashes = await gitModule.stashList()
+      expect(stashes).toEqual([])
+    })
+
+    it('should list all stash entries', async () => {
+      mockFs._setFile('/first.txt', 'First')
+      await gitModule.add('/first.txt')
+      await gitModule.stashPush('First stash')
+
+      mockFs._setFile('/second.txt', 'Second')
+      await gitModule.add('/second.txt')
+      await gitModule.stashPush('Second stash')
+
+      const stashes = await gitModule.stashList()
+
+      expect(stashes).toHaveLength(2)
+      expect(stashes[0]).toHaveProperty('index', 0)
+      expect(stashes[0]).toHaveProperty('message', 'Second stash')
+      expect(stashes[0]).toHaveProperty('timestamp')
+      expect(stashes[1]).toHaveProperty('index', 1)
+      expect(stashes[1]).toHaveProperty('message', 'First stash')
+    })
+  })
+
+  describe('stashDrop()', () => {
+    it('should remove stash entry by index', async () => {
+      mockFs._setFile('/first.txt', 'First')
+      await gitModule.add('/first.txt')
+      await gitModule.stashPush('First')
+
+      mockFs._setFile('/second.txt', 'Second')
+      await gitModule.add('/second.txt')
+      await gitModule.stashPush('Second')
+
+      // Drop the most recent stash
+      const result = await gitModule.stashDrop(0)
+
+      expect(result.success).toBe(true)
+      expect(result.message).toContain('Dropped')
+
+      const stashes = await gitModule.stashList()
+      expect(stashes).toHaveLength(1)
+      expect(stashes[0]!.message).toBe('First')
+    })
+
+    it('should throw error for invalid index', async () => {
+      await expect(gitModule.stashDrop(0)).rejects.toThrow('Stash entry stash@{0} not found')
+    })
+  })
+
+  describe('stashClear()', () => {
+    it('should remove all stash entries', async () => {
+      mockFs._setFile('/first.txt', 'First')
+      await gitModule.add('/first.txt')
+      await gitModule.stashPush('First')
+
+      mockFs._setFile('/second.txt', 'Second')
+      await gitModule.add('/second.txt')
+      await gitModule.stashPush('Second')
+
+      const count = await gitModule.stashClear()
+
+      expect(count).toBe(2)
+
+      const stashes = await gitModule.stashList()
+      expect(stashes).toHaveLength(0)
+    })
+
+    it('should return 0 when no stashes to clear', async () => {
+      const count = await gitModule.stashClear()
+      expect(count).toBe(0)
+    })
+  })
+})

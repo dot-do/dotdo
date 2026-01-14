@@ -65,12 +65,14 @@ import type {
   CreateBrandingThemeParams,
   UpdateBrandingThemeParams,
   BrandingColors,
-  BrandingFont,
   BrandingPageBackground,
   BrandingWidget,
   CustomTextPrompt,
   CustomTextByLanguage,
   SetCustomTextParams,
+  ThemeColors,
+  ThemeFonts,
+  ThemeBorders,
 } from './types'
 import { Auth0ManagementError } from './types'
 
@@ -480,7 +482,7 @@ export class BrandingManager {
   /**
    * Validate theme colors
    */
-  private validateThemeColors(colors: Partial<BrandingTheme['colors']>): void {
+  private validateThemeColors(colors: Partial<ThemeColors>): void {
     const hexPattern = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/
 
     for (const [key, value] of Object.entries(colors)) {
@@ -513,7 +515,7 @@ export class BrandingManager {
   /**
    * Get default theme colors
    */
-  private getDefaultThemeColors(): BrandingTheme['colors'] {
+  private getDefaultThemeColors(): ThemeColors {
     return {
       primary: '#635dff',
       page_background: '#000000',
@@ -541,7 +543,7 @@ export class BrandingManager {
   /**
    * Get default theme fonts
    */
-  private getDefaultThemeFonts(): BrandingTheme['fonts'] {
+  private getDefaultThemeFonts(): ThemeFonts {
     return {
       body_text: {
         bold: false,
@@ -576,7 +578,7 @@ export class BrandingManager {
   /**
    * Get default theme borders
    */
-  private getDefaultThemeBorders(): BrandingTheme['borders'] {
+  private getDefaultThemeBorders(): ThemeBorders {
     return {
       button_border_radius: 3,
       button_border_weight: 1,

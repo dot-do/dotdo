@@ -27,6 +27,10 @@
 // Base class
 export { DO, type Env } from './DO'
 
+// Stateless DO - for non-Cloudflare platforms with Iceberg persistence
+export { StatelessDO, type Snapshot } from './StatelessDO'
+export { StatelessDOState } from './StatelessDOState'
+
 // Re-export core types from types module
 export type { Thing, ThingData } from '../types/Thing'
 export type { Relationship, Action, Event, ObjectRef, DOConfig } from '../types/DO'

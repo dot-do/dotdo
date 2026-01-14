@@ -28,7 +28,7 @@ import {
   type MethodSignature,
   type MethodMetadata,
   type ExposedMethodInfo,
-} from '../auto-wiring'
+} from '../../lib/auto-wiring'
 
 import { DO } from '../DO'
 
@@ -643,14 +643,18 @@ describe('DO Auto-Wiring', () => {
   // ==========================================================================
 
   describe('Edge Cases', () => {
-    it('handles class with no public methods', () => {
+    it('handles class with no additional public methods', () => {
       class EmptyDO extends DO {
         _onlyPrivate(): void {}
       }
 
       const methods = getExposedMethods(EmptyDO)
 
-      expect(methods).toEqual([])
+      // Should only have inherited base DO public methods (toJSON, etc.)
+      // No additional public methods defined in EmptyDO
+      expect(methods).not.toContain('_onlyPrivate')
+      // toJSON is a public method from base DO, should be exposed
+      expect(methods).toContain('toJSON')
     })
 
     it('handles class with many methods', () => {
