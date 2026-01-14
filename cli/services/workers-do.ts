@@ -22,6 +22,13 @@ export interface ListOptions {
   limit?: number
 }
 
+export interface CreateWorkerOptions {
+  /** Worker name (defaults to username derived from email) */
+  name?: string
+  /** User's email (used to derive default name if name not provided) */
+  email?: string
+}
+
 export interface LinkOptions {
   folder: string
   workerId: string
@@ -77,6 +84,31 @@ export class WorkersDoClient {
       return worker as Worker
     } catch (error) {
       return null
+    }
+  }
+
+  /**
+   * Create a new worker (default personal DO)
+   */
+  async create(options: CreateWorkerOptions = {}): Promise<Worker> {
+    // Derive name from email if not provided
+    let name = options.name
+    if (!name && options.email) {
+      // Extract username from email (part before @)
+      name = options.email.split('@')[0]
+      // Sanitize: replace dots/plus with hyphens, lowercase
+      name = name.replace(/[.+]/g, '-').toLowerCase()
+    }
+    if (!name) {
+      name = 'default'
+    }
+
+    try {
+      const worker = await this.$.workers.create({ name })
+      return worker as Worker
+    } catch (error) {
+      // Re-throw with more context
+      throw new Error(`Failed to create worker: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }

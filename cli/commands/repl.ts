@@ -11,8 +11,9 @@ import { ensureLoggedIn, getUser } from 'oauth.do/node'
 import { App } from '../ink/App'
 import { WorkerPicker } from '../ink/WorkerPicker'
 import { loadConfig } from '../utils/do-config'
-import { WorkersDoClient, type Worker } from '../services/workers-do'
+import { type Worker } from '../services/workers-do'
 import { createLogger } from '../utils/logger'
+import { ensureDefaultDO } from '../utils/ensure-default-do'
 
 const logger = createLogger('repl')
 
@@ -117,35 +118,53 @@ export const replCommand = new Command('repl')
     }
 
     if (!$id) {
-      // Interactive picker
-      logger.info('No DO configured. Fetching your workers...')
+      // Ensure user has at least one DO (auto-create if none exist)
+      try {
+        const { worker, created } = await ensureDefaultDO({
+          token,
+          email: user,
+          autoCreate: true,
+        })
 
-      const client = new WorkersDoClient(token)
-      const workers = await client.list({ sortBy: 'accessed', limit: 10 })
+        if (created) {
+          // Newly created, use it directly
+          $id = worker.url
+          logger.info(`Connecting to your new personal DO: ${worker.name || worker.url}`)
+        } else {
+          // User has workers, show interactive picker
+          const { WorkersDoClient } = await import('../services/workers-do')
+          const client = new WorkersDoClient(token)
+          const workers = await client.list({ sortBy: 'accessed', limit: 10 })
 
-      if (workers.length === 0) {
-        logger.error('No workers found. Deploy a DO first.')
+          if (workers.length === 1) {
+            // Only one worker, use it directly
+            $id = workers[0].url
+            logger.info(`Connecting to: ${workers[0].name || workers[0].url}`)
+          } else {
+            // Multiple workers, show picker
+            const selected = await new Promise<Worker | null>((resolve) => {
+              const { unmount } = render(
+                React.createElement(WorkerPicker, {
+                  workers,
+                  onSelect: (w: Worker) => { unmount(); resolve(w) },
+                  onCancel: () => { unmount(); resolve(null) }
+                })
+              )
+            })
+
+            if (!selected) {
+              logger.info('Cancelled')
+              process.exit(0)
+            }
+
+            $id = selected.url
+            logger.info(`Selected: ${selected.name || selected.url}`)
+          }
+        }
+      } catch (error) {
+        logger.error(`Failed to ensure DO: ${error instanceof Error ? error.message : String(error)}`)
         process.exit(1)
       }
-
-      // Interactive selection with Ink
-      const selected = await new Promise<Worker | null>((resolve) => {
-        const { unmount } = render(
-          React.createElement(WorkerPicker, {
-            workers,
-            onSelect: (w: Worker) => { unmount(); resolve(w) },
-            onCancel: () => { unmount(); resolve(null) }
-          })
-        )
-      })
-
-      if (!selected) {
-        logger.info('Cancelled')
-        process.exit(0)
-      }
-
-      $id = selected.url
-      logger.info(`Selected: ${selected.name || selected.url}`)
     }
 
     await startRepl($id, user)

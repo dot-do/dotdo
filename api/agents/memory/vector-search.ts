@@ -137,7 +137,8 @@ export class WorkersAIEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embed(text: string): Promise<Float32Array> {
-    const response = await this.ai.run(this.model as any, { text })
+    // Workers AI model names are dynamic strings; cast needed for type safety
+    const response = await this.ai.run(this.model as Parameters<Ai['run']>[0], { text })
     const embedding = (response as { data: number[][] }).data[0]
 
     if (!embedding) {
@@ -158,8 +159,8 @@ export class WorkersAIEmbeddingProvider implements EmbeddingProvider {
   async embedBatch(texts: string[]): Promise<Float32Array[]> {
     if (texts.length === 0) return []
 
-    // Workers AI supports batch embedding
-    const response = await this.ai.run(this.model as any, { text: texts })
+    // Workers AI supports batch embedding; model names are dynamic strings
+    const response = await this.ai.run(this.model as Parameters<Ai['run']>[0], { text: texts })
     const embeddings = (response as { data: number[][] }).data
 
     return embeddings.map((embedding) => {

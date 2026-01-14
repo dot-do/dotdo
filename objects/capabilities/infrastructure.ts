@@ -32,7 +32,8 @@
 /**
  * Generic class constructor type
  */
-export type Constructor<T = {}> = new (...args: any[]) => T
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Constructor args must be any[] for mixin pattern
+export type Constructor<T = object> = new (...args: any[]) => T
 
 /**
  * Context passed to capability initialization functions
@@ -105,14 +106,15 @@ export function createCapability<Name extends string, API>(
 ): CapabilityMixin<Name, API> {
   return function <TBase extends Constructor<DOBase>>(Base: TBase) {
     // Get existing capabilities from base class
-    const existingCapabilities: string[] = (Base as any).capabilities || []
+    const existingCapabilities: string[] =
+      (Base as unknown as { capabilities?: string[] }).capabilities || []
 
     // Check if this capability is already registered (idempotency)
     const hasExisting = existingCapabilities.includes(name)
 
     // Get existing init functions from base class
     const existingInits: Map<string, CapabilityInit<unknown>> =
-      (Base as any)[CAPABILITY_INITS] || new Map()
+      (Base as unknown as { [CAPABILITY_INITS]?: Map<string, CapabilityInit<unknown>> })[CAPABILITY_INITS] || new Map()
 
     // Create new inits map with this capability's init
     // (overwrites if same name, supporting "last applied wins")
@@ -135,6 +137,7 @@ export function createCapability<Name extends string, API>(
        */
       #base$: unknown
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mixin constructor must use any[] for compatibility
       constructor(...args: any[]) {
         super(...args)
         // Capture the base $ before we potentially delete it
@@ -147,9 +150,9 @@ export function createCapability<Name extends string, API>(
         // In that case, this.$ triggers the inner mixin's getter, which returns
         // a Proxy - we capture that proxy as our base$.
         const hasOwnDollar = Object.hasOwn(this, '$')
-        this.#base$ = (this as any).$
+        this.#base$ = (this as unknown as { $: unknown }).$
         if (hasOwnDollar) {
-          delete (this as any).$
+          delete (this as unknown as { $?: unknown }).$
         }
       }
 
@@ -160,7 +163,7 @@ export function createCapability<Name extends string, API>(
        * @returns true if capability is registered
        */
       hasCapability(cap: string): boolean {
-        return (this.constructor as any).capabilities?.includes(cap) ?? false
+        return (this.constructor as unknown as { capabilities?: string[] }).capabilities?.includes(cap) ?? false
       }
 
       /**
@@ -189,10 +192,7 @@ export function createCapability<Name extends string, API>(
         }
 
         const cache = this[CAPABILITY_CACHE]
-        const inits = (this.constructor as any)[CAPABILITY_INITS] as Map<
-          string,
-          CapabilityInit<unknown>
-        >
+        const inits = (this.constructor as unknown as { [CAPABILITY_INITS]: Map<string, CapabilityInit<unknown>> })[CAPABILITY_INITS]
         const instance = this
 
         return new Proxy(base$ as object, {

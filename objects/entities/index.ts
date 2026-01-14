@@ -7,6 +7,9 @@
  * - CollectionDO: Single-collection Durable Object with /:id routing
  * - Directory: Hierarchical entity organization with path-based access
  * - Package: Versioned code package with dependencies
+ * - BusinessDO: Durable Object for Business entities with goals and team management
+ * - AgentDO: Durable Object for AI Agent entity storage and configuration
+ * - UserDO: Durable Object for User entity storage and profile management
  */
 
 // Entity - Base domain object with schema validation
@@ -33,3 +36,15 @@ export type { DirectoryEntry } from './Directory'
 // Package - Versioned code package
 export { Package } from './Package'
 export type { PackageVersion, PackageConfig } from './Package'
+
+// BusinessDO - Business entity with goals and team management
+export { BusinessDO } from './BusinessDO'
+export type { Goal, KeyResult, FinancialMetrics } from './BusinessDO'
+
+// AgentDO - AI Agent entity storage and configuration
+export { AgentDO } from './AgentDO'
+export type { AgentMode, AgentConfig, AgentToolDefinition } from './AgentDO'
+
+// UserDO - User entity storage and profile management
+export { UserDO } from './UserDO'
+export type { UserProfile, UserPreferences, UserSessionInfo } from './UserDO'

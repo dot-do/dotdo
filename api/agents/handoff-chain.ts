@@ -83,16 +83,37 @@ export interface CreateHandoffRelationshipInput {
 /**
  * Handoff relationship as stored in the graph
  */
+/**
+ * Data stored in a handoff relationship
+ */
+export interface HandoffRelationshipData extends Record<string, unknown> {
+  reason: HandoffReason
+  reasonDescription?: string
+  context?: HandoffContext
+  conversationId?: string
+  timestamp: string
+  durationMs?: number
+}
+
 export interface HandoffRelationship extends GraphRelationship {
   verb: 'handedOffTo'
-  data: {
-    reason: HandoffReason
-    reasonDescription?: string
-    context?: HandoffContext
-    conversationId?: string
-    timestamp: string
-    durationMs?: number
-  } | null
+  data: HandoffRelationshipData | null
+}
+
+/**
+ * Type guard to check if relationship data contains handoff data
+ */
+function isHandoffData(data: Record<string, unknown> | null): data is HandoffRelationshipData {
+  if (!data) return false
+  return typeof data.reason === 'string' && typeof data.timestamp === 'string'
+}
+
+/**
+ * Helper to safely extract handoff data from a relationship
+ */
+function getHandoffData(r: GraphRelationship): HandoffRelationshipData | null {
+  if (isHandoffData(r.data)) return r.data
+  return null
 }
 
 /**
@@ -296,7 +317,7 @@ export async function getHandoffChain(
 
     // Filter by conversation if specified (for backwards compatibility)
     const filtered = conversationId
-      ? relationships.filter((r) => (r.data as any)?.conversationId === conversationId)
+      ? relationships.filter((r) => getHandoffData(r)?.conversationId === conversationId)
       : relationships
 
     if (filtered.length === 0) break
@@ -310,14 +331,15 @@ export async function getHandoffChain(
     visited.add(nextAgentId)
 
     // Update previous entry with handoff info
+    const handoffData = getHandoffData(handoff)
     chain[chain.length - 1]!.handedOffAt = handoff.createdAt
-    chain[chain.length - 1]!.handoffReason = (handoff.data as any)?.reason
+    chain[chain.length - 1]!.handoffReason = handoffData?.reason
 
     // Add next agent
     chain.push({
       agentId: nextAgentId,
       receivedAt: handoff.createdAt,
-      summary: (handoff.data as any)?.context?.summary,
+      summary: handoffData?.context?.summary,
     })
 
     currentAgentId = nextAgentId
@@ -379,7 +401,7 @@ export async function checkCircularHandoff(
     })
 
     const filtered = conversationId
-      ? incoming.filter((r) => (r.data as any)?.conversationId === conversationId)
+      ? incoming.filter((r) => getHandoffData(r)?.conversationId === conversationId)
       : incoming
 
     if (filtered.length === 0) break
@@ -429,7 +451,7 @@ export async function getHandoffAnalytics(
   // Filter by options
   let filtered = allHandoffs
   if (options?.conversationId) {
-    filtered = filtered.filter((h) => (h.data as any)?.conversationId === options.conversationId)
+    filtered = filtered.filter((h) => getHandoffData(h)?.conversationId === options.conversationId)
   }
   if (options?.from) {
     filtered = filtered.filter((h) => h.createdAt.getTime() >= options.from!.getTime())
@@ -450,7 +472,8 @@ export async function getHandoffAnalytics(
   }
 
   for (const handoff of filtered) {
-    const reason = (handoff.data as any)?.reason as HandoffReason
+    const handoffData = getHandoffData(handoff)
+    const reason = handoffData?.reason
     if (reason && byReason[reason] !== undefined) {
       byReason[reason]++
     }
@@ -533,7 +556,7 @@ export async function getHandoffsBetweenAgents(
   return allHandoffs.filter((r) => {
     const matchesSource = extractAgentId(r.from) === fromAgentId
     const matchesTarget = extractAgentId(r.to) === toAgentId
-    const matchesConversation = !conversationId || (r.data as any)?.conversationId === conversationId
+    const matchesConversation = !conversationId || getHandoffData(r)?.conversationId === conversationId
     return matchesSource && matchesTarget && matchesConversation
   }) as HandoffRelationship[]
 }

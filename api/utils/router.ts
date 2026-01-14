@@ -632,6 +632,27 @@ export async function routeRequest(
 }
 
 /**
+ * Request-like object that may have Cloudflare cf properties
+ */
+interface CfRequestLike {
+  cf?: IncomingRequestCfProperties
+  raw?: { cf?: IncomingRequestCfProperties }
+  /** Hono context header accessor (optional) */
+  header?: (name: string) => string | undefined
+}
+
+/**
+ * Cloudflare request cf properties subset used for location extraction
+ */
+interface IncomingRequestCfProperties {
+  colo?: string
+  region?: string
+  country?: string
+  latitude?: string
+  longitude?: string
+}
+
+/**
  * Extract location info from Cloudflare headers (for backward compatibility)
  *
  * Cloudflare provides location data via cf object on the request.
@@ -640,10 +661,10 @@ export async function routeRequest(
  * @param req - Request context (can be Hono request or raw Request)
  * @returns LocationInfo if available, undefined otherwise
  */
-export function extractLocationFromHeaders(req: any): LocationInfo | undefined {
+export function extractLocationFromHeaders(req: CfRequestLike): LocationInfo | undefined {
   try {
     // Try to extract from Cloudflare cf object on request
-    const cf = (req as any).cf || (req as any).raw?.cf
+    const cf = req.cf || req.raw?.cf
     if (!cf) {
       return undefined
     }

@@ -743,23 +743,26 @@ openapiRoutes.openapi(adminSettingsRoute, (c) => {
 export const mcpOpenapiRoutes = new OpenAPIHono<{ Bindings: Env }>()
 
 // Register MCP routes (handlers will forward to actual MCP implementation)
+// Note: MCP handlers return raw Response objects, not Hono typed responses.
+// We use Response cast as the actual runtime type, with eslint override for
+// the type mismatch between OpenAPI route expectations and proxy handler pattern.
 mcpOpenapiRoutes.openapi(mcpPostRoute, async (c) => {
-  // Forward to actual MCP handler
+  // Forward to actual MCP handler - returns raw Response, cast for OpenAPI route type
   const { handleMcpRequest } = await import('./mcp')
   const response = await handleMcpRequest(c.req.raw)
-  return response as any
+  return response as unknown as ReturnType<typeof c.json>
 })
 
 mcpOpenapiRoutes.openapi(mcpGetRoute, async (c) => {
   const { handleMcpRequest } = await import('./mcp')
   const response = await handleMcpRequest(c.req.raw)
-  return response as any
+  return response as unknown as ReturnType<typeof c.json>
 })
 
 mcpOpenapiRoutes.openapi(mcpDeleteRoute, async (c) => {
   const { handleMcpRequest } = await import('./mcp')
   const response = await handleMcpRequest(c.req.raw)
-  return response as any
+  return response as unknown as ReturnType<typeof c.json>
 })
 
 // ============================================================================
@@ -779,7 +782,8 @@ rpcOpenapiRoutes.openapi(rpcPostRoute, async (c) => {
   })
   const app = new OpenAPIHono<{ Bindings: Env }>()
   app.route('/', rpcRoutes)
-  return app.fetch(req, c.env) as any
+  // Returns raw Response from app.fetch, cast for OpenAPI route type
+  return app.fetch(req, c.env) as unknown as ReturnType<typeof c.json>
 })
 
 rpcOpenapiRoutes.openapi(rpcGetRoute, (c) => {

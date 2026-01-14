@@ -654,6 +654,9 @@ export default defineWorkspace([
   // Streaming core tests (StreamBridge, pipelines integration)
   createNodeWorkspace('streaming', ['streaming/**/*.test.ts']),
 
+  // Unified Storage tests (PipelineEmitter, UnifiedStore, etc.)
+  createNodeWorkspace('unified-storage', ['tests/unified-storage/**/*.test.ts']),
+
   // Benchmarks (SQL parsers, DO latency, performance)
   createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts', 'benchmarks/**/*.test.ts']),
 
@@ -728,9 +731,10 @@ export default defineWorkspace([
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),
 
-  // Comprehensive storage stores tests (Things, Rels, Events, Actions)
+  // Comprehensive storage stores tests (Things, Rels, Events, Actions, Documents)
   createWorkersWorkspace('storage-stores', [
     'objects/tests/storage-stores-comprehensive.test.ts',
+    'objects/tests/document-store-do.test.ts',
   ], {
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),

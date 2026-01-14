@@ -2368,7 +2368,9 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         if (conditions.length === 1) {
           await this.db.delete(schema.relationships).where(conditions[0])
         } else if (conditions.length > 1) {
-          await this.db.delete(schema.relationships).where(and(...conditions as [any, any, ...any[]]))
+          // Cast to required tuple type - we've verified length > 1
+          const [first, second, ...rest] = conditions
+          await this.db.delete(schema.relationships).where(and(first!, second!, ...rest))
         }
 
         return toDelete.length

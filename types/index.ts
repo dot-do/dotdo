@@ -414,3 +414,55 @@ export {
   isAgent,
   isHuman,
 } from './Worker'
+
+// Unified Event Schema types (162 columns across 23 semantic groups)
+export * from './unified-event'
+export type {
+  // Main types
+  UnifiedEvent,
+  EventType,
+  // Semantic group interfaces
+  CoreIdentity,
+  CausalityChain,
+  Actor,
+  Resource,
+  Timing,
+  Outcome,
+  HttpContext,
+  GeoLocation,
+  ClientDevice,
+  ServiceInfra,
+  DatabaseCdc,
+  MessagingQueue,
+  Rpc,
+  WebMarketing,
+  WebVitals,
+  SessionReplay,
+  OtelMetrics,
+  Logging,
+  DoSpecific,
+  BusinessEpcis,
+  SnippetProxy,
+  FlexiblePayloads,
+  PartitionInternal,
+  // Column metadata
+  ColumnType,
+  ColumnDefinition,
+} from './unified-event'
+export {
+  // Factory function
+  createUnifiedEvent,
+  // Type guards
+  isTraceEvent,
+  isMetricEvent,
+  isLogEvent,
+  isCdcEvent,
+  isTrackEvent,
+  isPageEvent,
+  isVitalEvent,
+  isReplayEvent,
+  isTailEvent,
+  isSnippetEvent,
+  // Column metadata
+  UNIFIED_COLUMNS,
+} from './unified-event'

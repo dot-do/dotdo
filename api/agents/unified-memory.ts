@@ -263,9 +263,9 @@ export class GraphMemoryAdapter implements AgentMemory {
         content: message.content,
         agentId: this.agentId,
         sessionId: this.sessionId,
-        toolCalls: message.role === 'assistant' ? (message as any).toolCalls : undefined,
-        toolCallId: message.role === 'tool' ? (message as any).toolCallId : undefined,
-        toolName: message.role === 'tool' ? (message as any).toolName : undefined,
+        toolCalls: message.role === 'assistant' ? message.toolCalls : undefined,
+        toolCallId: message.role === 'tool' ? message.toolCallId : undefined,
+        toolName: message.role === 'tool' ? message.toolName : undefined,
         createdAt: message.createdAt?.toISOString() ?? new Date(now).toISOString(),
       },
     })

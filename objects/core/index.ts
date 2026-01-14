@@ -16,6 +16,8 @@
  * - WorkflowContext: Event handlers, scheduling, and execution modes
  * - Resolver: Cross-DO resolution with circuit breakers
  * - Router: HTTP routing with Hono
+ * - IcebergManager: R2-based state persistence with auto-checkpoint
+ * - LocationManager: Cloudflare location detection and caching
  */
 
 // Identity management
@@ -61,6 +63,24 @@ export {
   type RouterDeps,
 } from './Router'
 
+// Iceberg state persistence
+export {
+  IcebergManager,
+  createIcebergManager,
+  type IcebergOptions,
+  type IcebergLifecycleEvent,
+  type IcebergLifecycleCallback,
+  type IcebergManagerDeps,
+} from './IcebergManager'
+
+// Location detection and caching
+export {
+  LocationManager,
+  createLocationManager,
+  type LocationDetectedCallback,
+  type LocationManagerDeps,
+} from './LocationManager'
+
 // ============================================================================
 // DO BASE CLASSES
 // ============================================================================
@@ -75,11 +95,12 @@ export {
 
 // DOBase - WorkflowContext and stores (~80KB)
 // Note: CrossDOError is exported from DOBase but also from Resolver above
+// Note: IcebergOptions is exported from IcebergManager above
 export {
   DO as DOBase,
   CrossDOError as DOBaseCrossDOError, // Aliased to avoid duplicate export
   type Env as BaseEnv,
-  type IcebergOptions,
+  type IcebergOptions as DOBaseIcebergOptions, // Aliased - use IcebergOptions from IcebergManager
   type ThingsCollection,
   type RelationshipsAccessor,
   type RelationshipRecord,

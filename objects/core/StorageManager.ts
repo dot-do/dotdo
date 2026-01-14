@@ -16,7 +16,9 @@ import {
   ObjectsStore,
   DLQStore,
   type StoreContext,
+  type ThingsMutationCallback,
 } from '../../db/stores'
+import type { DomainEvent } from '../../types/WorkflowContext'
 
 /**
  * Interface for the StorageManager component
@@ -55,7 +57,7 @@ export interface IStorageManager {
  */
 export interface StorageManagerDeps {
   /** Drizzle database instance */
-  db: DrizzleSqliteDODatabase<any>
+  db: DrizzleSqliteDODatabase<Record<string, unknown>>
 
   /** Namespace URL */
   ns: string
@@ -67,13 +69,13 @@ export interface StorageManagerDeps {
   env: StoreContext['env']
 
   /** Callback for ThingsStore mutations (for sync engine) */
-  onThingsMutation?: (type: 'insert' | 'update' | 'delete', thing: any, rowid: number) => void
+  onThingsMutation?: ThingsMutationCallback
 
   /** Event handlers map for DLQ replay */
   eventHandlersMap?: Map<string, (data: unknown) => Promise<unknown>>
 
   /** Callback to dispatch events to handlers */
-  dispatchEventToHandlers?: (event: any) => Promise<void>
+  dispatchEventToHandlers?: (event: DomainEvent) => Promise<void>
 }
 
 /**

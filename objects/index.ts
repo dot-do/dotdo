@@ -98,6 +98,14 @@ export { Directory, type DirectoryEntry } from './entities/Directory'
 export { Package, type PackageVersion, type PackageConfig } from './entities/Package'
 export { Product, type ProductVariant, type ProductConfig } from './products/Product'
 
+// Entity DOs - Typed DO subclasses for main entity types
+export { BusinessDO } from './entities/BusinessDO'
+export type { Goal as BusinessGoal, KeyResult, FinancialMetrics } from './entities/BusinessDO'
+export { AgentDO } from './entities/AgentDO'
+export type { AgentMode, AgentConfig, AgentToolDefinition } from './entities/AgentDO'
+export { UserDO } from './entities/UserDO'
+export type { UserProfile, UserPreferences, UserSessionInfo } from './entities/UserDO'
+
 // Execution units
 export { Function, type FunctionConfig as FunctionDOConfig, type FunctionInvocation } from './execution/Function'
 export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './execution/Workflow'

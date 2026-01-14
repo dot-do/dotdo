@@ -460,6 +460,21 @@ export function createTypedTemplateLiteral<T>(
 // ============================================================================
 
 /**
+ * Internal Zod schema definition structure (simplified for JSON schema generation)
+ * This is an internal API and may change between Zod versions
+ */
+interface ZodDef {
+  type?: string
+  typeName?: string
+  description?: string
+  element?: { _def: ZodDef }
+  shape?: (() => Record<string, { _def: ZodDef }>) | Record<string, { _def: ZodDef }>
+  innerType?: { _def: ZodDef }
+  valueType?: { _def: ZodDef }
+  values?: string[]
+}
+
+/**
  * Convert a Zod schema to JSON schema for prompt injection
  *
  * This generates a JSON schema that can be included in prompts to guide
@@ -467,12 +482,13 @@ export function createTypedTemplateLiteral<T>(
  */
 export function zodToPromptSchema<T>(schema: z.ZodType<T>): JsonSchema {
   // Use the schema's internal representation to build JSON schema
-  const def = (schema as any)._def
+  // Note: _def is an internal Zod API, typed here for safety
+  const def = (schema as unknown as { _def: ZodDef })._def
 
   return convertZodDefToJsonSchema(def)
 }
 
-function convertZodDefToJsonSchema(def: any): JsonSchema {
+function convertZodDefToJsonSchema(def: ZodDef): JsonSchema {
   const type = def?.type ?? def?.typeName
 
   switch (type) {
@@ -503,9 +519,9 @@ function convertZodDefToJsonSchema(def: any): JsonSchema {
       const required: string[] = []
 
       for (const [key, propSchema] of Object.entries(shape)) {
-        properties[key] = convertZodDefToJsonSchema((propSchema as any)._def)
+        const propDef = (propSchema as { _def: ZodDef })._def
+        properties[key] = convertZodDefToJsonSchema(propDef)
         // Check if required (not optional/nullable)
-        const propDef = (propSchema as any)._def
         if (propDef?.typeName !== 'ZodOptional' && propDef?.type !== 'optional') {
           required.push(key)
         }

@@ -279,10 +279,24 @@ export function coerceType(value: unknown, target: CoercionTarget): unknown {
 }
 
 /**
+ * Internal Zod schema definition structure (simplified for type coercion)
+ * This is an internal API and may change between Zod versions
+ */
+interface ZodDefInternal {
+  type?: string
+  typeName?: string
+  innerType?: z.ZodType<unknown>
+  valueType?: z.ZodType<unknown>
+  shape?: (() => Record<string, z.ZodType<unknown>>) | Record<string, z.ZodType<unknown>>
+  items?: z.ZodType<unknown>
+  element?: z.ZodType<unknown>
+}
+
+/**
  * Get the expected Zod type name from a schema
  */
 function getZodTypeName(schema: z.ZodType<unknown>): CoercionTarget | null {
-  const def = (schema as any)._def
+  const def = (schema as unknown as { _def: ZodDefInternal })._def
   // Zod stores type in _def.type (not _def.typeName in some versions)
   const type = def?.type ?? def?.typeName
 
@@ -315,7 +329,7 @@ function getZodTypeName(schema: z.ZodType<unknown>): CoercionTarget | null {
  * Recursively coerce values in an object to match schema types
  */
 function coerceToSchema(value: unknown, schema: z.ZodType<unknown>): unknown {
-  const def = (schema as any)._def
+  const def = (schema as unknown as { _def: ZodDefInternal })._def
   const type = def?.type ?? def?.typeName
 
   // Handle nullable/optional wrappers FIRST (before primitives)
