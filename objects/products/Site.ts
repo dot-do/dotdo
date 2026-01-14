@@ -6,6 +6,7 @@
  */
 
 import { DO, Env } from '../core/DO'
+import { Site as SiteNoun } from '../../nouns/products/Site'
 
 export interface SiteConfig {
   domain: string
@@ -17,7 +18,8 @@ export interface SiteConfig {
 }
 
 export class Site extends DO {
-  static override readonly $type: string = 'Site'
+  static override readonly $type: string = SiteNoun.$type
+  static readonly noun = SiteNoun
 
   private config: SiteConfig | null = null
 

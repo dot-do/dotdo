@@ -51,6 +51,7 @@
 
 import { DO, type Env } from '../core/DO'
 import type { Session as SessionType } from 'id.org.ai'
+import { Session as SessionNoun } from '../../nouns/identity/Session'
 
 /**
  * Session data stored in the DO
@@ -131,7 +132,8 @@ const DEFAULT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000
  * expiration times and can store arbitrary metadata.
  */
 export class Session extends DO {
-  static override readonly $type: string = 'Session'
+  static override readonly $type: string = SessionNoun.$type
+  static readonly noun = SessionNoun
 
   /** Storage key for session data */
   protected static readonly SESSION_KEY = 'session'

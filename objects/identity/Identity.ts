@@ -37,6 +37,7 @@
 
 import { DO, type Env } from '../core/DO'
 import type { Identity as IdentityType } from 'id.org.ai'
+import { Identity as IdentityNoun } from '../../nouns/identity/Identity'
 
 /**
  * Identity data stored in the DO
@@ -82,7 +83,8 @@ export interface UpdateIdentityOptions {
  * for all identity lifecycle changes.
  */
 export class Identity extends DO {
-  static override readonly $type: string = 'Identity'
+  static override readonly $type: string = IdentityNoun.$type
+  static readonly noun = IdentityNoun
 
   /** Cached identity data */
   protected _identityData: IdentityData | null = null

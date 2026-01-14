@@ -17,6 +17,7 @@
  */
 
 import { DO, Env, type OKR } from '../core/DO'
+import { Organization as OrganizationNoun } from '../../nouns/business/Organization'
 
 // Types from business-as-code primitives
 export interface OrganizationSettings {
@@ -182,7 +183,8 @@ export interface OrganizationConfig {
 }
 
 export class Organization extends DO {
-  static override readonly $type: string = 'Organization'
+  static override readonly $type: string = OrganizationNoun.$type
+  static readonly noun = OrganizationNoun
 
   private config: OrganizationConfig | null = null
 

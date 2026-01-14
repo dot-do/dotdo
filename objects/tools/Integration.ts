@@ -12,6 +12,7 @@
 import { DO, type Env } from '../core/DO'
 import type { Integration as IntegrationType } from '@dotdo/digital-tools'
 import { createIntegration } from '@dotdo/digital-tools'
+import { Integration as IntegrationNoun } from '../../nouns/tools/Integration'
 
 // ============================================================================
 // TYPES
@@ -86,7 +87,8 @@ export interface ConnectOptions {
 // ============================================================================
 
 export class Integration extends DO {
-  static override readonly $type = 'Integration'
+  static override readonly $type: string = IntegrationNoun.$type
+  static readonly noun = IntegrationNoun
 
   // Configuration cache
   private _config?: IntegrationConfig

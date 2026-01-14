@@ -20,6 +20,7 @@
 
 import { Business, BusinessConfig } from './Business'
 import { Env, OKR } from '../core/DO'
+import { Service as ServiceNoun } from '../../nouns/business/Service'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -177,7 +178,8 @@ export interface QualityRatingOptions {
 // ============================================================================
 
 export class Service extends Business {
-  static override readonly $type: string = 'Service'
+  static override readonly $type: string = ServiceNoun.$type
+  static readonly noun = ServiceNoun
 
   // Internal state
   private tasks: Map<string, TaskRecord> = new Map()

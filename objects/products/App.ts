@@ -6,6 +6,7 @@
  */
 
 import { DO, Env } from '../core/DO'
+import { App as AppNoun } from '../../nouns/products/App'
 
 export interface AppConfig {
   name: string
@@ -15,7 +16,8 @@ export interface AppConfig {
 }
 
 export class App extends DO {
-  static override readonly $type: string = 'App'
+  static override readonly $type: string = AppNoun.$type
+  static readonly noun = AppNoun
 
   private config: AppConfig | null = null
 

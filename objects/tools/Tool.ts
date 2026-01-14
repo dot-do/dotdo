@@ -11,6 +11,7 @@
 import { DO, type Env } from '../core/DO'
 import type { Tool as ToolType } from '@dotdo/digital-tools'
 import { createTool } from '@dotdo/digital-tools'
+import { Tool as ToolNoun } from '../../nouns/tools/Tool'
 
 // ============================================================================
 // TYPES
@@ -64,7 +65,8 @@ export interface ToolInvokeResult {
 // ============================================================================
 
 export class Tool extends DO {
-  static override readonly $type = 'Tool'
+  static override readonly $type: string = ToolNoun.$type
+  static readonly noun = ToolNoun
 
   // Tool data cache (loaded from storage)
   private _toolData?: ToolData
