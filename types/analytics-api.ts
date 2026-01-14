@@ -91,51 +91,6 @@ export interface VectorSearchResult {
 
   /** Vector values (if includeVectors was true) */
   vector?: number[]
-
-  /** Source shard identifier (when using coordinator) */
-  sourceShard?: string
-}
-
-/**
- * Shard metrics from coordinator
- */
-export interface ShardMetrics {
-  /** Shard identifier */
-  shardId: string
-  /** Latency in milliseconds */
-  latencyMs: number
-  /** Number of vectors scanned */
-  vectorsScanned: number
-  /** Whether the shard responded successfully */
-  success: boolean
-}
-
-/**
- * Latency statistics across all shards
- */
-export interface LatencyStats {
-  /** Minimum latency */
-  min: number
-  /** Maximum latency */
-  max: number
-  /** Average latency */
-  avg: number
-  /** 50th percentile */
-  p50: number
-  /** 95th percentile */
-  p95: number
-  /** 99th percentile */
-  p99: number
-}
-
-/**
- * Information about a failed shard
- */
-export interface FailedShardInfo {
-  /** Shard identifier */
-  shardId: string
-  /** Error message */
-  error: string
 }
 
 /**
@@ -159,24 +114,6 @@ export interface VectorSearchResponse {
     vectorsScanned: number
     cacheHitRate: number
   }
-
-  /** Whether the result is partial (some shards failed/timed out) */
-  partial?: boolean
-
-  /** List of shards that failed */
-  failedShards?: FailedShardInfo[]
-
-  /** List of shards that timed out */
-  timedOutShards?: string[]
-
-  /** List of shards skipped due to circuit breaker */
-  skippedShards?: string[]
-
-  /** Per-shard metrics (from coordinator) */
-  shardMetrics?: ShardMetrics[]
-
-  /** Aggregate latency statistics (from coordinator) */
-  latencyStats?: LatencyStats
 }
 
 // ============================================================================
