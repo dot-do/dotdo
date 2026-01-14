@@ -291,6 +291,16 @@ export interface PipelineBindings {
    * Primary pipeline for event streaming
    */
   PIPELINE?: Pipeline
+
+  /**
+   * Events pipeline for unified event delivery
+   *
+   * All events (routing, usage, RPC, custom) should flow through this pipeline.
+   * Falls back to HTTP POST to workers.do/events if not bound.
+   *
+   * @see lib/events/pipeline.ts
+   */
+  EVENTS?: Pipeline
 }
 
 /**
@@ -549,6 +559,13 @@ export function hasDLQ(env: CloudflareEnv): env is CloudflareEnv & { DLQ_QUEUE: 
  */
 export function hasPipeline(env: CloudflareEnv): env is CloudflareEnv & { PIPELINE: Pipeline } {
   return env.PIPELINE !== undefined
+}
+
+/**
+ * Check if Events Pipeline binding is available
+ */
+export function hasEvents(env: CloudflareEnv): env is CloudflareEnv & { EVENTS: Pipeline } {
+  return env.EVENTS !== undefined
 }
 
 /**
