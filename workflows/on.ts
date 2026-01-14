@@ -819,9 +819,9 @@ export function waitFor(
 import { Domain as BaseDomain, registerDomain as baseRegisterDomain } from './domain'
 
 type DomainCallable = {
-  (context: unknown): any
+  (context: unknown): unknown
   __domainName: string
-  __handlers: Record<string, Function>
+  __handlers: Record<string, (...args: unknown[]) => unknown>
 }
 
 /**

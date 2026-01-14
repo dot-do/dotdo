@@ -1398,13 +1398,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
     await this.db
       .insert(schema.actions)
-      // @ts-expect-error - Schema field names may differ
       .values({
         id,
         verb,
         target: this.ns,
-        actor: this._currentActor,
-        input: input as Record<string, unknown>,
+        actor: this._currentActor ?? undefined,
+        // Action input data goes in options, not input (which is for rowid references)
+        options: input as Record<string, unknown>,
         durability,
         status: 'pending',
         createdAt: new Date(),
@@ -2977,18 +2977,16 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       }))
   }
 
-  protected async createThing(data: { type: string; name: string; data?: Record<string, unknown> }): Promise<{ id: string }> {
+  protected async createThing(data: { type: number; name: string; data?: Record<string, unknown> }): Promise<{ id: string }> {
     const id = crypto.randomUUID()
-    // @ts-expect-error - Drizzle schema types may differ slightly
+    // Note: things table uses integer type (FK to nouns.rowid), not string
+    // Fields like ns, version, createdAt, updatedAt are derived from actions, not stored here
     await this.db.insert(schema.things).values({
       id,
-      ns: this.ns,
       type: data.type,
-      data: { name: data.name, ...data.data } as Record<string, unknown>,
-      version: 1,
-      branch: this.currentBranch,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      name: data.name,
+      data: data.data ?? null,
+      branch: this.currentBranch === 'main' ? null : this.currentBranch,
     })
     return { id }
   }
@@ -3000,13 +2998,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     data?: Record<string, unknown>
   }): Promise<{ id: string }> {
     const id = crypto.randomUUID()
-    // @ts-expect-error - Schema field names may differ
+    // Action input data goes in options, not input (which is for rowid references)
     await this.db.insert(schema.actions).values({
       id,
       verb: data.type,
       target: data.target,
       actor: data.actor,
-      input: data.data as Record<string, unknown>,
+      options: data.data ?? null,
       status: 'pending',
       createdAt: new Date(),
     })
