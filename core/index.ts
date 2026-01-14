@@ -15,7 +15,21 @@ export type { DOEnv as DOCoreEnv } from './DO'
 export { default as DO } from './DO'
 
 // Schema extension API
-export { DB, extendSchema } from './DB'
+export {
+  DB,
+  extendSchema,
+  parseSchema,
+  type PrimitiveType,
+  type RelationshipOperator,
+  type FieldDefinition,
+  type EntitySchema,
+  type DatabaseSchema,
+  type ParsedField,
+  type ParsedEntity,
+  type ParsedSchema,
+  type DrizzleSchema,
+  type DBSchemaResult,
+} from './DB'
 
 // WorkflowContext factory and types
 export {
