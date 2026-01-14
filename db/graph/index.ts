@@ -769,3 +769,30 @@ export type {
   CycleResult,
   TraversalStats,
 } from './traversal-engine'
+
+// ============================================================================
+// GRAPH STORE CLASS - Relationship/edge storage with traversal queries
+// ============================================================================
+
+export { GraphStore } from './store'
+
+export type {
+  // Relationship types
+  RelateInput,
+  Relationship,
+  EdgeQueryOptions,
+  // Traversal types
+  TraverseOptions,
+  TraverseResult,
+  TraversalNode,
+  // Path finding types
+  FindPathOptions,
+  ShortestPathOptions,
+  // CDC types
+  CDCEvent,
+  CDCHandler,
+  // Schema types
+  SchemaInfo,
+  ConstraintInfo,
+  IndexInfo as GraphIndexInfo,
+} from './graph-store-types'
