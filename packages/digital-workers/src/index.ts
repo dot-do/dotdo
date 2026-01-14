@@ -1,3 +1,10 @@
 // Digital Workers - Worker, Agent, and Human types
-// TODO: Export types once implemented
-export {}
+export type { Worker, Agent, Human } from './types'
+export {
+  WorkerSchema,
+  AgentSchema,
+  HumanSchema,
+  isWorker,
+  isAgent,
+  isHuman
+} from './types'
