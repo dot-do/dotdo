@@ -19,8 +19,6 @@ import { buildResponse, buildErrorResponse, type ErrorCode } from '../../lib/res
 import { buildCollectionResponse as buildCollectionResponseShape } from '../../lib/response/collection'
 import { buildItemLinks } from '../../lib/response/links'
 import { buildItemActionsClickable } from '../../lib/response/actions'
-import { generateEditUI, createEditUIData, type EditUIData } from './edit-ui'
-import { escapeHtml } from '../../lib/utils/html'
 
 // ============================================================================
 // ERROR RESPONSE HELPER
@@ -220,44 +218,6 @@ function extractNamespace(ns: string): string {
 }
 
 /**
- * Generate an HTML page for the given data
- *
- * Returns a simple, interactive HTML UI that displays the JSON data
- * with clickable links for navigation.
- */
-function generateHtmlPage(data: object, ns: string): string {
-  const jsonString = JSON.stringify(data, null, 2)
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${ns}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 2rem; background: #f5f5f5; }
-    .container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    h1 { color: #333; }
-    pre { background: #f8f8f8; padding: 1rem; border-radius: 4px; overflow-x: auto; }
-    a { color: #0066cc; }
-    .links { margin-top: 1rem; }
-    .links a { margin-right: 1rem; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>${ns}</h1>
-    <div class="links">
-      <a href="${ns}">Home</a>
-    </div>
-    <h2>API Response</h2>
-    <pre>${escapeHtml(jsonString)}</pre>
-  </div>
-</body>
-</html>`
-}
-
-
-/**
  * Generate HATEOAS index with available collections
  *
  * Root response shape:
@@ -313,14 +273,11 @@ export function generateIndex(
 
 /**
  * Determine content type based on Accept header.
- * Defaults to application/json, accepts application/ld+json and text/html.
+ * JSON only - no HTML rendering.
  */
 function getContentType(request?: Request): string {
   if (!request) return 'application/json'
   const accept = request.headers.get('Accept') || ''
-  if (accept.includes('text/html')) {
-    return 'text/html'
-  }
   if (accept.includes('application/ld+json')) {
     return 'application/ld+json'
   }
@@ -387,38 +344,18 @@ export async function handleGetIndex(ctx: RestRouterContext, request?: Request):
     collectionCounts,
   })
 
-  // Return HTML UI if requested
-  if (contentType === 'text/html') {
-    const html = generateHtmlPage(index, ns)
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html' },
-    })
-  }
-
   return Response.json(index, {
     headers: { 'Content-Type': contentType },
   })
 }
 
 /**
- * Check if a type is registered in the context
+ * Check if a type is valid.
+ * Always returns true - permissive mode allows any type.
+ * Custom types are auto-created on first insert.
  */
-function isTypeRegistered(ctx: RestRouterContext, type: string): boolean {
-  // If nouns is undefined, allow all types (permissive mode for uninitialized DOs)
-  if (ctx.nouns === undefined) {
-    return true
-  }
-
-  // If nouns is an empty array, no types are registered - strict mode
-  if (ctx.nouns.length === 0) {
-    return false
-  }
-
-  // Check if the type matches any registered noun (case-insensitive)
-  const typeLower = type.toLowerCase()
-  return ctx.nouns.some(({ noun, plural }) =>
-    noun.toLowerCase() === typeLower || plural.toLowerCase() === typeLower
-  )
+function isTypeRegistered(_ctx: RestRouterContext, _type: string): boolean {
+  return true // Permissive mode - any type allowed
 }
 
 /**
@@ -661,53 +598,6 @@ export async function handleDelete(
   }
 }
 
-/**
- * Handle GET /:type/:id/edit - Return HTML page with Monaco editor
- *
- * Returns an HTML page for editing the resource inline with:
- * - Monaco editor configured for JSON
- * - Current resource data embedded
- * - Save button that PUTs to the resource URL
- * - Header showing resource type, ID, and URL
- */
-export async function handleEditUI(
-  ctx: RestRouterContext,
-  type: string,
-  id: string,
-  ns: string,
-  request?: Request
-): Promise<Response> {
-  try {
-    // Try to get existing item
-    const thing = await ctx.things.get(id)
-
-    // Build the edit UI data
-    const editData = createEditUIData(
-      ns,
-      type,
-      id,
-      thing ? {
-        name: thing.name ?? undefined,
-        ...(thing.data ?? {}),
-      } : null
-    )
-
-    // Generate and return the HTML page
-    const html = generateEditUI(editData)
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    })
-  } catch {
-    // Even for non-existent resources, return an edit UI with minimal data
-    // This allows creating new resources via the editor
-    const editData = createEditUIData(ns, type, id, null)
-    const html = generateEditUI(editData)
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    })
-  }
-}
-
 // ============================================================================
 // ROUTE MATCHING
 // ============================================================================
@@ -828,12 +718,9 @@ export async function handleRestRequest(
   // Derive namespace from request origin
   const ns = deriveNamespaceFromRequest(request, ctx.ns)
 
-  // Handle edit action: /:type/:id/edit
-  if (action === 'edit' && id) {
-    if (method !== 'GET') {
-      return errorResponse('METHOD_NOT_ALLOWED', 'Method not allowed', 405, { 'Allow': 'GET' })
-    }
-    return handleEditUI(ctx, type, id, ns, request)
+  // Edit action removed - JSON only API
+  if (action === 'edit') {
+    return errorResponse('NOT_FOUND', 'Edit UI not available - use API directly', 404)
   }
 
   // Parse query params for list operations

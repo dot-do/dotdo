@@ -39,6 +39,7 @@ import { DO as DOTiny, type Env } from './DOTiny'
 import { eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import * as schema from '../db'
+import { initSchema } from '../db/schema-init'
 import { isValidNounName } from '../db/nouns'
 import {
   createMcpHandler,
@@ -125,6 +126,7 @@ import { LocationCache, LOCATION_STORAGE_KEY } from '../lib/colo/caching'
 import { extractStorageClaims } from '../lib/auth/jwt-storage-claims'
 import { AuthorizedR2Client, type R2Bucket } from '../lib/storage/authorized-r2'
 import { IcebergStateAdapter } from './persistence/iceberg-state'
+import { getPipeline, type Pipeline } from '../streaming/managed-pipeline'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -1059,11 +1061,24 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   // CONSTRUCTOR
   // ═══════════════════════════════════════════════════════════════════════════
 
+  private _schemaInitialized = false
+
   constructor(ctx: DurableObjectState, env: E) {
     super(ctx, env)
 
     // Initialize workflow context
     this.$ = this.createWorkflowContext()
+  }
+
+  /**
+   * Ensure schema is initialized before any request
+   * Called from handleFetch
+   */
+  private ensureSchema(): void {
+    if (!this._schemaInitialized) {
+      initSchema(this.ctx.storage.sql)
+      this._schemaInitialized = true
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1571,14 +1586,18 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       }
     }
 
+    // Get pipeline (native binding or managed fallback via events.do)
+    // oauth.do is the default auth provider, so all DOs can send to managed pipeline
+    const pipeline = getPipeline(this.env as { PIPELINE?: Pipeline }, this.ns)
+
     // Attempt pipeline send with error capture and retry
-    if (this.env.PIPELINE) {
+    if (pipeline) {
       const maxPipelineRetries = 3
       const baseDelay = 100
 
       for (let attempt = 1; attempt <= maxPipelineRetries; attempt++) {
         try {
-          await this.env.PIPELINE.send([{
+          await pipeline.send([{
             verb,
             source: this.ns,
             $context: this.ns,
@@ -3146,12 +3165,32 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   /**
-   * Get list of registered nouns for the index.
-   * Returns undefined for permissive mode (any type allowed).
-   * Override in subclasses to restrict to specific types.
+   * Default entity types exposed by the DO.
+   * All DOs can store these types plus any custom types (permissive mode).
    */
-  protected getRegisteredNouns(): Array<{ noun: string; plural: string }> | undefined {
-    return undefined // Permissive mode - any type allowed
+  static readonly DEFAULT_NOUNS: Array<{ noun: string; plural: string }> = [
+    { noun: 'Noun', plural: 'Nouns' },
+    { noun: 'Verb', plural: 'Verbs' },
+    { noun: 'Thing', plural: 'Things' },
+    { noun: 'Relationship', plural: 'Relationships' },
+    { noun: 'Action', plural: 'Actions' },
+    { noun: 'Event', plural: 'Events' },
+    { noun: 'Function', plural: 'Functions' },
+    { noun: 'Workflow', plural: 'Workflows' },
+    { noun: 'Agent', plural: 'Agents' },
+    { noun: 'User', plural: 'Users' },
+    { noun: 'Org', plural: 'Orgs' },
+    { noun: 'Role', plural: 'Roles' },
+    { noun: 'Integration', plural: 'Integrations' },
+    { noun: 'Connection', plural: 'Connections' },
+  ]
+
+  /**
+   * Get list of registered nouns for the index.
+   * Returns default entity types. Override to customize.
+   */
+  protected getRegisteredNouns(): Array<{ noun: string; plural: string }> {
+    return (this.constructor as typeof DO).DEFAULT_NOUNS
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3320,6 +3359,9 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   protected override async handleFetch(request: Request): Promise<Response> {
+    // Ensure SQLite schema is initialized on first request
+    this.ensureSchema()
+
     const url = new URL(request.url)
 
     // Extract coordinates from CF request headers if available

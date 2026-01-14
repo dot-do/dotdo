@@ -1,11 +1,26 @@
 /**
- * Events Normalizer
+ * Events Snippet
  *
- * Converts various event formats to the unified 5W+H schema.
- * Supports: Internal (5W+H), EPCIS, Evalite trace formats
+ * Two roles:
+ * 1. Normalizer - Converts various event formats to the unified 5W+H schema
+ * 2. Ingest Handler - Edge endpoint at workers.do/events that:
+ *    - Accepts events from DOs without native Pipeline binding
+ *    - Enriches with request metadata (CF geo, IP, timestamp)
+ *    - Forwards to underlying worker with Pipeline binding
+ *
+ * The ingest handler is a Cloudflare Snippet - runs before the worker
+ * for minimal cost while adding request context to events.
  *
  * Reference: docs/concepts/events.mdx
  */
+
+// Cloudflare Workers types (when not using @cloudflare/workers-types)
+declare global {
+  interface ExecutionContext {
+    waitUntil(promise: Promise<unknown>): void
+    passThroughOnException(): void
+  }
+}
 
 // ============================================================================
 // Types
@@ -571,3 +586,233 @@ function normalizeEvalite(obj: Record<string, unknown>): Event5WH {
     context,
   }
 }
+
+// ============================================================================
+// Ingest Types
+// ============================================================================
+
+/**
+ * Request body format from ManagedPipeline
+ */
+export interface IngestRequest {
+  events: Array<{
+    verb: string
+    source: string
+    $context: string
+    data: unknown
+    timestamp: string
+    _meta?: {
+      ns: string
+      organizationId?: string
+    }
+  }>
+  timestamp: string
+}
+
+/**
+ * Request metadata extracted from CF request
+ */
+export interface RequestMeta {
+  /** Client IP address */
+  ip: string | null
+  /** Country code */
+  country: string | null
+  /** City */
+  city: string | null
+  /** Region/state */
+  region: string | null
+  /** ASN */
+  asn: number | null
+  /** Cloudflare colo */
+  colo: string | null
+  /** Request ID */
+  requestId: string
+  /** Receipt timestamp */
+  receivedAt: string
+  /** User agent */
+  userAgent: string | null
+}
+
+// ============================================================================
+// Ingest Handler
+// ============================================================================
+
+/**
+ * Extract request metadata from Cloudflare request
+ */
+export function extractRequestMeta(request: Request): RequestMeta {
+  const cf = (request as Request & { cf?: Record<string, unknown> }).cf || {}
+
+  return {
+    ip: request.headers.get('CF-Connecting-IP'),
+    country: (cf.country as string) || null,
+    city: (cf.city as string) || null,
+    region: (cf.region as string) || null,
+    asn: (cf.asn as number) || null,
+    colo: (cf.colo as string) || null,
+    requestId: request.headers.get('CF-Ray') || crypto.randomUUID(),
+    receivedAt: new Date().toISOString(),
+    userAgent: request.headers.get('User-Agent'),
+  }
+}
+
+/**
+ * Enrich events with request metadata
+ */
+export function enrichEvents(events: IngestRequest['events'], meta: RequestMeta): IngestRequest['events'] {
+  return events.map((event) => ({
+    ...event,
+    _meta: {
+      ...event._meta,
+      ns: event._meta?.ns || 'unknown',
+      _request: {
+        ip: meta.ip,
+        country: meta.country,
+        city: meta.city,
+        region: meta.region,
+        asn: meta.asn,
+        colo: meta.colo,
+        requestId: meta.requestId,
+        receivedAt: meta.receivedAt,
+        userAgent: meta.userAgent,
+      },
+    },
+  }))
+}
+
+/**
+ * Validate ingest request
+ */
+export function validateIngestRequest(body: unknown): { valid: true; data: IngestRequest } | { valid: false; error: string } {
+  if (!body || typeof body !== 'object') {
+    return { valid: false, error: 'Request body must be an object' }
+  }
+
+  const obj = body as Record<string, unknown>
+
+  if (!Array.isArray(obj.events)) {
+    return { valid: false, error: 'Missing or invalid events array' }
+  }
+
+  if (obj.events.length === 0) {
+    return { valid: false, error: 'Events array is empty' }
+  }
+
+  // Validate each event has required fields
+  for (let i = 0; i < obj.events.length; i++) {
+    const event = obj.events[i] as Record<string, unknown>
+    if (!event.verb || typeof event.verb !== 'string') {
+      return { valid: false, error: `Event ${i}: missing or invalid verb` }
+    }
+    if (!event.timestamp || typeof event.timestamp !== 'string') {
+      return { valid: false, error: `Event ${i}: missing or invalid timestamp` }
+    }
+  }
+
+  return { valid: true, data: obj as unknown as IngestRequest }
+}
+
+/**
+ * Events ingest handler (Cloudflare Snippet)
+ *
+ * This runs at workers.do/events before the underlying worker.
+ * It enriches events with request metadata and forwards to the worker
+ * which has the actual Pipeline binding.
+ *
+ * Flow:
+ * 1. DO calls ManagedPipeline.send() → POST to workers.do/events
+ * 2. This snippet intercepts, validates, and enriches with CF metadata
+ * 3. Forwards enriched request to underlying worker
+ * 4. Worker sends to Cloudflare Pipeline → R2/Iceberg
+ */
+const eventsIngestHandler = {
+  async fetch(request: Request, _env: unknown, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url)
+
+    // Only handle POST to /events or /ingest paths
+    if (request.method !== 'POST' || (!url.pathname.endsWith('/events') && !url.pathname.endsWith('/ingest'))) {
+      // Pass through to underlying worker
+      return fetch(request)
+    }
+
+    // Validate content type
+    const contentType = request.headers.get('Content-Type') || ''
+    if (!contentType.includes('application/json')) {
+      return new Response(JSON.stringify({ error: 'Content-Type must be application/json' }), {
+        status: 415,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Parse and validate body
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const validation = validateIngestRequest(body)
+    if (!validation.valid) {
+      return new Response(JSON.stringify({ error: validation.error }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Extract request metadata
+    const meta = extractRequestMeta(request)
+
+    // Enrich events with metadata
+    const enrichedEvents = enrichEvents(validation.data.events, meta)
+
+    // Get auth headers to forward
+    const headers = new Headers()
+    headers.set('Content-Type', 'application/json')
+
+    // Forward namespace header
+    const namespace = request.headers.get('X-Namespace')
+    if (namespace) {
+      headers.set('X-Namespace', namespace)
+    }
+
+    // Forward organization ID header
+    const orgId = request.headers.get('X-Organization-Id')
+    if (orgId) {
+      headers.set('X-Organization-Id', orgId)
+    }
+
+    // Forward auth header
+    const auth = request.headers.get('Authorization')
+    if (auth) {
+      headers.set('Authorization', auth)
+    }
+
+    // Add request metadata header
+    headers.set('X-Request-Meta', JSON.stringify(meta))
+
+    // Create enriched request for underlying worker
+    const enrichedBody: IngestRequest = {
+      events: enrichedEvents,
+      timestamp: validation.data.timestamp,
+    }
+
+    const enrichedRequest = new Request(request.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(enrichedBody),
+    })
+
+    // Forward to underlying worker (which has Pipeline binding)
+    const response = await fetch(enrichedRequest)
+
+    // Return response from underlying worker
+    return response
+  },
+}
+
+export { eventsIngestHandler }
+export default eventsIngestHandler

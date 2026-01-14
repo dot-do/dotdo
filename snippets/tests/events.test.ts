@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { normalize, detectFormat, EventFormat } from '../events'
+import {
+  normalize,
+  detectFormat,
+  EventFormat,
+  extractRequestMeta,
+  enrichEvents,
+  validateIngestRequest,
+  eventsIngestHandler,
+  type IngestRequest,
+  type RequestMeta,
+} from '../events'
 
 /**
  * Events Normalizer Tests (RED Phase)
@@ -1019,6 +1029,417 @@ describe('normalize - Edge cases', () => {
     expect(result).toHaveLength(100)
     for (let i = 0; i < 100; i++) {
       expect(result[i].object).toBe(`order:${i}`)
+    }
+  })
+})
+
+// ============================================================================
+// Ingest Handler Tests
+// ============================================================================
+
+describe('extractRequestMeta', () => {
+  it('extracts metadata from CF request', () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'POST',
+      headers: {
+        'CF-Connecting-IP': '1.2.3.4',
+        'CF-Ray': 'abc123-SJC',
+        'User-Agent': 'dotdo/1.0',
+      },
+    })
+    // Mock CF object
+    ;(request as Request & { cf?: Record<string, unknown> }).cf = {
+      country: 'US',
+      city: 'San Jose',
+      region: 'CA',
+      asn: 13335,
+      colo: 'SJC',
+    }
+
+    const meta = extractRequestMeta(request)
+
+    expect(meta.ip).toBe('1.2.3.4')
+    expect(meta.country).toBe('US')
+    expect(meta.city).toBe('San Jose')
+    expect(meta.region).toBe('CA')
+    expect(meta.asn).toBe(13335)
+    expect(meta.colo).toBe('SJC')
+    expect(meta.requestId).toBe('abc123-SJC')
+    expect(meta.userAgent).toBe('dotdo/1.0')
+    expect(meta.receivedAt).toBeDefined()
+  })
+
+  it('handles missing CF object', () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'POST',
+    })
+
+    const meta = extractRequestMeta(request)
+
+    expect(meta.ip).toBeNull()
+    expect(meta.country).toBeNull()
+    expect(meta.city).toBeNull()
+    expect(meta.requestId).toBeDefined() // Falls back to UUID
+    expect(meta.receivedAt).toBeDefined()
+  })
+
+  it('generates UUID when CF-Ray is missing', () => {
+    const request = new Request('https://workers.do/events')
+
+    const meta = extractRequestMeta(request)
+
+    // Should be a UUID format (8-4-4-4-12)
+    expect(meta.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  })
+})
+
+describe('enrichEvents', () => {
+  it('adds request metadata to events', () => {
+    const events: IngestRequest['events'] = [
+      {
+        verb: 'Customer.created',
+        source: 'test',
+        $context: 'test',
+        data: { id: '123' },
+        timestamp: '2026-01-08T10:00:00Z',
+        _meta: { ns: 'acme' },
+      },
+    ]
+
+    const meta: RequestMeta = {
+      ip: '1.2.3.4',
+      country: 'US',
+      city: 'San Jose',
+      region: 'CA',
+      asn: 13335,
+      colo: 'SJC',
+      requestId: 'abc123',
+      receivedAt: '2026-01-08T10:00:01Z',
+      userAgent: 'dotdo/1.0',
+    }
+
+    const enriched = enrichEvents(events, meta)
+
+    expect(enriched).toHaveLength(1)
+    expect(enriched[0]._meta?.ns).toBe('acme')
+    expect((enriched[0]._meta as Record<string, unknown>)._request).toMatchObject({
+      ip: '1.2.3.4',
+      country: 'US',
+      city: 'San Jose',
+      colo: 'SJC',
+    })
+  })
+
+  it('preserves existing _meta fields', () => {
+    const events: IngestRequest['events'] = [
+      {
+        verb: 'Order.placed',
+        source: 'test',
+        $context: 'test',
+        data: { orderId: '456' },
+        timestamp: '2026-01-08T10:00:00Z',
+        _meta: { ns: 'acme', organizationId: 'org-123' },
+      },
+    ]
+
+    const meta: RequestMeta = {
+      ip: null,
+      country: null,
+      city: null,
+      region: null,
+      asn: null,
+      colo: null,
+      requestId: 'def456',
+      receivedAt: '2026-01-08T10:00:01Z',
+      userAgent: null,
+    }
+
+    const enriched = enrichEvents(events, meta)
+
+    expect(enriched[0]._meta?.ns).toBe('acme')
+    expect(enriched[0]._meta?.organizationId).toBe('org-123')
+  })
+
+  it('defaults ns to unknown when missing', () => {
+    const events: IngestRequest['events'] = [
+      {
+        verb: 'Test.event',
+        source: 'test',
+        $context: 'test',
+        data: {},
+        timestamp: '2026-01-08T10:00:00Z',
+      },
+    ]
+
+    const meta: RequestMeta = {
+      ip: null,
+      country: null,
+      city: null,
+      region: null,
+      asn: null,
+      colo: null,
+      requestId: 'ghi789',
+      receivedAt: '2026-01-08T10:00:01Z',
+      userAgent: null,
+    }
+
+    const enriched = enrichEvents(events, meta)
+
+    expect(enriched[0]._meta?.ns).toBe('unknown')
+  })
+})
+
+describe('validateIngestRequest', () => {
+  it('validates valid request', () => {
+    const body = {
+      events: [
+        {
+          verb: 'Customer.created',
+          source: 'test',
+          $context: 'test',
+          data: { id: '123' },
+          timestamp: '2026-01-08T10:00:00Z',
+          _meta: { ns: 'acme' },
+        },
+      ],
+      timestamp: '2026-01-08T10:00:00Z',
+    }
+
+    const result = validateIngestRequest(body)
+
+    expect(result.valid).toBe(true)
+    if (result.valid) {
+      expect(result.data.events).toHaveLength(1)
+    }
+  })
+
+  it('rejects null body', () => {
+    const result = validateIngestRequest(null)
+
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.error).toContain('object')
+    }
+  })
+
+  it('rejects missing events array', () => {
+    const body = { timestamp: '2026-01-08T10:00:00Z' }
+
+    const result = validateIngestRequest(body)
+
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.error).toContain('events')
+    }
+  })
+
+  it('rejects empty events array', () => {
+    const body = { events: [], timestamp: '2026-01-08T10:00:00Z' }
+
+    const result = validateIngestRequest(body)
+
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.error).toContain('empty')
+    }
+  })
+
+  it('rejects event without verb', () => {
+    const body = {
+      events: [{ timestamp: '2026-01-08T10:00:00Z', data: {} }],
+      timestamp: '2026-01-08T10:00:00Z',
+    }
+
+    const result = validateIngestRequest(body)
+
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.error).toContain('verb')
+    }
+  })
+
+  it('rejects event without timestamp', () => {
+    const body = {
+      events: [{ verb: 'Test.event', data: {} }],
+      timestamp: '2026-01-08T10:00:00Z',
+    }
+
+    const result = validateIngestRequest(body)
+
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.error).toContain('timestamp')
+    }
+  })
+})
+
+describe('eventsIngestHandler', () => {
+  const mockExecutionContext: ExecutionContext = {
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+  }
+
+  it('passes through non-POST requests', async () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'GET',
+    })
+
+    // Mock fetch to return a known response
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response('passthrough', { status: 200 })
+
+    try {
+      const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('passthrough')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('passes through requests to non-event paths', async () => {
+    const request = new Request('https://workers.do/other', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ foo: 'bar' }),
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response('passthrough', { status: 200 })
+
+    try {
+      const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('passthrough')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('rejects non-JSON content type', async () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: 'not json',
+    })
+
+    const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+
+    expect(response.status).toBe(415)
+    const body = await response.json()
+    expect(body.error).toContain('application/json')
+  })
+
+  it('rejects invalid JSON', async () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not valid json',
+    })
+
+    const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toContain('JSON')
+  })
+
+  it('rejects invalid request body', async () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: [] }),
+    })
+
+    const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toContain('empty')
+  })
+
+  it('enriches and forwards valid events', async () => {
+    const request = new Request('https://workers.do/events', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Namespace': 'acme',
+        'X-Organization-Id': 'org-123',
+        Authorization: 'Bearer token123',
+        'CF-Connecting-IP': '1.2.3.4',
+      },
+      body: JSON.stringify({
+        events: [
+          {
+            verb: 'Customer.created',
+            source: 'test',
+            $context: 'test',
+            data: { id: '123' },
+            timestamp: '2026-01-08T10:00:00Z',
+            _meta: { ns: 'acme' },
+          },
+        ],
+        timestamp: '2026-01-08T10:00:00Z',
+      }),
+    })
+    ;(request as Request & { cf?: Record<string, unknown> }).cf = {
+      country: 'US',
+      colo: 'SJC',
+    }
+
+    let capturedRequest: Request | null = null
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedRequest = input as Request
+      return new Response(JSON.stringify({ success: true }), { status: 200 })
+    }
+
+    try {
+      const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+
+      expect(response.status).toBe(200)
+      expect(capturedRequest).not.toBeNull()
+
+      // Verify headers were forwarded
+      expect(capturedRequest!.headers.get('X-Namespace')).toBe('acme')
+      expect(capturedRequest!.headers.get('X-Organization-Id')).toBe('org-123')
+      expect(capturedRequest!.headers.get('Authorization')).toBe('Bearer token123')
+      expect(capturedRequest!.headers.get('X-Request-Meta')).toBeDefined()
+
+      // Verify body was enriched
+      const body = await capturedRequest!.json()
+      expect(body.events[0]._meta._request).toBeDefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('handles /ingest path as well', async () => {
+    const request = new Request('https://workers.do/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            verb: 'Test.event',
+            timestamp: '2026-01-08T10:00:00Z',
+            source: 'test',
+            $context: 'test',
+            data: {},
+          },
+        ],
+        timestamp: '2026-01-08T10:00:00Z',
+      }),
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 })
+
+    try {
+      const response = await eventsIngestHandler.fetch(request, {}, mockExecutionContext)
+      expect(response.status).toBe(200)
+    } finally {
+      globalThis.fetch = originalFetch
     }
   })
 })
