@@ -520,9 +520,10 @@ describe('SessionWindow', () => {
       expect(sessions).toHaveLength(2)
 
       // Late event bridges the gap
-      // For bridging: event at t+31min → Session 1 extends to t+31min
-      // Gap to Session 2 at t+60min = 29min < 30min threshold → merge!
-      await window.add({ userId: 'alice', type: 'click', timestamp: t + 1860000 }) // ~31 min
+      // Event at exactly t+30min is on the boundary of both sessions' gaps:
+      // - Within Session 1's gap (t to t+30min)
+      // - Within Session 2's gap (t+30min to t+90min)
+      await window.add({ userId: 'alice', type: 'click', timestamp: t + 1800000 }) // exactly 30 min
 
       sessions = await window.getByKey('alice')
       expect(sessions).toHaveLength(1) // Merged into one
