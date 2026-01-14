@@ -1139,7 +1139,7 @@ describe('Auth Integration', () => {
     // No stored token
     mockDeviceAuth.getStoredToken.mockResolvedValue(null)
 
-    await expect(runCall(['+15551234567', 'Hello'])).rejects.toThrow(/login/i)
+    await expect(runCall(['+15551234567', 'Hello'])).rejects.toThrow(/not logged in/i)
   })
 })
 
@@ -1224,7 +1224,7 @@ describe('Unified Commander CLI', () => {
     // Import the unified program from main.ts
     const mainModule = await import('../main')
     program = mainModule.program
-  })
+  }, 30000) // Increased timeout for module import
 
   describe('Command Registration', () => {
     it('has all dev commands registered', () => {
