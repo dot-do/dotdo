@@ -1,0 +1,74 @@
+{
+  "name": "@dotdo/discord",
+  "version": "0.1.0",
+  "description": "Discord SDK compat layer for Cloudflare Workers with edge-native performance. Drop-in replacement for discord.js.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./messages": {
+      "import": "./dist/messages.js",
+      "types": "./dist/messages.d.ts"
+    },
+    "./embeds": {
+      "import": "./dist/embeds.js",
+      "types": "./dist/embeds.d.ts"
+    },
+    "./interactions": {
+      "import": "./dist/interactions.js",
+      "types": "./dist/interactions.d.ts"
+    },
+    "./webhooks": {
+      "import": "./dist/webhooks.js",
+      "types": "./dist/webhooks.d.ts"
+    },
+    "./builders": {
+      "import": "./dist/builders.js",
+      "types": "./dist/builders.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
+    },
+    "./rest": {
+      "import": "./dist/rest.js",
+      "types": "./dist/rest.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types.js",
+      "types": "./dist/types.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "discord",
+    "discord.js",
+    "bot",
+    "slash-commands",
+    "webhooks",
+    "interactions",
+    "cloudflare",
+    "workers",
+    "edge",
+    "serverless"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "packages/discord"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}

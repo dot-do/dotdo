@@ -180,7 +180,7 @@ function benchmark(config: CentroidConfig, iterations: number = 100): void {
  * Generate and save centroid files
  */
 function generateFiles(): void {
-  const outDir = resolve(__dirname, '../tests/data')
+  const outDir = resolve(__dirname, '../test-data')
 
   // Ensure output directory exists
   if (!existsSync(outDir)) {
@@ -223,7 +223,7 @@ async function uploadFiles(): Promise<void> {
     process.exit(1)
   }
 
-  const outDir = resolve(__dirname, '../tests/data')
+  const outDir = resolve(__dirname, '../test-data')
 
   for (const config of CONFIGS) {
     const filePath = resolve(outDir, config.filename)

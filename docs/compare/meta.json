@@ -1,4 +1,0 @@
-{
-  "title": "Compare",
-  "pages": ["index", "vs-vercel", "vs-firebase", "vs-temporal", "vs-cloudflare-workers"]
-}

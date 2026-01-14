@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - DO base classes (DOTiny, DOBase, DO)
 - Storage primitives (Things, Relationships, Events, Actions)
 - Extended primitives (fsx, gitx, bashx, npmx, pyx)
-- Compat layers (90 API replacements: redis, postgres, stripe, etc.)
+- Compat layers (40+ API replacements: redis, postgres, stripe, etc.)
 - Cap'n Web RPC and transport layers
 - WorkflowContext ($) and event system
 - Generic Agent/Human/Worker base classes
@@ -61,24 +61,7 @@ export class MyStartup extends Startup {
 
 **Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs), npmx, pyx - implemented as separate packages in `primitives/`.
 
-**Compat SDKs (90 layers):** Drop-in API replacements backed by Durable Objects. Located in `compat/`:
-
-- **AI/ML:** anthropic, cohere, google-ai, openai
-- **Analytics:** amplitude, analytics, cubejs, mixpanel, segment, vitals
-- **Auth:** auth, auth0, clerk, firebase-auth, supabase-auth
-- **Automation:** automation, n8n, zapier
-- **CRM/Sales:** close, freshdesk, helpscout, hubspot, intercom, pipedrive, salesforce, zendesk
-- **Databases:** couchdb, duckdb, neo4j, postgres, supabase
-- **DevOps:** datadog, doppler, flags, launchdarkly, sentry, vault
-- **E-commerce:** medusa, payload, shopify, square, stripe, tally, woocommerce
-- **Email/SMS:** convertkit, emails, klaviyo, mailchimp, messagebird, resend, sendgrid, twilio, vonage
-- **Messaging/Real-time:** ably, discord, fcm, onesignal, pubsub, pusher, slack, socketio, sqs
-- **Productivity:** calendly, docusign, jira, linear, quickbooks, zoom
-- **Search/Vector:** algolia, chroma, elasticsearch, meilisearch, pinecone, qdrant, typesense, weaviate
-- **Source Control:** github, gitlab
-- **Storage:** cloudinary, gcs, mapbox, s3
-- **Streaming:** airbyte, benthos, flink, metabase
-- **Other:** calls, contentful, crm, paypal
+**Compat SDKs (40+ layers):** Drop-in API replacements backed by Durable Objects. Located in `compat/` (algolia, anthropic, discord, duckdb, github, kafka, linear, mongo, openai, postgres, pusher, redis, s3, sendgrid, sentry, shopify, slack, sqs, stripe, supabase, twilio, zendesk, etc.).
 
 ## Commands
 
@@ -205,7 +188,7 @@ workflows/     # $ context DSL
   schedule-builder.ts  # CRON via fluent DSL
   pipeline-promise.ts  # Promise pipelining
   context/     # Execution modes
-compat/        # API-compatible SDKs (90 packages)
+compat/        # API-compatible SDKs (40+ packages)
 agents/        # Multi-provider agent SDK
   Agent.ts     # Core agent class
   Tool.ts      # Tool definitions
@@ -285,20 +268,15 @@ Implemented in `agents/named/` with composable persona system:
 Template literal syntax in `lib/humans/`:
 
 ```typescript
-import { Workflow } from 'dotdo'
 import { legal, ceo } from 'humans.do'
 
-// Template literal syntax for one-off approvals
 const approved = await ceo`approve the partnership`
 
-// Within a Workflow class for reusable escalations
-export class RefundWorkflow extends Workflow {
-  escalation = this.HumanFunction({
-    trigger: 'refund > $10000',
-    role: 'senior-accountant',
-    sla: '4 hours',
-  })
-}
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+})
 ```
 
 Human notification channels (Slack, Discord, Email, MDXUI Chat) in `objects/Human.ts`.
