@@ -396,13 +396,13 @@ export class DOWorkflow {
 
     await this._input.db
       .insert(schema.actions)
-      // @ts-expect-error - Schema field names may differ
       .values({
         id,
         verb,
         target: this._input.ns,
-        actor: this._currentActor,
-        input: input as Record<string, unknown>,
+        actor: this._currentActor ?? undefined,
+        // Action input data goes in options, not input (which is for rowid references)
+        options: input as Record<string, unknown>,
         durability,
         status: 'pending',
         createdAt: new Date(),
