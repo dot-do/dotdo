@@ -15,7 +15,7 @@ import type {
   JSONSchema,
 } from './types'
 import { PathTraversalError, NotDirectoryError } from './types'
-import { glob as fsxGlob } from '../../../primitives/fsx/core/glob'
+import { glob as fsxGlob } from '../../../do/capabilities/fsx/core/glob'
 
 /**
  * Maximum number of results to return

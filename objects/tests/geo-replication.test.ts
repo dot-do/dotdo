@@ -10,87 +10,100 @@
  * 6. Failover scenarios
  * 7. Replication lag metrics
  *
- * These tests run in Node environment with a mock DurableObjectState.
- * They test the GeoReplicationModule directly without requiring cloudflare:test.
+ * Uses cloudflare:test with real miniflare - NO MOCKS per CLAUDE.md guidelines.
+ * Tests the GeoReplicationModule through real DO stubs via stub.geo.* RPC.
  *
  * @see objects/GeoReplication.ts for implementation
+ * @see workers/wrangler.geo-replication.jsonc for test DO configuration
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import {
-  GeoReplicationModule,
-  createGeoReplicationModule,
-  type RegionConfig,
-  type GeoConfigResult,
-  type WriteResult,
-  type ReadResult,
-  type VectorClock,
-  type ConflictInfo,
-  type FailoverEvent,
-  type ReplicationLagMetrics,
-  type ConsistencyMetrics,
-  type RegionInfo,
+import { env } from 'cloudflare:test'
+import type {
+  GeoConfigResult,
+  WriteResult,
+  ReadResult,
+  VectorClock,
+  ConflictInfo,
+  FailoverEvent,
+  ReplicationLagMetrics,
+  ConsistencyMetrics,
+  RegionInfo,
 } from '../GeoReplication'
-import type { LifecycleContext } from '../lifecycle/types'
 
 // ============================================================================
-// MOCK IMPLEMENTATIONS
+// TEST HELPERS
 // ============================================================================
 
 /**
- * Mock storage that simulates DurableObjectStorage
+ * Unique namespace per test suite run to ensure isolation
  */
-class MockStorage {
-  private store: Map<string, unknown> = new Map()
+const testRunId = Date.now()
+let testCounter = 0
 
-  async get<T>(key: string): Promise<T | undefined> {
-    return this.store.get(key) as T | undefined
-  }
-
-  async put(key: string, value: unknown): Promise<void> {
-    this.store.set(key, value)
-  }
-
-  async delete(key: string): Promise<boolean> {
-    return this.store.delete(key)
-  }
-
-  async list(options?: { prefix?: string }): Promise<Map<string, unknown>> {
-    const result = new Map<string, unknown>()
-    for (const [key, value] of this.store) {
-      if (!options?.prefix || key.startsWith(options.prefix)) {
-        result.set(key, value)
-      }
-    }
-    return result
-  }
-
-  clear(): void {
-    this.store.clear()
-  }
+/**
+ * Generate a unique namespace for each test to ensure isolation
+ */
+function uniqueNs(prefix: string = 'geo-test'): string {
+  return `${prefix}-${testRunId}-${++testCounter}`
 }
 
 /**
- * Create a mock LifecycleContext for testing
+ * Helper to get a real DO stub with geo-replication module
  */
-function createMockContext(): LifecycleContext {
-  const storage = new MockStorage()
-  const events: Array<{ verb: string; data: unknown }> = []
-
-  return {
-    ns: 'test-do',
-    currentBranch: 'main',
-    db: null as any, // Not needed for geo-replication
-    env: {} as any, // Not needed for geo-replication
-    ctx: {
-      storage: storage as any,
-    } as any,
-    emitEvent: async (verb: string, data?: unknown) => {
-      events.push({ verb, data })
-    },
-    log: (message: string, data?: unknown) => {
-      // Silent in tests
-    },
+function getGeoStub(ns: string) {
+  const id = env.DO.idFromName(ns)
+  return env.DO.get(id) as unknown as {
+    geo: {
+      configureRegion(config: {
+        primary: string
+        replicas: string[]
+        readPreference?: 'nearest' | 'primary' | 'secondary'
+        conflictResolution?: 'lww' | 'vector-clock' | 'manual'
+        consistency?: 'eventual' | 'strong' | 'bounded-staleness'
+        maxStalenessMs?: number
+        failover?: { enabled: boolean; timeoutMs?: number; healthCheckIntervalMs?: number }
+        monitoring?: { lagAlertThresholdMs?: number }
+      }): Promise<GeoConfigResult>
+      getRegionConfig(): Promise<GeoConfigResult>
+      listAvailableRegions(): Promise<RegionInfo[]>
+      write(key: string, value: unknown): Promise<WriteResult>
+      writeBatch(items: Array<{ key: string; value: unknown }>): Promise<WriteResult[]>
+      writeWithTimestamp(key: string, value: unknown, timestamp: number): Promise<WriteResult>
+      writeWithVectorClock(key: string, value: unknown, vectorClock: VectorClock): Promise<WriteResult>
+      writeWithSession(sessionId: string, key: string, value: unknown): Promise<WriteResult>
+      read<T = unknown>(key: string, options?: { callerRegion?: string; requireFresh?: boolean }): Promise<ReadResult<T>>
+      readWithSession<T = unknown>(sessionId: string, key: string): Promise<ReadResult<T>>
+      getVectorClock(key: string): Promise<VectorClock>
+      getConflicts(): Promise<ConflictInfo[]>
+      getUnresolvedConflicts(): Promise<ConflictInfo[]>
+      resolveConflict(key: string, resolvedValue: unknown): Promise<void>
+      onConflict(listener: (event: ConflictInfo) => void): Promise<void>
+      simulateConcurrentWrite(key: string, value: unknown, region: string): Promise<void>
+      getConsistencyConfig(): Promise<ConsistencyMetrics>
+      getRegionStatus(region: string): Promise<{ healthy: boolean; lastCheck?: string; responseTime?: number }>
+      triggerFailover(): Promise<FailoverEvent>
+      getFailoverHistory(): Promise<FailoverEvent[]>
+      getReplicationStatus(): Promise<{ primary: string; replicas: string[] }>
+      getRegionRole(region: string): Promise<{ role: 'primary' | 'replica' | 'unknown' }>
+      getReplicationLag(): Promise<ReplicationLagMetrics>
+      getActiveAlerts(): Promise<Array<{ type: string; region?: string; message: string; timestamp: string }>>
+      getLagHistory(options: { region: string; duration: string; resolution: string }): Promise<Array<{ timestamp: string; lagMs: number }>>
+      getReplicationETA(region: string): Promise<{ pendingWrites: number; estimatedCompletionMs: number }>
+      getMetricsPrometheus(): Promise<string>
+      measureReplicaLatencies(): Promise<Record<string, number>>
+      getRoutingCacheStats(): Promise<{ hits: number; size: number }>
+      addReplica(region: string): Promise<void>
+      removeReplica(region: string): Promise<void>
+      getReplicaStatus(region: string): Promise<{ state: 'syncing' | 'synced' | 'disconnected'; lag?: number; lastSync?: string }>
+      getReplicationQueue(region: string): Promise<{ pendingWrites: number }>
+      simulateRegionFailure(region: string): Promise<void>
+      simulateRegionRecovery(region: string): Promise<void>
+      simulatePartition(regions: string[]): Promise<void>
+      simulateReplicationLag(region: string, lagMs: number): Promise<void>
+      simulateReplicationBacklog(region: string, pendingWrites: number): Promise<void>
+      setReplicaLag(region: string, lagMs: number): Promise<void>
+    }
   }
 }
 
@@ -99,18 +112,12 @@ function createMockContext(): LifecycleContext {
 // ============================================================================
 
 describe('Geo-Replication', () => {
-  let geo: GeoReplicationModule
-  let ctx: LifecycleContext
-
-  beforeEach(() => {
-    geo = createGeoReplicationModule()
-    ctx = createMockContext()
-    geo.initialize(ctx)
-  })
-
   describe('Region Configuration', () => {
     it('should configure primary region', async () => {
-      const result = await geo.configureRegion({
+      const ns = uniqueNs('config-primary')
+      const stub = getGeoStub(ns)
+
+      const result = await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
       })
@@ -121,12 +128,15 @@ describe('Geo-Replication', () => {
     })
 
     it('should get current region configuration', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('config-get')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-west',
         replicas: ['eu-central'],
       })
 
-      const config = await geo.getRegionConfig()
+      const config = await stub.geo.getRegionConfig()
 
       expect(config.primary).toBe('us-west')
       expect(config.replicas).toEqual(['eu-central'])
@@ -134,8 +144,11 @@ describe('Geo-Replication', () => {
     })
 
     it('should validate region codes using IATA format', async () => {
+      const ns = uniqueNs('config-validate')
+      const stub = getGeoStub(ns)
+
       // Should accept valid IATA codes
-      const validResult = await geo.configureRegion({
+      const validResult = await stub.geo.configureRegion({
         primary: 'ewr',
         replicas: ['lax', 'fra', 'sin'],
       })
@@ -143,7 +156,7 @@ describe('Geo-Replication', () => {
 
       // Should reject invalid codes
       await expect(
-        geo.configureRegion({
+        stub.geo.configureRegion({
           primary: 'invalid-region-code',
           replicas: [],
         })
@@ -151,7 +164,10 @@ describe('Geo-Replication', () => {
     })
 
     it('should support multiple replicas per continent', async () => {
-      const result = await geo.configureRegion({
+      const ns = uniqueNs('config-multi')
+      const stub = getGeoStub(ns)
+
+      const result = await stub.geo.configureRegion({
         primary: 'ewr',
         replicas: ['lax', 'ord', 'fra', 'lhr', 'sin', 'nrt', 'syd'],
       })
@@ -160,7 +176,10 @@ describe('Geo-Replication', () => {
     })
 
     it('should list available regions with metadata', async () => {
-      const regions: RegionInfo[] = await geo.listAvailableRegions()
+      const ns = uniqueNs('config-list')
+      const stub = getGeoStub(ns)
+
+      const regions: RegionInfo[] = await stub.geo.listAvailableRegions()
 
       expect(Array.isArray(regions)).toBe(true)
       expect(regions.length).toBeGreaterThan(0)
@@ -181,12 +200,15 @@ describe('Geo-Replication', () => {
 
   describe('Write Forwarding to Primary', () => {
     it('should forward writes to primary region', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('write-forward')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'eu-west',
         replicas: ['us-east', 'ap-south'],
       })
 
-      const result: WriteResult = await geo.write('customer:123', {
+      const result: WriteResult = await stub.geo.write('customer:123', {
         name: 'Alice',
         email: 'alice@example.com',
       })
@@ -196,12 +218,15 @@ describe('Geo-Replication', () => {
     })
 
     it('should propagate writes to all replicas', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('write-propagate')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
       })
 
-      const result: WriteResult = await geo.write('order:456', {
+      const result: WriteResult = await stub.geo.write('order:456', {
         items: ['item1', 'item2'],
         total: 99.99,
       })
@@ -212,12 +237,15 @@ describe('Geo-Replication', () => {
     })
 
     it('should batch writes for efficiency', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('write-batch')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
-      const results: WriteResult[] = await geo.writeBatch([
+      const results: WriteResult[] = await stub.geo.writeBatch([
         { key: 'item:1', value: { data: 'one' } },
         { key: 'item:2', value: { data: 'two' } },
         { key: 'item:3', value: { data: 'three' } },
@@ -230,36 +258,42 @@ describe('Geo-Replication', () => {
     })
 
     it('should reject writes when primary is unavailable', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('write-reject')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Simulate primary unavailable
-      await geo.simulateRegionFailure('us-east')
+      await stub.geo.simulateRegionFailure('us-east')
 
       // Write should fail (unless failover has occurred)
       await expect(
-        geo.write('test-key', { value: 'test' })
+        stub.geo.write('test-key', { value: 'test' })
       ).rejects.toThrow(/primary.*unavailable/i)
     })
 
     it('should queue writes during network partition', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('write-queue')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Simulate network partition
-      await geo.simulatePartition(['eu-west'])
+      await stub.geo.simulatePartition(['eu-west'])
 
       // Write to primary should succeed but queue for eu-west
-      const result = await geo.write('queued-key', { value: 'queued' })
+      const result = await stub.geo.write('queued-key', { value: 'queued' })
 
       expect(result.primaryRegion).toBe('us-east')
 
       // Check queue status
-      const queueStatus = await geo.getReplicationQueue('eu-west')
+      const queueStatus = await stub.geo.getReplicationQueue('eu-west')
       expect(queueStatus.pendingWrites).toBeGreaterThan(0)
     })
   })
@@ -270,16 +304,19 @@ describe('Geo-Replication', () => {
 
   describe('Read Routing to Nearest Replica', () => {
     it('should route reads to nearest replica', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('read-nearest')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
       })
 
       // Write data first
-      await geo.write('data:123', { value: 'test' })
+      await stub.geo.write('data:123', { value: 'test' })
 
       // Set caller location hint
-      const result: ReadResult = await geo.read('data:123', {
+      const result: ReadResult = await stub.geo.read('data:123', {
         callerRegion: 'eu-central', // Should route to eu-west
       })
 
@@ -287,18 +324,21 @@ describe('Geo-Replication', () => {
     })
 
     it('should fall back to primary when replicas unavailable', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('read-fallback')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Write data first
-      await geo.write('data:456', { value: 'test' })
+      await stub.geo.write('data:456', { value: 'test' })
 
       // Simulate replica failure
-      await geo.simulateRegionFailure('eu-west')
+      await stub.geo.simulateRegionFailure('eu-west')
 
-      const result: ReadResult = await geo.read('data:456', {
+      const result: ReadResult = await stub.geo.read('data:456', {
         callerRegion: 'eu-central',
       })
 
@@ -306,17 +346,20 @@ describe('Geo-Replication', () => {
     })
 
     it('should support read preference configuration', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('read-pref')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         readPreference: 'primary',
       })
 
       // Write data first
-      await geo.write('data:789', { value: 'test' })
+      await stub.geo.write('data:789', { value: 'test' })
 
       // With primary preference, should always read from primary
-      const result: ReadResult = await geo.read('data:789', {
+      const result: ReadResult = await stub.geo.read('data:789', {
         callerRegion: 'ap-northeast',
       })
 
@@ -324,12 +367,15 @@ describe('Geo-Replication', () => {
     })
 
     it('should measure latency to each replica', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('read-latency')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
       })
 
-      const latencies = await geo.measureReplicaLatencies()
+      const latencies = await stub.geo.measureReplicaLatencies()
 
       expect(latencies['us-east']).toBeDefined()
       expect(latencies['eu-west']).toBeDefined()
@@ -338,22 +384,25 @@ describe('Geo-Replication', () => {
     })
 
     it('should cache routing decisions for performance', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('read-cache')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Write data first
-      await geo.write('data:abc', { value: 'test1' })
-      await geo.write('data:xyz', { value: 'test2' })
+      await stub.geo.write('data:abc', { value: 'test1' })
+      await stub.geo.write('data:xyz', { value: 'test2' })
 
       // First read - routing decision calculated
-      const result1 = await geo.read('data:abc', {
+      const result1 = await stub.geo.read('data:abc', {
         callerRegion: 'eu-central',
       })
 
       // Second read - should use cached routing
-      const result2 = await geo.read('data:xyz', {
+      const result2 = await stub.geo.read('data:xyz', {
         callerRegion: 'eu-central',
       })
 
@@ -361,7 +410,7 @@ describe('Geo-Replication', () => {
       expect(result1.sourceRegion).toBe(result2.sourceRegion)
 
       // Check cache stats
-      const cacheStats = await geo.getRoutingCacheStats()
+      const cacheStats = await stub.geo.getRoutingCacheStats()
       expect(cacheStats.hits).toBeGreaterThan(0)
     })
   })
@@ -373,7 +422,10 @@ describe('Geo-Replication', () => {
   describe('Conflict Resolution', () => {
     describe('Last-Writer-Wins (LWW)', () => {
       it('should resolve conflicts using timestamp', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-lww')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west'],
           conflictResolution: 'lww',
@@ -383,15 +435,18 @@ describe('Geo-Replication', () => {
         const earlier = Date.now() - 1000
         const later = Date.now()
 
-        await geo.writeWithTimestamp('key:conflict', 'value-earlier', earlier)
-        await geo.writeWithTimestamp('key:conflict', 'value-later', later)
+        await stub.geo.writeWithTimestamp('key:conflict', 'value-earlier', earlier)
+        await stub.geo.writeWithTimestamp('key:conflict', 'value-later', later)
 
-        const result = await geo.read('key:conflict')
+        const result = await stub.geo.read('key:conflict')
         expect(result.value).toBe('value-later')
       })
 
       it('should use microsecond precision for timestamps', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-precision')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west'],
           conflictResolution: 'lww',
@@ -401,33 +456,39 @@ describe('Geo-Replication', () => {
         const ts1 = 1704067200000.001 // Microsecond precision
         const ts2 = 1704067200000.002
 
-        await geo.writeWithTimestamp('key:precise', 'value1', ts1)
-        await geo.writeWithTimestamp('key:precise', 'value2', ts2)
+        await stub.geo.writeWithTimestamp('key:precise', 'value1', ts1)
+        await stub.geo.writeWithTimestamp('key:precise', 'value2', ts2)
 
-        const result = await geo.read('key:precise')
+        const result = await stub.geo.read('key:precise')
         expect(result.value).toBe('value2')
       })
     })
 
     describe('Vector Clocks', () => {
       it('should track vector clocks for causality', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-vc-track')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west', 'ap-south'],
           conflictResolution: 'vector-clock',
         })
 
         // Write from primary
-        await geo.write('key:versioned', { data: 'initial' })
+        await stub.geo.write('key:versioned', { data: 'initial' })
 
-        const clock: VectorClock = await geo.getVectorClock('key:versioned')
+        const clock: VectorClock = await stub.geo.getVectorClock('key:versioned')
 
         expect(clock['us-east']).toBeDefined()
         expect(clock['us-east']).toBeGreaterThanOrEqual(1)
       })
 
       it('should detect concurrent writes with vector clocks', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-vc-detect')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west'],
           conflictResolution: 'vector-clock',
@@ -437,10 +498,10 @@ describe('Geo-Replication', () => {
         const clock1: VectorClock = { 'us-east': 1, 'eu-west': 0 }
         const clock2: VectorClock = { 'us-east': 0, 'eu-west': 1 }
 
-        await geo.writeWithVectorClock('key:concurrent', 'value-a', clock1)
-        await geo.writeWithVectorClock('key:concurrent', 'value-b', clock2)
+        await stub.geo.writeWithVectorClock('key:concurrent', 'value-a', clock1)
+        await stub.geo.writeWithVectorClock('key:concurrent', 'value-b', clock2)
 
-        const conflicts: ConflictInfo[] = await geo.getConflicts()
+        const conflicts: ConflictInfo[] = await stub.geo.getConflicts()
 
         expect(conflicts.length).toBeGreaterThan(0)
         expect(conflicts[0].key).toBe('key:concurrent')
@@ -448,7 +509,10 @@ describe('Geo-Replication', () => {
       })
 
       it('should merge vector clocks on resolution', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-vc-merge')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west'],
           conflictResolution: 'vector-clock',
@@ -458,13 +522,13 @@ describe('Geo-Replication', () => {
         const clock1: VectorClock = { 'us-east': 2, 'eu-west': 1 }
         const clock2: VectorClock = { 'us-east': 1, 'eu-west': 2 }
 
-        await geo.writeWithVectorClock('key:merge', 'value-a', clock1)
-        await geo.writeWithVectorClock('key:merge', 'value-b', clock2)
+        await stub.geo.writeWithVectorClock('key:merge', 'value-a', clock1)
+        await stub.geo.writeWithVectorClock('key:merge', 'value-b', clock2)
 
         // Resolve conflict manually
-        await geo.resolveConflict('key:merge', 'value-resolved')
+        await stub.geo.resolveConflict('key:merge', 'value-resolved')
 
-        const newClock = await geo.getVectorClock('key:merge')
+        const newClock = await stub.geo.getVectorClock('key:merge')
 
         // Merged clock should have max of each component
         expect(newClock['us-east']).toBeGreaterThanOrEqual(2)
@@ -474,35 +538,41 @@ describe('Geo-Replication', () => {
 
     describe('Conflict Reporting', () => {
       it('should report unresolved conflicts', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-report')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west'],
           conflictResolution: 'manual',
         })
 
         // Create conflicts
-        await geo.simulateConcurrentWrite('key:report1', 'value-a', 'us-east')
-        await geo.simulateConcurrentWrite('key:report1', 'value-b', 'eu-west')
+        await stub.geo.simulateConcurrentWrite('key:report1', 'value-a', 'us-east')
+        await stub.geo.simulateConcurrentWrite('key:report1', 'value-b', 'eu-west')
 
-        const conflicts = await geo.getUnresolvedConflicts()
+        const conflicts = await stub.geo.getUnresolvedConflicts()
 
         expect(Array.isArray(conflicts)).toBe(true)
         expect(conflicts.length).toBeGreaterThan(0)
       })
 
       it('should emit conflict events', async () => {
-        await geo.configureRegion({
+        const ns = uniqueNs('conflict-events')
+        const stub = getGeoStub(ns)
+
+        await stub.geo.configureRegion({
           primary: 'us-east',
           replicas: ['eu-west'],
         })
 
         // Subscribe to conflict events
         const events: ConflictInfo[] = []
-        await geo.onConflict((event: ConflictInfo) => events.push(event))
+        await stub.geo.onConflict((event: ConflictInfo) => events.push(event))
 
         // Create conflict
-        await geo.simulateConcurrentWrite('key:event', 'value-a', 'us-east')
-        await geo.simulateConcurrentWrite('key:event', 'value-b', 'eu-west')
+        await stub.geo.simulateConcurrentWrite('key:event', 'value-a', 'us-east')
+        await stub.geo.simulateConcurrentWrite('key:event', 'value-b', 'eu-west')
 
         // Check events were emitted
         expect(events.length).toBeGreaterThan(0)
@@ -517,45 +587,57 @@ describe('Geo-Replication', () => {
 
   describe('Eventual Consistency Guarantees', () => {
     it('should default to eventual consistency', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('consistency-default')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
-      const config: ConsistencyMetrics = await geo.getConsistencyConfig()
+      const config: ConsistencyMetrics = await stub.geo.getConsistencyConfig()
 
       expect(config.level).toBe('eventual')
     })
 
     it('should support strong consistency option', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('consistency-strong')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         consistency: 'strong',
       })
 
-      const config: ConsistencyMetrics = await geo.getConsistencyConfig()
+      const config: ConsistencyMetrics = await stub.geo.getConsistencyConfig()
 
       expect(config.level).toBe('strong')
       expect(config.quorumSize).toBeDefined()
     })
 
     it('should support bounded staleness', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('consistency-bounded')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
         consistency: 'bounded-staleness',
         maxStalenessMs: 5000,
       })
 
-      const config: ConsistencyMetrics = await geo.getConsistencyConfig()
+      const config: ConsistencyMetrics = await stub.geo.getConsistencyConfig()
 
       expect(config.level).toBe('bounded-staleness')
       expect(config.staleness).toBe(5000)
     })
 
     it('should block stale reads when staleness exceeded', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('consistency-stale')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
         consistency: 'bounded-staleness',
@@ -563,13 +645,13 @@ describe('Geo-Replication', () => {
       })
 
       // Write data
-      await geo.write('key:stale', { value: 'fresh' })
+      await stub.geo.write('key:stale', { value: 'fresh' })
 
       // Simulate lag exceeding staleness bound
-      await geo.simulateReplicationLag('eu-west', 200)
+      await stub.geo.simulateReplicationLag('eu-west', 200)
 
       // Read from eu-west should fail or route to primary
-      const result = await geo.read('key:stale', {
+      const result = await stub.geo.read('key:stale', {
         callerRegion: 'eu-west',
         requireFresh: true,
       })
@@ -579,17 +661,20 @@ describe('Geo-Replication', () => {
     })
 
     it('should guarantee read-your-writes consistency', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('consistency-ryw')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Write from a specific session
       const sessionId = 'session-123'
-      await geo.writeWithSession(sessionId, 'key:ryw', { value: 'written' })
+      await stub.geo.writeWithSession(sessionId, 'key:ryw', { value: 'written' })
 
       // Read with same session should see the write
-      const result = await geo.readWithSession(sessionId, 'key:ryw')
+      const result = await stub.geo.readWithSession(sessionId, 'key:ryw')
 
       expect(result.value).toEqual({ value: 'written' })
     })
@@ -601,31 +686,37 @@ describe('Geo-Replication', () => {
 
   describe('Failover Scenarios', () => {
     it('should detect primary failure via health checks', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('failover-detect')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         failover: { enabled: true, healthCheckIntervalMs: 100 },
       })
 
       // Simulate primary failure
-      await geo.simulateRegionFailure('us-east')
+      await stub.geo.simulateRegionFailure('us-east')
 
-      const status = await geo.getRegionStatus('us-east')
+      const status = await stub.geo.getRegionStatus('us-east')
       expect(status.healthy).toBe(false)
     })
 
     it('should promote replica to primary on failover', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('failover-promote')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         failover: { enabled: true, timeoutMs: 100 },
       })
 
       // Simulate primary failure
-      await geo.simulateRegionFailure('us-east')
+      await stub.geo.simulateRegionFailure('us-east')
 
       // Trigger failover
-      const failoverEvent: FailoverEvent = await geo.triggerFailover()
+      const failoverEvent: FailoverEvent = await stub.geo.triggerFailover()
 
       expect(failoverEvent.previousPrimary).toBe('us-east')
       expect(['eu-west', 'ap-south']).toContain(failoverEvent.newPrimary)
@@ -633,68 +724,77 @@ describe('Geo-Replication', () => {
     })
 
     it('should select best replica for promotion', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('failover-select')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         failover: { enabled: true },
       })
 
       // Set eu-west as more up-to-date
-      await geo.setReplicaLag('eu-west', 10)
-      await geo.setReplicaLag('ap-south', 500)
+      await stub.geo.setReplicaLag('eu-west', 10)
+      await stub.geo.setReplicaLag('ap-south', 500)
 
       // Simulate failure and failover
-      await geo.simulateRegionFailure('us-east')
-      const failoverEvent = await geo.triggerFailover()
+      await stub.geo.simulateRegionFailure('us-east')
+      const failoverEvent = await stub.geo.triggerFailover()
 
       // Should select replica with lowest lag
       expect(failoverEvent.newPrimary).toBe('eu-west')
     })
 
     it('should reintegrate recovered primary', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('failover-reintegrate')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
         failover: { enabled: true },
       })
 
       // Simulate failure and failover
-      await geo.simulateRegionFailure('us-east')
-      await geo.triggerFailover()
+      await stub.geo.simulateRegionFailure('us-east')
+      await stub.geo.triggerFailover()
 
       // Verify eu-west is now primary
-      const statusAfterFailover = await geo.getReplicationStatus()
+      const statusAfterFailover = await stub.geo.getReplicationStatus()
       expect(statusAfterFailover.primary).toBe('eu-west')
 
       // Simulate recovery - the old primary should be healthy but NOT automatically added as replica
       // (that would require explicit addReplica call in production)
-      await geo.simulateRegionRecovery('us-east')
+      await stub.geo.simulateRegionRecovery('us-east')
 
       // Verify region is healthy again
-      const regionStatus = await geo.getRegionStatus('us-east')
+      const regionStatus = await stub.geo.getRegionStatus('us-east')
       expect(regionStatus.healthy).toBe(true)
 
       // In production, you would call addReplica to reintegrate
-      await geo.addReplica('us-east')
+      await stub.geo.addReplica('us-east')
 
-      const finalStatus = await geo.getReplicationStatus()
+      const finalStatus = await stub.geo.getReplicationStatus()
       expect(finalStatus.replicas).toContain('us-east')
       expect(finalStatus.primary).toBe('eu-west')
     })
 
     it('should prevent split-brain scenarios', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('failover-splitbrain')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
         failover: { enabled: true },
       })
 
       // Simulate network partition (not failure)
-      await geo.simulatePartition(['us-east'])
+      await stub.geo.simulatePartition(['us-east'])
 
       // Both regions might think they're primary
-      const usEastStatus = await geo.getRegionRole('us-east')
-      const euWestStatus = await geo.getRegionRole('eu-west')
+      const usEastStatus = await stub.geo.getRegionRole('us-east')
+      const euWestStatus = await stub.geo.getRegionRole('eu-west')
 
       // System should prevent both being primary
       const primaryCount = [usEastStatus, euWestStatus].filter(
@@ -704,26 +804,29 @@ describe('Geo-Replication', () => {
     })
 
     it('should track failover history', async () => {
+      const ns = uniqueNs('failover-history')
+      const stub = getGeoStub(ns)
+
       // Configure with multiple replicas so we can failover twice
-      await geo.configureRegion({
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         failover: { enabled: true },
       })
 
       // First failover: us-east -> eu-west
-      await geo.simulateRegionFailure('us-east')
-      await geo.triggerFailover()
+      await stub.geo.simulateRegionFailure('us-east')
+      await stub.geo.triggerFailover()
 
       // Recover us-east and add it back as replica for the second failover
-      await geo.simulateRegionRecovery('us-east')
-      await geo.addReplica('us-east')
+      await stub.geo.simulateRegionRecovery('us-east')
+      await stub.geo.addReplica('us-east')
 
       // Second failover: eu-west -> one of the replicas
-      await geo.simulateRegionFailure('eu-west')
-      await geo.triggerFailover()
+      await stub.geo.simulateRegionFailure('eu-west')
+      await stub.geo.triggerFailover()
 
-      const history: FailoverEvent[] = await geo.getFailoverHistory()
+      const history: FailoverEvent[] = await stub.geo.getFailoverHistory()
 
       expect(history.length).toBe(2)
       expect(history[0].previousPrimary).toBe('us-east')
@@ -737,12 +840,15 @@ describe('Geo-Replication', () => {
 
   describe('Replication Lag Metrics', () => {
     it('should measure current replication lag', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('lag-measure')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
       })
 
-      const lag: ReplicationLagMetrics = await geo.getReplicationLag()
+      const lag: ReplicationLagMetrics = await stub.geo.getReplicationLag()
 
       expect(typeof lag.maxLagMs).toBe('number')
       expect(typeof lag.avgLagMs).toBe('number')
@@ -751,17 +857,20 @@ describe('Geo-Replication', () => {
     })
 
     it('should track lag percentiles', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('lag-percentiles')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Generate some traffic to build metrics
       for (let i = 0; i < 100; i++) {
-        await geo.write(`key:${i}`, { value: i })
+        await stub.geo.write(`key:${i}`, { value: i })
       }
 
-      const lag: ReplicationLagMetrics = await geo.getReplicationLag()
+      const lag: ReplicationLagMetrics = await stub.geo.getReplicationLag()
 
       expect(lag.p50LagMs).toBeDefined()
       expect(lag.p95LagMs).toBeDefined()
@@ -771,16 +880,19 @@ describe('Geo-Replication', () => {
     })
 
     it('should alert on excessive lag', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('lag-alert')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
         monitoring: { lagAlertThresholdMs: 1000 },
       })
 
       // Simulate high lag
-      await geo.simulateReplicationLag('eu-west', 2000)
+      await stub.geo.simulateReplicationLag('eu-west', 2000)
 
-      const alerts = await geo.getActiveAlerts()
+      const alerts = await stub.geo.getActiveAlerts()
 
       expect(alerts.length).toBeGreaterThan(0)
       expect(alerts[0].type).toBe('replication-lag')
@@ -788,12 +900,15 @@ describe('Geo-Replication', () => {
     })
 
     it('should track lag over time', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('lag-history')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
-      const history = await geo.getLagHistory({
+      const history = await stub.geo.getLagHistory({
         region: 'eu-west',
         duration: '1h',
         resolution: '1m',
@@ -807,15 +922,18 @@ describe('Geo-Replication', () => {
     })
 
     it('should estimate replication completion time', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('lag-eta')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Simulate backlog
-      await geo.simulateReplicationBacklog('eu-west', 1000) // 1000 pending writes
+      await stub.geo.simulateReplicationBacklog('eu-west', 1000) // 1000 pending writes
 
-      const eta = await geo.getReplicationETA('eu-west')
+      const eta = await stub.geo.getReplicationETA('eu-west')
 
       expect(eta.pendingWrites).toBe(1000)
       expect(typeof eta.estimatedCompletionMs).toBe('number')
@@ -823,12 +941,15 @@ describe('Geo-Replication', () => {
     })
 
     it('should expose lag metrics via prometheus format', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('lag-prometheus')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
-      const metrics: string = await geo.getMetricsPrometheus()
+      const metrics: string = await stub.geo.getMetricsPrometheus()
 
       expect(metrics).toContain('geo_replication_lag_ms')
       expect(metrics).toContain('eu-west')
@@ -841,8 +962,11 @@ describe('Geo-Replication', () => {
 
   describe('Integration Scenarios', () => {
     it('should handle full replication lifecycle', async () => {
+      const ns = uniqueNs('integration-lifecycle')
+      const stub = getGeoStub(ns)
+
       // 1. Configure regions
-      await geo.configureRegion({
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
         consistency: 'eventual',
@@ -850,65 +974,71 @@ describe('Geo-Replication', () => {
       })
 
       // 2. Write data
-      await geo.write('user:1', { name: 'Alice' })
+      await stub.geo.write('user:1', { name: 'Alice' })
 
       // 3. Read from nearest
-      const read1 = await geo.read('user:1', {
+      const read1 = await stub.geo.read('user:1', {
         callerRegion: 'eu-central',
       })
       expect(read1.value.name).toBe('Alice')
 
       // 4. Simulate failover
-      await geo.simulateRegionFailure('us-east')
-      const failover = await geo.triggerFailover()
+      await stub.geo.simulateRegionFailure('us-east')
+      const failover = await stub.geo.triggerFailover()
 
       // 5. Verify continued operation
-      const read2 = await geo.read('user:1')
+      const read2 = await stub.geo.read('user:1')
       expect(read2.value.name).toBe('Alice')
 
       // 6. Check metrics
-      const lag = await geo.getReplicationLag()
+      const lag = await stub.geo.getReplicationLag()
       expect(lag.maxLagMs).toBeDefined()
     })
 
     it('should handle region addition', async () => {
+      const ns = uniqueNs('integration-add')
+      const stub = getGeoStub(ns)
+
       // Start with one replica
-      await geo.configureRegion({
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west'],
       })
 
       // Write some data
-      await geo.write('data:1', { value: 'test' })
+      await stub.geo.write('data:1', { value: 'test' })
 
       // Simulate lag for the new region before adding (syncing state)
-      await geo.simulateReplicationLag('ap-south', 100)
+      await stub.geo.simulateReplicationLag('ap-south', 100)
 
       // Add new replica
-      await geo.addReplica('ap-south')
+      await stub.geo.addReplica('ap-south')
 
       // Verify new replica is syncing (has lag)
-      const status = await geo.getReplicaStatus('ap-south')
+      const status = await stub.geo.getReplicaStatus('ap-south')
       expect(status.state).toBe('syncing')
 
       // Clear the lag to simulate sync completion
-      await geo.simulateReplicationLag('ap-south', 0)
+      await stub.geo.simulateReplicationLag('ap-south', 0)
 
       // Verify replica is now synced
-      const finalStatus = await geo.getReplicaStatus('ap-south')
+      const finalStatus = await stub.geo.getReplicaStatus('ap-south')
       expect(finalStatus.state).toBe('synced')
     })
 
     it('should handle region removal', async () => {
-      await geo.configureRegion({
+      const ns = uniqueNs('integration-remove')
+      const stub = getGeoStub(ns)
+
+      await stub.geo.configureRegion({
         primary: 'us-east',
         replicas: ['eu-west', 'ap-south'],
       })
 
       // Remove a replica
-      await geo.removeReplica('ap-south')
+      await stub.geo.removeReplica('ap-south')
 
-      const config = await geo.getRegionConfig()
+      const config = await stub.geo.getRegionConfig()
       expect(config.replicas).not.toContain('ap-south')
       expect(config.replicas).toContain('eu-west')
     })

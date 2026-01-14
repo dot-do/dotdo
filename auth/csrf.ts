@@ -123,13 +123,13 @@ export function parseCSRFToken(token: string): CSRFTokenData | null {
     return null
   }
 
-  const timestamp = parseInt(parts[0], 10)
+  const timestamp = parseInt(parts[0] ?? '', 10)
   if (isNaN(timestamp)) {
     return null
   }
 
   return {
-    token: parts[1],
+    token: parts[1] ?? '',
     timestamp,
   }
 }
@@ -327,9 +327,9 @@ export async function extractCSRFToken(request: Request): Promise<string | null>
   // Check JSON body
   if (contentType.includes('application/json')) {
     try {
-      const body = await request.clone().json()
+      const body = await request.clone().json() as Record<string, unknown>
       if (body && typeof body[CSRF_FIELD_NAME] === 'string') {
-        return body[CSRF_FIELD_NAME]
+        return body[CSRF_FIELD_NAME] as string
       }
     } catch {
       // Ignore parse errors
@@ -454,8 +454,8 @@ export function csrfMetaTag(token: string): string {
  * ```
  */
 export function getCSRFTokenFromMeta(): string | null {
-  if (typeof document === 'undefined') return null
+  if (typeof globalThis.document === 'undefined') return null
 
-  const meta = document.querySelector('meta[name="csrf-token"]')
+  const meta = (globalThis.document as Document).querySelector('meta[name="csrf-token"]')
   return meta?.getAttribute('content') || null
 }

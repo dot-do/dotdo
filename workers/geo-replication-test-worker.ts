@@ -7,8 +7,8 @@
  * @module workers/geo-replication-test-worker
  */
 
-import { DO as DOFull } from '../objects/DOFull'
-import type { Env } from '../objects/DOFull'
+import { DO as DOFull } from '../objects/core/DOFull'
+import type { Env } from '../objects/core/DOFull'
 import { sql } from 'drizzle-orm'
 
 // ============================================================================
@@ -182,35 +182,7 @@ export class GeoDO extends DOFull<Env> {
     // Initialize schema during construction using blockConcurrencyWhile
     ctx.blockConcurrencyWhile(async () => {
       await this.initSchema()
-      const storedNs = await ctx.storage.get<string>('ns')
-      if (storedNs) {
-        // @ts-expect-error - Setting readonly ns
-        this.ns = storedNs
-      } else {
-        // @ts-expect-error - Setting readonly ns
-        this.ns = ctx.id.toString()
-      }
     })
-  }
-
-  override async fetch(request: Request): Promise<Response> {
-    const headerNs = request.headers.get('X-DO-NS')
-    if (headerNs) {
-      // @ts-expect-error - Setting readonly ns
-      this.ns = headerNs
-      await this.ctx.storage.put('ns', headerNs)
-    } else if (!this.ns) {
-      const storedNs = await this.ctx.storage.get<string>('ns')
-      if (storedNs) {
-        // @ts-expect-error - Setting readonly ns
-        this.ns = storedNs
-      } else {
-        // @ts-expect-error - Setting readonly ns
-        this.ns = this.ctx.id.toString()
-      }
-    }
-
-    return super.fetch(request)
   }
 }
 

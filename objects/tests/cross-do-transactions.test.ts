@@ -24,6 +24,8 @@ import {
   CrossDOSaga,
   TwoPhaseCommit,
   IdempotencyKeyManager,
+  SqliteIdempotencyKeyManager,
+  createPersistentIdempotencyStore,
   crossDOCallWithTimeout,
   type SagaStep,
   type SagaResult,
@@ -724,6 +726,317 @@ describe('Cross-DO Transaction Safety', () => {
       const deleted = await manager.delete(key)
       expect(deleted).toBe(true)
       expect(await manager.has(key)).toBe(false)
+    })
+  })
+
+  // ==========================================================================
+  // 7. SQLITE IDEMPOTENCY KEY MANAGER (Persistent)
+  // ==========================================================================
+
+  describe('SqliteIdempotencyKeyManager (Persistent Storage)', () => {
+    // Mock SQL interface that simulates DO SQLite behavior
+    function createMockSql() {
+      const tables = new Map<string, unknown[]>()
+      const indexes = new Set<string>()
+
+      return {
+        exec: <T = unknown>(query: string, ...params: unknown[]): { toArray(): T[]; one(): T | null } => {
+          const normalizedQuery = query.trim().toLowerCase()
+
+          // Handle CREATE TABLE
+          if (normalizedQuery.startsWith('create table')) {
+            const tableMatch = query.match(/create table if not exists (\w+)/i)
+            if (tableMatch) {
+              const tableName = tableMatch[1]!
+              if (!tables.has(tableName)) {
+                tables.set(tableName, [])
+              }
+            }
+            return { toArray: () => [] as T[], one: () => null }
+          }
+
+          // Handle CREATE INDEX
+          if (normalizedQuery.startsWith('create index')) {
+            const indexMatch = query.match(/create index if not exists (\w+)/i)
+            if (indexMatch) {
+              indexes.add(indexMatch[1]!)
+            }
+            return { toArray: () => [] as T[], one: () => null }
+          }
+
+          // Handle INSERT (with ON CONFLICT UPSERT)
+          if (normalizedQuery.startsWith('insert')) {
+            const tableMatch = query.match(/insert into (\w+)/i)
+            if (tableMatch) {
+              const tableName = tableMatch[1]!
+              const tableData = tables.get(tableName) || []
+
+              const [key, result, created_at, expires_at] = params
+              // Check for existing key and update or insert
+              const existingIndex = tableData.findIndex((row: unknown) => (row as { key: string }).key === key)
+              const newRow = { key, result, created_at, expires_at }
+
+              if (existingIndex >= 0) {
+                tableData[existingIndex] = newRow
+              } else {
+                tableData.push(newRow)
+              }
+              tables.set(tableName, tableData)
+            }
+            return { toArray: () => [] as T[], one: () => null }
+          }
+
+          // Handle SELECT with WHERE key = ?
+          if (normalizedQuery.includes('select') && normalizedQuery.includes('from idempotency_keys')) {
+            const tableData = tables.get('idempotency_keys') || []
+
+            // SELECT COUNT(*)
+            if (normalizedQuery.includes('count(*)')) {
+              if (normalizedQuery.includes('expires_at is not null and expires_at <=')) {
+                const now = params[0] as number
+                const count = tableData.filter((row: unknown) => {
+                  const r = row as { expires_at: number | null }
+                  return r.expires_at !== null && r.expires_at <= now
+                }).length
+                return { toArray: () => [{ count }] as T[], one: () => ({ count }) as T }
+              }
+              return { toArray: () => [{ count: tableData.length }] as T[], one: () => ({ count: tableData.length }) as T }
+            }
+
+            // SELECT with key filter
+            if (normalizedQuery.includes('where key = ?')) {
+              const [key, now] = params
+              const found = tableData.find((row: unknown) => {
+                const r = row as { key: string; expires_at: number | null }
+                return r.key === key && (r.expires_at === null || r.expires_at > (now as number))
+              })
+              return {
+                toArray: () => (found ? [found] : []) as T[],
+                one: () => (found || null) as T | null,
+              }
+            }
+
+            // SELECT all non-expired keys
+            if (normalizedQuery.includes('expires_at is null or expires_at >')) {
+              const now = params[0] as number
+              const results = tableData.filter((row: unknown) => {
+                const r = row as { expires_at: number | null }
+                return r.expires_at === null || r.expires_at > now
+              })
+              return { toArray: () => results as T[], one: () => (results[0] || null) as T | null }
+            }
+          }
+
+          // Handle DELETE
+          if (normalizedQuery.startsWith('delete')) {
+            const tableMatch = query.match(/delete from (\w+)/i)
+            if (tableMatch) {
+              const tableName = tableMatch[1]!
+              const tableData = tables.get(tableName) || []
+
+              if (normalizedQuery.includes('where key = ?')) {
+                const key = params[0]
+                tables.set(
+                  tableName,
+                  tableData.filter((row: unknown) => (row as { key: string }).key !== key)
+                )
+              } else if (normalizedQuery.includes('expires_at is not null and expires_at <=')) {
+                const now = params[0] as number
+                tables.set(
+                  tableName,
+                  tableData.filter((row: unknown) => {
+                    const r = row as { expires_at: number | null }
+                    return r.expires_at === null || r.expires_at > now
+                  })
+                )
+              } else {
+                // Clear all
+                tables.set(tableName, [])
+              }
+            }
+            return { toArray: () => [] as T[], one: () => null }
+          }
+
+          return { toArray: () => [] as T[], one: () => null }
+        },
+      }
+    }
+
+    it('should store and retrieve idempotency results', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+      const key = 'stored-key'
+      const result = { orderId: 'ord_123', status: 'completed' }
+
+      await manager.set(key, result)
+
+      const retrieved = await manager.get<typeof result>(key)
+      expect(retrieved).toEqual(result)
+    })
+
+    it('should check key existence', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      expect(await manager.has('nonexistent')).toBe(false)
+
+      await manager.set('exists', { value: 1 })
+      expect(await manager.has('exists')).toBe(true)
+    })
+
+    it('should delete keys', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      await manager.set('to-delete', { value: 1 })
+      expect(await manager.has('to-delete')).toBe(true)
+
+      const deleted = await manager.delete('to-delete')
+      expect(deleted).toBe(true)
+      expect(await manager.has('to-delete')).toBe(false)
+    })
+
+    it('should return false when deleting non-existent key', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      const deleted = await manager.delete('nonexistent')
+      expect(deleted).toBe(false)
+    })
+
+    it('should expire keys after TTL', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+      const key = 'expiring-key'
+
+      await manager.set(key, 'value', 50) // 50ms TTL
+
+      expect(await manager.has(key)).toBe(true)
+
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(await manager.has(key)).toBe(false)
+    })
+
+    it('should use default TTL when not specified', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql, { defaultTtlMs: 100 })
+
+      await manager.set('default-ttl-key', 'value')
+
+      expect(await manager.has('default-ttl-key')).toBe(true)
+
+      await new Promise((r) => setTimeout(r, 150))
+
+      expect(await manager.has('default-ttl-key')).toBe(false)
+    })
+
+    it('should clear all keys', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      await manager.set('key1', 'value1')
+      await manager.set('key2', 'value2')
+
+      expect(manager.keys().length).toBe(2)
+
+      await manager.clear()
+
+      expect(manager.keys().length).toBe(0)
+    })
+
+    it('should list all non-expired keys', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      await manager.set('key1', 'value1')
+      await manager.set('key2', 'value2')
+      await manager.set('key3', 'value3')
+
+      const keys = manager.keys()
+      expect(keys).toContain('key1')
+      expect(keys).toContain('key2')
+      expect(keys).toContain('key3')
+    })
+
+    it('should cleanup expired keys', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      await manager.set('expires-soon', 'value', 50)
+      await manager.set('expires-later', 'value', 10000)
+
+      await new Promise((r) => setTimeout(r, 100))
+
+      const cleaned = await manager.cleanupExpired()
+      expect(cleaned).toBe(1)
+
+      expect(await manager.has('expires-soon')).toBe(false)
+      expect(await manager.has('expires-later')).toBe(true)
+    })
+
+    it('should report stats correctly', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      await manager.set('active1', 'value', 10000)
+      await manager.set('active2', 'value', 10000)
+      await manager.set('expired', 'value', 1)
+
+      await new Promise((r) => setTimeout(r, 10))
+
+      const stats = await manager.stats()
+      expect(stats.total).toBe(3)
+      expect(stats.expired).toBe(1)
+      expect(stats.active).toBe(2)
+    })
+
+    it('should handle upsert (update existing key)', async () => {
+      const sql = createMockSql()
+      const manager = new SqliteIdempotencyKeyManager(sql)
+
+      await manager.set('key', { version: 1 })
+      expect(await manager.get('key')).toEqual({ version: 1 })
+
+      await manager.set('key', { version: 2 })
+      expect(await manager.get('key')).toEqual({ version: 2 })
+    })
+
+    it('should create manager using factory function', async () => {
+      const sql = createMockSql()
+      const manager = createPersistentIdempotencyStore(sql, { defaultTtlMs: 5000 })
+
+      expect(manager).toBeInstanceOf(SqliteIdempotencyKeyManager)
+
+      await manager.set('test', 'value')
+      expect(await manager.get('test')).toBe('value')
+    })
+
+    it('should work with CrossDOSaga for persistent idempotency', async () => {
+      const sql = createMockSql()
+      const idempotencyStore = new SqliteIdempotencyKeyManager(sql)
+      let executionCount = 0
+
+      const saga = new CrossDOSaga<void, string>({ idempotencyStore })
+        .addStep({
+          name: 'countedStep',
+          execute: async () => {
+            executionCount++
+            return `result-${executionCount}`
+          },
+        })
+
+      const key = 'persistent-key-123'
+
+      // First execution
+      const result1 = await saga.execute(undefined, { idempotencyKey: key })
+      expect(executionCount).toBe(1)
+      expect(result1.result).toBe('result-1')
+
+      // Second execution with same key (should return cached result)
+      const result2 = await saga.execute(undefined, { idempotencyKey: key })
+      expect(executionCount).toBe(1) // Not incremented
+      expect(result2.result).toBe('result-1') // Same result
     })
   })
 

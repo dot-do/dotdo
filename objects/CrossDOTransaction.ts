@@ -1118,14 +1118,264 @@ export class TwoPhaseCommit {
 // ============================================================================
 
 /**
- * IdempotencyKeyManager - Tracks idempotency keys to prevent duplicate execution
+ * SQL interface for idempotency storage
+ */
+interface SqlInterface {
+  exec<T = unknown>(query: string, ...params: unknown[]): SqlCursor<T>
+}
+
+interface SqlCursor<T = unknown> {
+  toArray(): T[]
+  one(): T | null
+}
+
+/**
+ * Idempotency key row structure in SQLite
+ */
+interface IdempotencyKeyRow {
+  key: string
+  result: string
+  created_at: number
+  expires_at: number | null
+}
+
+/**
+ * Default TTL for idempotency keys (24 hours)
+ */
+const DEFAULT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
+
+/**
+ * SqliteIdempotencyKeyManager - Persistent idempotency key storage using DO SQLite
  *
  * Features:
- * - In-memory storage (for DO-scoped idempotency)
+ * - Persistent storage that survives DO hibernation/eviction
+ * - TTL support for key expiration
+ * - Automatic expired key cleanup on read operations
+ * - Periodic cleanup method for background maintenance
+ *
+ * @example
+ * ```typescript
+ * // In DO constructor or initialization
+ * const idempotencyManager = new SqliteIdempotencyKeyManager(ctx.storage.sql)
+ *
+ * // Use with saga
+ * const saga = new CrossDOSaga({ idempotencyStore: idempotencyManager })
+ * ```
+ */
+export class SqliteIdempotencyKeyManager implements IdempotencyStore {
+  private sql: SqlInterface
+  private schemaInitialized = false
+  private defaultTtlMs: number
+
+  constructor(sql: SqlInterface, options?: { defaultTtlMs?: number }) {
+    this.sql = sql
+    this.defaultTtlMs = options?.defaultTtlMs ?? DEFAULT_IDEMPOTENCY_TTL_MS
+  }
+
+  /**
+   * Initialize the idempotency_keys table if it doesn't exist
+   */
+  private ensureSchema(): void {
+    if (this.schemaInitialized) return
+
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS idempotency_keys (
+        key TEXT PRIMARY KEY NOT NULL,
+        result TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER
+      )
+    `)
+
+    // Create index for expiration queries
+    this.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idempotency_keys_expires_idx
+      ON idempotency_keys (expires_at)
+    `)
+
+    this.schemaInitialized = true
+  }
+
+  /**
+   * Check if a key exists and is not expired
+   */
+  async has(key: string): Promise<boolean> {
+    this.ensureSchema()
+
+    const now = Date.now()
+    const result = this.sql.exec<IdempotencyKeyRow>(
+      `SELECT key FROM idempotency_keys
+       WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`,
+      key,
+      now
+    ).one()
+
+    return result !== null
+  }
+
+  /**
+   * Store a result with optional TTL
+   * Uses UPSERT to handle duplicate keys
+   */
+  async set(key: string, result: unknown, ttlMs?: number): Promise<void> {
+    this.ensureSchema()
+
+    const now = Date.now()
+    const expiresAt = ttlMs ? now + ttlMs : now + this.defaultTtlMs
+    const resultJson = JSON.stringify(result)
+
+    this.sql.exec(
+      `INSERT INTO idempotency_keys (key, result, created_at, expires_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         result = excluded.result,
+         expires_at = excluded.expires_at`,
+      key,
+      resultJson,
+      now,
+      expiresAt
+    )
+  }
+
+  /**
+   * Get a stored result
+   * Returns undefined if key doesn't exist or is expired
+   */
+  async get<T>(key: string): Promise<T | undefined> {
+    this.ensureSchema()
+
+    const now = Date.now()
+    const result = this.sql.exec<IdempotencyKeyRow>(
+      `SELECT result FROM idempotency_keys
+       WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`,
+      key,
+      now
+    ).one()
+
+    if (!result) return undefined
+
+    try {
+      return JSON.parse(result.result) as T
+    } catch {
+      // If JSON parse fails, return undefined and clean up the bad entry
+      await this.delete(key)
+      return undefined
+    }
+  }
+
+  /**
+   * Delete a key
+   */
+  async delete(key: string): Promise<boolean> {
+    this.ensureSchema()
+
+    // Check if key exists before delete
+    const exists = await this.has(key)
+    if (!exists) return false
+
+    this.sql.exec(`DELETE FROM idempotency_keys WHERE key = ?`, key)
+    return true
+  }
+
+  /**
+   * Clear all keys (use with caution)
+   */
+  async clear(): Promise<void> {
+    this.ensureSchema()
+    this.sql.exec(`DELETE FROM idempotency_keys`)
+  }
+
+  /**
+   * Get all non-expired keys (for debugging)
+   */
+  keys(): string[] {
+    this.ensureSchema()
+
+    const now = Date.now()
+    const results = this.sql.exec<{ key: string }>(
+      `SELECT key FROM idempotency_keys
+       WHERE expires_at IS NULL OR expires_at > ?`,
+      now
+    ).toArray()
+
+    return results.map((r) => r.key)
+  }
+
+  /**
+   * Clean up expired keys
+   * Call this periodically (e.g., in alarm handler) to free up storage
+   *
+   * @returns Number of keys deleted
+   */
+  async cleanupExpired(): Promise<number> {
+    this.ensureSchema()
+
+    const now = Date.now()
+
+    // First count how many will be deleted
+    const countResult = this.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM idempotency_keys WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+      now
+    ).one()
+
+    const count = countResult?.count ?? 0
+
+    // Then delete them
+    if (count > 0) {
+      this.sql.exec(
+        `DELETE FROM idempotency_keys WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+        now
+      )
+    }
+
+    return count
+  }
+
+  /**
+   * Get statistics about stored keys
+   */
+  async stats(): Promise<{
+    total: number
+    expired: number
+    active: number
+  }> {
+    this.ensureSchema()
+
+    const now = Date.now()
+
+    const totalResult = this.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM idempotency_keys`
+    ).one()
+
+    const expiredResult = this.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM idempotency_keys WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+      now
+    ).one()
+
+    const total = totalResult?.count ?? 0
+    const expired = expiredResult?.count ?? 0
+
+    return {
+      total,
+      expired,
+      active: total - expired,
+    }
+  }
+}
+
+/**
+ * IdempotencyKeyManager - In-memory idempotency key storage
+ *
+ * WARNING: This implementation uses in-memory storage which will be lost
+ * when the DO is evicted or hibernates. For production use with DOs,
+ * use SqliteIdempotencyKeyManager instead.
+ *
+ * Features:
+ * - In-memory storage (for testing or non-DO use cases)
  * - TTL support for key expiration
  * - Result storage and retrieval
  *
- * For cross-DO idempotency, use DO storage instead of in-memory.
+ * @deprecated Use SqliteIdempotencyKeyManager for Durable Objects
  */
 export class IdempotencyKeyManager implements IdempotencyStore {
   private store = new Map<string, { result: unknown; expiresAt?: number }>()
@@ -1192,6 +1442,32 @@ export class IdempotencyKeyManager implements IdempotencyStore {
   keys(): string[] {
     return Array.from(this.store.keys())
   }
+}
+
+/**
+ * Factory function to create an idempotency key manager with DO SQLite storage
+ *
+ * @param sql - The SQL interface from ctx.storage.sql
+ * @param options - Optional configuration
+ * @returns SqliteIdempotencyKeyManager instance
+ *
+ * @example
+ * ```typescript
+ * class MyDO extends DurableObject {
+ *   idempotencyManager: SqliteIdempotencyKeyManager
+ *
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env)
+ *     this.idempotencyManager = createPersistentIdempotencyStore(ctx.storage.sql)
+ *   }
+ * }
+ * ```
+ */
+export function createPersistentIdempotencyStore(
+  sql: SqlInterface,
+  options?: { defaultTtlMs?: number }
+): SqliteIdempotencyKeyManager {
+  return new SqliteIdempotencyKeyManager(sql, options)
 }
 
 // ============================================================================

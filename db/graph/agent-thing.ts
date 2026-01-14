@@ -40,8 +40,9 @@
 import { createThing, getThing, getThingsByType, updateThing, deleteThing } from './things'
 import type { GraphThing } from './things'
 
-// Import personas from agent SDK
-import { PERSONA_DEFINITIONS } from '../../agents/named/personas'
+// Persona definitions for named agents
+// Note: Named agents module was removed, using inline stub
+const PERSONA_DEFINITIONS: Record<string, { description?: string; instructions?: string } | undefined> = {}
 
 // ============================================================================
 // CONSTANTS

@@ -28,9 +28,13 @@ import type { ProviderToolAdapter } from '../provider-adapter'
 // Adapter Exports
 // =============================================================================
 
-export { sendgridAdapter } from './sendgrid'
-export { stripeAdapter } from './stripe'
-export { slackAdapter } from './slack'
+// NOTE: These adapters are temporarily disabled as they depend on
+// the deleted compat/ modules. They will be re-enabled when the
+// compat layer is restored or refactored.
+//
+// export { sendgridAdapter } from './sendgrid'
+// export { stripeAdapter } from './stripe'
+// export { slackAdapter } from './slack'
 
 // =============================================================================
 // All Adapters
@@ -38,20 +42,11 @@ export { slackAdapter } from './slack'
 
 /**
  * Get all available adapters
+ * NOTE: Currently returns empty array as compat adapters are disabled
  */
 export function getAllAdapters(): ProviderToolAdapter[] {
-  // Using dynamic imports to avoid circular dependencies and allow tree-shaking
-  const adapters: ProviderToolAdapter[] = []
-
-  // Import adapters lazily
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  adapters.push(require('./sendgrid').sendgridAdapter)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  adapters.push(require('./stripe').stripeAdapter)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  adapters.push(require('./slack').slackAdapter)
-
-  return adapters
+  // Compat adapters are temporarily disabled
+  return []
 }
 
 /**

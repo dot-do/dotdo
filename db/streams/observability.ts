@@ -5,7 +5,7 @@
  * used by Cloudflare Pipelines for analytics storage.
  */
 
-import type { ObservabilityEvent } from '../types/observability'
+import type { ObservabilityEvent } from '../../types/observability'
 
 /**
  * IcebergRow represents the output format for Cloudflare Pipelines.
