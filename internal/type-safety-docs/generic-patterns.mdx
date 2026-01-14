@@ -1,0 +1,460 @@
+---
+title: Generic Patterns
+description: Reusable type-safe abstractions with TypeScript generics
+---
+
+# Generic Patterns
+
+dotdo uses advanced generic patterns to create flexible, reusable, and type-safe abstractions. These patterns enable building APIs that maintain type safety across diverse use cases.
+
+## Function Type System
+
+Located in `/types/fn.ts`:
+
+### Multi-Style Function Interface
+
+The `Fn` type supports three calling styles while maintaining type safety:
+
+```typescript
+/**
+ * Core function type with triple calling style support.
+ *
+ * @template Out - The output type
+ * @template In - The input type (default: unknown)
+ * @template Opts - Optional configuration object (default: {})
+ */
+export interface Fn<Out, In = unknown, Opts extends Record<string, unknown> = {}> {
+  // Style 1: Direct call
+  (input: In, opts?: Opts): Out
+
+  // Style 2: Tagged template with interpolation
+  (strings: TemplateStringsArray, ...values: unknown[]): Out
+
+  // Style 3: Tagged template with named params - returns a function
+  <S extends string>(
+    strings: TemplateStringsArray & { raw: readonly S[] },
+  ): TaggedResult<Out, S, Opts>
+}
+```
+
+### Async Variant
+
+```typescript
+export interface AsyncFn<
+  Out,
+  In = unknown,
+  Opts extends Record<string, unknown> = {},
+> {
+  (input: In, opts?: Opts): Promise<Out>
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<Out>
+  <S extends string>(
+    strings: TemplateStringsArray & { raw: readonly S[] },
+  ): (params: Record<string, unknown>, opts?: Opts) => Promise<Out>
+}
+```
+
+### RPC Promise Variant
+
+```typescript
+export interface RpcFn<
+  Out,
+  In = unknown,
+  Opts extends Record<string, unknown> = {},
+> {
+  (input: In, opts?: Opts): RpcPromise<Out>
+  (strings: TemplateStringsArray, ...values: unknown[]): RpcPromise<Out>
+  <S extends string>(
+    strings: TemplateStringsArray & { raw: readonly S[] },
+  ): (params: Record<string, unknown>, opts?: Opts) => RpcPromise<Out>
+}
+```
+
+### Stream Variant
+
+```typescript
+export interface StreamFn<
+  Out,
+  In = unknown,
+  Opts extends Record<string, unknown> = {},
+> {
+  (input: In, opts?: Opts): AsyncIterable<Out>
+  (strings: TemplateStringsArray, ...values: unknown[]): AsyncIterable<Out>
+  <S extends string>(
+    strings: TemplateStringsArray & { raw: readonly S[] },
+  ): (params: Record<string, unknown>, opts?: Opts) => AsyncIterable<Out>
+}
+```
+
+## Execution Result Generics
+
+Located in `/types/AIFunction.ts`:
+
+### Base Result Type
+
+```typescript
+/**
+ * Base execution result type
+ *
+ * @template T - The result value type
+ * @template M - The metrics type (extends ExecutionMetrics)
+ */
+export interface ExecutionResult<T, M extends ExecutionMetrics = ExecutionMetrics> {
+  success: boolean
+  value?: T
+  error?: AIFunctionError
+  metrics: M
+  traceId: string
+}
+```
+
+### Specialized Result Types
+
+```typescript
+// Each function type has its own result type
+export type CodeExecutionResult<T> = ExecutionResult<T, ExecutionMetrics>
+export type GenerativeExecutionResult<T> = ExecutionResult<T, GenerativeMetrics>
+export type AgenticExecutionResult<T> = ExecutionResult<T, AgenticMetrics>
+export type HumanExecutionResult<T> = ExecutionResult<T, HumanMetrics>
+```
+
+## Tool Definition Generics
+
+```typescript
+/**
+ * Tool definition for agentic functions
+ *
+ * @template Input - The input type for the tool
+ * @template Output - The output type from the tool
+ */
+export interface Tool<Input = unknown, Output = unknown> {
+  name: string
+  description: string
+  inputSchema?: JSONSchema
+  outputSchema?: JSONSchema
+  execute: (input: Input) => Promise<Output>
+}
+```
+
+## Function Definition Generics
+
+### Base Definition
+
+```typescript
+/**
+ * Base AI function definition
+ *
+ * @template Input - Input type
+ * @template Output - Output type
+ * @template Options - Options type extending BaseExecutorOptions
+ */
+export interface AIFunctionDefinition<
+  Input = unknown,
+  Output = unknown,
+  Options extends BaseExecutorOptions = BaseExecutorOptions
+> {
+  name: string
+  description?: string
+  type: FunctionType
+  inputSchema?: JSONSchema
+  outputSchema?: JSONSchema
+  defaultOptions?: Partial<Options>
+}
+```
+
+### Specialized Definitions
+
+```typescript
+export interface CodeFunctionDefinition<Input = unknown, Output = unknown>
+  extends AIFunctionDefinition<Input, Output, CodeOptions> {
+  type: 'code'
+  handler: (input: Input, options?: CodeOptions) => Output | Promise<Output>
+}
+
+export interface GenerativeFunctionDefinition<Input = unknown, Output = unknown>
+  extends AIFunctionDefinition<Input, Output, GenerativeOptions> {
+  type: 'generative'
+  prompt?: string | ((input: Input) => string)
+  systemPrompt?: string
+}
+
+export interface AgenticFunctionDefinition<Input = unknown, Output = unknown>
+  extends AIFunctionDefinition<Input, Output, AgenticOptions> {
+  type: 'agentic'
+  tools?: Tool[]
+  goal?: string | ((input: Input) => string)
+}
+```
+
+## Event Handler Generics
+
+Located in `/types/EventHandler.ts`:
+
+### Typed Domain Event
+
+```typescript
+/**
+ * A domain event with a typed payload.
+ *
+ * @template TPayload - The type of the event payload data
+ */
+export interface TypedDomainEvent<TPayload> {
+  id: string
+  verb: string
+  source: string
+  data: TPayload
+  actionId?: string
+  timestamp: Date
+}
+```
+
+### Typed Event Handler
+
+```typescript
+/**
+ * An event handler function that receives events with typed payloads.
+ *
+ * @template TPayload - The type of the event payload data
+ */
+export type TypedEventHandler<TPayload> = (
+  event: TypedDomainEvent<TPayload>
+) => Promise<void>
+```
+
+### Handler Options with Generics
+
+```typescript
+/**
+ * Options for enhanced event handler registration
+ */
+export interface HandlerOptions<TPayload = unknown> {
+  priority?: number
+  filter?: EventFilter<TPayload>
+  name?: string
+  maxRetries?: number
+}
+
+export interface HandlerRegistration<TPayload = unknown> {
+  name: string
+  priority: number
+  handler: EventHandler<TPayload>
+  filter?: EventFilter<TPayload>
+  // ... other fields
+}
+```
+
+## Workflow Context Generics
+
+Located in `/types/WorkflowContext.ts`:
+
+### Noun Accessors
+
+```typescript
+/**
+ * NounAccessors - Mapped type providing typed noun access
+ */
+export type NounAccessors = {
+  [K in keyof NounRegistry]: (id: string) => DomainProxy
+}
+```
+
+### Typed On Proxy
+
+```typescript
+/**
+ * Typed OnNounProxy factory that creates verb handlers for a noun
+ */
+export type TypedOnNounProxy<Noun extends string> = {
+  [Verb in string]: (
+    handler: EventHandler<EventPayload<Noun, Verb>>,
+    options?: HandlerOptions<EventPayload<Noun, Verb>>
+  ) => void
+}
+```
+
+## Capability Composition
+
+Located in `/types/CloudflareBindings.ts`:
+
+### Required Bindings Pattern
+
+```typescript
+/**
+ * Type helper for creating environment types with required bindings
+ */
+export type WithRequiredBindings<K extends keyof CloudflareEnv> = CloudflareEnv & {
+  [P in K]-?: NonNullable<CloudflareEnv[P]>
+}
+
+// Usage examples
+export type WithStorage = WithRequiredBindings<'KV' | 'R2' | 'DB'>
+export type WithAI = CloudflareEnv & { AI: Ai }
+export type WithFullAI = WithRequiredBindings<'AI' | 'VECTORS'>
+export type WithMessaging = WithRequiredBindings<'EVENTS_QUEUE' | 'JOBS_QUEUE' | 'WEBHOOKS_QUEUE'>
+```
+
+### Capability Context Types
+
+Located in `/types/WorkflowContext.ts`:
+
+```typescript
+/**
+ * WorkflowContext with required filesystem capability
+ */
+export type WithFs = WorkflowContext & { fs: FsCapability }
+
+/**
+ * WorkflowContext with required git capability
+ */
+export type WithGit = WorkflowContext & { git: GitCapability }
+
+/**
+ * WorkflowContext with required bash capability
+ */
+export type WithBash = WorkflowContext & { bash: BashCapability }
+
+/**
+ * WorkflowContext with all capabilities required
+ */
+export type WithAllCapabilities = WithFs & WithGit & WithBash
+```
+
+## Function Composition
+
+### Composed Function Type
+
+```typescript
+/**
+ * Compose multiple functions into a pipeline
+ */
+export interface ComposedFunction<Output, Input = unknown> {
+  (input: Input): Promise<Output>
+
+  /** Add another function to the pipeline */
+  pipe<Next>(fn: (output: Output) => Promise<Next> | Next): ComposedFunction<Next, Input>
+
+  /** Add error handling */
+  catch<Fallback>(
+    handler: (error: AIFunctionError) => Promise<Fallback> | Fallback
+  ): ComposedFunction<Output | Fallback, Input>
+
+  /** Add conditional branching */
+  branch<A, B>(
+    predicate: (output: Output) => boolean,
+    onTrue: (output: Output) => Promise<A> | A,
+    onFalse: (output: Output) => Promise<B> | B
+  ): ComposedFunction<A | B, Input>
+}
+```
+
+### Cascading Function Type
+
+```typescript
+/**
+ * Function that can fallback through execution methods
+ */
+export interface CascadingFunction<Output, Input = unknown> {
+  (input: Input): Promise<ExecutionResult<Output>>
+  getCascade(): FunctionType[]
+  setCascade(order: FunctionType[]): CascadingFunction<Output, Input>
+}
+```
+
+## RPC Promise Extension
+
+Located in `/types/fn.ts`:
+
+```typescript
+/**
+ * Promise-like type that supports RPC pipelining operations.
+ */
+export interface RpcPromise<T> extends Promise<T> {
+  pipe<U>(fn: (data: T) => U): RpcPromise<U>
+  map<U>(fn: (data: T) => U): RpcPromise<U>
+}
+```
+
+## AI Pipeline Promise
+
+Located in `/types/WorkflowContext.ts`:
+
+```typescript
+/**
+ * PipelinePromise - Promise with chainable methods for no-await operations
+ */
+export interface AIPipelinePromise<T> extends Promise<T> {
+  /** Transform the result */
+  map<R>(fn: (value: T) => R | Promise<R>): AIPipelinePromise<R>
+
+  /** Access a property on the resolved value */
+  get<K extends keyof T>(key: K): AIPipelinePromise<T[K]>
+
+  /** Handle errors */
+  catch<R = T>(fn: (error: Error) => R | Promise<R>): AIPipelinePromise<R>
+}
+```
+
+## Best Practices
+
+### 1. Default Generic Parameters
+
+```typescript
+// Provide sensible defaults for optional generics
+interface Container<T = unknown, Options extends object = {}> {
+  value: T
+  options?: Options
+}
+
+// Users can use without specifying all parameters
+const simple: Container = { value: 42 }
+const typed: Container<string> = { value: 'hello' }
+```
+
+### 2. Constrain Generic Parameters
+
+```typescript
+// Use extends to constrain acceptable types
+interface Handler<T extends Record<string, unknown>> {
+  process(data: T): void
+}
+
+// Only objects with string keys allowed
+const valid: Handler<{ name: string }> = { process: (d) => {} }
+// const invalid: Handler<number> = ...  // Error!
+```
+
+### 3. Infer from Function Arguments
+
+```typescript
+function createHandler<T>(
+  handler: (event: TypedDomainEvent<T>) => Promise<void>
+): TypedEventHandler<T> {
+  return handler
+}
+
+// T is inferred from the handler parameter
+const myHandler = createHandler(async (event) => {
+  // event.data is inferred from usage
+})
+```
+
+### 4. Use Mapped Types for Variants
+
+```typescript
+// Create a variant for each key
+type Executors = {
+  [K in FunctionType]: (input: unknown) => Promise<ResultForType<K, unknown>>
+}
+
+// Or transform existing types
+type OptionalProps<T> = {
+  [K in keyof T]?: T[K]
+}
+```
+
+## Implementation References
+
+- `/types/fn.ts` - Function type generics
+- `/types/AIFunction.ts` - AI function and result generics
+- `/types/EventHandler.ts` - Event handler generics
+- `/types/WorkflowContext.ts` - Workflow context generics
+- `/types/CloudflareBindings.ts` - Binding composition generics

@@ -1,0 +1,608 @@
+---
+title: GitHub
+description: Octokit-compatible GitHub SDK with edge compatibility, webhook handling, and full API coverage for repositories, issues, pull requests, and actions.
+---
+
+# GitHub
+
+Drop-in replacement for the official Octokit SDK. Your existing GitHub code works unchanged - just swap the import.
+
+```typescript
+// Before: Octokit
+import { Octokit } from '@octokit/rest'
+
+// After: dotdo (import from compat/github)
+import { Octokit } from 'compat/github'
+
+// Code stays the same
+const octokit = new Octokit({ auth: 'ghp_xxx' })
+
+const { data: repo } = await octokit.rest.repos.get({
+  owner: 'octocat',
+  repo: 'hello-world',
+})
+
+const { data: issue } = await octokit.rest.issues.create({
+  owner: 'octocat',
+  repo: 'hello-world',
+  title: 'Bug report',
+  body: 'Something is broken',
+})
+```
+
+## Prerequisites
+
+Before integrating GitHub with dotdo, you need:
+
+### 1. Create a GitHub Account
+
+If you do not have a GitHub account, [create one at github.com](https://github.com/signup). The registration process takes only a few minutes.
+
+### 2. Generate a Personal Access Token
+
+GitHub uses personal access tokens (PATs) for API authentication.
+
+**Creating a fine-grained personal access token (recommended):**
+
+1. Log in to your [GitHub account](https://github.com)
+2. Go to **Settings > Developer settings > Personal access tokens > Fine-grained tokens**
+3. Click **Generate new token**
+4. Set a token name and expiration
+5. Select the repositories you want to access
+6. Choose permissions for each scope:
+   - **Contents**: Read/write for file operations
+   - **Issues**: Read/write for issue management
+   - **Pull requests**: Read/write for PR management
+   - **Actions**: Read/write for workflow operations
+7. Click **Generate token**
+8. Copy the token immediately (it will not be shown again)
+
+**Creating a classic personal access token:**
+
+1. Go to **Settings > Developer settings > Personal access tokens > Tokens (classic)**
+2. Click **Generate new token (classic)**
+3. Select scopes: `repo`, `workflow`, `admin:org` (as needed)
+4. Click **Generate token**
+
+### 3. Token Types
+
+| Token Type | Prefix | Use Case |
+|------------|--------|----------|
+| **Fine-grained PAT** | `github_pat_` | Recommended for new integrations |
+| **Classic PAT** | `ghp_` | Legacy integrations |
+| **GitHub App** | `ghs_` | Server-to-server automation |
+| **OAuth** | `gho_` | User authorization flows |
+
+## Environment Variables
+
+Set up these environment variables in your project:
+
+```bash
+# Required: Your GitHub personal access token
+GITHUB_TOKEN=ghp_your_token_here
+
+# Required for webhooks: Your webhook secret
+GITHUB_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Optional: GitHub App credentials (for app-based auth)
+GITHUB_APP_ID=123456
+GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
+GITHUB_INSTALLATION_ID=12345678
+```
+
+**Environment variable checklist:**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_TOKEN` | Yes | API authentication |
+| `GITHUB_WEBHOOK_SECRET` | Yes (if using webhooks) | Verifies webhook signatures |
+| `GITHUB_APP_ID` | No | GitHub App authentication |
+| `GITHUB_PRIVATE_KEY` | No | GitHub App private key |
+
+## Why @dotdo/github?
+
+| Octokit SDK | dotdo GitHub |
+|-------------|--------------|
+| Node.js dependencies | Edge-compatible (Cloudflare Workers) |
+| Heavy bundle size (~50KB+) | Lightweight (~10KB) |
+| No built-in webhook verification | Integrated webhook utilities |
+| Separate pagination helpers | Built-in pagination |
+| Complex plugin system | Simple, focused API |
+
+**This is a compatibility layer.** It provides the same API surface as Octokit while adding edge runtime support and reducing bundle size.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Repositories**
+- `repos.get()`, `repos.update()`, `repos.delete()`
+- `repos.listForOrg()`, `repos.listForAuthenticatedUser()`
+- `repos.createForAuthenticatedUser()`, `repos.createInOrg()`
+- `repos.listBranches()`, `repos.getBranch()`
+
+**Issues**
+- `issues.create()`, `issues.get()`, `issues.update()`
+- `issues.list()`, `issues.listForRepo()`
+- `issues.createComment()`, `issues.listComments()`
+- `issues.updateComment()`, `issues.deleteComment()`
+- `issues.addLabels()`, `issues.removeLabel()`
+- `issues.addAssignees()`, `issues.removeAssignees()`
+
+**Pull Requests**
+- `pulls.create()`, `pulls.get()`, `pulls.update()`
+- `pulls.list()`, `pulls.merge()`
+- `pulls.listFiles()`, `pulls.listReviews()`
+- `pulls.requestReviewers()`, `pulls.createReview()`
+
+**Actions**
+- `actions.createWorkflowDispatch()` - Trigger workflow runs
+- `actions.listWorkflowRuns()`, `actions.getWorkflowRun()`
+- `actions.listJobsForWorkflowRun()`
+- `actions.listArtifacts()`, `actions.downloadArtifact()`
+- `actions.cancelWorkflowRun()`, `actions.rerunWorkflow()`
+
+**Users**
+- `users.getAuthenticated()`, `users.getByUsername()`
+- `users.listFollowers()`, `users.listFollowing()`
+- `users.listSocialAccounts()`
+
+**Webhooks**
+- `verifyWebhookSignature()` - Verify webhook payloads
+- `parseWebhookPayload()` - Parse typed webhook events
+- `createWebhookHandler()` - Create typed webhook handlers
+- `createWebhookRouter()` - Route webhooks by event type
+
+### Not Yet Implemented
+
+- Gists API
+- Organizations API (full)
+- Teams API
+- Deployments API
+- Releases API (full)
+- Projects API
+- Packages API
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { Octokit } from 'compat/github'
+
+const octokit = new Octokit({ auth: env.GITHUB_TOKEN })
+
+// Get repository info
+const { data: repo } = await octokit.rest.repos.get({
+  owner: 'octocat',
+  repo: 'hello-world',
+})
+
+console.log('Repository:', repo.full_name)
+console.log('Stars:', repo.stargazers_count)
+```
+
+### Issue Management
+
+```typescript
+import { Octokit } from 'compat/github'
+
+const octokit = new Octokit({ auth: env.GITHUB_TOKEN })
+
+// Create an issue
+const { data: issue } = await octokit.rest.issues.create({
+  owner: 'myorg',
+  repo: 'myrepo',
+  title: 'Bug: Login page crashes on Safari',
+  body: `
+## Description
+The login page crashes when accessed on Safari 17.
+
+## Steps to reproduce
+1. Open Safari
+2. Navigate to /login
+3. Page crashes
+
+## Expected behavior
+Login page should load normally.
+  `,
+  labels: ['bug', 'priority-high'],
+  assignees: ['developer1'],
+})
+
+console.log('Created issue:', issue.html_url)
+
+// Add a comment
+await octokit.rest.issues.createComment({
+  owner: 'myorg',
+  repo: 'myrepo',
+  issue_number: issue.number,
+  body: 'Investigating this now.',
+})
+
+// Close the issue
+await octokit.rest.issues.update({
+  owner: 'myorg',
+  repo: 'myrepo',
+  issue_number: issue.number,
+  state: 'closed',
+})
+```
+
+### Pull Request Workflow
+
+```typescript
+import { Octokit } from 'compat/github'
+
+const octokit = new Octokit({ auth: env.GITHUB_TOKEN })
+
+// Create a pull request
+const { data: pr } = await octokit.rest.pulls.create({
+  owner: 'myorg',
+  repo: 'myrepo',
+  title: 'feat: Add user authentication',
+  head: 'feature/auth',
+  base: 'main',
+  body: `
+## Summary
+Implements OAuth2 and SAML authentication.
+
+## Changes
+- Added auth middleware
+- Created login/logout endpoints
+- Added session management
+
+## Testing
+- [ ] Unit tests pass
+- [ ] Integration tests pass
+- [ ] Manual QA complete
+  `,
+})
+
+// Request reviewers
+await octokit.rest.pulls.requestReviewers({
+  owner: 'myorg',
+  repo: 'myrepo',
+  pull_number: pr.number,
+  reviewers: ['reviewer1', 'reviewer2'],
+})
+
+// List changed files
+const { data: files } = await octokit.rest.pulls.listFiles({
+  owner: 'myorg',
+  repo: 'myrepo',
+  pull_number: pr.number,
+})
+
+for (const file of files) {
+  console.log(`${file.status}: ${file.filename} (+${file.additions}/-${file.deletions})`)
+}
+
+// Merge when ready
+const { data: mergeResult } = await octokit.rest.pulls.merge({
+  owner: 'myorg',
+  repo: 'myrepo',
+  pull_number: pr.number,
+  commit_title: 'feat: Add user authentication (#123)',
+  merge_method: 'squash',
+})
+```
+
+### Trigger GitHub Actions
+
+```typescript
+import { Octokit } from 'compat/github'
+
+const octokit = new Octokit({ auth: env.GITHUB_TOKEN })
+
+// Trigger a workflow
+await octokit.rest.actions.createWorkflowDispatch({
+  owner: 'myorg',
+  repo: 'myrepo',
+  workflow_id: 'deploy.yml',
+  ref: 'main',
+  inputs: {
+    environment: 'production',
+    version: '1.2.3',
+  },
+})
+
+// List recent workflow runs
+const { data: runs } = await octokit.rest.actions.listWorkflowRuns({
+  owner: 'myorg',
+  repo: 'myrepo',
+  workflow_id: 'deploy.yml',
+  per_page: 5,
+})
+
+for (const run of runs.workflow_runs) {
+  console.log(`Run #${run.run_number}: ${run.status} (${run.conclusion})`)
+}
+
+// Get workflow run jobs
+const { data: jobs } = await octokit.rest.actions.listJobsForWorkflowRun({
+  owner: 'myorg',
+  repo: 'myrepo',
+  run_id: runs.workflow_runs[0].id,
+})
+
+for (const job of jobs.jobs) {
+  console.log(`Job: ${job.name} - ${job.status}`)
+}
+```
+
+### Webhook Handling
+
+```typescript
+import { verifyWebhookSignature, createWebhookRouter } from 'compat/github'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const body = await request.text()
+    const signature = request.headers.get('x-hub-signature-256')
+
+    // Verify signature
+    const isValid = await verifyWebhookSignature(
+      body,
+      signature!,
+      env.GITHUB_WEBHOOK_SECRET
+    )
+
+    if (!isValid) {
+      return new Response('Invalid signature', { status: 401 })
+    }
+
+    // Create a router for different event types
+    const router = createWebhookRouter({
+      push: async (payload) => {
+        console.log('Push to', payload.ref)
+        console.log('Commits:', payload.commits.length)
+      },
+
+      pull_request: async (payload) => {
+        if (payload.action === 'opened') {
+          console.log('New PR:', payload.pull_request.title)
+        }
+      },
+
+      issues: async (payload) => {
+        if (payload.action === 'opened') {
+          console.log('New issue:', payload.issue.title)
+        }
+      },
+
+      workflow_run: async (payload) => {
+        if (payload.action === 'completed') {
+          console.log('Workflow completed:', payload.workflow_run.conclusion)
+        }
+      },
+    })
+
+    const event = request.headers.get('x-github-event') as string
+    await router.handle(event, JSON.parse(body))
+
+    return new Response('OK', { status: 200 })
+  },
+}
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { Octokit, type OctokitOptions } from 'compat/github'
+
+const options: OctokitOptions = {
+  // Authentication token
+  auth: 'ghp_xxx',
+
+  // Custom base URL (for GitHub Enterprise)
+  baseUrl: 'https://github.example.com/api/v3',
+
+  // Request timeout in ms (default: 30000)
+  request: {
+    timeout: 60000,
+  },
+
+  // Custom user agent
+  userAgent: 'my-app/1.0.0',
+}
+
+const octokit = new Octokit(options)
+```
+
+### Request Options
+
+```typescript
+// Per-request options
+const { data: repo } = await octokit.rest.repos.get({
+  owner: 'octocat',
+  repo: 'hello-world',
+  // Media type for preview features
+  mediaType: {
+    format: 'json',
+  },
+})
+```
+
+## Error Handling
+
+```typescript
+import { Octokit, RequestError } from 'compat/github'
+
+const octokit = new Octokit({ auth: env.GITHUB_TOKEN })
+
+try {
+  await octokit.rest.repos.get({
+    owner: 'nonexistent',
+    repo: 'nonexistent',
+  })
+} catch (error) {
+  if (error instanceof RequestError) {
+    console.log('Status:', error.status)
+    console.log('Message:', error.message)
+    console.log('Documentation:', error.documentation_url)
+
+    switch (error.status) {
+      case 401:
+        console.error('Invalid or expired token')
+        break
+      case 403:
+        console.error('Rate limited or forbidden')
+        break
+      case 404:
+        console.error('Resource not found')
+        break
+      case 422:
+        console.error('Validation failed')
+        break
+    }
+  }
+}
+```
+
+## Types
+
+Full TypeScript support with GitHub-compatible types:
+
+```typescript
+import type {
+  // Client
+  OctokitOptions,
+  OctokitResponse,
+  RequestOptions,
+
+  // Repositories
+  Repository,
+  Branch,
+  GetRepoParams,
+  CreateRepoParams,
+
+  // Issues
+  Issue,
+  IssueComment,
+  CreateIssueParams,
+  UpdateIssueParams,
+
+  // Pull Requests
+  PullRequest,
+  PullRequestFile,
+  MergeResult,
+  Review,
+  CreatePullParams,
+
+  // Actions
+  Workflow,
+  WorkflowRun,
+  WorkflowJob,
+  Artifact,
+  WorkflowDispatchParams,
+
+  // Users
+  User,
+  PublicUser,
+
+  // Webhooks
+  WebhookEventName,
+  WebhookPayload,
+  PushPayload,
+  PullRequestPayload,
+  IssuesPayload,
+  WorkflowRunPayload,
+} from 'compat/github'
+```
+
+## Workflow Integration
+
+Use GitHub with dotdo workflows for automated repository management:
+
+```typescript
+import { $ } from 'dotdo'
+import { Octokit } from 'compat/github'
+
+export class ReleaseWorkflow {
+  octokit = new Octokit({ auth: this.env.GITHUB_TOKEN })
+
+  async createRelease(version: string) {
+    // Durable PR creation
+    const { data: pr } = await $.do(() =>
+      this.octokit.rest.pulls.create({
+        owner: 'myorg',
+        repo: 'myrepo',
+        title: `Release ${version}`,
+        head: `release/${version}`,
+        base: 'main',
+      })
+    )
+
+    // Wait for CI to pass
+    await $.on.WorkflowRun.completed({
+      filter: { head_sha: pr.head.sha, conclusion: 'success' },
+    })
+
+    // Merge the release
+    await $.do(() =>
+      this.octokit.rest.pulls.merge({
+        owner: 'myorg',
+        repo: 'myrepo',
+        pull_number: pr.number,
+      })
+    )
+
+    // Trigger deployment
+    await $.do(() =>
+      this.octokit.rest.actions.createWorkflowDispatch({
+        owner: 'myorg',
+        repo: 'myrepo',
+        workflow_id: 'deploy.yml',
+        ref: 'main',
+        inputs: { version },
+      })
+    )
+  }
+}
+```
+
+## Migrating from Octokit
+
+### 1. Update imports
+
+```typescript
+// Before
+import { Octokit } from '@octokit/rest'
+
+// After
+import { Octokit } from 'compat/github'
+```
+
+### 2. Environment variables
+
+Keep your existing environment variables:
+
+```
+GITHUB_TOKEN=ghp_xxx
+GITHUB_WEBHOOK_SECRET=xxx
+```
+
+### 3. Code changes
+
+Most code works unchanged. Check for:
+
+- **Plugins**: Octokit plugins are not supported - use native methods instead
+- **Pagination**: Use built-in pagination instead of `octokit.paginate()`
+- **Node.js APIs**: Replace any Node.js-specific code with edge-compatible alternatives
+
+## Next Steps
+
+<Cards>
+  <Card title="Linear Integration" href="/docs/integrations/linear">
+    Issue tracking and project management integration.
+  </Card>
+  <Card title="Workflows" href="/docs/workflows">
+    Build automated CI/CD workflows with GitHub triggers.
+  </Card>
+  <Card title="Webhooks Guide" href="/docs/concepts/webhooks">
+    Learn about webhook handling patterns in dotdo.
+  </Card>
+</Cards>

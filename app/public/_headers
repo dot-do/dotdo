@@ -1,0 +1,28 @@
+# Cloudflare Pages Cache Headers
+# @see https://developers.cloudflare.com/pages/configuration/headers/
+
+# Documentation pages - cache for 1 hour, stale-while-revalidate for 1 day
+/docs/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+# Static assets (JS, CSS) - immutable with hash in filename
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Fonts - long cache
+/assets/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Images - long cache with revalidation
+/assets/images/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+# Landing page - shorter cache for marketing updates
+/
+  Cache-Control: public, max-age=300, stale-while-revalidate=3600
+
+# Security headers for all pages
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin

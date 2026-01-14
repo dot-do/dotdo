@@ -1,0 +1,595 @@
+---
+title: Context Capabilities
+description: Advanced workflow context capabilities including correlation, experiments, flags, and rate limiting
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+
+# Context Capabilities
+
+Beyond the core `$` context DSL for durable execution, dotdo provides advanced capabilities for observability, experimentation, and traffic control. These capabilities are available through the workflow context and integrate seamlessly with Durable Objects.
+
+## Overview
+
+| Capability | Purpose | API |
+|------------|---------|-----|
+| **Correlation** | Distributed tracing across DOs | `$.correlation` |
+| **Experiments** | A/B testing with variant allocation | `$.experiment()` |
+| **Feature Flags** | Controlled rollouts | `$.flag()` |
+| **Rate Limiting** | Traffic control and quotas | `$.rateLimit()` |
+
+## Correlation IDs
+
+Correlation IDs enable distributed tracing across Durable Object boundaries. Every request can be traced through its entire lifecycle, from the initial HTTP request through cross-DO RPC calls.
+
+### Header Format
+
+dotdo uses three correlation headers:
+
+| Header | Purpose |
+|--------|---------|
+| `X-Correlation-ID` | Primary trace identifier |
+| `X-Request-ID` | Request-specific identifier |
+| `X-Dotdo-Request` | Combined header with full context |
+
+The `X-Dotdo-Request` header format:
+```
+{correlationId}.{requestId}.{timestamp}.{sequence}[.{spanId}[.{parentSpanId}]]
+```
+
+Example:
+```
+corr-18d4f8a0b1c2d3e4.req-a1b2c3d4.1704067200000.1.span-xyz123.span-parent
+```
+
+### Basic Usage
+
+```typescript
+import {
+  generateCorrelationId,
+  generateRequestId,
+  createDotdoRequestHeader,
+  parseDotdoRequestHeader,
+  extractCorrelationFromRequest,
+  injectCorrelationHeaders,
+} from 'dotdo/workflows/context/correlation'
+
+// Generate IDs
+const correlationId = generateCorrelationId()  // "corr-18d4f8a0b1c2d3e4"
+const requestId = generateRequestId()          // "req-a1b2c3d4"
+
+// Create header value
+const header = createDotdoRequestHeader({
+  correlationId,
+  requestId,
+  timestamp: Date.now(),
+  sequence: 1,
+})
+
+// Parse incoming header
+const ctx = parseDotdoRequestHeader(header)
+// { correlationId, requestId, timestamp, sequence, spanId?, parentSpanId? }
+```
+
+### Extracting from Requests
+
+```typescript
+import { extractCorrelationFromRequest } from 'dotdo/workflows/context/correlation'
+
+export class MyDO extends DurableObject {
+  async fetch(request: Request) {
+    // Extract correlation context from incoming request
+    const correlation = extractCorrelationFromRequest(request)
+
+    if (correlation) {
+      console.log(`Processing request in trace: ${correlation.correlationId}`)
+    }
+
+    // Process request...
+  }
+}
+```
+
+### Propagating Across DO Boundaries
+
+When making cross-DO RPC calls, correlation is automatically propagated:
+
+```typescript
+import {
+  createChildSpan,
+  injectCorrelationHeaders
+} from 'dotdo/workflows/context/correlation'
+
+async function callAnotherDO(ctx: CorrelationContext) {
+  // Create child span for the cross-DO call
+  const childCtx = createChildSpan(ctx)
+
+  // Build request with correlation headers
+  const request = new Request('https://other-do.example.com/api')
+  const requestWithHeaders = injectCorrelationHeaders(request, childCtx)
+
+  // Make the call - correlation is now propagated
+  return fetch(requestWithHeaders)
+}
+```
+
+### Span Management
+
+Create spans to trace sub-operations within a request:
+
+```typescript
+import { createCorrelationCapability } from 'dotdo/workflows/context/correlation-capability'
+
+const store = { context: null, spans: new Map(), currentSpanId: undefined }
+const correlation = createCorrelationCapability(store)
+
+// Initialize context
+const ctx = correlation.create()
+correlation.setContext(ctx)
+
+// Create a span for database operations
+const span = correlation.span('database-query')
+  .setAttribute('db.system', 'sqlite')
+  .setAttribute('db.operation', 'SELECT')
+
+await span.run(async () => {
+  // Database operations traced under this span
+  await db.query('SELECT * FROM users')
+})
+
+// Span automatically marked completed with duration
+```
+
+### Middleware Integration
+
+Use the Hono middleware for automatic correlation handling:
+
+```typescript
+import { Hono } from 'hono'
+import { correlationMiddleware } from 'dotdo/workflows/context/correlation'
+
+const app = new Hono()
+
+// Add correlation middleware - handles extraction and response headers
+app.use('*', correlationMiddleware())
+
+app.get('/api/users', (c) => {
+  // Access correlation context
+  const correlation = c.get('correlation')
+  console.log(`Handling request: ${correlation.correlationId}`)
+
+  return c.json({ users: [] })
+})
+```
+
+### Session Correlation
+
+Link frontend events to backend traces:
+
+```typescript
+import {
+  createSessionCorrelation,
+  linkFrontendToBackend
+} from 'dotdo/workflows/context/correlation'
+
+// Create correlation tied to a session
+const sessionCtx = createSessionCorrelation('session-user123')
+
+// Later, verify frontend events belong to this trace
+const frontendEvent = { correlationId: 'session-user123', type: 'click' }
+const isLinked = linkFrontendToBackend(frontendEvent, sessionCtx)
+// true - events are from the same session
+```
+
+## A/B Experiments
+
+Run A/B tests with deterministic user allocation, traffic control, and variant payloads.
+
+### Creating Experiments
+
+```typescript
+import { createExperimentContext } from 'dotdo/workflows/context/experiment'
+
+const $ = createExperimentContext()
+
+// Create an experiment with 50/50 split
+await $.Experiment.create({
+  id: 'checkout_v2',
+  variants: [
+    { key: 'control', weight: 50 },
+    { key: 'treatment', weight: 50 },
+  ],
+})
+
+// Create with custom weights
+await $.Experiment.create({
+  id: 'pricing_test',
+  variants: [
+    { key: 'control', weight: 80 },
+    { key: 'discount_10', weight: 10 },
+    { key: 'discount_20', weight: 10 },
+  ],
+})
+
+// Create with limited traffic (only 10% of users participate)
+await $.Experiment.create({
+  id: 'risky_feature',
+  traffic: 0.1,
+  variants: [
+    { key: 'control', weight: 50 },
+    { key: 'treatment', weight: 50 },
+  ],
+})
+```
+
+### Allocating Users
+
+```typescript
+// Allocate user to experiment
+const result = await $.experiment('checkout_v2').allocate('user-123')
+
+// Result structure:
+// {
+//   inExperiment: true,
+//   variant: 'treatment',
+//   payload: { buttonColor: 'green' }
+// }
+
+if (result.inExperiment) {
+  if (result.variant === 'treatment') {
+    showNewCheckout()
+  } else {
+    showOldCheckout()
+  }
+} else {
+  // User not in experiment (traffic allocation excluded them)
+  showOldCheckout()
+}
+```
+
+### Deterministic Assignment
+
+User assignment is deterministic - the same user always gets the same variant:
+
+```typescript
+// These will always return the same result
+const result1 = await $.experiment('checkout_v2').allocate('user-123')
+const result2 = await $.experiment('checkout_v2').allocate('user-123')
+const result3 = await $.experiment('checkout_v2').allocate('user-123')
+
+// result1.variant === result2.variant === result3.variant
+```
+
+<Callout type="info">
+**Deterministic Hashing**: Assignment uses a hash of `userId + experimentId`, ensuring consistent allocation without storing assignment state.
+</Callout>
+
+### Variant Payloads
+
+Include configuration with each variant:
+
+```typescript
+await $.Experiment.create({
+  id: 'button_color_test',
+  variants: [
+    { key: 'control', weight: 50, payload: { buttonColor: 'blue' } },
+    { key: 'treatment', weight: 50, payload: { buttonColor: 'green' } },
+  ],
+})
+
+const result = await $.experiment('button_color_test').allocate('user-123')
+const buttonColor = result.payload?.buttonColor ?? 'blue'
+```
+
+### Lifecycle Management
+
+```typescript
+// Check if experiment is running
+const isEnabled = await $.experiment('checkout_v2').isEnabled()
+
+// Pause experiment (stops new allocations)
+await $.experiment('checkout_v2').pause()
+
+// Resume paused experiment
+await $.experiment('checkout_v2').resume()
+
+// Complete experiment (marks as done)
+await $.experiment('checkout_v2').complete()
+
+// Update traffic allocation
+await $.experiment('checkout_v2').setTraffic(0.5)
+
+// Get experiment configuration
+const experiment = await $.experiment('checkout_v2').get()
+
+// Delete experiment
+await $.experiment('checkout_v2').delete()
+
+// List all experiments
+const experiments = await $.Experiment.list()
+```
+
+### Experiment States
+
+| State | Description | `isEnabled()` | Allocations |
+|-------|-------------|---------------|-------------|
+| `running` | Active experiment | `true` | Normal |
+| `paused` | Temporarily stopped | `false` | Returns `inExperiment: false` |
+| `completed` | Finished | `false` | Returns `inExperiment: false` |
+
+## Feature Flags
+
+Control feature rollouts with percentage-based traffic allocation and deterministic per-user assignment.
+
+### Creating Flags
+
+```typescript
+import { createMockContext } from 'dotdo/workflows/context/flag'
+
+const $ = createMockContext()
+
+// Create a flag (starts at 0% by default)
+await $.flags._storage.flags.set('new-checkout', {
+  id: 'new-checkout',
+  traffic: 0.1,  // 10% of users
+  status: 'active',
+  branches: [
+    { key: 'enabled', weight: 100 },
+  ],
+  stickiness: 'user_id',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+})
+```
+
+### Checking Flags
+
+```typescript
+// Simple boolean check
+const enabled = await $.flag('new-checkout').isEnabled('user-123')
+
+if (enabled) {
+  showNewCheckout()
+} else {
+  showOldCheckout()
+}
+
+// Get full evaluation with variant and payload
+const result = await $.flag('new-checkout').get('user-123')
+// { enabled: true, variant: 'enabled', payload: undefined }
+```
+
+### Traffic Control
+
+```typescript
+// Update traffic allocation (gradual rollout)
+await $.flag('new-checkout').setTraffic(0.25)  // 25%
+await $.flag('new-checkout').setTraffic(0.50)  // 50%
+await $.flag('new-checkout').setTraffic(1.0)   // 100%
+
+// Enable for everyone
+await $.flag('new-checkout').enable()
+
+// Kill switch - disable immediately
+await $.flag('new-checkout').disable()
+```
+
+### Multi-Variant Flags
+
+Flags support weighted branches for more complex scenarios:
+
+```typescript
+const flag = {
+  id: 'button-style',
+  traffic: 1.0,
+  status: 'active',
+  branches: [
+    { key: 'rounded', weight: 40 },
+    { key: 'square', weight: 30 },
+    { key: 'pill', weight: 30 },
+  ],
+  stickiness: 'user_id',
+}
+
+const result = await $.flag('button-style').get('user-123')
+// { enabled: true, variant: 'pill', payload: undefined }
+```
+
+### Batch Evaluation
+
+Fetch all flags and evaluate locally for performance:
+
+```typescript
+// Fetch all flags once
+const flags = await $.flags.fetch()
+
+// Evaluate locally without DB calls
+function getVariant(flagId: string, userId: string) {
+  return $.flags.evaluate(flagId, userId, flags)
+}
+
+// Use throughout request
+const checkout = getVariant('checkout-v2', userId)
+const pricing = getVariant('pricing-test', userId)
+const theme = getVariant('dark-mode', userId)
+```
+
+## Rate Limiting
+
+Control traffic with sliding window rate limits, cost-based quotas, and named limit configurations.
+
+### Basic Usage
+
+```typescript
+import { createMockContext } from 'dotdo/workflows/context/rate-limit'
+
+const $ = createMockContext()
+
+// Configure a named limit
+$.rateLimits.configure('api', {
+  limit: 100,
+  window: '1m',
+  description: 'API requests per minute',
+})
+
+// Check and consume quota
+const result = await $.rateLimit('user-123').check({ name: 'api' })
+
+if (result.success) {
+  // Request allowed
+  processRequest()
+} else {
+  // Rate limited
+  throw new Error(`Rate limited. Retry after ${result.resetAt}`)
+}
+```
+
+### Check vs Consume
+
+```typescript
+// Check if allowed WITHOUT consuming quota (peek)
+const canProceed = await $.rateLimit('user-123').isAllowed({ name: 'api' })
+
+// Get remaining quota without consuming
+const remaining = await $.rateLimit('user-123').remaining({ name: 'api' })
+
+// Consume quota (for post-facto tracking)
+await $.rateLimit('user-123').consume(1, { name: 'api' })
+
+// Get full status
+const status = await $.rateLimit('user-123').status({ name: 'api' })
+// { success: true, remaining: 95, resetAt: 1704067260000, limit: 100 }
+```
+
+### Cost-Based Limiting
+
+For operations with variable cost (AI tokens, file uploads, etc.):
+
+```typescript
+// Configure limit for AI tokens
+$.rateLimits.configure('ai', {
+  limit: 10000,
+  window: '1h',
+  description: 'AI tokens per hour',
+})
+
+// Check if request with cost of 500 tokens is allowed
+const result = await $.rateLimit('user-123').check({
+  name: 'ai',
+  cost: 500,
+})
+
+// Or consume after the fact
+const tokensUsed = await callAIModel(prompt)
+await $.rateLimit('user-123').consume(tokensUsed, { name: 'ai' })
+```
+
+### Multiple Named Limits
+
+Apply different limits for different operations:
+
+```typescript
+// Configure different limits
+$.rateLimits.configure('api', { limit: 100, window: '1m' })
+$.rateLimits.configure('auth', { limit: 5, window: '1m' })
+$.rateLimits.configure('upload', { limit: 10, window: '1h' })
+$.rateLimits.configure('ai', { limit: 1000, window: '1d' })
+
+// Apply appropriate limit based on operation
+async function handleRequest(userId: string, operation: string) {
+  const limitName = operation === 'login' ? 'auth' : 'api'
+
+  const result = await $.rateLimit(userId).check({ name: limitName })
+
+  if (!result.success) {
+    return new Response('Rate limited', {
+      status: 429,
+      headers: {
+        'Retry-After': String(Math.ceil((result.resetAt! - Date.now()) / 1000)),
+        'X-RateLimit-Remaining': String(result.remaining),
+        'X-RateLimit-Limit': String(result.limit),
+      }
+    })
+  }
+
+  // Process request...
+}
+```
+
+### Window Formats
+
+Rate limit windows support these formats:
+
+| Format | Duration |
+|--------|----------|
+| `1m` | 1 minute |
+| `5m` | 5 minutes |
+| `15m` | 15 minutes |
+| `1h` | 1 hour |
+| `1d` | 1 day |
+
+### Resetting Limits
+
+```typescript
+// Reset rate limit for a specific user (admin action)
+await $.rateLimit('user-123').reset({ name: 'api' })
+
+// Get all configured limits
+const configs = $.rateLimits.getConfig()
+// { api: { limit: 100, window: '1m' }, auth: { limit: 5, window: '1m' }, ... }
+
+// Get specific limit config
+const apiConfig = $.rateLimits.get('api')
+// { limit: 100, window: '1m', description: 'API requests per minute' }
+```
+
+### Result Shape
+
+All rate limit operations return a consistent result:
+
+```typescript
+interface RateLimitResult {
+  success: boolean      // Whether the action is allowed
+  remaining: number     // Remaining quota (never negative)
+  resetAt?: number      // When the window resets (epoch ms)
+  limit?: number        // The limit that was checked
+  cost?: number         // The cost that was consumed
+}
+```
+
+## Best Practices
+
+### Correlation
+
+1. **Always propagate correlation** - Include correlation headers in all outgoing requests
+2. **Create spans for significant operations** - Database queries, external API calls, cross-DO RPC
+3. **Add meaningful attributes** - Include context that helps debugging (user ID, entity IDs, operation types)
+4. **Use session correlation** - Link frontend events to backend traces for full-stack visibility
+
+### Experiments
+
+1. **Define success metrics before starting** - Know what you're measuring
+2. **Use traffic allocation for gradual rollout** - Start at 10%, increase as confidence grows
+3. **Keep experiments short** - Long-running experiments accumulate bias
+4. **Don't change variants mid-experiment** - This invalidates statistical analysis
+
+### Feature Flags
+
+1. **Clean up old flags** - Remove flags after full rollout
+2. **Use descriptive names** - `checkout-v2-redesign` not `flag-123`
+3. **Document flag purpose** - What does it control? When should it be removed?
+4. **Start at 0% traffic** - Safer default, explicit rollout
+
+### Rate Limiting
+
+1. **Use named limits** - Separate limits for different operation types
+2. **Include cost for variable operations** - AI tokens, file sizes, compute time
+3. **Return retry-after headers** - Help clients back off appropriately
+4. **Reset limits carefully** - Usually only for admin/support scenarios
+
+## Related
+
+- [Workflows Overview](/docs/workflows) - Core workflow patterns
+- [SDK: WorkflowContext](/docs/sdk/workflow-context) - Full `$` API reference
+- [Observability](/docs/observability/dashboards) - Metrics and tracing

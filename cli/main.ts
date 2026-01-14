@@ -38,6 +38,12 @@ import {
   llmCommand,
   configCommand,
 } from './commands/services'
+// Auth commands
+import {
+  loginCommand,
+  logoutCommand,
+  whoamiCommand,
+} from './commands/auth'
 import { createLogger } from './utils/logger'
 import { DOTDO_DIR } from './utils/paths'
 
@@ -82,6 +88,11 @@ program.addCommand(chargeCommand)
 program.addCommand(queueCommand)
 program.addCommand(llmCommand)
 program.addCommand(configCommand)
+
+// Add auth commands
+program.addCommand(loginCommand)
+program.addCommand(logoutCommand)
+program.addCommand(whoamiCommand)
 
 // Init command
 program

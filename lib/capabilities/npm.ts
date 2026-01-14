@@ -980,8 +980,15 @@ const NPM_MODULE_CACHE = Symbol('npmModuleCache')
  * }
  * ```
  */
-export function withNpm<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase, options?: WithNpmOptions) {
-  return class WithNpm extends Base {
+export function withNpm<TBase extends Constructor<{ $: WithFsContext }>>(
+  Base: TBase,
+  options?: WithNpmOptions
+): TBase & Constructor<{ $: WithNpmContext; hasCapability(name: string): boolean }> {
+  // The class expression extends TBase (preserving base class) and adds NpmCapability.
+  // We explicitly declare the return type intersection so consumers get proper types.
+  // TypeScript cannot verify the $ type change at compile time due to the Proxy-based
+  // augmentation, so we use a type assertion on return.
+  class WithNpm extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'npm']
 
@@ -1068,4 +1075,9 @@ export function withNpm<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
       })
     }
   }
+
+  // Type assertion: WithNpm extends TBase and adds NpmCapability to $.
+  // The Proxy-based augmentation is not type-checkable at compile time,
+  // so we use `unknown` intermediate cast (standard pattern for mixin type narrowing).
+  return WithNpm as unknown as TBase & Constructor<{ $: WithNpmContext; hasCapability(name: string): boolean }>
 }

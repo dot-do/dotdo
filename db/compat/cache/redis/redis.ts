@@ -1783,8 +1783,14 @@ class RedisPipeline implements PipelineInterface {
 
     for (const cmd of this.queue) {
       try {
-        const method = (this.client as unknown as Record<string, Function>)[cmd.method]
-        const result = await method!.apply(this.client, cmd.args)
+        // Type-safe dynamic method access on the Redis client
+        // Need to cast through unknown since Redis class doesn't have index signature
+        const client = this.client as unknown as Record<string, unknown>
+        const method = client[cmd.method]
+        if (typeof method !== 'function') {
+          throw new Error(`Method ${cmd.method} not found on Redis client`)
+        }
+        const result = await (method as (...args: unknown[]) => unknown).apply(this.client, cmd.args)
         results.push([null, result])
       } catch (err) {
         results.push([err as Error, null])
@@ -2792,7 +2798,10 @@ db0:keys=${this.storage.dbsize()},expires=0
         try {
           listener(...args)
         } catch (e) {
-          // Ignore listener errors
+          // Emit listener errors to 'error' event (unless this IS the error event)
+          if (event !== 'error') {
+            this.emit('error', e)
+          }
         }
       }
     }

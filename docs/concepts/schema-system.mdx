@@ -1,0 +1,678 @@
+---
+title: Schema System
+description: Define your data model with cascade operators, directives, and AI-powered generation
+---
+
+# Schema System
+
+The dotdo schema system provides a declarative way to define your data model with cascade operators that control how entities relate and generate each other. The schema IS the workflow - relationships define generation flow without explicit orchestration code.
+
+## Overview
+
+```typescript
+import { DB } from 'dotdo/db/schema'
+
+const schema = DB({
+  $id: 'https://startup.db.sb',
+  $context: 'saas-startup',
+
+  Startup: {
+    idea: '<-Idea',           // Generate new Idea, link FROM it
+    customer: '~>ICP',        // Semantic search for ICP, generate if not found
+    founders: ['->Founder'],  // Generate array of new Founders
+    model: '->LeanCanvas',    // Generate new LeanCanvas, link TO it
+  },
+
+  Idea: {
+    problem: 'What problem does this solve?',
+    solution: 'How does it solve the problem?',
+  },
+
+  ICP: {
+    persona: 'Who is the ideal customer?',
+    painPoints: ['What are their pain points?'],
+  },
+})
+```
+
+## Cascade Operators
+
+Four operators control how entities reference and generate each other:
+
+| Operator | Direction | Method | Behavior |
+|----------|-----------|--------|----------|
+| `->` | Forward | Insert | Generate NEW entity, link TO it |
+| `~>` | Forward | Search | Semantic search, generate if not found |
+| `<-` | Backward | Insert | Generate NEW entity, link FROM it |
+| `<~` | Backward | Search | Semantic search, link FROM found |
+
+### Forward Operators (`->` and `~>`)
+
+Forward operators create relationships where the current entity points TO the target:
+
+```typescript
+const schema = DB({
+  User: {
+    // Forward exact: Always generate a new Profile
+    profile: '->Profile',
+
+    // Forward fuzzy: Search for existing Team, generate if not found
+    team: '~>Team',
+
+    // Array of forward references
+    posts: ['->Post'],
+  },
+})
+```
+
+### Backward Operators (`<-` and `<~`)
+
+Backward operators create relationships where the target entity points TO the current entity:
+
+```typescript
+const schema = DB({
+  Startup: {
+    // Backward exact: Generate new Idea that references this Startup
+    idea: '<-Idea',
+
+    // Backward fuzzy: Find existing Category that should reference this
+    category: '<~Category',
+  },
+})
+```
+
+### Operator Modifiers
+
+Add modifiers after the type name:
+
+```typescript
+const schema = DB({
+  Order: {
+    // Optional reference (may be null)
+    discount: '->Discount?',
+
+    // Array reference
+    items: ['->OrderItem'],
+
+    // Union types (can reference multiple types)
+    owner: '->User|Organization',
+
+    // With prompt text
+    assignee: 'Who should handle this order? ->Employee',
+  },
+})
+```
+
+## Schema Directives
+
+Directives are special properties prefixed with `$` that configure schema behavior.
+
+### Metadata Directives
+
+```typescript
+const schema = DB({
+  // Schema-level ID (JSON-LD style)
+  $id: 'https://api.example.com/schema',
+
+  // Context for all types
+  $context: 'https://schema.org',
+
+  // Schema version
+  $version: '1.0.0',
+
+  // Lifecycle hooks
+  $fn: {
+    validate: (entity) => entity.name?.length > 0,
+    beforeSave: (entity) => ({ ...entity, updatedAt: new Date() }),
+    afterCreate: (entity) => console.log('Created:', entity.$id),
+  },
+})
+```
+
+### Type-Level Directives
+
+#### `$seed` - External Data Population
+
+Populate entities from external data sources:
+
+```typescript
+const schema = DB({
+  Country: {
+    $seed: 'https://api.example.com/countries.json',
+    name: 'string',
+    code: 'string',
+  },
+
+  Product: {
+    $seed: {
+      url: 'https://api.example.com/products.csv',
+      format: 'csv',
+      idField: '$.sku',
+      mapping: {
+        name: '$.product_name',
+        price: '$.retail_price',
+      },
+      pagination: {
+        type: 'cursor',
+        nextPath: '$.next_cursor',
+        dataPath: '$.items',
+      },
+    },
+    name: 'string',
+    price: 'number',
+  },
+})
+```
+
+Supported formats: `csv`, `tsv`, `json`, `jsonl`, `xml`, `yaml`
+
+Pagination types: `cursor`, `offset`, `page`, `link-header`
+
+#### `$context` - Linked Data Context
+
+Set JSON-LD context for types:
+
+```typescript
+const schema = DB({
+  $context: 'https://schema.org',
+
+  Person: {
+    // Inherits schema-level context
+    name: 'string',
+  },
+
+  Product: {
+    // Override with absolute URL
+    $context: 'https://schema.org/Product',
+    name: 'string',
+  },
+
+  CustomType: {
+    // Relative to parent context
+    $context: 'custom',
+    data: 'string',
+  },
+})
+```
+
+#### `$instructions` - AI Generation Instructions
+
+Guide AI generation with instructions:
+
+```typescript
+const schema = DB({
+  BlogPost: {
+    $instructions: 'Write engaging, SEO-optimized content for a tech blog',
+    title: 'Create a compelling headline',
+    content: 'Write the main article body',
+  },
+
+  ProductDescription: {
+    $instructions: {
+      mode: 'extend',  // 'extend' | 'prepend' | 'replace'
+      content: 'Focus on benefits over features. Use active voice.',
+    },
+    headline: 'string',
+    body: 'string',
+  },
+})
+```
+
+#### UI Directives
+
+Configure how types appear in interfaces:
+
+```typescript
+const schema = DB({
+  Customer: {
+    $icon: 'lucide:users',        // Icon from library
+    $group: 'Sales/Contacts',     // Hierarchical grouping
+    $label: 'Customer Account',   // Display name
+    $description: 'End users who purchase products',
+    $hidden: false,               // Visibility
+    $readonly: false,             // Editability
+  },
+})
+```
+
+Icon formats:
+- Library reference: `lucide:user`, `heroicons:home`
+- Emoji: `"U+1F4BB"`
+- URL: `https://example.com/icon.svg`
+
+## Generative Directives
+
+Special directives for AI-powered content generation:
+
+### `$image` - Image Generation
+
+```typescript
+const schema = DB({
+  Product: {
+    hero: {
+      $image: {
+        aspectRatio: '16:9',
+        style: 'Photorealistic',
+        subject: 'Product photography',
+        setting: 'Clean white background',
+        mood: 'Professional',
+        lighting: 'Soft studio lighting',
+        quality: 'hd',
+      },
+    },
+  },
+})
+```
+
+Styles: `Photorealistic`, `Illustration`, `Cartoon`, `Sketch`, `Oil Painting`, `Watercolor`, `3D Render`, `Digital Art`, `Pixel Art`, `Anime`, `Minimalist`, `Abstract`, `Vintage`, `Neon`, `Isometric`
+
+### `$code` - Code Generation
+
+```typescript
+const schema = DB({
+  APIEndpoint: {
+    handler: {
+      $code: {
+        language: 'TypeScript',
+        runtime: 'Cloudflare Workers',
+        framework: 'Hono',
+        purpose: 'REST API endpoint handler',
+        dependencies: ['zod', 'hono'],
+        async: true,
+        typed: true,
+      },
+    },
+  },
+})
+```
+
+### `$diagram` - Diagram Generation
+
+```typescript
+const schema = DB({
+  Architecture: {
+    overview: {
+      $diagram: {
+        type: 'Flowchart',
+        format: 'Mermaid',
+        direction: 'TB',
+        title: 'System Architecture',
+        theme: 'default',
+      },
+    },
+  },
+})
+```
+
+Diagram types: `Flowchart`, `Sequence`, `Class`, `ER`, `State`, `Gantt`, `Pie`, `Mindmap`
+
+### `$speech` - Text-to-Speech
+
+```typescript
+const schema = DB({
+  Podcast: {
+    audio: {
+      $speech: {
+        voice: 'Nova',
+        speed: 1.0,
+        format: 'mp3',
+        text: 'The script to convert',
+        emotion: 'excited',
+      },
+    },
+  },
+})
+```
+
+Voices: `Alloy`, `Nova`, `Echo`, `Shimmer`, `Onyx`, `Fable`
+
+## Field Types
+
+### Primitive Types
+
+```typescript
+const schema = DB({
+  User: {
+    name: 'string',
+    age: 'number',
+    active: 'boolean',
+    created: 'date',
+    email: 'email',
+    website: 'url',
+    id: 'uuid',
+    score: 'float',
+    count: 'int',
+    bio: 'text',
+    metadata: 'json',
+  },
+})
+```
+
+### Prompt-Based Fields
+
+String values are treated as AI generation prompts:
+
+```typescript
+const schema = DB({
+  Article: {
+    title: 'Create an engaging headline',
+    summary: 'Write a 2-sentence summary',
+    tags: ['Generate relevant tags'],
+  },
+})
+```
+
+### Nested Objects
+
+```typescript
+const schema = DB({
+  Order: {
+    shipping: {
+      street: 'Street address',
+      city: 'City name',
+      country: '~>Country',
+    },
+  },
+})
+```
+
+### Computed Fields
+
+```typescript
+const schema = DB({
+  Invoice: {
+    subtotal: 'number',
+    tax: 'number',
+    total: (entity) => entity.subtotal + entity.tax,
+
+    // Async computed
+    exchangeRate: async (entity) => {
+      const rate = await fetchRate(entity.currency)
+      return entity.total * rate
+    },
+  },
+})
+```
+
+## ID Extraction Patterns
+
+The `$seed` directive supports powerful ID extraction patterns:
+
+```typescript
+const schema = DB({
+  Product: {
+    $seed: {
+      url: 'https://api.example.com/products.json',
+
+      // Simple path
+      idField: '$.id',
+
+      // Nested path
+      idField: '$.metadata.sku',
+
+      // Array index
+      idField: '$.codes[0]',
+
+      // Transform function
+      idField: 'slugify($.name)',
+
+      // Composite pattern
+      idField: '$.category-$.sku',
+
+      // Combined transforms
+      idField: 'lowercase($.type)-slugify($.name)',
+    },
+  },
+})
+```
+
+Available transforms:
+- `PascalCase`: "hello world" -> "HelloWorld"
+- `camelCase`: "hello world" -> "helloWorld"
+- `kebabCase`: "hello world" -> "hello-world"
+- `snakeCase`: "hello world" -> "hello_world"
+- `UPPERCASE`: "hello" -> "HELLO"
+- `lowercase`: "HELLO" -> "hello"
+- `slugify`: "Hello, World!" -> "hello-world"
+
+## Schema Validation
+
+The schema parser performs validation at parse time:
+
+```typescript
+import { createSchemaParser } from 'dotdo/db/schema'
+
+const parser = createSchemaParser({
+  strict: true,                    // Reject unknown patterns
+  validateReferences: true,        // Check referenced types exist
+  detectCircularReferences: true,  // Find circular dependencies
+})
+
+// Validate references exist
+const errors = parser.validateReferences(schema)
+if (errors.length > 0) {
+  console.error('Schema errors:', errors)
+}
+
+// Detect circular references
+const cycle = parser.detectCircularReferences(schema)
+if (cycle) {
+  console.error('Circular reference:', cycle.cyclePath.join(' -> '))
+}
+```
+
+### Error Types
+
+```typescript
+import {
+  CascadeSchemaError,
+  CircularReferenceError,
+  SchemaParseError
+} from 'dotdo/db/schema'
+
+try {
+  const schema = DB(definition)
+} catch (error) {
+  if (error instanceof CircularReferenceError) {
+    // Handle A -> B -> A cycles
+    console.log('Cycle path:', error.cyclePath)
+    console.log('Hint:', error.hint)
+  } else if (error instanceof CascadeSchemaError) {
+    // Handle parsing errors with context
+    console.log('Field:', error.field)
+    console.log('Reason:', error.reason)
+  }
+}
+```
+
+## Type Guards
+
+Runtime type checking for parsed fields:
+
+```typescript
+import {
+  isStringField,
+  isReferenceField,
+  isArrayField,
+  isComputedField,
+  parseFieldInput,
+} from 'dotdo/db/schema'
+
+const field = parseFieldInput('->User')
+
+if (isReferenceField(field)) {
+  console.log('Target:', field.target)
+  console.log('Direction:', field.direction)  // 'forward' | 'backward'
+  console.log('Mode:', field.mode)            // 'exact' | 'fuzzy'
+}
+
+if (isArrayField(field)) {
+  console.log('Item type:', field.items.kind)
+}
+
+if (isComputedField(field)) {
+  const result = field.compute(entity)
+}
+```
+
+## MDX Schema Files
+
+Define schemas in MDX format for documentation-driven development:
+
+```mdx
+---
+title: Startup Schema
+version: 1.0.0
+---
+
+## Startup
+
+The main startup entity representing a business venture.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | `string` | Company name |
+| idea | `<-Idea` | The founding idea |
+| founders | `[->Founder]` | Team members |
+
+### States
+- ideation -> validation -> scaling -> exit
+
+### Events
+- Customer.signup - When a new customer joins
+- Revenue.milestone - When hitting revenue targets
+```
+
+### Discovery and Merging
+
+```typescript
+import {
+  discoverSchemaFiles,
+  loadAndMergeSchemas
+} from 'dotdo/db/schema/mdx'
+
+// Find all schema files
+const files = await discoverSchemaFiles('/path/to/project')
+// ['/project/DB.mdx', '/project/.do/DB.mdx', '/project/src/User.do.mdx']
+
+// Load and merge (later files override)
+const merged = await loadAndMergeSchemas('/path/to/project')
+
+console.log(merged.entities.Startup.states)
+// ['ideation', 'validation', 'scaling', 'exit']
+```
+
+Discovery order (later overrides earlier):
+1. `DB.mdx` in project root
+2. `.do/DB.mdx` (dotdo-specific overrides)
+3. `*.do.mdx` files anywhere in project
+
+## Generation Engine
+
+Execute cascade generation from your schema:
+
+```typescript
+import { DB, GenerationEngine } from 'dotdo/db/schema'
+
+const schema = DB({
+  Startup: {
+    idea: '<-Idea',
+    model: '->LeanCanvas',
+    customers: ['~>ICP'],
+  },
+})
+
+const engine = new GenerationEngine(schema, {
+  model: 'claude-3-opus',
+  maxConcurrency: 3,
+  fuzzyThreshold: 0.8,
+})
+
+// Generate with cascade
+const result = await engine.generate('Startup', {
+  seed: { name: 'AI Assistant Startup' },
+})
+
+console.log(result.entity)        // Generated Startup
+console.log(result.generated)     // All cascaded entities
+console.log(result.relationships) // Created relationships
+console.log(result.metrics)       // Generation statistics
+```
+
+### Dry Run Mode
+
+Preview what would be generated:
+
+```typescript
+const plan = await engine.generate('Startup', {
+  seed: { name: 'Test' },
+  dryRun: true,
+})
+
+console.log(plan.plan.typesToGenerate)
+// ['Idea', 'LeanCanvas', 'ICP', 'Startup']
+console.log(plan.plan.dependencies)
+// { Startup: ['Idea'], LeanCanvas: ['Startup'] }
+```
+
+## Best Practices
+
+### Break Circular References
+
+Use fuzzy operators or optional markers:
+
+```typescript
+// Bad: Hard circular dependency
+const bad = DB({
+  User: { manager: '->User' },  // User -> User cycle
+})
+
+// Good: Use fuzzy to allow lazy resolution
+const good = DB({
+  User: { manager: '~>User' },  // Semantic search breaks cycle
+})
+
+// Also good: Mark as optional
+const alsoGood = DB({
+  User: { manager: '->User?' }, // Optional breaks hard dependency
+})
+```
+
+### Schema Organization
+
+```typescript
+// Separate concerns with $group
+const schema = DB({
+  // Core domain
+  User: { $group: 'Core', /* ... */ },
+  Team: { $group: 'Core', /* ... */ },
+
+  // Features
+  Post: { $group: 'Content', /* ... */ },
+  Comment: { $group: 'Content', /* ... */ },
+
+  // Analytics
+  Event: { $group: 'Analytics', $hidden: true },
+})
+```
+
+### Seed Data Validation
+
+```typescript
+const schema = DB({
+  Product: {
+    $seed: {
+      url: 'https://api.example.com/products.json',
+      format: 'json',
+      retry: {
+        maxRetries: 3,
+        backoff: 'exponential',
+      },
+    },
+    $fn: {
+      validate: (product) =>
+        product.price > 0 && product.name?.length > 0,
+    },
+  },
+})
+```

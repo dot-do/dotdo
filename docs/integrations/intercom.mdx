@@ -1,0 +1,517 @@
+---
+title: Intercom
+description: Drop-in replacement for the Intercom SDK with edge compatibility, conversation history, and full-text article search.
+---
+
+# Intercom
+
+Drop-in replacement for the Intercom JavaScript SDK. Your existing `intercom-client` code works unchanged - just swap the import.
+
+```typescript
+// Before: Intercom SDK
+import { Client } from 'intercom-client'
+
+// After: dotdo
+import { Client } from '@dotdo/intercom'
+
+// Code stays the same
+const client = new Client({ tokenAuth: { token: 'your_access_token' } })
+
+const contact = await client.contacts.create({
+  role: 'user',
+  email: 'user@example.com',
+  name: 'John Doe',
+})
+```
+
+## Why @dotdo/intercom?
+
+| Intercom SDK | @dotdo/intercom |
+|--------------|-----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real API calls required | Local testing mode without API calls |
+| No time-travel queries | TemporalStore for conversation history |
+| External search service | Built-in full-text article search |
+| Connection pooling needed | Stateless edge requests |
+
+**This is a compatibility layer.** It can either forward to real Intercom APIs (production) or run entirely locally for testing and development. The API surface matches Intercom's official SDK.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Contacts**
+- `create()` - Create users or leads
+- `find()` - Get contact by ID
+- `findByEmail()` - Find contact by email
+- `update()` - Update contact details
+- `delete()` - Remove a contact
+- `list()` - List all contacts with pagination
+- `search()` - Search contacts with query DSL
+- `merge()` - Merge two contacts
+
+**Conversations**
+- `create()` - Start a conversation
+- `find()` - Get conversation by ID
+- `list()` - List conversations with filters
+- `reply()` - Add a reply to a conversation
+- `assign()` - Assign to admin or team
+- `close()` - Close a conversation
+- `open()` - Reopen a conversation
+- `snooze()` - Snooze until a specific time
+- `search()` - Search conversations with query DSL
+- `getAsOf()` - Time-travel query (unique to dotdo)
+
+**Messages**
+- `create()` - Send a message with exactly-once delivery
+
+**Events**
+- `create()` - Track custom events
+- `list()` - List events for a user
+- `summaries()` - Get event summaries
+
+**Articles**
+- `create()` - Create help center articles
+- `find()` - Get article by ID
+- `update()` - Update article content
+- `delete()` - Remove an article
+- `list()` - List articles
+- `search()` - Full-text search with inverted index
+
+**Inbox Routing**
+- `inboxes.create()` - Create inboxes
+- `teamInboxes.create()` - Create team inboxes
+- `roundRobin.enable()` - Enable round-robin assignment
+- `assignmentRules.create()` - Create routing rules
+- `priorityRouting.setVIPCondition()` - Set VIP rules
+- `workload.autoBalance()` - Auto-balance workload
+
+### Not Yet Implemented
+
+- Data Export API
+- Subscription Types
+- Custom Object Models
+- Operator Conversations
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/intercom
+```
+
+### Create a Contact
+
+```typescript
+import { Client } from '@dotdo/intercom'
+
+const client = new Client({
+  tokenAuth: { token: env.INTERCOM_ACCESS_TOKEN },
+})
+
+const contact = await client.contacts.create({
+  role: 'user',
+  email: 'customer@example.com',
+  name: 'Jane Doe',
+  custom_attributes: {
+    plan: 'premium',
+    signupDate: '2025-01-15',
+  },
+})
+
+console.log('Contact created:', contact.id)
+```
+
+### Start a Conversation
+
+```typescript
+const conversation = await client.conversations.create({
+  from: {
+    type: 'user',
+    email: 'customer@example.com',
+  },
+  body: 'Hi, I need help with my subscription.',
+})
+
+console.log('Conversation ID:', conversation.id)
+```
+
+### Reply to a Conversation
+
+```typescript
+// Admin reply
+await client.conversations.reply({
+  id: conversation.id,
+  type: 'admin',
+  admin_id: 'admin_123',
+  body: 'Happy to help! What seems to be the issue?',
+})
+
+// User reply
+await client.conversations.reply({
+  id: conversation.id,
+  type: 'user',
+  email: 'customer@example.com',
+  body: 'I cannot access my billing settings.',
+})
+```
+
+## Local Testing Mode
+
+Use `IntercomLocal` for fully offline testing without hitting Intercom's API:
+
+```typescript
+import { IntercomLocal } from '@dotdo/intercom'
+
+const client = new IntercomLocal({
+  workspaceId: 'test_workspace',
+  onMessageDelivery: async (messages) => {
+    console.log('Messages delivered:', messages)
+  },
+})
+
+// All operations work locally
+const contact = await client.contacts.create({
+  role: 'user',
+  email: 'test@example.com',
+})
+
+// Time-travel queries (unique to local mode)
+const conversationYesterday = await client.conversations.getAsOf(
+  conversationId,
+  Date.now() - 86400000
+)
+```
+
+### Benefits of Local Mode
+
+- **No API calls** - Test without using API quota
+- **Time-travel queries** - Query conversation state at any point in time
+- **Full-text search** - Article search works offline
+- **Exactly-once delivery** - Message delivery guarantees in local mode
+- **Fast iteration** - No network latency during development
+
+## Conversation Search
+
+Search conversations using the query DSL:
+
+```typescript
+const results = await client.conversations.search({
+  query: {
+    operator: 'AND',
+    value: [
+      { field: 'state', operator: '=', value: 'open' },
+      { field: 'admin_assignee_id', operator: '=', value: 'admin_123' },
+    ],
+  },
+  sort: {
+    field: 'created_at',
+    order: 'descending',
+  },
+  pagination: {
+    per_page: 20,
+  },
+})
+
+for (const conversation of results.conversations) {
+  console.log(conversation.id, conversation.state)
+}
+```
+
+### Supported Query Operators
+
+| Operator | Description |
+|----------|-------------|
+| `=` | Equals |
+| `!=` | Not equals |
+| `>` | Greater than |
+| `<` | Less than |
+| `~` | Contains |
+| `IN` | In array |
+| `AND` | All conditions must match |
+| `OR` | Any condition must match |
+
+## Article Full-Text Search
+
+Search help center articles with built-in full-text search:
+
+```typescript
+const results = await client.articles.search({
+  phrase: 'getting started billing',
+  state: 'published',
+})
+
+for (const article of results.articles.data) {
+  console.log(article.title, article.url)
+}
+```
+
+### How Article Search Works
+
+The local implementation uses an inverted index for efficient full-text search:
+
+1. **Tokenization** - Article titles, descriptions, and body text are tokenized
+2. **Indexing** - Tokens are stored in an inverted index with document references
+3. **Query** - Search queries are tokenized and matched against the index
+4. **Ranking** - Documents containing all query tokens are returned
+
+## Inbox Routing
+
+Manage conversation routing with inbox resources:
+
+```typescript
+import { IntercomLocal } from '@dotdo/intercom'
+
+const client = new IntercomLocal({ workspaceId: 'workspace_abc' })
+
+// Create a team inbox
+const inbox = await client.teamInboxes.create({
+  name: 'Support Team',
+  members: ['admin_1', 'admin_2', 'admin_3'],
+})
+
+// Enable round-robin assignment
+await client.roundRobin.enable(inbox.id)
+
+// Create assignment rules
+await client.assignmentRules.create(inbox.id, {
+  name: 'VIP Customers',
+  priority: 1,
+  conditions: [
+    { field: 'email_domain', operator: 'equals', value: 'enterprise.com' },
+  ],
+  condition_operator: 'OR',
+  assignee_type: 'admin',
+  assignee_id: 'senior_admin',
+})
+
+// Set VIP conditions
+await client.priorityRouting.setVIPCondition({
+  type: 'company_size',
+  value: 'enterprise',
+  priority: 'urgent',
+})
+```
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Client } from '@dotdo/intercom'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new Client({
+      tokenAuth: { token: env.INTERCOM_ACCESS_TOKEN },
+    })
+
+    const url = new URL(request.url)
+
+    // Handle webhook
+    if (url.pathname === '/webhooks/intercom') {
+      const body = await request.json()
+
+      if (body.topic === 'conversation.user.replied') {
+        const conversationId = body.data.item.id
+
+        // Auto-reply logic
+        await client.conversations.reply({
+          id: conversationId,
+          type: 'admin',
+          admin_id: env.BOT_ADMIN_ID,
+          body: 'Thanks for your message! An agent will respond shortly.',
+        })
+      }
+
+      return new Response('OK')
+    }
+
+    return new Response('Not Found', { status: 404 })
+  },
+}
+```
+
+## Error Handling
+
+```typescript
+import { Client, IntercomError } from '@dotdo/intercom'
+
+const client = new Client({
+  tokenAuth: { token: env.INTERCOM_ACCESS_TOKEN },
+})
+
+try {
+  await client.contacts.find('invalid_id')
+} catch (error) {
+  if (error instanceof IntercomError) {
+    console.log('Status:', error.statusCode)
+    console.log('Type:', error.type)
+    console.log('Message:', error.message)
+
+    // Handle specific error types
+    switch (error.type) {
+      case 'not_found':
+        // Contact not found
+        break
+      case 'unauthorized':
+        // Invalid token
+        break
+      case 'rate_limit':
+        // Rate limited
+        break
+    }
+  }
+}
+```
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Contact types
+  Contact,
+  ContactCreateParams,
+  ContactUpdateParams,
+  ContactSearchParams,
+
+  // Conversation types
+  Conversation,
+  ConversationCreateParams,
+  ConversationReplyParams,
+  ConversationPart,
+
+  // Message types
+  Message,
+  MessageCreateParams,
+
+  // Event types
+  Event,
+  EventCreateParams,
+
+  // Article types
+  Article,
+  ArticleCreateParams,
+  ArticleSearchParams,
+
+  // Inbox types
+  Inbox,
+  TeamInbox,
+  AssignmentRule,
+
+  // Response types
+  ListResponse,
+  SearchResponse,
+} from '@dotdo/intercom'
+```
+
+## Migration from Intercom SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall intercom-client
+
+# Install
+npm install @dotdo/intercom
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Client } from 'intercom-client'
+
+// After
+import { Client } from '@dotdo/intercom'
+```
+
+### Code Compatibility
+
+Your existing Intercom code should work unchanged:
+
+```typescript
+// This code works with both intercom-client and @dotdo/intercom
+const client = new Client({ tokenAuth: { token: 'xxx' } })
+
+const contact = await client.contacts.create({
+  role: 'user',
+  email: 'user@example.com',
+})
+
+const conversation = await client.conversations.create({
+  from: { type: 'user', id: contact.id },
+  body: 'Hello!',
+})
+```
+
+## Workflow Integration
+
+Use Intercom with dotdo workflows for durable conversation handling:
+
+```typescript
+import { $ } from 'dotdo'
+import { Client } from '@dotdo/intercom'
+
+export class SupportWorkflow {
+  client = new Client({ tokenAuth: { token: this.env.INTERCOM_TOKEN } })
+
+  async handleNewConversation(conversationId: string) {
+    // Durable conversation handling
+    const conversation = await $.do(() =>
+      this.client.conversations.find(conversationId)
+    )
+
+    // Check for VIP customer
+    const contact = await $.do(() =>
+      this.client.contacts.find(conversation.contacts.contacts[0].id)
+    )
+
+    if (contact.custom_attributes.plan === 'enterprise') {
+      // Auto-assign to senior support
+      await $.do(() =>
+        this.client.conversations.assign({
+          id: conversationId,
+          admin_id: this.env.SENIOR_SUPPORT_ADMIN,
+          type: 'admin',
+        })
+      )
+    }
+
+    // Wait for resolution
+    await $.on.Conversation.closed({
+      filter: { id: conversationId },
+    })
+
+    // Send satisfaction survey
+    await $.do(() =>
+      this.client.messages.create({
+        message_type: 'email',
+        from: { type: 'admin', id: this.env.SUPPORT_ADMIN_ID },
+        to: { type: 'user', id: contact.id },
+        subject: 'How did we do?',
+        body: 'Please rate your support experience.',
+      })
+    )
+  }
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Zendesk Integration" href="/docs/integrations/zendesk">
+    Customer support platform with ticketing and help desk.
+  </Card>
+  <Card title="Slack Integration" href="/docs/integrations/slack">
+    Team communication for support notifications.
+  </Card>
+  <Card title="Workflows" href="/docs/workflows">
+    Build durable conversation workflows with automatic retries.
+  </Card>
+</Cards>

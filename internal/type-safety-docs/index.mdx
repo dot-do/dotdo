@@ -1,0 +1,111 @@
+---
+title: Type Safety
+description: Comprehensive TypeScript patterns and type safety mechanisms in dotdo
+---
+
+# Type Safety in dotdo
+
+dotdo leverages TypeScript's advanced type system to provide compile-time safety across the entire codebase. This documentation covers the patterns, techniques, and utilities used to ensure type safety from domain modeling to runtime execution.
+
+## Core Principles
+
+1. **Compile-Time Safety First** - Catch errors before runtime through TypeScript's static analysis
+2. **Zero Runtime Overhead** - Most type constructs have no runtime cost (branded types, mapped types)
+3. **Progressive Disclosure** - Simple APIs with deep type inference for advanced use cases
+4. **Module Augmentation** - Extensible type registries for domain-specific typing
+
+## Quick Reference
+
+| Pattern | Purpose | File |
+|---------|---------|------|
+| [Branded Types](/docs/type-safety/branded-types) | Prevent ID confusion at compile time | `types/ids.ts` |
+| [Type Inference](/docs/type-safety/type-inference) | Automatic type derivation from schemas | `types/AIFunction.ts` |
+| [Generic Patterns](/docs/type-safety/generic-patterns) | Reusable type-safe abstractions | `types/fn.ts` |
+| [Utility Types](/docs/type-safety/utility-types) | Helper types for common transformations | Various |
+| [Type Guards](/docs/type-safety/type-guards) | Runtime type narrowing | `types/CloudflareBindings.ts` |
+| [Module Augmentation](/docs/type-safety/module-augmentation) | Extensible registries | `types/WorkflowContext.ts` |
+
+## Type System Architecture
+
+```
+types/
+├── ids.ts              # Branded ID types (ThingId, ActionId, etc.)
+├── Thing.ts            # Core entity type with relationships
+├── WorkflowContext.ts  # $ context with full typing
+├── fn.ts               # Function type system (Fn, AsyncFn, RpcFn)
+├── AIFunction.ts       # AI function types with schema inference
+├── EventHandler.ts     # Typed event handlers
+├── CloudflareBindings.ts # Environment bindings with type guards
+├── capabilities.ts     # Capability module types
+└── index.ts            # Re-exports and type aggregation
+```
+
+## Design Philosophy
+
+### 1. Structural Typing with Nominal Intent
+
+TypeScript uses structural typing, but we often need nominal typing for IDs. We achieve this through branded types:
+
+```typescript
+// Brand utility type
+type Brand<T, B extends string> = T & { readonly [__brand]: B }
+
+// Usage - structurally distinct types
+export type ThingId = Brand<string, 'ThingId'>
+export type ActionId = Brand<string, 'ActionId'>
+
+// These cannot be confused at compile time
+const thingId: ThingId = createThingId('thing-123')
+const actionId: ActionId = createActionId('action-456')
+
+// Type error! ThingId is not assignable to ActionId
+const wrong: ActionId = thingId
+```
+
+### 2. Schema-Driven Type Inference
+
+Types are inferred from JSON schemas, eliminating duplication:
+
+```typescript
+const userSchema = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    age: { type: 'number' },
+    email: { type: 'string' }
+  },
+  required: ['name', 'email']
+} as const
+
+// Inferred type: { name: string; email: string; age?: number }
+type User = InferSchema<typeof userSchema>
+```
+
+### 3. Capability Composition
+
+Type helpers enable capability-based environment requirements:
+
+```typescript
+// Function requires specific Cloudflare bindings
+async function processWithAI(env: WithRequiredBindings<'KV' | 'AI'>) {
+  // KV and AI are guaranteed to be defined
+  await env.KV.put('key', 'value')
+  const result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', { prompt: '...' })
+}
+```
+
+## Benefits
+
+- **IDE Autocomplete**: Full IntelliSense support for domain types
+- **Refactoring Safety**: Rename operations propagate through the entire codebase
+- **Documentation as Types**: Types serve as living documentation
+- **Error Prevention**: Catch common mistakes (wrong ID type, missing required field) at compile time
+
+## Related Documentation
+
+- [Branded Types](/docs/type-safety/branded-types) - Nominal typing for IDs
+- [Type Inference](/docs/type-safety/type-inference) - Schema-to-type inference
+- [Generic Patterns](/docs/type-safety/generic-patterns) - Reusable type abstractions
+- [Utility Types](/docs/type-safety/utility-types) - Helper types
+- [Type Guards](/docs/type-safety/type-guards) - Runtime type narrowing
+- [Module Augmentation](/docs/type-safety/module-augmentation) - Extensible registries

@@ -1,0 +1,755 @@
+---
+title: Visibility and Debugging
+description: Workflow inspection, debugging tools, state visualization, and error diagnosis
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+
+# Workflow Visibility and Debugging
+
+Debugging a single workflow is straightforward. Debugging thousands of concurrent workflows across 300+ edge locations requires specialized tools. dotdo provides a comprehensive visibility and debugging system designed for distributed workflow execution.
+
+## Overview
+
+| Capability | Description | Use Case |
+|------------|-------------|----------|
+| **Visibility API** | Query and list running workflows | Find stuck or failed workflows |
+| **Time-Travel Debugging** | Replay workflow to any point in time | Understand why a workflow failed |
+| **Correlation Tracing** | Track requests across DO boundaries | Debug cross-service issues |
+| **State Inspection** | View current and historical state | Diagnose state corruption |
+| **History Analysis** | Analyze workflow event history | Audit and compliance |
+
+## Workflow Visibility API
+
+The visibility API provides a Temporal-like interface for discovering and monitoring workflow executions.
+
+### Listing Workflows
+
+Query workflows by type, status, or custom attributes:
+
+```typescript
+import {
+  createWorkflowVisibilityStore,
+  listWorkflows,
+  WorkflowStatus
+} from 'dotdo/workflows/visibility'
+
+const store = createWorkflowVisibilityStore()
+
+// List all running workflows
+const running = await listWorkflows(store, {
+  query: 'Status = "RUNNING"'
+})
+
+// Find workflows by type
+const orderWorkflows = await listWorkflows(store, {
+  query: 'WorkflowType = "orderWorkflow"'
+})
+
+// Combine filters
+const failedPayments = await listWorkflows(store, {
+  query: 'WorkflowType = "paymentWorkflow" AND Status = "FAILED"'
+})
+
+// Query by custom search attributes
+const customerOrders = await listWorkflows(store, {
+  query: 'customerId = "cust-456" AND orderValue > 100'
+})
+```
+
+### Workflow Status Values
+
+| Status | Description |
+|--------|-------------|
+| `RUNNING` | Workflow is currently executing |
+| `COMPLETED` | Workflow finished successfully |
+| `FAILED` | Workflow failed with an error |
+| `CANCELLED` | Workflow was cancelled by request |
+| `TERMINATED` | Workflow was forcibly terminated |
+| `TIMED_OUT` | Workflow exceeded its execution timeout |
+| `CONTINUED_AS_NEW` | Workflow continued with fresh history |
+
+### Search Attributes
+
+Add custom searchable attributes to your workflows:
+
+```typescript
+// When creating a workflow instance
+await store.upsert({
+  workflowId: 'order-123',
+  runId: 'run-abc',
+  workflowType: 'orderWorkflow',
+  status: WorkflowStatus.RUNNING,
+  startTime: new Date(),
+  taskQueue: 'orders',
+  searchAttributes: {
+    customerId: 'cust-456',
+    orderValue: 150.00,
+    region: 'us-west',
+    isPriority: true,
+  }
+})
+
+// Query using any attribute combination
+const results = await listWorkflows(store, {
+  query: 'customerId = "cust-456" AND isPriority = true'
+})
+```
+
+### Query Syntax
+
+The visibility API supports SQL-like query syntax:
+
+```typescript
+// Equality
+'WorkflowType = "orderWorkflow"'
+
+// Inequality
+'orderValue != 0'
+
+// Comparison operators
+'orderValue > 100'
+'startTime >= "2026-01-01T00:00:00Z"'
+
+// Multiple conditions (AND)
+'WorkflowType = "orderWorkflow" AND Status = "RUNNING"'
+
+// IN operator
+'Status IN ("RUNNING", "FAILED")'
+
+// NOT IN operator
+'region NOT IN ("eu-west", "eu-east")'
+```
+
+### Pagination
+
+Handle large result sets with cursor-based pagination:
+
+```typescript
+// Paginate through all matching workflows
+let nextPageToken: string | undefined
+
+do {
+  const result = await listWorkflows(store, {
+    query: 'Status = "RUNNING"',
+    pageSize: 100,
+    nextPageToken,
+  })
+
+  for (const workflow of result.workflows) {
+    console.log(workflow.workflowId, workflow.status)
+  }
+
+  nextPageToken = result.nextPageToken
+} while (nextPageToken)
+```
+
+### Async Iterator
+
+Use the visibility client for convenient iteration:
+
+```typescript
+import { WorkflowVisibilityClient } from 'dotdo/workflows/visibility'
+
+const client = new WorkflowVisibilityClient(store)
+
+// Iterate through all matching workflows
+for await (const workflow of client.iterate({
+  query: 'Status = "FAILED"'
+})) {
+  console.log(`Failed workflow: ${workflow.workflowId}`)
+  console.log(`  Type: ${workflow.workflowType}`)
+  console.log(`  Started: ${workflow.startTime}`)
+}
+```
+
+## Workflow History
+
+Track and replay workflow execution history with time-travel capabilities.
+
+### Recording Events
+
+```typescript
+import { createWorkflowHistory } from 'dotdo/workflows/core/workflow-history'
+
+const history = createWorkflowHistory({
+  workflowId: 'order-processing-123',
+  retention: { maxVersions: 1000, maxAge: '7d' }
+})
+
+// Record workflow events
+await history.recordEvent({
+  type: 'WORKFLOW_STARTED',
+  timestamp: Date.now(),
+  input: { orderId: 'order-123' }
+})
+
+await history.recordEvent({
+  type: 'STEP_COMPLETED',
+  timestamp: Date.now(),
+  stepId: 'validate-order',
+  result: { valid: true }
+})
+
+await history.recordEvent({
+  type: 'STEP_COMPLETED',
+  timestamp: Date.now(),
+  stepId: 'process-payment',
+  result: { transactionId: 'txn-456' }
+})
+```
+
+### Time-Travel Queries
+
+Query workflow state at any point in time:
+
+```typescript
+// Get all events
+const allEvents = await history.getEvents()
+console.log(`Total events: ${allEvents.length}`)
+
+// Get events as of a specific time (time-travel)
+const pastTimestamp = Date.now() - 3600000 // 1 hour ago
+const pastEvents = await history.getEventsAsOf(pastTimestamp)
+console.log(`Events 1 hour ago: ${pastEvents.length}`)
+
+// Get specific keyed state at a point in time
+const paymentState = await history.getStateAsOf('payment', pastTimestamp)
+```
+
+### Snapshots
+
+Create and restore point-in-time snapshots:
+
+```typescript
+// Create a snapshot
+const snapshotId = await history.snapshot()
+console.log(`Created snapshot: ${snapshotId}`)
+
+// Continue execution...
+await history.recordEvent({
+  type: 'STEP_FAILED',
+  timestamp: Date.now(),
+  stepId: 'ship-order',
+  error: 'Inventory unavailable'
+})
+
+// Restore to previous snapshot for debugging
+await history.restoreSnapshot(snapshotId)
+
+// List available snapshots
+const snapshots = await history.listSnapshots()
+for (const snap of snapshots) {
+  console.log(`Snapshot ${snap.id}: ${snap.eventCount} events`)
+}
+```
+
+### Retention and Compaction
+
+Manage history size with retention policies:
+
+```typescript
+// Create history with retention policy
+const history = createWorkflowHistory({
+  workflowId: 'long-running-workflow',
+  retention: {
+    maxVersions: 500,  // Keep last 500 events
+    maxAge: '7d'       // Delete events older than 7 days
+  }
+})
+
+// Manually prune old events
+const pruneStats = await history.prune()
+console.log(`Pruned ${pruneStats.versionsRemoved} events`)
+
+// Or use compact (alias)
+const compactStats = await history.compact({
+  maxVersions: 100,
+  maxAge: '24h'
+})
+```
+
+### Export and Import
+
+Save and restore workflow checkpoints:
+
+```typescript
+// Export for backup or analysis
+const checkpoint = await history.exportCheckpoint()
+console.log(`Exported ${checkpoint.events.length} events`)
+
+// Save to storage
+await $.storage.put(`checkpoints/${workflowId}`, JSON.stringify(checkpoint))
+
+// Later: restore from checkpoint
+const savedCheckpoint = await $.storage.get(`checkpoints/${workflowId}`)
+await history.importCheckpoint(JSON.parse(savedCheckpoint))
+```
+
+## Workflow Instance State
+
+Inspect workflow instances using the verb-form state encoding system.
+
+### Instance States
+
+Workflow instances use verb forms to encode semantic state:
+
+| Semantic State | Verb Form | Description |
+|----------------|-----------|-------------|
+| `pending` | `start` | Workflow created but not yet started |
+| `running` | `starting` | Workflow is actively executing |
+| `completed` | `started` | Workflow finished successfully |
+| `paused` | `paused` | Workflow execution suspended |
+| `failed` | `failed` | Workflow encountered an error |
+
+### Querying by State
+
+```typescript
+import {
+  createInstance,
+  getInstance,
+  getInstanceState,
+  queryInstancesByState
+} from 'dotdo/workflows/graph/instance-thing'
+
+// Create a new instance
+const instance = await createInstance(db, {
+  workflowId: 'order-workflow',
+  input: { orderId: 'order-123', items: [] }
+})
+// State is 'pending' (verb: 'start')
+
+// Get current state
+const state = await getInstanceState(db, instance.id)
+console.log(`Current state: ${state}`) // 'pending'
+
+// Find all running instances
+const running = await queryInstancesByState(db, 'running', {
+  workflowId: 'order-workflow',
+  limit: 100
+})
+
+// Find all failed instances for debugging
+const failed = await queryInstancesByState(db, 'failed')
+for (const instance of failed) {
+  console.log(`Failed: ${instance.id}`)
+  console.log(`  Error: ${instance.data?.error}`)
+}
+```
+
+### State Transitions
+
+Track state changes through the instance lifecycle:
+
+```typescript
+import {
+  startInstance,
+  completeInstance,
+  pauseInstance,
+  resumeInstance,
+  failInstance
+} from 'dotdo/workflows/graph/instance-thing'
+
+// Start execution (pending -> running)
+await startInstance(db, instanceId)
+
+// Pause for human review (running -> paused)
+await pauseInstance(db, instanceId)
+
+// Resume after approval (paused -> running)
+await resumeInstance(db, instanceId)
+
+// Complete successfully (running -> completed)
+await completeInstance(db, instanceId, { result: 'success' })
+
+// Or handle failure (running -> failed)
+await failInstance(db, instanceId, new Error('Payment declined'))
+```
+
+## Correlation and Tracing
+
+Track requests across Durable Object boundaries with correlation headers.
+
+### Correlation Context
+
+Every request gets a unique correlation context:
+
+```typescript
+import {
+  generateCorrelationId,
+  generateRequestId,
+  extractCorrelationFromRequest,
+  createChildSpan
+} from 'dotdo/workflows/context/correlation'
+
+// Generate new correlation context
+const correlationId = generateCorrelationId()
+// "corr-18d4f8a0b1c2d3e4"
+
+const requestId = generateRequestId()
+// "req-a1b2c3d4"
+```
+
+### Header Format
+
+The `X-Dotdo-Request` header encodes full trace context:
+
+```
+{correlationId}.{requestId}.{timestamp}.{sequence}[.{spanId}[.{parentSpanId}]]
+
+Example: corr-abc123.req-xyz789.1704067200000.1.span-123.span-parent
+```
+
+### Extracting Context
+
+Extract correlation from incoming requests:
+
+```typescript
+const ctx = extractCorrelationFromRequest(request)
+
+if (ctx) {
+  console.log(`Correlation: ${ctx.correlationId}`)
+  console.log(`Request: ${ctx.requestId}`)
+  console.log(`Sequence: ${ctx.sequence}`)
+}
+```
+
+### Cross-DO Propagation
+
+Propagate context when calling other DOs:
+
+```typescript
+import { injectCorrelationHeaders } from 'dotdo/workflows/context/correlation'
+
+// Original request to another DO
+const doRequest = new Request('https://api.example.com/orders')
+
+// Inject correlation headers (automatically increments sequence)
+const tracedRequest = injectCorrelationHeaders(doRequest, ctx)
+
+// Headers now include:
+// - X-Correlation-ID: corr-abc123
+// - X-Request-ID: req-xyz789
+// - X-Dotdo-Request: corr-abc123.req-xyz789.1704067200000.2
+```
+
+### Child Spans
+
+Create child spans for nested operations:
+
+```typescript
+// Parent context from incoming request
+const parent = extractCorrelationFromRequest(request)
+
+// Create child span for nested operation
+const child = createChildSpan(parent)
+// {
+//   correlationId: 'corr-abc123',    // Same trace
+//   requestId: 'req-newid',          // New request ID
+//   spanId: 'span-xyz',              // New span ID
+//   parentSpanId: 'span-123',        // Points to parent
+//   sequence: 2                       // Incremented
+// }
+```
+
+### Correlation Middleware
+
+Add correlation tracking to all requests:
+
+```typescript
+import { Hono } from 'hono'
+import { correlationMiddleware } from 'dotdo/workflows/context/correlation'
+
+const app = new Hono()
+
+// Apply middleware
+app.use('*', correlationMiddleware())
+
+// Access context in handlers
+app.get('/api/orders/:id', (c) => {
+  const ctx = c.get('correlation')
+  console.log(`Handling request ${ctx.requestId} in trace ${ctx.correlationId}`)
+
+  // Pass correlation to downstream calls
+  return c.json({ orderId: c.req.param('id') })
+})
+```
+
+### Session Correlation
+
+Link frontend sessions to backend traces:
+
+```typescript
+import {
+  createSessionCorrelation,
+  linkFrontendToBackend
+} from 'dotdo/workflows/context/correlation'
+
+// Create correlation from session ID
+const ctx = createSessionCorrelation('session-user123')
+// Consistent correlationId for the session
+
+// Check if frontend event matches backend context
+const frontendEvent = { correlationId: 'session-user123', type: 'click' }
+const isLinked = linkFrontendToBackend(frontendEvent, ctx)
+```
+
+## Debugging Patterns
+
+### Finding Failed Workflows
+
+```typescript
+// 1. Query failed workflows
+const failed = await listWorkflows(store, {
+  query: 'Status = "FAILED"',
+  pageSize: 50
+})
+
+// 2. Get details for each
+for (const workflow of failed.workflows) {
+  const instance = await getInstance(db, workflow.workflowId)
+
+  console.log(`\nWorkflow: ${workflow.workflowId}`)
+  console.log(`Type: ${workflow.workflowType}`)
+  console.log(`Started: ${workflow.startTime}`)
+  console.log(`Closed: ${workflow.closeTime}`)
+  console.log(`Error: ${instance?.data?.error}`)
+}
+```
+
+### Debugging a Specific Workflow
+
+```typescript
+// 1. Get workflow metadata
+const metadata = await store.get('order-123')
+
+// 2. Get full history
+const history = createWorkflowHistory({ workflowId: 'order-123' })
+const events = await history.getEvents()
+
+// 3. Find the failure point
+const failureEvent = events.find(e => e.type === 'STEP_FAILED')
+console.log(`Failed at step: ${failureEvent?.stepId}`)
+console.log(`Error: ${failureEvent?.error}`)
+
+// 4. Replay to just before failure
+const beforeFailure = events.filter(e => e.timestamp < failureEvent.timestamp)
+console.log(`Events before failure: ${beforeFailure.length}`)
+```
+
+### Investigating Slow Workflows
+
+```typescript
+// Find workflows that took too long
+const allWorkflows = await listWorkflows(store, {
+  query: 'Status = "COMPLETED"'
+})
+
+const slowWorkflows = allWorkflows.workflows.filter(w => {
+  const duration = w.closeTime!.getTime() - w.startTime.getTime()
+  return duration > 60000 // Over 1 minute
+})
+
+for (const slow of slowWorkflows) {
+  console.log(`Slow workflow: ${slow.workflowId}`)
+  const duration = (slow.closeTime!.getTime() - slow.startTime.getTime()) / 1000
+  console.log(`  Duration: ${duration}s`)
+
+  // Get history to find bottleneck
+  const history = createWorkflowHistory({ workflowId: slow.workflowId })
+  const events = await history.getEvents()
+
+  // Find longest step
+  const stepStarts = new Map<string, number>()
+  const stepDurations: Array<{ stepId: string; duration: number }> = []
+
+  for (const event of events) {
+    if (event.type === 'STEP_STARTED') {
+      stepStarts.set(event.stepId, event.timestamp)
+    }
+    if (event.type === 'STEP_COMPLETED' && stepStarts.has(event.stepId)) {
+      const duration = event.timestamp - stepStarts.get(event.stepId)!
+      stepDurations.push({ stepId: event.stepId, duration })
+    }
+  }
+
+  const slowestStep = stepDurations.sort((a, b) => b.duration - a.duration)[0]
+  console.log(`  Slowest step: ${slowestStep?.stepId} (${slowestStep?.duration}ms)`)
+}
+```
+
+### Tracing Cross-DO Issues
+
+```typescript
+// Search logs by correlation ID
+const correlationId = 'corr-abc123'
+
+// Find all related workflows
+const related = await listWorkflows(store, {
+  query: `correlationId = "${correlationId}"`
+})
+
+console.log(`Found ${related.workflows.length} workflows in trace`)
+
+for (const workflow of related.workflows) {
+  console.log(`\n${workflow.workflowType}`)
+  console.log(`  ID: ${workflow.workflowId}`)
+  console.log(`  Status: ${workflow.status}`)
+  console.log(`  Duration: ${workflow.closeTime ? workflow.closeTime.getTime() - workflow.startTime.getTime() : 'running'}ms`)
+}
+```
+
+## Observability Integration
+
+### Metrics Collection
+
+```typescript
+import { TestMetricsCollector, MetricNames } from 'dotdo/db/primitives/observability'
+
+const metrics = new TestMetricsCollector()
+
+const history = createWorkflowHistory({
+  workflowId: 'order-123',
+  metrics // Inject metrics collector
+})
+
+// Events are automatically recorded
+await history.recordEvent({ type: 'STEP_STARTED', timestamp: Date.now(), stepId: 'validate' })
+
+// Check collected metrics
+console.log(`Event count: ${metrics.getLatestGauge('workflow_history.event_count')}`)
+```
+
+### Available Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `workflow_history.event_count` | Gauge | Number of events in history |
+| `temporal_store.get.latency` | Latency | Time to retrieve from store |
+| `temporal_store.put.latency` | Latency | Time to write to store |
+| `temporal_store.get_as_of.latency` | Latency | Time for time-travel queries |
+| `temporal_store.snapshot.latency` | Latency | Time to create snapshot |
+| `temporal_store.versions_pruned` | Counter | Events removed by retention |
+
+## Best Practices
+
+### 1. Add Search Attributes Early
+
+Define searchable attributes when creating workflows:
+
+```typescript
+// Good: Searchable by domain concepts
+await store.upsert({
+  workflowId: 'order-123',
+  searchAttributes: {
+    customerId: 'cust-456',
+    orderValue: 150.00,
+    region: 'us-west',
+    productCategory: 'electronics'
+  }
+})
+
+// Later: Easy to debug
+'customerId = "cust-456" AND orderValue > 100'
+```
+
+### 2. Preserve Correlation Context
+
+Always propagate correlation through the call chain:
+
+```typescript
+on.Order.placed(async (event, ctx) => {
+  // Extract correlation from incoming context
+  const correlation = ctx.correlation
+
+  // Pass to all downstream operations
+  await $.Customer(event.data.customerId).notify({
+    headers: {
+      'X-Correlation-ID': correlation.correlationId
+    }
+  })
+})
+```
+
+### 3. Use Time-Travel for Debugging
+
+When investigating issues, start from the failure and work backwards:
+
+```typescript
+// Get events leading to failure
+const events = await history.getEventsAsOf(failureTimestamp - 1)
+
+// Analyze the state at that point
+const lastEvent = events[events.length - 1]
+console.log(`Last successful event: ${lastEvent.type}`)
+console.log(`State at failure: ${JSON.stringify(lastEvent.result)}`)
+```
+
+### 4. Set Appropriate Retention
+
+Balance debugging capability with storage costs:
+
+```typescript
+// Short-lived workflows: keep all history
+const shortHistory = createWorkflowHistory({
+  workflowId: 'quick-task',
+  retention: { maxAge: '24h' }
+})
+
+// Long-running workflows: limit versions
+const longHistory = createWorkflowHistory({
+  workflowId: 'multi-day-process',
+  retention: { maxVersions: 500, maxAge: '30d' }
+})
+```
+
+### 5. Index by Business Concepts
+
+Choose search attributes based on how you will debug:
+
+```typescript
+// Think about debugging questions:
+// "Why did customer X's order fail?"
+// "What happened to high-value orders yesterday?"
+// "Are there issues in the EU region?"
+
+searchAttributes: {
+  customerId: order.customerId,       // Debug by customer
+  orderValue: order.total,            // Debug by value range
+  region: order.shippingRegion,       // Debug by geography
+  paymentMethod: order.paymentType,   // Debug by payment issues
+}
+```
+
+## CLI Commands
+
+Debug workflows from the command line:
+
+```bash
+# List running workflows
+npx dotdo workflows list --status RUNNING
+
+# Find failed workflows by type
+npx dotdo workflows list --type orderWorkflow --status FAILED
+
+# Get workflow details
+npx dotdo workflows show order-123
+
+# View workflow history
+npx dotdo workflows history order-123
+
+# Replay to specific timestamp
+npx dotdo workflows replay order-123 --timestamp "2026-01-13T10:00:00Z"
+
+# Search by attribute
+npx dotdo workflows search 'customerId = "cust-456"'
+```
+
+## Related
+
+- [Distributed Tracing](/docs/observability/tracing) - Trace requests across DOs
+- [Debugging](/docs/observability/debugging) - General debugging tools
+- [Logging](/docs/observability/logging) - Structured logging for analysis
+- [Workflow Steps](/docs/workflows/steps) - Step patterns for orchestration
+- [State Machines](/docs/workflows/state-machines) - XState integration for complex state

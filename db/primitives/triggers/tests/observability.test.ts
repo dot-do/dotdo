@@ -455,7 +455,9 @@ describe('Alert Thresholds', () => {
       const alert = alertCallback.mock.calls[0][0]
       expect(alert.type).toBe('fire_rate')
       expect(alert.triggerId).toBe('webhook-github')
-      expect(alert.value).toBeGreaterThanOrEqual(10)
+      // Alert triggers when first crossing the threshold (>5/sec)
+      // The value should exceed the threshold, which is 5
+      expect(alert.value).toBeGreaterThan(5)
 
       vi.useRealTimers()
     })

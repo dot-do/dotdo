@@ -774,4 +774,199 @@ describe('SQLWhereParser', () => {
       expect((ast as PredicateNode).value).toBe('Hello ')
     })
   })
+
+  // ==========================================================================
+  // Temporal / Time Travel Queries (AS OF)
+  // ==========================================================================
+
+  describe('temporal / time travel queries', () => {
+    describe('FOR SYSTEM_TIME AS OF', () => {
+      it('should parse: SELECT * FROM users FOR SYSTEM_TIME AS OF TIMESTAMP', () => {
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-15T10:00:00Z'"
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.type).toBe('temporal')
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        expect(ast.temporal!.asOfTimestamp).toBe(new Date('2024-01-15T10:00:00Z').getTime())
+      })
+
+      it('should parse: FOR SYSTEM_TIME AS OF with epoch milliseconds', () => {
+        const sql = 'SELECT * FROM users FOR SYSTEM_TIME AS OF 1705312800000'
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        expect(ast.temporal!.asOfTimestamp).toBe(1705312800000)
+      })
+
+      it('should parse: FOR SYSTEM_TIME AS OF with string timestamp', () => {
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME AS OF '2024-01-15T10:00:00Z'"
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        expect(ast.temporal!.asOfTimestamp).toBe(new Date('2024-01-15T10:00:00Z').getTime())
+      })
+    })
+
+    describe('FOR SYSTEM_VERSION AS OF', () => {
+      it('should parse: SELECT * FROM users FOR SYSTEM_VERSION AS OF 12345', () => {
+        const sql = 'SELECT * FROM users FOR SYSTEM_VERSION AS OF 12345'
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        expect(ast.temporal!.snapshotId).toBe(12345)
+      })
+    })
+
+    describe('FOR SYSTEM_TIME BEFORE', () => {
+      it('should parse: SELECT * FROM users FOR SYSTEM_TIME BEFORE timestamp', () => {
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME BEFORE TIMESTAMP '2024-01-15T10:00:00Z'"
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('BEFORE')
+        expect(ast.temporal!.asOfTimestamp).toBe(new Date('2024-01-15T10:00:00Z').getTime())
+      })
+    })
+
+    describe('FOR SYSTEM_TIME BETWEEN', () => {
+      it('should parse: SELECT * FROM users FOR SYSTEM_TIME BETWEEN t1 AND t2', () => {
+        const sql = `SELECT * FROM users FOR SYSTEM_TIME BETWEEN
+          TIMESTAMP '2024-01-01T00:00:00Z'
+          AND TIMESTAMP '2024-01-31T23:59:59Z'`
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('BETWEEN')
+        expect(ast.temporal!.asOfTimestamp).toBe(new Date('2024-01-01T00:00:00Z').getTime())
+        expect(ast.temporal!.toTimestamp).toBe(new Date('2024-01-31T23:59:59Z').getTime())
+      })
+
+      it('should parse: SELECT * FROM users FOR SYSTEM_TIME FROM t1 TO t2', () => {
+        const sql = `SELECT * FROM users FOR SYSTEM_TIME FROM 1704067200000 TO 1706745600000`
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('BETWEEN')
+        expect(ast.temporal!.asOfTimestamp).toBe(1704067200000)
+        expect(ast.temporal!.toTimestamp).toBe(1706745600000)
+      })
+    })
+
+    describe('CURRENT_TIMESTAMP in temporal clauses', () => {
+      it('should parse: FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP', () => {
+        const before = Date.now()
+        const sql = 'SELECT * FROM users FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP'
+
+        const ast = parser.parseSelect(sql)
+        const after = Date.now()
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        expect(ast.temporal!.asOfTimestamp).toBeGreaterThanOrEqual(before)
+        expect(ast.temporal!.asOfTimestamp).toBeLessThanOrEqual(after)
+      })
+
+      it('should parse: FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP - INTERVAL', () => {
+        const before = Date.now() - 24 * 60 * 60 * 1000
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP - INTERVAL '1 day'"
+
+        const ast = parser.parseSelect(sql)
+        const after = Date.now() - 24 * 60 * 60 * 1000
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        // Allow some tolerance for test execution time
+        expect(ast.temporal!.asOfTimestamp).toBeGreaterThanOrEqual(before - 100)
+        expect(ast.temporal!.asOfTimestamp).toBeLessThanOrEqual(after + 100)
+      })
+    })
+
+    describe('temporal clause with other clauses', () => {
+      it('should combine temporal with WHERE clause', () => {
+        const sql = `SELECT * FROM users
+          FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-15T10:00:00Z'
+          WHERE status = 'active'`
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.queryType).toBe('AS_OF')
+        expect(ast.where).toBeDefined()
+        expect((ast.where as PredicateNode).column).toBe('status')
+      })
+
+      it('should combine temporal with JOIN', () => {
+        const sql = `SELECT * FROM orders
+          FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-15T10:00:00Z'
+          INNER JOIN customers ON orders.customer_id = customers.id`
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.join).toBeDefined()
+      })
+
+      it('should combine temporal with ORDER BY and LIMIT', () => {
+        const sql = `SELECT * FROM users
+          FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-15T10:00:00Z'
+          ORDER BY created_at DESC
+          LIMIT 10`
+
+        const ast = parser.parseSelect(sql)
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.sort).toBeDefined()
+        expect(ast.limit).toBe(10)
+      })
+    })
+
+    describe('interval parsing', () => {
+      it('should parse INTERVAL with minutes', () => {
+        const before = Date.now() - 30 * 60 * 1000
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP - INTERVAL '30 minutes'"
+
+        const ast = parser.parseSelect(sql)
+        const after = Date.now() - 30 * 60 * 1000
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.asOfTimestamp).toBeGreaterThanOrEqual(before - 100)
+        expect(ast.temporal!.asOfTimestamp).toBeLessThanOrEqual(after + 100)
+      })
+
+      it('should parse INTERVAL with hours', () => {
+        const before = Date.now() - 2 * 60 * 60 * 1000
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP - INTERVAL '2 hours'"
+
+        const ast = parser.parseSelect(sql)
+        const after = Date.now() - 2 * 60 * 60 * 1000
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.asOfTimestamp).toBeGreaterThanOrEqual(before - 100)
+        expect(ast.temporal!.asOfTimestamp).toBeLessThanOrEqual(after + 100)
+      })
+
+      it('should parse INTERVAL with weeks', () => {
+        const before = Date.now() - 1 * 7 * 24 * 60 * 60 * 1000
+        const sql = "SELECT * FROM users FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP - INTERVAL '1 week'"
+
+        const ast = parser.parseSelect(sql)
+        const after = Date.now() - 1 * 7 * 24 * 60 * 60 * 1000
+
+        expect(ast.temporal).toBeDefined()
+        expect(ast.temporal!.asOfTimestamp).toBeGreaterThanOrEqual(before - 100)
+        expect(ast.temporal!.asOfTimestamp).toBeLessThanOrEqual(after + 100)
+      })
+    })
+  })
 })

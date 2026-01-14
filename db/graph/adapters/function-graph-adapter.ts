@@ -35,6 +35,7 @@
 import type { GraphStore, GraphThing, GraphRelationship } from '../types'
 import { FUNCTION_TYPE_IDS } from '../constants'
 import { createHash } from 'crypto'
+import { toRecord } from '../../../lib/type-guards'
 
 // ============================================================================
 // TYPES
@@ -394,7 +395,7 @@ export class FunctionGraphAdapter {
       id,
       typeId,
       typeName,
-      data: functionData as unknown as Record<string, unknown>,
+      data: toRecord(functionData),
     })
 
     return fn
@@ -469,7 +470,7 @@ export class FunctionGraphAdapter {
       ...updates,
     }
 
-    return this.store.updateThing(id, { data: newData as unknown as Record<string, unknown> })
+    return this.store.updateThing(id, { data: toRecord(newData) })
   }
 
   /**
@@ -872,7 +873,7 @@ export class FunctionGraphAdapter {
         id: blobId,
         typeId: TYPE_IDS.FunctionBlob,
         typeName: 'FunctionBlob',
-        data: blobData as unknown as Record<string, unknown>,
+        data: toRecord(blobData),
       })
     }
 
@@ -892,7 +893,7 @@ export class FunctionGraphAdapter {
       id: sha,
       typeId: TYPE_IDS.FunctionVersion,
       typeName: 'FunctionVersion',
-      data: versionData as unknown as Record<string, unknown>,
+      data: toRecord(versionData),
     })
 
     // Create versionOf relationship (version -> function)

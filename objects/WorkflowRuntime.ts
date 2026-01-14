@@ -34,9 +34,29 @@ import {
   transitionEdge,
   VerbFormStateMachine,
 } from '../db/graph/verb-forms'
+import {
+  GraphRuntimeState,
+  DOGraphStorageAdapter,
+  type GraphRuntimeStorage,
+  type WorkflowRunThing,
+  type WorkflowStepThing,
+  type WorkflowRuntimeStatus,
+  type StepExecutionStatus,
+} from '../workflows/core/graph-runtime-state'
 
 // Re-export for convenience
 export { ParallelExecutionError } from '../lib/executors/ParallelStepExecutor'
+
+// Re-export graph state types for consumers
+export type {
+  GraphRuntimeState,
+  GraphRuntimeStorage,
+  WorkflowRunThing,
+  WorkflowStepThing,
+  WorkflowRelationship,
+  WorkflowRuntimeStatus as GraphWorkflowStatus,
+  StepExecutionStatus as GraphStepStatus,
+} from '../workflows/core/graph-runtime-state'
 
 // ============================================================================
 // TYPES
@@ -129,6 +149,18 @@ export interface WorkflowRuntimeOptions {
   onError?: 'fail' | 'pause'
   /** Domain proxy for $.Noun(id).method() calls */
   domainProxy?: Record<string, unknown>
+  /**
+   * Enable graph-based state management.
+   * When true, workflow state is stored as Things and Relationships,
+   * enabling rich querying and history preservation.
+   * @default false
+   */
+  useGraphState?: boolean
+  /**
+   * Custom graph storage adapter.
+   * If not provided and useGraphState is true, DOGraphStorageAdapter is used.
+   */
+  graphStorage?: GraphRuntimeStorage
 }
 
 export interface WorkflowStepConfig {
@@ -323,6 +355,12 @@ export class WorkflowRuntime {
   private readonly eventHandlers = new Map<string, Set<EventHandler>>()
 
   /**
+   * Graph-based state manager for storing workflow state as Things and Relationships.
+   * When enabled via useGraphState option, this replaces flat storage persistence.
+   */
+  private readonly _graphState: GraphRuntimeState | null = null
+
+  /**
    * @deprecated Use _stateRelationship for graph-based state. Kept for backwards compatibility.
    */
   private _state: WorkflowRuntimeState = 'pending'
@@ -368,6 +406,36 @@ export class WorkflowRuntime {
     }
     this._instanceId = crypto.randomUUID()
     this.waitForEventManager = new WaitForEventManager(state)
+
+    // Initialize graph-based state if enabled
+    if (options.useGraphState) {
+      const graphStorage = options.graphStorage ?? new DOGraphStorageAdapter(state.storage)
+      this._graphState = new GraphRuntimeState(graphStorage, {
+        name: config.name,
+        version: config.version,
+        description: config.description,
+        instanceId: this._instanceId,
+      })
+    }
+  }
+
+  // ==========================================================================
+  // GRAPH STATE ACCESSOR
+  // ==========================================================================
+
+  /**
+   * Access the underlying GraphRuntimeState for advanced querying.
+   * Returns null if graph-based state is not enabled.
+   */
+  get graphState(): GraphRuntimeState | null {
+    return this._graphState
+  }
+
+  /**
+   * Check if graph-based state management is enabled.
+   */
+  get isGraphStateEnabled(): boolean {
+    return this._graphState !== null
   }
 
   // ==========================================================================
@@ -456,6 +524,12 @@ export class WorkflowRuntime {
     if (this._initialized) return
 
     await this.storage.put('workflow:config', this.config)
+
+    // Initialize GraphRuntimeState if enabled
+    if (this._graphState) {
+      await this._graphState.initialize(this._input)
+    }
+
     await this.persistState()
     this._initialized = true
   }
@@ -633,6 +707,12 @@ export class WorkflowRuntime {
     this._startedAt = new Date()
     this._initialized = true
 
+    // Initialize GraphRuntimeState if enabled
+    if (this._graphState) {
+      await this._graphState.initialize(input)
+      await this._graphState.start(input)
+    }
+
     await this.persistState()
     this.emit('workflow.started', { instanceId: this._instanceId, input })
 
@@ -644,6 +724,11 @@ export class WorkflowRuntime {
         this.transitionState('complete', `workflow:${this._instanceId}:result`)
         this._completedAt = new Date()
         this._output = this._stepResults[this._stepResults.length - 1]?.output
+
+        // Mark workflow as complete in GraphRuntimeState
+        if (this._graphState) {
+          await this._graphState.complete(this._output)
+        }
 
         await this.persistState()
         this.emit('workflow.completed', {
@@ -663,6 +748,12 @@ export class WorkflowRuntime {
         // Set to 'paused' state directly
         this.setStateVerb('paused')
         this._error = error instanceof Error ? error : new Error(String(error))
+
+        // Mark workflow as paused in GraphRuntimeState
+        if (this._graphState) {
+          await this._graphState.pause([...this._pendingEvents])
+        }
+
         await this.persistState()
         this.emit('workflow.paused', {
           instanceId: this._instanceId,
@@ -680,6 +771,11 @@ export class WorkflowRuntime {
       this.setStateVerb('failed', `workflow:${this._instanceId}:error`)
       this._error = error instanceof Error ? error : new Error(String(error))
       this._completedAt = new Date()
+
+      // Mark workflow as failed in GraphRuntimeState
+      if (this._graphState) {
+        await this._graphState.fail(this._error)
+      }
 
       await this.persistState()
       this.emit('workflow.failed', {
@@ -861,10 +957,22 @@ export class WorkflowRuntime {
   private async executeSteps(): Promise<void> {
     while (this._currentStepIndex < this._steps.length && this._state === 'running') {
       const step = this._steps[this._currentStepIndex]!
+
+      // Create step Thing in GraphRuntimeState if enabled
+      if (this._graphState) {
+        await this._graphState.createStep(
+          this._currentStepIndex,
+          step.name,
+          step.isParallel ?? false
+        )
+        await this._graphState.stepStarted(this._currentStepIndex)
+      }
+
       const stepResult = await this.executeStep(step, this._currentStepIndex)
 
       this._stepResults[this._currentStepIndex] = stepResult
 
+      // Persist to flat storage
       await this.storage.put(`workflow:step:${this._currentStepIndex}`, {
         name: stepResult.name,
         status: stepResult.status,
@@ -879,6 +987,44 @@ export class WorkflowRuntime {
             }
           : undefined,
       })
+
+      // Update GraphRuntimeState step status
+      if (this._graphState) {
+        if (stepResult.status === 'completed') {
+          await this._graphState.stepCompleted(
+            this._currentStepIndex,
+            stepResult.output,
+            stepResult.duration
+          )
+        } else if (stepResult.status === 'failed') {
+          await this._graphState.stepFailed(
+            this._currentStepIndex,
+            stepResult.error ?? new Error('Unknown error'),
+            stepResult.retryCount
+          )
+        }
+
+        // Update parallel results if applicable
+        if (stepResult.parallelResults && step.isParallel) {
+          const graphParallelResults: WorkflowStepThing['data']['parallelResults'] = {}
+          for (const [name, pr] of Object.entries(stepResult.parallelResults)) {
+            graphParallelResults[name] = {
+              name: pr.name,
+              status: pr.status as StepExecutionStatus,
+              output: pr.output,
+              error: pr.error ? {
+                message: pr.error.message,
+                name: pr.error.name,
+                stack: pr.error.stack,
+              } : undefined,
+              duration: pr.duration,
+              startedAt: pr.startedAt?.toISOString(),
+              completedAt: pr.completedAt?.toISOString(),
+            }
+          }
+          await this._graphState.updateParallelResults(this._currentStepIndex, graphParallelResults)
+        }
+      }
 
       if (stepResult.status === 'failed') {
         throw stepResult.error || new Error(`Step '${step.name}' failed`)
@@ -1348,7 +1494,66 @@ export class WorkflowRuntime {
       }
     }
 
+    // Persist to flat storage (for backwards compatibility)
     await this.storage.put('workflow:state', state)
+
+    // If graph-based state is enabled, also sync to GraphRuntimeState
+    if (this._graphState) {
+      await this.syncToGraphState()
+    }
+  }
+
+  /**
+   * Sync current state to GraphRuntimeState.
+   * Maps WorkflowRuntimeState to GraphRuntimeState operations.
+   */
+  private async syncToGraphState(): Promise<void> {
+    if (!this._graphState) return
+
+    // Map current state to GraphRuntimeState status
+    const currentStatus = this.state
+    const graphStatus = this.mapToGraphStatus(currentStatus)
+
+    // Update workflow state in graph
+    const updates: Partial<WorkflowRunThing['data']> = {
+      status: graphStatus,
+      currentStepIndex: this._currentStepIndex,
+      pendingEvents: [...this._pendingEvents],
+    }
+
+    if (this._input !== undefined) {
+      updates.input = this._input
+    }
+
+    if (this._output !== undefined) {
+      updates.output = this._output
+    }
+
+    if (this._startedAt) {
+      updates.startedAt = this._startedAt.toISOString()
+    }
+
+    if (this._completedAt) {
+      updates.completedAt = this._completedAt.toISOString()
+    }
+
+    if (this._error) {
+      updates.error = {
+        message: this._error.message,
+        name: this._error.name,
+        stack: this._error.stack,
+      }
+    }
+
+    await this._graphState.updateStatus(graphStatus, updates)
+  }
+
+  /**
+   * Maps WorkflowRuntimeState to WorkflowRuntimeStatus (from GraphRuntimeState).
+   */
+  private mapToGraphStatus(state: WorkflowRuntimeState): WorkflowRuntimeStatus {
+    // Both enums have the same values
+    return state as WorkflowRuntimeStatus
   }
 
   // ==========================================================================
@@ -1362,6 +1567,62 @@ export class WorkflowRuntime {
       failedSteps: this._stepResults.filter((r) => r.status === 'failed').length,
       duration: this.duration,
     }
+  }
+
+  // ==========================================================================
+  // GRAPH-BASED HISTORY & QUERIES (when graph state is enabled)
+  // ==========================================================================
+
+  /**
+   * Get the full execution history from GraphRuntimeState.
+   * Returns null if graph-based state is not enabled.
+   */
+  async getExecutionHistory(): Promise<{
+    workflow: WorkflowRunThing | null
+    steps: WorkflowStepThing[]
+    relationships: Array<{ verb: string; from: string; to: string }>
+  } | null> {
+    if (!this._graphState) return null
+    return this._graphState.getExecutionHistory()
+  }
+
+  /**
+   * Get the ordered execution chain of steps from GraphRuntimeState.
+   * Returns null if graph-based state is not enabled.
+   */
+  async getStepChain(): Promise<WorkflowStepThing[] | null> {
+    if (!this._graphState) return null
+    return this._graphState.getExecutionChain()
+  }
+
+  /**
+   * Get completed step count from GraphRuntimeState.
+   * Returns null if graph-based state is not enabled.
+   */
+  async getGraphCompletedStepsCount(): Promise<number | null> {
+    if (!this._graphState) return null
+    return this._graphState.getCompletedStepsCount()
+  }
+
+  /**
+   * Get failed step count from GraphRuntimeState.
+   * Returns null if graph-based state is not enabled.
+   */
+  async getGraphFailedStepsCount(): Promise<number | null> {
+    if (!this._graphState) return null
+    return this._graphState.getFailedStepsCount()
+  }
+
+  /**
+   * Export workflow state for persistence across hibernation (graph-based).
+   * Returns null if graph-based state is not enabled.
+   */
+  async exportGraphState(): Promise<{
+    workflow: WorkflowRunThing | null
+    steps: WorkflowStepThing[]
+  } | null> {
+    if (!this._graphState) return null
+    return this._graphState.exportState()
   }
 }
 

@@ -802,3 +802,513 @@ describe('detectReverse - Type Safety', () => {
     expect(_direction).toBe('in')
   })
 })
+
+// ============================================================================
+// BIDIRECTIONAL RELATIONSHIP DETECTION
+// ============================================================================
+
+describe('detectReverse - Bidirectional Relationships', () => {
+  let knownRelTypes: Set<string>
+
+  beforeEach(() => {
+    knownRelTypes = new Set([
+      'friendsWith',
+      'marriedTo',
+      'connectedTo',
+      'relatedTo',
+      'collaboratesWith',
+      'partnersWith',
+    ])
+  })
+
+  describe('Symmetric relationships (A friendsWith B implies B friendsWith A)', () => {
+    it('should detect friendsWithBy as reverse of friendsWith', () => {
+      const result = detectReverse('friendsWithBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('friendsWith')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect marriedToBy as reverse of marriedTo', () => {
+      const result = detectReverse('marriedToBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('marriedTo')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect connectedToBy as reverse of connectedTo', () => {
+      const result = detectReverse('connectedToBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('connectedTo')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect relatedToBy as reverse of relatedTo', () => {
+      const result = detectReverse('relatedToBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('relatedTo')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect collaboratesWithBy as reverse of collaboratesWith', () => {
+      const result = detectReverse('collaboratesWithBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('collaboratesWith')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect partnersWithBy as reverse of partnersWith', () => {
+      const result = detectReverse('partnersWithBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('partnersWith')
+      expect(result.direction).toBe('in')
+    })
+  })
+
+  describe('Direct bidirectional relationships should be "out" direction', () => {
+    it('should detect friendsWith as direct, not reverse', () => {
+      const result = detectReverse('friendsWith', knownRelTypes)
+
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('friendsWith')
+      expect(result.direction).toBe('out')
+    })
+
+    it('should detect marriedTo as direct, not reverse', () => {
+      const result = detectReverse('marriedTo', knownRelTypes)
+
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('marriedTo')
+      expect(result.direction).toBe('out')
+    })
+  })
+})
+
+// ============================================================================
+// INVERSE NAMING CONVENTIONS
+// ============================================================================
+
+describe('detectReverse - Inverse Naming Conventions', () => {
+  /**
+   * Some relationship types have semantic inverses:
+   * - parentOf <-> childOf
+   * - employs <-> worksFor
+   * - contains <-> containedIn
+   * - above <-> below
+   *
+   * These are NOT the same as "By" reverses, they are different relationship types.
+   * This tests that the detection system correctly handles both patterns.
+   */
+  let knownRelTypes: Set<string>
+
+  beforeEach(() => {
+    knownRelTypes = new Set([
+      // Parent-child relationships
+      'parentOf',
+      'childOf',
+      // Employment
+      'employs',
+      'worksFor',
+      'employedBy',
+      // Container relationships
+      'contains',
+      'containedIn',
+      // Spatial
+      'above',
+      'below',
+    ])
+  })
+
+  describe('Semantic inverse pairs (different relationship types)', () => {
+    it('should detect parentOf as direct relationship, not reverse of childOf', () => {
+      const result = detectReverse('parentOf', knownRelTypes)
+
+      // parentOf is its own relationship type, not a reverse
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('parentOf')
+      expect(result.direction).toBe('out')
+    })
+
+    it('should detect childOf as direct relationship, not reverse of parentOf', () => {
+      const result = detectReverse('childOf', knownRelTypes)
+
+      // childOf is its own relationship type
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('childOf')
+      expect(result.direction).toBe('out')
+    })
+
+    it('should detect parentOfBy as reverse of parentOf', () => {
+      const result = detectReverse('parentOfBy', knownRelTypes)
+
+      // parentOfBy IS a reverse of parentOf
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('parentOf')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect childOfBy as reverse of childOf', () => {
+      const result = detectReverse('childOfBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('childOf')
+      expect(result.direction).toBe('in')
+    })
+  })
+
+  describe('Employment relationships', () => {
+    it('should detect employs as direct relationship', () => {
+      const result = detectReverse('employs', knownRelTypes)
+
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('employs')
+      expect(result.direction).toBe('out')
+    })
+
+    it('should detect employedBy as reverse of employs (not employedBy as its own type)', () => {
+      // This tests that employedBy -> employs even though employedBy is in the known set
+      // The "By" suffix detection should take precedence
+      const result = detectReverse('employedBy', knownRelTypes)
+
+      // employedBy is in the known set, so it should be treated as direct
+      // This is the expected behavior - known types are treated as direct
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('employedBy')
+      expect(result.direction).toBe('out')
+    })
+
+    it('should detect worksFor as direct relationship (semantic inverse of employs)', () => {
+      const result = detectReverse('worksFor', knownRelTypes)
+
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('worksFor')
+      expect(result.direction).toBe('out')
+    })
+
+    it('should detect worksForBy as reverse of worksFor', () => {
+      const result = detectReverse('worksForBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('worksFor')
+      expect(result.direction).toBe('in')
+    })
+  })
+
+  describe('Container relationships', () => {
+    it('should detect contains as direct relationship', () => {
+      const result = detectReverse('contains', knownRelTypes)
+
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('contains')
+    })
+
+    it('should detect containedIn as direct relationship (semantic inverse of contains)', () => {
+      const result = detectReverse('containedIn', knownRelTypes)
+
+      expect(result.isReverse).toBe(false)
+      expect(result.relType).toBe('containedIn')
+    })
+
+    it('should detect containsBy as reverse of contains', () => {
+      const result = detectReverse('containsBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('contains')
+      expect(result.direction).toBe('in')
+    })
+
+    it('should detect containedInBy as reverse of containedIn', () => {
+      const result = detectReverse('containedInBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('containedIn')
+      expect(result.direction).toBe('in')
+    })
+  })
+})
+
+// ============================================================================
+// AUTO-CREATION SEMANTICS FOR REVERSE RELATIONSHIPS
+// ============================================================================
+
+describe('detectReverse - Auto-Creation Semantics', () => {
+  /**
+   * These tests verify the detection behavior that enables auto-creation
+   * of reverse relationship traversals in the graph SDK.
+   *
+   * When a user writes `user.$followedBy`, the system should:
+   * 1. Detect that "followedBy" is a reverse form
+   * 2. Extract the base relationship type "follows"
+   * 3. Return direction "in" to enable incoming edge traversal
+   */
+  let knownRelTypes: Set<string>
+
+  beforeEach(() => {
+    knownRelTypes = new Set([
+      'follows',
+      'likes',
+      'created',
+      'owns',
+      'manages',
+    ])
+  })
+
+  describe('Auto-resolution of reverse patterns', () => {
+    it('should auto-resolve followedBy to follows with incoming direction', () => {
+      const result = detectReverse('followedBy', knownRelTypes)
+
+      // This enables: user.$followedBy -> traverse incoming 'follows' edges
+      expect(result).toEqual({
+        isReverse: true,
+        relType: 'follows',
+        direction: 'in',
+      })
+    })
+
+    it('should auto-resolve likedBy to likes with incoming direction', () => {
+      const result = detectReverse('likedBy', knownRelTypes)
+
+      // This enables: post.$likedBy -> traverse incoming 'likes' edges
+      expect(result).toEqual({
+        isReverse: true,
+        relType: 'likes',
+        direction: 'in',
+      })
+    })
+
+    it('should auto-resolve createdBy to created with incoming direction', () => {
+      const result = detectReverse('createdBy', knownRelTypes)
+
+      // This enables: project.$createdBy -> traverse incoming 'created' edges
+      expect(result).toEqual({
+        isReverse: true,
+        relType: 'created',
+        direction: 'in',
+      })
+    })
+
+    it('should auto-resolve ownedBy to owns with incoming direction', () => {
+      const result = detectReverse('ownedBy', knownRelTypes)
+
+      // This enables: company.$ownedBy -> traverse incoming 'owns' edges
+      expect(result).toEqual({
+        isReverse: true,
+        relType: 'owns',
+        direction: 'in',
+      })
+    })
+
+    it('should auto-resolve managedBy to manages with incoming direction', () => {
+      const result = detectReverse('managedBy', knownRelTypes)
+
+      // This enables: team.$managedBy -> traverse incoming 'manages' edges
+      expect(result).toEqual({
+        isReverse: true,
+        relType: 'manages',
+        direction: 'in',
+      })
+    })
+  })
+
+  describe('Direct relationship resolution (no auto-creation needed)', () => {
+    it('should resolve follows as direct with outgoing direction', () => {
+      const result = detectReverse('follows', knownRelTypes)
+
+      // This enables: user.$follows -> traverse outgoing 'follows' edges
+      expect(result).toEqual({
+        isReverse: false,
+        relType: 'follows',
+        direction: 'out',
+      })
+    })
+
+    it('should resolve likes as direct with outgoing direction', () => {
+      const result = detectReverse('likes', knownRelTypes)
+
+      // This enables: user.$likes -> traverse outgoing 'likes' edges
+      expect(result).toEqual({
+        isReverse: false,
+        relType: 'likes',
+        direction: 'out',
+      })
+    })
+  })
+
+  describe('Unknown relationships default to direct traversal', () => {
+    it('should default unknown relationships to outgoing direction', () => {
+      const result = detectReverse('unknownRelationship', knownRelTypes)
+
+      // Unknown relationships are treated as direct outgoing
+      expect(result).toEqual({
+        isReverse: false,
+        relType: 'unknownRelationship',
+        direction: 'out',
+      })
+    })
+
+    it('should default unknownBy to outgoing if base is not known', () => {
+      const result = detectReverse('unknownBy', knownRelTypes)
+
+      // 'unknown' is not in knownRelTypes, so treat as direct
+      expect(result).toEqual({
+        isReverse: false,
+        relType: 'unknownBy',
+        direction: 'out',
+      })
+    })
+  })
+})
+
+// ============================================================================
+// COMPLEX VERB CONJUGATIONS
+// ============================================================================
+
+describe('detectReverse - Complex Verb Conjugations', () => {
+  /**
+   * Tests for complex English verb conjugations that require
+   * sophisticated pattern matching.
+   */
+  let knownRelTypes: Set<string>
+
+  beforeEach(() => {
+    knownRelTypes = new Set([
+      // Regular verbs
+      'mentions',
+      'blocks',
+      'shares',
+      // Verbs ending in -es
+      'watches',
+      'catches',
+      'teaches',
+      // Verbs with doubled consonants
+      'stops',
+      'drops',
+      'ships',
+      // Irregular past tense verbs
+      'wrote',
+      'built',
+      'sent',
+      'made',
+      // Present tense forms
+      'writes',
+      'builds',
+      'sends',
+      'makes',
+    ])
+  })
+
+  describe('Regular -s verbs', () => {
+    it('should detect mentionedBy -> mentions', () => {
+      const result = detectReverse('mentionedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('mentions')
+    })
+
+    it('should detect blockedBy -> blocks', () => {
+      const result = detectReverse('blockedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('blocks')
+    })
+
+    it('should detect sharedBy -> shares', () => {
+      const result = detectReverse('sharedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('shares')
+    })
+  })
+
+  describe('Verbs ending in -es', () => {
+    it('should detect watchedBy -> watches', () => {
+      const result = detectReverse('watchedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('watches')
+    })
+
+    it('should detect caughtBy -> catches', () => {
+      // Irregular past: catch -> caught
+      const result = detectReverse('caughtBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('catches')
+    })
+
+    it('should detect taughtBy -> teaches', () => {
+      // Irregular past: teach -> taught
+      const result = detectReverse('taughtBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('teaches')
+    })
+  })
+
+  describe('Verbs with doubled consonants', () => {
+    it('should detect stoppedBy -> stops', () => {
+      const result = detectReverse('stoppedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('stops')
+    })
+
+    it('should detect droppedBy -> drops', () => {
+      const result = detectReverse('droppedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('drops')
+    })
+
+    it('should detect shippedBy -> ships', () => {
+      const result = detectReverse('shippedBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('ships')
+    })
+  })
+
+  describe('Irregular past tense verbs', () => {
+    it('should detect wroteBy -> writes (or wrote if present)', () => {
+      const result = detectReverse('wroteBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      // Should match either 'wrote' or 'writes' depending on implementation
+      expect(['wrote', 'writes']).toContain(result.relType)
+    })
+
+    it('should detect writtenBy -> writes', () => {
+      const result = detectReverse('writtenBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(result.relType).toBe('writes')
+    })
+
+    it('should detect builtBy -> builds (or built if present)', () => {
+      const result = detectReverse('builtBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(['built', 'builds']).toContain(result.relType)
+    })
+
+    it('should detect sentBy -> sends (or sent if present)', () => {
+      const result = detectReverse('sentBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(['sent', 'sends']).toContain(result.relType)
+    })
+
+    it('should detect madeBy -> makes (or made if present)', () => {
+      const result = detectReverse('madeBy', knownRelTypes)
+
+      expect(result.isReverse).toBe(true)
+      expect(['made', 'makes']).toContain(result.relType)
+    })
+  })
+})

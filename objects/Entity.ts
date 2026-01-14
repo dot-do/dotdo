@@ -303,7 +303,8 @@ export class Entity extends DO {
    */
   async getSchema(): Promise<EntitySchema | null> {
     if (!this.schema) {
-      this.schema = (await this.ctx.storage.get('schema')) as EntitySchema | null
+      const stored = await this.ctx.storage.get('schema')
+      this.schema = stored !== undefined ? (stored as EntitySchema) : null
     }
     return this.schema
   }
@@ -415,7 +416,8 @@ export class Entity extends DO {
    * Get entity record by ID
    */
   async get(id: string): Promise<EntityRecord | null> {
-    return (await this.ctx.storage.get(`record:${id}`)) as EntityRecord | null
+    const record = await this.ctx.storage.get(`record:${id}`)
+    return record !== undefined ? (record as EntityRecord) : null
   }
 
   /**

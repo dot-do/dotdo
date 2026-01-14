@@ -1,0 +1,346 @@
+---
+title: Branded Types
+description: Nominal typing for IDs and other compile-time distinct values
+---
+
+# Branded Types
+
+Branded types (also known as opaque types or nominal types) prevent mixing up different ID types at compile time. At runtime, they are just strings, but TypeScript treats them as distinct types.
+
+## The Problem
+
+Without branded types, all IDs are just strings:
+
+```typescript
+function processOrder(orderId: string, customerId: string) {
+  // Easy to accidentally swap these!
+}
+
+// No compile-time error, but this is a bug
+processOrder(customerId, orderId) // Arguments swapped!
+```
+
+## The Solution: Branded Types
+
+Located in `/types/ids.ts`:
+
+```typescript
+// Unique symbol for type branding (never accessed at runtime)
+declare const __brand: unique symbol
+
+/**
+ * Brand utility type that adds a nominal type tag to a base type.
+ * The branded type is structurally compatible with the base type
+ * (can be used where base is expected), but the base type cannot
+ * be directly assigned to the branded type.
+ */
+type Brand<T, B extends string> = T & { readonly [__brand]: B }
+```
+
+## Core Branded ID Types
+
+```typescript
+// Branded type for Thing IDs
+export type ThingId = Brand<string, 'ThingId'>
+
+// Branded type for Action IDs (UUIDs)
+export type ActionId = Brand<string, 'ActionId'>
+
+// Branded type for Event IDs
+export type EventId = Brand<string, 'EventId'>
+
+// Branded type for Noun IDs (PascalCase)
+export type NounId = Brand<string, 'NounId'>
+```
+
+## Creator Functions
+
+Each branded type has a creator function for proper type assignment:
+
+```typescript
+export function createThingId(value: string): ThingId {
+  return value as ThingId
+}
+
+export function createActionId(value: string): ActionId {
+  return value as ActionId
+}
+
+export function createEventId(value: string): EventId {
+  return value as EventId
+}
+
+export function createNounId(value: string): NounId {
+  return value as NounId
+}
+```
+
+### Usage
+
+```typescript
+const thingId: ThingId = createThingId('acme')
+const actionId: ActionId = createActionId('550e8400-e29b-41d4-a716-446655440000')
+
+// Type error! ThingId is not assignable to ActionId
+const wrong: ActionId = thingId  // Compile error
+
+// Correct usage
+function processThingId(id: ThingId): string {
+  return `Processing thing: ${id}`
+}
+
+processThingId(thingId)      // OK
+processThingId(actionId)     // Compile error
+```
+
+## Type Guards
+
+Runtime validation with type narrowing:
+
+```typescript
+export function isThingId(value: unknown): value is ThingId {
+  if (typeof value !== 'string') return false
+  if (value.length > 255) return false  // Security: prevent DoS
+  if (ID_PATTERNS.eventIdPrefix.test(value)) return false
+  return ID_PATTERNS.thingId.test(value)
+}
+
+export function isActionId(value: unknown): value is ActionId {
+  if (typeof value !== 'string') return false
+  return ID_PATTERNS.actionId.test(value)
+}
+
+export function isEventId(value: unknown): value is EventId {
+  if (typeof value !== 'string') return false
+  return ID_PATTERNS.eventId.test(value)
+}
+
+export function isNounId(value: unknown): value is NounId {
+  if (typeof value !== 'string') return false
+  return ID_PATTERNS.nounId.test(value)
+}
+```
+
+### Using Type Guards
+
+```typescript
+const maybeId: unknown = 'my-startup'
+
+if (isThingId(maybeId)) {
+  // maybeId is now typed as ThingId
+  processThingId(maybeId)
+}
+
+// Parsing untrusted input
+function parseId(input: string): ThingId | null {
+  return isThingId(input) ? input : null
+}
+```
+
+## ID Format Patterns
+
+Validation regex patterns ensure ID format correctness:
+
+```typescript
+export const ID_PATTERNS = {
+  // ThingId: lowercase alphanumeric slug with dashes and dots
+  // Examples: 'acme', 'my-startup', 'headless.ly'
+  thingId: /^[a-z][a-z0-9]*(?:[-.]?[a-z0-9]+)*$/,
+
+  // ActionId: UUID v4 format
+  // Example: '550e8400-e29b-41d4-a716-446655440000'
+  actionId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+
+  // EventId: 'evt-' prefix followed by alphanumeric
+  // Examples: 'evt-123', 'evt-abc456'
+  eventId: /^evt-[a-z0-9]+$/i,
+
+  // NounId: PascalCase identifier
+  // Examples: 'Startup', 'Customer', 'PaymentMethod'
+  nounId: /^[A-Z][a-zA-Z0-9]*$/,
+} as const
+```
+
+## Utility Types
+
+### UnbrandedId
+
+Extract the base string type from a branded ID:
+
+```typescript
+export type UnbrandedId<T extends Brand<string, string>> =
+  T extends Brand<infer U, string> ? U : never
+
+// Usage
+type BaseType = UnbrandedId<ThingId>  // string
+```
+
+### AnyId
+
+Union type for functions accepting any ID:
+
+```typescript
+export type AnyId = ThingId | ActionId | EventId | NounId
+
+function logId(id: AnyId): void {
+  console.log(`ID: ${id}`)
+}
+```
+
+### IsBrandedId
+
+Type predicate to check if a type is branded:
+
+```typescript
+export type IsBrandedId<T> = T extends Brand<string, string> ? true : false
+
+type CheckThing = IsBrandedId<ThingId>  // true
+type CheckString = IsBrandedId<string>  // false
+```
+
+## String Compatibility
+
+Branded IDs remain fully compatible with string operations:
+
+```typescript
+const thingId: ThingId = createThingId('thing-123')
+
+// Works: branded IDs are assignable to string
+const asString: string = thingId
+
+// String methods work
+thingId.toLowerCase()      // 'thing-123'
+thingId.startsWith('thing') // true
+thingId.length             // 9
+
+// Template literals work
+const message = `Processing: ${thingId}`
+
+// JSON serialization works
+JSON.stringify({ id: thingId })  // '{"id":"thing-123"}'
+```
+
+## Collections
+
+Type safety extends to collections:
+
+```typescript
+// Arrays maintain type safety
+const thingIds: ThingId[] = [
+  createThingId('thing-1'),
+  createThingId('thing-2'),
+]
+
+const actionId: ActionId = createActionId('action-1')
+thingIds.push(actionId)  // Type error!
+
+// Maps maintain key type safety
+const thingMap = new Map<ThingId, { value: number }>()
+thingMap.set(createThingId('thing-key'), { value: 1 })
+thingMap.set(actionId, { value: 2 })  // Type error!
+
+// Sets maintain element type safety
+const eventSet = new Set<EventId>()
+eventSet.add(createEventId('evt-1'))
+eventSet.add(createNounId('Startup'))  // Type error!
+```
+
+## Interface Integration
+
+Use in interface definitions:
+
+```typescript
+interface ThingRecord {
+  id: ThingId
+  name: string
+  createdAt: Date
+}
+
+// Type-safe construction
+const validRecord: ThingRecord = {
+  id: createThingId('my-thing'),  // OK
+  name: 'Valid',
+  createdAt: new Date(),
+}
+
+// Type error on wrong ID type
+const invalidRecord: ThingRecord = {
+  id: createActionId('action-1'),  // Compile error!
+  name: 'Invalid',
+  createdAt: new Date(),
+}
+```
+
+## Best Practices
+
+### 1. Always Use Creator Functions
+
+```typescript
+// Good
+const id = createThingId('my-id')
+
+// Avoid - bypasses type safety
+const id = 'my-id' as ThingId
+```
+
+### 2. Validate External Input
+
+```typescript
+function handleRequest(rawId: string): ThingId {
+  if (!isThingId(rawId)) {
+    throw new Error(`Invalid ThingId: ${rawId}`)
+  }
+  return rawId  // Type is narrowed to ThingId
+}
+```
+
+### 3. Use Descriptive Function Signatures
+
+```typescript
+// Clear which ID type is expected
+function getCustomer(customerId: ThingId): Promise<Customer>
+function processAction(actionId: ActionId): Promise<void>
+function handleEvent(eventId: EventId): void
+```
+
+### 4. Consider Generic ID Functions
+
+```typescript
+// When you truly need to accept any ID type
+function logAnyId(id: AnyId): void {
+  console.log(`Processing ID: ${id}`)
+}
+```
+
+## Testing Branded Types
+
+Use `@ts-expect-error` comments to verify type errors:
+
+```typescript
+import { describe, it, expect, expectTypeOf } from 'vitest'
+
+describe('Branded ID Types - Mutual Exclusivity', () => {
+  it('ThingId should not be assignable to ActionId', () => {
+    const thingId: ThingId = createThingId('thing-123')
+
+    // @ts-expect-error - ThingId is not assignable to ActionId
+    const actionId: ActionId = thingId
+
+    expect(thingId).toBeDefined()
+  })
+})
+
+describe('Branded IDs - String Compatibility', () => {
+  it('ThingId should be usable where string is expected', () => {
+    const thingId: ThingId = createThingId('thing-123')
+    const asString: string = thingId  // Should compile
+
+    expectTypeOf(asString).toEqualTypeOf<string>()
+    expect(asString).toBe('thing-123')
+  })
+})
+```
+
+## Implementation Reference
+
+See `/types/ids.ts` for the complete implementation and `/types/tests/branded-ids.test.ts` for comprehensive test coverage.

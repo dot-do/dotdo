@@ -74,11 +74,12 @@ const DEFAULT_MARGINS = {
 
 /**
  * Template engine for variable substitution in documents
- * Supports {{variable}}, {{nested.path}}, conditionals, and loops
+ * Supports {{variable}}, {{nested.path}}, conditionals, loops, and HTML escaping
  */
 export class TemplateEngine implements ITemplateEngine {
   private openDelimiter: string
   private closeDelimiter: string
+  private contextStack: Record<string, unknown>[] = []
 
   constructor(options?: { openDelimiter?: string; closeDelimiter?: string }) {
     this.openDelimiter = options?.openDelimiter ?? '{{'
@@ -89,15 +90,25 @@ export class TemplateEngine implements ITemplateEngine {
    * Render a template string with variables
    */
   render(template: string, variables: Record<string, unknown>): string {
+    return this.renderInternal(template, variables, true)
+  }
+
+  /**
+   * Internal render with context tracking
+   */
+  private renderInternal(template: string, variables: Record<string, unknown>, isRoot: boolean): string {
     let result = template
 
-    // Process loops first ({{#each array}}...{{/each}})
+    // Process triple-brace unescaped output first
+    result = this.processUnescapedVariables(result, variables)
+
+    // Process loops ({{#each array}}...{{/each}})
     result = this.processLoops(result, variables)
 
     // Process conditionals ({{#if condition}}...{{/if}})
     result = this.processConditionals(result, variables)
 
-    // Process variable substitutions
+    // Process variable substitutions with HTML escaping
     result = this.processVariables(result, variables)
 
     return result
@@ -134,31 +145,75 @@ export class TemplateEngine implements ITemplateEngine {
   }
 
   /**
-   * Process loop blocks
+   * Process loop blocks with {{else}} support and object/array iteration
    */
   private processLoops(template: string, variables: Record<string, unknown>): string {
-    return this.processBlock(template, 'each', (arrayName, body) => {
-      const array = this.getValue(arrayName, variables)
-      if (!Array.isArray(array)) return ''
+    return this.processBlockWithElse(template, 'each', (param, body, elseBody) => {
+      const value = this.getValue(param, variables)
 
-      return array
+      // Handle object iteration (when value is plain object, not array)
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        const entries = Object.entries(value as Record<string, unknown>)
+        if (entries.length === 0) {
+          return elseBody ? this.renderWithContext(elseBody, variables) : ''
+        }
+
+        const result = entries
+          .map(([key, val], index) => {
+            const loopVars: Record<string, unknown> = {
+              ...variables,
+              this: val,
+              '@key': key,
+              '@index': index,
+              '@first': index === 0,
+              '@last': index === entries.length - 1,
+            }
+
+            // Push current iteration's context for ../ access from nested loops
+            this.contextStack.push(loopVars)
+            const rendered = this.renderInternal(body, loopVars, false)
+            this.contextStack.pop()
+            return rendered
+          })
+          .join('')
+        return result
+      }
+
+      // Handle array iteration
+      if (!Array.isArray(value) || value.length === 0) {
+        return elseBody ? this.renderWithContext(elseBody, variables) : ''
+      }
+
+      const result = value
         .map((item, index) => {
           const loopVars: Record<string, unknown> = {
             ...variables,
             this: item,
             '@index': index,
             '@first': index === 0,
-            '@last': index === array.length - 1,
+            '@last': index === value.length - 1,
           }
 
           if (typeof item === 'object' && item !== null) {
             Object.assign(loopVars, item)
           }
 
-          return this.render(body, loopVars)
+          // Push current iteration's context for ../ access from nested loops
+          this.contextStack.push(loopVars)
+          const rendered = this.renderInternal(body, loopVars, false)
+          this.contextStack.pop()
+          return rendered
         })
         .join('')
+      return result
     })
+  }
+
+  /**
+   * Render with context (inherits current context stack)
+   */
+  private renderWithContext(template: string, variables: Record<string, unknown>): string {
+    return this.renderInternal(template, variables, false)
   }
 
   /**
@@ -334,25 +389,150 @@ export class TemplateEngine implements ITemplateEngine {
   }
 
   /**
-   * Process variable substitutions
+   * Process a block type with {{else}} support
+   */
+  private processBlockWithElse(
+    template: string,
+    blockType: string,
+    processor: (param: string, body: string, elseBody: string | null) => string
+  ): string {
+    const openTag = `${this.openDelimiter}#${blockType}`
+    const closeTag = `${this.openDelimiter}/${blockType}${this.closeDelimiter}`
+    const elseTag = `${this.openDelimiter}else${this.closeDelimiter}`
+
+    let result = ''
+    let pos = 0
+
+    while (pos < template.length) {
+      const openStart = template.indexOf(openTag, pos)
+      if (openStart === -1) {
+        result += template.slice(pos)
+        break
+      }
+
+      result += template.slice(pos, openStart)
+
+      const openEnd = template.indexOf(this.closeDelimiter, openStart)
+      if (openEnd === -1) {
+        result += template.slice(openStart)
+        break
+      }
+
+      const tagContent = template.slice(openStart + openTag.length, openEnd).trim()
+      const param = tagContent.split(/\s+/)[0]
+
+      // Find matching close tag with nesting and else support
+      let depth = 1
+      let searchPos = openEnd + this.closeDelimiter.length
+      let bodyEnd = -1
+      let elsePos = -1
+
+      while (depth > 0 && searchPos < template.length) {
+        const nextOpen = template.indexOf(openTag, searchPos)
+        const nextClose = template.indexOf(closeTag, searchPos)
+        const nextElse = depth === 1 ? template.indexOf(elseTag, searchPos) : -1
+
+        if (nextClose === -1) break
+
+        // Check for else at current depth level
+        if (nextElse !== -1 && (nextOpen === -1 || nextElse < nextOpen) && nextElse < nextClose && elsePos === -1) {
+          elsePos = nextElse
+        }
+
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+          depth++
+          searchPos = nextOpen + openTag.length
+        } else {
+          depth--
+          if (depth === 0) {
+            bodyEnd = nextClose
+          }
+          searchPos = nextClose + closeTag.length
+        }
+      }
+
+      if (bodyEnd === -1) {
+        result += template.slice(openStart, openEnd + this.closeDelimiter.length)
+        pos = openEnd + this.closeDelimiter.length
+        continue
+      }
+
+      let body: string
+      let elseBody: string | null = null
+
+      if (elsePos !== -1 && elsePos < bodyEnd) {
+        body = template.slice(openEnd + this.closeDelimiter.length, elsePos)
+        elseBody = template.slice(elsePos + elseTag.length, bodyEnd)
+      } else {
+        body = template.slice(openEnd + this.closeDelimiter.length, bodyEnd)
+      }
+
+      result += processor(param, body, elseBody)
+
+      pos = bodyEnd + closeTag.length
+    }
+
+    return result
+  }
+
+  /**
+   * Process triple-brace unescaped variable substitutions {{{variable}}}
+   */
+  private processUnescapedVariables(template: string, variables: Record<string, unknown>): string {
+    // Only apply to standard {{ }} delimiters
+    if (this.openDelimiter === '{{' && this.closeDelimiter === '}}') {
+      const triplePattern = /\{\{\{\s*([a-zA-Z_@][a-zA-Z0-9_.]*)\s*\}\}\}/g
+      template = template.replace(triplePattern, (match, varPath) => {
+        const value = this.getValue(varPath, variables)
+        if (value === undefined || value === null) return match
+        return this.formatValue(value) // No HTML escaping for triple braces
+      })
+    }
+    return template
+  }
+
+  /**
+   * Process variable substitutions with HTML escaping
    */
   private processVariables(template: string, variables: Record<string, unknown>): string {
     const open = this.escapeRegExp(this.openDelimiter)
     const close = this.escapeRegExp(this.closeDelimiter)
 
-    const pattern = new RegExp(`${open}\\s*([a-zA-Z_@][a-zA-Z0-9_.]*)\\s*${close}`, 'g')
+    // Support standard var names and ../ parent context access
+    const pattern = new RegExp(`${open}\\s*([a-zA-Z_@./][a-zA-Z0-9_./]*)\\s*${close}`, 'g')
 
     return template.replace(pattern, (match, varPath) => {
       const value = this.getValue(varPath, variables)
-      if (value === undefined) return match
-      return this.formatValue(value)
+      if (value === undefined || value === null) return match
+      const formatted = this.formatValue(value)
+      return this.escapeHtml(formatted)
     })
   }
 
   /**
-   * Get value from variables using dot notation
+   * Get value from variables using dot notation with parent context support
    */
   private getValue(path: string, variables: Record<string, unknown>): unknown {
+    // Handle parent context access (../)
+    if (path.startsWith('../')) {
+      let contextIndex = this.contextStack.length - 1
+      let remainingPath = path
+
+      while (remainingPath.startsWith('../') && contextIndex >= 0) {
+        remainingPath = remainingPath.slice(3)
+        contextIndex--
+      }
+
+      if (contextIndex >= 0 && remainingPath) {
+        return this.getValue(remainingPath, this.contextStack[contextIndex])
+      } else if (remainingPath && this.contextStack.length > 0) {
+        // Use the deepest available context
+        return this.getValue(remainingPath, this.contextStack[0])
+      }
+
+      return undefined
+    }
+
     if (path === 'this' || path.startsWith('@')) {
       return variables[path]
     }
@@ -397,6 +577,18 @@ export class TemplateEngine implements ITemplateEngine {
    */
   private escapeRegExp(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+
+  /**
+   * Escape HTML special characters for XSS protection
+   */
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
   }
 }
 
@@ -658,15 +850,20 @@ class SimplePDFBuilder {
 
     // Pages
     offsets.push(this.getOffset(pdf))
-    const pageRefs = this.pages.map((_, i) => `${i + 4} 0 R`).join(' ')
+    const pageRefs = this.pages.map((_, i) => `${i + 5} 0 R`).join(' ')
     pdf.push(`2 0 obj\n<< /Type /Pages /Kids [${pageRefs}] /Count ${this.pages.length} >>\nendobj\n`)
 
     // Font
     offsets.push(this.getOffset(pdf))
     pdf.push('3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n')
 
+    // Info dictionary (metadata)
+    offsets.push(this.getOffset(pdf))
+    const infoDict = this.buildInfoDict()
+    pdf.push(`4 0 obj\n${infoDict}\nendobj\n`)
+
     // Pages and content streams
-    let objNum = 4
+    let objNum = 5
     for (let i = 0; i < this.pages.length; i++) {
       // Page object
       offsets.push(this.getOffset(pdf))
@@ -690,14 +887,68 @@ class SimplePDFBuilder {
       pdf.push(`${offset.toString().padStart(10, '0')} 00000 n \n`)
     }
 
-    // Trailer
+    // Trailer with Info reference
     pdf.push(
-      `trailer\n<< /Size ${objNum} /Root 1 0 R >>\n` +
+      `trailer\n<< /Size ${objNum} /Root 1 0 R /Info 4 0 R >>\n` +
       `startxref\n${xrefOffset}\n%%EOF`
     )
 
     const pdfString = pdf.join('')
     return new TextEncoder().encode(pdfString)
+  }
+
+  /**
+   * Build the Info dictionary for metadata
+   */
+  private buildInfoDict(): string {
+    const parts: string[] = ['<<']
+
+    if (this.metadata.title) {
+      parts.push(`/Title (${this.escapeText(this.metadata.title)})`)
+    }
+    if (this.metadata.author) {
+      parts.push(`/Author (${this.escapeText(this.metadata.author)})`)
+    }
+    if (this.metadata.subject) {
+      parts.push(`/Subject (${this.escapeText(this.metadata.subject)})`)
+    }
+    if (this.metadata.creator) {
+      parts.push(`/Creator (${this.escapeText(this.metadata.creator)})`)
+    }
+    if (this.metadata.producer) {
+      parts.push(`/Producer (${this.escapeText(this.metadata.producer)})`)
+    }
+    if (this.metadata.keywords && this.metadata.keywords.length > 0) {
+      parts.push(`/Keywords (${this.escapeText(this.metadata.keywords.join(', '))})`)
+    }
+    if (this.metadata.creationDate) {
+      parts.push(`/CreationDate (D:${this.formatPdfDate(this.metadata.creationDate)})`)
+    }
+    if (this.metadata.modificationDate) {
+      parts.push(`/ModDate (D:${this.formatPdfDate(this.metadata.modificationDate)})`)
+    }
+    // Add custom metadata fields
+    if (this.metadata.custom) {
+      for (const [key, value] of Object.entries(this.metadata.custom)) {
+        parts.push(`/${key} (${this.escapeText(value)})`)
+      }
+    }
+
+    parts.push('>>')
+    return parts.join(' ')
+  }
+
+  /**
+   * Format date for PDF (D:YYYYMMDDHHmmss)
+   */
+  private formatPdfDate(date: Date): string {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    return `${year}${month}${day}${hours}${minutes}${seconds}`
   }
 
   /**
@@ -823,126 +1074,1642 @@ class SimplePDFWatermarker {
 }
 
 // =============================================================================
+// PDF Parser Types (Extended)
+// =============================================================================
+
+/**
+ * Text block with position information
+ */
+export interface TextBlock {
+  /** The extracted text content */
+  text: string
+  /** Page number (1-indexed) */
+  page: number
+  /** Bounding box coordinates */
+  bounds: Bounds
+  /** Font information */
+  font?: {
+    name: string
+    size: number
+    bold?: boolean
+    italic?: boolean
+  }
+  /** Text color (hex) */
+  color?: string
+  /** Confidence score (0-1) for OCR'd text */
+  confidence?: number
+}
+
+/**
+ * Extracted image from PDF
+ */
+export interface ExtractedImage {
+  /** Unique identifier for this image */
+  id: string
+  /** Page number (1-indexed) */
+  page: number
+  /** Image data as base64 */
+  data: string
+  /** MIME type (image/png, image/jpeg, etc.) */
+  mimeType: string
+  /** Image dimensions in pixels */
+  dimensions: {
+    width: number
+    height: number
+  }
+  /** Position on page */
+  bounds: Bounds
+  /** Color space (RGB, CMYK, Grayscale) */
+  colorSpace?: string
+  /** Bits per component */
+  bitsPerComponent?: number
+}
+
+/**
+ * PDF annotation
+ */
+export interface PDFAnnotation {
+  /** Annotation type */
+  type: 'highlight' | 'underline' | 'strikeout' | 'squiggly' | 'note' | 'link' | 'stamp' | 'freetext' | 'line' | 'square' | 'circle' | 'polygon' | 'ink' | 'popup' | 'fileattachment' | 'sound' | 'movie' | 'widget' | 'screen' | 'printermark' | 'trapnet' | 'watermark' | '3d' | 'redact'
+  /** Page number */
+  page: number
+  /** Position */
+  bounds: Bounds
+  /** Content (for text annotations) */
+  content?: string
+  /** Author */
+  author?: string
+  /** Creation date */
+  createdAt?: Date
+  /** Modified date */
+  modifiedAt?: Date
+  /** Color */
+  color?: string
+  /** Link destination (for link annotations) */
+  destination?: string
+}
+
+/**
+ * PDF bookmark/outline entry
+ */
+export interface PDFBookmark {
+  /** Bookmark title */
+  title: string
+  /** Target page number */
+  page: number
+  /** Child bookmarks */
+  children?: PDFBookmark[]
+  /** Whether bookmark is expanded by default */
+  expanded?: boolean
+}
+
+/**
+ * Font used in PDF
+ */
+export interface PDFFont {
+  /** Font name */
+  name: string
+  /** Font type (Type1, TrueType, OpenType, CIDFont) */
+  type: string
+  /** Whether font is embedded */
+  embedded: boolean
+  /** Encoding */
+  encoding?: string
+  /** Pages where font is used */
+  usedOnPages: number[]
+}
+
+/**
+ * Complete PDF structure information
+ */
+export interface PDFStructure {
+  /** PDF version (e.g., "1.7") */
+  version: string
+  /** Page count */
+  pageCount: number
+  /** Page dimensions per page */
+  pages: Array<{
+    number: number
+    width: number
+    height: number
+    rotation?: number
+  }>
+  /** Fonts used in document */
+  fonts: PDFFont[]
+  /** Bookmarks/outline */
+  bookmarks: PDFBookmark[]
+  /** Whether PDF is tagged (accessible) */
+  isTagged: boolean
+  /** Whether PDF contains forms */
+  hasForm: boolean
+  /** Whether PDF has digital signatures */
+  hasSignatures: boolean
+  /** Encryption information */
+  encryption?: {
+    encrypted: boolean
+    method?: string
+    permissions?: {
+      printing: boolean
+      modifying: boolean
+      copying: boolean
+      annotating: boolean
+    }
+  }
+}
+
+/**
+ * Extended PDF extraction options
+ */
+export interface PDFExtractionOptions {
+  /** Extract text with coordinates */
+  includeTextCoordinates?: boolean
+  /** Extract images */
+  extractImages?: boolean
+  /** Maximum image dimension to extract (skip larger) */
+  maxImageSize?: number
+  /** Extract annotations */
+  extractAnnotations?: boolean
+  /** Extract bookmarks */
+  extractBookmarks?: boolean
+  /** Extract fonts info */
+  extractFonts?: boolean
+  /** Password for encrypted PDFs */
+  password?: string
+  /** Page range to extract (1-indexed) */
+  pages?: {
+    start?: number
+    end?: number
+  }
+  /** Enable OCR for scanned documents */
+  enableOCR?: boolean
+  /** OCR language(s) */
+  ocrLanguages?: string[]
+}
+
+/**
+ * Extended document extraction result
+ */
+export interface ExtendedDocumentExtraction extends DocumentExtraction {
+  /** Text blocks with positions */
+  textBlocks?: TextBlock[]
+  /** Extracted images */
+  images: ExtractedImage[]
+  /** Annotations */
+  annotations?: PDFAnnotation[]
+  /** PDF structure info */
+  structure?: PDFStructure
+}
+
+// =============================================================================
 // DocumentParser Implementation
 // =============================================================================
 
 /**
  * Document parser for PDF data extraction
+ *
+ * Provides comprehensive PDF parsing capabilities:
+ * - Text extraction with per-page separation and position info
+ * - Form field extraction from AcroForms
+ * - Table detection and extraction using heuristics
+ * - Image extraction
+ * - Metadata parsing (standard and XMP)
+ * - PDF structure analysis (fonts, bookmarks, annotations)
+ * - Encryption detection and handling
+ *
+ * Optimized for Cloudflare Workers runtime compatibility.
  */
 export class DocumentParser implements IDocumentParser {
+  private pdfData: Uint8Array | null = null
+  private pdfString: string = ''
+  private objects: Map<string, string> = new Map()
+  private pageObjects: Map<number, string> = new Map()
+
+  // ==========================================================================
+  // Public API - Core extraction methods
+  // ==========================================================================
+
   /**
    * Extract text from PDF
    */
-  async extractText(pdf: Uint8Array): Promise<ExtractedText> {
-    const text = this.extractTextContent(pdf)
+  async extractText(pdf: Uint8Array, options?: PDFExtractionOptions): Promise<ExtractedText> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+
+    const pageRange = this.getPageRange(options)
+    const pages = this.extractTextByPage(pageRange)
+
     return {
-      content: text,
-      pages: [text], // Simplified: all text on one "page"
-      confidence: 0.8,
+      content: pages.join('\n\n'),
+      pages,
+      confidence: 0.85,
     }
+  }
+
+  /**
+   * Extract text blocks with position information
+   */
+  async extractTextBlocks(pdf: Uint8Array, options?: PDFExtractionOptions): Promise<TextBlock[]> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+
+    const pageRange = this.getPageRange(options)
+    const blocks: TextBlock[] = []
+
+    for (let pageNum = pageRange.start; pageNum <= pageRange.end; pageNum++) {
+      const pageBlocks = this.extractPageTextBlocks(pageNum)
+      blocks.push(...pageBlocks)
+    }
+
+    return blocks
   }
 
   /**
    * Extract form fields from PDF
    */
   async extractFormFields(pdf: Uint8Array): Promise<ExtractedFormField[]> {
-    // Parse PDF for AcroForm fields
-    const fields: ExtractedFormField[] = []
-    // Stub implementation - would need pdf-lib or similar for full parsing
-    return fields
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parseAcroForm()
   }
 
   /**
    * Extract tables from PDF
    */
   async extractTables(pdf: Uint8Array): Promise<ExtractedTable[]> {
-    // Table extraction is complex - would need heuristics or ML
-    const tables: ExtractedTable[] = []
-    return tables
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.detectAndExtractTables()
   }
 
   /**
    * Get document metadata
    */
   async getMetadata(pdf: Uint8Array): Promise<DocumentMetadata> {
-    return this.parseMetadata(pdf)
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parseMetadata()
+  }
+
+  /**
+   * Extract images from PDF
+   */
+  async extractImages(pdf: Uint8Array, options?: PDFExtractionOptions): Promise<ExtractedImage[]> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+
+    const pageRange = this.getPageRange(options)
+    const maxSize = options?.maxImageSize ?? Infinity
+
+    return this.parseImages(pageRange, maxSize)
+  }
+
+  /**
+   * Extract annotations from PDF
+   */
+  async extractAnnotations(pdf: Uint8Array): Promise<PDFAnnotation[]> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parseAnnotations()
+  }
+
+  /**
+   * Extract XMP metadata when present
+   */
+  async extractXMPMetadata(pdf: Uint8Array): Promise<Record<string, unknown>> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parseXMPMetadata()
+  }
+
+  /**
+   * Get PDF structure information
+   */
+  async getStructure(pdf: Uint8Array): Promise<PDFStructure> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parsePDFStructure()
+  }
+
+  /**
+   * Check if PDF is encrypted
+   */
+  async isEncrypted(pdf: Uint8Array): Promise<boolean> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.checkEncryption()
+  }
+
+  /**
+   * Get encryption information
+   */
+  async getEncryptionInfo(pdf: Uint8Array): Promise<{
+    encrypted: boolean
+    method?: string
+    keyLength?: number
+  }> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parseEncryptionInfo()
+  }
+
+  /**
+   * Get PDF permissions (requires owner password if encrypted)
+   */
+  async getPermissions(pdf: Uint8Array, options?: PDFExtractionOptions): Promise<{
+    printing: boolean
+    copying: boolean
+    modifying: boolean
+    annotating: boolean
+  }> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+    return this.parsePermissions(options?.password)
   }
 
   /**
    * Full document extraction
    */
-  async extract(pdf: Uint8Array): Promise<DocumentExtraction> {
+  async extract(pdf: Uint8Array, options?: PDFExtractionOptions): Promise<ExtendedDocumentExtraction> {
+    this.validatePDF(pdf)
+    this.parsePDF(pdf)
+
+    const pageRange = this.getPageRange(options)
+
     const [text, formFields, tables, metadata] = await Promise.all([
-      this.extractText(pdf),
+      this.extractText(pdf, options),
       this.extractFormFields(pdf),
       this.extractTables(pdf),
       this.getMetadata(pdf),
     ])
 
-    return {
+    const result: ExtendedDocumentExtraction = {
       text,
       formFields,
       tables,
       metadata,
-      pageCount: this.countPages(pdf),
+      pageCount: this.countPages(),
       extractedAt: new Date(),
+      images: [],
+    }
+
+    // Optional extractions based on options
+    if (options?.includeTextCoordinates) {
+      result.textBlocks = await this.extractTextBlocks(pdf, options)
+    }
+
+    if (options?.extractImages) {
+      result.images = await this.extractImages(pdf, options)
+    }
+
+    if (options?.extractAnnotations) {
+      result.annotations = await this.extractAnnotations(pdf)
+    }
+
+    if (options?.extractBookmarks || options?.extractFonts) {
+      result.structure = await this.getStructure(pdf)
+    }
+
+    return result
+  }
+
+  // ==========================================================================
+  // Private - PDF Parsing Core
+  // ==========================================================================
+
+  /**
+   * Validate PDF input
+   */
+  private validatePDF(pdf: Uint8Array): void {
+    if (!pdf || pdf.length === 0) {
+      throw new Error('Invalid PDF: empty input')
+    }
+
+    // Check PDF magic bytes
+    const header = new TextDecoder().decode(pdf.slice(0, 8))
+    if (!header.startsWith('%PDF-')) {
+      throw new Error('Invalid PDF: not a PDF file (missing %PDF- header)')
+    }
+
+    // Check for EOF marker
+    const trailer = new TextDecoder().decode(pdf.slice(-20))
+    if (!trailer.includes('%%EOF')) {
+      throw new Error('Invalid PDF: truncated or incomplete file (missing %%EOF)')
     }
   }
 
   /**
-   * Extract text content from PDF
+   * Parse PDF structure into internal representation
    */
-  private extractTextContent(pdf: Uint8Array): string {
-    const pdfString = new TextDecoder().decode(pdf)
+  private parsePDF(pdf: Uint8Array): void {
+    this.pdfData = pdf
+    this.pdfString = new TextDecoder().decode(pdf)
+    this.objects.clear()
+    this.pageObjects.clear()
+
+    // Parse all objects
+    this.parseObjects()
+
+    // Build page mapping
+    this.buildPageMapping()
+  }
+
+  /**
+   * Parse PDF objects
+   */
+  private parseObjects(): void {
+    // Match object definitions: "n n obj ... endobj"
+    const objPattern = /(\d+)\s+(\d+)\s+obj\s*([\s\S]*?)\s*endobj/g
+    let match
+
+    while ((match = objPattern.exec(this.pdfString)) !== null) {
+      const objNum = match[1]
+      const genNum = match[2]
+      const content = match[3]
+      this.objects.set(`${objNum} ${genNum}`, content)
+    }
+  }
+
+  /**
+   * Build mapping from page numbers to page objects
+   */
+  private buildPageMapping(): void {
+    // Find Pages dictionary
+    const pagesMatch = /\/Type\s*\/Pages[\s\S]*?\/Kids\s*\[([\s\S]*?)\]/g.exec(this.pdfString)
+    if (!pagesMatch) return
+
+    // Extract page references
+    const kidsString = pagesMatch[1]
+    const pageRefs = kidsString.match(/(\d+)\s+\d+\s+R/g) || []
+
+    pageRefs.forEach((ref, index) => {
+      const objNum = ref.match(/(\d+)/)?.[1]
+      if (objNum) {
+        this.pageObjects.set(index + 1, objNum)
+      }
+    })
+  }
+
+  /**
+   * Get page range from options
+   */
+  private getPageRange(options?: PDFExtractionOptions): { start: number; end: number } {
+    const totalPages = this.countPages()
+    const start = Math.max(1, options?.pages?.start ?? 1)
+    const end = Math.min(totalPages, options?.pages?.end ?? totalPages)
+    return { start, end }
+  }
+
+  // ==========================================================================
+  // Private - Text Extraction
+  // ==========================================================================
+
+  /**
+   * Extract text by page
+   */
+  private extractTextByPage(pageRange: { start: number; end: number }): string[] {
+    const pages: string[] = []
+
+    for (let pageNum = pageRange.start; pageNum <= pageRange.end; pageNum++) {
+      const pageText = this.extractPageText(pageNum)
+      pages.push(pageText)
+    }
+
+    return pages
+  }
+
+  /**
+   * Extract text from a single page
+   */
+  private extractPageText(pageNum: number): string {
+    const pageObjNum = this.pageObjects.get(pageNum)
+    if (!pageObjNum) {
+      // Fallback to global text extraction for this page range
+      return this.extractTextContentGlobal()
+    }
+
+    const pageObj = this.objects.get(`${pageObjNum} 0`)
+    if (!pageObj) return ''
+
+    // Find content stream reference
+    const contentsMatch = /\/Contents\s+(\d+)\s+\d+\s+R/.exec(pageObj)
+    if (!contentsMatch) return ''
+
+    const contentObjNum = contentsMatch[1]
+    const contentObj = this.objects.get(`${contentObjNum} 0`)
+    if (!contentObj) return ''
+
+    // Extract text from content stream
+    return this.extractTextFromStream(contentObj)
+  }
+
+  /**
+   * Extract text from a content stream
+   */
+  private extractTextFromStream(content: string): string {
     const textMatches: string[] = []
 
-    // Find text streams and extract content
-    // This is a simplified parser - real implementation needs proper PDF parsing
+    // Find stream content
+    const streamMatch = /stream\s*([\s\S]*?)\s*endstream/.exec(content)
+    if (!streamMatch) {
+      // Try extracting directly from content
+      return this.extractTextOperators(content)
+    }
+
+    return this.extractTextOperators(streamMatch[1])
+  }
+
+  /**
+   * Extract text from PDF operators
+   */
+  private extractTextOperators(content: string): string {
+    const textParts: string[] = []
+
+    // Match Tj operator (show text)
+    const tjPattern = /\((.*?)\)\s*Tj/g
+    let match
+    while ((match = tjPattern.exec(content)) !== null) {
+      textParts.push(this.unescapePdfText(match[1]))
+    }
+
+    // Match TJ operator (show text array)
+    const tjArrayPattern = /\[([\s\S]*?)\]\s*TJ/g
+    while ((match = tjArrayPattern.exec(content)) !== null) {
+      const arrayContent = match[1]
+      // Extract strings from array
+      const stringPattern = /\((.*?)\)/g
+      let strMatch
+      while ((strMatch = stringPattern.exec(arrayContent)) !== null) {
+        textParts.push(this.unescapePdfText(strMatch[1]))
+      }
+    }
+
+    // Match ' and " operators (show text with spacing)
+    const quotePattern = /\((.*?)\)\s*['"]/g
+    while ((match = quotePattern.exec(content)) !== null) {
+      textParts.push(this.unescapePdfText(match[1]))
+    }
+
+    return textParts.join(' ').replace(/\s+/g, ' ').trim()
+  }
+
+  /**
+   * Global text extraction (fallback)
+   */
+  private extractTextContentGlobal(): string {
+    const textMatches: string[] = []
+
+    // Find all text streams
     const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g
     let match
 
-    while ((match = streamPattern.exec(pdfString)) !== null) {
+    while ((match = streamPattern.exec(this.pdfString)) !== null) {
       const streamContent = match[1]
-      // Extract text from Tj and TJ operators
-      const textPattern = /\((.*?)\)\s*Tj/g
-      let textMatch
-      while ((textMatch = textPattern.exec(streamContent)) !== null) {
-        textMatches.push(this.unescapePdfText(textMatch[1]))
-      }
+      const text = this.extractTextOperators(streamContent)
+      if (text) textMatches.push(text)
     }
 
     return textMatches.join(' ').trim()
   }
 
   /**
+   * Extract text blocks with position info for a page
+   */
+  private extractPageTextBlocks(pageNum: number): TextBlock[] {
+    const blocks: TextBlock[] = []
+    const pageObjNum = this.pageObjects.get(pageNum)
+
+    if (!pageObjNum) {
+      // Return basic block without position
+      const text = this.extractPageText(pageNum)
+      if (text) {
+        blocks.push({
+          text,
+          page: pageNum,
+          bounds: { x: 0, y: 0, width: 612, height: 792 },
+          confidence: 0.7,
+        })
+      }
+      return blocks
+    }
+
+    const pageObj = this.objects.get(`${pageObjNum} 0`)
+    if (!pageObj) return blocks
+
+    // Get page dimensions
+    const mediaBox = this.parseMediaBox(pageObj)
+
+    // Find content stream
+    const contentsMatch = /\/Contents\s+(\d+)\s+\d+\s+R/.exec(pageObj)
+    if (!contentsMatch) return blocks
+
+    const contentObjNum = contentsMatch[1]
+    const contentObj = this.objects.get(`${contentObjNum} 0`)
+    if (!contentObj) return blocks
+
+    // Parse text operations with positions
+    const streamMatch = /stream\s*([\s\S]*?)\s*endstream/.exec(contentObj)
+    if (!streamMatch) return blocks
+
+    const operations = this.parseTextOperations(streamMatch[1])
+
+    for (const op of operations) {
+      blocks.push({
+        text: op.text,
+        page: pageNum,
+        bounds: {
+          x: op.x,
+          y: op.y,
+          width: op.text.length * (op.fontSize * 0.5),
+          height: op.fontSize * 1.2,
+        },
+        font: op.font ? {
+          name: op.font,
+          size: op.fontSize,
+        } : undefined,
+        confidence: 0.85,
+      })
+    }
+
+    return blocks
+  }
+
+  /**
+   * Parse text operations with position tracking
+   */
+  private parseTextOperations(content: string): Array<{
+    text: string
+    x: number
+    y: number
+    fontSize: number
+    font?: string
+  }> {
+    const operations: Array<{
+      text: string
+      x: number
+      y: number
+      fontSize: number
+      font?: string
+    }> = []
+
+    let currentX = 0
+    let currentY = 0
+    let currentFontSize = 12
+    let currentFont: string | undefined
+
+    // Split into lines and parse
+    const lines = content.split('\n')
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+
+      // Text matrix: x y Td or x y TD
+      const tdMatch = /(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+T[dD]/.exec(trimmed)
+      if (tdMatch) {
+        currentX += parseFloat(tdMatch[1])
+        currentY += parseFloat(tdMatch[2])
+      }
+
+      // Absolute position: x y x y x y Tm
+      const tmMatch = /(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+Tm/.exec(trimmed)
+      if (tmMatch) {
+        currentX = parseFloat(tmMatch[5])
+        currentY = parseFloat(tmMatch[6])
+        currentFontSize = parseFloat(tmMatch[4]) || currentFontSize
+      }
+
+      // Font selection: /FontName size Tf
+      const tfMatch = /\/(\w+)\s+(-?\d+\.?\d*)\s+Tf/.exec(trimmed)
+      if (tfMatch) {
+        currentFont = tfMatch[1]
+        currentFontSize = parseFloat(tfMatch[2]) || currentFontSize
+      }
+
+      // Text showing: (text) Tj
+      const tjMatch = /\((.*?)\)\s*Tj/.exec(trimmed)
+      if (tjMatch) {
+        operations.push({
+          text: this.unescapePdfText(tjMatch[1]),
+          x: currentX,
+          y: currentY,
+          fontSize: currentFontSize,
+          font: currentFont,
+        })
+      }
+
+      // Text array: [...] TJ
+      const tjArrayMatch = /\[([\s\S]*?)\]\s*TJ/.exec(trimmed)
+      if (tjArrayMatch) {
+        const arrayContent = tjArrayMatch[1]
+        const stringPattern = /\((.*?)\)/g
+        let textParts: string[] = []
+        let strMatch
+        while ((strMatch = stringPattern.exec(arrayContent)) !== null) {
+          textParts.push(this.unescapePdfText(strMatch[1]))
+        }
+        if (textParts.length > 0) {
+          operations.push({
+            text: textParts.join(''),
+            x: currentX,
+            y: currentY,
+            fontSize: currentFontSize,
+            font: currentFont,
+          })
+        }
+      }
+    }
+
+    return operations
+  }
+
+  /**
+   * Parse MediaBox from page object
+   */
+  private parseMediaBox(pageObj: string): { width: number; height: number } {
+    const match = /\/MediaBox\s*\[\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*\]/.exec(pageObj)
+    if (match) {
+      return {
+        width: parseFloat(match[3]) - parseFloat(match[1]),
+        height: parseFloat(match[4]) - parseFloat(match[2]),
+      }
+    }
+    return { width: 612, height: 792 } // Default letter size
+  }
+
+  // ==========================================================================
+  // Private - Metadata Extraction
+  // ==========================================================================
+
+  /**
    * Parse PDF metadata
    */
-  private parseMetadata(pdf: Uint8Array): DocumentMetadata {
-    const pdfString = new TextDecoder().decode(pdf)
+  private parseMetadata(): DocumentMetadata {
     const metadata: DocumentMetadata = {}
 
-    // Look for /Info dictionary
-    const titleMatch = /\/Title\s*\((.*?)\)/.exec(pdfString)
-    if (titleMatch) metadata.title = this.unescapePdfText(titleMatch[1])
+    // Find Info dictionary
+    const infoMatch = /\/Info\s+(\d+)\s+\d+\s+R/.exec(this.pdfString)
+    if (infoMatch) {
+      const infoObjNum = infoMatch[1]
+      const infoObj = this.objects.get(`${infoObjNum} 0`)
+      if (infoObj) {
+        // Parse metadata fields
+        metadata.title = this.extractMetadataField(infoObj, 'Title')
+        metadata.author = this.extractMetadataField(infoObj, 'Author')
+        metadata.subject = this.extractMetadataField(infoObj, 'Subject')
+        metadata.creator = this.extractMetadataField(infoObj, 'Creator')
+        metadata.producer = this.extractMetadataField(infoObj, 'Producer')
 
-    const authorMatch = /\/Author\s*\((.*?)\)/.exec(pdfString)
-    if (authorMatch) metadata.author = this.unescapePdfText(authorMatch[1])
+        const keywords = this.extractMetadataField(infoObj, 'Keywords')
+        if (keywords) {
+          metadata.keywords = keywords.split(/[,;]\s*/)
+        }
 
-    const subjectMatch = /\/Subject\s*\((.*?)\)/.exec(pdfString)
-    if (subjectMatch) metadata.subject = this.unescapePdfText(subjectMatch[1])
+        // Parse dates
+        const creationDate = this.extractMetadataField(infoObj, 'CreationDate')
+        if (creationDate) {
+          metadata.creationDate = this.parsePdfDate(creationDate)
+        }
 
-    const creatorMatch = /\/Creator\s*\((.*?)\)/.exec(pdfString)
-    if (creatorMatch) metadata.creator = this.unescapePdfText(creatorMatch[1])
+        const modDate = this.extractMetadataField(infoObj, 'ModDate')
+        if (modDate) {
+          metadata.modificationDate = this.parsePdfDate(modDate)
+        }
+
+        // Extract custom metadata
+        metadata.custom = this.extractCustomMetadata(infoObj)
+      }
+    }
+
+    // Fallback to searching directly in PDF string
+    if (!metadata.title) {
+      const titleMatch = /\/Title\s*\((.*?)\)/.exec(this.pdfString)
+      if (titleMatch) metadata.title = this.unescapePdfText(titleMatch[1])
+    }
+
+    if (!metadata.author) {
+      const authorMatch = /\/Author\s*\((.*?)\)/.exec(this.pdfString)
+      if (authorMatch) metadata.author = this.unescapePdfText(authorMatch[1])
+    }
 
     return metadata
   }
 
   /**
+   * Extract a specific metadata field
+   */
+  private extractMetadataField(obj: string, fieldName: string): string | undefined {
+    // Try parenthesized string
+    const parenMatch = new RegExp(`\\/${fieldName}\\s*\\(([^)]*?)\\)`).exec(obj)
+    if (parenMatch) {
+      return this.unescapePdfText(parenMatch[1])
+    }
+
+    // Try hex string
+    const hexMatch = new RegExp(`\\/${fieldName}\\s*<([0-9A-Fa-f]+)>`).exec(obj)
+    if (hexMatch) {
+      return this.hexToString(hexMatch[1])
+    }
+
+    return undefined
+  }
+
+  /**
+   * Extract custom metadata fields
+   */
+  private extractCustomMetadata(obj: string): Record<string, string> | undefined {
+    const custom: Record<string, string> = {}
+    const standardFields = ['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate', 'ModDate', 'Trapped']
+
+    // Find all name/value pairs
+    const fieldPattern = /\/([A-Za-z][A-Za-z0-9]*)\s*\(([^)]*)\)/g
+    let match
+    while ((match = fieldPattern.exec(obj)) !== null) {
+      const fieldName = match[1]
+      if (!standardFields.includes(fieldName)) {
+        custom[fieldName] = this.unescapePdfText(match[2])
+      }
+    }
+
+    return Object.keys(custom).length > 0 ? custom : undefined
+  }
+
+  /**
+   * Parse XMP metadata
+   */
+  private parseXMPMetadata(): Record<string, unknown> {
+    const xmpData: Record<string, unknown> = {}
+
+    // Find XMP metadata stream
+    const xmpMatch = /\/Metadata\s+(\d+)\s+\d+\s+R/.exec(this.pdfString)
+    if (!xmpMatch) return xmpData
+
+    const xmpObjNum = xmpMatch[1]
+    const xmpObj = this.objects.get(`${xmpObjNum} 0`)
+    if (!xmpObj) return xmpData
+
+    // Extract stream content
+    const streamMatch = /stream\s*([\s\S]*?)\s*endstream/.exec(xmpObj)
+    if (!streamMatch) return xmpData
+
+    const xmpContent = streamMatch[1]
+
+    // Parse basic XMP fields (simplified XML parsing)
+    const dcTitleMatch = /<dc:title[^>]*>[\s\S]*?<rdf:li[^>]*>([^<]*)<\/rdf:li>/.exec(xmpContent)
+    if (dcTitleMatch) xmpData['dc:title'] = dcTitleMatch[1]
+
+    const dcCreatorMatch = /<dc:creator[^>]*>[\s\S]*?<rdf:li[^>]*>([^<]*)<\/rdf:li>/.exec(xmpContent)
+    if (dcCreatorMatch) xmpData['dc:creator'] = dcCreatorMatch[1]
+
+    const dcDescriptionMatch = /<dc:description[^>]*>[\s\S]*?<rdf:li[^>]*>([^<]*)<\/rdf:li>/.exec(xmpContent)
+    if (dcDescriptionMatch) xmpData['dc:description'] = dcDescriptionMatch[1]
+
+    const xmpCreateDateMatch = /<xmp:CreateDate>([^<]*)<\/xmp:CreateDate>/.exec(xmpContent)
+    if (xmpCreateDateMatch) xmpData['xmp:CreateDate'] = xmpCreateDateMatch[1]
+
+    const xmpModifyDateMatch = /<xmp:ModifyDate>([^<]*)<\/xmp:ModifyDate>/.exec(xmpContent)
+    if (xmpModifyDateMatch) xmpData['xmp:ModifyDate'] = xmpModifyDateMatch[1]
+
+    return xmpData
+  }
+
+  /**
+   * Parse PDF date format (D:YYYYMMDDHHmmSSOHH'mm')
+   */
+  private parsePdfDate(dateStr: string): Date | undefined {
+    // Remove 'D:' prefix if present
+    const cleaned = dateStr.replace(/^D:/, '')
+
+    // Parse format: YYYYMMDDHHmmSSOHH'mm'
+    const match = /(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/.exec(cleaned)
+    if (!match) return undefined
+
+    const year = parseInt(match[1], 10)
+    const month = match[2] ? parseInt(match[2], 10) - 1 : 0
+    const day = match[3] ? parseInt(match[3], 10) : 1
+    const hour = match[4] ? parseInt(match[4], 10) : 0
+    const minute = match[5] ? parseInt(match[5], 10) : 0
+    const second = match[6] ? parseInt(match[6], 10) : 0
+
+    return new Date(year, month, day, hour, minute, second)
+  }
+
+  // ==========================================================================
+  // Private - Form Field Extraction
+  // ==========================================================================
+
+  /**
+   * Parse AcroForm fields
+   */
+  private parseAcroForm(): ExtractedFormField[] {
+    const fields: ExtractedFormField[] = []
+
+    // Find AcroForm dictionary
+    const acroFormMatch = /\/AcroForm\s+(\d+)\s+\d+\s+R/.exec(this.pdfString)
+    if (!acroFormMatch) {
+      // Try inline AcroForm
+      const inlineAcroForm = /\/AcroForm\s*<<([\s\S]*?)>>/.exec(this.pdfString)
+      if (!inlineAcroForm) return fields
+    }
+
+    // Find all widget annotations (form fields)
+    const widgetPattern = /\/Subtype\s*\/Widget[\s\S]*?\/T\s*\(([^)]*)\)[\s\S]*?\/FT\s*\/(\w+)/g
+    let match
+
+    while ((match = widgetPattern.exec(this.pdfString)) !== null) {
+      const fieldName = this.unescapePdfText(match[1])
+      const fieldType = match[2]
+
+      const field: ExtractedFormField = {
+        name: fieldName,
+        value: '',
+        type: this.mapFieldType(fieldType),
+        page: 1, // Would need to trace back to page
+      }
+
+      // Extract value based on field type
+      const valueMatch = this.extractFieldValue(match.index, fieldType)
+      if (valueMatch !== undefined) {
+        field.value = valueMatch
+      }
+
+      // Extract bounds if available
+      const boundsMatch = this.extractFieldBounds(match.index)
+      if (boundsMatch) {
+        field.bounds = boundsMatch
+      }
+
+      fields.push(field)
+    }
+
+    return fields
+  }
+
+  /**
+   * Map PDF field type to our type
+   */
+  private mapFieldType(pdfType: string): 'text' | 'checkbox' | 'radio' | 'select' | 'date' {
+    switch (pdfType) {
+      case 'Tx': return 'text'
+      case 'Btn': return 'checkbox' // Could also be radio, need more context
+      case 'Ch': return 'select'
+      default: return 'text'
+    }
+  }
+
+  /**
+   * Extract field value
+   */
+  private extractFieldValue(startIndex: number, fieldType: string): string | boolean | undefined {
+    // Search for /V (value) after the field definition
+    const searchArea = this.pdfString.slice(startIndex, startIndex + 500)
+
+    // Try string value
+    const stringMatch = /\/V\s*\(([^)]*)\)/.exec(searchArea)
+    if (stringMatch) {
+      return this.unescapePdfText(stringMatch[1])
+    }
+
+    // Try name value (for checkboxes/radios)
+    const nameMatch = /\/V\s*\/(\w+)/.exec(searchArea)
+    if (nameMatch) {
+      const value = nameMatch[1]
+      if (fieldType === 'Btn') {
+        return value !== 'Off' && value !== 'No'
+      }
+      return value
+    }
+
+    // Try hex string value
+    const hexMatch = /\/V\s*<([0-9A-Fa-f]+)>/.exec(searchArea)
+    if (hexMatch) {
+      return this.hexToString(hexMatch[1])
+    }
+
+    return undefined
+  }
+
+  /**
+   * Extract field bounds
+   */
+  private extractFieldBounds(startIndex: number): Bounds | undefined {
+    const searchArea = this.pdfString.slice(startIndex, startIndex + 500)
+    const rectMatch = /\/Rect\s*\[\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*\]/.exec(searchArea)
+
+    if (rectMatch) {
+      const x1 = parseFloat(rectMatch[1])
+      const y1 = parseFloat(rectMatch[2])
+      const x2 = parseFloat(rectMatch[3])
+      const y2 = parseFloat(rectMatch[4])
+
+      return {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      }
+    }
+
+    return undefined
+  }
+
+  // ==========================================================================
+  // Private - Table Extraction
+  // ==========================================================================
+
+  /**
+   * Detect and extract tables using heuristics
+   */
+  private detectAndExtractTables(): ExtractedTable[] {
+    const tables: ExtractedTable[] = []
+    const pageCount = this.countPages()
+
+    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+      const pageTables = this.extractTablesFromPage(pageNum)
+      tables.push(...pageTables)
+    }
+
+    return tables
+  }
+
+  /**
+   * Extract tables from a single page
+   */
+  private extractTablesFromPage(pageNum: number): ExtractedTable[] {
+    const tables: ExtractedTable[] = []
+    const pageText = this.extractPageText(pageNum)
+
+    if (!pageText) return tables
+
+    // Split into lines
+    const lines = pageText.split('\n').filter(line => line.trim())
+
+    // Detect tabular patterns (lines with consistent delimiters)
+    const tabularLines: string[][] = []
+    let currentTable: string[][] = []
+    let lastColumnCount = 0
+
+    for (const line of lines) {
+      // Check for tab-delimited content
+      const tabCells = line.split('\t').filter(cell => cell.trim())
+
+      // Check for consistent spacing that might indicate columns
+      const spaceCells = line.split(/\s{2,}/).filter(cell => cell.trim())
+
+      // Use the split that gives more columns
+      const cells = tabCells.length > spaceCells.length ? tabCells : spaceCells
+
+      if (cells.length >= 2) {
+        // Potential table row
+        if (lastColumnCount === 0 || cells.length === lastColumnCount) {
+          currentTable.push(cells)
+          lastColumnCount = cells.length
+        } else if (currentTable.length >= 2) {
+          // Column count changed, save current table
+          tabularLines.push(...this.processTableCandidate(currentTable, pageNum, tables))
+          currentTable = [cells]
+          lastColumnCount = cells.length
+        }
+      } else if (currentTable.length >= 2) {
+        // Non-tabular line, save current table
+        tabularLines.push(...this.processTableCandidate(currentTable, pageNum, tables))
+        currentTable = []
+        lastColumnCount = 0
+      }
+    }
+
+    // Process any remaining table
+    if (currentTable.length >= 2) {
+      this.processTableCandidate(currentTable, pageNum, tables)
+    }
+
+    return tables
+  }
+
+  /**
+   * Process a potential table candidate
+   */
+  private processTableCandidate(rows: string[][], pageNum: number, tables: ExtractedTable[]): string[][] {
+    if (rows.length < 2) return []
+
+    // First row is likely headers if it contains different content pattern
+    const headers = rows[0]
+    const dataRows = rows.slice(1)
+
+    tables.push({
+      headers,
+      rows: dataRows,
+      page: pageNum,
+    })
+
+    return []
+  }
+
+  // ==========================================================================
+  // Private - Image Extraction
+  // ==========================================================================
+
+  /**
+   * Parse and extract images from PDF
+   */
+  private parseImages(pageRange: { start: number; end: number }, maxSize: number): ExtractedImage[] {
+    const images: ExtractedImage[] = []
+    let imageId = 0
+
+    // Find XObject dictionaries containing images
+    const xObjectPattern = /\/Subtype\s*\/Image[\s\S]*?(?=endobj)/g
+    let match
+
+    while ((match = xObjectPattern.exec(this.pdfString)) !== null) {
+      const imageObj = match[0]
+
+      // Extract image properties
+      const widthMatch = /\/Width\s+(\d+)/.exec(imageObj)
+      const heightMatch = /\/Height\s+(\d+)/.exec(imageObj)
+
+      if (!widthMatch || !heightMatch) continue
+
+      const width = parseInt(widthMatch[1], 10)
+      const height = parseInt(heightMatch[1], 10)
+
+      // Skip if larger than maxSize
+      if (width > maxSize || height > maxSize) continue
+
+      // Determine color space
+      let colorSpace = 'DeviceRGB'
+      const colorSpaceMatch = /\/ColorSpace\s*\/(\w+)/.exec(imageObj)
+      if (colorSpaceMatch) {
+        colorSpace = colorSpaceMatch[1]
+      }
+
+      // Determine bits per component
+      let bitsPerComponent = 8
+      const bpcMatch = /\/BitsPerComponent\s+(\d+)/.exec(imageObj)
+      if (bpcMatch) {
+        bitsPerComponent = parseInt(bpcMatch[1], 10)
+      }
+
+      // Determine image type
+      let mimeType = 'image/png'
+      const filterMatch = /\/Filter\s*\/(\w+)/.exec(imageObj)
+      if (filterMatch) {
+        const filter = filterMatch[1]
+        if (filter === 'DCTDecode') mimeType = 'image/jpeg'
+        else if (filter === 'JPXDecode') mimeType = 'image/jp2'
+      }
+
+      // Extract image data (stream content)
+      const streamMatch = /stream\s*([\s\S]*?)\s*endstream/.exec(imageObj)
+      let imageData = ''
+      if (streamMatch && streamMatch[1]) {
+        // Convert to base64 if it's binary data
+        imageData = this.arrayBufferToBase64(new TextEncoder().encode(streamMatch[1]))
+      }
+
+      images.push({
+        id: `img_${++imageId}`,
+        page: 1, // Would need to trace back to actual page
+        data: imageData,
+        mimeType,
+        dimensions: { width, height },
+        bounds: { x: 0, y: 0, width, height },
+        colorSpace: this.normalizeColorSpace(colorSpace),
+        bitsPerComponent,
+      })
+    }
+
+    return images
+  }
+
+  /**
+   * Normalize color space name
+   */
+  private normalizeColorSpace(colorSpace: string): string {
+    const mapping: Record<string, string> = {
+      'DeviceRGB': 'RGB',
+      'DeviceCMYK': 'CMYK',
+      'DeviceGray': 'Grayscale',
+      'CalRGB': 'RGB',
+      'CalGray': 'Grayscale',
+      'Lab': 'Lab',
+      'ICCBased': 'RGB', // Simplified
+    }
+    return mapping[colorSpace] || colorSpace
+  }
+
+  // ==========================================================================
+  // Private - Annotation Extraction
+  // ==========================================================================
+
+  /**
+   * Parse annotations from PDF
+   */
+  private parseAnnotations(): PDFAnnotation[] {
+    const annotations: PDFAnnotation[] = []
+
+    // Find annotation dictionaries
+    const annotPattern = /\/Type\s*\/Annot[\s\S]*?\/Subtype\s*\/(\w+)([\s\S]*?)(?=\d+\s+\d+\s+obj|$)/g
+    let match
+
+    while ((match = annotPattern.exec(this.pdfString)) !== null) {
+      const subtype = match[1].toLowerCase()
+      const annotContent = match[2]
+
+      const annotation: PDFAnnotation = {
+        type: this.mapAnnotationType(subtype),
+        page: 1, // Would need to trace back
+        bounds: { x: 0, y: 0, width: 0, height: 0 },
+      }
+
+      // Extract bounds
+      const rectMatch = /\/Rect\s*\[\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*\]/.exec(annotContent)
+      if (rectMatch) {
+        annotation.bounds = {
+          x: parseFloat(rectMatch[1]),
+          y: parseFloat(rectMatch[2]),
+          width: parseFloat(rectMatch[3]) - parseFloat(rectMatch[1]),
+          height: parseFloat(rectMatch[4]) - parseFloat(rectMatch[2]),
+        }
+      }
+
+      // Extract content
+      const contentsMatch = /\/Contents\s*\(([^)]*)\)/.exec(annotContent)
+      if (contentsMatch) {
+        annotation.content = this.unescapePdfText(contentsMatch[1])
+      }
+
+      // Extract author
+      const authorMatch = /\/T\s*\(([^)]*)\)/.exec(annotContent)
+      if (authorMatch) {
+        annotation.author = this.unescapePdfText(authorMatch[1])
+      }
+
+      // Extract color
+      const colorMatch = /\/C\s*\[\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*\]/.exec(annotContent)
+      if (colorMatch) {
+        const r = Math.round(parseFloat(colorMatch[1]) * 255)
+        const g = Math.round(parseFloat(colorMatch[2]) * 255)
+        const b = Math.round(parseFloat(colorMatch[3]) * 255)
+        annotation.color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+      }
+
+      // Extract link destination
+      if (subtype === 'link') {
+        const uriMatch = /\/URI\s*\(([^)]*)\)/.exec(annotContent)
+        if (uriMatch) {
+          annotation.destination = this.unescapePdfText(uriMatch[1])
+        }
+      }
+
+      annotations.push(annotation)
+    }
+
+    return annotations
+  }
+
+  /**
+   * Map PDF annotation subtype to our type
+   */
+  private mapAnnotationType(subtype: string): PDFAnnotation['type'] {
+    const mapping: Record<string, PDFAnnotation['type']> = {
+      'highlight': 'highlight',
+      'underline': 'underline',
+      'strikeout': 'strikeout',
+      'squiggly': 'squiggly',
+      'text': 'note',
+      'link': 'link',
+      'stamp': 'stamp',
+      'freetext': 'freetext',
+      'line': 'line',
+      'square': 'square',
+      'circle': 'circle',
+      'polygon': 'polygon',
+      'ink': 'ink',
+      'popup': 'popup',
+      'fileattachment': 'fileattachment',
+      'sound': 'sound',
+      'movie': 'movie',
+      'widget': 'widget',
+      'screen': 'screen',
+      'printermark': 'printermark',
+      'trapnet': 'trapnet',
+      'watermark': 'watermark',
+      '3d': '3d',
+      'redact': 'redact',
+    }
+    return mapping[subtype] || 'note'
+  }
+
+  // ==========================================================================
+  // Private - Structure Extraction
+  // ==========================================================================
+
+  /**
+   * Parse PDF structure information
+   */
+  private parsePDFStructure(): PDFStructure {
+    // Extract PDF version
+    const versionMatch = /%PDF-(\d+\.\d+)/.exec(this.pdfString)
+    const version = versionMatch ? versionMatch[1] : '1.0'
+
+    // Count pages and get dimensions
+    const pageCount = this.countPages()
+    const pages = this.getPageDimensions(pageCount)
+
+    // Extract fonts
+    const fonts = this.extractFonts()
+
+    // Extract bookmarks
+    const bookmarks = this.extractBookmarks()
+
+    // Check for tagged PDF
+    const isTagged = /\/MarkInfo/.test(this.pdfString) && /\/Marked\s+true/.test(this.pdfString)
+
+    // Check for forms
+    const hasForm = /\/AcroForm/.test(this.pdfString)
+
+    // Check for signatures
+    const hasSignatures = /\/Sig/.test(this.pdfString) && /\/Type\s*\/Sig/.test(this.pdfString)
+
+    // Get encryption info
+    const encryption = this.parseEncryptionStructure()
+
+    return {
+      version,
+      pageCount,
+      pages,
+      fonts,
+      bookmarks,
+      isTagged,
+      hasForm,
+      hasSignatures,
+      encryption,
+    }
+  }
+
+  /**
+   * Get page dimensions for all pages
+   */
+  private getPageDimensions(pageCount: number): PDFStructure['pages'] {
+    const pages: PDFStructure['pages'] = []
+
+    for (let i = 1; i <= pageCount; i++) {
+      const pageObjNum = this.pageObjects.get(i)
+      let width = 612
+      let height = 792
+      let rotation: number | undefined
+
+      if (pageObjNum) {
+        const pageObj = this.objects.get(`${pageObjNum} 0`)
+        if (pageObj) {
+          const mediaBox = this.parseMediaBox(pageObj)
+          width = mediaBox.width
+          height = mediaBox.height
+
+          const rotateMatch = /\/Rotate\s+(\d+)/.exec(pageObj)
+          if (rotateMatch) {
+            rotation = parseInt(rotateMatch[1], 10)
+          }
+        }
+      }
+
+      pages.push({ number: i, width, height, rotation })
+    }
+
+    return pages
+  }
+
+  /**
+   * Extract font information
+   */
+  private extractFonts(): PDFFont[] {
+    const fonts: PDFFont[] = []
+    const fontNames = new Set<string>()
+
+    // Find font definitions
+    const fontPattern = /\/Type\s*\/Font[\s\S]*?\/BaseFont\s*\/(\S+)[\s\S]*?\/Subtype\s*\/(\w+)/g
+    let match
+
+    while ((match = fontPattern.exec(this.pdfString)) !== null) {
+      const name = match[1].replace(/^\//, '')
+      if (fontNames.has(name)) continue
+      fontNames.add(name)
+
+      const fontType = match[2]
+      const fontContent = match[0]
+
+      // Check if embedded
+      const embedded = /\/FontFile/.test(fontContent)
+
+      // Get encoding
+      let encoding: string | undefined
+      const encodingMatch = /\/Encoding\s*\/(\w+)/.exec(fontContent)
+      if (encodingMatch) {
+        encoding = encodingMatch[1]
+      }
+
+      fonts.push({
+        name,
+        type: fontType,
+        embedded,
+        encoding,
+        usedOnPages: [], // Would need more complex analysis
+      })
+    }
+
+    return fonts
+  }
+
+  /**
+   * Extract bookmarks/outline
+   */
+  private extractBookmarks(): PDFBookmark[] {
+    const bookmarks: PDFBookmark[] = []
+
+    // Find Outlines dictionary
+    const outlinesMatch = /\/Outlines\s+(\d+)\s+\d+\s+R/.exec(this.pdfString)
+    if (!outlinesMatch) return bookmarks
+
+    const outlinesObjNum = outlinesMatch[1]
+    const outlinesObj = this.objects.get(`${outlinesObjNum} 0`)
+    if (!outlinesObj) return bookmarks
+
+    // Find first outline item
+    const firstMatch = /\/First\s+(\d+)\s+\d+\s+R/.exec(outlinesObj)
+    if (!firstMatch) return bookmarks
+
+    // Parse outline items recursively
+    this.parseOutlineItem(firstMatch[1], bookmarks)
+
+    return bookmarks
+  }
+
+  /**
+   * Parse an outline item and its siblings
+   */
+  private parseOutlineItem(objNum: string, bookmarks: PDFBookmark[]): void {
+    const obj = this.objects.get(`${objNum} 0`)
+    if (!obj) return
+
+    // Extract title
+    const titleMatch = /\/Title\s*\(([^)]*)\)/.exec(obj)
+    const title = titleMatch ? this.unescapePdfText(titleMatch[1]) : 'Untitled'
+
+    // Extract destination page
+    let page = 1
+    const destMatch = /\/Dest\s*\[\s*(\d+)\s+\d+\s+R/.exec(obj)
+    if (destMatch) {
+      // Would need to map object ref to page number
+      page = 1
+    }
+
+    const bookmark: PDFBookmark = { title, page }
+
+    // Check for children
+    const firstChildMatch = /\/First\s+(\d+)\s+\d+\s+R/.exec(obj)
+    if (firstChildMatch) {
+      bookmark.children = []
+      this.parseOutlineItem(firstChildMatch[1], bookmark.children)
+    }
+
+    bookmarks.push(bookmark)
+
+    // Check for next sibling
+    const nextMatch = /\/Next\s+(\d+)\s+\d+\s+R/.exec(obj)
+    if (nextMatch) {
+      this.parseOutlineItem(nextMatch[1], bookmarks)
+    }
+  }
+
+  // ==========================================================================
+  // Private - Encryption
+  // ==========================================================================
+
+  /**
+   * Check if PDF is encrypted
+   */
+  private checkEncryption(): boolean {
+    return /\/Encrypt/.test(this.pdfString)
+  }
+
+  /**
+   * Parse encryption information
+   */
+  private parseEncryptionInfo(): {
+    encrypted: boolean
+    method?: string
+    keyLength?: number
+  } {
+    if (!this.checkEncryption()) {
+      return { encrypted: false }
+    }
+
+    // Find Encrypt dictionary
+    const encryptMatch = /\/Encrypt\s+(\d+)\s+\d+\s+R/.exec(this.pdfString)
+    if (!encryptMatch) {
+      return { encrypted: true }
+    }
+
+    const encryptObjNum = encryptMatch[1]
+    const encryptObj = this.objects.get(`${encryptObjNum} 0`)
+    if (!encryptObj) {
+      return { encrypted: true }
+    }
+
+    // Determine encryption method
+    let method = 'Standard'
+    const filterMatch = /\/Filter\s*\/(\w+)/.exec(encryptObj)
+    if (filterMatch) {
+      method = filterMatch[1]
+    }
+
+    // Check for AES
+    const cfMatch = /\/CFM\s*\/(\w+)/.exec(encryptObj)
+    if (cfMatch) {
+      const cfm = cfMatch[1]
+      if (cfm === 'AESV2') method = 'AES-128'
+      else if (cfm === 'AESV3') method = 'AES-256'
+    }
+
+    // Get key length
+    let keyLength = 40
+    const lengthMatch = /\/Length\s+(\d+)/.exec(encryptObj)
+    if (lengthMatch) {
+      keyLength = parseInt(lengthMatch[1], 10)
+    }
+
+    return { encrypted: true, method, keyLength }
+  }
+
+  /**
+   * Parse encryption structure for PDFStructure
+   */
+  private parseEncryptionStructure(): PDFStructure['encryption'] | undefined {
+    if (!this.checkEncryption()) {
+      return undefined
+    }
+
+    const info = this.parseEncryptionInfo()
+    const permissions = this.parsePermissions()
+
+    return {
+      encrypted: true,
+      method: info.method,
+      permissions,
+    }
+  }
+
+  /**
+   * Parse permissions
+   */
+  private parsePermissions(password?: string): {
+    printing: boolean
+    copying: boolean
+    modifying: boolean
+    annotating: boolean
+  } {
+    // Default permissions (if not encrypted or can't parse)
+    const defaultPerms = {
+      printing: true,
+      copying: true,
+      modifying: true,
+      annotating: true,
+    }
+
+    if (!this.checkEncryption()) {
+      return defaultPerms
+    }
+
+    // Find Encrypt dictionary
+    const encryptMatch = /\/Encrypt\s+(\d+)\s+\d+\s+R/.exec(this.pdfString)
+    if (!encryptMatch) return defaultPerms
+
+    const encryptObjNum = encryptMatch[1]
+    const encryptObj = this.objects.get(`${encryptObjNum} 0`)
+    if (!encryptObj) return defaultPerms
+
+    // Parse P (permissions) value
+    const pMatch = /\/P\s+(-?\d+)/.exec(encryptObj)
+    if (!pMatch) return defaultPerms
+
+    const p = parseInt(pMatch[1], 10)
+
+    // Decode permission bits (PDF Reference Table 3.20)
+    return {
+      printing: (p & 4) !== 0 || (p & 2048) !== 0,
+      modifying: (p & 8) !== 0,
+      copying: (p & 16) !== 0,
+      annotating: (p & 32) !== 0,
+    }
+  }
+
+  // ==========================================================================
+  // Private - Utility Methods
+  // ==========================================================================
+
+  /**
    * Count pages in PDF
    */
-  private countPages(pdf: Uint8Array): number {
-    const pdfString = new TextDecoder().decode(pdf)
-    const countMatch = /\/Count\s+(\d+)/.exec(pdfString)
+  private countPages(): number {
+    const countMatch = /\/Count\s+(\d+)/.exec(this.pdfString)
     return countMatch ? parseInt(countMatch[1], 10) : 1
   }
 
@@ -954,6 +2721,32 @@ export class DocumentParser implements IDocumentParser {
       .replace(/\\\(/g, '(')
       .replace(/\\\)/g, ')')
       .replace(/\\\\/g, '\\')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)))
+  }
+
+  /**
+   * Convert hex string to regular string
+   */
+  private hexToString(hex: string): string {
+    let result = ''
+    for (let i = 0; i < hex.length; i += 2) {
+      result += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16))
+    }
+    return result
+  }
+
+  /**
+   * Convert Uint8Array to base64
+   */
+  private arrayBufferToBase64(bytes: Uint8Array): string {
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    return btoa(binary)
   }
 }
 

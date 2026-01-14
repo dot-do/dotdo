@@ -26,6 +26,14 @@
  * @module workers/api
  */
 
+import {
+  findDOBinding,
+  hasSubdomain,
+  buildNamespaceUrl,
+  errorResponse,
+  createForwardRequest,
+} from './utils'
+
 /**
  * Configuration for API proxy
  */
@@ -52,50 +60,6 @@ interface ResolveResult {
    */
   ns: string | null
   remainingPath: string
-}
-
-/**
- * Find the first DurableObjectNamespace binding in env
- */
-function findDOBinding(env: Record<string, unknown>): DurableObjectNamespace | null {
-  for (const value of Object.values(env)) {
-    // Check if it looks like a DurableObjectNamespace
-    if (
-      value &&
-      typeof value === 'object' &&
-      'idFromName' in value &&
-      'get' in value &&
-      typeof (value as DurableObjectNamespace).idFromName === 'function' &&
-      typeof (value as DurableObjectNamespace).get === 'function'
-    ) {
-      return value as DurableObjectNamespace
-    }
-  }
-  return null
-}
-
-/**
- * Check if hostname has a subdomain using 4-part heuristic for multi-tenant SaaS:
- * - 4+ parts: tenant.api.dotdo.dev -> true (has subdomain)
- * - 3 parts: api.dotdo.dev -> false (apex, no subdomain)
- * - 2 parts: dotdo.dev -> false (apex)
- * - 1 part: localhost -> false
- */
-function hasSubdomain(hostname: string): boolean {
-  const parts = hostname.split('.')
-  // Need at least 4 parts for a subdomain in typical SaaS setup
-  // e.g., tenant.api.dotdo.dev (4 parts) has subdomain 'tenant'
-  // but api.dotdo.dev (3 parts) is apex, no subdomain
-  return parts.length >= 4
-}
-
-/**
- * Build namespace URL from origin
- * @returns Full URL string like 'https://tenant.api.example.org.ai'
- */
-function buildNamespaceUrl(url: URL): string {
-  // Use origin which includes protocol + hostname + port (if non-standard)
-  return url.origin
 }
 
 /**
@@ -164,16 +128,6 @@ function resolveNs(request: Request, pattern?: string): ResolveResult {
 }
 
 /**
- * Create error response
- */
-function errorResponse(status: number, message: string): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-/**
  * Create an API proxy worker
  *
  * @param config - Optional configuration
@@ -199,18 +153,12 @@ export function API(config?: APIConfig): ExportedHandler {
         const doId = DO.idFromName(ns)
         const stub = DO.get(doId)
 
-        // 4. Build forwarded URL
+        // 4. Build forwarded URL and request
         const url = new URL(request.url)
         const forwardUrl = new URL(remainingPath + url.search, url.origin)
+        const forwardRequest = createForwardRequest(request, forwardUrl)
 
         // 5. Forward request to DO
-        const forwardRequest = new Request(forwardUrl.toString(), {
-          method: request.method,
-          headers: request.headers,
-          body: request.body,
-          duplex: 'half',
-        } as RequestInit)
-
         return await stub.fetch(forwardRequest)
       } catch (error) {
         return errorResponse(

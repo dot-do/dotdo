@@ -495,3 +495,202 @@ export function isUrl(value: unknown): value is string {
     return false
   }
 }
+
+// ============================================================================
+// SAFE WIDENING CASTS - For narrowing specific types to broader types
+// ============================================================================
+
+/**
+ * Safely widen a typed object to Record<string, unknown>
+ *
+ * This is the type-safe replacement for the pattern:
+ * `someTypedData as unknown as Record<string, unknown>`
+ *
+ * Use this when you have a known typed object and need to pass it to an API
+ * that accepts Record<string, unknown> (e.g., graph store data fields).
+ *
+ * @example
+ * ```typescript
+ * interface FunctionData { name: string; type: string }
+ * const data: FunctionData = { name: 'test', type: 'code' }
+ *
+ * // Instead of: data as unknown as Record<string, unknown>
+ * await store.createThing({ data: toRecord(data) })
+ * ```
+ */
+export function toRecord<T extends object>(value: T): Record<string, unknown> {
+  return value as Record<string, unknown>
+}
+
+/**
+ * Safely widen a typed object or null to Record<string, unknown> | null
+ *
+ * Like toRecord but handles null values for optional data fields.
+ */
+export function toRecordOrNull<T extends object>(
+  value: T | null | undefined
+): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null
+  return value as Record<string, unknown>
+}
+
+// ============================================================================
+// DYNAMIC METHOD ACCESS - For safe method invocation on objects
+// ============================================================================
+
+/**
+ * Interface for callable methods on an object
+ */
+type CallableMethod = (...args: unknown[]) => unknown
+
+/**
+ * Safely get a method from an object and invoke it
+ *
+ * This is the type-safe replacement for the pattern:
+ * `(obj as unknown as Record<string, Function>)[methodName](...args)`
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * const method = (this.client as unknown as Record<string, Function>)[cmd.method]
+ * const result = await method.apply(this.client, cmd.args)
+ *
+ * // Use:
+ * const result = await invokeMethod(this.client, cmd.method, cmd.args)
+ * ```
+ *
+ * @returns The result of the method call, or undefined if method doesn't exist
+ * @throws Error if the method exists but throws during execution
+ */
+export function invokeMethod<T>(
+  obj: object,
+  methodName: string,
+  args: unknown[] = [],
+  context?: T
+): unknown {
+  if (!isRecord(obj)) return undefined
+  const method = obj[methodName]
+  if (typeof method !== 'function') return undefined
+  return (method as CallableMethod).apply(context ?? obj, args)
+}
+
+/**
+ * Check if an object has a callable method and return it
+ *
+ * @returns The method function if it exists, undefined otherwise
+ */
+export function getMethod(
+  obj: unknown,
+  methodName: string
+): CallableMethod | undefined {
+  if (!isRecord(obj)) return undefined
+  const method = obj[methodName]
+  if (typeof method !== 'function') return undefined
+  return method as CallableMethod
+}
+
+// ============================================================================
+// PERFORMANCE API - Safe access to performance.memory
+// ============================================================================
+
+/**
+ * Interface for Chrome's performance.memory extension
+ */
+export interface PerformanceMemory {
+  usedJSHeapSize: number
+  totalJSHeapSize: number
+  jsHeapSizeLimit: number
+}
+
+/**
+ * Interface for performance object with optional memory property
+ */
+export interface PerformanceWithMemory {
+  memory?: PerformanceMemory
+}
+
+/**
+ * Check if the global performance object has memory information
+ *
+ * This is available in Chrome/V8 environments but not in all browsers.
+ */
+export function hasPerformanceMemory(
+  perf: unknown
+): perf is PerformanceWithMemory & { memory: PerformanceMemory } {
+  return (
+    isRecord(perf) &&
+    'memory' in perf &&
+    isRecord(perf.memory) &&
+    typeof (perf.memory as Record<string, unknown>).usedJSHeapSize === 'number'
+  )
+}
+
+/**
+ * Safely get memory usage from performance API
+ *
+ * @returns The usedJSHeapSize if available, undefined otherwise
+ */
+export function getMemoryUsage(): number | undefined {
+  const perf = (globalThis as { performance?: unknown }).performance
+  if (hasPerformanceMemory(perf)) {
+    return perf.memory.usedJSHeapSize
+  }
+  return undefined
+}
+
+// ============================================================================
+// DRIZZLE TABLE INTERNALS - Safe access to Drizzle ORM table properties
+// ============================================================================
+
+/**
+ * Symbol used by Drizzle ORM for table names
+ */
+export const DRIZZLE_NAME_SYMBOL = Symbol.for('drizzle:Name')
+
+/**
+ * Interface for Drizzle table internal properties
+ */
+export interface DrizzleTableInternals {
+  [DRIZZLE_NAME_SYMBOL]?: string
+  _?: { name?: string }
+}
+
+/**
+ * Check if a table has Drizzle internal name property
+ */
+export function hasDrizzleTableName(
+  table: unknown
+): table is DrizzleTableInternals {
+  if (!isRecord(table)) return false
+  // Check for symbol-based name (newer Drizzle)
+  if (DRIZZLE_NAME_SYMBOL in table && typeof table[DRIZZLE_NAME_SYMBOL] === 'string') {
+    return true
+  }
+  // Check for underscore-based name (older Drizzle)
+  if ('_' in table && isRecord(table._) && typeof table._.name === 'string') {
+    return true
+  }
+  return false
+}
+
+/**
+ * Safely get the table name from a Drizzle table
+ *
+ * @returns The table name if available, undefined otherwise
+ */
+export function getDrizzleTableName(table: unknown): string | undefined {
+  if (!isRecord(table)) return undefined
+
+  // Try symbol-based name first (newer Drizzle versions)
+  const symbolName = (table as DrizzleTableInternals)[DRIZZLE_NAME_SYMBOL]
+  if (typeof symbolName === 'string') {
+    return symbolName
+  }
+
+  // Fall back to underscore-based name (older Drizzle versions)
+  if ('_' in table && isRecord(table._) && typeof table._.name === 'string') {
+    return table._.name
+  }
+
+  return undefined
+}

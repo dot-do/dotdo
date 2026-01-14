@@ -1064,3 +1064,264 @@ export type {
   ZodDataContract,
   FieldBuilder,
 } from './schema-dsl'
+
+// Re-export pipeline integration for composable validation stages
+export {
+  validate,
+  validateStage,
+  createValidationStage,
+  conditionalValidate,
+  validateBatch as validateBatchStage,
+  recoverableValidate,
+  DataContractValidationError,
+} from './pipeline'
+
+export type {
+  ValidationStageResult,
+  ValidationStageOptions,
+  ConditionalValidationResult,
+  ConditionalValidationOptions,
+  ConditionFn,
+} from './pipeline'
+
+// Re-export cross-column expectations for referential integrity validation
+export {
+  column,
+  columns,
+  when,
+  sum,
+  diff,
+  product,
+  quotient,
+  col,
+  lit,
+  validateCrossColumnExpectations,
+  ColumnExpectationBuilder,
+  MultiColumnExpectationBuilder,
+  ConditionalExpectationBuilder,
+  ThenClauseBuilder,
+} from './cross-column-expectations'
+
+export type {
+  CrossColumnExpectation,
+  CrossColumnExpectationFailure,
+  CrossColumnValidationResult,
+  ReferenceData,
+  ForeignKeyRef,
+  ColumnComparison,
+  ArithmeticExpression,
+  ConditionSpec,
+  EnumRef,
+  ColumnRef,
+  LiteralValue,
+  Operand,
+} from './cross-column-expectations'
+
+// Re-export reporter for validation report generation
+export {
+  ReportGenerator,
+  createReporter,
+  generateReport,
+} from './reporter'
+
+export type {
+  ReportFormat,
+  ReportOptions,
+  ReportSummary,
+  ExpectationResultDetail,
+  FailedRowSample,
+  ValidationReportData,
+  FormattedReport,
+  TrendEntry,
+  TrendDirection,
+  TrendData,
+  ReportDiff,
+} from './reporter'
+
+// Re-export value expectations for value-level validation
+export {
+  valueExpect,
+  ve,
+  validateValue,
+  validateRecord,
+  validateRecords,
+  ValueExpectation,
+  ValueExpectationBuilder,
+  patterns,
+  NullHandling,
+} from './value-expectations'
+
+export type {
+  ValueExpectationType,
+  CustomValidationFn,
+  ValidationFnResult,
+  ValueConstraint,
+  ValueValidationFailure,
+  ValueValidationResult,
+  BetweenOptions,
+  LengthOptions,
+} from './value-expectations'
+
+// Re-export threshold-based alerting for data contract validation
+export {
+  AlertRouter,
+  ThresholdExpectationBuilder,
+  ThresholdConditionBuilder,
+  createAlertRouter,
+  createThresholdSuite,
+  expectWithThreshold,
+} from './threshold-alerting'
+
+export type {
+  // Threshold types
+  ThresholdLevel,
+  AlertSeverity,
+  ThresholdMode,
+  Threshold,
+  BaselineConfig,
+  ThresholdResult,
+  FailureDetail,
+  ThresholdReport,
+  // Alert types
+  AlertChannelType,
+  AlertPayload,
+  AlertHandler,
+  AlertChannel,
+  AlertConfig,
+  // Escalation types
+  EscalationTrigger,
+  EscalationRule,
+  EscalationChain,
+  // Constraint types
+  ConstraintType,
+  Constraint,
+  // Expectation types
+  NullHandling as ThresholdNullHandling,
+  ThresholdExpectation,
+  // Suite types
+  SamplingConfig,
+  AlertFormatConfig,
+  ThresholdSuiteOptions,
+  ThresholdSuite,
+} from './threshold-alerting'
+
+// Re-export schema expectations for schema-level validation
+export {
+  createSchemaValidator,
+} from './schema-expectations'
+
+export type {
+  SchemaExpectation,
+  ColumnExpectation,
+  ColumnDefinition,
+  TableExpectation,
+  RelationshipExpectation,
+  RelationshipDefinition,
+  RelationshipEndpoint,
+  RelationshipType,
+  ExpectedColumnType,
+  SchemaValidator,
+  SchemaExpectationResult,
+  ColumnValidationResult,
+  ConstraintValidationResult,
+  RelationshipValidationResult,
+  ColumnExpectationError,
+  ConstraintExpectationError,
+  RelationshipExpectationError,
+  ColumnErrorReason,
+  ConstraintErrorReason,
+  RelationshipErrorReason,
+} from './schema-expectations'
+
+// Re-export type expectations for fluent type and nullability validation
+export {
+  column as typeColumn,
+  schema as typeSchema,
+  createTypeValidator,
+  TypeExpectationBuilder,
+  SchemaExpectationBuilder as TypeSchemaExpectationBuilder,
+  SchemaTypeValidator,
+} from './type-expectations'
+
+export type {
+  TypeExpectation,
+  TypeValidationError,
+  TypeValidationResult,
+  TypeErrorReason,
+  CompatibilityMode as TypeCompatibilityMode,
+} from './type-expectations'
+
+// Re-export OpenAPI/AsyncAPI generators for API documentation
+export {
+  // OpenAPI exports
+  toOpenAPISchema,
+  toOpenAPIPath,
+  generateOpenAPIDocument,
+  generateExample,
+  // AsyncAPI exports
+  toAsyncAPISchema,
+  toAsyncAPIMessage,
+  toAsyncAPIChannel,
+  toAsyncAPIEventChannels,
+  generateAsyncAPIDocument,
+  generateDocs,
+} from './generators'
+
+export type {
+  // OpenAPI types
+  OpenAPIDocument,
+  OpenAPIInfo,
+  OpenAPIServer,
+  OpenAPITag,
+  OpenAPIPathItem,
+  OpenAPIOperation,
+  OpenAPIParameter,
+  OpenAPIRequestBody,
+  OpenAPIResponse,
+  OpenAPIMediaType,
+  OpenAPISchema,
+  OpenAPIComponents,
+  OpenAPISecurityScheme,
+  CRUDOperations,
+  OpenAPIGeneratorOptions,
+  // AsyncAPI types
+  AsyncAPIDocument,
+  AsyncAPIInfo,
+  AsyncAPIServer,
+  AsyncAPITag,
+  AsyncAPIChannel,
+  AsyncAPIOperation,
+  AsyncAPIParameter,
+  AsyncAPIMessage,
+  AsyncAPISchema,
+  AsyncAPIComponents,
+  AsyncAPISecurityScheme,
+  EventOperations,
+  ChannelConfig,
+  AsyncAPIGeneratorOptions,
+  DocGeneratorOptions,
+} from './generators'
+
+// Re-export schema inference for bootstrapping contracts from sample data
+export {
+  SchemaInferrer,
+  createInferrer,
+  inferSchema,
+  inferSchemaFromStream,
+  inferSchemaWithStats,
+  mergeSchemas,
+  parseCSVForInference,
+  inferSchemaFromCSV,
+  parseJSONLForInference,
+  inferSchemaFromJSONL,
+} from './inference'
+
+export type {
+  InferenceOptions,
+  StringPatternType,
+  StringPattern,
+  NumericConstraints,
+  StringConstraints,
+  InferenceResult,
+  CSVInferenceOptions,
+} from './inference'

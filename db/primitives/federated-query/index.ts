@@ -1216,3 +1216,43 @@ export class FederatedExecutor {
     return results
   }
 }
+
+// =============================================================================
+// RE-EXPORTS
+// =============================================================================
+
+export {
+  JoinStrategySelector,
+  BROADCAST_THRESHOLD_ROWS,
+  BROADCAST_THRESHOLD_BYTES,
+  type JoinStrategy,
+  type JoinCost,
+  type JoinStrategyInput,
+  type BroadcastJoinStrategy,
+  type ShuffleJoinStrategy,
+  type NestedLoopJoinStrategy,
+  type SortMergeJoinStrategy,
+  type JoinTableRef,
+  type JoinCondition,
+  type JoinType,
+  type JoinOperator,
+  type SourceJoinCapability,
+  type IndexType,
+  type ColumnIndex,
+  type TableIndexInfo,
+} from './join-strategy'
+
+export {
+  ResultMerger,
+  type MergeConfig,
+  type SortSpec,
+  type DeduplicationConfig,
+  type PaginationConfig,
+  type MergeResult,
+  type SortedStreamSource,
+  type AsyncStreamSource,
+  type MergeResultMetadata,
+  type MergeStats,
+  type OverFetchInput,
+  type StreamingConfig as MergeStreamingConfig,
+} from './result-merger'

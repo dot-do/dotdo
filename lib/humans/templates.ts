@@ -5,6 +5,15 @@
  *
  * Creates a HumanRequest that can be awaited and chained with .timeout() and .via()
  *
+ * This module provides a high-level API that internally uses the unified
+ * HumanEscalationProvider abstraction from './escalation.ts'. The template
+ * literal syntax remains unchanged for backward compatibility.
+ *
+ * Provider Selection:
+ * - By default, uses HttpEscalationProvider (REST API to Human DO)
+ * - When configured via configureEscalationProvider(), can use DOEscalationProvider
+ *   for direct DO access (better performance inside DO context)
+ *
  * @example
  * ```typescript
  * // Blocking approval - waits for human response
@@ -15,8 +24,18 @@
  *
  * // With channel routing
  * const approval = await cfo`approve budget`.via('slack')
+ *
+ * // Configure for direct DO access (optional)
+ * import { configureEscalationProvider, DOEscalationProvider } from 'humans.do'
+ * configureEscalationProvider(new DOEscalationProvider({ humanDO, role: 'ceo' }))
  * ```
  */
+
+// Import unified escalation abstraction
+import {
+  getEscalationProvider,
+  type HumanEscalationProvider,
+} from './escalation'
 
 // ============================================================================
 // Types
@@ -275,6 +294,7 @@ export class HumanRequest implements PromiseLike<ApprovalResult> {
   private _channel?: string
   private _requestId: string
   private _promise: Promise<ApprovalResult>
+  private _provider?: HumanEscalationProvider
 
   constructor(
     role: string,
@@ -283,6 +303,7 @@ export class HumanRequest implements PromiseLike<ApprovalResult> {
       sla?: number
       channel?: string
       requestId?: string
+      provider?: HumanEscalationProvider
     }
   ) {
     this._role = role
@@ -290,21 +311,95 @@ export class HumanRequest implements PromiseLike<ApprovalResult> {
     this._sla = options?.sla
     this._channel = options?.channel
     this._requestId = options?.requestId || generateRequestId()
+    this._provider = options?.provider
 
     // Create the underlying promise that performs the blocking call
     this._promise = new Promise<ApprovalResult>((resolve, reject) => {
       // Defer to allow the constructor to complete
       queueMicrotask(() => {
-        const client = getHumanClient()
-        client.requestApproval({
-          requestId: this._requestId,
-          role: this._role,
-          message: this._message,
-          sla: this._sla,
-          channel: this._channel,
-        }).then(resolve).catch(reject)
+        this.executeRequest().then(resolve).catch(reject)
       })
     })
+  }
+
+  /**
+   * Execute the request using either the unified provider or legacy client
+   */
+  private async executeRequest(): Promise<ApprovalResult> {
+    // If a provider was explicitly passed, use it
+    if (this._provider) {
+      await this._provider.submit({
+        requestId: this._requestId,
+        role: this._role,
+        message: this._message,
+        sla: this._sla,
+        channel: this._channel,
+        type: 'approval',
+      })
+
+      const timeout = this._sla || 5 * 60 * 1000 // Default 5 minutes
+      return this._provider.waitForResponse(this._requestId, { timeout })
+    }
+
+    // Check if an explicit provider has been configured for this role
+    // If so, use it. Otherwise, fall back to legacy HumanClient for
+    // backward compatibility (HumanClient uses configureHumanClient settings)
+    const explicitProvider = this.tryGetExplicitProvider()
+
+    if (explicitProvider) {
+      await explicitProvider.submit({
+        requestId: this._requestId,
+        role: this._role,
+        message: this._message,
+        sla: this._sla,
+        channel: this._channel,
+        type: 'approval',
+      })
+
+      const timeout = this._sla || 5 * 60 * 1000
+      return explicitProvider.waitForResponse(this._requestId, { timeout })
+    }
+
+    // Fallback to legacy HumanClient
+    // This maintains backward compatibility with existing code that uses
+    // configureHumanClient() for configuration
+    const client = getHumanClient()
+    return client.requestApproval({
+      requestId: this._requestId,
+      role: this._role,
+      message: this._message,
+      sla: this._sla,
+      channel: this._channel,
+    })
+  }
+
+  /**
+   * Try to get an explicitly configured provider from the registry.
+   * Returns null if only the auto-created default provider exists.
+   * This preserves backward compatibility with legacy HumanClient.
+   */
+  private tryGetExplicitProvider(): HumanEscalationProvider | null {
+    // We only use providers that were explicitly configured.
+    // The default HttpEscalationProvider from getEscalationProvider() uses
+    // globalThis.fetch, which doesn't respect configureHumanClient() settings.
+    // For backward compatibility, we only use the provider if it's a
+    // DOEscalationProvider (always explicitly configured) or if a specific
+    // provider was registered for this role.
+    try {
+      const provider = getEscalationProvider(this._role)
+
+      // DOEscalationProvider is always explicitly configured - use it
+      if (provider.constructor.name === 'DOEscalationProvider') {
+        return provider
+      }
+
+      // HttpEscalationProvider might be auto-created default
+      // Don't use it - fall back to legacy HumanClient which respects
+      // configureHumanClient() settings including custom fetch
+      return null
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -378,6 +473,7 @@ export class HumanRequest implements PromiseLike<ApprovalResult> {
     return new HumanRequest(this._role, this._message, {
       sla: slaMs,
       channel: this._channel,
+      provider: this._provider,
     })
   }
 
@@ -390,7 +486,34 @@ export class HumanRequest implements PromiseLike<ApprovalResult> {
     return new HumanRequest(this._role, this._message, {
       sla: this._sla,
       channel: channelName,
+      provider: this._provider,
     })
+  }
+
+  /**
+   * Cancel this pending request
+   * Only works if a provider is explicitly configured (via DOEscalationProvider
+   * or configureRoleProvider). Legacy HumanClient does not support cancellation.
+   */
+  async cancel(): Promise<boolean> {
+    const provider = this._provider || this.tryGetExplicitProvider()
+    if (provider) {
+      return provider.cancel(this._requestId)
+    }
+    return false
+  }
+
+  /**
+   * Get the current status without waiting
+   * Only works if a provider is explicitly configured (via DOEscalationProvider
+   * or configureRoleProvider). Legacy HumanClient does not support status polling.
+   */
+  async getStatus(): Promise<{ status: string; result?: ApprovalResult } | null> {
+    const provider = this._provider || this.tryGetExplicitProvider()
+    if (provider) {
+      return provider.getStatus(this._requestId)
+    }
+    return null
   }
 }
 

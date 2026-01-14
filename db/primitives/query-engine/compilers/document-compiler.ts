@@ -12,6 +12,8 @@ import type {
   PredicateNode,
   LogicalNode,
   ComparisonOp,
+  TemporalNode,
+  TemporalQueryType,
 } from '../ast'
 
 // =============================================================================
@@ -52,6 +54,10 @@ export interface IndexedFieldConfig {
  */
 export interface CompileOptions {
   indexedFields?: IndexedFieldConfig[]
+  /** Explicit temporal clause (AS OF) to apply */
+  temporal?: TemporalNode
+  /** Current timestamp for relative time calculations (defaults to Date.now()) */
+  currentTimestamp?: number
 }
 
 /**
@@ -63,11 +69,21 @@ export interface IndexedOperation {
 }
 
 /**
- * Temporal range for TemporalStore operations
+ * Temporal range for TemporalStore operations.
+ *
+ * Supports both time-based ranges and version-based ranges for time travel queries.
  */
 export interface TemporalRange {
+  /** Start timestamp (epoch ms) for range queries */
   start?: number
+  /** End timestamp (epoch ms) for range queries */
   end?: number
+  /** Snapshot ID for version-based queries */
+  snapshotId?: number
+  /** Query type (AS_OF, BEFORE, BETWEEN, VERSIONS_BETWEEN) */
+  queryType?: TemporalQueryType
+  /** Whether this is a materialized AS OF query */
+  isMaterialized?: boolean
 }
 
 /**
@@ -136,11 +152,11 @@ export class DocumentCompiler {
 
     // Handle empty query (match all)
     if (Object.keys(query).length === 0) {
-      return this.createMatchAllResult(indexedFields)
+      return this.createMatchAllResult(indexedFields, options)
     }
 
     const ast = this.parseMongoQuery(query)
-    const plan = this.createExecutionPlan(ast, indexedFields)
+    const plan = this.createExecutionPlan(ast, indexedFields, options)
 
     return this.createResult(ast, plan, indexedFields, this.detectedRegexOptions)
   }
@@ -802,7 +818,11 @@ export class DocumentCompiler {
   // Execution Planning
   // ===========================================================================
 
-  private createExecutionPlan(ast: QueryNode, indexedFields: IndexedFieldConfig[]): ExecutionPlan {
+  private createExecutionPlan(
+    ast: QueryNode,
+    indexedFields: IndexedFieldConfig[],
+    options?: CompileOptions
+  ): ExecutionPlan {
     const indexedFieldNames = new Set(indexedFields.map(f => f.field))
     const temporalFields = indexedFields.filter(f => f.temporal).map(f => f.field)
 
@@ -812,17 +832,37 @@ export class DocumentCompiler {
     let combineLogic: 'AND' | 'OR' = 'AND'
     let requiresUnion = false
 
+    // First, check for explicit temporal clause from options
+    if (options?.temporal) {
+      temporalRange = this.materializeTemporalNode(options.temporal, options.currentTimestamp)
+    }
+
     const processNode = (node: QueryNode): void => {
       if (node.type === 'predicate') {
         const pred = node as PredicateNode
 
-        // Check for temporal range
+        // Check for temporal range from predicates
         if (temporalFields.includes(pred.column)) {
-          if (!temporalRange) temporalRange = {}
+          if (!temporalRange) {
+            temporalRange = {}
+          }
+          // Only override if not already set by explicit temporal clause
           if (pred.op === '>=' || pred.op === '>') {
-            temporalRange.start = pred.value as number
+            if (temporalRange.start === undefined) {
+              temporalRange.start = pred.value as number
+            }
           } else if (pred.op === '<=' || pred.op === '<') {
-            temporalRange.end = pred.value as number
+            if (temporalRange.end === undefined) {
+              temporalRange.end = pred.value as number
+            }
+          } else if (pred.op === '=') {
+            // Exact match on temporal field - use AS_OF semantics
+            if (temporalRange.queryType === undefined) {
+              temporalRange.queryType = 'AS_OF'
+              temporalRange.start = pred.value as number
+              temporalRange.end = pred.value as number
+              temporalRange.isMaterialized = true
+            }
           }
           // Also add to indexed operations
           indexedOperations.push({ field: pred.column, predicate: pred })
@@ -842,6 +882,12 @@ export class DocumentCompiler {
         for (const child of logical.children) {
           processNode(child)
         }
+      } else if (node.type === 'temporal') {
+        // Handle temporal node found in query AST
+        const temporalNode = node as TemporalNode
+        if (!temporalRange || !temporalRange.isMaterialized) {
+          temporalRange = this.materializeTemporalNode(temporalNode, options?.currentTimestamp)
+        }
       }
     }
 
@@ -856,16 +902,92 @@ export class DocumentCompiler {
     }
   }
 
+  /**
+   * Materialize a TemporalNode into a TemporalRange.
+   *
+   * This converts the abstract temporal query type into concrete timestamp ranges
+   * that can be used for efficient filtering.
+   */
+  private materializeTemporalNode(
+    temporal: TemporalNode,
+    currentTimestamp?: number
+  ): TemporalRange {
+    const now = currentTimestamp ?? Date.now()
+
+    switch (temporal.queryType) {
+      case 'AS_OF':
+        // AS OF queries need a single point in time
+        if (temporal.snapshotId !== undefined) {
+          return {
+            snapshotId: temporal.snapshotId,
+            queryType: 'AS_OF',
+            isMaterialized: true,
+          }
+        }
+        // For timestamp-based AS OF, we set end = asOfTimestamp
+        // meaning "all records valid at or before this timestamp"
+        return {
+          end: temporal.asOfTimestamp,
+          queryType: 'AS_OF',
+          isMaterialized: true,
+        }
+
+      case 'BEFORE':
+        // BEFORE queries exclude the specified timestamp
+        return {
+          end: temporal.asOfTimestamp !== undefined ? temporal.asOfTimestamp - 1 : undefined,
+          queryType: 'BEFORE',
+          isMaterialized: true,
+        }
+
+      case 'BETWEEN':
+        // BETWEEN queries define a range
+        return {
+          start: temporal.asOfTimestamp,
+          end: temporal.toTimestamp,
+          queryType: 'BETWEEN',
+          isMaterialized: true,
+        }
+
+      case 'VERSIONS_BETWEEN':
+        // Version-based range queries
+        return {
+          snapshotId: temporal.fromVersion,  // Store fromVersion in snapshotId
+          queryType: 'VERSIONS_BETWEEN',
+          isMaterialized: true,
+          // Note: toVersion would need to be tracked separately
+          // For now, we use start/end to store the versions as numbers
+          start: temporal.fromVersion,
+          end: temporal.toVersion,
+        }
+
+      default:
+        return {
+          queryType: temporal.queryType,
+          isMaterialized: false,
+        }
+    }
+  }
+
   // ===========================================================================
   // Result Creation
   // ===========================================================================
 
-  private createMatchAllResult(indexedFields: IndexedFieldConfig[]): CompiledDocumentQuery {
+  private createMatchAllResult(
+    indexedFields: IndexedFieldConfig[],
+    options?: CompileOptions
+  ): CompiledDocumentQuery {
     const emptyAST: PredicateNode = {
       type: 'predicate',
       column: '_',
       op: '=',
       value: { $always: true },
+    }
+
+    // Even for match-all queries, we may have temporal constraints
+    let temporalRange: TemporalRange | undefined
+    if (options?.temporal) {
+      temporalRange = this.materializeTemporalNode(options.temporal, options.currentTimestamp)
     }
 
     return {
@@ -875,9 +997,10 @@ export class DocumentCompiler {
         indexedOperations: [],
         fullScanPredicates: [],
         combineLogic: 'AND',
+        temporalRange,
       },
       toTCSPredicates: () => [],
-      toTemporalRange: () => undefined,
+      toTemporalRange: () => temporalRange,
     }
   }
 
