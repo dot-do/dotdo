@@ -1216,3 +1216,32 @@ export class FederatedExecutor {
     return results
   }
 }
+
+// =============================================================================
+// CROSS-SOURCE JOIN EXPORTS
+// =============================================================================
+
+export {
+  CrossSourceJoin,
+  createCrossSourceJoin,
+  executeCrossSourceJoin,
+  streamCrossSourceJoin,
+  executeSemiJoin,
+  executeAntiJoin,
+  executeCrossJoin,
+  executeSortMergeJoin,
+  DataTypeConverter,
+  type CrossSourceJoinConfig,
+  type CrossSourceJoinResult,
+  type CrossSourceJoinStats,
+  type CrossSourceTableRef,
+  type CrossSourceJoinKey,
+  type ColumnSpec,
+  type TypeConversionRule,
+  type StreamingOptions,
+  type ExtendedJoinType,
+  type SemiJoinConfig,
+  type AntiJoinConfig,
+  type CrossJoinConfig,
+  type SortMergeJoinConfig,
+} from './cross-source-join'
