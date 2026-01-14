@@ -25,6 +25,7 @@ import {
   type DOClient,
   type ClientConfig,
   type ConnectionState,
+  type ContextOptions,
 } from '../src/index'
 
 // =============================================================================
@@ -104,6 +105,47 @@ describe('@dotdo/client SDK', () => {
       const client1 = $Context('https://startups.studio')
       const client2 = $Context('https://platform.do')
       // Should be different sessions
+      expect(client1).not.toBe(client2)
+    })
+
+    it('accepts auth token option', () => {
+      const client = $Context('https://api.example.com', { token: 'test-token' })
+      expect(client).toBeDefined()
+    })
+
+    it('accepts custom headers option', () => {
+      const client = $Context('https://api.example.com', {
+        headers: { 'X-Custom-Header': 'value' },
+      })
+      expect(client).toBeDefined()
+    })
+
+    it('accepts combined token and headers', () => {
+      const client = $Context('https://api.example.com', {
+        token: 'test-token',
+        headers: { 'X-Custom-Header': 'value' },
+      })
+      expect(client).toBeDefined()
+    })
+
+    it('returns different sessions for same namespace with different tokens', () => {
+      const client1 = $Context('https://api.example.com', { token: 'token-1' })
+      const client2 = $Context('https://api.example.com', { token: 'token-2' })
+      // Different tokens should result in different sessions
+      expect(client1).not.toBe(client2)
+    })
+
+    it('returns same session for same namespace with same token', () => {
+      const client1 = $Context('https://api.example.com', { token: 'same-token' })
+      const client2 = $Context('https://api.example.com', { token: 'same-token' })
+      // Same token should return cached session
+      expect(client1).toBe(client2)
+    })
+
+    it('returns different sessions for auth vs no-auth', () => {
+      const client1 = $Context('https://api.example.com')
+      const client2 = $Context('https://api.example.com', { token: 'test-token' })
+      // Authenticated and unauthenticated should be different
       expect(client1).not.toBe(client2)
     })
   })

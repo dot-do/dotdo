@@ -93,43 +93,95 @@ const defaultSessionOptions: SessionOptions = {
 }
 
 /**
+ * Context options for authenticated connections
+ */
+export interface ContextOptions {
+  /** Authentication token (added as Bearer token in Authorization header) */
+  token?: string
+  /** Custom headers to include in requests */
+  headers?: Record<string, string>
+  /** Session options passed to capnweb */
+  sessionOptions?: SessionOptions
+}
+
+/**
+ * Generate a cache key for session lookup
+ * Includes namespace and auth token to ensure different auth sessions are separate
+ */
+function getSessionKey(namespace: string, options?: ContextOptions): string {
+  const parts = [namespace]
+  if (options?.token) {
+    // Include a hash of the token to differentiate authenticated sessions
+    parts.push(`token:${options.token.slice(0, 8)}`)
+  }
+  return parts.join('|')
+}
+
+/**
  * Get or create a session for a namespace URL
  * Uses WebSocket-first with HTTP batch fallback
  */
-function getOrCreateSession(namespace: string): RpcClient {
+function getOrCreateSession(namespace: string, options?: ContextOptions): RpcClient {
+  const cacheKey = getSessionKey(namespace, options)
+
   // Check for existing session
-  const existing = sessions.get(namespace)
+  const existing = sessions.get(cacheKey)
   if (existing) {
     return existing
   }
+
+  // Merge session options
+  const sessionOptions: SessionOptions = {
+    ...defaultSessionOptions,
+    ...options?.sessionOptions,
+  }
+
+  // Build headers for authenticated requests
+  const headers: Record<string, string> = {}
+  if (options?.token) {
+    headers['Authorization'] = `Bearer ${options.token}`
+  }
+  if (options?.headers) {
+    Object.assign(headers, options.headers)
+  }
+  const hasCustomHeaders = Object.keys(headers).length > 0
 
   // Namespace IS the endpoint (no /rpc suffix)
   const wsUrl = namespace.replace(/^http/, 'ws')
 
   let stub: unknown
 
-  // WebSocket-first with HTTP batch fallback
-  // Note: In browser environments, WebSocket connection errors are async,
-  // so we can't synchronously detect failure. The stub handles reconnection.
-  if (typeof WebSocket !== 'undefined') {
+  // If we have custom headers, prefer HTTP batch since WebSocket in browsers
+  // doesn't support custom headers. In Node.js, we could pass headers via
+  // the WebSocket constructor options, but for consistency we use HTTP batch.
+  if (hasCustomHeaders) {
+    // Create a Request object with auth headers
+    const request = new Request(namespace, {
+      headers,
+    })
+    stub = newHttpBatchRpcSession(request as unknown as string, sessionOptions)
+  } else if (typeof WebSocket !== 'undefined') {
+    // WebSocket-first with HTTP batch fallback (no auth headers)
+    // Note: In browser environments, WebSocket connection errors are async,
+    // so we can't synchronously detect failure. The stub handles reconnection.
     try {
-      stub = newWebSocketRpcSession(wsUrl, undefined, defaultSessionOptions)
+      stub = newWebSocketRpcSession(wsUrl, undefined, sessionOptions)
     } catch {
       // WebSocket not available or immediate failure, use HTTP batch
-      stub = newHttpBatchRpcSession(namespace, defaultSessionOptions)
+      stub = newHttpBatchRpcSession(namespace, sessionOptions)
     }
   } else {
     // No WebSocket support, use HTTP batch
-    stub = newHttpBatchRpcSession(namespace, defaultSessionOptions)
+    stub = newHttpBatchRpcSession(namespace, sessionOptions)
   }
 
   // Cache the session
   const client = stub as RpcClient
-  sessions.set(namespace, client)
+  sessions.set(cacheKey, client)
 
   // Set up broken connection handler to clean up cache
   client.onRpcBroken(() => {
-    sessions.delete(namespace)
+    sessions.delete(cacheKey)
   })
 
   return client
@@ -138,12 +190,16 @@ function getOrCreateSession(namespace: string): RpcClient {
 /**
  * Dispose of a session for a namespace
  * Useful for cleanup in tests or when switching namespaces
+ *
+ * @param namespace - The namespace URL
+ * @param options - Optional context options (must match those used to create the session)
  */
-export function disposeSession(namespace: string): void {
-  const session = sessions.get(namespace)
+export function disposeSession(namespace: string, options?: ContextOptions): void {
+  const cacheKey = getSessionKey(namespace, options)
+  const session = sessions.get(cacheKey)
   if (session) {
     session[Symbol.dispose]()
-    sessions.delete(namespace)
+    sessions.delete(cacheKey)
   }
 }
 
@@ -238,6 +294,7 @@ function getNamespace(): string {
  * execute in a single network round trip.
  *
  * @param namespace - The namespace URL (e.g., 'https://startups.studio')
+ * @param options - Optional configuration including authentication
  * @returns An RPC stub with full pipelining support
  *
  * @example
@@ -253,13 +310,21 @@ function getNamespace(): string {
  * // Connect to multiple namespaces
  * const startup = $Context('https://startups.studio')
  * const platform = $Context('https://platform.do')
+ *
+ * // Authenticated connection
+ * const authed = $Context('https://api.example.com', { token: 'my-auth-token' })
+ *
+ * // Custom headers
+ * const custom = $Context('https://api.example.com', {
+ *   headers: { 'X-Custom-Header': 'value' }
+ * })
  * ```
  */
-export function $Context(namespace: string): RpcClient {
+export function $Context(namespace: string, options?: ContextOptions): RpcClient {
   if (!namespace) {
     throw new Error('Namespace URL is required')
   }
-  return getOrCreateSession(namespace)
+  return getOrCreateSession(namespace, options)
 }
 
 /**

@@ -35,8 +35,7 @@ export class WorkersDoClient {
 
   constructor(token: string) {
     this.token = token
-    // TODO: Pass auth token to capnweb session
-    this.$ = $Context(WORKERS_DO_URL)
+    this.$ = $Context(WORKERS_DO_URL, { token })
   }
 
   /**
