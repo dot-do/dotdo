@@ -11,6 +11,15 @@
  *   dotdo do:list       - List Durable Objects
  *   dotdo deploy        - Deploy to production
  *   dotdo tunnel        - Expose local server via CF Tunnel
+ *   dotdo eval          - Run AI evals (evalite integration)
+ *
+ * Auth Commands:
+ *   dotdo login         - Log in to your account
+ *   dotdo logout        - Log out of your account
+ *   dotdo whoami        - Show current user
+ *
+ * MCP Commands:
+ *   dotdo mcp           - Start stdio MCP bridge to DO's /mcp endpoint
  *
  * Service Commands (cli.do):
  *   dotdo call          - Make voice calls via calls.do
@@ -28,6 +37,13 @@ import { doCommand } from './commands/do-ops'
 import { tunnelCommand } from './commands/tunnel'
 import { deployCommand } from './commands/deploy-multi'
 import { startCommand } from './commands/start'
+import { evalCommand } from './commands/eval'
+// Auth commands
+import { run as loginRun } from './commands/auth/login'
+import { run as logoutRun } from './commands/auth/logout'
+import { run as whoamiRun } from './commands/auth/whoami'
+// MCP command
+import { mcpCommand } from './mcp-stdio'
 // Service commands (Commander wrappers)
 import {
   callCommand,
@@ -73,6 +89,7 @@ program.addCommand(devCommand)
 program.addCommand(doCommand)
 program.addCommand(tunnelCommand)
 program.addCommand(deployCommand)
+program.addCommand(evalCommand)
 
 // Add service commands (cli.do)
 program.addCommand(callCommand)
@@ -82,6 +99,54 @@ program.addCommand(chargeCommand)
 program.addCommand(queueCommand)
 program.addCommand(llmCommand)
 program.addCommand(configCommand)
+
+// Auth commands
+program
+  .command('login')
+  .description('Log in to your account (id.org.ai OAuth)')
+  .action(async () => {
+    try {
+      await loginRun()
+    } catch (error) {
+      process.exit(1)
+    }
+  })
+
+program
+  .command('logout')
+  .description('Log out of your account')
+  .action(async () => {
+    try {
+      await logoutRun()
+    } catch (error) {
+      process.exit(1)
+    }
+  })
+
+program
+  .command('whoami')
+  .description('Show current user')
+  .action(async () => {
+    try {
+      await whoamiRun()
+    } catch (error) {
+      process.exit(1)
+    }
+  })
+
+// MCP command - stdio bridge to DO's /mcp endpoint
+program
+  .command('mcp')
+  .description('Start stdio MCP bridge to DO\'s /mcp endpoint')
+  .option('--url <url>', 'DO URL (defaults to DO_URL env var)')
+  .action(async (options) => {
+    try {
+      await mcpCommand({ url: options.url })
+    } catch (error) {
+      logger.error('MCP bridge failed:', { error: error instanceof Error ? error.message : String(error) })
+      process.exit(1)
+    }
+  })
 
 // Init command
 program
