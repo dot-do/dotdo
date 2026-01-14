@@ -1,0 +1,10 @@
+name = "benchmark-runner"
+main = "index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+API_KEY = "test-api-key"
+
+# Uncomment for production
+# [durable_objects]
+# bindings = [{ name = "DO", class_name = "DO" }]
