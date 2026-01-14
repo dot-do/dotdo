@@ -4,6 +4,10 @@
   "main": "api/index.ts",
   "compatibility_date": "2026-01-08",
 
+  "rules": [
+    { "type": "Text", "globs": ["**/*.sql"] }
+  ],
+
   "durable_objects": {
     "bindings": [
       {
