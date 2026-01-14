@@ -246,27 +246,60 @@ Works in browsers, Node.js, mobile apps, other Workers. The client is a Proxy th
 
 ---
 
-## 40+ API-Compatible SDKs
+## 90 API-Compatible SDKs
 
 Use the APIs you already know. We've built edge-native compatibility layers:
 
+**AI/ML:**
+`@dotdo/anthropic` `@dotdo/cohere` `@dotdo/google-ai` `@dotdo/openai`
+
+**Analytics:**
+`@dotdo/amplitude` `@dotdo/analytics` `@dotdo/cubejs` `@dotdo/mixpanel` `@dotdo/segment` `@dotdo/vitals`
+
+**Auth:**
+`@dotdo/auth` `@dotdo/auth0` `@dotdo/clerk` `@dotdo/firebase-auth` `@dotdo/supabase-auth`
+
+**Automation:**
+`@dotdo/automation` `@dotdo/n8n` `@dotdo/zapier`
+
+**CRM/Sales:**
+`@dotdo/close` `@dotdo/freshdesk` `@dotdo/helpscout` `@dotdo/hubspot` `@dotdo/intercom` `@dotdo/pipedrive` `@dotdo/salesforce` `@dotdo/zendesk`
+
 **Databases:**
-`@dotdo/postgres` `@dotdo/mysql` `@dotdo/mongo` `@dotdo/supabase` `@dotdo/firebase` `@dotdo/neon` `@dotdo/planetscale` `@dotdo/cockroach` `@dotdo/tidb` `@dotdo/turso` `@dotdo/duckdb` `@dotdo/couchdb`
+`@dotdo/couchdb` `@dotdo/duckdb` `@dotdo/neo4j` `@dotdo/postgres` `@dotdo/supabase`
 
-**Messaging:**
-`@dotdo/kafka` `@dotdo/redis` `@dotdo/nats` `@dotdo/sqs` `@dotdo/pubsub`
+**DevOps:**
+`@dotdo/datadog` `@dotdo/doppler` `@dotdo/flags` `@dotdo/launchdarkly` `@dotdo/sentry` `@dotdo/vault`
 
-**Real-time:**
-`@dotdo/pusher` `@dotdo/ably` `@dotdo/socketio`
+**E-commerce:**
+`@dotdo/medusa` `@dotdo/payload` `@dotdo/shopify` `@dotdo/square` `@dotdo/stripe` `@dotdo/tally` `@dotdo/woocommerce`
+
+**Email/SMS:**
+`@dotdo/convertkit` `@dotdo/emails` `@dotdo/klaviyo` `@dotdo/mailchimp` `@dotdo/messagebird` `@dotdo/resend` `@dotdo/sendgrid` `@dotdo/twilio` `@dotdo/vonage`
+
+**Messaging/Real-time:**
+`@dotdo/ably` `@dotdo/discord` `@dotdo/fcm` `@dotdo/onesignal` `@dotdo/pubsub` `@dotdo/pusher` `@dotdo/slack` `@dotdo/socketio` `@dotdo/sqs`
+
+**Productivity:**
+`@dotdo/calendly` `@dotdo/docusign` `@dotdo/jira` `@dotdo/linear` `@dotdo/quickbooks` `@dotdo/zoom`
 
 **Search:**
-`@dotdo/elasticsearch` `@dotdo/algolia` `@dotdo/meilisearch` `@dotdo/typesense` `@dotdo/orama`
+`@dotdo/algolia` `@dotdo/elasticsearch` `@dotdo/meilisearch` `@dotdo/typesense`
 
 **Vector:**
-`@dotdo/pinecone` `@dotdo/qdrant` `@dotdo/weaviate` `@dotdo/chroma`
+`@dotdo/chroma` `@dotdo/pinecone` `@dotdo/qdrant` `@dotdo/weaviate`
 
-**Graph:**
-`@dotdo/neo4j`
+**Source Control:**
+`@dotdo/github` `@dotdo/gitlab`
+
+**Storage:**
+`@dotdo/cloudinary` `@dotdo/gcs` `@dotdo/mapbox` `@dotdo/s3`
+
+**Streaming/Data:**
+`@dotdo/airbyte` `@dotdo/benthos` `@dotdo/flink` `@dotdo/metabase`
+
+**Other:**
+`@dotdo/calls` `@dotdo/contentful` `@dotdo/crm` `@dotdo/paypal`
 
 ```typescript
 // Drop-in replacement
@@ -403,7 +436,7 @@ workflows/     # $ context DSL
   on.ts        # Event handlers via two-level proxy
   proxy.ts     # Pipeline promises
   context/     # Execution modes
-compat/        # 40+ API-compatible SDKs
+compat/        # 90 API-compatible SDKs
 primitives/    # Edge-native implementations
   fsx/         # Filesystem on SQLite
   gitx/        # Git on R2

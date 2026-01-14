@@ -1,372 +1,225 @@
 /**
- * Workers Module Exports Tests
+ * Minimal DO Proxy Worker Tests
  *
- * Integration tests verifying that all exports from the workers module
- * are properly exposed and functional. This ensures the public API
- * remains stable and all components are accessible.
+ * Tests for the simplified Hono-based passthrough worker.
  *
  * @module workers/index.test
  */
 
-import { describe, it, expect } from 'vitest'
-
-// Import everything from the workers module
-import * as workers from './index'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { API, type APIConfig } from './index'
 
 // =============================================================================
-// TYPE EXPORTS
+// MOCK DO BINDING
 // =============================================================================
 
-describe('Workers Module Type Exports', () => {
-  it('should export type definitions', () => {
-    // Types are only available at compile time, but we can check
-    // that the module exports exist without errors
-    expect(workers).toBeDefined()
+function createMockDO() {
+  const mockStub = {
+    fetch: vi.fn().mockResolvedValue(new Response('{"data":"from DO"}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    }))
+  }
+
+  return {
+    idFromName: vi.fn().mockReturnValue({ name: 'test-id' }),
+    get: vi.fn().mockReturnValue(mockStub),
+    _stub: mockStub
+  }
+}
+
+// =============================================================================
+// API FACTORY TESTS
+// =============================================================================
+
+describe('API Factory', () => {
+  it('should return a Hono app', () => {
+    const app = API()
+    expect(app).toBeDefined()
+    expect(app.fetch).toBeTypeOf('function')
+  })
+
+  it('should return 500 when no DO binding found', async () => {
+    const app = API({ ns: 'main' })
+    const request = new Request('http://localhost/test')
+
+    const response = await app.fetch(request, {})
+    expect(response.status).toBe(500)
+
+    const body = await response.json() as { error: string }
+    expect(body.error).toBe('No DO binding found')
   })
 })
 
 // =============================================================================
-// ROUTING EXPORTS
+// NAMESPACE RESOLUTION TESTS
 // =============================================================================
 
-describe('Workers Module Routing Exports', () => {
-  describe('Namespace Resolution', () => {
-    it('should export hasSubdomain function', () => {
-      expect(workers.hasSubdomain).toBeTypeOf('function')
-    })
+describe('Namespace Resolution', () => {
+  describe('Fixed namespace mode', () => {
+    it('should route to fixed namespace', async () => {
+      const mockDO = createMockDO()
+      const app = API({ ns: 'main' })
 
-    it('should export resolveHostnameNamespace function', () => {
-      expect(workers.resolveHostnameNamespace).toBeTypeOf('function')
-    })
+      const request = new Request('http://localhost/users')
+      const response = await app.fetch(request, { DO: mockDO })
 
-    it('should export resolvePathNamespace function', () => {
-      expect(workers.resolvePathNamespace).toBeTypeOf('function')
-    })
-
-    it('should export extractPathParams function', () => {
-      expect(workers.extractPathParams).toBeTypeOf('function')
-    })
-
-    it('should export resolveNamespace function', () => {
-      expect(workers.resolveNamespace).toBeTypeOf('function')
-    })
-
-    it('should export resolveApiNamespace function', () => {
-      expect(workers.resolveApiNamespace).toBeTypeOf('function')
+      expect(response.status).toBe(200)
+      expect(mockDO.idFromName).toHaveBeenCalledWith('main')
     })
   })
 
-  describe('DO Utilities', () => {
-    it('should export findDOBinding function', () => {
-      expect(workers.findDOBinding).toBeTypeOf('function')
+  describe('Path param mode', () => {
+    it('should extract namespace from path', async () => {
+      const mockDO = createMockDO()
+      const app = API({ ns: '/:org' })
+
+      const request = new Request('http://localhost/acme/users')
+      const response = await app.fetch(request, { DO: mockDO })
+
+      expect(response.status).toBe(200)
+      // Namespace includes origin + path segment
+      expect(mockDO.idFromName).toHaveBeenCalledWith('http://localhost/acme')
     })
 
-    it('should export getDOStub function', () => {
-      expect(workers.getDOStub).toBeTypeOf('function')
-    })
-  })
+    it('should extract multiple path segments', async () => {
+      const mockDO = createMockDO()
+      const app = API({ ns: '/:org/:project' })
 
-  describe('Request Forwarding', () => {
-    it('should export getForwardPath function', () => {
-      expect(workers.getForwardPath).toBeTypeOf('function')
-    })
+      const request = new Request('http://localhost/acme/proj1/tasks')
+      const response = await app.fetch(request, { DO: mockDO })
 
-    it('should export createForwardRequest function', () => {
-      expect(workers.createForwardRequest).toBeTypeOf('function')
+      expect(response.status).toBe(200)
+      expect(mockDO.idFromName).toHaveBeenCalledWith('http://localhost/acme/proj1')
     })
 
-    it('should export forwardToDO function', () => {
-      expect(workers.forwardToDO).toBeTypeOf('function')
-    })
-  })
+    it('should return 404 when not enough path segments', async () => {
+      const mockDO = createMockDO()
+      const app = API({ ns: '/:org/:project' })
 
-  describe('Error Responses', () => {
-    it('should export errorResponse function', () => {
-      expect(workers.errorResponse).toBeTypeOf('function')
-    })
+      const request = new Request('http://localhost/acme')
+      const response = await app.fetch(request, { DO: mockDO })
 
-    it('should export notFoundResponse function', () => {
-      expect(workers.notFoundResponse).toBeTypeOf('function')
-    })
-
-    it('should export serviceUnavailableResponse function', () => {
-      expect(workers.serviceUnavailableResponse).toBeTypeOf('function')
-    })
-  })
-
-  describe('Handler Factories', () => {
-    it('should export createProxyHandler function', () => {
-      expect(workers.createProxyHandler).toBeTypeOf('function')
-    })
-
-    it('should export createAPIHandler function', () => {
-      expect(workers.createAPIHandler).toBeTypeOf('function')
-    })
-  })
-})
-
-// =============================================================================
-// GRAPH EXPORTS
-// =============================================================================
-
-describe('Workers Module Graph Exports', () => {
-  it('should export GraphLoadBalancer class', () => {
-    expect(workers.GraphLoadBalancer).toBeTypeOf('function')
-  })
-
-  it('should export createGraphRoundRobinBalancer factory', () => {
-    expect(workers.createGraphRoundRobinBalancer).toBeTypeOf('function')
-  })
-
-  it('should export createGraphLeastBusyBalancer factory', () => {
-    expect(workers.createGraphLeastBusyBalancer).toBeTypeOf('function')
-  })
-
-  it('should export createGraphCapabilityBalancer factory', () => {
-    expect(workers.createGraphCapabilityBalancer).toBeTypeOf('function')
-  })
-})
-
-// =============================================================================
-// PROXY HANDLER RE-EXPORTS
-// =============================================================================
-
-describe('Workers Module Proxy Handler Re-exports', () => {
-  it('should export createHostnameProxyHandler for backward compatibility', () => {
-    expect(workers.createHostnameProxyHandler).toBeTypeOf('function')
-  })
-
-  it('should export API factory', () => {
-    expect(workers.API).toBeTypeOf('function')
-  })
-
-  it('should export APIDefault', () => {
-    // APIDefault is the default export, could be a function or object
-    expect(workers.APIDefault).toBeDefined()
-  })
-
-  it('should export stripEnvelope from simple module', () => {
-    expect(workers.stripEnvelope).toBeTypeOf('function')
-  })
-
-  it('should export createSimpleHandler from simple module', () => {
-    expect(workers.createSimpleHandler).toBeTypeOf('function')
-  })
-
-  it('should export SimpleDefault from simple module', () => {
-    expect(workers.SimpleDefault).toBeDefined()
-  })
-})
-
-// =============================================================================
-// LOAD BALANCING RE-EXPORTS
-// =============================================================================
-
-describe('Workers Module Load Balancing Re-exports', () => {
-  it('should export LoadBalancingGraph alias', () => {
-    expect(workers.LoadBalancingGraph).toBeTypeOf('function')
-  })
-
-  it('should export createRoundRobinBalancer alias', () => {
-    expect(workers.createRoundRobinBalancer).toBeTypeOf('function')
-  })
-
-  it('should export createLeastBusyBalancer alias', () => {
-    expect(workers.createLeastBusyBalancer).toBeTypeOf('function')
-  })
-
-  it('should export createCapabilityBalancer alias', () => {
-    expect(workers.createCapabilityBalancer).toBeTypeOf('function')
-  })
-
-  it('should have LoadBalancingGraph equal to GraphLoadBalancer', () => {
-    expect(workers.LoadBalancingGraph).toBe(workers.GraphLoadBalancer)
-  })
-
-  it('should have createRoundRobinBalancer equal to createGraphRoundRobinBalancer', () => {
-    expect(workers.createRoundRobinBalancer).toBe(workers.createGraphRoundRobinBalancer)
-  })
-})
-
-// =============================================================================
-// FUNCTIONAL TESTS
-// =============================================================================
-
-describe('Workers Module Functional Tests', () => {
-  describe('hasSubdomain', () => {
-    it('should detect subdomains with 4+ parts', () => {
-      // hasSubdomain uses 4-part heuristic for multi-tenant SaaS
-      // 4+ parts = has subdomain
-      expect(workers.hasSubdomain('tenant.api.dotdo.dev')).toBe(true)
-    })
-
-    it('should return false for 3-part domains', () => {
-      // 3 parts = apex, no subdomain
-      expect(workers.hasSubdomain('api.example.com')).toBe(false)
-      expect(workers.hasSubdomain('www.example.com')).toBe(false)
-    })
-
-    it('should return false for 2-part domains', () => {
-      expect(workers.hasSubdomain('example.com')).toBe(false)
-    })
-
-    it('should return false for localhost', () => {
-      expect(workers.hasSubdomain('localhost')).toBe(false)
-    })
-  })
-
-  describe('resolvePathNamespace', () => {
-    it('should extract namespace from path', () => {
-      // resolvePathNamespace(pathname, paramCount) - returns { ns, remainingPath }
-      const result = workers.resolvePathNamespace('/api/users', 1)
-      expect(result.ns).toBe('api')
-      expect(result.remainingPath).toBe('/users')
-    })
-
-    it('should handle multiple namespace segments', () => {
-      const result = workers.resolvePathNamespace('/acme/proj1/users', 2)
-      expect(result.ns).toBe('acme:proj1')
-      expect(result.remainingPath).toBe('/users')
-    })
-
-    it('should return null when not enough segments', () => {
-      const result = workers.resolvePathNamespace('/single', 2)
-      expect(result.ns).toBeNull()
-    })
-  })
-
-  describe('extractPathParams', () => {
-    it('should extract params using pattern', () => {
-      // extractPathParams takes a URL object and pattern
-      const url = new URL('http://example.com/acme/proj1/rest')
-      const result = workers.extractPathParams(url, '/:org/:project')
-      expect(result.ns).toBe('http://example.com/acme/proj1')
-      expect(result.remainingPath).toBe('/rest')
-    })
-
-    it('should return null namespace when not enough segments', () => {
-      const url = new URL('http://example.com/test')
-      const result = workers.extractPathParams(url, '/:org/:project')
-      expect(result.ns).toBeNull()
-    })
-  })
-
-  describe('errorResponse', () => {
-    it('should create error response with status and message', () => {
-      // errorResponse(status, message)
-      const response = workers.errorResponse(500, 'Something went wrong')
-      expect(response.status).toBe(500)
-    })
-
-    it('should create 400 response', () => {
-      const response = workers.errorResponse(400, 'Bad request')
-      expect(response.status).toBe(400)
-    })
-  })
-
-  describe('notFoundResponse', () => {
-    it('should create 404 response', () => {
-      const response = workers.notFoundResponse('Resource not found')
-      expect(response.status).toBe(404)
-    })
-
-    it('should use default message if not provided', () => {
-      const response = workers.notFoundResponse()
       expect(response.status).toBe(404)
     })
   })
 
-  describe('serviceUnavailableResponse', () => {
-    it('should create 503 response', () => {
-      const response = workers.serviceUnavailableResponse(new Error('Service down'))
-      expect(response.status).toBe(503)
-    })
+  describe('Hostname mode (default)', () => {
+    it('should extract namespace from subdomain (4+ parts)', async () => {
+      const mockDO = createMockDO()
+      const app = API() // No config = hostname mode
 
-    it('should handle no error argument', () => {
-      const response = workers.serviceUnavailableResponse()
-      expect(response.status).toBe(503)
-    })
-  })
-
-  describe('getForwardPath', () => {
-    it('should compute forward path for path mode', () => {
-      const request = new Request('http://localhost/api/users/123')
-      const path = workers.getForwardPath(request, { mode: 'path' })
-      expect(path).toBe('/users/123')
-    })
-
-    it('should preserve path for non-path mode', () => {
-      const request = new Request('http://localhost/users/123')
-      const path = workers.getForwardPath(request, { mode: 'hostname' })
-      expect(path).toBe('/users/123')
-    })
-  })
-
-  describe('createForwardRequest', () => {
-    it('should create forwarded request', () => {
-      const originalRequest = new Request('http://localhost/test?q=1')
-      const forwardedRequest = workers.createForwardRequest(originalRequest, '/new-path')
-
-      expect(forwardedRequest.url).toContain('/new-path')
-      expect(forwardedRequest.url).toContain('q=1')
-    })
-  })
-})
-
-// =============================================================================
-// NAMESPACE RESOLUTION INTEGRATION
-// =============================================================================
-
-describe('Namespace Resolution Integration', () => {
-  describe('resolveApiNamespace', () => {
-    it('should resolve namespace for hostname mode (4+ part domain)', () => {
-      // resolveApiNamespace(request, pattern?) - no pattern = hostname mode
       const request = new Request('http://tenant.api.dotdo.dev/users')
-      const result = workers.resolveApiNamespace(request)
+      const response = await app.fetch(request, { DO: mockDO })
 
-      // Returns full origin URL as namespace
-      expect(result.ns).toBe('http://tenant.api.dotdo.dev')
+      expect(response.status).toBe(200)
+      expect(mockDO.idFromName).toHaveBeenCalledWith('http://tenant.api.dotdo.dev')
     })
 
-    it('should return null for hostname mode without subdomain', () => {
+    it('should return 404 for apex domain (3 parts)', async () => {
+      const mockDO = createMockDO()
+      const app = API()
+
       const request = new Request('http://api.example.com/users')
-      const result = workers.resolveApiNamespace(request)
+      const response = await app.fetch(request, { DO: mockDO })
 
-      expect(result.ns).toBeNull()
-    })
-
-    it('should resolve namespace for path mode', () => {
-      const request = new Request('http://api.example.com/acme/users')
-      const result = workers.resolveApiNamespace(request, '/:org')
-
-      // Returns full URL up to namespace segment
-      expect(result.ns).toBe('http://api.example.com/acme')
-      expect(result.remainingPath).toBe('/users')
-    })
-
-    it('should resolve namespace for fixed mode', () => {
-      const request = new Request('http://api.example.com/users')
-      const result = workers.resolveApiNamespace(request, 'main')
-
-      expect(result.ns).toBe('main')
+      expect(response.status).toBe(404)
     })
   })
 })
 
 // =============================================================================
-// STRIP ENVELOPE
+// REQUEST FORWARDING TESTS
 // =============================================================================
 
-describe('stripEnvelope', () => {
-  it('should strip data envelope', () => {
-    const envelope = { data: { name: 'test' }, meta: {} }
-    const result = workers.stripEnvelope(envelope)
-    expect(result).toEqual({ name: 'test' })
+describe('Request Forwarding', () => {
+  it('should forward remaining path to DO', async () => {
+    const mockDO = createMockDO()
+    const app = API({ ns: '/:org' })
+
+    const request = new Request('http://localhost/acme/users/123')
+    await app.fetch(request, { DO: mockDO })
+
+    // Check the forwarded request URL
+    const forwardedRequest = mockDO._stub.fetch.mock.calls[0][0] as Request
+    expect(new URL(forwardedRequest.url).pathname).toBe('/users/123')
   })
 
-  it('should return original if no envelope', () => {
-    const data = { name: 'test' }
-    const result = workers.stripEnvelope(data)
-    expect(result).toEqual({ name: 'test' })
+  it('should forward query string', async () => {
+    const mockDO = createMockDO()
+    const app = API({ ns: 'main' })
+
+    const request = new Request('http://localhost/users?page=2&limit=10')
+    await app.fetch(request, { DO: mockDO })
+
+    const forwardedRequest = mockDO._stub.fetch.mock.calls[0][0] as Request
+    const url = new URL(forwardedRequest.url)
+    expect(url.search).toBe('?page=2&limit=10')
+  })
+
+  it('should forward request method', async () => {
+    const mockDO = createMockDO()
+    const app = API({ ns: 'main' })
+
+    const request = new Request('http://localhost/users', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'test' }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    await app.fetch(request, { DO: mockDO })
+
+    const forwardedRequest = mockDO._stub.fetch.mock.calls[0][0] as Request
+    expect(forwardedRequest.method).toBe('POST')
+  })
+
+  it('should forward headers', async () => {
+    const mockDO = createMockDO()
+    const app = API({ ns: 'main' })
+
+    const request = new Request('http://localhost/users', {
+      headers: {
+        'Authorization': 'Bearer token123',
+        'X-Custom-Header': 'custom-value'
+      }
+    })
+    await app.fetch(request, { DO: mockDO })
+
+    const forwardedRequest = mockDO._stub.fetch.mock.calls[0][0] as Request
+    expect(forwardedRequest.headers.get('Authorization')).toBe('Bearer token123')
+    expect(forwardedRequest.headers.get('X-Custom-Header')).toBe('custom-value')
+  })
+
+  it('should return DO response', async () => {
+    const mockDO = createMockDO()
+    const app = API({ ns: 'main' })
+
+    const request = new Request('http://localhost/users')
+    const response = await app.fetch(request, { DO: mockDO })
+
+    const body = await response.json() as { data: string }
+    expect(body.data).toBe('from DO')
+  })
+})
+
+// =============================================================================
+// ERROR HANDLING TESTS
+// =============================================================================
+
+describe('Error Handling', () => {
+  it('should return 503 when DO throws', async () => {
+    const mockDO = {
+      idFromName: vi.fn().mockReturnValue({ name: 'test-id' }),
+      get: vi.fn().mockReturnValue({
+        fetch: vi.fn().mockRejectedValue(new Error('DO unavailable'))
+      })
+    }
+
+    const app = API({ ns: 'main' })
+    const request = new Request('http://localhost/users')
+    const response = await app.fetch(request, { DO: mockDO })
+
+    expect(response.status).toBe(503)
+    const body = await response.json() as { error: string }
+    expect(body.error).toBe('DO unavailable')
   })
 })

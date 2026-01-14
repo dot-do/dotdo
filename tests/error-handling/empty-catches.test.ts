@@ -73,10 +73,7 @@ export const EMPTY_CATCH_CATALOG = {
     { file: 'compat/benthos/core/message.ts', line: 172, context: 'Message parse error' },
     { file: 'compat/benthos/bloblang/interpreter.ts', line: 795, context: 'Bloblang eval error' },
     { file: 'compat/benthos/bloblang/interpreter.ts', line: 857, context: 'Bloblang function error' },
-    { file: 'workflows/compat/qstash/index.ts', line: 657, context: 'QStash message send' },
-    { file: 'workflows/compat/qstash/index.ts', line: 862, context: 'QStash batch send' },
-    { file: 'workflows/compat/qstash/index.ts', line: 1778, context: 'QStash schedule' },
-    { file: 'workflows/compat/qstash/index.ts', line: 1858, context: 'QStash delete' },
+    // Moved to compat repo: workflows/compat/qstash/
     { file: 'workflows/context/correlation.ts', line: 340, context: 'Correlation context' },
     { file: 'workflows/context/human.ts', line: 380, context: 'Human escalation' },
     { file: 'workflows/visibility/store.ts', line: 239, context: 'Pagination decode' },

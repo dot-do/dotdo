@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createMockDO, MockDOResult, MockEnv, createMockDONamespace } from '../../../testing/do'
+import { createMockDO, MockDOResult, MockEnv, createMockDONamespace } from '../../_lib/do'
 import { DO } from '../../../objects/DO'
 import type { CloneMode, CloneOptions, CloneResult } from '../../../types/Lifecycle'
 

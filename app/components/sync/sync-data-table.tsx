@@ -126,6 +126,7 @@ export function SyncDataTable<TData>({
                     <TableHead key={header.id}>
                       {header.isPlaceholder ? null : canSort ? (
                         <Button
+                          type="button"
                           variant="ghost"
                           size="sm"
                           className="-ml-3 h-8 data-[state=open]:bg-accent"

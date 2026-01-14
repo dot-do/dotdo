@@ -1,0 +1,670 @@
+---
+title: Cross-DO Communication
+description: How Durable Objects locate, communicate, and coordinate with each other
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Cross-DO Communication
+
+Durable Objects are isolated units of compute and storage. Cross-DO communication enables them to work together while maintaining their isolation guarantees. This document explains how DOs locate each other, communicate, handle failures, and coordinate distributed operations.
+
+## Overview
+
+```
+              CROSS-DO COMMUNICATION FLOW
+              ===========================
+
+    DO A (Caller)                              DO B (Target)
+    =============                              =============
+
+    ┌─────────────────┐                        ┌─────────────────┐
+    │   $.Customer    │    1. Route Request    │   CustomerDO    │
+    │   ('cust_123')  │ ─────────────────────▶ │                 │
+    │                 │                        │ ┌─────────────┐ │
+    │  Namespace: DO  │    2. Auto-Create      │ │   SQLite    │ │
+    │  ID: cust_123   │    (if not exists)     │ │   Storage   │ │
+    │                 │                        │ └─────────────┘ │
+    │                 │    3. RPC Call         │                 │
+    │                 │ ◀───────────────────── │                 │
+    └─────────────────┘    4. Response         └─────────────────┘
+
+    Key Properties:
+    • Location transparent - caller doesn't know where target runs
+    • Auto-instantiation - DOs created on first access
+    • Actor model - single-threaded, no race conditions within DO
+    • Circuit breakers - protect against cascading failures
+```
+
+## How One DO Locates Another
+
+### Namespace + ID Resolution
+
+Every DO is identified by a **namespace** (the DO class binding) and an **ID** (unique within that namespace). The routing uses Cloudflare's global DO infrastructure:
+
+```typescript
+// WorkflowContext provides cross-DO access via noun proxies
+const customer = $.Customer('cust_123')  // Returns a DomainProxy
+
+// Under the hood, this resolves to:
+// 1. Look up 'Customer' in the objects table (or use env.DO binding)
+// 2. Get DO stub: env.DO.get(env.DO.idFromName('cust_123'))
+// 3. Return a proxy that forwards method calls to the stub
+```
+
+### The Objects Table
+
+DOs maintain an `objects` table that maps namespaces to DO bindings and IDs:
+
+```typescript
+// Objects table schema
+{
+  ns: 'https://customer.do',  // Namespace URL
+  id: 'do-id-abc123',         // Durable Object ID
+  class: 'CustomerDO',        // DO class name
+  region: 'enam',             // Location hint
+  primary: true,              // Is this the primary replica?
+  cached: Date,               // Cache timestamp
+}
+```
+
+When resolving a cross-DO reference:
+
+1. Query the objects table for the namespace
+2. Get the DO binding from environment
+3. Create a stub using `env.DO.get(env.DO.idFromString(id))`
+4. Cache the stub for subsequent calls
+
+### Code Example: Cross-DO Resolution
+
+```typescript
+// Inside a DO, access another DO via the $ context
+class OrderDO extends DO {
+  async processOrder(orderId: string) {
+    // Locate and call the Customer DO
+    const customer = await $.Customer(this.customerId).get()
+
+    // Locate and call the Inventory DO
+    const reserved = await $.Inventory('main').reserve(orderId)
+
+    // Locate and call the Payment DO
+    const payment = await $.Payment(customer.$id).charge(this.total)
+
+    return { customer, reserved, payment }
+  }
+}
+```
+
+## Automatic DO Creation
+
+<Callout type="info">
+DOs are created **automatically** on first access. You don't need to explicitly provision or create them.
+</Callout>
+
+### First Access Semantics
+
+When you access a DO that doesn't exist yet:
+
+1. Cloudflare creates a new DO instance
+2. The DO's constructor runs
+3. SQLite storage is initialized (empty)
+4. Your request is processed
+
+```typescript
+// This creates a new CustomerDO if 'new_cust_456' doesn't exist
+const newCustomer = await $.Customer('new_cust_456').create({
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+// The DO now exists with one record in its SQLite database
+```
+
+### Lifecycle Implications
+
+- **No pre-provisioning needed** - DOs are created on demand
+- **Storage is per-DO** - Each DO has isolated SQLite storage
+- **Location follows ID** - Cloudflare routes requests consistently to the same DO
+- **Cold starts are possible** - First access may have ~50ms overhead
+
+## Consistency Guarantees
+
+### Within a Single DO: Strong Consistency (ACID)
+
+Each DO is single-threaded with its own SQLite database:
+
+```typescript
+class AccountDO extends DO {
+  async transfer(amount: number, toAccountId: string) {
+    // This entire method runs atomically - no race conditions
+    const balance = await this.things.get('balance')
+
+    if (balance.amount < amount) {
+      throw new Error('Insufficient funds')
+    }
+
+    // Update local balance (atomic within this DO)
+    await this.things.update('balance', {
+      amount: balance.amount - amount
+    })
+
+    // Cross-DO call (NOT part of local transaction)
+    await $.Account(toAccountId).credit(amount)
+
+    return { newBalance: balance.amount - amount }
+  }
+}
+```
+
+<Callout type="warn" title="Critical Understanding">
+Operations within a single DO are ACID. Cross-DO calls are **NOT** part of that transaction. The cross-DO call to `$.Account(toAccountId).credit()` happens **after** the local `update()` commits.
+</Callout>
+
+### Across DOs: Eventual Consistency
+
+There are **no distributed transactions** across DOs. Each DO is its own consistency boundary:
+
+| Property | Within DO | Across DOs |
+|----------|-----------|------------|
+| **Atomicity** | Yes - single SQLite transaction | No - separate transactions |
+| **Consistency** | Yes - ACID guarantees | Eventual - via patterns |
+| **Isolation** | Yes - single-threaded | Yes - actor isolation |
+| **Durability** | Yes - SQLite WAL | Yes - each DO durable |
+
+### The Actor Model Advantage
+
+The actor model provides a different consistency model than distributed databases:
+
+```
+Traditional DB:                      Actor Model (DOs):
+==============                       ==================
+
+  Client A ─┐                         DO A ─────────▶ DO B
+            │                           │               │
+  Client B ─┼──▶ Shared DB             Own DB         Own DB
+            │     (locks!)              │               │
+  Client C ─┘                         No shared       No shared
+                                      state           state
+
+  Problem: Lock contention           Advantage: No locks!
+  at scale                           Linear scaling
+```
+
+## Handling Distributed Operations
+
+Since there are no distributed transactions, use these patterns for cross-DO consistency:
+
+### Pattern 1: Saga with Compensating Transactions
+
+For operations that span multiple DOs, use the saga pattern:
+
+```typescript
+import { CrossDOSaga } from 'dotdo'
+
+// Define the checkout saga
+const checkoutSaga = new CrossDOSaga<Order, Shipment>()
+  .addStep({
+    name: 'reserveInventory',
+    targetDO: 'InventoryDO',
+    execute: async (order) => {
+      return await $.Inventory('main').reserve(order.items)
+    },
+    compensate: async (reservation) => {
+      // Undo: Release the reserved inventory
+      await $.Inventory('main').release(reservation.id)
+    },
+  })
+  .addStep({
+    name: 'processPayment',
+    targetDO: 'PaymentDO',
+    execute: async (reservation) => {
+      return await $.Payment(order.customerId).charge(reservation.total)
+    },
+    compensate: async (payment) => {
+      // Undo: Refund the payment
+      await $.Payment(order.customerId).refund(payment.id)
+    },
+  })
+  .addStep({
+    name: 'createShipment',
+    targetDO: 'ShippingDO',
+    execute: async (payment) => {
+      return await $.Shipping('main').ship(payment.orderId)
+    },
+    compensate: async (shipment) => {
+      // Undo: Cancel the shipment
+      await $.Shipping('main').cancel(shipment.id)
+    },
+  })
+
+// Execute the saga
+const result = await checkoutSaga.execute(order, {
+  idempotencyKey: order.id,  // Prevent duplicate execution
+})
+
+if (!result.success) {
+  // Saga failed - all completed steps were compensated
+  console.log('Checkout failed:', result.error)
+  console.log('Compensations run:', result.steps.filter(s => s.compensated))
+}
+```
+
+### Pattern 2: Two-Phase Commit (2PC)
+
+For atomic operations requiring stronger guarantees:
+
+```typescript
+import { TwoPhaseCommit } from 'dotdo'
+
+// Atomic balance transfer between two accounts
+const transfer = new TwoPhaseCommit({ timeout: 5000 })
+  .addParticipant({
+    id: 'sourceAccount',
+    prepare: async () => {
+      // Phase 1: Validate and lock
+      const balance = await $.Account(sourceId).getBalance()
+      if (balance < amount) return false
+      await $.Account(sourceId).lock(amount)
+      return true
+    },
+    commit: async () => {
+      // Phase 2: Execute the debit
+      await $.Account(sourceId).debit(amount)
+    },
+    rollback: async () => {
+      // Cleanup: Release the lock
+      await $.Account(sourceId).unlock(amount)
+    },
+  })
+  .addParticipant({
+    id: 'targetAccount',
+    prepare: async () => {
+      // Always ready to receive
+      return true
+    },
+    commit: async () => {
+      // Phase 2: Execute the credit
+      await $.Account(targetId).credit(amount)
+    },
+    rollback: async () => {
+      // Nothing to rollback
+    },
+  })
+
+const result = await transfer.execute()
+// Either both accounts updated, or neither
+```
+
+<Callout type="warn" title="2PC Considerations">
+2PC can block if the coordinator fails between prepare and commit. Use it sparingly for critical atomic operations. For most use cases, the saga pattern is more resilient.
+</Callout>
+
+### Pattern 3: Event-Driven Choreography
+
+Let DOs react to events independently:
+
+```typescript
+// OrderDO emits events
+class OrderDO extends DO {
+  async complete() {
+    await this.things.update(this.orderId, { status: 'completed' })
+
+    // Emit event - other DOs react asynchronously
+    await $.send('Order.completed', {
+      orderId: this.orderId,
+      customerId: this.customerId,
+      total: this.total,
+    })
+  }
+}
+
+// InventoryDO subscribes to events
+class InventoryDO extends DO {
+  async onStart() {
+    $.on.Order.completed(async (event) => {
+      await this.shipItems(event.orderId)
+    })
+  }
+}
+
+// AnalyticsDO subscribes to events
+class AnalyticsDO extends DO {
+  async onStart() {
+    $.on.Order.completed(async (event) => {
+      await this.recordSale(event)
+    })
+  }
+}
+```
+
+## Circuit Breakers for Failing DOs
+
+Cross-DO calls can fail. Circuit breakers prevent cascading failures:
+
+```
+                    CIRCUIT BREAKER STATES
+                    ======================
+
+    ┌─────────────────────────────────────────────────────────┐
+    │                                                         │
+    │   CLOSED ────▶ OPEN ────▶ HALF-OPEN                    │
+    │      │          │             │                         │
+    │      │          │             │                         │
+    │   Calls        Calls       Test                         │
+    │   succeed      rejected    call                         │
+    │      │          │             │                         │
+    │      ▼          ▼             ▼                         │
+    │   Reset       Wait for     Success?                     │
+    │   failures    timeout      → CLOSED                     │
+    │               (30s)        Failure?                     │
+    │                            → OPEN                       │
+    │                                                         │
+    └─────────────────────────────────────────────────────────┘
+```
+
+### Built-in Circuit Breaker
+
+The DO base class includes circuit breaker protection:
+
+```typescript
+// Circuit breaker configuration (defaults)
+const circuitBreakerConfig = {
+  failureThreshold: 3,     // Opens after 3 failures
+  resetTimeout: 30000,     // Waits 30s before half-open
+  slidingWindow: 60000,    // Counts failures in 60s window
+}
+
+// Circuit breaker in action
+class PaymentDO extends DO {
+  async chargeCustomer(customerId: string, amount: number) {
+    try {
+      // Cross-DO call with automatic circuit breaker
+      return await $.PaymentProvider('stripe').charge({
+        customerId,
+        amount,
+      })
+    } catch (error) {
+      if (error.code === 'CIRCUIT_OPEN') {
+        // Circuit is open - return cached/fallback response
+        return this.getFallbackResponse(customerId, amount)
+      }
+      throw error
+    }
+  }
+}
+```
+
+### Manual Circuit Breaker Configuration
+
+```typescript
+import { CircuitBreaker, CircuitBreakerRegistry } from 'dotdo/primitives/circuit-breaker'
+
+// Create a custom circuit breaker
+const paymentCircuit = new CircuitBreaker({
+  name: 'payment-provider',
+  failureThreshold: 5,
+  resetTimeout: 60000,
+
+  // Optional: Sliding window for time-based failure tracking
+  slidingWindow: {
+    windowSize: 120000,  // 2 minutes
+    minRequests: 10,     // Need 10 requests before opening
+  },
+
+  // Optional: Fallback handler
+  fallback: {
+    handler: () => ({ status: 'pending', retryLater: true }),
+    timeout: 1000,
+  },
+
+  // Optional: Health check for recovery
+  healthCheck: {
+    interval: 10000,
+    checker: async () => {
+      const health = await $.PaymentProvider('stripe').health()
+      return health.status === 'ok'
+    },
+  },
+})
+
+// Use the circuit breaker
+const result = await paymentCircuit.execute(async () => {
+  return await $.PaymentProvider('stripe').charge(amount)
+})
+```
+
+### Circuit Breaker Events
+
+```typescript
+// Monitor circuit breaker state changes
+paymentCircuit.onStateChange((previousState, newState, stats) => {
+  console.log(`Circuit ${previousState} → ${newState}`, stats)
+
+  if (newState === 'open') {
+    // Alert operations team
+    await $.Alert('ops').send({
+      severity: 'warning',
+      message: 'Payment circuit opened',
+      stats,
+    })
+  }
+})
+
+// Listen for specific events
+paymentCircuit.on('failure', (event, data) => {
+  console.log('Request failed:', data.error)
+})
+
+paymentCircuit.on('rejected', (event, data) => {
+  console.log('Request rejected (circuit open)')
+})
+```
+
+## Error Handling for Cross-DO Calls
+
+### CrossDOError Class
+
+Cross-DO failures throw `CrossDOError` with rich context:
+
+```typescript
+import { CrossDOError } from 'dotdo'
+
+try {
+  await $.Customer('unknown_id').get()
+} catch (error) {
+  if (error instanceof CrossDOError) {
+    console.log(error.code)          // 'NAMESPACE_NOT_FOUND'
+    console.log(error.context)       // { targetDO: 'Customer', ... }
+
+    switch (error.code) {
+      case 'NAMESPACE_NOT_FOUND':
+        // The target DO namespace doesn't exist
+        break
+      case 'DO_BINDING_MISSING':
+        // The DO binding isn't configured in wrangler.toml
+        break
+      case 'RESOLUTION_FAILED':
+        // The remote DO returned an error
+        break
+      case 'CIRCUIT_OPEN':
+        // Circuit breaker is open for this namespace
+        break
+      case 'TIMEOUT':
+        // Cross-DO call timed out
+        break
+    }
+  }
+}
+```
+
+### Timeout Handling
+
+```typescript
+import { crossDOCallWithTimeout } from 'dotdo'
+
+// Wrap any cross-DO call with a timeout
+const result = await crossDOCallWithTimeout(
+  () => $.SlowService('main').process(data),
+  5000,           // 5 second timeout
+  'SlowService'   // For error context
+)
+
+// Or configure timeout per-saga step
+const saga = new CrossDOSaga()
+  .addStep({
+    name: 'slowStep',
+    timeout: 10000,  // 10 second timeout for this step
+    execute: async () => {
+      return await $.SlowService('main').process()
+    },
+  })
+```
+
+### Retry Policies
+
+```typescript
+// Retry configuration for flaky external calls
+const saga = new CrossDOSaga()
+  .addStep({
+    name: 'externalAPI',
+    retry: {
+      maxAttempts: 3,
+      backoffMs: 100,        // Initial backoff
+      // Exponential backoff: 100ms, 200ms, 400ms
+    },
+    execute: async () => {
+      return await $.ExternalAPI('main').call()
+    },
+  })
+```
+
+## Idempotency for Safety
+
+Cross-DO operations should be idempotent to handle retries safely:
+
+```typescript
+import { IdempotencyKeyManager, generateIdempotencyKey } from 'dotdo'
+
+// Generate unique idempotency key
+const key = generateIdempotencyKey('checkout')  // 'checkout-lm3k9x2-a7b8c9d'
+
+// Execute with idempotency protection
+const result = await checkoutSaga.execute(order, {
+  idempotencyKey: key,
+})
+
+// Subsequent calls with same key return cached result
+const sameResult = await checkoutSaga.execute(order, {
+  idempotencyKey: key,  // Returns cached result, doesn't re-execute
+})
+```
+
+### Idempotency Key Manager
+
+```typescript
+const idempotency = new IdempotencyKeyManager()
+
+// Check if operation already executed
+if (await idempotency.has(requestId)) {
+  return await idempotency.get(requestId)
+}
+
+// Execute and store result
+const result = await processOrder(order)
+await idempotency.set(requestId, result, 24 * 60 * 60 * 1000)  // 24h TTL
+
+return result
+```
+
+## Best Practices
+
+### 1. Design for Failure
+
+Assume cross-DO calls can fail. Always have a recovery plan:
+
+```typescript
+// Good: Handle failure gracefully
+const reservation = await $.Inventory('main')
+  .reserve(items)
+  .catch(() => ({ status: 'pending', retryLater: true }))
+
+// Good: Use saga pattern for multi-step operations
+const result = await checkoutSaga.execute(order)
+if (!result.success) {
+  // Compensations already ran - handle gracefully
+}
+```
+
+### 2. Minimize Cross-DO Calls
+
+Batch operations when possible:
+
+```typescript
+// Bad: N cross-DO calls
+for (const customerId of customerIds) {
+  await $.Customer(customerId).notify(message)
+}
+
+// Good: Single cross-DO call with batch
+await $.NotificationService('main').notifyBatch({
+  customerIds,
+  message,
+})
+```
+
+### 3. Use Event-Driven Patterns
+
+Prefer loose coupling via events over direct calls:
+
+```typescript
+// Tight coupling (fragile)
+await $.Inventory('main').updateStock(items)
+await $.Analytics('main').recordSale(order)
+await $.Notifications('main').sendConfirmation(customer)
+
+// Loose coupling (resilient)
+await $.send('Order.completed', { order, items, customer })
+// Each service subscribes and handles independently
+```
+
+### 4. Monitor Circuit Breaker States
+
+```typescript
+// Expose circuit breaker metrics
+class MyDO extends DO {
+  getCircuitBreakerStats() {
+    return {
+      payment: this.paymentCircuit.getStats(),
+      inventory: this.inventoryCircuit.getStats(),
+      // ...
+    }
+  }
+}
+```
+
+## Summary
+
+| Aspect | How It Works |
+|--------|--------------|
+| **Routing** | Namespace + ID resolved via objects table or env binding |
+| **Auto-creation** | DOs created automatically on first access |
+| **Single DO** | Strong consistency (ACID via SQLite) |
+| **Cross-DO** | Eventual consistency via patterns (saga, 2PC, events) |
+| **Failure handling** | Circuit breakers prevent cascading failures |
+| **Safety** | Idempotency keys prevent duplicate execution |
+
+## Further Reading
+
+<Cards>
+  <Card title="Cap'n Web RPC" href="/docs/rpc">
+    Promise pipelining for efficient cross-DO communication batching.
+  </Card>
+  <Card title="Data Model" href="/docs/architecture/data-model">
+    Things, Actions, Events, and Relationships storage model.
+  </Card>
+  <Card title="Workflows" href="/docs/workflows">
+    Durable workflow orchestration with the $ context DSL.
+  </Card>
+  <Card title="Scalability" href="/docs/architecture/scalability">
+    Sharding and horizontal scaling strategies.
+  </Card>
+</Cards>

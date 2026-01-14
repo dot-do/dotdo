@@ -1,0 +1,575 @@
+---
+title: Compat SDK Architecture
+description: Deep dive into dotdo's API-compatible SDK architecture - drop-in replacements for 90+ external services
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Compat SDK Architecture
+
+dotdo provides **90+ API-compatible SDKs** that serve as drop-in replacements for external services. These SDKs run entirely on Cloudflare's edge infrastructure using Durable Objects with SQLite storage, eliminating external dependencies while maintaining API compatibility.
+
+## Design Philosophy
+
+The Compat SDK layer follows three core principles:
+
+1. **Drop-in Replacement**: Use the exact same API as the original SDK - no code changes required
+2. **Edge-Native**: Everything runs on Cloudflare's edge (300+ cities, ~0ms cold starts)
+3. **Unified Storage**: All data stored in DO SQLite with optional tiered storage to R2/ClickHouse
+
+```
+                           COMPAT SDK ARCHITECTURE
+                           =======================
+
+    YOUR APPLICATION CODE                     DOTDO RUNTIME
+    =====================                     ==============
+
+    ┌─────────────────────┐                  ┌─────────────────────────────────┐
+    │  import { Pool }    │                  │        Durable Object           │
+    │  from '@dotdo/      │  drop-in         │                                 │
+    │        postgres'    │ ─────────────▶   │  ┌───────────────────────────┐  │
+    │                     │  replacement     │  │     SQL Engine            │  │
+    │  const pool = new   │                  │  │  (PostgreSQL dialect)     │  │
+    │    Pool({ ... })    │                  │  │                           │  │
+    │                     │                  │  │  ┌───────────────────┐    │  │
+    │  await pool.query(  │                  │  │  │ SQLite Storage    │    │  │
+    │    'SELECT * FROM   │                  │  │  │ (10GB per DO)     │    │  │
+    │     users'          │                  │  │  └───────────────────┘    │  │
+    │  )                  │                  │  └───────────────────────────┘  │
+    └─────────────────────┘                  └─────────────────────────────────┘
+                                                            │
+                                                            │ CF Pipelines
+                                                            ▼
+                                             ┌─────────────────────────────────┐
+                                             │    R2 + Iceberg (Warm Tier)     │
+                                             │    ClickHouse (Cold Tier)       │
+                                             └─────────────────────────────────┘
+```
+
+## SDK Categories
+
+The compat layer is organized into logical categories based on the type of service:
+
+### Database SDKs
+
+SQL databases backed by the shared SQL engine infrastructure:
+
+| SDK | Original Package | Features |
+|-----|------------------|----------|
+| `@dotdo/postgres` | `pg` (node-postgres) | Client, Pool, transactions, parameterized queries |
+| `@dotdo/mysql` | `mysql2` | Connection, Pool, prepared statements |
+| `@dotdo/turso` | `@libsql/client` | Batch operations, embedded replicas |
+| `@dotdo/planetscale` | `@planetscale/database` | Serverless driver compatible |
+
+### Cache & Key-Value SDKs
+
+In-memory data structures backed by DO storage:
+
+| SDK | Original Package | Features |
+|-----|------------------|----------|
+| `@dotdo/redis` | `ioredis` / `redis` | Strings, hashes, lists, sets, sorted sets, streams |
+| `@dotdo/memcached` | `memcached` | get/set/delete/incr/decr |
+
+### Message Queue SDKs
+
+Durable message queuing with exactly-once semantics:
+
+| SDK | Original Package | Features |
+|-----|------------------|----------|
+| `@dotdo/kafka` | `kafkajs` | Producer, Consumer, Consumer Groups |
+| `@dotdo/sqs` | `@aws-sdk/client-sqs` | SendMessage, ReceiveMessage, DeleteMessage |
+| `@dotdo/rabbitmq` | `amqplib` | Channels, exchanges, queues |
+
+### Payment SDKs
+
+Full payment processing with local mode for testing:
+
+| SDK | Original Package | Features |
+|-----|------------------|----------|
+| `@dotdo/stripe` | `stripe` | Customers, Subscriptions, PaymentIntents, Webhooks |
+| `@dotdo/paypal` | `@paypal/checkout-server-sdk` | Orders, Payments, Subscriptions |
+| `@dotdo/square` | `square` | Payments, Customers, Catalog |
+
+### Observability SDKs
+
+Metrics, logging, and error tracking:
+
+| SDK | Original Package | Features |
+|-----|------------------|----------|
+| `@dotdo/datadog` | `dd-trace` | Metrics, Logs, Tracing |
+| `@dotdo/sentry` | `@sentry/node` | Error capture, Breadcrumbs, Scope |
+| `@dotdo/segment` | `analytics-node` | Track, Identify, Page, Group |
+
+### AI/LLM SDKs
+
+Multi-provider AI with unified interface:
+
+| SDK | Original Package | Features |
+|-----|------------------|----------|
+| `@dotdo/openai` | `openai` | Chat, Completions, Embeddings, Assistants |
+| `@dotdo/anthropic` | `@anthropic-ai/sdk` | Messages, Streaming |
+| `@dotdo/cohere` | `cohere-ai` | Generate, Embed, Classify |
+
+<Callout type="info">
+See the full list of 90+ SDKs in the [compat/ directory](https://github.com/dotdo/dotdo/tree/main/compat) of the repository.
+</Callout>
+
+## Architecture Patterns
+
+### Pattern 1: Direct API Wrapper
+
+For services that primarily make HTTP calls (Stripe, Sentry, Datadog), the compat SDK wraps the API with edge-compatible implementations:
+
+```typescript
+// compat/stripe/stripe.ts - Simplified example
+export class Stripe {
+  private apiKey: string
+  private baseUrl = 'https://api.stripe.com'
+
+  readonly customers: CustomersResource
+  readonly subscriptions: SubscriptionsResource
+  readonly paymentIntents: PaymentIntentsResource
+
+  constructor(apiKey: string, config: StripeConfig = {}) {
+    this.apiKey = apiKey
+    // Initialize resource classes
+    this.customers = new CustomersResource(this)
+    this.subscriptions = new SubscriptionsResource(this)
+    this.paymentIntents = new PaymentIntentsResource(this)
+  }
+
+  async _request<T>(method: string, path: string, params?: object): Promise<T> {
+    // Edge-compatible fetch with retry logic
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params ? encodeFormData(params) : undefined,
+    })
+    return response.json()
+  }
+}
+```
+
+### Pattern 2: Local Mode Implementation
+
+Many SDKs provide a "local mode" that runs entirely in-memory, perfect for testing and edge deployment:
+
+```typescript
+// compat/stripe/local.ts - Local Stripe implementation
+export class StripeLocal {
+  private customersResource: LocalCustomersResource
+  private subscriptionsResource: LocalSubscriptionsResource
+
+  readonly customers: CustomersAPI
+  readonly subscriptions: SubscriptionsAPI
+
+  constructor(config?: StripeLocalConfig) {
+    // Initialize in-memory resources
+    this.customersResource = new LocalCustomersResource({ onEvent })
+    this.subscriptionsResource = new LocalSubscriptionsResource({
+      pricesResource: this.pricesResource,
+      onEvent
+    })
+
+    // Wrap with public API matching Stripe SDK
+    this.customers = new CustomersAPI(this.customersResource)
+    this.subscriptions = new SubscriptionsAPI(this.subscriptionsResource)
+  }
+}
+```
+
+### Pattern 3: SQL Engine with Dialect Adapters
+
+Database SDKs use a shared SQL engine infrastructure with dialect-specific adapters:
+
+```
+                            SQL ENGINE ARCHITECTURE
+                            =======================
+
+    ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+    │ @dotdo/postgres │     │  @dotdo/mysql   │     │  @dotdo/turso   │
+    │                 │     │                 │     │                 │
+    │  Client, Pool   │     │ Connection,Pool │     │ createClient()  │
+    │  $1, $2 params  │     │   ? params      │     │  :name params   │
+    └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+             │                       │                       │
+             └───────────────────────┼───────────────────────┘
+                                     │
+                                     ▼
+                        ┌────────────────────────┐
+                        │   Shared SQL Engine    │
+                        │  db/compat/sql/shared  │
+                        │                        │
+                        │  ┌──────────────────┐  │
+                        │  │  SQL Parser      │  │
+                        │  │  (dialect-aware) │  │
+                        │  └────────┬─────────┘  │
+                        │           │            │
+                        │  ┌────────▼─────────┐  │
+                        │  │  Query Executor  │  │
+                        │  │  (in-memory or   │  │
+                        │  │   DO-backed)     │  │
+                        │  └────────┬─────────┘  │
+                        │           │            │
+                        │  ┌────────▼─────────┐  │
+                        │  │ Result Transform │  │
+                        │  │ (dialect-specific│  │
+                        │  │  format)         │  │
+                        │  └──────────────────┘  │
+                        └────────────────────────┘
+                                     │
+                                     ▼
+                        ┌────────────────────────┐
+                        │   SQLite Storage       │
+                        │   (DO transactional)   │
+                        └────────────────────────┘
+```
+
+The shared SQL engine provides:
+
+- **Unified parsing**: Handles SQL syntax across PostgreSQL, MySQL, and SQLite dialects
+- **Parameter translation**: Converts `$1` (pg), `?` (mysql), `:name` (sqlite) to SQLite format
+- **Result transformation**: Returns results in the format expected by each SDK
+- **Error mapping**: Maps SQLite errors to dialect-specific error types
+
+```typescript
+// db/compat/sql/shared/index.ts
+import { createSQLEngine, POSTGRES_DIALECT, MYSQL_DIALECT } from '@dotdo/db/compat/sql/shared'
+
+// Create PostgreSQL-compatible engine
+const pgEngine = createSQLEngine(POSTGRES_DIALECT)
+const result = pgEngine.execute('SELECT * FROM users WHERE id = $1', [1])
+
+// Create MySQL-compatible engine
+const mysqlEngine = createSQLEngine(MYSQL_DIALECT)
+const result = mysqlEngine.execute('SELECT * FROM users WHERE id = ?', [1])
+```
+
+### Pattern 4: DO-Backed Engines
+
+For production deployments, SDKs can route queries through Durable Objects with sharding and replication:
+
+```typescript
+// Using extended config for DO routing
+import { Pool, ExtendedPostgresConfig } from '@dotdo/postgres'
+
+const pool = new Pool({
+  host: 'localhost',
+  database: 'mydb',
+
+  // DO namespace binding
+  doNamespace: env.POSTGRES_DO,
+
+  // Shard across multiple DOs
+  shard: {
+    algorithm: 'consistent',  // consistent, range, or hash
+    count: 8,
+    key: 'tenant_id',
+  },
+
+  // Read from replicas
+  replica: {
+    readPreference: 'nearest',  // primary, secondary, or nearest
+    jurisdiction: 'eu',         // Data residency
+    writeThrough: true,
+  },
+
+  // Tiered storage
+  tier: {
+    hot: 'sqlite',              // DO SQLite (always)
+    warm: 'r2',                 // R2 + Iceberg overflow
+    cold: 'archive',            // ClickHouse for analytics
+    hotThreshold: '1GB',
+    coldAfter: '30d',
+  },
+} as ExtendedPostgresConfig)
+```
+
+## Storage Model
+
+All compat SDKs ultimately store data in SQLite within Durable Objects. Here's how different data types map:
+
+### SQL Databases
+
+PostgreSQL/MySQL queries execute directly against SQLite with type coercion:
+
+| Source Type | SQLite Type | Notes |
+|-------------|-------------|-------|
+| `VARCHAR`, `TEXT` | TEXT | No length limits enforced |
+| `INTEGER`, `BIGINT` | INTEGER | 64-bit signed integers |
+| `REAL`, `DOUBLE` | REAL | 64-bit IEEE floating point |
+| `BOOLEAN` | INTEGER | 0 or 1 |
+| `TIMESTAMP` | TEXT | ISO 8601 format |
+| `JSON`, `JSONB` | TEXT | Stored as JSON string |
+| `BYTEA`, `BLOB` | BLOB | Binary data |
+
+### Redis Data Structures
+
+Redis commands map to SQLite tables:
+
+```sql
+-- String values
+CREATE TABLE redis_strings (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  expires_at INTEGER
+);
+
+-- Hash values
+CREATE TABLE redis_hashes (
+  key TEXT,
+  field TEXT,
+  value TEXT,
+  PRIMARY KEY (key, field)
+);
+
+-- Sorted sets
+CREATE TABLE redis_zsets (
+  key TEXT,
+  member TEXT,
+  score REAL,
+  PRIMARY KEY (key, member)
+);
+
+-- Streams
+CREATE TABLE redis_streams (
+  key TEXT,
+  id TEXT,
+  fields TEXT,  -- JSON encoded
+  PRIMARY KEY (key, id)
+);
+```
+
+### Payment Data
+
+Payment SDKs in local mode store data as Things:
+
+```typescript
+// Customer stored as a Thing
+await this.things.create({
+  $type: 'stripe_customer',
+  $id: 'cus_xxx',
+  email: 'customer@example.com',
+  name: 'John Doe',
+  created: Date.now(),
+  metadata: { plan: 'pro' },
+})
+```
+
+## Event Emission
+
+Compat SDKs integrate with dotdo's event system, allowing you to react to operations:
+
+```typescript
+// Stripe local emits events for all operations
+const stripe = new StripeLocal({
+  webhooks: true,
+  onWebhookEvent: async (event) => {
+    // Handle like a real Stripe webhook
+    switch (event.type) {
+      case 'customer.created':
+        await $.Customer.created(event.data.object)
+        break
+      case 'payment_intent.succeeded':
+        await $.Payment.completed(event.data.object)
+        break
+    }
+  },
+})
+```
+
+## Error Handling
+
+Each SDK translates errors to match the original SDK's error format:
+
+```typescript
+// PostgreSQL errors
+try {
+  await pool.query('SELECT * FROM nonexistent')
+} catch (e) {
+  if (e instanceof DatabaseError) {
+    console.log(e.code)      // '42P01' (table not found)
+    console.log(e.severity)  // 'ERROR'
+    console.log(e.message)   // 'relation "nonexistent" does not exist'
+  }
+}
+
+// Stripe errors
+try {
+  await stripe.customers.retrieve('invalid')
+} catch (e) {
+  if (e instanceof StripeAPIError) {
+    console.log(e.type)       // 'invalid_request_error'
+    console.log(e.code)       // 'resource_missing'
+    console.log(e.statusCode) // 404
+  }
+}
+```
+
+## Testing Strategy
+
+<Callout type="warning">
+**NO MOCKS**: Compat SDKs use real implementations, not mocks. Tests run against actual SQLite in Miniflare.
+</Callout>
+
+```typescript
+// Test using real local implementation
+import { StripeLocal } from '@dotdo/stripe/local'
+
+describe('Stripe payments', () => {
+  let stripe: StripeLocal
+
+  beforeEach(() => {
+    stripe = new StripeLocal()
+  })
+
+  afterEach(() => {
+    stripe.dispose()
+  })
+
+  it('creates customers', async () => {
+    const customer = await stripe.customers.create({
+      email: 'test@example.com',
+    })
+
+    expect(customer.id).toMatch(/^cus_/)
+    expect(customer.email).toBe('test@example.com')
+  })
+
+  it('processes payments', async () => {
+    const customer = await stripe.customers.create({ email: 'test@example.com' })
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 2000,
+      currency: 'usd',
+      customer: customer.id,
+    })
+
+    const confirmed = await stripe.paymentIntents.confirm(paymentIntent.id)
+    expect(confirmed.status).toBe('succeeded')
+  })
+})
+```
+
+## Building New Compat SDKs
+
+When adding a new compat SDK, follow these guidelines:
+
+### 1. Structure
+
+```
+compat/
+└── new-service/
+    ├── index.ts        # Main exports
+    ├── types.ts        # TypeScript types matching original SDK
+    ├── client.ts       # API wrapper (for HTTP-based services)
+    ├── local.ts        # Local/in-memory implementation
+    ├── resources/      # Resource classes (customers, products, etc.)
+    └── tests/
+        └── client.test.ts
+```
+
+### 2. Required Interfaces
+
+```typescript
+// types.ts - Match the original SDK's types exactly
+export interface ServiceConfig {
+  apiKey?: string
+  endpoint?: string
+  // ... match original config options
+}
+
+export interface ServiceClient {
+  resource1: Resource1API
+  resource2: Resource2API
+  // ... match original client structure
+}
+```
+
+### 3. Implementation Pattern
+
+```typescript
+// client.ts
+export class ServiceClient {
+  private config: ServiceConfig
+
+  constructor(config: ServiceConfig) {
+    this.config = config
+  }
+
+  // Implement each resource with matching method signatures
+  readonly resource1 = {
+    create: async (params: CreateParams): Promise<Resource1> => {
+      // Implementation
+    },
+    retrieve: async (id: string): Promise<Resource1> => {
+      // Implementation
+    },
+    // ... other methods
+  }
+}
+```
+
+### 4. Testing Requirements
+
+- Use real implementations (no mocks)
+- Test against Miniflare with actual SQLite
+- Verify API compatibility with original SDK
+- Test error handling matches original error types
+
+## Supported Features Matrix
+
+| Feature | PostgreSQL | MySQL | Redis | Stripe | Sentry |
+|---------|------------|-------|-------|--------|--------|
+| Basic CRUD | Yes | Yes | Yes | Yes | Yes |
+| Transactions | Yes | Yes | MULTI | N/A | N/A |
+| Prepared Statements | Yes | Yes | N/A | N/A | N/A |
+| Connection Pooling | Simulated | Simulated | N/A | N/A | N/A |
+| Streaming | Cursor | Cursor | XREAD | N/A | N/A |
+| Pub/Sub | NOTIFY/LISTEN | N/A | Yes | Webhooks | N/A |
+| Full-text Search | Basic | Basic | RediSearch | N/A | N/A |
+
+## Limitations
+
+Some features cannot be replicated in the edge environment:
+
+1. **Network protocols**: Raw TCP/IP connections (use HTTP/WebSocket instead)
+2. **Stored procedures**: No PL/pgSQL or MySQL stored procs
+3. **Triggers**: Use dotdo event system instead
+4. **Large transactions**: SQLite has size limits
+5. **Advanced indexes**: Limited to SQLite capabilities
+
+<Callout type="info">
+For unsupported features, the SDK throws descriptive errors explaining the limitation and suggesting alternatives.
+</Callout>
+
+## Performance Considerations
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| Simple query | ~50ms | Single DO round-trip |
+| Transaction | ~100ms | Multiple statements batched |
+| Cross-DO query | ~10ms per DO | Sharded queries |
+| Warm tier read | ~200ms | R2 + Parquet scan |
+| Cold tier query | ~500ms+ | ClickHouse analytics |
+
+For optimal performance:
+- Keep hot data in DO SQLite (default)
+- Use sharding for horizontal scaling
+- Configure read replicas for read-heavy workloads
+- Use Pipelines for cross-DO aggregation
+
+## Summary
+
+The Compat SDK architecture enables:
+
+- **Zero migration**: Use existing code with dotdo
+- **Edge performance**: 300+ cities, ~0ms cold starts
+- **Unified storage**: All data in DO SQLite
+- **Horizontal scaling**: Sharding and replication built-in
+- **Event integration**: Native dotdo event system support
+
+For specific SDK documentation, see the individual SDK pages in the [Compat reference](/docs/compat).

@@ -1,0 +1,457 @@
+---
+title: "GitHub"
+description: "Drop-in replacement for Octokit/GitHub SDK with edge compatibility and local development mode."
+---
+
+# GitHub
+
+Drop-in replacement for Octokit and the GitHub REST API. Your existing GitHub code works unchanged - just swap the import.
+
+```typescript
+// Before: Octokit
+import { Octokit } from '@octokit/rest'
+
+// After: dotdo
+import { Octokit } from '@dotdo/github'
+
+// Code stays the same
+const octokit = new Octokit({ auth: 'ghp_xxx' })
+const { data } = await octokit.repos.get({ owner: 'owner', repo: 'repo' })
+```
+
+## Prerequisites
+
+Before integrating GitHub with dotdo, you need:
+
+### 1. GitHub Account
+
+A GitHub account with access to the repositories you want to manage.
+
+### 2. Authentication Token
+
+Choose your authentication method:
+
+**Personal Access Token (PAT)**
+1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+2. Click **Generate new token (classic)**
+3. Select required scopes (repo, workflow, etc.)
+4. Copy the token
+
+**GitHub App**
+1. Create a GitHub App in your organization settings
+2. Generate a private key
+3. Install the app on repositories
+
+### 3. Environment Setup
+
+Store your credentials securely:
+
+```bash
+# Personal Access Token
+GITHUB_TOKEN=ghp_xxxxx
+
+# GitHub App (alternative)
+GITHUB_APP_ID=123456
+GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
+GITHUB_INSTALLATION_ID=12345678
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_TOKEN` | Yes (PAT auth) | Personal access token |
+| `GITHUB_APP_ID` | Yes (App auth) | GitHub App ID |
+| `GITHUB_PRIVATE_KEY` | Yes (App auth) | App private key (PEM) |
+| `GITHUB_INSTALLATION_ID` | Yes (App auth) | Installation ID |
+
+## Why @dotdo/github?
+
+| @octokit/rest | @dotdo/github |
+|---------------|---------------|
+| Node.js focused | Edge-compatible (Cloudflare Workers) |
+| Network calls required | Local mode for testing |
+| Rate limit issues | Built-in rate limit handling |
+| External dependency | Works offline |
+
+**This is a compatibility layer.** It can either forward to real GitHub APIs (production) or run entirely locally for testing and development.
+
+## Features
+
+### Implemented
+
+**Repositories**
+- `repos.get()` - Get repository details
+- `repos.createForAuthenticatedUser()` - Create repository
+- `repos.update()` - Update repository settings
+- `repos.delete()` - Delete repository
+- `repos.listForAuthenticatedUser()` - List your repositories
+- `repos.listForOrg()` - List organization repositories
+
+**Issues**
+- `issues.create()` - Create issues
+- `issues.update()` - Update issues
+- `issues.get()` - Get issue by number
+- `issues.listForRepo()` - List repository issues
+- `issues.createComment()` - Add comments
+- `issues.listComments()` - List comments
+
+**Pull Requests**
+- `pulls.create()` - Create PR
+- `pulls.update()` - Update PR
+- `pulls.get()` - Get PR by number
+- `pulls.list()` - List PRs
+- `pulls.merge()` - Merge PR
+- `pulls.createReview()` - Add review
+- `pulls.listReviews()` - List reviews
+
+**Users**
+- `users.getAuthenticated()` - Get current user
+- `users.getByUsername()` - Get user by username
+- `users.list()` - List users
+
+**Branches**
+- `repos.getBranch()` - Get branch
+- `repos.listBranches()` - List branches
+- `git.createRef()` - Create branch
+- `git.deleteRef()` - Delete branch
+
+**Webhooks**
+- Webhook signature verification
+- Event parsing
+
+### Not Yet Implemented
+
+- GitHub Actions
+- Packages
+- Codespaces
+- Security advisories
+- GraphQL API
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/github
+```
+
+### Basic Usage
+
+```typescript
+import { Octokit } from '@dotdo/github'
+
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
+
+// Get repository
+const { data: repo } = await octokit.repos.get({
+  owner: 'dotdo',
+  repo: 'dotdo',
+})
+
+// Create an issue
+const { data: issue } = await octokit.issues.create({
+  owner: 'dotdo',
+  repo: 'dotdo',
+  title: 'Bug: Login fails',
+  body: 'Steps to reproduce...',
+  labels: ['bug', 'priority:high'],
+})
+
+// Create a pull request
+const { data: pr } = await octokit.pulls.create({
+  owner: 'dotdo',
+  repo: 'dotdo',
+  title: 'Fix login bug',
+  head: 'fix/login',
+  base: 'main',
+  body: 'Fixes #' + issue.number,
+})
+
+// Merge the PR
+await octokit.pulls.merge({
+  owner: 'dotdo',
+  repo: 'dotdo',
+  pull_number: pr.number,
+  merge_method: 'squash',
+})
+```
+
+### Working with Branches
+
+```typescript
+import { Octokit } from '@dotdo/github'
+
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
+
+// List branches
+const { data: branches } = await octokit.repos.listBranches({
+  owner: 'dotdo',
+  repo: 'dotdo',
+})
+
+// Get main branch SHA
+const { data: mainBranch } = await octokit.repos.getBranch({
+  owner: 'dotdo',
+  repo: 'dotdo',
+  branch: 'main',
+})
+
+// Create new branch
+await octokit.git.createRef({
+  owner: 'dotdo',
+  repo: 'dotdo',
+  ref: 'refs/heads/feature/new-feature',
+  sha: mainBranch.commit.sha,
+})
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { Octokit, type OctokitOptions } from '@dotdo/github'
+
+const options: OctokitOptions = {
+  // Personal access token
+  auth: 'ghp_xxx',
+
+  // Optional: Custom base URL (for GitHub Enterprise)
+  baseUrl: 'https://api.github.com',
+
+  // Optional: User agent
+  userAgent: 'my-app v1.0.0',
+
+  // Optional: Request timeout
+  timeout: 30000,
+}
+
+const octokit = new Octokit(options)
+```
+
+### GitHub App Authentication
+
+```typescript
+import { Octokit, createAppAuth } from '@dotdo/github'
+
+const octokit = new Octokit({
+  authStrategy: createAppAuth,
+  auth: {
+    appId: process.env.GITHUB_APP_ID,
+    privateKey: process.env.GITHUB_PRIVATE_KEY,
+    installationId: process.env.GITHUB_INSTALLATION_ID,
+  },
+})
+```
+
+## Inbound - Local Development
+
+For local development and testing, use the local implementation:
+
+```typescript
+import { GitHubLocal } from '@dotdo/github'
+
+// Create local instance (no external API calls)
+const github = new GitHubLocal()
+
+// Create repository locally
+const { data: repo } = await github.repos.createForAuthenticatedUser({
+  name: 'test-repo',
+})
+
+// Create issues locally
+const { data: issue } = await github.issues.create({
+  owner: repo.owner.login,
+  repo: repo.name,
+  title: 'Test issue',
+})
+
+// All operations work without network
+```
+
+## Outbound - Production
+
+For production, connect to the real GitHub API:
+
+```typescript
+// worker.ts
+import { Octokit } from '@dotdo/github'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const octokit = new Octokit({ auth: env.GITHUB_TOKEN })
+
+    // Create issue in GitHub
+    const { data: issue } = await octokit.issues.create({
+      owner: 'my-org',
+      repo: 'my-repo',
+      title: 'Issue from production',
+      body: 'Created via dotdo worker',
+    })
+
+    return Response.json({ issueUrl: issue.html_url })
+  },
+}
+```
+
+## Webhooks
+
+Handle GitHub webhooks with signature verification:
+
+```typescript
+import { Octokit, verifyWebhookSignature } from '@dotdo/github'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const body = await request.text()
+    const signature = request.headers.get('x-hub-signature-256')
+
+    // Verify webhook signature
+    const isValid = await verifyWebhookSignature(
+      body,
+      signature,
+      env.GITHUB_WEBHOOK_SECRET
+    )
+
+    if (!isValid) {
+      return new Response('Invalid signature', { status: 401 })
+    }
+
+    const event = JSON.parse(body)
+    const eventType = request.headers.get('x-github-event')
+
+    // Handle different event types
+    switch (eventType) {
+      case 'push':
+        console.log('Push to:', event.ref)
+        break
+      case 'pull_request':
+        console.log('PR action:', event.action)
+        break
+      case 'issues':
+        console.log('Issue action:', event.action)
+        break
+    }
+
+    return new Response('OK')
+  },
+}
+```
+
+## Error Handling
+
+```typescript
+import { Octokit, RequestError } from '@dotdo/github'
+
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
+
+try {
+  await octokit.repos.get({
+    owner: 'nonexistent',
+    repo: 'repo',
+  })
+} catch (error) {
+  if (error instanceof RequestError) {
+    if (error.status === 404) {
+      console.log('Repository not found')
+    } else if (error.status === 403) {
+      console.log('Rate limited or forbidden')
+    }
+  }
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support with Octokit types:
+
+```typescript
+import type {
+  // Response types
+  Repository,
+  Issue,
+  PullRequest,
+  User,
+  Branch,
+
+  // Request parameters
+  ReposGetParams,
+  IssuesCreateParams,
+  PullsCreateParams,
+
+  // Config
+  OctokitOptions,
+} from '@dotdo/github'
+```
+
+## Workflow Integration
+
+Use GitHub with dotdo workflows for durable operations:
+
+```typescript
+import { $ } from 'dotdo'
+import { Octokit } from '@dotdo/github'
+
+export class ReleaseManager {
+  octokit = new Octokit({ auth: this.env.GITHUB_TOKEN })
+
+  async createRelease(tag: string, notes: string) {
+    // Create tag
+    await $.do(() =>
+      this.octokit.git.createRef({
+        owner: 'my-org',
+        repo: 'my-repo',
+        ref: `refs/tags/${tag}`,
+        sha: await this.getMainSha(),
+      })
+    )
+
+    // Create release
+    const { data: release } = await $.do(() =>
+      this.octokit.repos.createRelease({
+        owner: 'my-org',
+        repo: 'my-repo',
+        tag_name: tag,
+        name: `Release ${tag}`,
+        body: notes,
+      })
+    )
+
+    return release.html_url
+  }
+}
+```
+
+## Migration from @octokit/rest
+
+### 1. Package Change
+
+```bash
+# Remove Octokit
+npm uninstall @octokit/rest
+
+# Install dotdo package
+npm install @dotdo/github
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import { Octokit } from '@octokit/rest'
+
+// After
+import { Octokit } from '@dotdo/github'
+```
+
+### 3. Code Compatibility
+
+Your existing code should work unchanged. The API surface matches Octokit.
+
+## Related
+
+- [Linear Integration](/docs/integrations/linear) - Linear issue tracking
+- [Jira Integration](/docs/integrations/jira) - Atlassian Jira
+- [GitLab Integration](/docs/integrations/gitlab) - GitLab API
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

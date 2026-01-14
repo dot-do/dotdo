@@ -69,8 +69,7 @@
     "db/**/*",
     "analytics/**/*",
     "evals/**/*",
-    // Exclude workflows compat (has compat deps)
-    "workflows/compat/**/*",
+    // workflows/compat has been moved to the compat repo
     // Exclude files with known build issues (to be fixed in separate PRs)
     "cli/**/*",
     "auth/**/*",

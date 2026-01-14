@@ -1,0 +1,513 @@
+---
+title: "Intercom"
+description: "Drop-in replacement for Intercom SDK with edge compatibility, local development mode, and Resolution Bot."
+---
+
+# Intercom
+
+Drop-in replacement for intercom-client SDK. Your existing Intercom code works unchanged - just swap the import.
+
+```typescript
+// Before: Intercom
+import Intercom from 'intercom-client'
+
+// After: dotdo
+import Intercom from '@dotdo/intercom'
+
+// Code stays the same
+const client = new Intercom.Client({ tokenAuth: { token: 'xxx' } })
+const contact = await client.contacts.create({ email: 'user@example.com' })
+```
+
+## Prerequisites
+
+Before integrating Intercom with dotdo, you need:
+
+### 1. Intercom Account
+
+1. Sign up at [intercom.com](https://intercom.com)
+2. Set up your workspace
+
+### 2. Create an Access Token
+
+1. Go to **Settings** > **Integrations** > **Developer Hub**
+2. Create a new app or use an existing one
+3. Go to **Authentication** and create an Access Token
+4. Copy the token
+
+### 3. Environment Setup
+
+Store your token securely:
+
+```bash
+INTERCOM_ACCESS_TOKEN=your_access_token_here
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `INTERCOM_ACCESS_TOKEN` | Yes (production) | Intercom API access token |
+
+## Why @dotdo/intercom?
+
+| intercom-client | @dotdo/intercom |
+|-----------------|-----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Network calls required | Local mode for testing |
+| Basic webhook handling | Resolution Bot integration |
+| External dependency | Works offline |
+
+**This is a compatibility layer.** It can either forward to real Intercom APIs (production) or run entirely locally for testing and development.
+
+## Features
+
+### Implemented
+
+**Contacts**
+- `contacts.create()` - Create users/leads
+- `contacts.update()` - Update contacts
+- `contacts.find()` - Find by ID
+- `contacts.search()` - Search contacts
+- `contacts.list()` - List all contacts
+- `contacts.archive()` / `contacts.unarchive()`
+- `contacts.merge()` - Merge contacts
+- Tags, notes, companies, segments
+
+**Conversations**
+- `conversations.create()` - Start conversations
+- `conversations.reply()` - Reply to conversations
+- `conversations.assign()` - Assign to team/admin
+- `conversations.close()` - Close conversations
+- `conversations.open()` - Reopen conversations
+- `conversations.snooze()` - Snooze conversations
+- `conversations.search()` - Search conversations
+- Tags, notes, contacts attachment
+
+**Messages**
+- `messages.create()` - Send in-app/email messages
+
+**Events**
+- `events.create()` - Track events
+- `events.list()` - List events
+- `events.summary()` - Event summaries
+
+**Articles (Help Center)**
+- `articles.create()` - Create articles
+- `articles.update()` - Update articles
+- `articles.find()` - Find by ID
+- `articles.list()` - List articles
+- `articles.search()` - Search articles
+
+**Product Tours**
+- `tours.create()` - Create tours
+- `tours.update()` - Update tours
+- `tours.list()` - List tours
+- `tours.start()` - Trigger tour for user
+
+**Outbound Messages**
+- Campaign creation
+- Targeting rules
+- Scheduling
+
+**Resolution Bot (Fin)**
+- AI-powered responses
+- Article training
+- Handoff rules
+
+**Inbox Routing**
+- Inbox management
+- Assignment rules
+- Round-robin routing
+- SLA policies
+
+### Not Yet Implemented
+
+- Data attributes management
+- Custom object types
+- Subscriptions
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/intercom
+```
+
+### Basic Usage
+
+```typescript
+import Intercom from '@dotdo/intercom'
+
+const client = new Intercom.Client({
+  tokenAuth: { token: process.env.INTERCOM_ACCESS_TOKEN },
+})
+
+// Create a contact
+const contact = await client.contacts.create({
+  role: 'user',
+  email: 'user@example.com',
+  name: 'John Doe',
+  custom_attributes: {
+    plan: 'premium',
+    signup_date: new Date().toISOString(),
+  },
+})
+
+// Start a conversation
+const conversation = await client.conversations.create({
+  from: { type: 'user', id: contact.id },
+  body: 'Hello, I need help with my subscription',
+})
+
+// Reply as admin
+await client.conversations.reply({
+  id: conversation.id,
+  type: 'admin',
+  admin_id: 'admin_123',
+  body: 'Hi! I\'d be happy to help. What specific issue are you experiencing?',
+  message_type: 'comment',
+})
+
+// Track an event
+await client.events.create({
+  event_name: 'subscription-upgraded',
+  user_id: contact.id,
+  metadata: {
+    old_plan: 'free',
+    new_plan: 'premium',
+  },
+})
+```
+
+### Product Tours
+
+```typescript
+import Intercom from '@dotdo/intercom'
+
+const client = new Intercom.Client({
+  tokenAuth: { token: process.env.INTERCOM_ACCESS_TOKEN },
+})
+
+// Create a product tour
+const tour = await client.tours.create({
+  title: 'Welcome Tour',
+  steps: [
+    {
+      type: 'tooltip',
+      title: 'Welcome!',
+      body: 'Let me show you around.',
+      selector: '#dashboard-button',
+      pointer_position: 'bottom',
+    },
+    {
+      type: 'modal',
+      title: 'All Set!',
+      body: 'You\'re ready to get started.',
+    },
+  ],
+  targeting: {
+    rules: [
+      { field: 'custom_attributes.onboarded', operator: 'eq', value: false },
+    ],
+  },
+})
+
+// Trigger tour for a user
+await client.tours.start({
+  tour_id: tour.id,
+  user_id: 'user_123',
+})
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import Intercom, { type ClientConfig } from '@dotdo/intercom'
+
+const config: ClientConfig = {
+  tokenAuth: {
+    token: process.env.INTERCOM_ACCESS_TOKEN,
+  },
+}
+
+const client = new Intercom.Client(config)
+```
+
+## Inbound - Local Development
+
+For local development and testing, use the local implementation:
+
+```typescript
+import { IntercomLocal, type IntercomLocalConfig } from '@dotdo/intercom'
+
+const config: IntercomLocalConfig = {
+  // Optional: Webhook event handler
+  onWebhookEvent: (event) => {
+    console.log('Webhook event:', event.topic, event.data)
+  },
+}
+
+const intercom = new IntercomLocal(config)
+
+// Create contacts locally
+const contact = await intercom.contacts.create({
+  email: 'test@example.com',
+  name: 'Test User',
+})
+
+// All operations work without network
+```
+
+## Outbound - Production
+
+For production, connect to the real Intercom API:
+
+```typescript
+// worker.ts
+import Intercom from '@dotdo/intercom'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new Intercom.Client({
+      tokenAuth: { token: env.INTERCOM_ACCESS_TOKEN },
+    })
+
+    // Track event from production
+    await client.events.create({
+      event_name: 'api-request',
+      user_id: request.headers.get('x-user-id'),
+      metadata: {
+        path: new URL(request.url).pathname,
+        method: request.method,
+      },
+    })
+
+    return new Response('OK')
+  },
+}
+```
+
+## Resolution Bot (Fin)
+
+The Resolution Bot provides AI-powered customer support:
+
+```typescript
+import { ResolutionBot, type ResolutionBotConfig } from '@dotdo/intercom'
+
+const config: ResolutionBotConfig = {
+  apiKey: process.env.INTERCOM_ACCESS_TOKEN,
+}
+
+const bot = new ResolutionBot(config)
+
+// Train on articles
+await bot.trainOnArticle({
+  id: 'article_123',
+  title: 'How to reset password',
+  body: 'To reset your password, go to settings...',
+})
+
+// Query for suggestions
+const result = await bot.query({
+  question: 'How do I change my password?',
+  userId: 'user_123',
+})
+
+if (result.suggestion) {
+  console.log('Suggested answer:', result.suggestion)
+  console.log('Confidence:', result.confidence)
+}
+
+// Configure handoff rules
+await bot.createHandoffRule({
+  trigger: {
+    type: 'sentiment',
+    value: 'negative',
+    threshold: 0.7,
+  },
+  action: {
+    type: 'assign_to_team',
+    teamId: 'support_team',
+  },
+})
+```
+
+## Inbox Routing
+
+Manage inbox routing and SLA policies:
+
+```typescript
+import { InboxRouter, type InboxRouterConfig } from '@dotdo/intercom'
+
+const router = new InboxRouter({
+  apiKey: process.env.INTERCOM_ACCESS_TOKEN,
+})
+
+// Create inbox
+const inbox = await router.createInbox({
+  name: 'Premium Support',
+  description: 'High-priority support queue',
+})
+
+// Create assignment rule
+await router.createAssignmentRule({
+  inboxId: inbox.id,
+  condition: {
+    field: 'custom_attributes.plan',
+    operator: 'eq',
+    value: 'premium',
+  },
+  action: 'assign',
+})
+
+// Configure round-robin
+await router.configureRoundRobin({
+  inboxId: inbox.id,
+  enabled: true,
+  maxConcurrent: 5,
+})
+
+// Create SLA policy
+await router.createSLAPolicy({
+  name: 'Premium SLA',
+  inboxId: inbox.id,
+  firstResponseTime: 15 * 60, // 15 minutes
+  resolutionTime: 4 * 60 * 60, // 4 hours
+})
+```
+
+## Error Handling
+
+```typescript
+import Intercom, { IntercomError } from '@dotdo/intercom'
+
+const client = new Intercom.Client({
+  tokenAuth: { token: process.env.INTERCOM_ACCESS_TOKEN },
+})
+
+try {
+  await client.contacts.find({ id: 'nonexistent' })
+} catch (error) {
+  if (error instanceof IntercomError) {
+    console.log('Status:', error.statusCode)
+    console.log('Type:', error.type)
+    console.log('Message:', error.message)
+  }
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Contact types
+  Contact,
+  ContactCreateParams,
+  ContactUpdateParams,
+  ContactSearchParams,
+
+  // Conversation types
+  Conversation,
+  ConversationCreateParams,
+  ConversationReplyParams,
+
+  // Message types
+  Message,
+  MessageCreateParams,
+
+  // Event types
+  Event,
+  EventCreateParams,
+
+  // Article types
+  Article,
+  ArticleCreateParams,
+
+  // Tour types
+  Tour,
+  TourCreateParams,
+  TourStep,
+
+  // Config
+  ClientConfig,
+  IntercomLocalConfig,
+} from '@dotdo/intercom'
+```
+
+## Workflow Integration
+
+Use Intercom with dotdo workflows for durable customer communication:
+
+```typescript
+import { $ } from 'dotdo'
+import Intercom from '@dotdo/intercom'
+
+export class SupportWorkflow {
+  intercom = new Intercom.Client({
+    tokenAuth: { token: this.env.INTERCOM_ACCESS_TOKEN },
+  })
+
+  async handleSupportRequest(userId: string, message: string) {
+    // Create durable conversation
+    const conversation = await $.do(() =>
+      this.intercom.conversations.create({
+        from: { type: 'user', id: userId },
+        body: message,
+      })
+    )
+
+    // Auto-assign based on content
+    const isUrgent = message.toLowerCase().includes('urgent')
+
+    if (isUrgent) {
+      await $.do(() =>
+        this.intercom.conversations.assign({
+          id: conversation.id,
+          type: 'team',
+          assignee_id: 'priority-support',
+        })
+      )
+    }
+
+    return conversation.id
+  }
+}
+```
+
+## Migration from intercom-client
+
+### 1. Package Change
+
+```bash
+# Remove intercom-client
+npm uninstall intercom-client
+
+# Install dotdo package
+npm install @dotdo/intercom
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import Intercom from 'intercom-client'
+
+// After
+import Intercom from '@dotdo/intercom'
+```
+
+### 3. Code Compatibility
+
+Your existing code should work unchanged. The API surface matches intercom-client.
+
+## Related
+
+- [Zendesk Integration](/docs/integrations/zendesk) - Zendesk support
+- [Slack Integration](/docs/integrations/slack) - Slack messaging
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

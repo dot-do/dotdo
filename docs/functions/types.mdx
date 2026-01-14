@@ -1,0 +1,1452 @@
+---
+title: Function Types
+description: Deep dive into Code, Generative, Agentic, and Human function types
+---
+
+# Function Types
+
+dotdo provides four distinct function types, each optimized for different execution patterns. Understanding when to use each type is critical for building efficient, cost-effective applications.
+
+## Overview
+
+| Type | Description | Speed | Cost | Determinism | Use When |
+|------|-------------|-------|------|-------------|----------|
+| **Code** | TypeScript/JavaScript handlers | Fastest | Lowest | Deterministic | You have explicit rules, transformations, or calculations |
+| **Generative** | Single LLM completion | Fast | Medium | Non-deterministic | You need AI for text generation, classification, or extraction |
+| **Agentic** | Multi-step AI with tools | Medium | Higher | Non-deterministic | You need AI to reason, research, or accomplish complex goals |
+| **Human** | Human-in-the-loop tasks | Slowest | Highest | Deterministic (judgment) | You need human review, approval, or subjective judgment |
+
+## The Cascade Pattern
+
+Functions naturally cascade through types, trying simpler/cheaper first:
+
+```
+Code (fastest, cheapest, deterministic)
+  |
+  | fails or not applicable
+  v
+Generative (AI inference, single call)
+  |
+  | fails or needs tools
+  v
+Agentic (AI + tools, multi-step)
+  |
+  | fails or needs judgment
+  v
+Human (slowest, most expensive, guaranteed judgment)
+```
+
+This pattern optimizes for cost and speed while ensuring tasks always complete successfully.
+
+---
+
+## Code Functions
+
+Code functions execute TypeScript/JavaScript handlers in V8 isolates. They are the fastest and most deterministic function type.
+
+### When to Use Code Functions
+
+- **Deterministic logic**: Math calculations, data transformations, validation
+- **Business rules**: Pricing calculations, eligibility checks, routing decisions
+- **Data processing**: Parsing, formatting, aggregation
+- **Integration glue**: Mapping between API formats, protocol translation
+- **High-frequency operations**: Operations that run thousands of times per second
+
+### Characteristics
+
+| Property | Value |
+|----------|-------|
+| Execution time | Microseconds to milliseconds |
+| Cost | Compute time only |
+| Retry-safe | Yes (idempotent handlers) |
+| Sandboxed | Optional |
+| Schema validation | Built-in |
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `handler` | `Function` | **Required** | The TypeScript/JavaScript function to execute |
+| `runtime` | `'javascript' \| 'typescript'` | `'javascript'` | Runtime environment |
+| `sandboxed` | `boolean` | `false` | Restrict access to dangerous globals |
+| `timeout` | `number` | `30000` | Maximum execution time in milliseconds |
+| `retries` | `number` | `0` | Number of retry attempts on failure |
+| `retryDelay` | `number` | `100` | Base delay between retries (ms) |
+| `retryBackoff` | `'fixed' \| 'exponential' \| 'linear'` | `'exponential'` | Retry delay strategy |
+| `maxRetryDelay` | `number` | `10000` | Maximum delay between retries |
+| `inputSchema` | `JSONSchema` | - | Validate input before execution |
+| `outputSchema` | `JSONSchema` | - | Validate output before returning |
+| `resourceLimits` | `object` | - | Memory and CPU limits |
+
+### Basic Example
+
+```typescript
+import { createFunction } from 'dotdo/functions'
+
+const calculateTotal = await createFunction({
+  name: 'calculateTotal',
+  type: 'code',
+  description: 'Calculate order total with tax and discount',
+  handler: async (input, ctx) => {
+    const { items, taxRate, discountPercent } = input as {
+      items: Array<{ price: number; quantity: number }>
+      taxRate: number
+      discountPercent?: number
+    }
+
+    const subtotal = items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    )
+
+    const discount = subtotal * ((discountPercent ?? 0) / 100)
+    const taxableAmount = subtotal - discount
+    const tax = taxableAmount * taxRate
+
+    return {
+      subtotal,
+      discount,
+      tax,
+      total: taxableAmount + tax
+    }
+  }
+}, { env: {} })
+
+// Execute
+const result = await calculateTotal.execute({
+  items: [
+    { price: 29.99, quantity: 2 },
+    { price: 49.99, quantity: 1 }
+  ],
+  taxRate: 0.0825,
+  discountPercent: 10
+})
+```
+
+### Natural Expression
+
+Code functions can be expressed simply as exports:
+
+```typescript
+// Just write code - the system infers it's a code function
+export const sum = (a: number, b: number) => a + b
+
+export const validateEmail = (email: string) => {
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return regex.test(email)
+}
+
+export const formatCurrency = (amount: number, currency = 'USD') => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency
+  }).format(amount)
+}
+```
+
+### Sandboxed Execution
+
+Enable sandboxing for untrusted code:
+
+```typescript
+const safeExecute = await createFunction({
+  name: 'safeExecute',
+  type: 'code',
+  handler: async (input, ctx) => {
+    // In sandboxed mode, these are blocked:
+    // - require, process, global, globalThis
+    // - eval, Function constructor
+    // - __proto__, Object.prototype modifications
+
+    // These remain available:
+    // - JSON, Math, Date, Array, Object, String, Number
+    // - Promise, Set, Map, crypto
+    // - fetch, URL, URLSearchParams
+    return processData(input)
+  },
+  sandboxed: true,
+  timeout: 5000
+}, { env: {} })
+```
+
+### Error Handling
+
+Code functions throw specific error types:
+
+```typescript
+import {
+  ExecutionTimeoutError,
+  ExecutionSandboxError,
+  ExecutionResourceError,
+  ExecutionRetryExhaustedError,
+  ExecutionCancelledError,
+  ExecutionValidationError,
+} from 'dotdo/functions'
+
+try {
+  await codeFunction.execute(input)
+} catch (error) {
+  if (error instanceof ExecutionTimeoutError) {
+    // Handler exceeded timeout limit
+    console.error(`Timeout after ${error.timeout}ms`)
+  } else if (error instanceof ExecutionSandboxError) {
+    // Attempted to access blocked globals
+    console.error(`Sandbox violation: ${error.blockedAccess}`)
+  } else if (error instanceof ExecutionResourceError) {
+    // Exceeded memory or CPU limits
+    console.error(`Resource limit: ${error.resource} exceeded ${error.limit}`)
+  } else if (error instanceof ExecutionRetryExhaustedError) {
+    // All retry attempts failed
+    console.error(`Failed after ${error.attempts} attempts: ${error.lastError}`)
+  } else if (error instanceof ExecutionValidationError) {
+    // Input or output schema validation failed
+    console.error(`Validation failed: ${error.field} - ${error.message}`)
+  }
+}
+```
+
+### Real-World Use Cases
+
+**Pricing Engine:**
+```typescript
+const calculatePrice = await createFunction({
+  name: 'calculatePrice',
+  type: 'code',
+  handler: async (input, ctx) => {
+    const { product, quantity, customerTier, promoCode } = input
+
+    let basePrice = product.price * quantity
+
+    // Tier discounts
+    const tierDiscounts = { bronze: 0, silver: 0.05, gold: 0.10, platinum: 0.15 }
+    basePrice *= (1 - tierDiscounts[customerTier])
+
+    // Promo codes
+    if (promoCode && await ctx.services.kv.get(`promo:${promoCode}`)) {
+      const promo = await ctx.services.kv.get(`promo:${promoCode}`)
+      basePrice *= (1 - promo.discount)
+    }
+
+    return { finalPrice: Math.round(basePrice * 100) / 100 }
+  },
+  timeout: 1000,
+  retries: 2
+}, { env: {} })
+```
+
+**Data Validation:**
+```typescript
+const validateOrder = await createFunction({
+  name: 'validateOrder',
+  type: 'code',
+  handler: async (input) => {
+    const errors = []
+
+    if (!input.items?.length) errors.push('Order must have items')
+    if (input.items?.some(i => i.quantity < 1)) errors.push('Invalid quantity')
+    if (!input.shippingAddress?.zipCode) errors.push('Shipping address required')
+
+    return {
+      valid: errors.length === 0,
+      errors
+    }
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      items: { type: 'array', minItems: 1 },
+      shippingAddress: { type: 'object' }
+    },
+    required: ['items']
+  }
+}, { env: {} })
+```
+
+### Artifacts Generated
+
+When code functions are defined, the system generates:
+
+- **TypeScript types** - Input/output schema definitions
+- **Module implementation** - The handler code
+- **Test suite** - Unit tests based on examples
+- **Example script** - Runnable demonstration
+
+---
+
+## Generative Functions
+
+Generative functions call language models for AI-powered text generation, classification, extraction, and transformation.
+
+### When to Use Generative Functions
+
+- **Text generation**: Summaries, descriptions, creative content
+- **Classification**: Sentiment analysis, categorization, intent detection
+- **Extraction**: Named entities, key information, structured data from text
+- **Translation**: Language translation, format conversion
+- **Single-turn reasoning**: Questions that need one AI response
+
+### Characteristics
+
+| Property | Value |
+|----------|-------|
+| Execution time | 1-30 seconds |
+| Cost | Token-based (input + output) |
+| Retry-safe | Yes (with temperature=0) |
+| Streaming | Supported |
+| Schema validation | Built-in (structured output) |
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | `string` | **Required** | Model identifier (e.g., `claude-sonnet-4-20250514`) |
+| `prompt` | `string \| Function` | **Required** | Prompt template or dynamic function |
+| `temperature` | `number` | `1` | Sampling temperature (0-2). Use 0 for deterministic output |
+| `maxTokens` | `number` | Model default | Maximum tokens to generate |
+| `stream` | `boolean` | `false` | Enable streaming output |
+| `schema` | `JSONSchema` | - | JSON Schema for structured output |
+| `schemaRetries` | `number` | `2` | Retry with feedback if schema validation fails |
+| `coerceTypes` | `boolean` | `false` | Coerce string "123" to number 123 |
+| `lenientParsing` | `boolean` | `false` | Handle trailing commas, markdown blocks |
+| `timeout` | `number` | `60000` | Maximum execution time (ms) |
+| `retries` | `number` | `2` | Number of retry attempts |
+| `stopSequences` | `string[]` | - | Stop generation at these sequences |
+| `systemPrompt` | `string` | - | System prompt for context |
+
+### Basic Example
+
+```typescript
+import { createFunction } from 'dotdo/functions'
+
+const summarize = await createFunction({
+  name: 'summarize',
+  type: 'generative',
+  description: 'Summarize text into key bullet points',
+  model: 'claude-sonnet-4-20250514',
+  prompt: 'Summarize the following text in 3-5 bullet points:\n\n{{text}}',
+  temperature: 0.7,
+  maxTokens: 500
+}, { env: { AI: aiBinding } })
+
+const result = await summarize.execute({
+  text: 'Long article content here...'
+})
+```
+
+### Structured Output
+
+Extract structured data with JSON schema validation:
+
+```typescript
+const extractEntities = await createFunction({
+  name: 'extractEntities',
+  type: 'generative',
+  model: 'claude-sonnet-4-20250514',
+  prompt: 'Extract all entities from this text:\n\n{{text}}',
+  schema: {
+    type: 'object',
+    properties: {
+      people: { type: 'array', items: { type: 'string' } },
+      organizations: { type: 'array', items: { type: 'string' } },
+      locations: { type: 'array', items: { type: 'string' } },
+      dates: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['people', 'organizations', 'locations', 'dates']
+  },
+  schemaRetries: 2,
+  coerceTypes: true
+}, { env: { AI: aiBinding } })
+
+const entities = await extractEntities.execute({
+  text: 'John Smith met with Acme Corp executives in New York on January 15th.'
+})
+// { people: ['John Smith'], organizations: ['Acme Corp'], locations: ['New York'], dates: ['January 15th'] }
+```
+
+### Natural Expression
+
+Use template literals for natural AI calls:
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Template literal syntax
+const brand = await ai`create a brand story for ${companyName}`
+
+// With schema inference
+const type = await ai`what type of function is this? ${spec}`
+// Returns: { type: 'code' | 'generative' | 'agentic' | 'human', reasoning: string }
+```
+
+### Dynamic Prompts
+
+Use functions for complex prompt construction:
+
+```typescript
+const contextualResponse = await createFunction({
+  name: 'contextualResponse',
+  type: 'generative',
+  model: 'claude-sonnet-4-20250514',
+  prompt: (input) => {
+    const { context, question, language, tone } = input as {
+      context: string
+      question: string
+      language: string
+      tone: 'formal' | 'casual' | 'technical'
+    }
+
+    const toneInstructions = {
+      formal: 'Use professional, business-appropriate language.',
+      casual: 'Be friendly and conversational.',
+      technical: 'Use precise technical terminology.'
+    }
+
+    return `You are a helpful assistant. Answer in ${language}.
+${toneInstructions[tone]}
+
+Context: ${context}
+
+Question: ${question}
+
+Answer:`
+  }
+}, { env: { AI: aiBinding } })
+```
+
+### Streaming
+
+Stream responses for better user experience:
+
+```typescript
+const stream = await generativeExecutor.executeStreaming({
+  model: 'claude-sonnet-4-20250514',
+  prompt: 'Write a story about {{topic}}',
+  variables: { topic: 'space exploration' }
+})
+
+for await (const chunk of stream) {
+  if (chunk.type === 'text') {
+    process.stdout.write(chunk.text)
+  } else if (chunk.type === 'done') {
+    console.log('\n\nTokens used:', chunk.usage)
+  }
+}
+```
+
+### Error Handling
+
+Generative functions throw specific error types:
+
+```typescript
+import {
+  GenerativeModelError,
+  GenerativeRateLimitError,
+  GenerativeSchemaError,
+  GenerativeTokenLimitError,
+  GenerativeContentFilterError,
+} from 'dotdo/functions'
+
+try {
+  await generativeFunction.execute(input)
+} catch (error) {
+  if (error instanceof GenerativeRateLimitError) {
+    // Rate limited - retry after delay
+    console.error(`Rate limited. Retry after ${error.retryAfter}ms`)
+  } else if (error instanceof GenerativeSchemaError) {
+    // Output didn't match schema after retries
+    console.error(`Schema validation failed: ${error.validationErrors}`)
+    console.error(`Raw output: ${error.rawOutput}`)
+  } else if (error instanceof GenerativeTokenLimitError) {
+    // Input or output exceeded token limits
+    console.error(`Token limit exceeded: ${error.tokensUsed}/${error.tokenLimit}`)
+  } else if (error instanceof GenerativeContentFilterError) {
+    // Content was filtered by safety systems
+    console.error(`Content filtered: ${error.reason}`)
+  }
+}
+```
+
+### Real-World Use Cases
+
+**Sentiment Analysis:**
+```typescript
+const analyzeSentiment = await createFunction({
+  name: 'analyzeSentiment',
+  type: 'generative',
+  model: 'claude-sonnet-4-20250514',
+  prompt: 'Analyze the sentiment of this customer review:\n\n{{review}}',
+  temperature: 0,  // Deterministic for consistency
+  schema: {
+    type: 'object',
+    properties: {
+      sentiment: { enum: ['positive', 'negative', 'neutral', 'mixed'] },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+      keyPhrases: { type: 'array', items: { type: 'string' } },
+      suggestedAction: { type: 'string' }
+    },
+    required: ['sentiment', 'confidence']
+  }
+}, { env: { AI: aiBinding } })
+```
+
+**Content Moderation:**
+```typescript
+const moderateContent = await createFunction({
+  name: 'moderateContent',
+  type: 'generative',
+  model: 'claude-sonnet-4-20250514',
+  prompt: `Review this user-generated content for policy violations:
+
+Content: {{content}}
+
+Check for: hate speech, harassment, spam, adult content, violence.`,
+  temperature: 0,
+  schema: {
+    type: 'object',
+    properties: {
+      approved: { type: 'boolean' },
+      violations: { type: 'array', items: { type: 'string' } },
+      confidence: { type: 'number' },
+      reasoning: { type: 'string' }
+    },
+    required: ['approved', 'violations', 'confidence']
+  }
+}, { env: { AI: aiBinding } })
+```
+
+### Artifacts Generated
+
+When generative functions are defined, the system generates:
+
+- **Prompt template** - The instruction template with variables
+- **Output schema** - JSON Schema for structured responses
+- **Evaluation dataset** - Test cases for prompt quality
+
+---
+
+## Agentic Functions
+
+Agentic functions orchestrate multi-step AI tasks with tool access. The AI reasons, plans, and executes tools in a loop until the goal is achieved.
+
+### When to Use Agentic Functions
+
+- **Complex research**: Multi-source information gathering
+- **Code generation**: Building features with multiple files
+- **Data analysis**: Exploratory analysis with multiple queries
+- **Autonomous tasks**: Goals that require planning and adaptation
+- **Tool orchestration**: Coordinating multiple APIs or services
+
+### Characteristics
+
+| Property | Value |
+|----------|-------|
+| Execution time | Seconds to minutes |
+| Cost | Higher (multiple LLM calls + tool execution) |
+| Retry-safe | Partial (checkpointed state) |
+| Streaming | Supported (step-by-step) |
+| Memory | Conversation history |
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `agent` | `string` | **Required** | Agent identifier or persona name |
+| `tools` | `string[] \| ToolDefinition[]` | `[]` | Available tools for the agent |
+| `maxIterations` | `number` | `10` | Maximum agent iterations (safety limit) |
+| `systemPrompt` | `string` | Agent default | Custom system prompt |
+| `onStep` | `Function` | - | Callback for each agent step |
+| `timeout` | `number` | `300000` | Maximum total execution time (5 min default) |
+| `stepTimeout` | `number` | `60000` | Maximum time per step |
+| `detectLoops` | `boolean` | `true` | Detect and prevent repetitive tool calls |
+| `loopThreshold` | `number` | `3` | Identical calls before loop detection triggers |
+| `parallelToolCalls` | `boolean` | `true` | Allow parallel tool execution |
+| `authorizedTools` | `string[]` | All tools | Restrict which tools can actually execute |
+| `memory` | `MemoryConfig` | - | Conversation history and context settings |
+| `checkpointInterval` | `number` | `1` | Steps between state checkpoints |
+
+### Basic Example
+
+```typescript
+import { createFunction } from 'dotdo/functions'
+
+const buildFeature = await createFunction({
+  name: 'buildFeature',
+  type: 'agentic',
+  description: 'Implement a feature autonomously',
+  agent: 'ralph',
+  tools: ['code_search', 'file_read', 'file_edit', 'run_tests'],
+  maxIterations: 15,
+  systemPrompt: `You are a senior software engineer.
+Follow TDD practices and write clean, maintainable code.
+Always run tests before completing.`,
+  onStep: async (step) => {
+    console.log(`Step ${step.iteration}: ${step.type}`)
+    if (step.thought) console.log(`  Thought: ${step.thought}`)
+    if (step.toolCalls) {
+      console.log(`  Tools: ${step.toolCalls.map(t => t.name).join(', ')}`)
+    }
+  }
+}, { env: { AGENT_RUNNER: agentRunner } })
+
+const result = await buildFeature.execute({
+  feature: 'Add user authentication',
+  requirements: ['JWT tokens', 'Password hashing', 'Session management']
+})
+```
+
+### Natural Expression
+
+Use named agent template literals:
+
+```typescript
+import { ralph, priya, tom } from 'agents.do'
+
+// Ralph builds features
+const app = await ralph`build ${spec}`
+
+// Priya defines products
+const roadmap = await priya`create product roadmap for ${quarter}`
+
+// Tom reviews code
+const review = await tom`review ${pullRequest} for security issues`
+```
+
+### Named Agents
+
+dotdo includes pre-configured agent personas:
+
+| Agent | Role | Specialization |
+|-------|------|----------------|
+| `priya` | Product | Specs, roadmaps, user stories |
+| `ralph` | Engineering | Code, architecture, implementation |
+| `tom` | Tech Lead | Review, architecture decisions |
+| `mark` | Marketing | Content, campaigns, launches |
+| `sally` | Sales | Outreach, proposals, closing |
+| `quinn` | QA | Testing, quality assurance |
+
+### Tool Configuration
+
+Define available tools for the agent:
+
+```typescript
+const researchAgent = await createFunction({
+  name: 'researchAgent',
+  type: 'agentic',
+  agent: 'researcher',
+  tools: [
+    {
+      name: 'web_search',
+      description: 'Search the web for information',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' }
+        },
+        required: ['query']
+      },
+      execute: async (params) => searchWeb(params.query)
+    },
+    {
+      name: 'read_url',
+      description: 'Read content from a URL',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'URL to read' }
+        },
+        required: ['url']
+      },
+      execute: async (params) => fetchAndParse(params.url)
+    }
+  ],
+  maxIterations: 20
+}, { env: {} })
+```
+
+### Step Callbacks
+
+Monitor agent progress:
+
+```typescript
+interface AgentStep {
+  iteration: number
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'final_answer'
+  thought?: string
+  toolCalls?: Array<{ name: string; arguments: unknown }>
+  toolResults?: Array<{ name: string; result: unknown }>
+  answer?: string
+  timestamp: Date
+  duration?: number
+}
+
+const result = await agentExecutor.execute({
+  goal: 'Research and summarize recent AI developments',
+  onStep: async (step: AgentStep) => {
+    // Log to observability system
+    await telemetry.log('agent.step', step)
+
+    // Update UI
+    updateProgressUI(step)
+
+    // Early termination if needed
+    if (step.iteration > 10) {
+      throw new Error('Taking too long')
+    }
+  }
+})
+```
+
+### Error Handling
+
+Agentic functions throw specific error types:
+
+```typescript
+import {
+  AgentMaxIterationsError,
+  AgentToolExecutionError,
+  AgentConvergenceError,
+  AgentToolNotFoundError,
+  AgentToolAuthorizationError,
+  AgentCancelledError,
+  AgentLoopDetectedError,
+} from 'dotdo/functions'
+
+try {
+  await agenticFunction.execute(input)
+} catch (error) {
+  if (error instanceof AgentMaxIterationsError) {
+    // Agent reached iteration limit without completing
+    console.error(`Max iterations (${error.maxIterations}) reached`)
+    console.error(`Last step: ${error.lastStep}`)
+    console.error(`Partial result: ${error.partialResult}`)
+  } else if (error instanceof AgentToolExecutionError) {
+    // A tool failed during execution
+    console.error(`Tool '${error.toolName}' failed: ${error.toolError}`)
+    console.error(`Arguments: ${JSON.stringify(error.arguments)}`)
+  } else if (error instanceof AgentLoopDetectedError) {
+    // Agent is repeating the same actions
+    console.error(`Loop detected: ${error.repeatedAction} called ${error.count} times`)
+  } else if (error instanceof AgentToolNotFoundError) {
+    // Agent tried to use unavailable tool
+    console.error(`Tool '${error.toolName}' not found. Available: ${error.availableTools}`)
+  } else if (error instanceof AgentToolAuthorizationError) {
+    // Tool not in authorized list
+    console.error(`Tool '${error.toolName}' not authorized for this execution`)
+  }
+}
+```
+
+### Real-World Use Cases
+
+**Automated Code Review:**
+```typescript
+const codeReviewer = await createFunction({
+  name: 'codeReviewer',
+  type: 'agentic',
+  agent: 'tom',
+  tools: ['git_diff', 'file_read', 'search_codebase', 'run_tests', 'run_linter'],
+  maxIterations: 20,
+  systemPrompt: `You are a senior code reviewer. Check for:
+- Security vulnerabilities
+- Performance issues
+- Code style violations
+- Test coverage
+- Documentation completeness
+
+Provide actionable feedback with specific file/line references.`,
+  onStep: async (step) => {
+    await updatePRComment(prId, step)
+  }
+}, { env: { AGENT_RUNNER: agentRunner } })
+
+const review = await codeReviewer.execute({
+  pullRequest: prId,
+  focusAreas: ['security', 'performance']
+})
+```
+
+**Research Assistant:**
+```typescript
+const researcher = await createFunction({
+  name: 'researcher',
+  type: 'agentic',
+  agent: 'priya',
+  tools: ['web_search', 'read_url', 'save_note', 'query_database'],
+  maxIterations: 30,
+  systemPrompt: `Research the given topic thoroughly.
+Cite all sources. Cross-reference information.
+Summarize findings with confidence levels.`,
+}, { env: { AGENT_RUNNER: agentRunner } })
+
+const report = await researcher.execute({
+  topic: 'Emerging AI regulations in the EU',
+  depth: 'comprehensive',
+  outputFormat: 'executive-summary'
+})
+```
+
+### Artifacts Generated
+
+When agentic functions are defined, the system generates:
+
+- **System instructions** - Agent persona and behavior guidelines
+- **Tool selection** - Available tools and their schemas
+- **Memory configuration** - Context window and history settings
+- **Goal definitions** - Success criteria and termination conditions
+
+---
+
+## Human Functions
+
+Human functions queue tasks for human input through notification channels. They are the final escalation point when AI cannot or should not make a decision.
+
+### When to Use Human Functions
+
+- **Approval workflows**: Budget approvals, contract sign-offs
+- **Subjective judgment**: Quality assessment, creative direction
+- **High-stakes decisions**: Actions with significant consequences
+- **Compliance requirements**: Legally required human oversight
+- **Edge cases**: Situations AI was not trained for
+
+### Characteristics
+
+| Property | Value |
+|----------|-------|
+| Execution time | Minutes to days |
+| Cost | Human time (highest) |
+| Retry-safe | Yes (persistent queue) |
+| Channels | Slack, email, in-app, SMS |
+| Escalation | Built-in timeout escalation |
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `channel` | `string` | **Required** | Notification channel (e.g., `slack:channel-name`) |
+| `prompt` | `string \| Function` | - | Message template with `{{variables}}` |
+| `timeout` | `number` | **Required** | Response deadline in milliseconds |
+| `escalation` | `object` | - | Escalation chain configuration |
+| `escalation.timeout` | `number` | - | Time before escalating |
+| `escalation.to` | `string` | - | Channel/user to escalate to |
+| `escalation.next` | `object` | - | Nested escalation (chain) |
+| `form` | `FormDefinition` | - | Structured form fields |
+| `actions` | `Action[]` | `['approve', 'reject']` | Available response actions |
+| `defaultResponse` | `object` | - | Auto-response on timeout |
+| `reminder` | `object` | - | Reminder configuration |
+| `reminder.interval` | `number` | - | Reminder frequency (ms) |
+| `reminder.maxReminders` | `number` | `3` | Maximum reminders to send |
+| `assignTo` | `string \| string[]` | - | Specific users to assign |
+| `requireReason` | `boolean` | `false` | Require reason for decision |
+
+### Basic Example
+
+```typescript
+import { createFunction } from 'dotdo/functions'
+
+const approveRefund = await createFunction({
+  name: 'approveRefund',
+  type: 'human',
+  description: 'Get manager approval for customer refund',
+  channel: 'slack:finance-approvals',
+  prompt: (input) => {
+    const { customerId, amount, reason } = input as {
+      customerId: string
+      amount: number
+      reason: string
+    }
+    return `Refund Request
+Customer: ${customerId}
+Amount: $${amount.toFixed(2)}
+Reason: ${reason}
+
+Please approve or reject this refund.`
+  },
+  timeout: 14400000, // 4 hours
+  escalation: {
+    timeout: 7200000, // 2 hours
+    to: 'slack:vp-finance'
+  }
+}, { env: { NOTIFICATIONS: notificationService } })
+
+const approval = await approveRefund.execute({
+  customerId: 'CUST-456',
+  amount: 150.00,
+  reason: 'Product defect'
+})
+```
+
+### Natural Expression
+
+Use role-based template literals:
+
+```typescript
+import { ceo, legal, cfo, hr } from 'humans.do'
+
+// Same syntax as AI agents
+const contractApproved = await legal`review partnership agreement with ${partner}`
+const budgetApproved = await cfo`approve Q4 marketing budget of ${amount}`
+const acquisitionApproved = await ceo`approve acquisition of ${company}`
+const policyApproved = await hr`review updated remote work policy`
+```
+
+### Available Role Templates
+
+| Import | Role | Use Case |
+|--------|------|----------|
+| `ceo` | Chief Executive | Final approvals, strategic decisions |
+| `cfo` | Chief Financial | Budget approvals, financial sign-offs |
+| `cto` | Chief Technical | Architecture decisions, security approvals |
+| `legal` | Legal Counsel | Contract review, compliance sign-off |
+| `hr` | Human Resources | Policy decisions, personnel matters |
+| `support` | Customer Support | Ticket escalations, customer issues |
+| `manager` | Generic Manager | Team-level approvals |
+
+### Custom Role Templates
+
+```typescript
+import { createHumanTemplate } from 'humans.do'
+
+const accountant = createHumanTemplate('senior-accountant')
+const verified = await accountant`verify Q4 reconciliation for ${department}`
+
+const designer = createHumanTemplate('creative-director')
+const approved = await designer`review brand guidelines update`
+```
+
+### Form Fields
+
+Collect structured data from humans:
+
+```typescript
+const classifyTicket = await createFunction({
+  name: 'classifyTicket',
+  type: 'human',
+  channel: 'in-app',
+  prompt: 'Review and classify this support ticket',
+  timeout: 3600000,
+  form: {
+    fields: [
+      {
+        name: 'category',
+        type: 'select',
+        label: 'Category',
+        required: true,
+        options: ['billing', 'technical', 'general', 'feature-request']
+      },
+      {
+        name: 'priority',
+        type: 'select',
+        label: 'Priority',
+        required: true,
+        options: ['low', 'medium', 'high', 'critical']
+      },
+      {
+        name: 'notes',
+        type: 'text',
+        label: 'Additional Notes',
+        required: false
+      },
+      {
+        name: 'escalate',
+        type: 'boolean',
+        label: 'Escalate to Engineering',
+        default: false
+      }
+    ]
+  }
+}, { env: {} })
+```
+
+### Escalation Chains
+
+Automatically escalate if no response:
+
+```typescript
+const approveContract = await createFunction({
+  name: 'approveContract',
+  type: 'human',
+  channel: 'slack:legal-team',
+  prompt: 'Approve contract renewal for {{vendor}}',
+  timeout: 28800000,    // 8 hours total
+  escalation: {
+    timeout: 7200000,   // First escalation after 2 hours
+    to: 'slack:legal-manager',
+    next: {
+      timeout: 14400000,  // Second escalation after 4 more hours
+      to: 'slack:general-counsel'
+    }
+  }
+}, { env: {} })
+```
+
+### Approval Workflows
+
+Three workflow types for complex approvals:
+
+```typescript
+// Sequential: Each level must approve before the next
+const sequentialApproval = await humanExecutor.execute({
+  prompt: 'Approve large purchase order',
+  approval: {
+    type: 'sequential',
+    levels: [
+      { name: 'manager', users: ['manager@company.com'] },
+      { name: 'director', users: ['director@company.com'] },
+      { name: 'vp', users: ['vp@company.com'] }
+    ]
+  }
+})
+
+// Parallel: Any N of M must approve
+const parallelApproval = await humanExecutor.execute({
+  prompt: 'Approve policy change',
+  approval: {
+    type: 'parallel',
+    users: ['alice@company.com', 'bob@company.com', 'carol@company.com'],
+    requiredApprovals: 2  // 2 of 3 must approve
+  }
+})
+
+// Conditional: Route based on input
+const conditionalApproval = await humanExecutor.execute({
+  prompt: 'Approve expense',
+  input: { amount: 5000 },
+  approval: {
+    type: 'conditional',
+    conditions: [
+      { when: (input) => input.amount < 1000, users: ['manager@company.com'] },
+      { when: (input) => input.amount < 10000, users: ['director@company.com'] },
+      { when: () => true, users: ['cfo@company.com'] }
+    ]
+  }
+})
+```
+
+### Error Handling
+
+Human functions throw specific error types:
+
+```typescript
+import {
+  HumanTimeoutError,
+  HumanChannelError,
+  HumanValidationError,
+  HumanEscalationError,
+  HumanApprovalRejectedError,
+  HumanCancelledError,
+  HumanNotificationFailedError,
+} from 'dotdo/functions'
+
+try {
+  await humanFunction.execute(input)
+} catch (error) {
+  if (error instanceof HumanTimeoutError) {
+    // No response within timeout (even after escalation)
+    console.error(`Timeout after ${error.totalWaitTime}ms`)
+    console.error(`Escalations attempted: ${error.escalationsAttempted}`)
+  } else if (error instanceof HumanApprovalRejectedError) {
+    // Human explicitly rejected
+    console.error(`Rejected by ${error.rejectedBy}: ${error.reason}`)
+  } else if (error instanceof HumanChannelError) {
+    // Channel unavailable or misconfigured
+    console.error(`Channel '${error.channel}' error: ${error.channelError}`)
+  } else if (error instanceof HumanValidationError) {
+    // Form response didn't pass validation
+    console.error(`Invalid response: ${error.validationErrors}`)
+  } else if (error instanceof HumanEscalationError) {
+    // Escalation chain failed
+    console.error(`Escalation to '${error.escalationTarget}' failed`)
+  }
+}
+```
+
+### Real-World Use Cases
+
+**Expense Approval:**
+```typescript
+const approveExpense = await createFunction({
+  name: 'approveExpense',
+  type: 'human',
+  channel: 'slack:expenses',
+  prompt: (input) => `
+Expense Report Approval Required
+
+Submitted by: ${input.employeeName}
+Department: ${input.department}
+Total Amount: $${input.total.toFixed(2)}
+
+Items:
+${input.items.map(i => `- ${i.description}: $${i.amount}`).join('\n')}
+
+Receipts attached: ${input.receipts.length}
+`,
+  timeout: 172800000, // 48 hours
+  escalation: {
+    timeout: 86400000, // 24 hours
+    to: 'slack:finance-manager'
+  },
+  form: {
+    fields: [
+      { name: 'decision', type: 'select', options: ['approve', 'reject', 'request-info'], required: true },
+      { name: 'adjustedAmount', type: 'number', label: 'Adjusted Amount (if different)' },
+      { name: 'notes', type: 'text', label: 'Notes for employee' }
+    ]
+  }
+}, { env: { NOTIFICATIONS: notificationService } })
+```
+
+**Content Publishing:**
+```typescript
+const approvePublish = await createFunction({
+  name: 'approvePublish',
+  type: 'human',
+  channel: 'in-app',
+  prompt: 'Review content before publishing',
+  timeout: 7200000, // 2 hours
+  form: {
+    fields: [
+      { name: 'approved', type: 'boolean', label: 'Approve for publication', required: true },
+      { name: 'publishDate', type: 'text', label: 'Scheduled publish date' },
+      { name: 'editorNotes', type: 'text', label: 'Editor notes' },
+      { name: 'targetAudience', type: 'multiselect', options: ['general', 'technical', 'executive'], label: 'Target audience' }
+    ]
+  },
+  assignTo: ['editor@company.com', 'content-lead@company.com']
+}, { env: { NOTIFICATIONS: notificationService } })
+```
+
+### Artifacts Generated
+
+When human functions are defined, the system generates:
+
+- **Context document** - Information for the human reviewer
+- **Channel configuration** - Notification routing (Slack, email, SMS)
+- **Available actions** - Approve, reject, escalate, etc.
+- **Escalation policy** - Timeout and escalation chain
+
+---
+
+## Durability Integration
+
+All function types integrate with the `$` WorkflowContext for durable execution. This ensures functions survive process restarts and can be retried on failure.
+
+### Three Durability Levels
+
+```typescript
+// Fire-and-forget (non-blocking, non-durable)
+// Use for: notifications, logging, analytics events
+$.send(event, data)
+
+// Quick attempt (blocking, non-durable)
+// Use for: fast operations that can be retried from scratch
+$.try(action, data)
+
+// Durable execution (blocking, retries, guaranteed)
+// Use for: critical operations, external API calls, state changes
+$.do(action, data)
+```
+
+### Matching Function Types to Durability
+
+| Function Type | Recommended Durability | Reason |
+|---------------|------------------------|--------|
+| **Code** | `$.try` or `$.do` | Fast, cheap to retry. Use `$.do` for state changes |
+| **Generative** | `$.do` | Costs tokens, want to persist results |
+| **Agentic** | `$.do` with checkpointing | Long-running, expensive, must not lose progress |
+| **Human** | `$.do` (implicit) | Always durable - humans shouldn't be asked twice |
+
+### Complete Workflow Example
+
+```typescript
+import { Workflow } from 'dotdo'
+
+export class OrderWorkflow extends Workflow {
+  async process(order: Order) {
+    const $ = this.$
+
+    // Code function with $.try - fast, retriable
+    const validated = await $.try(() => validateOrder.execute(order))
+    if (!validated.valid) {
+      return { status: 'invalid', errors: validated.errors }
+    }
+
+    // Code function with $.do - persists calculation
+    const totals = await $.do(() => calculateTotals.execute(order))
+
+    // Generative function - always $.do (costs tokens)
+    const email = await $.do(() =>
+      generateConfirmationEmail.execute({ order, totals })
+    )
+
+    // Conditional human approval for high-value orders
+    if (totals.total > 10000) {
+      // Human function - implicitly durable
+      const approved = await $.do(() =>
+        approveHighValueOrder.execute({ order, totals })
+      )
+
+      if (!approved.decision === 'approve') {
+        // Fire-and-forget notification
+        $.send('order.rejected', { orderId: order.id, reason: approved.reason })
+        return { status: 'rejected', reason: approved.reason }
+      }
+    }
+
+    // Agentic function for complex fulfillment
+    if (order.requiresCustomization) {
+      await $.do(() =>
+        fulfillmentAgent.execute({
+          order,
+          instructions: order.customization
+        })
+      )
+    }
+
+    // Send confirmation (fire-and-forget)
+    $.send('email.send', { to: order.email, content: email })
+
+    return { status: 'completed', totals }
+  }
+}
+```
+
+### CascadeExecutor with Durability
+
+The CascadeExecutor automatically tries cheaper function types first:
+
+```typescript
+import { CascadeExecutor } from 'dotdo/executors'
+
+const executor = new CascadeExecutor({
+  handlers: {
+    code: async (input) => {
+      // Try deterministic logic first
+      if (canComputeDeterministically(input)) {
+        return computeResult(input)
+      }
+      throw new Error('Cannot compute deterministically')
+    },
+    generative: async (input) => {
+      // Fall back to AI
+      return await ai.generate({ prompt: `Process: ${input}` })
+    },
+    agentic: async (input) => {
+      // Use agent with tools
+      return await agent.execute({ goal: `Handle: ${input}` })
+    },
+    human: async (input) => {
+      // Last resort: ask a human
+      return await requestHumanInput(input)
+    }
+  }
+})
+
+// Use with $.do for durable cascade
+const result = await $.do(() => executor.execute({ input: data }))
+console.log(`Resolved by: ${result.method}`) // 'code', 'generative', 'agentic', or 'human'
+```
+
+---
+
+## Composition Patterns
+
+### Chaining Functions
+
+Connect functions where output flows to input:
+
+```typescript
+const orderPipeline = validateOrder
+  .pipe(calculateTotal)
+  .pipe(applyDiscounts)
+  .pipe(processPayment)
+  .pipe(sendConfirmation)
+
+const result = await orderPipeline.execute(orderData)
+```
+
+### Parallel Execution
+
+Run independent functions concurrently:
+
+```typescript
+// Using createFunction.all (fail-fast)
+const fetchAll = createFunction.all([
+  fetchUserProfile,
+  fetchOrderHistory,
+  fetchRecommendations
+])
+
+const [profile, orders, recommendations] = await fetchAll.execute(userId)
+
+// Using createFunction.allSettled (collect all results)
+const results = await createFunction.allSettled([
+  riskyOperation1,
+  riskyOperation2,
+  riskyOperation3
+]).execute(input)
+```
+
+### Conditional Branching
+
+Route based on conditions:
+
+```typescript
+// Simple if/else
+const processOrder = largeOrderHandler
+  .if((order) => order.total > 10000)
+  .else(standardOrderHandler)
+
+// Switch/case
+const processPayment = createFunction.switch(
+  (payment) => payment.method,
+  {
+    'credit_card': processCreditCard,
+    'bank_transfer': processBankTransfer,
+    'crypto': processCrypto,
+  },
+  rejectPayment  // default
+)
+```
+
+### Error Recovery
+
+Handle failures gracefully:
+
+```typescript
+// Fallback on error
+const resilientFetch = fetchFromPrimary
+  .catch((error) => {
+    console.warn('Primary failed:', error)
+    return fetchFromBackup.execute(input)
+  })
+
+// Retry with backoff
+const retriableOperation = riskyOperation
+  .retry({
+    maxAttempts: 3,
+    delay: 1000,
+    backoff: 'exponential'
+  })
+
+// Cleanup regardless of outcome
+const withCleanup = processFile
+  .finally(async () => {
+    await cleanupTempFiles()
+  })
+```
+
+### Cascade Pattern
+
+Try types in order of speed/cost:
+
+```typescript
+const smartClassifier = createFunction.cascade([
+  // Try rules first (Code)
+  { type: 'code', handler: ruleBasedClassifier },
+  // Fall back to AI (Generative)
+  { type: 'generative', handler: aiClassifier },
+  // Complex cases need research (Agentic)
+  { type: 'agentic', handler: researchClassifier },
+  // Edge cases need human judgment (Human)
+  { type: 'human', handler: humanClassifier }
+])
+
+const classification = await smartClassifier.execute(ticket)
+console.log(`Classified by: ${classification.method}`)
+```
+
+### Mixed Type Pipelines
+
+Combine different function types:
+
+```typescript
+// Code -> Generative -> Human pipeline
+const contentPipeline = pipe(
+  // Code: Extract metadata
+  extractMetadata,
+  // Generative: Generate summary
+  generateSummary,
+  // Generative: Check quality
+  qualityCheck.if((result) => result.qualityScore < 0.8),
+  // Human: Final approval for low-quality content
+  humanReview.if((result) => result.needsReview)
+)
+```
+
+---
+
+## Choosing the Right Type
+
+Use this decision tree to select the appropriate function type:
+
+```
+Is the logic deterministic with explicit rules?
+  |
+  +--> YES --> Use CODE FUNCTION
+  |
+  +--> NO --> Does it require a single AI response?
+                |
+                +--> YES --> Use GENERATIVE FUNCTION
+                |
+                +--> NO --> Does it need tools or multi-step reasoning?
+                              |
+                              +--> YES --> Use AGENTIC FUNCTION
+                              |
+                              +--> NO --> Does it need human judgment?
+                                            |
+                                            +--> YES --> Use HUMAN FUNCTION
+```
+
+### Quick Reference
+
+| Scenario | Type | Example |
+|----------|------|---------|
+| Calculate order total | Code | `(items) => items.reduce((sum, i) => sum + i.price, 0)` |
+| Summarize article | Generative | `ai\`summarize ${article}\`` |
+| Build a feature | Agentic | `ralph\`build ${spec}\`` |
+| Approve large refund | Human | `cfo\`approve refund of ${amount}\`` |
+| Validate email format | Code | `(email) => /^[^\s@]+@/.test(email)` |
+| Classify support ticket | Generative | `ai\`classify ${ticket} as billing/technical/general\`` |
+| Research competitor | Agentic | `priya\`research ${competitor} market position\`` |
+| Sign legal contract | Human | `legal\`review and sign ${contract}\`` |
+
+### Cost Optimization Tips
+
+1. **Start with Code**: If you can write explicit rules, do so. It's infinitely cheaper than AI.
+
+2. **Use temperature=0 for classification**: Makes generative functions retry-safe and more consistent.
+
+3. **Cache generative results**: Same input often produces same output. Cache aggressively.
+
+4. **Set tight maxIterations**: Agentic functions can be expensive. Start with low limits and increase as needed.
+
+5. **Use conditional escalation**: Don't always route to humans - only escalate when AI confidence is low.
+
+```typescript
+// Cost-optimized cascade
+const smartHandler = createFunction.cascade([
+  // Free: Try cached result
+  { type: 'code', handler: checkCache },
+  // Free: Try rule-based logic
+  { type: 'code', handler: ruleBasedHandler },
+  // Cheap: Single AI call
+  { type: 'generative', handler: aiHandler, condition: (prev) => prev.confidence < 0.9 },
+  // Expensive: Only if AI is uncertain
+  { type: 'agentic', handler: agentHandler, condition: (prev) => prev.confidence < 0.7 },
+  // Very expensive: Only for edge cases
+  { type: 'human', handler: humanHandler, condition: (prev) => prev.confidence < 0.5 }
+])
+```
+
+---
+
+## Related
+
+- [Functions Overview](/docs/functions) - Creating and composing functions
+- [createFunction Factory](/docs/functions/create-function) - High-level function creation
+- [Function Executors](/docs/functions/executors) - Comprehensive executor documentation
+- [Function Composition](/docs/functions/composition) - Pipe, parallel, conditional patterns
+- [Concepts: Functions](/docs/concepts/functions) - Cascade pattern and type system
+- [Agents](/docs/agents) - Named agents and tool configuration
+- [Human-in-the-Loop](/docs/humans) - Human escalation patterns
+- [Workflows](/docs/workflows) - Durable workflow orchestration
