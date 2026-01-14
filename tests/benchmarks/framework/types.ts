@@ -8,6 +8,7 @@ export interface LatencyMetrics {
   max: number
   avg: number
   stdDev: number
+  ci95?: { lower: number, upper: number }
 }
 
 export interface ThroughputMetrics {

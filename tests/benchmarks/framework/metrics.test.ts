@@ -72,7 +72,28 @@ describe('MetricCollector', () => {
       min: 1,
       max: 5,
       avg: 3,
-      stdDev: expect.any(Number)
+      stdDev: expect.any(Number),
+      ci95: expect.objectContaining({
+        lower: expect.any(Number),
+        upper: expect.any(Number)
+      })
     })
+  })
+
+  test('computes 95% confidence interval', () => {
+    // For samples [1,2,3,4,5]: avg=3, stdDev~1.41
+    // margin = 1.96 * (1.41 / sqrt(5)) ~ 1.24
+    const collector = new MetricCollector([1, 2, 3, 4, 5])
+    const ci = collector.confidenceInterval95
+    expect(ci.lower).toBeLessThan(3)
+    expect(ci.upper).toBeGreaterThan(3)
+    expect(ci.upper - ci.lower).toBeGreaterThan(0) // non-zero interval
+  })
+
+  test('confidence interval collapses for single sample', () => {
+    const collector = new MetricCollector([42])
+    const ci = collector.confidenceInterval95
+    expect(ci.lower).toBe(42)
+    expect(ci.upper).toBe(42)
   })
 })

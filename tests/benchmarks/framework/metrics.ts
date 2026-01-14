@@ -43,6 +43,13 @@ export class MetricCollector {
     return Math.sqrt(squareDiffs.reduce((a, b) => a + b, 0) / this.samples.length)
   }
 
+  get confidenceInterval95(): { lower: number, upper: number } {
+    if (this.samples.length < 2) return { lower: this.avg, upper: this.avg }
+    const z = 1.96 // 95% CI
+    const margin = z * (this.stdDev / Math.sqrt(this.samples.length))
+    return { lower: this.avg - margin, upper: this.avg + margin }
+  }
+
   private percentile(p: number): number {
     if (this.samples.length === 0) return 0
     if (this.samples.length === 1) return this.sorted[0]
@@ -77,7 +84,8 @@ export class MetricCollector {
       min: this.min,
       max: this.max,
       avg: this.avg,
-      stdDev: this.stdDev
+      stdDev: this.stdDev,
+      ci95: this.confidenceInterval95
     }
   }
 }
