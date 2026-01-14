@@ -19,7 +19,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DO, type Env } from '../../objects/DO'
 import { withFs, type FsCapability, type WithFsContext } from '../capabilities/fs'
 import { withGit, type WithGitContext } from '../capabilities/git'
-import { NotImplementedError } from '../errors'
+import { DotdoNotImplementedError } from '../../workflows/compat/errors'
 
 // ============================================================================
 // MOCK INFRASTRUCTURE
@@ -658,7 +658,7 @@ describe('Primitives Error Handling', () => {
       // Create executor that simulates "not available"
       const unavailableExecutor = {
         execute: vi.fn().mockRejectedValue(
-          new NotImplementedError('bashx.exec', 'workers')
+          new DotdoNotImplementedError('bashx.exec', 'workers')
         ),
       }
 

@@ -106,185 +106,67 @@ const result = await $.bash.exec('rm', ['-rf', 'temp/'], {
 
 ## Tiered Execution
 
-bashx implements a 4-tier execution model that automatically routes commands to the optimal executor:
+Commands route to different executors based on their requirements:
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                              Command Input                                      │
-│                        $.bash`cat config.json`                                  │
-└─────────────────────────────────┬──────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                         AST Parser (tree-sitter-bash WASM)                      │
-│                       Parse → Classify → Safety Check → Route                   │
-└─────────────────────────────────┬──────────────────────────────────────────────┘
-                                  │
-       ┌──────────────┬───────────┴───────────┬──────────────┐
-       ▼              ▼                       ▼              ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│   Tier 1     │ │   Tier 2     │ │   Tier 3     │ │   Tier 4     │
-│   Native     │ │   RPC        │ │   Loaders    │ │   Sandbox    │
-├──────────────┤ ├──────────────┤ ├──────────────┤ ├──────────────┤
-│ cat, ls, grep│ │ jq.do        │ │ esbuild      │ │ docker, ps   │
-│ mkdir, rm    │ │ npm.do       │ │ prettier     │ │ gcc, python  │
-│ curl, echo   │ │ git.do       │ │ typescript   │ │ apt, sudo    │
-├──────────────┤ ├──────────────┤ ├──────────────┤ ├──────────────┤
-│ Uses $.fs    │ │ HTTP RPC     │ │ Dynamic npm  │ │ Linux VM     │
-│ < 1ms        │ │ 10-50ms      │ │ 50-200ms     │ │ 100ms+       │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    Command Input                        │
+│              $.bash`cat config.json`                    │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│                 AST Parser (tree-sitter)                │
+│            Parse → Classify → Route                     │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+          ┌───────────┴───────────┬───────────────────────┐
+          ▼                       ▼                       ▼
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+│   Tier 1        │   │   Tier 2        │   │   Tier 3        │
+│   Native JS     │   │   Workers       │   │   Containers    │
+├─────────────────┤   ├─────────────────┤   ├─────────────────┤
+│ cat, head, tail │   │ jq, sed, awk    │   │ npm, python     │
+│ ls, find, grep  │   │ curl, wget      │   │ ffmpeg, gcc     │
+│ echo, printf    │   │ base64, sha256  │   │ docker, git     │
+├─────────────────┤   ├─────────────────┤   ├─────────────────┤
+│ Uses $.fs       │   │ WASM modules    │   │ Container exec  │
+│ Sub-ms latency  │   │ 10-50ms         │   │ 100ms+ startup  │
+└─────────────────┘   └─────────────────┘   └─────────────────┘
 ```
 
-### How Tier Selection Works
+### Tier 1: Native Operations
 
-When you run a command, bashx:
+File operations use fsx directly:
 
-1. **Parses the command** using tree-sitter-bash WASM into an AST
-2. **Extracts the command name** and arguments from the AST
-3. **Classifies the command** based on its requirements
-4. **Routes to the appropriate tier** based on availability and capability
-
-```typescript
-// Tier selection is automatic and transparent
-await $.bash`cat data.json`           // Tier 1: Native (uses $.fs)
-await $.bash`jq '.users[]' data.json` // Tier 1: Native jq implementation
-await $.bash`npm install`             // Tier 2: RPC to npm.do (or Tier 4 sandbox)
-await $.bash`docker ps`               // Tier 4: Sandbox only
-```
-
-### Tier 1: Native In-Worker Execution
-
-The fastest tier - commands execute directly in the V8 isolate with no external calls.
-
-**File operations (via fsx):**
 ```typescript
 // These use $.fs internally - no subprocess!
 await $.bash`cat config.json`        // $.fs.read('config.json')
 await $.bash`ls -la src/`            // $.fs.list('src/')
 await $.bash`head -n 10 data.csv`    // $.fs.read() + slice
 await $.bash`mkdir -p uploads/2024`  // $.fs.mkdir({ recursive: true })
-await $.bash`rm -rf temp/`           // $.fs.rm('temp/', { recursive: true })
-await $.bash`cp src/a.ts src/b.ts`   // $.fs.copy('src/a.ts', 'src/b.ts')
 ```
 
-**Data processing (native implementations):**
+### Tier 2: WASM Modules
+
+Common tools compiled to WebAssembly:
+
 ```typescript
-// Native JavaScript implementations, not WASM
-await $.bash`jq '.name' package.json`  // Native jq parser
-await $.bash`yq '.services' config.yml` // Native YAML processor
-await $.bash`base64 -d encoded.txt`    // Native base64
-await $.bash`sha256sum file.bin`       // Web Crypto API
+// These run as WASM in the isolate
+await $.bash`jq '.name' package.json`
+await $.bash`echo "hello" | base64`
+await $.bash`sha256sum file.bin`
 ```
 
-**HTTP (via fetch API):**
-```typescript
-// curl/wget use native fetch
-await $.bash`curl https://api.example.com/data`
-await $.bash`wget -O output.json https://example.com/data`
-```
+### Tier 3: Container Execution
 
-**Text processing (native implementations):**
-```typescript
-await $.bash`echo "hello" | sed 's/e/a/g'`  // Native sed
-await $.bash`sort data.txt | uniq`          // Native sort/uniq
-await $.bash`wc -l file.txt`                // Native wc
-```
-
-| Command Category | Examples | Implementation |
-|-----------------|----------|----------------|
-| File read | cat, head, tail, ls, stat | $.fs operations |
-| File write | mkdir, rm, cp, mv, touch | $.fs operations |
-| Text processing | sort, uniq, tr, cut, wc | Native JS |
-| Data processing | jq, yq, base64, envsubst | Native parsers |
-| Crypto | sha256sum, md5sum, uuidgen | Web Crypto API |
-| HTTP | curl, wget | fetch API |
-| Math | bc, expr, seq | Native JS |
-
-### Tier 2: RPC Service Bindings
-
-For commands that need external services but don't require full Linux:
+Heavy workloads run in containers:
 
 ```typescript
-// These call external .do services via HTTP RPC
-await $.bash`npm install lodash`  // RPC to npm.do
-await $.bash`git status`          // RPC to git.do
-```
-
-Default RPC services:
-- **jq.do** - jq processing (fallback if native is insufficient)
-- **npm.do** - npm, npx, pnpm, yarn, bun
-- **git.do** - git operations
-
-### Tier 3: Worker Loaders (Dynamic npm)
-
-For npm packages that can be dynamically loaded into Workers:
-
-```typescript
-// These load npm packages at runtime via worker_loaders
-await $.bash`prettier --write src/*.ts`
-await $.bash`eslint src/`
-await $.bash`tsc --build`
-```
-
-Available modules: esbuild, typescript, prettier, eslint, zod, ajv, yaml, lodash, date-fns, uuid
-
-### Tier 4: Sandbox Execution
-
-For commands requiring true Linux capabilities:
-
-```typescript
-// These require a Linux sandbox (Cloudflare Containers or external)
-await $.bash`docker build -t myapp .`
+// These spawn containers
+await $.bash`npm install`
 await $.bash`python train.py --epochs 100`
-await $.bash`gcc -o main main.c`
-await $.bash`apt install libpng-dev`
-```
-
-**Sandbox-only commands:**
-- System/process: ps, kill, top, htop
-- Network: ping, ssh, nc, netstat
-- Containers: docker, kubectl, podman
-- Compilers: gcc, clang, rustc, cargo, go
-- Runtimes: python, ruby, perl
-- Package managers: apt, yum, brew
-
-### Security Isolation by Tier
-
-| Tier | Isolation Level | Attack Surface |
-|------|-----------------|----------------|
-| 1 - Native | V8 isolate | Minimal (same as DO) |
-| 2 - RPC | Network boundary | Service trust |
-| 3 - Loader | V8 isolate | npm package trust |
-| 4 - Sandbox | Full VM/container | Linux kernel |
-
-### Tier Configuration
-
-```typescript
-const executor = new TieredExecutor({
-  // Tier 1: Native filesystem capability
-  fs: fsCapability,
-
-  // Tier 2: RPC service bindings
-  rpcBindings: {
-    jq: { endpoint: 'https://jq.do', commands: ['jq'] },
-    npm: { endpoint: env.NPM_SERVICE, commands: ['npm', 'npx'] },
-  },
-
-  // Tier 3: Worker loader bindings
-  workerLoaders: {
-    build: { load: (m) => import(m), modules: ['esbuild', 'prettier'] },
-  },
-
-  // Tier 4: Sandbox SDK binding
-  sandbox: {
-    execute: async (cmd, opts) => {
-      return await env.CONTAINER.run(cmd, opts)
-    }
-  },
-
-  // Prefer faster tiers when multiple can handle the command
-  preferFaster: true,  // Default: true
-})
+await $.bash`ffmpeg -i input.mp4 -c:v h264 output.mp4`
 ```
 
 ## Piping and Composition

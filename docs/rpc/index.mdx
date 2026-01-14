@@ -120,9 +120,6 @@ No intermediate values cross the network.
   <Card title="Understanding Promise Pipelining" href="/docs/rpc/understanding-promise-pipelining">
     **The essential guide.** Mental model, visual diagrams, and why unawaited promises eliminate network round trips.
   </Card>
-  <Card title="When to Await" href="/docs/rpc/when-to-await">
-    **The quick reference.** Decision tree, rules, and consolidated patterns for every await decision.
-  </Card>
 </Cards>
 
 ## Learning Path
@@ -169,11 +166,8 @@ Master the full toolkit for maximum performance:
   <Card title="Magic Map" href="/docs/rpc/magic-map">
     The .map() that runs on the server—transform collections without awaiting.
   </Card>
-  <Card title="When to Await" href="/docs/rpc/when-to-await">
-    The definitive decision tree and quick reference for all await decisions.
-  </Card>
   <Card title="Await Patterns" href="/docs/rpc/await-patterns">
-    Pattern-focused examples for common await scenarios.
+    When to await and when to pipeline—the complete rules.
   </Card>
   <Card title="Proxy Chaining" href="/docs/rpc/proxy-chaining">
     Method chaining on RpcPromises—call methods on values that don't exist yet.
@@ -261,18 +255,16 @@ If you're just passing `spec` to another call, don't await it.
 ### Async Map Callbacks
 
 ```typescript title="Anti-Pattern: Await in Map"
-const tasks = await $.Agent('priya')`list tasks`
+const tasks = await priya`list tasks`
 const results = await Promise.all(
-  tasks.map(async task => await $.Agent('ralph')`implement ${task}`)  // N round trips!
+  tasks.map(async task => await ralph`implement ${task}`)  // N round trips!
 )
 ```
 
-```typescript title="Fix: Use Magic Map with Workflow Proxy"
-const tasks = $.Agent('priya')`list tasks`
-const results = await tasks.map(task => $.Agent('ralph')`implement ${task}`)  // 1 round trip
+```typescript title="Fix: Use Magic Map"
+const tasks = priya`list tasks`
+const results = await tasks.map(task => ralph`implement ${task}`)  // 1 round trip
 ```
-
-Note: Magic Map requires using agents through the workflow proxy (`$`). Direct imports like `import { ralph } from 'agents.do'` use simple promise chaining instead.
 
 ### How to Identify Issues
 

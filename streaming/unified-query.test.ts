@@ -15,7 +15,7 @@
  * because the implementation does not exist yet.
  *
  * @see /streaming/event-stream-do.ts for hot tier
- * @see compat/streaming-compat/kafka/kafka-pipelines.ts for full IcebergSink implementation
+ * @see /streaming/compat/kafka/kafka-pipelines.ts for IcebergSink
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -42,7 +42,7 @@ import {
 } from './unified-query'
 
 import type { EventStreamDO, BroadcastEvent } from './event-stream-do'
-import type { IcebergSink } from './unified-query'
+import type { IcebergSink } from './compat/kafka/kafka-pipelines'
 
 // ============================================================================
 // MOCK FACTORIES

@@ -14,7 +14,7 @@
  * | Heartbeat | <5ms |
  * | Heartbeat check | <2ms |
  *
- * @see @dotdo/compat-temporal for Temporal-compatible implementation (moved to compat repo)
+ * @see workflows/compat/temporal/activities.ts for implementation
  * @see benchmarks/lib for benchmark runner utilities
  */
 
