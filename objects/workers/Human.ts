@@ -179,6 +179,7 @@
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult, Channel } from './Worker'
 import { Env } from '../core/DO'
+import { Human as HumanNoun } from '../../nouns/workers/Human'
 import type { ThingEntity } from '../../db/stores'
 
 // Import shared types, utilities, and channel abstractions from lib/human
@@ -252,7 +253,8 @@ export interface BlockingApprovalRequest {
 const APPROVAL_REQUEST_TYPE = 'ApprovalRequest'
 
 export class Human extends Worker {
-  static override readonly $type = 'Human'
+  static override readonly $type: string = HumanNoun.$type
+  static readonly noun = HumanNoun
 
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'manual'
   private channels: NotificationChannel[] = []

@@ -18,6 +18,7 @@
 import { DigitalBusiness, DigitalBusinessConfig } from './DigitalBusiness'
 import { Env } from '../core/DO'
 import type { OKR } from '../core/DOBase'
+import { SaaS as SaaSNoun } from '../../nouns/business/SaaS'
 
 export interface SaaSPlan {
   id: string
@@ -54,7 +55,8 @@ export interface SaaSConfig extends DigitalBusinessConfig {
 }
 
 export class SaaS extends DigitalBusiness {
-  static override readonly $type: string = 'SaaS'
+  static readonly noun = SaaSNoun
+  static override readonly $type: string = SaaSNoun.$type
 
   private saasConfig: SaaSConfig | null = null
 

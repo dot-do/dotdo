@@ -158,6 +158,7 @@
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult } from './Worker'
 import { Env } from '../core/DO'
 import type { AgentMemory as UnifiedAgentMemory, MemoryThing, MemoryType } from '../../agents/unified-memory'
+import { Agent as AgentNoun } from '../../nouns/workers/Agent'
 
 export interface Tool {
   name: string
@@ -193,7 +194,8 @@ export interface Memory {
 }
 
 export class Agent extends Worker {
-  static override readonly $type = 'Agent'
+  static readonly noun = AgentNoun
+  static override readonly $type: string = AgentNoun.$type
 
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'autonomous'
   private tools: Map<string, Tool> = new Map()

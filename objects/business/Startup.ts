@@ -27,9 +27,11 @@
 import { SaaS } from './SaaS'
 import { Env } from '../core/DO'
 import type { OKR } from '../core/DOBase'
+import { Startup as StartupNoun } from '../../nouns/business/Startup'
 
 export class Startup extends SaaS {
-  static override readonly $type: string = 'Startup'
+  static override readonly $type: string = StartupNoun.$type
+  static readonly noun = StartupNoun
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)

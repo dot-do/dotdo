@@ -125,6 +125,7 @@
  */
 
 import { DO, Env } from '../core/DO'
+import { Worker as WorkerNoun } from '../../nouns/workers/Worker'
 
 export type WorkerMode = 'autonomous' | 'supervised' | 'manual'
 
@@ -193,7 +194,8 @@ export interface Channel {
  * Worker - Common interface for AI and Human workers
  */
 export class Worker extends DO {
-  static override readonly $type: string = 'Worker'
+  static override readonly $type: string = WorkerNoun.$type
+  static readonly noun = WorkerNoun
 
   protected mode: WorkerMode = 'supervised'
 
