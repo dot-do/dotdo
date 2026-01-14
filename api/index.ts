@@ -3,7 +3,7 @@
  *
  * This module provides a unified API layer that routes requests to the
  * appropriate Durable Object (DO). Supports multiple DO bindings, sharding,
- * and replica routing.
+ * replica routing, and analytics queries.
  *
  * Architecture:
  * - Request → Worker → Route to DO binding → DO.fetch() → rest-router.ts
@@ -15,6 +15,10 @@
  * - /test-collection: env.COLLECTION_DO - test collection DO
  * - Sharding: Based on collection/id hashing
  *
+ * Analytics Routing:
+ * - /analytics/* → IcebergMetadataDO for R2 Iceberg queries
+ * - /query/* → Cross-DO scatter-gather for sharded queries
+ *
  * Exports:
  * - default: Cloudflare Worker with fetch handler
  * - app: Hono app for testing (wraps DO)
@@ -23,6 +27,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Env } from './types'
+import { analyticsRouter } from './analytics/router'
 
 export { DO } from '../objects/DO'
 
@@ -121,7 +126,7 @@ function getDOBinding(
 function getTenantFromHostname(hostname: string): string {
   const hostParts = hostname.split('.')
   // If 3+ parts (e.g., tenant.api.dotdo.dev), use first part
-  return hostParts.length > 2 ? hostParts[0] : 'default'
+  return hostParts.length > 2 ? (hostParts[0] ?? 'default') : 'default'
 }
 
 /**
@@ -139,6 +144,162 @@ function simpleHash(str: string): number {
 // Legacy function for backward compatibility
 function getNamespace(url: URL): string {
   return getTenantFromHostname(url.hostname)
+}
+
+// ============================================================================
+// SCATTER-GATHER FOR SHARDED QUERIES
+// ============================================================================
+
+/**
+ * Configuration for scatter-gather queries
+ */
+interface ScatterGatherConfig {
+  /** DO binding to query */
+  binding: DurableObjectNamespace
+  /** Number of shards */
+  shardCount: number
+  /** Shard prefix (e.g., 'events-shard-') */
+  shardPrefix: string
+  /** Tenant namespace */
+  tenant: string
+  /** Timeout per shard in ms */
+  timeout?: number
+}
+
+/**
+ * Scatter-gather query across all shards
+ *
+ * Fans out the request to all shards in parallel, then merges results.
+ * Used for queries that need to search across partitioned data.
+ *
+ * @param request - The request to scatter
+ * @param config - Scatter-gather configuration
+ * @returns Merged response from all shards
+ */
+async function scatterGather(
+  request: Request,
+  config: ScatterGatherConfig
+): Promise<{ results: unknown[]; errors: Array<{ shard: number; error: string }> }> {
+  const { binding, shardCount, shardPrefix, tenant, timeout = 5000 } = config
+
+  // Fan out to all shards in parallel
+  const shardPromises = Array.from({ length: shardCount }, async (_, i) => {
+    const shardName = `${tenant}:${shardPrefix}${i}`
+    const id = binding.idFromName(shardName)
+    const stub = binding.get(id)
+
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+      const response = await stub.fetch(request.clone(), { signal: controller.signal })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        return { shard: i, error: `HTTP ${response.status}`, data: null }
+      }
+
+      const data = await response.json()
+      return { shard: i, error: null, data }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      return { shard: i, error: message, data: null }
+    }
+  })
+
+  const shardResults = await Promise.all(shardPromises)
+
+  // Merge results and collect errors
+  const results: unknown[] = []
+  const errors: Array<{ shard: number; error: string }> = []
+
+  for (const result of shardResults) {
+    if (result.error) {
+      errors.push({ shard: result.shard, error: result.error })
+    } else if (result.data) {
+      // If data is an array, spread it; otherwise push as-is
+      if (Array.isArray(result.data)) {
+        results.push(...result.data)
+      } else if (result.data && typeof result.data === 'object' && 'items' in result.data) {
+        // Collection response with items array
+        results.push(...(result.data as { items: unknown[] }).items)
+      } else {
+        results.push(result.data)
+      }
+    }
+  }
+
+  return { results, errors }
+}
+
+/**
+ * Get all shard stubs for a sharded DO
+ */
+function getShardStubs(
+  binding: DurableObjectNamespace,
+  shardPrefix: string,
+  shardCount: number,
+  tenant: string
+): DurableObjectStub[] {
+  return Array.from({ length: shardCount }, (_, i) => {
+    const shardName = `${tenant}:${shardPrefix}${i}`
+    const id = binding.idFromName(shardName)
+    return binding.get(id)
+  })
+}
+
+// ============================================================================
+// READ REPLICA ROUTING
+// ============================================================================
+
+/**
+ * Route read requests to replicas for load balancing
+ *
+ * Strategy:
+ * - Writes always go to primary
+ * - Reads can go to replicas (round-robin or random)
+ * - Supports eventual consistency mode
+ *
+ * @param env - Environment with DO bindings
+ * @param pathname - Request path
+ * @param hostname - Request hostname
+ * @param isRead - Whether this is a read operation
+ * @returns DO stub to use
+ */
+function getReplicaAwareBinding(
+  env: Env,
+  pathname: string,
+  hostname: string,
+  isRead: boolean
+): { ns: DurableObjectNamespace; nsName: string; isReplica: boolean } | null {
+  const tenant = getTenantFromHostname(hostname)
+
+  // For now, we use the primary for all operations
+  // Replica routing can be enabled by setting REPLICA_DO binding
+  // and configuring replica count
+  const replicaDO = (env as Record<string, unknown>).REPLICA_DO as DurableObjectNamespace | undefined
+
+  if (isRead && replicaDO) {
+    // Route reads to replica (simple random selection)
+    const replicaCount = 3 // Could be configurable
+    const replicaIndex = Math.floor(Math.random() * replicaCount)
+    return {
+      ns: replicaDO,
+      nsName: `${tenant}:replica-${replicaIndex}`,
+      isReplica: true,
+    }
+  }
+
+  // Default: use primary
+  if (!env.DO) {
+    return null
+  }
+
+  return {
+    ns: env.DO,
+    nsName: tenant,
+    isReplica: false,
+  }
 }
 
 // ============================================================================
@@ -199,6 +360,207 @@ app.get('/api/', (c) => {
     name: 'dotdo',
     version: '0.1.0',
     endpoints: ['/api/health', '/:collection', '/:collection/:id'],
+  })
+})
+
+// ============================================================================
+// ANALYTICS ROUTES - Mounted from analyticsRouter
+// ============================================================================
+
+/**
+ * Mount analytics router for R2 Iceberg, vector search, and SQL queries
+ *
+ * Routes handled:
+ * - POST /analytics/v1/search - Vector similarity search
+ * - GET /analytics/v1/lookup/:table/:key - Point lookup (Iceberg)
+ * - POST /analytics/v1/query - SQL query execution
+ * - GET /analytics/v1/health - Analytics health check
+ * - POST /analytics/v1/classify - Query classification
+ */
+app.route('/analytics', analyticsRouter)
+
+// ============================================================================
+// SCATTER-GATHER QUERY ROUTES
+// ============================================================================
+
+/**
+ * POST /query - Execute scatter-gather query across sharded DOs
+ *
+ * Request body:
+ * {
+ *   collection: string,      // Collection to query
+ *   filter?: object,         // Filter criteria
+ *   sort?: { field: string, order: 'asc' | 'desc' },
+ *   limit?: number,          // Default: 100
+ *   offset?: number,         // Default: 0
+ * }
+ *
+ * Response:
+ * {
+ *   results: array,          // Merged results from all shards
+ *   meta: {
+ *     total: number,         // Total matching items
+ *     shards: number,        // Number of shards queried
+ *     errors: array,         // Any shard errors
+ *   },
+ * }
+ */
+app.post('/query', async (c) => {
+  const env = c.env
+  const url = new URL(c.req.url)
+  const tenant = getTenantFromHostname(url.hostname)
+
+  // Parse query request
+  let body: {
+    collection?: string
+    filter?: Record<string, unknown>
+    sort?: { field: string; order: 'asc' | 'desc' }
+    limit?: number
+    offset?: number
+    shardConfig?: {
+      binding: string
+      prefix: string
+      count: number
+    }
+  }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid JSON body' } }, 400)
+  }
+
+  // For now, use default DO binding for queries
+  // In the future, this can be configured per-collection
+  if (!env.DO) {
+    return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
+  }
+
+  // Build the query URL for the DO
+  const collection = body.collection ?? 'things'
+  const queryParams = new URLSearchParams()
+  if (body.filter) queryParams.set('filter', JSON.stringify(body.filter))
+  if (body.sort) queryParams.set('sort', `${body.sort.field}:${body.sort.order}`)
+  if (body.limit) queryParams.set('limit', String(body.limit))
+  if (body.offset) queryParams.set('offset', String(body.offset))
+
+  const queryUrl = `/${collection}?${queryParams.toString()}`
+  const queryRequest = new Request(new URL(queryUrl, url.origin).toString(), {
+    method: 'GET',
+    headers: c.req.raw.headers,
+  })
+
+  // Check if this collection has a sharded configuration
+  const shardConfig = body.shardConfig
+  if (shardConfig) {
+    // Use scatter-gather for sharded collections
+    const binding = env[shardConfig.binding as keyof Env] as DurableObjectNamespace | undefined
+    if (!binding) {
+      return c.json({ error: { code: 'INVALID_CONFIG', message: `Unknown binding: ${shardConfig.binding}` } }, 400)
+    }
+
+    const { results, errors } = await scatterGather(queryRequest, {
+      binding,
+      shardCount: shardConfig.count,
+      shardPrefix: shardConfig.prefix,
+      tenant,
+      timeout: 10000,
+    })
+
+    // Apply client-side sort and pagination on merged results
+    let sortedResults = results as Array<Record<string, unknown>>
+    if (body.sort && sortedResults.length > 0) {
+      const { field, order } = body.sort
+      sortedResults = sortedResults.sort((a, b) => {
+        const aVal = a[field]
+        const bVal = b[field]
+        if (aVal === bVal) return 0
+        const cmp = (aVal ?? '') < (bVal ?? '') ? -1 : 1
+        return order === 'desc' ? -cmp : cmp
+      })
+    }
+
+    const offset = body.offset ?? 0
+    const limit = body.limit ?? 100
+    const paginatedResults = sortedResults.slice(offset, offset + limit)
+
+    return c.json({
+      results: paginatedResults,
+      meta: {
+        total: sortedResults.length,
+        shards: shardConfig.count,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    })
+  }
+
+  // Single DO query (non-sharded)
+  const id = env.DO.idFromName(tenant)
+  const stub = env.DO.get(id)
+  const response = await stub.fetch(queryRequest)
+
+  if (!response.ok) {
+    return response
+  }
+
+  const data = await response.json() as { items?: unknown[] } | unknown[]
+  const items = Array.isArray(data) ? data : (data.items ?? [])
+
+  return c.json({
+    results: items,
+    meta: {
+      total: items.length,
+      shards: 1,
+    },
+  })
+})
+
+/**
+ * POST /query/aggregate - Execute aggregation query across shards
+ *
+ * Supports: count, sum, avg, min, max, group_by
+ */
+app.post('/query/aggregate', async (c) => {
+  const env = c.env
+  const url = new URL(c.req.url)
+  const tenant = getTenantFromHostname(url.hostname)
+
+  let body: {
+    collection?: string
+    aggregation: {
+      type: 'count' | 'sum' | 'avg' | 'min' | 'max'
+      field?: string
+      groupBy?: string
+    }
+    filter?: Record<string, unknown>
+    shardConfig?: {
+      binding: string
+      prefix: string
+      count: number
+    }
+  }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid JSON body' } }, 400)
+  }
+
+  if (!body.aggregation) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'aggregation is required' } }, 400)
+  }
+
+  if (!env.DO) {
+    return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
+  }
+
+  // For now, return a placeholder - aggregations require custom DO support
+  return c.json({
+    result: null,
+    meta: {
+      aggregationType: body.aggregation.type,
+      field: body.aggregation.field,
+      groupBy: body.aggregation.groupBy,
+      message: 'Aggregation queries require custom DO implementation',
+    },
   })
 })
 

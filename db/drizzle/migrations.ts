@@ -81,6 +81,26 @@ export const migrations: MigrationEntry[] = (journal.entries as JournalEntry[]).
 })
 
 /**
+ * SQLite cursor interface returned by ctx.storage.sql.exec()
+ * Cloudflare DO SQLite returns a cursor that needs .toArray() to get results
+ */
+interface SqlCursor<T = unknown> {
+  toArray(): T[]
+  one(): T | null
+  raw<U = unknown>(): IterableIterator<U[]>
+  columnNames: string[]
+  rowsRead: number
+  rowsWritten: number
+}
+
+/**
+ * SQL interface type for Cloudflare DO storage
+ */
+interface SqlInterface {
+  exec<T = unknown>(query: string): SqlCursor<T>
+}
+
+/**
  * Run all migrations on the provided SQL interface
  *
  * This is designed for use in DO constructor with blockConcurrencyWhile:
@@ -92,7 +112,7 @@ export const migrations: MigrationEntry[] = (journal.entries as JournalEntry[]).
  *
  * @param sqlInterface - The SQL interface from ctx.storage.sql
  */
-export function runMigrations(sqlInterface: { exec: (query: string) => unknown }): void {
+export function runMigrations(sqlInterface: SqlInterface): void {
   // Create migrations tracking table if it doesn't exist
   sqlInterface.exec(`
     CREATE TABLE IF NOT EXISTS __drizzle_migrations (
@@ -105,14 +125,14 @@ export function runMigrations(sqlInterface: { exec: (query: string) => unknown }
   // Get already applied migrations
   const applied = new Set<string>()
   try {
-    const results = sqlInterface.exec('SELECT hash FROM __drizzle_migrations') as { hash: string }[]
-    if (Array.isArray(results)) {
-      for (const row of results) {
-        applied.add(row.hash)
-      }
+    const cursor = sqlInterface.exec<{ hash: string }>('SELECT hash FROM __drizzle_migrations')
+    const results = cursor.toArray()
+    for (const row of results) {
+      applied.add(row.hash)
     }
-  } catch {
-    // Table might be empty or query format differs
+  } catch (err) {
+    // Table might be empty or query failed - log for debugging
+    console.warn('Failed to read migration history:', err)
   }
 
   // Apply pending migrations
