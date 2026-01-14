@@ -27,6 +27,13 @@
 // Base class
 export { DO, type Env } from './core/DO'
 
+// DO Factory - create DOs from Nouns
+export {
+  createDO,
+  createCollectionDO,
+  DO as DOFromNoun, // Alias for createDO
+} from './core/DOFactory'
+
 // Re-export core types from types module
 export type { Thing, ThingData } from '../types/Thing'
 export type { Relationship, Action, Event, ObjectRef, DOConfig } from '../types/DO'
@@ -369,3 +376,26 @@ export {
   type CascadeOptions,
   type CascadeExecutorOptions,
 } from './CascadeExecutor'
+
+// Identity management
+export {
+  Identity,
+  type IdentityData,
+  type CreateIdentityOptions,
+  type UpdateIdentityOptions,
+} from './identity/Identity'
+
+export {
+  User,
+  type UserData,
+  type CreateUserOptions,
+  type UpdateUserOptions,
+} from './identity/User'
+
+export {
+  Session,
+  type SessionData,
+  type CreateSessionOptions,
+  type RefreshSessionOptions,
+  type SessionValidation,
+} from './identity/Session'

@@ -74,6 +74,10 @@
       "types": "./dist/objects/*.d.ts",
       "default": "./dist/objects/*.js"
     },
+    "./nouns": {
+      "types": "./dist/nouns.d.ts",
+      "default": "./dist/nouns.js"
+    },
     "./types": {
       "types": "./dist/types/index.d.ts",
       "default": "./dist/types/index.js"

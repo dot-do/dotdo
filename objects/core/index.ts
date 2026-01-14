@@ -124,3 +124,10 @@ export {
 
 // DO - Re-export DOFull as default DO class for backward compatibility
 export { DO, default as DODefault } from './DO'
+
+// DO Factory - create DOs from Nouns
+export {
+  createDO,
+  createCollectionDO,
+  DO as DOFromNoun, // Alias for createDO
+} from './DOFactory'
