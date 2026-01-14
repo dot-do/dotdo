@@ -29,7 +29,7 @@ export const SaaSMetricsSchema = z.object({
   // Growth metrics
   mrrGrowth: z.number().optional(),
   revenueGrowth: z.number().optional(),
-  netRevenuRetention: z.number().optional(),
+  netRevenueRetention: z.number().optional(),
   grossRevenueRetention: z.number().optional(),
   expansionMrr: z.number().optional(),
   contractionMrr: z.number().optional(),
@@ -122,7 +122,7 @@ export const SaaS = defineNoun({
   plural: 'SaaSes',
   $type: 'https://schema.org.ai/SaaS',
   schema: SaaSSchema,
-  extends: 'Business',
+  extends: 'DigitalBusiness',
   okrs: [
     // Business OKRs
     'Revenue', 'Costs', 'Profit', 'GrossMargin', 'NetMargin',

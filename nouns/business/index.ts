@@ -34,6 +34,27 @@ export {
   type OrganizationalStructure,
 } from './Organization'
 
+// DigitalBusiness - digital business with online metrics
+export {
+  DigitalBusiness,
+  DigitalBusinessSchema,
+  SocialPlatformSchema,
+  SocialMediaPresenceSchema,
+  OnlinePresenceStatusSchema,
+  SEOMetricsSchema,
+  TrafficMetricsSchema,
+  ConversionMetricsSchema,
+  EngagementMetricsSchema,
+  type DigitalBusinessType,
+  type SocialPlatform,
+  type SocialMediaPresence,
+  type OnlinePresenceStatus,
+  type SEOMetrics,
+  type TrafficMetrics,
+  type ConversionMetrics,
+  type EngagementMetrics,
+} from './DigitalBusiness'
+
 // SaaS - Software as a Service business
 export {
   SaaS,

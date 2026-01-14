@@ -161,6 +161,7 @@ export const Service = defineNoun({
   plural: 'Services',
   $type: 'https://schema.org.ai/Service',
   schema: ServiceSchema,
+  extends: 'Business',
   okrs: [
     'Revenue', 'Utilization', 'BillableHours', 'BillableRate',
     'ProjectSuccessRate', 'OnTimeDelivery', 'OnBudget',

@@ -8,11 +8,11 @@ import { defineNoun } from '../types'
  * to avoid Zod v3/v4 type incompatibility.
  */
 export const SessionSchema = z.object({
-  $id: z.string(),
+  $id: z.string().min(1),
   $type: z.literal('https://schema.org.ai/Session'),
-  identityId: z.string(),
-  token: z.string(),
-  expiresAt: z.string(),
+  identityId: z.string().min(1),
+  token: z.string().min(1),
+  expiresAt: z.string().min(1),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })
 

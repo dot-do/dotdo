@@ -132,7 +132,7 @@ export const MarketplaceSchema = z.object({
   categories: z.array(z.string()).optional(),
   geographies: z.array(z.string()).optional(),
 
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type MarketplaceSchemaType = z.infer<typeof MarketplaceSchema>
@@ -148,7 +148,7 @@ export const Marketplace = defineNoun({
   plural: 'Marketplaces',
   $type: 'https://schema.org.ai/Marketplace',
   schema: MarketplaceSchema,
-  extends: 'Business',
+  extends: 'DigitalBusiness',
   okrs: [
     // Business OKRs
     'Revenue', 'Costs', 'Profit', 'GrossMargin', 'NetMargin',

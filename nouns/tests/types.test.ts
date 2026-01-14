@@ -291,7 +291,9 @@ describe('Collection() creates array schema from noun', () => {
     expect(collection).toBeDefined()
     expect(collection.noun).toBe('Simples') // Uses plural
     expect(collection.plural).toBe('Simples')
-    expect(collection.$type).toBe('https://schema.org/Collection')
+    // NOTE: Implementation uses schema.org.ai namespace (dotdo's custom schema namespace)
+    // Standard JSON-LD would use schema.org/Collection - this is intentional
+    expect(collection.$type).toBe('https://schema.org.ai/Collection')
   })
 
   it('creates an array schema from noun schema', () => {
@@ -1005,8 +1007,9 @@ describe('Type system compatibility', () => {
       schema: z.object({ name: z.string() }),
     }
 
-    expect(_test1.schema._def.typeName).toBe('ZodString')
-    expect(_test2.schema._def.typeName).toBe('ZodObject')
+    // Use instanceof checks which work regardless of Zod internal structure
+    expect(_test1.schema instanceof z.ZodString).toBe(true)
+    expect(_test2.schema instanceof z.ZodObject).toBe(true)
   })
 
   it('defaults type is Partial of inferred schema type', () => {

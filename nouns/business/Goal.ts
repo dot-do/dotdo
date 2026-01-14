@@ -137,7 +137,7 @@ export const GoalSchema = z.object({
     notes: z.string().optional(),
   })).optional(),
 
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type GoalType = z.infer<typeof GoalSchema>

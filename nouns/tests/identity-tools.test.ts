@@ -10,10 +10,18 @@ import { describe, it, expect, beforeAll } from 'vitest'
  * These tests are written as TDD RED phase tests. They document expected
  * behavior and will expose issues with the noun definitions.
  *
- * KNOWN ISSUES TO BE DISCOVERED:
- * 1. Identity nouns import schemas from id.org.ai external package
- * 2. Tools nouns import schemas from digital-tools external package
- * 3. Missing schema exports (ToolSchema, IntegrationSchema, CapabilitySchema)
+ * DISCOVERED ISSUES (3 failing tests):
+ * 1. Session.schema accepts empty token - needs z.string().min(1)
+ * 2. Identity.schema accepts empty $id - needs z.string().min(1)
+ * 3. User.schema accepts empty name - needs z.string().min(1)
+ *
+ * DOCUMENTED ISSUES (tests pass but expose problems):
+ * 4. digital-tools package has incorrect main/module/exports in package.json
+ *    - Tool, Integration, Capability nouns cannot be imported
+ *    - Error: "Failed to resolve entry for package digital-tools"
+ * 5. No date format validation on createdAt/updatedAt fields
+ * 6. No URL format validation on $id fields
+ * 7. No whitespace trimming on string fields
  *
  * Each noun should:
  * - Have a valid Zod schema for runtime validation
@@ -80,8 +88,9 @@ describe('Identity Nouns Import', () => {
 
 describe('Tools Nouns Import', () => {
   it('imports Tool noun definition', async () => {
-    // EXPECTED TO FAIL: ToolSchema is not exported from digital-tools
-    // The digital-tools package exports Tool interface but not ToolSchema
+    // EXPECTED TO FAIL: digital-tools package has incorrect main/module/exports
+    // Error: "Failed to resolve entry for package digital-tools"
+    // The package exists but its package.json exports are misconfigured
     try {
       const { Tool } = await import('../tools/')
       expect(Tool).toBeDefined()
@@ -90,14 +99,16 @@ describe('Tools Nouns Import', () => {
       expect(Tool.$type).toBe('https://schema.org.ai/Tool')
       expect(Tool.schema).toBeDefined()
     } catch (error) {
-      // Document the import failure
+      // Document the import failure - package resolution fails before schema import
       expect(error).toBeDefined()
-      expect((error as Error).message).toContain('ToolSchema')
+      const message = (error as Error).message
+      // Actual error is about package resolution, not missing ToolSchema export
+      expect(message).toMatch(/digital-tools|ToolSchema/)
     }
   })
 
   it('imports Integration noun definition', async () => {
-    // EXPECTED TO FAIL: IntegrationSchema is not exported from digital-tools
+    // EXPECTED TO FAIL: digital-tools package has incorrect main/module/exports
     try {
       const { Integration } = await import('../tools/')
       expect(Integration).toBeDefined()
@@ -106,14 +117,15 @@ describe('Tools Nouns Import', () => {
       expect(Integration.$type).toBe('https://schema.org.ai/Integration')
       expect(Integration.schema).toBeDefined()
     } catch (error) {
-      // Document the import failure
+      // Document the import failure - package resolution fails before schema import
       expect(error).toBeDefined()
-      expect((error as Error).message).toContain('IntegrationSchema')
+      const message = (error as Error).message
+      expect(message).toMatch(/digital-tools|IntegrationSchema/)
     }
   })
 
   it('imports Capability noun definition', async () => {
-    // EXPECTED TO FAIL: CapabilitySchema is not exported from digital-tools
+    // EXPECTED TO FAIL: digital-tools package has incorrect main/module/exports
     try {
       const { Capability } = await import('../tools/')
       expect(Capability).toBeDefined()
@@ -122,9 +134,10 @@ describe('Tools Nouns Import', () => {
       expect(Capability.$type).toBe('https://schema.org.ai/Capability')
       expect(Capability.schema).toBeDefined()
     } catch (error) {
-      // Document the import failure
+      // Document the import failure - package resolution fails before schema import
       expect(error).toBeDefined()
-      expect((error as Error).message).toContain('CapabilitySchema')
+      const message = (error as Error).message
+      expect(message).toMatch(/digital-tools|CapabilitySchema/)
     }
   })
 })
@@ -753,9 +766,10 @@ describe('Tool Schema Validation', () => {
   describe('import status', () => {
     it('documents Tool import result', () => {
       if (importError) {
-        // EXPECTED: ToolSchema is not exported from digital-tools
+        // ACTUAL: digital-tools package has incorrect main/module/exports in package.json
+        // This is a more fundamental issue than missing schema exports
         console.log('Tool import failed:', importError.message)
-        expect(importError.message).toContain('ToolSchema')
+        expect(importError.message).toMatch(/digital-tools|ToolSchema/)
       } else {
         expect(Tool).toBeDefined()
         expect(Tool!.noun).toBe('Tool')
@@ -816,9 +830,9 @@ describe('Integration Schema Validation', () => {
   describe('import status', () => {
     it('documents Integration import result', () => {
       if (importError) {
-        // EXPECTED: IntegrationSchema is not exported from digital-tools
+        // ACTUAL: digital-tools package has incorrect main/module/exports in package.json
         console.log('Integration import failed:', importError.message)
-        expect(importError.message).toContain('IntegrationSchema')
+        expect(importError.message).toMatch(/digital-tools|IntegrationSchema/)
       } else {
         expect(Integration).toBeDefined()
         expect(Integration!.noun).toBe('Integration')
@@ -859,9 +873,9 @@ describe('Capability Schema Validation', () => {
   describe('import status', () => {
     it('documents Capability import result', () => {
       if (importError) {
-        // EXPECTED: CapabilitySchema is not exported from digital-tools
+        // ACTUAL: digital-tools package has incorrect main/module/exports in package.json
         console.log('Capability import failed:', importError.message)
-        expect(importError.message).toContain('CapabilitySchema')
+        expect(importError.message).toMatch(/digital-tools|CapabilitySchema/)
       } else {
         expect(Capability).toBeDefined()
         expect(Capability!.noun).toBe('Capability')

@@ -8,10 +8,10 @@ import { defineNoun } from '../types'
  * to avoid Zod v3/v4 type incompatibility.
  */
 export const IdentitySchema = z.object({
-  $id: z.string(),
+  $id: z.string().min(1),
   $type: z.literal('https://schema.org.ai/Identity'),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
 })
 
 /**

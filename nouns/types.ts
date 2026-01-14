@@ -40,12 +40,12 @@ export type AnyNoun = Noun<z.ZodType>
 /**
  * Collection wrapper - represents a collection of Nouns
  */
-export function Collection<T extends Noun>(noun: T): Noun & { itemType: T } {
+export function Collection<T extends Noun>(noun: T): Noun<z.ZodArray<T['schema']>> & { itemType: T } {
   return {
     noun: noun.plural,
     plural: noun.plural,
     $type: 'https://schema.org.ai/Collection',
     schema: z.array(noun.schema),
     itemType: noun
-  } as Noun & { itemType: T }
+  } as Noun<z.ZodArray<T['schema']>> & { itemType: T }
 }

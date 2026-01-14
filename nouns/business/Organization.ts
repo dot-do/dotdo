@@ -30,7 +30,7 @@ export type Team = z.infer<typeof TeamSchema>
  */
 export const OrganizationalStructureSchema = z.object({
   departments: z.array(DepartmentSchema).optional(),
-  hierarchy: z.record(z.array(z.string())).optional(),
+  hierarchy: z.record(z.string(), z.array(z.string())).optional(),
   teams: z.array(TeamSchema).optional(),
 })
 export type OrganizationalStructure = z.infer<typeof OrganizationalStructureSchema>
@@ -57,7 +57,7 @@ export const OrganizationSchema = z.object({
   headquarters: z.string().optional(),
   locations: z.array(z.string()).optional(),
   employeeCount: z.number().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type OrganizationType = z.infer<typeof OrganizationSchema>
