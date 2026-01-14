@@ -144,22 +144,3 @@ export class TransportError extends DOError {
     return 502
   }
 }
-
-/**
- * Not implemented error - feature not available in this context.
- * HTTP 501 Not Implemented.
- */
-export class NotImplementedError extends DOError {
-  constructor(feature: string, context: string, cause?: Error) {
-    super(
-      'NOT_IMPLEMENTED',
-      `${feature} is not implemented in ${context}. See https://dotdo.dev/docs/${context}/feature-parity for alternatives.`,
-      cause
-    )
-    this.name = 'NotImplementedError'
-  }
-
-  override get httpStatus(): number {
-    return 501
-  }
-}

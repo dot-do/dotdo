@@ -12,7 +12,7 @@ description: Documentation for design
 
 ## Executive Summary
 
-The Temporal compat layer (now moved to the compat repo at `@dotdo/compat-temporal`) provides API compatibility but lacks two foundational Temporal semantics:
+The current Temporal compat layer in `/Users/nathanclevenger/projects/dotdo/workflows/compat/temporal/index.ts` provides API compatibility but lacks two foundational Temporal semantics:
 
 1. **Workflow History Tracking** - No durable event log for deterministic replay
 2. **Activity Worker Routing** - Activities execute inline instead of on separate workers

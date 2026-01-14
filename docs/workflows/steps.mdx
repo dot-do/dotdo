@@ -177,7 +177,7 @@ Sagas maintain data consistency across distributed services without distributed 
 ### Basic Saga
 
 ```typescript
-import { SagaBuilder } from '@dotdo/compat-temporal/saga'
+import { SagaBuilder } from 'dotdo/workflows/compat/temporal/saga'
 
 const orderSaga = new SagaBuilder()
   .addStep({
@@ -245,7 +245,7 @@ on.Order.placed(async (event) => {
 Execute multiple validations concurrently:
 
 ```typescript
-import { SagaBuilder, parallel } from '@dotdo/compat-temporal/saga'
+import { SagaBuilder, parallel } from 'dotdo/workflows/compat/temporal/saga'
 
 const checkoutSaga = new SagaBuilder()
   .addStep(parallel({
@@ -283,7 +283,7 @@ const checkoutSaga = new SagaBuilder()
 Add retry policies to individual steps:
 
 ```typescript
-import { withRetry, withTimeout } from '@dotdo/compat-temporal/saga'
+import { withRetry, withTimeout } from 'dotdo/workflows/compat/temporal/saga'
 
 const resilientSaga = new SagaBuilder()
   .addStep(withRetry({
