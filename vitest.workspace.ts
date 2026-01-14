@@ -668,7 +668,18 @@ export default defineWorkspace([
   createWorkersWorkspace('do-rpc', [
     'objects/tests/do-rpc.test.ts',
     'objects/tests/do-rpc-flat.test.ts',
+    'objects/tests/do-promote-demote.test.ts',
   ], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
+
+  // DO Shard/Unshard operations tests (real miniflare DOs, no mocks)
+  createWorkersWorkspace('do-shard-unshard', ['objects/tests/do-shard-unshard.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
+  }),
+
+  // DO Compact/Merge lifecycle tests (DOFull operations with real miniflare DOs)
+  createWorkersWorkspace('do-compact-merge', ['objects/tests/do-compact-merge.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),
 

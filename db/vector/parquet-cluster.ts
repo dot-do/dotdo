@@ -19,7 +19,13 @@
  * @module db/vector/parquet-cluster
  */
 
-import type { MockR2 } from '../../tests/harness/do'
+// R2 bucket type (use Cloudflare Workers types in production)
+type R2Bucket = {
+  put(key: string, data: ArrayBuffer | Uint8Array | string): Promise<void>
+  get(key: string): Promise<{ body: Uint8Array | ArrayBuffer } | null>
+  delete(key: string): Promise<void>
+  list(options?: { prefix?: string }): Promise<{ objects: { key: string }[] }>
+}
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -873,10 +879,10 @@ export class ParquetClusterFile {
  * R2ClusterStorage - Store and retrieve vector clusters from R2
  */
 export class R2ClusterStorage {
-  private r2: MockR2
+  private r2: R2Bucket
   private clusterFile: ParquetClusterFile
 
-  constructor(r2: MockR2) {
+  constructor(r2: R2Bucket) {
     this.r2 = r2
     this.clusterFile = new ParquetClusterFile()
   }
@@ -972,6 +978,6 @@ export function createParquetClusterFile(): ParquetClusterFile {
 /**
  * Create a new R2ClusterStorage instance
  */
-export function createR2ClusterStorage(r2: MockR2): R2ClusterStorage {
+export function createR2ClusterStorage(r2: R2Bucket): R2ClusterStorage {
   return new R2ClusterStorage(r2)
 }
