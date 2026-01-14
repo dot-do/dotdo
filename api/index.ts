@@ -1,24 +1,21 @@
+/**
+ * dotdo Worker - Proxies requests to the DO
+ *
+ * Routes all requests to the Durable Object which handles:
+ * - GET / → JSON index with links to all collections
+ * - POST / → Cap'n Web RPC
+ * - WebSocket / → Cap'n Web RPC persistent connection
+ * - GET /health → health check
+ * - GET /$introspect → schema discovery
+ * - GET /mcp → MCP transport
+ * - GET /sync → WebSocket sync protocol
+ * - REST routes /:type and /:type/:id for CRUD
+ */
+
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { logger } from 'hono/logger'
-import { apiRoutes } from './routes/api'
-import { mcpRoutes } from './routes/mcp'
-import { rpcRoutes } from './routes/rpc'
-import { doRoutes } from './routes/do'
-import { browsersRoutes } from './routes/browsers'
-import { sandboxesRoutes } from './routes/sandboxes'
-import { obsRoutes } from './routes/obs'
-import { authRoutes } from './routes/auth'
-import { analyticsRouter } from './analytics/router'
-import { graphRoutes } from './routes/graph'
-import { getOpenAPIDocument } from './routes/openapi'
-import { errorHandler } from './middleware/error-handling'
-import { requestIdMiddleware } from './middleware/request-id'
-import { landingPageHtml, docsPageHtml, adminDashboardHtml, adminLoginHtml, adminUsersHtml, adminUserNewHtml, adminWorkflowsHtml, adminIntegrationsHtml, adminApiKeysHtml, adminSettingsHtml, adminSettingsAccountHtml, adminSettingsSecurityHtml, adminActivityHtml, notFoundHtml } from './pages'
 
 // Re-export Durable Object classes for wrangler
-export { TestDurableObject } from './test-do'
-export { TestCollectionDO } from './test-collection-do'
 export { DurableObject } from 'cloudflare:workers'
 export { Browser } from '../objects/Browser'
 export { DO } from '../objects/DO'
@@ -26,204 +23,52 @@ export { ThingsDO } from '../objects/ThingsDO'
 export { SandboxDO } from '../objects/SandboxDO'
 export { ObservabilityBroadcaster } from '../objects/ObservabilityBroadcaster'
 
-// Import and re-export the unified CloudflareEnv type
-import type { CloudflareEnv } from '../types/CloudflareBindings'
-export type { CloudflareEnv }
+// Test DOs for development
+export { TestDurableObject } from './test-do'
+export { TestCollectionDO } from './test-collection-do'
 
-/**
- * Env - API-specific environment type extending CloudflareEnv
- *
- * This type ensures the API has access to all required bindings
- * for routing and handling requests. The unified CloudflareEnv
- * provides all optional bindings, while this interface specifies
- * which are required for the API layer.
- *
- * @see CloudflareEnv in types/CloudflareBindings.ts for all available bindings
- */
-export interface Env extends CloudflareEnv {
-  /** D1 database - required for auth, sessions, users */
-  DB: D1Database
-  /** KV namespace - required for sessions and caching */
-  KV: KVNamespace
-  /** Main Durable Object namespace - required for Things */
+export interface Env {
   DO: DurableObjectNamespace
-  /** Browser Durable Object namespace */
+  BASE_DO: DurableObjectNamespace
   BROWSER_DO: DurableObjectNamespace
-  /** Sandbox Durable Object namespace */
   SANDBOX_DO: DurableObjectNamespace
-  /** Observability Broadcaster DO namespace */
   OBS_BROADCASTER: DurableObjectNamespace
-  /** Test KV namespace (dev/test only) */
+  KV: KVNamespace
   TEST_KV: KVNamespace
-  /** Test DO namespace (dev/test only) */
   TEST_DO: DurableObjectNamespace
-  /** Collection DO namespace (test collection) */
   COLLECTION_DO: DurableObjectNamespace
-  /** Static assets fetcher */
-  ASSETS: Fetcher
+  AI: Ai
 }
 
-// Create the Hono app
-export const app = new Hono<{ Bindings: Env }>()
+const app = new Hono<{ Bindings: Env }>()
 
-// Global middleware
-app.use('*', errorHandler)
-app.use('*', requestIdMiddleware)
-app.use('*', logger())
 app.use('*', cors())
 
-// Landing page
-app.get('/', (c) => {
-  return c.html(landingPageHtml())
+// Proxy all requests to the DO
+// Namespace is derived from hostname: tenant.api.dotdo.dev → DO('tenant')
+// Or use 'default' for local dev
+app.all('*', async (c) => {
+  const url = new URL(c.req.url)
+
+  // Derive namespace from hostname
+  // e.g., acme.api.dotdo.dev → 'acme'
+  // localhost:8787 → 'default'
+  const hostParts = url.hostname.split('.')
+  const ns = hostParts.length > 2 ? hostParts[0] : 'default'
+
+  // Get DO stub by namespace
+  const id = c.env.BASE_DO.idFromName(ns)
+  const stub = c.env.BASE_DO.get(id)
+
+  // Forward request to DO
+  const doUrl = new URL(c.req.url)
+  doUrl.hostname = `${ns}.do.internal`
+
+  return stub.fetch(new Request(doUrl.toString(), {
+    method: c.req.method,
+    headers: c.req.raw.headers,
+    body: c.req.raw.body,
+  }))
 })
 
-// Documentation routes
-app.get('/docs', (c) => {
-  return c.html(docsPageHtml('index'))
-})
-app.get('/docs/', (c) => {
-  return c.html(docsPageHtml('index'))
-})
-app.get('/docs/getting-started', (c) => {
-  return c.html(docsPageHtml('getting-started'))
-})
-app.get('/docs/api', (c) => {
-  return c.html(docsPageHtml('api'))
-})
-app.get('/docs/*', (c) => {
-  const path = c.req.path.replace('/docs/', '')
-  return c.html(docsPageHtml(path))
-})
-
-// Admin routes
-app.get('/admin', (c) => {
-  return c.html(adminDashboardHtml())
-})
-app.get('/admin/', (c) => {
-  return c.html(adminDashboardHtml())
-})
-app.get('/admin/login', (c) => {
-  return c.html(adminLoginHtml())
-})
-app.get('/admin/users', (c) => {
-  return c.html(adminUsersHtml())
-})
-app.get('/admin/users/', (c) => {
-  return c.html(adminUsersHtml())
-})
-app.get('/admin/users/new', (c) => {
-  return c.html(adminUserNewHtml())
-})
-app.get('/admin/users/:id', (c) => {
-  return c.html(adminUsersHtml())
-})
-app.get('/admin/workflows', (c) => {
-  return c.html(adminWorkflowsHtml())
-})
-app.get('/admin/workflows/', (c) => {
-  return c.html(adminWorkflowsHtml())
-})
-app.get('/admin/workflows/:id', (c) => {
-  return c.html(adminWorkflowsHtml())
-})
-app.get('/admin/workflows/:id/runs', (c) => {
-  return c.html(adminWorkflowsHtml())
-})
-app.get('/admin/integrations', (c) => {
-  return c.html(adminIntegrationsHtml())
-})
-app.get('/admin/integrations/', (c) => {
-  return c.html(adminIntegrationsHtml())
-})
-app.get('/admin/integrations/api-keys', (c) => {
-  return c.html(adminApiKeysHtml())
-})
-app.get('/admin/settings', (c) => {
-  return c.html(adminSettingsHtml())
-})
-app.get('/admin/settings/', (c) => {
-  return c.html(adminSettingsHtml())
-})
-app.get('/admin/settings/account', (c) => {
-  return c.html(adminSettingsAccountHtml())
-})
-app.get('/admin/settings/security', (c) => {
-  return c.html(adminSettingsSecurityHtml())
-})
-app.get('/admin/activity', (c) => {
-  return c.html(adminActivityHtml())
-})
-app.get('/admin/activity/', (c) => {
-  return c.html(adminActivityHtml())
-})
-
-// Handle /api/ explicitly (trailing slash)
-app.get('/api/', (c) => {
-  return c.json({
-    name: 'dotdo',
-    version: '0.0.1',
-    endpoints: ['/api/health', '/api/things'],
-  })
-})
-
-// OpenAPI spec endpoint
-app.get('/api/openapi.json', (c) => {
-  const spec = getOpenAPIDocument()
-  return c.json(spec, 200, {
-    'Access-Control-Allow-Origin': '*',
-  })
-})
-
-// Mount specific API routes BEFORE the general apiRoutes (which has catch-all patterns)
-
-// Mount Browser API routes
-app.route('/api/browsers', browsersRoutes)
-
-// Mount Sandbox API routes
-app.route('/api/sandboxes', sandboxesRoutes)
-
-// Mount Observability API routes
-app.route('/api/obs', obsRoutes)
-
-// Mount Analytics API routes
-// Endpoints: /api/analytics/v1/search, /api/analytics/v1/lookup/:table/:key, /api/analytics/v1/query
-app.route('/api/analytics', analyticsRouter)
-
-// Mount Graph API routes
-// Endpoints: /api/graph/things, /api/graph/relationships, /api/graph/traverse
-app.route('/api/graph', graphRoutes)
-
-// Mount general API routes (has dynamic collection routes - must come after specific routes)
-app.route('/api', apiRoutes)
-
-// Mount Auth routes (better-auth integration)
-// Endpoints: /auth/callback, /auth/login, /auth/logout, /auth/session
-app.route('/auth', authRoutes)
-
-// Mount MCP routes
-app.route('/mcp', mcpRoutes)
-
-// Mount RPC routes
-app.route('/rpc', rpcRoutes)
-
-// Mount DO routes for REST-like paths (e.g., /customers, /orders/123)
-// Routes to the default DO namespace with id 'default'
-// For multi-tenant routing, use the API() factory from workers/api.ts:
-//   - Hostname mode: tenant.api.dotdo.dev -> DO('https://tenant.api.dotdo.dev')
-//   - Path mode: api.dotdo.dev/:org -> DO('https://api.dotdo.dev/org')
-// Must be mounted AFTER specific routes (/api, /mcp, /rpc, /docs, /admin)
-// but BEFORE the catch-all
-app.route('/', doRoutes)
-
-// Catch-all for unknown routes - return 404 HTML page
-app.all('*', (c) => {
-  // API routes should return JSON 404
-  if (c.req.path.startsWith('/api/')) {
-    return c.json({ error: { code: 'NOT_FOUND', message: `Not found: ${c.req.path}` } }, 404)
-  }
-  // All other routes return HTML 404 page
-  return c.html(notFoundHtml(), 404)
-})
-
-// Export the app with fetch handler
 export default app
