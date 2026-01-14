@@ -15,7 +15,7 @@
  * | Check timer | <2ms |
  * | List timers | <5ms |
  *
- * @see workflows/compat/temporal/timers.ts for implementation
+ * @see @dotdo/compat-temporal for Temporal-compatible implementation (moved to compat repo)
  * @see benchmarks/lib for benchmark runner utilities
  */
 

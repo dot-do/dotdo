@@ -15,7 +15,7 @@
  * | Get pending signals | <5ms |
  * | Cross-workflow signal | <20ms |
  *
- * @see workflows/compat/temporal/signals.ts for implementation
+ * @see @dotdo/compat-temporal for Temporal-compatible implementation (moved to compat repo)
  * @see benchmarks/lib for benchmark runner utilities
  */
 

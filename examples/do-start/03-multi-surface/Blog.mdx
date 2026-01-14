@@ -1,0 +1,110 @@
+{/**
+ * Multi-Surface Example - Blog Component
+ *
+ * Company blog served at /blog.
+ * Links to content in the blog/ folder.
+ */}
+
+---
+title: "Blog"
+description: "Latest news and updates"
+---
+
+export const Layout = ({ children }) => (
+  <div style={{
+    fontFamily: 'system-ui, sans-serif',
+    minHeight: '100vh',
+    background: '#0a0a0a',
+    color: '#fff',
+  }}>
+    <header style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '1rem 2rem',
+      borderBottom: '1px solid #2a2a2a',
+    }}>
+      <a href="/" style={{ fontSize: '1.25rem', fontWeight: 700, color: '#10b981', textDecoration: 'none' }}>Acme Blog</a>
+      <nav style={{ display: 'flex', gap: '2rem' }}>
+        <a href="/" style={{ color: '#a1a1aa', textDecoration: 'none' }}>Home</a>
+        <a href="/app" style={{ color: '#a1a1aa', textDecoration: 'none' }}>Dashboard</a>
+        <a href="/docs" style={{ color: '#a1a1aa', textDecoration: 'none' }}>Docs</a>
+      </nav>
+    </header>
+    <main style={{ maxWidth: '800px', margin: '0 auto', padding: '3rem 2rem' }}>
+      {children}
+    </main>
+  </div>
+)
+
+export const PostCard = ({ title, date, excerpt, slug }) => (
+  <article style={{
+    background: '#0f0f0f',
+    borderRadius: '12px',
+    padding: '1.5rem',
+    border: '1px solid #2a2a2a',
+    marginBottom: '1.5rem',
+  }}>
+    <time style={{ fontSize: '0.75rem', color: '#71717a', textTransform: 'uppercase', letterSpacing: '1px' }}>{date}</time>
+    <h2 style={{ fontSize: '1.5rem', margin: '0.5rem 0', color: '#fff' }}>
+      <a href={`/blog/${slug}`} style={{ color: 'inherit', textDecoration: 'none' }}>{title}</a>
+    </h2>
+    <p style={{ color: '#a1a1aa', lineHeight: 1.6, marginBottom: '1rem' }}>{excerpt}</p>
+    <a href={`/blog/${slug}`} style={{ color: '#10b981', textDecoration: 'none', fontWeight: 500 }}>Read more &rarr;</a>
+  </article>
+)
+
+<Layout>
+
+# Blog
+
+<p style={{ color: '#a1a1aa', fontSize: '1.125rem', marginBottom: '3rem' }}>
+  Latest news, updates, and technical deep dives from the Acme team.
+</p>
+
+<PostCard
+  title="Introducing Multi-Surface Architecture"
+  date="January 13, 2026"
+  excerpt="Today we're announcing our new multi-surface architecture that lets you build complete applications with marketing, dashboard, admin, docs, and blog - all in one codebase."
+  slug="multi-surface-architecture"
+/>
+
+<PostCard
+  title="Zero-Config Development with do start"
+  date="January 10, 2026"
+  excerpt="Say goodbye to complex configuration files. Our new do start command discovers your surfaces automatically and gets you running in seconds."
+  slug="zero-config-development"
+/>
+
+<PostCard
+  title="Building the 1-Person Unicorn"
+  date="January 5, 2026"
+  excerpt="How AI agents and human-in-the-loop workflows are enabling solo founders to build billion-dollar companies. A deep dive into Business-as-Code."
+  slug="one-person-unicorn"
+/>
+
+<div style={{ marginTop: '3rem', padding: '1.5rem', background: '#0f0f0f', borderRadius: '12px', border: '1px solid #2a2a2a', textAlign: 'center' }}>
+  <h3 style={{ marginBottom: '0.5rem' }}>Subscribe to our newsletter</h3>
+  <p style={{ color: '#a1a1aa', marginBottom: '1rem', fontSize: '0.875rem' }}>Get the latest posts delivered to your inbox.</p>
+  <div style={{ display: 'flex', gap: '0.5rem', maxWidth: '400px', margin: '0 auto' }}>
+    <input type="email" placeholder="you@example.com" style={{
+      flex: 1,
+      padding: '0.75rem 1rem',
+      background: '#1a1a1a',
+      border: '1px solid #2a2a2a',
+      borderRadius: '6px',
+      color: '#fff',
+    }} />
+    <button style={{
+      background: '#10b981',
+      color: '#fff',
+      padding: '0.75rem 1.5rem',
+      border: 'none',
+      borderRadius: '6px',
+      fontWeight: 600,
+      cursor: 'pointer',
+    }}>Subscribe</button>
+  </div>
+</div>
+
+</Layout>

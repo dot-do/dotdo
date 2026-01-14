@@ -406,32 +406,15 @@ export {
 } from './typed-result'
 
 // ============================================================================
-// Named Agents
+// Named Agents - MOVED TO workers.do
 // ============================================================================
-
-export {
-  priya,
-  ralph,
-  tom,
-  mark,
-  sally,
-  quinn,
-  rae,
-  casey,
-  finn,
-  dana,
-  createNamedAgent,
-  enableMockMode,
-  disableMockMode,
-  setMockResponse,
-  isMockMode,
-  PERSONAS,
-  type NamedAgent,
-  type AgentPersona,
-  type AgentRole,
-  type TypedTemplateLiteral,
-  type TypedInvokeOptions,
-} from './named'
+// Named agents (Priya, Ralph, Tom, Mark, Sally, Quinn, Rae, Casey, Finn, Dana)
+// have been moved to the workers.do repository as they belong to the platform
+// layer, not the runtime layer.
+//
+// Import from 'agents.do' (via workers.do) instead:
+// import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+// ============================================================================
 
 // ============================================================================
 // Agent Loop - Think, Act, Observe Pattern

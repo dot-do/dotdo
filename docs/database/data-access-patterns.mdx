@@ -1,0 +1,469 @@
+---
+title: Data Access Patterns
+description: When to use ThingsStore, raw SQLite queries, Drizzle ORM, or DBProxy for optimal performance and developer experience
+---
+
+# Data Access Patterns
+
+dotdo provides multiple ways to access data in Durable Objects. This guide explains when to use each pattern, their tradeoffs, and best practices.
+
+## Quick Decision Guide
+
+| Pattern | Use When | Performance | Safety | Complexity |
+|---------|----------|-------------|--------|------------|
+| **ThingsStore** | CRUD on Things, version history, branching | Good | High | Low |
+| **DBProxy** | Fluent queries, relationship expansion, natural language | Good | High | Low |
+| **Drizzle ORM** | Type-safe queries, joins, aggregations | Best | High | Medium |
+| **Raw SQL** | Complex queries, performance-critical paths, migrations | Best | Low | High |
+
+## ThingsStore (High-Level API)
+
+**Use for:** Standard CRUD operations on versioned entities.
+
+ThingsStore provides a semantic, domain-focused API that handles versioning, type resolution, and real-time sync automatically.
+
+### When to Use ThingsStore
+
+- Creating, reading, updating, deleting Things
+- Version history and time-travel queries
+- Branch-aware operations
+- Real-time sync with mutation callbacks
+- JSON field filtering
+
+### Code Examples
+
+```typescript
+import { ThingsStore } from 'db/stores'
+
+const things = new ThingsStore(ctx)
+
+// Create - auto-generates ID, resolves type, emits mutation event
+const user = await things.create({
+  $type: 'User',
+  name: 'Alice',
+  data: { email: 'alice@example.com', role: 'admin' }
+})
+
+// Read - returns latest version, excludes soft-deleted
+const fetched = await things.get(user.$id)
+
+// Time-travel - get specific version
+const v2 = await things.get(user.$id, { version: 2 })
+
+// List with JSON filter
+const admins = await things.list({
+  type: 'User',
+  where: { 'data.role': 'admin' },
+  limit: 100
+})
+
+// Update - creates new version, merges data by default
+await things.update(user.$id, {
+  data: { role: 'super-admin' }
+})
+
+// Delete - soft delete (creates version with deleted=true)
+await things.delete(user.$id)
+
+// Version history
+const versions = await things.versions(user.$id)
+```
+
+### Benefits
+
+- **Automatic versioning**: Never lose data; all changes tracked
+- **Type caching**: Efficient noun type lookups with N+1 prevention
+- **Mutation callbacks**: Built-in real-time sync support
+- **SQL injection prevention**: Validated JSON paths and column names
+- **Semantic API**: `$type`, `$id` instead of raw column names
+
+### Limitations
+
+- Limited to Things table operations
+- JSON filtering has basic support (no nested array queries)
+- Complex aggregations require raw SQL
+
+---
+
+## DBProxy (Fluent Query Builder)
+
+**Use for:** Complex queries with fluent chaining, relationship expansion, natural language.
+
+DBProxy implements Cap'n Proto-style promise pipelining for efficient database operations.
+
+### When to Use DBProxy
+
+- Chaining multiple operations without intermediate awaits
+- Relationship traversal and expansion
+- Pagination with cursor support
+- Batch processing with crash recovery
+- Natural language queries
+
+### Code Examples
+
+```typescript
+import { createDBProxy } from 'db/proxy'
+
+const db = createDBProxy(this)
+
+// Fluent query building
+const topLeads = await db.Lead
+  .filter(lead => lead.status === 'active')
+  .orderBy('score', 'desc')
+  .limit(10)
+
+// Relationship expansion (single round trip)
+const leadWithCompany = await db.Lead
+  .get('lead-123')
+  .expand('company')
+  .expand('contacts')
+
+// Natural language query
+const deals = await db.Lead`who closed deals this month?`
+
+// Batch processing with crash recovery
+const result = await db.Lead
+  .filter(lead => lead.status === 'new')
+  .forEach(async (lead) => {
+    await sendEmail(lead.email, 'Welcome!')
+  }, {
+    concurrency: 5,
+    maxRetries: 3,
+    persist: true  // Enable crash recovery
+  })
+
+// Pagination with cursor
+const page = await db.Lead.paginate({
+  limit: 10,
+  cursor: previousCursor
+})
+```
+
+### Benefits
+
+- **Promise pipelining**: Multiple operations in single round trip
+- **Lazy execution**: Operations accumulated until await
+- **Type safety**: Types preserved through chain
+- **Memoization**: Results cached after first execution
+
+### Limitations
+
+- Adds abstraction layer (slight overhead for simple queries)
+- Some operations fall back to multiple queries internally
+- Natural language queries require AI binding
+
+---
+
+## Drizzle ORM (Type-Safe SQL)
+
+**Use for:** Type-safe queries with full SQL power.
+
+Drizzle provides compile-time type safety while generating efficient SQL.
+
+### When to Use Drizzle
+
+- Complex joins across multiple tables
+- Aggregations and GROUP BY
+- Type-safe column references
+- Transactions with multiple operations
+- When you need SQL control with type safety
+
+### Code Examples
+
+```typescript
+import { eq, and, desc, sql } from 'drizzle-orm'
+import * as schema from '../db'
+
+// Simple select with type inference
+const users = await this.db
+  .select()
+  .from(schema.things)
+  .where(eq(schema.things.type, userTypeId))
+  .orderBy(desc(schema.things.id))
+  .limit(100)
+
+// Join Things with Relationships
+const usersWithFollowers = await this.db
+  .select({
+    user: schema.things,
+    follower: schema.relationships.from
+  })
+  .from(schema.things)
+  .leftJoin(
+    schema.relationships,
+    and(
+      eq(schema.relationships.to, schema.things.id),
+      eq(schema.relationships.verb, 'follows')
+    )
+  )
+  .where(eq(schema.things.type, userTypeId))
+
+// Aggregation
+const countByType = await this.db
+  .select({
+    type: schema.things.type,
+    count: sql<number>`COUNT(*)`
+  })
+  .from(schema.things)
+  .groupBy(schema.things.type)
+
+// Insert with returning
+const inserted = await this.db
+  .insert(schema.things)
+  .values({
+    id: 'user-123',
+    type: userTypeId,
+    name: 'Alice',
+    data: { email: 'alice@example.com' }
+  })
+  .returning()
+```
+
+### Benefits
+
+- **Type safety**: Compile-time column validation
+- **SQL expressiveness**: Full SQL feature set
+- **Efficient queries**: Direct SQL generation
+- **Transaction support**: Group operations atomically
+
+### Limitations
+
+- Requires importing schema modules
+- No automatic versioning (manual if needed)
+- Type IDs instead of type names (resolve separately)
+
+---
+
+## Raw SQLite Queries
+
+**Use for:** Maximum performance and full SQL control.
+
+Direct SQL access via `ctx.db.all()` or `ctx.db.run()` for performance-critical paths.
+
+### When to Use Raw SQL
+
+- Performance-critical queries (benchmarked)
+- Complex window functions or CTEs
+- Database migrations
+- Queries that cannot be expressed in ORM
+- Accessing rowid or other SQLite-specific features
+
+### Code Examples
+
+```typescript
+import { sql } from 'drizzle-orm'
+
+// Access rowid (version) - not available via Drizzle schema
+const versioned = await this.ctx.db.all(
+  sql`SELECT rowid as version, * FROM things WHERE id = ${id} ORDER BY rowid DESC LIMIT 1`
+)
+
+// Complex subquery for latest versions
+const latestThings = await this.ctx.db.all(sql`
+  SELECT t.rowid as version, t.*
+  FROM things t
+  INNER JOIN (
+    SELECT id, MAX(rowid) as max_rowid
+    FROM things
+    WHERE branch IS NULL AND (deleted = 0 OR deleted IS NULL)
+    GROUP BY id
+  ) latest ON t.id = latest.id AND t.rowid = latest.max_rowid
+  ORDER BY t.id
+  LIMIT ${limit} OFFSET ${offset}
+`)
+
+// Window function example
+const rankedUsers = await this.ctx.db.all(sql`
+  SELECT *,
+    ROW_NUMBER() OVER (PARTITION BY type ORDER BY json_extract(data, '$.score') DESC) as rank
+  FROM things
+  WHERE type = ${userTypeId}
+`)
+
+// CTE for recursive queries
+const hierarchy = await this.ctx.db.all(sql`
+  WITH RECURSIVE tree AS (
+    SELECT id, json_extract(data, '$.parentId') as parent_id, 0 as depth
+    FROM things
+    WHERE id = ${rootId}
+    UNION ALL
+    SELECT t.id, json_extract(t.data, '$.parentId'), tree.depth + 1
+    FROM things t
+    JOIN tree ON t.id = tree.parent_id
+  )
+  SELECT * FROM tree
+`)
+
+// Migration example
+await this.ctx.db.run(sql`
+  CREATE INDEX IF NOT EXISTS things_data_email_idx
+  ON things(json_extract(data, '$.email'))
+`)
+```
+
+### Security: SQL Injection Prevention
+
+**Always use parameterized queries.** Never interpolate user input directly.
+
+```typescript
+// SAFE: Parameterized
+const safe = await this.ctx.db.all(
+  sql`SELECT * FROM things WHERE id = ${userInput}`
+)
+
+// UNSAFE: String interpolation
+const unsafe = await this.ctx.db.all(
+  sql`SELECT * FROM things WHERE id = '${userInput}'`  // DON'T DO THIS
+)
+
+// For dynamic column names, use whitelists
+import { validateOrderColumn, buildOrderClause } from 'db/stores'
+
+const column = validateOrderColumn(userInput)  // Throws if invalid
+const orderClause = buildOrderClause(column, 'desc')
+const ordered = await this.ctx.db.all(
+  sql`SELECT * FROM things ${orderClause}`
+)
+
+// For JSON paths, validate first
+import { buildSafeJsonPath } from 'db/stores'
+
+const jsonPath = buildSafeJsonPath(userInputPath)  // Validates and prefixes $.
+const filtered = await this.ctx.db.all(
+  sql`SELECT * FROM things WHERE json_extract(data, ${jsonPath}) = ${value}`
+)
+```
+
+### Benefits
+
+- **Maximum performance**: No ORM overhead
+- **Full SQLite features**: Window functions, CTEs, JSON operators
+- **Rowid access**: Required for versioning queries
+
+### Limitations
+
+- **No type safety**: Runtime errors for typos
+- **SQL injection risk**: Must validate all dynamic input
+- **Maintenance burden**: Schema changes require manual updates
+
+---
+
+## Pattern Comparison
+
+### Convenience vs Performance
+
+```
+More Convenient                                    More Performant
+     |                                                    |
+     v                                                    v
++-----------+    +-----------+    +-----------+    +-----------+
+|  DBProxy  | -> | ThingsStore| -> |  Drizzle  | -> |  Raw SQL  |
++-----------+    +-----------+    +-----------+    +-----------+
+  Fluent API      CRUD + Versions  Type-safe SQL    Full Control
+  NL Queries      Auto-sync        Joins/Aggs       Max Perf
+  Relations       JSON filters     Transactions     SQLite-specific
+```
+
+### Example: Same Query, Different Patterns
+
+**Goal:** Get active users with score > 50, ordered by score.
+
+```typescript
+// DBProxy - Most fluent
+const users = await db.User
+  .filter(u => u.data.status === 'active' && u.data.score > 50)
+  .orderBy('score', 'desc')
+
+// ThingsStore - Standard CRUD
+const users = await things.list({
+  type: 'User',
+  where: { 'data.status': 'active' },
+  orderBy: 'id',  // Limited ordering
+})
+
+// Drizzle - Type-safe SQL
+const users = await this.db
+  .select()
+  .from(schema.things)
+  .where(and(
+    eq(schema.things.type, userTypeId),
+    sql`json_extract(data, '$.status') = 'active'`,
+    sql`json_extract(data, '$.score') > 50`
+  ))
+  .orderBy(sql`json_extract(data, '$.score') DESC`)
+
+// Raw SQL - Maximum control
+const users = await this.ctx.db.all(sql`
+  SELECT rowid as version, *
+  FROM things
+  WHERE type = ${userTypeId}
+    AND json_extract(data, '$.status') = 'active'
+    AND json_extract(data, '$.score') > 50
+  ORDER BY json_extract(data, '$.score') DESC
+`)
+```
+
+---
+
+## Best Practices
+
+### 1. Start with ThingsStore
+
+For most CRUD operations, ThingsStore provides the right balance:
+
+```typescript
+// Default choice for entity operations
+const things = new ThingsStore(ctx)
+await things.create({ $type: 'User', name: 'Alice' })
+```
+
+### 2. Use DBProxy for Complex Queries
+
+When you need relationships or fluent chaining:
+
+```typescript
+// Relationship expansion
+const lead = await db.Lead.get(id).expand('company')
+```
+
+### 3. Drop to Drizzle for Joins/Aggregations
+
+When you need SQL features with type safety:
+
+```typescript
+// Aggregation
+const stats = await this.db
+  .select({ count: sql<number>`COUNT(*)` })
+  .from(schema.things)
+  .groupBy(schema.things.type)
+```
+
+### 4. Use Raw SQL for Performance-Critical Paths
+
+Only when benchmarks show a measurable difference:
+
+```typescript
+// Performance-critical version lookup
+const latest = await this.ctx.db.all(
+  sql`SELECT rowid, * FROM things WHERE id = ${id} ORDER BY rowid DESC LIMIT 1`
+)
+```
+
+### 5. Always Validate Dynamic Input
+
+```typescript
+// Validate user-provided column names
+const column = validateOrderColumn(userInput)
+
+// Validate user-provided JSON paths
+const path = buildSafeJsonPath(userInput)
+```
+
+---
+
+## Related
+
+- [Store Accessors](/docs/database/stores) - ThingsStore API reference
+- [Things & Versioning](/docs/database/things) - Version model details
+- [Database Proxy](/docs/database/proxy) - DBProxy API reference
+- [Query Engine](/docs/database/query-engine) - Advanced query primitives

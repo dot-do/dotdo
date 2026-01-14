@@ -1,0 +1,432 @@
+---
+title: Storage Hierarchy
+description: Complete guide to dotdo's tiered storage architecture - ThingsStore, R2, Parquet, and Iceberg
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Storage Hierarchy
+
+This document provides a unified view of dotdo's storage architecture, explaining how data flows through the system and when to use each layer.
+
+## Architecture Overview
+
+```
+                              DATA LIFECYCLE
+                                   |
+                                   v
+    +------------------------------------------------------------------+
+    |                                                                  |
+    |   APPLICATION LAYER                                              |
+    |   +-----------------------+                                      |
+    |   | ThingsStore           |  Typed CRUD for versioned entities   |
+    |   | RelationshipsStore    |  Entity connections                  |
+    |   | ActionsStore          |  Action logging                      |
+    |   | EventsStore           |  Event emission                      |
+    |   +-----------------------+                                      |
+    |              |                                                   |
+    +--------------|---------------------------------------------------+
+                   |
+                   v
+    +------------------------------------------------------------------+
+    |                                                                  |
+    |   HOT TIER: DO SQLite (~50ms)                                    |
+    |   +----------------------------------------------------------+   |
+    |   | - Active working set per Durable Object                  |   |
+    |   | - 10GB per shard                                         |   |
+    |   | - Strong consistency (single-writer)                     |   |
+    |   | - Automatic versioning                                   |   |
+    |   +----------------------------------------------------------+   |
+    |              |                                                   |
+    |              | Cloudflare Pipelines (streaming)                  |
+    |              v                                                   |
+    +------------------------------------------------------------------+
+                   |
+                   v
+    +------------------------------------------------------------------+
+    |                                                                  |
+    |   WARM TIER: R2 + Iceberg/Parquet (100-150ms)                    |
+    |   +----------------------------------------------------------+   |
+    |   | - Cross-DO queries                                       |   |
+    |   | - Historical data (Parquet files)                        |   |
+    |   | - Apache Iceberg catalog (metadata + snapshots)          |   |
+    |   | - Unlimited storage                                      |   |
+    |   | - $0 egress                                              |   |
+    |   +----------------------------------------------------------+   |
+    |              |                                                   |
+    |              | R2 SQL / Materialized Views                       |
+    |              v                                                   |
+    +------------------------------------------------------------------+
+                   |
+                   v
+    +------------------------------------------------------------------+
+    |                                                                  |
+    |   COLD TIER: ClickHouse + R2 Archive (variable)                  |
+    |   +----------------------------------------------------------+   |
+    |   | - Analytics and aggregations                             |   |
+    |   | - Pre-aggregated materialized views                      |   |
+    |   | - Time-series data                                       |   |
+    |   | - 10-20x compression                                     |   |
+    |   | - Pennies per TB                                         |   |
+    |   +----------------------------------------------------------+   |
+    |                                                                  |
+    +------------------------------------------------------------------+
+```
+
+## The Four Layers
+
+### 1. Store Accessors (Application Layer)
+
+The Store Accessors provide typed APIs that abstract the underlying storage:
+
+| Store | Purpose | Data Type |
+|-------|---------|-----------|
+| `ThingsStore` | Versioned entities with CRUD | Things (any entity) |
+| `RelationshipsStore` | Entity connections | Relationships (verb, from, to) |
+| `ActionsStore` | Action execution logs | Actions (pending, running, completed) |
+| `EventsStore` | Event emission/streaming | Events (verb, source, data) |
+| `SearchStore` | Full-text and semantic search | Indexed content |
+| `ObjectsStore` | DO registry across namespaces | DO references |
+
+```typescript
+import { ThingsStore, RelationshipsStore, EventsStore } from 'db/stores'
+
+// All stores share a context
+const ctx: StoreContext = {
+  db: this.db,
+  ns: this.ns,
+  currentBranch: 'main',
+  env,
+  typeCache: new Map(),
+}
+
+// Create store instances
+const things = new ThingsStore(ctx)
+const relationships = new RelationshipsStore(ctx)
+const events = new EventsStore(ctx)
+
+// CRUD operations
+const user = await things.create({
+  $type: 'User',
+  name: 'Alice',
+  data: { email: 'alice@example.com' }
+})
+
+// Automatic versioning
+await things.update(user.$id, { data: { status: 'premium' } })
+const versions = await things.versions(user.$id)
+```
+
+<Callout type="info">
+Store Accessors are your primary interface. They handle versioning, indexing, and automatic streaming to the warm tier.
+</Callout>
+
+### 2. Hot Tier: DO SQLite
+
+Every Durable Object has its own embedded SQLite database:
+
+```typescript
+export class Customer extends DO {
+  async getProfile() {
+    // Direct SQLite query - ~50ms
+    return this.db.get('profile')
+  }
+
+  async updateProfile(data: ProfileData) {
+    // Transactional write
+    // 1. New version written to SQLite
+    // 2. Old version streamed to Pipeline
+    await this.db.put('profile', data)
+  }
+}
+```
+
+**Characteristics:**
+
+| Metric | Value |
+|--------|-------|
+| Read latency | ~50ms |
+| Write latency | ~50ms |
+| Storage per DO | 10GB |
+| Consistency | Strong (single-writer) |
+| Location | Edge (300+ cities) |
+
+**Best for:**
+- Session state
+- Real-time data
+- Active records
+- Working sets (last 24 hours)
+
+### 3. Warm Tier: R2 + Iceberg + Parquet
+
+Historical data stored as Parquet files with Iceberg catalog:
+
+```
+R2 Bucket
+├── iceberg/
+│   ├── metadata/
+│   │   ├── metadata.json           # Current table state
+│   │   └── snapshots/              # Historical snapshots
+│   ├── manifests/
+│   │   ├── manifest-list-*.avro    # List of manifest files
+│   │   └── manifest-*.avro         # Data file listings
+│   └── data/
+│       ├── type=User/
+│       │   ├── dt=2024-01-01/
+│       │   │   └── data-001.parquet
+│       │   └── dt=2024-01-02/
+│       │       └── data-002.parquet
+│       └── type=Order/
+│           └── ...
+```
+
+#### Apache Parquet (Data Format)
+
+Parquet is a columnar storage format optimized for analytics:
+
+```typescript
+import { ParquetReader, readParquetFromR2 } from 'db/iceberg'
+
+// Read with column projection
+const records = await parquetReader.read(filePath, {
+  columns: ['id', 'esm', 'dts'],  // Only these columns
+  filter: (row) => row.id === targetId,
+  limit: 1
+})
+```
+
+**Benefits:**
+- 80% compression (1GB JSON -> 200MB Parquet)
+- Column projection (read only needed columns)
+- Predicate pushdown (filter at storage level)
+- Efficient for analytics queries
+
+#### Apache Iceberg (Table Format)
+
+Iceberg provides a catalog layer over Parquet files:
+
+```typescript
+import { IcebergReader } from 'db/iceberg'
+
+const reader = new IcebergReader(env.R2)
+
+// Point lookup via manifest navigation (50-150ms)
+const record = await reader.getRecord({
+  table: 'do_resources',
+  partition: { ns: 'payments.do', type: 'Function' },
+  id: 'charge'
+})
+
+// Time travel - query historical snapshot
+const oldRecord = await reader.getRecord({
+  table: 'do_resources',
+  partition: { ns: 'payments.do', type: 'Function' },
+  id: 'charge',
+  snapshotId: 1234567890  // Historical snapshot
+})
+```
+
+**Iceberg Features:**
+- ACID transactions
+- Time travel queries
+- Schema evolution
+- Partition pruning
+- Hidden partitioning
+
+**Navigation Chain (50-150ms total):**
+
+```
+metadata.json          (~10-50ms)
+    |
+    v
+current-snapshot-id
+    |
+    v
+manifest-list.avro     (~10-50ms)
+    |
+    v
+filter by partition (ns + type)
+    |
+    v
+manifest-file.avro     (~10-50ms)
+    |
+    v
+column stats (min/max, bloom filters)
+    |
+    v
+data-file.parquet      (~10-50ms, optional)
+```
+
+#### R2 Object Storage
+
+R2 provides the underlying storage with zero egress fees:
+
+```typescript
+import { createR2Store } from 'dotdo/cloudflare'
+
+const r2 = createR2Store(env.R2, {
+  tenant: this.ns,
+  publicUrl: 'https://files.example.com',
+})
+
+// Store large objects
+await r2.put('documents/report.pdf', pdfData, {
+  contentType: 'application/pdf',
+  customMetadata: { uploadedBy: userId }
+})
+
+// Multipart uploads for large files
+const upload = await env.R2.createMultipartUpload(key, options)
+await upload.uploadPart(1, chunk1)
+await upload.uploadPart(2, chunk2)
+await upload.complete(parts)
+```
+
+### 4. Cold Tier: ClickHouse + R2 Archive
+
+Pre-aggregated analytics with extreme compression:
+
+```typescript
+// Materialized views roll up raw events
+const dailyRevenue = await $.analytics(`
+  SELECT
+    toDate(hour) as day,
+    sum(total_amount) as revenue,
+    sum(unique_customers) as customers
+  FROM events_hourly
+  WHERE hour >= today() - 30
+  GROUP BY day
+  ORDER BY day
+`)
+
+// Cohort analysis on historical data
+const cohorts = await $.analytics(`
+  WITH first_purchase AS (
+    SELECT customer_id, min(toDate(timestamp)) as cohort_date
+    FROM events
+    WHERE event_type = 'purchase'
+    GROUP BY customer_id
+  )
+  SELECT cohort_date, weeks_since, count(distinct customer_id)
+  FROM events e JOIN first_purchase fp USING (customer_id)
+  GROUP BY cohort_date, dateDiff('week', cohort_date, e.timestamp)
+`)
+```
+
+**Storage Classes:**
+
+| Class | Use Case | Cost |
+|-------|----------|------|
+| R2 Standard | Last 90 days | $0.015/GB-mo |
+| R2 Infrequent | 90 days - 1 year | $0.01/GB-mo |
+| R2 Archive | 1+ years | $0.002/GB-mo |
+
+## How Data Flows
+
+### Write Path
+
+```
+1. Application calls ThingsStore.create()
+     |
+     v
+2. Store writes to DO SQLite (hot tier)
+     |
+     v
+3. Store emits event via EventsStore
+     |
+     v
+4. Event streams to Cloudflare Pipeline
+     |
+     v
+5. Pipeline batches events into Parquet files
+     |
+     v
+6. Parquet files written to R2 (warm tier)
+     |
+     v
+7. Iceberg catalog updated with new snapshot
+     |
+     v
+8. Materialized views update in ClickHouse (cold tier)
+```
+
+### Read Path
+
+```
+1. Application calls ThingsStore.get(id)
+     |
+     +---> Hot tier hit? Return from DO SQLite (~50ms)
+     |
+     +---> Miss? Check warm tier via IcebergReader (~150ms)
+             |
+             +---> Navigate Iceberg metadata
+             |
+             +---> Find Parquet file via manifest
+             |
+             +---> Read record from Parquet
+
+2. Application calls $.query() for cross-DO query
+     |
+     +---> Warm tier: R2 SQL over Iceberg tables (~500ms)
+
+3. Application calls $.analytics() for aggregations
+     |
+     +---> Cold tier: ClickHouse with materialized views
+```
+
+## Decision Matrix
+
+| Use Case | Tier | API | Latency |
+|----------|------|-----|---------|
+| Get current user profile | Hot | `things.get(id)` | ~50ms |
+| Update user settings | Hot | `things.update(id, data)` | ~50ms |
+| Find all premium users | Warm | `$.query('SELECT...')` | ~500ms |
+| Get user's version history | Warm | `reader.getRecord({snapshotId})` | ~150ms |
+| Daily revenue dashboard | Cold | `$.analytics('SELECT...')` | ~1s |
+| Yearly cohort analysis | Cold | `$.analytics('SELECT...')` | ~5s |
+| Upload large file | R2 | `r2.put(key, data)` | varies |
+| Stream video | R2 | `r2.get(key, {range})` | varies |
+
+## Cost Comparison
+
+| Component | Traditional (AWS) | dotdo |
+|-----------|-------------------|-------|
+| Hot storage (1TB) | $230/mo (RDS) | Included |
+| Warm storage (10TB) | $230/mo (S3) + $900 egress | $150/mo |
+| Cold storage (100TB) | $2,000/mo + compute | $200/mo |
+| Analytics egress | $0.09/GB | **$0** |
+
+A typical SaaS application saves 70-90% on storage costs.
+
+## Configuration
+
+Configure automatic tiering:
+
+```typescript
+export const storage = {
+  hot: {
+    retention: '24h',      // Keep last 24 hours in DO SQLite
+  },
+  warm: {
+    retention: '90d',      // Keep 90 days in Iceberg
+    compaction: 'daily',   // Compact Parquet files daily
+  },
+  cold: {
+    retention: 'forever',
+    storageClass: 'archive', // $0.002/GB-mo for old data
+    aggregations: [
+      { view: 'events_hourly', from: 'events', interval: '1 hour' },
+      { view: 'events_daily', from: 'events_hourly', interval: '1 day' },
+    ]
+  }
+}
+```
+
+## Related
+
+- [Hot Tier](/docs/storage/hot-tier) - DO SQLite details
+- [Warm Tier](/docs/storage/warm-tier) - R2 + Iceberg details
+- [Cold Tier](/docs/storage/cold-tier) - ClickHouse details
+- [R2 Storage](/docs/storage/r2) - Object storage API
+- [Store Accessors](/docs/database/stores) - ThingsStore API reference
+- [Iceberg Storage](/docs/database/iceberg) - IcebergReader API reference

@@ -496,19 +496,24 @@ const approved = await tom.approve(pullRequest)
 
 If you don't need the result, don't await. The agent works in the background.
 
-## Pipeline Execution
+## Chaining and Composition
 
-Agents compose with promise pipelining. One network round trip, not N.
+Agents compose through chaining with `.map()` for sequential operations:
 
 ```typescript
-// This is ONE batch operation
-const sprint = await priya`plan the sprint`
-  .map(issue => ralph`build ${issue}`)
+// Chain agents sequentially
+const result = await priya`plan the sprint`
+  .map(spec => ralph`build ${spec}`)
   .map(code => tom`review ${code}`)
-  .map(pr => tom`merge ${pr}`)
+
+// For parallel operations, use Promise.all
+const [spec, marketing] = await Promise.all([
+  priya`define the MVP`,
+  mark`draft marketing plan`
+])
 ```
 
-The `.map()` isn't JavaScript's array method. It's a **Magic Map** that records your callback, sends it to the server, and replays it for each result. All in one network round trip.
+The `.map()` on agent results transforms a single value (like `.then()`). For server-side Magic Map with batch execution, see the [RPC documentation](/docs/rpc/magic-map).
 
 ## Meet Your Team
 
@@ -538,13 +543,22 @@ The `.map()` isn't JavaScript's array method. It's a **Magic Map** that records 
 
 ## Human Escalation
 
-AI does the work. Humans make the decisions.
+AI does the work. Humans make the decisions. This is not an afterthought - it's a core pattern.
+
+Autonomous doesn't mean unsupervised. The best AI systems know their limits. When confidence drops, stakes rise, or judgment is required, agents escalate to humans.
 
 ```typescript
+import { priya, ralph, tom } from 'agents.do'
 import { legal, ceo } from 'humans.do'
 
-const approved = await ceo`approve the partnership`
+// AI builds, humans approve
+const spec = await priya`define MVP for ${hypothesis}`
+const app = await ralph`build ${spec}`
 
+// Human gate: CEO approves before launch
+const approved = await ceo`approve ${app} for production`
+
+// High-stakes trigger escalation
 const escalation = this.HumanFunction({
   trigger: 'refund > $10000',
   role: 'senior-accountant',
@@ -553,6 +567,10 @@ const escalation = this.HumanFunction({
 ```
 
 Messages route to Slack, email, SMS. Full audit trail. When the decision requires human judgment, the workflow pauses until a human responds.
+
+<Callout type="info">
+**AI + Human Collaboration is first-class.** Agents and humans share the same calling convention. Your workflow doesn't care who handles the task - just that it gets handled correctly. See the [Human-in-the-Loop guide](/docs/humans) for the full pattern.
+</Callout>
 
 ## Technical Foundation
 

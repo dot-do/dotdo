@@ -366,3 +366,46 @@ export {
   toolDefinitionToMcp,
   mcpToToolDefinition,
 } from './mcp'
+
+// Worker interfaces - implementation-agnostic contracts for Worker, Agent, Human
+export * from './Worker'
+export type {
+  // Core worker mode
+  WorkerMode,
+  // Core data types
+  Task,
+  TaskResult,
+  WorkerContext,
+  Answer,
+  Option,
+  Decision,
+  ApprovalRequest,
+  ApprovalResult,
+  NotificationChannel,
+  // IWorker interface
+  IWorker,
+  // Agent-specific types
+  AgentTool,
+  AgentGoal,
+  AgentGoalResult,
+  MemoryType,
+  AgentMemory,
+  // IAgent interface
+  IAgent,
+  // Human-specific types
+  NotificationPriority,
+  HumanNotificationChannel,
+  EscalationRule,
+  EscalationPolicy,
+  PendingApproval,
+  BlockingApprovalStatus,
+  BlockingApprovalRequest,
+  // IHuman interface
+  IHuman,
+} from './Worker'
+export {
+  // Type guards
+  isWorker,
+  isAgent,
+  isHuman,
+} from './Worker'

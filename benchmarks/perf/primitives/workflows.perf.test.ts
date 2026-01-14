@@ -21,7 +21,7 @@
  * | Load state | <5ms |
  * | Replay checkpoint | <20ms |
  *
- * @see workflows/compat/temporal/ for Temporal-compatible implementations
+ * @see @dotdo/compat-temporal for Temporal-compatible implementations (moved to compat repo)
  * @see benchmarks/lib for benchmark runner utilities
  */
 
