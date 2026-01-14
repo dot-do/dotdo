@@ -3147,22 +3147,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
   /**
    * Get list of registered nouns for the index.
-   * Override in subclasses to provide custom noun list.
+   * Returns undefined for permissive mode (any type allowed).
+   * Override in subclasses to restrict to specific types.
    */
-  protected getRegisteredNouns(): Array<{ noun: string; plural: string }> {
-    // Return cached nouns from typeCache
-    // This is populated as types are used
-    const nouns: Array<{ noun: string; plural: string }> = []
-    for (const [noun] of this._typeCache) {
-      // Simple pluralization (subclasses can override for complex cases)
-      const plural = noun.endsWith('y')
-        ? noun.slice(0, -1) + 'ies'
-        : noun.endsWith('s') || noun.endsWith('x') || noun.endsWith('ch') || noun.endsWith('sh')
-        ? noun + 'es'
-        : noun + 's'
-      nouns.push({ noun, plural })
-    }
-    return nouns
+  protected getRegisteredNouns(): Array<{ noun: string; plural: string }> | undefined {
+    return undefined // Permissive mode - any type allowed
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

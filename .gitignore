@@ -163,3 +163,7 @@ vite.config.ts.timestamp-*
 # Generated files
 worker-configuration.d.ts
 sandbox/
+
+# Parade database
+.parade/*.db
+.parade/*.db-*
