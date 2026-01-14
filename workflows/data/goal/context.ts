@@ -55,7 +55,7 @@ export interface GoalProgress {
 
 export interface GoalAlert {
   when: 'off-track' | 'achieved' | 'at-risk'
-  notify: (goal: any) => void | Promise<void>
+  notify: (goal: GoalProgress) => void | Promise<void>
 }
 
 export interface GoalHistory {
@@ -125,7 +125,7 @@ export interface MeasureAggregation {
 
 export interface TrackProxy {
   ratio: (numerator: string, denominator: string) => TrackRatio
-  [event: string]: TrackEvent | any
+  [event: string]: TrackEvent | ((numerator: string, denominator: string) => TrackRatio)
 }
 
 export interface TrackRatio {
@@ -145,8 +145,8 @@ export interface MockStorage {
   goals: StorageMap<Goal>
   alerts: StorageMap<StoredAlert[]>
   goalHistory: StorageMap<GoalHistory[]>
-  measures: StorageMap<any>
-  events: StorageMap<any>
+  measures: StorageMap<Record<string, unknown>>
+  events: StorageMap<Record<string, unknown>[]>
 }
 
 interface StorageMap<T> {
@@ -236,8 +236,8 @@ function createMeasureProxy(): MeasureProxy {
 // =============================================================================
 
 function createTrackProxy(): TrackProxy {
-  const handler: ProxyHandler<any> = {
-    get(_target, prop: string): any {
+  const handler: ProxyHandler<TrackProxy> = {
+    get(_target, prop: string): TrackEvent | ((numerator: string, denominator: string) => TrackRatio) {
       if (prop === 'ratio') {
         return (numerator: string, denominator: string): TrackRatio => ({
           reach(value: number): TargetExpression {
@@ -508,8 +508,8 @@ export function createGoalContext(): GoalContext {
     goals: createStorageMap<Goal>(),
     alerts: createStorageMap<StoredAlert[]>(),
     goalHistory: createStorageMap<GoalHistory[]>(),
-    measures: createStorageMap<any>(),
-    events: createStorageMap<any>(),
+    measures: createStorageMap<Record<string, unknown>>(),
+    events: createStorageMap<Record<string, unknown>[]>(),
   }
 
   const measure = createMeasureProxy()

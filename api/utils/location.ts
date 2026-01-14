@@ -30,7 +30,7 @@ export function getRegionFromColo(colo: string): string | null {
  * Returns null if cf object is missing.
  */
 export function extractLocation(request: Request): LocationInfo | null {
-  const cf = (request as any).cf
+  const cf = (request as unknown as { cf?: IncomingRequestCfProperties }).cf
   if (!cf) return null
 
   const colo = cf.colo || ''

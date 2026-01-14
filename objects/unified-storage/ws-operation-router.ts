@@ -161,29 +161,66 @@ export const ErrorCodes = {
 // ============================================================================
 
 /**
- * WSOperationRouter - Routes WebSocket messages to state manager operations
+ * WSOperationRouter - Routes WebSocket messages to state manager operations.
+ *
+ * This class is the bridge between WebSocket messages and the InMemoryStateManager.
+ * It parses incoming messages, validates them, routes to the appropriate operation,
+ * and sends responses back over the WebSocket.
+ *
+ * Key responsibilities:
+ * - JSON parsing with error handling
+ * - Operation routing based on message type
+ * - ACK generation with request correlation (id matching)
+ * - Error responses with proper codes
+ * - Optional event emission to PipelineEmitter for WAL durability
+ * - Batch operations with atomic rollback support
  *
  * @example
  * ```typescript
  * const router = new WSOperationRouter(stateManager, emitter)
  *
- * // Handle incoming WebSocket message
+ * // Handle incoming WebSocket message (string)
  * ws.addEventListener('message', async (event) => {
  *   await router.handleMessageString(event.data, ws)
  * })
+ *
+ * // Or handle parsed message directly
+ * const message = { type: 'create', requestId: '1', payload: { $type: 'Customer', name: 'Alice' } }
+ * await router.handleMessage(message, ws)
  * ```
  */
 export class WSOperationRouter {
+  /** The in-memory state manager for CRUD operations */
   private stateManager: InMemoryStateManager
+  /** Optional pipeline emitter for WAL durability */
   private emitter?: PipelineEmitter
 
+  /**
+   * Create a new WSOperationRouter instance.
+   *
+   * @param stateManager - The InMemoryStateManager for CRUD operations
+   * @param emitter - Optional PipelineEmitter for event emission (WAL durability)
+   */
   constructor(stateManager: InMemoryStateManager, emitter?: PipelineEmitter) {
     this.stateManager = stateManager
     this.emitter = emitter
   }
 
   /**
-   * Handle a JSON string message
+   * Handle a JSON string message from WebSocket.
+   *
+   * Parses the JSON string and routes to handleMessage. If parsing fails,
+   * sends an error response with PARSE_ERROR code.
+   *
+   * @param messageString - The raw JSON string from WebSocket
+   * @param ws - The WebSocket to send responses to
+   *
+   * @example
+   * ```typescript
+   * ws.addEventListener('message', async (event) => {
+   *   await router.handleMessageString(event.data, ws)
+   * })
+   * ```
    */
   async handleMessageString(messageString: string, ws: WebSocket): Promise<void> {
     let message: WSMessage
@@ -202,7 +239,20 @@ export class WSOperationRouter {
   }
 
   /**
-   * Main message handler - routes to appropriate handler based on type
+   * Main message handler - routes to appropriate handler based on message type.
+   *
+   * Routes messages to the appropriate handler:
+   * - `create` -> handleCreate (creates entity, emits event, sends ACK with $id)
+   * - `read` -> handleRead (reads entities, sends read_response with things map)
+   * - `update` -> handleUpdate (updates entity, emits event, sends ACK with $version)
+   * - `delete` -> handleDelete (deletes entity, emits event, sends ACK with success)
+   * - `batch` -> handleBatch (executes multiple ops, sends batch_response with results)
+   *
+   * Unknown message types receive an error response with UNKNOWN_TYPE code.
+   * Unexpected errors receive an error response with INTERNAL_ERROR code.
+   *
+   * @param message - The parsed WebSocket message
+   * @param ws - The WebSocket to send responses to
    */
   async handleMessage(message: WSMessage, ws: WebSocket): Promise<void> {
     try {
@@ -240,7 +290,14 @@ export class WSOperationRouter {
   }
 
   /**
-   * Handle create operation
+   * Handle create operation.
+   *
+   * Creates a new entity in the state manager. Validates that payload exists
+   * and contains a $type. On success, emits a 'thing.created' event (if emitter
+   * is configured) and sends an ACK with the new $id.
+   *
+   * @param ws - The WebSocket to send responses to
+   * @param message - The create message containing $type and data
    */
   private async handleCreate(ws: WebSocket, message: WSCreateMessage): Promise<void> {
     // Validate payload exists
@@ -286,7 +343,14 @@ export class WSOperationRouter {
   }
 
   /**
-   * Handle read operation
+   * Handle read operation.
+   *
+   * Reads entities from the state manager by ID. Returns a read_response
+   * containing a map of $id to entity (or null if not found). This is an
+   * O(1) operation that reads from memory only - SQLite is never touched.
+   *
+   * @param ws - The WebSocket to send responses to
+   * @param message - The read message containing $ids array
    */
   private async handleRead(ws: WebSocket, message: WSReadMessage): Promise<void> {
     const things: Record<string, ThingData | null> = {}
@@ -305,7 +369,15 @@ export class WSOperationRouter {
   }
 
   /**
-   * Handle update operation
+   * Handle update operation.
+   *
+   * Updates an existing entity in the state manager. On success, emits a
+   * 'thing.updated' event (if emitter is configured) and sends an ACK with
+   * the new $version. If the entity is not found, sends an error with
+   * NOT_FOUND code.
+   *
+   * @param ws - The WebSocket to send responses to
+   * @param message - The update message containing $id and data to merge
    */
   private async handleUpdate(ws: WebSocket, message: WSUpdateMessage): Promise<void> {
     try {
@@ -342,7 +414,14 @@ export class WSOperationRouter {
   }
 
   /**
-   * Handle delete operation
+   * Handle delete operation.
+   *
+   * Deletes an entity from the state manager. On success (even if entity
+   * didn't exist), emits a 'thing.deleted' event (if emitter is configured
+   * and entity existed) and sends an ACK with success: true.
+   *
+   * @param ws - The WebSocket to send responses to
+   * @param message - The delete message containing $id to delete
    */
   private async handleDelete(ws: WebSocket, message: WSDeleteMessage): Promise<void> {
     const result = this.stateManager.delete(message.$id)
@@ -360,7 +439,27 @@ export class WSOperationRouter {
   }
 
   /**
-   * Handle batch operations
+   * Handle batch operations.
+   *
+   * Executes multiple operations in a single message. Supports atomic mode
+   * where all operations are rolled back if any fails.
+   *
+   * Operations are executed in order. Results are collected and returned
+   * in a batch_response with an array of results corresponding to each
+   * operation.
+   *
+   * When `atomic: true` is set:
+   * - If any operation fails, all previously created entities are deleted
+   * - An error response with BATCH_FAILED code is sent
+   * - No partial results are returned
+   *
+   * When `atomic: false` (default):
+   * - Each operation is independent
+   * - Failed operations are recorded with success: false and error message
+   * - Successful operations are recorded normally
+   *
+   * @param ws - The WebSocket to send responses to
+   * @param message - The batch message containing operations array
    */
   private async handleBatch(ws: WebSocket, message: WSBatchMessage): Promise<void> {
     const results: WSBatchOperationResult[] = []

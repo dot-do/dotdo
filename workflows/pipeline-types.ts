@@ -51,5 +51,5 @@ export interface WorkflowProxyOptions {
  * Type guard to check if a value is a PipelinePromise
  */
 export function isPipelinePromise(value: unknown): value is PipelinePromise {
-  return value !== null && typeof value === 'object' && '__isPipelinePromise' in value && (value as any).__isPipelinePromise === true
+  return value !== null && typeof value === 'object' && '__isPipelinePromise' in value && (value as { __isPipelinePromise?: boolean }).__isPipelinePromise === true
 }

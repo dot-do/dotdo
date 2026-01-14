@@ -1020,7 +1020,7 @@ export class IntegrationsDO {
       return null
     }
 
-    const doId = vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId as any
+    const doId = vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId as unknown as DurableObjectId
     const stub = vaultDO.get(doId)
     const response = await stub.fetch(new Request(`http://vault/token/${linkedAccountId}`))
 
@@ -1048,7 +1048,7 @@ export class IntegrationsDO {
       return null
     }
 
-    const doId = vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId as any
+    const doId = vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId as unknown as DurableObjectId
     const stub = vaultDO.get(doId)
     const response = await stub.fetch(
       new Request(`http://vault/token/${linkedAccountId}/refresh`, { method: 'POST' }),

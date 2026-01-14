@@ -29,9 +29,32 @@ export interface IcebergMetadataV2 {
   'format-version': 2
   'table-uuid': string
   location: string
-  schemas: any[]
-  snapshots: any[]
+  schemas: IcebergSchemaV2[]
+  snapshots: IcebergSnapshotV2[]
   'current-snapshot-id': number
+}
+
+interface IcebergSchemaV2 {
+  'schema-id'?: number
+  type?: string
+  fields: IcebergFieldV2[]
+}
+
+interface IcebergFieldV2 {
+  id: number
+  name: string
+  required: boolean
+  type: string
+}
+
+interface IcebergSnapshotV2 {
+  'snapshot-id'?: number
+  snapshot_id?: number
+  'sequence-number'?: number
+  'timestamp-ms'?: number
+  summary?: Record<string, string>
+  'manifest-list'?: string
+  manifest_list?: string
 }
 
 export interface ManifestEntry {

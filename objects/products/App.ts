@@ -62,7 +62,7 @@ export class App extends DO {
    */
   async listSites(): Promise<{ doId: string; domain: string }[]> {
     const objects = await this.getLinkedObjects('child')
-    return objects.filter((o) => o.doClass === 'Site').map((o) => ({ doId: o.doId, domain: (o.data as any)?.domain || '' }))
+    return objects.filter((o) => o.doClass === 'Site').map((o) => ({ doId: o.doId, domain: (o.data as Record<string, unknown> | undefined)?.domain as string || '' }))
   }
 
   /**

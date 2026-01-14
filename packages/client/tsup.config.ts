@@ -11,6 +11,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     auth: 'src/auth.ts',
+    snippet: 'src/snippet/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

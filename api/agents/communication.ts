@@ -467,7 +467,7 @@ export class GraphMessageBus extends AgentMessageBus {
       timestamp: message.timestamp.toISOString(),
       metadata: message.metadata,
       replyTo: message.replyTo,
-      reason: message.type === 'handoff' ? (message.payload as any)?.reason : undefined,
+      reason: message.type === 'handoff' ? (message.payload as Record<string, unknown> | undefined)?.reason as string | undefined : undefined,
     })
 
     // Use parent implementation for in-memory handling

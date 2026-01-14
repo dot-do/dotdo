@@ -1896,7 +1896,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     // Write metadata.json with Iceberg format
     const metadataWithTimestamp = {
       ...snapshot.metadata,
-      snapshots: snapshot.metadata.snapshots.map((s: { snapshot_id: number; manifest_list: string }) => ({
+      snapshots: snapshot.metadata.snapshots.map((s) => ({
         ...s,
         'timestamp-ms': Date.now(),
       })),

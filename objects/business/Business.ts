@@ -121,7 +121,7 @@ export class Business extends DO {
    */
   async listApps(): Promise<{ doId: string; name: string }[]> {
     const objects = await this.getLinkedObjects('child')
-    return objects.filter((o) => o.doClass === 'App').map((o) => ({ doId: o.doId, name: (o.data as any)?.name || '' }))
+    return objects.filter((o) => o.doClass === 'App').map((o) => ({ doId: o.doId, name: (o.data as Record<string, unknown> | undefined)?.name as string || '' }))
   }
 
   /**

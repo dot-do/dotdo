@@ -8,6 +8,7 @@
  * - Partition key (_partition_hour) generation
  * - Transform functions
  * - Error handling with retries and exponential backoff
+ * - Unified event schema support via transformers
  *
  * @example
  * ```typescript
@@ -21,6 +22,15 @@
  * stream.emit('insert', 'users', { id: 1, name: 'Alice' })
  * stream.emit('update', 'users', { id: 1, name: 'Bob' })
  *
+ * // Send DO events (transformed to unified schema)
+ * await stream.sendEvent(doEvent)
+ *
+ * // Send DO actions (transformed to unified schema)
+ * await stream.sendAction(doAction)
+ *
+ * // Send pre-transformed unified events directly
+ * await stream.sendUnified(unifiedEvent)
+ *
  * // Flush at end of transaction
  * await stream.flush()
  *
@@ -28,6 +38,10 @@
  * await stream.close()
  * ```
  */
+
+import { transformDoEvent, type DoEventInput } from '../db/streams/transformers/do-event'
+import { transformDoAction, type ActionInput } from '../db/streams/transformers/do-action'
+import type { UnifiedEvent } from '../types/unified-event'
 
 // ============================================================================
 // TYPES
@@ -88,6 +102,8 @@ export interface StreamBridgeConfig {
   exponentialBackoff?: boolean
   /** Error handler for failed flushes after all retries */
   onError?: ErrorHandler
+  /** Namespace URL for unified event transformations */
+  namespace?: string
 }
 
 /**
@@ -168,18 +184,25 @@ async function sleep(_ms: number): Promise<void> {
 
 /**
  * StreamBridge - Bridges events to Cloudflare Pipelines with batching
+ *
+ * Supports both legacy StreamEvent format and unified event schema.
+ * Use sendEvent/sendAction for DO-specific events that need transformation,
+ * or sendUnified for pre-transformed events.
  */
 export class StreamBridge {
   private pipeline: Pipeline
   private _config: ResolvedStreamBridgeConfig
   private buffer: StreamEvent[] = []
+  private unifiedBuffer: UnifiedEvent[] = []
   private _bufferBytes: number = 0
   private flushTimer?: ReturnType<typeof setInterval>
   private _closed: boolean = false
   private flushPromise?: Promise<void>
+  private _namespace: string = ''
 
   constructor(pipeline: Pipeline, config?: StreamBridgeConfig) {
     this.pipeline = pipeline
+    this._namespace = config?.namespace ?? ''
 
     // Merge config with defaults and freeze
     const resolvedConfig: ResolvedStreamBridgeConfig = {
@@ -197,6 +220,27 @@ export class StreamBridge {
 
     // Start auto-flush timer
     this.startAutoFlush()
+  }
+
+  /**
+   * Get the namespace URL used for unified event transformations
+   */
+  get namespace(): string {
+    return this._namespace
+  }
+
+  /**
+   * Set the namespace URL for unified event transformations
+   */
+  set namespace(ns: string) {
+    this._namespace = ns
+  }
+
+  /**
+   * Get unified buffer size (number of unified events)
+   */
+  get unifiedBufferSize(): number {
+    return this.unifiedBuffer.length
   }
 
   /**
@@ -224,7 +268,7 @@ export class StreamBridge {
    * Check if there are pending events in the buffer
    */
   get pending(): boolean {
-    return this.buffer.length > 0
+    return this.buffer.length > 0 || this.unifiedBuffer.length > 0
   }
 
   /**
@@ -246,6 +290,11 @@ export class StreamBridge {
       this.flushTimer = setInterval(() => {
         if (this.buffer.length > 0) {
           this.flush().catch(() => {
+            // Errors handled internally
+          })
+        }
+        if (this.unifiedBuffer.length > 0) {
+          this.flushUnified().catch(() => {
             // Errors handled internally
           })
         }
@@ -424,13 +473,195 @@ export class StreamBridge {
       this.flushTimer = undefined
     }
 
-    // Flush remaining events
-    if (this.buffer.length > 0) {
+    // Flush remaining events (both legacy and unified)
+    if (this.buffer.length > 0 || this.unifiedBuffer.length > 0) {
       try {
         await this.flush()
+        await this.flushUnified()
       } catch {
         // Best effort flush on close - don't throw
       }
     }
   }
+
+  // ============================================================================
+  // UNIFIED EVENT METHODS
+  // ============================================================================
+
+  /**
+   * Send a DO event to the pipeline, transforming it to the unified schema.
+   *
+   * The event is transformed using transformDoEvent and added to the unified
+   * buffer. The namespace is used to qualify resource IDs and set the event's ns.
+   *
+   * @param event - The DO event to send
+   * @param ns - Optional namespace override (defaults to bridge's namespace)
+   *
+   * @example
+   * ```typescript
+   * await stream.sendEvent({
+   *   id: 'evt-123',
+   *   verb: 'signup',
+   *   source: 'Customer/cust-1',
+   *   sourceType: 'Customer',
+   *   data: { email: 'alice@example.com' },
+   *   createdAt: new Date(),
+   * })
+   * ```
+   */
+  async sendEvent(event: DoEventInput, ns?: string): Promise<void> {
+    if (this._closed) {
+      return
+    }
+
+    const namespace = ns ?? this._namespace
+    const unified = transformDoEvent(event, namespace)
+    this.unifiedBuffer.push(unified)
+
+    // Track bytes
+    const dataBytes = estimateBytes(unified)
+    this._bufferBytes += dataBytes
+
+    await this.maybeFlushUnified()
+  }
+
+  /**
+   * Send a DO action to the pipeline, transforming it to the unified schema.
+   *
+   * The action is transformed using transformDoAction. Only terminal action
+   * states (completed, failed) can be transformed - pending/in_progress actions
+   * will throw an error.
+   *
+   * @param action - The DO action to send
+   * @param ns - Optional namespace override (defaults to bridge's namespace)
+   *
+   * @example
+   * ```typescript
+   * await stream.sendAction({
+   *   id: 'act-123',
+   *   verb: 'create',
+   *   actor: 'Human/nathan',
+   *   target: 'Customer/cust-1',
+   *   durability: 'do',
+   *   status: 'completed',
+   *   startedAt: new Date('2024-01-15T10:00:00Z'),
+   *   completedAt: new Date('2024-01-15T10:00:01Z'),
+   * })
+   * ```
+   */
+  async sendAction(action: ActionInput, ns?: string): Promise<void> {
+    if (this._closed) {
+      return
+    }
+
+    const namespace = ns ?? this._namespace
+    const unified = transformDoAction(action, namespace)
+    this.unifiedBuffer.push(unified)
+
+    // Track bytes
+    const dataBytes = estimateBytes(unified)
+    this._bufferBytes += dataBytes
+
+    await this.maybeFlushUnified()
+  }
+
+  /**
+   * Send a pre-transformed unified event directly to the pipeline.
+   *
+   * Use this method when you have already transformed an event to the
+   * unified schema, or when using custom transformers.
+   *
+   * @param event - The unified event to send
+   *
+   * @example
+   * ```typescript
+   * import { createUnifiedEvent } from '../types/unified-event'
+   *
+   * const event = createUnifiedEvent({
+   *   id: 'evt-123',
+   *   event_type: 'track',
+   *   event_name: 'page.view',
+   *   ns: 'https://app.example.com',
+   *   http_url: '/dashboard',
+   * })
+   *
+   * await stream.sendUnified(event)
+   * ```
+   */
+  async sendUnified(event: UnifiedEvent): Promise<void> {
+    if (this._closed) {
+      return
+    }
+
+    this.unifiedBuffer.push(event)
+
+    // Track bytes
+    const dataBytes = estimateBytes(event)
+    this._bufferBytes += dataBytes
+
+    await this.maybeFlushUnified()
+  }
+
+  /**
+   * Check if unified buffer should be flushed based on size limits
+   */
+  private async maybeFlushUnified(): Promise<void> {
+    const totalBufferSize = this.buffer.length + this.unifiedBuffer.length
+
+    if (totalBufferSize >= this._config.batchSize || this._bufferBytes >= this._config.batchBytes) {
+      this.resetAutoFlush()
+      await this.flushUnified()
+    }
+  }
+
+  /**
+   * Flush all unified events to the pipeline
+   */
+  async flushUnified(): Promise<void> {
+    if (this.unifiedBuffer.length === 0) {
+      return
+    }
+
+    // Take and clear buffer atomically
+    const events = this.unifiedBuffer.slice()
+    this.unifiedBuffer = []
+
+    // Send with retries
+    let lastError: Error | undefined
+    let currentDelay = this._config.retryDelay
+
+    for (let attempt = 0; attempt < this._config.maxRetries; attempt++) {
+      try {
+        await this.pipeline.send(events)
+        return // Success
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+
+        // Wait before retry (except on last attempt)
+        if (attempt < this._config.maxRetries - 1) {
+          await sleep(currentDelay)
+
+          // Apply exponential backoff if enabled
+          if (this._config.exponentialBackoff) {
+            currentDelay *= 2
+          }
+        }
+      }
+    }
+
+    // Call error handler if all retries failed
+    if (this._config.onError && lastError) {
+      // Convert unified events to stream events for error handler compatibility
+      const streamEvents: StreamEvent[] = events.map(e => ({
+        operation: 'insert' as const,
+        table: e.event_type,
+        data: e,
+        timestamp: Date.now(),
+      }))
+      this._config.onError(lastError, streamEvents)
+    }
+  }
 }
+
+// Re-export types for unified event integration
+export type { DoEventInput, ActionInput, UnifiedEvent }

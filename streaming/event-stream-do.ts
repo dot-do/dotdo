@@ -233,6 +233,67 @@ try {
   }
 }
 
+import type { UnifiedEvent, EventType } from '../types/unified-event'
+import { safeValidateUnifiedEventLazy } from '../types/unified-event-schema'
+
+// ============================================================================
+// HOT TIER SCHEMA
+// ============================================================================
+
+/**
+ * SQL schema for unified events in the hot tier.
+ * Stores key queryable columns directly while keeping JSON payloads for flexibility.
+ */
+export const HOT_TIER_SCHEMA = `
+CREATE TABLE IF NOT EXISTS events (
+  -- Core Identity
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  ns TEXT NOT NULL,
+
+  -- Causality (indexed for joins)
+  trace_id TEXT,
+  span_id TEXT,
+  parent_id TEXT,
+  session_id TEXT,
+  correlation_id TEXT,
+
+  -- Key queryable columns
+  timestamp TEXT NOT NULL,
+  outcome TEXT,
+  http_url TEXT,
+  http_status INTEGER,
+  duration_ms REAL,
+
+  -- Service
+  service_name TEXT,
+
+  -- Vitals
+  vital_name TEXT,
+  vital_value REAL,
+  vital_rating TEXT,
+
+  -- Logging
+  log_level TEXT,
+  log_message TEXT,
+
+  -- Actor
+  actor_id TEXT,
+
+  -- JSON for the rest
+  data TEXT,
+  attributes TEXT,
+  properties TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace ON events(trace_id);
+CREATE INDEX IF NOT EXISTS idx_session ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_correlation ON events(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_type_time ON events(event_type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_ns_time ON events(ns, timestamp);
+`
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -486,17 +547,150 @@ class TokenBucket {
 }
 
 // ============================================================================
-// MOCK PGLITE
+// MOCK PGLITE - Unified Event Storage
 // ============================================================================
 
 /**
- * Simple in-memory database that mimics PGLite for event storage
+ * Internal unified event storage format for the hot tier.
+ * Extracts key fields for indexing while preserving full event data.
+ */
+export interface StoredUnifiedEvent {
+  // Core Identity
+  id: string
+  event_type: string
+  event_name: string
+  ns: string
+
+  // Causality
+  trace_id: string | null
+  span_id: string | null
+  parent_id: string | null
+  session_id: string | null
+  correlation_id: string | null
+
+  // Key queryable columns
+  timestamp: string
+  outcome: string | null
+  http_url: string | null
+  http_status: number | null
+  duration_ms: number | null
+
+  // Service
+  service_name: string | null
+
+  // Vitals
+  vital_name: string | null
+  vital_value: number | null
+  vital_rating: string | null
+
+  // Logging
+  log_level: string | null
+  log_message: string | null
+
+  // Actor
+  actor_id: string | null
+
+  // JSON for the rest
+  data: string | null
+  attributes: string | null
+  properties: string | null
+
+  // Legacy fields for backwards compatibility
+  topic?: string
+  type?: string
+  payload?: unknown
+}
+
+/**
+ * Converts a BroadcastEvent or UnifiedEvent to StoredUnifiedEvent format.
+ * Handles both legacy and new event formats.
+ */
+function toStoredUnifiedEvent(event: BroadcastEvent | Partial<UnifiedEvent>): StoredUnifiedEvent {
+  // Check if it's a legacy BroadcastEvent
+  const isLegacy = 'topic' in event && 'type' in event && 'payload' in event && !('event_type' in event)
+
+  if (isLegacy) {
+    const legacy = event as BroadcastEvent
+    return {
+      id: legacy.id,
+      event_type: legacy.type || 'broadcast',
+      event_name: legacy.type || 'broadcast',
+      ns: legacy.topic || 'default',
+      trace_id: null,
+      span_id: null,
+      parent_id: null,
+      session_id: null,
+      correlation_id: null,
+      timestamp: typeof legacy.timestamp === 'number'
+        ? new Date(legacy.timestamp).toISOString()
+        : legacy.timestamp?.toString() || new Date().toISOString(),
+      outcome: null,
+      http_url: null,
+      http_status: null,
+      duration_ms: null,
+      service_name: null,
+      vital_name: null,
+      vital_value: null,
+      vital_rating: null,
+      log_level: null,
+      log_message: null,
+      actor_id: null,
+      data: legacy.payload ? JSON.stringify(legacy.payload) : null,
+      attributes: null,
+      properties: null,
+      // Preserve legacy fields for backwards compatibility
+      topic: legacy.topic,
+      type: legacy.type,
+      payload: legacy.payload,
+    }
+  }
+
+  // Handle UnifiedEvent format
+  const unified = event as Partial<UnifiedEvent>
+  return {
+    id: unified.id!,
+    event_type: unified.event_type || 'trace',
+    event_name: unified.event_name || 'unknown',
+    ns: unified.ns || 'default',
+    trace_id: unified.trace_id || null,
+    span_id: unified.span_id || null,
+    parent_id: unified.parent_id || null,
+    session_id: unified.session_id || null,
+    correlation_id: unified.correlation_id || null,
+    timestamp: unified.timestamp || new Date().toISOString(),
+    outcome: unified.outcome || null,
+    http_url: unified.http_url || null,
+    http_status: unified.http_status || null,
+    duration_ms: unified.duration_ms || null,
+    service_name: unified.service_name || null,
+    vital_name: unified.vital_name || null,
+    vital_value: unified.vital_value || null,
+    vital_rating: unified.vital_rating || null,
+    log_level: unified.log_level || null,
+    log_message: unified.log_message || null,
+    actor_id: unified.actor_id || null,
+    data: unified.data ? JSON.stringify(unified.data) : null,
+    attributes: unified.attributes ? JSON.stringify(unified.attributes) : null,
+    properties: unified.properties ? JSON.stringify(unified.properties) : null,
+    // Map ns to topic for backwards compatibility
+    topic: unified.ns,
+    type: unified.event_type,
+  }
+}
+
+/**
+ * Simple in-memory database that mimics PGLite for event storage.
+ * Supports both legacy BroadcastEvent and new UnifiedEvent formats.
  */
 class MockPGLite {
-  private events: Map<string, BroadcastEvent> = new Map()
+  private events: Map<string, StoredUnifiedEvent> = new Map()
+  private schemaInitialized = false
 
   async exec(sql: string): Promise<void> {
-    // No-op for CREATE TABLE etc.
+    // Parse CREATE TABLE and CREATE INDEX statements
+    if (sql.includes('CREATE TABLE') || sql.includes('CREATE INDEX')) {
+      this.schemaInitialized = true
+    }
   }
 
   async query(sql: string, params: unknown[] = []): Promise<QueryResult> {
@@ -504,13 +698,17 @@ class MockPGLite {
 
     // Parse basic WHERE conditions
     const rows = events.filter((event) => {
-      // Handle timestamp filter
+      // Handle timestamp filter (both numeric and ISO string)
       if (sql.includes('timestamp >') && params.length > 0) {
         const idx = sql.indexOf('timestamp > $')
         if (idx !== -1) {
           const paramNum = parseInt(sql[idx + 13]) - 1
-          if (typeof params[paramNum] === 'number') {
-            if (event.timestamp <= (params[paramNum] as number)) return false
+          const paramValue = params[paramNum]
+          const eventTs = new Date(event.timestamp).getTime()
+          if (typeof paramValue === 'number') {
+            if (eventTs <= paramValue) return false
+          } else if (typeof paramValue === 'string') {
+            if (eventTs <= new Date(paramValue).getTime()) return false
           }
         }
       }
@@ -520,7 +718,20 @@ class MockPGLite {
         if (event.id !== params[0]) return false
       }
 
-      // Handle type filter
+      // Handle event_type filter (unified schema)
+      if (sql.match(/event_type\s*=\s*['"]?(\w+)['"]?/)) {
+        const match = sql.match(/event_type\s*=\s*['"]?(\w+)['"]?/)
+        if (match && event.event_type !== match[1]) return false
+      }
+      if (sql.includes('event_type = $') && params.length > 0) {
+        const idx = sql.match(/event_type = \$(\d+)/)
+        if (idx) {
+          const paramIdx = parseInt(idx[1]) - 1
+          if (event.event_type !== params[paramIdx]) return false
+        }
+      }
+
+      // Handle legacy type filter (backwards compatibility)
       if (sql.includes("type = 'order.created'") || (sql.includes("type = $") && params.includes('order.created'))) {
         if (!sql.includes("type = 'order.created'")) {
           const typeIdx = params.indexOf('order.created')
@@ -542,7 +753,82 @@ class MockPGLite {
         return false
       }
 
-      // Handle topic filter
+      // Handle ns filter (unified schema)
+      if (sql.match(/ns\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/ns\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.ns !== match[1]) return false
+      }
+
+      // Handle trace_id filter
+      if (sql.match(/trace_id\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/trace_id\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.trace_id !== match[1]) return false
+      }
+      if (sql.includes('trace_id = $') && params.length > 0) {
+        const idx = sql.match(/trace_id = \$(\d+)/)
+        if (idx) {
+          const paramIdx = parseInt(idx[1]) - 1
+          if (event.trace_id !== params[paramIdx]) return false
+        }
+      }
+
+      // Handle session_id filter
+      if (sql.match(/session_id\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/session_id\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.session_id !== match[1]) return false
+      }
+      if (sql.includes('session_id = $') && params.length > 0) {
+        const idx = sql.match(/session_id = \$(\d+)/)
+        if (idx) {
+          const paramIdx = parseInt(idx[1]) - 1
+          if (event.session_id !== params[paramIdx]) return false
+        }
+      }
+
+      // Handle correlation_id filter
+      if (sql.match(/correlation_id\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/correlation_id\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.correlation_id !== match[1]) return false
+      }
+      if (sql.includes('correlation_id = $') && params.length > 0) {
+        const idx = sql.match(/correlation_id = \$(\d+)/)
+        if (idx) {
+          const paramIdx = parseInt(idx[1]) - 1
+          if (event.correlation_id !== params[paramIdx]) return false
+        }
+      }
+
+      // Handle service_name filter
+      if (sql.match(/service_name\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/service_name\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.service_name !== match[1]) return false
+      }
+
+      // Handle log_level filter
+      if (sql.match(/log_level\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/log_level\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.log_level !== match[1]) return false
+      }
+
+      // Handle vital_name filter
+      if (sql.match(/vital_name\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/vital_name\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.vital_name !== match[1]) return false
+      }
+
+      // Handle http_status filter
+      if (sql.match(/http_status\s*=\s*(\d+)/)) {
+        const match = sql.match(/http_status\s*=\s*(\d+)/)
+        if (match && event.http_status !== parseInt(match[1])) return false
+      }
+
+      // Handle outcome filter
+      if (sql.match(/outcome\s*=\s*['"]([^'"]+)['"]/)) {
+        const match = sql.match(/outcome\s*=\s*['"]([^'"]+)['"]/)
+        if (match && event.outcome !== match[1]) return false
+      }
+
+      // Handle topic filter (legacy compatibility)
       if (sql.includes("topic = $") || sql.includes("topic = '")) {
         if (sql.includes("topic = 'orders'") && event.topic !== 'orders') return false
         if (sql.includes("topic = 'recovery'") && event.topic !== 'recovery') return false
@@ -550,16 +836,28 @@ class MockPGLite {
         if (sql.includes("topic = $1") && params[0] && event.topic !== params[0]) return false
       }
 
-      // Handle payload status filter
+      // Handle payload status filter (legacy)
       if (sql.includes("payload->>'status' = $") && params.length > 1) {
-        const status = (event.payload as Record<string, unknown>)?.status
+        const payload = event.payload as Record<string, unknown>
+        const status = payload?.status
         if (status !== params[1]) return false
       }
 
-      // Handle payload seq filter
+      // Handle payload seq filter (legacy)
       if (sql.includes("payload->>'seq' >= '5'")) {
-        const seq = (event.payload as Record<string, unknown>)?.seq
+        const payload = event.payload as Record<string, unknown>
+        const seq = payload?.seq
         if (typeof seq !== 'number' || seq < 5) return false
+      }
+
+      // Handle data JSON filter
+      if (sql.includes("data->>'") && event.data) {
+        const dataObj = JSON.parse(event.data)
+        const fieldMatch = sql.match(/data->>'(\w+)'\s*=\s*['"]?([^'")\s]+)['"]?/)
+        if (fieldMatch) {
+          const [, field, value] = fieldMatch
+          if (dataObj[field] !== value && dataObj[field] !== parseInt(value)) return false
+        }
       }
 
       return true
@@ -571,16 +869,20 @@ class MockPGLite {
     // Handle ORDER BY timestamp DESC
     if (sql.includes('ORDER BY timestamp DESC')) {
       rows.sort((a, b) => {
-        if (b.timestamp !== a.timestamp) return b.timestamp - a.timestamp
+        const aTs = new Date(a.timestamp).getTime()
+        const bTs = new Date(b.timestamp).getTime()
+        if (bTs !== aTs) return bTs - aTs
         // Same timestamp: later insertion = higher in DESC order
         return eventIds.indexOf(b.id) - eventIds.indexOf(a.id)
       })
     }
 
-    // Handle ORDER BY timestamp
+    // Handle ORDER BY timestamp (ASC)
     if (sql.includes('ORDER BY timestamp') && !sql.includes('DESC')) {
       rows.sort((a, b) => {
-        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp
+        const aTs = new Date(a.timestamp).getTime()
+        const bTs = new Date(b.timestamp).getTime()
+        if (aTs !== bTs) return aTs - bTs
         // Same timestamp: earlier insertion first
         return eventIds.indexOf(a.id) - eventIds.indexOf(b.id)
       })
@@ -595,27 +897,40 @@ class MockPGLite {
     // Handle COUNT(*) queries
     if (sql.includes('COUNT(*)')) {
       if (sql.includes('GROUP BY')) {
+        // Determine grouping column
+        const groupByMatch = sql.match(/GROUP BY\s+(\w+)/i)
+        const groupCol = groupByMatch ? groupByMatch[1] : 'event_type'
+
         // Aggregation query
         const groups = new Map<string, { count: number; total: number; users: Set<string> }>()
         for (const event of rows) {
-          const key = event.topic
+          const key = (event as any)[groupCol] || event.topic || 'unknown'
           if (!groups.has(key)) {
             groups.set(key, { count: 0, total: 0, users: new Set() })
           }
           const group = groups.get(key)!
           group.count++
-          if ((event.payload as Record<string, unknown>)?.amount) {
-            group.total += (event.payload as Record<string, unknown>).amount as number
+          // Handle legacy payload amounts
+          if (event.payload && typeof event.payload === 'object') {
+            const payload = event.payload as Record<string, unknown>
+            if (payload.amount) {
+              group.total += payload.amount as number
+            }
+            if (payload.userId) {
+              group.users.add(payload.userId as string)
+            }
           }
-          if ((event.payload as Record<string, unknown>)?.userId) {
-            group.users.add((event.payload as Record<string, unknown>).userId as string)
+          // Handle actor_id for unique users
+          if (event.actor_id) {
+            group.users.add(event.actor_id)
           }
         }
 
         const aggregatedRows: Record<string, unknown>[] = []
-        for (const [topic, data] of groups) {
+        for (const [key, data] of groups) {
           aggregatedRows.push({
-            topic,
+            [groupCol]: key,
+            topic: key,
             count: data.count,
             total: data.total,
             total_events: data.count,
@@ -624,11 +939,14 @@ class MockPGLite {
         }
         return { rows: aggregatedRows }
       }
-      // Non-grouped COUNT - also calculate unique_users if the query asks for it
+      // Non-grouped COUNT
       const users = new Set<string>()
       for (const event of rows) {
-        const userId = (event.payload as Record<string, unknown>)?.userId
-        if (userId) users.add(userId as string)
+        if (event.actor_id) users.add(event.actor_id)
+        if (event.payload && typeof event.payload === 'object') {
+          const payload = event.payload as Record<string, unknown>
+          if (payload.userId) users.add(payload.userId as string)
+        }
       }
       return { rows: [{ count: rows.length, total_events: rows.length, unique_users: users.size }] }
     }
@@ -636,59 +954,171 @@ class MockPGLite {
     return { rows }
   }
 
-  insert(event: BroadcastEvent): void {
-    this.events.set(event.id, event)
+  /**
+   * Insert an event (supports both legacy and unified formats)
+   */
+  insert(event: BroadcastEvent | Partial<UnifiedEvent>): void {
+    const stored = toStoredUnifiedEvent(event)
+    this.events.set(stored.id, stored)
   }
 
-  insertBatch(events: BroadcastEvent[]): void {
+  /**
+   * Insert a UnifiedEvent directly
+   */
+  insertUnified(event: Partial<UnifiedEvent>): void {
+    const stored = toStoredUnifiedEvent(event)
+    this.events.set(stored.id, stored)
+  }
+
+  /**
+   * Batch insert events
+   */
+  insertBatch(events: (BroadcastEvent | Partial<UnifiedEvent>)[]): void {
     for (const event of events) {
-      this.events.set(event.id, event)
+      this.insert(event)
     }
   }
 
+  /**
+   * Delete events older than the given timestamp
+   */
   deleteOlderThan(timestamp: number): void {
+    const cutoffDate = new Date(timestamp)
     for (const [id, event] of this.events) {
-      if (event.timestamp < timestamp) {
+      const eventTs = new Date(event.timestamp).getTime()
+      if (eventTs < timestamp) {
         this.events.delete(id)
       }
     }
   }
 
+  /**
+   * Get events after a specific event ID
+   */
   getEventAfter(eventId: string, topic?: string): BroadcastEvent[] {
     const events = Array.from(this.events.values())
     const targetEvent = this.events.get(eventId)
     if (!targetEvent) return []
 
-    // Find index of target event in insertion order
+    const targetTs = new Date(targetEvent.timestamp).getTime()
     const eventIds = Array.from(this.events.keys())
     const targetIdx = eventIds.indexOf(eventId)
 
     return events
-      .filter((e, idx) => {
-        // Skip events that were inserted before or at the target
+      .filter((e) => {
         const eventIdx = eventIds.indexOf(e.id)
         if (eventIdx <= targetIdx) return false
-        // Also check timestamp for proper ordering when timestamps differ
-        if (e.timestamp < targetEvent.timestamp) return false
-        if (topic && e.topic !== topic) return false
+        const eventTs = new Date(e.timestamp).getTime()
+        if (eventTs < targetTs) return false
+        if (topic && e.topic !== topic && e.ns !== topic) return false
         return true
       })
       .sort((a, b) => {
-        // Primary sort by timestamp, secondary by insertion order
-        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp
+        const aTs = new Date(a.timestamp).getTime()
+        const bTs = new Date(b.timestamp).getTime()
+        if (aTs !== bTs) return aTs - bTs
         return eventIds.indexOf(a.id) - eventIds.indexOf(b.id)
       })
+      .map((e) => this.toOutputEvent(e))
   }
 
+  /**
+   * Get events after a specific timestamp
+   */
   getEventsAfterTimestamp(timestamp: number, topic?: string): BroadcastEvent[] {
     const events = Array.from(this.events.values())
     return events
       .filter((e) => {
-        if (e.timestamp <= timestamp) return false
-        if (topic && e.topic !== topic) return false
+        const eventTs = new Date(e.timestamp).getTime()
+        if (eventTs <= timestamp) return false
+        if (topic && e.topic !== topic && e.ns !== topic) return false
         return true
       })
-      .sort((a, b) => a.timestamp - b.timestamp)
+      .sort((a, b) => {
+        const aTs = new Date(a.timestamp).getTime()
+        const bTs = new Date(b.timestamp).getTime()
+        return aTs - bTs
+      })
+      .map((e) => this.toOutputEvent(e))
+  }
+
+  /**
+   * Query unified events with filters
+   */
+  queryUnified(filters: {
+    event_type?: string
+    trace_id?: string
+    session_id?: string
+    correlation_id?: string
+    ns?: string
+    service_name?: string
+    log_level?: string
+    timestamp_after?: string
+    limit?: number
+  }): StoredUnifiedEvent[] {
+    let results = Array.from(this.events.values())
+
+    if (filters.event_type) {
+      results = results.filter((e) => e.event_type === filters.event_type)
+    }
+    if (filters.trace_id) {
+      results = results.filter((e) => e.trace_id === filters.trace_id)
+    }
+    if (filters.session_id) {
+      results = results.filter((e) => e.session_id === filters.session_id)
+    }
+    if (filters.correlation_id) {
+      results = results.filter((e) => e.correlation_id === filters.correlation_id)
+    }
+    if (filters.ns) {
+      results = results.filter((e) => e.ns === filters.ns)
+    }
+    if (filters.service_name) {
+      results = results.filter((e) => e.service_name === filters.service_name)
+    }
+    if (filters.log_level) {
+      results = results.filter((e) => e.log_level === filters.log_level)
+    }
+    if (filters.timestamp_after) {
+      const afterTs = new Date(filters.timestamp_after).getTime()
+      results = results.filter((e) => new Date(e.timestamp).getTime() > afterTs)
+    }
+
+    // Sort by timestamp DESC
+    results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+    if (filters.limit) {
+      results = results.slice(0, filters.limit)
+    }
+
+    return results
+  }
+
+  /**
+   * Convert stored event to output format (backwards compatible)
+   */
+  private toOutputEvent(stored: StoredUnifiedEvent): BroadcastEvent {
+    return {
+      id: stored.id,
+      type: stored.type || stored.event_type,
+      topic: stored.topic || stored.ns,
+      payload: stored.payload || (stored.data ? JSON.parse(stored.data) : {}),
+      timestamp: new Date(stored.timestamp).getTime(),
+    }
+  }
+
+  /**
+   * Get all stored unified events (for testing)
+   */
+  getAllUnifiedEvents(): StoredUnifiedEvent[] {
+    return Array.from(this.events.values())
+  }
+
+  /**
+   * Get event count
+   */
+  getEventCount(): number {
+    return this.events.size
   }
 }
 
@@ -850,15 +1280,8 @@ export class EventStreamDO extends DurableObject {
   }
 
   private async initDatabase(): Promise<void> {
-    await this._db.exec(`
-      CREATE TABLE IF NOT EXISTS events (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        topic TEXT NOT NULL,
-        payload JSONB,
-        timestamp BIGINT NOT NULL
-      )
-    `)
+    // Use the unified event schema for the hot tier
+    await this._db.exec(HOT_TIER_SCHEMA)
   }
 
   // Helper methods to handle both real Cloudflare Workers state and mock state
@@ -942,6 +1365,18 @@ export class EventStreamDO extends DurableObject {
 
     if (path === '/query' && request.method === 'POST') {
       return this.handleQueryEndpoint(request)
+    }
+
+    if (path === '/query/unified' && request.method === 'POST') {
+      return this.handleUnifiedQueryEndpoint(request)
+    }
+
+    if (path === '/query/trace' && request.method === 'GET') {
+      return this.handleTraceQueryEndpoint(url)
+    }
+
+    if (path === '/query/session' && request.method === 'GET') {
+      return this.handleSessionQueryEndpoint(url)
     }
 
     if (path === '/metrics') {
@@ -1116,20 +1551,89 @@ export class EventStreamDO extends DurableObject {
   }
 
   private async handleBroadcastEndpoint(request: Request): Promise<Response> {
-    const body = await request.json() as { topic: string; event: Partial<BroadcastEvent> }
-    const { topic, event } = body
-
-    const fullEvent: BroadcastEvent = {
-      id: event.id || generateId(),
-      type: event.type || 'broadcast',
-      topic: topic || event.topic || 'default',
-      payload: event.payload || {},
-      timestamp: event.timestamp || Date.now(),
+    const body = await request.json() as {
+      topic?: string
+      event?: Partial<BroadcastEvent>
+      // UnifiedEvent fields
+      id?: string
+      event_type?: EventType
+      event_name?: string
+      ns?: string
+      [key: string]: unknown
     }
 
-    await this.broadcastToTopic(topic, fullEvent)
+    // Check if this is a UnifiedEvent (has event_type field)
+    if (body.event_type || body.event_name) {
+      return this.handleUnifiedBroadcast(body as Partial<UnifiedEvent>)
+    }
+
+    // Legacy BroadcastEvent format
+    const { topic, event } = body as { topic: string; event: Partial<BroadcastEvent> }
+
+    const fullEvent: BroadcastEvent = {
+      id: event?.id || generateId(),
+      type: event?.type || 'broadcast',
+      topic: topic || event?.topic || 'default',
+      payload: event?.payload || {},
+      timestamp: event?.timestamp || Date.now(),
+    }
+
+    await this.broadcastToTopic(topic || fullEvent.topic, fullEvent)
 
     return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  /**
+   * Handle broadcasting of UnifiedEvent format
+   */
+  private async handleUnifiedBroadcast(event: Partial<UnifiedEvent>): Promise<Response> {
+    // Validate with lazy schema (only core fields required)
+    const validation = safeValidateUnifiedEventLazy({
+      id: event.id || generateId(),
+      event_type: event.event_type || 'trace',
+      event_name: event.event_name || 'unknown',
+      ns: event.ns || 'default',
+      ...event,
+    })
+
+    if (!validation.success) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Invalid UnifiedEvent',
+        details: validation.error.issues,
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const unifiedEvent = validation.data
+
+    // Store in hot tier
+    this._db.insertUnified(unifiedEvent)
+
+    // Broadcast to subscribers (use ns as topic)
+    const topic = unifiedEvent.ns
+    const broadcastEvent: BroadcastEvent = {
+      id: unifiedEvent.id,
+      type: unifiedEvent.event_type,
+      topic: topic,
+      payload: unifiedEvent,
+      timestamp: unifiedEvent.timestamp
+        ? new Date(unifiedEvent.timestamp).getTime()
+        : Date.now(),
+    }
+
+    await this.broadcastToTopic(topic, broadcastEvent)
+
+    return new Response(JSON.stringify({
+      success: true,
+      id: unifiedEvent.id,
+      event_type: unifiedEvent.event_type,
+    }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -1163,6 +1667,82 @@ export class EventStreamDO extends DurableObject {
         headers: { 'Content-Type': 'application/json' },
       })
     }
+  }
+
+  /**
+   * Handle unified event queries with structured filters
+   */
+  private async handleUnifiedQueryEndpoint(request: Request): Promise<Response> {
+    const body = await request.json() as {
+      event_type?: string
+      trace_id?: string
+      session_id?: string
+      correlation_id?: string
+      ns?: string
+      service_name?: string
+      log_level?: string
+      timestamp_after?: string
+      limit?: number
+    }
+
+    try {
+      const events = this._db.queryUnified(body)
+      return new Response(JSON.stringify({ events, count: events.length }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    } catch (error) {
+      return new Response(JSON.stringify({ error: (error as Error).message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+  }
+
+  /**
+   * Handle trace correlation queries
+   */
+  private handleTraceQueryEndpoint(url: URL): Response {
+    const traceId = url.searchParams.get('trace_id')
+    if (!traceId) {
+      return new Response(JSON.stringify({ error: 'trace_id is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const events = this._db.queryUnified({ trace_id: traceId })
+    return new Response(JSON.stringify({
+      trace_id: traceId,
+      events,
+      count: events.length,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  /**
+   * Handle session correlation queries
+   */
+  private handleSessionQueryEndpoint(url: URL): Response {
+    const sessionId = url.searchParams.get('session_id')
+    if (!sessionId) {
+      return new Response(JSON.stringify({ error: 'session_id is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const events = this._db.queryUnified({ session_id: sessionId })
+    return new Response(JSON.stringify({
+      session_id: sessionId,
+      events,
+      count: events.length,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   private handleMetricsEndpoint(request: Request): Response {
@@ -1848,6 +2428,112 @@ export class EventStreamDO extends DurableObject {
         liveQuery.callback(result)
       }
     }
+  }
+
+  // ============================================================================
+  // UNIFIED EVENT QUERIES
+  // ============================================================================
+
+  /**
+   * Query unified events with structured filters
+   */
+  queryUnifiedEvents(filters: {
+    event_type?: EventType
+    trace_id?: string
+    session_id?: string
+    correlation_id?: string
+    ns?: string
+    service_name?: string
+    log_level?: string
+    timestamp_after?: string
+    limit?: number
+  }): StoredUnifiedEvent[] {
+    return this._db.queryUnified(filters)
+  }
+
+  /**
+   * Get all events for a specific trace
+   */
+  getTraceEvents(traceId: string): StoredUnifiedEvent[] {
+    return this._db.queryUnified({ trace_id: traceId })
+  }
+
+  /**
+   * Get all events for a specific session
+   */
+  getSessionEvents(sessionId: string): StoredUnifiedEvent[] {
+    return this._db.queryUnified({ session_id: sessionId })
+  }
+
+  /**
+   * Get all events with a specific correlation ID
+   */
+  getCorrelatedEvents(correlationId: string): StoredUnifiedEvent[] {
+    return this._db.queryUnified({ correlation_id: correlationId })
+  }
+
+  /**
+   * Broadcast a UnifiedEvent (public method)
+   */
+  async broadcastUnifiedEvent(event: Partial<UnifiedEvent>): Promise<void> {
+    const id = event.id || generateId()
+    const eventType = event.event_type || 'trace'
+    const eventName = event.event_name || 'unknown'
+    const ns = event.ns || 'default'
+    const timestamp = event.timestamp || new Date().toISOString()
+
+    // Check deduplication
+    if (this.isDuplicate(ns, id)) {
+      this.dedupStats.deduplicatedCount++
+      return
+    }
+    this.dedupStats.uniqueCount++
+
+    // Store in hot tier with full unified event data
+    this._db.insertUnified({
+      ...event,
+      id,
+      event_type: eventType,
+      event_name: eventName,
+      ns,
+      timestamp,
+    })
+
+    // Update topic stats
+    const stats = this.topicStats.get(ns)
+    if (stats) {
+      stats.messageCount++
+      stats.lastMessageAt = Date.now()
+    }
+
+    // Broadcast to subscribers (without storing again)
+    const broadcastEvent: BroadcastEvent = {
+      id,
+      type: eventType,
+      topic: ns,
+      payload: event,
+      timestamp: typeof timestamp === 'string' ? new Date(timestamp).getTime() : Date.now(),
+    }
+
+    // Fan out to subscribers directly (skip storage in broadcastToTopic)
+    await this.fanOutToSubscribers(ns, broadcastEvent)
+
+    // Notify live query subscribers
+    await this.notifyLiveQuerySubscribers(broadcastEvent)
+  }
+
+  /**
+   * Get event count in hot tier
+   */
+  getHotTierEventCount(): number {
+    return this._db.getEventCount()
+  }
+
+  /**
+   * Get all unified events (for testing/debugging)
+   */
+  getAllUnifiedEvents(): StoredUnifiedEvent[] {
+    return this._db.getAllUnifiedEvents()
   }
 
   // ============================================================================

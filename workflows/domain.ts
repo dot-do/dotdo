@@ -14,6 +14,7 @@
  * Handlers receive: context, args, and the $ workflow API.
  */
 // biome-ignore lint/suspicious/noExplicitAny: Handler functions can accept any context/args
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type HandlerFunction<TContext = any, TArgs = any, TResult = any> = (
   context: TContext,
   args: TArgs,

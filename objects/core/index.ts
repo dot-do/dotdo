@@ -18,6 +18,7 @@
  * - Router: HTTP routing with Hono
  * - IcebergManager: R2-based state persistence with auto-checkpoint
  * - LocationManager: Cloudflare location detection and caching
+ * - IntrospectionManager: Schema introspection with role-based filtering
  */
 
 // Identity management
@@ -80,6 +81,16 @@ export {
   type LocationDetectedCallback,
   type LocationManagerDeps,
 } from './LocationManager'
+
+// Schema introspection
+export {
+  IntrospectionManager,
+  createIntrospectionManager,
+  type IntrospectionManagerDeps,
+  type DOClassMetadata,
+  type McpConfig,
+  type RestConfig,
+} from './IntrospectionManager'
 
 // ============================================================================
 // DO BASE CLASSES

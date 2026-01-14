@@ -381,8 +381,240 @@ npx vitest run objects/unified-storage/cold-start-recovery.test.ts
 npx vitest run objects/unified-storage/unified-store-do.test.ts
 ```
 
+## WebSocket Components
+
+The Unified Storage architecture includes a complete WebSocket layer for real-time communication. WebSocket messages are **20:1 cheaper** than HTTP requests ($0.0075/M vs $0.15/M messages).
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    WEBSOCKET ARCHITECTURE                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Client                                                          │
+│    │                                                             │
+│    ▼                                                             │
+│  WSConnectionManager ◄── Handles upgrade, sessions, hibernation  │
+│    │                                                             │
+│    ▼                                                             │
+│  WSOperationRouter ◄──── Routes messages to state manager        │
+│    │                                                             │
+│    ├──► InMemoryStateManager (CRUD operations)                   │
+│    │                                                             │
+│    ▼                                                             │
+│  WSBroadcaster ◄──────── Fan-out updates to subscribers          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### WSProtocol
+
+Message types and serialization for WebSocket communication.
+
+```typescript
+import { WSProtocol } from './ws-protocol'
+
+// Create messages using factory methods
+const createMsg = WSProtocol.createMessage('Customer', { name: 'Alice' })
+const readMsg = WSProtocol.readMessage(['customer_123', 'customer_456'])
+const updateMsg = WSProtocol.updateMessage('customer_123', { name: 'Alice Smith' })
+const deleteMsg = WSProtocol.deleteMessage('customer_123')
+const batchMsg = WSProtocol.batchMessage([createMsg, updateMsg])
+const subscribeMsg = WSProtocol.subscribeMessage('Customer.*')
+
+// Serialize/deserialize
+const json = WSProtocol.serialize(createMsg)
+const message = WSProtocol.deserialize(json)
+
+// Type guards
+if (WSProtocol.isCreateMessage(message)) {
+  console.log('Creating:', message.$type)
+}
+
+// Create responses
+const ack = WSProtocol.ackResponse('msg-123', { $id: 'customer_123', $version: 1 })
+const error = WSProtocol.errorResponse('msg-123', 'NOT_FOUND', 'Entity not found')
+```
+
+**Message Types:**
+- `create` - Create a new thing
+- `read` - Read one or more things by ID
+- `update` - Update an existing thing
+- `delete` - Delete a thing
+- `batch` - Group multiple operations
+- `subscribe` - Subscribe to real-time updates
+- `unsubscribe` - Cancel a subscription
+
+**Response Types:**
+- `ack` - Acknowledgement for mutations
+- `read_response` - Data response for reads
+- `error` - Error response with code and message
+- `subscription_update` - Real-time update notification
+
+### WSConnectionManager
+
+Manages hibernatable WebSocket connections with session tracking.
+
+```typescript
+import { WSConnectionManager } from './ws-connection-manager'
+
+const manager = new WSConnectionManager(ctx, {
+  maxConnections: 10000,    // Connection limit
+  pingInterval: 30000,      // Ping every 30s
+  sessionTimeout: 300000,   // 5 minute timeout
+})
+
+// Handle WebSocket upgrade
+const response = await manager.handleUpgrade(request, {
+  userId: 'user_123',
+  topics: ['orders', 'notifications']
+})
+
+// Broadcast to all connections
+await manager.broadcast(JSON.stringify({ type: 'announcement', data: {} }))
+
+// Broadcast to specific topic
+await manager.broadcastToTopic('orders', JSON.stringify({ type: 'order.created' }))
+
+// Manage subscriptions
+manager.subscribe(sessionId, ['new-topic'])
+manager.unsubscribe(sessionId, ['old-topic'])
+
+// Get statistics
+const stats = manager.getStats()
+// => { totalConnections: 42, activeConnections: 42, topicCounts: { orders: 10 } }
+
+// Hibernation support
+const state = manager.getSerializableState()
+await manager.restoreFromHibernation(state)
+```
+
+**Key Features:**
+- Hibernatable connections (zero cost when idle)
+- Session state management
+- Topic-based subscriptions
+- Connection limits with 503 responses
+- Automatic ping/pong handling
+
+### WSOperationRouter
+
+Routes WebSocket messages to state manager operations.
+
+```typescript
+import { WSOperationRouter, ErrorCodes } from './ws-operation-router'
+
+const router = new WSOperationRouter(stateManager, emitter)
+
+// Handle incoming WebSocket message
+ws.addEventListener('message', async (event) => {
+  await router.handleMessageString(event.data, ws)
+})
+
+// Or handle parsed message directly
+await router.handleMessage(parsedMessage, ws)
+```
+
+**Supported Operations:**
+- `create` - Validates $type, creates entity, emits event, sends ACK
+- `read` - Returns map of $id to thing (or null)
+- `update` - Updates entity, emits event, sends ACK with new $version
+- `delete` - Deletes entity, emits event, sends ACK
+- `batch` - Executes multiple operations with optional atomic mode
+
+**Error Codes:**
+- `VALIDATION_ERROR` - Invalid message structure
+- `NOT_FOUND` - Entity not found
+- `PARSE_ERROR` - Invalid JSON
+- `UNKNOWN_TYPE` - Unknown message type
+- `INTERNAL_ERROR` - Unexpected error
+- `BATCH_FAILED` - Atomic batch failed
+
+### WSBroadcaster
+
+Efficient fan-out of updates to subscribed WebSocket clients.
+
+```typescript
+import { WSBroadcaster } from './ws-broadcaster'
+
+const broadcaster = new WSBroadcaster({
+  eventStore: myEventStore,      // For backfill
+  batchSize: 100,                // Batch fan-out
+  yieldEvery: 10,                // Yield for fairness
+  maxQueueSize: 100,             // Per-client queue
+  dropPolicy: 'oldest',          // Drop oldest on overflow
+  coalesceWindowMs: 100,         // Coalesce rapid updates
+  maxCoalesceDelayMs: 1000,      // Max coalesce delay
+})
+
+// Subscribe client to type
+const sub = broadcaster.subscribe(ws, { $type: 'Customer' })
+
+// Subscribe to specific entity
+broadcaster.subscribe(ws, { $id: 'customer_123' })
+
+// Subscribe to all (wildcard)
+broadcaster.subscribe(ws, { wildcard: true })
+
+// Subscribe with options
+broadcaster.subscribe(ws, {
+  $type: 'Order',
+  includePayload: true,          // Include full entity in messages
+  backfill: true,                // Receive historical events
+  backfillLimit: 100,            // Max backfill events
+  coalesce: false,               // Disable coalescing for this sub
+})
+
+// Broadcast an event
+await broadcaster.broadcast({
+  type: 'thing.created',
+  entityId: 'customer_123',
+  entityType: 'Customer',
+  payload: { $id: 'customer_123', $type: 'Customer', name: 'Alice' },
+  ts: Date.now(),
+  version: 1,
+})
+
+// Unsubscribe
+broadcaster.unsubscribe(ws, sub.id)
+
+// Handle disconnect
+broadcaster.handleDisconnect(ws)
+
+// Get statistics
+const stats = broadcaster.getStats()
+// => { totalSubscriptions: 50, totalClients: 10, totalBroadcasts: 1000 }
+
+// Error handling
+broadcaster.onError((client, error) => {
+  console.error('Client error:', error)
+})
+
+// Cleanup
+await broadcaster.close()
+```
+
+**Subscription Patterns:**
+- `$type` - Subscribe to all entities of a type
+- `$id` - Subscribe to a specific entity
+- `wildcard` - Subscribe to all updates
+
+**Backpressure Handling:**
+- Per-client message queues
+- Configurable queue size
+- Drop policy (oldest/newest)
+- Auto-disconnect on too many drops
+
+**Message Coalescing:**
+- Combines rapid updates within a window
+- First message delivered immediately
+- Subsequent updates coalesced
+- Coalesced message includes count
+
 ## See Also
 
 - [CLAUDE.md](../../CLAUDE.md) - Project overview
 - [Pipeline Emitter Tests](./pipeline-emitter.test.ts) - Usage examples
 - [DO Base](../DOBase.ts) - Base Durable Object class
+- [WebSocket Protocol Spec](./docs/ws-protocol-spec.md) - Detailed protocol specification
+- [WebSocket Integration Example](./examples/websocket-integration.ts) - Complete client example

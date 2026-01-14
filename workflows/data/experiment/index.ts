@@ -53,7 +53,7 @@ export interface ExperimentDefinition {
   variants: string[]
   weights?: number[]
   goal: Goal
-  audience?: (user: any) => boolean
+  audience?: (user: Record<string, unknown>) => boolean
   duration?: string
   minSampleSize?: number
   status: ExperimentStatus
@@ -101,7 +101,7 @@ export interface ExperimentDefineOptions {
   variants: string[]
   weights?: number[]
   goal: Goal
-  audience?: (user: any) => boolean
+  audience?: (user: Record<string, unknown>) => boolean
   duration?: string
   minSampleSize?: number
 }
@@ -116,9 +116,9 @@ export interface ExperimentInstance {
   pause: () => Promise<void>
   stop: () => Promise<void>
   graduate: (variant: string) => Promise<void>
-  assign: (userId: string, user?: any) => Promise<VariantAssignment>
+  assign: (userId: string, user?: Record<string, unknown>) => Promise<VariantAssignment>
   assignBatch: (userIds: string[]) => Promise<VariantAssignment[]>
-  activate: (userId: string, user?: any) => Promise<string | null>
+  activate: (userId: string, user?: Record<string, unknown>) => Promise<string | null>
   results: () => Promise<ExperimentResults>
   _forceAssign: (userId: string, variant: string) => Promise<void>
 }
@@ -126,7 +126,7 @@ export interface ExperimentInstance {
 export interface TrackProxy {
   ratio: (numerator: string, denominator: string) => Goal
   count: (event: string) => Goal
-  [event: string]: any
+  [event: string]: ((data: Record<string, unknown>, options?: { experiment?: string }) => Promise<void>) | ((numerator: string, denominator: string) => Goal) | ((event: string) => Goal)
 }
 
 export interface MeasureProxy {
@@ -146,7 +146,7 @@ export interface ExperimentStorage {
 export interface TrackedEvent {
   id: string
   type: string
-  data: Record<string, any>
+  data: Record<string, unknown>
   timestamp: number
   experiment?: string
   variant?: string
@@ -203,7 +203,7 @@ function createTrackProxy(storage: ExperimentStorage): TrackProxy {
         return target[prop]
       }
       // Return a tracking function for any event name
-      return async (data: Record<string, any>, options?: { experiment?: string }) => {
+      return async (data: Record<string, unknown>, options?: { experiment?: string }) => {
         if (options?.experiment) {
           const event: TrackedEvent = {
             id: generateId(),
@@ -214,7 +214,7 @@ function createTrackProxy(storage: ExperimentStorage): TrackProxy {
           }
 
           // Get the user's variant
-          const userId = data.userId
+          const userId = data.userId as string | undefined
           if (userId) {
             const assignments = storage.assignments.get(options.experiment)
             const variant = assignments?.get(userId)
@@ -397,7 +397,7 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
         experiment.stoppedAt = Date.now()
       },
 
-      assign: async (userId: string, user?: any): Promise<VariantAssignment> => {
+      assign: async (userId: string, user?: Record<string, unknown>): Promise<VariantAssignment> => {
         const experiment = storage.experiments.get(name)
 
         // Return not in experiment for nonexistent
@@ -469,7 +469,7 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
         return results
       },
 
-      activate: async (userId: string, user?: any): Promise<string | null> => {
+      activate: async (userId: string, user?: Record<string, unknown>): Promise<string | null> => {
         const assignment = await getInstance(name).assign(userId, user)
         if (assignment.inExperiment) {
           const activations = storage.activations.get(name)!
@@ -788,7 +788,7 @@ function generateId(): string {
  * This is a proxy that allows calling track.EventName(...) directly
  */
 export type TrackContext = {
-  [event: string]: (data: Record<string, any>, options?: { experiment?: string }) => Promise<void>
+  [event: string]: (data: Record<string, unknown>, options?: { experiment?: string }) => Promise<void>
 }
 
 /**
@@ -799,7 +799,7 @@ export function createTrackContext(storage: ExperimentStorage): TrackContext {
   return new Proxy({} as TrackContext, {
     get(target, prop: string) {
       // Return a tracking function for any event name
-      return async (data: Record<string, any>, options?: { experiment?: string }) => {
+      return async (data: Record<string, unknown>, options?: { experiment?: string }) => {
         if (options?.experiment) {
           const event: TrackedEvent = {
             id: generateId(),
@@ -810,7 +810,7 @@ export function createTrackContext(storage: ExperimentStorage): TrackContext {
           }
 
           // Get the user's variant
-          const userId = data.userId
+          const userId = data.userId as string | undefined
           if (userId) {
             const assignments = storage.assignments.get(options.experiment)
             const variant = assignments?.get(userId)

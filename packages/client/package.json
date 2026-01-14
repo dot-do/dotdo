@@ -41,6 +41,11 @@
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js",
       "require": "./dist/auth.cjs"
+    },
+    "./snippet": {
+      "types": "./dist/snippet.d.ts",
+      "import": "./dist/snippet.js",
+      "require": "./dist/snippet.cjs"
     }
   },
   "files": [

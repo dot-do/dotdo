@@ -90,6 +90,55 @@ interface WindowSubscription {
   unsubscribe: () => void
 }
 
+/** Current query result (thenable with .vs() method) */
+interface CurrentQueryResult {
+  then: <T, U = never>(
+    onfulfilled?: ((value: number | null) => T | PromiseLike<T>) | null,
+    onrejected?: ((reason: unknown) => U | PromiseLike<U>) | null
+  ) => Promise<T | U>
+  catch: <U = never>(onrejected?: ((reason: unknown) => U | PromiseLike<U>) | null) => Promise<number | null | U>
+  finally: (onfinally?: (() => void) | null) => Promise<number | null>
+  vs: (comparison: 'prev' | 'prev_week' | 'prev_month' | 'prev_year') => Promise<ComparisonResult>
+}
+
+/** Metric instance interface for the proxy-based metrics API */
+interface MetricInstance {
+  (value: number, tags?: MetricTags): Promise<void>
+  increment: (value?: number, tags?: MetricTags) => Promise<void>
+  current: (tags?: MetricTags) => CurrentQueryResult
+  stats: () => Promise<MetricStats>
+  sum: () => QueryBuilder
+  avg: () => QueryBuilder
+  min: () => QueryBuilder
+  max: () => QueryBuilder
+  count: () => QueryBuilder
+  percentile: (p: number) => QueryBuilder
+  trend: () => QueryBuilder
+  rollup: (config: RollupConfig) => Promise<RollupResult>
+  alert: (config: AlertConfig) => Promise<AlertInstance>
+  alertAbove: (threshold: number, notify: (info: AlertInfo) => void) => Promise<AlertInstance>
+  alertBelow: (threshold: number, notify: (info: AlertInfo) => void) => Promise<AlertInstance>
+  window: (duration: string) => WindowQuery
+}
+
+/** Query builder interface */
+interface QueryBuilder {
+  since: (duration: string) => QueryBuilder
+  vs: (comparison: 'prev' | 'prev_week' | 'prev_month' | 'prev_year') => Promise<ComparisonResult>
+  then: <T>(onfulfilled: (value: number | TrendResult | null) => T) => Promise<T>
+}
+
+/** Window query interface */
+interface WindowQuery {
+  slide: (duration: string) => WindowQuery
+  subscribe: (callback: (stats: WindowStats) => void) => { unsubscribe: () => void }
+}
+
+/** Measure namespace proxy */
+interface MeasureNamespace {
+  [metricName: string]: MetricInstance | undefined
+}
+
 /** Metric stats */
 interface MetricStats {
   count: number
@@ -193,9 +242,9 @@ function tagsMatch(dataPointTags: Record<string, string | number | boolean>, fil
 }
 
 function generateTagKey(tags: Record<string, string | number | boolean>): string {
-  const filtered = { ...tags }
-  delete (filtered as any)._timestamp
-  const entries = Object.entries(filtered).sort(([a], [b]) => a.localeCompare(b))
+  const filtered = { ...tags } as Record<string, string | number | boolean | undefined>
+  delete filtered._timestamp
+  const entries = Object.entries(filtered).filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined).sort(([a], [b]) => a.localeCompare(b))
   if (entries.length === 0) return ''
   return entries.map(([k, v]) => `${k}=${v}`).join(',')
 }
@@ -894,14 +943,17 @@ class QueryBuilderImpl {
     return this.store.computeVs(this.metricName, agg, this.sinceDuration, comparison)
   }
 
-  then<T>(onfulfilled: (value: any) => T): Promise<T> {
+  then<T>(onfulfilled: (value: number | TrendResult | null) => T): Promise<T> {
     return this.resolve().then(onfulfilled)
   }
 
-  private async resolve(): Promise<any> {
+  // Internal property for rejection
+  private _rejectReason?: Error
+
+  private async resolve(): Promise<number | TrendResult | null> {
     // Check if this builder was marked for rejection (e.g., invalid percentile)
-    if ((this as any)._rejectReason) {
-      throw (this as any)._rejectReason
+    if (this._rejectReason) {
+      throw this._rejectReason
     }
 
     switch (this.aggregation) {
@@ -930,8 +982,12 @@ class QueryBuilderImpl {
 
 // Make QueryBuilderImpl awaitable
 Object.defineProperty(QueryBuilderImpl.prototype, 'then', {
-  value: function(this: QueryBuilderImpl, onfulfilled: any, onrejected?: any) {
-    return this['resolve']().then(onfulfilled, onrejected)
+  value: function<T, U>(
+    this: QueryBuilderImpl,
+    onfulfilled: ((value: number | TrendResult | null) => T | PromiseLike<T>) | null | undefined,
+    onrejected?: ((reason: unknown) => U | PromiseLike<U>) | null | undefined
+  ): Promise<T | U> {
+    return (this as unknown as { resolve(): Promise<number | TrendResult | null> }).resolve().then(onfulfilled, onrejected)
   }
 })
 
@@ -952,7 +1008,7 @@ function createMetricInstance(store: MetricStore, metricName: string) {
   }
 
   // Add methods to the function
-  const instance = recordFn as any
+  const instance = recordFn as unknown as MetricInstance & Record<string, unknown>
 
   instance.set = async (value: number, tags?: MetricTags): Promise<void> => {
     await store.set(metricName, value, tags)
@@ -970,7 +1026,7 @@ function createMetricInstance(store: MetricStore, metricName: string) {
   })
 
   // current() returns a QueryBuilder-like object that supports .vs()
-  instance.current = (tags?: MetricTags): any => {
+  instance.current = (tags?: MetricTags): CurrentQueryResult => {
     const currentPromise = store.current(metricName, tags).then(result => {
       // If marked as counter and null, return 0
       if (result === null && (markedAsCounter || store.isMarkedAsCounter(metricName))) {
@@ -985,10 +1041,14 @@ function createMetricInstance(store: MetricStore, metricName: string) {
     })
 
     // Create a thenable with .vs() method
-    const wrapper: any = {
-      then: (onfulfilled: any, onrejected?: any) => currentPromise.then(onfulfilled, onrejected),
-      catch: (onrejected: any) => currentPromise.catch(onrejected),
-      finally: (onfinally: any) => currentPromise.finally(onfinally),
+    const wrapper: CurrentQueryResult = {
+      then: <T, U = never>(
+        onfulfilled?: ((value: number | null) => T | PromiseLike<T>) | null,
+        onrejected?: ((reason: unknown) => U | PromiseLike<U>) | null
+      ): Promise<T | U> => currentPromise.then(onfulfilled, onrejected),
+      catch: <U = never>(onrejected?: ((reason: unknown) => U | PromiseLike<U>) | null): Promise<number | null | U> =>
+        currentPromise.catch(onrejected),
+      finally: (onfinally?: (() => void) | null): Promise<number | null> => currentPromise.finally(onfinally),
       vs: (comparison: 'prev' | 'prev_week' | 'prev_month' | 'prev_year') => {
         return store.computeVs(metricName, 'current', undefined, comparison)
       }
@@ -1024,8 +1084,8 @@ function createMetricInstance(store: MetricStore, metricName: string) {
     if (p < 0 || p > 100) {
       // Return a QueryBuilder that will reject when resolved
       const rejectingBuilder = new QueryBuilderImpl(store, metricName, 'percentile', p)
-      // Override the resolve to reject
-      ;(rejectingBuilder as any)._rejectReason = new Error(`Percentile must be between 0 and 100, got ${p}`)
+      // Set the rejection reason using the internal property
+      ;(rejectingBuilder as unknown as { _rejectReason: Error })._rejectReason = new Error(`Percentile must be between 0 and 100, got ${p}`)
       return rejectingBuilder
     }
     return new QueryBuilderImpl(store, metricName, 'percentile', p)
@@ -1073,9 +1133,9 @@ function createMetricInstance(store: MetricStore, metricName: string) {
  *
  * @returns A proxy that provides metric instances for any metric name
  */
-export function createMeasureNamespace(): any {
+export function createMeasureNamespace(): MeasureNamespace {
   const store = new MetricStore()
-  const metricInstances = new Map<string, any>()
+  const metricInstances = new Map<string, MetricInstance>()
 
   // Create a special instance for empty metric name that always rejects
   const emptyNameInstance = async () => {

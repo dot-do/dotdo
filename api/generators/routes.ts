@@ -127,7 +127,7 @@ export interface GeneratorOptions {
  */
 export interface GeneratedRoutes {
   /** The Hono router with all generated routes */
-  router: Hono<any>
+  router: Hono<{ Bindings: unknown }>
   /** Array of route configurations for documentation */
   routes: RouteConfig[]
   /** OpenAPI paths object */

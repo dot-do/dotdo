@@ -7,7 +7,7 @@
  */
 
 export { VectorStore } from './store'
-export { HybridSearch } from './hybrid'
+export { HybridSearch, HybridVectorStore } from './hybrid'
 export {
   MatryoshkaHandler,
   truncateEmbedding,
