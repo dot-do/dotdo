@@ -144,7 +144,12 @@ export function SyncForm<TFormData extends Record<string, unknown>>({
   const FormField = form.Field
 
   return (
-    <form onSubmit={handleSubmit} className={cn('space-y-6', className)}>
+    <form
+      role="form"
+      aria-label="Form"
+      onSubmit={handleSubmit}
+      className={cn('space-y-6', className)}
+    >
       {fields.map((fieldConfig) => (
         <FormField key={fieldConfig.name} name={fieldConfig.name}>
           {(field) => (
@@ -158,7 +163,14 @@ export function SyncForm<TFormData extends Record<string, unknown>>({
       ))}
 
       <div className="flex items-center gap-4 pt-4">
-        <Button type="submit" disabled={isSubmitting}>
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          onClick={(e) => {
+            e.preventDefault()
+            void onSubmit()
+          }}
+        >
           {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
           {submitLabel}
         </Button>

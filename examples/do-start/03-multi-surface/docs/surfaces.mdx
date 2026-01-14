@@ -1,0 +1,135 @@
+---
+title: Understanding Surfaces
+description: Learn about the five surface types and how they work together
+order: 2
+---
+
+# Understanding Surfaces
+
+Surfaces are the frontend entry points of your dotdo application. Each surface serves a distinct purpose and audience.
+
+## The Five Surface Types
+
+### 1. Site Surface
+
+The marketing and public-facing content. Serves at `/` (root) by default.
+
+```
+Site.mdx        # Marketing landing page
+site/           # Additional site pages (optional)
+  about.mdx
+  pricing.mdx
+```
+
+Best for:
+- Landing pages
+- Marketing content
+- Public information
+- SEO-optimized content
+
+### 2. App Surface
+
+The main user-facing application. Serves at `/app`.
+
+```
+App.tsx         # Main dashboard
+```
+
+Best for:
+- User dashboards
+- Core product functionality
+- Interactive features
+- Authenticated experiences
+
+### 3. Admin Surface
+
+Administrative and operator controls. Serves at `/admin`.
+
+```
+Admin.tsx       # Admin panel
+```
+
+Best for:
+- User management
+- System configuration
+- Analytics dashboards
+- Operator tools
+
+### 4. Docs Surface
+
+Documentation and knowledge base. Serves at `/docs`.
+
+```
+Docs.mdx        # Documentation shell/layout
+docs/           # Documentation content
+  getting-started.mdx
+  surfaces.mdx
+  api/
+    do.mdx
+```
+
+Best for:
+- Technical documentation
+- API references
+- Guides and tutorials
+- Knowledge base
+
+### 5. Blog Surface
+
+Company blog and updates. Serves at `/blog`.
+
+```
+Blog.mdx        # Blog shell/layout
+blog/           # Blog posts
+  hello-world.mdx
+  announcement.mdx
+```
+
+Best for:
+- Company updates
+- Technical posts
+- Announcements
+- Thought leadership
+
+## Surface Discovery Order
+
+The CLI discovers surfaces in this priority:
+
+1. `./Surface.tsx` (root, TSX)
+2. `./Surface.mdx` (root, MDX)
+3. `.do/Surface.tsx` (hidden, TSX)
+4. `.do/Surface.mdx` (hidden, MDX)
+
+## Root Path Priority
+
+For the `/` path:
+
+1. **Site** takes priority if it exists
+2. **App** serves at `/` only if no Site exists
+
+## Shared Backend
+
+All surfaces share the same:
+
+- Durable Objects (defined in any surface file)
+- Database and storage
+- Authentication context
+- Configuration
+
+```tsx
+// Defined in App.tsx
+export class Workspace extends DO {
+  async createProject(name: string) {
+    return this.things.create({ $type: 'Project', name })
+  }
+}
+
+// Available at:
+// - GET /Workspace/:id
+// - POST /Workspace/:id/createProject
+```
+
+## Next Steps
+
+- [API Reference](/docs/api) - Learn about the DO API
+- [Configuration](/docs/config) - Custom surface configuration

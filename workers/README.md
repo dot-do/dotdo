@@ -43,7 +43,7 @@ export class MyStartup extends Startup {
 **dotdo provides:**
 - Durable Object base classes
 - Edge-native primitives (fsx, gitx, bashx)
-- 40+ API-compatible SDKs
+- 90 API-compatible SDKs
 - Cap'n Web RPC
 - Storage tiers (SQLite -> R2 -> Iceberg)
 

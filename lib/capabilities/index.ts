@@ -42,6 +42,9 @@ export {
 export {
   withBash,
   BashModule,
+  CloudflareContainerExecutor,
+  createContainerExecutor,
+  createSessionContainerExecutor,
   type BashCapability,
   type BashExecutor,
   type BashResult,
@@ -50,6 +53,9 @@ export {
   type SpawnHandle,
   type WithBashContext,
   type WithBashConfig,
+  type ContainerExecutorConfig,
+  type ContainerStub,
+  type GetContainerFn,
 } from './bash'
 export {
   withNpm,

@@ -4,6 +4,7 @@
   "description": "Serverless function primitives and execution patterns",
   "pages": [
     "index",
+    "types",
     "create-function",
     "executors",
     "composition",

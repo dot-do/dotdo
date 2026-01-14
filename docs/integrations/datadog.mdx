@@ -1,0 +1,580 @@
+---
+title: "Datadog"
+description: "Drop-in replacement for Datadog SDKs with edge compatibility and local development mode."
+---
+
+# Datadog
+
+Drop-in replacement for Datadog SDKs. Your existing observability code works unchanged - just swap the import.
+
+```typescript
+// Before: Datadog
+import { DogStatsD } from 'hot-shots'
+
+// After: dotdo
+import { MetricsClient } from '@dotdo/datadog'
+
+// Similar API
+const metrics = new MetricsClient({ service: 'my-api' })
+metrics.increment('http.requests', 1, { tags: ['method:GET'] })
+```
+
+## Prerequisites
+
+Before integrating Datadog with dotdo, you need:
+
+### 1. Datadog Account
+
+1. Sign up at [datadoghq.com](https://datadoghq.com)
+2. Create your organization
+
+### 2. Create API Keys
+
+1. Go to **Organization Settings** > **API Keys**
+2. Create a new API key
+3. For app key (some features): **Organization Settings** > **Application Keys**
+
+### 3. Environment Setup
+
+Store your keys securely:
+
+```bash
+DATADOG_API_KEY=your_api_key_here
+DATADOG_APP_KEY=your_app_key_here  # Optional, for dashboards/monitors API
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATADOG_API_KEY` | Yes (production) | Datadog API key |
+| `DATADOG_APP_KEY` | No | Datadog Application key |
+| `DATADOG_SITE` | No | Datadog site (default: datadoghq.com) |
+
+## Why @dotdo/datadog?
+
+| Datadog SDKs | @dotdo/datadog |
+|--------------|----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| DogStatsD UDP required | HTTP-based metrics |
+| Heavy APM agent | Lightweight tracing |
+| External dependency | Works offline |
+
+**This is a compatibility layer.** It can either forward to real Datadog APIs (production) or capture metrics locally for testing and development.
+
+## Features
+
+### Implemented
+
+**Metrics**
+- `increment()` - Counter metrics
+- `decrement()` - Decrement counters
+- `gauge()` - Gauge metrics
+- `histogram()` - Histogram metrics
+- `distribution()` - Distribution metrics
+- `timing()` - Timing metrics
+
+**Logging**
+- `debug()` - Debug level
+- `info()` - Info level
+- `warn()` - Warning level
+- `error()` - Error level
+- `critical()` - Critical level
+- Structured logging with tags
+
+**APM Tracing**
+- `startTransaction()` - Start traces
+- `startSpan()` - Create spans
+- Distributed tracing
+- Error tracking
+
+**Monitors**
+- `createMonitor()` - Create monitors
+- `metricAlert()` - Metric alerts
+- `logAlert()` - Log alerts
+- `serviceCheck()` - Service checks
+
+**Dashboards**
+- `createDashboard()` - Create dashboards
+- Widget configuration
+- Template variables
+
+**Service Catalog**
+- Service definitions
+- Dependencies mapping
+
+### Not Yet Implemented
+
+- RUM (Real User Monitoring)
+- Synthetic tests
+- CI Visibility
+- Profiling
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/datadog
+```
+
+### Metrics
+
+```typescript
+import { MetricsClient, increment, gauge, histogram } from '@dotdo/datadog'
+
+// Create client
+const metrics = new MetricsClient({
+  service: 'my-api',
+  env: 'production',
+})
+
+// Count requests
+metrics.increment('http.requests', 1, {
+  tags: ['method:GET', 'path:/api/users', 'status:200'],
+})
+
+// Track latency
+metrics.histogram('http.latency', 125.5, {
+  tags: ['service:api'],
+  unit: 'millisecond',
+})
+
+// Set a gauge
+metrics.gauge('queue.size', 42, {
+  tags: ['queue:jobs'],
+})
+
+// Track timing
+metrics.timing('db.query', 15.3, {
+  tags: ['operation:select', 'table:users'],
+})
+
+// Distribution (aggregated at Datadog)
+metrics.distribution('request.size', 1024, {
+  tags: ['endpoint:/upload'],
+  unit: 'byte',
+})
+```
+
+### Logging
+
+```typescript
+import { Logger, info, error } from '@dotdo/datadog'
+
+// Create logger
+const logger = new Logger({
+  service: 'my-api',
+  env: 'production',
+})
+
+// Structured logging
+logger.info('Request received', {
+  method: 'POST',
+  path: '/api/users',
+  userId: 'user-123',
+})
+
+logger.warn('Slow query detected', {
+  query: 'SELECT * FROM orders',
+  duration: 1500,
+})
+
+logger.error('Database connection failed', {
+  error: {
+    kind: 'ConnectionError',
+    message: 'Timeout after 30s',
+  },
+})
+
+// With error object
+try {
+  await riskyOperation()
+} catch (err) {
+  logger.error('Operation failed', {
+    error: err instanceof Error ? {
+      message: err.message,
+      stack: err.stack,
+    } : err,
+  })
+}
+```
+
+### APM Tracing
+
+```typescript
+import { init, tracer } from '@dotdo/datadog/tracing'
+
+// Initialize tracer
+init({
+  service: 'my-api',
+  env: 'production',
+})
+
+// Create a transaction
+const transaction = tracer().startSpan('http.request', {
+  resource: 'GET /api/users',
+  type: 'web',
+})
+
+try {
+  // Create child span for database
+  const dbSpan = tracer().startSpan('db.query', {
+    resource: 'SELECT * FROM users',
+    type: 'sql',
+    childOf: transaction,
+  })
+
+  await db.query('SELECT * FROM users')
+  dbSpan.finish()
+
+  // Create child span for external call
+  const httpSpan = tracer().startSpan('http.request', {
+    resource: 'POST /api/payments',
+    type: 'http',
+    childOf: transaction,
+  })
+
+  await fetch('/api/payments', { method: 'POST' })
+  httpSpan.setTag('http.status_code', 200)
+  httpSpan.finish()
+
+  transaction.setTag('http.status_code', 200)
+} catch (error) {
+  transaction.setError(error)
+} finally {
+  transaction.finish()
+}
+```
+
+## Configuration
+
+### Metrics Client Options
+
+```typescript
+import { MetricsClient, type MetricOptions } from '@dotdo/datadog'
+
+const metrics = new MetricsClient({
+  // Service identification
+  service: 'my-api',
+  env: 'production',
+  version: '1.0.0',
+
+  // API configuration
+  apiKey: process.env.DATADOG_API_KEY,
+  site: 'datadoghq.com', // or datadoghq.eu
+
+  // Batching
+  flushInterval: 10000, // ms
+  maxBatchSize: 1000,
+})
+```
+
+## Inbound - Local Development
+
+For local development and testing, metrics are captured but not sent:
+
+```typescript
+import { MetricsClient, Logger } from '@dotdo/datadog'
+
+// Metrics captured locally
+const metrics = new MetricsClient({
+  service: 'my-api',
+  env: 'development',
+  // No apiKey = local mode
+})
+
+metrics.increment('test.counter')
+// Metrics are tracked but not sent to Datadog
+
+const logger = new Logger({ service: 'my-api', env: 'development' })
+logger.info('Test log')
+// Logs to console in development
+```
+
+## Outbound - Production
+
+For production, metrics are sent to Datadog:
+
+```typescript
+// worker.ts
+import { MetricsClient, Logger } from '@dotdo/datadog'
+import { init, tracer } from '@dotdo/datadog/tracing'
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Initialize
+    const metrics = new MetricsClient({
+      service: 'api-worker',
+      env: 'production',
+      apiKey: env.DATADOG_API_KEY,
+    })
+
+    const logger = new Logger({
+      service: 'api-worker',
+      env: 'production',
+      apiKey: env.DATADOG_API_KEY,
+    })
+
+    const start = Date.now()
+
+    try {
+      const response = await handleRequest(request)
+
+      metrics.increment('http.requests', 1, {
+        tags: [`status:${response.status}`, `method:${request.method}`],
+      })
+
+      return response
+    } catch (error) {
+      metrics.increment('http.errors', 1)
+      logger.error('Request failed', { error })
+      throw error
+    } finally {
+      metrics.histogram('http.latency', Date.now() - start)
+
+      // Flush before response
+      ctx.waitUntil(metrics.flush())
+    }
+  },
+}
+```
+
+## Monitors
+
+Create alerting monitors:
+
+```typescript
+import {
+  MonitorsClient,
+  createMonitor,
+  metricAlert,
+  logAlert,
+} from '@dotdo/datadog'
+
+const client = new MonitorsClient({
+  apiKey: process.env.DATADOG_API_KEY,
+  appKey: process.env.DATADOG_APP_KEY,
+})
+
+// Create a metric alert
+const errorRateMonitor = await client.create(
+  metricAlert('High Error Rate', 'avg:http.errors{*}', {
+    critical: 0.05, // 5%
+    warning: 0.01,  // 1%
+  })
+)
+
+// Create using fluent builder
+const latencyMonitor = await client.create(
+  createMonitor()
+    .name('API Latency')
+    .type('metric alert')
+    .query('avg(last_5m):avg:http.latency{service:api} > 1000')
+    .critical(1000)
+    .warning(500)
+    .notifyNoData(10)
+    .message('API latency is too high @slack-alerts')
+    .build()
+)
+
+// Create log alert
+const errorLogMonitor = await client.create(
+  logAlert('Error Log Spike', 'logs("status:error").count()', {
+    critical: 100,
+    timeframe: '5m',
+  })
+)
+```
+
+## Dashboards
+
+Create dashboards:
+
+```typescript
+import { DashboardsClient, createDashboard } from '@dotdo/datadog'
+
+const client = new DashboardsClient({
+  apiKey: process.env.DATADOG_API_KEY,
+  appKey: process.env.DATADOG_APP_KEY,
+})
+
+const dashboard = await client.create(
+  createDashboard()
+    .title('API Overview')
+    .layoutType('ordered')
+    .addWidget({
+      definition: {
+        type: 'timeseries',
+        title: 'Request Rate',
+        requests: [{
+          q: 'sum:http.requests{*}.as_rate()',
+          display_type: 'bars',
+        }],
+      },
+    })
+    .addWidget({
+      definition: {
+        type: 'query_value',
+        title: 'Error Rate',
+        requests: [{
+          q: 'avg:http.errors{*} / avg:http.requests{*} * 100',
+        }],
+      },
+    })
+    .addTemplateVariable({
+      name: 'service',
+      default: '*',
+      prefix: 'service',
+    })
+    .build()
+)
+```
+
+## Error Handling
+
+```typescript
+import { MetricsClient } from '@dotdo/datadog'
+
+const metrics = new MetricsClient({
+  service: 'my-api',
+  apiKey: process.env.DATADOG_API_KEY,
+})
+
+// Errors are captured and logged, not thrown
+metrics.increment('test.metric')
+
+// Check flush result
+try {
+  await metrics.flush()
+} catch (error) {
+  console.error('Failed to send metrics:', error)
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support:
+
+```typescript
+import type {
+  // Metrics
+  MetricType,
+  MetricPoint,
+  MetricSeries,
+  MetricUnit,
+  MetricOptions,
+  HistogramStats,
+
+  // Logging
+  LogLevel,
+  LogStatus,
+  LogEntry,
+  LogContext,
+  LoggerConfig,
+
+  // Tracing
+  SpanContext,
+  SpanType,
+  SpanStatus,
+  SpanOptions,
+
+  // Monitors
+  Monitor,
+  MonitorType,
+  MonitorState,
+  MonitorOptions,
+  MonitorThresholds,
+
+  // Dashboards
+  Dashboard,
+  DashboardWidget,
+  WidgetDefinition,
+
+  // Config
+  DatadogConfig,
+} from '@dotdo/datadog'
+```
+
+## Workflow Integration
+
+Use Datadog with dotdo workflows for durable observability:
+
+```typescript
+import { $ } from 'dotdo'
+import { MetricsClient, Logger } from '@dotdo/datadog'
+import { tracer } from '@dotdo/datadog/tracing'
+
+export class OrderProcessor {
+  metrics = new MetricsClient({
+    service: 'order-processor',
+    apiKey: this.env.DATADOG_API_KEY,
+  })
+
+  logger = new Logger({
+    service: 'order-processor',
+    apiKey: this.env.DATADOG_API_KEY,
+  })
+
+  async processOrder(order: Order) {
+    const span = tracer().startSpan('process_order', {
+      resource: order.id,
+    })
+
+    try {
+      // Durable processing
+      const result = await $.do(() => this.chargeCard(order))
+
+      this.metrics.increment('orders.completed')
+      this.metrics.histogram('order.total', order.total)
+
+      span.setTag('status', 'success')
+      return result
+    } catch (error) {
+      this.metrics.increment('orders.failed')
+      this.logger.error('Order failed', { orderId: order.id, error })
+      span.setError(error)
+      throw error
+    } finally {
+      span.finish()
+    }
+  }
+}
+```
+
+## Migration from hot-shots
+
+### 1. Package Change
+
+```bash
+# Remove hot-shots
+npm uninstall hot-shots
+
+# Install dotdo package
+npm install @dotdo/datadog
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import { DogStatsD } from 'hot-shots'
+const client = new DogStatsD()
+
+// After
+import { MetricsClient } from '@dotdo/datadog'
+const client = new MetricsClient({ service: 'my-api' })
+```
+
+### 3. API Compatibility
+
+Most methods are compatible. Main differences:
+- HTTP-based instead of UDP
+- Service name is required
+- Tags use object format or array
+
+## Related
+
+- [Sentry Integration](/docs/integrations/sentry) - Error tracking
+- [Segment Integration](/docs/integrations/segment) - Analytics
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

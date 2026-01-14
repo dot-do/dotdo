@@ -261,8 +261,8 @@ describe('Named Agents - Template Literal Interface', () => {
       expect(precise).toBeTypeOf('string')
     })
 
-    it('should allow max_tokens configuration', async () => {
-      const brief = await priya.withConfig({ max_tokens: 100 })`define the MVP`
+    it('should allow maxTokens configuration', async () => {
+      const brief = await priya.withConfig({ maxTokens: 100 })`define the MVP`
 
       expect(brief).toBeTypeOf('string')
       expect(brief.split(' ').length).toBeLessThanOrEqual(150)
