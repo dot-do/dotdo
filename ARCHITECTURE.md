@@ -57,11 +57,11 @@ This document clarifies the distinction between **dotdo** (this repository) and 
 │   ┌─────────────────────────────────────────────────────────────┐   │
 │   │                 Infrastructure Primitives                    │   │
 │   │  rate-limiter │ circuit-breaker │ cache-manager │ task-queue │   │
-│   │  secret-store │ token-manager │ permission-engine │ 90+ more │   │
+│   │  secret-store │ token-manager │ permission-engine │ 40+ more │   │
 │   └─────────────────────────────────────────────────────────────┘   │
 │                                                                      │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │                 Compat SDKs (90 APIs)                        │   │
+│   │                 Compat SDKs (40+ APIs)                       │   │
 │   │  @dotdo/postgres │ @dotdo/redis │ @dotdo/kafka │ @dotdo/mongo│   │
 │   │  @dotdo/stripe │ @dotdo/supabase │ @dotdo/openai │ ...       │   │
 │   └─────────────────────────────────────────────────────────────┘   │
@@ -122,7 +122,7 @@ Building blocks for distributed systems:
 - Permission Engine - RBAC/ABAC access control
 - And 37 more...
 
-### Compat SDKs (90 APIs)
+### Compat SDKs (40+ APIs)
 
 Drop-in replacements backed by Durable Objects:
 

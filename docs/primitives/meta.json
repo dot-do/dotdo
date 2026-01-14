@@ -4,7 +4,6 @@
   "root": true,
   "pages": [
     "index",
-    "storage-architecture",
     "---Core Primitives---",
     "fsx",
     "gitx",

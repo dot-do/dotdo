@@ -1,0 +1,43 @@
+{
+  "name": "@dotdo/supabase-auth",
+  "version": "0.1.0",
+  "description": "Supabase Auth SDK compat layer for Cloudflare Workers with edge-native performance",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "supabase",
+    "auth",
+    "authentication",
+    "oauth",
+    "jwt",
+    "cloudflare",
+    "workers",
+    "edge",
+    "serverless",
+    "mfa",
+    "totp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "compat/supabase-auth"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}

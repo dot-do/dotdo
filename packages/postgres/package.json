@@ -1,0 +1,69 @@
+{
+  "name": "@dotdo/postgres",
+  "version": "0.1.0",
+  "description": "PostgreSQL package for Cloudflare Workers - pg (node-postgres) API compatible with in-memory SQL backend",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/client.ts",
+      "import": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
+    "./pool": {
+      "types": "./src/pool.ts",
+      "import": "./src/pool.ts",
+      "default": "./src/pool.ts"
+    },
+    "./query": {
+      "types": "./src/query.ts",
+      "import": "./src/query.ts",
+      "default": "./src/query.ts"
+    },
+    "./backends/memory": {
+      "types": "./src/backends/memory.ts",
+      "import": "./src/backends/memory.ts",
+      "default": "./src/backends/memory.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "pg",
+    "node-postgres",
+    "cloudflare",
+    "workers",
+    "sql",
+    "durable-objects",
+    "database",
+    "in-memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "packages/postgres"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  }
+}
