@@ -4,7 +4,7 @@
  * Loads do.config.ts from the current directory or specified path.
  */
 
-import { existsSync } from 'fs'
+import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DO } from '../types/config'
 
@@ -56,5 +56,5 @@ export default {
   $id: '${config.$id}',${config.env ? `\n  env: '${config.env}',` : ''}
 } satisfies DO.Config
 `
-  await Bun.write(configPath, content)
+  writeFileSync(configPath, content, 'utf-8')
 }

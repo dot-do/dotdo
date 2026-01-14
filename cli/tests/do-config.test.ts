@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { loadConfig, getConfigPath, configExists, writeConfig } from '../utils/do-config'
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
