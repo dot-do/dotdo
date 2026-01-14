@@ -11,6 +11,8 @@
     "---Execution Patterns---",
     "steps",
     "pipelines",
-    "state-machines"
+    "state-machines",
+    "---Reliability---",
+    "error-handling"
   ]
 }

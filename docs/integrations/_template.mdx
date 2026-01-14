@@ -1,0 +1,405 @@
+---
+title: "[Service Name]"
+description: "Drop-in replacement for [original SDK] with edge compatibility and [key differentiator]."
+---
+
+# [Service Name]
+
+Drop-in replacement for [original SDK]. Your existing [service] code works unchanged - just swap the import.
+
+```typescript
+// Before: [Original SDK]
+import [OriginalImport] from '[original-package]'
+
+// After: dotdo
+import [DotdoImport] from '@dotdo/[package]'
+
+// Code stays the same
+// ... quick example showing API compatibility
+```
+
+## Prerequisites
+
+Before integrating [Service] with dotdo, you need:
+
+### 1. Create a [Service] Account
+
+[Instructions for creating an account with link to signup page]
+
+### 2. Obtain Your API Keys
+
+[Service] uses API keys for authentication. You will need:
+
+- **[Key type 1]** - [description and purpose]
+- **[Key type 2]** (optional) - [description and purpose]
+
+**Finding your API keys:**
+
+1. Log in to your [Service Dashboard](https://dashboard.example.com)
+2. Navigate to **[Menu path]**
+3. Copy your keys
+
+### 3. Environment Setup
+
+[Any environment-specific considerations - test vs production, regions, etc.]
+
+## Environment Variables
+
+Set up these environment variables in your project:
+
+```bash
+# Required: Your [Service] API key
+SERVICE_API_KEY=your_api_key_here
+
+# Optional: Additional configuration
+SERVICE_OPTIONAL_KEY=optional_value_here
+```
+
+**Environment variable checklist:**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SERVICE_API_KEY` | Yes | Primary API authentication |
+| `SERVICE_OPTIONAL_KEY` | No | [Purpose] |
+
+**Security best practices:**
+
+- Never commit API keys to version control
+- Use different keys for development and production
+- Store secrets in environment variables or a secrets manager
+
+## Why @dotdo/[package]?
+
+| [Original SDK] | @dotdo/[package] |
+|----------------|------------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| [Original limitation 1] | [dotdo advantage 1] |
+| [Original limitation 2] | [dotdo advantage 2] |
+| [Original limitation 3] | [dotdo advantage 3] |
+
+**This is a compatibility layer.** It can either forward to real [Service] APIs (production) or run entirely locally for testing and development. The API surface matches [Original SDK]'s official SDK.
+
+## Features
+
+### Implemented
+
+**[Category 1]**
+- `method1()` - [description]
+- `method2()` - [description]
+
+**[Category 2]**
+- `method3()` - [description]
+- `method4()` - [description]
+
+### Not Yet Implemented
+
+- [Feature 1]
+- [Feature 2]
+- [Feature 3]
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/[package]
+```
+
+### Basic Usage
+
+```typescript
+import { Client } from '@dotdo/[package]'
+
+const client = new Client(process.env.SERVICE_API_KEY)
+
+// Basic operation example
+const result = await client.doSomething({
+  param1: 'value1',
+  param2: 'value2',
+})
+
+console.log('Result:', result)
+```
+
+### [Common Use Case 1]
+
+```typescript
+// Code example for common use case 1
+```
+
+### [Common Use Case 2]
+
+```typescript
+// Code example for common use case 2
+```
+
+## Configuration
+
+### Client Options
+
+```typescript
+import { Client, type ClientConfig } from '@dotdo/[package]'
+
+const config: ClientConfig = {
+  // API key (required)
+  apiKey: 'xxx',
+
+  // Optional configuration
+  timeout: 30000,
+  maxRetries: 3,
+
+  // Custom options
+  // ...
+}
+
+const client = new Client(config)
+```
+
+### Request Options
+
+```typescript
+// Per-request options
+const result = await client.doSomething(
+  { param: 'value' },
+  {
+    timeout: 10000,
+    // Other request-specific options
+  }
+)
+```
+
+## Inbound - Local Development
+
+For local development and testing, use the in-memory/local mode:
+
+```typescript
+import { Client } from '@dotdo/[package]'
+
+// Create local instance (no external API calls)
+const client = new Client()
+
+// Operations work locally
+await client.doSomething({ param: 'value' })
+
+// Test utilities
+import { _getState, _clearAll } from '@dotdo/[package]'
+const state = _getState()
+_clearAll() // Reset between tests
+```
+
+## Outbound - Production
+
+For production, connect to the real [Service] API:
+
+```typescript
+import { Client } from '@dotdo/[package]'
+
+const client = new Client({
+  apiKey: process.env.SERVICE_API_KEY,
+  // Production-specific options
+})
+
+// Requests go to [Service]'s servers
+await client.doSomething({ param: 'value' })
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Client } from '@dotdo/[package]'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new Client(env.SERVICE_API_KEY)
+
+    const result = await client.doSomething({
+      param: 'value',
+    })
+
+    return Response.json(result)
+  },
+}
+```
+
+## API Reference
+
+### [Resource/Method Category 1]
+
+```typescript
+// Method signatures and examples
+```
+
+### [Resource/Method Category 2]
+
+```typescript
+// Method signatures and examples
+```
+
+## Error Handling
+
+```typescript
+import { Client, ServiceError } from '@dotdo/[package]'
+
+const client = new Client(process.env.SERVICE_API_KEY)
+
+try {
+  await client.doSomething({ param: 'invalid' })
+} catch (error) {
+  if (error instanceof ServiceError) {
+    console.log('Status:', error.statusCode)
+    console.log('Code:', error.code)
+    console.log('Message:', error.message)
+
+    // Handle specific error types
+    switch (error.code) {
+      case 'invalid_request':
+        // Handle invalid request
+        break
+      case 'rate_limit':
+        // Handle rate limiting
+        break
+      case 'auth_error':
+        // Handle authentication errors
+        break
+    }
+  }
+}
+```
+
+### Common Error Codes
+
+| Code | Description |
+|------|-------------|
+| `invalid_request` | Request parameters are invalid |
+| `auth_error` | Authentication failed |
+| `rate_limit` | Too many requests |
+| `not_found` | Resource not found |
+| `server_error` | Internal server error |
+
+## TypeScript Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core types
+  Type1,
+  Type2,
+
+  // Configuration types
+  ClientConfig,
+  RequestOptions,
+
+  // Response types
+  Response1,
+  Response2,
+
+  // Error types
+  ServiceError,
+} from '@dotdo/[package]'
+```
+
+## Common Patterns
+
+### [Pattern 1 Name]
+
+```typescript
+// Code example demonstrating common pattern 1
+```
+
+### [Pattern 2 Name]
+
+```typescript
+// Code example demonstrating common pattern 2
+```
+
+## Workflow Integration
+
+Use [Service] with dotdo workflows for durable operations:
+
+```typescript
+import { $ } from 'dotdo'
+import { Client } from '@dotdo/[package]'
+
+export class MyWorkflow {
+  client = new Client(this.env.SERVICE_API_KEY)
+
+  async process(data: Data) {
+    // Durable operation with retries
+    const result = await $.do(() =>
+      this.client.doSomething({
+        param: data.value,
+      })
+    )
+
+    // Continue with workflow...
+  }
+}
+```
+
+## Migration from [Original SDK]
+
+### 1. Package Change
+
+```bash
+# Remove original package
+npm uninstall [original-package]
+
+# Install dotdo package
+npm install @dotdo/[package]
+```
+
+### 2. Import Change
+
+```typescript
+// Before
+import [OriginalImport] from '[original-package]'
+
+// After
+import [DotdoImport] from '@dotdo/[package]'
+```
+
+### 3. Code Compatibility
+
+Your existing code should work unchanged. Check for:
+
+- **Unsupported methods**: Some advanced APIs may not yet be implemented
+- **Node.js APIs**: Replace any Node.js-specific code with edge-compatible alternatives
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue: Authentication Error**
+
+```
+Error: Invalid API key
+```
+
+**Solution:** Verify your API key is correctly set in environment variables and has the required permissions.
+
+**Issue: Rate Limiting**
+
+```
+Error: Rate limit exceeded
+```
+
+**Solution:** Implement exponential backoff or reduce request frequency. Consider using batch operations where available.
+
+**Issue: Timeout**
+
+```
+Error: Request timed out
+```
+
+**Solution:** Increase the timeout configuration or check your network connectivity.
+
+## Related
+
+- [Category Overview](/docs/compat/[category]) - Architecture overview for [category] SDKs
+- [Related Integration 1](/docs/integrations/[related1]) - [Brief description]
+- [Related Integration 2](/docs/integrations/[related2]) - [Brief description]
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

@@ -1,13 +1,13 @@
 ---
 title: Data Model
-description: Deep dive into Things, Actions, Events, and Relationships
+description: Deep dive into Things, Actions, Events, and Relationships - the four core abstractions of dotdo
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
+import { Callout, Tab, Tabs } from 'fumadocs-ui/components/callout'
 
 # Data Model
 
-dotdo uses four core abstractions to model business data: **Things**, **Actions**, **Events**, and **Relationships**. This document provides a technical deep dive into each.
+dotdo uses four core abstractions to model business data: **Things**, **Actions**, **Events**, and **Relationships**. This document provides a complete technical reference for each abstraction, including design philosophy, best practices, and implementation details.
 
 ## Overview
 
@@ -15,17 +15,73 @@ dotdo uses four core abstractions to model business data: **Things**, **Actions*
 ┌─────────────────────────────────────────────────────────────┐
 │                         Things                              │
 │              URL-identified entities with state             │
+│              (Nouns - the "what" of your domain)            │
 ├─────────────────────────────────────────────────────────────┤
 │                      Relationships                          │
 │              Typed edges between Things                     │
+│              (Graph connections with verbs)                 │
 ├─────────────────────────────────────────────────────────────┤
 │                        Actions                              │
-│              Audit log of all operations                    │
+│              Command log of all operations                  │
+│              (Verbs - the "how" with full audit trail)      │
 ├─────────────────────────────────────────────────────────────┤
 │                         Events                              │
-│              Domain events for subscriptions                │
+│              Domain events for pub/sub                      │
+│              (5W+H model for observability)                 │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## Design Philosophy
+
+### Why URL-Based Identity?
+
+dotdo uses fully-qualified URLs for all entity identifiers. This choice solves several fundamental problems:
+
+| Problem | URL Solution |
+|---------|--------------|
+| **Namespace collisions** | URLs include the host, making IDs globally unique |
+| **Federation** | Reference entities across organizations without coordination |
+| **External integrations** | Stripe payments, GitHub repos, and domain entities share the same format |
+| **Human readability** | `https://acme.co/Customer/cus_123` is self-documenting |
+| **Routing** | The URL tells you exactly which DO owns the entity |
+
+```typescript
+// All of these are valid Thing $ids:
+'https://acme.co/Customer/cus_123'        // Local entity
+'https://stripe.com/Payment/pay_456'       // External reference
+'https://github.com/drivly/dotdo'          // Third-party resource
+'https://acme.co/Customer'                 // A Noun (type) is also a Thing
+```
+
+<Callout type="info">
+**The namespace IS the Durable Object.** When you parse `https://acme.co/Customer/cus_123`, the namespace `https://acme.co` identifies the DO that owns this entity. Cross-DO references just work.
+</Callout>
+
+### Namespace Derivation Rules
+
+The namespace (ns) is derived from the URL and determines DO routing:
+
+```typescript
+import { parseThingId } from 'dotdo/types'
+
+// Standard case: protocol + host
+parseThingId('https://acme.co/Customer/cus_123')
+// → { ns: 'https://acme.co', path: 'Customer/cus_123' }
+
+// Subdomains create separate namespaces
+parseThingId('https://staging.acme.co/Customer/cus_123')
+// → { ns: 'https://staging.acme.co', path: 'Customer/cus_123' }
+
+// A Thing with no path IS the DO itself
+parseThingId('https://acme.co')
+// → { ns: 'https://acme.co', path: '' }  // isDO = true
+```
+
+**Key rules:**
+1. `ns = protocol + host` (no port, no path)
+2. Each unique namespace maps to one Durable Object
+3. Things without a path (`path === ''`) are "promoted" DOs themselves
+4. Subdomains create separate DOs (useful for staging/prod isolation)
 
 ## Things
 
@@ -113,6 +169,37 @@ const v1 = await things.get('cus_123', { version: 1 })
 const history = await things.versions('cus_123')
 ```
 
+### Visibility Levels
+
+Things have four visibility levels that control access:
+
+```typescript
+type Visibility = 'public' | 'unlisted' | 'org' | 'user'
+```
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| `public` | Visible to everyone, including anonymous users | Public APIs, landing pages |
+| `unlisted` | Not discoverable, but accessible with direct link | Shareable links, invite-only |
+| `org` | Visible only to organization members | Internal tools, team resources |
+| `user` | Visible only to the owner (default) | Personal data, drafts |
+
+```typescript
+// Authorization check
+import { canView } from 'dotdo/types'
+
+const thing = await things.get('cus_123')
+const actor = { userId: 'user_456', orgId: 'org_acme' }
+
+if (canView(thing, actor)) {
+  // User can access this thing
+}
+```
+
+<Callout type="warn">
+**Default is `user` (most restrictive).** Always explicitly set visibility when creating public-facing entities.
+</Callout>
+
 ### ThingsStore API
 
 ```typescript
@@ -120,12 +207,19 @@ const history = await things.versions('cus_123')
 const thing = await things.create({
   $type: 'Customer',
   name: 'Alice',
-  data: { email: 'alice@example.com' }
+  data: { email: 'alice@example.com' },
+  visibility: 'org'  // Explicitly set visibility
 })
 
 // Read
 const thing = await things.get('cus_123')
 const customers = await things.list({ type: 'Customer', limit: 100 })
+
+// Read with visibility filter
+const publicApis = await things.list({
+  type: 'API',
+  visibility: 'public'
+})
 
 // Update (creates new version)
 await things.update('cus_123', { data: { plan: 'pro' } })
@@ -135,6 +229,66 @@ await things.delete('cus_123')
 
 // Hard delete (removes all versions)
 await things.delete('cus_123', { hard: true })
+```
+
+### Schema Design Best Practices
+
+<Callout type="info">
+**Rule of thumb:** Use `data` for domain fields, `meta` for system fields.
+</Callout>
+
+```typescript
+// Good: Clean separation
+{
+  $id: 'https://acme.co/Customer/cus_123',
+  $type: 'https://acme.co/Customer',
+  name: 'Alice',
+  data: {
+    email: 'alice@example.com',
+    plan: 'pro',
+    company: 'Acme Inc'
+  },
+  meta: {
+    ownerId: 'user_456',
+    orgId: 'org_acme',
+    source: 'signup_form'
+  }
+}
+
+// Bad: Mixing concerns
+{
+  name: 'Alice',
+  data: {
+    email: 'alice@example.com',
+    ownerId: 'user_456'  // Should be in meta
+  }
+}
+```
+
+**When to embed vs. relate:**
+
+| Use Embedded Data | Use Relationships |
+|-------------------|-------------------|
+| Data always needed together | Referenced from multiple places |
+| Simple values (strings, numbers) | Full entities with their own lifecycle |
+| Rarely changes | Frequently changes |
+| No independent identity | Has its own $id |
+
+```typescript
+// Embed: Address is always needed with Customer
+data: {
+  address: {
+    street: '123 Main St',
+    city: 'San Francisco'
+  }
+}
+
+// Relate: Orders are independent entities
+await rels.create({
+  verb: 'placed',
+  from: 'Customer/cus_123',
+  to: 'Order/ord_456'
+})
 ```
 
 ## Relationships
@@ -165,6 +319,67 @@ Each relationship has a verb that describes the connection:
 
 // Customer subscribes Plan
 { verb: 'subscribes', from: 'cus_123', to: 'plan_pro' }
+```
+
+### Verb Conventions
+
+Relationship verbs follow consistent patterns for predictability:
+
+**Standard Verbs (built-in):**
+
+| Category | Verbs |
+|----------|-------|
+| Ownership | `owns`, `belongsTo`, `contains` |
+| Hierarchy | `manages`, `reportsTo`, `parentOf`, `childOf` |
+| Association | `relatedTo`, `linkedTo`, `references` |
+| Membership | `memberOf`, `employs`, `enrolledIn` |
+| Creation | `createdBy`, `authoredBy`, `madeBy` |
+
+**Verb Naming Rules:**
+
+1. **Use camelCase**: `managedBy`, not `managed_by`
+2. **Use present tense**: `manages`, not `managed`
+3. **Direction matters**: `from` is the subject, `to` is the object
+4. **Inverse verbs**: Consider the reverse direction
+
+```typescript
+// Forward: Person manages Project
+{ verb: 'manages', from: 'person_alice', to: 'project_x' }
+
+// Inverse (implicit): Project managedBy Person
+// Query with: rels.to('project_x', { verb: 'manages' })
+
+// For bidirectional, store both explicitly:
+{ verb: 'manages', from: 'person_alice', to: 'project_x' }
+{ verb: 'managedBy', from: 'project_x', to: 'person_alice' }
+```
+
+<Callout type="info">
+**Reserved prefix:** Verbs starting with `$` are reserved for system use (e.g., `$parent`, `$branch`).
+</Callout>
+
+### Relationship Operators
+
+When defining Noun schemas, use operators to declare relationships:
+
+| Operator | Direction | Match | Description |
+|----------|-----------|-------|-------------|
+| `->` | Forward | Exact | Direct reference to another Thing |
+| `<-` | Backward | Exact | Inverse reference (from another Thing) |
+| `~>` | Forward | Fuzzy | AI-assisted matching |
+| `<~` | Backward | Fuzzy | AI-assisted inverse matching |
+
+```typescript
+// In Noun schema definition
+const CustomerSchema = {
+  name: 'Customer',
+  schema: {
+    primaryContact: '->Person',        // Exact forward reference
+    orders: '[->Order]',               // Array of forward references
+    assignedRep: '~>SalesRep',         // Fuzzy-matched forward
+    recommendations: '[<~Product]'     // Array of inverse fuzzy matches
+  }
+}
 ```
 
 ### Edge Metadata

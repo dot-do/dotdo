@@ -1,0 +1,149 @@
+{/**
+ * Multi-Surface Example - Site Component (Marketing Landing)
+ *
+ * Marketing landing page served at /.
+ * Takes priority over App for root routing.
+ */}
+
+---
+title: "Acme - Multi-Surface Demo"
+description: "Complete application with marketing, app, admin, docs, and blog"
+---
+
+export const Container = ({ children, style }) => (
+  <div style={{
+    fontFamily: 'system-ui, sans-serif',
+    background: '#0a0a0a',
+    color: '#fff',
+    minHeight: '100vh',
+    ...style
+  }}>
+    {children}
+  </div>
+)
+
+export const Nav = () => (
+  <nav style={{
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '1rem 2rem',
+    borderBottom: '1px solid #2a2a2a',
+  }}>
+    <span style={{ fontSize: '1.25rem', fontWeight: 700, color: '#10b981' }}>Acme</span>
+    <div style={{ display: 'flex', gap: '2rem' }}>
+      <a href="/docs" style={{ color: '#a1a1aa', textDecoration: 'none' }}>Docs</a>
+      <a href="/blog" style={{ color: '#a1a1aa', textDecoration: 'none' }}>Blog</a>
+      <a href="/admin" style={{ color: '#a1a1aa', textDecoration: 'none' }}>Admin</a>
+      <a href="/app" style={{
+        background: '#10b981',
+        color: '#fff',
+        padding: '0.5rem 1rem',
+        borderRadius: '6px',
+        textDecoration: 'none'
+      }}>Dashboard</a>
+    </div>
+  </nav>
+)
+
+export const Hero = () => (
+  <section style={{
+    padding: '6rem 2rem',
+    textAlign: 'center',
+    maxWidth: '800px',
+    margin: '0 auto',
+  }}>
+    <span style={{
+      background: 'rgba(16, 185, 129, 0.2)',
+      color: '#10b981',
+      padding: '0.25rem 0.75rem',
+      borderRadius: '9999px',
+      fontSize: '0.875rem',
+      marginBottom: '1.5rem',
+      display: 'inline-block',
+    }}>Multi-Surface Architecture</span>
+    <h1 style={{ fontSize: '3rem', fontWeight: 800, marginBottom: '1rem' }}>
+      Five Surfaces,<br />One Codebase
+    </h1>
+    <p style={{ fontSize: '1.25rem', color: '#a1a1aa', marginBottom: '2rem' }}>
+      Build complete applications with marketing, dashboard, admin, docs, and blog surfaces.
+      All sharing the same backend. Zero configuration.
+    </p>
+    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+      <a href="/app" style={{
+        background: '#10b981',
+        color: '#fff',
+        padding: '0.75rem 1.5rem',
+        borderRadius: '8px',
+        textDecoration: 'none',
+        fontWeight: 600,
+      }}>Open Dashboard</a>
+      <a href="/docs" style={{
+        background: '#1a1a1a',
+        color: '#fff',
+        padding: '0.75rem 1.5rem',
+        borderRadius: '8px',
+        textDecoration: 'none',
+        fontWeight: 600,
+        border: '1px solid #2a2a2a',
+      }}>Read Docs</a>
+    </div>
+  </section>
+)
+
+export const Surfaces = () => (
+  <section style={{ padding: '4rem 2rem', background: '#0f0f0f' }}>
+    <h2 style={{ textAlign: 'center', fontSize: '2rem', marginBottom: '3rem' }}>All Five Surfaces</h2>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: '1.5rem',
+      maxWidth: '1000px',
+      margin: '0 auto',
+    }}>
+      {[
+        { name: 'Site', path: '/', desc: 'Marketing landing page (you are here)', file: 'Site.mdx' },
+        { name: 'App', path: '/app', desc: 'Main application dashboard', file: 'App.tsx' },
+        { name: 'Admin', path: '/admin', desc: 'Administrative panel', file: 'Admin.tsx' },
+        { name: 'Docs', path: '/docs', desc: 'Documentation center', file: 'Docs.mdx' },
+        { name: 'Blog', path: '/blog', desc: 'Company blog', file: 'Blog.mdx' },
+      ].map((surface, i) => (
+        <a key={i} href={surface.path} style={{
+          display: 'block',
+          background: '#1a1a1a',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          textDecoration: 'none',
+          border: '1px solid #2a2a2a',
+          transition: 'border-color 0.2s',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <span style={{ color: '#10b981', fontWeight: 600 }}>{surface.name}</span>
+            <code style={{ fontSize: '0.75rem', color: '#71717a', background: '#0f0f0f', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>{surface.path}</code>
+          </div>
+          <p style={{ color: '#a1a1aa', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{surface.desc}</p>
+          <code style={{ fontSize: '0.75rem', color: '#71717a' }}>{surface.file}</code>
+        </a>
+      ))}
+    </div>
+  </section>
+)
+
+export const Footer = () => (
+  <footer style={{
+    padding: '2rem',
+    textAlign: 'center',
+    borderTop: '1px solid #2a2a2a',
+    color: '#71717a',
+    fontSize: '0.875rem',
+  }}>
+    Built with dotdo. Zero configuration required.
+  </footer>
+)
+
+<Container>
+  <Nav />
+  <Hero />
+  <Surfaces />
+  <Footer />
+</Container>

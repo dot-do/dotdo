@@ -15,7 +15,7 @@
  * - Throughput (operations per second)
  * - Memory efficiency under load
  *
- * @see workflows/compat/temporal/ for Temporal-compatible implementations
+ * @see @dotdo/compat-temporal for Temporal-compatible implementations (moved to compat repo)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'

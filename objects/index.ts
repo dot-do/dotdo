@@ -31,7 +31,7 @@ export { DO, type Env } from './DO'
 export type { Thing, ThingData } from '../types/Thing'
 export type { Relationship, Action, Event, ObjectRef, DOConfig } from '../types/DO'
 
-// Worker hierarchy
+// Worker hierarchy - concrete DO implementations
 export {
   Worker,
   type WorkerMode,
@@ -47,6 +47,24 @@ export {
 } from './Worker'
 export { Agent, type Tool, type Goal, type GoalResult, type Memory } from './Agent'
 export { Human, type NotificationChannel, type EscalationRule, type EscalationPolicy, type PendingApproval } from './Human'
+
+// Worker interfaces - implementation-agnostic contracts (re-exported from types)
+export type {
+  IWorker,
+  IAgent,
+  IHuman,
+  AgentTool,
+  AgentGoal,
+  AgentGoalResult,
+  AgentMemory,
+  MemoryType,
+  WorkerContext,
+  NotificationPriority,
+  HumanNotificationChannel,
+  BlockingApprovalStatus,
+  BlockingApprovalRequest,
+} from '../types/Worker'
+export { isWorker, isAgent, isHuman } from '../types/Worker'
 
 // Organization hierarchy
 export { Business, type BusinessConfig } from './Business'
