@@ -239,16 +239,41 @@ export class GenerationEngine {
     const generatedEntities: Record<string, Entity> = {}
     let method: 'code' | 'generative' | 'agentic' | 'human' = 'code'
 
+    // Collect array generation info: parent type -> field -> count
+    const arrayGenerations = new Map<string, Map<string, { target: string; count: number }>>()
+    const arrayTargetTypes = new Set<string>() // Types that should only be generated as array elements
+    for (const [parentType, typeInfo] of Object.entries(parsedSchema.types)) {
+      for (const [fieldName, field] of Object.entries(typeInfo.fields)) {
+        if (field.isArray && field.target && field.arrayCount) {
+          if (!arrayGenerations.has(parentType)) {
+            arrayGenerations.set(parentType, new Map())
+          }
+          arrayGenerations.get(parentType)!.set(fieldName, {
+            target: field.target,
+            count: field.arrayCount,
+          })
+          // Mark target type to skip in topological generation
+          arrayTargetTypes.add(field.target)
+        }
+      }
+    }
+
     // Generate each type in order
     try {
       for (const type of generationOrder) {
+        // Skip types that should only be generated as array elements
+        if (arrayTargetTypes.has(type) && type !== typeName) {
+          continue
+        }
+
         const seed = type === typeName ? options?.seed : undefined
         const codeGen = this.codeGenerators.get(type)
+        const typeInfo = parsedSchema.types[type]
+        const typeMaxTokens = typeInfo?.directives.$maxTokens as number | undefined
 
         let entity: Entity
 
         if (codeGen) {
-          const typeInfo = parsedSchema.types[type]
           const result = codeGen(typeInfo, seed)
           if (result) {
             entity = {
@@ -261,18 +286,54 @@ export class GenerationEngine {
             }
           } else {
             // Code generator returned null, fall back to generative via executeWithCascade
-            entity = await this.executeWithCascade(parsedSchema, type, context, seed, { maxTokens: options?.maxTokens })
+            entity = await this.executeWithCascade(parsedSchema, type, context, seed, { maxTokens: options?.maxTokens ?? typeMaxTokens })
             method = 'generative'
           }
         } else {
           // Use executeWithCascade for all generation
-          entity = await this.executeWithCascade(parsedSchema, type, context, seed, { maxTokens: options?.maxTokens })
+          entity = await this.executeWithCascade(parsedSchema, type, context, seed, { maxTokens: options?.maxTokens ?? typeMaxTokens })
           method = 'generative'
         }
 
         generatedEntities[type] = entity
         context.addGenerated(entity)
         this.emit('entityGenerated', { type, entity })
+
+        // Handle array reference fields - generate multiple instances of target types
+        const arrayFields = arrayGenerations.get(type)
+        if (arrayFields) {
+          for (const [fieldName, { target, count }] of arrayFields) {
+            // Calculate token budget per array element
+            const fieldMaxTokens = typeMaxTokens ? Math.floor(typeMaxTokens / count) : undefined
+            const arrayEntities: Entity[] = []
+
+            for (let i = 0; i < count; i++) {
+              const arrayEntity = await this.executeWithCascade(
+                parsedSchema,
+                target,
+                context,
+                undefined,
+                { maxTokens: fieldMaxTokens }
+              )
+              arrayEntities.push(arrayEntity)
+              context.addGenerated(arrayEntity)
+              this.emit('entityGenerated', { type: target, entity: arrayEntity })
+
+              // Create relationship
+              relationships.push({
+                id: `rel-${crypto.randomUUID().split('-')[0]}`,
+                from: entity.$id,
+                to: arrayEntity.$id,
+                verb: fieldName,
+                data: { operator: '->', index: i },
+                createdAt: new Date(),
+              })
+            }
+
+            // Assign array to entity
+            ;(entity as Record<string, unknown>)[fieldName] = arrayEntities
+          }
+        }
       }
     } catch (error) {
       // Re-throw with partial results
@@ -285,12 +346,15 @@ export class GenerationEngine {
       throw error
     }
 
-    // Build relationships
+    // Build relationships for non-array references
     const mainEntity = generatedEntities[typeName]
     const mainTypeInfo = parsedSchema.types[typeName]
 
     if (mainTypeInfo) {
       for (const [fieldName, field] of Object.entries(mainTypeInfo.fields)) {
+        // Skip array fields (already handled above)
+        if (field.isArray) continue
+
         if (field.target && generatedEntities[field.target]) {
           const targetEntity = generatedEntities[field.target]
           relationships.push({
@@ -365,55 +429,68 @@ export class GenerationEngine {
       // Build context string
       const contextString = context.buildContextForGeneration(typeName)
 
-      // Get model from type directive or default
-      const model = typeInfo?.directives.$model as string ?? this.options.defaultModel ?? 'claude-3-haiku'
-      const maxTokens = options?.maxTokens ?? typeInfo?.directives.$maxTokens as number ?? undefined
+      // Separate fields by model - fields with $model get their own AI call
+      const fieldsByModel = new Map<string, Record<string, GenerationParsedField>>()
+      const defaultModel = typeInfo?.directives.$model as string ?? this.options.defaultModel ?? 'claude-3-haiku'
 
-      // Build prompt
-      const fieldPrompts = Object.entries(fieldsToGenerate)
-        .map(([name, field]) => `${name}: ${field.prompt ?? name}`)
-        .join('\n')
+      for (const [fieldName, field] of Object.entries(fieldsToGenerate)) {
+        const model = field.$model ?? defaultModel
+        if (!fieldsByModel.has(model)) {
+          fieldsByModel.set(model, {})
+        }
+        fieldsByModel.get(model)![fieldName] = field
+      }
+
+      // Get type-level maxTokens
+      const typeMaxTokens = options?.maxTokens ?? typeInfo?.directives.$maxTokens as number ?? undefined
 
       try {
-        const response = await env.AI.generate({
-          prompt: `Generate a ${typeName} entity with the following fields:\n${fieldPrompts}`,
-          model,
-          maxTokens,
-          type: typeName,
-          context: contextString,
-        })
+        // Generate fields for each model group
+        for (const [model, fields] of fieldsByModel) {
+          const fieldPrompts = Object.entries(fields)
+            .map(([name, field]) => `${name}: ${field.prompt ?? name}`)
+            .join('\n')
 
-        // Parse response
-        try {
-          const generated = JSON.parse(response.text)
-          // Map AI response fields to expected fields
-          for (const [fieldName, field] of Object.entries(fieldsToGenerate)) {
-            if (entity[fieldName] === undefined) {
-              // Check if AI returned this field
-              if (generated[fieldName] !== undefined) {
-                entity[fieldName] = generated[fieldName]
-              } else {
-                // AI didn't return this field, use default
-                entity[fieldName] = this.generateFieldValueNewAPI(field, fieldName)
+          const response = await env.AI.generate({
+            prompt: `Generate a ${typeName} entity with the following fields:\n${fieldPrompts}`,
+            model,
+            maxTokens: typeMaxTokens,
+            type: typeName,
+            context: contextString,
+          })
+
+          // Parse response
+          try {
+            const generated = JSON.parse(response.text)
+            // Map AI response fields to expected fields
+            for (const [fieldName, field] of Object.entries(fields)) {
+              if (entity[fieldName] === undefined) {
+                // Check if AI returned this field
+                if (generated[fieldName] !== undefined) {
+                  entity[fieldName] = generated[fieldName]
+                } else {
+                  // AI didn't return this field, use default
+                  entity[fieldName] = this.generateFieldValueNewAPI(field, fieldName)
+                }
               }
             }
-          }
-          // Also apply any extra fields from AI response
-          for (const [key, value] of Object.entries(generated)) {
-            if (entity[key] === undefined) {
-              entity[key] = value
+            // Also apply any extra fields from AI response
+            for (const [key, value] of Object.entries(generated)) {
+              if (entity[key] === undefined) {
+                entity[key] = value
+              }
             }
-          }
-        } catch {
-          // JSON parsing failed, use raw text for single-field types
-          if (Object.keys(fieldsToGenerate).length === 1) {
-            const fieldName = Object.keys(fieldsToGenerate)[0]!
-            entity[fieldName] = response.text
-          } else {
-            // Fall back to default generation for all fields
-            for (const [fieldName, field] of Object.entries(fieldsToGenerate)) {
-              if (entity[fieldName] === undefined) {
-                entity[fieldName] = this.generateFieldValueNewAPI(field, fieldName)
+          } catch {
+            // JSON parsing failed, use raw text for single-field types
+            if (Object.keys(fields).length === 1) {
+              const fieldName = Object.keys(fields)[0]!
+              entity[fieldName] = response.text
+            } else {
+              // Fall back to default generation for all fields
+              for (const [fieldName, field] of Object.entries(fields)) {
+                if (entity[fieldName] === undefined) {
+                  entity[fieldName] = this.generateFieldValueNewAPI(field, fieldName)
+                }
               }
             }
           }
@@ -1707,6 +1784,7 @@ export class GenerationEngine {
           elementType: elementField.target ?? elementField.type,
           isOptional: elementField.isOptional,
           optional: elementField.optional,
+          arrayCount: def[1],
         }
       }
 
@@ -1732,25 +1810,45 @@ export class GenerationEngine {
     if (typeof def === 'object' && def !== null) {
       const obj = def as Record<string, unknown>
 
+      // Field with $model directive - preserve model for per-field generation
       if ('$model' in obj && 'prompt' in obj) {
         return {
           type: 'string',
           prompt: obj.prompt as string,
+          $model: obj.$model as string,
+          $maxTokens: obj.$maxTokens as number | undefined,
+        }
+      }
+
+      // Field with only $model (no explicit prompt)
+      if ('$model' in obj && !('prompt' in obj)) {
+        return {
+          type: 'string',
+          prompt: name,
+          $model: obj.$model as string,
+          $maxTokens: obj.$maxTokens as number | undefined,
         }
       }
 
       // Nested object field with subfields
       if (!('$model' in obj) && !('prompt' in obj)) {
-        // Check for too-deep nesting (more than 2 levels)
-        const checkNestingDepth = (value: unknown, depth: number): boolean => {
-          if (depth > 2) return true
-          if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+        // Check for too-deep nesting (more than 2 levels of nested fields)
+        // For { field: { nested: { tooDeep: '...' } } }, count as 3 levels = too deep
+        const countFieldDepth = (value: unknown): number => {
+          if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            return 0 // Leaf value
+          }
           const inner = value as Record<string, unknown>
-          if ('$model' in inner || 'prompt' in inner) return false // Valid pattern
-          return Object.values(inner).some(v => checkNestingDepth(v, depth + 1))
+          if ('$model' in inner || 'prompt' in inner) return 0 // Valid terminal pattern
+          // Count this as one level, plus the max depth of any child
+          const childDepths = Object.values(inner).map(countFieldDepth)
+          return 1 + Math.max(0, ...childDepths)
         }
 
-        const hasTooDeepNesting = Object.values(obj).some(v => checkNestingDepth(v, 1))
+        // The field definition itself is level 1, so we check if children add 1+ more levels
+        // This means: field -> nested object -> deeper object = too deep
+        const maxChildDepth = Math.max(0, ...Object.values(obj).map(countFieldDepth))
+        const hasTooDeepNesting = maxChildDepth >= 1 // Any nested object is too deep
 
         if (hasTooDeepNesting) {
           throw new SchemaParseError('Schema structure too deeply nested')
