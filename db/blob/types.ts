@@ -6,6 +6,8 @@
  * @module db/blob/types
  */
 
+import type { CDCEmitter } from '../cdc'
+
 // ============================================================================
 // METADATA TYPES
 // ============================================================================
@@ -64,6 +66,8 @@ export interface BlobCDCEvent {
 export interface BlobStoreOptions {
   contentAddressed?: boolean
   namespace?: string
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
 }
 
 export interface PutOptions {

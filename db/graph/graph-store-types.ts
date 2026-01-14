@@ -7,6 +7,8 @@
  * @module db/graph/graph-store-types
  */
 
+import type { CDCEmitter } from '../cdc'
+
 // ============================================================================
 // RELATIONSHIP TYPES
 // ============================================================================
@@ -163,6 +165,14 @@ export interface CDCEvent {
  * CDC event handler callback.
  */
 export type CDCHandler = (event: CDCEvent) => void
+
+/**
+ * GraphStore configuration options.
+ */
+export interface GraphStoreOptions {
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
+}
 
 // ============================================================================
 // SCHEMA TYPES

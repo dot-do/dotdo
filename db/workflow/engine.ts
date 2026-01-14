@@ -14,10 +14,48 @@ import type {
   SignalOptions,
   DurationString,
 } from './types'
+import type { CDCEmitter } from '../cdc'
 import { CancelledError, TimeoutError } from './types'
 import { sleep as timerSleep, sleepUntil as timerSleepUntil, parseDuration } from './timer'
 import { executeActivity } from './activity'
 import { SignalQueue } from './signal'
+
+// =============================================================================
+// CDC Integration
+// =============================================================================
+
+/** Global CDC emitter for workflow events */
+let globalCdcEmitter: CDCEmitter | undefined
+
+/**
+ * Set the global CDC emitter for workflow events
+ */
+export function setWorkflowCDCEmitter(emitter: CDCEmitter | undefined): void {
+  globalCdcEmitter = emitter
+}
+
+/**
+ * Emit a workflow CDC event
+ */
+function emitWorkflowCDC(
+  op: 'c' | 'u' | 'd',
+  workflowId: string,
+  before?: Record<string, unknown>,
+  after?: Record<string, unknown>
+): void {
+  if (globalCdcEmitter) {
+    globalCdcEmitter.emit({
+      op,
+      store: 'workflow',
+      table: 'executions',
+      key: workflowId,
+      before,
+      after,
+    }).catch(() => {
+      // Don't block on CDC pipeline errors
+    })
+  }
+}
 
 // =============================================================================
 // Workflow Definition
@@ -193,6 +231,14 @@ export async function startWorkflowExecution<T, R>(
 
   workflowExecutions.set(workflowId, execution)
 
+  // Emit CDC event for workflow creation
+  emitWorkflowCDC('c', workflowId, undefined, {
+    workflowType: workflowDef.name,
+    status: 'running',
+    taskQueue,
+    startedAt: execution.startedAt.toISOString(),
+  })
+
   // Create context and run workflow
   const ctx = createWorkflowContext(execution)
 
@@ -218,6 +264,11 @@ export async function startWorkflowExecution<T, R>(
             execution.status = 'completed'
             execution.result = result
             execution.completedAt = new Date()
+            // Emit CDC event for workflow completion
+            emitWorkflowCDC('u', execution.workflowId, { status: 'running' }, {
+              status: 'completed',
+              completedAt: execution.completedAt.toISOString(),
+            })
             resultResolve?.(result)
           }
         }, 0)
@@ -227,11 +278,22 @@ export async function startWorkflowExecution<T, R>(
           if (error instanceof CancelledError) {
             execution.status = 'cancelled'
             execution.completedAt = new Date()
+            // Emit CDC event for workflow cancellation
+            emitWorkflowCDC('u', execution.workflowId, { status: 'running' }, {
+              status: 'cancelled',
+              completedAt: execution.completedAt.toISOString(),
+            })
             resultReject?.(error)
           } else {
             execution.status = 'failed'
             execution.error = (error as Error).message
             execution.completedAt = new Date()
+            // Emit CDC event for workflow failure
+            emitWorkflowCDC('u', execution.workflowId, { status: 'running' }, {
+              status: 'failed',
+              error: (error as Error).message,
+              completedAt: execution.completedAt.toISOString(),
+            })
             resultReject?.(error as Error)
           }
         }, 0)
@@ -353,8 +415,14 @@ export function terminateWorkflow(workflowId: string, reason: string): void {
   if (!execution) {
     throw new Error(`Workflow ${workflowId} not found`)
   }
+  const previousStatus = execution.status
   execution.cancelled = true
   execution.status = 'cancelled'
+  // Emit CDC event for workflow termination
+  emitWorkflowCDC('u', workflowId, { status: previousStatus }, {
+    status: 'cancelled',
+    terminationReason: reason,
+  })
   const error = new Error(`terminated: ${reason}`)
   error.name = 'CancelledError'
   execution.cancelReject?.(error)

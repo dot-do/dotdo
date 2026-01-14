@@ -20,7 +20,9 @@ import type {
   SchemaInfo,
   ConstraintInfo,
   IndexInfo,
+  GraphStoreOptions,
 } from './graph-store-types'
+import type { CDCEmitter } from '../cdc'
 import { traverse } from './traversal'
 import { detectCycle as detectCycleAlgo, findPath as findPathAlgo, shortestPath as shortestPathAlgo } from './algorithms'
 
@@ -61,11 +63,15 @@ export class GraphStore {
   /** CDC event handlers */
   private cdcHandlers: CDCHandler[] = []
 
+  /** Unified CDC emitter */
+  private cdcEmitter?: CDCEmitter
+
   /** Database instance (kept for compatibility but unused in mock mode) */
   private db: unknown
 
-  constructor(db: unknown) {
+  constructor(db: unknown, options?: GraphStoreOptions) {
     this.db = db
+    this.cdcEmitter = options?.cdcEmitter
   }
 
   // ==========================================================================
@@ -350,6 +356,19 @@ export class GraphStore {
   private emitCDC(event: CDCEvent): void {
     for (const handler of this.cdcHandlers) {
       handler(event)
+    }
+    // Also emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: event.op,
+        store: 'graph',
+        table: event.table,
+        key: event.key,
+        before: event.before as Record<string, unknown> | undefined,
+        after: event.after as Record<string, unknown> | undefined,
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
   }
 

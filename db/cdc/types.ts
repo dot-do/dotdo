@@ -12,6 +12,9 @@ export type StoreType =
   | 'columnar'
   | 'timeseries'
   | 'vector'
+  | 'blob'
+  | 'stream'
+  | 'workflow'
 
 /**
  * CDC operation types

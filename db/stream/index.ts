@@ -7,6 +7,8 @@
  * @see README.md for API specification
  */
 
+import type { CDCEmitter } from '../cdc'
+
 // =============================================================================
 // STORAGE - In-memory storage for tests (will use SQLite in production)
 // =============================================================================
@@ -297,18 +299,23 @@ export class AdminClient {
 // PRODUCER
 // =============================================================================
 
+export interface ProducerOptions {
+  partitioner?: 'murmur2' | 'default'
+  compression?: 'none' | 'gzip' | 'snappy'
+  batchSize?: number
+  lingerMs?: number
+  idempotent?: boolean
+  /** Optional unified CDC emitter for pipeline integration */
+  cdcEmitter?: CDCEmitter
+}
+
 export class Producer {
   private roundRobinCounter = 0
+  private cdcEmitter?: CDCEmitter
 
-  constructor(
-    public readonly options?: {
-      partitioner?: 'murmur2' | 'default'
-      compression?: 'none' | 'gzip' | 'snappy'
-      batchSize?: number
-      lingerMs?: number
-      idempotent?: boolean
-    }
-  ) {}
+  constructor(public readonly options?: ProducerOptions) {
+    this.cdcEmitter = options?.cdcEmitter
+  }
 
   private getPartition(key: string | null, partitionCount: number): number {
     if (key === null) {
@@ -364,6 +371,25 @@ export class Producer {
     const offsetInfo = topic.partitionOffsets.get(partition)
     if (offsetInfo) {
       offsetInfo.latest = offset + 1
+    }
+
+    // Emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: 'c',
+        store: 'stream',
+        table: topicName,
+        key: `${partition}:${offset}`,
+        after: {
+          key: message.key,
+          value: message.value,
+          headers: message.headers,
+          partition,
+          offset,
+        } as Record<string, unknown>,
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
 
     return { topic: topicName, partition, offset }

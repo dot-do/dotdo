@@ -24,6 +24,7 @@ import type {
   R2Bucket,
   Database,
 } from './types'
+import type { CDCEmitter } from '../cdc'
 
 import { computeHash, getContentAddressedKey, getKeyAddressedPath } from './dedup'
 import { generateSignedUrl, generateUploadUrl } from './presigned'
@@ -56,6 +57,7 @@ export class BlobStore {
   private db: Database
   private options: BlobStoreOptions
   private cdcHandlers: CDCHandler[] = []
+  private cdcEmitter?: CDCEmitter
   private initialized = false
 
   // In-memory storage for tests (when bucket/db are mocks)
@@ -70,6 +72,7 @@ export class BlobStore {
       contentAddressed: options.contentAddressed ?? false,
       namespace: options.namespace ?? 'default',
     }
+    this.cdcEmitter = options.cdcEmitter
   }
 
   /**
@@ -102,6 +105,19 @@ export class BlobStore {
   private emitCDC(event: BlobCDCEvent): void {
     for (const handler of this.cdcHandlers) {
       handler(event)
+    }
+    // Also emit to unified CDC pipeline if configured
+    if (this.cdcEmitter) {
+      this.cdcEmitter.emit({
+        op: event.op,
+        store: 'blob',
+        table: event.table,
+        key: event.key,
+        before: event.before,
+        after: event.after,
+      }).catch(() => {
+        // Don't block on CDC pipeline errors
+      })
     }
   }
 
