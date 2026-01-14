@@ -191,3 +191,127 @@ export {
   type ConsistentHashRingConfig,
   type RangeRouterConfig,
 } from './shard-router'
+
+// ShardMigration - Handles shard topology changes with zero-downtime
+export {
+  ShardMigration,
+  type ShardMigrationConfig,
+  type MigrationPlan as ShardMigrationPlan,
+  type MigrationProgress,
+  type MigrationResult,
+  type ShardInfo as MigrationShardInfo,
+  type ShardStub,
+  type ShardRouter as MigrationShardRouter,
+  type IcebergReader as MigrationIcebergReader,
+  type WriteBuffer,
+  type PlanValidation,
+  type ReplayOptions,
+  type ReplayResult,
+  type BalanceAnalysis,
+  type RebalanceOptions,
+  type AddShardOptions,
+  type MigrationMetrics,
+  type DomainEvent as MigrationDomainEvent,
+  type Entity as MigrationEntity,
+} from './shard-migration'
+
+// ShardMetrics - Hot shard detection and metrics collection
+export {
+  ShardMetricsCollector,
+  HotSpotDetector,
+  createInstrumentedForward,
+  type ShardMetrics as ShardMetricsData,
+  type ShardMetricsSnapshot,
+  type HotShardInfo,
+  type DistributionScore,
+  type HotSpotDetectorConfig,
+  type RequestType,
+  type OperationRecord,
+  type HotSpotEvent,
+  type HotSpotCallback,
+  type ForwardFunction,
+} from './shard-metrics'
+
+// EventSubscriber - Subscribe to Pipeline events for replication
+export {
+  EventSubscriber,
+  type ConsumedEvent,
+  type CheckpointMode,
+  type SubscriptionOptions,
+  type CheckpointStore,
+  type PipelineSource,
+  type EventSubscriberConfig,
+  type ResolvedEventSubscriberConfig,
+  type IdempotencyStats,
+  type ProcessingStats,
+} from './event-subscriber'
+
+// MultiMasterManager - Multi-master replication with eventual consistency
+export {
+  MultiMasterManager,
+  VectorClock,
+  type Entity,
+  type WriteEvent,
+  type RemoteEvent,
+  type ConflictStrategy,
+  type ConflictResult,
+  type WriteResult,
+  type ConflictInfo,
+  type MultiMasterMetrics,
+  type Pipeline as MultiMasterPipeline,
+  type StateManager,
+  type MergeFn,
+  type MasterNode,
+  type MultiMasterConfig,
+} from './multi-master'
+
+// LeaderFollowerManager - Leader-follower replication for read scaling and failover
+export {
+  LeaderFollowerManager,
+  ReplicationRole,
+  type ReplicationEvent,
+  type LeaderChangeEvent,
+  type WriteOperation,
+  type WriteResult,
+  type StateStore,
+  type HeartbeatService,
+  type LeaderFollowerConfig,
+  type ResolvedLeaderFollowerConfig,
+  type LeaderState,
+  type FollowerInfo,
+  type FollowerState,
+  type ManagerMetrics,
+} from './leader-follower'
+
+// GeoRouter - Geo-aware routing for distributed replicas
+export {
+  GeoRouter,
+  createGeoRouterForLeaderFollower,
+  createGeoRouterForMultiMaster,
+  type GeoInfo,
+  type ReplicaInfo,
+  type RoutingStrategy,
+  type GeoRouterConfig,
+  type ResolvedGeoRouterConfig,
+  type GeoRoutingMetrics,
+  type ReplicaHealth,
+} from './geo-router'
+
+// ConsistencyModes - Configurable strong/eventual consistency modes
+export {
+  ConsistencyController,
+  ConsistencyLevel,
+  calculateMajorityQuorum,
+  isQuorumSatisfied,
+  compareVectorClocks,
+  type ConsistencyConfig,
+  type ResolvedConsistencyConfig,
+  type WriteOp,
+  type WriteResult as ConsistencyWriteResult,
+  type ReadResult as ConsistencyReadResult,
+  type SessionState,
+  type ReplicationStatus,
+  type StateStore as ConsistencyStateStore,
+  type ReplicationManager,
+  type ConsistencyMetrics,
+} from './consistency-modes'

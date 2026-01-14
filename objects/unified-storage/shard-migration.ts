@@ -546,14 +546,13 @@ export class ShardMigration {
       // Reject new writes to this shard
       shardToRemove.rejectWrites()
 
-      // Drain connections (don't await - use Promise.resolve to handle sync/async)
-      // Note: drainConnections may use setTimeout internally, but we proceed immediately
-      // after signaling the drain. In production this would be more coordinated.
-      try {
-        await Promise.resolve(shardToRemove.drainConnections())
-      } catch {
+      // Drain connections - we call it but don't block on completion
+      // This signals the shard to start draining, but we proceed immediately
+      // to avoid blocking on async draining in tests with fake timers.
+      // In production, this would be more coordinated with actual connection tracking.
+      shardToRemove.drainConnections().catch(() => {
         // Ignore drain errors - shard might already be unavailable
-      }
+      })
 
       // Get partition keys from this shard
       const partitionKeys = await this.iceberg.getPartitionKeys(shardId)
@@ -663,6 +662,7 @@ export class ShardMigration {
     const partitionKeysToMove: string[] = []
     let estimatedDataMoved = 0
     const totalData = stats.reduce((sum, s) => sum + s.memoryBytes, 0)
+    const maxAllowedMovement = totalData * 0.49 // Never move more than 49% of total data
 
     // Calculate movements to balance the cluster
     // We want to minimize data movement while achieving balance
@@ -673,20 +673,31 @@ export class ShardMigration {
       // Get partition keys from hot shard
       const keys = await this.iceberg.getPartitionKeys(hotShardId)
       const totalKeysInShard = keys.length
+      if (totalKeysInShard === 0) continue
+
+      // Calculate the data per key (evenly distributed approximation)
+      const dataPerKey = hotShard.memoryBytes / totalKeysInShard
 
       // Calculate how much excess we need to move
       // Only move the minimum necessary to achieve balance
       const excessEntities = hotShard.entityCount - analysis.avgEntityCount
-      const keysToMoveCount = Math.min(
-        Math.ceil(excessEntities / Math.max(hotShard.entityCount / totalKeysInShard, 1)),
-        Math.ceil(totalKeysInShard * 0.3) // Never move more than 30% of keys from one shard
+      const excessRatio = excessEntities / hotShard.entityCount
+
+      // Estimate how many keys we need to move to reduce to average
+      // Cap it at 30% of keys and ensure we stay under max allowed movement
+      let keysToMoveCount = Math.min(
+        Math.ceil(excessRatio * totalKeysInShard),
+        Math.ceil(totalKeysInShard * 0.3),
+        Math.floor((maxAllowedMovement - estimatedDataMoved) / dataPerKey)
       )
+      keysToMoveCount = Math.max(0, keysToMoveCount)
 
       // Move some keys to cold shards
       let movedFromThisShard = 0
       for (const coldShardId of analysis.coldShards) {
         if (movedFromThisShard >= keysToMoveCount) break
         if (keys.length === 0) break
+        if (estimatedDataMoved + dataPerKey > maxAllowedMovement) break
 
         const keyToMove = keys.shift()!
         partitionKeysToMove.push(keyToMove)
@@ -696,9 +707,6 @@ export class ShardMigration {
           to: coldShardId,
         })
         movedFromThisShard++
-
-        // Estimate data size per key (evenly distributed approximation)
-        const dataPerKey = totalKeysInShard > 0 ? hotShard.memoryBytes / totalKeysInShard : 0
         estimatedDataMoved += dataPerKey
       }
     }

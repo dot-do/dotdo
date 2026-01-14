@@ -1017,4 +1017,258 @@ describe('ShardRouter', () => {
       expect(router.getMetrics().routingOperations).toBe(0)
     })
   })
+
+  // ============================================================================
+  // Virtual Nodes Configuration Tests
+  // ============================================================================
+
+  describe('virtual nodes configuration', () => {
+    let namespace: ReturnType<typeof createMockDurableObjectNamespace>
+
+    beforeEach(() => {
+      namespace = createMockDurableObjectNamespace()
+    })
+
+    it('should use 150 virtual nodes by default', () => {
+      // Given: A consistent hash ring without explicit virtualNodes config
+      const ring = new ConsistentHashRing({
+        nodes: ['shard-0', 'shard-1', 'shard-2', 'shard-3'],
+      })
+
+      // Then: Should use 150 virtual nodes per physical node (new default)
+      expect(ring.getVirtualNodesPerNode()).toBe(150)
+      expect(ring.getTotalVirtualNodes()).toBe(4 * 150) // 4 nodes * 150 vnodes
+    })
+
+    it('should expose DEFAULT_VIRTUAL_NODES constant', () => {
+      // Verify the constant is exposed and set to 150
+      expect(ConsistentHashRing.DEFAULT_VIRTUAL_NODES).toBe(150)
+    })
+
+    it('should allow custom virtual node configuration', () => {
+      // Given: Rings with different virtual node counts
+      const ring50 = new ConsistentHashRing({
+        nodes: ['a', 'b'],
+        virtualNodes: 50,
+      })
+      const ring200 = new ConsistentHashRing({
+        nodes: ['a', 'b'],
+        virtualNodes: 200,
+      })
+      const ring300 = new ConsistentHashRing({
+        nodes: ['a', 'b'],
+        virtualNodes: 300,
+      })
+
+      // Then: Each should use its configured virtual nodes
+      expect(ring50.getVirtualNodesPerNode()).toBe(50)
+      expect(ring50.getTotalVirtualNodes()).toBe(100)
+
+      expect(ring200.getVirtualNodesPerNode()).toBe(200)
+      expect(ring200.getTotalVirtualNodes()).toBe(400)
+
+      expect(ring300.getVirtualNodesPerNode()).toBe(300)
+      expect(ring300.getTotalVirtualNodes()).toBe(600)
+    })
+
+    it('should show improved distribution with more virtual nodes', () => {
+      // Given: Rings with different virtual node counts
+      const ring10 = new ConsistentHashRing({
+        nodes: ['a', 'b', 'c', 'd'],
+        virtualNodes: 10,
+      })
+      const ring150 = new ConsistentHashRing({
+        nodes: ['a', 'b', 'c', 'd'],
+        virtualNodes: 150,
+      })
+
+      // When: Getting distribution metrics
+      const metrics10 = ring10.getDistributionMetrics(10000)
+      const metrics150 = ring150.getDistributionMetrics(10000)
+
+      // Then: More virtual nodes should produce better balance
+      // (lower coefficient of variation, higher balance score)
+      expect(metrics150.balanceScore).toBeGreaterThanOrEqual(metrics10.balanceScore)
+      expect(metrics150.coefficientOfVariation).toBeLessThanOrEqual(metrics10.coefficientOfVariation + 0.05)
+    })
+
+    it('should use default virtual nodes in ShardRouter for consistent-hash', () => {
+      // Given: A ShardRouter without explicit virtualNodes
+      const router = new ShardRouter({
+        namespace,
+        shardCount: 8,
+        strategy: 'consistent-hash',
+      })
+
+      // Then: Should use 150 virtual nodes (the new default)
+      const config = router.getConfig()
+      expect(config.virtualNodes).toBe(150)
+    })
+  })
+
+  // ============================================================================
+  // Distribution Metrics Tests
+  // ============================================================================
+
+  describe('distribution metrics', () => {
+    let namespace: ReturnType<typeof createMockDurableObjectNamespace>
+
+    beforeEach(() => {
+      namespace = createMockDurableObjectNamespace()
+    })
+
+    it('should calculate distribution metrics for ConsistentHashRing', () => {
+      // Given: A hash ring with 4 nodes
+      const ring = new ConsistentHashRing({
+        nodes: ['shard-0', 'shard-1', 'shard-2', 'shard-3'],
+        virtualNodes: 150,
+      })
+
+      // When: Getting distribution metrics
+      const metrics = ring.getDistributionMetrics(10000)
+
+      // Then: Should return all expected fields
+      expect(metrics.nodeCount).toBe(4)
+      expect(metrics.totalVirtualNodes).toBe(600) // 4 * 150
+      expect(metrics.virtualNodesPerNode).toBe(150)
+      expect(metrics.distribution.size).toBe(4)
+      expect(typeof metrics.standardDeviation).toBe('number')
+      expect(typeof metrics.coefficientOfVariation).toBe('number')
+      expect(typeof metrics.minMaxRatio).toBe('number')
+      expect(typeof metrics.balanceScore).toBe('number')
+    })
+
+    it('should show good balance score with 150 virtual nodes', () => {
+      // Given: A well-configured ring
+      const ring = new ConsistentHashRing({
+        nodes: ['a', 'b', 'c', 'd'],
+        virtualNodes: 150,
+      })
+
+      // When: Getting distribution metrics
+      const metrics = ring.getDistributionMetrics(10000)
+
+      // Then: Balance score should be high (good distribution)
+      expect(metrics.balanceScore).toBeGreaterThan(80) // At least 80% balanced
+      expect(metrics.coefficientOfVariation).toBeLessThan(0.15) // CV < 15%
+      expect(metrics.minMaxRatio).toBeGreaterThan(0.7) // Min is at least 70% of max
+    })
+
+    it('should handle empty ring gracefully', () => {
+      // Given: An empty ring
+      const ring = new ConsistentHashRing({ nodes: [] })
+
+      // When: Getting distribution metrics
+      const metrics = ring.getDistributionMetrics()
+
+      // Then: Should return sensible defaults
+      expect(metrics.nodeCount).toBe(0)
+      expect(metrics.totalVirtualNodes).toBe(0)
+      expect(metrics.balanceScore).toBe(100) // Perfect by default (nothing to distribute)
+      expect(metrics.distribution.size).toBe(0)
+    })
+
+    it('should track distribution per node', () => {
+      // Given: A ring with 3 nodes
+      const ring = new ConsistentHashRing({
+        nodes: ['alpha', 'beta', 'gamma'],
+        virtualNodes: 100,
+      })
+
+      // When: Getting distribution metrics
+      const metrics = ring.getDistributionMetrics(9000) // Divisible by 3
+
+      // Then: Should have counts for each node
+      expect(metrics.distribution.has('alpha')).toBe(true)
+      expect(metrics.distribution.has('beta')).toBe(true)
+      expect(metrics.distribution.has('gamma')).toBe(true)
+
+      // Total should equal sample size
+      let total = 0
+      for (const count of metrics.distribution.values()) {
+        total += count
+      }
+      expect(total).toBe(9000)
+    })
+
+    it('should expose distribution metrics from ShardRouter', () => {
+      // Given: A ShardRouter with consistent-hash strategy
+      const router = new ShardRouter({
+        namespace,
+        shardCount: 4,
+        strategy: 'consistent-hash',
+        virtualNodes: 150,
+      })
+
+      // When: Getting distribution metrics
+      const metrics = router.getDistributionMetrics()
+
+      // Then: Should return valid metrics
+      expect(metrics).not.toBeNull()
+      expect(metrics!.nodeCount).toBe(4)
+      expect(metrics!.balanceScore).toBeGreaterThan(70)
+    })
+
+    it('should return null for non-consistent-hash strategies', () => {
+      // Given: Routers with non-consistent-hash strategies
+      const hashRouter = new ShardRouter({
+        namespace,
+        shardCount: 4,
+        strategy: 'hash',
+      })
+      const rangeRouter = new ShardRouter({
+        namespace,
+        strategy: 'range',
+        ranges: [
+          { start: 'a', end: 'm', shard: 0 },
+          { start: 'm', end: 'z', shard: 1 },
+        ],
+      })
+
+      // When/Then: getDistributionMetrics should return null
+      expect(hashRouter.getDistributionMetrics()).toBeNull()
+      expect(rangeRouter.getDistributionMetrics()).toBeNull()
+    })
+
+    it('should support custom sample size', () => {
+      // Given: A hash ring
+      const ring = new ConsistentHashRing({
+        nodes: ['a', 'b'],
+        virtualNodes: 100,
+      })
+
+      // When: Getting metrics with different sample sizes
+      const metrics1000 = ring.getDistributionMetrics(1000)
+      const metrics50000 = ring.getDistributionMetrics(50000)
+
+      // Then: Both should work, larger sample should have similar balance
+      expect(metrics1000.nodeCount).toBe(2)
+      expect(metrics50000.nodeCount).toBe(2)
+
+      // Total distributed should match sample size
+      let total1000 = 0
+      let total50000 = 0
+      for (const count of metrics1000.distribution.values()) total1000 += count
+      for (const count of metrics50000.distribution.values()) total50000 += count
+      expect(total1000).toBe(1000)
+      expect(total50000).toBe(50000)
+    })
+
+    it('should calculate correct standard deviation', () => {
+      // Given: A ring with 2 nodes for easy calculation
+      const ring = new ConsistentHashRing({
+        nodes: ['x', 'y'],
+        virtualNodes: 150,
+      })
+
+      // When: Getting metrics
+      const metrics = ring.getDistributionMetrics(10000)
+
+      // Then: Standard deviation should be reasonable
+      // For perfectly balanced: 5000, 5000 -> stdDev = 0
+      // For slightly unbalanced: 4800, 5200 -> stdDev = 200
+      // Allow up to ~500 stdDev for real-world hashing (5% variance)
+      expect(metrics.standardDeviation).toBeLessThan(500)
+    })
+  })
 })

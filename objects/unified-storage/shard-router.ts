@@ -119,6 +119,28 @@ export interface ConsistentHashRingConfig {
 }
 
 /**
+ * Distribution metrics for analyzing hash ring uniformity
+ */
+export interface DistributionMetrics {
+  /** Number of physical nodes in the ring */
+  nodeCount: number
+  /** Total number of virtual nodes in the ring */
+  totalVirtualNodes: number
+  /** Virtual nodes per physical node */
+  virtualNodesPerNode: number
+  /** Distribution of keys per node (only populated after sampling) */
+  distribution: Map<string, number>
+  /** Standard deviation of key distribution (lower is better) */
+  standardDeviation: number
+  /** Coefficient of variation (stdDev/mean, lower is better, 0 = perfect) */
+  coefficientOfVariation: number
+  /** Ratio of min to max keys per node (closer to 1 is better) */
+  minMaxRatio: number
+  /** Balance score 0-100 (100 = perfect distribution) */
+  balanceScore: number
+}
+
+/**
  * ConsistentHashRing - Implements consistent hashing with virtual nodes
  *
  * Provides minimal redistribution when nodes are added or removed.
@@ -130,8 +152,15 @@ export class ConsistentHashRing {
   private readonly virtualNodes: number
   private nodes: Set<string>
 
+  /**
+   * Default virtual nodes per physical node.
+   * 150 provides excellent distribution balance while keeping memory reasonable.
+   * Higher values improve uniformity but increase memory usage linearly.
+   */
+  static readonly DEFAULT_VIRTUAL_NODES = 150
+
   constructor(config: ConsistentHashRingConfig) {
-    this.virtualNodes = config.virtualNodes ?? 100
+    this.virtualNodes = config.virtualNodes ?? ConsistentHashRing.DEFAULT_VIRTUAL_NODES
     this.nodes = new Set()
 
     for (const node of config.nodes) {
@@ -236,6 +265,104 @@ export class ConsistentHashRing {
 
   private rebuildSortedKeys(): void {
     this.sortedKeys = Array.from(this.ring.keys()).sort((a, b) => a - b)
+  }
+
+  /**
+   * Get the number of physical nodes in the ring
+   */
+  getNodeCount(): number {
+    return this.nodes.size
+  }
+
+  /**
+   * Get all physical node names
+   */
+  getNodes(): string[] {
+    return Array.from(this.nodes)
+  }
+
+  /**
+   * Get the configured virtual nodes per physical node
+   */
+  getVirtualNodesPerNode(): number {
+    return this.virtualNodes
+  }
+
+  /**
+   * Get the total number of virtual nodes in the ring
+   */
+  getTotalVirtualNodes(): number {
+    return this.sortedKeys.length
+  }
+
+  /**
+   * Calculate distribution metrics by sampling keys
+   *
+   * @param sampleSize Number of random keys to sample (default 10000)
+   * @returns Distribution metrics including standard deviation and balance score
+   *
+   * @example
+   * ```typescript
+   * const ring = new ConsistentHashRing({ nodes: ['a', 'b', 'c'], virtualNodes: 150 })
+   * const metrics = ring.getDistributionMetrics(10000)
+   * console.log(`Balance score: ${metrics.balanceScore}%`)
+   * console.log(`Coefficient of variation: ${metrics.coefficientOfVariation}`)
+   * ```
+   */
+  getDistributionMetrics(sampleSize: number = 10000): DistributionMetrics {
+    if (this.nodes.size === 0) {
+      return {
+        nodeCount: 0,
+        totalVirtualNodes: 0,
+        virtualNodesPerNode: this.virtualNodes,
+        distribution: new Map(),
+        standardDeviation: 0,
+        coefficientOfVariation: 0,
+        minMaxRatio: 1,
+        balanceScore: 100,
+      }
+    }
+
+    // Sample random keys and count distribution
+    const distribution = new Map<string, number>()
+    for (const node of Array.from(this.nodes)) {
+      distribution.set(node, 0)
+    }
+
+    for (let i = 0; i < sampleSize; i++) {
+      // Generate deterministic but well-distributed sample keys
+      const key = `__sample_key_${i}_${i * 31337}`
+      const node = this.getNode(key)
+      distribution.set(node, (distribution.get(node) || 0) + 1)
+    }
+
+    // Calculate statistics
+    const counts = Array.from(distribution.values())
+    const mean = sampleSize / this.nodes.size
+    const variance = counts.reduce((sum, count) => sum + Math.pow(count - mean, 2), 0) / counts.length
+    const standardDeviation = Math.sqrt(variance)
+    const coefficientOfVariation = mean > 0 ? standardDeviation / mean : 0
+
+    const minCount = Math.min(...counts)
+    const maxCount = Math.max(...counts)
+    const minMaxRatio = maxCount > 0 ? minCount / maxCount : 1
+
+    // Balance score: 100 = perfect, 0 = completely unbalanced
+    // Based on coefficient of variation (CV)
+    // CV of 0 = perfect (score 100)
+    // CV of 1 = very unbalanced (score ~37, using exponential decay)
+    const balanceScore = Math.round(100 * Math.exp(-2 * coefficientOfVariation))
+
+    return {
+      nodeCount: this.nodes.size,
+      totalVirtualNodes: this.sortedKeys.length,
+      virtualNodesPerNode: this.virtualNodes,
+      distribution,
+      standardDeviation,
+      coefficientOfVariation,
+      minMaxRatio,
+      balanceScore,
+    }
   }
 }
 
@@ -371,7 +498,7 @@ export class ShardRouter {
 
     this.namespace = config.namespace
     this.strategy = config.strategy
-    this.virtualNodes = config.virtualNodes ?? 100
+    this.virtualNodes = config.virtualNodes ?? ConsistentHashRing.DEFAULT_VIRTUAL_NODES
     this.shardNamePrefix = config.shardNamePrefix ?? 'shard-'
     this.retryConfig = config.retryConfig
     this.addRoutingHeaders = config.addRoutingHeaders ?? false
@@ -708,5 +835,38 @@ export class ShardRouter {
       errorCount: 0,
       shardDistribution: new Map(),
     }
+  }
+
+  /**
+   * Get distribution metrics for consistent-hash strategy
+   *
+   * Only available when using 'consistent-hash' strategy.
+   * Samples keys to measure distribution uniformity across shards.
+   *
+   * @param sampleSize Number of random keys to sample (default 10000)
+   * @returns Distribution metrics or null if not using consistent-hash strategy
+   *
+   * @example
+   * ```typescript
+   * const router = new ShardRouter({
+   *   namespace: env.DO,
+   *   shardCount: 16,
+   *   strategy: 'consistent-hash',
+   *   virtualNodes: 150,
+   * })
+   *
+   * const metrics = router.getDistributionMetrics()
+   * if (metrics) {
+   *   console.log(`Balance score: ${metrics.balanceScore}%`)
+   *   console.log(`Min/Max ratio: ${metrics.minMaxRatio}`)
+   * }
+   * ```
+   */
+  getDistributionMetrics(sampleSize: number = 10000): DistributionMetrics | null {
+    if (this.strategy !== 'consistent-hash' || !this.consistentHashRing) {
+      return null
+    }
+
+    return this.consistentHashRing.getDistributionMetrics(sampleSize)
   }
 }
