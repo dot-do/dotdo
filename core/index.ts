@@ -9,11 +9,13 @@ export type {
   EventHandlerType,
 } from '@org.ai/types'
 
-// Core DO class (to be implemented)
-export { DOCore } from './DO'
+// Core DO class with schema extension
+export { DOCore, DOEnv } from './DO'
+export type { DOEnv as DOCoreEnv } from './DO'
+export { default as DO } from './DO'
 
-// Schema extension API (to be implemented)
+// Schema extension API
 export { DB, extendSchema } from './DB'
 
-// WorkflowContext (to be implemented)
+// WorkflowContext factory
 export { createWorkflowContext } from './context'
