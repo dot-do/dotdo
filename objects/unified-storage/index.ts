@@ -143,3 +143,51 @@ export {
   type WSBatchOperationResult,
   ErrorCodes,
 } from './ws-operation-router'
+
+// ShardAssigner - Partition key extraction and shard assignment
+export {
+  ShardAssigner,
+  type ShardAssignerConfig,
+  type ShardMetadata,
+  type ShardUtilization,
+  type RebalanceHint,
+  type MigrationPlan,
+  type HotShardOptions,
+  type PartitionKeyStrategy,
+  type ShardAssignerStats,
+  type ThingData as ShardThingData,
+} from './shard-assigner'
+
+// CrossShardQuery - Query data across all shards via Iceberg
+export {
+  CrossShardQuery,
+  type CrossShardQueryConfig,
+  type GlobalQueryOptions,
+  type GlobalQueryResult,
+  type StreamQueryOptions,
+  type AggregationOptions,
+  type AggregationResult,
+  type QueryStats,
+  type IcebergReader,
+  type Thing as CrossShardThing,
+  type DomainEvent as CrossShardDomainEvent,
+} from './cross-shard-query'
+
+// ShardRouter - Routes requests to appropriate DO shards based on partition key
+export {
+  ShardRouter,
+  ConsistentHashRing,
+  RangeRouter,
+  type DurableObjectId,
+  type DurableObjectStub,
+  type DurableObjectNamespace,
+  type RangeDefinition,
+  type GenericRange,
+  type RetryConfig,
+  type ShardInfo,
+  type ShardRouterConfig,
+  type ShardRouterMetrics,
+  type AggregateOptions,
+  type ConsistentHashRingConfig,
+  type RangeRouterConfig,
+} from './shard-router'

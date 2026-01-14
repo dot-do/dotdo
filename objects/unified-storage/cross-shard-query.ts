@@ -332,19 +332,42 @@ export class CrossShardQuery {
       }
     }
 
-    // Build query options
+    // Build query options with partitionFilter for optimization
     const queryOptions = this.buildQueryOptions('do_things', options)
 
-    // Execute with timeout
-    const result = await this.executeWithTimeout(
+    // Execute with timeout - first try with partitionFilter for partition pruning
+    let result = await this.executeWithTimeout(
       () => this.iceberg.query<Thing>(queryOptions),
       this.config.timeout
     )
 
-    // Apply namespace prefix filtering (post-processing for prefix match semantics)
     let filteredRows = result.rows
-    if (options.namespace) {
+
+    // If namespace filter was provided but no results, the partitionFilter may have
+    // done exact matching. Fall back to prefix matching by querying without partitionFilter
+    // and filtering in post-processing.
+    if (options.namespace && filteredRows.length === 0) {
+      const fallbackOptions = {
+        ...queryOptions,
+        partitionFilter: undefined,
+      }
+      result = await this.executeWithTimeout(
+        () => this.iceberg.query<Thing>(fallbackOptions),
+        this.config.timeout
+      )
+      filteredRows = result.rows.filter((row) => row.$ns.startsWith(options.namespace!))
+    } else if (options.namespace) {
+      // Also apply prefix filtering even if partitionFilter matched
+      // (for cases where exact match returned results but we want prefix semantics)
       filteredRows = filteredRows.filter((row) => row.$ns.startsWith(options.namespace!))
+    }
+
+    // Apply limit and offset after namespace filtering
+    if (options.offset && options.offset > 0) {
+      filteredRows = filteredRows.slice(options.offset)
+    }
+    if (options.limit && options.limit > 0) {
+      filteredRows = filteredRows.slice(0, options.limit)
     }
 
     const queryResult: GlobalQueryResult<Thing> = {
@@ -489,15 +512,16 @@ export class CrossShardQuery {
   // ==========================================================================
 
   private buildQueryOptions(table: string, options: GlobalQueryOptions) {
-    // Note: namespace filtering is done via post-processing with prefix match semantics
-    // partitionFilter is passed as a hint for partition pruning optimization
-    // but actual filtering happens after query results are returned
+    // Note: namespace filtering uses both partitionFilter (optimization hint) and
+    // post-processing (for prefix match semantics).
+    // partitionFilter enables partition pruning in Iceberg when namespace is exact.
+    // Post-processing handles prefix matching for hierarchical namespaces.
     return {
       table,
       where: this.buildWhereClause(options),
       orderBy: options.orderBy,
-      limit: options.limit,
-      offset: Math.max(0, options.offset ?? 0), // Normalize invalid offset
+      limit: undefined, // Apply limit after namespace filtering to avoid truncating before prefix match
+      offset: undefined, // Apply offset after namespace filtering
       partitionFilter: options.namespace ? { $ns: options.namespace } : undefined,
     }
   }

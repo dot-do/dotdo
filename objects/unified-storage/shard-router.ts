@@ -148,7 +148,8 @@ export class ConsistentHashRing {
     this.nodes.add(node)
 
     for (let i = 0; i < this.virtualNodes; i++) {
-      const virtualKey = `${node}:${i}`
+      // Use multiple hash variations for better distribution
+      const virtualKey = `${node}#${i}`
       const hash = this.hash(virtualKey)
       this.ring.set(hash, node)
     }
@@ -165,7 +166,7 @@ export class ConsistentHashRing {
     this.nodes.delete(node)
 
     for (let i = 0; i < this.virtualNodes; i++) {
-      const virtualKey = `${node}:${i}`
+      const virtualKey = `${node}#${i}`
       const hash = this.hash(virtualKey)
       this.ring.delete(hash)
     }
@@ -202,15 +203,35 @@ export class ConsistentHashRing {
   }
 
   /**
-   * Simple hash function (FNV-1a variant)
+   * MurmurHash3-like hash function for better distribution
+   * This provides more uniform distribution than FNV-1a
    */
   private hash(key: string): number {
-    let hash = 2166136261
+    let h1 = 0xdeadbeef
+    const c1 = 0xcc9e2d51
+    const c2 = 0x1b873593
+
     for (let i = 0; i < key.length; i++) {
-      hash ^= key.charCodeAt(i)
-      hash = Math.imul(hash, 16777619)
+      let k1 = key.charCodeAt(i)
+
+      k1 = Math.imul(k1, c1)
+      k1 = (k1 << 15) | (k1 >>> 17)
+      k1 = Math.imul(k1, c2)
+
+      h1 ^= k1
+      h1 = (h1 << 13) | (h1 >>> 19)
+      h1 = Math.imul(h1, 5) + 0xe6546b64
     }
-    return hash >>> 0 // Convert to unsigned 32-bit
+
+    // Finalization
+    h1 ^= key.length
+    h1 ^= h1 >>> 16
+    h1 = Math.imul(h1, 0x85ebca6b)
+    h1 ^= h1 >>> 13
+    h1 = Math.imul(h1, 0xc2b2ae35)
+    h1 ^= h1 >>> 16
+
+    return h1 >>> 0 // Convert to unsigned 32-bit
   }
 
   private rebuildSortedKeys(): void {
@@ -254,13 +275,16 @@ export class RangeRouter<T = string, V = string> {
   /**
    * Look up the value for a key
    * Range is [start, end) - start inclusive, end exclusive
-   * However, for prefix matching (single char ranges like 'a'-'z'),
-   * we check if the key starts with a character in the range
+   * For string keys, the first character is compared against range boundaries
+   * Special case: the last range includes its end boundary to cover remaining values
    */
   lookup(key: string): V | undefined {
     const comparableKey = this.comparator(key)
 
-    for (const range of this.ranges) {
+    for (let i = 0; i < this.ranges.length; i++) {
+      const range = this.ranges[i]
+      const isLastRange = i === this.ranges.length - 1
+
       // Check if it's a single-character alphabetic range
       const isSingleCharRange =
         typeof range.start === 'string' &&
@@ -269,9 +293,11 @@ export class RangeRouter<T = string, V = string> {
         (range.end as string).length === 1
 
       if (isSingleCharRange && typeof comparableKey === 'string') {
-        // For single-char ranges, compare first character inclusively
+        // For single-char ranges, compare first character with half-open interval
+        // Exception: last range includes the end character
         const firstChar = (comparableKey as string).charAt(0)
-        if (firstChar >= range.start && firstChar <= range.end) {
+        const endComparison = isLastRange ? firstChar <= range.end : firstChar < range.end
+        if (firstChar >= range.start && endComparison) {
           return range.value
         }
       } else {

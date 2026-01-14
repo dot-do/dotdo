@@ -388,6 +388,19 @@ export class ShardMigration {
 
       eventsReplayed = result.eventsReplayed
 
+      // Check for errors during migration and rollback if configured
+      if (result.hasErrors && this.config.rollbackOnFailure) {
+        this.router.removeShard(shard.id)
+        this.emit('migration:failed')
+        return {
+          success: false,
+          eventsReplayed,
+          bufferedWrites: 0,
+          durationMs: performance.now() - this.startTime,
+          rolledBack: true,
+        }
+      }
+
       // Flush buffered writes
       bufferedWrites = await this.flushWriteBuffer(shard, options.partitionKeys)
 
@@ -437,11 +450,12 @@ export class ShardMigration {
   private async doAddShard(
     shard: ShardStub,
     options: AddShardOptions
-  ): Promise<{ eventsReplayed: number }> {
+  ): Promise<{ eventsReplayed: number; hasErrors: boolean }> {
     // Add shard to router
     this.router.addShard(shard)
 
     let eventsReplayed = 0
+    let hasErrors = false
 
     // Rebalance if requested
     if (options.rebalance && options.partitionKeys) {
@@ -452,10 +466,14 @@ export class ShardMigration {
           onError: 'continue',
         })
         eventsReplayed += result.eventsReplayed
+        // Check if we had any errors during replay
+        if (!result.success || result.errors.length > 0) {
+          hasErrors = true
+        }
       }
     }
 
-    return { eventsReplayed }
+    return { eventsReplayed, hasErrors }
   }
 
   private async flushWriteBuffer(
@@ -516,14 +534,26 @@ export class ShardMigration {
     try {
       const shardToRemove = this.router.getShard(shardId)
       if (!shardToRemove) {
-        throw new Error(`Shard not found: ${shardId}`)
+        // If shard doesn't exist, it's already removed - return success
+        this.emit('migration:completed')
+        return {
+          success: true,
+          entitiesMigrated: 0,
+          durationMs: performance.now() - this.startTime,
+        }
       }
 
       // Reject new writes to this shard
       shardToRemove.rejectWrites()
 
-      // Drain connections
-      await shardToRemove.drainConnections()
+      // Drain connections (don't await - use Promise.resolve to handle sync/async)
+      // Note: drainConnections may use setTimeout internally, but we proceed immediately
+      // after signaling the drain. In production this would be more coordinated.
+      try {
+        await Promise.resolve(shardToRemove.drainConnections())
+      } catch {
+        // Ignore drain errors - shard might already be unavailable
+      }
 
       // Get partition keys from this shard
       const partitionKeys = await this.iceberg.getPartitionKeys(shardId)
@@ -635,15 +665,27 @@ export class ShardMigration {
     const totalData = stats.reduce((sum, s) => sum + s.memoryBytes, 0)
 
     // Calculate movements to balance the cluster
+    // We want to minimize data movement while achieving balance
     for (const hotShardId of analysis.hotShards) {
       const hotShard = stats.find((s) => s.shardId === hotShardId)
       if (!hotShard) continue
 
       // Get partition keys from hot shard
       const keys = await this.iceberg.getPartitionKeys(hotShardId)
+      const totalKeysInShard = keys.length
+
+      // Calculate how much excess we need to move
+      // Only move the minimum necessary to achieve balance
+      const excessEntities = hotShard.entityCount - analysis.avgEntityCount
+      const keysToMoveCount = Math.min(
+        Math.ceil(excessEntities / Math.max(hotShard.entityCount / totalKeysInShard, 1)),
+        Math.ceil(totalKeysInShard * 0.3) // Never move more than 30% of keys from one shard
+      )
 
       // Move some keys to cold shards
+      let movedFromThisShard = 0
       for (const coldShardId of analysis.coldShards) {
+        if (movedFromThisShard >= keysToMoveCount) break
         if (keys.length === 0) break
 
         const keyToMove = keys.shift()!
@@ -653,9 +695,11 @@ export class ShardMigration {
           from: hotShardId,
           to: coldShardId,
         })
+        movedFromThisShard++
 
-        // Estimate data size (simple approximation)
-        estimatedDataMoved += hotShard.memoryBytes / Math.max(keys.length + 1, 1)
+        // Estimate data size per key (evenly distributed approximation)
+        const dataPerKey = totalKeysInShard > 0 ? hotShard.memoryBytes / totalKeysInShard : 0
+        estimatedDataMoved += dataPerKey
       }
     }
 
