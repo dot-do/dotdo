@@ -8,6 +8,7 @@ import { Command } from 'commander'
 import * as React from 'react'
 import { render } from 'ink'
 import { ensureLoggedIn, getUser } from 'oauth.do/node'
+import { evaluate } from 'ai-evaluate'
 import { App } from '../ink/App'
 import { loadConfig } from '../utils/do-config'
 import { WorkersDoClient } from '../services/workers-do'
@@ -17,11 +18,30 @@ const logger = createLogger('repl')
 
 /**
  * Execute code against a DO using ai-evaluate
- * TODO: Integrate actual ai-evaluate
  */
-async function executeCode($id: string, code: string): Promise<string> {
-  // For now, just echo back - will integrate ai-evaluate
-  return `[Would execute against ${$id}]: ${code}`
+export async function executeCode($id: string, code: string): Promise<string> {
+  try {
+    const result = await evaluate({
+      script: code,
+      sdk: { rpcUrl: $id }
+    })
+
+    if (!result.success) {
+      return `Error: ${result.error}`
+    }
+
+    // Format output with logs and result
+    const output: string[] = []
+    if (result.logs?.length) {
+      output.push(...result.logs.map(l => `[${l.level}] ${l.message}`))
+    }
+    if (result.value !== undefined) {
+      output.push(JSON.stringify(result.value, null, 2))
+    }
+    return output.join('\n') || '(no output)'
+  } catch (error) {
+    return `Execution error: ${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 /**
