@@ -1,0 +1,21 @@
+# bashx.do - Test configuration for vitest-pool-workers
+# =====================================================
+# This config excludes service bindings that aren't available locally
+
+name = "bashx-do"
+main = "src/do/worker.ts"
+compatibility_date = "2025-01-09"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Objects
+[durable_objects]
+bindings = [
+  { name = "BASHX", class_name = "ShellDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ShellDO"]
+
+# Note: FSX and CONTAINER service bindings are excluded for tests
+# The code handles missing bindings gracefully

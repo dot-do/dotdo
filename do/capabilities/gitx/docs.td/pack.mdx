@@ -1,0 +1,54 @@
+---
+title: Pack Files
+description: Git packfile v2/v3 support with delta compression and index operations
+---
+
+The pack module provides complete Git packfile support including parsing, creation, verification, and object lookup. Pack files are Git's binary format for efficiently storing and transferring objects.
+
+## Parsing Pack Indexes
+
+Parse an existing `.idx` file to enable fast object lookups:
+
+```typescript
+import { parsePackIndex, lookupObject } from 'gitx.do/pack'
+
+const index = parsePackIndex(indexData)
+console.log(`Pack contains ${index.objectCount} objects`)
+
+// Look up an object by SHA
+const entry = lookupObject(index, 'abc123...')
+if (entry) {
+  console.log(`Object at offset ${entry.offset}`)
+}
+```
+
+## Creating Pack Indexes
+
+Generate a new pack index from packfile data:
+
+```typescript
+import { createPackIndex } from 'gitx.do/pack'
+
+const newIndex = createPackIndex({ packData })
+```
+
+## Verification
+
+Verify pack index integrity with CRC32 checksums:
+
+```typescript
+import { verifyPackIndex, calculateCRC32 } from 'gitx.do/pack'
+
+const isValid = verifyPackIndex(indexData)
+const checksum = calculateCRC32(data)
+```
+
+## API Reference
+
+| Function | Description |
+|----------|-------------|
+| `parsePackIndex(data)` | Parse a pack index file |
+| `createPackIndex(options)` | Create a new pack index |
+| `lookupObject(index, sha)` | Find object by SHA in index |
+| `verifyPackIndex(data)` | Verify index integrity |
+| `calculateCRC32(data)` | Compute CRC32 checksum |

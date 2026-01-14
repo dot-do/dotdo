@@ -1,0 +1,213 @@
+---
+title: pyx
+description: Python for Cloudflare Workers. Scientific computing at the edge with ~1s cold starts.
+---
+
+import { LandingPage } from '@mdxui/beacon'
+
+export default function Site() {
+  return (
+    <LandingPage
+      logo={<span className="font-bold text-xl">pyx</span>}
+      header={{
+        links: [
+          { label: 'Docs', href: '/docs' },
+          { label: 'GitHub', href: 'https://github.com/dot-do/pyx' },
+          { label: 'npm', href: 'https://www.npmjs.com/package/pyx' },
+        ],
+        primaryCta: 'Get Started',
+      }}
+      hero={{
+        title: 'Python for',
+        highlightedText: 'Cloudflare Workers',
+        description: 'Run Python at the edge. NumPy, Pandas, scikit-learn—all in V8 isolates with ~1s cold starts and memory snapshots for instant resume.',
+        primaryButtonText: 'npm install pyx',
+        primaryButtonHref: 'https://www.npmjs.com/package/pyx',
+        secondaryButtonText: 'View Docs',
+        secondaryButtonHref: '/docs',
+        showCodeTabs: true,
+        codeTabs: [
+          {
+            language: 'typescript',
+            label: 'Execute',
+            code: `import { py } from 'pyx'
+
+const result = await py.exec(\`
+  import numpy as np
+  arr = np.array([1, 2, 3, 4, 5])
+  np.mean(arr)
+\`)
+
+console.log(result) // 3.0`,
+          },
+          {
+            language: 'typescript',
+            label: 'Notebook',
+            code: `import { py } from 'pyx'
+
+// Create a persistent session
+const session = await py.session()
+
+await session.run('x = 10')
+await session.run('y = 20')
+const sum = await session.run('x + y')
+
+console.log(sum) // 30`,
+          },
+          {
+            language: 'typescript',
+            label: 'Packages',
+            code: `import { py } from 'pyx'
+
+// Install packages at runtime
+await py.install(['pandas', 'matplotlib'])
+
+const df = await py.exec(\`
+  import pandas as pd
+  df = pd.DataFrame({'a': [1, 2], 'b': [3, 4]})
+  df.to_json()
+\`)`,
+          },
+        ],
+      }}
+      features={{
+        items: [
+          {
+            iconName: 'Zap',
+            title: '~1s Cold Starts',
+            description: 'Pyodide loads fast. Memory snapshots make subsequent starts near-instant.',
+          },
+          {
+            iconName: 'Beaker',
+            title: 'Scientific Python',
+            description: 'NumPy, Pandas, SciPy, scikit-learn, Matplotlib—the full data science stack.',
+          },
+          {
+            iconName: 'Camera',
+            title: 'Memory Snapshots',
+            description: 'Snapshot interpreter state. Resume sessions instantly without re-importing.',
+          },
+          {
+            iconName: 'Globe',
+            title: 'Edge-Native',
+            description: 'Runs on Cloudflare\'s global network. Python execution in 300+ cities.',
+          },
+          {
+            iconName: 'FileCode',
+            title: 'Notebook Interface',
+            description: 'Jupyter-style cells in the browser. Interactive Python development.',
+          },
+          {
+            iconName: 'Shield',
+            title: 'Sandboxed Execution',
+            description: 'Code runs in V8 isolates. No filesystem or network access by default.',
+          },
+        ],
+      }}
+      pricing={{
+        title: 'Simple Pricing',
+        description: 'Pay for compute time. No hidden fees.',
+        tiers: [
+          {
+            name: 'Free Tier',
+            price: '$0',
+            description: 'Get started with Python on Workers.',
+            features: [
+              '100K requests/month',
+              '10ms CPU time/request',
+              'Core Python packages',
+              'Memory snapshots',
+              'Community support',
+            ],
+            cta: 'Start Free',
+            ctaHref: '/signup',
+          },
+          {
+            name: 'Pro',
+            price: '$20',
+            priceSubtext: '/month',
+            description: 'For production workloads.',
+            features: [
+              'Unlimited requests',
+              '30s CPU time/request',
+              'All Python packages',
+              'Priority snapshots',
+              'Email support',
+            ],
+            cta: 'Get Pro',
+            ctaHref: '/signup?plan=pro',
+            highlighted: true,
+          },
+          {
+            name: 'Enterprise',
+            price: 'Custom',
+            description: 'For large-scale deployments.',
+            features: [
+              'Custom CPU limits',
+              'Dedicated isolates',
+              'Custom packages',
+              'SLA guarantee',
+              '24/7 support',
+            ],
+            cta: 'Contact Sales',
+            ctaHref: '/contact',
+          },
+        ],
+      }}
+      faqs={{
+        title: 'FAQ',
+        description: 'Common questions about pyx',
+        groups: [
+          {
+            title: 'General',
+            items: [
+              {
+                question: 'How does Python run in Cloudflare Workers?',
+                answer: 'pyx uses Pyodide, a Python distribution compiled to WebAssembly. It runs entirely in V8 isolates alongside JavaScript, with no separate Python runtime or containers.',
+              },
+              {
+                question: 'What packages are available?',
+                answer: 'All pure Python packages work out of the box. Scientific packages like NumPy, Pandas, SciPy, and scikit-learn are pre-compiled to WebAssembly. Check our docs for the full list.',
+              },
+              {
+                question: 'What are memory snapshots?',
+                answer: 'Snapshots capture the entire Python interpreter state—imported modules, variables, trained models. On subsequent requests, we restore from snapshot instead of re-initializing, cutting cold starts from ~1s to ~50ms.',
+              },
+              {
+                question: 'Is this production ready?',
+                answer: 'Yes. pyx is used in production for data processing, ML inference, and scientific computing workloads. The underlying Pyodide runtime is mature and battle-tested.',
+              },
+            ],
+          },
+        ],
+      }}
+      footer={{
+        description: 'Python for Cloudflare Workers.',
+        companyName: 'dotdo',
+        linkGroups: [
+          {
+            title: 'Resources',
+            links: [
+              { label: 'Documentation', href: '/docs' },
+              { label: 'GitHub', href: 'https://github.com/dot-do/pyx' },
+              { label: 'npm', href: 'https://www.npmjs.com/package/pyx' },
+              { label: 'Examples', href: '/examples' },
+            ],
+          },
+          {
+            title: 'Platform',
+            links: [
+              { label: 'platform.do', href: 'https://platform.do' },
+              { label: 'agents.do', href: 'https://agents.do' },
+              { label: 'workers.do', href: 'https://workers.do' },
+            ],
+          },
+        ],
+        socialLinks: [
+          { platform: 'github', href: 'https://github.com/dot-do/pyx' },
+          { platform: 'x', href: 'https://x.com/dotdo_dev' },
+        ],
+      }}
+    />
+  )
+}

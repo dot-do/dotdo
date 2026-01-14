@@ -1,0 +1,188 @@
+---
+title: npmx.do
+description: NPM for the edge. Package management without Node.js. Zero cold starts.
+---
+
+import { LandingPage } from '@mdxui/beacon'
+
+export default function Site() {
+  return (
+    <LandingPage
+      logo={<span className="font-bold text-xl">npmx.do</span>}
+      header={{
+        links: [
+          { label: 'Docs', href: '/docs' },
+          { label: 'GitHub', href: 'https://github.com/dot-do/npmx' },
+          { label: 'npm', href: 'https://www.npmjs.com/package/npmx.do' },
+        ],
+        primaryCta: 'Get Started',
+      }}
+      hero={{
+        title: 'NPM for the',
+        highlightedText: 'Edge',
+        description: 'Run npm install and npx without Node.js. Package management that works in Cloudflare Workers, Deno, browsers, and any V8 isolate. Zero cold starts.',
+        primaryButtonText: 'npm install npmx.do',
+        primaryButtonHref: 'https://www.npmjs.com/package/npmx.do',
+        secondaryButtonText: 'View Docs',
+        secondaryButtonHref: '/docs',
+        showCodeTabs: true,
+        codeTabs: [
+          {
+            language: 'typescript',
+            label: 'SDK',
+            code: `import { npm, npx } from 'npmx.do'
+
+// Install packages at runtime
+await npm.install(['lodash', 'react@18'])
+
+// Run npx commands
+await npx('cowsay', ['hello'])
+
+// Execute package.json scripts
+await npm.run('build')`,
+          },
+          {
+            language: 'bash',
+            label: 'CLI',
+            code: `npx npmx.do install lodash
+npx npmx.do info react
+npx npmx.do search "state management"
+npx npmx.do exec cowsay hello`,
+          },
+        ],
+      }}
+      features={{
+        items: [
+          {
+            iconName: 'Zap',
+            title: 'Zero Cold Starts',
+            description: 'No Node.js process to spin up. Packages load instantly from edge cache. V8 isolates start in microseconds.',
+          },
+          {
+            iconName: 'Globe',
+            title: 'Edge-Native',
+            description: 'Runs on Cloudflare Workers, Deno Deploy, and any V8 environment. Package resolution happens at the edge.',
+          },
+          {
+            iconName: 'Package',
+            title: 'npm Compatible',
+            description: 'Same CLI you know: install, publish, search, run, exec. Full semver resolution. package-lock.json support.',
+          },
+          {
+            iconName: 'GitBranch',
+            title: 'Smart Resolution',
+            description: 'Dependency tree builder with hoisting, deduplication, and peer dependency handling. Lock file generation.',
+          },
+          {
+            iconName: 'Layers',
+            title: 'Tiered Storage',
+            description: 'Built on fsx.do. Hot packages in SQLite, cold in R2. Automatic content-addressable deduplication.',
+          },
+          {
+            iconName: 'Terminal',
+            title: 'Script Execution',
+            description: 'Run package.json scripts with bashx.do integration. PATH includes node_modules/.bin automatically.',
+          },
+        ],
+      }}
+      pricing={{
+        title: 'Simple Pricing',
+        description: 'Pay for what you use. No hidden fees.',
+        tiers: [
+          {
+            name: 'Core Library',
+            price: 'Free',
+            description: 'Pure package resolution logic. Self-hostable.',
+            features: [
+              'Semver resolution',
+              'Dependency tree builder',
+              'Lock file support',
+              'Zero CF dependencies',
+              'MIT License',
+            ],
+            cta: 'npm i @dotdo/npmx',
+            ctaHref: 'https://www.npmjs.com/package/@dotdo/npmx',
+          },
+          {
+            name: 'Managed Service',
+            price: '$0',
+            priceSubtext: 'to start',
+            description: 'Full service with edge caching.',
+            features: [
+              'Everything in Core',
+              'Edge package cache',
+              'Tarball extraction',
+              'CLI & SDK',
+              'bashx integration',
+            ],
+            cta: 'npm i npmx.do',
+            ctaHref: 'https://www.npmjs.com/package/npmx.do',
+            highlighted: true,
+          },
+        ],
+      }}
+      faqs={{
+        title: 'FAQ',
+        description: 'Common questions about npmx.do',
+        groups: [
+          {
+            title: 'General',
+            items: [
+              {
+                question: "How does this run without Node.js?",
+                answer: "npmx.do is pure JavaScript that runs in any V8 environment. We fetch package metadata from npm registry via HTTP, resolve dependencies with our own semver implementation, and extract tarballs with Web APIs. No Node.js APIs required.",
+              },
+              {
+                question: "What's the difference between @dotdo/npmx and npmx.do?",
+                answer: "@dotdo/npmx is the pure library - semver parsing, dependency resolution, tarball handling. Zero dependencies. npmx.do is the managed service that adds edge caching, CLI, and integration with fsx.do for storage.",
+              },
+              {
+                question: 'Can I use this in Cloudflare Workers?',
+                answer: "Yes! That's the primary use case. npmx.do is designed for edge runtimes. Install packages at runtime, run scripts, execute binaries - all without Node.js.",
+              },
+              {
+                question: 'Is this production ready?',
+                answer: 'The core library has extensive test coverage for semver and dependency resolution. The managed service is in active development.',
+              },
+            ],
+          },
+        ],
+      }}
+      footer={{
+        description: 'NPM for the edge. Package management without Node.js.',
+        companyName: 'dotdo',
+        linkGroups: [
+          {
+            title: 'Resources',
+            links: [
+              { label: 'Documentation', href: '/docs' },
+              { label: 'GitHub', href: 'https://github.com/dot-do/npmx' },
+              { label: 'npm: npmx.do', href: 'https://www.npmjs.com/package/npmx.do' },
+              { label: 'npm: @dotdo/npmx', href: 'https://www.npmjs.com/package/@dotdo/npmx' },
+            ],
+          },
+          {
+            title: 'Related',
+            links: [
+              { label: 'fsx.do', href: 'https://fsx.do' },
+              { label: 'bashx.do', href: 'https://bashx.do' },
+              { label: 'gitx.do', href: 'https://gitx.do' },
+            ],
+          },
+          {
+            title: 'Platform',
+            links: [
+              { label: 'platform.do', href: 'https://platform.do' },
+              { label: 'agents.do', href: 'https://agents.do' },
+              { label: 'workers.do', href: 'https://workers.do' },
+            ],
+          },
+        ],
+        socialLinks: [
+          { platform: 'github', href: 'https://github.com/dot-do/npmx' },
+          { platform: 'x', href: 'https://x.com/dotdo_dev' },
+        ],
+      }}
+    />
+  )
+}

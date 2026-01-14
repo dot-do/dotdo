@@ -1,0 +1,128 @@
+# Wrangler configuration for pyx.do
+# Python execution on Cloudflare Workers
+
+name = "pyx-do"
+main = "do/index.ts"
+compatibility_date = "2024-12-01"
+
+# Enable Node.js compatibility for some dependencies
+node_compat = true
+
+# Workers Paid plan required for Durable Objects
+# account_id = "your-account-id"
+
+# ============================================================================
+# Durable Objects
+# ============================================================================
+
+[durable_objects]
+bindings = [
+  { name = "PYTHON_MODULE", class_name = "PythonModule" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["PythonModule"]
+
+# ============================================================================
+# Service Bindings
+# ============================================================================
+
+[[services]]
+binding = "FSX"
+service = "fsx-do"
+environment = "production"
+
+[[services]]
+binding = "NPMX"
+service = "npmx-do"
+environment = "production"
+
+# ============================================================================
+# KV Namespaces (for caching)
+# ============================================================================
+
+# Uncomment when ready to use caching
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "your-kv-namespace-id"
+# preview_id = "your-preview-kv-namespace-id"
+
+# ============================================================================
+# R2 Buckets (for snapshot storage)
+# ============================================================================
+
+# Uncomment when ready to use R2 for large snapshots
+# [[r2_buckets]]
+# binding = "SNAPSHOTS"
+# bucket_name = "pyx-snapshots"
+# preview_bucket_name = "pyx-snapshots-preview"
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+
+[vars]
+# API_KEY = "set-in-secrets"
+
+# ============================================================================
+# Development Environment
+# ============================================================================
+
+[env.dev]
+name = "pyx-dev"
+
+[env.dev.vars]
+# Development-specific variables
+
+# ============================================================================
+# Staging Environment
+# ============================================================================
+
+[env.staging]
+name = "pyx-staging"
+
+[env.staging.vars]
+# Staging-specific variables
+
+# ============================================================================
+# Production Environment
+# ============================================================================
+
+[env.production]
+name = "pyx"
+
+[env.production.vars]
+# Production-specific variables
+
+# ============================================================================
+# Build Configuration
+# ============================================================================
+
+[build]
+command = "npm run build"
+
+# ============================================================================
+# Observability
+# ============================================================================
+
+# Enable logging
+# [observability.logs]
+# enabled = true
+
+# ============================================================================
+# Routes (for custom domains)
+# ============================================================================
+
+# routes = [
+#   { pattern = "pyx.do/*", zone_name = "pyx.do" },
+#   { pattern = "*.pyx.do/*", zone_name = "pyx.do" }
+# ]
+
+# ============================================================================
+# Triggers (Cron)
+# ============================================================================
+
+# Uncomment to enable scheduled cleanup
+# [triggers]
+# crons = ["0 * * * *"]  # Run every hour

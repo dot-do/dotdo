@@ -1,0 +1,89 @@
+{
+  "name": "fsx.do",
+  "version": "0.1.0",
+  "description": "Filesystem on Cloudflare Durable Objects - A virtual filesystem for the edge",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "fsx": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./do": {
+      "types": "./dist/do/index.d.ts",
+      "import": "./dist/do/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node scripts/run-tests.js",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "lint": "eslint src test --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "filesystem",
+    "fs",
+    "cloudflare",
+    "durable-objects",
+    "edge",
+    "ai",
+    "virtual-filesystem",
+    "r2",
+    "storage",
+    "posix"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/fsx"
+  },
+  "homepage": "https://github.com/dot-do/fsx#readme",
+  "bugs": {
+    "url": "https://github.com/dot-do/fsx/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.12.1",
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@types/node": "^22.10.2",
+    "@types/pako": "^2.0.4",
+    "cac": "^6.7.14",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.99.0"
+  },
+  "dependencies": {
+    "@mdxui/beacon": "^0.2.0",
+    "@mdxui/cockpit": "^0.2.0",
+    "@opentui/core": "^0.1.0",
+    "@opentui/react": "^0.1.0",
+    "hono": "^4.11.3",
+    "miniflare": "^3.20241106.0",
+    "pako": "^2.1.0",
+    "react": "^18.2.0"
+  }
+}

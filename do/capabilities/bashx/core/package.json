@@ -1,0 +1,66 @@
+{
+  "name": "@dotdo/bashx",
+  "version": "0.1.0",
+  "description": "Pure library for bash command parsing, classification, escaping, and safety analysis - zero Cloudflare dependencies",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./index.ts"
+    },
+    "./ast": {
+      "types": "./ast/index.ts",
+      "import": "./ast/index.ts"
+    },
+    "./safety": {
+      "types": "./safety/index.ts",
+      "import": "./safety/index.ts"
+    },
+    "./classify": {
+      "types": "./classify/index.ts",
+      "import": "./classify/index.ts"
+    },
+    "./escape": {
+      "types": "./escape/index.ts",
+      "import": "./escape/index.ts"
+    },
+    "./backend": {
+      "types": "./backend.ts",
+      "import": "./backend.ts"
+    }
+  },
+  "files": [
+    "*.ts",
+    "ast",
+    "safety",
+    "classify",
+    "escape"
+  ],
+  "keywords": [
+    "bash",
+    "shell",
+    "parser",
+    "safety",
+    "escape",
+    "classify",
+    "ast",
+    "command",
+    "security",
+    "ai",
+    "llm",
+    "tree-sitter",
+    "intent",
+    "analysis",
+    "sanitize",
+    "posix"
+  ],
+  "author": "workers.do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/bashx.git",
+    "directory": "core"
+  }
+}

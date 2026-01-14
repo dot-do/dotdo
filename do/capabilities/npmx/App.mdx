@@ -1,0 +1,77 @@
+---
+title: npmx.do
+description: Package manager dashboard for npmx.do
+---
+
+import { DeveloperDashboard } from '@mdxui/cockpit'
+
+export default function App() {
+  return (
+    <DeveloperDashboard
+      branding={{
+        name: 'npmx.do',
+        logo: <span className="font-bold">npmx.do</span>,
+      }}
+      identity={{
+        clientId: 'npmx',
+        useMockWidgets: process.env.NODE_ENV === 'development',
+      }}
+      routes={{
+        overview: true,
+        requests: false,
+        keys: true,
+        team: false,
+        billing: false,
+        settings: true,
+        webhooks: false,
+        database: false,
+        vault: false,
+      }}
+      customRoutes={[
+        {
+          path: '/packages',
+          label: 'Packages',
+          icon: 'Package',
+          group: 'main',
+          order: 0,
+          index: true,
+        },
+        {
+          path: '/versions',
+          label: 'Versions',
+          icon: 'GitBranch',
+          group: 'main',
+          order: 1,
+        },
+        {
+          path: '/dependencies',
+          label: 'Dependencies',
+          icon: 'Network',
+          group: 'main',
+          order: 2,
+        },
+        {
+          path: '/publish',
+          label: 'Publish',
+          icon: 'Upload',
+          group: 'main',
+          order: 3,
+        },
+        {
+          path: '/registry',
+          label: 'Registry',
+          icon: 'Database',
+          group: 'tools',
+          order: 0,
+        },
+        {
+          path: '/scripts',
+          label: 'Scripts',
+          icon: 'Terminal',
+          group: 'tools',
+          order: 1,
+        },
+      ]}
+    />
+  )
+}

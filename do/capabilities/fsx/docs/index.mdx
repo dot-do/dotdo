@@ -1,0 +1,218 @@
+---
+title: fsx.do
+description: A real filesystem for Cloudflare Workers
+---
+
+# fsx.do
+
+**Edge workers don't have filesystems.** No `fs.readFile()`. No directories. No persistence.
+
+**AI agents need filesystems.** They want configs, outputs, directories, watches.
+
+**fsx gives you both.**
+
+```typescript
+import { fs } from 'fsx.do'
+
+await fs.writeFile('/app/config.json', JSON.stringify(config))
+await fs.mkdir('/app/uploads', { recursive: true })
+const files = await fs.readdir('/app/uploads')
+```
+
+## Two Packages
+
+| Package | Install | What it is |
+|---------|---------|------------|
+| [@dotdo/fsx](https://www.npmjs.com/package/@dotdo/fsx) | `npm i @dotdo/fsx` | Pure library. Zero dependencies. Self-hostable. |
+| [fsx.do](https://www.npmjs.com/package/fsx.do) | `npm i fsx.do` | Managed service. DO storage. CLI. SDK. |
+
+fsx.do re-exports everything from @dotdo/fsx.
+
+## CLI
+
+```bash
+npx fsx.do ls /
+npx fsx.do cat /config.json
+npx fsx.do mkdir /data
+npx fsx.do rm /tmp/cache.json
+npx fsx.do cp /src/index.ts /backup/
+```
+
+## SDK
+
+```typescript
+import { fs } from 'fsx.do'
+
+// Write
+await fs.writeFile('/hello.txt', 'Hello, World!')
+
+// Read
+const content = await fs.readFile('/hello.txt', 'utf-8')
+
+// Directories
+await fs.mkdir('/data/uploads', { recursive: true })
+const entries = await fs.readdir('/data')
+
+// Metadata
+const stats = await fs.stat('/hello.txt')
+console.log(`Size: ${stats.size}, Modified: ${stats.mtime}`)
+
+// Delete
+await fs.unlink('/hello.txt')
+```
+
+## Durable Object
+
+```typescript
+import { FileSystemDO } from 'fsx.do'
+
+export { FileSystemDO }
+
+export default {
+  async fetch(request, env) {
+    const id = env.FSX.idFromName('user-123')
+    return env.FSX.get(id).fetch(request)
+  }
+}
+```
+
+With dotdo:
+
+```typescript
+import { DO } from 'dotdo'
+import { withFs } from 'fsx.do'
+
+class MySite extends withFs(DO) {
+  async loadContent() {
+    const content = await this.$.fs.read('content/index.mdx')
+    await this.$.fs.write('cache/index.html', rendered)
+  }
+}
+```
+
+## Tiered Storage
+
+Small files stay fast. Large files stay cheap. You don't think about it.
+
+| Tier | Backend | Use Case |
+|------|---------|----------|
+| Hot | DO SQLite | <1MB, frequent access |
+| Warm | R2 | Large files, balanced |
+| Cold | R2 Archive | Infrequent, lowest cost |
+
+```typescript
+import { TieredFS } from 'fsx.do'
+
+const fs = new TieredFS({
+  hot: env.FSX,           // DO SQLite
+  warm: env.R2_BUCKET,    // R2
+  thresholds: {
+    hotMaxSize: 1024 * 1024,  // 1MB
+  }
+})
+```
+
+## Unix Utilities
+
+Built-in. No shell required.
+
+```typescript
+import { glob, grep, find } from 'fsx.do'
+
+// Glob
+const tsFiles = await glob('/src/**/*.ts')
+
+// Grep
+const todos = await grep(/TODO/, '/src', { recursive: true })
+
+// Find
+const tests = await find('/src', { name: '*.test.ts', type: 'f' })
+```
+
+## File Watching
+
+```typescript
+const watcher = fs.watch('/config.json', (eventType, filename) => {
+  console.log(`${eventType}: ${filename}`)
+})
+
+// Recursive
+fs.watch('/src', { recursive: true }, (event, file) => {
+  if (file.endsWith('.ts')) rebuild()
+})
+```
+
+## Permissions
+
+Real Unix model.
+
+```typescript
+await fs.chmod('/script.sh', 0o755)  // rwxr-xr-x
+await fs.chown('/data', 1000, 1000)
+await fs.access('/secret', fs.constants.R_OK)
+```
+
+## Symbolic Links
+
+```typescript
+await fs.symlink('/app/current', '/app/releases/v1.2.3')
+const target = await fs.readlink('/app/current')
+const resolved = await fs.realpath('/app/current/config.json')
+```
+
+## Self-Hosting
+
+Use @dotdo/fsx with your own storage:
+
+```typescript
+import { MemoryBackend, readFile, writeFile, mkdir } from '@dotdo/fsx'
+
+const backend = new MemoryBackend()
+
+await mkdir('/data', { backend })
+await writeFile('/data/config.json', '{}', { backend })
+```
+
+Implement `FsBackend` for custom storage:
+
+```typescript
+import type { FsBackend } from '@dotdo/fsx'
+
+class MyStorageBackend implements FsBackend {
+  async readFile(path: string): Promise<Uint8Array> { ... }
+  async writeFile(path: string, data: Uint8Array): Promise<void> { ... }
+  async stat(path: string): Promise<Stats> { ... }
+  // ... full interface in core/backend.ts
+}
+```
+
+## Architecture
+
+```
+fsx.do
+├── core/                  # @dotdo/fsx (pure library)
+│   ├── types.ts           # POSIX types
+│   ├── backend.ts         # FsBackend interface
+│   ├── errors.ts          # ENOENT, EEXIST, etc.
+│   ├── fs/                # Operations
+│   ├── glob/              # Pattern matching
+│   ├── grep/              # Search
+│   └── find/              # File finding
+│
+├── storage/               # CF storage backends
+│   ├── sqlite.ts          # Hot tier
+│   ├── r2.ts              # Warm tier
+│   └── tiered.ts          # Automatic tiering
+│
+├── do/                    # DO integration
+│   └── module.ts          # FileSystemDO
+│
+└── index.ts               # Service export
+```
+
+## Links
+
+- [GitHub](https://github.com/dot-do/fsx)
+- [npm: fsx.do](https://www.npmjs.com/package/fsx.do)
+- [npm: @dotdo/fsx](https://www.npmjs.com/package/@dotdo/fsx)
+- [Platform.do](https://platform.do)

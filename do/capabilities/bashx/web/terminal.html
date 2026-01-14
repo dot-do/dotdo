@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>bashx.do - Terminal</title>
+
+  <!-- xterm.js CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-terminal: #0f0f17;
+      --text-primary: #e4e4e7;
+      --text-secondary: #a1a1aa;
+      --accent: #4f46e5;
+      --accent-hover: #6366f1;
+      --border: #27272a;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 0.875rem;
+    }
+
+    .logo-text {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .logo-text span {
+      color: var(--accent);
+    }
+
+    /* Connection Status */
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-primary);
+      border-radius: 6px;
+      font-size: 0.875rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--error);
+    }
+
+    .status-dot.connected {
+      background: var(--success);
+    }
+
+    .status-dot.connecting {
+      background: var(--warning);
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Main Content */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 1rem;
+      gap: 1rem;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .toolbar button {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .toolbar button:hover {
+      background: var(--border);
+    }
+
+    .toolbar button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .toolbar button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .toolbar button.primary:hover {
+      background: var(--accent-hover);
+    }
+
+    .toolbar button.danger {
+      background: var(--error);
+      border-color: var(--error);
+    }
+
+    .toolbar button.danger:hover {
+      opacity: 0.9;
+    }
+
+    /* Search Box */
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-left: auto;
+    }
+
+    .search-box input {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      width: 200px;
+    }
+
+    .search-box input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* Terminal Container */
+    .terminal-wrapper {
+      flex: 1;
+      background: var(--bg-terminal);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .terminal-header {
+      background: var(--bg-secondary);
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ff5f56; }
+    .terminal-dot.yellow { background: #ffbd2e; }
+    .terminal-dot.green { background: #27c93f; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+
+    #terminal {
+      flex: 1;
+      padding: 0.5rem;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .session-info {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+    }
+
+    .keyboard-shortcuts {
+      display: flex;
+      gap: 1rem;
+    }
+
+    kbd {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+
+    /* Settings Panel */
+    .settings-panel {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      width: 90%;
+      max-width: 400px;
+      z-index: 100;
+    }
+
+    .settings-panel.visible {
+      display: block;
+    }
+
+    .settings-panel h3 {
+      margin-bottom: 1rem;
+    }
+
+    .settings-panel label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .settings-panel input,
+    .settings-panel select {
+      width: 100%;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 0.5rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+
+    .overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 99;
+    }
+
+    .overlay.visible {
+      display: block;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      header {
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .toolbar {
+        justify-content: center;
+      }
+
+      .search-box {
+        margin-left: 0;
+        width: 100%;
+      }
+
+      .search-box input {
+        flex: 1;
+      }
+
+      .keyboard-shortcuts {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-icon">$_</div>
+      <div class="logo-text">bash<span>x</span>.do</div>
+    </div>
+    <div class="status" id="connection-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Disconnected</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <button id="connect-btn" class="primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Connect
+      </button>
+      <button id="disconnect-btn" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="6" y="6" width="12" height="12"></rect>
+        </svg>
+        Disconnect
+      </button>
+      <button id="clear-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        Clear
+      </button>
+      <button id="sigint-btn" class="danger" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+        Ctrl+C
+      </button>
+      <button id="settings-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search terminal..." />
+        <button id="search-prev" title="Previous">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+        </button>
+        <button id="search-next" title="Next">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="terminal-wrapper">
+      <div class="terminal-header">
+        <div class="terminal-dots">
+          <div class="terminal-dot red"></div>
+          <div class="terminal-dot yellow"></div>
+          <div class="terminal-dot green"></div>
+        </div>
+        <div class="terminal-title" id="terminal-title">bash - bashx.do</div>
+      </div>
+      <div id="terminal"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="session-info">
+      Session: <span id="session-id">-</span>
+    </div>
+    <div class="keyboard-shortcuts">
+      <span><kbd>Ctrl</kbd>+<kbd>C</kbd> Interrupt</span>
+      <span><kbd>Ctrl</kbd>+<kbd>L</kbd> Clear</span>
+      <span><kbd>Ctrl</kbd>+<kbd>F</kbd> Search</span>
+    </div>
+  </footer>
+
+  <!-- Settings Panel -->
+  <div class="overlay" id="overlay"></div>
+  <div class="settings-panel" id="settings-panel">
+    <h3>Connection Settings</h3>
+    <label for="ws-url">WebSocket URL</label>
+    <input type="text" id="ws-url" value="wss://bashx.do/terminal" />
+    <label for="auth-token">Auth Token (optional)</label>
+    <input type="password" id="auth-token" placeholder="Enter token..." />
+    <label for="font-size">Font Size</label>
+    <select id="font-size">
+      <option value="12">12px</option>
+      <option value="14" selected>14px</option>
+      <option value="16">16px</option>
+      <option value="18">18px</option>
+    </select>
+    <button id="save-settings" class="primary" style="width: 100%;">Save</button>
+  </div>
+
+  <!-- xterm.js and addons -->
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11/lib/addon-web-links.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-search@0.15/lib/addon-search.min.js"></script>
+
+  <script>
+    // Terminal instance and state
+    let terminal = null;
+    let fitAddon = null;
+    let searchAddon = null;
+    let webLinksAddon = null;
+    let ws = null;
+    let sessionId = generateSessionId();
+
+    // DOM elements
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const sigintBtn = document.getElementById('sigint-btn');
+    const settingsBtn = document.getElementById('settings-btn');
+    const searchInput = document.getElementById('search-input');
+    const searchPrev = document.getElementById('search-prev');
+    const searchNext = document.getElementById('search-next');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const sessionIdSpan = document.getElementById('session-id');
+    const settingsPanel = document.getElementById('settings-panel');
+    const overlay = document.getElementById('overlay');
+    const wsUrlInput = document.getElementById('ws-url');
+    const authTokenInput = document.getElementById('auth-token');
+    const fontSizeSelect = document.getElementById('font-size');
+    const saveSettingsBtn = document.getElementById('save-settings');
+    const terminalTitle = document.getElementById('terminal-title');
+
+    // Generate random session ID
+    function generateSessionId() {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let result = '';
+      for (let i = 0; i < 16; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
+    // Update connection status UI
+    function updateStatus(state) {
+      statusDot.className = 'status-dot';
+      switch (state) {
+        case 'connected':
+          statusDot.classList.add('connected');
+          statusText.textContent = 'Connected';
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          sigintBtn.disabled = false;
+          break;
+        case 'connecting':
+          statusDot.classList.add('connecting');
+          statusText.textContent = 'Connecting...';
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = true;
+          sigintBtn.disabled = true;
+          break;
+        case 'disconnected':
+        default:
+          statusText.textContent = 'Disconnected';
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          sigintBtn.disabled = true;
+          break;
+      }
+    }
+
+    // Initialize terminal
+    function initTerminal() {
+      const container = document.getElementById('terminal');
+
+      terminal = new Terminal({
+        cursorBlink: true,
+        cursorStyle: 'block',
+        fontFamily: '"Cascadia Code", "Fira Code", Menlo, Monaco, "Courier New", monospace',
+        fontSize: parseInt(fontSizeSelect.value),
+        lineHeight: 1.2,
+        scrollback: 10000,
+        convertEol: true,
+        allowTransparency: true,
+        theme: {
+          background: '#0f0f17',
+          foreground: '#d4d4d4',
+          cursor: '#d4d4d4',
+          cursorAccent: '#0f0f17',
+          selectionBackground: '#264f78',
+          black: '#1e1e1e',
+          red: '#f44747',
+          green: '#6a9955',
+          yellow: '#dcdcaa',
+          blue: '#569cd6',
+          magenta: '#c586c0',
+          cyan: '#4ec9b0',
+          white: '#d4d4d4',
+          brightBlack: '#808080',
+          brightRed: '#f44747',
+          brightGreen: '#6a9955',
+          brightYellow: '#dcdcaa',
+          brightBlue: '#569cd6',
+          brightMagenta: '#c586c0',
+          brightCyan: '#4ec9b0',
+          brightWhite: '#ffffff',
+        }
+      });
+
+      // Load addons
+      fitAddon = new FitAddon.FitAddon();
+      terminal.loadAddon(fitAddon);
+
+      webLinksAddon = new WebLinksAddon.WebLinksAddon((event, uri) => {
+        event.preventDefault();
+        window.open(uri, '_blank');
+      });
+      terminal.loadAddon(webLinksAddon);
+
+      searchAddon = new SearchAddon.SearchAddon();
+      terminal.loadAddon(searchAddon);
+
+      // Open terminal
+      terminal.open(container);
+      fitAddon.fit();
+
+      // Handle terminal input
+      terminal.onData((data) => {
+        sendToServer({ type: 'data', payload: data });
+      });
+
+      // Handle terminal resize
+      terminal.onResize((size) => {
+        sendToServer({ type: 'resize', payload: { cols: size.cols, rows: size.rows } });
+      });
+
+      // Resize observer
+      const resizeObserver = new ResizeObserver(() => {
+        fitAddon.fit();
+      });
+      resizeObserver.observe(container);
+
+      // Focus terminal
+      terminal.focus();
+
+      // Show welcome message
+      terminal.writeln('\x1b[1;36m================================\x1b[0m');
+      terminal.writeln('\x1b[1;36m  bashx.do Terminal Client\x1b[0m');
+      terminal.writeln('\x1b[1;36m================================\x1b[0m');
+      terminal.writeln('');
+      terminal.writeln('\x1b[33mClick "Connect" to start a session\x1b[0m');
+      terminal.writeln('');
+
+      // Update session ID display
+      sessionIdSpan.textContent = sessionId.slice(0, 8) + '...';
+    }
+
+    // Send message to server
+    function sendToServer(message) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        message.sessionId = sessionId;
+        message.timestamp = Date.now();
+        ws.send(JSON.stringify(message));
+      }
+    }
+
+    // Connect to WebSocket
+    function connect() {
+      updateStatus('connecting');
+      terminal.writeln('\x1b[33mConnecting to server...\x1b[0m');
+
+      const url = new URL(wsUrlInput.value);
+      url.searchParams.set('sessionId', sessionId);
+
+      ws = new WebSocket(url.toString());
+
+      ws.onopen = () => {
+        updateStatus('connected');
+        terminal.writeln('\x1b[32mConnected!\x1b[0m\r\n');
+
+        // Send auth token if provided
+        const token = authTokenInput.value.trim();
+        if (token) {
+          sendToServer({ type: 'auth', payload: token });
+        }
+
+        // Send terminal size
+        sendToServer({
+          type: 'resize',
+          payload: { cols: terminal.cols, rows: terminal.rows }
+        });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          handleMessage(message);
+        } catch (e) {
+          // Handle raw data
+          terminal.write(event.data);
+        }
+      };
+
+      ws.onerror = (error) => {
+        terminal.writeln('\r\n\x1b[31mConnection error\x1b[0m');
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onclose = (event) => {
+        updateStatus('disconnected');
+        terminal.writeln('\r\n\x1b[33mDisconnected\x1b[0m');
+        if (event.reason) {
+          terminal.writeln('\x1b[33mReason: ' + event.reason + '\x1b[0m');
+        }
+      };
+    }
+
+    // Handle incoming message
+    function handleMessage(message) {
+      switch (message.type) {
+        case 'data':
+          terminal.write(message.payload);
+          break;
+        case 'error':
+          terminal.writeln('\r\n\x1b[31mError: ' + message.payload + '\x1b[0m');
+          break;
+        case 'end':
+          terminal.writeln('\r\n\x1b[33mSession ended\x1b[0m');
+          break;
+        case 'pong':
+          // Heartbeat response
+          break;
+      }
+    }
+
+    // Disconnect
+    function disconnect() {
+      if (ws) {
+        sendToServer({ type: 'end' });
+        ws.close();
+        ws = null;
+      }
+      updateStatus('disconnected');
+    }
+
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+
+    clearBtn.addEventListener('click', () => {
+      terminal.clear();
+    });
+
+    sigintBtn.addEventListener('click', () => {
+      sendToServer({ type: 'signal', payload: 'SIGINT' });
+    });
+
+    // Settings panel
+    settingsBtn.addEventListener('click', () => {
+      settingsPanel.classList.add('visible');
+      overlay.classList.add('visible');
+    });
+
+    overlay.addEventListener('click', () => {
+      settingsPanel.classList.remove('visible');
+      overlay.classList.remove('visible');
+    });
+
+    saveSettingsBtn.addEventListener('click', () => {
+      // Update font size
+      if (terminal) {
+        terminal.options.fontSize = parseInt(fontSizeSelect.value);
+        fitAddon.fit();
+      }
+      settingsPanel.classList.remove('visible');
+      overlay.classList.remove('visible');
+    });
+
+    // Search functionality
+    searchInput.addEventListener('input', () => {
+      if (searchAddon && searchInput.value) {
+        searchAddon.findNext(searchInput.value);
+      }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          searchAddon.findPrevious(searchInput.value);
+        } else {
+          searchAddon.findNext(searchInput.value);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        searchAddon.clearDecorations();
+        terminal.focus();
+      }
+    });
+
+    searchPrev.addEventListener('click', () => {
+      if (searchInput.value) {
+        searchAddon.findPrevious(searchInput.value);
+      }
+    });
+
+    searchNext.addEventListener('click', () => {
+      if (searchInput.value) {
+        searchAddon.findNext(searchInput.value);
+      }
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+F for search
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    });
+
+    // Initialize on load
+    window.addEventListener('load', initTerminal);
+
+    // Handle page visibility for keepalive
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && ws && ws.readyState === WebSocket.OPEN) {
+        sendToServer({ type: 'ping' });
+      }
+    });
+  </script>
+</body>
+</html>

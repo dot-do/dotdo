@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fsx-do-test",
+  "main": "index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      { "name": "FSX", "class_name": "FileSystemDO" }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FileSystemDO"] }
+  ],
+
+  // R2 for warm/cold storage tiers
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "fsx-storage"
+    },
+    {
+      "binding": "ARCHIVE",
+      "bucket_name": "fsx-archive"
+    }
+  ],
+
+  // NOTE: Service bindings (BASHX, GITX) are intentionally excluded for test isolation.
+  // These bindings require external services that may not be available during local testing.
+  // Production config (wrangler.jsonc) includes these bindings.
+
+  // Production observability
+  "observability": {
+    "enabled": true
+  }
+}

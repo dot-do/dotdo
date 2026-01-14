@@ -1,0 +1,13 @@
+{
+  "nav": {
+    "logo": null,
+    "links": [],
+    "github": "[object Object]"
+  },
+  "sidebar": {
+    "collapsible": true
+  },
+  "footer": {
+    "show": true
+  }
+}

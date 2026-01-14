@@ -1,0 +1,70 @@
+---
+title: pyx
+description: Python development environment for Cloudflare Workers
+---
+
+import { DeveloperDashboard } from '@mdxui/cockpit'
+
+export default function App() {
+  return (
+    <DeveloperDashboard
+      branding={{
+        name: 'pyx',
+        logo: <span className="font-bold">pyx</span>,
+      }}
+      identity={{
+        clientId: 'pyx',
+        useMockWidgets: process.env.NODE_ENV === 'development',
+      }}
+      routes={{
+        overview: true,
+        requests: false,
+        keys: true,
+        team: false,
+        billing: false,
+        settings: true,
+        webhooks: false,
+        database: false,
+        vault: false,
+      }}
+      customRoutes={[
+        {
+          path: '/notebook',
+          label: 'Notebook',
+          icon: 'FileCode',
+          group: 'main',
+          order: 0,
+          index: true,
+        },
+        {
+          path: '/repl',
+          label: 'REPL',
+          icon: 'Terminal',
+          group: 'main',
+          order: 1,
+        },
+        {
+          path: '/packages',
+          label: 'Packages',
+          icon: 'Package',
+          group: 'main',
+          order: 2,
+        },
+        {
+          path: '/sessions',
+          label: 'Sessions',
+          icon: 'Clock',
+          group: 'main',
+          order: 3,
+        },
+        {
+          path: '/snapshots',
+          label: 'Snapshots',
+          icon: 'Camera',
+          group: 'main',
+          order: 4,
+        },
+      ]}
+    />
+  )
+}

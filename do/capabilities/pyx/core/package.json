@@ -1,0 +1,34 @@
+{
+  "name": "@dotdo/pyx",
+  "version": "0.0.1",
+  "description": "Platform-agnostic Python execution utilities - AST parsing, safety analysis, code transformations, and package management for Pyodide and other Python runtimes",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./types": "./types.ts",
+    "./ast": "./ast/index.ts",
+    "./safety": "./safety/index.ts",
+    "./transform": "./transform/index.ts",
+    "./packages": "./packages/index.ts",
+    "./venv": "./venv/index.ts",
+    "./backend": "./backend.ts"
+  },
+  "keywords": [
+    "python",
+    "ast",
+    "parser",
+    "pyodide",
+    "safety",
+    "transform",
+    "packages",
+    "pyproject",
+    "requirements",
+    "venv",
+    "cloudflare",
+    "workers",
+    "wasm"
+  ],
+  "license": "MIT"
+}

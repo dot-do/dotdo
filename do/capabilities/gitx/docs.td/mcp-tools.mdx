@@ -1,0 +1,70 @@
+---
+title: MCP Tools
+description: Model Context Protocol integration for AI-assisted git operations
+---
+
+The MCP module provides Model Context Protocol integration, enabling AI agents to perform git operations through a standardized tool interface. This allows LLMs and AI assistants to interact with repositories programmatically.
+
+## Available Tools
+
+List all built-in git tools:
+
+```typescript
+import { gitTools } from 'gitx.do/mcp/tools'
+
+console.log(gitTools.map(t => t.name))
+// ['git_status', 'git_log', 'git_diff', 'git_commit', ...]
+```
+
+## Invoking Tools
+
+Execute a git operation by name:
+
+```typescript
+import { invokeTool } from 'gitx.do/mcp/tools'
+
+const result = await invokeTool('git_status', { path: '/repo', short: true })
+```
+
+## Custom Tools
+
+Register your own git-related tools:
+
+```typescript
+import { registerTool } from 'gitx.do/mcp/tools'
+
+registerTool({
+  name: 'my_tool',
+  description: 'Custom git operation',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      option: { type: 'boolean' }
+    }
+  },
+  handler: async (params) => ({
+    content: [{ type: 'text', text: 'Done' }]
+  })
+})
+```
+
+## Input Validation
+
+Validate tool parameters against schemas:
+
+```typescript
+import { validateToolInput, gitTools } from 'gitx.do/mcp/tools'
+
+const tool = gitTools.find(t => t.name === 'git_commit')
+const errors = validateToolInput(tool, { message: 'Fix bug' })
+```
+
+## API Reference
+
+| Export | Description |
+|--------|-------------|
+| `gitTools` | Array of available git tool definitions |
+| `invokeTool(name, params)` | Execute a tool by name |
+| `registerTool(tool)` | Add a custom tool |
+| `validateToolInput(tool, params)` | Validate parameters |

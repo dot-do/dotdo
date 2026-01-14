@@ -1,0 +1,48 @@
+{
+  "name": "@dotdo/npmx",
+  "version": "0.0.1",
+  "description": "NPM/NPX capabilities for edge runtimes - pure library with zero Cloudflare dependencies",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./semver": {
+      "import": "./dist/semver/index.js",
+      "types": "./dist/semver/index.d.ts"
+    },
+    "./resolver": {
+      "import": "./dist/resolver/index.js",
+      "types": "./dist/resolver/index.d.ts"
+    },
+    "./package": {
+      "import": "./dist/package/index.js",
+      "types": "./dist/package/index.d.ts"
+    },
+    "./tarball": {
+      "import": "./dist/tarball/index.js",
+      "types": "./dist/tarball/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "npm",
+    "npx",
+    "edge",
+    "package-manager",
+    "semver",
+    "resolver",
+    "tarball",
+    "dependency-tree"
+  ],
+  "license": "MIT"
+}

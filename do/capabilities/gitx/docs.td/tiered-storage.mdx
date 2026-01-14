@@ -1,0 +1,68 @@
+---
+title: Tiered Storage
+description: Hot/warm/cold storage tiers with automatic promotion for optimal performance
+---
+
+The tiered storage system provides intelligent data placement across multiple storage backends. Objects automatically move between tiers based on access patterns, optimizing for both latency and cost.
+
+## Storage Tiers
+
+| Tier | Backend | Use Case |
+|------|---------|----------|
+| Hot | Durable Object SQLite | Low-latency access for active objects |
+| Warm | R2 object storage | Packed objects with moderate access |
+| Cold | Analytics/Parquet | Archival and historical data |
+
+## TieredReader
+
+Read objects with automatic tier fallback and promotion:
+
+```typescript
+import { TieredReader } from 'gitx.do/tiered/read-path'
+
+const reader = new TieredReader(hotBackend, warmBackend, coldBackend, {
+  hot: { enabled: true, maxSize: 1024 * 1024 },
+  warm: { enabled: true },
+  cold: { enabled: true },
+  promotionPolicy: 'aggressive'
+})
+
+// Read with automatic tier resolution
+const result = await reader.read(sha)
+console.log(`Found in ${result.tier} tier, latency: ${result.latencyMs}ms`)
+```
+
+## Promotion Policies
+
+Configure how objects move between tiers:
+
+- **aggressive**: Promote to hot tier on first access
+- **conservative**: Promote only after multiple accesses
+- **none**: No automatic promotion
+
+## Configuration
+
+```typescript
+const config: TieredStorageConfig = {
+  hot: {
+    enabled: true,
+    maxSize: 1024 * 1024,  // 1MB max object size
+    ttl: 3600              // 1 hour TTL
+  },
+  warm: {
+    enabled: true
+  },
+  cold: {
+    enabled: true
+  },
+  promotionPolicy: 'aggressive'
+}
+```
+
+## API Reference
+
+| Export | Description |
+|--------|-------------|
+| `TieredReader` | Multi-tier read path with promotion |
+| `StoredObject` | Object representation with tier metadata |
+| `TieredStorageConfig` | Configuration options |

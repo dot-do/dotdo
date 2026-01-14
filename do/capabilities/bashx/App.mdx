@@ -1,0 +1,34 @@
+---
+title: bashx.do
+description: AI-enhanced bash terminal dashboard
+---
+
+import { DeveloperDashboard } from '@mdxui/cockpit'
+
+export default function App() {
+  return (
+    <DeveloperDashboard
+      config={{
+        branding: {
+          name: 'bashx.do',
+          logo: <span className="font-bold">bashx.do</span>,
+        },
+        identity: {
+          clientId: 'bashx',
+          devMode: process.env.NODE_ENV === 'development',
+        },
+        routes: {
+          overview: true,
+          requests: false,
+          keys: true,
+          team: false,
+          billing: false,
+          settings: true,
+          webhooks: false,
+          database: false,
+          vault: false,
+        },
+      }}
+    />
+  )
+}

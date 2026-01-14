@@ -1,17 +1,17 @@
-[submodule "capabilities/fsx"]
-	path = capabilities/fsx
+[submodule "do/capabilities/fsx"]
+	path = do/capabilities/fsx
 	url = https://github.com/dot-do/fsx.git
-[submodule "capabilities/bashx"]
-	path = capabilities/bashx
+[submodule "do/capabilities/bashx"]
+	path = do/capabilities/bashx
 	url = https://github.com/dot-do/bashx.git
-[submodule "capabilities/gitx"]
-	path = capabilities/gitx
+[submodule "do/capabilities/gitx"]
+	path = do/capabilities/gitx
 	url = https://github.com/dot-do/gitx.git
-[submodule "capabilities/npmx"]
-	path = capabilities/npmx
+[submodule "do/capabilities/npmx"]
+	path = do/capabilities/npmx
 	url = https://github.com/dot-do/npmx.git
-[submodule "capabilities/pyx"]
-	path = capabilities/pyx
+[submodule "do/capabilities/pyx"]
+	path = do/capabilities/pyx
 	url = https://github.com/dot-do/pyx.git
 [submodule "ai/primitives"]
 	path = ai/primitives

@@ -1,0 +1,290 @@
+---
+title: fsx.do
+description: Virtual Filesystem for the Edge. POSIX API. R2 storage. SQLite metadata.
+---
+
+import { LandingPage } from '@mdxui/beacon'
+
+export default function Site() {
+  return (
+    <LandingPage
+      logo={<span className="font-bold text-xl">fsx.do</span>}
+      header={{
+        links: [
+          { label: 'Docs', href: '/docs' },
+          { label: 'GitHub', href: 'https://github.com/dot-do/fsx' },
+          { label: 'npm', href: 'https://www.npmjs.com/package/fsx.do' },
+        ],
+        primaryCta: 'Get Started',
+      }}
+      hero={{
+        title: 'Virtual Filesystem for the',
+        highlightedText: 'Edge',
+        description: 'POSIX-compatible filesystem for Cloudflare Workers. SQLite metadata for speed. R2 storage for scale. Zero cold starts across 300+ global locations.',
+        primaryButtonText: 'npm install fsx.do',
+        primaryButtonHref: 'https://www.npmjs.com/package/fsx.do',
+        secondaryButtonText: 'View Docs',
+        secondaryButtonHref: '/docs',
+        showCodeTabs: true,
+        codeTabs: [
+          {
+            language: 'typescript',
+            label: 'SDK',
+            code: `import { fs } from 'fsx.do'
+
+await fs.writeFile('/config.json', JSON.stringify(config))
+await fs.mkdir('/data/uploads', { recursive: true })
+const files = await fs.readdir('/data')
+const stats = await fs.stat('/config.json')`,
+          },
+          {
+            language: 'typescript',
+            label: 'Core Library',
+            code: `import { FSx, MemoryBackend } from '@dotdo/fsx'
+
+// Pure filesystem logic - zero dependencies
+const backend = new MemoryBackend()
+const fs = new FSx(backend)
+
+await fs.write('/hello.txt', 'Hello!')
+const content = await fs.read('/hello.txt')`,
+          },
+          {
+            language: 'bash',
+            label: 'CLI',
+            code: `npx fsx.do ls /
+npx fsx.do cat /config.json
+npx fsx.do mkdir /data
+npx fsx.do chmod 755 /script.sh`,
+          },
+        ],
+      }}
+      features={{
+        title: 'A Real Filesystem on the Edge',
+        description: 'Everything you expect from a filesystem, running on Cloudflare\'s global network.',
+        items: [
+          {
+            iconName: 'Terminal',
+            title: 'POSIX API',
+            description: 'readFile, writeFile, stat, readdir, mkdir, chmod, symlink - all the operations you know from Node.js fs.',
+          },
+          {
+            iconName: 'Layers',
+            title: 'Tiered Storage',
+            description: 'Small files in SQLite for microsecond access. Large files in R2 for cost efficiency. Automatic tier selection.',
+          },
+          {
+            iconName: 'Database',
+            title: 'SQLite Metadata',
+            description: 'File paths, permissions, timestamps stored in Durable Object SQLite. Fast directory listings and stat calls.',
+          },
+          {
+            iconName: 'Cloud',
+            title: 'R2 Storage',
+            description: 'Large files and binary blobs stored in R2. S3-compatible. Cost-effective at scale.',
+          },
+          {
+            iconName: 'Globe',
+            title: 'Edge-Native',
+            description: 'Runs on Cloudflare\'s 300+ global locations. Zero cold starts. Microsecond latency.',
+          },
+          {
+            iconName: 'Search',
+            title: 'Unix Utilities',
+            description: 'Built-in glob, grep, and find. Pattern matching and content search without spawning processes.',
+          },
+          {
+            iconName: 'Eye',
+            title: 'File Watching',
+            description: 'React to changes in real-time. Watch files or directories recursively.',
+          },
+          {
+            iconName: 'Lock',
+            title: 'Permissions',
+            description: 'Real Unix permission model. chmod, chown, access checks all work.',
+          },
+          {
+            iconName: 'GitBranch',
+            title: 'Content-Addressable',
+            description: 'CAS storage for deduplication. SHA-256 hashing. Git-like object model.',
+          },
+        ],
+      }}
+      codeShowcase={{
+        title: 'Two Packages, One Architecture',
+        description: 'Use the pure library for self-hosting, or the managed service for production.',
+        examples: [
+          {
+            title: '@dotdo/fsx - Pure Library',
+            description: 'Zero dependencies. Self-hostable. Bring your own storage backend.',
+            language: 'typescript',
+            code: `import { FSx, MemoryBackend, glob, grep, find } from '@dotdo/fsx'
+
+// Implement FsBackend for any storage
+const backend = new MemoryBackend()
+const fs = new FSx(backend)
+
+// Full POSIX API
+await fs.mkdir('/app/data', { recursive: true })
+await fs.write('/app/config.json', '{}')
+
+// Unix utilities
+const files = await glob(fs, '**/*.json')
+const matches = await grep(fs, 'TODO', '/app')`,
+          },
+          {
+            title: 'fsx.do - Managed Service',
+            description: 'Durable Object integration. Tiered storage. CLI & SDK.',
+            language: 'typescript',
+            code: `import { fs, FileSystemDO, withFs } from 'fsx.do'
+
+// Simple SDK usage
+await fs.writeFile('/data.json', data)
+
+// Durable Object integration
+class MySite extends withFs(DO) {
+  async loadContent() {
+    return this.$.fs.read('/content/index.mdx')
+  }
+}
+
+// Re-exports everything from @dotdo/fsx
+import { glob, grep, find } from 'fsx.do'`,
+          },
+        ],
+      }}
+      pricing={{
+        title: 'Simple Pricing',
+        description: 'Pay for what you use. No hidden fees.',
+        tiers: [
+          {
+            name: 'Core Library',
+            price: 'Free',
+            description: 'Pure filesystem logic. Self-hostable.',
+            features: [
+              'POSIX operations',
+              'Glob/grep/find',
+              'MemoryBackend',
+              'FsBackend interface',
+              'Zero dependencies',
+              'MIT License',
+            ],
+            cta: 'npm i @dotdo/fsx',
+            ctaHref: 'https://www.npmjs.com/package/@dotdo/fsx',
+          },
+          {
+            name: 'Managed Service',
+            price: '$0',
+            priceSubtext: 'to start',
+            description: 'Full service with DO storage.',
+            features: [
+              'Everything in Core',
+              'Durable Object storage',
+              'Tiered SQLite + R2',
+              'CLI & SDK',
+              'File watching',
+              'HTTP/RPC API',
+            ],
+            cta: 'npm i fsx.do',
+            ctaHref: 'https://www.npmjs.com/package/fsx.do',
+            highlighted: true,
+          },
+        ],
+      }}
+      architecture={{
+        title: 'How It Works',
+        description: 'Two-layer architecture separates pure logic from infrastructure.',
+        diagram: `
+┌─────────────────────────────────────────────────────────────┐
+│                        fsx.do                                │
+│              (Managed Service Layer)                         │
+├─────────────────────────────────────────────────────────────┤
+│   FileSystemDO │ FsModule │ withFs() │ CLI │ SDK            │
+├─────────────────────────────────────────────────────────────┤
+│                     @dotdo/fsx                               │
+│                 (Pure Filesystem Logic)                      │
+├─────────────────────────────────────────────────────────────┤
+│     FSx │ FsBackend │ glob │ grep │ find │ CAS              │
+├─────────────────────────────────────────────────────────────┤
+│                   Storage Backends                           │
+├────────────────────┬───────────────────┬────────────────────┤
+│   Hot Tier         │    Warm Tier      │    Cold Tier       │
+│   (SQLite)         │    (R2)           │    (Archive)       │
+│   <1MB, <1ms       │    >1MB, <50ms    │    Archival        │
+└────────────────────┴───────────────────┴────────────────────┘
+        `,
+      }}
+      faqs={{
+        title: 'FAQ',
+        description: 'Common questions about fsx.do',
+        groups: [
+          {
+            title: 'General',
+            items: [
+              {
+                question: 'What\'s the difference between @dotdo/fsx and fsx.do?',
+                answer: '@dotdo/fsx is the pure filesystem library - zero dependencies, self-hostable, runs anywhere JavaScript runs. fsx.do is the managed service that adds Durable Object storage, tiered SQLite + R2, CLI, and SDK. fsx.do re-exports everything from @dotdo/fsx.',
+              },
+              {
+                question: 'How does tiered storage work?',
+                answer: 'Files under 1MB go to SQLite (hot tier) for microsecond access. Larger files go to R2 (warm tier) for cost efficiency. The system handles placement automatically based on file size.',
+              },
+              {
+                question: 'What is the FsBackend interface?',
+                answer: 'FsBackend is the pluggable storage interface that @dotdo/fsx uses. Implement it to add your own storage backend (PostgreSQL, S3, filesystem, etc.). The library includes MemoryBackend for testing.',
+              },
+              {
+                question: 'Is this production ready?',
+                answer: 'Yes. 3,000+ tests covering all POSIX operations. Used in production by multiple dotdo services.',
+              },
+            ],
+          },
+          {
+            title: 'Technical',
+            items: [
+              {
+                question: 'How are paths stored?',
+                answer: 'SQLite stores file metadata (path, mode, uid, gid, timestamps) in a normalized table. Directory traversal uses indexed path queries. File contents under 1MB are stored inline; larger files use R2 with blob references.',
+              },
+              {
+                question: 'Does it support symlinks?',
+                answer: 'Yes. Full symlink support including readlink, realpath, and proper symlink traversal. Hard links are also supported.',
+              },
+              {
+                question: 'What about file permissions?',
+                answer: 'Full Unix permission model. chmod sets mode bits, chown sets uid/gid, access() checks permissions. Permissions are stored in SQLite and enforced on all operations.',
+              },
+            ],
+          },
+        ],
+      }}
+      footer={{
+        description: 'Virtual Filesystem for the Edge. POSIX API. R2 storage. SQLite metadata.',
+        companyName: 'dotdo',
+        linkGroups: [
+          {
+            title: 'Resources',
+            links: [
+              { label: 'Documentation', href: '/docs' },
+              { label: 'GitHub', href: 'https://github.com/dot-do/fsx' },
+              { label: 'npm: fsx.do', href: 'https://www.npmjs.com/package/fsx.do' },
+              { label: 'npm: @dotdo/fsx', href: 'https://www.npmjs.com/package/@dotdo/fsx' },
+            ],
+          },
+          {
+            title: 'Platform',
+            links: [
+              { label: 'platform.do', href: 'https://platform.do' },
+              { label: 'agents.do', href: 'https://agents.do' },
+              { label: 'workers.do', href: 'https://workers.do' },
+            ],
+          },
+        ],
+        socialLinks: [
+          { platform: 'github', href: 'https://github.com/dot-do/fsx' },
+          { platform: 'x', href: 'https://x.com/dotdo_dev' },
+        ],
+      }}
+    />
+  )
+}

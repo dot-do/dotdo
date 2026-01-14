@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["@cloudflare/workers-types", "node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "resolveJsonModule": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@dotdo/gitx": ["./core/index.ts"],
+      "@dotdo/gitx/*": ["./core/*"]
+    },
+    "baseUrl": "."
+  },
+  "include": ["src/**/*", "core/**/*", "App.tsx", "Site.tsx"],
+  "exclude": ["node_modules", "dist", "test"]
+}

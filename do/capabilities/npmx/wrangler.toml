@@ -1,0 +1,37 @@
+# npmx.do - NPM/NPX for Edge Runtimes
+# ====================================
+
+name = "npmx-do"
+main = "src/do/worker.ts"
+compatibility_date = "2025-01-09"
+compatibility_flags = ["nodejs_compat"]
+
+# Routes
+[[routes]]
+pattern = "npmx.do"
+custom_domain = true
+
+# Durable Objects
+[durable_objects]
+bindings = [
+  { name = "NPMX", class_name = "NpmDOWrapper" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["NpmDOWrapper"]
+
+# Service bindings for dotdo ecosystem
+[[services]]
+binding = "FSX"
+service = "fsx-do"
+environment = "production"
+
+[[services]]
+binding = "BASHX"
+service = "bashx-do"
+environment = "production"
+
+# Production observability
+[observability]
+enabled = true
