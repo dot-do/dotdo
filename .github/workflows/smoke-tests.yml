@@ -1,0 +1,161 @@
+name: Smoke Tests
+
+on:
+  # Run after deployment
+  deployment_status:
+  # Run manually
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+          - preview
+  # Run after main workflow completes
+  workflow_run:
+    workflows: ["Deploy"]
+    types:
+      - completed
+    branches:
+      - main
+
+concurrency:
+  group: smoke-${{ github.event.deployment.environment || github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+
+jobs:
+  smoke-test:
+    name: Smoke Test (${{ github.event.deployment.environment || github.event.inputs.environment || 'staging' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only run if deployment succeeded or manual trigger
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    environment: ${{ github.event.deployment.environment || github.event.inputs.environment || 'staging' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine environment URL
+        id: env
+        run: |
+          ENVIRONMENT="${{ github.event.deployment.environment || github.event.inputs.environment || 'staging' }}"
+          case "$ENVIRONMENT" in
+            production)
+              echo "url=${{ vars.PRODUCTION_URL || 'https://dotdo.do' }}" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "url=${{ vars.STAGING_URL || 'https://staging.dotdo.do' }}" >> $GITHUB_OUTPUT
+              ;;
+            preview)
+              echo "url=https://pr-${{ github.event.deployment.payload.pr_number || '0' }}.dotdo.pages.dev" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "url=${{ vars.STAGING_URL || 'https://staging.dotdo.do' }}" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+
+      - name: Run health check
+        run: |
+          pnpm vitest run testing/e2e/smoke/health.test.ts --reporter=verbose --timeout=30000
+        env:
+          NODE_ENV: test
+          CLOUDFLARE_E2E: true
+          E2E_ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+
+      - name: Run CRUD smoke tests
+        run: |
+          pnpm vitest run testing/e2e/smoke/crud.test.ts --reporter=verbose --timeout=30000
+        env:
+          NODE_ENV: test
+          CLOUDFLARE_E2E: true
+          E2E_ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        # Don't run write operations in production
+        if: steps.env.outputs.environment != 'production'
+
+      - name: Run clone smoke tests
+        run: |
+          pnpm vitest run testing/e2e/smoke/clone.test.ts --reporter=verbose --timeout=60000
+        env:
+          NODE_ENV: test
+          CLOUDFLARE_E2E: true
+          E2E_ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        # Don't run clone operations in production
+        if: steps.env.outputs.environment != 'production'
+
+      - name: Report smoke test results
+        if: always()
+        run: |
+          echo "## Smoke Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${{ steps.env.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Check | ${{ job.status == 'success' && 'PASS' || 'FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    if: failure()
+
+    steps:
+      - name: Send notification
+        run: |
+          echo "Smoke tests failed for environment: ${{ github.event.deployment.environment || github.event.inputs.environment || 'staging' }}"
+          # Add notification logic here (Slack, PagerDuty, etc.)
+          # Example: curl -X POST -H 'Content-type: application/json' --data '{"text":"Smoke tests failed!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create failure issue
+        if: github.event.deployment.environment == 'production'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Smoke test failure in production - ${new Date().toISOString()}`,
+              body: `Smoke tests failed after deployment to production.\n\nRun: ${context.runId}\nSHA: ${context.sha}`,
+              labels: ['bug', 'smoke-test-failure', 'production']
+            })
