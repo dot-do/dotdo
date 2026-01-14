@@ -1,13 +1,11 @@
 ---
 title: Await Patterns
-description: Pattern-focused examples for common await scenarios in promise pipelining
+description: When to await and when to pipeline - the rules are simple once you know them
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
 
 # Await Patterns
-
-This page provides pattern-focused examples for common await scenarios. For the definitive decision tree and quick reference, see [When to Await](/docs/rpc/when-to-await).
 
 Every `await` is a decision point. Await too early and you break pipelining. Await too late and you lose control. This guide covers exactly when to use each pattern.
 
@@ -92,17 +90,17 @@ for (const task of tasks) {
 **Round trips:** 1 + N (one for tasks, one per iteration)
 
 <Callout type="warn" title="Use Magic Map When Possible">
-Often you can replace loops with Magic Map when using the workflow proxy:
+Often you can replace loops with Magic Map:
 
 ```typescript
-// Instead of a for loop - use workflow proxy for Magic Map
-const tasks = $.Agent('priya')`break down ${spec} into tasks`
-const impls = tasks.map(task => $.Agent('ralph')`implement ${task}`)
-const reviewed = impls.map(impl => $.Agent('tom')`review ${impl}`)
+// Instead of a for loop
+const tasks = priya`break down ${spec} into tasks`
+const impls = tasks.map(task => ralph`implement ${task}`)
+const reviewed = impls.map(impl => tom`review ${impl}`)
 await reviewed  // ONE round trip
 ```
 
-Magic Map keeps everything in a single pipeline when using `$`.
+Magic Map keeps everything in a single pipeline.
 </Callout>
 
 ## Pattern: Parallel Independent Operations
@@ -272,23 +270,21 @@ await app
 Awaiting inside a map breaks the pipeline for each element:
 
 ```typescript title="Anti-Pattern - Await in Map"
-const tasks = await $.Agent('priya')`list tasks`
+const tasks = await priya`list tasks`
 const results = await Promise.all(
   tasks.map(async task => {
-    const impl = await $.Agent('ralph')`implement ${task}`  // N awaits!
+    const impl = await ralph`implement ${task}`  // N awaits!
     return impl
   })
 )
 ```
 
-**Fix:** Use Magic Map with the workflow proxy:
+**Fix:** Use Magic Map or avoid async callbacks:
 
 ```typescript title="Fixed with Magic Map"
-const tasks = $.Agent('priya')`list tasks`
-const results = await tasks.map(task => $.Agent('ralph')`implement ${task}`)
+const tasks = priya`list tasks`
+const results = await tasks.map(task => ralph`implement ${task}`)
 ```
-
-Note: Magic Map requires using agents through the workflow proxy (`$`). Direct agent imports use simple promise chaining.
 
 ## Decision Tree
 

@@ -1,0 +1,66 @@
+{
+  "name": "@dotdo/github",
+  "version": "0.1.0",
+  "description": "Octokit-compatible GitHub SDK for Cloudflare Workers and edge environments",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./webhooks": {
+      "types": "./src/webhooks.ts",
+      "import": "./src/webhooks.ts",
+      "default": "./src/webhooks.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "github",
+    "octokit",
+    "api",
+    "rest",
+    "webhooks",
+    "edge",
+    "cloudflare-workers",
+    "dotdo"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "directory": "packages/github"
+  },
+  "homepage": "https://github.com/dotdo-dev/dotdo/tree/main/packages/github#readme",
+  "bugs": {
+    "url": "https://github.com/dotdo-dev/dotdo/issues"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "hono": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "hono": {
+      "optional": true
+    }
+  }
+}

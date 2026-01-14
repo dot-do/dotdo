@@ -89,8 +89,8 @@ await tom`design the architecture for ${system}`
 // Full ship flow: review + merge + deploy
 await tom`ship ${app}`
 
-// Approve changes - returns { approved: boolean, feedback?: string }
-const { approved } = await tom.approve(code)
+// Approve changes
+const approved = await tom.approve(code)
 ```
 
 **How they review:**
@@ -223,27 +223,15 @@ async function ship(hypothesis: string) {
 }
 ```
 
-For batch operations, use `Promise.all`:
+Or use promise pipelining for single round-trip:
 
 ```typescript
-// Sequential pipeline - each step uses the previous result
-const spec = await priya`plan the sprint`
-const code = await ralph`build ${spec}`
-const review = await tom`review ${code}`
-
-// Parallel execution - process multiple items concurrently
-const tasks = ['auth', 'dashboard', 'settings']
-const implementations = await Promise.all(
-  tasks.map(task => ralph`implement ${task}`)
-)
-
-// Review all implementations in parallel
-const reviews = await Promise.all(
-  implementations.map(code => tom`review ${code}`)
-)
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+  .map(pr => quinn`test ${pr}`)
+  .map(pr => tom`merge ${pr}`)
 ```
-
-For server-side batch execution with automatic parallelization, see the [workflow proxy](/docs/rpc/pipelines).
 
 ---
 
@@ -279,11 +267,8 @@ const spec = await priya`what should we build next?`
 const code = await ralph`build ${spec}`
 
 // Approval gate - await it
-const review = await tom.approve(pullRequest)
-if (review.approved) {
+if (await tom.approve(pullRequest)) {
   await tom`merge ${pullRequest}`
-} else {
-  console.log('Feedback:', review.feedback)
 }
 ```
 

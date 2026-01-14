@@ -122,83 +122,27 @@ console.log(`Pushed ${pushResult.objectsPushed} objects`)
 
 ### Git Object Model
 
-Git stores everything as content-addressable objects. gitx implements a three-tier storage system:
+Git stores everything as content-addressable objects:
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                          gitx Tiered Storage                                │
-├────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌─────────────────┐    ┌─────────────────────┐    ┌──────────────────┐   │
-│   │   Hot Tier      │    │     Warm Tier       │    │    Cold Tier     │   │
-│   │   (SQLite)      │    │     (R2 Loose)      │    │   (R2 Packfiles) │   │
-│   ├─────────────────┤    ├─────────────────────┤    ├──────────────────┤   │
-│   │ • Recent commits│    │ • Loose objects     │    │ • Pack files     │   │
-│   │ • Active refs   │    │ • Full history      │    │ • Delta compress │   │
-│   │ • Object cache  │    │ • Large blobs       │    │ • Archived data  │   │
-│   │ • < 5ms access  │    │ • 50-100ms access   │    │ • 100-500ms      │   │
-│   └─────────────────┘    └─────────────────────┘    └──────────────────┘   │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                      DO Metadata (Refs)                              │  │
-│   │  refs/heads/main -> fedcba9876...                                    │  │
-│   │  refs/heads/feature-branch -> 1234567890...                          │  │
-│   │  HEAD -> ref: refs/heads/main                                        │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────┘
-```
+┌──────────────────────────────────────────────────────────┐
+│                    R2 Object Store                       │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  git/objects/ab/cdef1234...  (blob - file content)       │
+│  git/objects/12/345678ab...  (tree - directory listing)  │
+│  git/objects/fe/dcba9876...  (commit - snapshot + meta)  │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
 
-### R2 Object Layout
-
-Objects are stored in R2 using the standard Git two-character prefix for efficient listing:
-
-```
-git/objects/                         # Warm tier - loose objects
-  ab/
-    cdef1234567890abcdef1234567890abcdef12  (blob)
-  12/
-    34567890abcdef1234567890abcdef12345678  (tree)
-  fe/
-    dcba9876543210fedcba9876543210fedcba98  (commit)
-
-git/objects/packs/                   # Cold tier - packfiles
-  pack-abc123.pack   (delta-compressed objects)
-  pack-abc123.idx    (pack index for fast lookup)
-```
-
-### Tier Configuration
-
-```typescript
-const storage = new TieredStorage({
-  r2: env.GIT_OBJECTS,
-  sql: ctx.storage.sql,
-  hotTierMaxBytes: 50 * 1024 * 1024,    // 50MB in SQLite
-  hotTierMaxObjectSize: 1 * 1024 * 1024, // 1MB max per object
-  promotionThreshold: 3,                 // Promote after 3 accesses
-  demotionAgeDays: 7                     // Demote after 7 days
-})
-```
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `hotTierMaxBytes` | 50 MB | Total SQLite cache capacity |
-| `hotTierMaxObjectSize` | 1 MB | Max size for hot tier objects |
-| `promotionThreshold` | 3 | Accesses before promotion |
-| `demotionAgeDays` | 7 | Days before demotion |
-
-### Object Access Path
-
-When you request a Git object, gitx checks tiers in order:
-
-```
-1. Hot tier (SQLite)    → If found: return immediately (< 5ms)
-                        → If miss: continue to warm tier
-
-2. Warm tier (R2 loose) → If found: return, maybe promote
-                        → If miss: continue to cold tier
-
-3. Cold tier (R2 pack)  → Parse packfile at offset
-                        → Return and maybe promote to warm
+┌──────────────────────────────────────────────────────────┐
+│                  DO Metadata (Refs)                      │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  refs/heads/main -> fedcba9876...                        │
+│  refs/heads/feature-branch -> 1234567890...              │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### SHA-1 via crypto.subtle
@@ -218,21 +162,19 @@ async function hashObject(type: string, data: Uint8Array): Promise<string> {
 }
 ```
 
-### Packfile Storage (Cold Tier)
+### R2 Object Layout
 
-For efficient storage, gitx can pack warm objects into packfiles:
+Objects are stored with a two-character prefix for efficient listing:
 
-```typescript
-// Create a packfile from warm tier objects
-const result = await storage.createPackfile(shas)
-console.log(`Created ${result.packId} with ${result.objectCount} objects`)
-console.log(`Size: ${result.size} bytes (delta compressed)`)
 ```
-
-Packfiles use Git's standard format:
-- **OFS_DELTA and REF_DELTA compression** - Objects stored as deltas against similar objects
-- **MIDX support** - Multi-pack indexes for efficient lookup
-- **Automatic packing** - Via maintenance or manual trigger
+git/objects/
+  ab/
+    cdef1234567890abcdef1234567890abcdef12  (blob)
+  12/
+    34567890abcdef1234567890abcdef12345678  (tree)
+  fe/
+    dcba9876543210fedcba9876543210fedcba98  (commit)
+```
 
 ## Diff and Log
 
@@ -252,98 +194,25 @@ Note: `diff()` and `log()` have placeholder implementations. Full diff output an
 
 ## Working with Remotes
 
-gitx uses R2 as its primary "remote" storage, but can sync with external Git hosts like GitHub and GitLab.
-
-### R2 as Primary Remote
-
-By default, all Git operations store objects in R2:
+gitx uses R2 as its "remote", but can sync with GitHub:
 
 ```typescript
-// Configure R2 as the remote
-$.git.configure({
-  repo: 'org/repo',
-  branch: 'main',
-  r2: env.R2_BUCKET,
-})
-
-// sync() fetches from R2, push() writes to R2
-await $.git.sync()   // R2 -> local
-await $.git.push()   // local -> R2
-```
-
-### GitHub Integration
-
-gitx can sync bidirectionally with GitHub:
-
-```typescript
-// Configure GitHub as secondary remote
+// Configure GitHub remote
 $.git.configure({
   repo: 'org/repo',
   branch: 'main',
   r2: env.R2_BUCKET,
   github: {
     token: env.GITHUB_TOKEN,
-    syncOnPush: true  // Auto-sync to GitHub on push
+    syncOnPush: true  // Auto-sync to GitHub
   }
 })
 
 // Push syncs to both R2 and GitHub
-await $.git.push()  // Writes to R2, then pushes to GitHub
+await $.git.push()
 ```
 
-### Clone/Pull/Push Mechanics
-
-**Clone (initial sync):**
-```typescript
-// First sync fetches all objects from R2 (or GitHub)
-const result = await $.git.sync()
-// result.objectsFetched - number of Git objects downloaded
-// result.filesWritten - files extracted to working directory
-// result.commit - current HEAD commit
-```
-
-**Pull (incremental sync):**
-```typescript
-// Subsequent syncs only fetch new objects
-await $.git.sync()  // Fetches objects not in local store
-```
-
-**Push (upload changes):**
-```typescript
-// Stage, commit, then push
-await $.git.add('src/feature.ts')
-await $.git.commit('feat: add feature')
-
-const result = await $.git.push()
-// result.objectsPushed - number of objects uploaded
-// result.commit - pushed commit hash
-```
-
-### Wire Protocol
-
-gitx implements Git's smart HTTP protocol for external remotes:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Git Wire Protocol                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  1. Capability negotiation (protocol v2)                     │
-│     Client: "want abc123, have def456"                       │
-│     Server: "ACK def456"                                     │
-│                                                              │
-│  2. Pack transfer                                            │
-│     Server sends packfile with requested objects             │
-│     Delta compression reduces transfer size                  │
-│                                                              │
-│  3. Reference update                                         │
-│     Client: "update refs/heads/main old-sha new-sha"         │
-│     Server: "ok refs/heads/main"                             │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Consistency and Multi-Agent Collaboration
+## Multi-Agent Collaboration
 
 Multiple agents can work on the same repository via R2:
 
@@ -354,21 +223,15 @@ await agent1.$.git.add('src/a.ts')
 await agent1.$.git.commit('feat: add A')
 await agent1.$.git.push()
 
-// Agent 2: Sync to see Agent 1's changes
+// Agent 2: Sync to see Agent 1's changes, then add more
 await agent2.$.git.sync()
-// Now agent2 sees the new commit and files
-
-// Agent 2: Add more changes
 await agent2.$.fs.write('src/b.ts', codeB)
 await agent2.$.git.add('src/b.ts')
 await agent2.$.git.commit('feat: add B')
 await agent2.$.git.push()
 ```
 
-**Consistency guarantees:**
-- **R2 read-after-write** - Once a push completes, all agents see the new objects
-- **Refs in DO metadata** - Branch pointers are strongly consistent per-DO
-- **No concurrent conflicts** - Each DO has its own working directory
+R2's consistency model ensures all agents see the same objects once written.
 
 Note: Branch operations (`checkout`, `branch`, `merge`, `rebase`) are not yet implemented. Multi-agent workflows currently operate on a single branch.
 

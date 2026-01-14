@@ -1,0 +1,59 @@
+{
+  "name": "@dotdo/flags",
+  "version": "0.1.0",
+  "description": "LaunchDarkly-compatible feature flags SDK for Cloudflare Workers with edge-native performance.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
+    },
+    "./evaluation": {
+      "import": "./dist/evaluation.js",
+      "types": "./dist/evaluation.d.ts"
+    },
+    "./targeting": {
+      "import": "./dist/targeting.js",
+      "types": "./dist/targeting.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types.js",
+      "types": "./dist/types.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "feature-flags",
+    "launchdarkly",
+    "flags",
+    "ab-testing",
+    "experiments",
+    "targeting",
+    "rollouts",
+    "cloudflare",
+    "workers",
+    "edge",
+    "serverless"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "packages/flags"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "payload-template",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "opennextjs-cloudflare build",
+    "deploy": "wrangler deploy"
+  }
+}

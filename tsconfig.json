@@ -22,20 +22,12 @@
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
 
-    // Import aliases (baseUrl required for paths to work)
-    "baseUrl": ".",
+    // Import aliases
     "paths": {
       "dotdo": ["./index.ts"],
       "dotdo/*": ["./*"],
-      // Core libraries (pure, zero deps)
-      "@dotdo/fsx": ["./primitives/fsx/core/index.ts"],
-      "@dotdo/bashx": ["./primitives/bashx/core/index.ts"],
-      // Service layers (Cloudflare DO integration)
-      "fsx.do": ["./primitives/fsx/src/index.ts"],
-      "fsx.do/*": ["./primitives/fsx/src/*"],
-      "bashx.do": ["./primitives/bashx/src/index.ts"],
-      "bashx.do/do": ["./primitives/bashx/src/do/index.ts"],
-      "bashx.do/*": ["./primitives/bashx/src/*"]
+      "@dotdo/fsx": ["./packages/fsx/src/index.ts"],
+      "fsx.do": ["../fsx/index.ts"]
     },
 
     // Better error messages and IDE experience

@@ -51,7 +51,6 @@ Drop-in replacement for `@pinecone-database/pinecone`, backed by dotdo's edgevec
 
 ```typescript
 import { Pinecone } from '@dotdo/pinecone'
-import { embed } from 'dotdo/ai'
 
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_KEY,
@@ -279,8 +278,6 @@ const embeddings = await embedBatch([
 ### RAG (Retrieval-Augmented Generation)
 
 ```typescript
-import { embed } from 'dotdo/ai'
-
 async function rag(question: string) {
   // 1. Embed the question
   const questionEmbedding = await embed(question)
@@ -318,8 +315,6 @@ async function rag(question: string) {
 Cache LLM responses by semantic similarity:
 
 ```typescript
-import { embed } from 'dotdo/ai'
-
 async function cachedComplete(prompt: string) {
   const embedding = await embed(prompt)
 
@@ -354,8 +349,6 @@ async function cachedComplete(prompt: string) {
 Combine vector similarity with keyword search:
 
 ```typescript
-import { embed } from 'dotdo/ai'
-
 async function hybridSearch(query: string) {
   const embedding = await embed(query)
 

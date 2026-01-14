@@ -1,0 +1,40 @@
+{
+  "name": "@dotdo/stripe",
+  "version": "0.1.0",
+  "description": "Stripe API compat layer for Cloudflare Workers with edge compatibility",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "stripe",
+    "payments",
+    "subscriptions",
+    "cloudflare",
+    "workers",
+    "edge",
+    "serverless",
+    "api-compat"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "compat/stripe"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}
