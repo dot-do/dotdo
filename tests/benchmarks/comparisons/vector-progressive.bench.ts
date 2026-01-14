@@ -1,7 +1,7 @@
 /**
  * Vector Progressive Search Benchmarks
  *
- * RED PHASE: Measures performance of progressive vector search stages.
+ * GREEN PHASE: Measures performance of progressive vector search stages.
  *
  * The progressive search pipeline uses multi-stage filtering:
  * 1. Binary hash prefilter (fastest, most coarse) - Hamming distance
@@ -15,32 +15,23 @@
  * - 256d: 6x speedup vs 1536d, ~99% recall
  * - 1536d: Baseline accuracy, highest latency
  *
- * @see do-trm - Cross-Store Comparison Benchmarks
+ * @see do-p7v - GREEN: Cross-Store Comparison Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { VectorGenerator } from '../datasets/vectors'
 import { CostTracker } from '../framework/cost-tracker'
-import type { VectorStore } from '../../../db/vector/store'
-
-// Placeholder types for progressive search stages
-interface ProgressiveVectorStore extends VectorStore {
-  binarySearch(query: number[], options: { limit: number }): Promise<string[]>
-  hammingFilter(query: number[], options: { maxDistance: number }): Promise<string[]>
-  refineSearch(
-    query: number[],
-    candidates: string[],
-    options: { limit: number }
-  ): Promise<string[]>
-}
+import {
+  createComparisonVectorStore,
+  type ComparisonVectorStore,
+} from './harness'
 
 describe('Vector Progressive Search Stages', () => {
   const generator = new VectorGenerator()
-  let vectorStore: ProgressiveVectorStore
+  let vectorStore: ComparisonVectorStore
   let queryVector: number[]
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no vector store available
   beforeAll(async () => {
     // Generate query vector for all benchmarks
     queryVector = generator.generateSync({
@@ -49,9 +40,14 @@ describe('Vector Progressive Search Stages', () => {
       seed: 42,
     })[0].embedding
 
-    // RED: Will need real VectorStore instance
-    // vectorStore = await createVectorStore()
+    vectorStore = createComparisonVectorStore()
     tracker = new CostTracker()
+
+    // Pre-populate with some vectors
+    const vectors = generator.generateSync({ size: 100, dimension: 1536, seed: 123 })
+    for (const vec of vectors) {
+      await vectorStore.insert({ id: vec.$id, embedding: vec.embedding })
+    }
   })
 
   afterAll(async () => {

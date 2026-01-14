@@ -1,41 +1,47 @@
 /**
  * Document vs Relational Store Comparison Benchmarks
  *
- * RED PHASE: Compares DocumentStore vs RelationalStore for the same data.
+ * GREEN PHASE: Compares DocumentStore vs RelationalStore for the same data.
  * DocumentStore: Flexible schema, JSON storage
  * RelationalStore: Typed schema, SQL storage
  *
- * @see do-trm - Cross-Store Comparison Benchmarks
+ * @see do-p7v - GREEN: Cross-Store Comparison Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { DocumentGenerator } from '../datasets/documents'
 import { CostTracker } from '../framework/cost-tracker'
-import type { DocumentStore } from '../../../db/document/store'
-
-// Placeholder types for RED phase - will be replaced with real implementations
-interface RelationalStore {
-  insert(table: string, data: Record<string, unknown>): Promise<void>
-  insertMany(table: string, data: Record<string, unknown>[]): Promise<void>
-  findById(table: string, id: string): Promise<Record<string, unknown> | null>
-  find(table: string, where: Record<string, unknown>): Promise<Record<string, unknown>[]>
-  query(sql: string): Promise<Record<string, unknown>[]>
-}
+import {
+  createComparisonDocumentStore,
+  createComparisonRelationalStore,
+  type ComparisonDocumentStore,
+  type ComparisonRelationalStore,
+} from './harness'
 
 describe('Document vs Relational Store Comparison', () => {
   const generator = new DocumentGenerator()
-  let documentStore: DocumentStore<Record<string, unknown>>
-  let relationalStore: RelationalStore
+  let documentStore: ComparisonDocumentStore
+  let relationalStore: ComparisonRelationalStore
   let docTracker: CostTracker
   let relTracker: CostTracker
 
-  // Setup will fail in RED phase - stores not available
   beforeAll(async () => {
-    // RED: Will need real store instances from miniflare
-    // documentStore = await createDocumentStore()
-    // relationalStore = await createRelationalStore()
+    documentStore = createComparisonDocumentStore()
+    relationalStore = createComparisonRelationalStore()
     docTracker = new CostTracker()
     relTracker = new CostTracker()
+
+    // Pre-populate stores with some data for read benchmarks
+    const docs = generator.generateSync({ size: 100, seed: 42 })
+    for (const doc of docs) {
+      await documentStore.create(doc)
+      await relationalStore.insert('customers', {
+        id: doc.$id,
+        name: doc.field_0,
+        status: 'active',
+        data: JSON.stringify(doc),
+      })
+    }
   })
 
   afterAll(async () => {

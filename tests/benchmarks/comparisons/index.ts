@@ -1,10 +1,10 @@
 /**
  * Cross-Store Comparison Benchmarks - Barrel Export
  *
- * RED PHASE: Export all comparison benchmark files for unified test runs.
+ * GREEN PHASE: Export all comparison benchmark files for unified test runs.
  * These benchmarks compare different stores for the same workloads.
  *
- * @see do-trm - Cross-Store Comparison Benchmarks
+ * @see do-p7v - GREEN: Cross-Store Comparison Implementation
  *
  * Comparisons Covered:
  * - Document vs Relational: Schema flexibility vs strong typing trade-offs
@@ -25,6 +25,9 @@
  * npx vitest bench tests/benchmarks/comparisons/tiering-performance.bench.ts
  * ```
  */
+
+// Harness with mock stores for comparison benchmarks
+export * from './harness'
 
 // Document vs Relational - Schema flexibility trade-offs
 export * from './document-vs-relational.bench'

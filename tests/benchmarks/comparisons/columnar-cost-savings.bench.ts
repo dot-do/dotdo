@@ -1,7 +1,7 @@
 /**
  * Columnar vs Document Cost Comparison Benchmarks
  *
- * RED PHASE: Demonstrates the 99.4% cost savings of ColumnarStore vs DocumentStore.
+ * GREEN PHASE: Demonstrates the 99.4% cost savings of ColumnarStore vs DocumentStore.
  *
  * Key Insight:
  * - DocumentStore: 1 row write per record = N writes
@@ -12,29 +12,30 @@
  * - Columnar: ~6 row writes = $0.000006
  * - Savings: 99.9994%
  *
- * @see do-trm - Cross-Store Comparison Benchmarks
+ * @see do-p7v - GREEN: Cross-Store Comparison Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { DocumentGenerator } from '../datasets/documents'
 import { CostTracker } from '../framework/cost-tracker'
-import type { ColumnarStore } from '../../../db/columnar/store'
-import type { DocumentStore } from '../../../db/document/store'
+import {
+  createComparisonDocumentStoreWithCost,
+  createComparisonColumnarStore,
+  type ComparisonColumnarStore,
+} from './harness'
 
 describe('Columnar vs Document Cost Comparison', () => {
   const generator = new DocumentGenerator()
-  let documentStore: DocumentStore<Record<string, unknown>>
-  let columnarStore: ColumnarStore
+  let documentStore: ReturnType<typeof createComparisonDocumentStoreWithCost>
+  let columnarStore: ComparisonColumnarStore
   let docTracker: CostTracker
   let colTracker: CostTracker
 
-  // Setup will fail in RED phase - stores not available
   beforeAll(async () => {
-    // RED: Will need real store instances
-    // documentStore = await createDocumentStore()
-    // columnarStore = await createColumnarStore()
     docTracker = new CostTracker()
     colTracker = new CostTracker()
+    documentStore = createComparisonDocumentStoreWithCost(docTracker)
+    columnarStore = createComparisonColumnarStore(colTracker)
   })
 
   afterAll(async () => {

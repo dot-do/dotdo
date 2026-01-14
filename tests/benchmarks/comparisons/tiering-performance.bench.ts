@@ -1,7 +1,7 @@
 /**
  * Storage Tiering Performance Benchmarks
  *
- * RED PHASE: Compares performance across storage tiers.
+ * GREEN PHASE: Compares performance across storage tiers.
  *
  * Three-tier architecture:
  * - Hot: DO SQLite (<1ms) - Recently accessed, frequently used
@@ -10,35 +10,24 @@
  *
  * Auto-tiering promotes/demotes data based on access patterns.
  *
- * @see do-trm - Cross-Store Comparison Benchmarks
+ * @see do-p7v - GREEN: Cross-Store Comparison Implementation
  */
 
 import { describe, bench, beforeAll, afterAll } from 'vitest'
 import { DocumentGenerator } from '../datasets/documents'
 import { CostTracker } from '../framework/cost-tracker'
-
-// Placeholder types for tiered storage
-interface TieredDocumentStore {
-  get(id: string): Promise<Record<string, unknown> | null>
-  create(doc: Record<string, unknown>): Promise<void>
-  query(filter: Record<string, unknown>, options?: { limit?: number }): Promise<Record<string, unknown>[]>
-  scan(options: { $tier: string; $partition?: string }): Promise<Record<string, unknown>[]>
-  promote(id: string): Promise<void>
-  demote(id: string, tier: 'warm' | 'cold'): Promise<void>
-  restore(id: string): Promise<void>
-  getWithTiming(id: string): Promise<{ data: Record<string, unknown> | null; latencyMs: number; tier: string }>
-  getTierStats(): Promise<{ hot: number; warm: number; cold: number }>
-}
+import {
+  createTieredDocumentStore,
+  type TieredDocumentStore,
+} from './harness'
 
 describe('Storage Tiering Performance', () => {
   const generator = new DocumentGenerator()
   let store: TieredDocumentStore
   let tracker: CostTracker
 
-  // Setup will fail in RED phase - no tiered store available
   beforeAll(async () => {
-    // RED: Will need real TieredDocumentStore instance
-    // store = await createTieredStore()
+    store = createTieredDocumentStore()
     tracker = new CostTracker()
   })
 
