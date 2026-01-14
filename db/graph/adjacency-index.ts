@@ -177,6 +177,9 @@ export interface IAdjacencyIndex {
   compact(): Promise<void>
   vacuum(): Promise<void>
   getStats(): Promise<GraphStats>
+
+  // Node enumeration
+  getAllNodeIds(): Promise<string[]>
 }
 
 // ============================================================================
@@ -950,13 +953,12 @@ export class AdjacencyIndex implements IAdjacencyIndex {
       return false
     }
 
-    // Verify in database
+    // Verify in database - check if node exists in any table
+    // Use a single query with EXISTS for efficiency
     const result = this.sqlite!.prepare(`
-      SELECT 1 FROM node_degrees WHERE node_id = ?
-      UNION
-      SELECT 1 FROM adjacency_out WHERE node_id = ? LIMIT 1
-      UNION
-      SELECT 1 FROM adjacency_in WHERE node_id = ? LIMIT 1
+      SELECT 1 WHERE EXISTS (SELECT 1 FROM node_degrees WHERE node_id = ?)
+      OR EXISTS (SELECT 1 FROM adjacency_out WHERE node_id = ?)
+      OR EXISTS (SELECT 1 FROM adjacency_in WHERE node_id = ?)
     `).get(nodeId, nodeId, nodeId)
 
     return result !== undefined
@@ -1184,6 +1186,26 @@ export class AdjacencyIndex implements IAdjacencyIndex {
       maxDegree: maxDegree.max ?? 0,
       supernodeCount: supernodeCount.count,
     }
+  }
+
+  /**
+   * Get all unique node IDs in the graph.
+   */
+  async getAllNodeIds(): Promise<string[]> {
+    await this.ensureInitialized()
+
+    // Get all unique node IDs from both source and target of edges
+    const results = this.sqlite!.prepare(`
+      SELECT DISTINCT node_id FROM (
+        SELECT node_id FROM node_degrees
+        UNION
+        SELECT node_id FROM adjacency_out
+        UNION
+        SELECT target_id as node_id FROM adjacency_out
+      )
+    `).all() as Array<{ node_id: string }>
+
+    return results.map((r) => r.node_id)
   }
 
   // =========================================================================

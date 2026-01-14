@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DO, DOFeatureConfig } from '../DOBase'
+import { DO, DOFeatureConfig } from '../core/DOBase'
 
 // Mock DurableObjectState for testing
 function createMockState(): DurableObjectState {

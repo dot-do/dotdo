@@ -4,7 +4,7 @@
  * Provides utilities to discover DO classes from modules.
  */
 
-import { DO } from '../objects/DO'
+import { DO } from '../objects/core/DO'
 import { TypeRegistry, type DOClass } from './TypeRegistry'
 
 /**

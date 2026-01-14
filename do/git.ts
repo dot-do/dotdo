@@ -17,7 +17,7 @@
  * ```
  */
 
-import { DO as BaseDO } from '../objects/DO.js'
+import { DO as BaseDO } from '../objects/core/DO.js'
 import { withFs } from '../lib/capabilities/fs.js'
 import { withGit } from '../lib/capabilities/git.js'
 

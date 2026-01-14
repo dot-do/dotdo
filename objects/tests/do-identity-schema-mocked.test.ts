@@ -17,8 +17,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { DO } from '../DOBase'
-import type { Env } from '../DOBase'
+import { DO } from '../core/DOBase'
+import type { Env } from '../core/DOBase'
 import type { ThingEntity, ThingsStore } from '../../db/stores'
 
 // ============================================================================

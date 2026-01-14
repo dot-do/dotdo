@@ -23,7 +23,7 @@ import {
   type CapabilityMixin,
 } from '../capabilities/infrastructure'
 
-import { DO } from '../DOBase'
+import { DO } from '../core/DOBase'
 import type { WorkflowContext } from '../../types/WorkflowContext'
 
 // ============================================================================

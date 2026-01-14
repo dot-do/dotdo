@@ -4,7 +4,7 @@
  * Provides utilities to validate DO classes before registration.
  */
 
-import { DO } from '../objects/DO'
+import { DO } from '../objects/core/DO'
 
 /**
  * Options for validateType

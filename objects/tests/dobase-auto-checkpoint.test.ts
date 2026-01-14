@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 
 // ============================================================================
 // MOCK HELPERS

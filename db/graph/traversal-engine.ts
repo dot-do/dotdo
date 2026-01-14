@@ -679,88 +679,87 @@ export class TraversalEngine {
   }
 
   /**
-   * Detect all cycles in the graph.
+   * Detect all cycles in the graph using DFS with proper coloring.
    */
   async detectCycles(startId?: string): Promise<CycleResult> {
     const cycles: string[][] = []
     const backEdges: Array<{ from: string; to: string; type: string }> = []
 
-    // Track visited nodes globally
-    const globalVisited = new Set<string>()
+    // Node colors: WHITE (unvisited), GRAY (in current path), BLACK (finished)
+    const WHITE = 0, GRAY = 1, BLACK = 2
+    const color = new Map<string, number>()
+    const parent = new Map<string, string | null>()
 
     // Get all nodes to check (or just start from startId)
     let startNodes: string[]
     if (startId) {
       startNodes = [startId]
     } else {
-      // Get all nodes from the stats
+      // Get all source nodes from outgoing edges
       const stats = await this.index.getStats()
       if (stats.totalNodes === 0) {
         return { hasCycles: false, cycles: [], backEdges: [] }
       }
 
-      // We need to iterate all nodes - do a BFS from all source nodes
-      // For now, get edges and extract unique source nodes
+      // Get all unique node IDs - from degree table and adjacency tables
       startNodes = await this.getAllNodeIds()
+      if (startNodes.length === 0) {
+        return { hasCycles: false, cycles: [], backEdges: [] }
+      }
     }
 
-    for (const startNode of startNodes) {
-      if (globalVisited.has(startNode)) {
-        continue
-      }
+    // DFS with explicit stack to handle cycles properly
+    const dfs = async (start: string): Promise<void> => {
+      const stack: Array<{ nodeId: string; neighborIndex: number; neighbors: string[] }> = []
 
-      // DFS with cycle detection
-      const stack: Array<{ nodeId: string; path: string[] }> = [{ nodeId: startNode, path: [] }]
-      const currentPath = new Set<string>()
+      // Initialize start node
+      color.set(start, GRAY)
+      parent.set(start, null)
+      const startNeighbors = await this.index.getOutNeighbors(start)
+      stack.push({ nodeId: start, neighborIndex: 0, neighbors: startNeighbors })
 
       while (stack.length > 0) {
-        const { nodeId, path } = stack.pop()!
+        const current = stack[stack.length - 1]!
 
-        // If we've seen this node in the current path, it's a cycle
-        if (currentPath.has(nodeId)) {
-          // Find cycle
-          const cycleStart = path.indexOf(nodeId)
-          if (cycleStart >= 0) {
-            const cycle = path.slice(cycleStart)
-            cycle.push(nodeId)
-            cycles.push(cycle)
-
-            // Record back edge
-            const fromNode = path[path.length - 1]
-            if (fromNode) {
-              backEdges.push({ from: fromNode, to: nodeId, type: 'DEPENDS_ON' })
-            }
-          }
+        if (current.neighborIndex >= current.neighbors.length) {
+          // Done with this node - mark as black and pop
+          color.set(current.nodeId, BLACK)
+          stack.pop()
           continue
         }
 
-        if (globalVisited.has(nodeId)) {
-          continue
-        }
+        const neighbor = current.neighbors[current.neighborIndex]!
+        current.neighborIndex++
 
-        globalVisited.add(nodeId)
-        currentPath.add(nodeId)
+        const neighborColor = color.get(neighbor) ?? WHITE
 
-        const neighbors = await this.index.getOutNeighbors(nodeId)
-
-        for (const neighbor of neighbors) {
-          if (currentPath.has(neighbor)) {
-            // Cycle found
-            const newPath = [...path, nodeId]
-            const cycleStart = newPath.indexOf(neighbor)
-            if (cycleStart >= 0) {
-              const cycle = newPath.slice(cycleStart)
-              cycle.push(neighbor)
-              cycles.push(cycle)
-              backEdges.push({ from: nodeId, to: neighbor, type: 'DEPENDS_ON' })
-            }
-          } else {
-            stack.push({ nodeId: neighbor, path: [...path, nodeId] })
+        if (neighborColor === GRAY) {
+          // Back edge found - cycle detected!
+          // Reconstruct cycle
+          const cycle: string[] = [neighbor]
+          let node = current.nodeId
+          while (node !== neighbor) {
+            cycle.unshift(node)
+            node = parent.get(node) ?? neighbor
           }
+          cycle.unshift(neighbor) // Complete the cycle
+          cycles.push(cycle)
+          backEdges.push({ from: current.nodeId, to: neighbor, type: 'DEPENDS_ON' })
+        } else if (neighborColor === WHITE) {
+          // Unvisited node - recurse
+          color.set(neighbor, GRAY)
+          parent.set(neighbor, current.nodeId)
+          const neighborNeighbors = await this.index.getOutNeighbors(neighbor)
+          stack.push({ nodeId: neighbor, neighborIndex: 0, neighbors: neighborNeighbors })
         }
+        // BLACK nodes are already fully processed - skip
+      }
+    }
 
-        // Remove from current path when backtracking
-        // Note: This is a simplified version - proper DFS would handle this better
+    // Run DFS from each unvisited start node
+    for (const startNode of startNodes) {
+      if ((color.get(startNode) ?? WHITE) === WHITE) {
+        await dfs(startNode)
       }
     }
 
@@ -925,10 +924,7 @@ export class TraversalEngine {
    * Get all node IDs in the graph.
    */
   private async getAllNodeIds(): Promise<string[]> {
-    // This is a workaround since AdjacencyIndex doesn't expose all nodes directly
-    // In practice, you'd want to add a method to AdjacencyIndex for this
-    // For now, return empty array - tests will handle this
-    return []
+    return this.index.getAllNodeIds()
   }
 }
 

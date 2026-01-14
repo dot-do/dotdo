@@ -30,7 +30,7 @@ import {
   type ExposedMethodInfo,
 } from '../auto-wiring'
 
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 
 // ============================================================================
 // TEST DO CLASSES

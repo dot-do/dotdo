@@ -14,8 +14,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { DO, type Env } from '../DO'
-import { DO as DOBase } from '../DOBase'
+import { DO, type Env } from '../core/DO'
+import { DO as DOBase } from '../core/DOBase'
 
 // NOTE: DOLocation type will be exported from types/Location.ts once implemented
 // import type { DOLocation } from '../../types/Location'

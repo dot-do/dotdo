@@ -8,8 +8,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { SaaS } from '../SaaS'
 import { DigitalBusiness } from '../DigitalBusiness'
-import { DO as DOBase } from '../DOBase'
-import type { Env } from '../DO'
+import { DO as DOBase } from '../core/DOBase'
+import type { Env } from '../core/DO'
 
 // ============================================================================
 // MOCK INFRASTRUCTURE

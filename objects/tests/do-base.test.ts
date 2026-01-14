@@ -13,10 +13,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { DO, type Env } from '../DO'
+import { DO, type Env } from '../core/DO'
 
 // Import DOBase for static state cleanup (DO re-exports from DOFull which extends DOBase)
-import { DO as DOBase } from '../DOBase'
+import { DO as DOBase } from '../core/DOBase'
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import type * as schema from '../../db'
 

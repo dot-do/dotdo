@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { DO, type Env } from '../DO'
+import { DO, type Env } from '../core/DO'
 
 // ============================================================================
 // MOCK INFRASTRUCTURE

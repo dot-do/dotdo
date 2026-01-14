@@ -21,7 +21,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Import DOBase for static state cleanup
-import { DO as DOBase } from '../DOBase'
+import { DO as DOBase } from '../core/DOBase'
 
 // ============================================================================
 // STORE TYPE DEFINITIONS
@@ -299,7 +299,7 @@ interface ObjectsStore {
 }
 
 // DO class with store accessors
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 
 // ============================================================================
 // MOCK DO STATE & ENVIRONMENT
@@ -2038,7 +2038,7 @@ describe.skip('Store Interactions (requires Workers runtime)', () => {
 // TEST SUITE: DO Class Integration
 // ============================================================================
 
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 
 describe('DO Class Store Accessors', () => {
   let mockState: ReturnType<typeof createMockState>

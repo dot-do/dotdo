@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Hono } from 'hono'
 import { DOAuth, createDOAuth, type DOAuthConfig } from '../DOAuth'
-import { DO, type Env } from '../DO'
+import { DO, type Env } from '../core/DO'
 
 // ============================================================================
 // MOCK INFRASTRUCTURE

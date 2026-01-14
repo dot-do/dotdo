@@ -42,7 +42,7 @@ import { getHealthStatus, type HealthStatus } from './utils/health'
 import { createRoutingSpan, addRoutingHeaders, RoutingDebugInfo } from './utils/routing-telemetry'
 import { parseConsistencyMode, shouldRouteToReplica } from './utils/consistency'
 
-export { DO } from '../objects/DO'
+export { DO } from '../objects/core/DO'
 export type { LocationInfo } from './utils/location'
 
 // ============================================================================

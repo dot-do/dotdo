@@ -5,7 +5,7 @@
  */
 
 import { TypeRegistry, type DOClass } from './TypeRegistry'
-import { DO } from '../objects/DO'
+import { DO } from '../objects/core/DO'
 
 /**
  * Options for the @DOType decorator

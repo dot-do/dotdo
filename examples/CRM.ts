@@ -14,7 +14,7 @@
  *   - Has full DO capabilities (things, relationships, actions, events)
  */
 
-import { DO, type Env as BaseEnv } from '../objects/DO'
+import { DO, type Env as BaseEnv } from '../objects/core/DO'
 import type { Thing } from '../types/Thing'
 
 // Extended Env with CRM-specific bindings

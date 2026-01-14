@@ -15,7 +15,7 @@
  * ```
  */
 
-import { DO as BaseDO } from '../objects/DO.js'
+import { DO as BaseDO } from '../objects/core/DO.js'
 import { withFs } from '../lib/capabilities/fs.js'
 
 export const DO = withFs(BaseDO)

@@ -204,7 +204,7 @@
  * @see {@link StepContext} for the context passed to step handlers
  */
 
-import type { StepContext, WorkflowStepConfig } from '../../objects/WorkflowRuntime'
+import type { StepContext, WorkflowStepConfig } from '../../objects/execution/WorkflowRuntime'
 
 // ============================================================================
 // TYPES

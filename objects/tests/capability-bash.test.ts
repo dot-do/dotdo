@@ -23,7 +23,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Note: These imports reference the expected structure - tests will FAIL until implemented
 import { withFs, type FsCapability } from '../../lib/capabilities/fs'
 import { withBash, type BashCapability, type WithBashContext } from '../../lib/capabilities/bash'
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 import type { WorkflowContext } from '../../types/WorkflowContext'
 
 // ============================================================================

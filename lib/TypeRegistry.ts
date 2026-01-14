@@ -4,7 +4,7 @@
  * Provides registration, lookup, and inheritance queries for DO types.
  */
 
-import { DO } from '../objects/DO'
+import { DO } from '../objects/core/DO'
 
 /**
  * Reserved type names that cannot be registered

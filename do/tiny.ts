@@ -24,7 +24,7 @@
  * ```
  */
 
-export { DO, type Env } from '../objects/DOTiny.js'
+export { DO, type Env } from '../objects/core/DOTiny.js'
 
 /**
  * Capabilities included in this entry point

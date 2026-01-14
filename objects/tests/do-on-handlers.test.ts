@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DO, type Env } from '../DO'
+import { DO, type Env } from '../core/DO'
 import type { DomainEvent, EventHandler } from '../../types/WorkflowContext'
 
 // ============================================================================

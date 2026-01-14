@@ -21,7 +21,7 @@
  */
 
 import type { WorkflowContext } from '../../types/WorkflowContext'
-import type { DO, Env } from '../../objects/DO'
+import type { DO, Env } from '../../objects/core/DO'
 
 // Import types from @dotdo/fsx for better type safety and re-export for consumers
 import type {

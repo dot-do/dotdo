@@ -45,7 +45,7 @@
  * ```
  */
 
-import { DO as BaseDO } from '../objects/DOFull.js'
+import { DO as BaseDO } from '../objects/core/DOFull.js'
 import {
   withFs,
   withGit,

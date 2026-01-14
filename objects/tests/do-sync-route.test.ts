@@ -19,7 +19,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { DO, type Env } from '../DO'
+import { DO, type Env } from '../core/DO'
 
 // ============================================================================
 // PROTOCOL TYPES (from packages/tanstack/src/protocol.ts)

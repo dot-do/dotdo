@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 import { DOWithPrimitives, DOWithAllPrimitives } from '../presets/primitives'
 
 // Mock DurableObjectState

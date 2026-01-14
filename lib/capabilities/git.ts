@@ -30,7 +30,7 @@
  */
 
 import type { WorkflowContext } from '../../types/WorkflowContext'
-import type { DO, Env } from '../../objects/DO'
+import type { DO, Env } from '../../objects/core/DO'
 import type { FsCapability, WithFsContext } from './fs'
 
 // ============================================================================

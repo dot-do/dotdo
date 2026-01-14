@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { DO as DOBase } from '../DOBase'
+import { DO as DOBase } from '../core/DOBase'
 
 // ============================================================================
 // MOCK INFRASTRUCTURE

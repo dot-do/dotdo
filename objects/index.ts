@@ -25,7 +25,7 @@
  */
 
 // Base class
-export { DO, type Env } from './DO'
+export { DO, type Env } from './core/DO'
 
 // Re-export core types from types module
 export type { Thing, ThingData } from '../types/Thing'
@@ -44,9 +44,9 @@ export {
   type ApprovalRequest,
   type ApprovalResult,
   type Channel,
-} from './Worker'
-export { Agent, type Tool, type Goal, type GoalResult, type Memory } from './Agent'
-export { Human, type NotificationChannel, type EscalationRule, type EscalationPolicy, type PendingApproval } from './Human'
+} from './workers/Worker'
+export { Agent, type Tool, type Goal, type GoalResult, type Memory } from './workers/Agent'
+export { Human, type NotificationChannel, type EscalationRule, type EscalationPolicy, type PendingApproval } from './workers/Human'
 
 // Worker interfaces - implementation-agnostic contracts (re-exported from types)
 export type {
@@ -67,12 +67,12 @@ export type {
 export { isWorker, isAgent, isHuman } from '../types/Worker'
 
 // Organization hierarchy
-export { Business, type BusinessConfig } from './Business'
-export { DigitalBusiness, type DigitalBusinessConfig } from './DigitalBusiness'
-export { Startup } from './Startup'
-export { App, type AppConfig } from './App'
-export { Site, type SiteConfig } from './Site'
-export { SaaS, type SaaSPlan, type SaaSSubscription, type UsageRecord, type SaaSConfig } from './SaaS'
+export { Business, type BusinessConfig } from './business/Business'
+export { DigitalBusiness, type DigitalBusinessConfig } from './business/DigitalBusiness'
+export { Startup } from './business/Startup'
+export { App, type AppConfig } from './products/App'
+export { Site, type SiteConfig } from './products/Site'
+export { SaaS, type SaaSPlan, type SaaSSubscription, type UsageRecord, type SaaSConfig } from './business/SaaS'
 export {
   Marketplace,
   type MarketplaceSeller,
@@ -82,18 +82,18 @@ export {
   type MarketplaceReview,
   type CommissionConfig,
   type MarketplaceConfig,
-} from './Marketplace'
+} from './business/Marketplace'
 
 // Entity hierarchy
-export { Entity, type EntitySchema, type FieldDefinition, type EntityRecord } from './Entity'
-export { Collection, type CollectionConfig } from './Collection'
-export { Directory, type DirectoryEntry } from './Directory'
-export { Package, type PackageVersion, type PackageConfig } from './Package'
-export { Product, type ProductVariant, type ProductConfig } from './Product'
+export { Entity, type EntitySchema, type FieldDefinition, type EntityRecord } from './entities/Entity'
+export { Collection, type CollectionConfig } from './entities/Collection'
+export { Directory, type DirectoryEntry } from './entities/Directory'
+export { Package, type PackageVersion, type PackageConfig } from './entities/Package'
+export { Product, type ProductVariant, type ProductConfig } from './products/Product'
 
 // Execution units
-export { Function, type FunctionConfig as FunctionDOConfig, type FunctionInvocation } from './Function'
-export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './Workflow'
+export { Function, type FunctionConfig as FunctionDOConfig, type FunctionInvocation } from './execution/Function'
+export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './execution/Workflow'
 
 // Factory functions
 export {
@@ -106,7 +106,7 @@ export {
   type WorkflowEntrypointClass,
   type WorkflowBuilder,
   WorkflowValidationError,
-} from './WorkflowFactory'
+} from './execution/WorkflowFactory'
 
 // Business services
 export {
@@ -122,12 +122,12 @@ export {
   type ServiceEscalationConfig,
   type EscalationOptions,
   type QualityRatingOptions,
-} from './Service'
+} from './business/Service'
 
 // Interface types
-export { API, type Route, type APIConfig, type RequestContext, type RateLimitState } from './API'
-export { SDK, type SDKConfig, type GeneratedFile } from './SDK'
-export { CLI, type CLICommand, type CLIArgument, type CLIOption, type CLIConfig, type CLIExecution } from './CLI'
+export { API, type Route, type APIConfig, type RequestContext, type RateLimitState } from './products/API'
+export { SDK, type SDKConfig, type GeneratedFile } from './products/SDK'
+export { CLI, type CLICommand, type CLIArgument, type CLIOption, type CLIConfig, type CLIExecution } from './products/CLI'
 
 // Integrations
 export {
@@ -153,7 +153,7 @@ export {
   WorkflowStateError,
   WorkflowStepError,
   WorkflowTimeoutError,
-} from './WorkflowRuntime'
+} from './execution/WorkflowRuntime'
 
 // Step DO Bridge
 export {
@@ -346,7 +346,7 @@ export {
 } from '../lib/functions/FunctionMiddleware'
 
 // Sandbox - Code Execution Environment
-export { SandboxDO } from './SandboxDO'
+export { SandboxDO } from './execution/SandboxDO'
 
 // Cascade Executor - Function type cascade system
 export {

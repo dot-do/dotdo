@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { DO, type Env } from '../DO'
+import { DO, type Env } from '../core/DO'
 import type { Thing } from '../../types/Thing'
 
 // ============================================================================

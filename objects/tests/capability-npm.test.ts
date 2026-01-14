@@ -26,7 +26,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { withFs, type FsCapability, type WithFsContext } from '../../lib/capabilities/fs'
 import { withNpm, type NpmCapability, type WithNpmContext } from '../capabilities/npm'
 import { withBash, type BashCapability, type WithBashContext } from '../../lib/capabilities/bash'
-import { DO } from '../DO'
+import { DO } from '../core/DO'
 import type { WorkflowContext } from '../../types/WorkflowContext'
 
 // ============================================================================

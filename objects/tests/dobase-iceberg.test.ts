@@ -32,8 +32,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // These imports will FAIL - implementation doesn't exist yet
-import { DO } from '../DO'
-import { DOBase } from '../DOBase'
+import { DO } from '../core/DO'
+import { DOBase } from '../core/DOBase'
 
 // ============================================================================
 // TYPE DEFINITIONS (for test clarity)
