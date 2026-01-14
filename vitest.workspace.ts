@@ -104,13 +104,6 @@ const WORKERS_POOL_OPTIONS = {
       singleWorker: true,
     },
   },
-  objectsTest: {
-    workers: {
-      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.objects-test.jsonc') },
-      isolatedStorage: false,
-      singleWorker: true,
-    },
-  },
 } as const
 
 /**
@@ -212,19 +205,8 @@ export default defineWorkspace([
   // EdgePostgres tests (PGLite + FSX integration)
   createNodeWorkspace('edge-postgres', ['db/edge-postgres/**/*.test.ts']),
 
-  // Durable Objects tests (node environment - excludes *-real.test.ts which need workers runtime)
-  createNodeWorkspace('objects', ['objects/tests/**/*.test.ts'], {
-    exclude: [
-      // Real miniflare tests - these use cloudflare:test and run in workers workspace
-      'objects/tests/*-real.test.ts',
-      'objects/tests/do-rpc.test.ts',
-      'objects/tests/do-rpc-flat.test.ts',
-      'objects/tests/simple-do-rpc.test.ts',
-      'objects/tests/clickable-api-e2e.test.ts',
-      'objects/tests/do-with-integration.test.ts',
-      'objects/tests/browser-do-*.test.ts',
-    ],
-  }),
+  // Durable Objects tests (mocked runtime)
+  createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
   // do/ entry point module tests
   createNodeWorkspace('do', ['do/tests/**/*.test.ts']),
@@ -671,8 +653,8 @@ export default defineWorkspace([
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),
 
-  // DO identity and schema tests (real miniflare)
-  createWorkersWorkspace('do-identity', ['objects/tests/do-identity-schema-real.test.ts'], {
+  // DO identity and schema tests
+  createWorkersWorkspace('do-identity', ['objects/tests/do-identity-schema.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),
 
@@ -706,19 +688,6 @@ export default defineWorkspace([
   // DO.with() eager initialization integration tests (real miniflare DOs)
   createWorkersWorkspace('do-with-integration', ['objects/tests/do-with-integration.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.doWithTest,
-  }),
-
-  // Objects tests - DOBase, Entity, Worker, Collection, Agent, Human, Workflow WITHOUT mocks (real miniflare DOs)
-  createWorkersWorkspace('objects-real', [
-    'objects/tests/dobase-real.test.ts',
-    'objects/tests/entity-real.test.ts',
-    'objects/tests/worker-real.test.ts',
-    'objects/tests/collection-real.test.ts',
-    'objects/tests/agent-real.test.ts',
-    'objects/tests/human-real.test.ts',
-    'objects/tests/workflow-real.test.ts',
-  ], {
-    poolOptions: WORKERS_POOL_OPTIONS.objectsTest,
   }),
 
   // DuckDB WASM tests - require Workers runtime for WASM instantiation

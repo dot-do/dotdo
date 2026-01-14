@@ -11,9 +11,6 @@
     "tools",
     "providers",
     "multi-agent",
-    "---Execution Control---",
-    "lifecycle",
-    "stop-conditions",
     "---Testing---",
     "testing"
   ]

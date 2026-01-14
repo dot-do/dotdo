@@ -203,48 +203,6 @@ export interface TraversalNode {
 }
 
 /**
- * Type of temporal query
- */
-export type TemporalQueryType = 'AS_OF' | 'BEFORE' | 'BETWEEN' | 'VERSIONS_BETWEEN'
-
-/**
- * Temporal node - represents time-travel query clauses
- *
- * Supports various temporal query patterns:
- * - AS OF TIMESTAMP: Query data as it existed at a specific point in time
- * - BEFORE TIMESTAMP: Query data before a specific point in time
- * - BETWEEN TIMESTAMPS: Query data changes between two points in time
- * - FOR SYSTEM_VERSION: Query data at a specific snapshot version
- *
- * @example AS OF timestamp
- * ```sql
- * SELECT * FROM users FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-15T10:00:00Z'
- * ```
- *
- * @example Version-based
- * ```sql
- * SELECT * FROM users FOR SYSTEM_VERSION AS OF 12345
- * ```
- */
-export interface TemporalNode {
-  type: 'temporal'
-  /** Type of temporal query */
-  queryType: TemporalQueryType
-  /** Timestamp for AS OF or BEFORE queries (epoch ms) */
-  asOfTimestamp?: number
-  /** End timestamp for BETWEEN queries (epoch ms) */
-  toTimestamp?: number
-  /** Snapshot ID for version-based queries */
-  snapshotId?: number
-  /** Start version for VERSIONS_BETWEEN queries */
-  fromVersion?: number
-  /** End version for VERSIONS_BETWEEN queries */
-  toVersion?: number
-  /** The table name this temporal clause applies to */
-  tableName?: string
-}
-
-/**
  * Union type of all query nodes
  */
 export type QueryNode =
@@ -256,7 +214,6 @@ export type QueryNode =
   | SortNode
   | JoinNode
   | TraversalNode
-  | TemporalNode
 
 // =============================================================================
 // Helper Functions - Node Creators
@@ -615,127 +572,6 @@ export function ref(columnPath: string): ColumnRef {
   return { $ref: columnPath }
 }
 
-/**
- * Create a temporal AS OF node
- *
- * @param timestamp - Point in time to query (epoch ms or Date)
- * @param tableName - Optional table name this clause applies to
- *
- * @example
- * ```typescript
- * // Query users as of January 15, 2024
- * const temporal = asOf(new Date('2024-01-15T10:00:00Z'))
- *
- * // With epoch milliseconds
- * const temporal = asOf(1705312800000)
- * ```
- */
-export function asOf(timestamp: number | Date, tableName?: string): TemporalNode {
-  const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp
-  return {
-    type: 'temporal',
-    queryType: 'AS_OF',
-    asOfTimestamp: ts,
-    tableName,
-  }
-}
-
-/**
- * Create a temporal BEFORE node
- *
- * @param timestamp - Query data before this point in time (epoch ms or Date)
- * @param tableName - Optional table name this clause applies to
- */
-export function before(timestamp: number | Date, tableName?: string): TemporalNode {
-  const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp
-  return {
-    type: 'temporal',
-    queryType: 'BEFORE',
-    asOfTimestamp: ts,
-    tableName,
-  }
-}
-
-/**
- * Create a temporal BETWEEN node for querying changes between two timestamps
- *
- * @param fromTimestamp - Start of the time range (epoch ms or Date)
- * @param toTimestamp - End of the time range (epoch ms or Date)
- * @param tableName - Optional table name this clause applies to
- */
-export function temporalBetween(
-  fromTimestamp: number | Date,
-  toTimestamp: number | Date,
-  tableName?: string
-): TemporalNode {
-  const from = fromTimestamp instanceof Date ? fromTimestamp.getTime() : fromTimestamp
-  const to = toTimestamp instanceof Date ? toTimestamp.getTime() : toTimestamp
-  return {
-    type: 'temporal',
-    queryType: 'BETWEEN',
-    asOfTimestamp: from,
-    toTimestamp: to,
-    tableName,
-  }
-}
-
-/**
- * Create a temporal version-based node
- *
- * @param snapshotId - The snapshot version ID
- * @param tableName - Optional table name this clause applies to
- */
-export function atVersion(snapshotId: number, tableName?: string): TemporalNode {
-  return {
-    type: 'temporal',
-    queryType: 'AS_OF',
-    snapshotId,
-    tableName,
-  }
-}
-
-/**
- * Create a temporal node for version range queries
- *
- * @param fromVersion - Start version ID
- * @param toVersion - End version ID
- * @param tableName - Optional table name this clause applies to
- */
-export function versionsBetween(
-  fromVersion: number,
-  toVersion: number,
-  tableName?: string
-): TemporalNode {
-  return {
-    type: 'temporal',
-    queryType: 'VERSIONS_BETWEEN',
-    fromVersion,
-    toVersion,
-    tableName,
-  }
-}
-
-/**
- * Create a generic temporal node
- */
-export function createTemporal(
-  queryType: TemporalQueryType,
-  options: {
-    asOfTimestamp?: number
-    toTimestamp?: number
-    snapshotId?: number
-    fromVersion?: number
-    toVersion?: number
-    tableName?: string
-  }
-): TemporalNode {
-  return {
-    type: 'temporal',
-    queryType,
-    ...options,
-  }
-}
-
 // =============================================================================
 // Visitor Pattern
 // =============================================================================
@@ -752,7 +588,6 @@ export interface ASTVisitor<T> {
   visitSort(node: SortNode): T
   visitJoin(node: JoinNode): T
   visitTraversal(node: TraversalNode): T
-  visitTemporal(node: TemporalNode): T
 }
 
 /**
@@ -776,8 +611,6 @@ export function visit<T>(node: QueryNode, visitor: ASTVisitor<T>): T {
       return visitor.visitJoin(node)
     case 'traversal':
       return visitor.visitTraversal(node)
-    case 'temporal':
-      return visitor.visitTemporal(node)
     default:
       throw new Error(`Unknown node type: ${(node as QueryNode).type}`)
   }
@@ -795,7 +628,6 @@ export abstract class BaseVisitor<T> implements ASTVisitor<T> {
   abstract visitSort(node: SortNode): T
   abstract visitJoin(node: JoinNode): T
   abstract visitTraversal(node: TraversalNode): T
-  abstract visitTemporal(node: TemporalNode): T
 
   visit(node: QueryNode): T {
     return visit(node, this)
@@ -865,12 +697,6 @@ export class ColumnCollector extends BaseVisitor<string[]> {
     if (node.filter) {
       this.visit(node.filter)
     }
-    return Array.from(this.columns)
-  }
-
-  visitTemporal(_node: TemporalNode): string[] {
-    // Temporal nodes don't reference columns directly
-    // The timestamp fields are metadata, not column references
     return Array.from(this.columns)
   }
 
@@ -946,13 +772,6 @@ export function isJoin(node: QueryNode): node is JoinNode {
  */
 export function isTraversal(node: QueryNode): node is TraversalNode {
   return node.type === 'traversal'
-}
-
-/**
- * Check if a node is a TemporalNode
- */
-export function isTemporal(node: QueryNode): node is TemporalNode {
-  return node.type === 'temporal'
 }
 
 /**

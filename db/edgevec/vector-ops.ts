@@ -837,13 +837,12 @@ export function cosineDistanceUnrolled(a: Float32Array, b: Float32Array): number
  * - With cache: O(M * D) for initial cache + O(N * D) for queries
  *
  * This provides significant speedup when M >> N or N >> 1.
- *
- * Uses O(1) LRU eviction via Map insertion order (ES2015+).
  */
 export class VectorNormCache {
   private norms: Map<string, number> = new Map()
   private vectors: Map<string, Float32Array> = new Map()
   private maxSize: number
+  private accessOrder: string[] = []
 
   constructor(maxSize: number = 10000) {
     this.maxSize = maxSize
@@ -851,28 +850,17 @@ export class VectorNormCache {
 
   /**
    * Get or compute the L2 norm of a vector
-   *
-   * Uses O(1) LRU touch via Map delete/re-insert pattern.
    */
   getNorm(id: string, vector: Float32Array): number {
-    const norm = this.norms.get(id)
+    let norm = this.norms.get(id)
 
     if (norm === undefined) {
       // Compute norm using unrolled loop for efficiency
-      const computed = this.computeNorm(vector)
-      this.set(id, vector, computed)
-      return computed
-    }
-
-    // O(1) LRU touch: delete and re-insert to move to end
-    // ES2015 Maps preserve insertion order
-    this.norms.delete(id)
-    this.norms.set(id, norm)
-    // Also update vectors map order
-    const vec = this.vectors.get(id)
-    if (vec) {
-      this.vectors.delete(id)
-      this.vectors.set(id, vec)
+      norm = this.computeNorm(vector)
+      this.set(id, vector, norm)
+    } else {
+      // Move to end of access order for LRU
+      this.touch(id)
     }
 
     return norm
@@ -880,20 +868,11 @@ export class VectorNormCache {
 
   /**
    * Get a cached vector by ID
-   *
-   * Uses O(1) LRU touch via Map delete/re-insert pattern.
    */
   getVector(id: string): Float32Array | undefined {
     const vec = this.vectors.get(id)
     if (vec) {
-      // O(1) LRU touch
-      this.vectors.delete(id)
-      this.vectors.set(id, vec)
-      const norm = this.norms.get(id)
-      if (norm !== undefined) {
-        this.norms.delete(id)
-        this.norms.set(id, norm)
-      }
+      this.touch(id)
     }
     return vec
   }
@@ -956,6 +935,7 @@ export class VectorNormCache {
   clear(): void {
     this.norms.clear()
     this.vectors.clear()
+    this.accessOrder = []
   }
 
   /**
@@ -994,16 +974,24 @@ export class VectorNormCache {
   }
 
   private set(id: string, vector: Float32Array, norm: number): void {
-    // Evict if at capacity - Map.keys().next() gives oldest entry (insertion order)
-    while (this.norms.size >= this.maxSize) {
-      const oldestId = this.norms.keys().next().value as string | undefined
-      if (!oldestId) break
-      this.norms.delete(oldestId)
-      this.vectors.delete(oldestId)
+    // Evict if at capacity
+    while (this.norms.size >= this.maxSize && this.accessOrder.length > 0) {
+      const evictId = this.accessOrder.shift()!
+      this.norms.delete(evictId)
+      this.vectors.delete(evictId)
     }
 
     this.norms.set(id, norm)
     this.vectors.set(id, vector)
+    this.accessOrder.push(id)
+  }
+
+  private touch(id: string): void {
+    const idx = this.accessOrder.indexOf(id)
+    if (idx !== -1) {
+      this.accessOrder.splice(idx, 1)
+      this.accessOrder.push(id)
+    }
   }
 }
 
@@ -1100,594 +1088,4 @@ export function getOptimizedSimilarityFunction(metric: DistanceMetric): Distance
     default:
       throw new Error(`Unknown distance metric: ${metric}`)
   }
-}
-
-// ============================================================================
-// 8-WAY LOOP UNROLLING (ADVANCED SIMD-FRIENDLY)
-// ============================================================================
-
-/**
- * Optimized dot product with 8-way loop unrolling
- *
- * 8-way unrolling provides better performance on modern CPUs by:
- * - Maximizing instruction-level parallelism
- * - Better utilizing SIMD units (even without explicit SIMD intrinsics)
- * - Reducing loop overhead to minimum
- *
- * @param a - First vector
- * @param b - Second vector
- * @returns Dot product
- */
-export function dotProduct8Way(a: Float32Array, b: Float32Array): number {
-  const len = a.length
-  const remainder = len & 7 // len % 8
-  const unrolledLen = len - remainder
-
-  // 8 accumulators for maximum parallelism
-  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0
-
-  // Process 8 elements at a time
-  for (let i = 0; i < unrolledLen; i += 8) {
-    s0 += a[i]! * b[i]!
-    s1 += a[i + 1]! * b[i + 1]!
-    s2 += a[i + 2]! * b[i + 2]!
-    s3 += a[i + 3]! * b[i + 3]!
-    s4 += a[i + 4]! * b[i + 4]!
-    s5 += a[i + 5]! * b[i + 5]!
-    s6 += a[i + 6]! * b[i + 6]!
-    s7 += a[i + 7]! * b[i + 7]!
-  }
-
-  // Handle remainder (0-7 elements)
-  let sr = 0
-  for (let i = unrolledLen; i < len; i++) {
-    sr += a[i]! * b[i]!
-  }
-
-  return s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + sr
-}
-
-/**
- * Optimized L2 distance squared with 8-way loop unrolling
- *
- * @param a - First vector
- * @param b - Second vector
- * @returns Squared L2 distance
- */
-export function l2DistanceSquared8Way(a: Float32Array, b: Float32Array): number {
-  const len = a.length
-  const remainder = len & 7
-  const unrolledLen = len - remainder
-
-  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0
-
-  for (let i = 0; i < unrolledLen; i += 8) {
-    const d0 = a[i]! - b[i]!
-    const d1 = a[i + 1]! - b[i + 1]!
-    const d2 = a[i + 2]! - b[i + 2]!
-    const d3 = a[i + 3]! - b[i + 3]!
-    const d4 = a[i + 4]! - b[i + 4]!
-    const d5 = a[i + 5]! - b[i + 5]!
-    const d6 = a[i + 6]! - b[i + 6]!
-    const d7 = a[i + 7]! - b[i + 7]!
-    s0 += d0 * d0
-    s1 += d1 * d1
-    s2 += d2 * d2
-    s3 += d3 * d3
-    s4 += d4 * d4
-    s5 += d5 * d5
-    s6 += d6 * d6
-    s7 += d7 * d7
-  }
-
-  let sr = 0
-  for (let i = unrolledLen; i < len; i++) {
-    const d = a[i]! - b[i]!
-    sr += d * d
-  }
-
-  return s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + sr
-}
-
-/**
- * Optimized cosine similarity with 8-way loop unrolling
- *
- * Computes dot product and both norms in a single pass with 8 accumulators each.
- *
- * @param a - First vector
- * @param b - Second vector
- * @returns Cosine similarity
- */
-export function cosineSimilarity8Way(a: Float32Array, b: Float32Array): number {
-  const len = a.length
-  const remainder = len & 7
-  const unrolledLen = len - remainder
-
-  // 8 accumulators for each of: dot product, norm A squared, norm B squared
-  let d0 = 0, d1 = 0, d2 = 0, d3 = 0, d4 = 0, d5 = 0, d6 = 0, d7 = 0
-  let na0 = 0, na1 = 0, na2 = 0, na3 = 0, na4 = 0, na5 = 0, na6 = 0, na7 = 0
-  let nb0 = 0, nb1 = 0, nb2 = 0, nb3 = 0, nb4 = 0, nb5 = 0, nb6 = 0, nb7 = 0
-
-  for (let i = 0; i < unrolledLen; i += 8) {
-    const a0 = a[i]!, a1 = a[i + 1]!, a2 = a[i + 2]!, a3 = a[i + 3]!
-    const a4 = a[i + 4]!, a5 = a[i + 5]!, a6 = a[i + 6]!, a7 = a[i + 7]!
-    const b0 = b[i]!, b1 = b[i + 1]!, b2 = b[i + 2]!, b3 = b[i + 3]!
-    const b4 = b[i + 4]!, b5 = b[i + 5]!, b6 = b[i + 6]!, b7 = b[i + 7]!
-
-    d0 += a0 * b0; d1 += a1 * b1; d2 += a2 * b2; d3 += a3 * b3
-    d4 += a4 * b4; d5 += a5 * b5; d6 += a6 * b6; d7 += a7 * b7
-
-    na0 += a0 * a0; na1 += a1 * a1; na2 += a2 * a2; na3 += a3 * a3
-    na4 += a4 * a4; na5 += a5 * a5; na6 += a6 * a6; na7 += a7 * a7
-
-    nb0 += b0 * b0; nb1 += b1 * b1; nb2 += b2 * b2; nb3 += b3 * b3
-    nb4 += b4 * b4; nb5 += b5 * b5; nb6 += b6 * b6; nb7 += b7 * b7
-  }
-
-  let dr = 0, nar = 0, nbr = 0
-  for (let i = unrolledLen; i < len; i++) {
-    const ai = a[i]!, bi = b[i]!
-    dr += ai * bi
-    nar += ai * ai
-    nbr += bi * bi
-  }
-
-  const dot = d0 + d1 + d2 + d3 + d4 + d5 + d6 + d7 + dr
-  const normA = na0 + na1 + na2 + na3 + na4 + na5 + na6 + na7 + nar
-  const normB = nb0 + nb1 + nb2 + nb3 + nb4 + nb5 + nb6 + nb7 + nbr
-
-  const denom = Math.sqrt(normA) * Math.sqrt(normB)
-  if (denom === 0) return 0
-
-  return dot / denom
-}
-
-/**
- * Optimized cosine distance with 8-way loop unrolling
- */
-export function cosineDistance8Way(a: Float32Array, b: Float32Array): number {
-  return 1 - cosineSimilarity8Way(a, b)
-}
-
-/**
- * Optimized L2 distance with 8-way loop unrolling
- */
-export function l2Distance8Way(a: Float32Array, b: Float32Array): number {
-  return Math.sqrt(l2DistanceSquared8Way(a, b))
-}
-
-// ============================================================================
-// BOUNDED PRIORITY QUEUE (OPTIMIZED TOP-K)
-// ============================================================================
-
-/**
- * BoundedMaxHeap - Fixed-size max-heap for efficient top-K smallest selection
- *
- * Optimizations:
- * 1. Pre-allocated fixed-size array (no dynamic allocation during search)
- * 2. Early termination: skip items worse than current worst
- * 3. Inline heap operations for hot path
- *
- * Use this when you need the K smallest items (by distance).
- * The max-heap property allows O(1) checking if a new item should be considered.
- */
-export class BoundedMaxHeap<T extends { distance: number }> {
-  private heap: T[]
-  private readonly capacity: number
-  private _size: number = 0
-
-  constructor(capacity: number) {
-    this.capacity = capacity
-    this.heap = new Array(capacity)
-  }
-
-  /**
-   * Try to add an item. Returns true if item was added, false if rejected.
-   *
-   * This is the hot path - optimized for the common case where the item
-   * is worse than our current worst and can be immediately rejected.
-   */
-  tryPush(item: T): boolean {
-    if (this._size < this.capacity) {
-      // Heap not full, always add
-      this.heap[this._size] = item
-      this._size++
-      this.bubbleUp(this._size - 1)
-      return true
-    }
-
-    // Heap is full - check if item is better than worst (top of max-heap)
-    if (item.distance >= this.heap[0]!.distance) {
-      return false // Item is worse, reject
-    }
-
-    // Item is better, replace the worst
-    this.heap[0] = item
-    this.bubbleDown(0)
-    return true
-  }
-
-  /**
-   * Get the worst (largest) distance currently in the heap.
-   * Returns Infinity if heap is not yet full.
-   */
-  worstDistance(): number {
-    if (this._size < this.capacity) return Infinity
-    return this.heap[0]!.distance
-  }
-
-  /**
-   * Check if the heap is at capacity
-   */
-  isFull(): boolean {
-    return this._size >= this.capacity
-  }
-
-  /**
-   * Get current size
-   */
-  size(): number {
-    return this._size
-  }
-
-  /**
-   * Convert to sorted array (smallest first)
-   */
-  toSortedArray(): T[] {
-    const result = this.heap.slice(0, this._size)
-    result.sort((a, b) => a.distance - b.distance)
-    return result
-  }
-
-  /**
-   * Clear the heap for reuse
-   */
-  clear(): void {
-    this._size = 0
-  }
-
-  private bubbleUp(index: number): void {
-    const item = this.heap[index]!
-    while (index > 0) {
-      const parentIndex = (index - 1) >> 1 // Faster than Math.floor((index - 1) / 2)
-      const parent = this.heap[parentIndex]!
-      if (parent.distance >= item.distance) break
-      this.heap[index] = parent
-      index = parentIndex
-    }
-    this.heap[index] = item
-  }
-
-  private bubbleDown(index: number): void {
-    const item = this.heap[index]!
-    const halfSize = this._size >> 1 // Faster than Math.floor(this._size / 2)
-
-    while (index < halfSize) {
-      let largest = index
-      const leftChild = (index << 1) + 1 // 2 * index + 1
-      const rightChild = leftChild + 1
-
-      if (this.heap[leftChild]!.distance > this.heap[largest]!.distance) {
-        largest = leftChild
-      }
-      if (rightChild < this._size && this.heap[rightChild]!.distance > this.heap[largest]!.distance) {
-        largest = rightChild
-      }
-
-      if (largest === index) break
-      this.heap[index] = this.heap[largest]!
-      index = largest
-    }
-    this.heap[index] = item
-  }
-}
-
-/**
- * BoundedMinHeap - Fixed-size min-heap for efficient top-K largest selection
- *
- * Use this when you need the K largest items (by score/similarity).
- */
-export class BoundedMinHeap<T extends { distance: number }> {
-  private heap: T[]
-  private readonly capacity: number
-  private _size: number = 0
-
-  constructor(capacity: number) {
-    this.capacity = capacity
-    this.heap = new Array(capacity)
-  }
-
-  /**
-   * Try to add an item. Returns true if item was added.
-   * For min-heap, we keep K largest, so reject if smaller than current smallest.
-   */
-  tryPush(item: T): boolean {
-    if (this._size < this.capacity) {
-      this.heap[this._size] = item
-      this._size++
-      this.bubbleUp(this._size - 1)
-      return true
-    }
-
-    // Reject if item is worse (smaller) than our worst (smallest in heap)
-    if (item.distance <= this.heap[0]!.distance) {
-      return false
-    }
-
-    this.heap[0] = item
-    this.bubbleDown(0)
-    return true
-  }
-
-  worstDistance(): number {
-    if (this._size < this.capacity) return -Infinity
-    return this.heap[0]!.distance
-  }
-
-  isFull(): boolean {
-    return this._size >= this.capacity
-  }
-
-  size(): number {
-    return this._size
-  }
-
-  toSortedArray(): T[] {
-    const result = this.heap.slice(0, this._size)
-    result.sort((a, b) => b.distance - a.distance) // Largest first
-    return result
-  }
-
-  clear(): void {
-    this._size = 0
-  }
-
-  private bubbleUp(index: number): void {
-    const item = this.heap[index]!
-    while (index > 0) {
-      const parentIndex = (index - 1) >> 1
-      const parent = this.heap[parentIndex]!
-      if (parent.distance <= item.distance) break
-      this.heap[index] = parent
-      index = parentIndex
-    }
-    this.heap[index] = item
-  }
-
-  private bubbleDown(index: number): void {
-    const item = this.heap[index]!
-    const halfSize = this._size >> 1
-
-    while (index < halfSize) {
-      let smallest = index
-      const leftChild = (index << 1) + 1
-      const rightChild = leftChild + 1
-
-      if (this.heap[leftChild]!.distance < this.heap[smallest]!.distance) {
-        smallest = leftChild
-      }
-      if (rightChild < this._size && this.heap[rightChild]!.distance < this.heap[smallest]!.distance) {
-        smallest = rightChild
-      }
-
-      if (smallest === index) break
-      this.heap[index] = this.heap[smallest]!
-      index = smallest
-    }
-    this.heap[index] = item
-  }
-}
-
-// ============================================================================
-// BATCH OPERATIONS WITH EARLY TERMINATION
-// ============================================================================
-
-/**
- * Batch top-K search with early termination optimization
- *
- * This function computes distances from a query to all database vectors
- * and returns the K most similar, using a bounded heap for efficiency.
- *
- * Key optimizations:
- * 1. Bounded heap avoids full sort - O(n log k) instead of O(n log n)
- * 2. Early rejection of clearly worse candidates
- * 3. Uses 8-way unrolled distance functions
- *
- * @param query - Query vector
- * @param database - Array of database vectors with IDs
- * @param k - Number of results to return
- * @param metric - Distance metric
- * @returns Array of top-K {id, distance} sorted by distance
- */
-export function batchTopK(
-  query: Float32Array,
-  database: Array<{ id: string; vector: Float32Array }>,
-  k: number,
-  metric: DistanceMetric
-): Array<{ id: string; distance: number }> {
-  if (database.length === 0 || k <= 0) {
-    return []
-  }
-
-  const effectiveK = Math.min(k, database.length)
-  const heap = new BoundedMaxHeap<{ id: string; distance: number }>(effectiveK)
-
-  // Select distance function based on metric
-  let distFn: (a: Float32Array, b: Float32Array) => number
-
-  switch (metric) {
-    case 'cosine':
-      distFn = cosineDistance8Way
-      break
-    case 'l2':
-    case 'euclidean':
-      distFn = l2Distance8Way
-      break
-    case 'dot':
-      // Negate so lower is better (consistent with other metrics)
-      distFn = (a, b) => -dotProduct8Way(a, b)
-      break
-    default:
-      throw new Error(`Unknown metric: ${metric}`)
-  }
-
-  // Process all vectors
-  for (const { id, vector } of database) {
-    const distance = distFn(query, vector)
-    heap.tryPush({ id, distance })
-  }
-
-  return heap.toSortedArray()
-}
-
-/**
- * Batch top-K with distance threshold (early termination)
- *
- * Stops searching once we have K items all better than the threshold.
- * Useful when you have a quality threshold and don't need to scan everything.
- *
- * @param query - Query vector
- * @param database - Database vectors
- * @param k - Number of results
- * @param metric - Distance metric
- * @param threshold - Maximum acceptable distance
- * @returns Top-K results within threshold
- */
-export function batchTopKWithThreshold(
-  query: Float32Array,
-  database: Array<{ id: string; vector: Float32Array }>,
-  k: number,
-  metric: DistanceMetric,
-  threshold: number
-): Array<{ id: string; distance: number }> {
-  if (database.length === 0 || k <= 0) {
-    return []
-  }
-
-  const effectiveK = Math.min(k, database.length)
-  const results: Array<{ id: string; distance: number }> = []
-
-  let distFn: (a: Float32Array, b: Float32Array) => number
-  switch (metric) {
-    case 'cosine':
-      distFn = cosineDistance8Way
-      break
-    case 'l2':
-    case 'euclidean':
-      distFn = l2Distance8Way
-      break
-    case 'dot':
-      distFn = (a, b) => -dotProduct8Way(a, b)
-      break
-    default:
-      throw new Error(`Unknown metric: ${metric}`)
-  }
-
-  // Scan and collect all items within threshold
-  for (const { id, vector } of database) {
-    const distance = distFn(query, vector)
-    if (distance <= threshold) {
-      results.push({ id, distance })
-    }
-  }
-
-  // Sort and return top-K
-  results.sort((a, b) => a.distance - b.distance)
-  return results.slice(0, effectiveK)
-}
-
-// ============================================================================
-// OPTIMIZED NORM COMPUTATION
-// ============================================================================
-
-/**
- * Compute vector L2 norm with 8-way unrolling
- */
-export function magnitude8Way(v: Float32Array): number {
-  const len = v.length
-  const remainder = len & 7
-  const unrolledLen = len - remainder
-
-  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0
-
-  for (let i = 0; i < unrolledLen; i += 8) {
-    const v0 = v[i]!, v1 = v[i + 1]!, v2 = v[i + 2]!, v3 = v[i + 3]!
-    const v4 = v[i + 4]!, v5 = v[i + 5]!, v6 = v[i + 6]!, v7 = v[i + 7]!
-    s0 += v0 * v0; s1 += v1 * v1; s2 += v2 * v2; s3 += v3 * v3
-    s4 += v4 * v4; s5 += v5 * v5; s6 += v6 * v6; s7 += v7 * v7
-  }
-
-  let sr = 0
-  for (let i = unrolledLen; i < len; i++) {
-    const vi = v[i]!
-    sr += vi * vi
-  }
-
-  return Math.sqrt(s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + sr)
-}
-
-/**
- * Compute vector L2 norm squared with 8-way unrolling
- * Useful when only relative magnitudes matter (avoids sqrt)
- */
-export function magnitudeSquared8Way(v: Float32Array): number {
-  const len = v.length
-  const remainder = len & 7
-  const unrolledLen = len - remainder
-
-  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0
-
-  for (let i = 0; i < unrolledLen; i += 8) {
-    const v0 = v[i]!, v1 = v[i + 1]!, v2 = v[i + 2]!, v3 = v[i + 3]!
-    const v4 = v[i + 4]!, v5 = v[i + 5]!, v6 = v[i + 6]!, v7 = v[i + 7]!
-    s0 += v0 * v0; s1 += v1 * v1; s2 += v2 * v2; s3 += v3 * v3
-    s4 += v4 * v4; s5 += v5 * v5; s6 += v6 * v6; s7 += v7 * v7
-  }
-
-  let sr = 0
-  for (let i = unrolledLen; i < len; i++) {
-    const vi = v[i]!
-    sr += vi * vi
-  }
-
-  return s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + sr
-}
-
-// ============================================================================
-// PRE-NORMALIZED VECTOR OPERATIONS
-// ============================================================================
-
-/**
- * Optimized cosine distance for pre-normalized vectors (8-way)
- *
- * When vectors are already unit length, cosine distance = 1 - dot product.
- * This avoids norm computation entirely.
- */
-export function cosineDistanceNormalized8Way(a: Float32Array, b: Float32Array): number {
-  return 1 - dotProduct8Way(a, b)
-}
-
-/**
- * Batch cosine distances for pre-normalized vectors
- *
- * Highly optimized path when all vectors are known to be unit length.
- */
-export function batchCosineDistanceNormalized(
-  query: Float32Array,
-  database: Array<{ id: string; vector: Float32Array }>,
-  k: number
-): Array<{ id: string; distance: number }> {
-  if (database.length === 0 || k <= 0) {
-    return []
-  }
-
-  const effectiveK = Math.min(k, database.length)
-  const heap = new BoundedMaxHeap<{ id: string; distance: number }>(effectiveK)
-
-  for (const { id, vector } of database) {
-    const distance = cosineDistanceNormalized8Way(query, vector)
-    heap.tryPush({ id, distance })
-  }
-
-  return heap.toSortedArray()
 }

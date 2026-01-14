@@ -36,31 +36,6 @@ export {
 } from './templates'
 
 // ============================================================================
-// UNIFIED ESCALATION ABSTRACTION
-// ============================================================================
-
-export {
-  // Providers
-  HttpEscalationProvider,
-  DOEscalationProvider,
-  EscalationRequestHandle,
-  // Configuration
-  configureEscalationProvider,
-  configureRoleProvider,
-  getEscalationProvider,
-  clearProviderConfig,
-  // Factory
-  createEscalationRequest,
-  // Types
-  type HumanEscalationProvider,
-  type EscalationRequest,
-  type EscalationStatus,
-  type HttpEscalationProviderConfig,
-  type DOEscalationProviderConfig,
-  type HumanDOStub,
-} from './escalation'
-
-// ============================================================================
 // HUMAN PROXY ($.human.*)
 // ============================================================================
 

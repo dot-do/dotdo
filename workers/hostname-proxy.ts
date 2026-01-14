@@ -13,14 +13,6 @@
  */
 
 import type { CloudflareEnv } from '../types/CloudflareBindings'
-import {
-  errorResponse,
-  createForwardRequest,
-  normalizePath,
-  stripBasepath,
-  getPathSegments,
-  getDOStub,
-} from './utils'
 
 /**
  * Configuration for the hostname-based proxy
@@ -112,17 +104,26 @@ function getForwardPath(request: Request, config: ProxyConfig): string {
   let pathname = url.pathname
 
   // Strip basepath if configured
-  pathname = stripBasepath(pathname, config.basepath)
+  if (config.basepath && pathname.startsWith(config.basepath)) {
+    pathname = pathname.slice(config.basepath.length)
+  }
 
   // For path mode, also strip the namespace segment
   if (config.mode === 'path') {
-    const segments = getPathSegments(pathname)
+    const segments = pathname.split('/').filter(Boolean)
     if (segments.length > 0) {
       pathname = '/' + segments.slice(1).join('/')
     }
   }
 
-  return normalizePath(pathname)
+  // Ensure path starts with /
+  if (!pathname || pathname === '') {
+    pathname = '/'
+  } else if (!pathname.startsWith('/')) {
+    pathname = '/' + pathname
+  }
+
+  return pathname
 }
 
 /**
@@ -133,12 +134,15 @@ export function createProxyHandler(config: ProxyConfig) {
     // 1. Resolve namespace based on mode
     const ns = resolveNamespace(request, config)
     if (!ns) {
-      return errorResponse(404, 'Not Found')
+      return new Response('Not Found', { status: 404 })
     }
 
     // 2. Check if DO binding exists
     if (!env?.DO) {
-      return errorResponse(500, 'DO binding not found')
+      return new Response(JSON.stringify({ error: 'DO binding not found' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
     }
 
     // 3. Get forward path
@@ -147,15 +151,29 @@ export function createProxyHandler(config: ProxyConfig) {
 
     try {
       // 4. Get DO stub
-      const stub = getDOStub(env.DO, ns)
+      const doId = env.DO.idFromName(ns)
+      const stub = env.DO.get(doId)
 
-      // 5. Create new URL and forward request to DO
+      // 5. Create new URL for DO request
       const doUrl = new URL(forwardPath + url.search, url.origin)
-      const doRequest = createForwardRequest(request, doUrl)
+
+      // 6. Forward request to DO
+      const doRequest = new Request(doUrl.toString(), {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        duplex: 'half',
+      } as RequestInit)
 
       return await stub.fetch(doRequest)
     } catch (error) {
-      return errorResponse(503, error instanceof Error ? error.message : 'Service Unavailable')
+      return new Response(
+        JSON.stringify({ error: error instanceof Error ? error.message : 'Service Unavailable' }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
     }
   }
 }

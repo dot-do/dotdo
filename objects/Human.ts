@@ -190,7 +190,7 @@ import {
   type HumanNotificationChannel,
   type NotificationPayload,
   type SendResult,
-} from '../lib/human/channels/index'
+} from '../lib/human/channels'
 import { createChannel, type ChannelConfig } from '../lib/human/channel-factory'
 
 /**
@@ -307,7 +307,7 @@ export class Human extends Worker {
 
     // Create relationship: Request assignedTo Human
     try {
-      await this.rels.create({
+      await this.relationships.create({
         verb: 'assignedTo',
         from: `${this.ns}/${APPROVAL_REQUEST_TYPE}/${record.requestId}`,
         to: this.ns,
@@ -350,7 +350,7 @@ export class Human extends Worker {
    */
   private async deleteApprovalRequestThing(requestId: string): Promise<void> {
     // Delete the relationship first
-    await this.rels.deleteWhere({
+    await this.relationships.deleteWhere({
       from: `${this.ns}/${APPROVAL_REQUEST_TYPE}/${requestId}`,
       verb: 'assignedTo',
     })
@@ -706,119 +706,56 @@ export class Human extends Worker {
    * Channel instances are created from env configuration using
    * lib/human/channel-factory. Override this method to provide
    * custom channel implementations.
-   *
-   * Supported env variables:
-   * - SLACK_WEBHOOK_URL / SLACK_BOT_TOKEN - Slack notifications
-   * - SENDGRID_API_KEY / EMAIL_FROM - Email via SendGrid
-   * - RESEND_API_KEY / EMAIL_FROM - Email via Resend
-   * - TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER - SMS via Twilio
-   * - DISCORD_WEBHOOK_URL - Discord notifications
-   *
-   * @param type - Channel type identifier
-   * @returns Channel instance or null if not configured
    */
   protected async getChannelInstance(type: string): Promise<HumanNotificationChannel | null> {
-    return this.createChannelFromEnv(type)
-  }
-
-  /**
-   * Create a channel instance from environment configuration.
-   *
-   * This method centralizes channel creation logic, making it easier to
-   * add new channel types and maintain consistency with lib/human/channel-factory.
-   *
-   * @internal
-   */
-  private createChannelFromEnv(type: string): HumanNotificationChannel | null {
+    // Check if env has channel configuration
+    // Example env vars: SLACK_WEBHOOK_URL, SENDGRID_API_KEY, etc.
     try {
-      const config = this.getChannelConfigFromEnv(type)
-      if (config) {
-        return createChannel(config)
+      switch (type) {
+        case 'slack':
+          if (this.env.SLACK_WEBHOOK_URL) {
+            return createChannel({
+              type: 'slack',
+              webhookUrl: this.env.SLACK_WEBHOOK_URL,
+            })
+          }
+          break
+        case 'email':
+          if (this.env.SENDGRID_API_KEY) {
+            return createChannel({
+              type: 'email',
+              provider: 'sendgrid',
+              apiKey: this.env.SENDGRID_API_KEY,
+              from: this.env.EMAIL_FROM || 'noreply@dotdo.dev',
+            })
+          }
+          break
+        case 'sms':
+          if (this.env.TWILIO_ACCOUNT_SID && this.env.TWILIO_AUTH_TOKEN) {
+            return createChannel({
+              type: 'sms',
+              provider: 'twilio',
+              accountSid: this.env.TWILIO_ACCOUNT_SID,
+              authToken: this.env.TWILIO_AUTH_TOKEN,
+              from: this.env.TWILIO_PHONE_NUMBER,
+            })
+          }
+          break
+        case 'webhook':
+          // Webhooks are configured per-channel in the channel config
+          break
+        case 'discord':
+          if (this.env.DISCORD_WEBHOOK_URL) {
+            return createChannel({
+              type: 'discord',
+              webhookUrl: this.env.DISCORD_WEBHOOK_URL,
+            })
+          }
+          break
       }
     } catch {
-      // Channel configuration not available or invalid, fallback to event emission
+      // Channel configuration not available, fallback to event emission
     }
-    return null
-  }
-
-  /**
-   * Build channel configuration from environment variables.
-   *
-   * @internal
-   */
-  private getChannelConfigFromEnv(type: string): ChannelConfig | null {
-    switch (type) {
-      case 'slack':
-        if (this.env.SLACK_WEBHOOK_URL) {
-          return {
-            type: 'slack',
-            webhookUrl: this.env.SLACK_WEBHOOK_URL,
-            botToken: this.env.SLACK_BOT_TOKEN,
-            defaultChannel: this.env.SLACK_DEFAULT_CHANNEL,
-          }
-        }
-        break
-
-      case 'email':
-        // Support both SendGrid and Resend
-        if (this.env.SENDGRID_API_KEY) {
-          return {
-            type: 'email',
-            provider: 'sendgrid',
-            apiKey: this.env.SENDGRID_API_KEY,
-            from: this.env.EMAIL_FROM || 'noreply@dotdo.dev',
-            defaultTo: this.env.EMAIL_DEFAULT_TO,
-            baseUrl: this.env.APP_URL,
-          }
-        }
-        if (this.env.RESEND_API_KEY) {
-          return {
-            type: 'email',
-            provider: 'resend',
-            apiKey: this.env.RESEND_API_KEY,
-            from: this.env.EMAIL_FROM || 'noreply@dotdo.dev',
-            defaultTo: this.env.EMAIL_DEFAULT_TO,
-            baseUrl: this.env.APP_URL,
-          }
-        }
-        break
-
-      case 'sms':
-        if (this.env.TWILIO_ACCOUNT_SID && this.env.TWILIO_AUTH_TOKEN && this.env.TWILIO_PHONE_NUMBER) {
-          return {
-            type: 'sms',
-            provider: 'twilio',
-            accountSid: this.env.TWILIO_ACCOUNT_SID,
-            authToken: this.env.TWILIO_AUTH_TOKEN,
-            fromNumber: this.env.TWILIO_PHONE_NUMBER,
-            baseUrl: this.env.APP_URL,
-          }
-        }
-        break
-
-      case 'discord':
-        if (this.env.DISCORD_WEBHOOK_URL) {
-          return {
-            type: 'discord',
-            webhookUrl: this.env.DISCORD_WEBHOOK_URL,
-          }
-        }
-        break
-
-      case 'webhook':
-        // Webhook channels require explicit configuration per-use
-        // They can be configured via setChannels() or passed directly
-        if (this.env.WEBHOOK_URL) {
-          return {
-            type: 'webhook',
-            url: this.env.WEBHOOK_URL,
-            headers: this.env.WEBHOOK_HEADERS ? JSON.parse(this.env.WEBHOOK_HEADERS) : undefined,
-            baseUrl: this.env.APP_URL,
-          }
-        }
-        break
-    }
-
     return null
   }
 
@@ -944,32 +881,6 @@ export class Human extends Worker {
     })
 
     return record
-  }
-
-  /**
-   * Cancel a pending blocking request
-   * Removes the request from the system
-   *
-   * @param requestId - ID of the request to cancel
-   * @returns true if cancelled, false if not found or not pending
-   */
-  async cancelBlockingRequest(requestId: string): Promise<boolean> {
-    const thing = await this.getApprovalRequestThing(requestId)
-
-    if (!thing) {
-      return false
-    }
-
-    const record = this.thingToBlockingRequest(thing)
-
-    if (record.status !== 'pending') {
-      return false
-    }
-
-    await this.deleteApprovalRequestThing(requestId)
-    await this.emit('blocking.request.cancelled', { requestId })
-
-    return true
   }
 
   /**

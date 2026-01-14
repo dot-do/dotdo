@@ -217,52 +217,117 @@ export function simpleHash(key: string, count: number): number {
 // SHARD KEY EXTRACTION
 // ============================================================================
 
-// Import the proper SQL parser implementation
-import {
-  extractShardKeyParsed,
-  parseAndExtractShardKey,
-  type ExtractedShardKey,
-} from './sql-parser'
-
-// Re-export the detailed extraction result type
-export type { ExtractedShardKey }
-
-// Re-export the detailed parser function for advanced use cases
-export { parseAndExtractShardKey }
-
 /**
- * Extract shard key value from SQL statement using proper SQL parsing
- *
- * Uses a tokenizer and recursive descent parser for accurate extraction.
- * Handles edge cases that regex-based parsing cannot:
- * - Nested parentheses
- * - Shard key in string values (doesn't get confused)
- * - Correct parameter position tracking
- * - Complex boolean expressions
- * - Table.column notation
- * - Escaped quotes
+ * Extract shard key value from SQL statement
  *
  * Supports:
- * - WHERE column = 'value' (strings, numbers)
- * - WHERE column = ? (positional parameters)
- * - WHERE column = :param (named parameters)
- * - WHERE column IN (values...) - returns undefined (multi-shard)
- * - INSERT INTO ... (columns) VALUES (values)
- * - UPDATE ... WHERE ...
- * - DELETE ... WHERE ...
- * - AND/OR conditions
+ * - WHERE tenant_id = 'value'
+ * - WHERE tenant_id = ?
+ * - WHERE tenant_id = :tenant_id
+ * - INSERT INTO ... VALUES (..., 'value', ...)
+ * - UPDATE ... WHERE tenant_id = 'value'
  *
  * @param sql - SQL statement
  * @param shardKey - Name of shard key column
  * @param params - Query parameters (array or object)
- * @returns Extracted key value or undefined for cross-shard/multi-shard queries
+ * @returns Extracted key value or undefined
  */
 export function extractShardKey(
   sql: string,
   shardKey: string,
   params?: unknown[] | Record<string, unknown>
 ): string | undefined {
-  return extractShardKeyParsed(sql, shardKey, params)
+  const upperSql = sql.toUpperCase()
+
+  // Check for IN clause - means multiple shards
+  const inPattern = new RegExp(`${shardKey}\\s+IN\\s*\\(`, 'i')
+  if (inPattern.test(sql)) {
+    return undefined
+  }
+
+  // Try WHERE clause: field = 'value' or field = value
+  const wherePattern = new RegExp(
+    `${shardKey}\\s*=\\s*(?:'([^']*)'|"([^"]*)"|(-?\\d+(?:\\.\\d+)?)|\\?)`,
+    'i'
+  )
+  const whereMatch = sql.match(wherePattern)
+
+  if (whereMatch) {
+    // String in single quotes
+    if (whereMatch[1] !== undefined) {
+      return whereMatch[1]
+    }
+    // String in double quotes
+    if (whereMatch[2] !== undefined) {
+      return whereMatch[2]
+    }
+    // Numeric value
+    if (whereMatch[3] !== undefined) {
+      return whereMatch[3]
+    }
+    // Parameterized query with ?
+    if (whereMatch[0].includes('?') && Array.isArray(params)) {
+      // Find which parameter this is
+      const questionMarks = sql.slice(0, whereMatch.index).match(/\?/g)
+      const paramIndex = questionMarks ? questionMarks.length : 0
+      if (params[paramIndex] !== undefined) {
+        return String(params[paramIndex])
+      }
+    }
+  }
+
+  // Try named parameter: field = :field
+  const namedPattern = new RegExp(`${shardKey}\\s*=\\s*:${shardKey}`, 'i')
+  if (namedPattern.test(sql) && params && typeof params === 'object' && !Array.isArray(params)) {
+    const value = params[shardKey]
+    if (value !== undefined) {
+      return String(value)
+    }
+  }
+
+  // Try INSERT statement
+  if (upperSql.startsWith('INSERT')) {
+    // Extract column list
+    const columnsMatch = sql.match(/\(([^)]+)\)\s*VALUES/i)
+    if (columnsMatch) {
+      const columns = columnsMatch[1]!.split(',').map((c) => c.trim().toLowerCase())
+      const keyIndex = columns.indexOf(shardKey.toLowerCase())
+
+      if (keyIndex >= 0) {
+        // Extract values list
+        const valuesMatch = sql.match(/VALUES\s*\(([^)]+)\)/i)
+        if (valuesMatch) {
+          // Parse values (simple implementation)
+          const values: string[] = []
+          let current = ''
+          let inString = false
+          let stringChar = ''
+
+          for (const char of valuesMatch[1]!) {
+            if (!inString && (char === "'" || char === '"')) {
+              inString = true
+              stringChar = char
+            } else if (inString && char === stringChar) {
+              inString = false
+            } else if (!inString && char === ',') {
+              values.push(current.trim())
+              current = ''
+              continue
+            }
+            current += char
+          }
+          values.push(current.trim())
+
+          if (values[keyIndex]) {
+            // Remove quotes
+            return values[keyIndex].replace(/^['"]|['"]$/g, '')
+          }
+        }
+      }
+    }
+  }
+
+  return undefined
 }
 
 // ============================================================================
