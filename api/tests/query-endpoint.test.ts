@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import type { Env } from '../types'
+import type { LocationInfo } from '../utils/location'
 
 /**
  * Tests for refactored /query endpoint
@@ -25,13 +26,6 @@ import type { Env } from '../types'
 // ============================================================================
 // Type Definitions
 // ============================================================================
-
-interface LocationInfo {
-  colo: string
-  region: string
-  lat: number
-  lon: number
-}
 
 interface NounConfig {
   noun: string
@@ -250,7 +244,7 @@ describe('/query endpoint (refactored)', () => {
   })
 
   it('should use location info to select nearest replica', () => {
-    const location = { colo: 'lax01', region: 'us-west-2', lat: 34.05, lon: -118.24 }
+    const location: LocationInfo = { colo: 'lax01', region: 'us-west-2', lat: 34.05, lon: -118.24, country: 'US' }
     const replicaRegions = ['us-west-2', 'us-east-1', 'eu-west-1']
 
     // If location region is in replicas, use it
@@ -262,7 +256,7 @@ describe('/query endpoint (refactored)', () => {
   })
 
   it('should fall back to first replica if location outside replica regions', () => {
-    const location = { colo: 'sin01', region: 'ap-southeast-1', lat: 1.35, lon: 103.82 }
+    const location: LocationInfo = { colo: 'sin01', region: 'ap-southeast-1', lat: 1.35, lon: 103.82, country: 'SG' }
     const replicaRegions = ['us-west-2', 'us-east-1']
 
     // Location not in replicas, use first available

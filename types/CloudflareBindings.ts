@@ -96,6 +96,17 @@ export interface DurableObjectBindings {
    * Observability Broadcaster Durable Object namespace
    */
   OBS_BROADCASTER?: DurableObjectNamespace
+
+  /**
+   * Replica Durable Object namespace for eventual consistency reads
+   * Used to route read operations to geo-local replicas
+   */
+  REPLICA_DO?: DurableObjectNamespace
+
+  /**
+   * Collection Durable Object namespace for test collections
+   */
+  COLLECTION_DO?: DurableObjectNamespace
 }
 
 // ============================================================================
@@ -566,6 +577,20 @@ export function hasAssets(env: CloudflareEnv): env is CloudflareEnv & { ASSETS: 
  */
 export function hasAnalytics(env: CloudflareEnv): env is CloudflareEnv & { ANALYTICS: AnalyticsEngineDataset } {
   return env.ANALYTICS !== undefined
+}
+
+/**
+ * Check if Replica DO binding is available
+ */
+export function hasReplicaDO(env: CloudflareEnv): env is CloudflareEnv & { REPLICA_DO: DurableObjectNamespace } {
+  return env.REPLICA_DO !== undefined
+}
+
+/**
+ * Check if main DO binding is available
+ */
+export function hasDO(env: CloudflareEnv): env is CloudflareEnv & { DO: DurableObjectNamespace } {
+  return env.DO !== undefined
 }
 
 // ============================================================================

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { Env } from '../types'
+import type { LocationInfo } from '../utils/location'
 
 /**
  * Tests for getDOBinding with replica support
@@ -15,16 +16,6 @@ import type { Env } from '../types'
 // ============================================================================
 // Type Definitions
 // ============================================================================
-
-/**
- * Location information for replica selection
- */
-interface LocationInfo {
-  colo: string          // Cloudflare colo identifier
-  region: string        // AWS region code
-  lat: number           // Latitude
-  lon: number           // Longitude
-}
 
 /**
  * Result from getDOBinding
@@ -129,6 +120,7 @@ function createLocationInfo(overrides?: Partial<LocationInfo>): LocationInfo {
     region: 'us-west-1',
     lat: 37.3382,
     lon: -121.8863,
+    country: 'US',
     ...overrides,
   }
 }
