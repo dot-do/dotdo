@@ -10,8 +10,9 @@ import { render } from 'ink'
 import { ensureLoggedIn, getUser } from 'oauth.do/node'
 import { evaluate } from 'ai-evaluate'
 import { App } from '../ink/App'
+import { WorkerPicker } from '../ink/WorkerPicker'
 import { loadConfig } from '../utils/do-config'
-import { WorkersDoClient } from '../services/workers-do'
+import { WorkersDoClient, type Worker } from '../services/workers-do'
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('repl')
@@ -114,10 +115,24 @@ export const replCommand = new Command('repl')
         process.exit(1)
       }
 
-      // For now, just use first worker
-      // TODO: Interactive selection with Ink
-      $id = workers[0].url
-      logger.info(`Connecting to ${$id}`)
+      // Interactive selection with Ink
+      const selected = await new Promise<Worker | null>((resolve) => {
+        const { unmount } = render(
+          React.createElement(WorkerPicker, {
+            workers,
+            onSelect: (w: Worker) => { unmount(); resolve(w) },
+            onCancel: () => { unmount(); resolve(null) }
+          })
+        )
+      })
+
+      if (!selected) {
+        logger.info('Cancelled')
+        process.exit(0)
+      }
+
+      $id = selected.url
+      logger.info(`Selected: ${selected.name || selected.url}`)
     }
 
     await startRepl($id, user)

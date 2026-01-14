@@ -5,9 +5,14 @@
  */
 
 import { Command } from 'commander'
+import * as React from 'react'
+import { render } from 'ink'
+import { ensureLoggedIn } from 'oauth.do/node'
 import { writeConfig, configExists } from '../utils/do-config'
 import { generateTypes } from './generate'
 import { createLogger } from '../utils/logger'
+import { WorkerPicker } from '../ink/WorkerPicker'
+import { WorkersDoClient, type Worker } from '../services/workers-do'
 import type { DO } from '../types/config'
 
 const logger = createLogger('connect')
@@ -77,14 +82,54 @@ export const connectCommand = new Command('connect')
   .option('-f, --force', 'Overwrite existing config')
   .option('--no-types', 'Skip type generation')
   .action(async (url, options) => {
-    if (!url) {
-      // TODO: Interactive picker using workers.do
-      logger.error('Please provide a DO URL: dotdo connect <url>')
-      process.exit(1)
+    let $id = url
+
+    if (!$id) {
+      // Interactive picker using workers.do
+      logger.info('No URL provided. Fetching your workers...')
+
+      let token: string
+      try {
+        const auth = await ensureLoggedIn({
+          openBrowser: true,
+          print: console.log,
+        })
+        token = auth.token
+      } catch (error) {
+        logger.error('Authentication failed. Run "dotdo login" first.')
+        process.exit(1)
+      }
+
+      const client = new WorkersDoClient(token)
+      const workers = await client.list({ sortBy: 'accessed', limit: 10 })
+
+      if (workers.length === 0) {
+        logger.error('No workers found. Deploy a DO first.')
+        process.exit(1)
+      }
+
+      // Interactive selection with Ink
+      const selected = await new Promise<Worker | null>((resolve) => {
+        const { unmount } = render(
+          React.createElement(WorkerPicker, {
+            workers,
+            onSelect: (w: Worker) => { unmount(); resolve(w) },
+            onCancel: () => { unmount(); resolve(null) }
+          })
+        )
+      })
+
+      if (!selected) {
+        logger.info('Cancelled')
+        process.exit(0)
+      }
+
+      $id = selected.url
+      logger.info(`Selected: ${selected.name || selected.url}`)
     }
 
     await connectToDO({
-      $id: url,
+      $id,
       force: options.force,
       skipTypes: !options.types
     })
