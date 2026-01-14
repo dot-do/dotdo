@@ -228,8 +228,10 @@ export default defineWorkspace([
   // Excludes tests requiring cloudflare:test (handled by Workers workspaces)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts'], {
     exclude: [
-      // geo-replication.test.ts is now Node-compatible and runs here
+      '**/geo-replication.test.ts', // Workers integration tests (uses cloudflare:test)
       '**/do-geo-replication.test.ts', // Workers integration tests
+      '**/cross-do-transactions-e2e.test.ts', // Workers integration tests (uses cloudflare:test)
+      '**/cross-do-e2e.test.ts', // Workers integration tests (uses cloudflare:test)
       '**/do-rpc*.test.ts',
       '**/do-shard-unshard.test.ts',
       '**/do-compact-merge.test.ts',
@@ -644,7 +646,7 @@ export default defineWorkspace([
   createNodeWorkspace('platform', ['tests/platform/**/*.test.ts']),
 
   // Vector search tests (VectorShardDO, similarity search)
-  createNodeWorkspace('vector', ['tests/vector/**/*.test.ts']),
+  createNodeWorkspace('vector', ['tests/vector/**/*.test.ts', 'tests/db/vector/**/*.test.ts']),
 
   // Iceberg metadata DO tests (metadata parsing, partition pruning)
   createNodeWorkspace('iceberg-do', ['tests/iceberg/**/*.test.ts']),
@@ -726,11 +728,21 @@ export default defineWorkspace([
   }),
 
   // Geo-Replication Workers integration tests (multi-region data replication)
-  // Note: geo-replication.test.ts now runs in 'objects' workspace (Node-compatible)
+  // Both geo-replication.test.ts and do-geo-replication.test.ts use cloudflare:test with real miniflare DOs
   createWorkersWorkspace('geo-replication', [
+    'objects/tests/geo-replication.test.ts',
     'objects/tests/do-geo-replication.test.ts',
   ], {
     poolOptions: WORKERS_POOL_OPTIONS.geoReplication,
+  }),
+
+  // Cross-DO Transaction E2E tests (Saga, 2PC, Idempotency)
+  // Uses cloudflare:test with real miniflare DOs - NO MOCKS
+  createWorkersWorkspace('cross-do-transactions', [
+    'objects/tests/cross-do-transactions-e2e.test.ts',
+    'objects/tests/cross-do-e2e.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.doTest,
   }),
 
   // DO Clickable API E2E tests (every link is fetchable pattern)

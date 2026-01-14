@@ -126,7 +126,7 @@ export function truncateEmbedding(
   }
   if (targetDimension > embedding.length) {
     throw new Error(
-      `Target dimension ${targetDimension} exceeds original embedding dimension ${embedding.length}`
+      `Invalid dimension: target ${targetDimension} is larger than original ${embedding.length}`
     )
   }
 
