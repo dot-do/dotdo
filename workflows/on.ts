@@ -819,7 +819,7 @@ export function waitFor(
 import { Domain as BaseDomain, registerDomain as baseRegisterDomain } from './domain'
 
 type DomainCallable = {
-  (context: unknown): any
+  (context: unknown): Record<string, (...args: unknown[]) => ReturnType<typeof createPipelinePromise>>
   __domainName: string
   __handlers: Record<string, Function>
 }

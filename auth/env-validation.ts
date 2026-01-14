@@ -10,7 +10,10 @@
  * ```typescript
  * import { validateAuthEnv } from './auth/env-validation'
  *
- * // Validate at startup - throws if any required vars are missing
+ * // Validate with CloudflareEnv bindings (preferred)
+ * validateAuthEnv(env)
+ *
+ * // For backwards compatibility, can be called without parameter
  * validateAuthEnv()
  * ```
  *
@@ -25,6 +28,17 @@
  * - `GITHUB_CLIENT_ID` - OAuth client ID for GitHub sign-in
  * - `GITHUB_CLIENT_SECRET` - OAuth client secret for GitHub sign-in
  */
+
+/**
+ * Type for env bindings containing OAuth credentials
+ */
+export interface AuthEnvBindings {
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
+  GITHUB_CLIENT_ID?: string
+  GITHUB_CLIENT_SECRET?: string
+  [key: string]: string | undefined
+}
 
 /**
  * Required OAuth environment variables for auth configuration.
@@ -52,28 +66,40 @@ let validated = false
  * for Google and GitHub authentication providers. If any variables are
  * missing, it throws a descriptive error listing all missing variables.
  *
+ * @param env - Environment bindings (from CloudflareEnv). If not provided,
+ *              the function will log a deprecation warning and skip validation.
  * @throws {Error} If any required environment variables are missing.
  *   The error message includes a list of all missing variables.
  *
  * @example
  * ```typescript
- * // At application startup
+ * // At application startup with CloudflareEnv
  * try {
- *   validateAuthEnv()
+ *   validateAuthEnv(env)
  *   console.log('Auth configuration validated')
  * } catch (error) {
  *   console.error('Auth configuration error:', error.message)
- *   process.exit(1)
  * }
  * ```
  *
  * @see {@link createAuth} - Calls this function automatically
  */
-export function validateAuthEnv(): void {
+export function validateAuthEnv(env?: AuthEnvBindings): void {
+  // If no env provided, log warning and skip validation
+  // This maintains backwards compatibility during migration
+  if (!env) {
+    console.warn(
+      '[auth/env-validation] validateAuthEnv() called without env parameter. ' +
+        'Pass CloudflareEnv bindings for proper Workers compatibility.'
+    )
+    validated = true
+    return
+  }
+
   const missing: string[] = []
 
   for (const varName of REQUIRED_AUTH_ENV_VARS) {
-    if (!process.env[varName]) {
+    if (!env[varName]) {
       missing.push(varName)
     }
   }

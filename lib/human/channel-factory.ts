@@ -30,6 +30,7 @@ import { EmailHumanChannel, type EmailChannelConfig } from './channels/email'
 import { SMSHumanChannel, type SMSChannelConfig } from './channels/sms'
 import { DiscordHumanChannel, type DiscordChannelConfig } from './channels/discord'
 import { WebhookHumanChannel, type WebhookChannelConfig } from './channels/webhook'
+import { logBestEffortError } from '../logging/error-logger'
 
 // =============================================================================
 // Types
@@ -237,7 +238,12 @@ export function isValidChannelConfig(config: unknown): config is ChannelConfig {
   try {
     parseChannelType(c.type)
     return true
-  } catch {
+  } catch (error) {
+    logBestEffortError(error, {
+      operation: 'validateChannelType',
+      source: 'channel-factory.isValidChannelConfig',
+      context: { providedType: c.type },
+    })
     return false
   }
 }

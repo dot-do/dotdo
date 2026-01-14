@@ -170,7 +170,11 @@ export const errorHandler: MiddlewareHandler = async (c, next) => {
     }
 
     // Add stack trace in development
-    if (process.env.NODE_ENV === 'development' && err instanceof Error) {
+    // In Workers, check ENVIRONMENT binding; in Node.js tests, check process.env
+    const isDevelopment =
+      (c.env?.ENVIRONMENT === 'development') ||
+      (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development')
+    if (isDevelopment && err instanceof Error) {
       body.error.stack = err.stack
     }
 

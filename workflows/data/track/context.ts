@@ -343,13 +343,66 @@ interface CohortQuery {
 }
 
 // =============================================================================
+// PUBLIC API TYPES
+// =============================================================================
+
+/**
+ * Event proxy interface for tracking and querying events of a specific type.
+ * Callable to track an event, with methods for querying.
+ */
+export interface EventProxy<T = Record<string, unknown>> {
+  /** Track an event with data */
+  (data: T, options?: TrackOptions): Promise<TrackedEvent<T>>
+  /** Count events */
+  count(): CountQuery
+  /** Get events with limit */
+  events(): EventsQuery
+  /** Filter events */
+  where(filter: Record<string, unknown>): WhereQuery
+  /** Sum a numeric field */
+  sum(field: string): SumQuery
+  /** Average of a numeric field */
+  avg(field: string): Promise<number | null>
+  /** Min of a numeric field */
+  min(field: string): Promise<number | null>
+  /** Max of a numeric field */
+  max(field: string): Promise<number | null>
+  /** Count unique values of a field */
+  countUnique(field: string): CountUniqueQuery
+  /** Subscribe to events */
+  subscribe(
+    handler: (event: TrackedEvent<T>) => void,
+    options?: { where?: Record<string, unknown> }
+  ): EventSubscription
+}
+
+/**
+ * Track proxy interface for event tracking and analytics.
+ * Access event types via index signature (e.g., track.PageView).
+ */
+export interface TrackProxy {
+  /** Batch track multiple events */
+  batch(
+    events: Array<{ event: string; data: Record<string, unknown>; options?: TrackOptions }>
+  ): Promise<TrackedEvent[]>
+  /** Create a funnel analysis */
+  funnel(steps: FunnelStep[]): FunnelQuery
+  /** Create a cohort analysis */
+  cohort(config: CohortConfig): CohortQuery
+  /** Calculate ratio between two event types */
+  ratio(numerator: string, denominator: string): Promise<number>
+  /** Access event proxy by event type name */
+  [eventType: string]: EventProxy | unknown
+}
+
+// =============================================================================
 // EVENT PROXY
 // =============================================================================
 
 function createEventProxy(
   eventType: string,
   storage: EventStorage
-): any {
+): EventProxy {
   const getEvents = (since?: number): TrackedEvent[] => {
     return storage.events.filter((e) => {
       if (e.type !== eventType) return false
@@ -1052,19 +1105,19 @@ function createCohortQuery(
 export function $step(eventType: string): {
   where: (filter: Record<string, unknown>) => FunnelStep
 } & FunnelStep {
-  const step: any = { eventType }
+  const step: FunnelStep & { where?: (filter: Record<string, unknown>) => FunnelStep } = { eventType }
   step.where = (filter: Record<string, unknown>): FunnelStep => {
     return { eventType, filter }
   }
-  return step
+  return step as { where: (filter: Record<string, unknown>) => FunnelStep } & FunnelStep
 }
 
 // =============================================================================
 // TRACK PROXY
 // =============================================================================
 
-function createTrackProxy(storage: EventStorage): any {
-  const cache = new Map<string, any>()
+function createTrackProxy(storage: EventStorage): TrackProxy {
+  const cache = new Map<string, EventProxy>()
 
   const proxy = new Proxy(
     {},
@@ -1158,7 +1211,7 @@ function createTrackProxy(storage: EventStorage): any {
 // =============================================================================
 
 export interface TrackContext {
-  track: any
+  track: TrackProxy
   _storage: {
     put: (type: string, data: Record<string, unknown>, timestamp: number) => Promise<void>
     clear: () => Promise<void>

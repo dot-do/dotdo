@@ -80,17 +80,26 @@ export interface ChainStep {
 const sessions = new Map<string, RpcClient>()
 
 /**
- * Session options for all connections
+ * Create session options with production mode configuration
+ * @param isProduction - Whether running in production mode
  */
-const defaultSessionOptions: SessionOptions = {
-  onSendError: (error) => {
-    // Redact stack traces in production
-    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
-      return new Error(error.message)
-    }
-    return error
-  },
+function createSessionOptions(isProduction = false): SessionOptions {
+  return {
+    onSendError: (error) => {
+      // Redact stack traces in production
+      if (isProduction) {
+        return new Error(error.message)
+      }
+      return error
+    },
+  }
 }
+
+/**
+ * Session options for all connections (development mode by default)
+ * For production, use $Context with isProduction option
+ */
+const defaultSessionOptions: SessionOptions = createSessionOptions(false)
 
 /**
  * Context options for authenticated connections

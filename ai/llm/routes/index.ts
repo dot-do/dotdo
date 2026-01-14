@@ -29,9 +29,14 @@ app.use('*', cors({
 }))
 
 // Logger in development
-if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-  app.use('*', logger())
-}
+// The logger is conditionally applied via middleware that checks c.env.ENVIRONMENT
+app.use('*', async (c, next) => {
+  // Check CloudflareEnv ENVIRONMENT binding for development mode
+  if (c.env?.ENVIRONMENT === 'development') {
+    return logger()(c, next)
+  }
+  return next()
+})
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', service: 'llm.do' }))

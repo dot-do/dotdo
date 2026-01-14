@@ -112,17 +112,26 @@ export interface ClientConfig {
 const sessions = new Map<string, RpcClient>()
 
 /**
- * Default session options
+ * Default session options factory
+ * @param isProduction - Whether running in production mode (from CloudflareEnv.ENVIRONMENT)
  */
-const defaultSessionOptions: SessionOptions = {
-  onSendError: (error) => {
-    // Redact stack traces in production
-    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
-      return new Error(error.message)
-    }
-    return error
-  },
+function createDefaultSessionOptions(isProduction = false): SessionOptions {
+  return {
+    onSendError: (error) => {
+      // Redact stack traces in production
+      if (isProduction) {
+        return new Error(error.message)
+      }
+      return error
+    },
+  }
 }
+
+/**
+ * Default session options (development mode by default)
+ * For production, use createDefaultSessionOptions(true) or pass isProduction via ClientOptions
+ */
+const defaultSessionOptions: SessionOptions = createDefaultSessionOptions(false)
 
 /**
  * Generate a cache key for session lookup

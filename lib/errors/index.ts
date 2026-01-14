@@ -9,6 +9,20 @@
  * - toJSON(): Serialization for logging/transport
  */
 
+// Export standardized error codes
+export {
+  ErrorCodes,
+  type ErrorCode,
+  ErrorCodeToHttpStatus,
+  getHttpStatusForCode,
+  isClientError,
+  isServerError,
+  isRetryableError,
+} from './codes'
+
+// Export DotdoError class and types
+export { DotdoError, type DotdoErrorJSON, type DotdoErrorOptions } from './DotdoError'
+
 export interface DOErrorJSON {
   name: string
   code: string

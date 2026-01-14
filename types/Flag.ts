@@ -11,7 +11,7 @@ import { z } from 'zod'
 export interface Branch {
   key: string
   weight: number
-  payload?: Record<string, any>
+  payload?: Record<string, unknown>
 }
 
 /**
@@ -21,7 +21,7 @@ export interface Filter {
   type: 'property' | 'cohort'
   property?: string
   operator?: 'eq' | 'gt' | 'lt' | 'contains' | 'in'
-  value?: any
+  value?: unknown
   cohortId?: string
 }
 

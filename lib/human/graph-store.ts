@@ -66,6 +66,7 @@
 
 import type { GraphStore, GraphThing, GraphRelationship } from '../../db/graph/types'
 import { HUMAN_REQUEST_TYPE_IDS as CENTRALIZED_HUMAN_REQUEST_TYPE_IDS } from '../../db/graph/constants'
+import { logBestEffortError } from '../logging/error-logger'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -458,8 +459,13 @@ export class GraphHumanStore implements HumanStore {
           to: input.assignee,
           data: { assignedAt: now },
         })
-      } catch {
-        // Relationship may already exist, ignore duplicate errors
+      } catch (error) {
+        // Log non-duplicate errors for debugging
+        logBestEffortError(error, {
+          operation: 'createAssignedToRelationship',
+          source: 'GraphHumanStore.create',
+          context: { requestId: id, assignee: input.assignee },
+        })
       }
     }
 
@@ -584,8 +590,13 @@ export class GraphHumanStore implements HumanStore {
         to: id,
         data: responseData,
       })
-    } catch {
-      // Relationship may already exist
+    } catch (error) {
+      // Log non-duplicate errors for debugging
+      logBestEffortError(error, {
+        operation: 'createRespondedRelationship',
+        source: 'GraphHumanStore.respond',
+        context: { requestId: id, respondedBy: response.respondedBy },
+      })
     }
 
     return this.thingToRequest<T>(updated, requestType)
@@ -646,8 +657,13 @@ export class GraphHumanStore implements HumanStore {
           previousAssignee,
         },
       })
-    } catch {
-      // Relationship may already exist
+    } catch (error) {
+      // Log non-duplicate errors for debugging
+      logBestEffortError(error, {
+        operation: 'createEscalatesToRelationship',
+        source: 'GraphHumanStore.escalate',
+        context: { requestId: id, to, previousAssignee },
+      })
     }
 
     // Also update the assignedTo relationship
@@ -659,8 +675,13 @@ export class GraphHumanStore implements HumanStore {
         to,
         data: { assignedAt: now, viaEscalation: true },
       })
-    } catch {
-      // May already exist
+    } catch (error) {
+      // Log non-duplicate errors for debugging
+      logBestEffortError(error, {
+        operation: 'createEscalationAssignedToRelationship',
+        source: 'GraphHumanStore.escalate',
+        context: { requestId: id, to },
+      })
     }
 
     return this.thingToRequest(updated, requestType)

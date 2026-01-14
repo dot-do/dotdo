@@ -76,7 +76,12 @@ export default [
           caughtErrorsIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/no-explicit-any': 'off',
+      // Stricter type safety rules - warn to allow gradual migration
+      // @see do-i3s: Add stricter ESLint rules for TypeScript
+      '@typescript-eslint/no-explicit-any': 'warn',
+      // Note: no-unsafe-assignment and no-unsafe-member-access require type-aware linting
+      // (parserOptions.project) which significantly slows down linting. Enable these later
+      // when type-aware linting is configured. For now, no-explicit-any catches most issues.
       '@typescript-eslint/ban-ts-comment': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
 
@@ -86,6 +91,11 @@ export default [
       'prefer-const': 'warn',
       'no-var': 'error',
       eqeqeq: ['warn', 'smart'],
+
+      // Security: Prevent eval()-like code execution
+      // new Function() is equivalent to eval() and poses security risks
+      // @see do-1bb - prevents reintroduction of new Function() patterns
+      'no-new-func': 'error',
     },
   },
 
@@ -95,6 +105,35 @@ export default [
     rules: {
       '@typescript-eslint/no-unused-vars': 'off',
       'no-unused-expressions': 'off',
+    },
+  },
+
+  // Cloudflare Workers runtime - prevent process.env usage
+  // Workers don't have Node.js process global; use Cloudflare env bindings instead
+  // @see do-goy: Add lint rule to prevent process.env in Workers
+  {
+    files: [
+      'api/**/*.ts',
+      'api/**/*.tsx',
+      'objects/**/*.ts',
+      'streaming/**/*.ts',
+      'workers/**/*.ts',
+    ],
+    ignores: [
+      // Test files can use process.env for test setup
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      '**/tests/**/*.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'MemberExpression[object.name="process"][property.name="env"]',
+          message:
+            'process.env is not available in Cloudflare Workers. Use Cloudflare env bindings instead (pass env as a parameter from the fetch handler).',
+        },
+      ],
     },
   },
 ]

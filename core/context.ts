@@ -13,6 +13,8 @@
  * - $.state, $.get(key), $.set(key, value) - State management
  */
 
+import { logBestEffortError } from '../lib/logging/error-logger'
+
 // ============================================================================
 // BASE EVENT TYPE (compatible with @org.ai/types)
 // ============================================================================
@@ -606,8 +608,13 @@ export function createWorkflowContext(config: WorkflowContextConfig = {}): Workf
       if (trackEvent) {
         try {
           trackEvent(event, data)
-        } catch {
-          // Swallow errors for fire-and-forget
+        } catch (error) {
+          // Fire-and-forget should not throw, but log for observability
+          logBestEffortError(error, {
+            operation: 'trackEvent',
+            source: 'context.track',
+            context: { event },
+          })
         }
       }
     },

@@ -413,6 +413,72 @@ export interface AdvancedBindings
  * These are typically configured via wrangler secrets or environment variables.
  */
 export interface SecretBindings {
+  // ---- AI Provider API Keys ----
+
+  /**
+   * OpenAI API key for GPT models
+   */
+  OPENAI_API_KEY?: string
+
+  /**
+   * Anthropic API key for Claude models
+   */
+  ANTHROPIC_API_KEY?: string
+
+  /**
+   * Google AI API key for Gemini models
+   */
+  GOOGLE_AI_API_KEY?: string
+
+  /**
+   * Google Generative AI API key (alternative binding name)
+   */
+  GOOGLE_GENERATIVE_AI_API_KEY?: string
+
+  /**
+   * OpenRouter API key for multi-provider routing
+   */
+  OPENROUTER_API_KEY?: string
+
+  /**
+   * AI Gateway URL for Cloudflare AI Gateway
+   */
+  AI_GATEWAY_URL?: string
+
+  /**
+   * AI Gateway token for authentication
+   */
+  AI_GATEWAY_TOKEN?: string
+
+  /**
+   * DO token for authenticated LLM requests
+   */
+  DO_TOKEN?: string
+
+  // ---- OAuth Provider Credentials ----
+
+  /**
+   * Google OAuth client ID
+   */
+  GOOGLE_CLIENT_ID?: string
+
+  /**
+   * Google OAuth client secret
+   */
+  GOOGLE_CLIENT_SECRET?: string
+
+  /**
+   * GitHub OAuth client ID
+   */
+  GITHUB_CLIENT_ID?: string
+
+  /**
+   * GitHub OAuth client secret
+   */
+  GITHUB_CLIENT_SECRET?: string
+
+  // ---- Payment Processing ----
+
   /**
    * Stripe secret key for payments
    */
@@ -427,6 +493,8 @@ export interface SecretBindings {
    * Platform fee percentage for payments
    */
   PLATFORM_FEE_PERCENT?: string
+
+  // ---- Browser Automation ----
 
   /**
    * Browserbase API key for browser automation
@@ -474,6 +542,19 @@ export interface SecretBindings {
    * Discord incoming webhook URL for notifications
    */
   DISCORD_WEBHOOK_URL?: string
+
+  // ---- Environment Configuration ----
+
+  /**
+   * Whether running in production mode
+   * In Workers, this should be set via wrangler.toml vars
+   */
+  ENVIRONMENT?: 'production' | 'development' | 'test'
+
+  /**
+   * Enable debug logging
+   */
+  DEBUG?: string
 }
 
 // ============================================================================

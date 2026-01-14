@@ -6,6 +6,9 @@
 
 /**
  * Validates user code for dangerous patterns that could escape the sandbox
+ *
+ * SECURITY: This function blocks patterns that could be used to escape
+ * V8 isolate sandboxing, including indirect access to Function constructor.
  */
 export function validateUserCode(code: string): { valid: boolean; error?: string } {
   // Check for eval()
@@ -13,9 +16,21 @@ export function validateUserCode(code: string): { valid: boolean; error?: string
     return { valid: false, error: 'eval is not allowed' }
   }
 
-  // Check for new Function()
+  // Check for new Function() - direct usage
   if (/\bnew\s+Function\s*\(/.test(code)) {
     return { valid: false, error: 'Function constructor not allowed' }
+  }
+
+  // Check for Function constructor via .constructor property access
+  // This catches: (function(){}).constructor, (()=>{}).constructor,
+  // "".constructor.constructor, [].constructor.constructor, etc.
+  if (/\.constructor\b/.test(code)) {
+    return { valid: false, error: 'constructor access not allowed - potential Function constructor escape' }
+  }
+
+  // Check for Function.prototype access
+  if (/\bFunction\s*\.\s*prototype\b/.test(code)) {
+    return { valid: false, error: 'Function.prototype access not allowed' }
   }
 
   // Check for process access
@@ -32,6 +47,16 @@ export function validateUserCode(code: string): { valid: boolean; error?: string
   // Match import( but not import statements (import x from 'y')
   if (/\bimport\s*\(/.test(code)) {
     return { valid: false, error: 'dynamic import not allowed' }
+  }
+
+  // Check for __proto__ access (prototype pollution)
+  if (/__proto__/.test(code)) {
+    return { valid: false, error: '__proto__ access not allowed' }
+  }
+
+  // Check for globalThis access
+  if (/\bglobalThis\b/.test(code)) {
+    return { valid: false, error: 'globalThis access not allowed' }
   }
 
   return { valid: true }

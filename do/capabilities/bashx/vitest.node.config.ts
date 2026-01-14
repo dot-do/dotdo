@@ -79,6 +79,8 @@ export default defineConfig({
       'tests/do/cache/**/*.test.ts',
       // Security policy tests (pure unit tests for sandbox security boundaries)
       'tests/do/security/**/*.test.ts',
+      // Security tests for new Function() elimination (GREEN phase TDD tests)
+      'tests/math-control-security.test.ts',
       // Error handling tests (BashxError hierarchy and context preservation)
       'tests/errors/**/*.test.ts',
       // Tooling tests (ESLint, build tools, etc.)

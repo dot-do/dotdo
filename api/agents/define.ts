@@ -143,15 +143,36 @@ function buildSystemPrompt(config: AgentConfig): string {
 }
 
 /**
+ * Environment configuration for agent execution
+ * Should be passed from CloudflareEnv bindings
+ */
+export interface AgentEnv {
+  ANTHROPIC_API_KEY?: string
+  OPENAI_API_KEY?: string
+}
+
+// Module-level env storage for agent execution
+// Set via setAgentEnv() from Worker/DO context
+let moduleEnv: AgentEnv = {}
+
+/**
+ * Set the environment bindings for agent execution
+ * Call this from your Worker/DO with the CloudflareEnv bindings
+ */
+export function setAgentEnv(env: AgentEnv): void {
+  moduleEnv = env
+}
+
+/**
  * Execute an agent invocation
  *
- * In production, this would call an LLM API.
- * For now, returns a mock response for testing.
+ * In production, this calls an LLM API using keys from CloudflareEnv.
+ * For testing without API keys, returns a mock response.
  */
 async function executeAgent(config: AgentConfig, prompt: string): Promise<string> {
-  // Check for API key
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  const openaiKey = process.env.OPENAI_API_KEY
+  // Check for API key from module env (set via setAgentEnv)
+  const anthropicKey = moduleEnv.ANTHROPIC_API_KEY
+  const openaiKey = moduleEnv.OPENAI_API_KEY
 
   // If no API keys, return mock response (for testing)
   if (!anthropicKey && !openaiKey) {

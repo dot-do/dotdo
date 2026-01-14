@@ -33,7 +33,7 @@ export interface MapperInstruction {
 export interface PipelinePromise<T = unknown> extends PromiseLike<T> {
   readonly __expr: PipelineExpression
   readonly __isPipelinePromise: true
-  [key: string]: any
+  [key: string]: unknown
 }
 
 export interface WorkflowProxyOptions {

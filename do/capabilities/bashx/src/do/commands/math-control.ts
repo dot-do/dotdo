@@ -12,6 +12,12 @@
  * @module bashx/do/commands/math-control
  */
 
+import {
+  safeEval as safeExprEval,
+  SafeExprError,
+  type SafeEvalOptions as SafeExprOptions
+} from './safe-expr.js'
+
 // ============================================================================
 // TIMING UTILITIES
 // ============================================================================
@@ -254,6 +260,10 @@ export class ExpressionEngine {
   /**
    * Evaluate a bc-style expression.
    *
+   * SECURITY: Uses safe-expr parser instead of the Function constructor to
+   * prevent code injection attacks. The safe-expr module provides a proper
+   * tokenizer, recursive descent parser, and AST evaluator.
+   *
    * @param expr - Expression string
    * @returns Numeric result
    * @throws Error on syntax errors or invalid operations
@@ -266,98 +276,59 @@ export class ExpressionEngine {
    * ```
    */
   evaluate(expr: string): number {
-    // Substitute variables
-    let processedExpr = expr
-    for (const [name, value] of this.variables) {
-      processedExpr = processedExpr.replace(
-        new RegExp(`\\b${name}\\b`, 'g'),
-        String(value)
-      )
-    }
-
-    // Process math functions
-    processedExpr = this.processMathFunctions(processedExpr)
-
-    // Convert from input base if needed
-    if (this.ibase !== 10) {
-      processedExpr = processedExpr.replace(/\b([0-9A-F]+)\b/g, match => {
-        return String(parseInt(match, this.ibase))
-      })
-    }
-
-    // Convert ^ to ** for JavaScript exponentiation
-    processedExpr = processedExpr.replace(/\^/g, '**')
-
-    // Check for division by zero
-    if (/\/\s*0(?![0-9])/.test(processedExpr)) {
-      throw new Error('divide by zero')
-    }
-
-    // Check for syntax errors (consecutive operators excluding **)
-    if (/[+\-*/%]{2,}/.test(processedExpr.replace(/\*\*/g, 'POW'))) {
-      throw new Error('syntax error')
-    }
-
-    // Evaluate using safe Function constructor
+    // Use the safe expression parser which handles:
+    // - Variable substitution
+    // - Math functions (sqrt, sin, cos, etc.)
+    // - Input/output base conversion
+    // - Proper operator precedence
+    // - Security validation against code injection
     try {
-      const fn = new Function(`return (${processedExpr})`)
-      const result = fn()
+      // Build options for safe-expr based on current engine state
+      const options: SafeExprOptions = {
+        mathLib: this.mathLib,
+        scale: this.scale,
+        ibase: this.ibase,
+        obase: this.obase,
+      }
 
-      if (typeof result !== 'number' || !isFinite(result)) {
+      // Prepare expression with variable substitutions
+      let processedExpr = expr
+      for (const [name, value] of this.variables) {
+        // Only substitute if not a reserved bc variable
+        if (name !== 'scale' && name !== 'ibase' && name !== 'obase') {
+          processedExpr = processedExpr.replace(
+            new RegExp(`\\b${name}\\b`, 'g'),
+            String(value)
+          )
+        }
+      }
+
+      // Use safe-expr to evaluate - it returns a string, we need a number
+      const resultStr = safeExprEval(processedExpr, options)
+      const result = parseFloat(resultStr)
+
+      if (!isFinite(result)) {
         throw new Error('invalid result')
       }
 
       return result
-    } catch {
+    } catch (e) {
+      // Convert SafeExprError messages to bc-compatible error messages
+      if (e instanceof SafeExprError) {
+        const msg = e.message.toLowerCase()
+        if (msg.includes('divide by zero')) {
+          throw new Error('divide by zero')
+        }
+        if (msg.includes('sqrt') || msg.includes('square root')) {
+          throw new Error('square root of negative number')
+        }
+        if (msg.includes('log')) {
+          throw new Error('logarithm of non-positive number')
+        }
+      }
+      // Default to syntax error for other parse failures
       throw new Error('syntax error')
     }
-  }
-
-  /**
-   * Process math library functions in the expression.
-   *
-   * @param expr - Expression with function calls
-   * @returns Expression with functions evaluated
-   */
-  private processMathFunctions(expr: string): string {
-    let result = expr
-
-    // Always handle sqrt
-    result = this.processFunction(result, 'sqrt', (val) => {
-      if (val < 0) throw new Error('square root of negative number')
-      return Math.sqrt(val)
-    })
-
-    // Math library functions
-    if (this.mathLib) {
-      result = this.processFunction(result, 's', Math.sin)
-      result = this.processFunction(result, 'c', Math.cos)
-      result = this.processFunction(result, 'a', Math.atan)
-      result = this.processFunction(result, 'l', Math.log)
-      result = this.processFunction(result, 'e', Math.exp)
-    }
-
-    return result
-  }
-
-  /**
-   * Process a single function in the expression.
-   *
-   * @param expr - Expression string
-   * @param name - Function name
-   * @param fn - JavaScript function to apply
-   * @returns Expression with function evaluated
-   */
-  private processFunction(
-    expr: string,
-    name: string,
-    fn: (x: number) => number
-  ): string {
-    const pattern = new RegExp(`\\b${name}\\(([^)]+)\\)`, 'g')
-    return expr.replace(pattern, (_, arg) => {
-      const val = this.evaluate(arg)
-      return String(fn(val))
-    })
   }
 
   /**

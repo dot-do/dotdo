@@ -1763,7 +1763,9 @@ export class EventStreamDO extends DurableObject {
       // Log send errors and increment error counter for visibility
       this.metrics.errorCount++
       // Only log in debug mode to avoid flooding logs in high-throughput scenarios
-      if (process.env.DEBUG || process.env.NODE_ENV === 'development') {
+      // Check CloudflareEnv bindings (DEBUG, ENVIRONMENT) rather than process.env
+      const shouldLog = this.env?.DEBUG || this.env?.ENVIRONMENT === 'development'
+      if (shouldLog) {
         console.warn('[event-stream] WebSocket send failed:', {
           readyState: (ws as any).readyState,
           error: error instanceof Error ? error.message : 'unknown',

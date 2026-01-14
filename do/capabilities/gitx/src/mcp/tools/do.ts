@@ -30,17 +30,85 @@ function validateSecurity(code: string): { valid: boolean; error?: string } {
 }
 
 /**
- * Check for syntax errors in code
+ * Check for basic syntax issues in code without using eval/Function constructor.
+ *
+ * SECURITY: We do NOT use the Function constructor for syntax checking as it
+ * can execute code in unexpected ways. Instead, we perform basic structural
+ * validation and let the Miniflare sandbox catch actual syntax errors during
+ * safe Worker-based execution.
  */
 function checkSyntax(code: string): { valid: boolean; error?: string } {
-  try {
-    // Try to parse the code as an async function body to support await
-    new Function(`return (async () => { ${code} })()`)
-    return { valid: true }
-  } catch (e) {
-    const error = e as Error
-    return { valid: false, error: `Syntax error: ${error.message}` }
+  // Check for balanced brackets, braces, and parentheses
+  const brackets: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
+  const closingBrackets = new Set([')', ']', '}'])
+  const stack: string[] = []
+  let inString: string | null = null
+  let escaped = false
+
+  for (let i = 0; i < code.length; i++) {
+    const char = code[i]
+
+    // Handle escape sequences in strings
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      escaped = true
+      continue
+    }
+
+    // Track string boundaries
+    if ((char === '"' || char === "'" || char === '`') && !inString) {
+      inString = char
+      continue
+    }
+    if (char === inString) {
+      inString = null
+      continue
+    }
+
+    // Skip characters inside strings
+    if (inString) continue
+
+    // Track bracket balance
+    if (brackets[char]) {
+      stack.push(brackets[char])
+    } else if (closingBrackets.has(char)) {
+      if (stack.length === 0 || stack.pop() !== char) {
+        return { valid: false, error: `Syntax error: unbalanced '${char}'` }
+      }
+    }
   }
+
+  // Check for unclosed strings
+  if (inString) {
+    return { valid: false, error: `Syntax error: unclosed string literal` }
+  }
+
+  // Check for unclosed brackets
+  if (stack.length > 0) {
+    const unclosed = stack[stack.length - 1]
+    const opening = Object.entries(brackets).find(([_, v]) => v === unclosed)?.[0]
+    return { valid: false, error: `Syntax error: unclosed '${opening}'` }
+  }
+
+  // Check for common syntax patterns that indicate issues
+  // Empty return statements at the end are valid
+  const trimmed = code.trim()
+
+  // Check for obviously incomplete statements
+  if (/^\s*(const|let|var|function|class|import|export)\s*$/.test(trimmed)) {
+    return { valid: false, error: 'Syntax error: incomplete statement' }
+  }
+
+  // Check for trailing operators that suggest incomplete expressions
+  if (/[+\-*/%=<>!&|,]\s*$/.test(trimmed) && !trimmed.endsWith('=>') && !trimmed.endsWith('++') && !trimmed.endsWith('--')) {
+    return { valid: false, error: 'Syntax error: expression expected after operator' }
+  }
+
+  return { valid: true }
 }
 
 /**

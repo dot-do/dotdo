@@ -1640,8 +1640,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           dbError: dbError?.message ?? null,
           pipelineError: pipelineError?.message ?? null,
         })
-      } catch {
-        // Never throw from error reporting
+      } catch (error) {
+        // Never throw from error reporting, but log for observability
+        logBestEffortError(error, {
+          operation: 'metricsReport',
+          source: 'DOBase.emitEvent',
+          context: { ns: this.ns, verb },
+        })
       }
     }
   }
@@ -2818,7 +2823,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
             filtered++
             continue
           }
-        } catch {
+        } catch (error) {
+          logBestEffortError(error, {
+            operation: 'filterEvaluation',
+            source: 'DOBase.dispatchEvent',
+            context: { eventId: event.id, verb: event.verb, handlerName: registration.name },
+          })
           filtered++
           continue
         }
@@ -2844,8 +2854,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
             maxRetries: registration.maxRetries,
           })
           dlqEntries.push(dlqEntry.id)
-        } catch {
-          console.error('Failed to add event to DLQ')
+        } catch (dlqError) {
+          logBestEffortError(dlqError, {
+            operation: 'dlqAdd',
+            source: 'DOBase.dispatchEvent',
+            context: { eventId: event.id, verb: `${noun}.${event.verb}`, originalError: error.message },
+          })
         }
       }
     }
@@ -2980,8 +2994,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     let thing: Thing
     try {
       thing = await response.json() as Thing
-    } catch {
-      throw new Error('Invalid response from remote DO')
+    } catch (parseError) {
+      logBestEffortError(parseError, {
+        operation: 'parseRemoteResponse',
+        source: 'DOBase.resolveCrossDO',
+        context: { targetNs: ns, path, ref, responseStatus: response.status },
+      })
+      throw new Error('Invalid response from remote DO', { cause: parseError })
     }
 
     return thing
@@ -3350,8 +3369,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     let session: { user: import('../../types/WorkflowContext').UserContext } | null = null
     try {
       session = await this.validateSyncAuthToken(token)
-    } catch {
-      // Token validation threw an error
+    } catch (error) {
+      // Token validation threw an error - log for security audit
+      logBestEffortError(error, {
+        operation: 'tokenValidation',
+        source: 'DOBase.handleSyncProtocol',
+        context: { ns: this.ns, hasToken: !!token },
+      })
       session = null
     }
 
@@ -3905,7 +3929,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         signatureBytes,
         encoder.encode(signatureInput)
       )
-    } catch {
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'jwtVerify',
+        source: 'DOBase.verifyJWT',
+        context: { ns: this.ns },
+      })
       return false
     }
   }

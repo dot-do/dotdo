@@ -165,7 +165,7 @@ export class ClaudeProvider implements AgentProvider {
     // Use Anthropic SDK
     const Anthropic = (await import('@anthropic-ai/sdk')).default
     const client = new Anthropic({
-      apiKey: this.options.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '',
+      apiKey: this.options.apiKey ?? '',
     })
 
     const systemMessage = messages.find((m) => m.role === 'system')
@@ -226,7 +226,7 @@ export class ClaudeProvider implements AgentProvider {
   ): AsyncIterable<StreamEvent> {
     const Anthropic = (await import('@anthropic-ai/sdk')).default
     const client = new Anthropic({
-      apiKey: this.options.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '',
+      apiKey: this.options.apiKey ?? '',
     })
 
     const systemMessage = messages.find((m) => m.role === 'system')

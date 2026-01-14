@@ -111,6 +111,13 @@ const WORKERS_POOL_OPTIONS = {
       singleWorker: true,
     },
   },
+  modulesIntegration: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.modules-integration.jsonc') },
+      isolatedStorage: true,
+      singleWorker: true,
+    },
+  },
 } as const
 
 /**
@@ -188,6 +195,9 @@ export default defineWorkspace([
   // Primitives tests (event-emitter, fsx, bashx, etc.)
   createNodeWorkspace('primitives', ['primitives/**/*.test.ts']),
 
+  // Documentation tests (code example extraction, compilation verification)
+  createNodeWorkspace('docs', ['docs/tests/**/*.test.ts']),
+
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
 
@@ -242,6 +252,8 @@ export default defineWorkspace([
       '**/browser-do-*.test.ts',
       '**/do-with-integration.test.ts',
       '**/do-promote-demote.test.ts',
+      '**/schema-migration-integration.test.ts', // Workers integration tests (uses cloudflare:test)
+      '**/do-modules-integration.test.ts', // Workers integration tests (uses cloudflare:test)
     ],
   }),
 
@@ -768,6 +780,15 @@ export default defineWorkspace([
   // DO.with() eager initialization integration tests (real miniflare DOs)
   createWorkersWorkspace('do-with-integration', ['objects/tests/do-with-integration.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.doWithTest,
+  }),
+
+  // DO Modules Integration tests (DOStorage, DOTransport, DOWorkflow, SchemaMigration)
+  // Uses real miniflare DOs - NO MOCKS (replaces schema-migration.test.ts and do-modules.test.ts)
+  createWorkersWorkspace('modules-integration', [
+    'objects/tests/schema-migration-integration.test.ts',
+    'objects/tests/do-modules-integration.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.modulesIntegration,
   }),
 
   // DuckDB WASM tests - require Workers runtime for WASM instantiation

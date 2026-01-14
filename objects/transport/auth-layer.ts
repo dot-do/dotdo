@@ -143,6 +143,12 @@ export interface AuthMiddlewareOptions {
   }
   /** Default auth requirement for undeclared methods */
   defaultRequireAuth?: boolean
+  /**
+   * Whether running in production mode
+   * Used for security checks (e.g., requiring jwtSecret in production)
+   * Defaults to checking CloudflareEnv.ENVIRONMENT or false if not set
+   */
+  isProduction?: boolean
 }
 
 /**
@@ -704,8 +710,10 @@ export async function validateRequestSignature(
 /**
  * Create authentication middleware for DO fetch handler
  *
- * SECURITY: In production (NODE_ENV=production), jwtSecret is REQUIRED.
+ * SECURITY: In production (isProduction=true), jwtSecret is REQUIRED.
  * Attempting to create middleware without a secret in production will throw.
+ *
+ * @param options - Auth middleware options including isProduction flag
  */
 export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
   const {
@@ -719,16 +727,15 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
     timestampTolerance = 5 * 60 * 1000,
     nonceStorage,
     defaultRequireAuth = true,
+    isProduction = false,
   } = options
-
-  const isProduction = process.env.NODE_ENV === 'production'
 
   // SECURITY: Require jwtSecret in production
   // This prevents accidentally deploying without signature verification
   if (isProduction && !jwtSecret) {
     throw new Error(
       'JWT secret is required in production. ' +
-      'Set the jwtSecret option or configure NODE_ENV=development for testing.'
+      'Set the jwtSecret option or set isProduction=false for testing.'
     )
   }
 
@@ -1232,8 +1239,7 @@ export function withAuth<T extends DOConstructor>(
     /** @internal */ _refreshTokens = new Map<string, { userId: string; expiresAt: Date }>()
     /** @internal */ _jwtSecret: string
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(state: any, env: any) {
+    constructor(state: DurableObjectState, env: Record<string, unknown>) {
       super(state, env)
       this._sessionStorage = options.sessionStorage || createInMemorySessionStorage()
       this._authMiddleware = createAuthMiddleware({

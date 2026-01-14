@@ -170,6 +170,8 @@ export interface SafeJsonParseOptions {
   context?: string
   /** Whether to log parse failures (default: true in non-test environments) */
   log?: boolean
+  /** Whether running in test environment (disables logging) */
+  isTest?: boolean
 }
 
 /**
@@ -208,8 +210,9 @@ export function safeJsonParse<T = unknown>(
   try {
     return JSON.parse(input) as T
   } catch (error) {
-    // Log parse failures for debugging (unless explicitly disabled)
-    const shouldLog = options?.log !== false && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'test'
+    // Log parse failures for debugging (unless explicitly disabled or in test mode)
+    // Note: isTest should be passed from caller; we don't check process.env for Workers compatibility
+    const shouldLog = options?.log !== false && options?.isTest !== true
     if (shouldLog && error instanceof SyntaxError) {
       const context = options?.context ? `[${options.context}] ` : ''
       const preview = input.length > 50 ? input.slice(0, 50) + '...' : input
@@ -267,8 +270,9 @@ export function safeJsonClone<T>(
   try {
     return JSON.parse(JSON.stringify(obj)) as T
   } catch (error) {
-    // Log clone failures for debugging
-    const shouldLog = options?.log !== false && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'test'
+    // Log clone failures for debugging (unless explicitly disabled or in test mode)
+    // Note: isTest should be passed from caller; we don't check process.env for Workers compatibility
+    const shouldLog = options?.log !== false && options?.isTest !== true
     if (shouldLog) {
       const context = options?.context ? `[${options.context}] ` : ''
       const errorMsg = error instanceof Error ? error.message : String(error)

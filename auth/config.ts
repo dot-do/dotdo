@@ -62,6 +62,21 @@ export interface AuthConfig {
    * Maps custom domains to tenant namespaces.
    */
   resolveTenantNs: (domain: string) => Promise<string | null>
+
+  /**
+   * OAuth provider credentials from CloudflareEnv
+   * These should be passed from the Worker/DO environment bindings
+   */
+  oauth?: {
+    google?: {
+      clientId: string
+      clientSecret: string
+    }
+    github?: {
+      clientId: string
+      clientSecret: string
+    }
+  }
 }
 
 /**
@@ -101,6 +116,21 @@ export interface GraphAuthConfig {
    * Maps custom domains to tenant namespaces.
    */
   resolveTenantNs: (domain: string) => Promise<string | null>
+
+  /**
+   * OAuth provider credentials from CloudflareEnv
+   * These should be passed from the Worker/DO environment bindings
+   */
+  oauth?: {
+    google?: {
+      clientId: string
+      clientSecret: string
+    }
+    github?: {
+      clientId: string
+      clientSecret: string
+    }
+  }
 }
 
 // ============================================================================
@@ -123,15 +153,37 @@ export interface GraphAuthConfig {
  * @see auth/migration.ts - Migration utilities
  */
 export function createAuth(config: AuthConfig) {
-  // Validate OAuth environment variables before using them
-  // This provides clear error messages if configuration is missing
-  if (!isAuthEnvValidated()) {
-    validateAuthEnv()
+  // Validate OAuth credentials are provided
+  // These should come from CloudflareEnv bindings, not process.env
+  if (!config.oauth?.google && !config.oauth?.github) {
+    // Fall back to env validation for backward compatibility during migration
+    if (!isAuthEnvValidated()) {
+      validateAuthEnv()
+    }
   }
 
-  const { db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret } = config
+  const { db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret, oauth } = config
 
   const baseURL = `https://${authDomain}`
+
+  // Build social providers from config.oauth (preferred) or warn about missing config
+  const socialProviders: Record<string, { clientId: string; clientSecret: string; redirectURI: string }> = {}
+
+  if (oauth?.google) {
+    socialProviders.google = {
+      clientId: oauth.google.clientId,
+      clientSecret: oauth.google.clientSecret,
+      redirectURI: `${baseURL}/api/auth/callback/google`,
+    }
+  }
+
+  if (oauth?.github) {
+    socialProviders.github = {
+      clientId: oauth.github.clientId,
+      clientSecret: oauth.github.clientSecret,
+      redirectURI: `${baseURL}/api/auth/callback/github`,
+    }
+  }
 
   return betterAuth({
     baseURL,
@@ -148,19 +200,9 @@ export function createAuth(config: AuthConfig) {
     // SOCIAL PROVIDERS
     // =========================================================================
     // All callbacks go to the central auth domain
+    // Providers are configured from CloudflareEnv bindings passed via config.oauth
 
-    socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID!,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirectURI: `${baseURL}/api/auth/callback/google`,
-      },
-      github: {
-        clientId: process.env.GITHUB_CLIENT_ID!,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-        redirectURI: `${baseURL}/api/auth/callback/github`,
-      },
-    },
+    socialProviders,
 
     // =========================================================================
     // SESSION CONFIGURATION
@@ -345,15 +387,37 @@ export function createAuth(config: AuthConfig) {
  * ```
  */
 export function createAuthWithGraph(config: GraphAuthConfig) {
-  // Validate OAuth environment variables before using them
-  // This provides clear error messages if configuration is missing
-  if (!isAuthEnvValidated()) {
-    validateAuthEnv()
+  // Validate OAuth credentials are provided
+  // These should come from CloudflareEnv bindings, not process.env
+  if (!config.oauth?.google && !config.oauth?.github) {
+    // Fall back to env validation for backward compatibility during migration
+    if (!isAuthEnvValidated()) {
+      validateAuthEnv()
+    }
   }
 
-  const { graphStore, db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret } = config
+  const { graphStore, db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret, oauth } = config
 
   const baseURL = `https://${authDomain}`
+
+  // Build social providers from config.oauth (preferred) or warn about missing config
+  const socialProviders: Record<string, { clientId: string; clientSecret: string; redirectURI: string }> = {}
+
+  if (oauth?.google) {
+    socialProviders.google = {
+      clientId: oauth.google.clientId,
+      clientSecret: oauth.google.clientSecret,
+      redirectURI: `${baseURL}/api/auth/callback/google`,
+    }
+  }
+
+  if (oauth?.github) {
+    socialProviders.github = {
+      clientId: oauth.github.clientId,
+      clientSecret: oauth.github.clientSecret,
+      redirectURI: `${baseURL}/api/auth/callback/github`,
+    }
+  }
 
   return betterAuth({
     baseURL,
@@ -365,19 +429,9 @@ export function createAuthWithGraph(config: GraphAuthConfig) {
     // SOCIAL PROVIDERS
     // =========================================================================
     // All callbacks go to the central auth domain
+    // Providers are configured from CloudflareEnv bindings passed via config.oauth
 
-    socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID!,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirectURI: `${baseURL}/api/auth/callback/google`,
-      },
-      github: {
-        clientId: process.env.GITHUB_CLIENT_ID!,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-        redirectURI: `${baseURL}/api/auth/callback/github`,
-      },
-    },
+    socialProviders,
 
     // =========================================================================
     // SESSION CONFIGURATION

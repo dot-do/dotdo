@@ -806,32 +806,51 @@ export class SupabaseClient {
 
   /**
    * Execute an RPC function
+   *
+   * SECURITY: Dynamic code execution via stored functions is disabled.
+   * This method now returns an error for any stored function call.
+   *
+   * For safe alternatives, consider:
+   * 1. Pre-registering functions as TypeScript handlers at compile time
+   * 2. Using a whitelist of known function names with predefined implementations
+   * 3. Using Worker-based sandboxed execution via ai-evaluate
+   *
+   * The previous implementation used `new Function()` which allowed arbitrary
+   * code execution and potential security vulnerabilities.
    */
-  async rpc<T = unknown>(functionName: string, params?: Record<string, unknown>): Promise<QueryResult<T>> {
-    const fnKey = `rpc:${functionName}`
-    const storedFn = await this.storage.get(fnKey)
+  async rpc<T = unknown>(functionName: string, _params?: Record<string, unknown>): Promise<QueryResult<T>> {
+    // SECURITY: Dynamic stored function execution is disabled
+    // Previously this used `new Function()` which is a security vulnerability
+    //
+    // To implement RPC safely, you would need to:
+    // 1. Define a registry of allowed functions at compile time
+    // 2. Or use ai-evaluate for Worker-based sandboxed execution
+    //
+    // Example safe implementation with function registry:
+    //
+    // const functionRegistry: Record<string, (params: unknown, ctx: PolicyContext) => Promise<unknown>> = {
+    //   'get_user_stats': async (params, ctx) => { ... },
+    //   'calculate_totals': async (params, ctx) => { ... },
+    // }
+    //
+    // const handler = functionRegistry[functionName]
+    // if (handler) {
+    //   const result = await handler(params, this.context)
+    //   return { data: result as T, error: null, status: 200, statusText: 'OK' }
+    // }
 
-    if (!storedFn) {
-      return {
-        data: null,
-        error: { message: `Function ${functionName} not found`, details: '', hint: '', code: 'PGRST202' },
-        status: 404,
-        statusText: 'Not Found',
-      }
-    }
-
-    // Execute stored function
-    try {
-      const fn = new Function('params', 'context', storedFn as string)
-      const result = await fn(params, this.context)
-      return { data: result as T, error: null, status: 200, statusText: 'OK' }
-    } catch (error) {
-      return {
-        data: null,
-        error: { message: (error as Error).message, details: '', hint: '', code: 'PGRST500' },
-        status: 500,
-        statusText: 'Internal Server Error',
-      }
+    return {
+      data: null,
+      error: {
+        message: `Function '${functionName}' execution is disabled for security. ` +
+                 `Dynamic stored function execution via new Function() has been removed. ` +
+                 `Please use pre-registered function handlers instead.`,
+        details: 'SECURITY: new Function() has been removed to prevent code injection',
+        hint: 'Register functions as TypeScript handlers at compile time',
+        code: 'PGRST501'
+      },
+      status: 501,
+      statusText: 'Not Implemented',
     }
   }
 

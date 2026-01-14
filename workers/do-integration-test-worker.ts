@@ -11,8 +11,8 @@
  * @module workers/do-integration-test-worker
  */
 
-import { DO } from '../objects/DOBase'
-import type { Env } from '../objects/DOBase'
+import { DO } from '../objects/core/DOBase'
+import type { Env } from '../objects/core/DOBase'
 import { sql } from 'drizzle-orm'
 import { RpcTarget } from 'cloudflare:workers'
 import type {
@@ -278,13 +278,23 @@ class ActionsRpc extends RpcTarget {
  * Each statement creates a table or index needed for ThingsStore to work.
  */
 const SCHEMA_STATEMENTS = [
-  // Nouns table (type registry)
+  // Nouns table (type registry) - includes all columns from db/nouns.ts
   `CREATE TABLE IF NOT EXISTS nouns (
     noun TEXT PRIMARY KEY,
     plural TEXT,
     description TEXT,
     schema TEXT,
-    do_class TEXT
+    do_class TEXT,
+    sharded INTEGER DEFAULT 0,
+    shard_count INTEGER DEFAULT 1,
+    shard_key TEXT,
+    storage TEXT DEFAULT 'hot',
+    ttl_days INTEGER,
+    indexed_fields TEXT,
+    ns_strategy TEXT DEFAULT 'tenant',
+    replica_regions TEXT,
+    consistency_mode TEXT DEFAULT 'eventual',
+    replica_binding TEXT
   )`,
 
   // Things table (entity storage)
@@ -710,12 +720,10 @@ export class TestDO extends DO<Env> {
       // Also initialize ns from storage if available
       const storedNs = await ctx.storage.get<string>('ns')
       if (storedNs) {
-        // @ts-expect-error - Setting readonly ns
-        this.ns = storedNs
+        this._ns = storedNs
       } else {
         // Fall back to DO ID as namespace for RPC-only access
-        // @ts-expect-error - Setting readonly ns
-        this.ns = ctx.id.toString()
+        this._ns = ctx.id.toString()
       }
     })
   }
@@ -730,20 +738,17 @@ export class TestDO extends DO<Env> {
     // Get ns from header - always use if provided (testing pattern)
     const headerNs = request.headers.get('X-DO-NS')
     if (headerNs) {
-      // @ts-expect-error - Setting readonly ns
-      this.ns = headerNs
+      this._ns = headerNs
       // Persist for future requests
       await this.ctx.storage.put('ns', headerNs)
     } else if (!this.ns) {
       // If no header and no ns, try to load from storage or use DO id
       const storedNs = await this.ctx.storage.get<string>('ns')
       if (storedNs) {
-        // @ts-expect-error - Setting readonly ns
-        this.ns = storedNs
+        this._ns = storedNs
       } else {
         // Use DO id as fallback
-        // @ts-expect-error - Setting readonly ns
-        this.ns = this.ctx.id.toString()
+        this._ns = this.ctx.id.toString()
       }
     }
 
