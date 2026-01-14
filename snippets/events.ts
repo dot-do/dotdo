@@ -757,7 +757,8 @@ const eventsIngestHandler = {
 
     const validation = validateIngestRequest(body)
     if (!validation.valid) {
-      return new Response(JSON.stringify({ error: validation.error }), {
+      const errorResponse = validation as { valid: false; error: string }
+      return new Response(JSON.stringify({ error: errorResponse.error }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       })
