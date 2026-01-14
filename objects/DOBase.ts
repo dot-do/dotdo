@@ -3441,6 +3441,44 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       }
     }
 
+    // Handle /nouns endpoint for noun configuration (routing, storage, sharding)
+    if (url.pathname === '/nouns' && request.method === 'GET') {
+      try {
+        const cursor = this.ctx.storage.sql.exec<{
+          noun: string
+          plural: string | null
+          description: string | null
+          schema: string | null
+          do_class: string | null
+          sharded: number | null
+          shard_count: number | null
+          shard_key: string | null
+          storage: string | null
+          ttl_days: number | null
+          indexed_fields: string | null
+          ns_strategy: string | null
+        }>('SELECT * FROM nouns')
+        const nouns = cursor.toArray().map(row => ({
+          noun: row.noun,
+          plural: row.plural,
+          description: row.description,
+          schema: row.schema ? JSON.parse(row.schema) : null,
+          doClass: row.do_class,
+          sharded: Boolean(row.sharded),
+          shardCount: row.shard_count ?? 1,
+          shardKey: row.shard_key,
+          storage: row.storage ?? 'hot',
+          ttlDays: row.ttl_days,
+          indexedFields: row.indexed_fields ? JSON.parse(row.indexed_fields) : null,
+          nsStrategy: row.ns_strategy ?? 'tenant',
+        }))
+        return Response.json({ items: nouns, count: nouns.length })
+      } catch (err) {
+        console.error('Error fetching nouns:', err)
+        return Response.json({ items: [], count: 0, error: 'Failed to fetch nouns' })
+      }
+    }
+
     // Delegate to Hono app if configured
     if (this.app) {
       const response = await this.app.fetch(request, this.env)

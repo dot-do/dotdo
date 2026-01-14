@@ -50,8 +50,85 @@ interface DORoute {
   shardCount?: number
 }
 
-const DO_ROUTES: Record<string, DORoute> = {
-  'test-collection': { binding: 'COLLECTION_DO', nsStrategy: 'singleton' },
+/**
+ * Cached noun configurations per tenant
+ * Key: tenant name, Value: Map of noun -> config
+ */
+const nounConfigCache = new Map<string, Map<string, NounConfig>>()
+
+interface NounConfig {
+  noun: string
+  plural: string | null
+  doClass: string | null
+  sharded: boolean
+  shardCount: number
+  shardKey: string | null
+  storage: string
+  ttlDays: number | null
+  nsStrategy: string
+}
+
+/**
+ * Fetch noun configuration from the DO
+ *
+ * @param env - Cloudflare env with DO bindings
+ * @param tenant - Tenant namespace
+ * @returns Map of noun (lowercase plural) to config
+ */
+async function fetchNounConfig(
+  env: Env,
+  tenant: string
+): Promise<Map<string, NounConfig>> {
+  // Check cache first
+  const cached = nounConfigCache.get(tenant)
+  if (cached) {
+    return cached
+  }
+
+  // Query the DO for noun config
+  if (!env.DO) {
+    return new Map()
+  }
+
+  try {
+    const id = env.DO.idFromName(tenant)
+    const stub = env.DO.get(id)
+
+    // Query the nouns table via the DO's /query endpoint
+    const response = await stub.fetch(new Request('https://internal/nouns', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch noun config for tenant ${tenant}: ${response.status}`)
+      return new Map()
+    }
+
+    const data = await response.json() as { items?: NounConfig[] } | NounConfig[]
+    const nouns = Array.isArray(data) ? data : (data.items ?? [])
+
+    // Build lookup map by lowercase plural (the route path)
+    const configMap = new Map<string, NounConfig>()
+    for (const noun of nouns) {
+      const key = (noun.plural ?? noun.noun).toLowerCase()
+      configMap.set(key, noun)
+    }
+
+    // Cache for this tenant
+    nounConfigCache.set(tenant, configMap)
+    return configMap
+  } catch (err) {
+    console.warn(`Error fetching noun config for tenant ${tenant}:`, err)
+    return new Map()
+  }
+}
+
+/**
+ * Static route overrides for special DO bindings
+ * These take precedence over noun config
+ */
+const STATIC_DO_ROUTES: Record<string, DORoute> = {
   'browsers': { binding: 'BROWSER_DO', nsStrategy: 'tenant' },
   'sandboxes': { binding: 'SANDBOX_DO', nsStrategy: 'tenant' },
   'obs': { binding: 'OBS_BROADCASTER', nsStrategy: 'singleton' },
@@ -60,58 +137,100 @@ const DO_ROUTES: Record<string, DORoute> = {
 /**
  * Get DO binding and namespace for a request
  *
+ * Routing priority:
+ * 1. Static routes (STATIC_DO_ROUTES) for special DO bindings
+ * 2. Noun config from the nouns table (sharding, storage tier, etc.)
+ * 3. Default: main DO binding with tenant namespace
+ *
  * @param env - Cloudflare env with DO bindings
  * @param pathname - Request pathname
  * @param hostname - Request hostname for tenant derivation
  * @returns DO namespace binding and namespace string
  */
-function getDOBinding(
+async function getDOBinding(
   env: Env,
   pathname: string,
   hostname: string
-): { ns: DurableObjectNamespace; nsName: string } | null {
+): Promise<{ ns: DurableObjectNamespace; nsName: string; nounConfig?: NounConfig } | null> {
   // Extract first path segment (e.g., '/browsers/123' → 'browsers')
   const segments = pathname.slice(1).split('/')
   const firstSegment = segments[0]?.toLowerCase() ?? ''
+  const tenant = getTenantFromHostname(hostname)
 
-  // Check for special routes
-  const route = DO_ROUTES[firstSegment]
-
-  if (route) {
-    const binding = env[route.binding]
+  // 1. Check for static route overrides first
+  const staticRoute = STATIC_DO_ROUTES[firstSegment]
+  if (staticRoute) {
+    const binding = env[staticRoute.binding]
     if (!binding) {
       return null // Binding not available
     }
 
     let nsName: string
-    switch (route.nsStrategy) {
+    switch (staticRoute.nsStrategy) {
       case 'singleton':
         nsName = firstSegment
         break
       case 'sharded':
-        // Hash the ID to determine shard
         const id = segments[1] ?? ''
-        const shardCount = route.shardCount ?? 16
+        const shardCount = staticRoute.shardCount ?? 16
         const hash = simpleHash(id)
         nsName = `${firstSegment}-shard-${hash % shardCount}`
         break
       case 'tenant':
       default:
-        nsName = getTenantFromHostname(hostname)
+        nsName = tenant
         break
     }
 
     return { ns: binding, nsName }
   }
 
-  // Default: use main DO binding with tenant namespace
+  // 2. Check noun config from the nouns table
+  const nounConfig = await fetchNounConfig(env, tenant)
+  const nounEntry = nounConfig.get(firstSegment)
+
+  if (nounEntry) {
+    // Determine binding based on doClass
+    const bindingName = nounEntry.doClass as keyof Env | null
+    const binding = bindingName ? env[bindingName] as DurableObjectNamespace | undefined : env.DO
+    if (!binding) {
+      // Fall back to default DO if specified binding not available
+      if (!env.DO) return null
+    }
+
+    const nsBinding = binding ?? env.DO
+    if (!nsBinding) return null
+
+    let nsName: string
+    const nsStrategy = nounEntry.nsStrategy || 'tenant'
+
+    switch (nsStrategy) {
+      case 'singleton':
+        nsName = firstSegment
+        break
+      case 'sharded':
+        const id = segments[1] ?? ''
+        const shardCount = nounEntry.shardCount ?? 16
+        const hash = simpleHash(id)
+        nsName = `${firstSegment}-shard-${hash % shardCount}`
+        break
+      case 'tenant':
+      default:
+        nsName = tenant
+        break
+    }
+
+    return { ns: nsBinding, nsName, nounConfig: nounEntry }
+  }
+
+  // 3. Default: use main DO binding with tenant namespace
   if (!env.DO) {
     return null
   }
 
   return {
     ns: env.DO,
-    nsName: getTenantFromHostname(hostname),
+    nsName: tenant,
   }
 }
 
@@ -573,7 +692,7 @@ app.all('/api/*', async (c) => {
   const pathWithoutApi = url.pathname.replace(/^\/api/, '') || '/'
 
   // Get appropriate DO binding based on route
-  const doBinding = getDOBinding(env, pathWithoutApi, url.hostname)
+  const doBinding = await getDOBinding(env, pathWithoutApi, url.hostname)
   if (!doBinding) {
     return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
   }
@@ -599,7 +718,7 @@ app.all('*', async (c) => {
   const url = new URL(c.req.url)
 
   // Get appropriate DO binding based on route
-  const doBinding = getDOBinding(env, url.pathname, url.hostname)
+  const doBinding = await getDOBinding(env, url.pathname, url.hostname)
   if (!doBinding) {
     return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
   }

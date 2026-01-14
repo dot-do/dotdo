@@ -1,17 +1,50 @@
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
 import { eq, isNotNull } from 'drizzle-orm'
 import { z } from 'zod'
 
 // ============================================================================
-// NOUNS - Optional Type Registry (for validation/introspection, not required FK)
+// NOUNS - Type Registry with Storage/Routing Configuration
+// ============================================================================
+//
+// Nouns define collection types and how they should be stored/routed.
+// The API layer uses this to determine how to handle requests:
+// - Which DO binding to use
+// - Whether the collection is sharded
+// - Hot (DO) vs cold (R2 Iceberg) storage
+// - TTL for tiered storage
+//
+// Example configurations:
+//   Customer: { sharded: false, storage: 'hot' }
+//   Event:    { sharded: true, shardCount: 16, storage: 'tiered', ttlDays: 30 }
+//   Log:      { sharded: true, shardCount: 64, storage: 'cold' }
 // ============================================================================
 
 export const nouns = sqliteTable('nouns', {
-  noun: text('noun').primaryKey(), // 'Customer', 'Agent'
-  plural: text('plural'), // 'Customers', 'Agents'
+  // Identity
+  noun: text('noun').primaryKey(), // 'Customer', 'Agent', 'Event'
+  plural: text('plural'), // 'Customers', 'Agents', 'Events'
   description: text('description'),
-  schema: text('schema', { mode: 'json' }), // Field definitions
-  doClass: text('do_class'), // CF binding if DO subclass
+
+  // Schema - field definitions for validation
+  schema: text('schema', { mode: 'json' }), // JSON Schema or field definitions
+
+  // DO Routing
+  doClass: text('do_class'), // CF binding name (e.g., 'DO', 'BROWSER_DO')
+
+  // Sharding Configuration
+  sharded: integer('sharded', { mode: 'boolean' }).default(false),
+  shardCount: integer('shard_count').default(1), // Number of shards if sharded
+  shardKey: text('shard_key'), // Field to shard by (default: id)
+
+  // Storage Tier Configuration
+  storage: text('storage').default('hot'), // 'hot' | 'cold' | 'tiered'
+  ttlDays: integer('ttl_days'), // Days before archiving to cold (for tiered)
+
+  // Query Optimization
+  indexedFields: text('indexed_fields', { mode: 'json' }), // JSON array of fields to index
+
+  // Namespace Strategy
+  nsStrategy: text('ns_strategy').default('tenant'), // 'tenant' | 'singleton' | 'sharded'
 })
 
 // ============================================================================

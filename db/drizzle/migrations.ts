@@ -12,6 +12,7 @@ import { sql } from 'drizzle-orm'
 // Import the generated SQL migration as text
 // Wrangler bundler will inline this as a string via the Text rule
 import migration0000 from './0000_gray_revanche.sql'
+import migration0001 from './0001_solid_slayback.sql'
 import journal from './meta/_journal.json'
 
 /**
@@ -62,6 +63,7 @@ function hashSql(sqlContent: string): string {
 // Map migration files to their tags
 const migrationFiles: Record<string, string> = {
   '0000_gray_revanche': migration0000,
+  '0001_solid_slayback': migration0001,
 }
 
 /**
@@ -146,6 +148,13 @@ export function runMigrations(sqlInterface: SqlInterface): void {
       try {
         sqlInterface.exec(statement)
       } catch (err) {
+        // Handle "table already exists" errors gracefully
+        // This can happen if the database was created manually or migration tracking was lost
+        const errorMsg = String(err)
+        if (errorMsg.includes('already exists')) {
+          console.warn(`Skipping statement (already exists): ${statement.substring(0, 60)}...`)
+          continue
+        }
         console.error(`Migration failed for statement: ${statement.substring(0, 100)}...`, err)
         throw err
       }
