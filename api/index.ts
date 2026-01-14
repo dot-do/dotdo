@@ -28,9 +28,20 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Env } from './types'
 import { analyticsRouter } from './analytics/router'
+import {
+  routeRequest,
+  getTenantFromHostname,
+  fetchNounConfig,
+  getDOBinding,
+  selectNearestReplica,
+  extractLocationFromHeaders,
+  type NounConfig,
+} from './utils/router'
+import { createRoutingSpan, addRoutingHeaders, RoutingDebugInfo } from './utils/routing-telemetry'
+import { parseConsistencyMode, shouldRouteToReplica } from './utils/consistency'
 
 export { DO } from '../objects/DO'
-export type { LocationInfo }
+export type { LocationInfo } from './utils/location'
 
 // ============================================================================
 // DO ROUTING
@@ -51,82 +62,8 @@ interface DORoute {
   shardCount?: number
 }
 
-/**
- * Cached noun configurations per tenant
- * Key: tenant name, Value: Map of noun -> config
- */
-const nounConfigCache = new Map<string, Map<string, NounConfig>>()
-
-interface NounConfig {
-  noun: string
-  plural: string | null
-  doClass: string | null
-  sharded: boolean
-  shardCount: number
-  shardKey: string | null
-  storage: string
-  ttlDays: number | null
-  nsStrategy: string
-  consistencyMode?: 'strong' | 'eventual'
-  replicaRegions?: string[]
-  replicaCount?: number
-}
-
-/**
- * Fetch noun configuration from the DO
- *
- * @param env - Cloudflare env with DO bindings
- * @param tenant - Tenant namespace
- * @returns Map of noun (lowercase plural) to config
- */
-async function fetchNounConfig(
-  env: Env,
-  tenant: string
-): Promise<Map<string, NounConfig>> {
-  // Check cache first
-  const cached = nounConfigCache.get(tenant)
-  if (cached) {
-    return cached
-  }
-
-  // Query the DO for noun config
-  if (!env.DO) {
-    return new Map()
-  }
-
-  try {
-    const id = env.DO.idFromName(tenant)
-    const stub = env.DO.get(id)
-
-    // Query the nouns table via the DO's /query endpoint
-    const response = await stub.fetch(new Request('https://internal/nouns', {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    }))
-
-    if (!response.ok) {
-      console.warn(`Failed to fetch noun config for tenant ${tenant}: ${response.status}`)
-      return new Map()
-    }
-
-    const data = await response.json() as { items?: NounConfig[] } | NounConfig[]
-    const nouns = Array.isArray(data) ? data : (data.items ?? [])
-
-    // Build lookup map by lowercase plural (the route path)
-    const configMap = new Map<string, NounConfig>()
-    for (const noun of nouns) {
-      const key = (noun.plural ?? noun.noun).toLowerCase()
-      configMap.set(key, noun)
-    }
-
-    // Cache for this tenant
-    nounConfigCache.set(tenant, configMap)
-    return configMap
-  } catch (err) {
-    console.warn(`Error fetching noun config for tenant ${tenant}:`, err)
-    return new Map()
-  }
-}
+// NounConfig interface and fetchNounConfig function are imported from ./utils/router
+// See router.ts for implementations
 
 /**
  * Static route overrides for special DO bindings
@@ -370,36 +307,11 @@ function selectNearestReplica(
   return replicaRegions[0] ?? 'unknown'
 }
 
-/**
- * Extract tenant from hostname
- *
- * Examples:
- * - acme.api.dotdo.dev → 'acme'
- * - localhost:8787 → 'default'
- * - api.dotdo.dev → 'default'
- */
-function getTenantFromHostname(hostname: string): string {
-  const hostParts = hostname.split('.')
-  // If 3+ parts (e.g., tenant.api.dotdo.dev), use first part
-  return hostParts.length > 2 ? (hostParts[0] ?? 'default') : 'default'
-}
-
-/**
- * Simple hash function for sharding
- */
-function simpleHash(str: string): number {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  return Math.abs(hash)
-}
-
-// Legacy function for backward compatibility
-function getNamespace(url: URL): string {
-  return getTenantFromHostname(url.hostname)
-}
+// Functions imported from ./utils/router:
+// - getTenantFromHostname
+// - getNamespace
+// - simpleHash
+// See router.ts for implementations
 
 // ============================================================================
 // SCATTER-GATHER FOR SHARDED QUERIES
@@ -639,15 +551,20 @@ app.route('/analytics', analyticsRouter)
 // ============================================================================
 
 /**
- * POST /query - Execute scatter-gather query across sharded DOs
+ * POST /query - Execute query with automatic noun config detection
+ *
+ * This endpoint automatically detects the noun type from the collection parameter,
+ * fetches the noun config to determine routing (sharding, consistency, replicas),
+ * and applies appropriate routing logic.
  *
  * Request body:
  * {
- *   collection: string,      // Collection to query
+ *   collection: string,      // Collection to query (e.g., 'customers', 'events')
  *   filter?: object,         // Filter criteria
  *   sort?: { field: string, order: 'asc' | 'desc' },
  *   limit?: number,          // Default: 100
  *   offset?: number,         // Default: 0
+ *   consistency?: string,    // Optional: override consistency mode
  * }
  *
  * Response:
@@ -656,6 +573,8 @@ app.route('/analytics', analyticsRouter)
  *   meta: {
  *     total: number,         // Total matching items
  *     shards: number,        // Number of shards queried
+ *     consistency: string,   // Consistency mode used
+ *     routed_to_replica: boolean,  // Whether routed to replica
  *     errors: array,         // Any shard errors
  *   },
  * }
@@ -672,11 +591,7 @@ app.post('/query', async (c) => {
     sort?: { field: string; order: 'asc' | 'desc' }
     limit?: number
     offset?: number
-    shardConfig?: {
-      binding: string
-      prefix: string
-      count: number
-    }
+    consistency?: string
   }
   try {
     body = await c.req.json()
@@ -684,39 +599,65 @@ app.post('/query', async (c) => {
     return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid JSON body' } }, 400)
   }
 
-  // For now, use default DO binding for queries
-  // In the future, this can be configured per-collection
   if (!env.DO) {
     return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
   }
 
-  // Build the query URL for the DO
-  const collection = body.collection ?? 'things'
+  // Extract collection name and normalize
+  const collection = (body.collection ?? 'things').toLowerCase()
+
+  // Fetch noun config to determine routing
+  const nounConfig = await fetchNounConfig(env, tenant)
+  const config = nounConfig.get(collection)
+
+  // Parse consistency mode from request or config
+  const queryRequest = new Request(new URL(`/${collection}`, url.origin).toString(), {
+    method: 'GET',
+    headers: c.req.raw.headers,
+  })
+  const consistencyMode = body.consistency
+    ? (body.consistency as 'strong' | 'eventual' | 'causal')
+    : parseConsistencyMode(queryRequest, config)
+
+  // Build the query URL parameters
   const queryParams = new URLSearchParams()
   if (body.filter) queryParams.set('filter', JSON.stringify(body.filter))
   if (body.sort) queryParams.set('sort', `${body.sort.field}:${body.sort.order}`)
   if (body.limit) queryParams.set('limit', String(body.limit))
   if (body.offset) queryParams.set('offset', String(body.offset))
+  if (consistencyMode && consistencyMode !== 'eventual') {
+    queryParams.set('consistency', consistencyMode)
+  }
 
   const queryUrl = `/${collection}?${queryParams.toString()}`
-  const queryRequest = new Request(new URL(queryUrl, url.origin).toString(), {
+  const finalQueryRequest = new Request(new URL(queryUrl, url.origin).toString(), {
     method: 'GET',
     headers: c.req.raw.headers,
   })
 
-  // Check if this collection has a sharded configuration
-  const shardConfig = body.shardConfig
-  if (shardConfig) {
+  // Determine if we should use sharding
+  const isSharded = config && config.sharded
+  let routedToReplica = false
+
+  if (isSharded && config) {
     // Use scatter-gather for sharded collections
-    const binding = env[shardConfig.binding as keyof Env] as DurableObjectNamespace | undefined
+    const binding = config.doClass ? (env[config.doClass as keyof Env] as DurableObjectNamespace | undefined) : env.DO
     if (!binding) {
-      return c.json({ error: { code: 'INVALID_CONFIG', message: `Unknown binding: ${shardConfig.binding}` } }, 400)
+      return c.json({
+        error: {
+          code: 'INVALID_CONFIG',
+          message: `Unknown binding: ${config.doClass}`,
+        },
+      }, 400)
     }
 
-    const { results, errors } = await scatterGather(queryRequest, {
+    // Build shard prefix from noun name
+    const shardPrefix = `${collection}-shard-`
+
+    const { results, errors } = await scatterGather(finalQueryRequest, {
       binding,
-      shardCount: shardConfig.count,
-      shardPrefix: shardConfig.prefix,
+      shardCount: config.shardCount,
+      shardPrefix,
       tenant,
       timeout: 10000,
     })
@@ -742,16 +683,71 @@ app.post('/query', async (c) => {
       results: paginatedResults,
       meta: {
         total: sortedResults.length,
-        shards: shardConfig.count,
+        shards: config.shardCount,
+        consistency: consistencyMode,
+        routed_to_replica: routedToReplica,
         errors: errors.length > 0 ? errors : undefined,
       },
     })
   }
 
-  // Single DO query (non-sharded)
-  const id = env.DO.idFromName(tenant)
-  const stub = env.DO.get(id)
-  const response = await stub.fetch(queryRequest)
+  // Single DO query (non-sharded) - determine routing
+  const binding = config?.doClass ? (env[config.doClass as keyof Env] as DurableObjectNamespace | undefined) : env.DO
+  if (!binding) {
+    return c.json(
+      {
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'DO binding not available',
+        },
+      },
+      503
+    )
+  }
+
+  // Check if should route to replica for this read operation
+  const location = extractLocationFromHeaders(c.req)
+  if (location && shouldRouteToReplica('GET', consistencyMode) && config?.replicaRegions && config.replicaRegions.length > 0) {
+    // Check if location is in replica regions
+    if (config.replicaRegions.includes(location.region)) {
+      const replicaBinding = (env as Record<string, unknown>).REPLICA_DO as DurableObjectNamespace | undefined
+      if (replicaBinding) {
+        const selectedReplica = selectNearestReplica(
+          location.region,
+          config.replicaRegions,
+          location.lat,
+          location.lon
+        )
+        const id = replicaBinding.idFromName(tenant)
+        const stub = replicaBinding.get(id)
+        const response = await stub.fetch(finalQueryRequest)
+        routedToReplica = true
+
+        if (!response.ok) {
+          return response
+        }
+
+        const data = await response.json() as { items?: unknown[] } | unknown[]
+        const items = Array.isArray(data) ? data : (data.items ?? [])
+
+        return c.json({
+          results: items,
+          meta: {
+            total: items.length,
+            shards: 1,
+            consistency: consistencyMode,
+            routed_to_replica: true,
+            replica_region: selectedReplica,
+          },
+        })
+      }
+    }
+  }
+
+  // Default: query primary DO
+  const id = binding.idFromName(tenant)
+  const stub = binding.get(id)
+  const response = await stub.fetch(finalQueryRequest)
 
   if (!response.ok) {
     return response
@@ -765,6 +761,8 @@ app.post('/query', async (c) => {
     meta: {
       total: items.length,
       shards: 1,
+      consistency: consistencyMode,
+      routed_to_replica: routedToReplica,
     },
   })
 })
@@ -823,64 +821,178 @@ app.post('/query/aggregate', async (c) => {
 app.all('/api/*', async (c) => {
   const env = c.env
   const url = new URL(c.req.url)
+  const requestId = c.req.header('X-Request-ID') || crypto.randomUUID()
 
-  // Strip /api prefix for DO routing
-  const pathWithoutApi = url.pathname.replace(/^\/api/, '') || '/'
+  // Start routing telemetry span
+  const routingSpan = createRoutingSpan(requestId, url.pathname, c.req.method)
 
-  // Extract location info from CF headers (if available)
-  const location = extractLocationFromHeaders(c.req)
+  try {
+    // Strip /api prefix for DO routing
+    const pathWithoutApi = url.pathname.replace(/^\/api/, '') || '/'
 
-  // Get appropriate DO binding based on route
-  const doBinding = await getDOBinding(
-    env,
-    pathWithoutApi,
-    url.hostname,
-    c.req.method,
-    location
-  )
-  if (!doBinding) {
-    return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
+    // Extract location info from CF headers (if available)
+    const location = extractLocationFromHeaders(c.req)
+
+    // Get appropriate DO binding based on route
+    const doBinding = await getDOBinding(
+      env,
+      pathWithoutApi,
+      url.hostname,
+      c.req.method,
+      location
+    )
+    if (!doBinding) {
+      // Log routing failure
+      routingSpan.end({
+        targetBinding: 'none',
+        consistencyMode: 'unknown',
+        isReplica: false,
+      })
+      return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
+    }
+
+    // Log successful routing decision
+    const targetBindingName = doBinding.ns === env.DO ? 'DO' :
+                             doBinding.ns === env.REPLICA_DO ? 'REPLICA_DO' :
+                             doBinding.ns === env.BROWSER_DO ? 'BROWSER_DO' :
+                             doBinding.ns === env.SANDBOX_DO ? 'SANDBOX_DO' :
+                             doBinding.ns === env.COLLECTION_DO ? 'COLLECTION_DO' :
+                             'DO'
+
+    routingSpan.end({
+      targetBinding: targetBindingName,
+      consistencyMode: 'eventual',
+      isReplica: doBinding.isReplica ?? false,
+      replicaRegion: doBinding.replicaRegion,
+      nounName: pathWithoutApi.split('/')[1],
+      colo: location?.colo,
+      region: location?.region,
+      lat: location?.lat,
+      lon: location?.lon,
+    })
+
+    const doUrl = new URL(pathWithoutApi + url.search, url.origin)
+
+    const id = doBinding.ns.idFromName(doBinding.nsName)
+    const stub = doBinding.ns.get(id)
+
+    // Forward request to DO
+    const doRequest = new Request(doUrl.toString(), {
+      method: c.req.method,
+      headers: c.req.raw.headers,
+      body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
+    })
+
+    const response = await stub.fetch(doRequest)
+
+    // Add routing headers to response
+    addRoutingHeaders(response.headers, {
+      timestamp: Date.now(),
+      requestId,
+      pathname: url.pathname,
+      method: c.req.method,
+      targetBinding: targetBindingName,
+      consistencyMode: 'eventual',
+      isReplica: doBinding.isReplica ?? false,
+      replicaRegion: doBinding.replicaRegion,
+      colo: location?.colo,
+      region: location?.region,
+      routingDurationMs: 0, // Timing measured by the span
+    })
+
+    return response
+  } catch (error) {
+    // Log routing error
+    routingSpan.end({
+      targetBinding: 'error',
+      consistencyMode: 'unknown',
+      isReplica: false,
+    })
+    throw error
   }
-
-  const doUrl = new URL(pathWithoutApi + url.search, url.origin)
-
-  const id = doBinding.ns.idFromName(doBinding.nsName)
-  const stub = doBinding.ns.get(id)
-
-  // Forward request to DO
-  const doRequest = new Request(doUrl.toString(), {
-    method: c.req.method,
-    headers: c.req.raw.headers,
-    body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
-  })
-
-  return stub.fetch(doRequest)
 })
 
 // Forward all other routes directly to DO
 app.all('*', async (c) => {
   const env = c.env
   const url = new URL(c.req.url)
+  const requestId = c.req.header('X-Request-ID') || crypto.randomUUID()
 
-  // Extract location info from CF headers (if available)
-  const location = extractLocationFromHeaders(c.req)
+  // Start routing telemetry span
+  const routingSpan = createRoutingSpan(requestId, url.pathname, c.req.method)
 
-  // Get appropriate DO binding based on route
-  const doBinding = await getDOBinding(
-    env,
-    url.pathname,
-    url.hostname,
-    c.req.method,
-    location
-  )
-  if (!doBinding) {
-    return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
+  try {
+    // Extract location info from CF headers (if available)
+    const location = extractLocationFromHeaders(c.req)
+
+    // Get appropriate DO binding based on route
+    const doBinding = await getDOBinding(
+      env,
+      url.pathname,
+      url.hostname,
+      c.req.method,
+      location
+    )
+    if (!doBinding) {
+      // Log routing failure
+      routingSpan.end({
+        targetBinding: 'none',
+        consistencyMode: 'unknown',
+        isReplica: false,
+      })
+      return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'DO binding not available' } }, 503)
+    }
+
+    // Log successful routing decision
+    const targetBindingName = doBinding.ns === env.DO ? 'DO' :
+                             doBinding.ns === env.REPLICA_DO ? 'REPLICA_DO' :
+                             doBinding.ns === env.BROWSER_DO ? 'BROWSER_DO' :
+                             doBinding.ns === env.SANDBOX_DO ? 'SANDBOX_DO' :
+                             doBinding.ns === env.COLLECTION_DO ? 'COLLECTION_DO' :
+                             'DO'
+
+    routingSpan.end({
+      targetBinding: targetBindingName,
+      consistencyMode: 'eventual',
+      isReplica: doBinding.isReplica ?? false,
+      replicaRegion: doBinding.replicaRegion,
+      nounName: url.pathname.split('/')[1],
+      colo: location?.colo,
+      region: location?.region,
+      lat: location?.lat,
+      lon: location?.lon,
+    })
+
+    const id = doBinding.ns.idFromName(doBinding.nsName)
+    const stub = doBinding.ns.get(id)
+
+    const response = await stub.fetch(c.req.raw)
+
+    // Add routing headers to response
+    addRoutingHeaders(response.headers, {
+      timestamp: Date.now(),
+      requestId,
+      pathname: url.pathname,
+      method: c.req.method,
+      targetBinding: targetBindingName,
+      consistencyMode: 'eventual',
+      isReplica: doBinding.isReplica ?? false,
+      replicaRegion: doBinding.replicaRegion,
+      colo: location?.colo,
+      region: location?.region,
+      routingDurationMs: 0, // Timing measured by the span
+    })
+
+    return response
+  } catch (error) {
+    // Log routing error
+    routingSpan.end({
+      targetBinding: 'error',
+      consistencyMode: 'unknown',
+      isReplica: false,
+    })
+    throw error
   }
-
-  const id = doBinding.ns.idFromName(doBinding.nsName)
-  const stub = doBinding.ns.get(id)
-
-  return stub.fetch(c.req.raw)
 })
 
 // ============================================================================
