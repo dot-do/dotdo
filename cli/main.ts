@@ -38,6 +38,9 @@ import { tunnelCommand } from './commands/tunnel'
 import { deployCommand } from './commands/deploy-multi'
 import { startCommand } from './commands/start'
 import { evalCommand } from './commands/eval'
+import { replCommand } from './commands/repl'
+import { connectCommand } from './commands/connect'
+import { generateCommand } from './commands/generate'
 // Auth commands
 import { run as loginRun } from './commands/auth/login'
 import { run as logoutRun } from './commands/auth/logout'
@@ -90,6 +93,9 @@ program.addCommand(doCommand)
 program.addCommand(tunnelCommand)
 program.addCommand(deployCommand)
 program.addCommand(evalCommand)
+program.addCommand(replCommand)
+program.addCommand(connectCommand)
+program.addCommand(generateCommand)
 
 // Add service commands (cli.do)
 program.addCommand(callCommand)
@@ -338,6 +344,14 @@ program
       }
     })
   })
+
+// Make REPL the default when no command given
+program.action(async () => {
+  // Import dynamically to avoid circular dependency issues
+  const { replCommand: repl } = await import('./commands/repl')
+  const action = repl.action()
+  if (action) await action
+})
 
 // Parse arguments only when run directly (not when imported)
 // bin.ts will call program.parse() when using this module
