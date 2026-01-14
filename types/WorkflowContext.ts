@@ -897,3 +897,222 @@ export type WithRateLimit = WorkflowContext & { rateLimit: RateLimitCapability }
 export function hasRateLimit(ctx: WorkflowContext): ctx is WithRateLimit {
   return ctx != null && typeof (ctx as WithRateLimit).rateLimit === 'object' && (ctx as WithRateLimit).rateLimit !== null
 }
+
+// ============================================================================
+// API KEY TYPES (Governance Pillar)
+// ============================================================================
+
+/**
+ * Options for creating an API key
+ */
+export interface CreateApiKeyOptions {
+  /** Prefix for the key (e.g., 'sk_live_', 'pk_test_') */
+  prefix?: string
+  /** Expiration time */
+  expires?: Date | number
+  /** Number of uses remaining (undefined = unlimited) */
+  remaining?: number
+  /** Custom metadata to store with the key */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Result of creating an API key
+ */
+export interface CreateApiKeyResult {
+  /** The plaintext key (only returned once) */
+  key: string
+  /** The key ID for management operations */
+  keyId: string
+}
+
+/**
+ * Result of verifying an API key
+ */
+export interface ApiKeyVerifyResult {
+  /** Whether the key is valid */
+  valid: boolean
+  /** Key ID (if valid) */
+  keyId?: string
+  /** Remaining uses (if limited) */
+  remaining?: number
+  /** Metadata stored with the key */
+  metadata?: Record<string, unknown>
+  /** Error code if invalid */
+  code?: 'NOT_FOUND' | 'EXPIRED' | 'REVOKED' | 'LIMIT_EXCEEDED'
+}
+
+/**
+ * API Keys capability on WorkflowContext
+ */
+export interface ApiKeysCapability {
+  /**
+   * Create a new API key
+   * @returns The plaintext key (shown once) and key ID
+   */
+  create(options?: CreateApiKeyOptions): Promise<CreateApiKeyResult>
+
+  /**
+   * Verify an API key
+   * @param key - The plaintext key to verify
+   * @returns Verification result with validity and metadata
+   */
+  verify(key: string): Promise<ApiKeyVerifyResult>
+
+  /**
+   * Revoke an API key
+   * @param keyId - The key ID to revoke
+   * @returns true if revoked, false if not found
+   */
+  revoke(keyId: string): Promise<boolean>
+}
+
+/**
+ * WorkflowContext with API keys capability
+ */
+export type WithApiKeys = WorkflowContext & { keys: ApiKeysCapability }
+
+/**
+ * Check if context has API keys capability
+ */
+export function hasApiKeys(ctx: WorkflowContext): ctx is WithApiKeys {
+  return ctx != null && typeof (ctx as WithApiKeys).keys === 'object' && (ctx as WithApiKeys).keys !== null
+}
+
+// ============================================================================
+// USAGE METERING TYPES (Monetization Pillar)
+// ============================================================================
+
+/**
+ * Input for metering a usage event
+ */
+export interface MeterEventInput {
+  /** Name of the event (e.g., 'api_request', 'llm_tokens') */
+  eventName: string
+  /** Numeric value to meter */
+  value: number
+  /** Idempotency key for deduplication (auto-generated if not provided) */
+  idempotencyKey?: string
+  /** Arbitrary properties for dimensions */
+  properties?: Record<string, unknown>
+}
+
+/**
+ * Query parameters for usage aggregation
+ */
+export interface UsageQuery {
+  /** Filter by event name */
+  eventName?: string
+  /** Start of time range */
+  startTime?: Date
+  /** End of time range */
+  endTime?: Date
+  /** Filter by property dimensions */
+  dimensions?: Record<string, unknown>
+}
+
+/**
+ * Aggregated usage result
+ */
+export interface AggregatedUsage {
+  /** Total value sum */
+  total: number
+  /** Number of events */
+  count: number
+  /** Breakdown by dimension */
+  breakdown?: Record<string, number>
+}
+
+/**
+ * Usage metering capability on WorkflowContext
+ */
+export interface MeterCapability {
+  /**
+   * Record a usage event
+   * @param event - The event to meter
+   */
+  (event: MeterEventInput): Promise<void>
+
+  /**
+   * Query aggregated usage
+   * @param query - Query parameters
+   */
+  query(query: UsageQuery): Promise<AggregatedUsage>
+}
+
+/**
+ * WorkflowContext with metering capability
+ */
+export type WithMeter = WorkflowContext & { meter: MeterCapability }
+
+/**
+ * Check if context has metering capability
+ */
+export function hasMeter(ctx: WorkflowContext): ctx is WithMeter {
+  return ctx != null && typeof (ctx as WithMeter).meter === 'function'
+}
+
+// ============================================================================
+// ENTITLEMENT TYPES (Monetization Pillar)
+// ============================================================================
+
+/**
+ * Result of an entitlement check
+ */
+export interface EntitlementResult {
+  /** Whether entitled to the feature */
+  entitled: boolean
+  /** Numeric limit (if applicable) */
+  limit?: number
+  /** String value (if applicable) */
+  value?: string
+  /** Whether unlimited */
+  unlimited?: boolean
+  /** Denial reason */
+  reason?: string
+}
+
+/**
+ * Entitlement checking capability on WorkflowContext
+ */
+export interface EntitledCapability {
+  /**
+   * Check if entitled to a feature
+   * @param feature - Feature name to check
+   * @returns Entitlement result
+   */
+  (feature: string): Promise<EntitlementResult>
+
+  /**
+   * Check multiple features at once
+   * @param features - Array of feature names
+   * @returns Map of feature to result
+   */
+  many(features: string[]): Promise<Record<string, EntitlementResult>>
+}
+
+/**
+ * WorkflowContext with entitlement capability
+ */
+export type WithEntitled = WorkflowContext & { entitled: EntitledCapability }
+
+/**
+ * Check if context has entitlement capability
+ */
+export function hasEntitled(ctx: WorkflowContext): ctx is WithEntitled {
+  return ctx != null && typeof (ctx as WithEntitled).entitled === 'function'
+}
+
+// ============================================================================
+// COMBINED GOVERNANCE/MONETIZATION CONTEXT
+// ============================================================================
+
+/**
+ * WorkflowContext with all governance and monetization capabilities
+ */
+export type WithPlatformInfra = WorkflowContext & {
+  keys: ApiKeysCapability
+  rateLimit: RateLimitCapability
+  meter: MeterCapability
+  entitled: EntitledCapability
+}
