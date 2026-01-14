@@ -152,3 +152,14 @@ vite.config.ts.timestamp-*
 
 .wrangler/
 *.tmp
+
+# Beads issue tracker
+.beads/
+!.beads/issues.jsonl
+!.beads/config.yaml
+!.beads/README.md
+.beads-archive*/
+
+# Generated files
+worker-configuration.d.ts
+sandbox/
