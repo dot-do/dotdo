@@ -176,9 +176,9 @@ export const MYSQL_DIALECT: DialectConfig = {
   supportsReturning: false,
   supportsOnDuplicateKey: true,
   typeTranslations: new Map([
-    [/TINYINT\s*\(\s*\d+\s*\)/gi, 'INTEGER'],
-    [/INT\s*\(\s*\d+\s*\)/gi, 'INTEGER'],
-    [/BIGINT\s*\(\s*\d+\s*\)/gi, 'INTEGER'],
+    [/\bTINYINT\s*\(\s*\d+\s*\)/gi, 'INTEGER'],
+    [/\bBIGINT\s*\(\s*\d+\s*\)/gi, 'INTEGER'],
+    [/\bINT\s*\(\s*\d+\s*\)/gi, 'INTEGER'],
     [/VARCHAR\s*\(\s*\d+\s*\)/gi, 'TEXT'],
     [/\bDATETIME\b/gi, 'TEXT'],
     [/\bTIMESTAMP\b/gi, 'TEXT'],

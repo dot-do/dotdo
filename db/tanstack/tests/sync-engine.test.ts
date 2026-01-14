@@ -392,9 +392,10 @@ describe('SyncClient', () => {
 
   beforeEach(() => {
     mockWebSocket = createMockWebSocket()
-    // Mock global WebSocket
+    // Mock global WebSocket as a constructor
     originalWebSocket = globalThis.WebSocket
-    globalThis.WebSocket = vi.fn(() => mockWebSocket) as unknown as typeof WebSocket
+    const MockWebSocketConstructor = vi.fn().mockImplementation(() => mockWebSocket)
+    globalThis.WebSocket = MockWebSocketConstructor as unknown as typeof WebSocket
   })
 
   afterEach(() => {
@@ -682,7 +683,8 @@ describe('dotdoCollectionOptions', () => {
   beforeEach(() => {
     mockWebSocket = createMockWebSocket()
     originalWebSocket = globalThis.WebSocket
-    globalThis.WebSocket = vi.fn(() => mockWebSocket) as unknown as typeof WebSocket
+    const MockWebSocketConstructor = vi.fn().mockImplementation(() => mockWebSocket)
+    globalThis.WebSocket = MockWebSocketConstructor as unknown as typeof WebSocket
   })
 
   afterEach(() => {
@@ -948,7 +950,8 @@ describe('Error handling', () => {
     beforeEach(() => {
       mockWebSocket = createMockWebSocket()
       originalWebSocket = globalThis.WebSocket
-      globalThis.WebSocket = vi.fn(() => mockWebSocket) as unknown as typeof WebSocket
+      const MockWebSocketConstructor = vi.fn().mockImplementation(() => mockWebSocket)
+      globalThis.WebSocket = MockWebSocketConstructor as unknown as typeof WebSocket
     })
 
     afterEach(() => {
@@ -959,7 +962,9 @@ describe('Error handling', () => {
       const client = createSyncClient({ url: 'wss://example.com/sync' })
       const connectPromise = client.connect()
 
+      // First trigger error, then close - the close event rejects the promise
       mockWebSocket.onerror?.(new Error('Connection failed'))
+      mockWebSocket.onclose?.()
 
       await expect(connectPromise).rejects.toThrow()
       expect(client.getStatus()).toBe('disconnected')

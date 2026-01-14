@@ -313,13 +313,13 @@ npm run deploy
 
 ## Part of dotdo
 
-This is one of 38 API-compatible SDKs in dotdo:
+This is one of 90 API-compatible SDKs in dotdo:
 
 - `@dotdo/supabase` - This package
 - `@dotdo/mongo` - MongoDB API on DOs
 - `@dotdo/redis` - Redis API on DOs
 - `@dotdo/kafka` - Kafka API on DOs
-- [See all 38 compat SDKs](https://dotdo.dev/docs/compat)
+- [See all 90 compat SDKs](https://dotdo.dev/docs/compat)
 
 ---
 

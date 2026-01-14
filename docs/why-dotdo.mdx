@@ -143,22 +143,20 @@ Benefits:
 
 Most RPC frameworks make one call, wait, make another call, wait. Network latency compounds.
 
-dotdo uses **promise pipelining**. You express your entire workflow, and it executes as a single batched operation:
+dotdo uses **promise pipelining** with the workflow proxy. You express your entire workflow, and it executes as a single batched operation:
 
 ```typescript
-// This looks like 4 sequential operations
-const sprint = await priya`plan the sprint`
-  .map(issue => ralph`build ${issue}`)
-  .map(code => tom`review ${code}`)
-  .map(pr => tom`merge ${pr}`)
+// Using the workflow proxy for true promise pipelining
+const user = $.User(userId).get()           // Not awaited
+const orders = $.Order(user).list()         // Uses unawaited user
+const total = await $.Analytics(orders).summarize()  // Await triggers execution
 
-// But it's ONE network round trip
-// The server records your callbacks and replays them
+// All three operations execute in ONE network round trip
 ```
 
-This isn't magic—it's Cap'n Proto's promise pipelining adapted for the web. The `.map()` creates a **Magic Map** that captures your callback, sends it to the server, and executes it for each result.
+This is Cap'n Proto's promise pipelining adapted for the web. When using the workflow proxy (`$`), the **Magic Map** captures your callbacks, sends them to the server, and executes them where the data lives.
 
-Result: **N operations in 1 round trip** instead of N round trips.
+Result: **N operations in 1 round trip** instead of N round trips. See [Promise Pipelining](/docs/rpc) for details.
 
 ### Named Agents with Real Identity
 

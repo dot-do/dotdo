@@ -145,5 +145,10 @@ vite.config.ts.timestamp-*
 /blob-report/
 /playwright/.cache/
 /.playwright/
+
+# Test output directories
+/tests/.output/
+.test-agent-output/
+
 .wrangler/
 *.tmp

@@ -11,22 +11,99 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
 
 The `$` proxy is THE primary API in dotdo. One interface for durability, events, scheduling, AI, and cross-DO communication. This reference covers every aspect of the WorkflowContext API.
 
-## Quick Reference
+## Quick Reference Table
 
-| Category | API | Description |
-|----------|-----|-------------|
-| **Durability** | `$.track()` | Fire-and-forget telemetry |
-| | `$.send()` | Durable event emission |
-| | `$.try()` | Single attempt, fallible |
-| | `$.do()` | Durable with retries |
-| **Events** | `$.on.Noun.verb()` | Subscribe to events |
-| | `send.Noun.verb()` | Emit events (DSL) |
-| **Scheduling** | `$.every.*` | Fluent cron schedules |
-| **Cross-DO** | `$.Noun(id)` | RPC to other DOs |
-| **AI** | `$.ai`, `$.write`, etc. | Template literal AI |
-| **Control Flow** | `when()`, `waitFor()` | Conditionals and human-in-the-loop |
-| **State** | `$.state`, `$.log()` | State management |
-| **User** | `$.user` | Authenticated user context |
+### Complete API Surface
+
+| Category | API | Signature | Returns | Available In |
+|----------|-----|-----------|---------|--------------|
+| **Durability** | | | | |
+| | `$.track()` | `(event: string, data: unknown) => void` | `void` | All DOs |
+| | `$.send()` | `(event: string, data: T) => string` | `EventId` | All DOs |
+| | `$.try()` | `<T>(action: string, data: unknown, opts?: TryOptions) => Promise<T>` | `Promise<T>` | All DOs |
+| | `$.do()` | `<T>(action: string, data: unknown, opts?: DoOptions) => Promise<T>` | `Promise<T>` | All DOs |
+| **Events** | | | | |
+| | `$.on.Noun.verb()` | `(handler: EventHandler, opts?: HandlerOptions) => void` | `void` | All DOs |
+| | `send.Noun.verb()` | `(payload: T) => PipelinePromise` | `PipelinePromise` | Import from workflows |
+| **Scheduling** | | | | |
+| | `$.every.Day.atTime()` | `(handler: () => void) => void` | `void` | All DOs |
+| | `$.every(schedule, handler)` | `(schedule: string, handler: () => void) => void` | `void` | All DOs |
+| **Cross-DO RPC** | | | | |
+| | `$.Noun(id)` | `(id: string) => DomainProxy` | `DomainProxy` | All DOs |
+| | `$.Noun(id).method()` | `(...args: unknown[]) => RpcPromise<T>` | `RpcPromise<T>` | All DOs |
+| **AI Functions** | | | | |
+| | `$.ai` | `` `template literal` => AIPipelinePromise<string>`` | `AIPipelinePromise<string>` | AI-enabled DOs |
+| | `$.write` | `` `template literal` => AIPipelinePromise<WriteResult>`` | `AIPipelinePromise<WriteResult>` | AI-enabled DOs |
+| | `$.summarize` | `` `template literal` => AIPipelinePromise<string>`` | `AIPipelinePromise<string>` | AI-enabled DOs |
+| | `$.list` | `` `template literal` => AIPipelinePromise<string[]>`` | `AIPipelinePromise<string[]>` | AI-enabled DOs |
+| | `$.extract` | `` `template literal` => AIPipelinePromise<ExtractResult>`` | `AIPipelinePromise<ExtractResult>` | AI-enabled DOs |
+| | `$.is` | `` `template literal` => AIPipelinePromise<boolean>`` | `AIPipelinePromise<boolean>` | AI-enabled DOs |
+| | `$.decide()` | `(options: string[]) => AITemplateLiteralFn<T>` | Template literal fn | AI-enabled DOs |
+| **Control Flow** | | | | |
+| | `when()` | `(cond, { then, else? }) => PipelinePromise` | `PipelinePromise` | Import from workflows |
+| | `waitFor()` | `(event: string, opts?) => PipelinePromise` | `PipelinePromise` | Import from workflows |
+| | `$.sleep()` | `(duration: string \| number) => Promise<void>` | `Promise<void>` | Workflow DOs |
+| **Version Control** | | | | |
+| | `$.branch()` | `(name: string) => Promise<void>` | `Promise<void>` | All DOs |
+| | `$.checkout()` | `(ref: string) => Promise<void>` | `Promise<void>` | All DOs |
+| | `$.merge()` | `(branch: string) => Promise<void>` | `Promise<void>` | All DOs |
+| **State & Logging** | | | | |
+| | `$.state` | `Record<string, unknown>` | Object | All DOs |
+| | `$.log()` | `(message: string, data?: unknown) => void` | `void` | All DOs |
+| | `$.user` | `UserContext \| null` | Object | All DOs |
+| **Capabilities** | | | | |
+| | `$.fs` | `FsCapability` | Object | WithFs DOs |
+| | `$.git` | `GitCapability` | Object | WithGit DOs |
+| | `$.bash` | `BashCapability` | Object | WithBash DOs |
+| | `$.rateLimit` | `RateLimitCapability` | Object | WithRateLimit DOs |
+
+### Durability Matrix
+
+|  | Fire & Forget | Durable |
+|---|---------------|---------|
+| **Event** | `track()` -> void | `send()` -> EventId |
+| **Action** | `try()` -> T | `do()` -> T |
+
+### Import Reference
+
+```typescript
+// WorkflowContext is available as this.$ in DO methods
+// No import needed for core $ functionality
+
+// For standalone workflow utilities, import from workflows
+import {
+  on,           // Event subscription: on.Customer.signup(handler)
+  every,        // Scheduling: every.Monday.at9am(handler)
+  send,         // Event emission: send.Order.shipped(payload)
+  when,         // Conditional: when(cond, { then, else })
+  waitFor,      // Human-in-loop: await waitFor('approval')
+  Domain,       // Domain factory: Domain('CRM', handlers)
+  Workflow,     // Workflow definition: Workflow('name', fn)
+} from 'dotdo/workflows'
+
+// Type imports
+import type {
+  WorkflowContext,
+  EventHandler,
+  HandlerOptions,
+  UserContext,
+  RetryPolicy,
+  DoOptions,
+  TryOptions,
+} from '@dotdo/types'
+
+// Capability types
+import type {
+  WithFs,
+  WithGit,
+  WithBash,
+  WithRateLimit,
+  WithAllCapabilities,
+} from '@dotdo/types'
+
+// Type guards for capability checking
+import { hasFs, hasGit, hasBash, hasRateLimit } from '@dotdo/types'
+```
 
 ## Getting the $ Context
 
@@ -1078,6 +1155,65 @@ async function processLargeRefund(refund: Refund) {
 The workflow hibernates during `waitFor()` - the DO can be evicted and restored when the event arrives. State is preserved across hibernation.
 </Callout>
 
+### $.sleep() - Durable Delays
+
+Pause workflow execution for a specified duration. The workflow hibernates during the sleep, preserving state across DO eviction.
+
+```typescript
+import { Workflow } from 'dotdo/workflows'
+
+// Multi-day onboarding workflow
+const onboardingWorkflow = Workflow('customer-onboarding', async ($, customer) => {
+  // Day 0: Welcome
+  await $.do('Email.sendWelcome', customer)
+  await $.do('Account.createTrial', customer)
+
+  // Day 1: Check engagement
+  await $.sleep('1 day')
+  const engaged = await $.do('Analytics.checkEngagement', customer.id)
+
+  if (!engaged) {
+    await $.do('Email.sendTip1', customer)
+  }
+
+  // Day 3: Feature highlight
+  await $.sleep('2 days')
+  await $.do('Email.sendFeatureHighlight', customer)
+
+  // Day 7: Trial ending soon
+  await $.sleep('4 days')
+  await $.do('Email.sendTrialEndingWarning', customer)
+})
+```
+
+#### Duration Formats
+
+`$.sleep()` accepts human-readable duration strings:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Milliseconds | `$.sleep(5000)` | Numeric value in ms |
+| Seconds | `$.sleep('30 seconds')` | Seconds duration |
+| Minutes | `$.sleep('5 minutes')` | Minutes duration |
+| Hours | `$.sleep('2 hours')` | Hours duration |
+| Days | `$.sleep('1 day')` | Days duration |
+| Weeks | `$.sleep('1 week')` | Weeks duration |
+
+| Property | Value |
+|----------|-------|
+| Blocking | Yes (suspends workflow) |
+| Durable | Yes (survives DO eviction) |
+| State | Preserved across sleep |
+| Use case | Long-running workflows, drip campaigns, retry delays |
+
+<Callout type="info">
+During `$.sleep()`, the Durable Object can be evicted from memory. When the sleep completes, the workflow resumes exactly where it left off with full state preservation.
+</Callout>
+
+<Callout type="warn">
+For short delays in non-durable contexts (like retry backoff), use `await new Promise(r => setTimeout(r, ms))` instead. `$.sleep()` has persistence overhead designed for long-running workflows.
+</Callout>
+
 ## Domain Factory
 
 Create callable domain objects that encapsulate business logic:
@@ -1237,6 +1373,114 @@ if (isValidNoun(maybeNoun)) {
 }
 ```
 
+## Advanced Context APIs
+
+WorkflowContext can be extended with specialized context APIs for common business operations.
+
+### Feature Flags ($.flag)
+
+```typescript
+import { createFlagContext } from 'dotdo/workflows'
+
+// Extend context with feature flags
+const ctx = createFlagContext(baseContext)
+
+// Check if flag is enabled for user
+const enabled = await ctx.flag('dark-mode').isEnabled(userId)
+
+// Get full evaluation with variant
+const result = await ctx.flag('checkout-flow').get(userId)
+if (result.enabled) {
+  console.log(`Variant: ${result.variant}`)
+  console.log(`Payload: ${result.payload}`)
+}
+
+// Manage flags
+await ctx.flag('new-feature').setTraffic(50)  // 50% rollout
+await ctx.flag('new-feature').enable()         // Enable for all
+await ctx.flag('broken-feature').disable()     // Disable
+
+// Fetch all flags for local evaluation
+const allFlags = await ctx.flags.fetch()
+const evaluation = ctx.flags.evaluate('my-flag', userId, allFlags)
+```
+
+### Analytics ($.analytics)
+
+```typescript
+import { createAnalyticsContext } from 'dotdo/workflows'
+
+const ctx = createAnalyticsContext(baseContext)
+
+// Web analytics
+await ctx.analytics.web.pageview({ path: '/pricing', sessionId })
+await ctx.analytics.web.session({ sessionId, userId })
+const webMetrics = await ctx.analytics.web.summary('daily')
+
+// Product analytics
+await ctx.analytics.product.track('feature_used', { feature: 'export' })
+await ctx.analytics.product.identify(userId, { plan: 'pro' })
+const dau = await ctx.analytics.product.summary('daily')
+
+// Financial analytics
+await ctx.analytics.financial.revenue({ amount: 99, currency: 'USD' })
+const mrr = await ctx.analytics.financial.summary('monthly')
+```
+
+### Data API ($.data)
+
+```typescript
+import { createDataContext } from 'dotdo/workflows'
+
+const ctx = createDataContext(baseContext)
+
+// Basic CRUD
+await ctx.data.set('users', 'user-1', { name: 'Alice' })
+const user = await ctx.data.get('users', 'user-1')
+await ctx.data.delete('users', 'user-1')
+
+// Query with filters
+const results = await ctx.data.query('orders')
+  .where('status', '==', 'pending')
+  .where('total', '>', 100)
+  .orderBy('createdAt', 'desc')
+  .limit(10)
+  .execute()
+
+// Real-time subscriptions
+const unsubscribe = ctx.data.watch('orders', (event) => {
+  console.log(`Order ${event.type}: ${event.key}`)
+})
+```
+
+### Specialized Data Namespaces
+
+```typescript
+// Event tracking
+await ctx.track('purchase', { amount: 99, product: 'widget' })
+const funnel = await ctx.track.funnel(['signup', 'checkout', 'purchase'])
+
+// Metrics and KPIs
+await ctx.measure('api_latency', 45, { endpoint: '/users' })
+const p99 = await ctx.measure.percentile('api_latency', 99)
+
+// A/B experiments
+const variant = await ctx.experiment('checkout-v2').assign(userId)
+await ctx.experiment('checkout-v2').track(userId, 'conversion', 1)
+
+// Goals and OKRs
+await ctx.goal('q4-revenue').record(50000)
+const progress = await ctx.goal('q4-revenue').progress()
+
+// Real-time streams
+const stream = ctx.stream('events')
+await stream.push({ type: 'click', target: 'button' })
+
+// Entity event sourcing
+await ctx.Entity('order-123').append({ type: 'item_added', sku: 'WIDGET' })
+const state = await ctx.Entity('order-123').state()
+```
+
 ## Error Handling Patterns
 
 ### Durable Execution Errors
@@ -1300,12 +1544,146 @@ $.on['dlq'].Order.placed(async (dlqEvent) => {
 })
 ```
 
+## Type Definitions
+
+### Core Types
+
+```typescript
+// WorkflowContext type (full interface)
+interface WorkflowContext extends NounAccessors {
+  // Durability
+  track(event: string, data: unknown): void
+  send<T>(event: string, data: T): string
+  try<T>(action: string, data: unknown, opts?: TryOptions): Promise<T>
+  do<T>(action: string, data: unknown, opts?: DoOptions): Promise<T>
+
+  // Events and Scheduling
+  on: OnProxy
+  every: ScheduleBuilder
+
+  // AI Functions
+  ai: AITemplateLiteralFn<string>
+  write: AITemplateLiteralFn<WriteResult>
+  summarize: AITemplateLiteralFn<string>
+  list: AITemplateLiteralFn<string[]>
+  extract: <T>(strings: TemplateStringsArray, ...values: unknown[]) => AIPipelinePromise<ExtractResult<T>>
+  is: AITemplateLiteralFn<boolean>
+  decide: DecideFn
+
+  // Version Control
+  branch(name: string): Promise<void>
+  checkout(ref: string): Promise<void>
+  merge(branch: string): Promise<void>
+
+  // Utilities
+  log(message: string, data?: unknown): void
+  state: Record<string, unknown>
+  user: UserContext | null
+}
+
+// Retry policy for $.do()
+interface RetryPolicy {
+  maxAttempts: number       // Default: 3
+  initialDelayMs: number    // Default: 100
+  maxDelayMs: number        // Default: 30000
+  backoffMultiplier: number // Default: 2
+  jitter: boolean           // Default: true
+}
+
+// Options for $.do()
+interface DoOptions {
+  retry?: Partial<RetryPolicy>
+  timeout?: number
+  stepId?: string
+}
+
+// Options for $.try()
+interface TryOptions {
+  timeout?: number
+}
+
+// User context from authentication
+interface UserContext {
+  id: string
+  email?: string
+  role?: string
+}
+
+// Domain event structure
+interface DomainEvent<TData = unknown> {
+  id: string
+  verb: string
+  source: string
+  data: TData
+  actionId?: string
+  timestamp: Date
+}
+
+// Handler options for event subscriptions
+interface HandlerOptions<TPayload = unknown> {
+  priority?: number
+  filter?: (event: DomainEvent<TPayload>) => boolean | Promise<boolean>
+  name?: string
+  maxRetries?: number
+}
+```
+
+### Capability Types
+
+```typescript
+// Filesystem capability
+interface FsCapability {
+  read(path: string, opts?: FsReadOptions): Promise<string>
+  write(path: string, content: string, opts?: FsWriteOptions): Promise<void>
+  list(path: string, opts?: FsListOptions): Promise<FsEntry[]>
+  exists(path: string): Promise<boolean>
+  delete(path: string): Promise<void>
+  mkdir(path: string, opts?: MkdirOptions): Promise<void>
+  stat(path: string): Promise<FileStats>
+  copy(src: string, dest: string): Promise<void>
+  move(src: string, dest: string): Promise<void>
+}
+
+// Git capability
+interface GitCapability {
+  status(): Promise<GitStatus>
+  add(files: string | string[]): Promise<void>
+  commit(message: string): Promise<string | { hash: string }>
+  push(remote?: string, branch?: string): Promise<void>
+  pull(remote?: string, branch?: string): Promise<void>
+  log(opts?: GitLogOptions): Promise<GitCommit[]>
+  diff(ref?: string): Promise<string>
+  clone?(url: string, dest: string, opts?: GitCloneOptions): Promise<void>
+  checkout?(ref: string, opts?: { create?: boolean }): Promise<void>
+  branch?(name: string, startPoint?: string): Promise<void>
+  merge?(branch: string, opts?: { noFf?: boolean; squash?: boolean }): Promise<void>
+  fetch?(remote?: string, branch?: string): Promise<void>
+}
+
+// Bash capability
+interface BashCapability {
+  exec(command: string, opts?: ExecOptions): Promise<ExecResult>
+  spawn(command: string, args?: string[], opts?: SpawnOptions): SpawnedProcess
+  run?(command: string, opts?: ExecOptions): Promise<string>
+  which?(command: string): Promise<boolean>
+}
+
+// Rate limit capability
+interface RateLimitCapability {
+  check(key: string, opts?: RateLimitCheckOptions): Promise<RateLimitResult>
+  consume(key: string, cost?: number): Promise<RateLimitResult>
+  status(key: string): Promise<RateLimitResult>
+  reset(key: string): Promise<void>
+}
+```
+
 ## Related
 
 - [Thing](/docs/sdk/thing) - Base entity type
 - [Events](/docs/concepts/events) - 5W+H event model
 - [Functions](/docs/sdk/functions) - DOFunction type
-- [Capabilities](/docs/sdk/capabilities) - Capability modules
+- [Capabilities](/docs/lib/do-capabilities) - Capability modules
 - [Proxy Chaining](/docs/rpc/proxy-chaining) - RPC proxy patterns
 - [Workflow Runtime](/docs/sdk/workflow-runtime) - Durable execution engine
 - [Rate Limiting](/docs/sdk/rate-limit) - Rate limit configuration
+- [Promise Pipelining](/docs/concepts/promise-pipelining) - RPC optimization
