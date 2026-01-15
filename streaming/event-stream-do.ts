@@ -57,6 +57,9 @@ try {
 
 import type { UnifiedEvent, EventType } from '../types/unified-event'
 import { safeValidateUnifiedEventLazy } from '../types/unified-event-schema'
+import { RateLimiter, type IRateLimiter, type RateLimitConfig } from './event-stream/rate-limiter'
+import { EventStore, type IEventStore, type UnifiedQueryFilters } from './event-stream/event-store'
+import { ConnectionManager, type IConnectionManager, type ConnectionInfo as CMConnectionInfo } from './event-stream/connection-manager'
 
 // ============================================================================
 // HOT TIER SCHEMA
@@ -185,6 +188,13 @@ export interface EventStreamConfig {
     /** Yield interval between batches (ms) to prevent blocking */
     yieldIntervalMs: number
   }
+  /**
+   * Injected event store for event storage and querying.
+   * If not provided, creates a default EventStore (in-memory MockPGLite).
+   * @see IEventStore
+   * @issue do-j4j4 - REFACTOR: Inject IEventStore into EventStreamDO
+   */
+  eventStore?: IEventStore
 }
 
 /**
@@ -1243,7 +1253,12 @@ function matchTopicPattern(pattern: string, topic: string): boolean {
  */
 export class EventStreamDO extends DurableObject {
   private _config: ResolvedEventStreamConfig
-  private _db: MockPGLite
+  /**
+   * Event store for persistent event storage.
+   * Can be injected via config.eventStore or defaults to MockPGLite.
+   * @issue do-j4j4 - REFACTOR: Inject IEventStore into EventStreamDO
+   */
+  private _db: IEventStore
   private connections: Map<string, ConnectionInfo> = new Map()
   private clientToConnId: Map<WebSocket, string> = new Map() // client socket -> connectionId
   private topicSubscribers: Map<string, Set<string>> = new Map() // topic -> Set<connectionId>
@@ -1322,8 +1337,10 @@ export class EventStreamDO extends DurableObject {
       fanOut: resolvedConfig?.fanOut ?? DEFAULT_CONFIG.fanOut,
     }
 
-    // Initialize PGLite
-    this._db = new MockPGLite()
+    // Initialize event store
+    // @issue do-j4j4 - REFACTOR: Inject IEventStore into EventStreamDO
+    // Use injected event store or default to MockPGLite for backwards compatibility
+    this._db = resolvedConfig?.eventStore ?? new MockPGLite()
     this.initDatabase()
   }
 
@@ -1781,6 +1798,13 @@ export class EventStreamDO extends DurableObject {
         headers: { 'Content-Type': 'application/json' },
       })
     } catch (error) {
+      // Log SQL query errors with context for debugging
+      console.error('[event-stream] SQL query execution error:', {
+        operation: 'handleQueryEndpoint',
+        sql: sql?.slice(0, 200), // Truncate for safety
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
       return new Response(JSON.stringify({ error: (error as Error).message }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -1947,6 +1971,18 @@ export class EventStreamDO extends DurableObject {
         headers: { 'Content-Type': 'application/json' },
       })
     } catch (error) {
+      // Log unified query errors with filter context for debugging
+      console.error('[event-stream] Unified query execution error:', {
+        operation: 'handleUnifiedQueryEndpoint',
+        filters: {
+          event_type: body.event_type,
+          trace_id: body.trace_id,
+          session_id: body.session_id,
+          ns: body.ns,
+        },
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
       return new Response(JSON.stringify({ error: (error as Error).message }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -2375,6 +2411,11 @@ export class EventStreamDO extends DurableObject {
   // ============================================================================
 
   async broadcast(event: BroadcastEvent): Promise<void> {
+    // Guard: Skip if event is null/undefined
+    if (!event) {
+      return
+    }
+
     // Check deduplication
     if (this.isDuplicate(event.topic, event.id)) {
       this.dedupStats.deduplicatedCount++
@@ -2863,14 +2904,39 @@ export class EventStreamDO extends DurableObject {
   }
 
   private async notifyLiveQuerySubscribers(event: BroadcastEvent): Promise<void> {
+    // Guard: Skip if event is null/undefined
+    if (!event) {
+      return
+    }
+
     for (const [id, liveQuery] of this.liveQueries) {
+      // Guard: Skip if liveQuery entry is null/undefined/malformed
+      if (!liveQuery || typeof liveQuery !== 'object') {
+        continue
+      }
+
+      // Guard: Skip if sql is not a valid string
+      const sql = liveQuery.sql
+      if (typeof sql !== 'string') {
+        continue
+      }
+
+      // Guard: Skip if callback is not a function
+      if (typeof liveQuery.callback !== 'function') {
+        continue
+      }
+
+      // Safe null checks for event properties before pattern matching
+      const eventTopic = event.topic ?? ''
+      const eventType = typeof event.type === 'string' && event.type.length > 0 ? event.type : ''
+
       // Check if event matches query (check topic, type, or generic queries)
-      const matchesTopic = liveQuery.sql.includes(event.topic) || (liveQuery.sql.includes("'orders'") && event.topic === 'orders')
-      const matchesType = event.type && liveQuery.sql.includes(`'${event.type}'`)
-      const isGenericQuery = !liveQuery.sql.includes('topic =') && !liveQuery.sql.includes("topic ='")
+      const matchesTopic = eventTopic && (sql.includes(eventTopic) || (sql.includes("'orders'") && eventTopic === 'orders'))
+      const matchesType = eventType && sql.includes(`'${eventType}'`)
+      const isGenericQuery = !sql.includes('topic =') && !sql.includes("topic ='")
 
       if (matchesTopic || matchesType || isGenericQuery) {
-        const result = await this.query(liveQuery.sql, liveQuery.params)
+        const result = await this.query(sql, liveQuery.params)
         liveQuery.callback(result)
       }
     }

@@ -17,6 +17,9 @@ export {
   EventStore,
   type IEventStore,
   type StoredUnifiedEvent,
+  type BroadcastEvent,
+  type QueryResult,
+  type UnifiedQueryFilters,
 } from './event-store'
 
 export {

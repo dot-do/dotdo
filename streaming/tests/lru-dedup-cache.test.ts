@@ -80,12 +80,12 @@ describe('LRUDedupCache', () => {
       cache.isDuplicate('orders', 'event-4') // Should evict event-1
 
       expect(cache.size).toBe(3)
-      // event-1 should have been evicted
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(false)
+      // event-1 should have been evicted - use has() to check without adding
+      expect(cache.has('orders', 'event-1')).toBe(false)
       // Others should still be tracked
-      expect(cache.isDuplicate('orders', 'event-2')).toBe(true)
-      expect(cache.isDuplicate('orders', 'event-3')).toBe(true)
-      expect(cache.isDuplicate('orders', 'event-4')).toBe(true)
+      expect(cache.has('orders', 'event-2')).toBe(true)
+      expect(cache.has('orders', 'event-3')).toBe(true)
+      expect(cache.has('orders', 'event-4')).toBe(true)
     })
 
     it('should evict least recently USED entry, not just oldest', () => {
@@ -102,10 +102,10 @@ describe('LRUDedupCache', () => {
       cache.isDuplicate('orders', 'event-4')
 
       expect(cache.size).toBe(3)
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(true) // Recently accessed
-      expect(cache.isDuplicate('orders', 'event-2')).toBe(false) // Evicted
-      expect(cache.isDuplicate('orders', 'event-3')).toBe(true)
-      expect(cache.isDuplicate('orders', 'event-4')).toBe(true)
+      expect(cache.has('orders', 'event-1')).toBe(true) // Recently accessed
+      expect(cache.has('orders', 'event-2')).toBe(false) // Evicted
+      expect(cache.has('orders', 'event-3')).toBe(true)
+      expect(cache.has('orders', 'event-4')).toBe(true)
     })
 
     it('should update LRU order on each access', () => {
@@ -122,9 +122,9 @@ describe('LRUDedupCache', () => {
       // Now LRU order is: event-3 (LRU), event-1, event-2 (MRU)
       cache.isDuplicate('orders', 'event-4') // Should evict event-3
 
-      expect(cache.isDuplicate('orders', 'event-3')).toBe(false) // Evicted
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(true)
-      expect(cache.isDuplicate('orders', 'event-2')).toBe(true)
+      expect(cache.has('orders', 'event-3')).toBe(false) // Evicted
+      expect(cache.has('orders', 'event-1')).toBe(true)
+      expect(cache.has('orders', 'event-2')).toBe(true)
     })
 
     it('should evict multiple entries if needed to fit new entry', () => {
@@ -160,8 +160,8 @@ describe('LRUDedupCache', () => {
       cache.isDuplicate('shipping', 'event-4') // Should evict orders/event-1
 
       expect(cache.size).toBe(3)
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(false) // Evicted
-      expect(cache.isDuplicate('payments', 'event-2')).toBe(true)
+      expect(cache.has('orders', 'event-1')).toBe(false) // Evicted
+      expect(cache.has('payments', 'event-2')).toBe(true)
     })
   })
 
@@ -253,10 +253,10 @@ describe('LRUDedupCache', () => {
       cache.isDuplicate('orders', 'event-1')
 
       vi.advanceTimersByTime(59000) // 59 seconds
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(true)
+      expect(cache.has('orders', 'event-1')).toBe(true) // Use has() to check without refreshing TTL
 
       vi.advanceTimersByTime(2000) // 61 seconds total
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(false)
+      expect(cache.has('orders', 'event-1')).toBe(false) // Expired
 
       vi.useRealTimers()
     })
@@ -414,8 +414,8 @@ describe('LRUDedupCache', () => {
       cache.isDuplicate('orders', 'event-2')
 
       expect(cache.size).toBe(1)
-      expect(cache.isDuplicate('orders', 'event-1')).toBe(false)
-      expect(cache.isDuplicate('orders', 'event-2')).toBe(true)
+      expect(cache.has('orders', 'event-1')).toBe(false) // Evicted
+      expect(cache.has('orders', 'event-2')).toBe(true) // Still in cache
     })
 
     it('should handle empty event IDs', () => {
