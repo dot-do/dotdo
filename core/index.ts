@@ -16,6 +16,9 @@ export { DOStorageClass, DOStorage, type DOStorageEnv } from '../storage/DOStora
 export { DOWorkflowClass, DOWorkflow, type DOWorkflowEnv } from '../workflow/DOWorkflow'
 export { DOFull, type DOFullEnv } from '../objects/DOFull'
 
+// Export MCP server
+export { McpServer } from '../mcp/server'
+
 // Re-export storage layer components
 export {
   InMemoryStateManager,
