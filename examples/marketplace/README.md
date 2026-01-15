@@ -56,7 +56,7 @@ const Review = noun('Review')   // Attached to product
 Each vendor gets their own DO with complete data isolation:
 
 ```typescript
-export class VendorDO extends DOStorage {
+export class VendorDO extends DO {
   async createProduct(data: ProductData) {
     return this.things.create({ $type: 'Product', vendorId: this.vendorId, ...data })
   }
@@ -104,7 +104,7 @@ const stats = await coordinator.query('SELECT COUNT(*) as count FROM products')
 Route orders to the correct vendor DO:
 
 ```typescript
-export class MarketplaceDO extends DOWorkflow {
+export class MarketplaceDO extends DO {
   constructor(state, env) {
     super(state, env)
 
@@ -164,7 +164,7 @@ npm install dotdo
 
 ```typescript
 // 1. Define vendor DO
-export class VendorDO extends DOStorage { /* ... */ }
+export class VendorDO extends DO { /* ... */ }
 
 // 2. Set up fanout coordinator
 const coordinator = new QueryCoordinator(vendorScanners)

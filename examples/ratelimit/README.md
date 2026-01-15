@@ -86,7 +86,7 @@ const limits = {
   'apikey:default': { requests: 500, windowMs: 60_000 },
 }
 
-class RateLimitDO extends DOWorkflow {
+class RateLimitDO extends DO {
   private limiter = new SlidingWindowLimiter()
 
   checkRequest(req: Request): Response | null {
@@ -116,7 +116,7 @@ class RateLimitDO extends DOWorkflow {
 React to violations with `$.on.RateLimit.exceeded`:
 
 ```typescript
-class RateLimitDO extends DOWorkflow {
+class RateLimitDO extends DO {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env)
 

@@ -190,6 +190,6 @@ Runs inside your Durable Object. No external scheduler.
 
 ## See Also
 
-- [dotdo/workflow](../../workflow/) - WorkflowContext docs
-- [$.on handlers](../events/) - Event patterns
-- [$.do execution](../durable/) - Durable tasks
+- [dotdo docs](https://dotdo.dev/docs) - Full documentation
+- [$.on handlers](https://dotdo.dev/docs/events) - Event patterns
+- [$.do execution](https://dotdo.dev/docs/durable) - Durable tasks

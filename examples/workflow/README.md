@@ -167,7 +167,7 @@ const shipping = await $.Shipping(order.id).schedule(order.address)
 
 ## Next Steps
 
-1. Extend `DOWorkflow` for your domain
+1. Extend `DO` for your domain
 2. Define steps with `$.do` for durability
 3. Add human gates where needed
 4. Deploy as a standard Cloudflare Worker
