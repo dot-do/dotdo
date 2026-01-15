@@ -85,6 +85,12 @@ export const CausalityChainSchema = z.object({
   transaction_id: z.string().nullable(),
   /** Custom correlation ID for cross-system linking */
   correlation_id: z.string().nullable(),
+  /** Graph depth (0 = root, 1 = direct child, etc.) - computed for fast queries */
+  depth: z.number().nullable(),
+  /** True if this span has no children - computed for fast leaf queries */
+  is_leaf: z.boolean().nullable(),
+  /** True if this span has no parent_id - computed for fast root queries */
+  is_root: z.boolean().nullable(),
 })
 
 export type CausalityChainSchemaType = z.infer<typeof CausalityChainSchema>

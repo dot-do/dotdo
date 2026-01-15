@@ -62,6 +62,9 @@ const fullValidEvent = {
   workflow_id: null,
   transaction_id: null,
   correlation_id: null,
+  depth: null,
+  is_leaf: null,
+  is_root: null,
 
   // Actor
   actor_id: 'user_123',
@@ -361,9 +364,15 @@ describe('CausalityChainSchema', () => {
       workflow_id: null,
       transaction_id: null,
       correlation_id: null,
+      depth: null,
+      is_leaf: null,
+      is_root: null,
     })
     expect(result.trace_id).toBeNull()
     expect(result.correlation_id).toBeNull()
+    expect(result.depth).toBeNull()
+    expect(result.is_leaf).toBeNull()
+    expect(result.is_root).toBeNull()
   })
 
   it('accepts string values', () => {
@@ -376,8 +385,30 @@ describe('CausalityChainSchema', () => {
       workflow_id: 'wf_456',
       transaction_id: 'txn_789',
       correlation_id: 'corr_abc',
+      depth: null,
+      is_leaf: null,
+      is_root: null,
     })
     expect(result.trace_id).toBe('abc123def456789012345678901234ab')
+  })
+
+  it('accepts graph column values', () => {
+    const result = CausalityChainSchema.parse({
+      trace_id: 'abc123',
+      span_id: 'def456',
+      parent_id: null,
+      root_id: null,
+      session_id: null,
+      workflow_id: null,
+      transaction_id: null,
+      correlation_id: null,
+      depth: 0,
+      is_leaf: true,
+      is_root: true,
+    })
+    expect(result.depth).toBe(0)
+    expect(result.is_leaf).toBe(true)
+    expect(result.is_root).toBe(true)
   })
 
   it('rejects non-string, non-null values', () => {
@@ -391,6 +422,9 @@ describe('CausalityChainSchema', () => {
         workflow_id: null,
         transaction_id: null,
         correlation_id: null,
+        depth: null,
+        is_leaf: null,
+        is_root: null,
       })
     ).toThrow()
   })
@@ -549,6 +583,9 @@ describe('UnifiedEventSchema', () => {
       workflow_id: null,
       transaction_id: null,
       correlation_id: null,
+      depth: null,
+      is_leaf: null,
+      is_root: null,
       actor_id: null,
       actor_type: null,
       actor_name: null,

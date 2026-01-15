@@ -53,3 +53,29 @@ export interface WorkflowProxyOptions {
 export function isPipelinePromise(value: unknown): value is PipelinePromise {
   return value !== null && typeof value === 'object' && '__isPipelinePromise' in value && (value as { __isPipelinePromise?: boolean }).__isPipelinePromise === true
 }
+
+// ============================================================================
+// Analysis Types (shared between pipeline-promise.ts and analyzer.ts)
+// ============================================================================
+
+/**
+ * Full analysis result with dependency graph and execution order
+ */
+export interface AnalysisResult {
+  /** All expressions that were analyzed */
+  expressions: PipelineExpression[]
+  /** Map of each expression to the set of expressions it depends on */
+  dependencies: Map<PipelineExpression, Set<PipelineExpression>>
+  /** Groups of expressions that can run in parallel, in execution order */
+  executionOrder: PipelineExpression[][]
+}
+
+/**
+ * Simple analysis result for basic independent/dependent classification
+ */
+export interface SimpleAnalysisResult {
+  /** Expressions with no dependencies on other analyzed expressions */
+  independent: PipelinePromise[]
+  /** Expressions that depend on at least one other analyzed expression */
+  dependent: PipelinePromise[]
+}

@@ -265,15 +265,15 @@ export class WorkflowContextManager {
   send(event: string, data: unknown): void {
     queueMicrotask(() => {
       this.deps.logAction('send', event, data).catch((error) => {
-        console.error(`[send] Failed to log action for ${event}:`, error)
+        logBestEffortError(error, { operation: 'logAction', source: 'WorkflowContext.send', context: { event } })
         this.emitSystemError('send.logAction.failed', event, error)
       })
       this.deps.emitEvent(event, data).catch((error) => {
-        console.error(`[send] Failed to emit event ${event}:`, error)
+        logBestEffortError(error, { operation: 'emitEvent', source: 'WorkflowContext.send', context: { event } })
         this.emitSystemError('send.emitEvent.failed', event, error)
       })
       this.deps.executeAction(event, data).catch((error) => {
-        console.error(`[send] Failed to execute action ${event}:`, error)
+        logBestEffortError(error, { operation: 'executeAction', source: 'WorkflowContext.send', context: { event } })
         this.emitSystemError('send.executeAction.failed', event, error)
       })
     })
@@ -448,7 +448,11 @@ export class WorkflowContextManager {
       onScheduleRegistered: (cron: string, name: string, handler: ScheduleHandler) => {
         self.scheduleHandlers.set(name, handler)
         self.scheduleManager.schedule(cron, name).catch((error) => {
-          console.error(`Failed to register schedule ${name}:`, error)
+          logBestEffortError(error, {
+            operation: 'registerSchedule',
+            source: 'WorkflowContext.createScheduleBuilder',
+            context: { name, cron },
+          })
         })
       },
     }
@@ -491,11 +495,10 @@ export class WorkflowContextManager {
       const errorMessage = error instanceof Error ? error.message : String(error)
       const errorStack = error instanceof Error ? error.stack : undefined
 
-      console.error(`[system.${errorType}]`, {
-        ns: this.deps.ns,
-        originalEvent,
-        error: errorMessage,
-        stack: errorStack,
+      logBestEffortError(new Error(errorMessage), {
+        operation: errorType,
+        source: 'WorkflowContext.emitSystemError',
+        context: { ns: this.deps.ns, originalEvent },
       })
 
       // Try to persist to DLQ for later replay
@@ -507,8 +510,12 @@ export class WorkflowContextManager {
         error: errorMessage,
         errorStack,
         maxRetries: 3,
-      }).catch(() => {
-        console.error(`[CRITICAL] Failed to add system error to DLQ: ${errorType}`)
+      }).catch((dlqError) => {
+        logBestEffortError(dlqError, {
+          operation: 'addToDLQ',
+          source: 'WorkflowContext.emitSystemError',
+          context: { errorType, critical: true },
+        })
       })
     } catch (catchError) {
       logBestEffortError(catchError, {

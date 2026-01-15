@@ -20,6 +20,13 @@ import {
   applyInputModifiers,
   applyOutputModifiers,
 } from '../../lib/Modifier'
+
+// Import shared types from workflow-types.ts (breaks circular dependency)
+import type { StepContext, WorkflowStepConfig } from '../../lib/executors/workflow-types'
+
+// Re-export shared types for consumers that expect them from this module
+export type { StepContext, WorkflowStepConfig } from '../../lib/executors/workflow-types'
+
 import {
   ParallelStepExecutor,
   ParallelExecutionError,
@@ -131,16 +138,7 @@ export interface WorkflowRuntimeOptions {
   domainProxy?: Record<string, unknown>
 }
 
-export interface WorkflowStepConfig {
-  /** Step timeout */
-  timeout?: string | number
-  /** Number of retries */
-  retries?: number
-  /** Delay between retries */
-  retryDelay?: string | number
-  /** Modifiers to transform input/output */
-  modifiers?: Modifier[]
-}
+// WorkflowStepConfig is now imported from lib/executors/workflow-types.ts and re-exported above
 
 export interface StepExecutionResult {
   name: string
@@ -169,24 +167,7 @@ export interface WorkflowMetrics {
   duration?: number
 }
 
-export interface StepContext {
-  /** Workflow input */
-  input: unknown
-  /** Output from previous step */
-  previousStepOutput?: unknown
-  /** Current step name */
-  stepName: string
-  /** Current step index (0-based) */
-  stepIndex: number
-  /** Workflow instance ID */
-  workflowInstanceId: string
-  /** Wait for an external event */
-  waitForEvent: <T = unknown>(eventName: string, options?: WaitForEventOptions) => Promise<T>
-  /** Domain proxy for cross-DO calls */
-  $: Record<string, unknown>
-  /** Emit an event */
-  emit: (event: string, data: unknown) => void
-}
+// StepContext is now imported from lib/executors/workflow-types.ts and re-exported above
 
 interface RegisteredStep {
   name: string

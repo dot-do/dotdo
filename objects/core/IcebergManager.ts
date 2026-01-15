@@ -12,6 +12,10 @@
 
 import { IcebergStateAdapter, type IcebergSnapshot } from '../persistence/iceberg-state'
 import { AuthorizedR2Client, type R2Bucket } from '../../lib/storage/authorized-r2'
+import { logBestEffortError } from '@/lib/logging/error-logger'
+import { createLogger, LogLevel } from '@/lib/logging'
+
+const icebergLogger = createLogger({ name: 'iceberg', level: LogLevel.DEBUG })
 
 // ============================================================================
 // TYPES
@@ -202,7 +206,7 @@ export class IcebergManager {
     const r2 = this.deps.env.R2 as R2BucketLike | undefined
 
     if (!r2) {
-      console.warn('No R2 bucket configured, starting with empty state')
+      icebergLogger.warn('No R2 bucket configured, starting with empty state')
       this.emitLifecycleEvent({ type: 'stateLoaded', fromSnapshot: false })
       return
     }
@@ -217,7 +221,7 @@ export class IcebergManager {
       const tenantId = (claims.tenant_id as string) ?? orgId
       prefix = `orgs/${orgId}/tenants/${tenantId}/do/${this.deps.ctx.id.toString()}/snapshots/`
     } else {
-      console.warn('No JWT available, using default snapshot path')
+      icebergLogger.warn('No JWT available, using default snapshot path')
       prefix = `do/${this.deps.ctx.id.toString()}/snapshots/`
     }
 
@@ -359,7 +363,11 @@ export class IcebergManager {
         try {
           await this.save()
         } catch (error) {
-          console.error('Auto-checkpoint failed:', error)
+          logBestEffortError(error, {
+            operation: 'autoCheckpoint',
+            source: 'IcebergManager.startAutoCheckpoint',
+            context: { pendingChanges: this._pendingChanges },
+          })
           this.emitLifecycleEvent({ type: 'checkpointFailed', error })
         }
       }

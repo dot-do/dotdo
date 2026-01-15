@@ -8,34 +8,12 @@
  * 4. Produce optimal execution order via topological sort
  */
 
-import type { PipelineExpression, PipelinePromise } from './pipeline-promise'
-import { isPipelinePromise } from './pipeline-promise'
+// Import from pipeline-types.ts to break circular dependency with pipeline-promise.ts
+import type { PipelineExpression, PipelinePromise, AnalysisResult, SimpleAnalysisResult } from './pipeline-types'
+import { isPipelinePromise } from './pipeline-types'
 
-// ============================================================================
-// Types
-// ============================================================================
-
-/**
- * Full analysis result with dependency graph and execution order
- */
-export interface AnalysisResult {
-  /** All expressions that were analyzed */
-  expressions: PipelineExpression[]
-  /** Map of each expression to the set of expressions it depends on */
-  dependencies: Map<PipelineExpression, Set<PipelineExpression>>
-  /** Groups of expressions that can run in parallel, in execution order */
-  executionOrder: PipelineExpression[][]
-}
-
-/**
- * Simple analysis result for basic independent/dependent classification
- */
-export interface SimpleAnalysisResult {
-  /** Expressions with no dependencies on other analyzed expressions */
-  independent: PipelinePromise[]
-  /** Expressions that depend on at least one other analyzed expression */
-  dependent: PipelinePromise[]
-}
+// Re-export types from pipeline-types.ts for backwards compatibility
+export type { AnalysisResult, SimpleAnalysisResult } from './pipeline-types'
 
 // ============================================================================
 // Main Analysis Functions

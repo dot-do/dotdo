@@ -18,6 +18,7 @@
 
 import type { ThingsStore, ThingEntity } from '../../db/stores'
 import type { UserContext } from '../../types/WorkflowContext'
+import { logBestEffortError } from '@/lib/logging/error-logger'
 
 // ============================================================================
 // CONSTANTS
@@ -405,7 +406,11 @@ export class SyncEngine {
       this.sendToSocket(socket, message)
     } catch (error) {
       // Log error but don't fail - send empty initial state
-      console.error('[SyncEngine] Error fetching initial state:', error)
+      logBestEffortError(error, {
+        operation: 'fetchInitialState',
+        source: 'SyncEngine.sendInitialState',
+        context: { collection, branch },
+      })
       const message: InitialMessage = {
         type: 'initial',
         collection,
@@ -514,7 +519,11 @@ export class SyncEngine {
     this.subscribe(socket, message.collection, message.branch, message.query)
     // Send initial state asynchronously
     this.sendInitialState(socket, message.collection, message.branch, message.query).catch((error) => {
-      console.error('[SyncEngine] Error sending initial state:', error)
+      logBestEffortError(error, {
+        operation: 'sendInitialState',
+        source: 'SyncEngine.handleSubscribe',
+        context: { collection: message.collection, branch: message.branch },
+      })
     })
   }
 

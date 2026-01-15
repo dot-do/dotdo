@@ -14,6 +14,8 @@
  * @see docs/plans/2026-01-10-artifact-storage-design.md
  */
 
+import { logger } from '../lib/logging'
+
 // ============================================================================
 // Metrics Types & Interface
 // ============================================================================
@@ -38,37 +40,32 @@ export interface ArtifactMetrics {
  * Outputs structured JSON logs for monitoring.
  */
 export function createDefaultMetrics(): ArtifactMetrics {
-  const ts = () => new Date().toISOString()
-
   return {
     recordMetric(name: string, value: number, tags?: Record<string, string>) {
-      console.log(JSON.stringify({
+      logger.info('metric', {
         type: 'metric',
         name,
         value,
         tags,
-        ts: ts(),
-      }))
+      })
     },
 
     recordLatency(name: string, durationMs: number, tags?: Record<string, string>) {
-      console.log(JSON.stringify({
+      logger.info('latency', {
         type: 'latency',
         name,
         durationMs,
         tags,
-        ts: ts(),
-      }))
+      })
     },
 
     recordError(name: string, error: Error, tags?: Record<string, string>) {
-      console.log(JSON.stringify({
+      logger.error('error', {
         type: 'error',
         name,
         message: error.message,
         tags,
-        ts: ts(),
-      }))
+      })
     },
   }
 }

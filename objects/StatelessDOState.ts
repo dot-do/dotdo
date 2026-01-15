@@ -9,6 +9,8 @@
  * @module objects/StatelessDOState
  */
 
+import { logBestEffortError } from '@/lib/logging/error-logger'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -269,7 +271,10 @@ export class StatelessDOState {
           // Would load from Iceberg here
         }
       } catch (error) {
-        console.warn('Failed to load from Iceberg:', error)
+        logBestEffortError(error, {
+          operation: 'loadFromIceberg',
+          source: 'StatelessDOState.ensureInitialized',
+        })
       }
     }
 
@@ -432,7 +437,10 @@ export class StatelessDOState {
           JSON.stringify(snapshot.metadata)
         )
       } catch (error) {
-        console.error('Failed to save to Iceberg:', error)
+        logBestEffortError(error, {
+          operation: 'saveToIceberg',
+          source: 'StatelessDOState.waitUntil',
+        })
       }
     }
 

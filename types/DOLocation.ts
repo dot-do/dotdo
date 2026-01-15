@@ -15,18 +15,19 @@
  * - createDOLocation factory function
  */
 
+// Import from LocationBase.ts to break circular dependency with Location.ts
 import type {
   Region,
   ColoCode,
   ColoCity,
   CFLocationHint,
   Colo,
-} from './Location'
+} from './LocationBase'
 
 import {
   normalizeLocation,
   codeToCity,
-} from './Location'
+} from './LocationBase'
 
 // ============================================================================
 // Raw Detection Types

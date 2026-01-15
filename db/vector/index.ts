@@ -34,6 +34,19 @@ export type {
   CDCEvent,
   HybridQueryOptions,
   Subscription,
+  // Tiering types
+  StorageTier,
+  TierConfig,
+  TieredStorageOptions,
+  TieredDocument,
+  TierStats,
+  // Progressive search optimizations
+  AdaptiveProgressiveOptions,
+  ProgressiveSearchStats,
+  EnhancedProgressiveResult,
+  // Index types
+  IndexType,
+  IndexConfig,
 } from './types'
 
 export type {

@@ -196,7 +196,7 @@ export default defineWorkspace([
   createNodeWorkspace('primitives', ['primitives/**/*.test.ts']),
 
   // Documentation tests (code example extraction, compilation verification)
-  createNodeWorkspace('docs', ['docs/tests/**/*.test.ts']),
+  createNodeWorkspace('docs', ['docs/tests/**/*.test.ts', 'tests/docs/**/*.test.ts']),
 
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
@@ -612,6 +612,15 @@ export default defineWorkspace([
   // @dotdo/flink package tests (Apache Flink DataStream API compat layer)
   createNodeWorkspace('flink', ['packages/flink/tests/**/*.test.ts']),
 
+  // @dotdo/business-as-code package tests (Organization, Business, Company, Goals types)
+  createNodeWorkspace('business-as-code', ['packages/business-as-code/src/__tests__/**/*.test.ts']),
+
+  // @dotdo/digital-tools package tests (Tool, Integration, Capability types)
+  createNodeWorkspace('digital-tools', ['packages/digital-tools/src/__tests__/**/*.test.ts']),
+
+  // @dotdo/digital-workers package tests (Worker, Agent, Human types)
+  createNodeWorkspace('digital-workers', ['packages/digital-workers/src/__tests__/**/*.test.ts']),
+
   // @dotdo/react package tests (React hooks and components - jsdom environment)
   {
     test: {
@@ -666,6 +675,9 @@ export default defineWorkspace([
   // Benchmarks (SQL parsers, DO latency, performance)
   createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts', 'benchmarks/**/*.test.ts']),
 
+  // Performance tests (N+1 query detection, timing analysis)
+  createNodeWorkspace('performance', ['tests/performance/**/*.test.ts']),
+
   // Reliability tests (error handling, promise handling, resilience)
   createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts', 'tests/error-handling/**/*.test.ts', 'tests/error-logging.test.ts', 'tests/error-logging/**/*.test.ts']),
 
@@ -689,6 +701,12 @@ export default defineWorkspace([
 
   // DuckDB Iceberg extension tests (R2 Data Catalog integration)
   createNodeWorkspace('duckdb-iceberg', ['db/compat/sql/duckdb-wasm/iceberg/tests/**/*.test.ts']),
+
+  // Architecture tests (circular dependencies, cross-layer violations)
+  createNodeWorkspace('architecture', ['tests/architecture/**/*.test.ts']),
+
+  // Dependency hygiene tests (minimal deps, no large bundles, no duplicates)
+  createNodeWorkspace('deps', ['tests/deps/**/*.test.ts']),
 
   // Usage metering system tests (counters, aggregation, limits)
   createNodeWorkspace('metering', ['services/metering/tests/**/*.test.ts']),

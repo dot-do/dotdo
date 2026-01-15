@@ -108,38 +108,27 @@
  */
 
 // ============================================================================
-// Types
+// Types - Re-exported from pipeline-types.ts to break circular dependency
 // ============================================================================
 
-export type PipelineExpression =
-  | { type: 'call'; domain: string; method: string[]; context: unknown; args: unknown[] }
-  | { type: 'property'; base: PipelineExpression; property: string }
-  | { type: 'map'; array: PipelineExpression; mapper: MapperInstruction[] }
-  | { type: 'conditional'; condition: PipelineExpression; thenBranch: PipelineExpression; elseBranch: PipelineExpression | null }
-  | { type: 'branch'; value: PipelineExpression; cases: Record<string, PipelineExpression> }
-  | { type: 'match'; value: PipelineExpression; patterns: Array<{ predicateSource: string; result: PipelineExpression }> }
-  | { type: 'waitFor'; eventName: string; options: { timeout?: string; type?: string } }
-  | { type: 'send'; entity: string; event: string; payload: unknown }
-  | { type: 'literal'; value: unknown }
-  | { type: 'placeholder'; path: string[] }
+export {
+  type PipelineExpression,
+  type MapperInstruction,
+  type PipelinePromise,
+  type WorkflowProxyOptions,
+  type AnalysisResult,
+  type SimpleAnalysisResult,
+  isPipelinePromise,
+} from './pipeline-types'
 
-export interface MapperInstruction {
-  operation: 'call' | 'property'
-  path: string[]
-  inputPaths: string[][]
-}
+import type {
+  PipelineExpression,
+  MapperInstruction,
+  PipelinePromise,
+  WorkflowProxyOptions,
+} from './pipeline-types'
 
-export interface PipelinePromise<T = unknown> extends PromiseLike<T> {
-  readonly __expr: PipelineExpression
-  readonly __isPipelinePromise: true
-}
-
-export interface WorkflowProxyOptions {
-  /** Called when a PipelinePromise is awaited */
-  execute?: (expr: PipelineExpression) => Promise<unknown>
-  /** Called when any domain method is called (for testing) */
-  onExecute?: (expr: PipelineExpression) => void
-}
+import { isPipelinePromise } from './pipeline-types'
 
 // ============================================================================
 // Core Implementation
@@ -147,36 +136,7 @@ export interface WorkflowProxyOptions {
 
 const PIPELINE_PROMISE_MARKER = Symbol.for('__isPipelinePromise')
 
-/**
- * Type guard to check if a value is a PipelinePromise.
- *
- * Use this to determine if a value was created by the pipeline system
- * and contains a captured expression for deferred execution.
- *
- * @param value - The value to check
- * @returns true if the value is a PipelinePromise
- *
- * @example
- * ```typescript
- * const user = $.User(id).get()
- * const plainValue = { name: 'John' }
- *
- * isPipelinePromise(user)       // true
- * isPipelinePromise(plainValue) // false
- *
- * // Use for conditional handling
- * function processValue(val: unknown) {
- *   if (isPipelinePromise(val)) {
- *     console.log('Expression:', val.__expr)
- *   } else {
- *     console.log('Literal:', val)
- *   }
- * }
- * ```
- */
-export function isPipelinePromise(value: unknown): value is PipelinePromise {
-  return value !== null && typeof value === 'object' && '__isPipelinePromise' in value && (value as any).__isPipelinePromise === true
-}
+// Note: isPipelinePromise is now imported from pipeline-types.ts
 
 /**
  * Creates a PipelinePromise that captures an expression without executing it.
@@ -891,4 +851,5 @@ function findBaseExpression(expr: PipelineExpression): PipelineExpression {
 // Re-exports from analyzer module (for advanced analysis)
 // ============================================================================
 
-export { analyzeExpressionsFull, findEmbeddedPromises, type AnalysisResult, type SimpleAnalysisResult } from './analyzer'
+// Note: AnalysisResult and SimpleAnalysisResult are already exported from pipeline-types.ts above
+export { analyzeExpressionsFull, findEmbeddedPromises } from './analyzer'

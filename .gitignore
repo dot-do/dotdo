@@ -167,3 +167,4 @@ sandbox/
 # Parade database
 .parade/*.db
 .parade/*.db-*
+tests/benchmarks/results/2026-01-14-benchmarks.jsonl

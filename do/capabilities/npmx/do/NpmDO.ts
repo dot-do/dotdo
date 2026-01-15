@@ -18,6 +18,8 @@
 
 import { DO, type Env as BaseEnv } from '../../../../objects/DO'
 import type { InstallResult } from '../types.js'
+import { logger } from '../../../../lib/logging'
+import { logBestEffortError } from '../../../../lib/logging/error-logger'
 import {
   PackageNotFoundError,
   FetchError,
@@ -554,7 +556,9 @@ export class NpmDO extends DO<NpmEnv> {
         const config = JSON.parse(env.NPM_SECURITY_CONFIG) as NpmSecurityConfig
         this.securityPolicy = new SecurityPolicy(config)
       } catch {
-        console.warn('Failed to parse NPM_SECURITY_CONFIG, using no security policy')
+        logger.warn('Failed to parse NPM_SECURITY_CONFIG, using no security policy', {
+          source: 'npmx/do/NpmDO',
+        })
       }
     }
   }
@@ -755,7 +759,11 @@ export class NpmDO extends DO<NpmEnv> {
 
         installed.push({ name: metadata.name, version: metadata.version })
       } catch (error) {
-        console.error(`Failed to install ${pkg.name}:`, error)
+        logBestEffortError(error, {
+          operation: 'install:package',
+          source: 'npmx/do/NpmDO',
+          context: { package: pkg.name },
+        })
         throw error
       }
     }

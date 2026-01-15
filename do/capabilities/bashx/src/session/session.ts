@@ -31,6 +31,7 @@ import type {
 } from './types.js'
 import { noopMetricsCollector } from './types.js'
 import { CheckpointManager } from './checkpoint-manager.js'
+import { logger } from '../../../../../lib/logging'
 
 // ============================================================================
 // Session Class
@@ -667,7 +668,10 @@ export class Session implements SessionBashCapability {
     // - Delete all checkpoints for this session
     // - Delete all refs for this session
     // - Delete WAL entries
-    console.log(`Would delete session: ${sessionId}`)
+    logger.info('Would delete session', {
+      source: 'bashx/session/session',
+      sessionId,
+    })
   }
 
   /**

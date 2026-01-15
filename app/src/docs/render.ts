@@ -8,6 +8,8 @@
  * - MCP and RPC protocol documentation
  */
 
+import { logBestEffortError } from '@/lib/logging/error-logger'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -65,7 +67,11 @@ async function loadOpenAPIDocument(): Promise<OpenAPISpec> {
       return cachedOpenAPIDocument
     } catch (e2) {
       // Return a minimal spec if both fail
-      console.error('Failed to load OpenAPI document:', e1, e2)
+      logBestEffortError(e1, {
+        operation: 'loadOpenAPI:import',
+        source: 'app/src/docs/render',
+        context: { fallbackError: String(e2) },
+      })
       return {
         openapi: '3.1.0',
         info: { title: 'dotdo API', version: '0.0.1' },

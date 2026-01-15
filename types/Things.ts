@@ -1,5 +1,17 @@
 import type { RpcPromise } from './fn'
-import type { Thing, ThingData, ThingDO } from './Thing'
+import type { Thing, ThingDO } from './Thing'
+
+// Re-export base types from ThingBase (breaks circular dependency with Thing.ts)
+export {
+  type ThingsData,
+  type CreateOptions,
+  type CascadeProgress,
+  type ForEachOptions,
+  type ForEachProgress,
+  type Query,
+} from './ThingBase'
+
+import type { ThingsData, CreateOptions, ForEachOptions, ForEachProgress, Query } from './ThingBase'
 
 // ============================================================================
 // THINGS - Typed collection (can BE a Durable Object)
@@ -13,59 +25,6 @@ import type { Thing, ThingData, ThingDO } from './Thing'
 //   - https://startups.studio IS a Things<Startup>
 //   - Each startup (https://startups.studio/headless.ly) is a Thing
 // ============================================================================
-
-export interface ThingsData {
-  // Fully qualified URLs
-  $id: string // URL: 'https://startups.studio'
-  $type: string // URL: 'https://schema.org.ai/Things' (meta-type)
-  itemType: string // URL: 'https://startups.studio/Startup' (what it contains)
-
-  // Metadata
-  name?: string
-  description?: string
-  createdAt: Date
-  updatedAt: Date
-}
-
-export interface CreateOptions {
-  // Cascade generation options (from db/proxy)
-  cascade?: boolean
-  maxDepth?: number
-  cascadeTypes?: string[]
-  onProgress?: (progress: CascadeProgress) => void
-}
-
-export interface CascadeProgress {
-  phase: 'generating' | 'resolving' | 'complete'
-  currentType: string
-  currentDepth: number
-  totalEntitiesCreated: number
-  typesGenerated: string[]
-}
-
-export interface ForEachOptions {
-  concurrency?: number
-  maxRetries?: number
-  retryDelay?: number
-  onProgress?: (progress: ForEachProgress) => void
-  onError?: (error: Error, item: Thing) => 'skip' | 'retry' | 'abort'
-  persist?: boolean
-  resume?: string
-}
-
-export interface ForEachProgress {
-  total: number
-  completed: number
-  failed: number
-  skipped: number
-}
-
-export interface Query {
-  where?: Record<string, unknown>
-  orderBy?: string | string[]
-  limit?: number
-  offset?: number
-}
 
 // ============================================================================
 // THINGS<T> - Collection (can be a DO itself)

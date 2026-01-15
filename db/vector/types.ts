@@ -153,6 +153,151 @@ export interface Subscription {
 }
 
 // ============================================================================
+// STORAGE TIERING TYPES
+// ============================================================================
+
+/**
+ * Storage tier names
+ */
+export type StorageTier = 'hot' | 'warm' | 'cold'
+
+/**
+ * Configuration for tiered storage
+ */
+export interface TierConfig {
+  /** Maximum number of documents in this tier before promotion/demotion */
+  maxDocuments?: number
+  /** Maximum age in milliseconds before document is demoted */
+  maxAgeMs?: number
+  /** Minimum access count to stay in tier */
+  minAccessCount?: number
+  /** Whether this tier is enabled */
+  enabled: boolean
+}
+
+/**
+ * Options for tiered vector storage
+ */
+export interface TieredStorageOptions {
+  /** Hot tier: frequently accessed, full precision */
+  hot?: TierConfig
+  /** Warm tier: moderately accessed, may use matryoshka compression */
+  warm?: TierConfig
+  /** Cold tier: rarely accessed, archived to Parquet */
+  cold?: TierConfig
+  /** Auto-promote from cold to hot on access */
+  autoPromote?: boolean
+  /** Auto-demote from hot to warm after maxAgeMs */
+  autoDemote?: boolean
+}
+
+/**
+ * Stored document with tier metadata
+ */
+export interface TieredDocument extends StoredDocument {
+  /** Current storage tier */
+  tier: StorageTier
+  /** Last access timestamp */
+  lastAccessedAt: number
+  /** Number of times document was accessed */
+  accessCount: number
+  /** When document was inserted/updated */
+  updatedAt: number
+}
+
+/**
+ * Statistics for a storage tier
+ */
+export interface TierStats {
+  /** Tier name */
+  tier: StorageTier
+  /** Number of documents in tier */
+  documentCount: number
+  /** Total memory usage in bytes (approximate) */
+  memoryBytes: number
+  /** Average access count */
+  avgAccessCount: number
+  /** Average age in milliseconds */
+  avgAgeMs: number
+}
+
+// ============================================================================
+// PROGRESSIVE SEARCH OPTIMIZATIONS
+// ============================================================================
+
+/**
+ * Adaptive progressive search options
+ */
+export interface AdaptiveProgressiveOptions extends ProgressiveSearchOptions {
+  /** Target recall rate (0-1), will adjust stages to achieve */
+  targetRecall?: number
+  /** Maximum latency in milliseconds */
+  maxLatencyMs?: number
+  /** Whether to use early termination when threshold met */
+  earlyTermination?: boolean
+  /** Similarity threshold for early termination */
+  earlyTerminationThreshold?: number
+  /** Scale factor for candidate expansion (default: 2x) */
+  expansionFactor?: number
+}
+
+/**
+ * Progressive search statistics
+ */
+export interface ProgressiveSearchStats {
+  /** Total documents in store */
+  totalDocuments: number
+  /** Documents scanned at each stage */
+  scannedByStage: number[]
+  /** Whether early termination was triggered */
+  earlyTerminated: boolean
+  /** Stage at which early termination occurred */
+  terminatedAtStage?: number
+  /** Estimated recall based on candidates examined */
+  estimatedRecall: number
+}
+
+/**
+ * Enhanced progressive search result with stats
+ */
+export interface EnhancedProgressiveResult {
+  results: SearchResult[]
+  timing: ProgressiveTiming
+  stats: ProgressiveSearchStats
+}
+
+// ============================================================================
+// INDEX INTEGRATION TYPES
+// ============================================================================
+
+/**
+ * Index type for acceleration
+ */
+export type IndexType = 'none' | 'ivf' | 'hnsw' | 'lsh'
+
+/**
+ * Configuration for index-based acceleration
+ */
+export interface IndexConfig {
+  /** Type of index to use */
+  type: IndexType
+  /** For IVF: number of clusters */
+  nlist?: number
+  /** For IVF: number of clusters to probe */
+  nprobe?: number
+  /** For HNSW: number of connections per layer */
+  M?: number
+  /** For HNSW: size of dynamic candidate list during construction */
+  efConstruction?: number
+  /** For HNSW: size of dynamic candidate list during search */
+  efSearch?: number
+  /** For LSH: number of hash tables */
+  numTables?: number
+  /** For LSH: number of hash bits per table */
+  numBits?: number
+}
+
+// ============================================================================
 // MOCK DB TYPE
 // ============================================================================
 

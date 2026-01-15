@@ -10,7 +10,8 @@
  * @module db/graph/analytics
  */
 
-import type { GraphEngine, Node, Edge } from './index'
+// Import directly from graph-engine.ts to break circular dependency with index.ts
+import type { GraphEngine, Node, Edge } from './graph-engine'
 
 // ============================================================================
 // TYPES

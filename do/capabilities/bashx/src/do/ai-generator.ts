@@ -19,6 +19,7 @@ import type { SafetyClassification, Intent } from '../types.js'
 import { generateCommand, type GenerateCommandResult, type GenerateOptions } from '../generate.js'
 import { parse } from '../ast/parser.js'
 import { analyze, isDangerous } from '../ast/analyze.js'
+import { logger } from '../../../../../lib/logging'
 
 // ============================================================================
 // TYPES
@@ -182,7 +183,10 @@ export class AIGenerator {
       return true
     } catch (error) {
       // dotdo not available - will use regex fallback
-      console.debug('[ai-generator] dotdo agents not available, using regex fallback:', error)
+      logger.debug('dotdo agents not available, using regex fallback', {
+        source: 'bashx/do/ai-generator',
+        error: error instanceof Error ? error.message : String(error),
+      })
       return false
     }
   }
@@ -215,7 +219,10 @@ export class AIGenerator {
         }
         // Fall through to regex if AI generation failed
       } catch (error) {
-        console.debug('[ai-generator] AI generation failed, falling back to regex:', error)
+        logger.debug('AI generation failed, falling back to regex', {
+          source: 'bashx/do/ai-generator',
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
     }
 

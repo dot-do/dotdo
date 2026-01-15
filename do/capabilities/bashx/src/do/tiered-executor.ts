@@ -16,6 +16,7 @@
 
 import type { BashExecutor } from './index.js'
 import type { BashResult, ExecOptions, SpawnOptions, SpawnHandle, TypedFsCapability } from '../types.js'
+import { logBestEffortError } from '../../../../../lib/logging/error-logger'
 import {
   executeNpmNative,
   canExecuteNativeNpm,
@@ -1305,10 +1306,11 @@ export class TieredExecutor implements BashExecutor {
     } catch (error) {
       // If a higher tier fails, try falling back to a lower tier
       if (classification.tier < 4 && this.sandbox) {
-        console.warn(
-          `Tier ${classification.tier} failed for "${command}", falling back to sandbox:`,
-          error
-        )
+        logBestEffortError(error, {
+          operation: 'tier:fallback',
+          source: 'bashx/do/tiered-executor',
+          context: { tier: classification.tier, command },
+        })
         return this.executeTier4(command, { ...classification, tier: 4 }, options)
       }
       throw error
@@ -1357,10 +1359,11 @@ export class TieredExecutor implements BashExecutor {
     } catch (error) {
       // If sandbox is available, fall back to it
       if (this.sandbox) {
-        console.warn(
-          `Polyglot execution failed for "${command}", falling back to sandbox:`,
-          error
-        )
+        logBestEffortError(error, {
+          operation: 'polyglot:fallback',
+          source: 'bashx/do/tiered-executor',
+          context: { command, language: classification.capability },
+        })
         return this.executeTier4(command, { ...classification, tier: 4, handler: 'sandbox' }, options)
       }
       throw error

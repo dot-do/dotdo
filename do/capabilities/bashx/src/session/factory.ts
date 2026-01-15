@@ -21,6 +21,7 @@ import type {
 } from './types.js'
 import { createInitialSessionState } from './types.js'
 import { Session } from './session.js'
+import { logger } from '../../../../../lib/logging'
 
 // ============================================================================
 // Factory Types
@@ -191,9 +192,12 @@ export async function loadSession(
     }
 
     if (walEntries.length > maxReplay) {
-      console.warn(
-        `Session ${sessionId}: ${walEntries.length - maxReplay} WAL entries exceeded limit and were dropped`
-      )
+      logger.warn('WAL entries exceeded limit and were dropped', {
+        source: 'bashx/session/factory',
+        sessionId,
+        dropped: walEntries.length - maxReplay,
+        maxReplay,
+      })
     }
 
     // Update recovery metrics

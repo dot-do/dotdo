@@ -37,5 +37,8 @@ export { WorkerSchema, AgentSchema, HumanSchema } from './types'
 // Type guards
 export { isWorker, isAgent, isHuman } from './types'
 
+// Factory functions
+export { createWorker, createAgent, createHuman } from './types'
+
 // Re-export everything for convenience
 export * from './types'

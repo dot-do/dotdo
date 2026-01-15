@@ -33,8 +33,14 @@
     // Skip checking declarations from dependencies
     "skipLibCheck": true,
 
-    // Emit output even with type errors (the package has many pre-existing errors)
-    "noEmitOnError": false
+    // Fail build on type errors - enforces strict TypeScript compilation
+    // This prevents emitting any output files when there are type errors
+    // NOTE: Build currently fails with ~640 type errors across 84 files including:
+    // - objects/core/*, lib/executors/*, lib/human/*
+    // - workflows/on.ts, workflows/data/*, workflows/worker-dsl.ts
+    // - do/primitives/*, objects/unified-storage/*
+    // See beads issue do-mjgd for the full error inventory
+    "noEmitOnError": true
   },
   "include": [
     // All DO entry points

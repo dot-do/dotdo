@@ -102,6 +102,11 @@ jobs:
       - name: Run ESLint
         run: pnpm run lint
 
+      - name: Check circular dependencies
+        run: pnpm run check:circular
+        # Note: Using non-strict mode until existing cycles are resolved
+        # Change to check:circular:strict to fail on any circular dependency
+
   # Workers-specific tests (Cloudflare Workers pool)
   test-workers:
     name: Workers Tests

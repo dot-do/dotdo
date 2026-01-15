@@ -796,3 +796,19 @@ export type {
   ConstraintInfo,
   IndexInfo as GraphIndexInfo,
 } from './graph-store-types'
+
+// ============================================================================
+// LEAN GRAPH COLUMNS - depth, is_leaf, is_root hierarchy columns
+// ============================================================================
+
+export {
+  // Class
+  LeanGraphColumns,
+  // Standalone functions
+  computeDepth,
+  isLeaf,
+  isRoot,
+  getNodeHierarchy,
+} from './lean-graph-columns'
+
+export type { NodeHierarchyInfo } from './lean-graph-columns'

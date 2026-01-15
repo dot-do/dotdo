@@ -112,3 +112,31 @@ export {
   type DLQStats,
   type PurgeOptions,
 } from './dlq'
+
+// LSN Checkpointing (Exactly-Once Delivery)
+export {
+  LSNCheckpointStore,
+  type LSNCheckpoint,
+  type LSNCheckpointStoreOptions,
+  type SqlInterface,
+} from './lsn-checkpoint'
+
+// R2 Iceberg Sink (Archival)
+export {
+  R2IcebergSink,
+  createR2IcebergSink,
+  type R2IcebergSinkConfig,
+  type R2BucketLike,
+  type DataFileEntry,
+  type SinkStats,
+} from './r2-iceberg-sink'
+
+// Exactly-Once CDC Emitter
+export {
+  ExactlyOnceCDCEmitter,
+  createExactlyOnceCDCEmitter,
+  type ExactlyOnceCDCEmitterConfig,
+  type TransactionalEmitOptions,
+  type ExactlyOnceEmitterStats,
+  type TransactionContext,
+} from './exactly-once-emitter'

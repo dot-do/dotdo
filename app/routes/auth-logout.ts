@@ -14,6 +14,7 @@ import {
   parseSessionCookie,
   type OAuthConfig,
 } from '../lib/auth-config'
+import { logBestEffortError } from '@/lib/logging/error-logger'
 
 // ============================================================================
 // Test Helpers
@@ -184,7 +185,10 @@ export async function handleLogout(
     await revokeToken(sessionToken, config)
   } catch (error) {
     // Log error but continue - we still want to clear local session
-    console.warn('Token revocation failed:', error)
+    logBestEffortError(error, {
+      operation: 'logout:revokeToken',
+      source: 'app/routes/auth-logout',
+    })
   }
 
   // Best effort: clear session from database
@@ -192,7 +196,10 @@ export async function handleLogout(
     await clearSessionFromDatabase(sessionToken)
   } catch (error) {
     // Log error but continue
-    console.warn('Session cleanup failed:', error)
+    logBestEffortError(error, {
+      operation: 'logout:clearSession',
+      source: 'app/routes/auth-logout',
+    })
   }
 
   // Return success with cleared cookie

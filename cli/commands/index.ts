@@ -36,6 +36,7 @@ export { devCommand } from './dev-local'
 export { deployCommand } from './deploy-multi'
 export { tunnelCommand } from './tunnel'
 export { doCommand } from './do-ops'
+export { costCommand } from './cost'
 
 export type CommandHandler = (args: string[]) => Promise<void> | void
 

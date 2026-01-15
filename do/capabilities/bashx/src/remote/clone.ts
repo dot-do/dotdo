@@ -15,6 +15,7 @@ import {
   emitComplete,
   createProgressEvent,
 } from './progress.js'
+import { logger } from '../../../../../lib/logging'
 
 /**
  * Mock HTTP client interface for simulating Git smart protocol
@@ -460,7 +461,9 @@ export async function clone(options: CloneOptions): Promise<CloneResult> {
 
   if (isShallow && !supportsShallow) {
     // Server doesn't support shallow, fall back to full clone
-    console.warn('Server does not support shallow clones, performing full clone')
+    logger.warn('Server does not support shallow clones, performing full clone', {
+      source: 'bashx/remote/clone',
+    })
   }
 
   // Build upload-pack request with shallow options

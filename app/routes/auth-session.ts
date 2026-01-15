@@ -14,6 +14,7 @@ import {
   type OAuthConfig,
 } from '../lib/auth-config'
 import type { User, SessionResponse } from '../types/auth'
+import { logBestEffortError } from '@/lib/logging/error-logger'
 
 // ============================================================================
 // Test Helpers
@@ -160,7 +161,10 @@ export async function handleSession(
     })
   } catch (error) {
     // Log error but return unauthenticated (don't expose errors)
-    console.error('Session validation error:', error)
+    logBestEffortError(error, {
+      operation: 'session:validate',
+      source: 'app/routes/auth-session',
+    })
     const response: SessionResponse = { authenticated: false }
     return new Response(JSON.stringify(response), {
       status: 200,

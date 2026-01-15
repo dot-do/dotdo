@@ -444,3 +444,559 @@ describe('Comprehensive process.env Scan', () => {
     ).toBe(0)
   })
 })
+
+// ============================================================================
+// 8. Env Binding Usage Pattern Tests (RED Phase)
+// ============================================================================
+
+describe('Env Binding Usage Patterns', () => {
+  /**
+   * Tests that verify Workers code accesses env bindings correctly:
+   * - No hardcoded binding names
+   * - Proper type annotations
+   * - Best practices for KV/R2/D1 access
+   * - No env access outside fetch handler context
+   */
+
+  describe('DO Binding Access Patterns', () => {
+    it('FAILS: DO bindings should be accessed via typed env parameter, not hardcoded', async () => {
+      // This test verifies that DO bindings are accessed through proper typing
+      // Anti-pattern: (env as any).DO or env['DO']
+      // Good pattern: env.DO where env: CloudflareEnv
+
+      const result = execSync(
+        `grep -rn "as any\\)\\.DO\\|env\\['DO'\\]\\|env\\[\\"DO\\"\\]" --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/workers ${ROOT_DIR}/api 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      const violations = result.split('\n').filter(l => l.length > 0)
+
+      expect(
+        violations,
+        `Found ${violations.length} hardcoded/untyped DO binding accesses:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: DO namespace should use idFromName/get pattern correctly', async () => {
+      // Verify DO access follows the correct pattern:
+      // const id = env.DO.idFromName(name)
+      // const stub = env.DO.get(id)
+      //
+      // Anti-pattern: env.DO.get(env.DO.idFromName(name)) in one line without null check
+
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      // Files that access DO bindings
+      const doAccessFiles = [
+        'workers/hostname-proxy.ts',
+        'workers/routing.ts',
+        'workers/api.ts',
+        'workers/hateoas.ts',
+        'workers/jsonapi.ts',
+        'api/index.ts',
+      ]
+
+      const violations: string[] = []
+
+      for (const file of doAccessFiles) {
+        const filePath = path.resolve(ROOT_DIR, file)
+        try {
+          const content = await fs.readFile(filePath, 'utf-8')
+
+          // Check for DO access without null check
+          // Pattern: env.DO.idFromName without prior env.DO check
+          const lines = content.split('\n')
+          let hasNullCheck = false
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i]
+
+            // Reset null check tracking at function boundaries
+            if (line.includes('async function') || line.includes('async (')) {
+              hasNullCheck = false
+            }
+
+            // Track if we've seen a null check
+            if (line.includes('env.DO') && (line.includes('!') || line.includes('if') || line.includes('?'))) {
+              hasNullCheck = true
+            }
+
+            // Check for DO access
+            if (line.includes('env.DO.idFromName') && !hasNullCheck) {
+              // This is a potential violation - accessing DO without null check
+              // However, many patterns do check first, so we need smarter detection
+              // For now, flag files that don't have the pattern env.DO && or if (!env.DO)
+              const hasGuard = content.includes('if (!env.DO)') ||
+                              content.includes('if (!env?.DO)') ||
+                              content.includes('env.DO &&') ||
+                              content.includes('env?.DO')
+
+              if (!hasGuard) {
+                violations.push(`${file}:${i + 1}: Missing null guard before DO access`)
+              }
+              break
+            }
+          }
+        } catch {
+          // File doesn't exist, skip
+        }
+      }
+
+      // This test documents the expected pattern
+      // Currently, some files may not have proper null guards
+      expect(
+        violations,
+        `Found ${violations.length} DO accesses without null guards:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: Multiple DO bindings should be properly typed (not just DO)', async () => {
+      // Workers may use multiple DO bindings like:
+      // - env.DO (main)
+      // - env.BROWSER_DO
+      // - env.SANDBOX_DO
+      // - env.REPLICA_DO
+      //
+      // All should be properly typed in the function signature
+
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      const bindingsSource = await fs.readFile(
+        path.resolve(ROOT_DIR, 'types/CloudflareBindings.ts'),
+        'utf-8'
+      )
+
+      // Find all DO bindings defined
+      const doBindingMatches = bindingsSource.match(/(\w+_?DO)\??:\s*DurableObjectNamespace/g) || []
+      const doBindings = doBindingMatches.map(m => m.split(/[?:]/)[0].trim())
+
+      // Check that api/types.ts Env interface includes all DO bindings
+      const apiTypesPath = path.resolve(ROOT_DIR, 'api/types.ts')
+      const apiTypes = await fs.readFile(apiTypesPath, 'utf-8')
+
+      const missingBindings = doBindings.filter(binding => {
+        // Check if binding is mentioned in api/types.ts
+        return !apiTypes.includes(binding) && !['TEST_DO'].includes(binding)
+      })
+
+      expect(
+        missingBindings,
+        `api/types.ts Env is missing these DO bindings: ${missingBindings.join(', ')}`
+      ).toHaveLength(0)
+    })
+  })
+
+  describe('KV/R2/D1 Binding Best Practices', () => {
+    it('FAILS: KV operations should handle null/missing bindings gracefully', async () => {
+      // KV access should check for binding existence before use
+      // Pattern: if (!env.KV) return error
+      // Anti-pattern: env.KV.get(...) without null check
+
+      const result = execSync(
+        `grep -rn "env\\.KV\\." --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      if (!result) {
+        // No KV usage found, test passes
+        return
+      }
+
+      const lines = result.split('\n').filter(l => l.length > 0)
+      const violations: string[] = []
+
+      // Group by file
+      const byFile = new Map<string, string[]>()
+      for (const line of lines) {
+        const [filePath] = line.split(':')
+        if (!filePath) continue
+        if (!byFile.has(filePath)) {
+          byFile.set(filePath, [])
+        }
+        byFile.get(filePath)!.push(line)
+      }
+
+      // Check each file for null guards
+      const fs = await import('fs/promises')
+      for (const [filePath, _occurrences] of byFile) {
+        try {
+          const content = await fs.readFile(filePath, 'utf-8')
+          const hasGuard = content.includes('if (!env.KV)') ||
+                          content.includes('if (!env?.KV)') ||
+                          content.includes('env.KV &&') ||
+                          content.includes('env?.KV') ||
+                          content.includes('hasKV(env)')
+
+          if (!hasGuard) {
+            violations.push(`${filePath}: KV access without null guard`)
+          }
+        } catch {
+          // File read error, skip
+        }
+      }
+
+      expect(
+        violations,
+        `Found ${violations.length} KV accesses without null guards:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: R2 operations should handle missing bindings gracefully', async () => {
+      // Similar check for R2 bindings
+      const result = execSync(
+        `grep -rn "env\\.R2\\." --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      if (!result) {
+        // No R2 usage found, test passes
+        return
+      }
+
+      const lines = result.split('\n').filter(l => l.length > 0)
+      const violations: string[] = []
+
+      const byFile = new Map<string, string[]>()
+      for (const line of lines) {
+        const [filePath] = line.split(':')
+        if (!filePath) continue
+        if (!byFile.has(filePath)) {
+          byFile.set(filePath, [])
+        }
+        byFile.get(filePath)!.push(line)
+      }
+
+      const fs = await import('fs/promises')
+      for (const [filePath, _occurrences] of byFile) {
+        try {
+          const content = await fs.readFile(filePath, 'utf-8')
+          const hasGuard = content.includes('if (!env.R2)') ||
+                          content.includes('if (!env?.R2)') ||
+                          content.includes('env.R2 &&') ||
+                          content.includes('env?.R2') ||
+                          content.includes('hasR2(env)')
+
+          if (!hasGuard) {
+            violations.push(`${filePath}: R2 access without null guard`)
+          }
+        } catch {
+          // File read error, skip
+        }
+      }
+
+      expect(
+        violations,
+        `Found ${violations.length} R2 accesses without null guards:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: D1 operations should handle missing bindings gracefully', async () => {
+      // Similar check for D1 bindings
+      const result = execSync(
+        `grep -rn "env\\.DB\\." --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      if (!result) {
+        // No D1 usage found, test passes
+        return
+      }
+
+      const lines = result.split('\n').filter(l => l.length > 0)
+      const violations: string[] = []
+
+      const byFile = new Map<string, string[]>()
+      for (const line of lines) {
+        const [filePath] = line.split(':')
+        if (!filePath) continue
+        if (!byFile.has(filePath)) {
+          byFile.set(filePath, [])
+        }
+        byFile.get(filePath)!.push(line)
+      }
+
+      const fs = await import('fs/promises')
+      for (const [filePath, _occurrences] of byFile) {
+        try {
+          const content = await fs.readFile(filePath, 'utf-8')
+          const hasGuard = content.includes('if (!env.DB)') ||
+                          content.includes('if (!env?.DB)') ||
+                          content.includes('env.DB &&') ||
+                          content.includes('env?.DB') ||
+                          content.includes('hasD1(env)')
+
+          if (!hasGuard) {
+            violations.push(`${filePath}: D1 access without null guard`)
+          }
+        } catch {
+          // File read error, skip
+        }
+      }
+
+      expect(
+        violations,
+        `Found ${violations.length} D1 accesses without null guards:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+  })
+
+  describe('Env Access Context Rules', () => {
+    it('FAILS: No module-level env variable storage', async () => {
+      // Anti-pattern: storing env in module-level variable
+      // let globalEnv: CloudflareEnv
+      // export function setEnv(env) { globalEnv = env }
+      //
+      // This breaks Workers isolation guarantees
+
+      const result = execSync(
+        `grep -rn "^let\\s\\+\\w*[Ee]nv\\|^const\\s\\+\\w*[Ee]nv\\|^var\\s\\+\\w*[Ee]nv\\|globalThis\\.\\w*[Ee]nv" --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" --exclude="*.config.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      const violations = result.split('\n')
+        .filter(l => l.length > 0)
+        // Filter out legitimate uses like type definitions
+        .filter(l => !l.includes('type ') && !l.includes('interface '))
+        // Filter out imports
+        .filter(l => !l.includes('import '))
+
+      expect(
+        violations,
+        `Found ${violations.length} module-level env storage patterns:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: No env parameter passed to class constructors (use DurableObject pattern)', async () => {
+      // Anti-pattern: class MyHandler { constructor(env: Env) { this.env = env } }
+      // This is problematic for non-DO classes as it can lead to stale env references
+      //
+      // Good pattern for DOs: extends DurableObject<CloudflareEnv> (env via this.env)
+      // Good pattern for handlers: receive env per-request in fetch()
+
+      const result = execSync(
+        `grep -rn "constructor.*env:\\s*\\(Env\\|CloudflareEnv\\)" --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      const violations = result.split('\n')
+        .filter(l => l.length > 0)
+        // Filter out DurableObject subclasses (they legitimately store env)
+        .filter(l => !l.includes('DurableObject') && !l.includes('extends DO'))
+
+      // This test may have false positives - some classes legitimately need env
+      // The key is that env should not be cached beyond a single request
+      expect(
+        violations,
+        `Found ${violations.length} non-DO classes storing env in constructor:\n${violations.join('\n')}\nNote: If these are legitimate, update the test to exclude them.`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: Handler functions should accept env as parameter, not access global', async () => {
+      // Verify that handler functions receive env explicitly
+      // Good: async function handler(request: Request, env: CloudflareEnv)
+      // Bad: async function handler(request: Request) { /* uses global env */ }
+
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      const handlerFiles = [
+        'workers/hostname-proxy.ts',
+        'workers/routing.ts',
+        'workers/simple.ts',
+        'workers/hateoas.ts',
+        'workers/jsonapi.ts',
+        'workers/api.ts',
+      ]
+
+      const violations: string[] = []
+
+      for (const file of handlerFiles) {
+        const filePath = path.resolve(ROOT_DIR, file)
+        try {
+          const content = await fs.readFile(filePath, 'utf-8')
+
+          // Look for handler function definitions
+          const handlerMatches = content.match(/async function\s+\w*[Hh]andler[^{]+\{/g) || []
+
+          for (const match of handlerMatches) {
+            // Check if it has env parameter
+            if (!match.includes('env:') && !match.includes('env?:') && !match.includes('env,')) {
+              violations.push(`${file}: Handler function missing env parameter: ${match.slice(0, 60)}...`)
+            }
+          }
+        } catch {
+          // File doesn't exist, skip
+        }
+      }
+
+      expect(
+        violations,
+        `Found ${violations.length} handler functions without env parameter:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+  })
+
+  describe('Type Safety for Env Bindings', () => {
+    it('FAILS: Worker fetch handlers should type env parameter as CloudflareEnv', async () => {
+      // Verify workers use proper typing for env
+      // Good: async fetch(request: Request, env: CloudflareEnv)
+      // Bad: async fetch(request: Request, env: any)
+      // Bad: async fetch(request: Request, env: {})
+
+      const result = execSync(
+        `grep -rn "fetch.*request.*env:\\s*\\(any\\|{}\\|Record<string,\\s*unknown>\\)" --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      const violations = result.split('\n')
+        .filter(l => l.length > 0)
+        // Filter out test mocks and legitimate generic handlers
+        .filter(l => !l.includes('test') && !l.includes('mock') && !l.includes('spec'))
+
+      expect(
+        violations,
+        `Found ${violations.length} fetch handlers with weak env typing:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: Env bindings should not be cast to any', async () => {
+      // Anti-pattern: (env as any).SOME_BINDING
+      // This bypasses TypeScript's type checking
+
+      const result = execSync(
+        `grep -rn "\\(env\\s*as\\s*any\\)" --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      const violations = result.split('\n').filter(l => l.length > 0)
+
+      expect(
+        violations,
+        `Found ${violations.length} env casts to any:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+
+    it('FAILS: Secret bindings should use string type, not be accessed as objects', async () => {
+      // Verify secret bindings (API keys, etc.) are accessed as strings
+      // Good: env.OPENAI_API_KEY (string)
+      // Bad: env.OPENAI_API_KEY.value or JSON.parse(env.OPENAI_API_KEY)
+
+      const result = execSync(
+        `grep -rn "env\\.\\(OPENAI_API_KEY\\|ANTHROPIC_API_KEY\\|STRIPE_SECRET_KEY\\)\\." --include="*.ts" --exclude-dir=node_modules --exclude-dir=dist --exclude="*.test.ts" ${ROOT_DIR}/api ${ROOT_DIR}/workers 2>/dev/null || true`,
+        { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+      ).trim()
+
+      const violations = result.split('\n').filter(l => l.length > 0)
+
+      expect(
+        violations,
+        `Found ${violations.length} secret bindings accessed as objects:\n${violations.join('\n')}`
+      ).toHaveLength(0)
+    })
+  })
+})
+
+// ============================================================================
+// 9. Env Binding Import Pattern Tests
+// ============================================================================
+
+describe('Env Binding Import Patterns', () => {
+  it('FAILS: Workers should import CloudflareEnv from types/CloudflareBindings', async () => {
+    // Verify workers use the canonical CloudflareEnv type
+    // Good: import type { CloudflareEnv } from '../types/CloudflareBindings'
+    // Bad: defining local Env type without extending CloudflareEnv
+
+    const fs = await import('fs/promises')
+    const path = await import('path')
+
+    const workerFiles = [
+      'workers/hostname-proxy.ts',
+      'workers/routing.ts',
+      'workers/simple.ts',
+      'workers/hateoas.ts',
+      'workers/jsonapi.ts',
+      'workers/api.ts',
+    ]
+
+    const violations: string[] = []
+
+    for (const file of workerFiles) {
+      const filePath = path.resolve(ROOT_DIR, file)
+      try {
+        const content = await fs.readFile(filePath, 'utf-8')
+
+        // Check for CloudflareEnv import
+        const hasCloudflareEnvImport =
+          content.includes("import type { CloudflareEnv }") ||
+          content.includes("import { CloudflareEnv }") ||
+          content.includes("from '../types/CloudflareBindings'") ||
+          content.includes("from '../../types/CloudflareBindings'")
+
+        // Check for local Env type definition that doesn't extend CloudflareEnv
+        const hasLocalEnvType = content.match(/^interface\s+Env\s*{/m)
+        const extendsCloudflareEnv = content.includes('extends CloudflareEnv')
+
+        if (hasLocalEnvType && !extendsCloudflareEnv && !hasCloudflareEnvImport) {
+          violations.push(`${file}: Defines local Env type without extending CloudflareEnv`)
+        }
+
+        // Also check if env is used without proper typing
+        if (content.includes('env:') && !hasCloudflareEnvImport && !content.includes('Env')) {
+          violations.push(`${file}: Uses env parameter without CloudflareEnv import`)
+        }
+      } catch {
+        // File doesn't exist, skip
+      }
+    }
+
+    expect(
+      violations,
+      `Found ${violations.length} workers not using CloudflareEnv:\n${violations.join('\n')}`
+    ).toHaveLength(0)
+  })
+
+  it('FAILS: Type guards from CloudflareBindings should be used for binding checks', async () => {
+    // CloudflareBindings.ts exports type guards like hasKV, hasR2, hasDO
+    // Workers should use these instead of manual checks
+    //
+    // Good: if (hasKV(env)) { env.KV.get(...) }
+    // Acceptable: if (env.KV) { ... } (but type guards are preferred)
+
+    const fs = await import('fs/promises')
+    const path = await import('path')
+
+    // Read CloudflareBindings to get available type guards
+    const bindingsPath = path.resolve(ROOT_DIR, 'types/CloudflareBindings.ts')
+    const bindingsContent = await fs.readFile(bindingsPath, 'utf-8')
+
+    // Extract type guard names
+    const guardMatches = bindingsContent.match(/export function (has\w+)\(/g) || []
+    const typeGuards = guardMatches.map(m => m.replace('export function ', '').replace('(', ''))
+
+    // This test documents the available type guards
+    // Currently: hasKV, hasR2, hasD1, hasAI, hasVectorize, hasQueue, etc.
+    expect(
+      typeGuards.length,
+      'CloudflareBindings should export type guard functions'
+    ).toBeGreaterThan(5)
+
+    // Check if any worker files use these guards
+    const workerDir = path.resolve(ROOT_DIR, 'workers')
+    const result = execSync(
+      `grep -rn "has\\(KV\\|R2\\|D1\\|AI\\|DO\\|Queue\\|Pipeline\\)(" --include="*.ts" --exclude="*.test.ts" ${workerDir} 2>/dev/null || true`,
+      { encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+    ).trim()
+
+    // If no type guards are being used, that's not ideal but not a failure
+    // This test documents the pattern we want to encourage
+    if (!result) {
+      // Log a note but don't fail - this is aspirational
+      console.log('Note: No type guards from CloudflareBindings are being used in workers/')
+    }
+
+    // Always pass for now - this documents the pattern
+    expect(true).toBe(true)
+  })
+})

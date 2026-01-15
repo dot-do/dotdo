@@ -15,3 +15,7 @@ export type {
   StreamOperation,
   StreamBridgeOptions,
 } from './stream'
+
+// Shard router for horizontal scaling
+export { TraceAwareShardRouter, traceToShard } from '../shard-router'
+export type { ShardConfig } from '../shard-router'

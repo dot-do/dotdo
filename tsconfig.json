@@ -9,6 +9,7 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "noEmitOnError": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

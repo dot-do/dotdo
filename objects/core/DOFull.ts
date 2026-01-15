@@ -128,6 +128,7 @@ import type { Thing } from '../../types/Thing'
 import type { ShardOptions, ShardResult, ShardStrategy, UnshardOptions } from '../../types/Lifecycle'
 import { createShardModule, ShardModule } from '../lifecycle/Shard'
 import { createGeoReplicationModule, GeoReplicationModule } from '../GeoReplication'
+import { createLogger, LogLevel } from '@/lib/logging'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -453,7 +454,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
         env: this.env as unknown as import('../../types/CloudflareBindings').CloudflareEnv,
         ctx: this.ctx,
         emitEvent: (verb: string, data?: unknown) => this.emitEvent(verb, data),
-        log: (message: string, data?: unknown) => console.log(`[${this.ns}] ${message}`, data),
+        log: (message: string, data?: unknown) => this._logger.debug(`[${this.ns}] ${message}`, data ? { data } : undefined),
       })
     }
     return this._shardModule
@@ -479,7 +480,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
         env: this.env as unknown as import('../../types/CloudflareBindings').CloudflareEnv,
         ctx: this.ctx,
         emitEvent: (verb: string, data?: unknown) => this.emitEvent(verb, data),
-        log: (message: string, data?: unknown) => console.log(`[${this.ns}] ${message}`, data),
+        log: (message: string, data?: unknown) => this._logger.debug(`[${this.ns}] ${message}`, data ? { data } : undefined),
       })
     }
     return this._geoModule

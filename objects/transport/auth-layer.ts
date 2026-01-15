@@ -12,6 +12,11 @@
  * 8. Method-level permissions via `$auth` static config
  */
 
+import { logBestEffortError } from '@/lib/logging/error-logger'
+import { createLogger, LogLevel } from '@/lib/logging'
+
+const authLogger = createLogger({ name: 'auth', level: LogLevel.DEBUG })
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -280,10 +285,10 @@ async function validateJWT(
       header = JSON.parse(atob(parts[0]!))
       payload = JSON.parse(atob(parts[1]!))
     } catch (error) {
-      console.warn('[auth] JWT parse failed:', {
-        token: token.slice(0, 20) + '...',
-        error: error instanceof Error ? error.message : 'unknown',
-        timestamp: Date.now(),
+      logBestEffortError(error, {
+        operation: 'parseJWT',
+        source: 'auth-layer.parseJWT',
+        context: { tokenPreview: token.slice(0, 20) + '...' },
       })
       return null
     }
@@ -346,9 +351,9 @@ async function validateJWT(
       },
     }
   } catch (error) {
-    console.warn('[auth] JWT validation error:', {
-      error: error instanceof Error ? error.message : 'unknown',
-      timestamp: Date.now(),
+    logBestEffortError(error, {
+      operation: 'validateJWT',
+      source: 'auth-layer.parseJWT',
     })
     return null
   }
@@ -392,10 +397,10 @@ async function verifyJWTSignature(
 
     return isValid
   } catch (error) {
-    console.warn('[auth] JWT signature verification failed:', {
-      algorithm,
-      error: error instanceof Error ? error.message : 'unknown',
-      timestamp: Date.now(),
+    logBestEffortError(error, {
+      operation: 'verifySignature',
+      source: 'auth-layer.verifyJWTSignature',
+      context: { algorithm },
     })
     return false
   }
@@ -695,9 +700,9 @@ export async function validateRequestSignature(
 
     return { valid: true }
   } catch (error) {
-    console.warn('[auth] Request signature verification failed:', {
-      error: error instanceof Error ? error.message : 'unknown',
-      timestamp: Date.now(),
+    logBestEffortError(error, {
+      operation: 'verifyRequestSignature',
+      source: 'auth-layer.verifyRequestSignature',
     })
     return { valid: false, error: 'Signature verification failed' }
   }
@@ -741,11 +746,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
 
   // Warn in development if no secret is provided
   if (!isProduction && !jwtSecret) {
-    console.warn(
-      '[auth-layer] WARNING: No jwtSecret configured. ' +
-      'JWT signature verification is disabled. ' +
-      'This is only acceptable in development/testing environments.'
-    )
+    authLogger.warn('No jwtSecret configured - JWT signature verification is disabled (acceptable in dev/test only)')
   }
 
   // Rate limit state storage (in-memory per DO instance)
@@ -853,9 +854,9 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
             header = JSON.parse(atob(parts[0]!))
             payload = JSON.parse(atob(parts[1]!))
           } catch (error) {
-            console.warn('[auth] Bearer token parse failed:', {
-              error: error instanceof Error ? error.message : 'unknown',
-              timestamp: Date.now(),
+            logBestEffortError(error, {
+              operation: 'parseBearerToken',
+              source: 'auth-layer.authenticate',
             })
             return {
               success: false,
@@ -945,9 +946,9 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
 
           return { success: true, context }
         } catch (error) {
-          console.warn('[auth] Token validation failed:', {
-            error: error instanceof Error ? error.message : 'unknown',
-            timestamp: Date.now(),
+          logBestEffortError(error, {
+            operation: 'validateToken',
+            source: 'auth-layer.authenticate',
           })
           return {
             success: false,
@@ -1312,7 +1313,7 @@ export function withAuth<T extends DOConstructor>(
                 }
               } catch (error) {
                 // Log parse errors for debugging but continue with default user
-                console.debug('[auth] Login token extraction failed:', {
+                authLogger.debug('Login token extraction failed', {
                   error: error instanceof Error ? error.message : 'unknown',
                 })
               }
@@ -1347,9 +1348,9 @@ export function withAuth<T extends DOConstructor>(
             expires_in: 3600,
           })
         } catch (error) {
-          console.error('[auth] Login handler failed:', {
-            error: error instanceof Error ? error.message : 'unknown',
-            timestamp: Date.now(),
+          logBestEffortError(error, {
+            operation: 'login',
+            source: 'auth-layer.handleAuthRoutes',
           })
           return Response.json({ error: 'Login failed' }, { status: 401 })
         }
@@ -1399,9 +1400,9 @@ export function withAuth<T extends DOConstructor>(
             expires_in: 3600,
           })
         } catch (error) {
-          console.error('[auth] Refresh token handler failed:', {
-            error: error instanceof Error ? error.message : 'unknown',
-            timestamp: Date.now(),
+          logBestEffortError(error, {
+            operation: 'refreshToken',
+            source: 'auth-layer.handleAuthRoutes',
           })
           return Response.json({ error: 'Refresh failed' }, { status: 401 })
         }
@@ -1631,7 +1632,7 @@ export function withAuth<T extends DOConstructor>(
             args = body.args || []
           } catch (error) {
             // Empty body is acceptable, but log non-empty parse failures
-            console.debug('[auth] RPC body parsing skipped:', {
+            authLogger.debug('RPC body parsing skipped', {
               error: error instanceof Error ? error.message : 'empty or invalid body',
             })
           }

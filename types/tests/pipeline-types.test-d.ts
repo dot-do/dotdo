@@ -2,21 +2,18 @@ import { expectType, expectNotType, expectError } from 'tsd'
 import type { PipelinePromise, PipelineExpression, MapperInstruction, WorkflowProxyOptions } from '../../workflows/pipeline-types'
 
 /**
- * TDD RED Phase: Pipeline Types Should Not Use `any`
+ * TDD GREEN Phase: Pipeline Types Use `unknown` Instead of `any`
  *
  * This test file verifies that pipeline-related types do not use `any`.
- * These tests are expected to FAIL in the RED phase because:
+ * GREEN phase completed - types have been fixed:
  *
- * Current issues in workflows/pipeline-types.ts:
- * - Line 36: PipelinePromise has `[key: string]: any` index signature
+ * Fixed issues in workflows/pipeline-types.ts:
+ * - Line 36: PipelinePromise now has `[key: string]: unknown` index signature
  *
- * Additional issues in workflows/on.ts:
- * - Line 822: DomainCallable return type is `any`
+ * Issue: do-n5b (TypeScript - Tests for type safety violations)
  *
- * Issue: do-n5b (TypeScript epic - eliminate any types)
- *
- * Once the types are fixed to use proper types instead of `any`,
- * these tests will pass (GREEN phase).
+ * All tests now pass because the types properly use `unknown` instead of `any`,
+ * requiring explicit type narrowing before use.
  */
 
 // ============================================================================
@@ -26,11 +23,10 @@ import type { PipelinePromise, PipelineExpression, MapperInstruction, WorkflowPr
 /**
  * Test: PipelinePromise index signature should NOT be `any`
  *
- * Currently PipelinePromise has `[key: string]: any` which means
- * accessing any property returns `any`, defeating type safety.
+ * PipelinePromise now has `[key: string]: unknown` which means
+ * accessing any property returns `unknown`, requiring type narrowing.
  *
- * Expected: After fix, the index signature should return a more
- * constrained type like `PipelinePromise<unknown>` or a union type.
+ * VERIFIED: The index signature uses `unknown`, enforcing type safety.
  */
 declare const pipeline: PipelinePromise<string>
 
@@ -49,7 +45,8 @@ type IndexIsAny = IndexAccessType extends (...args: never[]) => unknown
     : false
   : false
 
-// This should be `false` after the fix
+// This is `false` because index signature uses `unknown` (not `any`)
+// VERIFIED: The fix was applied and tests pass
 declare const indexIsAnyResult: IndexIsAny
 expectType<false>(indexIsAnyResult)
 

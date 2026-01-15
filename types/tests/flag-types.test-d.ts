@@ -2,19 +2,19 @@ import { expectType, expectNotType, expectError } from 'tsd'
 import type { Branch, Filter, Flag, FlagInput, BranchInput, FilterInput } from '../Flag'
 
 /**
- * TDD RED Phase: Flag Types Should Not Use `any`
+ * TDD GREEN Phase: Flag Types Use `unknown` Instead of `any`
  *
  * This test file verifies that Flag-related types do not use `any`.
- * These tests are expected to FAIL in the RED phase because:
+ * GREEN phase completed - types have been fixed:
  *
- * Current issues in types/Flag.ts:
- * - Line 14: Branch.payload is Record<string, any>
- * - Line 24: Filter.value is `any`
+ * Fixed issues in types/Flag.ts:
+ * - Line 14: Branch.payload is Record<string, unknown> (was Record<string, any>)
+ * - Line 24: Filter.value is `unknown` (was `any`)
  *
- * Issue: do-n5b (TypeScript epic - eliminate any types)
+ * Issue: do-n5b (TypeScript - Tests for type safety violations)
  *
- * Once the types are fixed to use `unknown` or proper types instead of `any`,
- * these tests will pass (GREEN phase).
+ * All tests now pass because the types properly use `unknown` instead of `any`,
+ * requiring explicit type narrowing before use.
  */
 
 // ============================================================================
@@ -24,11 +24,10 @@ import type { Branch, Filter, Flag, FlagInput, BranchInput, FilterInput } from '
 /**
  * Test: Branch payload should NOT allow any type assignment
  *
- * Currently Branch.payload is Record<string, any>, which means
- * values can be any type without type checking. This is unsafe.
+ * Branch.payload is now Record<string, unknown>, which means
+ * values require explicit type narrowing before use. This is type-safe.
  *
- * Expected: After fix, payload should be Record<string, unknown>
- * which requires explicit type narrowing before use.
+ * VERIFIED: payload uses Record<string, unknown>, not Record<string, any>
  */
 declare const branch: Branch
 
@@ -48,8 +47,8 @@ type BranchPayloadIsAny = BranchPayloadValue extends (...args: never[]) => unkno
     : false
   : false
 
-// This should be `false` after the fix (payload uses `unknown`)
-// Currently it's `true` because payload uses `any`
+// This is `false` because payload uses `unknown` (not `any`)
+// VERIFIED: The fix was applied and tests pass
 declare const branchPayloadIsAnyResult: BranchPayloadIsAny
 expectType<false>(branchPayloadIsAnyResult)
 
@@ -60,11 +59,10 @@ expectType<false>(branchPayloadIsAnyResult)
 /**
  * Test: Filter.value should NOT be `any`
  *
- * Currently Filter.value is typed as `any` (line 24), which defeats
+ * Filter.value is now typed as `unknown`, which enforces
  * type safety for targeting filters.
  *
- * Expected: After fix, value should be `unknown` requiring explicit
- * type narrowing, or a union of supported types.
+ * VERIFIED: value uses `unknown`, requiring explicit type narrowing
  */
 declare const filter: Filter
 
@@ -81,7 +79,8 @@ type FilterValueIsAny = FilterValueType extends (...args: never[]) => unknown
     : false
   : false
 
-// This should be `false` after the fix
+// This is `false` because value uses `unknown` (not `any`)
+// VERIFIED: The fix was applied and tests pass
 declare const filterValueIsAnyResult: FilterValueIsAny
 expectType<false>(filterValueIsAnyResult)
 

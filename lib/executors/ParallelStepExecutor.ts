@@ -204,7 +204,11 @@
  * @see {@link StepContext} for the context passed to step handlers
  */
 
-import type { StepContext, WorkflowStepConfig } from '../../objects/execution/WorkflowRuntime'
+// Import from workflow-types.ts to break circular dependency with WorkflowRuntime.ts
+import type { StepContext, WorkflowStepConfig } from './workflow-types'
+
+// Re-export types for consumers that expect them from this module
+export type { StepContext, WorkflowStepConfig } from './workflow-types'
 
 // ============================================================================
 // TYPES

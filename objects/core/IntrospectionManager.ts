@@ -12,6 +12,7 @@
  */
 
 import type { AuthContext } from '../transport/auth-layer'
+import { createLogger, LogLevel } from '@/lib/logging'
 import type {
   DOSchema,
   DOClassSchema,
@@ -29,6 +30,8 @@ import {
   getHighestRole,
 } from '../../types/introspect'
 import { logBestEffortError } from '../../lib/logging/error-logger'
+
+const introspectionLogger = createLogger({ name: 'introspection', level: LogLevel.DEBUG })
 
 // ============================================================================
 // TYPES
@@ -171,7 +174,7 @@ export class IntrospectionManager {
         }
       } else {
         // In development without JWT_SECRET, log warning but allow request
-        console.warn('JWT_SECRET not configured - skipping signature verification')
+        introspectionLogger.warn('JWT_SECRET not configured - skipping signature verification')
       }
 
       const payload = JSON.parse(atob(parts[1]!)) as {

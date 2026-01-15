@@ -29,6 +29,8 @@
  * - `GITHUB_CLIENT_SECRET` - OAuth client secret for GitHub sign-in
  */
 
+import { logger } from '../lib/logging'
+
 /**
  * Type for env bindings containing OAuth credentials
  */
@@ -88,9 +90,9 @@ export function validateAuthEnv(env?: AuthEnvBindings): void {
   // If no env provided, log warning and skip validation
   // This maintains backwards compatibility during migration
   if (!env) {
-    console.warn(
-      '[auth/env-validation] validateAuthEnv() called without env parameter. ' +
-        'Pass CloudflareEnv bindings for proper Workers compatibility.'
+    logger.warn(
+      'validateAuthEnv() called without env parameter. Pass CloudflareEnv bindings for proper Workers compatibility.',
+      { source: 'auth/env-validation' }
     )
     validated = true
     return

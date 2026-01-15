@@ -186,3 +186,77 @@ export function isAgent(obj: unknown): obj is Agent {
 export function isHuman(obj: unknown): obj is Human {
   return HumanSchema.safeParse(obj).success
 }
+
+/**
+ * Factory function to create a new Worker
+ *
+ * Automatically sets the `$type` field to the correct schema.org.ai URL.
+ *
+ * @param input - Worker data without the $type field
+ * @returns A complete Worker object with $type set
+ *
+ * @example
+ * ```typescript
+ * const worker = createWorker({
+ *   $id: 'https://schema.org.ai/workers/w1',
+ *   name: 'Task Executor',
+ *   skills: ['data-processing'],
+ *   status: 'available'
+ * })
+ * // worker.$type is automatically 'https://schema.org.ai/Worker'
+ * ```
+ */
+export function createWorker(input: Omit<Worker, '$type'>): Worker {
+  return { ...input, $type: 'https://schema.org.ai/Worker' }
+}
+
+/**
+ * Factory function to create a new Agent
+ *
+ * Automatically sets the `$type` field to the correct schema.org.ai URL.
+ *
+ * @param input - Agent data without the $type field
+ * @returns A complete Agent object with $type set
+ *
+ * @example
+ * ```typescript
+ * const agent = createAgent({
+ *   $id: 'https://schema.org.ai/agents/a1',
+ *   name: 'Code Review Agent',
+ *   skills: ['code-review'],
+ *   status: 'available',
+ *   model: 'claude-3-opus',
+ *   tools: ['read', 'write'],
+ *   autonomous: true
+ * })
+ * // agent.$type is automatically 'https://schema.org.ai/Agent'
+ * ```
+ */
+export function createAgent(input: Omit<Agent, '$type'>): Agent {
+  return { ...input, $type: 'https://schema.org.ai/Agent' }
+}
+
+/**
+ * Factory function to create a new Human
+ *
+ * Automatically sets the `$type` field to the correct schema.org.ai URL.
+ *
+ * @param input - Human data without the $type field
+ * @returns A complete Human object with $type set
+ *
+ * @example
+ * ```typescript
+ * const human = createHuman({
+ *   $id: 'https://schema.org.ai/humans/h1',
+ *   name: 'Alice',
+ *   skills: ['design', 'review'],
+ *   status: 'available',
+ *   requiresApproval: true,
+ *   notificationChannels: ['email', 'slack']
+ * })
+ * // human.$type is automatically 'https://schema.org.ai/Human'
+ * ```
+ */
+export function createHuman(input: Omit<Human, '$type'>): Human {
+  return { ...input, $type: 'https://schema.org.ai/Human' }
+}

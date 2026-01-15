@@ -7,6 +7,7 @@
 
 import { Hono, type Context, type Next } from 'hono'
 import { cors } from 'hono/cors'
+import { logBestEffortError } from '../../../../lib/logging/error-logger'
 
 import type { ExecResult, PythonBackend } from '../core/backend.js'
 import { PyodideBackend, createPyodideBackend } from './pyodide-backend.js'
@@ -877,7 +878,11 @@ export class PythonModule {
 
     // Error handler
     app.onError((err: Error, c: Context) => {
-      console.error('Unhandled error:', err)
+      logBestEffortError(err, {
+        operation: 'http:handle',
+        source: 'pyx/do/index',
+        context: { url: c.req.url, method: c.req.method },
+      })
       return c.json(
         { success: false, error: 'Internal server error' } satisfies ApiResponse<never>,
         500

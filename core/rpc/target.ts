@@ -22,6 +22,7 @@ import {
   newWorkersWebSocketRpcResponse,
   type RpcSessionOptions,
 } from 'capnweb'
+import { logBestEffortError } from '../../lib/logging/error-logger'
 
 // ============================================================================
 // INTERNAL MEMBER FILTERING
@@ -257,7 +258,10 @@ export async function handleRpcRequest(
   // Configure error handling
   const sessionOptions: RpcSessionOptions = {
     onSendError: (error: Error) => {
-      console.error('[rpc] Error:', error.message)
+      logBestEffortError(error, {
+        operation: 'rpc:send',
+        source: 'core/rpc/target',
+      })
 
       // In production, redact stack traces unless explicitly enabled
       if (options?.includeStackTraces) {

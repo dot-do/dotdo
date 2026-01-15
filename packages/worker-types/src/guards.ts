@@ -155,7 +155,7 @@ export function isWorkerConfig(value: unknown): value is WorkerConfig {
  */
 export function isAgent(value: unknown): value is IAgent {
   if (!isWorker(value)) return false
-  const obj = value as Record<string, unknown>
+  const obj = value as unknown as Record<string, unknown>
   return (
     typeof obj.registerTool === 'function' &&
     typeof obj.getTools === 'function' &&
@@ -250,7 +250,7 @@ export function isAgentConfig(value: unknown): value is AgentConfig {
  */
 export function isHuman(value: unknown): value is IHuman {
   if (!isWorker(value)) return false
-  const obj = value as Record<string, unknown>
+  const obj = value as unknown as Record<string, unknown>
   return (
     typeof obj.setChannels === 'function' &&
     typeof obj.getChannels === 'function' &&

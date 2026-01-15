@@ -82,6 +82,12 @@ export interface CausalityChain {
   transaction_id: string | null
   /** Custom correlation ID for cross-system linking */
   correlation_id: string | null
+  /** Graph depth (0 = root, 1 = direct child, etc.) - computed for fast queries */
+  depth: number | null
+  /** True if this span has no children - computed for fast leaf queries */
+  is_leaf: boolean | null
+  /** True if this span has no parent_id - computed for fast root queries */
+  is_root: boolean | null
 }
 
 // ============================================================================
@@ -809,6 +815,9 @@ export function createUnifiedEvent(
     workflow_id: partial.workflow_id ?? null,
     transaction_id: partial.transaction_id ?? null,
     correlation_id: partial.correlation_id ?? null,
+    depth: partial.depth ?? null,
+    is_leaf: partial.is_leaf ?? null,
+    is_root: partial.is_root ?? null,
 
     // Actor
     actor_id: partial.actor_id ?? null,
@@ -1057,7 +1066,7 @@ export const UNIFIED_COLUMNS: readonly ColumnDefinition[] = [
   { name: 'event_name', type: 'string', nullable: false, partition: false },
   { name: 'ns', type: 'string', nullable: false, partition: true },
 
-  // CausalityChain (8)
+  // CausalityChain (11 - includes 3 graph columns)
   { name: 'trace_id', type: 'string', nullable: true, partition: false },
   { name: 'span_id', type: 'string', nullable: true, partition: false },
   { name: 'parent_id', type: 'string', nullable: true, partition: false },
@@ -1066,6 +1075,9 @@ export const UNIFIED_COLUMNS: readonly ColumnDefinition[] = [
   { name: 'workflow_id', type: 'string', nullable: true, partition: false },
   { name: 'transaction_id', type: 'string', nullable: true, partition: false },
   { name: 'correlation_id', type: 'string', nullable: true, partition: false },
+  { name: 'depth', type: 'number', nullable: true, partition: false },
+  { name: 'is_leaf', type: 'boolean', nullable: true, partition: false },
+  { name: 'is_root', type: 'boolean', nullable: true, partition: false },
 
   // Actor (4)
   { name: 'actor_id', type: 'string', nullable: true, partition: false },

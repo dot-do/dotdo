@@ -13,6 +13,7 @@
  */
 
 import { type MetricsCollector, noopMetrics } from '../observability'
+import { logBestEffortError } from '../../../lib/logging/error-logger'
 
 // =============================================================================
 // PUBLIC TYPES
@@ -372,7 +373,11 @@ export class TamperDetector {
         await handler(alert)
       } catch (error) {
         // Log but don't throw - alert handling shouldn't break detection
-        console.error(`Alert handler error for ${alert.type}:`, error)
+        logBestEffortError(error, {
+          operation: 'alertHandler',
+          source: 'audit-log/tamper-detection',
+          context: { alertType: alert.type, severity: alert.severity },
+        })
       }
     }
 
@@ -381,7 +386,11 @@ export class TamperDetector {
       try {
         await this.defaultHandler(alert)
       } catch (error) {
-        console.error(`Default alert handler error for ${alert.type}:`, error)
+        logBestEffortError(error, {
+          operation: 'defaultAlertHandler',
+          source: 'audit-log/tamper-detection',
+          context: { alertType: alert.type },
+        })
       }
     }
   }

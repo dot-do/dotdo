@@ -2,6 +2,14 @@
  * DocumentStore
  *
  * Schema-free JSON document storage with JSONPath queries.
+ *
+ * Features:
+ * - CRUD operations with automatic versioning
+ * - JSONPath queries with MongoDB-like operators
+ * - Secondary indexes for optimized queries
+ * - Storage tiering (hot/warm/cold)
+ * - Change Data Capture (CDC) for event streaming
+ * - Bloom filters for existence checks
  */
 
 import { sql } from 'drizzle-orm'
@@ -24,6 +32,9 @@ import type {
   BloomFilter,
   UpsertFilter,
 } from './types'
+import { IndexManager, type IndexDefinition } from './indexes'
+import { DocumentTieringManager, type DocumentTieringOptions } from './tiering'
+import type { StorageTier, TierOperationResult } from '../core/tiering/types'
 
 /**
  * Simple bloom filter implementation
@@ -81,7 +92,72 @@ function getUnderlyingDb(db: BetterSQLite3Database): Database.Database {
 import type { CDCEmitter } from '../cdc'
 
 /**
+ * Extended options for DocumentStore with indexing and tiering
+ */
+export interface ExtendedDocumentStoreOptions extends DocumentStoreOptions {
+  /** Enable secondary indexing */
+  indexes?: IndexDefinition[]
+  /** Enable storage tiering */
+  tiering?: Omit<DocumentTieringOptions, 'db' | 'type'>
+  /** CDC change listener */
+  onCDCChange?: (event: CDCChangeEvent) => void
+}
+
+/**
+ * CDC change event with additional metadata
+ */
+export interface CDCChangeEvent extends CDCEvent {
+  /** Sequence number for ordering */
+  lsn?: number
+  /** Transaction ID for batching */
+  txid?: string
+  /** Timestamp of the change */
+  timestamp: number
+  /** Document version after change */
+  version: number
+}
+
+/**
+ * CDC subscription for streaming changes
+ */
+export interface CDCSubscription {
+  /** Unsubscribe from changes */
+  unsubscribe: () => void
+  /** Subscription ID */
+  id: string
+}
+
+/**
  * DocumentStore class
+ *
+ * @example Basic usage
+ * ```typescript
+ * const docs = new DocumentStore<Customer>(db, { type: 'Customer' })
+ * const customer = await docs.create({ name: 'Alice', email: 'alice@example.com' })
+ * ```
+ *
+ * @example With indexes
+ * ```typescript
+ * const docs = new DocumentStore<Customer>(db, {
+ *   type: 'Customer',
+ *   indexes: [
+ *     { name: 'email_idx', fields: [{ path: 'email' }], unique: true },
+ *     { name: 'tier_idx', fields: [{ path: 'metadata.tier' }] },
+ *   ],
+ * })
+ * ```
+ *
+ * @example With tiering
+ * ```typescript
+ * const docs = new DocumentStore<Customer>(db, {
+ *   type: 'Customer',
+ *   tiering: {
+ *     policy: ageBasedPolicy(7, 90),
+ *     r2Warm: env.R2_WARM,
+ *     r2Cold: env.R2_COLD,
+ *   },
+ * })
+ * ```
  */
 export class DocumentStore<T extends Record<string, unknown>> {
   private db: BetterSQLite3Database
@@ -91,12 +167,61 @@ export class DocumentStore<T extends Record<string, unknown>> {
   private cdcEmitter?: CDCEmitter
   private bloomFilters: Map<string, SimpleBloomFilter> = new Map()
 
-  constructor(db: BetterSQLite3Database, options: DocumentStoreOptions) {
+  // New features
+  private indexManager?: IndexManager
+  private tieringManager?: DocumentTieringManager<T>
+  private cdcSubscribers: Map<string, (event: CDCChangeEvent) => void> = new Map()
+  private lsn: number = 0
+  private onCDCChange?: (event: CDCChangeEvent) => void
+
+  constructor(db: BetterSQLite3Database, options: DocumentStoreOptions | ExtendedDocumentStoreOptions) {
     this.db = db
     this.sqlite = getUnderlyingDb(db)
     this.type = options.type
     this.onEvent = options.onEvent
     this.cdcEmitter = options.cdcEmitter
+
+    // Initialize extended features if provided
+    const extOptions = options as ExtendedDocumentStoreOptions
+
+    // Initialize index manager if indexes are specified
+    if (extOptions.indexes && extOptions.indexes.length > 0) {
+      this.indexManager = new IndexManager(this.sqlite, { type: this.type })
+      // Create indexes (async, but we don't wait)
+      this.initializeIndexes(extOptions.indexes)
+    }
+
+    // Initialize tiering manager if tiering is configured
+    if (extOptions.tiering) {
+      this.tieringManager = new DocumentTieringManager<T>({
+        ...extOptions.tiering,
+        db: this.sqlite,
+        type: this.type,
+      })
+    }
+
+    // Store CDC change listener
+    if (extOptions.onCDCChange) {
+      this.onCDCChange = extOptions.onCDCChange
+    }
+  }
+
+  /**
+   * Initialize indexes asynchronously
+   */
+  private async initializeIndexes(indexes: IndexDefinition[]): Promise<void> {
+    if (!this.indexManager) return
+
+    for (const indexDef of indexes) {
+      try {
+        const existing = this.indexManager.getIndexes()
+        if (!existing.find(i => i.name === indexDef.name)) {
+          await this.indexManager.createIndex(indexDef)
+        }
+      } catch {
+        // Index might already exist
+      }
+    }
   }
 
   /**
@@ -112,12 +237,39 @@ export class DocumentStore<T extends Record<string, unknown>> {
   }
 
   /**
-   * Emit a CDC event
+   * Emit a CDC event with enhanced metadata
    */
-  private emit(event: CDCEvent): void {
+  private emit(event: CDCEvent, version: number = 1): void {
+    // Increment LSN for ordering
+    this.lsn++
+
+    // Create enhanced CDC event
+    const enhancedEvent: CDCChangeEvent = {
+      ...event,
+      lsn: this.lsn,
+      timestamp: Date.now(),
+      version,
+    }
+
+    // Call legacy event handler
     if (this.onEvent) {
       this.onEvent(event)
     }
+
+    // Call new CDC change listener
+    if (this.onCDCChange) {
+      this.onCDCChange(enhancedEvent)
+    }
+
+    // Notify subscribers
+    for (const callback of this.cdcSubscribers.values()) {
+      try {
+        callback(enhancedEvent)
+      } catch {
+        // Don't let subscriber errors break the flow
+      }
+    }
+
     // Also emit to unified CDC pipeline if configured
     if (this.cdcEmitter) {
       this.cdcEmitter.emit({
@@ -131,6 +283,54 @@ export class DocumentStore<T extends Record<string, unknown>> {
         // Don't block on CDC pipeline errors
       })
     }
+  }
+
+  // ============================================================================
+  // CDC STREAMING METHODS
+  // ============================================================================
+
+  /**
+   * Subscribe to CDC changes
+   *
+   * @example
+   * ```typescript
+   * const subscription = docs.subscribe((event) => {
+   *   console.log(`${event.type}: ${event.key}`)
+   * })
+   *
+   * // Later...
+   * subscription.unsubscribe()
+   * ```
+   */
+  subscribe(callback: (event: CDCChangeEvent) => void): CDCSubscription {
+    const id = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    this.cdcSubscribers.set(id, callback)
+
+    return {
+      id,
+      unsubscribe: () => {
+        this.cdcSubscribers.delete(id)
+      },
+    }
+  }
+
+  /**
+   * Get current LSN (log sequence number)
+   * Useful for checkpointing and resuming change streams
+   */
+  getCurrentLSN(): number {
+    return this.lsn
+  }
+
+  /**
+   * Get changes since a specific LSN
+   * Note: This requires event log storage (not implemented in base version)
+   */
+  async getChangesSince(_lsn: number): Promise<CDCChangeEvent[]> {
+    // This would require persistent event log storage
+    // For now, return empty - full implementation would use EventLog from db/cdc
+    console.warn('getChangesSince requires EventLog storage - not implemented in base DocumentStore')
+    return []
   }
 
   /**
@@ -239,7 +439,25 @@ export class DocumentStore<T extends Record<string, unknown>> {
 
     const document = this.rowToDocument(row)
 
-    // Emit CDC event
+    // Update secondary indexes
+    if (this.indexManager) {
+      this.indexManager.updateDocument($id, {
+        ...data,
+        $id,
+        $type: this.type,
+        $createdAt: now,
+        $updatedAt: now,
+        $version: 1,
+      })
+    }
+
+    // Initialize tiering metadata
+    if (this.tieringManager) {
+      const sizeBytes = row.data.length
+      this.tieringManager.initializeMetadata($id, 1, sizeBytes)
+    }
+
+    // Emit CDC event with version
     this.emit({
       type: 'cdc.insert',
       op: 'c',
@@ -247,7 +465,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
       table: this.type,
       key: $id,
       after: { ...data },
-    })
+    }, 1)
 
     return document
   }
@@ -263,7 +481,19 @@ export class DocumentStore<T extends Record<string, unknown>> {
     `)
 
     if (result.length === 0) {
+      // If tiering is enabled, check warm/cold tiers
+      if (this.tieringManager) {
+        const tiered = await this.tieringManager.getFromAnyTier($id)
+        if (tiered) {
+          return tiered.data
+        }
+      }
       return null
+    }
+
+    // Record access for tiering decisions
+    if (this.tieringManager) {
+      this.tieringManager.recordAccess($id)
     }
 
     return this.rowToDocument(result[0])
@@ -310,7 +540,24 @@ export class DocumentStore<T extends Record<string, unknown>> {
       after[key] = a
     }
 
-    // Emit CDC event
+    // Update secondary indexes
+    if (this.indexManager) {
+      this.indexManager.updateDocument($id, {
+        ...newData,
+        $id,
+        $type: this.type,
+        $createdAt,
+        $updatedAt: now,
+        $version: newVersion,
+      })
+    }
+
+    // Record access for tiering
+    if (this.tieringManager) {
+      this.tieringManager.recordAccess($id)
+    }
+
+    // Emit CDC event with version
     this.emit({
       type: 'cdc.update',
       op: 'u',
@@ -319,7 +566,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
       key: $id,
       before,
       after,
-    })
+    }, newVersion)
 
     return {
       ...newData,
@@ -341,12 +588,17 @@ export class DocumentStore<T extends Record<string, unknown>> {
       return false
     }
 
-    const { $id: _, $type: __, $createdAt: ___, $updatedAt: ____, $version: _____, ...data } = existing
+    const { $id: _, $type: __, $createdAt: ___, $updatedAt: ____, $version, ...data } = existing
 
     this.db.run(sql`
       DELETE FROM documents
       WHERE "$id" = ${$id} AND "$type" = ${this.type}
     `)
+
+    // Remove from secondary indexes
+    if (this.indexManager) {
+      this.indexManager.removeDocument($id)
+    }
 
     // Emit CDC event
     this.emit({
@@ -356,7 +608,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
       table: this.type,
       key: $id,
       before: { ...data },
-    })
+    }, $version)
 
     return true
   }
@@ -582,5 +834,226 @@ export class DocumentStore<T extends Record<string, unknown>> {
     }
 
     return this.bloomFilters.get(field)!
+  }
+
+  // ============================================================================
+  // INDEX MANAGEMENT METHODS
+  // ============================================================================
+
+  /**
+   * Create a secondary index
+   *
+   * @example
+   * ```typescript
+   * await docs.createIndex({
+   *   name: 'email_idx',
+   *   fields: [{ path: 'email' }],
+   *   unique: true,
+   * })
+   * ```
+   */
+  async createIndex(definition: IndexDefinition): Promise<void> {
+    if (!this.indexManager) {
+      this.indexManager = new IndexManager(this.sqlite, { type: this.type })
+    }
+    await this.indexManager.createIndex(definition)
+  }
+
+  /**
+   * Drop a secondary index
+   */
+  async dropIndex(name: string): Promise<void> {
+    if (!this.indexManager) {
+      throw new Error('No indexes configured')
+    }
+    await this.indexManager.dropIndex(name)
+  }
+
+  /**
+   * List all indexes
+   */
+  getIndexes(): IndexDefinition[] {
+    return this.indexManager?.getIndexes() ?? []
+  }
+
+  /**
+   * Lookup documents by indexed field values
+   *
+   * @example
+   * ```typescript
+   * const ids = docs.lookupByIndex('email_idx', { email: 'alice@example.com' })
+   * ```
+   */
+  lookupByIndex(indexName: string, values: Record<string, unknown>): string[] {
+    if (!this.indexManager) {
+      throw new Error('No indexes configured')
+    }
+    return this.indexManager.lookup(indexName, values)
+  }
+
+  /**
+   * Range lookup by indexed field
+   *
+   * @example
+   * ```typescript
+   * const ids = docs.lookupByIndexRange('created_at_idx', '$createdAt', {
+   *   gte: Date.now() - 86400000, // Last 24 hours
+   *   limit: 100,
+   * })
+   * ```
+   */
+  lookupByIndexRange(
+    indexName: string,
+    field: string,
+    options: {
+      gt?: unknown
+      gte?: unknown
+      lt?: unknown
+      lte?: unknown
+      limit?: number
+      order?: 'asc' | 'desc'
+    }
+  ): string[] {
+    if (!this.indexManager) {
+      throw new Error('No indexes configured')
+    }
+    return this.indexManager.lookupRange(indexName, field, options)
+  }
+
+  /**
+   * Rebuild an index from scratch
+   */
+  async rebuildIndex(name: string): Promise<void> {
+    if (!this.indexManager) {
+      throw new Error('No indexes configured')
+    }
+    await this.indexManager.rebuildIndex(name)
+  }
+
+  // ============================================================================
+  // TIERING MANAGEMENT METHODS
+  // ============================================================================
+
+  /**
+   * Get document with tier information
+   *
+   * @example
+   * ```typescript
+   * const result = await docs.getWithTier('cust_123')
+   * console.log(`Document in ${result.tier} tier`)
+   * ```
+   */
+  async getWithTier($id: string): Promise<{ data: Document<T>; tier: StorageTier } | null> {
+    if (!this.tieringManager) {
+      // No tiering configured, return from hot tier
+      const doc = await this.get($id)
+      if (!doc) return null
+      return { data: doc, tier: 'hot' }
+    }
+    return this.tieringManager.getFromAnyTier($id)
+  }
+
+  /**
+   * Manually tier a document to warm storage
+   */
+  async tierToWarm($id: string): Promise<TierOperationResult> {
+    if (!this.tieringManager) {
+      return {
+        success: false,
+        key: $id,
+        error: 'Tiering not configured',
+      }
+    }
+    return this.tieringManager.tierToWarm($id)
+  }
+
+  /**
+   * Manually tier a document to cold storage
+   */
+  async tierToCold($id: string): Promise<TierOperationResult> {
+    if (!this.tieringManager) {
+      return {
+        success: false,
+        key: $id,
+        error: 'Tiering not configured',
+      }
+    }
+    return this.tieringManager.tierToCold($id)
+  }
+
+  /**
+   * Promote a document back to hot storage
+   */
+  async promoteToHot($id: string): Promise<TierOperationResult> {
+    if (!this.tieringManager) {
+      return {
+        success: false,
+        key: $id,
+        error: 'Tiering not configured',
+      }
+    }
+    return this.tieringManager.promoteToHot($id)
+  }
+
+  /**
+   * Run tiering batch to move eligible documents to warm/cold storage
+   *
+   * @example
+   * ```typescript
+   * // Dry run to see what would be tiered
+   * const preview = await docs.runTieringBatch({ dryRun: true })
+   *
+   * // Actually tier documents
+   * const results = await docs.runTieringBatch({ limit: 100 })
+   * console.log(`Tiered ${results.tieredToWarm} to warm, ${results.tieredToCold} to cold`)
+   * ```
+   */
+  async runTieringBatch(options: { limit?: number; dryRun?: boolean } = {}): Promise<{
+    evaluated: number
+    tieredToWarm: number
+    tieredToCold: number
+    errors: number
+    results: TierOperationResult[]
+  }> {
+    if (!this.tieringManager) {
+      return {
+        evaluated: 0,
+        tieredToWarm: 0,
+        tieredToCold: 0,
+        errors: 0,
+        results: [],
+      }
+    }
+    return this.tieringManager.runTieringBatch(options)
+  }
+
+  /**
+   * Get tiering statistics
+   */
+  async getTieringStats(): Promise<{
+    hot: { count: number; sizeBytes: number; avgAge: number; avgAccessCount: number }
+    warm: { count: number; sizeBytes: number }
+    cold: { count: number; sizeBytes: number }
+  } | null> {
+    if (!this.tieringManager) {
+      return null
+    }
+    return this.tieringManager.getStats()
+  }
+
+  /**
+   * Find documents that are candidates for tiering
+   */
+  findTieringCandidates(options: { limit?: number; targetTier?: StorageTier } = {}): Array<{
+    $id: string
+    targetTier: StorageTier
+  }> {
+    if (!this.tieringManager) {
+      return []
+    }
+    return this.tieringManager.findTieringCandidates(options).map(c => ({
+      $id: c.$id,
+      targetTier: c.targetTier,
+    }))
   }
 }

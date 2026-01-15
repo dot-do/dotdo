@@ -16,6 +16,8 @@
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import { eq } from 'drizzle-orm'
 import * as schema from '../../db'
+import { logBestEffortError } from '@/lib/logging/error-logger'
+import { createLogger, LogLevel } from '@/lib/logging'
 import type {
   WorkflowContext,
   DomainProxy,
@@ -221,13 +223,13 @@ export class DOWorkflow {
   send(event: string, data: unknown): void {
     queueMicrotask(() => {
       this.logAction('send', event, data).catch((error) => {
-        console.error(`[send] Failed to log action for ${event}:`, error)
+        logBestEffortError(error, { operation: 'logAction', source: 'DOWorkflow.send', context: { event } })
       })
       this.emitEvent(event, data).catch((error) => {
-        console.error(`[send] Failed to emit event ${event}:`, error)
+        logBestEffortError(error, { operation: 'emitEvent', source: 'DOWorkflow.send', context: { event } })
       })
       this.executeAction(event, data).catch((error) => {
-        console.error(`[send] Failed to execute action ${event}:`, error)
+        logBestEffortError(error, { operation: 'executeAction', source: 'DOWorkflow.send', context: { event } })
       })
     })
   }
@@ -377,11 +379,13 @@ export class DOWorkflow {
     return `${action}:${Math.abs(hash).toString(36)}`
   }
 
+  private _workflowLogger = createLogger({ name: 'workflow', level: LogLevel.DEBUG })
+
   /**
    * Log utility function
    */
   log(message: string, ...args: unknown[]): void {
-    console.log(`[${this._input.ns}]`, message, ...args)
+    this._workflowLogger.debug(`[${this._input.ns}] ${message}`, args.length > 0 ? { args } : undefined)
   }
 
   /**
@@ -562,7 +566,11 @@ export class DOWorkflow {
         createdAt: new Date(),
       })
     } catch (error) {
-      console.error(`[emitEvent] Database insert failed for ${verb}:`, error)
+      logBestEffortError(error, {
+        operation: 'insertEvent',
+        source: 'DOWorkflow.emitEvent',
+        context: { verb, ns: this._input.ns },
+      })
 
       // Add to DLQ for retry
       try {
@@ -576,7 +584,11 @@ export class DOWorkflow {
           maxRetries: 3,
         })
       } catch (dlqError) {
-        console.error(`[emitEvent] Failed to add to DLQ:`, dlqError)
+        logBestEffortError(dlqError, {
+          operation: 'addToDLQ',
+          source: 'DOWorkflow.emitEvent',
+          context: { verb },
+        })
       }
     }
 
@@ -665,7 +677,11 @@ export class DOWorkflow {
       onScheduleRegistered: (cron: string, name: string, handler: ScheduleHandler) => {
         self._scheduleHandlers.set(name, handler)
         self.scheduleManager.schedule(cron, name).catch((error) => {
-          console.error(`Failed to register schedule ${name}:`, error)
+          logBestEffortError(error, {
+            operation: 'registerSchedule',
+            source: 'DOWorkflow.createScheduleBuilder',
+            context: { name, cron },
+          })
         })
       },
     }
@@ -749,8 +765,12 @@ export class DOWorkflow {
             maxRetries: registration.maxRetries,
           })
           dlqEntries.push(dlqEntry.id)
-        } catch {
-          console.error('Failed to add event to DLQ')
+        } catch (dlqAddError) {
+          logBestEffortError(dlqAddError, {
+            operation: 'addToDLQ',
+            source: 'DOWorkflow.dispatchEvent',
+            context: { eventId: event.id, verb: event.verb },
+          })
         }
       }
     }

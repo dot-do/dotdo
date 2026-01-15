@@ -92,6 +92,7 @@ import {
   type ThingEntity,
 } from '../../db/stores'
 import { logBestEffortError } from '../../lib/logging/error-logger'
+import { createLogger, LogLevel, parseLogLevel, type Logger } from '../../lib/logging'
 import { parseNounId } from '../../lib/noun-id'
 import {
   ai as aiFunc,
@@ -974,7 +975,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         await this.onLocationDetected(this._cachedLocation)
       } catch (error) {
         // Log but don't propagate hook errors
-        console.error('Error in onLocationDetected hook:', error)
+        logBestEffortError(error, {
+          operation: 'onLocationDetected',
+          source: 'DOBase.location',
+        })
       }
     }
 
@@ -1027,7 +1031,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       return location
     } catch (error) {
       // Fallback to default location on error
-      console.error('Failed to detect location:', error)
+      logBestEffortError(error, {
+        operation: 'detectLocation',
+        source: 'DOBase._detectLocation',
+      })
       const location: DOLocation = {
         colo: 'lax',
         city: 'LosAngeles',
@@ -1187,15 +1194,15 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   protected send(event: string, data: unknown): void {
     queueMicrotask(() => {
       this.logAction('send', event, data).catch((error) => {
-        console.error(`[send] Failed to log action for ${event}:`, error)
+        logBestEffortError(error, { operation: 'logAction', source: 'DOBase.send', context: { event } })
         this.emitSystemError('send.logAction.failed', event, error)
       })
       this.emitEvent(event, data).catch((error) => {
-        console.error(`[send] Failed to emit event ${event}:`, error)
+        logBestEffortError(error, { operation: 'emitEvent', source: 'DOBase.send', context: { event } })
         this.emitSystemError('send.emitEvent.failed', event, error)
       })
       this.executeAction(event, data).catch((error) => {
-        console.error(`[send] Failed to execute action ${event}:`, error)
+        logBestEffortError(error, { operation: 'executeAction', source: 'DOBase.send', context: { event } })
         this.emitSystemError('send.executeAction.failed', event, error)
       })
     })
@@ -1210,12 +1217,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       const errorMessage = error instanceof Error ? error.message : String(error)
       const errorStack = error instanceof Error ? error.stack : undefined
 
-      // Log to console for immediate visibility
-      console.error(`[system.${errorType}]`, {
-        ns: this.ns,
-        originalEvent,
-        error: errorMessage,
-        stack: errorStack,
+      // Log to structured logger for immediate visibility
+      logBestEffortError(new Error(errorMessage), {
+        operation: errorType,
+        source: 'DOBase.emitSystemError',
+        context: { ns: this.ns, originalEvent },
       })
 
       // Try to persist to DLQ for later replay
@@ -1227,9 +1233,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         error: errorMessage,
         errorStack,
         maxRetries: 3,
-      }).catch(() => {
+      }).catch((dlqError) => {
         // Absolute last resort - can't even log to DLQ
-        console.error(`[CRITICAL] Failed to add system error to DLQ: ${errorType}`)
+        logBestEffortError(dlqError, {
+          operation: 'addToDLQ',
+          source: 'DOBase.emitSystemError',
+          context: { errorType, critical: true },
+        })
       })
     } catch (catchError) {
       // Never throw from error handler, but log the failure
@@ -1574,7 +1584,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       })
     } catch (error) {
       dbError = error instanceof Error ? error : new Error(String(error))
-      console.error(`[emitEvent] Database insert failed for ${verb}:`, dbError.message)
+      logBestEffortError(dbError, {
+        operation: 'insertEvent',
+        source: 'DOBase.emitEvent',
+        context: { verb, ns: this.ns },
+      })
 
       // Add to DLQ for retry
       try {
@@ -1588,7 +1602,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           maxRetries: 3,
         })
       } catch (dlqError) {
-        console.error(`[emitEvent] Failed to add to DLQ:`, dlqError)
+        logBestEffortError(dlqError, {
+          operation: 'addToDLQ',
+          source: 'DOBase.emitEvent',
+          context: { verb },
+        })
       }
     }
 
@@ -1614,7 +1632,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           break
         } catch (error) {
           pipelineError = error instanceof Error ? error : new Error(String(error))
-          console.error(`[emitEvent] Pipeline send attempt ${attempt}/${maxPipelineRetries} failed for ${verb}:`, pipelineError.message)
+          logBestEffortError(pipelineError, {
+            operation: 'pipelineSend',
+            source: 'DOBase.emitEvent',
+            context: { verb, attempt, maxRetries: maxPipelineRetries },
+          })
 
           if (attempt < maxPipelineRetries) {
             // Exponential backoff
@@ -1626,19 +1648,27 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
       // If all pipeline retries failed, log for metrics
       if (pipelineError) {
-        console.error(`[emitEvent] Pipeline send failed after ${maxPipelineRetries} attempts for ${verb}`)
+        logBestEffortError(pipelineError, {
+          operation: 'pipelineSendExhausted',
+          source: 'DOBase.emitEvent',
+          context: { verb, maxRetries: maxPipelineRetries },
+        })
       }
     }
 
     // Emit system error event if either operation failed (for observability)
     if (dbError || pipelineError) {
       try {
-        // Use console for metrics visibility (can be scraped by log aggregators)
-        console.error('[metrics.event.emission.failure]', {
-          ns: this.ns,
-          verb,
-          dbError: dbError?.message ?? null,
-          pipelineError: pipelineError?.message ?? null,
+        // Use structured logger for metrics visibility
+        logBestEffortError(dbError ?? pipelineError ?? new Error('Unknown emission failure'), {
+          operation: 'eventEmission',
+          source: 'DOBase.emitEvent',
+          context: {
+            ns: this.ns,
+            verb,
+            dbError: dbError?.message ?? null,
+            pipelineError: pipelineError?.message ?? null,
+          },
         })
       } catch (error) {
         // Never throw from error reporting, but log for observability
@@ -1684,7 +1714,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       try {
         listener(data)
       } catch (error) {
-        console.error(`Lifecycle event listener error for '${event}':`, error)
+        logBestEffortError(error, {
+          operation: 'lifecycleListener',
+          source: 'DOBase.emitLifecycleEvent',
+          context: { event },
+        })
       }
     }
   }
@@ -1706,7 +1740,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     } | undefined
 
     if (!r2) {
-      console.warn('No R2 bucket configured, starting with empty state')
+      this._logger.warn('No R2 bucket configured, starting with empty state')
       this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
       return
     }
@@ -1723,7 +1757,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       prefix = `orgs/${orgId}/tenants/${tenantId}/do/${this.ctx.id.toString()}/snapshots/`
     } else {
       // Fallback: use DO id only (for tests without JWT)
-      console.warn('No JWT available, using default snapshot path')
+      this._logger.warn('No JWT available, using default snapshot path')
       prefix = `do/${this.ctx.id.toString()}/snapshots/`
     }
 
@@ -1970,7 +2004,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           // Note: saveToIceberg now resets _pendingChanges
         } catch (error) {
           // Log but don't throw - this is background operation
-          console.error('Auto-checkpoint failed:', error)
+          logBestEffortError(error, {
+            operation: 'autoCheckpoint',
+            source: 'DOBase.startAutoCheckpoint',
+            context: { pendingChanges: this._pendingChanges },
+          })
           this.emitLifecycleEvent('checkpointFailed', { error })
         }
       }
@@ -2434,7 +2472,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       onScheduleRegistered: (cron: string, name: string, handler: ScheduleHandler) => {
         self._scheduleHandlers.set(name, handler)
         self.scheduleManager.schedule(cron, name).catch((error) => {
-          console.error(`Failed to register schedule ${name}:`, error)
+          logBestEffortError(error, {
+            operation: 'registerSchedule',
+            source: 'DOBase.createScheduleBuilder',
+            context: { name, cron },
+          })
         })
       },
     }
@@ -3525,7 +3567,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         }))
         return Response.json({ items: nouns, count: nouns.length })
       } catch (err) {
-        console.error('Error fetching nouns:', err)
+        logBestEffortError(err, {
+          operation: 'fetchNouns',
+          source: 'DOBase.fetch',
+        })
         return Response.json({ items: [], count: 0, error: 'Failed to fetch nouns' })
       }
     }
@@ -3633,7 +3678,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         }
       } else {
         // In development without JWT_SECRET, log warning but allow request
-        console.warn('JWT_SECRET not configured - skipping signature verification')
+        this._logger.warn('JWT_SECRET not configured - skipping signature verification')
       }
 
       const payload = JSON.parse(atob(parts[1]!)) as {

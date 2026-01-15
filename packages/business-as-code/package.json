@@ -51,10 +51,16 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {
-    "zod": "^3.24.0"
+  "peerDependencies": {
+    "zod": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "zod": "^3.24.0",
     "tsup": "^8.5.1",
     "typescript": "^5.7.0",
     "vitest": "^3.2.4"

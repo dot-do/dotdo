@@ -15,6 +15,7 @@ import type { DOLocation } from '../../types/Location'
 import type { ColoCode, ColoCity, Region, CFLocationHint } from '../../types/Location'
 import { codeToCity, coloRegion, regionToCF } from '../../types/Location'
 import { LOCATION_STORAGE_KEY } from '../../lib/colo/caching'
+import { logBestEffortError } from '@/lib/logging/error-logger'
 
 // ============================================================================
 // TYPES
@@ -163,7 +164,10 @@ export class LocationManager {
         await this.deps.onLocationDetected(this._cachedLocation)
       } catch (error) {
         // Log but don't propagate callback errors
-        console.error('Error in onLocationDetected callback:', error)
+        logBestEffortError(error, {
+          operation: 'onLocationDetected',
+          source: 'LocationManager.get',
+        })
       }
     }
 
@@ -255,7 +259,10 @@ export class LocationManager {
       return location
     } catch (error) {
       // Fallback to default location on error
-      console.error('Failed to detect location:', error)
+      logBestEffortError(error, {
+        operation: 'detectLocation',
+        source: 'LocationManager.detectLocation',
+      })
       const location: DOLocation = {
         colo: 'lax',
         city: 'LosAngeles',

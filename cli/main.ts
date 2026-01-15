@@ -41,6 +41,7 @@ import { evalCommand } from './commands/eval'
 import { replCommand } from './commands/repl'
 import { connectCommand } from './commands/connect'
 import { generateCommand } from './commands/generate'
+import { costCommand } from './commands/cost'
 // Auth commands
 import { run as loginRun } from './commands/auth/login'
 import { run as logoutRun } from './commands/auth/logout'
@@ -96,6 +97,7 @@ program.addCommand(evalCommand)
 program.addCommand(replCommand)
 program.addCommand(connectCommand)
 program.addCommand(generateCommand)
+program.addCommand(costCommand)
 
 // Add service commands (cli.do)
 program.addCommand(callCommand)

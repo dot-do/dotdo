@@ -103,6 +103,14 @@ import type { CloudflareEnv } from '../../types/CloudflareBindings'
 // Import UserContext from types
 import type { UserContext } from '../../types/WorkflowContext'
 
+// Import logging utilities
+import {
+  createLogger,
+  parseLogLevel,
+  LogLevel,
+  type Logger,
+} from '../../lib/logging'
+
 // Re-export UserContext for consumers
 export type { UserContext }
 
@@ -336,6 +344,33 @@ export class DO<E extends Env = Env> extends DOCore<typeof schema, E> {
   protected declare db: DrizzleSqliteDODatabase<any>
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // LOGGING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Logger instance for this DO.
+   * Configured from LOG_LEVEL environment variable.
+   * Defaults to INFO level if not specified.
+   */
+  protected _logger: Logger | undefined
+
+  /**
+   * Get the logger for this DO, creating it lazily if needed.
+   * The logger respects the LOG_LEVEL environment variable.
+   */
+  protected get logger(): Logger {
+    if (!this._logger) {
+      const envLogLevel = (this.env as { LOG_LEVEL?: string })?.LOG_LEVEL
+      this._logger = createLogger({
+        name: this.$type,
+        level: parseLogLevel(envLogLevel),
+        context: { ns: this.ns },
+      })
+    }
+    return this._logger
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // CONSTRUCTOR
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -384,8 +419,15 @@ export class DO<E extends Env = Env> extends DOCore<typeof schema, E> {
   // UTILITIES
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * Log a message at debug level using the configured logger.
+   * Respects LOG_LEVEL environment variable.
+   *
+   * @param message - The message to log
+   * @param data - Optional additional data to include in the log entry
+   */
   protected log(message: string, data?: unknown): void {
-    console.log(`[${this.ns}] ${message}`, data)
+    this.logger.debug(message, data ? { data } : undefined)
   }
 
   /**

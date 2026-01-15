@@ -8,6 +8,9 @@
  *
  * @module app/lib/hooks/use-collection
  *
+ * @remarks
+ * Uses structured logging via lib/logging for error and warning output.
+ *
  * @example Basic CRUD usage
  * ```typescript
  * const UserSchema = z.object({
@@ -65,6 +68,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { z, ZodObject, ZodRawShape } from 'zod'
+import { logger } from '@/lib/logging'
 
 // =============================================================================
 // Error Types
@@ -502,7 +506,7 @@ export function useCollection<TSchema extends ZodObject<ZodRawShape>>(
     const unsubscribe = $.on[name]?.change?.((event: unknown) => {
       // Validate change event before processing
       if (!isChangeEvent(event)) {
-        console.warn('Invalid change event received:', event)
+        logger.warn('Invalid change event received', { collection: name, event })
         return
       }
       const changeEvent = event

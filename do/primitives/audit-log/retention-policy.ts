@@ -14,6 +14,7 @@
 
 import type { AuditEntry, AuditLog } from './audit-log'
 import { type MetricsCollector, noopMetrics } from '../observability'
+import { logBestEffortError } from '../../../lib/logging/error-logger'
 
 // =============================================================================
 // RETENTION POLICY TYPES
@@ -916,7 +917,10 @@ export class RetentionPolicyEnforcer {
     if (schedule.type === 'interval' && schedule.intervalMs) {
       this.scheduledInterval = setInterval(() => {
         this.enforce().catch((error) => {
-          console.error('Scheduled retention enforcement failed:', error)
+          logBestEffortError(error, {
+            operation: 'scheduledEnforcement',
+            source: 'audit-log/retention-policy',
+          })
         })
       }, schedule.intervalMs)
 
@@ -925,7 +929,10 @@ export class RetentionPolicyEnforcer {
         // Defer to next tick to allow initialization to complete
         setTimeout(() => {
           this.enforce().catch((error) => {
-            console.error('Startup retention enforcement failed:', error)
+            logBestEffortError(error, {
+              operation: 'startupEnforcement',
+              source: 'audit-log/retention-policy',
+            })
           })
         }, 0)
       }

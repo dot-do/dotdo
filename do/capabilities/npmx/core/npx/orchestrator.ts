@@ -16,6 +16,7 @@ import { classifyPackage, type ExecutionTier, type PackageClassification } from 
 import { resolveEsmBundle, resolveBinary, fetchEsmBundle, type EsmBundle } from './esm-resolver.js'
 import { RegistryClient } from '../registry/index.js'
 import { ValidationError, PackageNotFoundError, ExecutionError, TimeoutError } from '../errors/index.js'
+import { logger } from '../../../../../../lib/logging'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -442,8 +443,11 @@ export async function executeNpx(
     const packageName = extractPackageName(parsed.package)
 
     if (options.verbose) {
-      console.log(`[npx] Executing ${parsed.package}`)
-      console.log(`[npx] Arguments: ${parsed.args.join(' ')}`)
+      logger.debug('Executing npx package', {
+        source: 'npmx/core/npx/orchestrator',
+        package: parsed.package,
+        args: parsed.args.join(' '),
+      })
     }
 
     // 2. Resolve package from registry to get metadata for classification
@@ -480,7 +484,11 @@ export async function executeNpx(
     const tier = options.forceTier ?? classification.tier
 
     if (options.verbose) {
-      console.log(`[npx] Classified as Tier ${tier}: ${classification.reason}`)
+      logger.debug('Classified npx package tier', {
+        source: 'npmx/core/npx/orchestrator',
+        tier,
+        reason: classification.reason,
+      })
     }
 
     // 4. Fetch bundle and execute based on tier
@@ -492,7 +500,10 @@ export async function executeNpx(
       })
 
       if (options.verbose) {
-        console.log(`[npx] Resolved bundle: ${bundle.url}`)
+        logger.debug('Resolved ESM bundle', {
+          source: 'npmx/core/npx/orchestrator',
+          url: bundle.url,
+        })
       }
 
       if (tier === 1) {

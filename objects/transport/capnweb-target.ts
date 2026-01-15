@@ -25,6 +25,7 @@ import {
   newWorkersWebSocketRpcResponse,
   type RpcSessionOptions,
 } from 'capnweb'
+import { logBestEffortError } from '@/lib/logging/error-logger'
 
 // ============================================================================
 // INTERNAL METHODS - These should NOT be exposed via Cap'n Web RPC
@@ -326,7 +327,10 @@ export async function handleCapnWebRpc(
   const sessionOptions: RpcSessionOptions = {
     onSendError: (error: Error) => {
       // Log errors for observability
-      console.error('[capnweb] RPC error:', error.message)
+      logBestEffortError(error, {
+        operation: 'rpcCall',
+        source: 'capnweb-target.handleCapnWebRequest',
+      })
 
       // In production, redact stack traces unless explicitly enabled
       if (options?.includeStackTraces) {
