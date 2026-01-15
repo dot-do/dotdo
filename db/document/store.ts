@@ -60,6 +60,8 @@ import type {
   CountOptions,
   BloomFilter,
   UpsertFilter,
+  CDCErrorContext,
+  CDCStats,
 } from './types'
 import { IndexManager, type IndexDefinition } from './indexes'
 import { DocumentTieringManager, type DocumentTieringOptions } from './tiering'
@@ -221,6 +223,8 @@ export class DocumentStore<T extends Record<string, unknown>> {
   private type: string
   private onEvent?: (event: CDCEvent) => void
   private cdcEmitter?: CDCEmitter
+  private onCDCError?: (context: CDCErrorContext) => void
+  private cdcErrorCount: number = 0
   private bloomFilters: Map<string, SimpleBloomFilter> = new Map()
 
   // New features
@@ -243,6 +247,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     this.type = options.type
     this.onEvent = options.onEvent
     this.cdcEmitter = options.cdcEmitter
+    this.onCDCError = options.onCDCError
     this.lockManager = new WriteLockManager()
 
     // Initialize extended features if provided
@@ -357,9 +362,30 @@ export class DocumentStore<T extends Record<string, unknown>> {
         key: event.key,
         before: event.before,
         after: event.after,
-      }).catch(() => {
-        // Don't block on CDC pipeline errors
+      }).catch((error: Error) => {
+        // Track CDC error for metrics
+        this.cdcErrorCount++
+
+        // Invoke error callback with context if configured
+        if (this.onCDCError) {
+          this.onCDCError({
+            error,
+            documentId: event.key,
+            eventType: event.type,
+            store: 'document',
+            timestamp: Date.now(),
+          })
+        }
       })
+    }
+  }
+
+  /**
+   * Get CDC statistics for monitoring
+   */
+  getCDCStats(): CDCStats {
+    return {
+      cdcErrorCount: this.cdcErrorCount,
     }
   }
 
@@ -938,26 +964,98 @@ export class DocumentStore<T extends Record<string, unknown>> {
 
   /**
    * Update multiple documents matching filter atomically
+   *
+   * Uses batch SQL with WHERE IN clause for O(1) query complexity.
    */
   async updateMany(
     filter: QueryOptions,
     updates: UpdateInput
   ): Promise<number> {
-    // Find matching documents first (outside transaction to avoid nested)
+    // Find matching documents first - cache them for CDC events
     const docs = await this.query(filter)
 
     if (docs.length === 0) {
       return 0
     }
 
+    const now = Date.now()
+    const ids = docs.map((d) => d.$id)
+
     // Begin transaction
     this.sqlite.exec('BEGIN IMMEDIATE')
     this.inTransaction = true
 
     try {
-      // Update each document
+      // Build batch UPDATE using json_set for each update field
+      // For each document, we need to apply updates to their data
+      // Use a single UPDATE with CASE statement for batch efficiency
+      const placeholders = ids.map(() => '?').join(', ')
+
+      // Build json_set chain for all update fields
+      let jsonSetExpr = 'data'
+      const updateParams: unknown[] = []
+      for (const [key, value] of Object.entries(updates)) {
+        // Convert dot notation to JSON path (e.g., 'metadata.tier' -> '$.metadata.tier')
+        const jsonPath = '$.' + key.replace(/\./g, '.')
+        jsonSetExpr = `json_set(${jsonSetExpr}, '${jsonPath}', json(?))`
+        updateParams.push(JSON.stringify(value))
+      }
+
+      // Execute single batch UPDATE
+      const updateSql = `
+        UPDATE documents
+        SET data = ${jsonSetExpr},
+            "$updatedAt" = ?,
+            "$version" = "$version" + 1
+        WHERE "$id" IN (${placeholders}) AND "$type" = ?
+      `
+
+      const stmt = this.sqlite.prepare(updateSql)
+      stmt.run(...updateParams, now, ...ids, this.type)
+
+      // Emit CDC events for each updated document (using cached docs)
       for (const doc of docs) {
-        await this.updateInTransaction(doc.$id, updates)
+        const { $id, $type: __, $createdAt: ___, $updatedAt: ____, $version, ...existingData } = doc
+
+        // Build before/after for CDC event
+        const before: Record<string, unknown> = {}
+        const after: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(updates)) {
+          before[key] = this.getNestedValue(existingData as Record<string, unknown>, key)
+          after[key] = value
+        }
+
+        // Update secondary indexes if configured
+        if (this.indexManager) {
+          const newData = { ...existingData } as Record<string, unknown>
+          for (const [key, value] of Object.entries(updates)) {
+            this.setNestedValue(newData, key, value)
+          }
+          this.indexManager.updateDocument($id, {
+            ...newData,
+            $id,
+            $type: this.type,
+            $createdAt: doc.$createdAt,
+            $updatedAt: now,
+            $version: $version + 1,
+          })
+        }
+
+        // Record access for tiering
+        if (this.tieringManager) {
+          this.tieringManager.recordAccess($id)
+        }
+
+        // Emit CDC event (will be buffered)
+        this.emit({
+          type: 'cdc.update',
+          op: 'u',
+          store: 'document',
+          table: this.type,
+          key: $id,
+          before,
+          after,
+        }, $version + 1)
       }
 
       // Commit transaction
@@ -1061,23 +1159,52 @@ export class DocumentStore<T extends Record<string, unknown>> {
 
   /**
    * Delete multiple documents matching filter atomically
+   *
+   * Uses batch SQL with WHERE IN clause for O(1) query complexity.
    */
   async deleteMany(filter: QueryOptions): Promise<number> {
-    // Find matching documents
+    // Find matching documents - cache for CDC events
     const docs = await this.query(filter)
 
     if (docs.length === 0) {
       return 0
     }
 
+    const ids = docs.map((d) => d.$id)
+
     // Begin transaction
     this.sqlite.exec('BEGIN IMMEDIATE')
     this.inTransaction = true
 
     try {
-      // Delete each document
+      // Execute single batch DELETE with WHERE IN clause
+      const placeholders = ids.map(() => '?').join(', ')
+      const deleteSql = `
+        DELETE FROM documents
+        WHERE "$id" IN (${placeholders}) AND "$type" = ?
+      `
+
+      const stmt = this.sqlite.prepare(deleteSql)
+      stmt.run(...ids, this.type)
+
+      // Emit CDC events for each deleted document (using cached docs)
       for (const doc of docs) {
-        await this.deleteInTransaction(doc.$id)
+        const { $id, $type: __, $createdAt: ___, $updatedAt: ____, $version, ...data } = doc
+
+        // Remove from secondary indexes if configured
+        if (this.indexManager) {
+          this.indexManager.removeDocument($id)
+        }
+
+        // Emit CDC event (will be buffered)
+        this.emit({
+          type: 'cdc.delete',
+          op: 'd',
+          store: 'document',
+          table: this.type,
+          key: $id,
+          before: { ...data },
+        }, $version)
       }
 
       // Commit transaction

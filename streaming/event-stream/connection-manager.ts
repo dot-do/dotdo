@@ -92,6 +92,12 @@ export interface IConnectionManager {
    * Check if a connection is subscribed to a topic
    */
   isSubscribed(connectionId: string, topic: string): boolean
+
+  /**
+   * Get all connection infos subscribed to a topic
+   * Supports wildcard matching - returns connection info with IDs for error tracking
+   */
+  getConnectionInfosByTopic(topic: string): ConnectionInfo[]
 }
 
 // ============================================================================
@@ -346,5 +352,28 @@ export class ConnectionManager implements IConnectionManager {
       return false
     }
     return info.topics.has(topic)
+  }
+
+  /**
+   * Get all connection infos subscribed to a topic
+   * Supports wildcard matching
+   */
+  getConnectionInfosByTopic(topic: string): ConnectionInfo[] {
+    const result: ConnectionInfo[] = []
+    const seen = new Set<string>()
+
+    for (const [connectionId, info] of this.connections) {
+      if (seen.has(connectionId)) continue
+
+      for (const subTopic of info.topics) {
+        if (matchesTopic(subTopic, topic)) {
+          result.push(info)
+          seen.add(connectionId)
+          break
+        }
+      }
+    }
+
+    return result
   }
 }

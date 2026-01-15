@@ -393,6 +393,191 @@ class TokenBucket {
 }
 
 // ============================================================================
+// TOPIC VALIDATION
+// ============================================================================
+
+/**
+ * Maximum allowed length for topic names
+ */
+const MAX_TOPIC_LENGTH = 256
+
+/**
+ * Allowed characters in topic names:
+ * - Alphanumeric (a-z, A-Z, 0-9)
+ * - Dots (.) for hierarchical topics
+ * - Dashes (-) for kebab-case
+ * - Underscores (_) for snake_case
+ * - Asterisks (*) for wildcards
+ */
+const VALID_TOPIC_REGEX = /^[a-zA-Z0-9.\-_*]+$/
+
+/**
+ * Pattern to detect path traversal attempts
+ */
+const PATH_TRAVERSAL_REGEX = /(?:^|[/\\])\.\.(?:[/\\]|$)|^\.\.$|^\.\.$/
+
+/**
+ * Maximum topic depth (number of dot-separated segments)
+ */
+const MAX_TOPIC_DEPTH = 10
+
+/**
+ * Reserved topic prefixes that are not allowed
+ */
+const RESERVED_PREFIXES = ['__', '_system', '$', 'internal.']
+
+/**
+ * Result of topic validation
+ */
+export interface TopicValidationResult {
+  valid: boolean
+  error?: string
+  errorCode?: string
+}
+
+/**
+ * Validates a topic name for security and correctness.
+ *
+ * Checks:
+ * 1. Not empty or whitespace-only
+ * 2. Within max length (256 chars)
+ * 3. Only allowed characters (alphanumeric, dots, dashes, underscores, asterisks)
+ * 4. No path traversal patterns (..)
+ * 5. No control characters or dangerous special chars
+ * 6. No reserved prefixes (__, _system, $, internal.)
+ * 7. Valid wildcard patterns (only * or .* or .** at end, or standalone *)
+ * 8. No leading/trailing dots or consecutive dots
+ * 9. Topic depth limit (max 10 segments)
+ *
+ * @param topic - The topic name to validate
+ * @returns Validation result with error message and error code if invalid
+ */
+export function validateTopic(topic: string): TopicValidationResult {
+  // Check for empty or whitespace-only
+  if (!topic || topic.trim().length === 0) {
+    return { valid: false, error: 'Topic cannot be empty', errorCode: 'EMPTY_TOPIC' }
+  }
+
+  // Check max length
+  if (topic.length > MAX_TOPIC_LENGTH) {
+    return {
+      valid: false,
+      error: `Topic exceeds maximum length of ${MAX_TOPIC_LENGTH} characters`,
+      errorCode: 'TOPIC_TOO_LONG',
+    }
+  }
+
+  // Check for path traversal patterns
+  if (PATH_TRAVERSAL_REGEX.test(topic)) {
+    return { valid: false, error: 'Topic contains path traversal pattern (..)', errorCode: 'PATH_TRAVERSAL' }
+  }
+
+  // Check for reserved prefixes
+  for (const prefix of RESERVED_PREFIXES) {
+    if (topic.startsWith(prefix)) {
+      return {
+        valid: false,
+        error: `Topic uses reserved prefix '${prefix}'. Reserved prefixes are not allowed.`,
+        errorCode: 'RESERVED_PREFIX',
+      }
+    }
+  }
+
+  // Check for valid characters only
+  // This implicitly rejects: spaces, newlines, control chars, semicolons, pipes,
+  // quotes, slashes, backslashes, null bytes, and other dangerous characters
+  if (!VALID_TOPIC_REGEX.test(topic)) {
+    return {
+      valid: false,
+      error: 'Topic contains invalid character. Allowed: alphanumeric, dots, dashes, underscores, asterisks',
+      errorCode: 'INVALID_CHARACTER',
+    }
+  }
+
+  // Check for leading or trailing dots
+  if (topic.startsWith('.') || topic.endsWith('.')) {
+    return {
+      valid: false,
+      error: 'Topic cannot start or end with a dot',
+      errorCode: 'INVALID_DOT_POSITION',
+    }
+  }
+
+  // Check for consecutive dots
+  if (topic.includes('..')) {
+    return {
+      valid: false,
+      error: 'Topic cannot contain consecutive dots',
+      errorCode: 'CONSECUTIVE_DOTS',
+    }
+  }
+
+  // Check topic depth (number of segments)
+  const segments = topic.split('.')
+  if (segments.length > MAX_TOPIC_DEPTH) {
+    return {
+      valid: false,
+      error: `Topic exceeds maximum depth of ${MAX_TOPIC_DEPTH} segments`,
+      errorCode: 'MAX_DEPTH_EXCEEDED',
+    }
+  }
+
+  // Validate wildcard patterns
+  // Allowed patterns:
+  // - "*" (standalone global wildcard)
+  // - "prefix.*" (single-level wildcard at end)
+  // - "prefix.**" (multi-level wildcard at end)
+  // Not allowed:
+  // - "*.suffix" (wildcard prefix with suffix)
+  // - "prefix.*.middle" (wildcard in middle)
+  // - "prefix*" or "*prefix" (mixed wildcard and text in segment)
+  // - "***" or more asterisks
+  if (topic.includes('*')) {
+    // Check for triple or more asterisks
+    if (topic.includes('***')) {
+      return {
+        valid: false,
+        error: 'Invalid wildcard pattern: triple or more asterisks not allowed',
+        errorCode: 'INVALID_WILDCARD',
+      }
+    }
+
+    // Standalone wildcard is valid
+    if (topic === '*') {
+      return { valid: true }
+    }
+
+    // Check each segment for valid wildcard usage
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i]
+      const isLastSegment = i === segments.length - 1
+
+      if (segment.includes('*')) {
+        // Wildcard must be at the end (last segment)
+        if (!isLastSegment) {
+          return {
+            valid: false,
+            error: 'Invalid wildcard pattern: wildcard can only appear at the end of a topic',
+            errorCode: 'INVALID_WILDCARD',
+          }
+        }
+
+        // Last segment with wildcard must be exactly "*" or "**"
+        if (segment !== '*' && segment !== '**') {
+          return {
+            valid: false,
+            error: 'Invalid wildcard pattern: wildcard segment must be exactly "*" or "**"',
+            errorCode: 'INVALID_WILDCARD',
+          }
+        }
+      }
+    }
+  }
+
+  return { valid: true }
+}
+
+// ============================================================================
 // MOCK PGLITE - Unified Event Storage
 // ============================================================================
 
@@ -1074,6 +1259,7 @@ export class EventStreamDO extends DurableObject {
     totalConnections: number
     messagesSent: number
     errorCount: number
+    parseErrors: number
     latencies: number[]
     lastSecondMessages: number[]
     coalescedBatches: number
@@ -1082,6 +1268,7 @@ export class EventStreamDO extends DurableObject {
     totalConnections: 0,
     messagesSent: 0,
     errorCount: 0,
+    parseErrors: 0,
     latencies: [],
     lastSecondMessages: [],
     coalescedBatches: 0,
@@ -1264,6 +1451,17 @@ export class EventStreamDO extends DurableObject {
     const lastEventId =
       url.searchParams.get('lastEventId') || request.headers.get('Last-Event-ID') || undefined
     const fromTimestamp = url.searchParams.get('fromTimestamp')
+
+    // Validate all topics
+    for (const topic of topics) {
+      const validation = validateTopic(topic)
+      if (!validation.valid) {
+        return new Response(JSON.stringify({ error: `Invalid topic: ${validation.error}` }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+    }
 
     // Handle authentication
     if (this._config.requireAuth) {
@@ -1451,15 +1649,27 @@ export class EventStreamDO extends DurableObject {
     // Legacy BroadcastEvent format
     const { topic, event } = body as { topic: string; event: Partial<BroadcastEvent> }
 
+    // Determine the effective topic (from body.topic or event.topic)
+    const effectiveTopic = topic || event?.topic || 'default'
+
+    // Validate topic
+    const topicValidation = validateTopic(effectiveTopic)
+    if (!topicValidation.valid) {
+      return new Response(JSON.stringify({ error: `Invalid topic: ${topicValidation.error}` }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     const fullEvent: BroadcastEvent = {
       id: event?.id || generateId(),
       type: event?.type || 'broadcast',
-      topic: topic || event?.topic || 'default',
+      topic: effectiveTopic,
       payload: event?.payload || {},
       timestamp: event?.timestamp || Date.now(),
     }
 
-    await this.broadcastToTopic(topic || fullEvent.topic, fullEvent)
+    await this.broadcastToTopic(effectiveTopic, fullEvent)
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
@@ -1471,12 +1681,22 @@ export class EventStreamDO extends DurableObject {
    * Handle broadcasting of UnifiedEvent format
    */
   private async handleUnifiedBroadcast(event: Partial<UnifiedEvent>): Promise<Response> {
+    // Validate ns (namespace) as topic - it will be used for broadcasting
+    const ns = event.ns || 'default'
+    const nsValidation = validateTopic(ns)
+    if (!nsValidation.valid) {
+      return new Response(JSON.stringify({ error: `Invalid topic (ns): ${nsValidation.error}` }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     // Validate with lazy schema (only core fields required)
     const validation = safeValidateUnifiedEventLazy({
       id: event.id || generateId(),
       event_type: event.event_type || 'trace',
       event_name: event.event_name || 'unknown',
-      ns: event.ns || 'default',
+      ns,
       ...event,
     })
 
@@ -1533,11 +1753,29 @@ export class EventStreamDO extends DurableObject {
   }
 
   private async handleQueryEndpoint(request: Request): Promise<Response> {
-    const body = await request.json() as { sql: string; params?: unknown[] }
+    let body: { sql?: string; params?: unknown[] }
+    try {
+      body = await request.json() as { sql?: string; params?: unknown[] }
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     const { sql, params } = body
 
+    // Validate SQL before execution
+    const validation = this.validateSqlQuery(sql)
+    if (!validation.valid) {
+      return new Response(JSON.stringify({ error: validation.error }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     try {
-      const result = await this.query(sql, params)
+      const result = await this.query(sql!, params)
       return new Response(JSON.stringify(result), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -1548,6 +1786,142 @@ export class EventStreamDO extends DurableObject {
         headers: { 'Content-Type': 'application/json' },
       })
     }
+  }
+
+  /**
+   * Validate SQL query for security.
+   * Only allows SELECT statements on allowed tables.
+   * Blocks dangerous keywords and SQL injection patterns.
+   */
+  private validateSqlQuery(sql: string | undefined | null): { valid: boolean; error?: string } {
+    // Check for null/undefined/empty
+    if (sql === null || sql === undefined) {
+      return { valid: false, error: 'SQL query is required' }
+    }
+
+    if (typeof sql !== 'string') {
+      return { valid: false, error: 'SQL query must be a string' }
+    }
+
+    const trimmedSql = sql.trim()
+
+    if (trimmedSql.length === 0) {
+      return { valid: false, error: 'SQL query cannot be empty' }
+    }
+
+    // Check query length limit (10KB max)
+    if (sql.length > 10240) {
+      return { valid: false, error: 'SQL query exceeds maximum length limit (10KB)' }
+    }
+
+    // Normalize whitespace for pattern matching (tabs, newlines -> spaces)
+    const normalizedSql = sql.replace(/[\t\n\r]+/g, ' ')
+    const upperSql = normalizedSql.toUpperCase()
+
+    // Block SQL comments (-- and /* */)
+    if (sql.includes('--') || sql.includes('/*') || sql.includes('*/')) {
+      return { valid: false, error: 'SQL comments are not allowed' }
+    }
+
+    // Block multiple statements (semicolons not at the end)
+    const semicolonMatch = sql.match(/;/g)
+    if (semicolonMatch && semicolonMatch.length > 1) {
+      return { valid: false, error: 'Multiple SQL statements are not allowed' }
+    }
+    // Check for semicolon followed by non-whitespace (stacked query)
+    if (/;[\s]*\S/.test(sql)) {
+      return { valid: false, error: 'Multiple SQL statements are not allowed' }
+    }
+
+    // Must start with SELECT (case-insensitive)
+    if (!upperSql.trimStart().startsWith('SELECT')) {
+      // Check what statement it is for a better error message
+      const dangerousStart = ['UPDATE', 'DELETE', 'DROP', 'INSERT', 'ALTER', 'TRUNCATE', 'CREATE', 'EXEC', 'EXECUTE']
+      for (const keyword of dangerousStart) {
+        if (upperSql.trimStart().startsWith(keyword)) {
+          return { valid: false, error: `${keyword} statements are not allowed` }
+        }
+      }
+      return { valid: false, error: 'Only SELECT statements are allowed' }
+    }
+
+    // Block dangerous keywords anywhere in the query
+    const dangerousKeywords = [
+      'UPDATE', 'DELETE', 'DROP', 'INSERT', 'ALTER', 'TRUNCATE',
+      'CREATE', 'EXEC', 'EXECUTE', 'GRANT', 'REVOKE'
+    ]
+
+    for (const keyword of dangerousKeywords) {
+      // Match keyword as a whole word (with word boundaries)
+      const regex = new RegExp(`\\b${keyword}\\b`, 'i')
+      if (regex.test(normalizedSql)) {
+        return { valid: false, error: `${keyword} statements are not allowed` }
+      }
+    }
+
+    // Block UNION (used in SQL injection)
+    if (/\bUNION\b/i.test(normalizedSql)) {
+      return { valid: false, error: 'UNION queries are not allowed' }
+    }
+
+    // Block hex-encoded values (0x...) - common injection technique
+    if (/0x[0-9a-fA-F]+/.test(sql)) {
+      return { valid: false, error: 'Hex-encoded values are not allowed' }
+    }
+
+    // Block CHAR() function - used to bypass keyword filters
+    if (/\bCHAR\s*\(/i.test(normalizedSql)) {
+      return { valid: false, error: 'CHAR() function is not allowed' }
+    }
+
+    // Block tautology patterns (OR 1=1, OR 'a'='a', etc.)
+    if (/\bOR\s+['"]?\w+['"]?\s*=\s*['"]?\w+['"]?/i.test(normalizedSql)) {
+      // More specific check for tautologies
+      if (/\bOR\s+['"]?(\w+)['"]?\s*=\s*['"]?\1['"]?/i.test(normalizedSql)) {
+        return { valid: false, error: 'Tautology patterns are not allowed (potential SQL injection)' }
+      }
+    }
+
+    // Check query complexity - nested subqueries (max 3 levels)
+    const selectCount = (upperSql.match(/\bSELECT\b/g) || []).length
+    if (selectCount > 4) {
+      return { valid: false, error: 'Query has too many nested subqueries (max depth: 3)' }
+    }
+
+    // Check JOIN count (max 5)
+    const joinCount = (upperSql.match(/\bJOIN\b/g) || []).length
+    if (joinCount > 5) {
+      return { valid: false, error: 'Query has too many JOINs (max: 5)' }
+    }
+
+    // Allowed tables whitelist
+    const allowedTables = ['events', 'sessions', 'metrics', 'traces', 'logs']
+
+    // Block system/metadata tables
+    const systemTables = [
+      'sqlite_master', 'sqlite_schema', 'sqlite_temp_master',
+      'pg_catalog', 'pg_tables', 'pg_class', 'pg_namespace',
+      'information_schema', 'sys', 'sysobjects', 'syscolumns'
+    ]
+
+    for (const sysTable of systemTables) {
+      if (normalizedSql.toLowerCase().includes(sysTable.toLowerCase())) {
+        return { valid: false, error: `Access to system table '${sysTable}' is not allowed` }
+      }
+    }
+
+    // Extract table names from query and validate against allowlist
+    // Match FROM/JOIN table patterns
+    const tablePattern = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi
+    let match
+    while ((match = tablePattern.exec(normalizedSql)) !== null) {
+      const tableName = match[1].toLowerCase()
+      if (!allowedTables.includes(tableName)) {
+        return { valid: false, error: `Table '${tableName}' is not allowed. Allowed tables: ${allowedTables.join(', ')}` }
+      }
+    }
+
+    return { valid: true }
   }
 
   /**
@@ -1666,7 +2040,7 @@ export class EventStreamDO extends DurableObject {
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const data = typeof message === 'string' ? message : new TextDecoder().decode(message)
-    this.handleWebSocketMessage(ws, data)
+    await this.handleWebSocketMessage(ws, data)
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -1677,7 +2051,7 @@ export class EventStreamDO extends DurableObject {
     this.handleWebSocketError(ws, error)
   }
 
-  private handleWebSocketMessage(ws: WebSocket, data: string): void {
+  private async handleWebSocketMessage(ws: WebSocket, data: string): Promise<void> {
     try {
       const message = JSON.parse(data as string)
 
@@ -1692,14 +2066,30 @@ export class EventStreamDO extends DurableObject {
           this.safeSend(ws, JSON.stringify({ type: 'pong', timestamp: Date.now() }))
           break
         case 'refresh_token':
-          this.handleTokenRefresh(ws, message.token)
+          await this.handleTokenRefresh(ws, message.token)
           break
         default:
           // Ignore unknown message types
           break
       }
-    } catch {
-      // Ignore invalid JSON
+    } catch (error) {
+      // Track parse errors in metrics
+      this.metrics.parseErrors++
+      this.metrics.errorCount++
+
+      // Log the error with context for debugging
+      console.error('[event-stream] WebSocket message parse error:', {
+        error: error instanceof Error ? error.message : 'unknown',
+        dataPreview: data.slice(0, 100),
+      })
+
+      // Send error response to client
+      this.safeSend(ws, JSON.stringify({
+        type: 'error',
+        code: 'PARSE_ERROR',
+        message: 'Invalid JSON message',
+        timestamp: Date.now(),
+      }))
     }
   }
 
@@ -1754,9 +2144,136 @@ export class EventStreamDO extends DurableObject {
     }
   }
 
-  private handleTokenRefresh(ws: WebSocket, token: string): void {
-    // In a real implementation, would validate the new token
-    this.safeSend(ws, JSON.stringify({ type: 'token_refreshed', timestamp: Date.now() }))
+  private async handleTokenRefresh(ws: WebSocket, token: unknown): Promise<void> {
+    const timestamp = Date.now()
+
+    // Validate token is a non-empty string
+    if (token === null || token === undefined) {
+      this.safeSend(ws, JSON.stringify({
+        type: 'token_error',
+        error: 'Token is empty or missing',
+        timestamp,
+      }))
+      return
+    }
+
+    if (typeof token !== 'string') {
+      this.safeSend(ws, JSON.stringify({
+        type: 'token_error',
+        error: 'Token must be a string',
+        timestamp,
+      }))
+      return
+    }
+
+    if (token.length === 0) {
+      this.safeSend(ws, JSON.stringify({
+        type: 'token_error',
+        error: 'Token is empty or missing',
+        timestamp,
+      }))
+      return
+    }
+
+    // If custom validator is set, use it
+    if (this.tokenRefreshValidator) {
+      try {
+        const result = await this.tokenRefreshValidator(token)
+        if (typeof result === 'boolean') {
+          if (result) {
+            this.safeSend(ws, JSON.stringify({ type: 'token_refreshed', timestamp }))
+          } else {
+            this.safeSend(ws, JSON.stringify({
+              type: 'token_error',
+              error: 'Token validation failed',
+              timestamp,
+            }))
+          }
+        } else {
+          if (result.valid) {
+            this.safeSend(ws, JSON.stringify({
+              type: 'token_refreshed',
+              timestamp,
+              ...(result.allowedTopics ? { allowedTopics: result.allowedTopics } : {}),
+            }))
+          } else {
+            this.safeSend(ws, JSON.stringify({
+              type: 'token_error',
+              error: result.error || 'Token validation failed',
+              timestamp,
+            }))
+          }
+        }
+      } catch (err) {
+        this.safeSend(ws, JSON.stringify({
+          type: 'token_error',
+          error: 'Token validation error',
+          timestamp,
+        }))
+      }
+      return
+    }
+
+    // Default JWT-like validation
+    const validationResult = this.validateJWTFormat(token)
+    if (!validationResult.valid) {
+      this.safeSend(ws, JSON.stringify({
+        type: 'token_error',
+        error: validationResult.error,
+        timestamp,
+      }))
+      return
+    }
+
+    // Token is valid
+    this.safeSend(ws, JSON.stringify({ type: 'token_refreshed', timestamp }))
+  }
+
+  /**
+   * Validates JWT-like token format.
+   * Checks:
+   * 1. Token has three dot-separated segments
+   * 2. Each segment is valid base64url
+   * 3. Token isn't obviously expired (if exp claim present)
+   */
+  private validateJWTFormat(token: string): { valid: boolean; error?: string } {
+    // Check for three dot-separated segments
+    const segments = token.split('.')
+    if (segments.length !== 3) {
+      return { valid: false, error: 'Invalid token format: expected three segments' }
+    }
+
+    // Validate each segment is valid base64url
+    const base64urlRegex = /^[A-Za-z0-9_-]*$/
+    for (let i = 0; i < segments.length; i++) {
+      if (!base64urlRegex.test(segments[i])) {
+        return { valid: false, error: 'Invalid token format: segments must be base64url encoded' }
+      }
+    }
+
+    // Try to decode the payload and check expiration
+    try {
+      const payloadB64 = segments[1]
+      // Add padding if needed for standard base64 decoding
+      const padded = payloadB64 + '='.repeat((4 - (payloadB64.length % 4)) % 4)
+      // Replace base64url chars with standard base64
+      const standard = padded.replace(/-/g, '+').replace(/_/g, '/')
+      const decoded = atob(standard)
+      const payload = JSON.parse(decoded)
+
+      // Check expiration if present
+      if (payload.exp !== undefined) {
+        const now = Math.floor(Date.now() / 1000)
+        if (payload.exp < now) {
+          return { valid: false, error: 'Token is expired' }
+        }
+      }
+    } catch {
+      // If we can't decode the payload, still accept the token
+      // (format was valid, just can't check expiration)
+    }
+
+    return { valid: true }
   }
 
   // ============================================================================
@@ -2254,9 +2771,13 @@ export class EventStreamDO extends DurableObject {
     try {
       conn.pendingMessages++
       conn.ws.send(eventJson)
-      conn.pendingMessages--
+      // Schedule decrement after a microtask to allow backpressure detection
+      // In real scenarios, this represents the message being "in flight"
+      queueMicrotask(() => {
+        conn.pendingMessages = Math.max(0, conn.pendingMessages - 1)
+      })
     } catch (error) {
-      conn.pendingMessages--
+      conn.pendingMessages = Math.max(0, conn.pendingMessages - 1)
       this.metrics.errorCount++
     }
   }
@@ -2567,6 +3088,27 @@ export class EventStreamDO extends DurableObject {
 
   setTokenValidator(validator: TokenValidator): void {
     this.tokenValidator = validator
+  }
+
+  /**
+   * Set a custom validator for token refresh operations.
+   * The validator receives the token string and should return:
+   * - A boolean (true = valid, false = invalid)
+   * - A TokenRefreshValidationResult object for detailed control
+   *
+   * @example
+   * ```typescript
+   * eventStreamDO.setTokenRefreshValidator(async (token) => {
+   *   const decoded = await verifyJWT(token)
+   *   return {
+   *     valid: !!decoded,
+   *     allowedTopics: decoded?.topics,
+   *   }
+   * })
+   * ```
+   */
+  setTokenRefreshValidator(validator: TokenRefreshValidator): void {
+    this.tokenRefreshValidator = validator
   }
 
   // ============================================================================

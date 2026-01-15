@@ -142,6 +142,32 @@ interface IConnectionManagerExtended extends IConnectionManager {
 // ============================================================================
 
 /**
+ * Configuration options for FanOutManager
+ */
+export interface FanOutManagerOptions {
+  /**
+   * Callback invoked when a WebSocket send fails
+   */
+  onSendError?: (connectionId: string, error: Error) => void
+}
+
+/**
+ * Internal metrics for tracking broadcast performance
+ */
+interface FanOutMetrics {
+  sendFailures: number
+  totalDelivered: number
+}
+
+/**
+ * Result of sendToConnections with failure details
+ */
+interface SendToConnectionsResult {
+  successful: number
+  failedConnectionIds: string[]
+}
+
+/**
  * FanOutManager - Topic-based message broadcasting
  *
  * Features:
@@ -151,7 +177,20 @@ interface IConnectionManagerExtended extends IConnectionManager {
  * - Delivery tracking and error handling
  */
 export class FanOutManager implements IFanOutManager {
-  constructor(private connectionManager: IConnectionManagerExtended) {}
+  private options: FanOutManagerOptions
+  private metrics: FanOutMetrics = { sendFailures: 0, totalDelivered: 0 }
+  private lastSendResult: SendToConnectionsResult = { successful: 0, failedConnectionIds: [] }
+
+  constructor(private connectionManager: IConnectionManagerExtended, options?: FanOutManagerOptions) {
+    this.options = options ?? {}
+  }
+
+  /**
+   * Get current metrics
+   */
+  getMetrics(): FanOutMetrics {
+    return { ...this.metrics }
+  }
 
   /**
    * Broadcast a message to all connections subscribed to a topic

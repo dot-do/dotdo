@@ -16,6 +16,18 @@
 // ============================================================================
 
 /**
+ * Options for configuring WriteLockManager
+ */
+export interface WriteLockManagerOptions {
+  /**
+   * Maximum number of requests that can be queued per key.
+   * When exceeded, new requests are rejected with QueueFullError.
+   * Default: 1000
+   */
+  maxQueueDepth?: number
+}
+
+/**
  * Handle returned when acquiring a lock
  */
 export interface LockHandle {
@@ -74,6 +86,29 @@ export interface Conflict<T> {
 export type ConflictStrategy = 'reject' | 'last-write-wins' | 'merge' | 'custom'
 
 // ============================================================================
+// ERRORS
+// ============================================================================
+
+/**
+ * Error thrown when a lock queue is full and cannot accept more requests.
+ * This prevents unbounded memory growth when locks are held indefinitely.
+ */
+export class QueueFullError extends Error {
+  name = 'QueueFullError' as const
+
+  constructor(
+    /** The key for which the queue is full */
+    public readonly key: string,
+    /** Current depth of the queue */
+    public readonly queueDepth: number,
+    /** Maximum allowed queue depth */
+    public readonly maxQueueDepth: number
+  ) {
+    super(`Queue full for key "${key}": ${queueDepth}/${maxQueueDepth} requests queued`)
+  }
+}
+
+// ============================================================================
 // LOCK QUEUE ITEM
 // ============================================================================
 
@@ -119,6 +154,9 @@ export class WriteLockManager {
   /** Counter for generating unique lock IDs */
   private lockIdCounter = 0
 
+  /** Maximum queue depth per key */
+  private readonly maxQueueDepth: number
+
   /** Metrics for monitoring */
   private metrics = {
     locksAcquired: 0,
@@ -126,6 +164,11 @@ export class WriteLockManager {
     lockTimeouts: 0,
     queueDepthMax: 0,
     totalWaitTimeMs: 0,
+    queueFullRejections: 0,
+  }
+
+  constructor(options: WriteLockManagerOptions = {}) {
+    this.maxQueueDepth = options.maxQueueDepth ?? 1000
   }
 
   /**
@@ -144,6 +187,14 @@ export class WriteLockManager {
     // If no lock held for this key, acquire immediately
     if (!this.locks.has(key)) {
       return this.createLockHandle(key, requestId)
+    }
+
+    // Check queue bounds before queueing
+    const currentQueue = this.queues.get(key)
+    const currentQueueLength = currentQueue?.length ?? 0
+    if (currentQueueLength >= this.maxQueueDepth) {
+      this.metrics.queueFullRejections++
+      throw new QueueFullError(key, currentQueueLength, this.maxQueueDepth)
     }
 
     // Otherwise, queue the request
@@ -229,7 +280,7 @@ export class WriteLockManager {
   /**
    * Get metrics for monitoring
    */
-  getMetrics(): typeof this.metrics & { activeLocksCount: number; queuedRequestsCount: number } {
+  getMetrics(): typeof this.metrics & { activeLocksCount: number; queuedRequestsCount: number; maxQueueDepth: number } {
     let queuedRequestsCount = 0
     this.queues.forEach((queue) => {
       queuedRequestsCount += queue.length
@@ -239,6 +290,7 @@ export class WriteLockManager {
       ...this.metrics,
       activeLocksCount: this.locks.size,
       queuedRequestsCount,
+      maxQueueDepth: this.maxQueueDepth,
     }
   }
 

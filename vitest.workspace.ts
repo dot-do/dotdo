@@ -250,6 +250,9 @@ export default defineWorkspace([
   // Stress tests (concurrent writes, high contention, performance benchmarks)
   createNodeWorkspace('stress', ['tests/db/stress/**/*.test.ts']),
 
+  // Concurrency tests (lock managers, queue bounds, deadlock prevention)
+  createNodeWorkspace('concurrency', ['tests/db/concurrency/**/*.test.ts']),
+
   // Unified Store Interface tests (Store<T> polymorphism across all store types)
   createNodeWorkspace('unified', ['tests/db/unified/**/*.test.ts', 'db/unified/**/*.test.ts']),
 

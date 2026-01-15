@@ -16,6 +16,30 @@
 import { type ErrorCode, ErrorCodes, getHttpStatusForCode, isRetryableError } from './codes'
 
 /**
+ * Internal context getter function that can be registered by context.ts
+ * This avoids circular import issues by using a callback registration pattern.
+ */
+let errorContextGetter: (() => Record<string, unknown> | undefined) | null = null
+
+/**
+ * Register the error context getter function.
+ * This is called by context.ts to enable DotdoError to access context.
+ *
+ * @internal
+ */
+export function registerErrorContextGetter(getter: () => Record<string, unknown> | undefined): void {
+  errorContextGetter = getter
+}
+
+/**
+ * Get the current error context from the registered getter
+ * This is called internally by DotdoError factory methods
+ */
+function getCurrentErrorContext(): Record<string, unknown> | undefined {
+  return errorContextGetter?.()
+}
+
+/**
  * Serialized error format for JSON transport
  */
 export interface DotdoErrorJSON {
@@ -161,12 +185,14 @@ export class DotdoError extends Error {
 
   /**
    * Create a not found error
+   * Automatically includes current error context if available
    */
   static notFound(resource: string, id?: string, options?: DotdoErrorOptions): DotdoError {
     const message = id ? `${resource} '${id}' not found` : `${resource} not found`
+    const currentContext = getCurrentErrorContext()
     return new DotdoError(ErrorCodes.NOT_FOUND, message, {
       ...options,
-      context: { resource, id, ...options?.context },
+      context: { ...currentContext, resource, id, ...options?.context },
     })
   }
 
@@ -241,15 +267,22 @@ export class DotdoError extends Error {
   /**
    * Wrap an unknown error as a DotdoError
    * Useful for catch blocks where the error type is unknown
+   * Automatically attaches current error context if available
    */
   static wrap(error: unknown, code: ErrorCode = ErrorCodes.INTERNAL_ERROR): DotdoError {
     if (error instanceof DotdoError) {
       return error
     }
+
+    const currentContext = getCurrentErrorContext()
+
     if (error instanceof Error) {
-      return new DotdoError(code, error.message, { cause: error })
+      return new DotdoError(code, error.message, {
+        cause: error,
+        context: currentContext,
+      })
     }
-    return new DotdoError(code, String(error))
+    return new DotdoError(code, String(error), { context: currentContext })
   }
 
   /**

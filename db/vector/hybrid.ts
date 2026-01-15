@@ -11,6 +11,7 @@
 import { truncateEmbedding } from './matryoshka'
 import { toBinary, packBits, packedHammingDistance } from '../core/vector/quantization/binary'
 import type { CDCEvent } from './types'
+import type { SqlStorageInterface } from './store'
 
 // ============================================================================
 // TYPES
@@ -26,7 +27,7 @@ export interface HybridVectorStoreOptions {
 export interface VectorResult {
   $id: string
   embedding: Float32Array
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   mat_64?: Float32Array
   mat_256?: Float32Array
   binaryHash?: ArrayBuffer
@@ -36,7 +37,7 @@ export interface SearchResultItem {
   $id: string
   similarity: number
   distance: number
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
 }
 
 export interface HybridSearchResultItem extends SearchResultItem {
@@ -48,7 +49,7 @@ export interface HybridSearchResultItem extends SearchResultItem {
 export interface HybridSearchOptions {
   ftsWeight?: number
   vectorWeight?: number
-  filters?: Record<string, any>
+  filters?: Record<string, unknown>
 }
 
 export interface ProgressiveSearchOptions {
@@ -65,7 +66,7 @@ export interface ProgressiveSearchStage {
 export interface BatchVectorInput {
   id: string | null
   embedding: Float32Array
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
 }
 
 export interface BatchOptions {
@@ -79,7 +80,7 @@ export interface BatchOptions {
 interface StoredVector {
   $id: string
   embedding: Float32Array
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   mat_64?: Float32Array
   mat_256?: Float32Array
   binaryHash?: ArrayBuffer
@@ -95,12 +96,12 @@ export class HybridVectorStore {
   private readonly useBinaryPrefilter: boolean
   private readonly onCDCCallback?: (event: CDCEvent) => void
 
-  private db: any
+  private db: SqlStorageInterface
   private vectors = new Map<string, StoredVector>()
   private ftsIndex = new Map<string, string>()
   private idCounter = 0
 
-  constructor(db: any, options: HybridVectorStoreOptions = {}) {
+  constructor(db: SqlStorageInterface, options: HybridVectorStoreOptions = {}) {
     this.db = db
     this.dimension = options.dimension ?? 1536
     this.matryoshkaDims = options.matryoshkaDims ?? []
@@ -134,7 +135,7 @@ export class HybridVectorStore {
   async addVector(
     id: string | null,
     embedding: Float32Array,
-    metadata: Record<string, any>
+    metadata: Record<string, unknown>
   ): Promise<{ $id: string }> {
     // Validate embedding dimension
     if (embedding.length !== this.dimension) {
@@ -230,7 +231,7 @@ export class HybridVectorStore {
   // updateMetadata
   // ============================================================================
 
-  async updateMetadata(id: string, newMetadata: Record<string, any>): Promise<void> {
+  async updateMetadata(id: string, newMetadata: Record<string, unknown>): Promise<void> {
     const stored = this.vectors.get(id)
     if (!stored) {
       throw new Error(`Vector with id '${id}' not found`)
@@ -261,7 +262,7 @@ export class HybridVectorStore {
   async search(
     queryVector: Float32Array,
     k: number,
-    filters?: Record<string, any>
+    filters?: Record<string, unknown>
   ): Promise<SearchResultItem[]> {
     if (this.vectors.size === 0) {
       return []
@@ -426,7 +427,7 @@ export class HybridVectorStore {
   private ftsSearch(
     query: string,
     limit: number,
-    filters?: Record<string, any>
+    filters?: Record<string, unknown>
   ): SearchResultItem[] {
     const queryTerms = query.toLowerCase().split(/\s+/)
 
@@ -714,10 +715,10 @@ import { VectorStore } from './store'
 import type { HybridQueryOptions, SearchResult } from './types'
 
 export class HybridSearch {
-  private db: any
+  private db: SqlStorageInterface
   private vectorStore: VectorStore
 
-  constructor(db: any) {
+  constructor(db: SqlStorageInterface) {
     this.db = db
     this.vectorStore = new VectorStore(db, { lazyInit: true })
   }

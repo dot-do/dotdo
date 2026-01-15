@@ -53,6 +53,20 @@ export interface CacheStats {
 }
 
 // ============================================================================
+// DOUBLY-LINKED LIST NODE FOR O(1) LRU
+// ============================================================================
+
+/**
+ * Node in the doubly-linked list for O(1) LRU operations
+ */
+interface DoublyLinkedListNode<K, V> {
+  key: K
+  entry: CacheEntry<V>
+  prev: DoublyLinkedListNode<K, V> | null
+  next: DoublyLinkedListNode<K, V> | null
+}
+
+// ============================================================================
 // BOUNDED LRU CACHE CLASS
 // ============================================================================
 
@@ -60,15 +74,28 @@ export interface CacheStats {
  * Bounded LRU Cache with memory tracking
  *
  * Features:
- * - O(1) get and set operations
+ * - O(1) get and set operations (using doubly-linked list + Map)
  * - LRU eviction when maxSize exceeded
  * - Memory-based eviction when memoryLimit exceeded
  * - Hit/miss/eviction metrics
  * - Memory tracking per entry
+ *
+ * Implementation:
+ * - Map<K, Node> provides O(1) lookup
+ * - Doubly-linked list provides O(1) removal and insertion
+ * - Head = Most Recently Used (MRU)
+ * - Tail = Least Recently Used (LRU)
  */
 export class BoundedLRUCache<K extends string, V> {
-  private cache = new Map<K, CacheEntry<V>>()
-  private accessOrder: K[] = []
+  /** Map for O(1) lookup of nodes by key */
+  private nodeMap = new Map<K, DoublyLinkedListNode<K, V>>()
+
+  /** Head of the doubly-linked list (Most Recently Used) */
+  private head: DoublyLinkedListNode<K, V> | null = null
+
+  /** Tail of the doubly-linked list (Least Recently Used) */
+  private tail: DoublyLinkedListNode<K, V> | null = null
+
   private _maxSize: number
   private _memoryLimitBytes: number | undefined
   private _evictionThreshold: number
@@ -99,7 +126,7 @@ export class BoundedLRUCache<K extends string, V> {
   }
 
   get size(): number {
-    return this.cache.size
+    return this.nodeMap.size
   }
 
   get memoryBytes(): number {
@@ -111,62 +138,69 @@ export class BoundedLRUCache<K extends string, V> {
   }
 
   /**
-   * Get a value from the cache
+   * Get a value from the cache - O(1)
    * Updates access order on hit (use for final result access)
    */
   get(key: K): V | undefined {
-    const entry = this.cache.get(key)
-    if (entry) {
+    const node = this.nodeMap.get(key)
+    if (node) {
       this.metrics.hits++
-      this.updateAccessOrder(key)
-      return entry.value
+      this.moveToHead(node)
+      return node.entry.value
     }
     this.metrics.misses++
     return undefined
   }
 
   /**
-   * Peek at a value without updating access order
+   * Peek at a value without updating access order - O(1)
    * Still tracks hit/miss metrics
    */
   peek(key: K): V | undefined {
-    const entry = this.cache.get(key)
-    if (entry) {
+    const node = this.nodeMap.get(key)
+    if (node) {
       this.metrics.hits++
-      return entry.value
+      return node.entry.value
     }
     this.metrics.misses++
     return undefined
   }
 
   /**
-   * Check if key exists without affecting metrics or access order
+   * Check if key exists without affecting metrics or access order - O(1)
    */
   has(key: K): boolean {
-    return this.cache.has(key)
+    return this.nodeMap.has(key)
   }
 
   /**
-   * Set a value in the cache
+   * Set a value in the cache - O(1)
    * Evicts LRU entries if maxSize or memoryLimit exceeded
    */
   set(key: K, value: V): void {
     const sizeBytes = this.sizeCalculator(value)
+    const existingNode = this.nodeMap.get(key)
 
     // If key exists, update it
-    if (this.cache.has(key)) {
-      const oldEntry = this.cache.get(key)!
-      this._memoryBytes -= oldEntry.sizeBytes
+    if (existingNode) {
+      this._memoryBytes -= existingNode.entry.sizeBytes
       this._memoryBytes += sizeBytes
-      this.cache.set(key, { value, sizeBytes })
-      this.updateAccessOrder(key)
+      existingNode.entry = { value, sizeBytes }
+      this.moveToHead(existingNode)
       this.evictIfNeeded()
       return
     }
 
-    // Add new entry
-    this.cache.set(key, { value, sizeBytes })
-    this.accessOrder.push(key)
+    // Create new node and add to head
+    const newNode: DoublyLinkedListNode<K, V> = {
+      key,
+      entry: { value, sizeBytes },
+      prev: null,
+      next: null,
+    }
+
+    this.nodeMap.set(key, newNode)
+    this.addToHead(newNode)
     this._memoryBytes += sizeBytes
 
     // Evict if needed
@@ -174,36 +208,34 @@ export class BoundedLRUCache<K extends string, V> {
   }
 
   /**
-   * Delete a key from the cache
+   * Delete a key from the cache - O(1)
    */
   delete(key: K): boolean {
-    const entry = this.cache.get(key)
-    if (entry) {
-      this._memoryBytes -= entry.sizeBytes
-      this.cache.delete(key)
-      const idx = this.accessOrder.indexOf(key)
-      if (idx >= 0) {
-        this.accessOrder.splice(idx, 1)
-      }
+    const node = this.nodeMap.get(key)
+    if (node) {
+      this._memoryBytes -= node.entry.sizeBytes
+      this.nodeMap.delete(key)
+      this.removeNode(node)
       return true
     }
     return false
   }
 
   /**
-   * Clear all entries
+   * Clear all entries - O(1)
    */
   clear(): void {
-    this.cache.clear()
-    this.accessOrder = []
+    this.nodeMap.clear()
+    this.head = null
+    this.tail = null
     this._memoryBytes = 0
   }
 
   /**
-   * Get all keys in the cache
+   * Get all keys in the cache - O(n) but only used for stats
    */
   keys(): K[] {
-    return Array.from(this.cache.keys())
+    return Array.from(this.nodeMap.keys())
   }
 
   /**
@@ -212,10 +244,10 @@ export class BoundedLRUCache<K extends string, V> {
   getStats(): SingleCacheStats {
     const total = this.metrics.hits + this.metrics.misses
     return {
-      size: this.cache.size,
+      size: this.nodeMap.size,
       maxSize: this._maxSize,
       memoryBytes: this._memoryBytes,
-      avgEntryBytes: this.cache.size > 0 ? this._memoryBytes / this.cache.size : 0,
+      avgEntryBytes: this.nodeMap.size > 0 ? this._memoryBytes / this.nodeMap.size : 0,
       hits: this.metrics.hits,
       misses: this.metrics.misses,
       hitRate: total > 0 ? this.metrics.hits / total : 0,
@@ -247,47 +279,93 @@ export class BoundedLRUCache<K extends string, V> {
   }
 
   /**
-   * Update access order - move key to end (most recently used)
+   * Add a node to the head of the list (MRU position) - O(1)
    */
-  private updateAccessOrder(key: K): void {
-    const idx = this.accessOrder.indexOf(key)
-    if (idx >= 0) {
-      this.accessOrder.splice(idx, 1)
+  private addToHead(node: DoublyLinkedListNode<K, V>): void {
+    node.prev = null
+    node.next = this.head
+
+    if (this.head) {
+      this.head.prev = node
     }
-    this.accessOrder.push(key)
+    this.head = node
+
+    if (!this.tail) {
+      this.tail = node
+    }
   }
 
   /**
-   * Evict entries if size or memory limits exceeded
+   * Remove a node from the list - O(1)
+   */
+  private removeNode(node: DoublyLinkedListNode<K, V>): void {
+    const prev = node.prev
+    const next = node.next
+
+    if (prev) {
+      prev.next = next
+    } else {
+      // Node was the head
+      this.head = next
+    }
+
+    if (next) {
+      next.prev = prev
+    } else {
+      // Node was the tail
+      this.tail = prev
+    }
+
+    // Clear references
+    node.prev = null
+    node.next = null
+  }
+
+  /**
+   * Move an existing node to the head (MRU position) - O(1)
+   */
+  private moveToHead(node: DoublyLinkedListNode<K, V>): void {
+    // Already at head
+    if (node === this.head) {
+      return
+    }
+
+    // Remove from current position
+    this.removeNode(node)
+
+    // Add to head
+    this.addToHead(node)
+  }
+
+  /**
+   * Evict entries if size or memory limits exceeded - O(1) per eviction
    */
   private evictIfNeeded(): void {
     // Check size limit
-    while (this.cache.size > this._maxSize && this.accessOrder.length > 0) {
+    while (this.nodeMap.size > this._maxSize && this.tail) {
       this.evictLRU()
     }
 
     // Check memory limit
     if (this._memoryLimitBytes !== undefined) {
       const threshold = this._memoryLimitBytes * this._evictionThreshold
-      while (this._memoryBytes > threshold && this.accessOrder.length > 0) {
+      while (this._memoryBytes > threshold && this.tail) {
         this.evictLRU()
       }
     }
   }
 
   /**
-   * Evict the least recently used entry
+   * Evict the least recently used entry (tail) - O(1)
    */
   private evictLRU(): void {
-    if (this.accessOrder.length === 0) return
+    if (!this.tail) return
 
-    const lruKey = this.accessOrder.shift()!
-    const entry = this.cache.get(lruKey)
-    if (entry) {
-      this._memoryBytes -= entry.sizeBytes
-      this.cache.delete(lruKey)
-      this.metrics.evictions++
-    }
+    const lruNode = this.tail
+    this._memoryBytes -= lruNode.entry.sizeBytes
+    this.nodeMap.delete(lruNode.key)
+    this.removeNode(lruNode)
+    this.metrics.evictions++
   }
 }
 

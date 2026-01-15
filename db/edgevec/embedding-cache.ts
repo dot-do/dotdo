@@ -71,6 +71,20 @@ export interface CacheStats {
 }
 
 // ============================================================================
+// DOUBLY-LINKED LIST NODE FOR O(1) LRU
+// ============================================================================
+
+/**
+ * Node in the doubly-linked list for O(1) LRU operations
+ */
+interface LRUNode {
+  id: string
+  entry: CacheEntry
+  prev: LRUNode | null
+  next: LRUNode | null
+}
+
+// ============================================================================
 // EMBEDDING CACHE IMPLEMENTATION
 // ============================================================================
 
@@ -79,13 +93,26 @@ export interface CacheStats {
  *
  * Key optimizations:
  * 1. Pre-computed norms for cosine similarity
- * 2. LRU eviction for memory management
+ * 2. O(1) LRU eviction using doubly-linked list
  * 3. Batch operations for efficiency
  * 4. Memory-aware eviction
+ *
+ * Implementation:
+ * - Map<id, Node> provides O(1) lookup
+ * - Doubly-linked list provides O(1) removal and insertion
+ * - Head = Most Recently Used (MRU)
+ * - Tail = Least Recently Used (LRU)
  */
 export class EmbeddingCache {
-  private cache: Map<string, CacheEntry> = new Map()
-  private accessOrder: string[] = []
+  /** Map for O(1) lookup of nodes by id */
+  private nodeMap: Map<string, LRUNode> = new Map()
+
+  /** Head of the doubly-linked list (Most Recently Used) */
+  private head: LRUNode | null = null
+
+  /** Tail of the doubly-linked list (Least Recently Used) */
+  private tail: LRUNode | null = null
+
   private config: Required<EmbeddingCacheConfig>
   private stats = {
     hits: 0,

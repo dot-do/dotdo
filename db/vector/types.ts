@@ -12,6 +12,30 @@ import type { CDCEmitter } from '../cdc'
 // CONFIGURATION TYPES
 // ============================================================================
 
+/**
+ * Error context provided to onCDCError callback
+ */
+export interface CDCErrorContext {
+  /** The error that occurred */
+  error: Error
+  /** Document ID that triggered the CDC event */
+  documentId: string
+  /** Type of CDC event (e.g., 'cdc.insert', 'cdc.update', 'cdc.delete') */
+  eventType: string
+  /** Store type (e.g., 'vector', 'document') */
+  store: string
+  /** Timestamp when the error occurred */
+  timestamp: number
+}
+
+/**
+ * CDC statistics for monitoring
+ */
+export interface CDCStats {
+  /** Number of CDC errors that occurred */
+  cdcErrorCount: number
+}
+
 export interface VectorStoreOptions {
   dimension?: number
   matryoshkaDims?: number[]
@@ -20,6 +44,8 @@ export interface VectorStoreOptions {
   onCDC?: (event: CDCEvent) => void
   /** Optional unified CDC emitter for pipeline integration */
   cdcEmitter?: CDCEmitter
+  /** Callback for CDC pipeline errors - provides visibility into silent failures */
+  onCDCError?: (context: CDCErrorContext) => void
   /** Tiered storage configuration */
   tieredStorage?: TieredStorageOptions
   /** Index configuration for accelerated search */

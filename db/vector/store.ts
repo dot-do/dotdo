@@ -19,6 +19,7 @@ import {
   type CacheConfig,
   type CacheStats,
 } from './cache'
+import { WriteLockManager } from '../concurrency'
 import type {
   VectorStoreOptions,
   InsertOptions,
@@ -41,6 +42,8 @@ import type {
   EnhancedProgressiveResult,
   IndexConfig,
   FilterValue,
+  CDCErrorContext,
+  CDCStats,
 } from './types'
 
 // ============================================================================
@@ -73,6 +76,8 @@ export class VectorStore {
   private readonly lazyInit: boolean
   private readonly onCDCCallback?: (event: CDCEvent) => void
   private readonly cdcEmitter?: CDCEmitter
+  private readonly onCDCError?: (context: CDCErrorContext) => void
+  private cdcErrorCount: number = 0
 
   private db: SqlStorageInterface
   private initialized = false
@@ -97,6 +102,9 @@ export class VectorStore {
   private readonly _cacheConfig: CacheConfig
   private readonly binaryHashCache: BoundedLRUCache<string, Uint8Array>
   private readonly matryoshkaCache: BoundedLRUCache<string, Map<number, Float32Array>>
+
+  // Concurrency control
+  readonly lockManager: WriteLockManager
 
   /**
    * Get the cache configuration
@@ -131,6 +139,7 @@ export class VectorStore {
     this.lazyInit = options.lazyInit ?? false
     this.onCDCCallback = options.onCDC
     this.cdcEmitter = options.cdcEmitter
+    this.onCDCError = options.onCDCError
 
     // Validate matryoshka dims don't exceed main dimension
     for (const dim of this.matryoshkaDims) {
@@ -187,6 +196,9 @@ export class VectorStore {
       }
     )
 
+    // Initialize write lock manager for concurrent write serialization
+    this.lockManager = new WriteLockManager()
+
     if (!this.lazyInit) {
       this.initSync()
     }
@@ -237,7 +249,7 @@ export class VectorStore {
   // CDC EVENTS
   // ============================================================================
 
-  private emitCDC(event: CDCEvent): void {
+  private emitCDC(event: CDCEvent, documentId?: string): void {
     if (this.onCDCCallback) {
       this.onCDCCallback(event)
     }
@@ -252,9 +264,30 @@ export class VectorStore {
         table: event.table,
         key: event.key,
         after: event.after as Record<string, unknown> | undefined,
-      }).catch(() => {
-        // Don't block on CDC pipeline errors
+      }).catch((error: Error) => {
+        // Track CDC error for metrics
+        this.cdcErrorCount++
+
+        // Invoke error callback with context if configured
+        if (this.onCDCError) {
+          this.onCDCError({
+            error,
+            documentId: documentId ?? event.key ?? 'unknown',
+            eventType: event.type,
+            store: 'vector',
+            timestamp: Date.now(),
+          })
+        }
       })
+    }
+  }
+
+  /**
+   * Get CDC statistics for monitoring
+   */
+  getCDCStats(): CDCStats {
+    return {
+      cdcErrorCount: this.cdcErrorCount,
     }
   }
 
@@ -272,25 +305,37 @@ export class VectorStore {
   // ============================================================================
 
   async insert(doc: VectorDocument): Promise<void> {
-    await this.insertInternal(doc, true)
+    // Acquire lock for this document to serialize concurrent writes
+    const handle = await this.lockManager.acquireLock(doc.id, { timeout: 30000 })
+    try {
+      await this.insertInternal(doc, true)
+    } finally {
+      handle.release()
+    }
   }
 
   async upsert(doc: VectorDocument): Promise<void> {
-    const exists = this.documents.has(doc.id)
+    // Acquire lock for this document to serialize concurrent writes
+    const handle = await this.lockManager.acquireLock(doc.id, { timeout: 30000 })
+    try {
+      const exists = this.documents.has(doc.id)
 
-    // Perform the insert/update without emitting insert event if updating
-    await this.insertInternal(doc, !exists)
+      // Perform the insert/update without emitting insert event if updating
+      await this.insertInternal(doc, !exists)
 
-    if (exists) {
-      // Emit update CDC event
-      this.emitCDC({
-        type: 'cdc.update',
-        op: 'u',
-        store: 'vector',
-        table: 'vectors',
-        key: doc.id,
-        timestamp: Date.now(),
-      })
+      if (exists) {
+        // Emit update CDC event
+        this.emitCDC({
+          type: 'cdc.update',
+          op: 'u',
+          store: 'vector',
+          table: 'vectors',
+          key: doc.id,
+          timestamp: Date.now(),
+        }, doc.id)
+      }
+    } finally {
+      handle.release()
     }
   }
 
@@ -379,7 +424,7 @@ export class VectorStore {
           matryoshkaDims: this.matryoshkaDims.filter((d) => d < this.dimension),
           hasContent: doc.content.length > 0,
         },
-      })
+      }, doc.id)
     }
   }
 
@@ -448,7 +493,7 @@ export class VectorStore {
       count: docs.length,
       partition: options?.partition,
       timestamp: Date.now(),
-    })
+    }, `batch:${docs.length}`)
   }
 
   async get(id: string): Promise<StoredDocument | null> {
@@ -457,29 +502,35 @@ export class VectorStore {
   }
 
   async delete(id: string): Promise<void> {
-    this.ensureInitialized()
-    this.documents.delete(id)
-    this.ftsIndex.delete(id)
+    // Acquire lock for this document to serialize concurrent writes
+    const handle = await this.lockManager.acquireLock(id, { timeout: 30000 })
+    try {
+      this.ensureInitialized()
+      this.documents.delete(id)
+      this.ftsIndex.delete(id)
 
-    // Clean up tiering data
-    this.tieredDocuments.delete(id)
-    this.hotTier.delete(id)
-    this.warmTier.delete(id)
-    this.coldTier.delete(id)
+      // Clean up tiering data
+      this.tieredDocuments.delete(id)
+      this.hotTier.delete(id)
+      this.warmTier.delete(id)
+      this.coldTier.delete(id)
 
-    // Clean up caches
-    this.binaryHashCache.delete(id)
-    this.matryoshkaCache.delete(id)
+      // Clean up caches
+      this.binaryHashCache.delete(id)
+      this.matryoshkaCache.delete(id)
 
-    // Emit CDC event
-    this.emitCDC({
-      type: 'cdc.delete',
-      op: 'd',
-      store: 'vector',
-      table: 'vectors',
-      key: id,
-      timestamp: Date.now(),
-    })
+      // Emit CDC event
+      this.emitCDC({
+        type: 'cdc.delete',
+        op: 'd',
+        store: 'vector',
+        table: 'vectors',
+        key: id,
+        timestamp: Date.now(),
+      }, id)
+    } finally {
+      handle.release()
+    }
   }
 
   // ============================================================================

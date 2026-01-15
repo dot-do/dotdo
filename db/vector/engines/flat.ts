@@ -248,7 +248,8 @@ export class FlatIndex {
     // Store in SQLite if configured
     if (this.storage === 'sqlite' && this.db) {
       const vectorBlob = new Uint8Array(vector.buffer)
-      this.db.exec(`INSERT OR REPLACE INTO flat_vectors (id, vector) VALUES ('${id}', x'${this.toHex(vectorBlob)}')`)
+      // Use parameterized queries to prevent SQL injection
+      this.db.prepare('INSERT OR REPLACE INTO flat_vectors (id, vector) VALUES (?, ?)').run(id, vectorBlob)
 
       // Also store in shared storage for persistence simulation
       if (!this.db._flatIndexStorage) {
@@ -305,7 +306,8 @@ export class FlatIndex {
     this.vectors.delete(id)
 
     if (this.storage === 'sqlite' && this.db) {
-      this.db.exec(`DELETE FROM flat_vectors WHERE id = '${id}'`)
+      // Use parameterized queries to prevent SQL injection
+      this.db.prepare('DELETE FROM flat_vectors WHERE id = ?').run(id)
     }
   }
 

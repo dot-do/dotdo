@@ -1027,3 +1027,179 @@ describe('HybridVectorStore - Performance Targets', () => {
     expect(avgTime).toBeLessThan(50)
   })
 })
+
+// ============================================================================
+// TESTS: Type Safety (RED Phase - HybridVectorStore any usage)
+// ============================================================================
+
+describe('HybridVectorStore - Type Safety', () => {
+  it('should accept SqlStorageInterface for db parameter', async () => {
+    assertModuleLoaded('HybridVectorStore', HybridVectorStore)
+
+    // Create a properly typed mock db that satisfies SqlStorageInterface
+    const typedDb = {
+      exec: vi.fn((sql: string) => {}),
+      prepare: vi.fn((sql: string) => ({
+        run: vi.fn((...params: unknown[]) => {}),
+        get: vi.fn((...params: unknown[]) => undefined as unknown),
+        all: vi.fn((...params: unknown[]) => [] as unknown[]),
+      })),
+    }
+
+    // This should compile without type errors
+    const store = new HybridVectorStore(typedDb, { dimension: 1536 })
+    expect(store).toBeDefined()
+  })
+
+  it('should enforce proper typing for metadata parameter', async () => {
+    assertModuleLoaded('HybridVectorStore', HybridVectorStore)
+
+    const db = createMockDb()
+    const store = new HybridVectorStore(db, { dimension: 1536 })
+
+    const embedding = randomNormalizedVector(1536, 42)
+
+    // Metadata should accept Record<string, unknown>
+    const metadata = {
+      content: 'Test content',
+      tags: ['tag1', 'tag2'],
+      count: 42,
+      nested: { key: 'value' },
+    }
+
+    const result = await store.addVector('typed_vec', embedding, metadata)
+    expect(result.$id).toBe('typed_vec')
+
+    const stored = await store.getVector('typed_vec')
+    expect(stored.metadata.content).toBe('Test content')
+    expect(stored.metadata.tags).toEqual(['tag1', 'tag2'])
+    expect(stored.metadata.count).toBe(42)
+  })
+
+  it('should type filters parameter properly in search', async () => {
+    assertModuleLoaded('HybridVectorStore', HybridVectorStore)
+
+    const db = createMockDb()
+    const store = new HybridVectorStore(db, { dimension: 1536 })
+
+    await store.addVector('filter_test', randomNormalizedVector(1536, 1), {
+      content: 'Filter test',
+      category: 'test',
+      priority: 1,
+    })
+
+    // Filters should accept Record<string, unknown>
+    const filters = {
+      category: 'test',
+      priority: 1,
+    }
+
+    const results = await store.search(randomNormalizedVector(1536, 1), 10, filters)
+    expect(results.length).toBeGreaterThan(0)
+  })
+
+  it('should have proper return types for search results', async () => {
+    assertModuleLoaded('HybridVectorStore', HybridVectorStore)
+
+    const db = createMockDb()
+    const store = new HybridVectorStore(db, { dimension: 1536 })
+
+    await store.addVector('return_type_test', randomNormalizedVector(1536, 1), {
+      content: 'Return type test',
+    })
+
+    const results = await store.search(randomNormalizedVector(1536, 1), 10)
+
+    // Verify result structure matches SearchResultItem
+    const result = results[0]
+    expect(typeof result.$id).toBe('string')
+    expect(typeof result.similarity).toBe('number')
+    expect(typeof result.distance).toBe('number')
+    expect(typeof result.metadata).toBe('object')
+  })
+
+  it('should have proper return types for hybrid search results', async () => {
+    assertModuleLoaded('HybridVectorStore', HybridVectorStore)
+
+    const db = createMockDb()
+    const store = new HybridVectorStore(db, { dimension: 1536 })
+
+    await store.addVector('hybrid_type_test', randomNormalizedVector(1536, 1), {
+      content: 'Hybrid return type test',
+    })
+
+    const results = await store.hybridSearch(
+      randomNormalizedVector(1536, 1),
+      'Hybrid return',
+      10
+    )
+
+    // Verify result structure matches HybridSearchResultItem
+    const result = results[0]
+    expect(typeof result.$id).toBe('string')
+    expect(typeof result.similarity).toBe('number')
+    expect(typeof result.distance).toBe('number')
+    expect(typeof result.metadata).toBe('object')
+    expect(result.rrfScore === undefined || typeof result.rrfScore === 'number').toBe(true)
+    expect(result.vectorRank === undefined || result.vectorRank === null || typeof result.vectorRank === 'number').toBe(true)
+    expect(result.ftsRank === undefined || result.ftsRank === null || typeof result.ftsRank === 'number').toBe(true)
+  })
+
+  it('should have proper return types for getVector', async () => {
+    assertModuleLoaded('HybridVectorStore', HybridVectorStore)
+
+    const db = createMockDb()
+    const store = new HybridVectorStore(db, {
+      dimension: 1536,
+      matryoshkaDims: [64, 256],
+    })
+
+    await store.addVector('get_type_test', randomNormalizedVector(1536, 1), {
+      content: 'Get type test',
+    })
+
+    const result = await store.getVector('get_type_test')
+
+    // Verify result structure matches VectorResult
+    expect(typeof result.$id).toBe('string')
+    expect(result.embedding).toBeInstanceOf(Float32Array)
+    expect(typeof result.metadata).toBe('object')
+    // Matryoshka fields should be Float32Array or undefined
+    if (result.mat_64 !== undefined) {
+      expect(result.mat_64).toBeInstanceOf(Float32Array)
+    }
+    if (result.mat_256 !== undefined) {
+      expect(result.mat_256).toBeInstanceOf(Float32Array)
+    }
+    // Binary hash should be ArrayBuffer or undefined
+    if (result.binaryHash !== undefined) {
+      expect(result.binaryHash).toBeInstanceOf(ArrayBuffer)
+    }
+  })
+
+  it('should type HybridSearch class properly', async () => {
+    // Import HybridSearch
+    let HybridSearchClass: any
+    try {
+      const vectorModule = await import('../../../db/vector')
+      HybridSearchClass = vectorModule.HybridSearch
+    } catch {
+      HybridSearchClass = undefined
+    }
+
+    assertModuleLoaded('HybridSearch', HybridSearchClass)
+
+    const typedDb = {
+      exec: vi.fn((sql: string) => {}),
+      prepare: vi.fn((sql: string) => ({
+        run: vi.fn((...params: unknown[]) => {}),
+        get: vi.fn((...params: unknown[]) => undefined as unknown),
+        all: vi.fn((...params: unknown[]) => [] as unknown[]),
+      })),
+    }
+
+    // HybridSearch should accept SqlStorageInterface
+    const hybridSearch = new HybridSearchClass(typedDb)
+    expect(hybridSearch).toBeDefined()
+  })
+})

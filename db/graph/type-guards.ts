@@ -57,8 +57,32 @@ const FUNCTION_TYPES: FunctionType[] = ['code', 'generative', 'agentic', 'human'
  * ```
  */
 export function isFunctionData(data: unknown): data is FunctionData {
-  // TODO: Implement in GREEN phase
-  return false
+  if (!isObject(data)) return false
+
+  // Required: name must be a string
+  if (typeof data.name !== 'string') return false
+
+  // Required: type must be a valid FunctionType
+  if (typeof data.type !== 'string' || !FUNCTION_TYPES.includes(data.type as FunctionType)) {
+    return false
+  }
+
+  // Optional: enabled - if present, must be boolean
+  if (data.enabled !== undefined && typeof data.enabled !== 'boolean') return false
+
+  // Optional: version - if present, must be string
+  if (data.version !== undefined && typeof data.version !== 'string') return false
+
+  // Optional: handler - if present, must be string
+  if (data.handler !== undefined && typeof data.handler !== 'string') return false
+
+  // Optional: config - if present, must be object (not array)
+  if (data.config !== undefined && !isObject(data.config)) return false
+
+  // Optional: description - if present, must be string
+  if (data.description !== undefined && typeof data.description !== 'string') return false
+
+  return true
 }
 
 // ============================================================================
@@ -83,8 +107,30 @@ export function isFunctionData(data: unknown): data is FunctionData {
  * ```
  */
 export function isWorkflowInstanceData(data: unknown): data is WorkflowInstanceData {
-  // TODO: Implement in GREEN phase
-  return false
+  if (!isObject(data)) return false
+
+  // Required: templateId must be a string
+  if (typeof data.templateId !== 'string') return false
+
+  // Required: stateVerb must be a string
+  if (typeof data.stateVerb !== 'string') return false
+
+  // Required: input must be an object (not null, not array)
+  if (!isObject(data.input)) return false
+
+  // Optional: output - if present, must be object (not array)
+  if (data.output !== undefined && !isObject(data.output)) return false
+
+  // Optional: currentStepIndex - if present, must be number
+  if (data.currentStepIndex !== undefined && typeof data.currentStepIndex !== 'number') return false
+
+  // Optional: startedAt - if present, must be number
+  if (data.startedAt !== undefined && typeof data.startedAt !== 'number') return false
+
+  // Optional: endedAt - if present, must be number
+  if (data.endedAt !== undefined && typeof data.endedAt !== 'number') return false
+
+  return true
 }
 
 // ============================================================================
@@ -100,8 +146,27 @@ export function isWorkflowInstanceData(data: unknown): data is WorkflowInstanceD
  * @returns true if the value is valid WorkflowTemplateData
  */
 export function isWorkflowTemplateData(data: unknown): data is WorkflowTemplateData {
-  // TODO: Implement in GREEN phase
-  return false
+  if (!isObject(data)) return false
+
+  // Required: name must be a string
+  if (typeof data.name !== 'string') return false
+
+  // Required: version must be a string
+  if (typeof data.version !== 'string') return false
+
+  // Optional: tags - if present, must be an array
+  if (data.tags !== undefined && !Array.isArray(data.tags)) return false
+
+  // Optional: triggers - if present, must be an array
+  if (data.triggers !== undefined && !Array.isArray(data.triggers)) return false
+
+  // Optional: timeout - if present, must be a number
+  if (data.timeout !== undefined && typeof data.timeout !== 'number') return false
+
+  // Optional: description - if present, must be string
+  if (data.description !== undefined && typeof data.description !== 'string') return false
+
+  return true
 }
 
 // ============================================================================
@@ -122,8 +187,30 @@ const WORKFLOW_STEP_TYPES: WorkflowStepType[] = ['action', 'decision', 'parallel
  * @returns true if the value is valid WorkflowStepData
  */
 export function isWorkflowStepData(data: unknown): data is WorkflowStepData {
-  // TODO: Implement in GREEN phase
-  return false
+  if (!isObject(data)) return false
+
+  // Required: name must be a string
+  if (typeof data.name !== 'string') return false
+
+  // Required: type must be a valid WorkflowStepType
+  if (typeof data.type !== 'string' || !WORKFLOW_STEP_TYPES.includes(data.type as WorkflowStepType)) {
+    return false
+  }
+
+  // Required: index must be a non-negative integer
+  if (typeof data.index !== 'number') return false
+  if (data.index < 0 || !Number.isFinite(data.index) || !Number.isInteger(data.index)) return false
+
+  // Optional: config - if present, must be object (not array)
+  if (data.config !== undefined && !isObject(data.config)) return false
+
+  // Optional: handler - if present, must be string
+  if (data.handler !== undefined && typeof data.handler !== 'string') return false
+
+  // Optional: description - if present, must be string
+  if (data.description !== undefined && typeof data.description !== 'string') return false
+
+  return true
 }
 
 // ============================================================================
@@ -139,8 +226,19 @@ export function isWorkflowStepData(data: unknown): data is WorkflowStepData {
  * @returns true if the value is valid StepResultData
  */
 export function isStepResultData(data: unknown): data is StepResultData {
-  // TODO: Implement in GREEN phase
-  return false
+  if (!isObject(data)) return false
+
+  // Required: stepName must be a string
+  if (typeof data.stepName !== 'string') return false
+
+  // Required: output must be an object (not null, not array)
+  if (!isObject(data.output)) return false
+
+  // Required: createdAt must be a non-negative finite number
+  if (typeof data.createdAt !== 'number') return false
+  if (data.createdAt < 0 || !Number.isFinite(data.createdAt)) return false
+
+  return true
 }
 
 // ============================================================================
@@ -156,8 +254,25 @@ export function isStepResultData(data: unknown): data is StepResultData {
  * @returns true if the value is valid SessionThingData
  */
 export function isSessionThingData(data: unknown): data is SessionThingData {
-  // TODO: Implement in GREEN phase
-  return false
+  if (!isObject(data)) return false
+
+  // Required: token must be a string
+  if (typeof data.token !== 'string') return false
+
+  // Required: userId must be a string
+  if (typeof data.userId !== 'string') return false
+
+  // Required: expiresAt must be a non-negative finite number
+  if (typeof data.expiresAt !== 'number') return false
+  if (data.expiresAt < 0 || !Number.isFinite(data.expiresAt)) return false
+
+  // Optional: isFresh - if present, must be boolean
+  if (data.isFresh !== undefined && typeof data.isFresh !== 'boolean') return false
+
+  // Optional: lastActivityAt - if present, must be number
+  if (data.lastActivityAt !== undefined && typeof data.lastActivityAt !== 'number') return false
+
+  return true
 }
 
 // ============================================================================
@@ -173,10 +288,48 @@ export function isSessionThingData(data: unknown): data is SessionThingData {
  * @param data - The value to check
  * @returns true if the value is valid UserThingData
  */
+/**
+ * Valid user status values
+ */
+const USER_STATUSES = ['active', 'inactive', 'suspended', 'pending', 'deleted'] as const
+
 export function isUserThingData(data: unknown): data is UserThingData {
-  // Re-use existing implementation from humans/types.ts
-  // This is the existing implementation which checks email and status
-  if (!data || typeof data !== 'object') return false
-  const d = data as Record<string, unknown>
-  return typeof d.email === 'string' && typeof d.status === 'string'
+  if (!isObject(data)) return false
+
+  // Check for own properties OR getters (reject plain inherited properties)
+  // hasOwnProperty catches own data properties
+  // getOwnPropertyDescriptor catches getters defined on the prototype
+  const hasEmailProperty = Object.prototype.hasOwnProperty.call(data, 'email') ||
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(data), 'email')?.get !== undefined
+  const hasStatusProperty = Object.prototype.hasOwnProperty.call(data, 'status') ||
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(data), 'status')?.get !== undefined
+
+  if (!hasEmailProperty || !hasStatusProperty) {
+    return false
+  }
+
+  // Required: email must be a non-empty string
+  if (typeof data.email !== 'string' || data.email === '') return false
+
+  // Required: status must be a valid UserStatus
+  if (typeof data.status !== 'string' || !USER_STATUSES.includes(data.status as typeof USER_STATUSES[number])) {
+    return false
+  }
+
+  // Optional: name - if present, must be string or null
+  if (data.name !== undefined && data.name !== null && typeof data.name !== 'string') return false
+
+  // Optional: emailVerified - if present, must be boolean
+  if (data.emailVerified !== undefined && typeof data.emailVerified !== 'boolean') return false
+
+  // Optional: lastSignInAt - if present, must be number or null
+  if (data.lastSignInAt !== undefined && data.lastSignInAt !== null && typeof data.lastSignInAt !== 'number') return false
+
+  // Optional: lastActiveAt - if present, must be number or null
+  if (data.lastActiveAt !== undefined && data.lastActiveAt !== null && typeof data.lastActiveAt !== 'number') return false
+
+  // Optional: metadata - if present, must be object (not array)
+  if (data.metadata !== undefined && !isObject(data.metadata)) return false
+
+  return true
 }

@@ -102,6 +102,7 @@ function createMockSocket(
       }
       // If the OTHER socket has a custom send implementation, call it too
       // This allows tests to mock client.send and track server sends
+      // NOTE: We DON'T await this - backpressure tests need to handle this differently
       if (other && other._customSendImpl) {
         other._customSendImpl(data)
       }
