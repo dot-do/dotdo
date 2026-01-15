@@ -22,7 +22,7 @@
 
 import { DurableObject, RpcTarget } from 'cloudflare:workers'
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
-import { cors } from 'hono/cors'
+import { WebSocketRpcHandler, type RpcMessage } from '../rpc/websocket-rpc'
 
 // ============================================================================
 // Constants
@@ -39,11 +39,118 @@ const HTTP_STATUS = {
   INTERNAL_SERVER_ERROR: 500,
 } as const
 
-const CORS_CONFIG = {
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+// ============================================================================
+// SECURE CORS CONFIGURATION
+// ============================================================================
+
+/** Explicit allowlist of trusted origins - SECURITY: Never use wildcards */
+const ALLOWED_ORIGINS = [
+  'https://dotdo.dev',
+  'https://api.dotdo.dev',
+  'http://localhost:3000',
+  'http://localhost:5173',
+] as const
+
+/** Route-specific CORS policies for different security levels */
+const CORS_POLICIES = {
+  /** Public routes - read-only methods, no credentials */
+  public: {
+    allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+    allowCredentials: false,
+  },
+  /** Protected routes - standard CRUD, strict origin validation */
+  protected: {
+    allowedMethods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowCredentials: true,
+  },
+  /** Admin routes - no CORS (same-origin only) */
+  admin: {
+    allowedMethods: [] as string[],
+    allowedHeaders: [] as string[],
+    allowCredentials: false,
+  },
 } as const
+
+type CorsPolicyType = keyof typeof CORS_POLICIES
+
+/** Determine the CORS policy type based on the request path */
+function getCorsPolicy(pathname: string): CorsPolicyType {
+  if (pathname.startsWith('/admin')) {
+    return 'admin'
+  }
+  if (pathname.startsWith('/protected')) {
+    return 'protected'
+  }
+  return 'protected'
+}
+
+/** Validate if an origin is in the allowed list */
+function validateOrigin(origin: string | null): string | null {
+  if (!origin) return null
+  if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) {
+    return origin
+  }
+  return null
+}
+
+/** Build CORS headers for a response based on policy and origin validation */
+function buildCorsHeaders(
+  origin: string | null,
+  policy: CorsPolicyType,
+  requestedHeaders?: string | null
+): Headers {
+  const headers = new Headers()
+  const policyConfig = CORS_POLICIES[policy]
+
+  // Always set Vary: Origin for cache safety
+  headers.set('Vary', 'Origin')
+
+  // Admin routes - no CORS headers at all
+  if (policy === 'admin') {
+    return headers
+  }
+
+  // Validate origin against allowlist
+  const validatedOrigin = validateOrigin(origin)
+  if (!validatedOrigin) {
+    return headers
+  }
+
+  // Set the validated origin (never wildcard)
+  headers.set('Access-Control-Allow-Origin', validatedOrigin)
+
+  // Set allowed methods
+  if (policyConfig.allowedMethods.length > 0) {
+    headers.set('Access-Control-Allow-Methods', policyConfig.allowedMethods.join(','))
+  }
+
+  // Set allowed headers - filter to only policy-approved headers
+  if (policyConfig.allowedHeaders.length > 0) {
+    if (requestedHeaders) {
+      const requested = requestedHeaders.split(',').map((h) => h.trim())
+      const allowed = requested.filter((h) =>
+        policyConfig.allowedHeaders.some((ah) => ah.toLowerCase() === h.toLowerCase())
+      )
+      if (allowed.length > 0) {
+        headers.set('Access-Control-Allow-Headers', allowed.join(','))
+      }
+    } else {
+      headers.set('Access-Control-Allow-Headers', policyConfig.allowedHeaders.join(','))
+    }
+  }
+
+  // Set credentials header only if policy allows it
+  if (policyConfig.allowCredentials) {
+    headers.set('Access-Control-Allow-Credentials', 'true')
+  }
+
+  // Set max age for preflight caching
+  headers.set('Access-Control-Max-Age', '86400')
+
+  return headers
+}
 
 const VERSION_HEADER = 'X-DO-Version'
 const VERSION = '1.0.0'
@@ -279,6 +386,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   private lastWebSocketTags: string[] = []
   private lastWebSocketHibernatable = false
 
+  // WebSocket RPC handler for bidirectional callbacks
+  protected rpcHandler = new WebSocketRpcHandler()
+
   // Workflow context state
   private eventHandlers: Map<string, EventHandler[]> = new Map()
   private schedules: Map<string, ScheduleEntry> = new Map()
@@ -448,8 +558,34 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   protected createApp(): Hono<HonoEnv> {
     const app = new Hono<HonoEnv>()
 
-    // CORS middleware
-    app.use('*', cors(CORS_CONFIG))
+    // Secure CORS middleware - validates origins against explicit allowlist
+    // and applies route-specific policies (public, protected, admin)
+    app.use('*', async (c, next) => {
+      const origin = c.req.header('Origin')
+      const pathname = new URL(c.req.url).pathname
+      const policy = getCorsPolicy(pathname)
+
+      // Handle preflight OPTIONS requests
+      if (c.req.method === 'OPTIONS') {
+        const requestedHeaders = c.req.header('Access-Control-Request-Headers')
+        const corsHeaders = buildCorsHeaders(origin, policy, requestedHeaders)
+
+        // Return 204 with appropriate CORS headers (or lack thereof for invalid origins)
+        return new Response(null, {
+          status: 204,
+          headers: corsHeaders,
+        })
+      }
+
+      // For actual requests, process and add CORS headers to response
+      await next()
+
+      // Add CORS headers to the response
+      const corsHeaders = buildCorsHeaders(origin, policy)
+      for (const [key, value] of corsHeaders.entries()) {
+        c.res.headers.set(key, value)
+      }
+    })
 
     // Global middleware - adds version header and context vars
     app.use('*', async (c, next) => {
@@ -613,6 +749,24 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       }
 
       return this.handleWebSocketUpgrade(c, ['hibernatable'], true)
+    })
+
+    // RPC WebSocket endpoint - enables bidirectional callbacks via Cap'n Web style RPC
+    app.get('/ws/rpc', (c) => {
+      if (!this.isWebSocketUpgradeRequest(c)) {
+        return c.json({ error: 'Upgrade required' }, HTTP_STATUS.UPGRADE_REQUIRED)
+      }
+
+      return this.handleWebSocketUpgrade(c, ['rpc', 'hibernatable'], true)
+    })
+
+    // Event subscription WebSocket endpoint
+    app.get('/ws/events', (c) => {
+      if (!this.isWebSocketUpgradeRequest(c)) {
+        return c.json({ error: 'Upgrade required' }, HTTP_STATUS.UPGRADE_REQUIRED)
+      }
+
+      return this.handleWebSocketUpgrade(c, ['events', 'hibernatable'], true)
     })
   }
 
@@ -1029,10 +1183,20 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   // =========================================================================
 
   /**
-   * Handle incoming WebSocket messages. Override in subclasses.
+   * Handle incoming WebSocket messages. Routes RPC messages to the handler.
    */
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    // Handle incoming messages - can be overridden by subclasses
+    // Check if this is an RPC WebSocket (has 'rpc' tag)
+    const tags = this.websocketTags.get(ws) ?? []
+    const isRpcWebSocket = tags.includes('rpc') || tags.includes('events')
+
+    if (isRpcWebSocket) {
+      // Route to RPC handler
+      this.rpcHandler.handleRpcMessage(ws, message, this)
+      return
+    }
+
+    // Default handling for non-RPC WebSockets can be added by subclasses
   }
 
   /**
@@ -1055,6 +1219,8 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   private cleanupWebSocket(ws: WebSocket): void {
     this.websocketTags.delete(ws)
     this.hibernatableWebSockets.delete(ws)
+    // Also clean up RPC subscriptions
+    this.rpcHandler.cleanupWebSocketRpc(ws)
   }
 
   // =========================================================================
@@ -1063,7 +1229,8 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
   /**
    * Fire-and-forget event emission
-   * Dispatches event to all matching handlers and returns immediately with event ID
+   * Dispatches event to all matching handlers and WebSocket subscribers
+   * Returns immediately with event ID
    */
   send(eventType: string, data: unknown): string {
     const eventId = generateEventId()
@@ -1078,7 +1245,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       timestamp: new Date(),
     }
 
-    // Fire-and-forget dispatch (don't await, don't throw)
+    // Fire-and-forget dispatch to local handlers (don't await, don't throw)
     Promise.resolve().then(async () => {
       const handlers = this.matchHandlers(eventType)
       for (const handler of handlers) {
@@ -1090,6 +1257,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
         }
       }
     })
+
+    // Broadcast to WebSocket subscribers (Cap'n Web style)
+    this.rpcHandler.broadcastEvent(this.ctx, eventType, event)
 
     return eventId
   }

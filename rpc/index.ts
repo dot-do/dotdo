@@ -21,7 +21,7 @@ export { createCapability, verifyCapability, assertUnforgeable, serializeCapabil
 export type { Capability } from './capability'
 
 // Re-export from proxy
-export { createRPCClient, pipeline, RPCError } from './proxy'
+export { createRPCClient, pipeline, RPCError, RPCErrorCodes, sendRPCRequest } from './proxy'
 export type {
   Schema,
   FieldSchema,
@@ -32,8 +32,39 @@ export type {
   PipelineBuilder,
   PipelineStep,
   RPCClientOptions,
+  RPCErrorCode,
+  RPCRequest,
+  RPCResponse,
 } from './proxy'
 
 // Re-export from interface
 export { generateInterface } from './interface'
 export type { InterfaceGeneratorOptions, GeneratedInterface } from './interface'
+
+// Re-export from negotiation
+export { createNegotiatingClient, createNegotiationHandler } from './negotiation'
+export type {
+  ProtocolVersion,
+  CapabilityNegotiationRequest,
+  CapabilityNegotiationResponse,
+  CapabilitySchema,
+  NegotiatedConnection,
+  NegotiatingRPCClient,
+  NegotiationHandler,
+  NegotiatingClientOptions,
+  NegotiationHandlerOptions,
+} from './negotiation'
+
+// Re-export from websocket-rpc - Bidirectional RPC over WebSocket with hibernation support
+export {
+  WebSocketRpcClient,
+  WebSocketRpcHandler,
+  generateMessageId,
+  generateCallbackId,
+  isCallbackStub,
+} from './websocket-rpc'
+export type {
+  RpcMessage,
+  CallbackStub,
+  WebSocketRpcOptions,
+} from './websocket-rpc'
