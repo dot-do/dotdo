@@ -1,0 +1,331 @@
+---
+title: Things
+description: Entity instances with $id and $type - the foundation of your domain model
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Things
+
+**Every entity in your domain is a Thing.** Things are instances of Nouns with a unique `$id` and a `$type` that links back to the Noun definition. They can carry any additional data you need.
+
+```typescript
+import { noun, thing } from 'dotdo/semantic'
+
+const Customer = noun('Customer')
+
+// Auto-generated UUID
+const alice = thing(Customer, { name: 'Alice', email: 'alice@example.com' })
+// { $id: 'a1b2c3d4-...', $type: 'Customer', name: 'Alice', email: 'alice@example.com' }
+
+// Explicit ID
+const bob = thing(Customer, 'cust-bob', { name: 'Bob' })
+// { $id: 'cust-bob', $type: 'Customer', name: 'Bob' }
+```
+
+## Interface
+
+```typescript
+interface Thing<T = Record<string, unknown>> {
+  /** Unique identifier - auto-generated UUID or explicit */
+  $id: string
+  /** Type name from the Noun */
+  $type: string
+  /** Any additional properties */
+  [key: string]: unknown
+}
+```
+
+## Creating Things
+
+The `thing()` function has three overloads:
+
+### With Data (Auto-ID)
+
+```typescript
+const customer = thing(Customer, { name: 'Alice', plan: 'pro' })
+// $id is auto-generated UUID
+```
+
+### With Explicit ID
+
+```typescript
+const customer = thing(Customer, 'cust-123')
+// Creates a reference with just $id and $type
+```
+
+### With Explicit ID and Data
+
+```typescript
+const customer = thing(Customer, 'cust-123', { name: 'Alice', plan: 'pro' })
+// $id is 'cust-123', includes data
+```
+
+## The $id Property
+
+Every Thing has a globally unique `$id`:
+
+```typescript
+const customer = thing(Customer, { name: 'Alice' })
+
+console.log(customer.$id)  // 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
+```
+
+### Auto-Generated IDs
+
+When you don't provide an ID, `crypto.randomUUID()` generates one:
+
+```typescript
+const order1 = thing(Order, { total: 99.99 })
+const order2 = thing(Order, { total: 149.99 })
+
+console.log(order1.$id)  // 'a1b2c3d4-...'
+console.log(order2.$id)  // 'e5f6g7h8-...' (different)
+```
+
+### Explicit IDs
+
+Use explicit IDs for:
+- External system integration
+- Human-readable references
+- Deterministic testing
+- Pre-known identifiers
+
+```typescript
+// From external systems
+const customer = thing(Customer, 'stripe-cus_ABC123', { stripeId: 'cus_ABC123' })
+
+// Human-readable
+const product = thing(Product, 'widget-pro-2024', { name: 'Widget Pro' })
+
+// For testing
+const testUser = thing(User, 'test-user-1', { name: 'Test User' })
+```
+
+<Callout type="info">
+Explicit IDs must be unique. The semantic module stores Things internally for relationship traversal - duplicate IDs will overwrite previous Things.
+</Callout>
+
+## The $type Property
+
+`$type` is automatically set from the Noun's singular form:
+
+```typescript
+const Customer = noun('Customer')
+const Category = noun('Category')
+
+const alice = thing(Customer, { name: 'Alice' })
+const electronics = thing(Category, { name: 'Electronics' })
+
+console.log(alice.$type)       // 'Customer'
+console.log(electronics.$type) // 'Category'
+```
+
+Use `$type` for:
+- Runtime type checking
+- Filtering in queries
+- Relationship traversal
+- Serialization/deserialization
+
+## Data Properties
+
+Things can carry any additional data:
+
+```typescript
+interface CustomerData {
+  name: string
+  email: string
+  plan: 'starter' | 'pro' | 'enterprise'
+  metadata?: Record<string, unknown>
+}
+
+const customer = thing<CustomerData>(Customer, {
+  name: 'Alice',
+  email: 'alice@example.com',
+  plan: 'pro',
+  metadata: { source: 'referral', campaign: 'summer-2024' }
+})
+
+// Type-safe access
+console.log(customer.name)   // 'Alice'
+console.log(customer.plan)   // 'pro'
+```
+
+### Schema-less by Default
+
+Things are schema-less. Add any fields without migrations:
+
+```typescript
+// Start simple
+const customer = thing(Customer, { name: 'Alice' })
+
+// Add fields as needed (in new instances)
+const customerWithDetails = thing(Customer, {
+  name: 'Bob',
+  email: 'bob@example.com',
+  company: 'Acme Inc',
+  preferences: { theme: 'dark', notifications: true }
+})
+```
+
+<Callout type="info">
+For type safety with flexible schemas, use TypeScript generics and optional properties.
+</Callout>
+
+## Thing Storage
+
+Things are stored internally for relationship traversal:
+
+```typescript
+import { thing, forward, backward } from 'dotdo/semantic'
+
+const alice = thing(Customer, { name: 'Alice' })
+const order = thing(Order, { total: 99.99 })
+
+// After action(alice, purchase, order), relationships are stored
+const orders = forward(alice, 'Order')      // Returns [order]
+const buyers = backward(order, 'Customer')  // Returns [alice]
+```
+
+### Storage Lifecycle
+
+1. `thing()` creates and stores the Thing
+2. `action()` creates edges between Things
+3. `forward()`/`backward()` traverse stored edges
+4. `resetState()` clears all storage (for testing)
+
+## Type Safety
+
+### Generic Type Parameter
+
+```typescript
+interface Order {
+  items: Array<{ sku: string; qty: number; price: number }>
+  total: number
+  status: 'pending' | 'paid' | 'shipped' | 'delivered'
+  shippingAddress?: {
+    street: string
+    city: string
+    zip: string
+  }
+}
+
+const order = thing<Order>(OrderNoun, {
+  items: [{ sku: 'WDG-001', qty: 2, price: 49.99 }],
+  total: 99.98,
+  status: 'pending'
+})
+
+// TypeScript knows the shape
+order.items[0].sku    // string
+order.status          // 'pending' | 'paid' | 'shipped' | 'delivered'
+order.shippingAddress // { street, city, zip } | undefined
+```
+
+### Thing<T> Type
+
+```typescript
+import type { Thing } from 'dotdo/semantic'
+
+type Customer = Thing<{
+  name: string
+  email: string
+  plan: 'starter' | 'pro' | 'enterprise'
+}>
+
+function processCustomer(customer: Customer) {
+  console.log(customer.$id)    // string
+  console.log(customer.$type)  // string
+  console.log(customer.name)   // string
+  console.log(customer.plan)   // 'starter' | 'pro' | 'enterprise'
+}
+```
+
+## Common Patterns
+
+### Entity References
+
+Create Things that reference other Things by ID:
+
+```typescript
+const customer = thing(Customer, 'cust-alice', { name: 'Alice' })
+const order = thing(Order, {
+  customerId: customer.$id,  // Reference by ID
+  total: 99.99,
+  items: [...]
+})
+```
+
+### Nested Objects
+
+Things can contain nested objects:
+
+```typescript
+const invoice = thing(Invoice, {
+  customer: {
+    id: 'cust-alice',
+    name: 'Alice',
+    email: 'alice@example.com'
+  },
+  lineItems: [
+    { description: 'Widget Pro', quantity: 2, unitPrice: 49.99 },
+    { description: 'Shipping', quantity: 1, unitPrice: 9.99 }
+  ],
+  totals: {
+    subtotal: 99.98,
+    tax: 8.00,
+    total: 107.98
+  }
+})
+```
+
+### Timestamps
+
+Add timestamps for audit trails:
+
+```typescript
+const event = thing(Event, {
+  verb: 'purchased',
+  actor: 'cust-alice',
+  target: 'order-123',
+  timestamp: new Date(),
+  metadata: { source: 'checkout-page' }
+})
+```
+
+## Testing
+
+```typescript
+import { resetState, noun, thing } from 'dotdo/semantic'
+
+describe('Things', () => {
+  beforeEach(() => {
+    resetState()  // Clear all stored Things
+  })
+
+  test('creates thing with auto ID', () => {
+    const Customer = noun('Customer')
+    const customer = thing(Customer, { name: 'Alice' })
+
+    expect(customer.$id).toBeDefined()
+    expect(customer.$type).toBe('Customer')
+    expect(customer.name).toBe('Alice')
+  })
+
+  test('creates thing with explicit ID', () => {
+    const Customer = noun('Customer')
+    const customer = thing(Customer, 'cust-123', { name: 'Bob' })
+
+    expect(customer.$id).toBe('cust-123')
+    expect(customer.$type).toBe('Customer')
+    expect(customer.name).toBe('Bob')
+  })
+})
+```
+
+## Related
+
+- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Defining entity types
+- [Actions](/docs/semantic/actions) - Recording operations on Things
+- [Relationships](/docs/semantic/relationships) - Connecting Things
+- [Concepts: Things](/docs/concepts/things) - URL-based Things in dotdo

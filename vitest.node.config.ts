@@ -1,0 +1,20 @@
+import { defineConfig } from 'vitest/config'
+
+/**
+ * Vitest configuration for Node.js-based tests (file structure, static analysis)
+ *
+ * Use this config for tests that don't need the Cloudflare Workers runtime:
+ * - File structure validation
+ * - Configuration file checks
+ * - Static code analysis
+ *
+ * Run with: npx vitest run --config vitest.node.config.ts
+ */
+export default defineConfig({
+  test: {
+    globals: true,
+    include: ['tests/app.test.ts'],
+    exclude: ['node_modules', 'dist'],
+    testTimeout: 10_000,
+  },
+})

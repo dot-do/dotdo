@@ -1,0 +1,95 @@
+---
+title: AI Module
+description: Template literal AI operations with lazy evaluation, batch processing, budget tracking, and provider abstraction
+---
+
+# AI Module
+
+The dotdo AI module provides a revolutionary approach to AI operations using JavaScript template literals. Instead of verbose API calls, you write natural language prompts inline with your code.
+
+## Key Features
+
+- **Template Literal Syntax**: Write AI prompts as naturally as template strings
+- **Lazy Evaluation**: AI calls only execute when awaited (AIPromise)
+- **Batch Processing**: Process multiple items with cost optimization
+- **Budget Tracking**: Control and monitor AI spending
+- **Response Caching**: LRU cache with TTL for repeated queries
+- **Provider Abstraction**: Switch between OpenAI, Anthropic, and Workers AI
+
+## Quick Start
+
+```typescript
+import { ai, is, list, code } from 'dotdo/ai'
+
+// General AI query - lazy, only executes when awaited
+const summary = await ai`Summarize this article: ${articleText}`
+
+// Classification with is`...`
+const sentiment = await is`Is this review positive or negative: ${review}`
+
+// List extraction with list`...`
+const topics = await list`Extract key topics from: ${document}`
+
+// Code generation with code`...`
+const validator = await code`Write a TypeScript email validator function`
+```
+
+## The Magic of Lazy Evaluation
+
+Unlike traditional AI APIs that execute immediately, dotdo's AI operations use `AIPromise` - a lazy promise that only executes when you `await` it:
+
+```typescript
+// This does NOT call the AI - just creates a lazy promise
+const analysis = ai`Analyze ${text}`
+
+// The AI call happens HERE when we await
+const result = await analysis
+
+// Or cancel if no longer needed
+analysis.cancel()
+```
+
+This enables powerful patterns like conditional execution, parallel batching, and cancellation without wasted API calls.
+
+## Template Composition
+
+AIPromise values can be interpolated into other templates, creating pipelines:
+
+```typescript
+// First analysis (lazy)
+const sentiment = is`Classify sentiment: ${review}`
+
+// Second analysis uses the first (both lazy until awaited)
+const response = ai`Given sentiment ${sentiment}, suggest a response`
+
+// Only now do both execute, in sequence
+const finalResponse = await response
+```
+
+## Documentation
+
+| Page | Description |
+|------|-------------|
+| [Templates](/ai/templates) | Complete guide to `ai`, `is`, `list`, and `code` template literals |
+| [Batch Processing](/ai/batch) | Process multiple items with immediate, flex, or deferred modes |
+| [Budget Tracking](/ai/budget) | Monitor and limit AI spending per operation |
+| [Caching](/ai/caching) | Configure LRU cache with TTL for response caching |
+| [Providers](/ai/providers) | Configure OpenAI, Anthropic, Workers AI, and fallback chains |
+
+## Installation
+
+The AI module is included with dotdo:
+
+```bash
+npm install dotdo
+```
+
+```typescript
+import { ai, is, list, code, createAI } from 'dotdo/ai'
+```
+
+## Next Steps
+
+- [Templates Guide](/ai/templates) - Learn the four template literal functions
+- [Batch Processing](/ai/batch) - Process collections efficiently
+- [Provider Configuration](/ai/providers) - Set up your preferred AI provider

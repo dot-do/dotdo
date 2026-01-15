@@ -1,0 +1,174 @@
+---
+title: Cap'n Web RPC
+description: Capability-based RPC layer for dotdo with promise pipelining, unforgeable references, and type-safe remote execution
+---
+
+# Cap'n Web RPC
+
+Cap'n Web RPC is dotdo's capability-based remote procedure call layer, inspired by [Cap'n Proto](https://capnproto.org/) but designed for the web and Cloudflare Workers runtime.
+
+## Overview
+
+Cap'n Web RPC provides a secure, efficient way to invoke methods on Durable Objects with:
+
+- **Capability-based Security** - Unforgeable references with attenuation and revocation
+- **Promise Pipelining** - Chain calls without intermediate round-trips
+- **$meta Introspection** - Runtime schema and method discovery
+- **Type-safe Execution** - Full TypeScript type preservation across RPC boundaries
+- **Flexible Serialization** - JSON and binary formats with special type support
+
+## Installation
+
+Cap'n Web RPC is included with dotdo:
+
+```typescript
+import {
+  createRPCClient,
+  createCapability,
+  pipeline,
+  serialize,
+  deserialize,
+  generateInterface,
+} from 'dotdo/rpc'
+```
+
+## Quick Start
+
+### Creating an RPC Client
+
+```typescript
+import { createRPCClient } from 'dotdo/rpc'
+
+// Create a typed client for a Durable Object
+const customer = createRPCClient<CustomerDO>({
+  target: 'https://customer.api.dotdo.dev/cust-123',
+})
+
+// Invoke methods remotely
+const orders = await customer.getOrders()
+await customer.notify('Your order has shipped!')
+```
+
+### Using $meta Introspection
+
+Every RPC client exposes a `$meta` interface for runtime discovery:
+
+```typescript
+// Discover available methods
+const methods = await customer.$meta.methods()
+console.log(methods.map(m => m.name))
+// ['charge', 'getOrders', 'notify']
+
+// Get the full schema
+const schema = await customer.$meta.schema()
+console.log(schema.name)  // 'Customer'
+console.log(schema.fields) // [{ name: '$id', type: 'string' }, ...]
+
+// Get available capabilities
+const caps = await customer.$meta.capabilities()
+```
+
+### Capability-based Access Control
+
+```typescript
+import { createCapability } from 'dotdo/rpc'
+
+// Create a full-access capability
+const fullCap = createCapability(customer)
+
+// Attenuate to read-only
+const readOnlyCap = fullCap.attenuate(['getOrders'])
+
+// Invoke through the capability
+const orders = await readOnlyCap.invoke('getOrders')
+
+// This throws - not authorized
+await readOnlyCap.invoke('charge', 100)
+// Error: Method 'charge' is not authorized
+```
+
+### Promise Pipelining
+
+```typescript
+import { pipeline } from 'dotdo/rpc'
+
+// Single network request for chained operations
+const result = await pipeline(customer)
+  .then('getOrders')
+  .then('filter', (o) => o.total > 100)
+  .then('map', (o) => o.id)
+  .execute()
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         RPC Client                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ $meta       │  │ Pipeline    │  │ Capability              │  │
+│  │ Interface   │  │ Builder     │  │ Manager                 │  │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │
+│         │                │                      │                │
+│         └────────────────┼──────────────────────┘                │
+│                          ▼                                       │
+│                  ┌───────────────┐                               │
+│                  │  Transport    │                               │
+│                  │  (JSON/Binary)│                               │
+│                  └───────┬───────┘                               │
+└──────────────────────────┼──────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    Durable Object                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│  │ Schema      │  │ Methods     │  │ Capability              │   │
+│  │ Registry    │  │             │  │ Validation              │   │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## Core Concepts
+
+### Unforgeable Capabilities
+
+Capabilities in Cap'n Web RPC are **unforgeable tokens** - you cannot create a valid capability by copying its properties. The system validates that capability invocations come from registered, non-revoked capability objects.
+
+```typescript
+const cap = createCapability(target)
+
+// This will fail - copying doesn't create a valid capability
+const fakeCap = { ...cap }
+fakeCap.invoke('method')  // Throws: Capability is unforgeable
+```
+
+### Attenuation
+
+Capabilities can be **attenuated** to create restricted versions. An attenuated capability can never grant more permissions than its parent:
+
+```typescript
+const full = createCapability(target, ['read', 'write', 'delete'])
+const restricted = full.attenuate(['read'])  // OK
+const expanded = restricted.attenuate(['read', 'write'])  // Error!
+```
+
+### Revocation
+
+When you revoke a capability, all capabilities derived from it are also revoked:
+
+```typescript
+const parent = createCapability(target)
+const child = parent.attenuate(['read'])
+
+parent.revoke()
+
+// Both are now invalid
+await parent.invoke('read')  // Throws: revoked
+await child.invoke('read')   // Throws: revoked
+```
+
+## Next Steps
+
+- [Capabilities](/rpc/capabilities) - Deep dive into the security model
+- [Pipelining](/rpc/pipelining) - Optimize network calls with promise pipelining
+- [Serialization](/rpc/serialization) - JSON and binary formats, custom type handlers

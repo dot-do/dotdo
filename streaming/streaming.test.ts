@@ -265,6 +265,114 @@ describe('WebSocketHub', () => {
       expect(hub.room.count('non-existent')).toBe(0)
     })
   })
+
+  describe('cleanup and disposal', () => {
+    it('close(ws) disconnects and closes the websocket', () => {
+      const ws = createMockWebSocket()
+      hub.connect(ws)
+
+      hub.close(ws)
+
+      expect(ws.close).toHaveBeenCalled()
+      expect(hub.connections.has(ws)).toBe(false)
+    })
+
+    it('close(ws) cleans up room memberships', () => {
+      const ws = createMockWebSocket()
+      hub.connect(ws)
+      hub.room.join(ws, 'room-1')
+      hub.room.join(ws, 'room-2')
+
+      hub.close(ws)
+
+      expect(hub.room.members('room-1')).not.toContain(ws)
+      expect(hub.room.members('room-2')).not.toContain(ws)
+    })
+
+    it('close(ws) for non-connected websocket is no-op', () => {
+      const ws = createMockWebSocket()
+
+      // Should not throw
+      expect(() => hub.close(ws)).not.toThrow()
+      expect(ws.close).not.toHaveBeenCalled()
+    })
+
+    it('closeAll() closes all connections', () => {
+      const ws1 = createMockWebSocket()
+      const ws2 = createMockWebSocket()
+      const ws3 = createMockWebSocket()
+
+      hub.connect(ws1)
+      hub.connect(ws2)
+      hub.connect(ws3)
+
+      hub.closeAll()
+
+      expect(ws1.close).toHaveBeenCalled()
+      expect(ws2.close).toHaveBeenCalled()
+      expect(ws3.close).toHaveBeenCalled()
+      expect(hub.connectionCount).toBe(0)
+    })
+
+    it('dispose() closes all connections and clears rooms', () => {
+      const ws1 = createMockWebSocket()
+      const ws2 = createMockWebSocket()
+
+      hub.connect(ws1)
+      hub.connect(ws2)
+      hub.room.join(ws1, 'room-1')
+      hub.room.join(ws2, 'room-1')
+
+      hub.dispose()
+
+      expect(hub.connectionCount).toBe(0)
+      expect(hub.room.count('room-1')).toBe(0)
+    })
+
+    it('cleanupStale() removes closed websockets', () => {
+      const ws1 = createMockWebSocket()
+      const ws2 = createMockWebSocket({ readyState: WebSocket.CLOSED })
+      const ws3 = createMockWebSocket()
+
+      hub.connect(ws1)
+      hub.connect(ws2)
+      hub.connect(ws3)
+
+      const removed = hub.cleanupStale()
+
+      expect(removed).toBe(1)
+      expect(hub.connectionCount).toBe(2)
+      expect(hub.connections.has(ws1)).toBe(true)
+      expect(hub.connections.has(ws2)).toBe(false)
+      expect(hub.connections.has(ws3)).toBe(true)
+    })
+
+    it('cleanupStale() cleans up room memberships for stale connections', () => {
+      const ws1 = createMockWebSocket()
+      const ws2 = createMockWebSocket({ readyState: WebSocket.CLOSED })
+
+      hub.connect(ws1)
+      hub.connect(ws2)
+      hub.room.join(ws1, 'room-1')
+      hub.room.join(ws2, 'room-1')
+
+      hub.cleanupStale()
+
+      expect(hub.room.members('room-1')).toContain(ws1)
+      expect(hub.room.members('room-1')).not.toContain(ws2)
+    })
+
+    it('cleanupStale() removes empty rooms after cleanup', () => {
+      const ws = createMockWebSocket({ readyState: WebSocket.CLOSED })
+
+      hub.connect(ws)
+      hub.room.join(ws, 'room-1')
+
+      hub.cleanupStale()
+
+      expect(hub.room.count('room-1')).toBe(0)
+    })
+  })
 })
 
 // ============================================================================
@@ -1222,6 +1330,60 @@ describe('SubscriptionManager', () => {
 
       expect(stats.get('orders')).toBe(2)
       expect(stats.get('payments')).toBe(1)
+    })
+  })
+
+  describe('cleanup and disposal', () => {
+    it('unsubscribeAll() cleans up empty topics', () => {
+      const ws = createMockWebSocket()
+
+      manager.subscribe(ws, 'topic-1')
+      manager.unsubscribeAll(ws)
+
+      // Topic should be removed when last subscriber leaves
+      const stats = manager.getTopicStats()
+      expect(stats.has('topic-1')).toBe(false)
+    })
+
+    it('cleanupStale() removes closed websockets from all subscriptions', () => {
+      const ws1 = createMockWebSocket()
+      const ws2 = createMockWebSocket({ readyState: WebSocket.CLOSED })
+
+      manager.subscribe(ws1, 'topic-1')
+      manager.subscribe(ws2, 'topic-1')
+      manager.subscribe(ws2, 'topic-2')
+
+      const removed = manager.cleanupStale()
+
+      expect(removed).toBe(1)
+      expect(manager.getSubscribers('topic-1')).toContain(ws1)
+      expect(manager.getSubscribers('topic-1')).not.toContain(ws2)
+      expect(manager.getSubscriptions(ws2)).toHaveLength(0)
+    })
+
+    it('cleanupStale() removes empty topics after cleanup', () => {
+      const ws = createMockWebSocket({ readyState: WebSocket.CLOSED })
+
+      manager.subscribe(ws, 'abandoned-topic')
+
+      manager.cleanupStale()
+
+      const stats = manager.getTopicStats()
+      expect(stats.has('abandoned-topic')).toBe(false)
+    })
+
+    it('dispose() clears all subscriptions and topics', () => {
+      const ws1 = createMockWebSocket()
+      const ws2 = createMockWebSocket()
+
+      manager.subscribe(ws1, 'topic-1')
+      manager.subscribe(ws2, 'topic-2')
+
+      manager.dispose()
+
+      expect(manager.getTopicStats().size).toBe(0)
+      expect(manager.getSubscriptions(ws1)).toHaveLength(0)
+      expect(manager.getSubscriptions(ws2)).toHaveLength(0)
     })
   })
 })

@@ -1,0 +1,308 @@
+---
+title: Cross-DO RPC
+description: Type-safe communication between Durable Objects with $.Customer(id).method()
+---
+
+# Cross-DO RPC
+
+WorkflowContext provides a fluent API for calling methods on other Durable Objects. Instead of manually resolving stubs and constructing requests, use `$.Noun(id).method()`.
+
+## Basic Usage
+
+```typescript
+// Call a method on another DO
+const result = await $.Customer('cust-123').notify('Your order shipped!')
+
+// Get data from another DO
+const profile = await $.Customer('cust-123').getProfile()
+
+// Execute an action
+const tracking = await $.Order('order-456').ship()
+```
+
+## How It Works
+
+The RPC system uses JavaScript Proxies to intercept property access:
+
+1. `$.Customer` - Returns a function (noun accessor)
+2. `$.Customer('cust-123')` - Returns a domain proxy for that ID
+3. `$.Customer('cust-123').notify` - Returns an RPC method
+4. `$.Customer('cust-123').notify(args)` - Executes the call
+
+## Configuration
+
+RPC requires a `stubResolver` to map nouns and IDs to actual DO stubs:
+
+```typescript
+const $ = createWorkflowContext({
+  stubResolver: (noun: string, id: string) => {
+    // Return an object with callable methods
+    const ns = env[noun] // e.g., env.Customer, env.Order
+    const doId = ns.idFromName(id)
+    const stub = ns.get(doId)
+
+    return {
+      notify: (msg: string) => stub.notify(msg),
+      getProfile: () => stub.getProfile(),
+      // ... other methods
+    }
+  },
+  rpcTimeout: 30000 // 30 second timeout (default)
+})
+```
+
+## Promise Pipelining
+
+RPC results support pipelined property access and method calls:
+
+### Property Access
+
+```typescript
+// Without pipelining
+const profile = await $.Customer('cust-123').getProfile()
+const email = profile.email
+
+// With pipelining - single await
+const email = await $.Customer('cust-123').getProfile().email
+```
+
+### Method Chaining
+
+```typescript
+// Get items and transform
+const names = await $.Order('order-123')
+  .getItems()
+  .map((item: { name: string }) => item.name)
+
+// Chain multiple operations
+const total = await $.Cart('cart-456')
+  .getItems()
+  .reduce((sum: number, item: { price: number }) => sum + item.price, 0)
+```
+
+## Error Handling
+
+### Method Not Found
+
+```typescript
+try {
+  await $.Customer('cust-123').unknownMethod()
+} catch (error) {
+  // Error: Method unknownMethod not found on Customer
+}
+```
+
+### Remote Errors
+
+Errors from the remote DO propagate to the caller:
+
+```typescript
+try {
+  await $.Payment('pay-789').charge(100)
+} catch (error) {
+  // Error from Payment DO: "Insufficient funds"
+}
+```
+
+### Timeouts
+
+RPC calls timeout after the configured duration:
+
+```typescript
+const $ = createWorkflowContext({
+  stubResolver: resolver,
+  rpcTimeout: 5000 // 5 seconds
+})
+
+try {
+  await $.SlowService('svc-1').longOperation()
+} catch (error) {
+  // Error: RPC Timeout
+}
+```
+
+## Patterns
+
+### Service Layer
+
+```typescript
+class OrderService {
+  constructor(private $: WorkflowContext) {}
+
+  async createOrder(customerId: string, items: Item[]) {
+    // Verify customer exists
+    const customer = await this.$.Customer(customerId).getProfile()
+
+    // Check inventory
+    for (const item of items) {
+      const available = await this.$.Inventory(item.sku).check(item.quantity)
+      if (!available) {
+        throw new Error(`${item.sku} out of stock`)
+      }
+    }
+
+    // Create order
+    return await this.$.Order('new').create({
+      customerId,
+      items,
+      total: items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    })
+  }
+}
+```
+
+### Fan-Out
+
+```typescript
+async function notifyAllCustomers(message: string, customerIds: string[]) {
+  const results = await Promise.all(
+    customerIds.map(id => $.Customer(id).notify(message))
+  )
+  return results.filter(r => r.sent).length
+}
+```
+
+### Orchestration
+
+```typescript
+async function processRefund(orderId: string, reason: string) {
+  // Get order details
+  const order = await $.Order(orderId).getDetails()
+
+  // Reverse payment
+  await $.Payment(order.paymentId).refund(order.total, reason)
+
+  // Update inventory
+  for (const item of order.items) {
+    await $.Inventory(item.sku).release(item.quantity)
+  }
+
+  // Update order status
+  await $.Order(orderId).updateStatus('refunded', { reason })
+
+  // Notify customer
+  await $.Customer(order.customerId).notify(
+    `Your refund of $${order.total} has been processed`
+  )
+
+  return { orderId, refundedAmount: order.total }
+}
+```
+
+### Saga Pattern
+
+```typescript
+async function transferFunds(fromId: string, toId: string, amount: number) {
+  // Debit source account
+  try {
+    await $.Account(fromId).debit(amount)
+  } catch (error) {
+    throw new Error(`Debit failed: ${error.message}`)
+  }
+
+  // Credit destination account
+  try {
+    await $.Account(toId).credit(amount)
+  } catch (error) {
+    // Compensate: reverse the debit
+    await $.Account(fromId).credit(amount)
+    throw new Error(`Credit failed, debit reversed: ${error.message}`)
+  }
+
+  return { fromId, toId, amount, status: 'completed' }
+}
+```
+
+## Real DO Implementation
+
+In a real Durable Object, the stubResolver connects to actual DO namespaces:
+
+```typescript
+class MyDO extends DOWorkflow {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+  }
+
+  protected resolveStub(noun: string, id: string): Record<string, Function> {
+    // Map noun to DO namespace
+    const namespace = this.env[noun as keyof Env] as DurableObjectNamespace
+    if (!namespace) {
+      throw new Error(`Unknown namespace: ${noun}`)
+    }
+
+    const doId = namespace.idFromName(id)
+    const stub = namespace.get(doId)
+
+    // Return proxy that forwards calls to stub
+    return new Proxy({}, {
+      get: (_target, method: string) => {
+        return async (...args: unknown[]) => {
+          // Call via RPC
+          return await (stub as any)[method](...args)
+        }
+      }
+    })
+  }
+}
+```
+
+## Best Practices
+
+### 1. Keep Calls Focused
+
+```typescript
+// Good: Single-purpose call
+const email = await $.Customer(id).getEmail()
+
+// Avoid: Fetching everything
+const customer = await $.Customer(id).getFullProfile()
+```
+
+### 2. Batch When Possible
+
+```typescript
+// Good: Single call for multiple items
+const items = await $.Cart(cartId).getItems()
+
+// Avoid: N+1 calls
+const items = await Promise.all(
+  itemIds.map(id => $.Item(id).get())
+)
+```
+
+### 3. Handle Timeouts Gracefully
+
+```typescript
+async function safeRPC<T>(
+  call: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  try {
+    return await call()
+  } catch (error) {
+    if (error.message.includes('Timeout')) {
+      console.warn('RPC timeout, using fallback')
+      return fallback
+    }
+    throw error
+  }
+}
+
+const profile = await safeRPC(
+  () => $.Customer(id).getProfile(),
+  { name: 'Unknown', email: '' }
+)
+```
+
+### 4. Use Durable Execution for Critical Paths
+
+```typescript
+// Combine $.do() with RPC for critical operations
+await $.do(
+  async () => {
+    await $.Payment(paymentId).capture()
+    await $.Order(orderId).fulfill()
+  },
+  { stepId: `fulfill-${orderId}`, maxRetries: 3 }
+)
+```

@@ -1,0 +1,553 @@
+---
+title: Recovery
+description: Cold start recovery patterns for restoring state from SQLite, Iceberg, and Pipeline events
+---
+
+# Recovery
+
+The `ColdStartRecovery` module handles state restoration when a Durable Object starts from cold. It follows a tiered fallback strategy: L2 (SQLite) first, then L3 (Iceberg), with Pipeline event replay on top.
+
+## Overview
+
+```
+            DO Cold Start
+                 |
+                 v
+       +------------------+
+       |  Try L2: SQLite  |  <- First attempt (~10ms)
+       +--------+---------+
+                |
+         (empty?)
+                v
+       +------------------+
+       | Fallback L3:     |  <- Second attempt (~100ms)
+       | Iceberg          |
+       +--------+---------+
+                |
+                v
+       +------------------+
+       | Replay Pipeline  |  <- Catch-up events
+       | Events           |
+       +--------+---------+
+                |
+                v
+       +------------------+
+       |  Populate L0     |  <- Ready for requests
+       +------------------+
+```
+
+**Key characteristics:**
+
+- **Tiered fallback** - SQLite -> Iceberg -> empty
+- **Event replay** - Pipeline events applied after base state
+- **No data loss** - Combines checkpointed state with WAL events
+- **Fast recovery** - SQLite recovery in ~10ms typical
+
+## Basic Usage
+
+### Creating Recovery Handler
+
+```typescript
+import { ColdStartRecovery } from 'dotdo/storage'
+
+const recovery = new ColdStartRecovery({
+  sql: ctx.storage.sql,           // L2: SQLite
+  iceberg: icebergReader,         // L3: Optional Iceberg reader
+  namespace: 'tenant-123',
+  pipelineEvents: pendingEvents   // Events since last checkpoint
+})
+```
+
+### Performing Recovery
+
+```typescript
+const result = await recovery.recover()
+
+console.log(result)
+// {
+//   source: 'sqlite',           // Where base state came from
+//   thingsLoaded: 1500,         // Entries loaded
+//   eventsReplayed: 23,         // Pipeline events applied
+//   state: Map { ... },         // Final state
+//   durationMs: 12              // Recovery time
+// }
+
+// Populate L0 from recovered state
+for (const [id, thing] of result.state) {
+  memoryManager.loadBulk([thing])
+}
+```
+
+## Recovery Sources
+
+### L2: SQLite (Primary)
+
+SQLite is the primary recovery source - fast and always available:
+
+```typescript
+// Recovery from SQLite
+const result = await recovery.recover()
+
+if (result.source === 'sqlite') {
+  console.log(`Loaded ${result.thingsLoaded} things from SQLite`)
+  // Typical: ~10ms for 1000 entries
+}
+```
+
+**SQLite Recovery Flow:**
+
+1. Query all rows from `things` table
+2. Parse JSON data
+3. Build state Map
+4. Replay Pipeline events (if any)
+5. Return populated state
+
+```typescript
+// Internal SQLite query
+const rows = sql.exec('SELECT id, type, data FROM things').toArray()
+const state = new Map()
+
+for (const row of rows) {
+  const thing = JSON.parse(row.data)
+  state.set(row.id, thing)
+}
+```
+
+### L3: Iceberg (Fallback)
+
+If SQLite is empty (new DO or data loss), fall back to Iceberg:
+
+```typescript
+const result = await recovery.recover()
+
+if (result.source === 'iceberg') {
+  console.log(`Reconstructed ${result.thingsLoaded} things from ${result.eventsReplayed} events`)
+  // Typical: ~100ms, depends on event count
+}
+```
+
+**Iceberg Recovery Flow:**
+
+1. Query all events for namespace
+2. Sort events by timestamp
+3. Replay events to reconstruct state
+4. Apply Pipeline events (if any)
+5. Return populated state
+
+```typescript
+// Iceberg event replay
+const events = await iceberg.query({ namespace })
+events.sort((a, b) => a.ts - b.ts)
+
+for (const event of events) {
+  applyEvent(state, event)
+}
+```
+
+### Empty State
+
+New DOs start with empty state:
+
+```typescript
+const result = await recovery.recover()
+
+if (result.source === 'empty') {
+  console.log('Fresh DO - no existing state')
+  // Only Pipeline events (if any) applied
+}
+```
+
+## Pipeline Event Replay
+
+### Why Replay is Necessary
+
+Events may reach the Pipeline after the last SQLite checkpoint:
+
+```
+Timeline:
+t=0s:   Checkpoint to SQLite (1000 entries)
+t=2s:   Write A -> L0, L1 (Pipeline)
+t=3s:   Write B -> L0, L1 (Pipeline)
+t=4s:   DO Evicted
+
+t=10s:  Cold start
+        SQLite: 1000 entries (t=0s state)
+        Pipeline: Events A, B (post-checkpoint)
+        Final: 1002 entries
+```
+
+### Replay Implementation
+
+```typescript
+const recovery = new ColdStartRecovery({
+  sql: ctx.storage.sql,
+  namespace: 'tenant-123',
+  pipelineEvents: [
+    { type: 'thing.created', entityId: 'new_1', payload: { ... }, ts: t1 },
+    { type: 'thing.updated', entityId: 'existing_1', payload: { ... }, ts: t2 }
+  ]
+})
+
+const result = await recovery.recover()
+// Base state from SQLite + 2 events replayed
+```
+
+### Event Application
+
+```typescript
+function applyEvent(state, event) {
+  const { type, entityId, payload } = event
+
+  switch (type) {
+    case 'thing.created':
+      state.set(entityId, {
+        $id: entityId,
+        $type: payload.$type ?? 'Unknown',
+        $version: 1,
+        ...payload
+      })
+      break
+
+    case 'thing.updated':
+      const existing = state.get(entityId)
+      if (existing) {
+        state.set(entityId, {
+          ...existing,
+          ...payload,
+          $id: existing.$id,
+          $type: existing.$type,
+          $version: (existing.$version ?? 0) + 1
+        })
+      } else {
+        // Create from update (event sourcing)
+        state.set(entityId, {
+          $id: entityId,
+          $type: payload.$type ?? 'Unknown',
+          $version: 1,
+          ...payload
+        })
+      }
+      break
+
+    case 'thing.deleted':
+      state.delete(entityId)
+      break
+  }
+}
+```
+
+## RecoveryResult
+
+### Structure
+
+```typescript
+interface RecoveryResult {
+  source: 'sqlite' | 'iceberg' | 'empty'  // Recovery source
+  thingsLoaded: number                     // Base state count
+  eventsReplayed: number                   // Pipeline events applied
+  state: Map<string, ThingData>            // Final state
+  durationMs: number                       // Recovery duration
+}
+```
+
+### Interpreting Results
+
+| source | thingsLoaded | eventsReplayed | Meaning |
+|--------|--------------|----------------|---------|
+| sqlite | > 0 | 0 | Clean recovery from last checkpoint |
+| sqlite | > 0 | > 0 | Checkpoint + Pipeline catch-up |
+| iceberg | > 0 | > 0 | Full reconstruction from events |
+| empty | 0 | 0 | New DO, no history |
+| empty | 0 | > 0 | New DO with pending Pipeline events |
+
+## Configuration
+
+### RecoveryOptions
+
+```typescript
+interface RecoveryOptions {
+  sql: SqlStorage              // Required: SQLite storage
+  iceberg?: IcebergReader      // Optional: Iceberg for fallback
+  namespace: string            // Required: Tenant namespace
+  pipelineEvents?: PipelineEvent[]  // Optional: Events to replay
+}
+```
+
+### Minimal Configuration
+
+```typescript
+// SQLite only (no Iceberg fallback)
+const recovery = new ColdStartRecovery({
+  sql: ctx.storage.sql,
+  namespace: 'tenant-123'
+})
+```
+
+### Full Configuration
+
+```typescript
+// With Iceberg fallback and Pipeline replay
+const recovery = new ColdStartRecovery({
+  sql: ctx.storage.sql,
+  iceberg: icebergReader,
+  namespace: 'tenant-123',
+  pipelineEvents: await fetchPendingEvents()
+})
+```
+
+## Integration Patterns
+
+### DO Constructor
+
+```typescript
+class MyDO extends DurableObject {
+  private state: Map<string, ThingData> = new Map()
+  private recovered: boolean = false
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    // Recovery happens lazily on first request
+  }
+
+  async ensureRecovered() {
+    if (this.recovered) return
+
+    const recovery = new ColdStartRecovery({
+      sql: this.ctx.storage.sql,
+      namespace: this.getNamespace()
+    })
+
+    const result = await recovery.recover()
+    this.state = result.state
+    this.recovered = true
+
+    console.log(`Recovered ${result.thingsLoaded} things from ${result.source}`)
+  }
+
+  async fetch(request: Request) {
+    await this.ensureRecovered()
+    // Handle request with populated state
+  }
+}
+```
+
+### DOStorage Integration
+
+```typescript
+// DOStorage handles recovery automatically
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: { sql: ctx.storage.sql }
+})
+
+// On first read/write, recovery happens automatically
+const thing = await storage.getWithFallback('customer_123')
+```
+
+### Blocking Recovery
+
+```typescript
+// Block all requests until recovery completes
+class MyDO extends DurableObject {
+  private recoveryPromise: Promise<void> | null = null
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    // Start recovery immediately
+    this.recoveryPromise = this.recover()
+  }
+
+  private async recover() {
+    const result = await new ColdStartRecovery({
+      sql: this.ctx.storage.sql,
+      namespace: this.getNamespace()
+    }).recover()
+
+    // Populate state
+    this.memoryManager.loadBulk(Array.from(result.state.values()))
+  }
+
+  async fetch(request: Request) {
+    // Wait for recovery before handling any request
+    await this.recoveryPromise
+    // Handle request
+  }
+}
+```
+
+## Performance Optimization
+
+### Lazy Loading
+
+Load state on-demand rather than all at once:
+
+```typescript
+class LazyRecoveryDO extends DurableObject {
+  private loadedIds = new Set<string>()
+
+  async get(id: string) {
+    // Check L0 first
+    const cached = this.memory.get(id)
+    if (cached) return cached
+
+    // Already tried loading
+    if (this.loadedIds.has(id)) return null
+
+    // Load from L2
+    const result = this.sql.exec(
+      'SELECT data FROM things WHERE id = ?',
+      id
+    ).toArray()
+
+    if (result.length > 0) {
+      const thing = JSON.parse(result[0].data)
+      this.memory.loadBulk([thing])
+      this.loadedIds.add(id)
+      return thing
+    }
+
+    this.loadedIds.add(id)
+    return null
+  }
+}
+```
+
+### Partial Recovery
+
+For large datasets, recover only active entities:
+
+```typescript
+// Recover recent/active entities first
+const recentIds = await getRecentlyActiveIds()
+
+const recovery = new ColdStartRecovery({
+  sql: ctx.storage.sql,
+  namespace: 'tenant-123',
+  filterIds: recentIds  // Custom extension
+})
+```
+
+### Streaming Recovery
+
+For very large datasets, stream recovery:
+
+```typescript
+async function* streamRecovery(sql: SqlStorage) {
+  const cursor = sql.exec('SELECT data FROM things')
+
+  for (const row of cursor) {
+    const thing = JSON.parse(row.data)
+    yield thing
+  }
+}
+
+// Process in batches
+for await (const thing of streamRecovery(ctx.storage.sql)) {
+  memoryManager.loadBulk([thing])
+}
+```
+
+## Error Handling
+
+### SQLite Errors
+
+```typescript
+const recovery = new ColdStartRecovery({
+  sql: ctx.storage.sql,
+  iceberg: icebergReader,  // Fallback
+  namespace: 'tenant-123'
+})
+
+try {
+  const result = await recovery.recover()
+} catch (error) {
+  if (error.message.includes('SQLITE')) {
+    // SQLite corrupted - try Iceberg-only recovery
+    const icebergResult = await recoverFromIcebergOnly()
+  }
+  throw error
+}
+```
+
+### Iceberg Errors
+
+```typescript
+// If Iceberg fails, we can still use whatever is in SQLite
+const result = await recovery.recover()
+
+if (result.source === 'empty' && expectedData) {
+  console.warn('Recovery returned empty but expected data - check Iceberg')
+  // Alert ops team
+}
+```
+
+### Partial Recovery
+
+```typescript
+// Handle partial recovery gracefully
+const result = await recovery.recover()
+
+if (result.eventsReplayed < expectedEventCount) {
+  console.warn(`Only replayed ${result.eventsReplayed}/${expectedEventCount} events`)
+  // Some events may be missing - trigger consistency check
+}
+```
+
+## Monitoring
+
+### Recovery Metrics
+
+```typescript
+const result = await recovery.recover()
+
+// Log recovery metrics
+metrics.record('cold_start_recovery', {
+  source: result.source,
+  thingsLoaded: result.thingsLoaded,
+  eventsReplayed: result.eventsReplayed,
+  durationMs: result.durationMs
+})
+
+// Alert on slow recovery
+if (result.durationMs > 1000) {
+  alert(`Slow cold start: ${result.durationMs}ms`)
+}
+```
+
+### Recovery Frequency
+
+```typescript
+// Track cold start frequency
+const coldStarts = new Counter('cold_starts_total')
+
+async ensureRecovered() {
+  if (this.recovered) return
+
+  coldStarts.inc({ source: this.getRecoverySource() })
+  await this.recover()
+}
+```
+
+## Recovery Characteristics
+
+| Source | Latency | Data Freshness | Reliability |
+|--------|---------|----------------|-------------|
+| SQLite | ~10ms | Last checkpoint | High |
+| Iceberg | ~100ms | Last L3 flush | High |
+| Pipeline | ~1ms per event | Real-time | Depends on retention |
+
+### Expected Recovery Times
+
+| Things Count | SQLite | Iceberg | Notes |
+|--------------|--------|---------|-------|
+| 100 | ~2ms | ~20ms | Fast recovery |
+| 1,000 | ~10ms | ~50ms | Typical workload |
+| 10,000 | ~50ms | ~200ms | Large DO |
+| 100,000 | ~500ms | ~2s | Very large - consider sharding |
+
+## Next Steps
+
+- [L0: In-Memory Cache](/storage/in-memory) - Where recovered state goes
+- [L1: Pipeline WAL](/storage/pipeline-wal) - Source of replay events
+- [L2: Lazy Checkpoint](/storage/lazy-checkpoint) - Primary recovery source
+- [L3: Cold Tier](/storage/cold-tier) - Fallback recovery source

@@ -10,9 +10,26 @@
  */
 
 // ============================================================================
+// Rate Limit Constants
+// ============================================================================
+
+const DEFAULT_BUFFER_LIMIT_MULTIPLIER = 10
+const DEFAULT_WARNING_THRESHOLD = 0.8
+
+// ============================================================================
 // WebSocketHub - Connection management and broadcasting
 // ============================================================================
 
+/**
+ * WebSocketHub manages WebSocket connections, rooms, and broadcasting.
+ *
+ * Features:
+ * - Connection tracking with optional metadata
+ * - Room management for grouping connections
+ * - Broadcast to all or filtered connections
+ * - Cleanup of stale/closed connections
+ * - Resource disposal
+ */
 export class WebSocketHub {
   private _connections = new Map<WebSocket, Record<string, unknown> | undefined>()
   private _rooms = new Map<string, Set<WebSocket>>()
@@ -37,6 +54,17 @@ export class WebSocketHub {
     }
 
     // Clean up room memberships
+    this._cleanupWSRooms(ws)
+
+    this._wsRooms.delete(ws)
+    this._connections.delete(ws)
+  }
+
+  /**
+   * Clean up all room memberships for a WebSocket.
+   * Removes the WebSocket from rooms and deletes empty rooms.
+   */
+  private _cleanupWSRooms(ws: WebSocket): void {
     const rooms = this._wsRooms.get(ws)
     if (rooms) {
       for (const roomId of rooms) {
@@ -49,18 +77,19 @@ export class WebSocketHub {
         }
       }
     }
-
-    this._wsRooms.delete(ws)
-    this._connections.delete(ws)
   }
 
   getMetadata(ws: WebSocket): Record<string, unknown> | undefined {
     return this._connections.get(ws)
   }
 
+  /**
+   * Broadcast a message to all connected WebSockets.
+   * Optionally filters connections before sending.
+   */
   broadcast(message: unknown, filter?: (ws: WebSocket, meta?: Record<string, unknown>) => boolean): number {
     let count = 0
-    const serialized = typeof message === 'string' ? message : JSON.stringify(message)
+    const serialized = this._serializeMessage(message)
 
     for (const [ws, meta] of this._connections) {
       if (ws.readyState !== WebSocket.OPEN) {
@@ -76,10 +105,24 @@ export class WebSocketHub {
     return count
   }
 
+  /**
+   * Serialize a message to a string.
+   */
+  private _serializeMessage(message: unknown): string {
+    return typeof message === 'string' ? message : JSON.stringify(message)
+  }
+
+  /**
+   * Room management methods: join, leave, broadcast, members, rooms, count.
+   */
   room = {
+    /**
+     * Add a WebSocket to a room.
+     * Throws if the WebSocket is not connected to the hub.
+     */
     join: (ws: WebSocket, roomId: string): void => {
       if (!this._connections.has(ws)) {
-        throw new Error('WebSocket not connected')
+        throw new Error('WebSocket not connected to hub')
       }
 
       let roomMembers = this._rooms.get(roomId)
@@ -93,6 +136,10 @@ export class WebSocketHub {
       wsRooms.add(roomId)
     },
 
+    /**
+     * Remove a WebSocket from a room.
+     * Deletes the room if no members remain.
+     */
     leave: (ws: WebSocket, roomId: string): void => {
       const roomMembers = this._rooms.get(roomId)
       if (roomMembers) {
@@ -108,6 +155,10 @@ export class WebSocketHub {
       }
     },
 
+    /**
+     * Broadcast a message to all members of a room.
+     * Returns count of messages sent.
+     */
     broadcast: (roomId: string, message: unknown): number => {
       const roomMembers = this._rooms.get(roomId)
       if (!roomMembers) {
@@ -115,7 +166,7 @@ export class WebSocketHub {
       }
 
       let count = 0
-      const serialized = typeof message === 'string' ? message : JSON.stringify(message)
+      const serialized = this._serializeMessage(message)
 
       for (const ws of roomMembers) {
         if (ws.readyState !== WebSocket.OPEN) {
@@ -128,20 +179,77 @@ export class WebSocketHub {
       return count
     },
 
+    /**
+     * Get all members of a room.
+     */
     members: (roomId: string): WebSocket[] => {
       const roomMembers = this._rooms.get(roomId)
       return roomMembers ? Array.from(roomMembers) : []
     },
 
+    /**
+     * Get all rooms a WebSocket is a member of.
+     */
     rooms: (ws: WebSocket): string[] => {
       const wsRooms = this._wsRooms.get(ws)
       return wsRooms ? Array.from(wsRooms) : []
     },
 
+    /**
+     * Get the number of members in a room.
+     */
     count: (roomId: string): number => {
       const roomMembers = this._rooms.get(roomId)
       return roomMembers ? roomMembers.size : 0
     },
+  }
+
+  /**
+   * Close a WebSocket connection and clean up all associated resources.
+   * Disconnects from hub and calls ws.close().
+   */
+  close(ws: WebSocket): void {
+    if (!this._connections.has(ws)) {
+      return
+    }
+    this.disconnect(ws)
+    ws.close()
+  }
+
+  /**
+   * Close all WebSocket connections and clean up resources.
+   */
+  closeAll(): void {
+    for (const ws of this._connections.keys()) {
+      this.close(ws)
+    }
+  }
+
+  /**
+   * Dispose of the hub, closing all connections and clearing all state.
+   * After calling this, the hub should not be used further.
+   */
+  dispose(): void {
+    this.closeAll()
+    this._connections.clear()
+    this._rooms.clear()
+    this._wsRooms.clear()
+  }
+
+  /**
+   * Clean up stale/closed WebSocket connections.
+   * Removes connections that are in CLOSED or CLOSING state.
+   * Returns the number of connections removed.
+   */
+  cleanupStale(): number {
+    let removed = 0
+    for (const ws of this._connections.keys()) {
+      if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
+        this.disconnect(ws)
+        removed++
+      }
+    }
+    return removed
   }
 }
 
@@ -149,19 +257,54 @@ export class WebSocketHub {
 // SSE Streaming - Server-Sent Events
 // ============================================================================
 
+/**
+ * SSE event to be sent to the client.
+ */
 export interface SSEEvent {
+  /** Event type identifier */
   event?: string
+  /** Event data (string or object) */
   data: unknown
+  /** Event ID for client reconnection */
   id?: string
+  /** Client reconnection interval in milliseconds */
   retry?: number
 }
 
+/**
+ * SSEStream interface for sending Server-Sent Events.
+ *
+ * Usage:
+ * ```typescript
+ * const { response, stream } = createSSEStream()
+ * stream.send({ event: 'message', data: 'hello' })
+ * stream.close()
+ * ```
+ */
 export interface SSEStream {
+  /** Send an SSE event to the client */
   send(event: SSEEvent): void
+  /** Close the stream */
   close(): void
+  /** Send a comment (for keep-alive pings) */
   comment(text: string): void
 }
 
+/**
+ * Create a Server-Sent Events stream.
+ *
+ * Returns both the Response to send to the client and the stream object
+ * for sending events.
+ *
+ * Usage:
+ * ```typescript
+ * const { response, stream } = createSSEStream()
+ * // Send the response to client
+ * return response
+ * // Then send events
+ * stream.send({ data: 'hello' })
+ * ```
+ */
 export function createSSEStream(): { response: Response; stream: SSEStream } {
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null
   let closed = false
@@ -201,12 +344,11 @@ export function createSSEStream(): { response: Response; stream: SSEStream } {
         output += `retry: ${event.retry}\n`
       }
 
-      // Handle data
+      // Handle data: serialize to string and split multiline
       const dataStr = typeof event.data === 'object'
         ? JSON.stringify(event.data)
         : String(event.data)
 
-      // Split multiline data
       const lines = dataStr.split('\n')
       for (const line of lines) {
         output += `data: ${line}\n`
@@ -239,24 +381,55 @@ export function createSSEStream(): { response: Response; stream: SSEStream } {
 // BackpressureController - Flow control
 // ============================================================================
 
+/**
+ * Options for BackpressureController.
+ *
+ * Modes:
+ * - 'pause': Pauses ingestion when highWaterMark is reached, resumes at lowWaterMark
+ * - 'drop': Drops oldest messages when highWaterMark is reached
+ * - 'buffer': Buffers messages up to bufferLimit, rejects when full
+ */
 export interface BackpressureOptions {
+  /** 'pause', 'drop', or 'buffer' */
   mode: 'pause' | 'drop' | 'buffer'
+  /** Threshold to trigger backpressure action */
   highWaterMark: number
+  /** Threshold to resume (pause mode only) */
   lowWaterMark?: number
+  /** Maximum buffer size (buffer mode only) */
   bufferLimit?: number
+  /** Utilization threshold for warning (buffer mode only, 0-1) */
   warningThreshold?: number
+  /** Called when entering paused state */
   onPause?: () => void
+  /** Called when exiting paused state */
   onResume?: () => void
+  /** Called when buffer utilization exceeds threshold */
   onWarning?: (info: { bufferSize: number; bufferLimit: number; utilizationPercent: number }) => void
 }
 
+/**
+ * Result of pushing a message to the backpressure controller.
+ */
 export interface PushResult {
+  /** Whether the message was accepted */
   accepted: boolean
+  /** Reason for rejection, if any */
   reason?: 'paused' | 'buffer_full'
+  /** Whether a message was dropped (drop mode) */
   dropped?: boolean
+  /** The dropped message, if any */
   droppedMessage?: { data: unknown }
 }
 
+/**
+ * BackpressureController manages flow control for streaming data.
+ *
+ * Supports three modes:
+ * - Pause: Pauses writes when buffer exceeds highWaterMark
+ * - Drop: Drops oldest messages when buffer is full
+ * - Buffer: Buffers up to a limit, rejects when full
+ */
 export class BackpressureController {
   private _buffer: Array<{ data: unknown }> = []
   private _isPaused = false
@@ -274,21 +447,31 @@ export class BackpressureController {
     this._mode = options.mode
     this._highWaterMark = options.highWaterMark
     this._lowWaterMark = options.lowWaterMark ?? Math.floor(options.highWaterMark / 2)
-    this._bufferLimit = options.bufferLimit ?? options.highWaterMark * 10
-    this._warningThreshold = options.warningThreshold ?? 0.8
+    this._bufferLimit = options.bufferLimit ?? options.highWaterMark * DEFAULT_BUFFER_LIMIT_MULTIPLIER
+    this._warningThreshold = options.warningThreshold ?? DEFAULT_WARNING_THRESHOLD
     this._onPause = options.onPause
     this._onResume = options.onResume
     this._onWarning = options.onWarning
   }
 
+  /**
+   * Whether the controller is currently paused.
+   */
   get isPaused(): boolean {
     return this._isPaused
   }
 
+  /**
+   * Current buffer size.
+   */
   get bufferSize(): number {
     return this._buffer.length
   }
 
+  /**
+   * Push a message to the buffer.
+   * Behavior depends on the mode and buffer state.
+   */
   push(message: { data: unknown }): PushResult {
     if (this._mode === 'pause') {
       return this._pushPauseMode(message)
@@ -349,6 +532,10 @@ export class BackpressureController {
     return { accepted: true }
   }
 
+  /**
+   * Drain (remove and return) the oldest message from the buffer.
+   * Updates pause/resume state in pause mode.
+   */
   drain(): { data: unknown } | undefined {
     const message = this._buffer.shift()
 
@@ -366,6 +553,9 @@ export class BackpressureController {
     return message
   }
 
+  /**
+   * Clear all buffered messages and reset state.
+   */
   clear(): void {
     this._buffer = []
     if (this._isPaused) {
@@ -380,15 +570,27 @@ export class BackpressureController {
 // RateLimiter - Token Bucket Algorithm
 // ============================================================================
 
+/**
+ * Options for RateLimiter (Token Bucket).
+ */
 export interface RateLimiterOptions {
+  /** Maximum tokens in the bucket */
   bucketSize: number
+  /** Tokens to add per second */
   refillRate: number
+  /** Whether to maintain separate buckets per client */
   perClient?: boolean
 }
 
+/**
+ * Current status of a rate limiter bucket.
+ */
 export interface RateLimiterStatus {
+  /** Currently available tokens */
   availableTokens: number
+  /** Maximum bucket capacity */
   bucketSize: number
+  /** Token refill rate (per second) */
   refillRate: number
 }
 
@@ -456,6 +658,10 @@ class RateLimiterImpl {
     return false
   }
 
+  /**
+   * Wait for a token to become available.
+   * Respects the timeout option and throws if timeout is exceeded.
+   */
   async waitForToken(options?: { timeout?: number }): Promise<void> {
     // Check if we can acquire immediately
     if (this.tryAcquire()) {
@@ -568,10 +774,28 @@ export const RateLimiter = function(this: RateLimiterImpl, options: RateLimiterO
 // SubscriptionManager - Topic-based pub/sub
 // ============================================================================
 
+/**
+ * SubscriptionManager provides topic-based pub/sub with pattern matching.
+ *
+ * Features:
+ * - Subscribe/unsubscribe from topics
+ * - Publish to topic with pattern matching (* and ** wildcards)
+ * - Topic statistics and monitoring
+ * - Cleanup of stale connections
+ *
+ * Pattern matching:
+ * - Exact match: 'orders.created'
+ * - Single wildcard: 'orders.*' (matches orders.created, orders.updated, etc.)
+ * - Double wildcard: 'orders.**' (matches orders.created, orders.items.added, etc.)
+ */
 export class SubscriptionManager {
   private _subscriptions = new Map<WebSocket, Set<string>>()
   private _topics = new Map<string, Set<WebSocket>>()
 
+  /**
+   * Subscribe a WebSocket to a topic.
+   * Topic can be an exact match or a pattern (*, **).
+   */
   subscribe(ws: WebSocket, topic: string): void {
     // Add to ws -> topics mapping
     let wsTopics = this._subscriptions.get(ws)
@@ -590,6 +814,10 @@ export class SubscriptionManager {
     topicSubs.add(ws)
   }
 
+  /**
+   * Unsubscribe a WebSocket from a specific topic.
+   * Removes the topic if no subscribers remain.
+   */
   unsubscribe(ws: WebSocket, topic: string): void {
     // Remove from ws -> topics
     const wsTopics = this._subscriptions.get(ws)
@@ -607,6 +835,10 @@ export class SubscriptionManager {
     }
   }
 
+  /**
+   * Unsubscribe a WebSocket from all topics.
+   * Removes topics that have no subscribers left.
+   */
   unsubscribeAll(ws: WebSocket): void {
     const wsTopics = this._subscriptions.get(ws)
     if (wsTopics) {
@@ -623,21 +855,35 @@ export class SubscriptionManager {
     }
   }
 
+  /**
+   * Check if a WebSocket is subscribed to a topic.
+   */
   isSubscribed(ws: WebSocket, topic: string): boolean {
     const wsTopics = this._subscriptions.get(ws)
     return wsTopics?.has(topic) ?? false
   }
 
+  /**
+   * Get all topics a WebSocket is subscribed to.
+   */
   getSubscriptions(ws: WebSocket): string[] {
     const wsTopics = this._subscriptions.get(ws)
     return wsTopics ? Array.from(wsTopics) : []
   }
 
+  /**
+   * Get all WebSockets subscribed to a topic.
+   */
   getSubscribers(topic: string): WebSocket[] {
     const topicSubs = this._topics.get(topic)
     return topicSubs ? Array.from(topicSubs) : []
   }
 
+  /**
+   * Publish a message to all subscribers of a topic.
+   * Supports pattern matching for subscriptions.
+   * Returns the count of WebSockets that received the message.
+   */
   publish(topic: string, message: unknown): number {
     const serialized = JSON.stringify(message)
     const notified = new Set<WebSocket>()
@@ -669,6 +915,9 @@ export class SubscriptionManager {
     return notified.size
   }
 
+  /**
+   * Get subscriber count per topic.
+   */
   getTopicStats(): Map<string, number> {
     const stats = new Map<string, number>()
     for (const [topic, subs] of this._topics) {
@@ -676,12 +925,51 @@ export class SubscriptionManager {
     }
     return stats
   }
+
+  /**
+   * Clean up stale/closed WebSocket connections from all subscriptions.
+   * Removes connections that are in CLOSED or CLOSING state.
+   * Returns the number of connections removed.
+   */
+  cleanupStale(): number {
+    let removed = 0
+    for (const ws of this._subscriptions.keys()) {
+      if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
+        this.unsubscribeAll(ws)
+        removed++
+      }
+    }
+    return removed
+  }
+
+  /**
+   * Dispose of the manager, clearing all subscriptions and topics.
+   * After calling this, the manager should not be used further.
+   */
+  dispose(): void {
+    this._subscriptions.clear()
+    this._topics.clear()
+  }
 }
 
 // ============================================================================
 // matchesTopic - Topic pattern matching
 // ============================================================================
 
+/**
+ * Check if a topic matches a pattern.
+ *
+ * Pattern syntax:
+ * - Exact match: 'orders.created'
+ * - Single wildcard: 'orders.*' (matches orders.created, orders.updated, NOT orders.items.added)
+ * - Double wildcard: 'orders.**' (matches orders.created, orders.items.added, orders.items.quantity.updated)
+ *
+ * Examples:
+ * - matchesTopic('orders.created', 'orders.created') => true
+ * - matchesTopic('orders.created', 'orders.*') => true
+ * - matchesTopic('orders.items.added', 'orders.*') => false
+ * - matchesTopic('orders.items.added', 'orders.**') => true
+ */
 export function matchesTopic(topic: string, pattern: string): boolean {
   if (!topic || !pattern) {
     return false

@@ -1,0 +1,186 @@
+---
+title: Workers
+description: Deployment patterns for routing, sharding, and replication in Cloudflare Workers
+---
+
+# Workers
+
+The Workers module provides deployment patterns for routing requests to Durable Objects, distributing load across shards, and scaling reads with replicas.
+
+## Overview
+
+Workers sit between incoming requests and Durable Objects, handling:
+
+- **Routing** - Extract namespace, type, and ID from URLs
+- **Sharding** - Distribute data across multiple DOs using consistent hashing
+- **Replication** - Route reads to replicas for horizontal scaling
+- **RPC Proxy** - Handle authentication and authorization for RPC calls
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          Cloudflare Edge                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                            Worker                                   │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │
+│  │  Routing  │→ │ Sharding  │→ │Replication│→ │ RPC Proxy │        │
+│  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    ▼              ▼              ▼
+              ┌──────────┐  ┌──────────┐  ┌──────────┐
+              │    DO    │  │    DO    │  │    DO    │
+              │ (Shard 1)│  │ (Shard 2)│  │ (Primary)│
+              └──────────┘  └──────────┘  └──────────┘
+                                               │
+                                    ┌──────────┼──────────┐
+                                    ▼          ▼          ▼
+                              ┌──────────┐ ┌──────────┐ ┌──────────┐
+                              │ Replica  │ │ Replica  │ │ Replica  │
+                              │    1     │ │    2     │ │    N     │
+                              └──────────┘ └──────────┘ └──────────┘
+```
+
+## Routing Patterns
+
+dotdo supports three URL routing patterns for multi-tenancy:
+
+| Pattern | URL Example | Namespace Extraction |
+|---------|-------------|---------------------|
+| **Subdomain** | `tenant.api.dotdo.dev/customers/123` | From subdomain |
+| **Path** | `api.dotdo.dev/tenant/customers/123` | First path segment |
+| **Path-Base** | `api.dotdo.dev/v1/tenant/customers/123` | After version prefix |
+
+[Learn more about Routing](/workers/routing)
+
+## Scaling Strategies
+
+### Horizontal Sharding
+
+Distribute data across multiple DOs using consistent hashing:
+
+```typescript
+import { createShardedWorker } from 'dotdo/workers'
+
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
+```
+
+[Learn more about Sharding](/workers/sharding)
+
+### Read Replicas
+
+Scale reads by routing to replica DOs:
+
+```typescript
+import { createReplicatedWorker } from 'dotdo/workers'
+
+const worker = createReplicatedWorker({
+  replicaCount: 3,
+})
+```
+
+[Learn more about Replication](/workers/replication)
+
+## Presets
+
+Pre-configured deployment patterns for common use cases:
+
+| Preset | Use Case | Description |
+|--------|----------|-------------|
+| `single` | Simple apps | One DO per namespace |
+| `typed` | Type isolation | Separate DO per resource type |
+| `sharded` | High volume | Consistent hash distribution |
+| `replicated` | Read heavy | Primary + read replicas |
+
+[Learn more about Presets](/workers/presets)
+
+## Quick Start
+
+### Basic Worker
+
+The minimal worker passthrough:
+
+```typescript
+import { DO } from 'dotdo/objects'
+
+export { DO }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+    const hostParts = url.hostname.split('.')
+    const ns = hostParts.length > 2 ? hostParts[0] : 'default'
+
+    const id = env.DO.idFromName(ns)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+### Production Worker
+
+Combine routing, sharding, and replication:
+
+```typescript
+import { createProductionWorker } from 'dotdo/workers'
+
+const worker = createProductionWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+  replicaCount: 3,
+  authenticate: async (req) => {
+    const token = req.headers.get('Authorization')
+    return !!token?.startsWith('Bearer ')
+  },
+})
+
+export default {
+  fetch: worker.handleRequest,
+}
+```
+
+## Type Definitions
+
+```typescript
+interface RouteInfo {
+  ns: string           // Namespace (tenant)
+  type?: string        // Resource type (e.g., 'customers')
+  id?: string          // Resource ID (e.g., '123')
+  remainingPath: string // Path after extraction
+}
+
+interface RoutingConfig {
+  mode: 'subdomain' | 'path' | 'path-base'
+  rootDomain?: string
+  basePath?: string
+}
+
+interface ShardConfig {
+  shardCount: number
+  virtualNodes?: number  // Default 150
+  replicationFactor?: number
+}
+
+interface ReplicationConfig {
+  mode: 'primary-replica' | 'multi-primary'
+  replicaCount: number
+  readPreference: 'primary' | 'replica' | 'nearest'
+}
+```
+
+## Next Steps
+
+- [Routing](/workers/routing) - URL routing patterns
+- [Sharding](/workers/sharding) - Horizontal scaling with consistent hashing
+- [Replication](/workers/replication) - Read replica routing
+- [Presets](/workers/presets) - Ready-to-use configurations

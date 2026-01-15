@@ -1,0 +1,277 @@
+---
+title: Installation
+description: Set up your development environment for building with dotdo.
+---
+
+# Installation
+
+This guide walks you through setting up dotdo for local development.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Node.js 18+** - dotdo requires a modern Node.js runtime
+- **npm or pnpm** - for package management
+- **Cloudflare account** - free tier is sufficient for development
+- **Wrangler CLI** - Cloudflare's developer tool (installed automatically)
+
+## Quick Setup
+
+Create a new dotdo project:
+
+```bash
+# Create project directory
+mkdir my-dotdo-app
+cd my-dotdo-app
+
+# Initialize package.json
+npm init -y
+
+# Install dependencies
+npm install dotdo hono
+npm install -D wrangler typescript @cloudflare/workers-types vitest @cloudflare/vitest-pool-workers
+```
+
+## Project Structure
+
+Create the following file structure:
+
+```
+my-dotdo-app/
+├── src/
+│   └── index.ts       # Worker entry point
+├── wrangler.toml      # Cloudflare configuration
+├── tsconfig.json      # TypeScript configuration
+├── vitest.config.ts   # Test configuration
+└── package.json
+```
+
+## Configuration Files
+
+### wrangler.toml
+
+Create your Wrangler configuration:
+
+```toml
+name = "my-dotdo-app"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+
+[durable_objects]
+bindings = [
+  { name = "DO", class_name = "MyDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MyDO"]
+```
+
+The `new_sqlite_classes` migration tag enables SQLite storage for your Durable Object.
+
+### tsconfig.json
+
+Configure TypeScript for Cloudflare Workers:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
+```
+
+### vitest.config.ts
+
+Configure Vitest for Durable Object testing:
+
+```typescript
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+
+export default defineWorkersConfig({
+  test: {
+    poolOptions: {
+      workers: {
+        wrangler: { configPath: './wrangler.toml' },
+      },
+    },
+  },
+})
+```
+
+### package.json Scripts
+
+Add development scripts:
+
+```json
+{
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  }
+}
+```
+
+## Verify Installation
+
+Create a minimal DO to verify everything works:
+
+```typescript
+// src/index.ts
+import { DurableObject } from 'cloudflare:workers'
+
+interface Env {
+  DO: DurableObjectNamespace<MyDO>
+}
+
+export class MyDO extends DurableObject<Env> {
+  async fetch(request: Request): Promise<Response> {
+    return new Response('Hello from dotdo!')
+  }
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const id = env.DO.idFromName('default')
+    const stub = env.DO.get(id)
+    return stub.fetch(request)
+  },
+}
+```
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:8787` - you should see "Hello from dotdo!"
+
+## Development Workflow
+
+### Local Development
+
+```bash
+# Start dev server with hot reload
+npm run dev
+
+# Run tests in watch mode
+npm test
+
+# Run tests once
+npm run test:run
+
+# Type check
+npm run typecheck
+```
+
+### Testing Tips
+
+Miniflare runs real Durable Objects locally with real SQLite. No mocking needed:
+
+```typescript
+// src/index.test.ts
+import { env } from 'cloudflare:test'
+import { describe, it, expect } from 'vitest'
+
+describe('MyDO', () => {
+  it('responds to requests', async () => {
+    const stub = env.DO.get(env.DO.idFromName('test'))
+    const response = await stub.fetch('http://test/')
+    expect(await response.text()).toBe('Hello from dotdo!')
+  })
+})
+```
+
+Run the test:
+
+```bash
+npm run test:run
+```
+
+## Environment Variables
+
+For local development, create a `.dev.vars` file (not committed to git):
+
+```bash
+# .dev.vars
+API_KEY=your-dev-api-key
+DEBUG=true
+```
+
+For production, use Wrangler secrets:
+
+```bash
+wrangler secret put API_KEY
+```
+
+## Deployment
+
+Deploy to Cloudflare:
+
+```bash
+npm run deploy
+```
+
+Your worker will be available at `https://my-dotdo-app.<your-subdomain>.workers.dev`.
+
+## Troubleshooting
+
+### SQLite not available
+
+Ensure your `wrangler.toml` includes the `new_sqlite_classes` migration:
+
+```toml
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MyDO"]
+```
+
+### Module not found errors
+
+Check that `@cloudflare/workers-types` is installed and your `tsconfig.json` includes it in `types`.
+
+### Tests timeout
+
+Durable Object tests can be slow on first run. Increase the timeout in your test file:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+
+describe('MyDO', () => {
+  it('handles complex operations', async () => {
+    // ...
+  }, 10000) // 10 second timeout
+})
+```
+
+### Memory issues with Vitest
+
+Never run multiple Vitest instances in parallel. If tests hang, kill orphan processes:
+
+```bash
+pkill -9 -f vitest
+pkill -9 -f vite
+```
+
+## Next Steps
+
+Now that you have dotdo installed:
+
+1. [Quick Start](/docs/getting-started/quick-start) - Build a complete DO in 5 minutes
+2. [Core Concepts](/docs/getting-started/concepts) - Understand semantic types and workflows

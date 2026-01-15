@@ -1,0 +1,373 @@
+---
+title: Core Concepts
+description: Understand dotdo's mental model - semantic types, the WorkflowContext, and durable execution patterns.
+---
+
+# Core Concepts
+
+This page explains the foundational concepts behind dotdo: semantic modeling, the WorkflowContext ($), and durable execution patterns.
+
+## Semantic Types
+
+dotdo models your domain using linguistic primitives instead of raw database tables.
+
+### Nouns
+
+Nouns name the entities in your domain:
+
+```typescript
+const Customer = noun('Customer')    // → customer, customers
+const Order = noun('Order')          // → order, orders
+const Product = noun('Product')      // → product, products
+```
+
+Nouns automatically provide:
+- Singular and plural forms
+- Type safety for references
+- Natural language event patterns (`Customer.created`, `Order.shipped`)
+
+### Verbs
+
+Verbs describe actions that can happen:
+
+```typescript
+const purchase = verb('purchase')    // → purchased, purchasing
+const ship = verb('ship')            // → shipped, shipping
+const cancel = verb('cancel')        // → cancelled, cancelling
+```
+
+Verbs provide:
+- Past and present participle forms
+- Action semantics
+- Event type generation
+
+### Things
+
+Things are instances of nouns:
+
+```typescript
+const alice = thing(Customer, 'alice-123')
+const order = thing(Order, 'order-456')
+const laptop = thing(Product, 'laptop-001')
+```
+
+Things have:
+- A type (the noun)
+- A unique ID
+- Persistent state in SQLite
+
+### Actions
+
+Actions capture what happened - they unify events, relationships, and audit logs:
+
+```typescript
+const action = alice.purchased(order).at(store).on(new Date())
+```
+
+This single action simultaneously represents:
+
+| Perspective | What it captures |
+|------------|------------------|
+| **Event** | Something happened (alice purchased order) |
+| **Edge** | A relationship exists (alice → order) |
+| **Audit log** | Who did what when (alice, purchase, order, timestamp) |
+
+No more maintaining separate tables for events, relationships, and audit history.
+
+## The WorkflowContext ($)
+
+The `$` context is your universal API for all DO operations.
+
+### Event Handlers ($.on)
+
+Handle events with infinite `Noun.verb` combinations via Proxy magic:
+
+```typescript
+// Exact match
+$.on.Customer.signup(async (event) => {
+  console.log('Customer signed up:', event.data)
+})
+
+// Wildcard verb - any Customer event
+$.on.Customer.*(async (event) => {
+  console.log('Customer event:', event.type)
+})
+
+// Wildcard noun - any created event
+$.on.*.created(async (event) => {
+  console.log('Something created:', event.subject)
+})
+
+// Global wildcard - all events
+$.on.*.*(async (event) => {
+  console.log('Event:', event.type, event.data)
+})
+```
+
+Event handlers return an unsubscribe function:
+
+```typescript
+const unsubscribe = $.on.Order.placed(handler)
+// Later...
+unsubscribe()
+```
+
+### Scheduling DSL ($.every)
+
+Schedule recurring tasks with a fluent DSL that compiles to CRON:
+
+```typescript
+// Day-of-week schedules
+$.every.Monday.at9am(weeklyReport)
+$.every.Friday.at('5pm')(endOfWeekCleanup)
+
+// Daily schedules
+$.every.day.at('6am')(morningSync)
+$.every.day.at('noon')(lunchReminder)
+$.every.day.at('midnight')(dailyBackup)
+
+// Interval schedules
+$.every.hour(healthCheck)
+$.every.minute(metricsCollection)
+$.every(5).minutes(cacheRefresh)
+$.every(2).hours(dataSync)
+
+// One-time schedules
+$.at('2024-12-25T09:00:00Z')(christmasGreeting)
+$.at(new Date('2024-01-01'))(newYearTask)
+```
+
+The DSL compiles to standard CRON expressions internally.
+
+### Durable Execution
+
+Three levels of durability for different use cases:
+
+#### $.send() - Fire and Forget
+
+Dispatch an event without waiting for handlers:
+
+```typescript
+// Returns immediately with event ID
+const eventId = $.send('Order.placed', { orderId: '123' })
+
+// Handlers run asynchronously
+// Errors are captured but don't throw
+```
+
+Use `$.send()` when you don't need confirmation that handlers succeeded.
+
+#### $.try() - Single Attempt
+
+Execute an action once with optional timeout:
+
+```typescript
+// Single attempt, throws on failure
+const result = await $.try(async () => {
+  return await externalApi.call()
+})
+
+// With timeout
+const result = await $.try(
+  () => slowOperation(),
+  { timeout: 5000 }
+)
+```
+
+Use `$.try()` for operations that should fail fast.
+
+#### $.do() - Durable with Retries
+
+Execute an action with automatic retries and persistence:
+
+```typescript
+// Retries up to 3 times with exponential backoff
+const result = await $.do(async () => {
+  return await unreliableService.call()
+})
+
+// Custom retry count
+const result = await $.do(
+  () => criticalOperation(),
+  { maxRetries: 5 }
+)
+
+// With step ID for exactly-once semantics
+const result = await $.do(
+  () => processPayment(orderId),
+  { stepId: `payment:${orderId}` }
+)
+```
+
+The `stepId` option enables replay protection - if the same step ID is executed again, the previous result is returned instead of re-executing.
+
+Use `$.do()` for critical operations that must eventually succeed.
+
+### Error Handling
+
+For fire-and-forget events, register error callbacks:
+
+```typescript
+$.onError((errorInfo) => {
+  console.error(`Event ${errorInfo.eventType} failed:`, errorInfo.error)
+  // Send to error tracking service
+  sentry.captureException(errorInfo.error)
+})
+
+// Check error count
+const errorCount = $.getErrorCount()
+
+// Get full error log
+const errors = $.getErrorLog()
+```
+
+## DO Class Hierarchy
+
+dotdo provides a progressive enhancement stack:
+
+```
+DOCore      (~5KB)   Base functionality
+    │
+    ├── State management (get/set/delete/list)
+    ├── Alarm scheduling
+    ├── Hono routing
+    └── WebSocket support
+
+DOSemantic  (~20KB)  Semantic layer
+    │
+    ├── Nouns, Verbs, Things, Actions
+    ├── Relationship operators (→, ←, ~>, <~)
+    └── Type-safe queries
+
+DOStorage   (~40KB)  Advanced storage
+    │
+    ├── In-memory state with dirty tracking
+    ├── Pipeline-as-WAL for fast writes
+    ├── Lazy SQLite checkpointing
+    └── Iceberg cold storage
+
+DOWorkflow  (~60KB)  Workflow context
+    │
+    ├── WorkflowContext ($)
+    ├── Event handlers and wildcards
+    ├── Scheduling DSL
+    └── Cascade execution
+
+DOFull      (~80KB)  Full featured
+    │
+    ├── AI template literals
+    ├── Human-in-the-loop queues
+    ├── Fanout for distributed queries
+    └── Streaming support
+```
+
+Start with the smallest class that meets your needs. Each layer builds on the previous.
+
+## Relationship Operators
+
+Navigate your data graph with four operators:
+
+### Forward Exact (->)
+
+Direct relationships from A to B:
+
+```typescript
+// Get all orders for a customer
+const orders = await customer -> 'Order'
+
+// Explicit syntax
+const orders = await things.forward(customer, 'Order')
+```
+
+### Forward Fuzzy (~>)
+
+Semantically related items:
+
+```typescript
+// Get product recommendations based on customer behavior
+const recommendations = await customer ~> 'Product'
+```
+
+Uses vector similarity under the hood.
+
+### Backward Exact (<-)
+
+Things that relate to A:
+
+```typescript
+// Get all reviews for a product
+const reviews = await product <- 'Review'
+```
+
+### Backward Fuzzy (<~)
+
+Things semantically similar to A:
+
+```typescript
+// Get products similar to this one
+const similar = await product <~ 'Product'
+```
+
+## Cascade Execution
+
+For operations that might need human escalation:
+
+```typescript
+const result = await $.cascade({
+  task: 'Classify support ticket',
+  tiers: {
+    // Try deterministic code first
+    code: () => classifyByKeywords(ticket),
+
+    // Fall back to LLM
+    generative: () => ai`Classify: ${ticket}`,
+
+    // Multi-step reasoning if needed
+    agentic: () => agent.analyze(ticket),
+
+    // Human review as last resort
+    human: () => queueForReview(ticket),
+  },
+  confidenceThreshold: 0.8,
+})
+
+console.log(`Resolved at tier: ${result.tier}`)
+console.log(`Confidence: ${result.confidence}`)
+```
+
+Cascade execution:
+1. Starts with fast, deterministic code
+2. Escalates to AI only if needed
+3. Uses human review as last resort
+4. Tracks confidence at each tier
+
+## Multi-Tenancy
+
+Each DO instance is naturally isolated. Use naming conventions for multi-tenancy:
+
+```typescript
+// Each tenant gets their own DO
+const tenantId = 'acme-corp'
+const id = env.DO.idFromName(tenantId)
+const stub = env.DO.get(id)
+
+// Or derive from hostname
+const hostParts = url.hostname.split('.')
+const tenantId = hostParts[0] // acme.api.example.com → acme
+```
+
+Tenant data is completely isolated - no risk of data leakage between tenants.
+
+## Next Steps
+
+You now understand dotdo's core concepts:
+- Semantic modeling with Nouns, Verbs, Things, and Actions
+- The WorkflowContext ($) for events, scheduling, and durable execution
+- The DO class hierarchy for progressive enhancement
+- Relationship operators for graph navigation
+- Cascade execution for AI escalation
+
+Explore more:
+- [API Reference](/docs/api) - Complete API documentation
+- [Patterns](/docs/patterns) - Common patterns and best practices
+- [Examples](/docs/examples) - Real-world example applications

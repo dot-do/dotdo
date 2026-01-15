@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "Semantic",
+  "description": "Domain modeling with Nouns, Verbs, Things, Actions, and Relationships",
+  "pages": ["index", "nouns-verbs", "things", "actions", "relationships"]
+}

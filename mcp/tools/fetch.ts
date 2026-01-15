@@ -48,6 +48,8 @@ export const fetchToolSchema = z.object({
 })
 
 export type FetchParams = z.infer<typeof fetchToolSchema>
+/** Input type for FetchParams (before defaults are applied) */
+export type FetchInput = z.input<typeof fetchToolSchema>
 export type CacheConfig = z.infer<typeof cacheConfigSchema>
 
 // ============================================================================
@@ -185,13 +187,13 @@ export function parseUrl(url: string): ParsedUrl {
 /**
  * Generate cache key from request parameters
  */
-export function generateCacheKey(params: FetchParams): string {
+export function generateCacheKey(params: FetchInput): string {
   if (params.cache?.key) {
     return `fetch:${params.cache.key}`
   }
 
   // Default key: hash of URL + method + body
-  const parts = [params.url, params.method]
+  const parts = [params.url, params.method ?? 'GET']
   if (params.body) {
     parts.push(JSON.stringify(params.body))
   }
@@ -610,13 +612,16 @@ function sleep(ms: number): Promise<void> {
  * ```
  */
 export async function fetchTool(
-  params: FetchParams,
+  rawParams: FetchInput,
   context: FetchContext,
 ): Promise<FetchResult> {
   // Check permission
   if (!context.permissions.includes('fetch')) {
     throw new Error('Permission denied: fetch')
   }
+
+  // Parse and apply defaults
+  const params = fetchToolSchema.parse(rawParams)
 
   // Parse URL
   const parsed = parseUrl(params.url)
@@ -697,24 +702,5 @@ export function registerFetchTool(
   })
 }
 
-// Type declarations for Cloudflare bindings
-declare global {
-  interface KVNamespace {
-    get(key: string, type?: 'text'): Promise<string | null>
-    get(key: string, type: 'json'): Promise<unknown | null>
-    put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
-  }
-
-  interface DurableObjectNamespace {
-    idFromName(name: string): DurableObjectId
-    get(id: DurableObjectId): DurableObjectStub
-  }
-
-  interface DurableObjectId {
-    toString(): string
-  }
-
-  interface DurableObjectStub {
-    fetch(input: RequestInfo, init?: RequestInit): Promise<Response>
-  }
-}
+// Note: KVNamespace, DurableObjectNamespace, DurableObjectId, and DurableObjectStub
+// types are provided by @cloudflare/workers-types

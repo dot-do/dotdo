@@ -1,0 +1,343 @@
+---
+title: Nouns & Verbs
+description: Linguistic automation - automatic singular/plural forms and verb conjugation
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Nouns & Verbs
+
+**Define once, derive automatically.** The semantic module applies English grammar rules to generate singular/plural forms and verb tenses. Override any form when the rules don't fit.
+
+```typescript
+import { noun, verb, getNoun, getVerb, getAllNouns, getAllVerbs } from 'dotdo/semantic'
+
+// Nouns auto-derive plurals
+const Customer = noun('Customer')  // plural: 'Customers'
+const Category = noun('Category')  // plural: 'Categories'
+
+// Verbs auto-derive tenses
+const create = verb('create')      // created, creates, creating
+const ship = verb('ship')          // shipped, ships, shipping
+```
+
+## Nouns
+
+Nouns define entity types with singular and plural forms.
+
+### Interface
+
+```typescript
+interface Noun {
+  singular: string  // 'Customer'
+  plural: string    // 'Customers'
+}
+
+interface NounOptions {
+  plural?: string   // Override auto-derived plural
+}
+```
+
+### Pluralization Rules
+
+The module applies standard English pluralization rules:
+
+| Rule | Singular | Plural | Example |
+|------|----------|--------|---------|
+| Default | + s | Customer | Customers |
+| Ends in s, x, z, ch, sh | + es | Status | Statuses |
+| Consonant + y | y -> ies | Category | Categories |
+| Vowel + y | + s | Key | Keys |
+
+```typescript
+// Standard plurals
+noun('Customer')  // Customers
+noun('Order')     // Orders
+noun('Product')   // Products
+
+// -es suffix
+noun('Status')    // Statuses
+noun('Box')       // Boxes
+noun('Buzz')      // Buzzes
+noun('Branch')    // Branches
+noun('Brush')     // Brushes
+
+// -ies suffix
+noun('Category')  // Categories
+noun('Company')   // Companies
+noun('Policy')    // Policies
+
+// -ys (vowel + y)
+noun('Key')       // Keys
+noun('Display')   // Displays
+```
+
+### Override Plurals
+
+For irregular nouns, provide an explicit plural:
+
+```typescript
+// Irregular plurals
+noun('Person', { plural: 'People' })
+noun('Child', { plural: 'Children' })
+noun('Mouse', { plural: 'Mice' })
+
+// Same singular and plural
+noun('Fish', { plural: 'Fish' })
+noun('Sheep', { plural: 'Sheep' })
+
+// Latin/Greek plurals
+noun('Analysis', { plural: 'Analyses' })
+noun('Criterion', { plural: 'Criteria' })
+```
+
+### Duplicate Registration
+
+Registering the same noun twice throws an error:
+
+```typescript
+noun('Customer')
+noun('Customer')  // Error: Noun 'Customer' is already registered
+```
+
+<Callout type="info">
+Use `resetState()` in tests to clear all registries between test cases.
+</Callout>
+
+### Registry Functions
+
+```typescript
+// Get a specific noun
+const Customer = getNoun('Customer')
+// Returns: { singular: 'Customer', plural: 'Customers' } or undefined
+
+// Get all registered nouns
+const nouns = getAllNouns()
+// Returns: Array of all Noun definitions
+```
+
+## Verbs
+
+Verbs define actions with automatically conjugated tenses.
+
+### Interface
+
+```typescript
+interface Verb {
+  base: string     // 'create' (infinitive)
+  past: string     // 'created'
+  present: string  // 'creates' (3rd person singular)
+  gerund: string   // 'creating'
+}
+
+interface VerbOptions {
+  past?: string    // Override past tense
+  present?: string // Override present tense
+  gerund?: string  // Override gerund
+}
+```
+
+### Conjugation Rules
+
+#### Past Tense
+
+| Rule | Base | Past | Example |
+|------|------|------|---------|
+| Default | + ed | review | reviewed |
+| Ends in e | + d | create | created |
+| Consonant + y | y -> ied | notify | notified |
+| CVC pattern | double + ed | ship | shipped |
+
+```typescript
+// Standard -ed
+verb('review')   // reviewed
+verb('order')    // ordered
+
+// -d (ends in e)
+verb('create')   // created
+verb('update')   // updated
+verb('close')    // closed
+
+// -ied (consonant + y)
+verb('notify')   // notified
+verb('apply')    // applied
+
+// Doubled consonant (CVC)
+verb('ship')     // shipped
+verb('stop')     // stopped
+verb('plan')     // planned
+```
+
+#### Present Tense (3rd Person Singular)
+
+| Rule | Base | Present | Example |
+|------|------|---------|---------|
+| Default | + s | create | creates |
+| Ends in s, x, z, ch, sh | + es | watch | watches |
+| Consonant + y | y -> ies | notify | notifies |
+
+```typescript
+// Standard -s
+verb('create')   // creates
+verb('review')   // reviews
+
+// -es suffix
+verb('pass')     // passes
+verb('fix')      // fixes
+verb('watch')    // watches
+verb('push')     // pushes
+
+// -ies
+verb('notify')   // notifies
+verb('apply')    // applies
+```
+
+#### Gerund (Present Participle)
+
+| Rule | Base | Gerund | Example |
+|------|------|--------|---------|
+| Default | + ing | review | reviewing |
+| Ends in e | drop e + ing | create | creating |
+| CVC pattern | double + ing | ship | shipping |
+
+```typescript
+// Standard -ing
+verb('review')   // reviewing
+verb('order')    // ordering
+
+// Drop e
+verb('create')   // creating
+verb('close')    // closing
+verb('update')   // updating
+
+// Keep ee
+verb('see')      // seeing (not se-ing)
+
+// Double consonant
+verb('ship')     // shipping
+verb('run')      // running
+verb('plan')     // planning
+```
+
+### Override Conjugations
+
+For irregular verbs, provide explicit forms:
+
+```typescript
+// Completely irregular
+verb('buy', { past: 'bought' })
+verb('sell', { past: 'sold' })
+verb('send', { past: 'sent' })
+verb('build', { past: 'built' })
+
+// Partial overrides
+verb('fly', { past: 'flew', gerund: 'flying' })
+verb('go', { past: 'went', present: 'goes' })
+
+// No change verbs
+verb('put', { past: 'put' })
+verb('cut', { past: 'cut' })
+verb('set', { past: 'set' })
+```
+
+### Registry Functions
+
+```typescript
+// Get a specific verb
+const create = getVerb('create')
+// Returns: { base: 'create', past: 'created', present: 'creates', gerund: 'creating' }
+
+// Get all registered verbs
+const verbs = getAllVerbs()
+// Returns: Array of all Verb definitions
+```
+
+<Callout type="info">
+Unlike nouns, verbs can be registered multiple times. Each call updates the registry with the new definition.
+</Callout>
+
+## Common Domain Patterns
+
+### Entity Lifecycle Verbs
+
+```typescript
+// CRUD operations
+const create = verb('create')
+const read = verb('read', { past: 'read' })
+const update = verb('update')
+const delete_ = verb('delete')
+
+// State transitions
+const activate = verb('activate')
+const suspend = verb('suspend')
+const archive = verb('archive')
+const restore = verb('restore')
+```
+
+### Business Domain Verbs
+
+```typescript
+// E-commerce
+const purchase = verb('purchase')
+const ship = verb('ship')
+const deliver = verb('deliver')
+const refund = verb('refund')
+
+// Communication
+const send = verb('send', { past: 'sent' })
+const receive = verb('receive')
+const notify = verb('notify')
+const acknowledge = verb('acknowledge')
+
+// Workflow
+const submit = verb('submit')
+const approve = verb('approve')
+const reject = verb('reject')
+const complete = verb('complete')
+```
+
+### Domain Nouns
+
+```typescript
+// Core business entities
+const Customer = noun('Customer')
+const Order = noun('Order')
+const Product = noun('Product')
+const Invoice = noun('Invoice')
+const Payment = noun('Payment')
+
+// User management
+const User = noun('User')
+const Role = noun('Role')
+const Permission = noun('Permission')
+const Session = noun('Session')
+
+// Content
+const Article = noun('Article')
+const Comment = noun('Comment')
+const Category = noun('Category')
+const Tag = noun('Tag')
+```
+
+## Testing
+
+Reset state between tests:
+
+```typescript
+import { resetState, noun, verb } from 'dotdo/semantic'
+
+beforeEach(() => {
+  resetState()  // Clears all registries
+})
+
+test('noun registration', () => {
+  const Customer = noun('Customer')
+  expect(Customer.plural).toBe('Customers')
+})
+```
+
+## Related
+
+- [Things](/docs/semantic/things) - Creating instances from Nouns
+- [Actions](/docs/semantic/actions) - Using Verbs to record operations
+- [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern in dotdo

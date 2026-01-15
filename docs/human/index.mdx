@@ -1,0 +1,158 @@
+---
+title: Human-in-the-Loop
+description: Primitives for human oversight and intervention in AI workflows with approvals, escalation, queues, and notifications
+---
+
+# Human-in-the-Loop
+
+The dotdo Human-in-the-Loop (HITL) module provides primitives for integrating human oversight into automated workflows. Essential for AI systems that require human judgment, compliance review, or quality control.
+
+## Key Features
+
+- **Multi-Level Approvals**: Chain approval workflows with configurable approver hierarchies
+- **SLA-Based Escalation**: Automatic escalation when deadlines approach or breach
+- **Priority Queues**: FIFO queues with priority-based ordering for review tasks
+- **Multi-Channel Notifications**: Deliver alerts via email, Slack, SMS, or push
+
+## Quick Start
+
+```typescript
+import {
+  ApprovalWorkflow,
+  EscalationPolicy,
+  ReviewQueue,
+  NotificationDispatcher,
+  SLATracker
+} from 'dotdo/human'
+
+// Create an approval workflow
+const workflow = new ApprovalWorkflow()
+
+const approval = await workflow.request(
+  {
+    id: 'exp-001',
+    type: 'expense',
+    title: 'Conference Registration',
+    description: 'DevConf 2026 registration fee',
+    amount: 599,
+    requestedBy: 'alice@company.com',
+    requestedAt: new Date()
+  },
+  ['manager@company.com', 'finance@company.com'],
+  { deadline: '48 hours', priority: 'high' }
+)
+
+// Approve at each level
+await workflow.approve(approval.id, 'manager@company.com')
+await workflow.approve(approval.id, 'finance@company.com')
+```
+
+## Core Primitives
+
+| Class | Purpose | Key Methods |
+|-------|---------|-------------|
+| `ApprovalWorkflow` | Multi-level approval chains | `request()`, `approve()`, `reject()`, `get()` |
+| `EscalationPolicy` | Time-based escalation rules | `escalateAfter()`, `track()` |
+| `SLATracker` | SLA monitoring and metrics | `track()`, `check()`, `getMetrics()` |
+| `ReviewQueue` | Priority-based work queues | `add()`, `claim()`, `complete()` |
+| `NotificationDispatcher` | Multi-channel alerts | `notify()`, `notifyMultiple()` |
+
+## Type Definitions
+
+```typescript
+// Priority levels
+type Priority = 'critical' | 'high' | 'normal' | 'low'
+
+// Notification channels
+type NotificationChannel = 'email' | 'slack' | 'sms' | 'push'
+
+// Approval status
+type ApprovalStatus = 'pending' | 'approved' | 'approved_at_level' | 'rejected'
+```
+
+## When to Use HITL
+
+Human-in-the-loop is essential when:
+
+- **High-stakes decisions**: Financial approvals, legal reviews, HR actions
+- **Compliance requirements**: Regulated industries requiring audit trails
+- **Quality assurance**: Content moderation, data labeling, model validation
+- **Exception handling**: AI-flagged anomalies needing human judgment
+- **Escalation paths**: Automated processes requiring human intervention
+
+## Workflow Integration
+
+HITL primitives integrate seamlessly with dotdo workflows:
+
+```typescript
+import { $ } from 'dotdo'
+import { ApprovalWorkflow, NotificationDispatcher } from 'dotdo/human'
+
+const workflow = new ApprovalWorkflow()
+const notifications = new NotificationDispatcher()
+
+// Event-driven approval flow
+$.on.Expense.submitted(async ({ payload }) => {
+  // Create approval request
+  const approval = await workflow.request(
+    {
+      id: payload.$id,
+      type: 'expense',
+      title: payload.title,
+      description: payload.description,
+      amount: payload.amount,
+      requestedBy: payload.submittedBy,
+      requestedAt: new Date()
+    },
+    getApproversForAmount(payload.amount),
+    { deadline: '24 hours' }
+  )
+
+  // Notify first approver
+  await notifications.notify(
+    approval.currentApprover!,
+    'email',
+    {
+      subject: `Expense approval needed: ${payload.title}`,
+      body: `Amount: $${payload.amount}`
+    }
+  )
+})
+
+$.on.Expense.approved(async ({ payload }) => {
+  await workflow.approve(payload.approvalId, payload.approvedBy)
+})
+```
+
+## Documentation
+
+| Page | Description |
+|------|-------------|
+| [Approvals](/human/approvals) | Multi-level approval chains with history tracking |
+| [Escalation](/human/escalation) | SLA-based routing and automatic escalation |
+| [Queues](/human/queues) | Priority review queues for human reviewers |
+| [Notifications](/human/notifications) | Multi-channel notification dispatch |
+
+## Installation
+
+The HITL module is included with dotdo:
+
+```bash
+npm install dotdo
+```
+
+```typescript
+import {
+  ApprovalWorkflow,
+  EscalationPolicy,
+  SLATracker,
+  ReviewQueue,
+  NotificationDispatcher
+} from 'dotdo/human'
+```
+
+## Next Steps
+
+- [Approvals Guide](/human/approvals) - Build multi-level approval workflows
+- [Escalation Policies](/human/escalation) - Configure automatic escalation
+- [Review Queues](/human/queues) - Manage priority-based work distribution

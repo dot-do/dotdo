@@ -1,0 +1,280 @@
+---
+title: Caching
+description: LRU cache with TTL for AI responses to reduce costs and improve latency
+---
+
+# Caching
+
+The AI module includes an LRU (Least Recently Used) cache with configurable TTL (Time To Live) to cache repeated queries. This reduces costs and improves response times for identical prompts.
+
+## Enabling Cache
+
+Cache is disabled by default. Enable it at creation time:
+
+```typescript
+import { createAI } from 'dotdo/ai'
+
+const ai = createAI({
+  cache: {
+    enabled: true,
+    ttl: 300000,    // 5 minutes (default)
+    maxSize: 1000   // Max entries (default)
+  }
+})
+```
+
+## How It Works
+
+The cache uses a composite key of `model:mode:prompt`:
+
+```typescript
+// These use different cache keys:
+await ai`Analyze: ${text}`           // key: "default:general:Analyze: ..."
+await ai.is`Classify: ${text}`       // key: "default:is:Classify: ..."
+await ai.model('gpt-4')`${text}`     // key: "gpt-4:general:..."
+```
+
+## Cache Benefits
+
+### Cost Reduction
+
+Cached responses don't consume budget:
+
+```typescript
+const ai = createAI({
+  budget: { limit: 10 },
+  cache: { enabled: true }
+})
+
+// First call: budget spent = 1
+await ai`Summarize: ${article}`
+
+// Identical call: budget spent = 1 (no change!)
+await ai`Summarize: ${article}`
+
+// 100 more identical calls: still 1
+for (let i = 0; i < 100; i++) {
+  await ai`Summarize: ${article}`
+}
+console.log(ai.budget.spent) // 1
+```
+
+### Latency Improvement
+
+Cached responses return instantly:
+
+```typescript
+// First call: full AI round-trip
+const start1 = Date.now()
+await ai`Analyze sentiment: ${text}`
+console.log('First:', Date.now() - start1, 'ms') // ~500-2000ms
+
+// Cached call: immediate
+const start2 = Date.now()
+await ai`Analyze sentiment: ${text}`
+console.log('Cached:', Date.now() - start2, 'ms') // ~0-1ms
+```
+
+## Cache Configuration
+
+### TTL (Time To Live)
+
+How long entries remain valid:
+
+```typescript
+// Short TTL for dynamic content
+const ai = createAI({
+  cache: {
+    enabled: true,
+    ttl: 60000 // 1 minute
+  }
+})
+
+// Long TTL for stable content
+const ai = createAI({
+  cache: {
+    enabled: true,
+    ttl: 3600000 // 1 hour
+  }
+})
+
+// Read current TTL
+console.log(ai.cache.ttl) // 3600000
+```
+
+### Max Size
+
+Maximum number of cached entries:
+
+```typescript
+// Small cache for memory-constrained environments
+const ai = createAI({
+  cache: {
+    enabled: true,
+    maxSize: 100
+  }
+})
+
+// Large cache for high-volume applications
+const ai = createAI({
+  cache: {
+    enabled: true,
+    maxSize: 10000
+  }
+})
+```
+
+## LRU Eviction
+
+When the cache reaches `maxSize`, the least recently used entry is evicted:
+
+```typescript
+const ai = createAI({
+  cache: { enabled: true, maxSize: 3 }
+})
+
+await ai`Query A` // Cache: [A]
+await ai`Query B` // Cache: [A, B]
+await ai`Query C` // Cache: [A, B, C]
+await ai`Query D` // Cache: [B, C, D] - A evicted
+
+// Accessing moves to most recent
+await ai`Query B` // Cache: [C, D, B] - B moved to end
+await ai`Query E` // Cache: [D, B, E] - C evicted
+```
+
+## Clearing Cache
+
+Manually clear all cached entries:
+
+```typescript
+// Clear and get count of removed entries
+const cleared = ai.cache.clear()
+console.log(`Cleared ${cleared} cached entries`)
+```
+
+### When to Clear
+
+```typescript
+// Clear after config changes
+ai.model('different-model')
+ai.cache.clear() // Old model responses no longer relevant
+
+// Clear periodically in long-running processes
+setInterval(() => {
+  ai.cache.clear()
+}, 3600000) // Every hour
+
+// Clear after data updates
+async function updateKnowledgeBase(data: Data) {
+  await db.update(data)
+  ai.cache.clear() // Cached responses may be stale
+}
+```
+
+## Cache Patterns
+
+### Request-Scoped Caching
+
+Share cache within a request but isolate between requests:
+
+```typescript
+async function handleRequest(request: Request) {
+  // Fresh cache per request
+  const ai = createAI({
+    cache: { enabled: true, ttl: 60000 }
+  })
+
+  // Multiple calls in same request share cache
+  const summary = await ai`Summarize: ${doc}`
+  const keywords = await ai.list`Keywords: ${doc}`
+  const sentiment = await ai.is`Sentiment: ${doc}`
+
+  // Reusing summary in another query hits cache
+  const report = await ai`
+    Given summary: ${summary}
+    Generate report
+  `
+
+  return { summary, keywords, sentiment, report }
+}
+```
+
+### Global Caching
+
+Share cache across requests for common queries:
+
+```typescript
+// Module-level cached AI instance
+const cachedAI = createAI({
+  cache: { enabled: true, ttl: 300000, maxSize: 5000 }
+})
+
+export async function classifyText(text: string) {
+  // Common classifications are cached globally
+  return await cachedAI.is`
+    Classify as: technology, business, sports, entertainment
+    Text: ${text}
+  `
+}
+```
+
+### Conditional Caching
+
+Enable cache only for certain operations:
+
+```typescript
+// Cache for stable queries
+const cachedAI = createAI({
+  cache: { enabled: true }
+})
+
+// No cache for real-time data
+const realtimeAI = createAI({
+  cache: { enabled: false }
+})
+
+// Use appropriate instance
+const classification = await cachedAI.is`Classify: ${doc}` // Cached
+const currentAnalysis = await realtimeAI`Latest news about: ${topic}` // Fresh
+```
+
+## Cache and Interpolation
+
+Caching considers the fully resolved prompt:
+
+```typescript
+// Different interpolation values = different cache keys
+await ai`Analyze: ${'text A'}` // Cached as "Analyze: text A"
+await ai`Analyze: ${'text B'}` // Cached as "Analyze: text B" (different)
+
+// Same resolved prompt = cache hit
+const text = 'same text'
+await ai`Analyze: ${text}` // Miss
+await ai`Analyze: ${text}` // Hit!
+```
+
+## Performance Tips
+
+1. **Right-size TTL**: Match TTL to data freshness requirements
+2. **Monitor cache size**: Large caches consume memory
+3. **Clear strategically**: Don't over-clear, let LRU manage eviction
+4. **Combine with budgets**: Caching extends your budget significantly
+
+```typescript
+// Optimal configuration for most use cases
+const ai = createAI({
+  budget: { limit: 100 },
+  cache: {
+    enabled: true,
+    ttl: 300000,  // 5 minutes
+    maxSize: 1000
+  }
+})
+```
+
+## Next Steps
+
+- [Budget Tracking](/ai/budget) - Control costs alongside caching
+- [Batch Processing](/ai/batch) - Efficient multi-item processing
+- [Providers](/ai/providers) - Configure AI providers

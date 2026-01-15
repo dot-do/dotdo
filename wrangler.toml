@@ -5,6 +5,10 @@ compatibility_date = "2024-12-30"
 [durable_objects]
 bindings = [
   { name = "DOCore", class_name = "DOCore" },
+  { name = "DOSemantic", class_name = "DOSemantic" },
+  { name = "DOStorage", class_name = "DOStorageClass" },
+  { name = "DOWorkflow", class_name = "DOWorkflowClass" },
+  { name = "DOFull", class_name = "DOFull" },
   { name = "MCP", class_name = "McpServer" }
 ]
 
@@ -15,6 +19,10 @@ new_sqlite_classes = ["DOCore"]
 [[migrations]]
 tag = "v2"
 new_classes = ["McpServer"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["DOSemantic", "DOStorageClass", "DOWorkflowClass", "DOFull"]
 
 # KV namespace for OAuth session storage
 [[kv_namespaces]]

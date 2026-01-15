@@ -1,0 +1,156 @@
+---
+title: Streaming Infrastructure
+description: Real-time WebSocket and Server-Sent Events streaming for Durable Objects
+---
+
+# Streaming Infrastructure
+
+The dotdo streaming module provides production-ready primitives for real-time communication in Durable Objects. It supports both bidirectional WebSocket connections and unidirectional Server-Sent Events (SSE).
+
+## Overview
+
+The streaming infrastructure consists of five core components:
+
+| Component | Purpose |
+|-----------|---------|
+| [WebSocketHub](/docs/streaming/websocket-hub) | Connection management, rooms, and broadcasting |
+| [SSE Streaming](/docs/streaming/sse) | Server-Sent Events for unidirectional updates |
+| [BackpressureController](/docs/streaming/backpressure) | Flow control with pause/drop/buffer modes |
+| [RateLimiter](/docs/streaming/rate-limiting) | Token bucket algorithm for rate limiting |
+| [SubscriptionManager](/docs/streaming/pub-sub) | Topic-based publish/subscribe patterns |
+
+## Quick Start
+
+### WebSocket Hub
+
+```typescript
+import { WebSocketHub } from 'dotdo/streaming'
+
+const hub = new WebSocketHub()
+
+// Handle WebSocket upgrade
+export class MyDO extends DurableObject {
+  async fetch(request: Request) {
+    const upgradeHeader = request.headers.get('Upgrade')
+    if (upgradeHeader === 'websocket') {
+      const [client, server] = Object.values(new WebSocketPair())
+
+      hub.connect(server, { userId: 'user-123' })
+      server.accept()
+
+      server.addEventListener('close', () => {
+        hub.disconnect(server)
+      })
+
+      return new Response(null, { status: 101, webSocket: client })
+    }
+  }
+}
+
+// Broadcast to all connections
+hub.broadcast({ type: 'notification', message: 'Hello everyone!' })
+
+// Broadcast to specific room
+hub.room.join(ws, 'chat-room')
+hub.room.broadcast('chat-room', { type: 'message', text: 'Hello room!' })
+```
+
+### Server-Sent Events
+
+```typescript
+import { createSSEStream } from 'dotdo/streaming'
+
+export class MyDO extends DurableObject {
+  async fetch(request: Request) {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/events') {
+      const { response, stream } = createSSEStream()
+
+      // Send events
+      stream.send({ event: 'connected', data: { timestamp: Date.now() } })
+
+      // Keep-alive comments
+      const interval = setInterval(() => {
+        stream.comment('ping')
+      }, 30000)
+
+      // Clean up on disconnect
+      request.signal.addEventListener('abort', () => {
+        clearInterval(interval)
+        stream.close()
+      })
+
+      return response
+    }
+  }
+}
+```
+
+## When to Use What
+
+### Use WebSockets when:
+
+- You need bidirectional communication
+- Clients send frequent messages to the server
+- Low latency is critical (gaming, trading)
+- You need rooms/channels for group messaging
+
+### Use SSE when:
+
+- Server pushes updates to clients (one-way)
+- You want automatic reconnection built-in
+- HTTP/2 multiplexing is beneficial
+- Simpler protocol is preferred
+
+## Architecture
+
+All streaming components are designed to work within Durable Objects, leveraging their built-in WebSocket hibernation and single-threaded execution model:
+
+```
+Client <---> Worker <---> Durable Object
+                              |
+                         WebSocketHub
+                              |
+                    +----+----+----+
+                    |    |    |    |
+                  Room1 Room2 Room3 ...
+```
+
+The `WebSocketHub` maintains connection state in-memory, which is automatically persisted through Durable Object hibernation. When a DO hibernates, WebSocket connections remain open and messages are buffered until the DO wakes up.
+
+## Flow Control
+
+For high-throughput scenarios, combine streaming with backpressure control:
+
+```typescript
+import { WebSocketHub, BackpressureController } from 'dotdo/streaming'
+
+const hub = new WebSocketHub()
+const backpressure = new BackpressureController({
+  mode: 'drop',
+  highWaterMark: 1000,
+})
+
+function sendWithBackpressure(ws: WebSocket, message: unknown) {
+  const result = backpressure.push({ data: message })
+
+  if (result.dropped) {
+    console.log('Dropped oldest message due to backpressure')
+  }
+
+  // Drain buffer to WebSocket
+  let item
+  while ((item = backpressure.drain())) {
+    ws.send(JSON.stringify(item.data))
+  }
+}
+```
+
+## Next Steps
+
+- [WebSocket Hub](/docs/streaming/websocket-hub) - Connection management and rooms
+- [SSE Streaming](/docs/streaming/sse) - Server-Sent Events
+- [Backpressure](/docs/streaming/backpressure) - Flow control strategies
+- [Rate Limiting](/docs/streaming/rate-limiting) - Token bucket algorithm
+- [Pub/Sub](/docs/streaming/pub-sub) - Topic-based subscriptions

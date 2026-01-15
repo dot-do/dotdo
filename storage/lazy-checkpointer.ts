@@ -1,8 +1,25 @@
 /**
  * L2: LazyCheckpointer (SQLite)
  *
- * Batched lazy persistence to SQLite.
+ * Batched lazy persistence to SQLite with timer and threshold-based triggers.
  * Only writes dirty entries, reducing SQLite write operations by ~95%.
+ *
+ * Features:
+ * - Timer-based checkpoints at configurable intervals (default: 5000ms)
+ * - Threshold-based checkpoints on dirty count or memory usage
+ * - Concurrent write tracking to avoid clearing dirty flags for in-flight updates
+ * - Hibernation flush to ensure all state is persisted before DO eviction
+ *
+ * @module storage/lazy-checkpointer
+ * @example
+ * const checkpointer = new LazyCheckpointer({
+ *   sql: storage.sql,
+ *   dirtyTracker: stateManager,
+ *   intervalMs: 5000,
+ *   dirtyCountThreshold: 100,
+ *   onCheckpoint: (stats) => console.log(`Checkpointed ${stats.entriesWritten} entries`)
+ * })
+ * checkpointer.start()
  */
 
 export interface DirtyEntry {
@@ -64,7 +81,12 @@ export class LazyCheckpointer {
   }
 
   /**
-   * Start periodic checkpoint timer
+   * Start periodic checkpoint timer.
+   *
+   * Initiates timer-based checkpoints at the configured interval.
+   * Safe to call multiple times (idempotent).
+   *
+   * @returns void
    */
   start(): void {
     if (this.timer || this.destroyed) return
@@ -93,7 +115,13 @@ export class LazyCheckpointer {
   }
 
   /**
-   * Notify that data has been modified (for threshold-based checkpoint)
+   * Notify that data has been modified (for threshold-based checkpoint).
+   *
+   * Checks if dirty count or memory usage thresholds have been exceeded.
+   * Triggers an immediate checkpoint if thresholds are met.
+   * This is more reactive than timer-based checkpoints.
+   *
+   * @returns void
    */
   notifyDirty(): void {
     const dirtyCount = this.dirtyTracker.getDirtyCount()
@@ -138,7 +166,14 @@ export class LazyCheckpointer {
   }
 
   /**
-   * Internal checkpoint implementation
+   * Internal checkpoint implementation.
+   *
+   * Persists dirty entries to SQLite. Tracks concurrent writes to avoid
+   * clearing dirty flags for entries modified during checkpoint.
+   *
+   * @param trigger - What triggered this checkpoint
+   * @returns Checkpoint statistics including entries written and duration
+   * @throws Never - Logs errors but does not throw to ensure graceful degradation
    */
   private async doCheckpoint(trigger: CheckpointStats['trigger']): Promise<CheckpointStats> {
     const startTime = Date.now()
@@ -162,29 +197,39 @@ export class LazyCheckpointer {
 
     // Write entries to SQLite
     for (const [key, entry] of dirtyEntries) {
-      // Check if entry was modified during checkpoint
-      const writeVersion = this.writeVersions.get(key) ?? 0
-      if (writeVersion > checkpointVersion) {
-        // Entry was modified during checkpoint, skip clearing dirty flag
-        continue
+      try {
+        // Check if entry was modified during checkpoint
+        const writeVersion = this.writeVersions.get(key) ?? 0
+        if (writeVersion > checkpointVersion) {
+          // Entry was modified during checkpoint, skip clearing dirty flag
+          continue
+        }
+
+        // Write to SQLite
+        const dataJson = JSON.stringify(entry.data)
+        this.sql.exec(
+          'INSERT OR REPLACE INTO things (id, type, data) VALUES (?, ?, ?)',
+          key,
+          entry.type,
+          dataJson
+        )
+
+        bytesWritten += dataJson.length
+        keysToClean.push(key)
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.error(`[LazyCheckpointer] Failed to write entry '${key}' to SQLite: ${errorMsg}`)
       }
-
-      // Write to SQLite
-      const dataJson = JSON.stringify(entry.data)
-      this.sql.exec(
-        'INSERT OR REPLACE INTO things (id, type, data) VALUES (?, ?, ?)',
-        key,
-        entry.type,
-        dataJson
-      )
-
-      bytesWritten += dataJson.length
-      keysToClean.push(key)
     }
 
     // Clear dirty flags for successfully checkpointed entries
     if (keysToClean.length > 0) {
-      this.dirtyTracker.clearDirty(keysToClean)
+      try {
+        this.dirtyTracker.clearDirty(keysToClean)
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.error(`[LazyCheckpointer] Failed to clear dirty flags: ${errorMsg}`)
+      }
     }
 
     const stats: CheckpointStats = {
@@ -196,7 +241,12 @@ export class LazyCheckpointer {
 
     // Call onCheckpoint callback
     if (this.options.onCheckpoint) {
-      this.options.onCheckpoint(stats)
+      try {
+        this.options.onCheckpoint(stats)
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.error(`[LazyCheckpointer] Checkpoint callback error: ${errorMsg}`)
+      }
     }
 
     return stats

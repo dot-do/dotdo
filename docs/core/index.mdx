@@ -1,0 +1,178 @@
+---
+title: DOCore
+description: The foundational Durable Object class providing state management, routing, WebSockets, and lifecycle hooks
+---
+
+# DOCore
+
+DOCore is the minimal (~5KB) foundation class for the dotdo Durable Object hierarchy. It provides the essential building blocks that all higher-level DO classes extend.
+
+## Class Hierarchy
+
+DOCore sits at the base of the dotdo class hierarchy:
+
+| Class | Size | Capabilities |
+|-------|------|--------------|
+| **DOCore** | ~5KB | State, alarms, routing, WebSockets |
+| DOSemantic | ~20KB | Nouns, Verbs, Things, Actions, operators |
+| DOStorage | ~40KB | InMemory + Pipeline + SQLite + Iceberg |
+| DOWorkflow | ~60KB | WorkflowContext ($), cascade, scheduling |
+| DOFull | ~80KB | AI, human-in-loop, fanout, streaming |
+
+Choose the smallest class that meets your needs to minimize cold start time and memory usage.
+
+## Core Capabilities
+
+DOCore provides four fundamental capabilities:
+
+### State Management
+
+Key-value storage backed by SQLite with support for JSON values, batch operations, and range queries.
+
+```typescript
+// Via RPC (preferred for type safety)
+await stub.set('user:123', { name: 'Alice', role: 'admin' })
+const user = await stub.get('user:123')
+
+// List with filters
+const users = await stub.list({ prefix: 'user:', limit: 10 })
+```
+
+[Learn more about State Management](/core/state)
+
+### HTTP Routing
+
+Hono-powered routing with middleware support, path parameters, and all HTTP methods.
+
+```typescript
+// Routes are registered in createApp()
+app.get('/users/:id', (c) => {
+  const id = c.req.param('id')
+  return c.json({ id })
+})
+```
+
+[Learn more about Routing](/core/routing)
+
+### WebSocket Connections
+
+Hibernatable WebSocket support with tagging for pub/sub patterns.
+
+```typescript
+// Accept WebSocket with tags for broadcast
+this.ctx.acceptWebSocket(server, ['room:lobby'])
+
+// Broadcast to tagged connections
+await stub.broadcast('room:lobby', { type: 'message', text: 'Hello!' })
+```
+
+[Learn more about WebSockets](/core/websockets)
+
+### Lifecycle Hooks
+
+Hooks for initialization, hibernation, and wake events.
+
+```typescript
+// Runs once on cold start
+onStart(): void {
+  this.initializeDefaults()
+}
+
+// Runs before hibernation
+async prepareHibernate(): Promise<void> {
+  await this.cleanupTempState()
+}
+```
+
+[Learn more about Lifecycle](/core/lifecycle)
+
+## RPC vs Fetch
+
+DOCore supports two access patterns:
+
+### RPC (Recommended)
+
+Direct method calls on the stub provide type safety and better performance:
+
+```typescript
+const stub = env.DOCore.get(id)
+
+// Direct method calls - type-safe
+await stub.set('key', 'value')
+const value = await stub.get('key')
+const result = await stub.ping() // Returns 'pong'
+```
+
+RPC benefits:
+- Full TypeScript type inference
+- No HTTP overhead within the same runtime
+- Simpler code with direct method calls
+- Automatic serialization/deserialization
+
+### Fetch (HTTP)
+
+Standard HTTP requests for external access or when HTTP semantics are needed:
+
+```typescript
+const stub = env.DOCore.get(id)
+
+// HTTP request
+const response = await stub.fetch('https://do.local/api/users/123')
+const data = await response.json()
+```
+
+Fetch benefits:
+- Standard HTTP interface for external clients
+- Middleware pipeline with CORS, auth, etc.
+- REST semantics for CRUD operations
+- Compatible with any HTTP client
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { DOCore } from 'dotdo/core'
+
+// Worker passthrough
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const id = env.DOCore.idFromName('default')
+    const stub = env.DOCore.get(id)
+    return stub.fetch(request)
+  }
+}
+
+export { DOCore }
+```
+
+### Extending DOCore
+
+Create custom classes by extending DOCore:
+
+```typescript
+import { DOCore, type DOCoreEnv } from 'dotdo/core'
+
+export class MyDO extends DOCore {
+  protected createApp() {
+    const app = super.createApp()
+
+    // Add custom routes
+    app.get('/custom', (c) => c.json({ custom: true }))
+
+    return app
+  }
+
+  // Add custom RPC methods
+  async myMethod(input: string): Promise<string> {
+    return `Processed: ${input}`
+  }
+}
+```
+
+## Next Steps
+
+- [State Management](/core/state) - Key-value storage with SQLite
+- [HTTP Routing](/core/routing) - Hono routes and middleware
+- [WebSockets](/core/websockets) - Real-time connections
+- [Lifecycle Hooks](/core/lifecycle) - Initialization and hibernation

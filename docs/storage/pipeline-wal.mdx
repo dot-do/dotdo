@@ -1,0 +1,382 @@
+---
+title: L1 - Pipeline WAL
+description: Write-ahead log using Cloudflare Pipelines for fire-and-forget durability
+---
+
+# L1: Pipeline WAL
+
+The `PipelineEmitter` implements a write-ahead log (WAL) pattern using Cloudflare Pipelines. Events are durably stored in the Pipeline **before** acknowledging to the client, guaranteeing zero data loss even if the Durable Object is evicted immediately after a write.
+
+## Overview
+
+```
+            Client Write
+                 |
+                 v
+       +------------------+
+       |  L0: InMemory    |  <- Immediate write
+       +--------+---------+
+                |
+                v
+       +------------------+
+       | L1: PipelineEmit |  <- Durability point
+       +--------+---------+     (fire-and-forget)
+                |
+         (batch/interval)
+                v
+       +------------------+
+       | Cloudflare       |
+       | Pipeline Service |  <- Durable storage
+       +------------------+
+```
+
+**Key characteristics:**
+
+- **Fire-and-forget** - Emit returns immediately, does not block on Pipeline response
+- **Batched emission** - Events grouped by time interval or count threshold
+- **Idempotency keys** - Every event has a unique key for exactly-once processing
+- **Retry with DLQ** - Transient failures retry; persistent failures go to dead letter queue
+
+## Basic Usage
+
+### Creating an Emitter
+
+```typescript
+import { PipelineEmitter } from 'dotdo/storage'
+
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123',
+  flushInterval: 1000,  // Batch window: 1 second
+  batchSize: 100,       // Or flush at 100 events
+  maxRetries: 3,        // Retry transient failures
+  retryDelay: 100       // 100ms between retries
+})
+```
+
+### Emitting Events
+
+```typescript
+// Fire-and-forget - returns immediately
+emitter.emit('thing.created', 'things', {
+  $id: 'customer_123',
+  $type: 'Customer',
+  name: 'Alice'
+})
+
+// Multiple events batch together
+emitter.emit('thing.updated', 'things', { $id: 'customer_123', name: 'Alice Updated' })
+emitter.emit('thing.created', 'things', { $id: 'order_456', $type: 'Order' })
+
+// Events sent to Pipeline in single batch after flush interval
+```
+
+### Explicit Flush
+
+```typescript
+// Force immediate flush (awaits Pipeline response)
+await emitter.flush()
+
+// Useful before hibernation or shutdown
+await emitter.close()
+```
+
+## Event Structure
+
+Every emitted event includes metadata for tracing and idempotency:
+
+```typescript
+interface EmittedEvent {
+  type: string           // Event type (e.g., 'thing.created')
+  stream: string         // Stream name (e.g., 'things')
+  payload: unknown       // Event data
+  timestamp: string      // ISO 8601 timestamp
+  idempotencyKey: string // Unique key for deduplication
+  _meta: {
+    namespace: string    // Tenant/DO namespace
+    emittedAt: number    // Unix timestamp (ms)
+  }
+}
+```
+
+### Example Event
+
+```json
+{
+  "type": "thing.created",
+  "stream": "things",
+  "payload": {
+    "$id": "customer_123",
+    "$type": "Customer",
+    "name": "Alice"
+  },
+  "timestamp": "2026-01-15T12:00:00.000Z",
+  "idempotencyKey": "m1abc123-xyz789",
+  "_meta": {
+    "namespace": "tenant-123",
+    "emittedAt": 1736942400000
+  }
+}
+```
+
+## Batching Strategies
+
+### Time-Based Batching
+
+Events accumulate until the flush interval expires:
+
+```typescript
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123',
+  flushInterval: 1000,  // Flush every 1 second
+  batchSize: 1000       // High threshold - time-based flush dominates
+})
+
+// Events emitted within 1 second are batched together
+emitter.emit('thing.created', 'things', { $id: 'a' })
+emitter.emit('thing.created', 'things', { $id: 'b' })
+emitter.emit('thing.created', 'things', { $id: 'c' })
+// After 1 second: single batch with 3 events sent to Pipeline
+```
+
+### Count-Based Batching
+
+Events flush immediately when batch size is reached:
+
+```typescript
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123',
+  flushInterval: 60000, // Long interval
+  batchSize: 50         // Flush at 50 events
+})
+
+// 50 rapid events trigger immediate flush
+for (let i = 0; i < 50; i++) {
+  emitter.emit('thing.created', 'things', { $id: `item_${i}` })
+}
+// Batch sent immediately, doesn't wait for interval
+```
+
+### Immediate Mode
+
+Set `flushInterval: 0` for immediate emission (each event is its own batch):
+
+```typescript
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123',
+  flushInterval: 0  // No batching - immediate emission
+})
+
+// Each emit triggers Pipeline.send() immediately
+emitter.emit('thing.created', 'things', { $id: 'urgent' })
+// Pipeline.send() called synchronously (but non-blocking)
+```
+
+<Callout type="warning">
+  Immediate mode generates more Pipeline API calls. Use batching for high-throughput workloads.
+</Callout>
+
+## Durability Guarantee
+
+The Pipeline WAL ensures events are durable **before** the DO can be evicted:
+
+```typescript
+// Write path in DOStorage
+async create(input) {
+  // 1. Write to L0 (memory) - instant
+  const thing = this.memory.create(input)
+
+  // 2. Emit to L1 (Pipeline) - fire-and-forget
+  this.pipeline.emit('thing.created', 'things', thing)
+
+  // 3. Return to client
+  // Event is now durable in Pipeline
+  return thing
+}
+```
+
+### Why Fire-and-Forget Works
+
+The Pipeline service is a **separate durable system** from the DO:
+
+1. `emit()` sends data to the Pipeline service
+2. Pipeline acknowledges receipt internally
+3. Even if DO is evicted immediately, the event persists in Pipeline
+4. On cold start, events can be replayed from Pipeline
+
+<Callout type="info">
+  For maximum durability, enable `waitForPipeline: true` in DOStorage config. This blocks until Pipeline acknowledges receipt.
+</Callout>
+
+## Error Handling
+
+### Automatic Retry
+
+Transient failures (network issues, rate limits) are automatically retried:
+
+```typescript
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123',
+  maxRetries: 3,    // Try 3 times
+  retryDelay: 100   // 100ms between retries
+})
+
+// If Pipeline.send() fails:
+// Attempt 1: immediate
+// Attempt 2: after 100ms
+// Attempt 3: after 200ms
+```
+
+### Dead Letter Queue
+
+After exhausting retries, events go to a dead letter queue (if configured):
+
+```typescript
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123',
+  maxRetries: 3,
+  deadLetterQueue: env.DLQ_PIPELINE  // Separate Pipeline for failures
+})
+
+// Failed events after 3 retries:
+// 1. Sent to DLQ_PIPELINE for manual review
+// 2. Logged with error context
+```
+
+### Error Isolation
+
+Individual batch failures don't affect subsequent batches:
+
+```typescript
+// Batch 1: Fails after retries -> DLQ
+// Batch 2: Succeeds
+// Batch 3: Succeeds
+// Failed events in Batch 1 don't block Batch 2 or 3
+```
+
+## Configuration
+
+### PipelineEmitterConfig
+
+```typescript
+interface PipelineEmitterConfig {
+  namespace: string           // Required: tenant/DO namespace
+  flushInterval?: number      // Default: 1000 (ms)
+  batchSize?: number          // Default: 100
+  maxRetries?: number         // Default: 3
+  retryDelay?: number         // Default: 100 (ms)
+  deadLetterQueue?: Pipeline  // Optional: DLQ for failed events
+}
+```
+
+### Recommended Settings
+
+| Workload | flushInterval | batchSize | Notes |
+|----------|---------------|-----------|-------|
+| Low latency | 100 | 50 | Quick durability |
+| High throughput | 1000 | 200 | Batch efficiency |
+| Immediate | 0 | 1 | Per-event flush |
+| Cost optimized | 5000 | 500 | Fewer API calls |
+
+## Lifecycle Management
+
+### Shutdown
+
+Always close the emitter to flush remaining events:
+
+```typescript
+// DO hibernation hook
+async beforeHibernation() {
+  // Flush and close Pipeline emitter
+  await this.pipeline.close()
+}
+```
+
+### Closed State
+
+After `close()`, further emits throw an error:
+
+```typescript
+await emitter.close()
+
+emitter.emit('thing.created', 'things', { $id: 'x' })
+// Throws: "PipelineEmitter is closed"
+```
+
+## Integration with DOStorage
+
+The `DOStorage` class integrates PipelineEmitter automatically:
+
+```typescript
+import { DOStorage } from 'dotdo/storage'
+
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: {
+    PIPELINE: env.PIPELINE,  // Pipeline binding
+    // ...
+  }
+})
+
+// Writes automatically emit to L1
+await storage.create({ $type: 'Customer', name: 'Alice' })
+// Pipeline.emit('thing.created', ...) called internally
+```
+
+## Event Types
+
+### Standard Events
+
+| Event Type | Trigger | Payload |
+|------------|---------|---------|
+| `thing.created` | `create()` | Full thing data |
+| `thing.updated` | `update()` | Updated fields only |
+| `thing.deleted` | `delete()` | `{ $id }` |
+
+### Custom Events
+
+You can emit custom events for business logic:
+
+```typescript
+// Custom event for analytics
+emitter.emit('customer.signup', 'analytics', {
+  customerId: 'cust_123',
+  source: 'referral',
+  timestamp: Date.now()
+})
+```
+
+## Performance Characteristics
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| emit() latency | ~0.01ms | Non-blocking, queues internally |
+| Batch send | ~1-5ms | Depends on batch size |
+| Memory per event | ~200 bytes | Event + metadata |
+| Max batch size | Unlimited | Pipeline handles large batches |
+
+## Monitoring
+
+### Event Metrics
+
+Track Pipeline health with counters:
+
+```typescript
+const emitter = new PipelineEmitter(env.PIPELINE, {
+  namespace: 'tenant-123'
+})
+
+// Emit with callback for metrics
+emitter.emit('thing.created', 'things', payload)
+
+// Monitor via Pipeline's built-in analytics
+// - Events emitted per second
+// - Batch sizes
+// - Retry rates
+// - DLQ volume
+```
+
+## Next Steps
+
+- [L0: In-Memory Cache](/storage/in-memory) - Understand the memory layer that feeds L1
+- [L2: Lazy Checkpoint](/storage/lazy-checkpoint) - Learn about SQLite persistence
+- [Recovery](/storage/recovery) - See how Pipeline events are replayed on cold start

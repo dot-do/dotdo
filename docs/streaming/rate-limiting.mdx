@@ -1,0 +1,337 @@
+---
+title: Rate Limiting
+description: Token bucket algorithm for controlling request rates and preventing abuse
+---
+
+# Rate Limiting
+
+The `RateLimiter` class implements the token bucket algorithm for controlling request rates. It supports both global and per-client rate limiting.
+
+## Token Bucket Algorithm
+
+The token bucket algorithm works like a bucket that:
+- Holds up to `bucketSize` tokens
+- Refills at `refillRate` tokens per second
+- Each request consumes tokens
+- Requests are rejected when tokens are exhausted
+
+```
+    +----------------+
+    |   Bucket       |  <- Refills at `refillRate` tokens/sec
+    |  [===========] |  <- Current tokens
+    |  [           ] |  <- bucketSize capacity
+    +-------+--------+
+            |
+            v
+    Request comes in
+            |
+    +-------+--------+
+    | Have tokens?   |
+    +-------+--------+
+       / Y      \ N
+      /          \
+  Allow        Reject
+  (-1 token)
+```
+
+## Basic Usage
+
+```typescript
+import { RateLimiter } from 'dotdo/streaming'
+
+const limiter = new RateLimiter({
+  bucketSize: 100,    // Maximum burst capacity
+  refillRate: 10,     // Tokens per second
+})
+
+if (limiter.tryAcquire()) {
+  // Process request
+} else {
+  // Rate limited - reject request
+}
+```
+
+## Configuration
+
+### Bucket Size (Burst Capacity)
+
+Controls how many requests can be made in a burst:
+
+```typescript
+const limiter = new RateLimiter({
+  bucketSize: 100,  // Allow up to 100 requests in a burst
+  refillRate: 10,
+})
+
+// Can make 100 rapid requests initially
+for (let i = 0; i < 100; i++) {
+  limiter.tryAcquire() // All succeed
+}
+
+// 101st request fails
+limiter.tryAcquire() // false
+```
+
+### Refill Rate (Sustained Rate)
+
+Controls the steady-state request rate:
+
+```typescript
+const limiter = new RateLimiter({
+  bucketSize: 100,
+  refillRate: 10,  // 10 tokens per second = 10 requests/sec sustained
+})
+```
+
+### Example Configurations
+
+| Use Case | Bucket Size | Refill Rate | Behavior |
+|----------|-------------|-------------|----------|
+| API endpoint | 100 | 10/sec | 100 burst, 10 sustained |
+| Login attempts | 5 | 0.1/sec | 5 burst, 1 per 10 sec |
+| WebSocket messages | 50 | 5/sec | 50 burst, 5 sustained |
+| File uploads | 10 | 0.5/sec | 10 burst, 1 per 2 sec |
+
+## Acquiring Tokens
+
+### tryAcquire()
+
+Non-blocking token acquisition:
+
+```typescript
+// Acquire 1 token (default)
+if (limiter.tryAcquire()) {
+  handleRequest()
+}
+
+// Acquire multiple tokens for expensive operations
+if (limiter.tryAcquire(5)) {
+  handleExpensiveOperation()
+}
+```
+
+### waitForToken()
+
+Blocking token acquisition with optional timeout:
+
+```typescript
+// Wait indefinitely for a token
+await limiter.waitForToken()
+handleRequest()
+
+// Wait with timeout
+try {
+  await limiter.waitForToken({ timeout: 5000 })
+  handleRequest()
+} catch (error) {
+  // Timeout - could not acquire token in 5 seconds
+  return new Response('Rate limited', { status: 429 })
+}
+```
+
+## Token Status
+
+### Available Tokens
+
+```typescript
+// Global limiter
+const tokens = limiter.availableTokens
+console.log(`${tokens} tokens available`)
+
+// Per-client limiter
+const clientTokens = limiter.availableTokens('client-123')
+```
+
+### Full Status
+
+```typescript
+const status = limiter.getStatus()
+console.log({
+  availableTokens: status.availableTokens,
+  bucketSize: status.bucketSize,
+  refillRate: status.refillRate,
+})
+
+// Per-client status
+const clientStatus = limiter.getStatus('client-123')
+```
+
+## Per-Client Rate Limiting
+
+Enable separate token buckets per client:
+
+```typescript
+const limiter = new RateLimiter({
+  bucketSize: 10,
+  refillRate: 1,
+  perClient: true,
+})
+
+// Each client has their own bucket
+limiter.tryAcquire(1, 'client-a') // true
+limiter.tryAcquire(1, 'client-a') // true
+// ... 8 more for client-a ...
+limiter.tryAcquire(1, 'client-a') // false - client-a exhausted
+
+limiter.tryAcquire(1, 'client-b') // true - client-b has full bucket
+```
+
+### Use Cases for Per-Client
+
+- API rate limiting by API key
+- User-specific request limits
+- Tenant isolation in multi-tenant systems
+- WebSocket message limits per connection
+
+## Reset
+
+Restore bucket to full capacity:
+
+```typescript
+// Reset global bucket
+limiter.reset()
+
+// Reset specific client's bucket
+limiter.reset('client-123')
+```
+
+Useful for:
+- Admin overrides
+- After successful payments (premium users)
+- Testing
+
+## Complete Example
+
+```typescript
+import { RateLimiter } from 'dotdo/streaming'
+import { Hono } from 'hono'
+
+const app = new Hono()
+
+// Global rate limiter
+const globalLimiter = new RateLimiter({
+  bucketSize: 1000,
+  refillRate: 100,
+})
+
+// Per-client rate limiter
+const clientLimiter = new RateLimiter({
+  bucketSize: 100,
+  refillRate: 10,
+  perClient: true,
+})
+
+// Middleware
+app.use('*', async (c, next) => {
+  // Check global limit first
+  if (!globalLimiter.tryAcquire()) {
+    return c.json({ error: 'Service overloaded' }, 503)
+  }
+
+  // Check per-client limit
+  const clientId = c.req.header('X-Client-ID') || 'anonymous'
+
+  if (!clientLimiter.tryAcquire(1, clientId)) {
+    const status = clientLimiter.getStatus(clientId)
+    return c.json(
+      {
+        error: 'Rate limit exceeded',
+        retryAfter: Math.ceil(1 / status.refillRate),
+      },
+      429
+    )
+  }
+
+  await next()
+})
+
+// Expensive endpoint costs more tokens
+app.post('/api/generate', async (c) => {
+  const clientId = c.req.header('X-Client-ID') || 'anonymous'
+
+  // Expensive operations cost 10 tokens
+  if (!clientLimiter.tryAcquire(10, clientId)) {
+    return c.json({ error: 'Rate limit exceeded' }, 429)
+  }
+
+  return c.json({ result: 'Generated content' })
+})
+
+// Status endpoint
+app.get('/api/rate-limit-status', (c) => {
+  const clientId = c.req.header('X-Client-ID') || 'anonymous'
+  return c.json(clientLimiter.getStatus(clientId))
+})
+```
+
+## WebSocket Rate Limiting
+
+```typescript
+import { WebSocketHub, RateLimiter } from 'dotdo/streaming'
+
+export class RateLimitedChatDO extends DurableObject {
+  private hub = new WebSocketHub()
+  private messageLimiter = new RateLimiter({
+    bucketSize: 20,    // 20 message burst
+    refillRate: 2,     // 2 messages per second sustained
+    perClient: true,
+  })
+
+  handleMessage(ws: WebSocket, data: string) {
+    const clientId = this.hub.getMetadata(ws)?.userId
+
+    if (!this.messageLimiter.tryAcquire(1, clientId)) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'RATE_LIMITED',
+        message: 'Slow down! You are sending messages too quickly.',
+      }))
+      return
+    }
+
+    // Process message normally
+    this.hub.room.broadcast('chat', {
+      type: 'message',
+      userId: clientId,
+      content: data,
+    })
+  }
+}
+```
+
+## API Reference
+
+### RateLimiter
+
+```typescript
+class RateLimiter {
+  constructor(options: RateLimiterOptions)
+
+  tryAcquire(tokens?: number, clientId?: string): boolean
+  waitForToken(options?: { timeout?: number }): Promise<void>
+  getStatus(clientId?: string): RateLimiterStatus
+  reset(clientId?: string): void
+
+  readonly availableTokens: number | ((clientId?: string) => number)
+}
+```
+
+### RateLimiterOptions
+
+```typescript
+interface RateLimiterOptions {
+  bucketSize: number    // Maximum tokens (burst capacity)
+  refillRate: number    // Tokens per second
+  perClient?: boolean   // Enable per-client buckets
+}
+```
+
+### RateLimiterStatus
+
+```typescript
+interface RateLimiterStatus {
+  availableTokens: number
+  bucketSize: number
+  refillRate: number
+}
+```

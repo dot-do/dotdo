@@ -1,0 +1,404 @@
+---
+title: Relationships
+description: Graph traversal with ->, ~>, <-, <~ operators - exact and fuzzy navigation
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Relationships
+
+**Navigate your domain graph.** The semantic module provides four operators for traversing relationships between Things: exact forward (`->`), fuzzy forward (`~>`), exact backward (`<-`), and fuzzy backward (`<~`).
+
+```typescript
+import { noun, verb, thing, action, forward, backward, forwardFuzzy, backwardFuzzy } from 'dotdo/semantic'
+
+// Setup
+const Customer = noun('Customer')
+const Order = noun('Order')
+const purchase = verb('purchase')
+
+const alice = thing(Customer, { name: 'Alice' })
+const order = thing(Order, { total: 99.99 })
+action(alice, purchase, order)
+
+// Exact traversal
+const orders = forward(alice, 'Order')      // alice -> Order
+const buyers = backward(order, 'Customer')  // order <- Customer
+
+// Fuzzy traversal (semantic similarity)
+const similar = await forwardFuzzy(alice, 'Customer')   // alice ~> Customer
+const related = await backwardFuzzy(order, 'Product')   // order <~ Product
+```
+
+## The Four Operators
+
+| Operator | Function | Direction | Method | Description |
+|----------|----------|-----------|--------|-------------|
+| `->` | `forward()` | Forward | Exact | Things this entity points to |
+| `~>` | `forwardFuzzy()` | Forward | Fuzzy | Semantically similar things |
+| `<-` | `backward()` | Backward | Exact | Things that point to this entity |
+| `<~` | `backwardFuzzy()` | Backward | Fuzzy | Semantically related things |
+
+## Exact Traversal
+
+### Forward: ->
+
+Find all Things of a target type that this Thing has relationships to:
+
+```typescript
+function forward(from: Thing, targetType: string): Thing[]
+```
+
+```typescript
+// Setup: Alice purchases two orders
+action(alice, purchase, order1)
+action(alice, purchase, order2)
+action(alice, follow, bob)
+
+// Forward traversal: alice -> Order
+const orders = forward(alice, 'Order')
+// [order1, order2]
+
+// Forward traversal: alice -> User
+const following = forward(alice, 'User')
+// [bob]
+```
+
+### Backward: <-
+
+Find all Things of a source type that have relationships to this Thing:
+
+```typescript
+function backward(to: Thing, sourceType: string): Thing[]
+```
+
+```typescript
+// Setup: Multiple customers purchase the same product
+action(alice, purchase, product)
+action(bob, purchase, product)
+action(charlie, purchase, product)
+
+// Backward traversal: product <- Customer
+const buyers = backward(product, 'Customer')
+// [alice, bob, charlie]
+```
+
+## Fuzzy Traversal
+
+Fuzzy operators use vector embeddings to find semantically similar Things.
+
+### Forward Fuzzy: ~>
+
+Find Things semantically similar to the source:
+
+```typescript
+async function forwardFuzzy(
+  from: Thing,
+  targetType: string,
+  options?: FuzzyOptions & { topK?: number }
+): Promise<Thing[] | ScoredThing[]>
+```
+
+```typescript
+// Find products similar to what Alice purchased
+const similar = await forwardFuzzy(aliceProduct, 'Product', {
+  threshold: 0.7,
+  topK: 5
+})
+
+// With similarity scores
+const scored = await forwardFuzzy(aliceProduct, 'Product', {
+  threshold: 0.7,
+  withScores: true
+}) as ScoredThing[]
+
+scored.forEach(p => console.log(`${p.name}: ${p.score}`))
+// Widget Pro: 0.92
+// Widget Basic: 0.85
+// Gadget Plus: 0.73
+```
+
+### Backward Fuzzy: <~
+
+Find Things semantically related to the target:
+
+```typescript
+async function backwardFuzzy(
+  to: Thing,
+  sourceType: string,
+  options?: FuzzyOptions & { topK?: number }
+): Promise<Thing[] | ScoredThing[]>
+```
+
+```typescript
+// Find customers with similar profiles to those who bought this product
+const related = await backwardFuzzy(product, 'Customer', {
+  threshold: 0.6,
+  topK: 10,
+  withScores: true
+})
+```
+
+## Fuzzy Options
+
+```typescript
+interface FuzzyOptions {
+  /** Similarity threshold (0-1). Default: 0.5 */
+  threshold?: number
+  /** Include similarity scores in results. Default: false */
+  withScores?: boolean
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `threshold` | `number` | 0.5 | Minimum similarity score (0-1) |
+| `withScores` | `boolean` | false | Return `ScoredThing[]` with scores |
+| `topK` | `number` | 10 | Maximum results to return |
+
+### ScoredThing
+
+When `withScores: true`, results include similarity scores:
+
+```typescript
+interface ScoredThing<T = Record<string, unknown>> extends Thing<T> {
+  score: number  // 0-1 similarity score
+}
+```
+
+## Vector Store Configuration
+
+Fuzzy operators require vector embeddings. Configure the vector store for production:
+
+```typescript
+import { configureVectorStore } from 'dotdo/semantic'
+
+// Production: Use Cloudflare Vectorize and Workers AI
+configureVectorStore({
+  vectorize: env.VECTORIZE_INDEX,
+  ai: env.AI,
+  embeddingModel: '@cf/baai/bge-base-en-v1.5',
+  defaultTopK: 10,
+  defaultThreshold: 0.5
+})
+```
+
+### Indexing Things
+
+Index Things to make them searchable with fuzzy operators:
+
+```typescript
+import { indexThing, indexThings, unindexThing } from 'dotdo/semantic'
+
+// Index a single Thing
+await indexThing(product)
+
+// Index multiple Things
+await indexThings([product1, product2, product3])
+
+// Remove from index
+await unindexThing(product.$id)
+```
+
+### Semantic Text Search
+
+Search across all indexed Things:
+
+```typescript
+import { semanticSearch } from 'dotdo/semantic'
+
+// Search by text query
+const results = await semanticSearch('wireless bluetooth headphones', 'Product', {
+  threshold: 0.6,
+  topK: 10,
+  withScores: true
+})
+```
+
+<Callout type="info">
+Without configuration, fuzzy operators fall back to exact matches with simulated scores. In production, configure Vectorize for true semantic search.
+</Callout>
+
+## How Edges Are Created
+
+Actions create edges automatically:
+
+```typescript
+// When you call action(), an edge is stored
+action(alice, purchase, order)
+
+// Internal edge store:
+// {
+//   from: alice.$id,
+//   fromType: 'Customer',
+//   to: order.$id,
+//   toType: 'Order',
+//   verb: 'purchased'
+// }
+```
+
+### Edge Structure
+
+```typescript
+interface Edge {
+  from: string      // Source Thing $id
+  fromType: string  // Source Thing $type
+  to: string        // Target Thing $id
+  toType: string    // Target Thing $type
+  verb: string      // Verb in past tense
+}
+```
+
+## Common Patterns
+
+### One-to-Many
+
+```typescript
+// Customer has many Orders
+action(alice, purchase, order1)
+action(alice, purchase, order2)
+action(alice, purchase, order3)
+
+// Traverse
+const orders = forward(alice, 'Order')  // [order1, order2, order3]
+const buyer = backward(order1, 'Customer')  // [alice]
+```
+
+### Many-to-Many
+
+```typescript
+// Products in Categories
+action(product1, categorize, electronics)
+action(product1, categorize, gadgets)
+action(product2, categorize, electronics)
+
+// Products -> Categories
+const p1Categories = forward(product1, 'Category')  // [electronics, gadgets]
+
+// Categories <- Products
+const electronicsProducts = backward(electronics, 'Product')  // [product1, product2]
+```
+
+### Self-Referential
+
+```typescript
+// Social graph
+const follow = verb('follow')
+
+action(alice, follow, bob)
+action(alice, follow, charlie)
+action(bob, follow, alice)
+
+// Following
+const aliceFollows = forward(alice, 'User')  // [bob, charlie]
+
+// Followers
+const aliceFollowers = backward(alice, 'User')  // [bob]
+```
+
+### Hierarchical
+
+```typescript
+const contain = verb('contain')
+const manage = verb('manage')
+
+// Organization structure
+action(company, contain, department)
+action(department, contain, team)
+action(team, contain, employee)
+
+// Traverse down
+const depts = forward(company, 'Department')
+const teams = forward(department, 'Team')
+const employees = forward(team, 'Employee')
+
+// Traverse up
+const empTeam = backward(employee, 'Team')
+const teamDept = backward(team, 'Department')
+const deptCompany = backward(department, 'Company')
+```
+
+## Filtering by Verb
+
+Currently, traversal filters by target type only. For verb-specific queries, filter results:
+
+```typescript
+// Get all relationships, then filter by verb
+const allRelated = forward(alice, 'User')
+// Then use your edge store to filter by verb type
+```
+
+<Callout type="info">
+Future versions may add verb filtering directly to `forward()` and `backward()`.
+</Callout>
+
+## Performance
+
+### Exact Traversal
+
+- O(n) where n is the number of edges
+- Scans all edges for matching from/to and type
+- Best for small to medium graphs
+
+### Fuzzy Traversal
+
+- Uses vector similarity search
+- O(log n) with proper indexing
+- Requires Things to be indexed first
+
+## Testing
+
+```typescript
+import { resetState, noun, verb, thing, action, forward, backward } from 'dotdo/semantic'
+
+describe('Relationships', () => {
+  beforeEach(() => {
+    resetState()
+  })
+
+  test('forward traversal', () => {
+    const Customer = noun('Customer')
+    const Order = noun('Order')
+    const purchase = verb('purchase')
+
+    const customer = thing(Customer, { name: 'Alice' })
+    const order1 = thing(Order, { total: 50 })
+    const order2 = thing(Order, { total: 100 })
+
+    action(customer, purchase, order1)
+    action(customer, purchase, order2)
+
+    const orders = forward(customer, 'Order')
+
+    expect(orders).toHaveLength(2)
+    expect(orders.map(o => o.$id)).toContain(order1.$id)
+    expect(orders.map(o => o.$id)).toContain(order2.$id)
+  })
+
+  test('backward traversal', () => {
+    const Customer = noun('Customer')
+    const Product = noun('Product')
+    const purchase = verb('purchase')
+
+    const alice = thing(Customer, { name: 'Alice' })
+    const bob = thing(Customer, { name: 'Bob' })
+    const product = thing(Product, { name: 'Widget' })
+
+    action(alice, purchase, product)
+    action(bob, purchase, product)
+
+    const buyers = backward(product, 'Customer')
+
+    expect(buyers).toHaveLength(2)
+    expect(buyers.map(c => c.name)).toContain('Alice')
+    expect(buyers.map(c => c.name)).toContain('Bob')
+  })
+})
+```
+
+## Related
+
+- [Things](/docs/semantic/things) - Entity instances
+- [Actions](/docs/semantic/actions) - Creating edges via actions
+- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Type definitions
+- [Concepts: Relationships](/docs/concepts/relationships) - Relationships in dotdo

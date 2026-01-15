@@ -15,6 +15,13 @@ import { ConsistentHashRing } from './hash-ring'
 
 export type { QueryResult }
 
+// Constants for timeout and retry configuration
+const DEFAULT_TIMEOUT_MS = 30000
+const DEFAULT_MAX_RETRIES = 1
+const BACKOFF_BASE_MS = 10
+const MAJORITY_FAILURE_THRESHOLD = 0.5
+const MAX_BATCHES_ALLOWED = 3
+
 interface Scanner {
   id: string
   execute<T = unknown>(sql: string, params?: unknown[]): Promise<QueryResult<T>>
@@ -121,6 +128,31 @@ function aggregateResults<T>(
   return merge.union(results)
 }
 
+/**
+ * QueryCoordinator - Distributes queries across multiple scanner shards
+ *
+ * Implements scatter-gather pattern for distributed query execution:
+ * - Dispatches queries in parallel to all scanners
+ * - Aggregates results based on query type (union, count, sum, avg)
+ * - Handles scanner failures with retry and timeout logic
+ * - Tracks scanner health for observability
+ * - Supports subrequest budget constraints
+ * - Routes single-tenant queries to specific shards via consistent hashing
+ *
+ * @example
+ * const coordinator = new QueryCoordinator(scanners, {
+ *   maxRetries: 2,
+ *   timeoutMs: 5000,
+ *   ring: consistentHashRing
+ * })
+ *
+ * // Execute distributed query
+ * const result = await coordinator.query('SELECT * FROM users')
+ *
+ * // With budget tracking
+ * const budget = new SubrequestBudget(50)
+ * const result = await coordinator.queryWithBudget('SELECT *', budget)
+ */
 export class QueryCoordinator {
   private scanners: Scanner[]
   private options: CoordinatorOptions
@@ -129,8 +161,8 @@ export class QueryCoordinator {
   constructor(scanners: Scanner[], options: CoordinatorOptions = {}) {
     this.scanners = scanners
     this.options = {
-      maxRetries: options.maxRetries ?? 1,
-      timeoutMs: options.timeoutMs ?? 30000,
+      maxRetries: options.maxRetries ?? DEFAULT_MAX_RETRIES,
+      timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       ring: options.ring,
     }
 
@@ -141,7 +173,24 @@ export class QueryCoordinator {
   }
 
   /**
-   * Execute query across all scanners
+   * Execute query across all scanners (or specific shard if shardKey provided)
+   *
+   * @param sql SQL query string
+   * @param params Optional parameterized query values
+   * @param options Query options including shardKey for single-shard routing
+   * @returns Aggregated results from all scanners or single shard
+   * @throws Error if majority of scanners fail
+   *
+   * @example
+   * // Distributed query across all shards
+   * const users = await coordinator.query('SELECT * FROM users')
+   *
+   * // Single-shard query with shard key routing
+   * const tenantData = await coordinator.query(
+   *   'SELECT * FROM users WHERE tenant_id = ?',
+   *   ['tenant-123'],
+   *   { shardKey: 'tenant_id' }
+   * )
    */
   async query<T = unknown>(
     sql: string,
@@ -177,13 +226,15 @@ export class QueryCoordinator {
       if (outcome.result) {
         results.push(outcome.result)
       } else if (outcome.error) {
-        errors.push(`${outcome.scanner.id}: ${outcome.error.message}`)
+        // Include shard context in error message for debugging
+        const errorMsg = this.formatShardError(outcome.scanner.id, outcome.error, sql)
+        errors.push(errorMsg)
         this.healthyScanners.delete(outcome.scanner.id)
       }
     }
 
     // Check if majority failed
-    if (errors.length > this.scanners.length / 2) {
+    if (errors.length > this.scanners.length * MAJORITY_FAILURE_THRESHOLD) {
       throw new Error(
         `Majority of scanners failed (${errors.length}/${this.scanners.length}): ${errors.join(', ')}`
       )
@@ -208,6 +259,20 @@ export class QueryCoordinator {
    *
    * However, if the budget is too small (would require excessive batches),
    * we reject the query early.
+   *
+   * @param sql SQL query string
+   * @param budget Subrequest budget tracker (tracks Worker/DO limits)
+   * @param params Optional parameterized query values
+   * @returns Aggregated results from all scanners
+   * @throws Error if budget is too small (would require > 3 batches)
+   *
+   * @example
+   * // Query with 50 subrequest limit (Cloudflare Workers)
+   * const budget = new SubrequestBudget(50)
+   * const result = await coordinator.queryWithBudget(
+   *   'SELECT * FROM users',
+   *   budget
+   * )
    */
   async queryWithBudget<T = unknown>(
     sql: string,
@@ -227,9 +292,9 @@ export class QueryCoordinator {
     // Calculate how many batches we'd need
     const requiredBatches = Math.ceil(scannerCount / batchSize)
 
-    // If budget is too small (would require more than 3 rounds), reject
+    // If budget is too small (would require more than MAX_BATCHES_ALLOWED rounds), reject
     // This prevents excessive batching with tiny budgets
-    if (requiredBatches > 3) {
+    if (requiredBatches > MAX_BATCHES_ALLOWED) {
       throw new Error('Subrequest budget exhausted - too many batches required')
     }
 
@@ -258,7 +323,22 @@ export class QueryCoordinator {
   }
 
   /**
-   * Stream results as batches complete
+   * Stream results as batches complete (progressive streaming)
+   *
+   * Yields results from each scanner as they complete, allowing consumers
+   * to process partial results before all scanners have finished.
+   * Results arrive in completion order, not in scanner order.
+   *
+   * @param sql SQL query string
+   * @param params Optional parameterized query values
+   * @yields Query results from individual scanners as they complete
+   *
+   * @example
+   * // Stream results as they arrive
+   * for await (const batch of coordinator.queryStream('SELECT * FROM users')) {
+   *   console.log(`Got ${batch.rows.length} rows from shard ${batch.scannerId}`)
+   *   processRows(batch.rows)
+   * }
    */
   async *queryStream<T = unknown>(
     sql: string,
@@ -333,12 +413,23 @@ export class QueryCoordinator {
 
         // Exponential backoff (skip for last attempt)
         if (attempt < maxRetries - 1) {
-          const backoffMs = Math.pow(2, attempt) * 10
+          const backoffMs = Math.pow(2, attempt) * BACKOFF_BASE_MS
           await sleep(backoffMs)
         }
       }
     }
 
     throw lastError || new Error(`Scanner ${scanner.id} failed`)
+  }
+
+  /**
+   * Format error message with shard context for debugging
+   */
+  private formatShardError(scannerId: string, error: Error, sql: string): string {
+    const shardIndex = this.scanners.findIndex((s) => s.id === scannerId)
+    const shardNumber = shardIndex >= 0 ? shardIndex + 1 : 'unknown'
+    const totalShards = this.scanners.length
+
+    return `Shard ${shardNumber}/${totalShards} (${scannerId}): ${error.message}`
   }
 }

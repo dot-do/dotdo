@@ -17,7 +17,8 @@ import {
   parseUrl,
   generateCacheKey,
   transformResponse,
-  type FetchParams,
+  fetchToolSchema,
+  type FetchInput,
   type FetchContext,
   type FetchEnv,
 } from './fetch'
@@ -96,7 +97,7 @@ describe('URL Parsing', () => {
 describe('Cache Key Generation', () => {
   describe('generateCacheKey', () => {
     it('uses custom key when provided', () => {
-      const params: FetchParams = {
+      const params: FetchInput = {
         url: 'https://example.com',
         cache: { key: 'my-custom-key' },
       }
@@ -107,7 +108,7 @@ describe('Cache Key Generation', () => {
     })
 
     it('generates consistent keys for same URL and method', () => {
-      const params: FetchParams = {
+      const params: FetchInput = {
         url: 'https://api.example.com/data',
         method: 'GET',
       }
@@ -119,8 +120,8 @@ describe('Cache Key Generation', () => {
     })
 
     it('generates different keys for different URLs', () => {
-      const params1: FetchParams = { url: 'https://example.com/a' }
-      const params2: FetchParams = { url: 'https://example.com/b' }
+      const params1: FetchInput = { url: 'https://example.com/a' }
+      const params2: FetchInput = { url: 'https://example.com/b' }
 
       const key1 = generateCacheKey(params1)
       const key2 = generateCacheKey(params2)
@@ -129,8 +130,8 @@ describe('Cache Key Generation', () => {
     })
 
     it('generates different keys for different methods', () => {
-      const params1: FetchParams = { url: 'https://example.com', method: 'GET' }
-      const params2: FetchParams = { url: 'https://example.com', method: 'POST' }
+      const params1: FetchInput = { url: 'https://example.com', method: 'GET' }
+      const params2: FetchInput = { url: 'https://example.com', method: 'POST' }
 
       const key1 = generateCacheKey(params1)
       const key2 = generateCacheKey(params2)
@@ -139,12 +140,12 @@ describe('Cache Key Generation', () => {
     })
 
     it('includes body in cache key for POST requests', () => {
-      const params1: FetchParams = {
+      const params1: FetchInput = {
         url: 'https://example.com',
         method: 'POST',
         body: { foo: 'bar' },
       }
-      const params2: FetchParams = {
+      const params2: FetchInput = {
         url: 'https://example.com',
         method: 'POST',
         body: { foo: 'baz' },

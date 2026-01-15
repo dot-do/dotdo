@@ -5,6 +5,10 @@
  * Supports parameterized queries and cursor-based pagination.
  */
 
+// Constants for scanner configuration
+const DEFAULT_CURSOR_TTL_MS = 60000
+const CURSOR_EXPIRY_BUFFER_MS = 100
+
 export interface QueryResult<T = unknown> {
   rows: T[]
   cursor?: string
@@ -24,6 +28,31 @@ interface CursorInfo {
   createdAt: number
 }
 
+/**
+ * ScannerDO - Executes queries on a data shard (local partition)
+ *
+ * Each ScannerDO instance manages a subset of the total dataset and handles:
+ * - Local query execution with parameterized SQL support
+ * - Cursor-based pagination with TTL expiration
+ * - Health status tracking for failure detection
+ * - SQL injection prevention via parameter binding
+ * - Timeout and error handling
+ *
+ * Used in conjunction with QueryCoordinator for distributed query execution.
+ *
+ * @example
+ * const scanner = new ScannerDO({ id: 'scanner-0' })
+ * await scanner.seed(data)
+ * const result = await scanner.execute('SELECT * FROM users WHERE status = ?', ['active'])
+ *
+ * // Pagination
+ * const page1 = await scanner.executeWithCursor('SELECT * FROM users', undefined, 100)
+ * const page2 = await scanner.executeWithCursor(
+ *   'SELECT * FROM users',
+ *   page1.cursor,
+ *   100
+ * )
+ */
 export class ScannerDO {
   public readonly id: string
   private data: Record<string, unknown>[] = []
@@ -34,7 +63,7 @@ export class ScannerDO {
 
   constructor(options: ScannerOptions = {}) {
     this.id = options.id ?? `scanner-${Math.random().toString(36).slice(2, 8)}`
-    this.cursorTtlMs = options.cursorTtlMs ?? 60000
+    this.cursorTtlMs = options.cursorTtlMs ?? DEFAULT_CURSOR_TTL_MS
   }
 
   /**
@@ -45,7 +74,22 @@ export class ScannerDO {
   }
 
   /**
-   * Execute a query on local data
+   * Execute a query on local data (non-paginated)
+   *
+   * SECURITY: All parameters are validated before use to prevent injection attacks.
+   * Parameters are never interpolated into strings - they are compared directly
+   * against column values using strict equality.
+   *
+   * @param sql SQL query string
+   * @param params Optional parameterized query values (safe from SQL injection)
+   * @returns Query results with scannerId for tracing
+   * @throws Error if parameter validation fails
+   *
+   * @example
+   * const result = await scanner.execute(
+   *   'SELECT * FROM users WHERE status = ?',
+   *   ['active']
+   * )
    */
   async execute<T = unknown>(
     sql: string,
@@ -53,8 +97,11 @@ export class ScannerDO {
   ): Promise<QueryResult<T>> {
     this.lastQuery = sql
 
+    // SECURITY: Validate all parameters before processing
+    const validatedParams = params?.map((p) => this.validateParam(p))
+
     // Simple query parser for testing
-    const rows = this.executeQuery<T>(sql, params)
+    const rows = this.executeQuery<T>(sql, validatedParams)
 
     return {
       rows,
@@ -64,6 +111,28 @@ export class ScannerDO {
 
   /**
    * Execute query with cursor-based pagination
+   *
+   * Supports paginating large result sets by returning cursors for subsequent requests.
+   * Cursors are validated and have a configurable TTL to prevent stale pagination.
+   *
+   * @param sql SQL query string
+   * @param cursor Optional cursor from previous page (undefined for first page)
+   * @param limit Maximum rows per page (default 100)
+   * @returns Results with cursor for next page (if hasMore=true)
+   * @throws Error if cursor is expired or invalid
+   *
+   * @example
+   * // First page
+   * const page1 = await scanner.executeWithCursor('SELECT * FROM users', undefined, 10)
+   *
+   * // Second page (if page1.cursor exists)
+   * if (page1.cursor) {
+   *   const page2 = await scanner.executeWithCursor(
+   *     'SELECT * FROM users',
+   *     page1.cursor,
+   *     10
+   *   )
+   * }
    */
   async executeWithCursor<T = unknown>(
     sql: string,
@@ -168,39 +237,132 @@ export class ScannerDO {
 
   /**
    * Apply WHERE clause filtering
+   *
+   * SECURITY: This method uses safe parameter binding to prevent SQL injection.
+   * Parameters are never interpolated into strings - they are compared directly
+   * against column values using strict equality.
    */
   private applyWhere(
     data: Record<string, unknown>[],
     whereClause: string,
     params?: unknown[]
   ): Record<string, unknown>[] {
-    // Handle parameterized query (? placeholders)
-    let processedWhere = whereClause
-    if (params && params.length > 0) {
-      let paramIndex = 0
-      processedWhere = whereClause.replace(/\?/g, () => {
-        const param = params[paramIndex++]
-        if (typeof param === 'string') {
-          return `'${param}'`
-        }
-        return String(param)
-      })
+    // Try parameterized query first (most secure)
+    const paramResult = this.applyParameterizedWhere(data, whereClause, params)
+    if (paramResult !== null) {
+      return paramResult
     }
 
-    // Simple equality filter: column = 'value' or column = value
-    const equalityMatch = processedWhere.match(/(\w+)\s*=\s*'([^']+)'/)
-    if (equalityMatch) {
-      const [, column, value] = equalityMatch
-      return data.filter((row) => row[column] === value)
+    // Try literal string values (for test queries)
+    const literalStringResult = this.applyLiteralStringWhere(data, whereClause)
+    if (literalStringResult !== null) {
+      return literalStringResult
     }
 
-    // Simple equality without quotes
-    const numericMatch = processedWhere.match(/(\w+)\s*=\s*(\d+)/)
-    if (numericMatch) {
-      const [, column, value] = numericMatch
-      return data.filter((row) => row[column] === parseInt(value, 10))
+    // Try numeric literal (for test queries)
+    const numericResult = this.applyNumericWhere(data, whereClause)
+    if (numericResult !== null) {
+      return numericResult
     }
 
+    // No WHERE clause matched
     return data
+  }
+
+  /**
+   * Apply parameterized WHERE clause (safe against SQL injection)
+   * Returns null if no parameter match found
+   */
+  private applyParameterizedWhere(
+    data: Record<string, unknown>[],
+    whereClause: string,
+    params?: unknown[]
+  ): Record<string, unknown>[] | null {
+    const paramMatch = whereClause.match(/(\w+)\s*=\s*\?/)
+    if (!paramMatch || !params || params.length === 0) {
+      return null
+    }
+
+    const [, column] = paramMatch
+    const paramValue = params[0]
+
+    // SECURITY: Direct value comparison - no string interpolation
+    // This prevents SQL injection by treating the parameter as an opaque value
+    return data.filter((row) => row[column] === paramValue)
+  }
+
+  /**
+   * Apply WHERE clause with literal string value
+   * Returns null if no literal string match found
+   */
+  private applyLiteralStringWhere(
+    data: Record<string, unknown>[],
+    whereClause: string
+  ): Record<string, unknown>[] | null {
+    const literalMatch = whereClause.match(/(\w+)\s*=\s*'([^']*)'/)
+    if (!literalMatch) {
+      return null
+    }
+
+    const [, column, value] = literalMatch
+    return data.filter((row) => row[column] === value)
+  }
+
+  /**
+   * Apply WHERE clause with numeric literal value
+   * Returns null if no numeric match found
+   */
+  private applyNumericWhere(
+    data: Record<string, unknown>[],
+    whereClause: string
+  ): Record<string, unknown>[] | null {
+    const numericMatch = whereClause.match(/(\w+)\s*=\s*(\d+)/)
+    if (!numericMatch) {
+      return null
+    }
+
+    const [, column, value] = numericMatch
+    return data.filter((row) => row[column] === parseInt(value, 10))
+  }
+
+  /**
+   * Validate and sanitize a parameter value
+   *
+   * SECURITY: This is an additional layer of defense that validates
+   * parameter types and rejects obviously malicious inputs.
+   */
+  private validateParam(param: unknown): unknown {
+    if (param === null || param === undefined) {
+      return param
+    }
+
+    if (typeof param === 'number') {
+      // Validate it's a finite number
+      if (!Number.isFinite(param)) {
+        throw new Error('Invalid parameter: non-finite number')
+      }
+      return param
+    }
+
+    if (typeof param === 'boolean') {
+      return param
+    }
+
+    if (typeof param === 'string') {
+      // String parameters are treated as opaque values
+      // No SQL syntax interpretation occurs
+      return param
+    }
+
+    // Reject complex types that could be exploited
+    if (typeof param === 'object') {
+      throw new Error('Invalid parameter: objects not allowed')
+    }
+
+    if (typeof param === 'function') {
+      throw new Error('Invalid parameter: functions not allowed')
+    }
+
+    return param
   }
 }

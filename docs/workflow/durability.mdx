@@ -1,0 +1,348 @@
+---
+title: Durability Levels
+description: Choose the right execution guarantee - send vs try vs do
+---
+
+# Durability Levels
+
+WorkflowContext provides three execution primitives with different durability guarantees. Choose based on how critical the operation is and what failure behavior you need.
+
+## The Durability Matrix
+
+| Method | Persistence | Retries | Blocks | Use Case |
+|--------|-------------|---------|--------|----------|
+| `$.send()` | Event log | No | No | Analytics, notifications |
+| `$.try()` | No | No | Yes | Simple operations |
+| `$.do()` | Action log | Yes | Yes | Critical business logic |
+| `$.track()` | No | No | No | Telemetry only |
+
+## $.send() - Fire and Forget
+
+Emit an event without waiting for handlers. Returns immediately with an event ID.
+
+```typescript
+// Returns instantly with tracking ID
+const eventId = $.send('Customer.signup', {
+  email: 'alice@example.com',
+  source: 'landing-page'
+})
+
+console.log(`Event queued: ${eventId}`)
+// evt_1705312345_abc123xyz
+```
+
+### Characteristics
+
+- **Non-blocking**: Returns immediately, handlers run asynchronously
+- **Event logged**: Event is persisted for replay/audit
+- **No throw on error**: Handler failures don't propagate
+- **Trackable**: Returns unique event ID
+
+### Error Handling
+
+Since `$.send()` doesn't throw, use `$.onError()` to capture handler failures:
+
+```typescript
+// Register error callback
+$.onError((errorInfo) => {
+  console.error(`Event ${errorInfo.eventId} failed:`, errorInfo.error)
+  alerting.notify(errorInfo)
+})
+
+// Check error stats
+console.log(`Total errors: ${$.getErrorCount()}`)
+
+// Get detailed error log
+const errors = $.getErrorLog()
+errors.forEach(err => {
+  console.log(`${err.eventType}: ${err.error.message}`)
+})
+```
+
+Error info structure:
+```typescript
+interface SendErrorInfo {
+  error: Error       // The caught error
+  eventType: string  // e.g., "Customer.signup"
+  eventId: string    // e.g., "evt_1705312345_abc123xyz"
+  timestamp: Date    // When error occurred
+  data: unknown      // Original event data
+}
+```
+
+## $.try() - Single Attempt
+
+Execute an action once. Throws on failure, no retries.
+
+```typescript
+// Simple execution
+const result = await $.try(async () => {
+  const response = await fetch('https://api.example.com/data')
+  return response.json()
+})
+
+// With timeout
+const result = await $.try(
+  async () => {
+    return await slowOperation()
+  },
+  { timeout: 5000 } // 5 second timeout
+)
+```
+
+### Characteristics
+
+- **Blocking**: Waits for completion
+- **No persistence**: Not logged to action store
+- **No retries**: Fails immediately on error
+- **Optional timeout**: Can specify max execution time
+
+### Use Cases
+
+```typescript
+// Quick lookups
+const user = await $.try(() => cache.get('user:123'))
+
+// Non-critical operations
+await $.try(async () => {
+  await analytics.track('page_view', { path: '/home' })
+})
+
+// Operations with built-in retry
+await $.try(async () => {
+  // Library handles its own retries
+  return await resilientClient.request('/data')
+})
+```
+
+## $.do() - Durable Execution
+
+Execute with full durability: persistence, retries, and replay safety.
+
+```typescript
+// Basic durable execution
+const result = await $.do(async () => {
+  await chargeCustomer(orderId, amount)
+  return { success: true }
+})
+
+// With options
+const result = await $.do(
+  async () => {
+    return await sendCriticalEmail(user, template)
+  },
+  {
+    stepId: 'send-welcome-email',
+    maxRetries: 5
+  }
+)
+```
+
+### Characteristics
+
+- **Blocking**: Waits for completion
+- **Persisted**: Logged before and after execution
+- **Automatic retries**: Exponential backoff on failure
+- **Replay safe**: Same stepId returns cached result
+
+### Options
+
+```typescript
+interface DoOptions {
+  stepId?: string     // Unique identifier for replay
+  maxRetries?: number // Max attempts (default: 3)
+}
+```
+
+### Replay Semantics
+
+When a stepId is provided, `$.do()` becomes idempotent:
+
+```typescript
+// First call - executes
+const result1 = await $.do(
+  () => expensiveComputation(),
+  { stepId: 'compute-report-2024-01' }
+)
+
+// Second call with same stepId - returns cached result
+const result2 = await $.do(
+  () => differentComputation(), // Not executed!
+  { stepId: 'compute-report-2024-01' }
+)
+
+// result1 === result2
+```
+
+### Retry Behavior
+
+Retries use exponential backoff:
+
+| Attempt | Wait Before |
+|---------|-------------|
+| 1 | 0ms |
+| 2 | 1000ms |
+| 3 | 2000ms |
+| 4 | 4000ms |
+| 5+ | 10000ms (max) |
+
+```typescript
+// Will retry up to 5 times
+await $.do(
+  async () => {
+    const response = await flakeyService.call()
+    if (!response.ok) throw new Error('Service unavailable')
+    return response.data
+  },
+  { maxRetries: 5 }
+)
+```
+
+### Failure Recording
+
+Failed actions are logged with error details:
+
+```typescript
+try {
+  await $.do(
+    () => { throw new Error('Database offline') },
+    { stepId: 'critical-write', maxRetries: 2 }
+  )
+} catch (error) {
+  // Error thrown after all retries exhausted
+}
+
+// Check action log
+const log = $.getActionLog()
+const entry = log.find(a => a.stepId === 'critical-write')
+// {
+//   stepId: 'critical-write',
+//   status: 'failed',
+//   error: { message: 'Database offline' }
+// }
+```
+
+## $.track() - Telemetry Only
+
+Fire-and-forget telemetry with zero overhead.
+
+```typescript
+// No return value, no persistence, never throws
+$.track('page_view', { path: '/pricing' })
+$.track('button_click', { button: 'signup', variant: 'A' })
+$.track('error', { code: 'E001', message: 'Not found' })
+```
+
+### Characteristics
+
+- **Zero overhead**: No logging, no persistence
+- **Fire and forget**: No return value
+- **Never throws**: Errors swallowed
+- **For telemetry only**: Analytics, metrics, debugging
+
+## Choosing the Right Level
+
+```
+Is the operation critical to business logic?
+├── Yes → Does it need retry logic?
+│         ├── Yes → $.do()
+│         └── No  → $.try()
+└── No  → Is it event-driven?
+          ├── Yes → $.send()
+          └── No  → $.track()
+```
+
+### Decision Guide
+
+| Scenario | Use |
+|----------|-----|
+| Charging a credit card | `$.do()` |
+| Sending a welcome email | `$.do()` |
+| Cache lookup | `$.try()` |
+| Emitting domain events | `$.send()` |
+| Page view tracking | `$.track()` |
+| Real-time notifications | `$.send()` |
+| Database writes | `$.do()` |
+| Feature flag checks | `$.try()` |
+
+## Logging and Inspection
+
+### Event Log
+
+Events from `$.send()`:
+
+```typescript
+const events = $.getEventLog()
+// [
+//   { id: 'evt_123', type: 'Customer.signup', data: {...} },
+//   { id: 'evt_124', type: 'Order.placed', data: {...} }
+// ]
+```
+
+### Action Log
+
+Actions from `$.do()`:
+
+```typescript
+const actions = $.getActionLog()
+// [
+//   { stepId: 'step-1', status: 'completed', result: {...} },
+//   { stepId: 'step-2', status: 'failed', error: { message: '...' } }
+// ]
+```
+
+### Error Log
+
+Errors from `$.send()` handlers:
+
+```typescript
+const errors = $.getErrorLog()
+// [
+//   {
+//     eventId: 'evt_123',
+//     eventType: 'Payment.process',
+//     error: Error('Gateway timeout'),
+//     timestamp: Date,
+//     data: { amount: 100 }
+//   }
+// ]
+```
+
+## Combining Durability Levels
+
+```typescript
+// Order processing workflow
+async function processOrder(order: Order) {
+  // Track for analytics (fire and forget)
+  $.track('order_started', { orderId: order.id })
+
+  // Emit domain event (persisted, async handlers)
+  $.send('Order.received', { orderId: order.id })
+
+  // Validate inventory (quick check, no retry needed)
+  const available = await $.try(() => inventory.check(order.items))
+
+  if (!available) {
+    $.send('Order.backordered', { orderId: order.id })
+    return
+  }
+
+  // Charge customer (critical, needs retry)
+  await $.do(
+    () => payments.charge(order.customerId, order.total),
+    { stepId: `charge-${order.id}`, maxRetries: 3 }
+  )
+
+  // Reserve inventory (critical, needs retry)
+  await $.do(
+    () => inventory.reserve(order.items),
+    { stepId: `reserve-${order.id}`, maxRetries: 3 }
+  )
+
+  // Emit completion event
+  $.send('Order.completed', {
+    orderId: order.id,
+    total: order.total
+  })
+}
+```

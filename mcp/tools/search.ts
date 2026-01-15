@@ -49,6 +49,8 @@ export const searchToolSchema = z.object({
 })
 
 export type SearchParams = z.infer<typeof searchToolSchema>
+/** Input type for SearchParams (before defaults are applied) */
+export type SearchInput = z.input<typeof searchToolSchema>
 export type SearchFilters = z.infer<typeof searchFiltersSchema>
 export type DateRange = z.infer<typeof dateRangeSchema>
 
@@ -494,7 +496,7 @@ function applyDateFilter(results: SearchResult[], dateRange: DateRange): SearchR
  * ```
  */
 export async function searchTool(
-  params: SearchParams,
+  rawParams: SearchInput,
   env: SearchEnv,
   props: SearchToolProps
 ): Promise<SearchResponse> {
@@ -502,6 +504,9 @@ export async function searchTool(
   if (!props.permissions.includes('search')) {
     throw new Error('Permission denied: search')
   }
+
+  // Parse and apply defaults
+  const params = searchToolSchema.parse(rawParams)
 
   const startTime = Date.now()
   const { query, type, filters, limit, offset } = params

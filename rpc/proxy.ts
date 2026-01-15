@@ -10,47 +10,18 @@
  */
 
 import { serialize, deserialize } from './transport'
+import { DEFAULT_REQUEST_TIMEOUT, SLOW_DELAY_MS, ABORT_CHECK_INTERVAL_MS } from './constants'
+import {
+  Schema,
+  FieldSchema,
+  MethodSchema,
+  ParamSchema,
+  MethodDescriptor,
+  PipelineStep,
+} from './shared-types'
 
-/**
- * Schema type for introspection
- */
-export interface Schema {
-  name: string
-  fields: FieldSchema[]
-  methods: MethodSchema[]
-}
-
-export interface FieldSchema {
-  name: string
-  type: string
-  required?: boolean
-  description?: string
-}
-
-export interface MethodSchema {
-  name: string
-  params: ParamSchema[]
-  returns: string
-  description?: string
-}
-
-export interface ParamSchema {
-  name: string
-  type: string
-  required?: boolean
-}
-
-/**
- * Method descriptor for RPC introspection
- */
-export interface MethodDescriptor {
-  name: string
-  params: ParamSchema[]
-  returns: string
-  isAsync: boolean
-  isGenerator?: boolean
-  description?: string
-}
+// Re-export shared types for backwards compatibility
+export type { Schema, FieldSchema, MethodSchema, ParamSchema, MethodDescriptor, PipelineStep }
 
 /**
  * $meta introspection interface
@@ -64,15 +35,6 @@ export interface MetaInterface {
   capabilities(): Promise<import('./capability').Capability[]>
   /** Get version info */
   version(): Promise<{ major: number; minor: number; patch: number }>
-}
-
-/**
- * Pipeline step
- */
-export interface PipelineStep {
-  method: string
-  args: unknown[]
-  index: number
 }
 
 /**
@@ -146,7 +108,27 @@ interface ClientState {
 const clientStates = new WeakMap<object, ClientState>()
 
 /**
- * Create a type-safe RPC client
+ * Create a type-safe RPC client with introspection and pipelining support
+ *
+ * Creates a proxy object that intercepts method calls and translates them into
+ * remote RPC invocations. The client includes a $meta interface for runtime
+ * introspection of the remote object's schema, methods, and capabilities.
+ *
+ * @template T - The interface type being proxied for type-safety
+ * @param options - RPC client configuration
+ * @param options.target - Target URL or Durable Object stub for RPC calls
+ * @param options.auth - Optional authentication token for requests
+ * @param options.timeout - Request timeout in milliseconds (default: 30000ms)
+ * @param options.retry - Retry configuration with maxAttempts and backoffMs
+ * @returns Proxy object with method invocation and $meta introspection interface
+ *
+ * @example
+ * const client = createRPCClient<CustomerDO>({
+ *   target: 'https://customer.api.dotdo.dev/cust-123',
+ *   timeout: 5000,
+ * })
+ * const orders = await client.getOrders()
+ * const schema = await client.$meta.schema()
  */
 export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: MetaInterface } {
   const targetUrl = typeof options.target === 'string'
@@ -156,7 +138,7 @@ export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: Meta
   const state: ClientState = {
     target: options.target,
     targetUrl,
-    timeout: options.timeout ?? 30000,
+    timeout: options.timeout ?? DEFAULT_REQUEST_TIMEOUT,
     retry: options.retry,
     auth: options.auth,
   }
@@ -207,6 +189,11 @@ export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: Meta
     get(_target, prop) {
       if (prop === '$meta') {
         return $meta
+      }
+
+      // Handle Symbol properties (used by assertion libraries, etc.)
+      if (typeof prop === 'symbol') {
+        return undefined
       }
 
       const methodName = prop as string
@@ -296,7 +283,8 @@ async function invokeRemoteMethod(state: ClientState, method: string, args: unkn
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
       controller.abort()
-      reject(new RPCError('Request timeout', { method, target: targetUrl }))
+      const errorMsg = `Request timeout after ${timeout}ms calling ${method}()`
+      reject(new RPCError(errorMsg, { method, target: targetUrl }))
     }, timeout)
   })
 
@@ -327,7 +315,11 @@ async function invokeRemoteMethod(state: ClientState, method: string, args: unkn
   }
 
   // All retries exhausted
-  const error = new RPCError(lastError?.message ?? 'RPC call failed', { method, target: targetUrl })
+  const attempts = maxAttempts > 1 ? ` after ${maxAttempts} attempts` : ''
+  const errorMsg = lastError?.message
+    ? `RPC call to ${method}() failed${attempts}: ${lastError.message}`
+    : `RPC call to ${method}() failed${attempts}`
+  const error = new RPCError(errorMsg, { method, target: targetUrl })
   error.stack = lastError?.stack
   throw error
 }
@@ -343,12 +335,16 @@ async function makeRPCCall(
 ): Promise<unknown> {
   // Check if aborted
   if (signal.aborted) {
-    throw new RPCError('Request timeout', { method })
+    const error = new RPCError('Request was aborted or timed out', { method })
+    throw error
   }
 
   // Validate method call
   if (method === 'charge' && args.length > 0 && typeof args[0] === 'number' && args[0] < 0) {
-    const error = new RPCError('Invalid amount: cannot be negative', { method })
+    const error = new RPCError(
+      `Invalid argument for ${method}(): amount cannot be negative, got ${args[0]}`,
+      { method }
+    )
     throw error
   }
 
@@ -367,15 +363,14 @@ async function makeRPCCall(
     // Simulate a slow operation using polling-based abort detection
     // This approach is more reliable across different JS runtimes
     const startTime = Date.now()
-    const slowDelayMs = 500
 
-    while (Date.now() - startTime < slowDelayMs) {
+    while (Date.now() - startTime < SLOW_DELAY_MS) {
       // Check if signal was aborted
       if (signal.aborted) {
         throw new RPCError('Request timeout', { method })
       }
       // Yield to event loop with a short wait
-      await new Promise(resolve => setTimeout(resolve, 5))
+      await new Promise(resolve => setTimeout(resolve, ABORT_CHECK_INTERVAL_MS))
     }
   }
 
@@ -423,7 +418,34 @@ async function makeRPCCall(
 }
 
 /**
- * Create a pipeline builder for chained calls
+ * Create a pipeline builder for optimized chained RPC calls
+ *
+ * Enables composing multiple method calls into a single execution plan that
+ * can be optimized to minimize network round-trips. Methods are called sequentially,
+ * with results piped to the next method in the chain.
+ *
+ * Supports:
+ * - Method chaining via .then()
+ * - Array operations (filter, map)
+ * - Conditional branching
+ * - Execution plan inspection via .plan()
+ *
+ * @template T - The target object type
+ * @param target - The RPC client or local object to pipeline through
+ * @returns Pipeline builder with fluent API for method chaining
+ *
+ * @example
+ * // Chain method calls without intermediate round-trips
+ * const result = await pipeline(customer)
+ *   .then('getOrders')
+ *   .then('filter', (o: Order) => o.total > 100)
+ *   .execute()
+ *
+ * // Inspect execution plan
+ * const plan = pipeline(customer)
+ *   .then('getOrders')
+ *   .then('map', (o: Order) => o.id)
+ *   .plan()
  */
 export function pipeline<T>(target: T): PipelineBuilder<T> {
   const steps: PipelineStep[] = []
@@ -469,11 +491,16 @@ export function pipeline<T>(target: T): PipelineBuilder<T> {
 
           // Check for invalid methods
           if (step.method === 'invalidMethod' || step.method === 'failingMethod') {
-            const error = new RPCError(`Method '${step.method}' failed at pipeline step ${i}`, {
-              method: step.method,
-              target: state?.targetUrl,
-              partialResults,
-            })
+            const error = new RPCError(
+              `Pipeline step ${i} failed: method '${step.method}()' is invalid or failed${
+                partialResults.length > 0 ? ` (after ${partialResults.length} successful steps)` : ''
+              }`,
+              {
+                method: step.method,
+                target: state?.targetUrl,
+                partialResults,
+              }
+            )
             throw error
           }
 

@@ -13,7 +13,7 @@ import {
   searchToolDefinition,
   indexDocument,
   removeFromIndex,
-  type SearchParams,
+  type SearchInput,
   type SearchEnv,
   type SearchToolProps,
   type SearchResponse,

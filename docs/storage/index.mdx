@@ -1,0 +1,179 @@
+---
+title: Storage Architecture
+description: A 4-layer tiered storage system for Durable Objects with sub-millisecond reads and guaranteed durability
+---
+
+# Storage Architecture
+
+The dotdo storage system implements a **4-layer tiered architecture** that balances speed, durability, and cost. This design delivers sub-millisecond reads while maintaining strong durability guarantees through write-ahead logging and eventual cold storage archival.
+
+## Architecture Overview
+
+```
+Write Path: Client -> L0 (memory) -> L1 (WAL ACK) -> lazy L2 -> eventual L3
+Read Path:  L0 (hit?) -> L2 (hit?) -> L3 (restore)
+```
+
+### The Four Layers
+
+| Layer | Component | Latency | Durability | Purpose |
+|-------|-----------|---------|------------|---------|
+| **L0** | InMemoryStateManager | ~0.01ms | None | Hot cache with O(1) CRUD |
+| **L1** | PipelineEmitter (WAL) | ~1ms | High | Fire-and-forget durability |
+| **L2** | LazyCheckpointer (SQLite) | ~5ms | High | Batched persistence |
+| **L3** | IcebergWriter (R2) | ~50ms | Permanent | Cold storage with time travel |
+
+### Architecture Diagram
+
+```
+                    Client Request
+                          |
+                          v
+            +-------------------------+
+            |    L0: InMemory Cache   |  <- Sub-ms reads
+            |    (Hot Data Layer)     |     O(1) CRUD
+            +------------+------------+     LRU eviction
+                         |                  Dirty tracking
+                         | write
+                         v
+            +-------------------------+
+            |   L1: Pipeline (WAL)    |  <- Durability ACK
+            |   (Write-Ahead Log)     |     Fire-and-forget
+            +------------+------------+     Idempotency keys
+                         |                  Batch emission
+                         | lazy (5s)
+                         v
+            +-------------------------+
+            |   L2: SQLite Checkpoint |  <- Batched writes
+            |   (Persistent Cache)    |     95% write reduction
+            +------------+------------+     Threshold triggers
+                         |                  Version tracking
+                         | eventual (60s)
+                         v
+            +-------------------------+
+            |   L3: Iceberg/R2        |  <- Permanent archive
+            |   (Cold Storage)        |     Time travel queries
+            +-------------------------+     Schema evolution
+                                           Parquet format
+```
+
+## Design Principles
+
+### Speed Over Everything (L0)
+
+The in-memory layer handles all read operations with O(1) complexity. No database round-trips for cached data:
+
+```typescript
+// Synchronous read - no await needed
+const customer = storage.get('cust_123')
+```
+
+### Durability Before ACK (L1)
+
+Events are durable in the Pipeline **before** acknowledging to the client. This guarantees zero data loss even if the DO is evicted immediately after write:
+
+```typescript
+// Write path ensures L1 ACK before returning
+const thing = await storage.create({
+  $type: 'Customer',
+  name: 'Alice'
+})
+// At this point: L0 written, L1 ACK'd
+```
+
+### Lazy Persistence (L2)
+
+SQLite writes are batched and lazy, reducing write operations by approximately 95%. Only dirty entries are checkpointed:
+
+```typescript
+// Checkpoint occurs on:
+// - Timer interval (default: 5s)
+// - Dirty count threshold (default: 100 entries)
+// - Memory threshold (default: 10MB)
+// - Hibernation
+```
+
+### Infinite Retention (L3)
+
+Cold storage in Iceberg format provides:
+- **Time travel queries** - reconstruct state at any point in time
+- **Schema evolution** - safely add fields without migration
+- **Cost efficiency** - R2 storage at $0.015/GB/month
+
+## Data Flow
+
+### Write Path
+
+1. **L0 Write** - Data written to memory immediately
+2. **L1 Emit** - Event emitted to Pipeline (WAL)
+3. **L1 ACK** - Client receives acknowledgment
+4. **L2 Checkpoint** - Dirty entries batched to SQLite (lazy)
+5. **L3 Archive** - Events written to Iceberg (eventual)
+
+### Read Path
+
+1. **L0 Check** - Try memory cache first (sub-ms)
+2. **L2 Fallback** - Query SQLite if L0 miss
+3. **L3 Restore** - Reconstruct from Iceberg events if L2 miss
+
+## Quick Start
+
+```typescript
+import { DOStorage } from 'dotdo/storage'
+
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: {
+    PIPELINE: env.PIPELINE,
+    R2: env.COLD_STORAGE,
+    sql: ctx.storage.sql
+  },
+  checkpointInterval: 5000,    // L2 checkpoint every 5s
+  icebergFlushInterval: 60000  // L3 flush every 60s
+})
+
+// Write (L0 -> L1 ACK -> lazy L2 -> eventual L3)
+const customer = await storage.create({
+  $type: 'Customer',
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+
+// Read (L0 hit - sub-ms)
+const cached = storage.get(customer.$id)
+
+// Read with fallback (L0 -> L2 -> L3)
+const restored = await storage.getWithFullFallback('cust_old_123')
+```
+
+## Layer Documentation
+
+- [L0: In-Memory Cache](/storage/in-memory) - Hot data layer with LRU eviction
+- [L1: Pipeline WAL](/storage/pipeline-wal) - Write-ahead log for durability
+- [L2: Lazy Checkpoint](/storage/lazy-checkpoint) - Batched SQLite persistence
+- [L3: Cold Tier](/storage/cold-tier) - Iceberg/R2 archival storage
+- [Recovery](/storage/recovery) - Cold start and state reconstruction
+
+## Configuration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `checkpointInterval` | `5000` | Milliseconds between L2 checkpoints |
+| `icebergFlushInterval` | `60000` | Milliseconds between L3 flushes |
+| `waitForPipeline` | `false` | Block until L1 ACK (stronger durability) |
+
+## Performance Characteristics
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| L0 read (hit) | ~0.01ms | Synchronous, no I/O |
+| L0 write | ~0.05ms | Memory + dirty tracking |
+| L1 emit | ~1ms | Async, fire-and-forget |
+| L2 checkpoint | ~5ms | Batched, only dirty entries |
+| L3 write | ~50ms | Eventual, partitioned by date |
+| Cold start (L2) | ~10ms | Load from SQLite |
+| Cold start (L3) | ~100ms | Event replay from Iceberg |
+
+## Next Steps
+
+Start with the [L0: In-Memory Cache](/storage/in-memory) documentation to understand the hot data layer, or jump to [Recovery](/storage/recovery) to learn about cold start patterns.

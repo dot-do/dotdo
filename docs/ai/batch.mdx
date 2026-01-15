@@ -1,0 +1,254 @@
+---
+title: Batch Processing
+description: Process multiple AI operations with immediate, flex, and deferred batch modes for cost optimization
+---
+
+# Batch Processing
+
+The batch system allows you to process multiple items through AI operations with different cost/speed tradeoffs. Choose the mode that matches your latency requirements and budget.
+
+## Batch Modes
+
+| Mode | Cost Multiplier | Use Case |
+|------|-----------------|----------|
+| `immediate` | 1.0x | Real-time, user-facing operations |
+| `flex` | 0.5x | Background processing with some urgency |
+| `deferred` | 0.25x | Bulk processing, no time pressure |
+
+## Basic Usage
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+const items = ['Review 1 text', 'Review 2 text', 'Review 3 text']
+
+// Process immediately (highest cost, lowest latency)
+const results = await ai.batch(items, 'immediate')
+
+// Process with flexibility (medium cost, medium latency)
+const results = await ai.batch(items, 'flex')
+
+// Process when convenient (lowest cost, highest latency)
+const results = await ai.batch(items, 'deferred')
+```
+
+## Custom Templates
+
+Apply a specific AI template to each item:
+
+```typescript
+import { ai, is, list } from 'dotdo/ai'
+
+const reviews = [
+  'Great product, love it!',
+  'Terrible experience, never again',
+  'It was okay, nothing special'
+]
+
+// Classify each review
+const sentiments = await ai.batch(
+  reviews,
+  'immediate',
+  (review) => is`Classify as positive, negative, or neutral: ${review}`
+)
+// Returns: ['positive', 'negative', 'neutral']
+
+// Extract keywords from each
+const keywordLists = await ai.batch(
+  reviews,
+  'flex',
+  (review) => list`Extract keywords: ${review}`
+)
+// Returns: [['great', 'product', 'love'], ['terrible', 'experience'], ['okay']]
+```
+
+## Batch Result Object
+
+The batch function returns a `BatchResult` that is also a `Promise`:
+
+```typescript
+const batch = ai.batch(items, 'immediate')
+
+// Get the batch ID for tracking
+console.log(batch.batchId) // "batch-1234567890-abc123"
+
+// Await results
+const results = await batch
+```
+
+## Tracking Batch Status
+
+Monitor batch progress with the status function:
+
+```typescript
+const batch = ai.batch(items, 'deferred')
+
+// Check status periodically
+const status = await ai.batch.status(batch.batchId)
+// Returns: 'pending' | 'processing' | 'completed'
+
+// Poll for completion
+while (await ai.batch.status(batch.batchId) !== 'completed') {
+  await new Promise(resolve => setTimeout(resolve, 1000))
+}
+
+const results = await batch
+```
+
+## Mode Selection Guide
+
+### Immediate Mode
+
+Use for user-facing operations where latency matters:
+
+```typescript
+// Chat responses
+const responses = await ai.batch(
+  userMessages,
+  'immediate',
+  (msg) => ai`Respond to: ${msg}`
+)
+
+// Real-time classification
+const categories = await ai.batch(
+  incomingTickets,
+  'immediate',
+  (ticket) => is`Classify urgency (low/medium/high): ${ticket}`
+)
+```
+
+### Flex Mode
+
+Use for background tasks with reasonable time constraints:
+
+```typescript
+// Email summaries (within minutes)
+const summaries = await ai.batch(
+  emails,
+  'flex',
+  (email) => ai`Summarize: ${email.body}`
+)
+
+// Content moderation queue
+const moderationResults = await ai.batch(
+  pendingPosts,
+  'flex',
+  (post) => is`Is this content appropriate? ${post.content}`
+)
+```
+
+### Deferred Mode
+
+Use for bulk processing where cost is the priority:
+
+```typescript
+// Nightly data processing
+const enriched = await ai.batch(
+  allProducts,
+  'deferred',
+  (product) => ai`Generate SEO description: ${product.name}`
+)
+
+// Historical analysis
+const analyses = await ai.batch(
+  historicalRecords,
+  'deferred',
+  (record) => ai`Analyze trends in: ${JSON.stringify(record)}`
+)
+```
+
+## Cost Optimization Patterns
+
+### Mixed Mode Processing
+
+Prioritize some items while batch processing others:
+
+```typescript
+const items = [
+  { data: 'urgent item', priority: 'high' },
+  { data: 'normal item', priority: 'low' },
+  { data: 'another normal', priority: 'low' },
+]
+
+// Split by priority
+const urgent = items.filter(i => i.priority === 'high')
+const normal = items.filter(i => i.priority === 'low')
+
+// Process urgent immediately, normal deferred
+const [urgentResults, normalResults] = await Promise.all([
+  ai.batch(urgent.map(i => i.data), 'immediate'),
+  ai.batch(normal.map(i => i.data), 'deferred'),
+])
+```
+
+### Budget-Aware Batching
+
+Combine with budget tracking:
+
+```typescript
+import { createAI } from 'dotdo/ai'
+
+const ai = createAI({
+  budget: { limit: 100 }
+})
+
+// Deferred mode stretches budget 4x further
+// 100 budget units = 400 deferred operations vs 100 immediate
+const results = await ai.batch(items, 'deferred')
+
+console.log('Spent:', ai.budget.spent)
+console.log('Remaining:', ai.budget.remaining)
+```
+
+## Error Handling
+
+Batch operations fail fast by default:
+
+```typescript
+try {
+  const results = await ai.batch(items, 'immediate')
+} catch (error) {
+  // One item failed - entire batch fails
+  console.error('Batch failed:', error)
+}
+```
+
+For partial results, process individually:
+
+```typescript
+const results = await Promise.allSettled(
+  items.map(item => ai`Process: ${item}`)
+)
+
+const successful = results
+  .filter(r => r.status === 'fulfilled')
+  .map(r => r.value)
+
+const failed = results
+  .filter(r => r.status === 'rejected')
+  .map(r => r.reason)
+```
+
+## Performance Considerations
+
+1. **Batch size**: Larger batches are more efficient but increase memory usage
+2. **Mode selection**: Choose based on actual latency requirements, not assumptions
+3. **Parallelization**: Batch mode handles parallelization internally
+4. **Caching**: Cached results bypass batch processing entirely
+
+```typescript
+// With caching enabled, repeated items are instant
+const ai = createAI({
+  cache: { enabled: true, ttl: 300000 }
+})
+
+// Second batch with same items returns cached results
+const results1 = await ai.batch(items, 'immediate')
+const results2 = await ai.batch(items, 'immediate') // Instant from cache
+```
+
+## Next Steps
+
+- [Budget Tracking](/ai/budget) - Monitor costs across batch operations
+- [Caching](/ai/caching) - Reduce costs with response caching
+- [Providers](/ai/providers) - Configure batch processing providers

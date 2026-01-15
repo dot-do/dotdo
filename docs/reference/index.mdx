@@ -1,0 +1,134 @@
+---
+title: API Reference
+description: Complete API documentation for dotdo classes, methods, and types
+---
+
+# API Reference
+
+This reference section documents all public APIs in the dotdo runtime. Use this as a comprehensive guide when building with dotdo Durable Objects.
+
+## How to Navigate
+
+The API reference is organized by DO class hierarchy and core interfaces:
+
+### DO Class Hierarchy
+
+dotdo provides a hierarchy of Durable Object classes, each adding capabilities on top of the previous:
+
+| Class | Size | Capabilities | Reference |
+|-------|------|--------------|-----------|
+| [DOCore](/reference/do-core) | ~5KB | State, alarms, routing, WebSockets | Base class |
+| [DOSemantic](/reference/do-semantic) | ~20KB | Nouns, Verbs, Things, Actions | Extends DOCore |
+| [DOStorage](/reference/do-storage) | ~40KB | InMemory + Pipeline + SQLite + Iceberg | Extends DOSemantic |
+| [DOWorkflow](/reference/do-workflow) | ~60KB | WorkflowContext ($), cascade, scheduling | Extends DOStorage |
+| [DOFull](/reference/do-full) | ~80KB | AI, human-in-loop, fanout, streaming | Full runtime |
+
+Choose the smallest class that provides the capabilities you need to minimize cold start time and memory usage.
+
+### Core Interfaces
+
+| Interface | Description | Reference |
+|-----------|-------------|-----------|
+| [WorkflowContext ($)](/reference/workflow-context) | Unified DSL for events, scheduling, and durable execution | `createWorkflowContext()` |
+| [Types](/reference/types) | TypeScript type definitions for all public APIs | `Thing`, `Noun`, `Verb`, etc. |
+
+## Quick Links
+
+### By Capability
+
+**State Management**
+- [`DOCore.get()`](/reference/do-core#get) - Retrieve a value by key
+- [`DOCore.set()`](/reference/do-core#set) - Store a value
+- [`DOCore.list()`](/reference/do-core#list) - List keys with filtering
+- [`DOCore.transaction()`](/reference/do-core#transaction) - Atomic operations
+
+**Semantic Types**
+- [`DOSemantic.defineNoun()`](/reference/do-semantic#definenoun) - Define a noun with auto-pluralization
+- [`DOSemantic.defineVerb()`](/reference/do-semantic#defineverb) - Define a verb with auto-conjugation
+- [`DOSemantic.createThing()`](/reference/do-semantic#creatething) - Create typed entity instances
+- [`DOSemantic.createAction()`](/reference/do-semantic#createaction) - Record events, edges, and audit logs
+
+**Workflow & Events**
+- [`$.on.Noun.verb()`](/reference/workflow-context#on) - Event handlers with wildcards
+- [`$.every.Monday.at9am()`](/reference/workflow-context#every) - Fluent scheduling DSL
+- [`$.send()`](/reference/workflow-context#send) - Fire-and-forget events
+- [`$.try()`](/reference/workflow-context#try) - Single-attempt execution
+- [`$.do()`](/reference/workflow-context#do) - Durable execution with retries
+- [`$.cascade()`](/reference/workflow-context#cascade) - Tiered execution (code -> generative -> agentic -> human)
+
+**Cross-DO Communication**
+- [`$.Customer(id).method()`](/reference/workflow-context#cross-do-rpc) - Type-safe RPC to other DOs
+- [`DOCore.broadcast()`](/reference/do-core#broadcast) - WebSocket pub/sub
+
+## Auto-Generated Types
+
+The reference pages include type signatures extracted directly from the TypeScript source. Each method documents:
+
+- **Parameters** - Required and optional arguments with types
+- **Return type** - What the method returns
+- **Examples** - Usage patterns with code samples
+- **RPC availability** - Whether the method is callable via RPC
+
+## Import Paths
+
+All public APIs are exported from the `dotdo/core` entry point:
+
+```typescript
+// DO Classes
+import { DOCore, DOSemantic, DOStorage, DOWorkflow, DOFull } from 'dotdo/core'
+
+// Types
+import type { Thing, Noun, Verb, ActionResult } from 'dotdo/core'
+import type { WorkflowContext, Event, CascadeOptions } from 'dotdo/core'
+
+// Environment types (for wrangler.toml bindings)
+import type { DOCoreEnv, DOSemanticEnv, DOStorageEnv, DOWorkflowEnv, DOFullEnv } from 'dotdo/core'
+
+// Factory functions
+import { createWorkflowContext } from 'dotdo/core'
+```
+
+## TypeScript Support
+
+dotdo is written in TypeScript and provides full type definitions. Enable strict mode for the best experience:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"]
+  }
+}
+```
+
+### RPC Type Safety
+
+When using RPC to call DO methods, TypeScript provides full inference:
+
+```typescript
+const stub = env.DOSemantic.get(id)
+
+// Types are inferred from the DO class
+const noun = await stub.defineNoun('Customer')
+// noun: Noun (automatically typed)
+
+const thing = await stub.createThing('Customer', { name: 'Alice' })
+// thing: Thing<{ name: string }>
+```
+
+## Version Compatibility
+
+This reference documents dotdo v1.x. The API follows semantic versioning:
+
+- **Patch releases** (1.0.x) - Bug fixes, no API changes
+- **Minor releases** (1.x.0) - New features, backwards compatible
+- **Major releases** (x.0.0) - Breaking changes (with migration guide)
+
+## Contributing
+
+Found an error or want to improve the docs? The reference pages are generated from JSDoc comments in the source code. To contribute:
+
+1. Edit the source file (e.g., `core/DOCore.ts`)
+2. Update or add JSDoc comments
+3. Run `npm run docs:generate` to regenerate the reference pages

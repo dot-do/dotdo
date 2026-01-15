@@ -1,0 +1,207 @@
+---
+title: Model Context Protocol
+description: MCP server implementation for AI agent integration with SSE transport, authentication, and tool management
+---
+
+# Model Context Protocol (MCP)
+
+The dotdo MCP module provides a complete [Model Context Protocol](https://modelcontextprotocol.io/) server implementation built on Durable Objects. It enables AI agents to securely interact with your dotdo runtime through standardized tools and resources.
+
+## Key Features
+
+- **Durable Object Server**: MCP server runs as a DO for stateful connections
+- **SSE Transport**: Server-Sent Events for real-time bidirectional communication
+- **OAuth + JWT Authentication**: Secure access via WorkOS AuthKit integration
+- **Permission-Based Access**: Fine-grained tool access control
+- **Dynamic Tool Registry**: Register and unregister tools at runtime
+- **Built-in Tools**: `fetch`, `search`, and `do` (code execution) included
+
+## Quick Start
+
+```typescript
+import { McpServer } from 'dotdo/mcp'
+
+// The MCP server is a Durable Object
+export { McpServer }
+
+export default {
+  async fetch(request: Request, env: Env) {
+    // Route MCP requests to the server
+    const id = env.MCP.idFromName('default')
+    const stub = env.MCP.get(id)
+    return stub.fetch(request)
+  }
+}
+```
+
+## Architecture
+
+The MCP server is implemented as a Cloudflare Durable Object, providing:
+
+1. **Persistent SSE Connections**: Each connected client maintains a real-time channel
+2. **Session Management**: KV-backed session storage with automatic expiration
+3. **Tool Isolation**: Tools execute with user permissions in isolated contexts
+
+```
+Client (Claude, GPT, etc.)
+    |
+    | SSE Connection (with JWT)
+    v
++-------------------+
+|   MCP Server DO   |
+|                   |
+| - Auth middleware |
+| - Tool registry   |
+| - SSE manager     |
++-------------------+
+    |
+    | Tool Execution
+    v
++-------------------+
+|  dotdo Runtime    |
+| (DOs, Storage,    |
+|  Workflows)       |
++-------------------+
+```
+
+## Environment Bindings
+
+The MCP server requires these Cloudflare bindings:
+
+```toml
+# wrangler.toml
+[[durable_objects.bindings]]
+name = "MCP"
+class_name = "McpServer"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "your-kv-namespace-id"
+
+[vars]
+JWT_SECRET = "your-jwt-secret"
+WORKOS_CLIENT_ID = "your-workos-client-id"
+WORKOS_API_KEY = "your-workos-api-key"
+OAUTH_REDIRECT_URI = "https://your-domain.com/mcp/callback"
+```
+
+## Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/health` | GET | No | Server health check |
+| `/authorize` | GET | No | Start OAuth flow |
+| `/callback` | GET | No | OAuth callback |
+| `/logout` | POST | No | End session |
+| `/sse` | GET | JWT | SSE connection |
+| `/tools` | GET | JWT | List available tools |
+| `/tools/:name` | POST | JWT | Execute tool |
+| `/capabilities` | GET | JWT | Get server capabilities |
+
+## SSE Connection
+
+Clients connect via Server-Sent Events for real-time communication:
+
+```typescript
+// Client connection example
+const eventSource = new EventSource(
+  'https://mcp.your-domain.com/sse?token=<jwt>',
+  { withCredentials: true }
+)
+
+eventSource.onmessage = (event) => {
+  const message = JSON.parse(event.data)
+
+  switch (message.type) {
+    case 'initialize':
+      console.log('Connected to:', message.serverInfo.name)
+      console.log('Capabilities:', message.capabilities)
+      break
+    case 'tool_result':
+      console.log('Tool result:', message.result)
+      break
+    case 'ping':
+      // Heartbeat - connection alive
+      break
+  }
+}
+```
+
+## Server Info
+
+```typescript
+const server = new McpServer()
+
+// Server identifies itself to clients
+server.getServerInfo()
+// { name: 'dotdo-mcp', version: '1.0.0' }
+```
+
+## Capabilities Response
+
+Connected clients receive server capabilities including available tools:
+
+```json
+{
+  "type": "initialize",
+  "serverInfo": {
+    "name": "dotdo-mcp",
+    "version": "1.0.0"
+  },
+  "capabilities": {
+    "tools": {
+      "echo": { "name": "echo", "description": "..." },
+      "ping": { "name": "ping", "description": "..." },
+      "fetch": { "name": "fetch", "description": "..." },
+      "search": { "name": "search", "description": "..." },
+      "do": { "name": "do", "description": "..." }
+    },
+    "resources": {},
+    "prompts": {}
+  }
+}
+```
+
+## Broadcasting
+
+Send messages to all connected clients:
+
+```typescript
+const server = env.MCP.get(env.MCP.idFromName('default'))
+
+// Broadcast to all SSE connections
+const sent = await server.broadcast({
+  type: 'tool_result',
+  id: 'notification-123',
+  result: { content: [{ type: 'text', text: 'Update available' }] }
+})
+
+console.log(`Sent to ${sent} clients`)
+```
+
+## Documentation
+
+| Page | Description |
+|------|-------------|
+| [Authentication](/mcp/authentication) | OAuth flow, JWT tokens, session management |
+| [Tools](/mcp/tools) | Built-in tools and custom tool registration |
+| [Security](/mcp/security) | Permissions, sandboxing, access control |
+
+## Installation
+
+The MCP module is included with dotdo:
+
+```bash
+npm install dotdo
+```
+
+```typescript
+import { McpServer } from 'dotdo/mcp'
+import type { McpEnv, McpTool, McpToolResult } from 'dotdo/mcp'
+```
+
+## Next Steps
+
+- [Authentication Guide](/mcp/authentication) - Set up OAuth and JWT
+- [Tools Guide](/mcp/tools) - Use built-in tools and create custom ones
+- [Security Guide](/mcp/security) - Configure permissions and sandboxing

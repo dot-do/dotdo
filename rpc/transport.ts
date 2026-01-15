@@ -9,6 +9,8 @@
  * - Custom type handlers
  */
 
+import { isCapability, serializeCapabilityObject, isTypedObject, isCircularRefMarker } from './serialization-helpers'
+
 /**
  * Serialization options
  */
@@ -24,22 +26,19 @@ export interface TypeHandler {
   deserialize(value: unknown): unknown
 }
 
-// Track seen objects for circular reference detection
-const seenObjects = new WeakMap<object, string>()
-let refCounter = 0
-
-function resetRefTracking(): void {
-  refCounter = 0
-}
-
 /**
  * Serialize a value to JSON string or binary ArrayBuffer
+ *
+ * Note: seenObjects is created per-call to avoid race conditions
+ * when multiple concurrent serializations occur in the same isolate.
  */
 export function serialize(value: unknown, options: SerializationOptions = {}): string | ArrayBuffer {
   const { format = 'json', handlers } = options
 
-  resetRefTracking()
-  const transformed = transformForSerialization(value, handlers, '#')
+  // Per-call state for circular reference detection
+  // This avoids race conditions when multiple serializations happen concurrently
+  const seenObjects = new Map<object, string>()
+  const transformed = transformForSerialization(value, handlers, '#', seenObjects)
 
   if (format === 'binary') {
     return serializeToBinary(transformed)
@@ -83,8 +82,18 @@ export function deserialize<T>(data: string | ArrayBuffer, options: Serializatio
 
 /**
  * Transform value for serialization, handling special types
+ *
+ * @param value - The value to transform
+ * @param handlers - Optional custom type handlers
+ * @param path - JSON path for circular reference tracking
+ * @param seenObjects - Map tracking seen objects for circular reference detection
  */
-function transformForSerialization(value: unknown, handlers?: Map<string, TypeHandler>, path: string = '#'): unknown {
+function transformForSerialization(
+  value: unknown,
+  handlers: Map<string, TypeHandler> | undefined,
+  path: string,
+  seenObjects: Map<object, string>
+): unknown {
   // Check for custom handlers first
   if (handlers && value !== null && typeof value === 'object') {
     const typeName = value.constructor?.name
@@ -97,15 +106,8 @@ function transformForSerialization(value: unknown, handlers?: Map<string, TypeHa
   }
 
   // Check if this is a Capability object
-  if (value !== null && typeof value === 'object' && 'id' in value && 'type' in value && 'methods' in value && 'invoke' in value) {
-    const cap = value as { id: string; type: string; methods: string[]; expiresAt?: Date; parent?: object }
-    return {
-      $type: 'Capability',
-      id: cap.id,
-      type: cap.type,
-      methods: cap.methods,
-      expiresAt: cap.expiresAt?.toISOString(),
-    }
+  if (isCapability(value)) {
+    return serializeCapabilityObject(value)
   }
 
   // Primitive types
@@ -134,7 +136,7 @@ function transformForSerialization(value: unknown, handlers?: Map<string, TypeHa
   }
 
   if (Array.isArray(value)) {
-    return value.map((item, i) => transformForSerialization(item, handlers, `${path}[${i}]`))
+    return value.map((item, i) => transformForSerialization(item, handlers, `${path}[${i}]`, seenObjects))
   }
 
   if (typeof value === 'object') {
@@ -148,7 +150,7 @@ function transformForSerialization(value: unknown, handlers?: Map<string, TypeHa
     const result: Record<string, unknown> = {}
     for (const [key, val] of Object.entries(value)) {
       if (val !== undefined) {
-        result[key] = transformForSerialization(val, handlers, `${path}.${key}`)
+        result[key] = transformForSerialization(val, handlers, `${path}.${key}`, seenObjects)
       }
     }
     return result
@@ -191,8 +193,8 @@ function transformFromSerialization(value: unknown, handlers?: Map<string, TypeH
   const obj = value as Record<string, unknown>
 
   // Check for typed objects
-  if ('$type' in obj) {
-    const typeName = obj.$type as string
+  if (isTypedObject(obj)) {
+    const typeName = obj.$type
 
     // Check custom handlers first
     if (handlers) {
@@ -252,8 +254,8 @@ function resolveCircularRefs(value: unknown, root?: unknown): unknown {
 
   const obj = value as Record<string, unknown>
 
-  // Check for reference
-  if ('$ref' in obj && obj.$ref === '#') {
+  // Check for circular reference marker
+  if (isCircularRefMarker(obj) && obj.$ref === '#') {
     return root
   }
 

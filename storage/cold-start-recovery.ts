@@ -65,26 +65,32 @@ export class ColdStartRecovery {
   }
 
   /**
-   * Recover state from storage layers
+   * Recover state from storage layers.
    * Priority: SQLite (L2) -> Iceberg (L3) -> empty
+   *
+   * Always replays pipeline events on top of the recovered base state
+   * to ensure consistency after the last checkpoint.
+   *
+   * @returns Recovery result with source, loaded things, replayed events, and state
    */
   async recover(): Promise<RecoveryResult> {
     const startTime = Date.now()
     const state = new Map<string, ThingData>()
+    let baseThingsLoaded = 0
+    let baseEventsReplayed = 0
 
     // Try SQLite first (L2)
-    const sqliteResult = this.loadFromSQLite()
-    if (sqliteResult.length > 0) {
-      for (const thing of sqliteResult) {
+    const sqliteThings = this.loadFromSQLite()
+    if (sqliteThings.length > 0) {
+      for (const thing of sqliteThings) {
         state.set(thing.$id, thing)
       }
+      baseThingsLoaded = sqliteThings.length
 
-      // Replay pipeline events on top of SQLite state
       const eventsReplayed = this.replayPipelineEvents(state)
-
       return {
         source: 'sqlite',
-        thingsLoaded: sqliteResult.length,
+        thingsLoaded: baseThingsLoaded,
         eventsReplayed,
         state,
         durationMs: Date.now() - startTime,
@@ -93,12 +99,13 @@ export class ColdStartRecovery {
 
     // Fallback to Iceberg (L3)
     if (this.iceberg) {
-      const icebergResult = await this.loadFromIceberg()
-      if (icebergResult.events.length > 0) {
-        // Replay events to reconstruct state
-        for (const event of icebergResult.events) {
+      const icebergEvents = (await this.loadFromIceberg()).events
+      if (icebergEvents.length > 0) {
+        // Replay Iceberg events to reconstruct state
+        for (const event of icebergEvents) {
           this.applyEvent(state, event)
         }
+        baseEventsReplayed = icebergEvents.length
 
         // Replay pipeline events on top of Iceberg state
         const pipelineEventsReplayed = this.replayPipelineEvents(state)
@@ -106,7 +113,7 @@ export class ColdStartRecovery {
         return {
           source: 'iceberg',
           thingsLoaded: state.size,
-          eventsReplayed: icebergResult.events.length + pipelineEventsReplayed,
+          eventsReplayed: baseEventsReplayed + pipelineEventsReplayed,
           state,
           durationMs: Date.now() - startTime,
         }

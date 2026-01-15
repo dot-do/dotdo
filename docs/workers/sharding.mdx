@@ -1,0 +1,307 @@
+---
+title: Sharding
+description: Horizontal scaling with consistent hashing for distributing data across multiple Durable Objects
+---
+
+# Sharding
+
+The sharding module implements consistent hashing for distributing data across multiple Durable Objects. This enables horizontal scaling by spreading load across shards while minimizing data movement when shards are added or removed.
+
+## Why Consistent Hashing?
+
+Traditional modulo hashing (`hash(key) % shardCount`) causes massive data redistribution when shard count changes. Consistent hashing minimizes this:
+
+| Operation | Modulo Hash | Consistent Hash |
+|-----------|-------------|-----------------|
+| Add 1 shard (16 to 17) | ~94% keys move | ~6% keys move |
+| Remove 1 shard | ~94% keys move | ~6% keys move |
+| Rebalancing | Full reshuffle | Minimal impact |
+
+## Hash Ring
+
+The consistent hash ring maps keys to shards using virtual nodes for even distribution:
+
+```typescript
+import { createHashRing, hashKey } from 'dotdo/workers'
+
+// Create a ring with 16 shards
+const ring = createHashRing({
+  shardCount: 16,
+  virtualNodes: 150, // Default: 150 virtual nodes per shard
+})
+
+// Add shard nodes
+for (let i = 0; i < 16; i++) {
+  ring.addNode(`shard-${i}`)
+}
+
+// Route a key to a shard
+const key = hashKey('tenant-a', 'customers', '123')
+const shard = ring.getNode(key) // 'shard-7'
+```
+
+## Virtual Nodes
+
+Virtual nodes ensure even distribution across shards. Each physical shard is represented by multiple virtual nodes on the ring:
+
+```
+Ring (0 to 2^32):
+├── shard-0:0  (position 12345)
+├── shard-1:0  (position 23456)
+├── shard-0:1  (position 34567)
+├── shard-2:0  (position 45678)
+├── shard-1:1  (position 56789)
+...
+```
+
+More virtual nodes = better distribution:
+
+| Virtual Nodes | Standard Deviation |
+|---------------|-------------------|
+| 50 | ~15% |
+| 100 | ~10% |
+| 150 (default) | ~6% |
+| 200 | ~5% |
+
+## Hash Key Construction
+
+The `hashKey` function creates composite keys from namespace, type, and ID:
+
+```typescript
+import { hashKey } from 'dotdo/workers'
+
+// Basic key
+const key1 = hashKey('tenant-a', 'customers', '123')
+// Result: 'tenant-a:customers:123'
+
+// Use '_' for missing components
+const key2 = hashKey('tenant-a', '_', '_')
+// Result: 'tenant-a:_:_'
+```
+
+## Worker Integration
+
+### Basic Sharded Worker
+
+```typescript
+import { parseSubdomainRoute, createHashRing, hashKey } from 'dotdo/workers'
+
+const SHARD_COUNT = 16
+
+// Initialize ring once at module level
+const ring = createHashRing({ shardCount: SHARD_COUNT })
+for (let i = 0; i < SHARD_COUNT; i++) {
+  ring.addNode(`shard-${i}`)
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+
+    if (!route) {
+      return new Response('Invalid route', { status: 400 })
+    }
+
+    // Determine shard for this key
+    const key = hashKey(route.ns, route.type || '_', route.id || '_')
+    const shard = ring.getNode(key)
+
+    // Route to shard-specific DO
+    const id = env.DO.idFromName(shard)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+### Using the Preset
+
+```typescript
+import { createShardedWorker } from 'dotdo/workers'
+
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
+
+export default {
+  fetch: worker.handleRequest,
+}
+```
+
+## Sharding Strategies
+
+### By Tenant (Namespace)
+
+Shard by tenant ID - all data for a tenant on same shard:
+
+```typescript
+const key = hashKey(route.ns, '_', '_')
+const shard = ring.getNode(key)
+```
+
+**Pros:** Simple queries within tenant, tenant isolation
+**Cons:** Hot tenants can overload shards
+
+### By Resource
+
+Shard by resource ID - distribute individual resources:
+
+```typescript
+const key = hashKey(route.ns, route.type, route.id)
+const shard = ring.getNode(key)
+```
+
+**Pros:** Even distribution, no hot spots
+**Cons:** Cross-resource queries require scatter-gather
+
+### By Type
+
+Shard by resource type - all customers on one shard set, orders on another:
+
+```typescript
+const key = hashKey('_', route.type, '_')
+const shard = ring.getNode(key)
+```
+
+**Pros:** Type-specific optimization, simple type queries
+**Cons:** Type-level hot spots possible
+
+## Hash Ring Operations
+
+### Adding Nodes
+
+```typescript
+// Add a new shard
+ring.addNode('shard-16')
+
+// Only ~6% of keys will remap to new shard
+```
+
+### Removing Nodes
+
+```typescript
+// Remove a shard (for maintenance or failure)
+ring.removeNode('shard-5')
+
+// Keys from shard-5 redistribute to remaining shards
+```
+
+### Inspecting the Ring
+
+```typescript
+// Get all nodes
+const nodes = ring.getNodes()
+// ['shard-0', 'shard-1', ..., 'shard-15']
+
+// Get virtual node count
+const vnodes = ring.getVirtualNodeCount()
+// 150
+```
+
+## FNV-1a Hash Function
+
+The sharding module uses FNV-1a for consistent hashing:
+
+- Fast computation
+- Good distribution for similar strings
+- Deterministic across Workers
+- 32-bit output fits in JavaScript number
+
+```typescript
+// Internal implementation
+function hashString(str: string): number {
+  let hash = 2166136261 // FNV offset basis
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i)
+    hash = (hash * 16777619) >>> 0 // FNV prime
+  }
+  return hash >>> 0
+}
+```
+
+## Shard Count Guidelines
+
+| Scale | Shard Count | Notes |
+|-------|-------------|-------|
+| Small | 4-8 | Development, low traffic |
+| Medium | 16-32 | Production, moderate load |
+| Large | 64-128 | High traffic, large datasets |
+| Enterprise | 256+ | Massive scale |
+
+**Tip:** Start with more shards than needed - it is easier to have empty shards than to reshard later.
+
+## Combining with Replication
+
+For read-heavy workloads, combine sharding with replication:
+
+```typescript
+import {
+  createHashRing,
+  hashKey,
+  createReplicaRouter,
+  detectIntent
+} from 'dotdo/workers'
+
+const ring = createHashRing({ shardCount: 16 })
+const replicaRouter = createReplicaRouter({
+  mode: 'primary-replica',
+  replicaCount: 3,
+  readPreference: 'replica',
+})
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+    if (!route) return new Response('Invalid', { status: 400 })
+
+    // First, determine the shard
+    const key = hashKey(route.ns, route.type || '_', route.id || '_')
+    const shard = ring.getNode(key)
+
+    // Then, determine primary vs replica
+    const routing = replicaRouter.route(request)
+
+    const doName = routing.target === 'primary'
+      ? `${shard}-primary`
+      : `${shard}-replica-${routing.replicaIndex}`
+
+    const id = env.DO.idFromName(doName)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+## Monitoring
+
+Track shard distribution in your worker:
+
+```typescript
+const shardCounts = new Map<string, number>()
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const key = hashKey(route.ns, route.type, route.id)
+    const shard = ring.getNode(key)
+
+    // Track distribution
+    shardCounts.set(shard, (shardCounts.get(shard) || 0) + 1)
+
+    // Log periodically
+    if (Math.random() < 0.001) {
+      console.log('Shard distribution:', Object.fromEntries(shardCounts))
+    }
+
+    // ...
+  }
+}
+```
+
+## Next Steps
+
+- [Replication](/workers/replication) - Add read replicas for scaling
+- [Presets](/workers/presets) - Pre-configured sharding setups
+- [Routing](/workers/routing) - URL patterns feeding into sharding

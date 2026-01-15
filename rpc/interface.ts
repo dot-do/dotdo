@@ -8,37 +8,10 @@
  * - Field and method introspection
  */
 
-/**
- * Field schema definition
- */
-export interface FieldSchema {
-  name: string
-  type: string
-  required?: boolean
-  description?: string
-}
+import { FieldSchema, ParamSchema, MethodDescriptor } from './shared-types'
 
-/**
- * Parameter schema definition
- */
-export interface ParamSchema {
-  name: string
-  type: string
-  required?: boolean
-}
-
-/**
- * Method descriptor
- */
-export interface MethodDescriptor {
-  name: string
-  params: ParamSchema[]
-  returns: string
-  isAsync: boolean
-  isGenerator?: boolean
-  description?: string
-  callable?: boolean
-}
+// Re-export for backwards compatibility
+export type { FieldSchema, ParamSchema, MethodDescriptor }
 
 /**
  * Generated interface

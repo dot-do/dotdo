@@ -1,0 +1,497 @@
+---
+title: Tools
+description: Built-in MCP tools (fetch, search, do) and custom tool registration for AI agents
+---
+
+# Tools
+
+The MCP server provides a tool registry for AI agents to execute actions. Tools are permission-gated and can be registered dynamically.
+
+## Built-in Tools
+
+### echo
+
+A simple test tool that echoes back messages.
+
+```typescript
+// Tool definition
+{
+  name: 'echo',
+  description: 'Echo back the provided message (for testing)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      message: { type: 'string', description: 'The message to echo back' }
+    },
+    required: ['message']
+  },
+  requiredPermissions: ['tools:read']
+}
+
+// Usage
+const result = await mcpClient.executeTool('echo', { message: 'Hello!' })
+// { content: [{ type: 'text', text: 'Echo: Hello!' }] }
+```
+
+### ping
+
+Health check tool with no permissions required.
+
+```typescript
+// Tool definition
+{
+  name: 'ping',
+  description: 'Check if the MCP server is responsive',
+  inputSchema: { type: 'object', properties: {} },
+  requiredPermissions: []
+}
+
+// Usage
+const result = await mcpClient.executeTool('ping', {})
+// { content: [{ type: 'text', text: 'pong' }] }
+```
+
+### fetch
+
+Fetch data from URLs, Durable Objects, or internal resources.
+
+```typescript
+// Tool definition
+{
+  name: 'fetch',
+  description: 'Fetch data from URLs, DOs, or internal resources',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'URL, DO ref (do://Noun/id), or path' },
+      method: { enum: ['GET', 'POST', 'PUT', 'DELETE'], default: 'GET' },
+      headers: { type: 'object', description: 'Custom headers' },
+      body: { description: 'Request body' },
+      transform: { enum: ['json', 'text', 'html', 'markdown', 'extract'], default: 'json' },
+      cache: { type: 'object', properties: { ttl: { type: 'number' } } },
+      timeout: { type: 'number', default: 30000 },
+      retries: { type: 'number', default: 0 }
+    },
+    required: ['url']
+  },
+  requiredPermissions: ['fetch']
+}
+```
+
+#### URL Types
+
+```typescript
+// External URL
+await mcpClient.executeTool('fetch', {
+  url: 'https://api.example.com/data',
+  transform: 'json'
+})
+
+// Durable Object reference
+await mcpClient.executeTool('fetch', {
+  url: 'do://Customer/cust-123'
+})
+
+// Internal resource path
+await mcpClient.executeTool('fetch', {
+  url: '/things/Customer/cust-123'
+})
+```
+
+#### Response Transformations
+
+```typescript
+// JSON (default)
+await fetch({ url, transform: 'json' })
+
+// Plain text
+await fetch({ url, transform: 'text' })
+
+// HTML parsed to { title, content, links }
+await fetch({ url, transform: 'html' })
+
+// HTML converted to Markdown
+await fetch({ url, transform: 'markdown' })
+
+// AI extraction (requires aiExtract function)
+await fetch({ url, transform: 'extract' })
+```
+
+### search
+
+Search across DOs, documents, and data using semantic, keyword, or hybrid search.
+
+```typescript
+// Tool definition
+{
+  name: 'search',
+  description: 'Search across entities using semantic, keyword, or hybrid search',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search query text' },
+      type: { enum: ['semantic', 'keyword', 'hybrid'], default: 'hybrid' },
+      filters: {
+        type: 'object',
+        properties: {
+          $type: { type: 'string', description: 'Entity type filter' },
+          namespace: { type: 'string', description: 'Namespace filter' },
+          dateRange: {
+            type: 'object',
+            properties: {
+              from: { type: 'string' },
+              to: { type: 'string' }
+            }
+          }
+        }
+      },
+      limit: { type: 'number', default: 10, max: 100 },
+      offset: { type: 'number', default: 0 }
+    },
+    required: ['query']
+  },
+  requiredPermissions: ['search']
+}
+```
+
+#### Search Types
+
+```typescript
+// Semantic search (vector embeddings)
+await mcpClient.executeTool('search', {
+  query: 'customer support issues',
+  type: 'semantic',
+  limit: 10
+})
+
+// Keyword search (SQLite FTS5)
+await mcpClient.executeTool('search', {
+  query: 'billing error',
+  type: 'keyword'
+})
+
+// Hybrid search (Reciprocal Rank Fusion)
+await mcpClient.executeTool('search', {
+  query: 'account problems',
+  type: 'hybrid',
+  filters: { $type: 'Ticket' }
+})
+```
+
+#### Search Response
+
+```typescript
+{
+  results: [
+    {
+      id: 'ticket-123',
+      $type: 'Ticket',
+      score: 0.89,
+      data: { subject: 'Billing issue', status: 'open' },
+      highlights: ['<mark>billing</mark> error in invoice'],
+      source: 'both'  // matched in semantic AND keyword
+    }
+  ],
+  total: 15,
+  query: 'billing error',
+  type: 'hybrid',
+  took: 45  // milliseconds
+}
+```
+
+### do
+
+Execute JavaScript/TypeScript code in isolated V8 sandboxes.
+
+```typescript
+// Tool definition
+{
+  name: 'do',
+  description: 'Execute code securely in isolated V8 workers',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      code: { type: 'string', description: 'JavaScript code to execute' },
+      module: { type: 'string', description: 'Module code with exports' },
+      tests: { type: 'string', description: 'Vitest-style test code' },
+      env: { type: 'object', description: 'Environment variables' },
+      timeout: { type: 'number', default: 5000 },
+      sdk: { type: 'boolean', default: false, description: 'Enable $, db, ai globals' },
+      allowNetwork: { type: 'boolean', default: false }
+    }
+  },
+  requiredPermissions: ['execute']
+}
+```
+
+#### Code Execution
+
+```typescript
+// Simple script
+const result = await mcpClient.executeTool('do', {
+  code: 'return 1 + 1'
+})
+// { success: true, value: 2, logs: [], duration: 5 }
+
+// With SDK globals
+const result = await mcpClient.executeTool('do', {
+  code: `
+    await $.send({ type: 'UserCreated', user: { name: 'Alice' } })
+    return 'sent'
+  `,
+  sdk: true
+})
+
+// With tests
+const result = await mcpClient.executeTool('do', {
+  module: `
+    export const add = (a, b) => a + b
+  `,
+  tests: `
+    test('add works', () => {
+      expect(add(1, 2)).toBe(3)
+    })
+  `
+})
+// { success: true, testResults: { passed: 1, failed: 0, total: 1 } }
+```
+
+## Tool Registry
+
+### Registering Tools
+
+```typescript
+import { toolRegistry, textResult, jsonResult, errorResult } from 'dotdo/mcp'
+import type { McpTool, McpToolResult, McpAgentProps, McpEnv } from 'dotdo/mcp'
+
+// Define tool
+const myTool: McpTool = {
+  name: 'greet',
+  description: 'Greet a user by name',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Name to greet' }
+    },
+    required: ['name']
+  },
+  requiredPermissions: ['tools:execute']
+}
+
+// Register with handler
+toolRegistry.register(myTool, async (args, props, env) => {
+  const name = args.name as string
+  return textResult(`Hello, ${name}!`)
+})
+```
+
+### Result Helpers
+
+```typescript
+import { textResult, jsonResult, errorResult } from 'dotdo/mcp'
+
+// Plain text response
+const text = textResult('Operation complete')
+// { content: [{ type: 'text', text: 'Operation complete' }], isError: false }
+
+// JSON response (formatted)
+const json = jsonResult({ status: 'ok', count: 42 })
+// { content: [{ type: 'text', text: '{\n  "status": "ok",\n  "count": 42\n}' }] }
+
+// Error response
+const error = errorResult('Something went wrong')
+// { content: [{ type: 'text', text: 'Something went wrong' }], isError: true }
+```
+
+### Registry Operations
+
+```typescript
+// Check if tool exists
+toolRegistry.has('greet')  // true
+
+// Get tool definition
+const tool = toolRegistry.get('greet')
+
+// Get tool handler
+const handler = toolRegistry.getHandler('greet')
+
+// Get all tools
+const allTools = toolRegistry.getAll()
+
+// Unregister tool
+toolRegistry.unregister('greet')
+
+// Clear all tools
+toolRegistry.clear()
+
+// Get tool count
+toolRegistry.size  // number
+```
+
+## Custom Tool Development
+
+### Tool Handler Signature
+
+```typescript
+type ToolHandler = (
+  args: Record<string, unknown>,  // Validated input arguments
+  props: McpAgentProps,           // User context (userId, permissions)
+  env: McpEnv                     // Environment bindings
+) => Promise<McpToolResult>
+
+interface McpAgentProps {
+  userId: string
+  permissions: string[]
+  sessionId?: string
+  orgId?: string
+}
+
+interface McpToolResult {
+  content: Array<{
+    type: 'text' | 'image' | 'resource'
+    text?: string
+    data?: string
+    mimeType?: string
+  }>
+  isError?: boolean
+}
+```
+
+### Example: Database Tool
+
+```typescript
+const dbQueryTool: McpTool = {
+  name: 'db_query',
+  description: 'Query the database',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      collection: { type: 'string' },
+      filter: { type: 'object' },
+      limit: { type: 'number', default: 10 }
+    },
+    required: ['collection']
+  },
+  requiredPermissions: ['db:read']
+}
+
+toolRegistry.register(dbQueryTool, async (args, props, env) => {
+  const { collection, filter, limit } = args
+
+  // Access user's namespace
+  const namespace = props.orgId || 'default'
+
+  // Query database
+  const doId = env.DO.idFromName(namespace)
+  const stub = env.DO.get(doId)
+
+  const results = await stub.things.list({
+    $type: collection as string,
+    ...filter as object,
+    limit: limit as number
+  })
+
+  return jsonResult(results)
+})
+```
+
+### Example: External API Tool
+
+```typescript
+const weatherTool: McpTool = {
+  name: 'weather',
+  description: 'Get current weather for a location',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      location: { type: 'string', description: 'City name or coordinates' }
+    },
+    required: ['location']
+  },
+  requiredPermissions: ['external:weather']
+}
+
+toolRegistry.register(weatherTool, async (args, props, env) => {
+  const location = args.location as string
+
+  try {
+    const response = await fetch(
+      `https://api.weather.example/v1/current?q=${encodeURIComponent(location)}`,
+      { headers: { 'X-API-Key': env.WEATHER_API_KEY } }
+    )
+
+    if (!response.ok) {
+      return errorResult(`Weather API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return jsonResult({
+      location: data.location.name,
+      temperature: data.current.temp_c,
+      condition: data.current.condition.text,
+      humidity: data.current.humidity
+    })
+  } catch (err) {
+    return errorResult(`Failed to fetch weather: ${(err as Error).message}`)
+  }
+})
+```
+
+## Tool Execution via MCP Server
+
+### Via HTTP
+
+```typescript
+// POST /tools/weather
+const response = await fetch('https://mcp.your-domain.com/tools/weather', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer <jwt>'
+  },
+  body: JSON.stringify({
+    arguments: { location: 'San Francisco' }
+  })
+})
+
+const data = await response.json()
+// { result: { content: [...], isError: false } }
+```
+
+### Via RPC
+
+```typescript
+// Direct RPC to MCP Durable Object
+const mcpId = env.MCP.idFromName('default')
+const mcp = env.MCP.get(mcpId)
+
+// Register custom tool
+mcp.registerTool(myTool, myHandler)
+
+// Unregister tool
+mcp.unregisterTool('myTool')
+
+// Get server info
+const info = mcp.getServerInfo()
+```
+
+## Listing Available Tools
+
+```typescript
+// GET /tools
+const response = await fetch('https://mcp.your-domain.com/tools', {
+  headers: { 'Authorization': 'Bearer <jwt>' }
+})
+
+const { tools } = await response.json()
+// Returns only tools the user has permission to use
+
+tools.forEach(tool => {
+  console.log(`${tool.name}: ${tool.description}`)
+})
+```
+
+## Next Steps
+
+- [Security Guide](/mcp/security) - Configure tool permissions
+- [Authentication Guide](/mcp/authentication) - User authentication for tools

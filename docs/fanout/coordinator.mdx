@@ -1,0 +1,285 @@
+---
+title: QueryCoordinator
+description: Dispatch queries to scanner DOs and aggregate results using the scatter-gather pattern
+---
+
+# QueryCoordinator
+
+The QueryCoordinator orchestrates distributed queries across multiple scanner Durable Objects. It implements the scatter-gather pattern with parallel execution, result aggregation, failure handling, and timeout management.
+
+## Basic Usage
+
+```typescript
+import { QueryCoordinator } from 'dotdo/fanout'
+
+// Define scanners (each wraps a DO stub)
+const scanners = [
+  { id: 'scanner-0', execute: (sql, params) => doStub0.query(sql, params) },
+  { id: 'scanner-1', execute: (sql, params) => doStub1.query(sql, params) },
+  { id: 'scanner-2', execute: (sql, params) => doStub2.query(sql, params) },
+]
+
+const coordinator = new QueryCoordinator(scanners)
+
+// Execute distributed query
+const result = await coordinator.query('SELECT * FROM users WHERE active = ?', [true])
+```
+
+## Scanner Interface
+
+Each scanner must implement this interface:
+
+```typescript
+interface Scanner {
+  id: string
+  execute<T = unknown>(sql: string, params?: unknown[]): Promise<QueryResult<T>>
+  isHealthy?: () => boolean
+}
+
+interface QueryResult<T = unknown> {
+  rows: T[]
+  cursor?: string
+  hasMore?: boolean
+  scannerId?: string
+  error?: string
+}
+```
+
+## Configuration Options
+
+```typescript
+interface CoordinatorOptions {
+  maxRetries?: number    // Retry count for failed scanners (default: 1)
+  timeoutMs?: number     // Per-scanner timeout in ms (default: 30000)
+  ring?: ConsistentHashRing  // For single-shard routing
+}
+
+const coordinator = new QueryCoordinator(scanners, {
+  maxRetries: 3,
+  timeoutMs: 5000,
+})
+```
+
+## Query Methods
+
+### query()
+
+Execute a query across all scanners and aggregate results:
+
+```typescript
+const result = await coordinator.query<User>(
+  'SELECT * FROM users WHERE department = ?',
+  ['engineering']
+)
+
+// Result contains union of all matching rows
+console.log(result.rows.length) // Total from all scanners
+```
+
+### queryWithBudget()
+
+Execute with subrequest budget tracking for Cloudflare limits:
+
+```typescript
+import { SubrequestBudget } from 'dotdo/fanout'
+
+const budget = new SubrequestBudget(50) // Workers limit
+
+const result = await coordinator.queryWithBudget(
+  'SELECT * FROM events',
+  budget
+)
+
+// Large scanner counts are automatically batched
+console.log(budget.used) // Total subrequests made
+```
+
+### queryStream()
+
+Stream results as each scanner completes:
+
+```typescript
+const results: User[] = []
+
+for await (const batch of coordinator.queryStream<User>('SELECT * FROM users')) {
+  // Process results as they arrive (fastest first)
+  results.push(...batch.rows)
+
+  // Optional: Show progress
+  console.log(`Received ${batch.rows.length} rows from ${batch.scannerId}`)
+}
+```
+
+## Aggregation Behavior
+
+The coordinator automatically detects and handles SQL aggregate functions:
+
+### Non-Aggregate Queries
+
+Results are combined using union (all rows from all scanners):
+
+```typescript
+// SELECT * FROM users WHERE status = 'active'
+// Returns: union of all matching rows
+```
+
+### COUNT Aggregation
+
+Count values are summed across scanners:
+
+```typescript
+const result = await coordinator.query('SELECT COUNT(*) as count FROM users')
+
+// Scanner 0: { count: 100 }
+// Scanner 1: { count: 250 }
+// Scanner 2: { count: 150 }
+// Result:    { count: 500 }
+```
+
+### SUM Aggregation
+
+Sum values are added together:
+
+```typescript
+const result = await coordinator.query('SELECT SUM(amount) as total FROM orders')
+
+// Scanner 0: { total: 10000 }
+// Scanner 1: { total: 25000 }
+// Result:    { total: 35000 }
+```
+
+### AVG Aggregation
+
+Average is computed as weighted mean (requires count from each scanner):
+
+```typescript
+const result = await coordinator.query('SELECT AVG(score) as avg FROM reviews')
+
+// Scanner 0: { avg: 4.2, _count: 100 } -> sum = 420
+// Scanner 1: { avg: 3.8, _count: 200 } -> sum = 760
+// Result:    { avg: 3.93 }             -> 1180 / 300
+```
+
+## Failure Handling
+
+### Partial Failures
+
+When some scanners fail, the coordinator returns partial results:
+
+```typescript
+const result = await coordinator.query('SELECT * FROM users')
+
+if (result.error) {
+  // Some scanners failed
+  console.warn('Partial results:', result.error)
+  // e.g., "scanner-1: timeout; scanner-3: connection refused"
+}
+
+// result.rows contains data from successful scanners
+```
+
+### Majority Failures
+
+If more than half the scanners fail, the query throws:
+
+```typescript
+try {
+  const result = await coordinator.query('SELECT * FROM users')
+} catch (error) {
+  // "Majority of scanners failed (3/4): ..."
+}
+```
+
+### Retry Logic
+
+Failed scanners are retried with exponential backoff:
+
+```typescript
+const coordinator = new QueryCoordinator(scanners, {
+  maxRetries: 3, // Retry up to 3 times
+})
+
+// Backoff: 10ms, 20ms, 40ms between retries
+```
+
+### Timeouts
+
+Slow scanners are timed out and marked unhealthy:
+
+```typescript
+const coordinator = new QueryCoordinator(scanners, {
+  timeoutMs: 5000, // 5 second timeout
+})
+
+// Check scanner health
+console.log(coordinator.getScannerCount())        // 4
+console.log(coordinator.getHealthyScannersCount()) // 3 (after timeout)
+```
+
+## Single-Shard Routing
+
+For queries targeting a specific partition, use the consistent hash ring:
+
+```typescript
+import { QueryCoordinator, ConsistentHashRing } from 'dotdo/fanout'
+
+const ring = new ConsistentHashRing(scanners.map(s => s.id))
+const coordinator = new QueryCoordinator(scanners, { ring })
+
+// Route by shard key - only hits one scanner
+const result = await coordinator.query(
+  'SELECT * FROM orders WHERE tenant_id = ?',
+  ['tenant-abc'],
+  { shardKey: 'tenant-abc' }
+)
+```
+
+This is more efficient than fan-out when you know which shard contains the data.
+
+## Example: Full Setup
+
+```typescript
+import { QueryCoordinator, ConsistentHashRing } from 'dotdo/fanout'
+
+// Create scanner wrappers for DO stubs
+function createScanner(env: Env, shardId: string) {
+  const stub = env.ScannerDO.get(env.ScannerDO.idFromName(shardId))
+
+  return {
+    id: shardId,
+    async execute<T>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
+      return stub.query(sql, params)
+    },
+    isHealthy() {
+      return true // Could ping the stub
+    }
+  }
+}
+
+// Setup
+const shardIds = ['shard-0', 'shard-1', 'shard-2', 'shard-3']
+const scanners = shardIds.map(id => createScanner(env, id))
+const ring = new ConsistentHashRing(shardIds)
+
+const coordinator = new QueryCoordinator(scanners, {
+  maxRetries: 2,
+  timeoutMs: 10000,
+  ring,
+})
+
+// Fan-out query (all shards)
+const allUsers = await coordinator.query('SELECT * FROM users LIMIT 100')
+
+// Single-shard query (tenant isolation)
+const tenantOrders = await coordinator.query(
+  'SELECT * FROM orders WHERE tenant_id = ?',
+  ['tenant-123'],
+  { shardKey: 'tenant-123' }
+)
+```
+
+## See Also
+
+- [Consistent Hashing](/docs/fanout/hashing) - Key-to-node mapping
+- [Merge Strategies](/docs/fanout/merging) - Result combination
+- [Subrequest Budget](/docs/fanout/budget) - Cloudflare limits

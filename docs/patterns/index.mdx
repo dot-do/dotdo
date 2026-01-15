@@ -1,0 +1,156 @@
+---
+title: Patterns
+description: Real-world architectural patterns combining dotdo modules for production applications
+---
+
+# Patterns
+
+This section presents production-ready architectural patterns that combine multiple dotdo modules. Each pattern addresses a common real-world challenge and demonstrates how Durable Objects can solve complex problems elegantly.
+
+## Available Patterns
+
+| Pattern | Modules Used | Use Case |
+|---------|--------------|----------|
+| [Multi-Tenant](/patterns/multi-tenant) | DOCore, Routing | SaaS namespace isolation |
+| [Event Sourcing](/patterns/event-sourcing) | Events, Storage | Audit logs, replays, projections |
+| [Approval Workflow](/patterns/approval-workflow) | Cascade, Human-in-Loop | Compliance, reviews, escalation |
+| [Real-Time Dashboard](/patterns/real-time-dashboard) | Streaming, Fanout | Live metrics, notifications |
+
+## Pattern Structure
+
+Each pattern follows a consistent format:
+
+1. **Problem Statement** - The challenge being addressed
+2. **Architecture Overview** - Visual diagram and component breakdown
+3. **Complete Implementation** - Working code combining multiple modules
+4. **Key Considerations** - Performance, scaling, and edge cases
+5. **Variations** - Alternative approaches for different requirements
+
+## Combining Modules
+
+The power of dotdo comes from composing its modules. Here's how the class hierarchy enables this:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ DOFull (~80KB)                                                  │
+│ ├── AI template literals, cascade, streaming, fanout           │
+│ └── extends DOWorkflow                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ DOWorkflow (~60KB)                                              │
+│ ├── WorkflowContext ($), events, scheduling, RPC               │
+│ └── extends DOStorage                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ DOStorage (~40KB)                                               │
+│ ├── InMemory, Pipeline WAL, SQLite, Iceberg                    │
+│ └── extends DOSemantic                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ DOSemantic (~20KB)                                              │
+│ ├── Things, Actions, Nouns, Verbs, operators                   │
+│ └── extends DOCore                                             │
+├─────────────────────────────────────────────────────────────────┤
+│ DOCore (~5KB)                                                   │
+│ └── State, alarms, routing, WebSockets                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Choose the smallest class that provides all the capabilities you need to minimize cold start time and memory footprint.
+
+## Common Composition Patterns
+
+### Events + Streaming
+
+React to domain events and broadcast updates in real-time:
+
+```typescript
+import { DOFull } from 'dotdo'
+
+class LiveFeed extends DOFull {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // React to events
+    this.$.on.Order.created(async (event) => {
+      // Broadcast to all connected dashboards
+      await this.fanout('orders', {
+        type: 'new-order',
+        data: event.data
+      })
+    })
+  }
+}
+```
+
+### Cascade + Human-in-Loop
+
+Automatic escalation with human oversight:
+
+```typescript
+const result = await this.$.cascade({
+  task: 'approve-expense',
+  tiers: {
+    code: () => autoApproveUnder(expense, 100),
+    generative: () => analyzeWithAI(expense),
+    human: () => createApprovalRequest(expense)
+  }
+})
+```
+
+### Multi-Tenant + Event Sourcing
+
+Isolated namespaces with complete audit trails:
+
+```typescript
+// Worker routes tenant to their DO
+const ns = getTenantFromHostname(request)
+const id = env.DO.idFromName(ns)
+const stub = env.DO.get(id)
+
+// Inside DO, all events are captured
+await this.$.do(async () => {
+  await this.createAction({
+    noun: 'User',
+    verb: 'invited',
+    data: { email, role }
+  })
+})
+```
+
+## Architecture Principles
+
+### 1. Namespace Isolation
+
+Each Durable Object instance is completely isolated. Use hostname-based routing to achieve multi-tenancy without complex access control:
+
+```
+tenant-a.api.example.com -> DO('tenant-a')
+tenant-b.api.example.com -> DO('tenant-b')
+```
+
+### 2. Event-First Design
+
+Design around events rather than entities. This enables:
+- Complete audit trails
+- State replay and recovery
+- Loose coupling between components
+- Real-time streaming to clients
+
+### 3. Progressive Automation
+
+Use cascade tiers to balance automation with human oversight:
+- Start with deterministic rules
+- Escalate to AI for ambiguous cases
+- Fall back to humans for edge cases
+
+### 4. Edge-Native Streaming
+
+Leverage Durable Objects' built-in WebSocket hibernation for efficient real-time features:
+- Connections survive DO hibernation
+- No separate WebSocket servers needed
+- Global distribution via Cloudflare network
+
+## Next Steps
+
+- [Multi-Tenant Pattern](/patterns/multi-tenant) - Namespace isolation for SaaS
+- [Event Sourcing Pattern](/patterns/event-sourcing) - Actions as durable events
+- [Approval Workflow Pattern](/patterns/approval-workflow) - Cascade with human oversight
+- [Real-Time Dashboard Pattern](/patterns/real-time-dashboard) - Streaming and fanout

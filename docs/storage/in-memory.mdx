@@ -1,0 +1,372 @@
+---
+title: L0 - In-Memory Cache
+description: Hot data layer with O(1) CRUD operations, dirty tracking, and LRU eviction
+---
+
+# L0: In-Memory Cache
+
+The `InMemoryStateManager` is the hot data layer of the storage stack. It provides sub-millisecond reads with O(1) complexity, dirty tracking for efficient checkpointing, and LRU eviction to manage memory pressure.
+
+## Overview
+
+```
++---------------------------+
+|   InMemoryStateManager    |
++---------------------------+
+|  Map<id, CacheEntry>      |  <- O(1) lookup
+|  Set<id> dirtySet         |  <- Track modifications
+|  Array accessOrder        |  <- LRU tracking
++---------------------------+
+```
+
+**Key characteristics:**
+
+- **O(1) CRUD** - HashMap-based storage for constant-time operations
+- **Dirty tracking** - Only modified entries are checkpointed to L2
+- **LRU eviction** - Least-recently-used clean entries evicted on memory pressure
+- **Version tracking** - Automatic `$version` increment on updates
+
+## Basic Usage
+
+### Creating Things
+
+```typescript
+import { InMemoryStateManager } from 'dotdo/storage'
+
+const manager = new InMemoryStateManager()
+
+// Create with auto-generated ID
+const customer = manager.create({
+  $type: 'Customer',
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+// => { $id: 'customer_m1abc123', $type: 'Customer', $version: 1, name: 'Alice', ... }
+
+// Create with custom ID
+const order = manager.create({
+  $id: 'order_2024_001',
+  $type: 'Order',
+  total: 150.00
+})
+// => { $id: 'order_2024_001', $type: 'Order', $version: 1, total: 150.00 }
+```
+
+### Reading Things
+
+```typescript
+// O(1) synchronous read - no await needed
+const customer = manager.get('customer_m1abc123')
+
+if (customer) {
+  console.log(customer.name) // 'Alice'
+}
+
+// Returns null for non-existent IDs
+const missing = manager.get('nonexistent')
+// => null
+```
+
+### Updating Things
+
+```typescript
+// Updates merge by default and increment $version
+const updated = manager.update(customer.$id, {
+  email: 'alice@newdomain.com',
+  lastLogin: Date.now()
+})
+
+console.log(updated.$version) // 2
+console.log(updated.name)     // 'Alice' (preserved)
+console.log(updated.email)    // 'alice@newdomain.com' (updated)
+```
+
+<Callout type="warning">
+  Updating a non-existent ID throws an error. Always check existence first or use try/catch.
+</Callout>
+
+### Deleting Things
+
+```typescript
+// Delete returns the deleted thing or null
+const deleted = manager.delete('customer_m1abc123')
+
+if (deleted) {
+  console.log(`Deleted: ${deleted.name}`)
+}
+
+// Subsequent reads return null
+manager.get('customer_m1abc123') // => null
+```
+
+## Dirty Tracking
+
+The dirty tracking system enables efficient checkpointing by only persisting modified entries.
+
+### How It Works
+
+```typescript
+// Create marks entry as dirty
+const thing = manager.create({ $type: 'Task', name: 'Important' })
+manager.isDirty(thing.$id) // => true
+manager.getDirtyCount()    // => 1
+
+// Read does NOT mark as dirty
+manager.get(thing.$id)
+manager.getDirtyCount()    // => 1 (unchanged)
+
+// Update marks entry as dirty
+manager.markClean([thing.$id])  // Clear dirty flag
+manager.isDirty(thing.$id)      // => false
+
+manager.update(thing.$id, { priority: 'high' })
+manager.isDirty(thing.$id)      // => true again
+```
+
+### Checkpoint Integration
+
+```typescript
+// Get all dirty keys for checkpointing
+const dirtyKeys = manager.getDirtyKeys()
+// => ['task_abc123', 'customer_xyz789']
+
+// After successful checkpoint, clear dirty flags
+manager.markClean(dirtyKeys)
+```
+
+### Delete Behavior
+
+```typescript
+// Deleted entries are removed from dirty set
+const thing = manager.create({ $type: 'Temp', name: 'Ephemeral' })
+manager.isDirty(thing.$id) // => true
+
+manager.delete(thing.$id)
+manager.isDirty(thing.$id) // => false (removed from dirty set)
+```
+
+## LRU Eviction
+
+When memory thresholds are exceeded, the manager evicts least-recently-used **clean** entries.
+
+### Configuration
+
+```typescript
+const manager = new InMemoryStateManager({
+  maxEntries: 10000,              // Maximum number of entries
+  maxBytes: 10 * 1024 * 1024,     // 10MB maximum memory
+  onEvict: (entries) => {
+    console.log(`Evicted ${entries.length} entries`)
+    // Optionally persist to L2 before eviction
+  }
+})
+```
+
+### Eviction Rules
+
+1. **Only clean entries** can be evicted - dirty entries are protected
+2. **LRU order** - Oldest accessed entries evicted first
+3. **Access updates order** - Both read and write update LRU position
+
+```typescript
+// Example: Entry count threshold
+const manager = new InMemoryStateManager({
+  maxEntries: 3,
+  onEvict: (entries) => evicted.push(...entries)
+})
+
+const a = manager.create({ $type: 'Item', name: 'A' })
+const b = manager.create({ $type: 'Item', name: 'B' })
+const c = manager.create({ $type: 'Item', name: 'C' })
+
+// Mark all clean so they can be evicted
+manager.markClean([a.$id, b.$id, c.$id])
+
+// Access 'a' to make it recently used
+manager.get(a.$id)
+
+// Create 4th entry - triggers eviction
+const d = manager.create({ $type: 'Item', name: 'D' })
+
+// 'b' evicted (LRU clean entry), not 'a' (recently accessed)
+```
+
+<Callout type="info">
+  Dirty entries are NEVER evicted, regardless of LRU order. This ensures data integrity until checkpoint completes.
+</Callout>
+
+## Listing and Filtering
+
+### List All
+
+```typescript
+const all = manager.list()
+// => [{ $id: '...', $type: 'Customer', ... }, ...]
+```
+
+### Filter by Type Prefix
+
+```typescript
+// Filter by $type (case-insensitive)
+const customers = manager.list({ prefix: 'customer' })
+const orders = manager.list({ prefix: 'order' })
+```
+
+### Filter by ID Prefix
+
+```typescript
+// Filter by $id prefix
+const user1Items = manager.list({ prefix: 'user_1' })
+```
+
+### Pagination
+
+```typescript
+// Paginate results
+const page1 = manager.list({ limit: 10, offset: 0 })
+const page2 = manager.list({ limit: 10, offset: 10 })
+
+// Combined with prefix
+const customers = manager.list({
+  prefix: 'customer',
+  limit: 20,
+  offset: 40
+})
+```
+
+## Bulk Operations
+
+### Load from Checkpoint (Recovery)
+
+```typescript
+// Load data without marking dirty - used for recovery
+const restoredThings = [
+  { $id: 'cust_1', $type: 'Customer', name: 'Alice', $version: 5 },
+  { $id: 'cust_2', $type: 'Customer', name: 'Bob', $version: 3 }
+]
+
+manager.loadBulk(restoredThings)
+
+// Data is accessible but NOT dirty
+manager.get('cust_1')?.name   // => 'Alice'
+manager.isDirty('cust_1')     // => false
+manager.getDirtyCount()       // => 0
+```
+
+### Export All
+
+```typescript
+// Export all data for backup or migration
+const allThings = manager.exportAll()
+// => [{ $id: '...', $type: '...', ... }, ...]
+```
+
+### Clear All
+
+```typescript
+// Reset manager state
+manager.clear()
+manager.size()          // => 0
+manager.getDirtyCount() // => 0
+```
+
+## Statistics
+
+```typescript
+const stats = manager.getStats()
+
+console.log(stats)
+// {
+//   entryCount: 1500,       // Total entries in cache
+//   dirtyCount: 23,         // Entries pending checkpoint
+//   estimatedBytes: 524288  // Approximate memory usage
+// }
+
+// Individual checks
+manager.size()  // => 1500
+manager.has('customer_123')  // => true/false
+```
+
+## Types
+
+### ThingData
+
+```typescript
+interface ThingData {
+  $id: string           // Unique identifier
+  $type: string         // Entity type (e.g., 'Customer')
+  $version?: number     // Auto-incremented on update
+  name?: string         // Optional name field
+  [key: string]: unknown // Arbitrary properties
+}
+```
+
+### CreateThingInput
+
+```typescript
+interface CreateThingInput {
+  $id?: string    // Optional - auto-generated if not provided
+  $type: string   // Required - entity type
+  name?: string   // Optional name
+  [key: string]: unknown
+}
+```
+
+### InMemoryStateManagerOptions
+
+```typescript
+interface InMemoryStateManagerOptions {
+  maxEntries?: number                    // Default: Infinity
+  maxBytes?: number                      // Default: Infinity
+  onEvict?: (entries: ThingData[]) => void  // Eviction callback
+}
+```
+
+### StateManagerStats
+
+```typescript
+interface StateManagerStats {
+  entryCount: number      // Total entries
+  dirtyCount: number      // Dirty entry count
+  estimatedBytes: number  // Memory estimate
+}
+```
+
+## ID Generation
+
+When `$id` is not provided, IDs are auto-generated with the format:
+
+```
+{type}_{timestamp}{random}
+```
+
+- **type** - Lowercase `$type` value
+- **timestamp** - Base36 encoded timestamp
+- **random** - 8 character random string
+
+Examples:
+- `customer_m1abc123xyz`
+- `order_m1def456uvw`
+- `task_m1ghi789rst`
+
+## Performance Considerations
+
+| Operation | Complexity | Notes |
+|-----------|------------|-------|
+| `get()` | O(1) | HashMap lookup |
+| `create()` | O(1) | May trigger O(n) eviction |
+| `update()` | O(1) | May trigger O(n) eviction |
+| `delete()` | O(1) | Instant removal |
+| `list()` | O(n) | Iterates all entries |
+| `isDirty()` | O(1) | Set lookup |
+| `getDirtyKeys()` | O(k) | k = dirty count |
+
+<Callout type="info">
+  Eviction scans the access order array to find clean entries, which is O(n) in worst case. Keep `maxEntries` and `maxBytes` balanced to avoid frequent eviction scans.
+</Callout>
+
+## Next Steps
+
+- [L1: Pipeline WAL](/storage/pipeline-wal) - Learn how L0 writes are durably logged
+- [L2: Lazy Checkpoint](/storage/lazy-checkpoint) - Understand batched SQLite persistence
+- [Recovery](/storage/recovery) - See how L0 is populated on cold start

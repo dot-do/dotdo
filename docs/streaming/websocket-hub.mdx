@@ -1,0 +1,293 @@
+---
+title: WebSocket Hub
+description: Connection management, rooms, and broadcasting for WebSocket connections
+---
+
+# WebSocket Hub
+
+The `WebSocketHub` class manages WebSocket connections, provides room-based grouping, and handles broadcasting messages to connected clients.
+
+## Basic Usage
+
+```typescript
+import { WebSocketHub } from 'dotdo/streaming'
+
+const hub = new WebSocketHub()
+```
+
+## Connection Management
+
+### Connecting
+
+Register a WebSocket connection with optional metadata:
+
+```typescript
+// Simple connection
+hub.connect(ws)
+
+// Connection with metadata
+hub.connect(ws, {
+  userId: 'user-123',
+  role: 'admin',
+  connectedAt: Date.now(),
+})
+
+// Access metadata later
+const meta = hub.getMetadata(ws)
+console.log(meta?.userId) // 'user-123'
+```
+
+### Disconnecting
+
+Remove a connection and clean up all room memberships:
+
+```typescript
+hub.disconnect(ws)
+```
+
+### Connection Properties
+
+```typescript
+// Get all connected WebSockets
+const allConnections = hub.connections // Set<WebSocket>
+
+// Get connection count
+const count = hub.connectionCount // number
+```
+
+## Broadcasting
+
+### Broadcast to All
+
+Send a message to all connected clients:
+
+```typescript
+// Object messages are JSON serialized
+hub.broadcast({ type: 'notification', message: 'Hello!' })
+
+// String messages are sent as-is
+hub.broadcast('raw string message')
+
+// Returns count of messages sent
+const sent = hub.broadcast({ type: 'update' })
+console.log(`Sent to ${sent} clients`)
+```
+
+### Filtered Broadcast
+
+Send messages only to connections matching a filter:
+
+```typescript
+// Broadcast to admins only
+hub.broadcast(
+  { type: 'admin-alert', message: 'System maintenance in 5 minutes' },
+  (ws, meta) => meta?.role === 'admin'
+)
+
+// Broadcast to specific users
+const targetUsers = new Set(['user-1', 'user-2', 'user-3'])
+hub.broadcast(
+  { type: 'direct', message: 'Special offer!' },
+  (ws, meta) => targetUsers.has(meta?.userId)
+)
+```
+
+## Rooms
+
+Rooms allow grouping connections for targeted broadcasting.
+
+### Joining Rooms
+
+```typescript
+// Join a single room
+hub.room.join(ws, 'general-chat')
+
+// Join multiple rooms
+hub.room.join(ws, 'announcements')
+hub.room.join(ws, `user:${userId}`) // User-specific room
+```
+
+Note: WebSocket must be connected before joining a room:
+
+```typescript
+hub.connect(ws)
+hub.room.join(ws, 'room-1') // OK
+
+// This throws an error:
+const unconnected = new WebSocket('...')
+hub.room.join(unconnected, 'room-1') // Error: WebSocket not connected
+```
+
+### Leaving Rooms
+
+```typescript
+hub.room.leave(ws, 'general-chat')
+```
+
+### Room Broadcasting
+
+```typescript
+// Send to all members of a room
+const sent = hub.room.broadcast('vip-lounge', {
+  type: 'exclusive',
+  content: 'VIP-only content',
+})
+console.log(`Sent to ${sent} VIP members`)
+```
+
+### Room Queries
+
+```typescript
+// Get all members of a room
+const members = hub.room.members('general-chat') // WebSocket[]
+
+// Get all rooms a connection belongs to
+const rooms = hub.room.rooms(ws) // string[]
+
+// Get member count
+const count = hub.room.count('general-chat') // number
+```
+
+## Cleanup and Disposal
+
+### Close Individual Connection
+
+Disconnect and close a WebSocket:
+
+```typescript
+hub.close(ws) // Calls disconnect() then ws.close()
+```
+
+### Close All Connections
+
+```typescript
+hub.closeAll()
+```
+
+### Dispose Hub
+
+Clear all state and close all connections:
+
+```typescript
+hub.dispose()
+```
+
+### Cleanup Stale Connections
+
+Remove connections that are no longer open:
+
+```typescript
+// Returns number of connections removed
+const removed = hub.cleanupStale()
+console.log(`Cleaned up ${removed} stale connections`)
+```
+
+Run this periodically to prevent memory leaks:
+
+```typescript
+// Clean up every 5 minutes
+setInterval(() => {
+  hub.cleanupStale()
+}, 5 * 60 * 1000)
+```
+
+## Complete Example
+
+```typescript
+import { WebSocketHub } from 'dotdo/streaming'
+
+export class ChatDO extends DurableObject {
+  private hub = new WebSocketHub()
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+
+    if (request.headers.get('Upgrade') === 'websocket') {
+      return this.handleWebSocket(request, url)
+    }
+
+    return new Response('Expected WebSocket', { status: 400 })
+  }
+
+  private handleWebSocket(request: Request, url: URL): Response {
+    const [client, server] = Object.values(new WebSocketPair())
+    const room = url.searchParams.get('room') || 'general'
+    const userId = url.searchParams.get('userId') || 'anonymous'
+
+    // Connect with metadata
+    this.hub.connect(server, { userId, room, connectedAt: Date.now() })
+    this.hub.room.join(server, room)
+
+    server.accept()
+
+    // Handle messages
+    server.addEventListener('message', (event) => {
+      const data = JSON.parse(event.data as string)
+
+      if (data.type === 'chat') {
+        // Broadcast to room
+        this.hub.room.broadcast(room, {
+          type: 'chat',
+          userId,
+          message: data.message,
+          timestamp: Date.now(),
+        })
+      }
+    })
+
+    // Handle disconnect
+    server.addEventListener('close', () => {
+      this.hub.disconnect(server)
+
+      // Notify room of departure
+      this.hub.room.broadcast(room, {
+        type: 'user-left',
+        userId,
+        timestamp: Date.now(),
+      })
+    })
+
+    // Notify room of new member
+    this.hub.room.broadcast(room, {
+      type: 'user-joined',
+      userId,
+      memberCount: this.hub.room.count(room),
+    })
+
+    return new Response(null, { status: 101, webSocket: client })
+  }
+}
+```
+
+## API Reference
+
+### WebSocketHub
+
+| Method | Description |
+|--------|-------------|
+| `connect(ws, metadata?)` | Register a WebSocket connection |
+| `disconnect(ws)` | Remove connection and clean up rooms |
+| `getMetadata(ws)` | Get metadata for a connection |
+| `broadcast(message, filter?)` | Send to all (or filtered) connections |
+| `close(ws)` | Disconnect and close WebSocket |
+| `closeAll()` | Close all connections |
+| `dispose()` | Clear all state |
+| `cleanupStale()` | Remove closed connections |
+
+### Room API
+
+| Method | Description |
+|--------|-------------|
+| `room.join(ws, roomId)` | Add WebSocket to a room |
+| `room.leave(ws, roomId)` | Remove WebSocket from a room |
+| `room.broadcast(roomId, message)` | Send to all room members |
+| `room.members(roomId)` | Get all WebSockets in a room |
+| `room.rooms(ws)` | Get all rooms a WebSocket belongs to |
+| `room.count(roomId)` | Get member count for a room |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `connections` | `Set<WebSocket>` | All connected WebSockets |
+| `connectionCount` | `number` | Number of connections |

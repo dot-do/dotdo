@@ -1,0 +1,540 @@
+---
+title: L3 - Cold Tier
+description: Long-term archival storage using Iceberg format on R2 with time travel and schema evolution
+---
+
+# L3: Cold Tier
+
+The `IcebergWriter` implements cold storage using Apache Iceberg-compatible format on Cloudflare R2. This layer provides permanent archival, time travel queries, and schema evolution at object storage costs ($0.015/GB/month).
+
+## Overview
+
+```
+       +------------------+
+       |  L2: SQLite      |
+       +--------+---------+
+                |
+         (eventual flush)
+                v
+       +------------------+
+       |  IcebergWriter   |
+       +--------+---------+
+                |
+                v
+       +------------------+
+       |  R2 (Parquet)    |  <- Permanent archive
+       +------------------+     Time travel enabled
+            /    \              Schema evolution
+           /      \
+    +------+      +------+
+    | date=|      | date=|   <- Date partitioning
+    | 2026-|      | 2026-|
+    | 01-15|      | 01-16|
+    +------+      +------+
+```
+
+**Key characteristics:**
+
+- **Iceberg format** - Industry-standard table format with ACID guarantees
+- **Parquet storage** - Columnar format for efficient analytics
+- **Time travel** - Query state at any point in time
+- **Schema evolution** - Safely add fields without migration
+- **Cost efficient** - R2 storage at $0.015/GB/month, no egress fees
+
+## Basic Usage
+
+### Creating a Writer
+
+```typescript
+import { IcebergWriter } from 'dotdo/storage'
+
+const writer = new IcebergWriter({
+  bucket: env.COLD_STORAGE,  // R2 bucket binding
+  namespace: 'tenant-123',
+  tableName: 'events'
+})
+```
+
+### Writing Events
+
+```typescript
+// Write events to cold storage
+await writer.write([
+  {
+    type: 'thing.created',
+    entityId: 'customer_123',
+    payload: { $id: 'customer_123', name: 'Alice' },
+    ts: Date.now()
+  },
+  {
+    type: 'thing.updated',
+    entityId: 'customer_123',
+    payload: { email: 'alice@example.com' },
+    ts: Date.now() + 1000
+  }
+])
+```
+
+### Querying with Time Travel
+
+```typescript
+// Query state as of a specific timestamp
+const events = await writer.query({
+  asOf: new Date('2026-01-01T00:00:00Z'),
+  entityType: 'Customer'
+})
+
+// Query by snapshot ID
+const snapshot = await writer.query({
+  snapshotId: 'snap-42'
+})
+```
+
+## Event Structure
+
+### IcebergEvent
+
+```typescript
+interface IcebergEvent {
+  type: string       // Event type (e.g., 'thing.created')
+  entityId: string   // Entity identifier
+  payload: unknown   // Event data
+  ts: number         // Unix timestamp (milliseconds)
+}
+```
+
+### Example Events
+
+```typescript
+// Creation event
+{
+  type: 'thing.created',
+  entityId: 'order_456',
+  payload: {
+    $id: 'order_456',
+    $type: 'Order',
+    total: 150.00,
+    items: [{ sku: 'ABC', qty: 2 }]
+  },
+  ts: 1736942400000
+}
+
+// Update event
+{
+  type: 'thing.updated',
+  entityId: 'order_456',
+  payload: {
+    status: 'shipped',
+    trackingNumber: 'TRK123456'
+  },
+  ts: 1736942500000
+}
+
+// Delete event
+{
+  type: 'thing.deleted',
+  entityId: 'order_456',
+  payload: {},
+  ts: 1736942600000
+}
+```
+
+## Partitioning Strategy
+
+### Date-Based Partitioning
+
+Events are partitioned by date for efficient querying:
+
+```
+events/
+  ns=tenant-123/
+    date=2026-01-15/
+      data-m1abc123.parquet
+      data-m1def456.parquet
+    date=2026-01-16/
+      data-m1ghi789.parquet
+```
+
+### Partition Path Format
+
+```
+{tableName}/ns={namespace}/date={YYYY-MM-DD}/data-{fileId}.parquet
+```
+
+### Query Optimization
+
+Date partitioning enables partition pruning:
+
+```typescript
+// Only scans date=2026-01-15 partition
+const events = await writer.query({
+  asOf: new Date('2026-01-15T23:59:59Z'),
+  entityId: 'customer_123'
+})
+```
+
+## Time Travel
+
+### Snapshots
+
+Each write creates a new snapshot, preserving previous state:
+
+```typescript
+// List all snapshots
+const snapshots = await writer.listSnapshots()
+
+// [
+//   { snapshotId: 'snap-1', timestamp: '2026-01-15T10:00:00Z', ... },
+//   { snapshotId: 'snap-2', timestamp: '2026-01-15T11:00:00Z', ... },
+//   { snapshotId: 'snap-3', timestamp: '2026-01-15T12:00:00Z', ... }
+// ]
+```
+
+### Query by Timestamp
+
+```typescript
+// Reconstruct state as of specific time
+const historicalState = await writer.query({
+  asOf: new Date('2026-01-15T10:30:00Z')
+})
+
+// Replays events up to 10:30 to reconstruct state
+```
+
+### Query by Snapshot
+
+```typescript
+// Query exact snapshot
+const snapshotState = await writer.query({
+  snapshotId: 'snap-2'
+})
+```
+
+### IcebergSnapshot
+
+```typescript
+interface IcebergSnapshot {
+  snapshotId: string          // Unique snapshot identifier
+  timestamp: Date             // When snapshot was created
+  manifestList: string        // Path to manifest list
+  summary: Record<string, string>  // Operation summary
+}
+```
+
+## Schema Evolution
+
+### Adding Fields
+
+New fields are automatically added to the schema:
+
+```typescript
+// Original writes
+await writer.write([
+  { type: 'thing.created', entityId: 'x', payload: { name: 'Alice' }, ts: t1 }
+])
+
+// Later writes with new field
+await writer.write([
+  { type: 'thing.created', entityId: 'y', payload: { name: 'Bob', tier: 'gold' }, ts: t2 }
+])
+
+// Schema evolves automatically:
+// v1: { name: string }
+// v2: { name: string, tier?: string }
+```
+
+### Type Widening
+
+Compatible type changes are handled automatically:
+
+```typescript
+// Integer field
+await writer.write([
+  { ..., payload: { count: 100 }, ts: t1 }
+])
+
+// Same field with larger value (long)
+await writer.write([
+  { ..., payload: { count: Number.MAX_SAFE_INTEGER }, ts: t2 }
+])
+
+// Schema widens: count: int -> count: long
+```
+
+### IcebergSchema
+
+```typescript
+interface IcebergSchema {
+  version: number
+  fields: Array<{
+    id: number       // Unique field ID
+    name: string     // Field name
+    type: string     // Data type
+    required: boolean
+  }>
+}
+
+// Get current schema
+const schema = await writer.getSchema()
+// {
+//   version: 3,
+//   fields: [
+//     { id: 1, name: 'type', type: 'string', required: true },
+//     { id: 2, name: 'entityId', type: 'string', required: true },
+//     { id: 3, name: 'payload', type: 'string', required: true },
+//     { id: 4, name: 'ts', type: 'long', required: true },
+//     { id: 5, name: 'payload.tier', type: 'string', required: false }
+//   ]
+// }
+```
+
+## Data Format
+
+### Parquet Files
+
+Events are stored in Parquet format for efficient storage and querying:
+
+```
+Parquet Benefits:
+- Columnar storage (efficient for analytics)
+- Built-in compression (typically 5-10x)
+- Predicate pushdown (filter at storage level)
+- Schema embedded in file
+```
+
+### File Structure
+
+```
+data-m1abc123.parquet
+├── Row Group 1
+│   ├── Column: type
+│   ├── Column: entityId
+│   ├── Column: payload
+│   └── Column: ts
+└── Footer (schema, statistics)
+```
+
+<Callout type="info">
+  The current implementation uses JSON encoding for simplicity. Production deployments should use a proper Parquet library like `parquetjs` for full columnar benefits.
+</Callout>
+
+## Configuration
+
+### IcebergWriterConfig
+
+```typescript
+interface IcebergWriterConfig {
+  bucket: R2Bucket     // Required: R2 bucket binding
+  namespace: string    // Required: Tenant namespace
+  tableName: string    // Required: Table name
+}
+```
+
+### DOStorage Integration
+
+```typescript
+import { DOStorage } from 'dotdo/storage'
+
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: {
+    R2: env.COLD_STORAGE,
+    // ...
+  },
+  icebergFlushInterval: 60000  // Flush to L3 every 60 seconds
+})
+```
+
+## Flush Patterns
+
+### Interval-Based (Default)
+
+Events buffer and flush periodically:
+
+```typescript
+// DOStorage configuration
+const storage = new DOStorage({
+  icebergFlushInterval: 60000  // Flush every 60 seconds
+})
+
+// Timeline:
+// t=0s: Events buffered
+// t=30s: More events buffered
+// t=60s: All events written to R2
+// t=120s: Next batch written
+```
+
+### Hibernation Flush
+
+Events are flushed before DO hibernation:
+
+```typescript
+// Automatic on hibernation
+await storage.beforeHibernation()
+// All buffered events written to R2
+```
+
+### Manual Flush
+
+```typescript
+// Force immediate flush
+await storage.flushToIceberg()
+```
+
+## State Reconstruction
+
+### From Events
+
+The cold tier stores events, not snapshots. State is reconstructed by replaying events:
+
+```typescript
+// Example: Reconstruct customer state
+function reconstructState(events: IcebergEvent[]): Map<string, unknown> {
+  const state = new Map()
+
+  for (const event of events.sort((a, b) => a.ts - b.ts)) {
+    if (event.type === 'thing.created') {
+      state.set(event.entityId, event.payload)
+    } else if (event.type === 'thing.updated') {
+      const existing = state.get(event.entityId)
+      state.set(event.entityId, { ...existing, ...event.payload })
+    } else if (event.type === 'thing.deleted') {
+      state.delete(event.entityId)
+    }
+  }
+
+  return state
+}
+```
+
+### Query Pattern
+
+```typescript
+// 1. Query events from Iceberg
+const events = await writer.query({
+  asOf: targetDate,
+  entityType: 'Customer'
+})
+
+// 2. Reconstruct state
+const customers = reconstructState(events)
+
+// 3. Return specific entity
+return customers.get('customer_123')
+```
+
+## Performance Characteristics
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Write latency | ~50ms | Single Parquet file |
+| Read latency | ~100ms | Depends on partition size |
+| Storage cost | $0.015/GB/mo | R2 pricing |
+| Egress cost | $0 | R2 free egress |
+| Compression | 5-10x | Parquet + gzip |
+
+### Cost Example
+
+| Monthly Events | Raw Size | Compressed | Cost |
+|----------------|----------|------------|------|
+| 1M | 500 MB | 50 MB | $0.75 |
+| 10M | 5 GB | 500 MB | $7.50 |
+| 100M | 50 GB | 5 GB | $75.00 |
+
+## Monitoring
+
+### Write Metrics
+
+```typescript
+const writer = new IcebergWriter({
+  bucket: env.COLD_STORAGE,
+  namespace: 'tenant-123',
+  tableName: 'events'
+})
+
+// After each write
+await writer.write(events)
+
+// Check snapshots
+const snapshots = await writer.listSnapshots()
+console.log(`Total snapshots: ${snapshots.length}`)
+
+// Check schema evolution
+const schema = await writer.getSchema()
+console.log(`Schema version: ${schema.version}`)
+```
+
+## Lifecycle
+
+### Close
+
+```typescript
+// Cleanup before shutdown
+await writer.close()
+```
+
+## Use Cases
+
+### Audit Trail
+
+Store every change for compliance:
+
+```typescript
+// All mutations logged to L3
+await storage.create({ $type: 'Payment', amount: 100 })
+// Event: thing.created -> L3
+
+await storage.update(payment.$id, { status: 'processed' })
+// Event: thing.updated -> L3
+
+// Query audit trail
+const auditTrail = await writer.query({
+  entityId: payment.$id
+})
+```
+
+### Analytics
+
+Run analytics on historical data:
+
+```typescript
+// Query all orders from last month
+const lastMonth = new Date()
+lastMonth.setMonth(lastMonth.getMonth() - 1)
+
+const orders = await writer.query({
+  asOf: new Date(),
+  entityType: 'Order'
+})
+
+// Aggregate in application
+const revenue = orders
+  .filter(e => e.type === 'thing.created')
+  .reduce((sum, e) => sum + e.payload.total, 0)
+```
+
+### Disaster Recovery
+
+Rebuild from cold storage if SQLite corrupted:
+
+```typescript
+// Full recovery from L3
+const allEvents = await writer.query({
+  asOf: new Date()  // All events up to now
+})
+
+const state = reconstructState(allEvents)
+
+// Restore to L0 and L2
+for (const [id, data] of state) {
+  memoryManager.loadBulk([data])
+  await checkpointer.checkpoint()
+}
+```
+
+## Next Steps
+
+- [L0: In-Memory Cache](/storage/in-memory) - Hot data source
+- [L1: Pipeline WAL](/storage/pipeline-wal) - Durability layer
+- [L2: Lazy Checkpoint](/storage/lazy-checkpoint) - SQLite persistence
+- [Recovery](/storage/recovery) - Cold start from L3

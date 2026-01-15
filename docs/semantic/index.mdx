@@ -1,0 +1,191 @@
+---
+title: Semantic Type System
+description: Domain modeling DSL with automatic linguistic automation for Nouns, Verbs, Things, Actions, and Relationships
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Semantic Type System
+
+**Domain modeling that reads like natural language.** The semantic module provides a complete type system where Nouns define entity types, Verbs define actions, Things are instances, and Relationships connect everything through a graph you can traverse with simple operators.
+
+```typescript
+import { noun, verb, thing, action, forward, backward } from 'dotdo/semantic'
+
+// Define your domain
+const Customer = noun('Customer')
+const Order = noun('Order')
+const purchase = verb('purchase')
+
+// Create instances
+const alice = thing(Customer, { name: 'Alice', email: 'alice@example.com' })
+const order = thing(Order, { total: 99.99, status: 'pending' })
+
+// Record actions (creates event + edge + audit)
+const result = action(alice, purchase, order)
+
+// Navigate relationships
+const orders = forward(alice, 'Order')      // alice -> Order
+const buyers = backward(order, 'Customer')  // order <- Customer
+```
+
+## Core Concepts
+
+The semantic module has five interconnected parts:
+
+| Concept | Description | Example |
+|---------|-------------|---------|
+| **Nouns** | Entity type definitions | `Customer`, `Order`, `Product` |
+| **Verbs** | Action definitions with tenses | `purchase`, `ship`, `cancel` |
+| **Things** | Entity instances with `$id` and `$type` | `{ $id: 'cust-123', $type: 'Customer' }` |
+| **Actions** | Unified event + edge + audit records | `Customer.purchased.Order` |
+| **Relationships** | Graph traversal operators | `->`, `~>`, `<-`, `<~` |
+
+## Linguistic Automation
+
+**Write less, get more.** The semantic module automatically derives linguistic forms from your definitions.
+
+### Nouns
+
+Define the singular form, get the plural automatically:
+
+```typescript
+const Customer = noun('Customer')
+// Customer.singular = 'Customer'
+// Customer.plural = 'Customers'
+
+const Category = noun('Category')
+// Category.singular = 'Category'
+// Category.plural = 'Categories' (y -> ies rule)
+
+const Status = noun('Status')
+// Status.singular = 'Status'
+// Status.plural = 'Statuses' (s -> es rule)
+```
+
+### Verbs
+
+Define the base form, get all tenses automatically:
+
+```typescript
+const create = verb('create')
+// create.base = 'create'
+// create.past = 'created'
+// create.present = 'creates'
+// create.gerund = 'creating'
+
+const ship = verb('ship')
+// ship.past = 'shipped' (CVC doubling)
+// ship.gerund = 'shipping'
+```
+
+<Callout type="info">
+Override any auto-derived form: `verb('buy', { past: 'bought' })` for irregular verbs.
+</Callout>
+
+## The Thing Model
+
+Every entity in your domain is a **Thing**. Things have two required properties:
+
+| Property | Description |
+|----------|-------------|
+| `$id` | Unique identifier (auto-generated UUID or explicit) |
+| `$type` | Type name from the Noun |
+
+```typescript
+const customer = thing(Customer, { name: 'Alice' })
+// {
+//   $id: 'a1b2c3d4-...',  // auto-generated
+//   $type: 'Customer',
+//   name: 'Alice'
+// }
+
+// Or with explicit ID
+const customer = thing(Customer, 'cust-123', { name: 'Alice' })
+// { $id: 'cust-123', $type: 'Customer', name: 'Alice' }
+```
+
+## The Action Model
+
+Actions unify three concerns into one record:
+
+| Aspect | What it captures |
+|--------|------------------|
+| **Event** | What happened (type, subject, object, timestamp) |
+| **Edge** | Graph connection (from, to, verb) |
+| **Audit** | Who did what when (actor, target, timestamp) |
+
+```typescript
+const result = action(alice, purchase, order)
+// result.event = { type: 'purchased', subject: 'alice-id', object: 'order-id', timestamp }
+// result.edge = { from: 'alice-id', to: 'order-id', verb: 'purchased' }
+// result.audit = { actor: 'alice-id', verb: 'purchased', target: 'order-id', timestamp }
+```
+
+## Relationship Operators
+
+Four operators for graph traversal:
+
+| Operator | Direction | Method | Description |
+|----------|-----------|--------|-------------|
+| `->` | Forward | Exact | Find things this entity points to |
+| `~>` | Forward | Fuzzy | Find semantically similar things |
+| `<-` | Backward | Exact | Find things that point to this entity |
+| `<~` | Backward | Fuzzy | Find semantically related things |
+
+```typescript
+// Exact traversal
+const orders = forward(customer, 'Order')      // customer -> Order
+const buyers = backward(order, 'Customer')     // order <- Customer
+
+// Fuzzy (semantic) traversal
+const similar = await forwardFuzzy(product, 'Product', { threshold: 0.8 })
+const related = await backwardFuzzy(order, 'Customer', { withScores: true })
+```
+
+<Callout type="info">
+Fuzzy operators use vector embeddings for semantic similarity. Configure `configureVectorStore()` with Cloudflare Vectorize for production.
+</Callout>
+
+## Type Safety
+
+All semantic types are fully typed for TypeScript:
+
+```typescript
+import type { Noun, Verb, Thing, Action, ActionResult } from 'dotdo/semantic'
+
+interface CustomerData {
+  name: string
+  email: string
+  plan: 'starter' | 'pro' | 'enterprise'
+}
+
+const customer: Thing<CustomerData> = thing(Customer, {
+  name: 'Alice',
+  email: 'alice@example.com',
+  plan: 'pro'
+})
+```
+
+## Documentation
+
+<Cards>
+  <Card title="Nouns & Verbs" href="/docs/semantic/nouns-verbs">
+    Linguistic automation - singular/plural, verb conjugation, and overrides.
+  </Card>
+  <Card title="Things" href="/docs/semantic/things">
+    Entity instances with $id and $type - the foundation of your domain model.
+  </Card>
+  <Card title="Actions" href="/docs/semantic/actions">
+    Unified event + edge + audit records for every operation.
+  </Card>
+  <Card title="Relationships" href="/docs/semantic/relationships">
+    Graph traversal with ->, ~>, <-, <~ operators.
+  </Card>
+</Cards>
+
+## Related
+
+- [Concepts: Things](/docs/concepts/things) - URL-based Thing identity in dotdo
+- [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern
+- [Concepts: Relationships](/docs/concepts/relationships) - Thing connections

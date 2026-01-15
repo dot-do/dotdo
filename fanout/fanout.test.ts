@@ -444,6 +444,153 @@ describe('ScannerDO', () => {
       expect(scanner.isHealthy()).toBe(false)
     })
   })
+
+  describe('SQL injection prevention', () => {
+    it('should prevent SQL injection via string parameters with quotes', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', status: 'active' },
+        { id: 2, name: 'Bob', status: 'inactive' },
+        { id: 3, name: 'Charlie', status: 'active' },
+      ])
+
+      // Attempt SQL injection: the malicious input contains quotes to break out
+      // If vulnerable, this would match all records or cause unexpected behavior
+      const maliciousInput = "active' OR '1'='1"
+      const result = await scanner.execute('SELECT * FROM users WHERE status = ?', [maliciousInput])
+
+      // Should NOT match any rows (the literal string doesn't exist)
+      expect(result.rows).toHaveLength(0)
+    })
+
+    it('should prevent SQL injection via UNION attack', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', status: 'active', secret: 'password123' },
+        { id: 2, name: 'Bob', status: 'inactive', secret: 'secret456' },
+      ])
+
+      // Attempt UNION injection
+      const maliciousInput = "' UNION SELECT secret FROM users WHERE '1'='1"
+      const result = await scanner.execute('SELECT * FROM users WHERE status = ?', [maliciousInput])
+
+      // Should NOT return any rows
+      expect(result.rows).toHaveLength(0)
+      // Should NOT contain secrets in results
+      const resultStr = JSON.stringify(result)
+      expect(resultStr).not.toContain('password123')
+      expect(resultStr).not.toContain('secret456')
+    })
+
+    it('should prevent SQL injection via comment attack', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', status: 'active' },
+        { id: 2, name: 'Bob', status: 'inactive' },
+      ])
+
+      // Attempt comment-based injection to bypass WHERE clause
+      const maliciousInput = "active' --"
+      const result = await scanner.execute('SELECT * FROM users WHERE status = ?', [maliciousInput])
+
+      // Should NOT match any rows
+      expect(result.rows).toHaveLength(0)
+    })
+
+    it('should handle numeric SQL injection attempts', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', age: 25 },
+        { id: 2, name: 'Bob', age: 30 },
+        { id: 3, name: 'Charlie', age: 35 },
+      ])
+
+      // Attempt numeric injection: "1 OR 1=1"
+      const maliciousInput = '1 OR 1=1'
+      const result = await scanner.execute('SELECT * FROM users WHERE id = ?', [maliciousInput])
+
+      // Should NOT match any rows (because the string "1 OR 1=1" doesn't equal any id)
+      expect(result.rows).toHaveLength(0)
+    })
+
+    it('should safely handle special characters in parameters', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: "O'Brien", status: 'active' },
+        { id: 2, name: 'Alice', status: 'active' },
+      ])
+
+      // Legitimate query with apostrophe in name
+      const result = await scanner.execute("SELECT * FROM users WHERE name = ?", ["O'Brien"])
+
+      // Should match exactly one row
+      expect(result.rows).toHaveLength(1)
+      expect((result.rows[0] as any).name).toBe("O'Brien")
+    })
+
+    it('should prevent injection via backslash escaping', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', status: 'active' },
+        { id: 2, name: 'Bob', status: 'inactive' },
+      ])
+
+      // Attempt to escape the quote using backslash
+      const maliciousInput = "active\\' OR \\'1\\'=\\'1"
+      const result = await scanner.execute('SELECT * FROM users WHERE status = ?', [maliciousInput])
+
+      // Should NOT match any rows
+      expect(result.rows).toHaveLength(0)
+    })
+
+    it('should prevent injection via encoded characters', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', status: 'active' },
+        { id: 2, name: 'Bob', status: 'inactive' },
+      ])
+
+      // Attempt URL-encoded injection
+      const maliciousInput = "active%27%20OR%20%271%27%3D%271"
+      const result = await scanner.execute('SELECT * FROM users WHERE status = ?', [maliciousInput])
+
+      // Should NOT match any rows
+      expect(result.rows).toHaveLength(0)
+    })
+
+    it('should validate parameter types match expected column types', async () => {
+      const { ScannerDO } = await import('./scanner')
+
+      const scanner = new ScannerDO()
+      await scanner.seed([
+        { id: 1, name: 'Alice', count: 10 },
+        { id: 2, name: 'Bob', count: 20 },
+      ])
+
+      // Pass a string that looks like SQL for a numeric field
+      const maliciousInput = 'DROP TABLE users'
+      const result = await scanner.execute('SELECT * FROM users WHERE count = ?', [maliciousInput])
+
+      // Should NOT match any rows and should NOT execute the DROP
+      expect(result.rows).toHaveLength(0)
+      // Data should still be intact
+      expect(scanner.getLocalRowCount()).toBe(2)
+    })
+  })
 })
 
 // ============================================================================

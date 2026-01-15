@@ -1,0 +1,445 @@
+---
+title: Escalation Policies
+description: SLA-based routing with automatic escalation chains, configurable timeouts, and real-time breach monitoring
+---
+
+# Escalation Policies
+
+The `EscalationPolicy` class configures automatic escalation rules that trigger when requests are not handled within specified timeframes. Combined with `SLATracker`, you can build robust systems that ensure timely human intervention.
+
+## Overview
+
+```typescript
+import { EscalationPolicy, SLATracker } from 'dotdo/human'
+
+const escalation = new EscalationPolicy()
+const slaTracker = new SLATracker()
+
+// Configure escalation chain
+const config = escalation
+  .escalateAfter('30 minutes')
+  .escalateTo('supervisor@company.com')
+  .escalateAfter('1 hour')
+  .escalateTo('manager@company.com')
+  .escalateAfter('4 hours')
+  .escalateTo('director@company.com')
+```
+
+## EscalationPolicy
+
+### Building Escalation Chains
+
+The fluent API lets you build multi-tier escalation chains:
+
+```typescript
+const escalation = new EscalationPolicy()
+
+const config = escalation
+  .escalateAfter('15 minutes')
+  .escalateTo('team-lead@company.com')
+  .escalateAfter('1 hour')
+  .escalateTo('manager@company.com')
+  .escalateAfter('4 hours')
+  .escalateTo('director@company.com')
+  .escalateAfter('24 hours')
+  .escalateTo('vp@company.com')
+```
+
+### Duration Formats
+
+Supports natural duration strings:
+
+```typescript
+// Minutes
+escalation.escalateAfter('15 minutes')
+escalation.escalateAfter('30 min')
+escalation.escalateAfter('5m')
+
+// Hours
+escalation.escalateAfter('2 hours')
+escalation.escalateAfter('4 hr')
+escalation.escalateAfter('1h')
+
+// Days
+escalation.escalateAfter('3 days')
+escalation.escalateAfter('1 day')
+escalation.escalateAfter('7d')
+```
+
+### Tracking Requests
+
+Start tracking a request with its escalation config:
+
+```typescript
+const tracking = await escalation.track(
+  'request-001',
+  config,
+  { assignee: 'reviewer@company.com' }
+)
+
+// When the request is resolved, stop escalation
+await tracking.resolve()
+```
+
+### Escalation Events
+
+Handle escalation events with callbacks:
+
+```typescript
+const config = escalation
+  .escalateAfter('30 minutes')
+  .escalateTo('supervisor@company.com')
+  .onEscalate(async (event) => {
+    console.log(`Request ${event.requestId} escalated to ${event.escalatedTo}`)
+    console.log(`Reason: ${event.reason}`)
+    console.log(`At: ${event.escalatedAt}`)
+
+    // Send urgent notification
+    await sendUrgentAlert(event.escalatedTo, event.requestId)
+  })
+  .onNotify(async (notification) => {
+    console.log(`Notifying ${notification.recipient}`)
+    console.log(`Type: ${notification.type}`)  // 'escalation' | 'assignment'
+    console.log(`Message: ${notification.message}`)
+
+    // Route to notification system
+    await notificationDispatcher.notify(
+      notification.recipient,
+      'slack',
+      { text: notification.message }
+    )
+  })
+```
+
+### EscalationEvent Interface
+
+```typescript
+interface EscalationEvent {
+  requestId: string      // The escalated request
+  escalatedTo: string    // New assignee
+  reason: string         // Why it was escalated (e.g., 'SLA breach')
+  escalatedAt: Date      // When escalation occurred
+}
+
+interface EscalationNotification {
+  recipient: string                    // Who to notify
+  type: 'escalation' | 'assignment'    // Notification type
+  message: string                      // Human-readable message
+}
+```
+
+### Resource Cleanup
+
+Always dispose of the policy when done to prevent timer leaks:
+
+```typescript
+const escalation = new EscalationPolicy()
+
+try {
+  // Use escalation policy...
+  const tracking = await escalation.track(requestId, config)
+
+  // Process request...
+  await tracking.resolve()
+} finally {
+  escalation.dispose()  // Clear all timers
+}
+```
+
+## SLATracker
+
+### Tracking SLAs
+
+Monitor SLA compliance with real-time checks:
+
+```typescript
+const slaTracker = new SLATracker()
+
+// Start tracking with deadline
+const tracking = slaTracker.track('request-001', '4 hours')
+// Or with explicit Date
+const tracking = slaTracker.track('request-001', new Date('2026-01-16T17:00:00Z'))
+
+console.log(tracking.requestId)  // 'request-001'
+console.log(tracking.deadline)   // Date object
+console.log(tracking.startedAt)  // When tracking started
+```
+
+### Checking SLA Status
+
+```typescript
+const status = slaTracker.check('request-001')
+
+console.log(status.requestId)        // 'request-001'
+console.log(status.breached)         // false (until deadline passes)
+console.log(status.remaining)        // 3600000 (ms remaining)
+console.log(status.percentageElapsed) // 75 (%)
+
+if (status.breached) {
+  console.log(status.overdueBy)      // How many ms overdue
+}
+```
+
+### SLACheck Interface
+
+```typescript
+interface SLACheck {
+  requestId: string
+  breached: boolean          // Whether SLA has been breached
+  remaining: number          // Ms until deadline (negative if breached)
+  overdueBy?: number         // Ms overdue (only if breached)
+  percentageElapsed?: number // % of time elapsed
+}
+```
+
+### Threshold Callbacks
+
+Configure warning and critical thresholds:
+
+```typescript
+slaTracker.configure({
+  warningThreshold: 0.5,   // 50% of time elapsed
+  criticalThreshold: 0.9,  // 90% of time elapsed
+
+  onWarning: (event) => {
+    console.log(`Warning: ${event.requestId} at ${event.threshold * 100}%`)
+    console.log(`${event.remaining}ms remaining`)
+    // Send reminder notification
+  },
+
+  onCritical: (event) => {
+    console.log(`Critical: ${event.requestId} at ${event.threshold * 100}%`)
+    // Escalate immediately
+  },
+
+  onBreach: (event) => {
+    console.log(`SLA Breached: ${event.requestId}`)
+    console.log(`Overdue by: ${event.overdueBy}ms`)
+    // Trigger incident response
+  }
+})
+```
+
+### Recording Completions
+
+Track completion metrics:
+
+```typescript
+// Record when request is completed
+slaTracker.recordCompletion(
+  'request-001',
+  responseTime,  // Time in ms
+  {
+    breached: false,
+    priority: 'high'
+  }
+)
+```
+
+### Aggregated Metrics
+
+Get percentile and breach statistics:
+
+```typescript
+const metrics = slaTracker.getMetrics()
+
+console.log(metrics.p50)       // Median response time
+console.log(metrics.p95)       // 95th percentile
+console.log(metrics.p99)       // 99th percentile
+console.log(metrics.average)   // Mean response time
+console.log(metrics.breachRate) // % of requests that breached SLA
+
+// Group by priority
+const metricsWithPriority = slaTracker.getMetrics({ groupBy: 'priority' })
+console.log(metricsWithPriority.byPriority)
+// {
+//   critical: { average: 5000 },
+//   high: { average: 15000 },
+//   normal: { average: 45000 },
+//   low: { average: 120000 }
+// }
+```
+
+### Stopping and Cleanup
+
+```typescript
+// Stop tracking specific request
+slaTracker.stop('request-001')
+
+// Dispose all resources
+slaTracker.dispose()
+```
+
+## Complete Example
+
+Full escalation workflow with SLA tracking:
+
+```typescript
+import {
+  ApprovalWorkflow,
+  EscalationPolicy,
+  SLATracker,
+  NotificationDispatcher
+} from 'dotdo/human'
+
+const workflow = new ApprovalWorkflow()
+const escalation = new EscalationPolicy()
+const sla = new SLATracker()
+const notifications = new NotificationDispatcher()
+
+// Configure SLA monitoring
+sla.configure({
+  warningThreshold: 0.75,
+  criticalThreshold: 0.9,
+  onWarning: async ({ requestId, remaining }) => {
+    const request = await workflow.get(requestId)
+    await notifications.notify(
+      request.currentApprover!,
+      'slack',
+      { text: `Reminder: Approval pending. ${Math.round(remaining / 60000)} minutes remaining.` }
+    )
+  },
+  onBreach: async ({ requestId, overdueBy }) => {
+    console.log(`SLA breached for ${requestId} by ${overdueBy}ms`)
+  }
+})
+
+// Create escalation config
+const escalationConfig = escalation
+  .escalateAfter('2 hours')
+  .escalateTo('supervisor')
+  .escalateAfter('4 hours')
+  .escalateTo('manager')
+  .onEscalate(async (event) => {
+    // Reassign the approval
+    const request = await workflow.get(event.requestId)
+    // Update assignment in your system...
+
+    await notifications.notify(
+      event.escalatedTo,
+      'email',
+      {
+        subject: `Escalated: ${request.action.title}`,
+        body: `This request requires your attention due to SLA breach.`
+      }
+    )
+  })
+
+// Process a new approval request
+async function submitForApproval(action: ApprovalRequest) {
+  // Create approval request
+  const approval = await workflow.request(
+    action,
+    ['reviewer@company.com', 'approver@company.com'],
+    { deadline: '8 hours', priority: 'high' }
+  )
+
+  // Start SLA tracking
+  sla.track(approval.id, approval.deadline!)
+
+  // Start escalation tracking
+  const tracking = await escalation.track(
+    approval.id,
+    escalationConfig,
+    { assignee: approval.currentApprover }
+  )
+
+  // Notify initial reviewer
+  await notifications.notify(
+    approval.currentApprover!,
+    'email',
+    {
+      subject: `Approval Required: ${action.title}`,
+      body: `Please review within 8 hours.`
+    }
+  )
+
+  return { approval, tracking }
+}
+
+// When approval is completed
+async function completeApproval(requestId: string, approverId: string) {
+  const startedAt = sla.get(requestId)?.startedAt
+  const result = await workflow.approve(requestId, approverId)
+
+  if (result.status === 'approved') {
+    // Record metrics
+    const responseTime = Date.now() - startedAt!.getTime()
+    const check = sla.check(requestId)
+    sla.recordCompletion(requestId, responseTime, {
+      breached: check.breached,
+      priority: result.priority
+    })
+
+    // Stop tracking
+    sla.stop(requestId)
+  }
+
+  return result
+}
+
+// Cleanup on shutdown
+process.on('SIGTERM', () => {
+  escalation.dispose()
+  sla.dispose()
+})
+```
+
+## Priority-Based Escalation
+
+Different escalation chains for different priorities:
+
+```typescript
+function getEscalationConfig(priority: Priority) {
+  const escalation = new EscalationPolicy()
+
+  switch (priority) {
+    case 'critical':
+      return escalation
+        .escalateAfter('15 minutes')
+        .escalateTo('team-lead')
+        .escalateAfter('30 minutes')
+        .escalateTo('manager')
+        .escalateAfter('1 hour')
+        .escalateTo('director')
+
+    case 'high':
+      return escalation
+        .escalateAfter('1 hour')
+        .escalateTo('team-lead')
+        .escalateAfter('4 hours')
+        .escalateTo('manager')
+
+    case 'normal':
+      return escalation
+        .escalateAfter('4 hours')
+        .escalateTo('team-lead')
+        .escalateAfter('24 hours')
+        .escalateTo('manager')
+
+    case 'low':
+      return escalation
+        .escalateAfter('24 hours')
+        .escalateTo('team-lead')
+        .escalateAfter('72 hours')
+        .escalateTo('manager')
+
+    default:
+      return escalation.escalateAfter('24 hours').escalateTo('team-lead')
+  }
+}
+```
+
+## Best Practices
+
+1. **Always dispose**: Call `dispose()` to prevent timer leaks
+2. **Set realistic thresholds**: Match escalation times to business requirements
+3. **Use warning callbacks**: Give reviewers advance notice before escalation
+4. **Track metrics**: Use `recordCompletion()` to monitor SLA performance
+5. **Handle breaches gracefully**: Escalation is not failure - it ensures timely resolution
+
+## Next Steps
+
+- [Approval Workflows](/human/approvals) - Create multi-level approval chains
+- [Review Queues](/human/queues) - Manage escalated items in priority queues
+- [Notifications](/human/notifications) - Configure escalation alerts

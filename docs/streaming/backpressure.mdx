@@ -1,0 +1,321 @@
+---
+title: Backpressure Control
+description: Flow control strategies for high-throughput streaming with pause, drop, and buffer modes
+---
+
+# Backpressure Control
+
+The `BackpressureController` manages flow control when producers generate messages faster than consumers can process them. Choose from three modes based on your application requirements.
+
+## Overview
+
+Backpressure occurs when:
+- A slow client cannot keep up with message rate
+- Network congestion delays message delivery
+- Client processing is slower than server production
+
+## Mode Comparison
+
+| Mode | Behavior | Data Loss | Memory | Use Case |
+|------|----------|-----------|--------|----------|
+| **pause** | Stops accepting when full | None | Bounded | Critical data, acknowledgment-based |
+| **drop** | Drops oldest messages | Oldest | Bounded | Real-time data, latest-wins |
+| **buffer** | Queues up to limit | None* | High | Burst handling, eventual delivery |
+
+*Buffer mode rejects messages when the buffer limit is exceeded.
+
+## Pause Mode
+
+Pause mode stops accepting new messages when the buffer reaches `highWaterMark` and resumes when drained below `lowWaterMark`.
+
+```typescript
+import { BackpressureController } from 'dotdo/streaming'
+
+const controller = new BackpressureController({
+  mode: 'pause',
+  highWaterMark: 100,
+  lowWaterMark: 50,
+  onPause: () => console.log('Producer paused'),
+  onResume: () => console.log('Producer resumed'),
+})
+
+// Push messages
+const result = controller.push({ data: message })
+
+if (!result.accepted) {
+  console.log('Paused - wait for drain')
+}
+```
+
+### Pause Flow
+
+```
+Buffer Size:  0 -----> 100 (highWaterMark)
+                  |
+                  v
+              [PAUSED]
+                  |
+Drain:       100 -----> 50 (lowWaterMark)
+                  |
+                  v
+              [RESUMED]
+```
+
+### When to Use Pause
+
+- Critical data that cannot be lost
+- Acknowledgment-based protocols
+- Cooperative producers that can wait
+- Database write queues
+
+## Drop Mode
+
+Drop mode always accepts new messages but discards the oldest when the buffer is full. This ensures bounded memory and fresh data.
+
+```typescript
+const controller = new BackpressureController({
+  mode: 'drop',
+  highWaterMark: 100,
+})
+
+const result = controller.push({ data: newMessage })
+
+if (result.dropped) {
+  console.log('Dropped:', result.droppedMessage)
+}
+```
+
+### Drop Flow
+
+```
+Buffer: [msg1] [msg2] [msg3] ... [msg100]  <- Full
+                                    |
+Push new message:                   v
+                              Drop msg1 (oldest)
+
+Buffer: [msg2] [msg3] [msg4] ... [msg101]
+```
+
+### When to Use Drop
+
+- Real-time sensor data
+- Live video/audio frames
+- Stock tickers (latest price matters)
+- Telemetry where recent data is more valuable
+
+## Buffer Mode
+
+Buffer mode queues messages up to a configurable limit, providing a warning callback when approaching capacity.
+
+```typescript
+const controller = new BackpressureController({
+  mode: 'buffer',
+  highWaterMark: 100,     // Soft limit (unused in buffer mode)
+  bufferLimit: 10000,     // Hard limit
+  warningThreshold: 0.8,  // Warn at 80%
+  onWarning: (info) => {
+    console.warn(`Buffer at ${info.utilizationPercent}%`)
+    console.warn(`${info.bufferSize} / ${info.bufferLimit}`)
+  },
+})
+
+const result = controller.push({ data: message })
+
+if (!result.accepted && result.reason === 'buffer_full') {
+  console.error('Buffer overflow - message rejected')
+}
+```
+
+### Buffer Flow
+
+```
+Buffer: [msg1] ... [msg8000]  <- 80% (warning fired)
+              |
+              v
+Buffer: [msg1] ... [msg10000] <- 100% (full)
+              |
+Push new:     v
+        REJECTED (buffer_full)
+```
+
+### When to Use Buffer
+
+- Handling traffic bursts
+- Eventual consistency is acceptable
+- Memory is available for queuing
+- Processing rate is temporarily slower
+
+## Draining the Buffer
+
+All modes use the same `drain()` method to consume messages:
+
+```typescript
+// Drain one message
+const message = controller.drain()
+
+if (message) {
+  processMessage(message.data)
+}
+
+// Drain all messages
+while (true) {
+  const message = controller.drain()
+  if (!message) break
+  processMessage(message.data)
+}
+```
+
+## Clearing the Buffer
+
+Reset the buffer and paused state:
+
+```typescript
+controller.clear()
+
+// After clear:
+// - bufferSize is 0
+// - isPaused is false (in pause mode)
+// - warning state is reset (in buffer mode)
+```
+
+## Properties
+
+```typescript
+// Check if paused (pause mode only)
+if (controller.isPaused) {
+  // Wait before pushing more
+}
+
+// Check buffer size
+console.log(`Buffered: ${controller.bufferSize}`)
+```
+
+## Complete Example
+
+```typescript
+import { WebSocketHub, BackpressureController } from 'dotdo/streaming'
+
+export class StreamingDO extends DurableObject {
+  private hub = new WebSocketHub()
+  private controllers = new Map<WebSocket, BackpressureController>()
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get('Upgrade') === 'websocket') {
+      const [client, server] = Object.values(new WebSocketPair())
+
+      // Create per-connection backpressure controller
+      const controller = new BackpressureController({
+        mode: 'drop',
+        highWaterMark: 100,
+      })
+
+      this.hub.connect(server)
+      this.controllers.set(server, controller)
+
+      server.accept()
+
+      // Drain loop - runs when client can receive
+      const drainInterval = setInterval(() => {
+        const ctrl = this.controllers.get(server)
+        if (!ctrl) return
+
+        let msg
+        while ((msg = ctrl.drain())) {
+          if (server.readyState === WebSocket.OPEN) {
+            server.send(JSON.stringify(msg.data))
+          }
+        }
+      }, 10)
+
+      server.addEventListener('close', () => {
+        clearInterval(drainInterval)
+        this.controllers.delete(server)
+        this.hub.disconnect(server)
+      })
+
+      return new Response(null, { status: 101, webSocket: client })
+    }
+
+    return new Response('Expected WebSocket', { status: 400 })
+  }
+
+  // Called by internal event system
+  broadcastUpdate(data: unknown) {
+    for (const [ws, controller] of this.controllers) {
+      const result = controller.push({ data })
+
+      if (result.dropped) {
+        console.log('Dropped old message for slow client')
+      }
+    }
+  }
+}
+```
+
+## Choosing a Mode
+
+```
+                    Is data loss acceptable?
+                           /        \
+                         Yes         No
+                          |           |
+                          |     Can producer wait?
+                          |        /        \
+                          |      Yes         No
+                          |       |           |
+                          v       v           v
+                        DROP    PAUSE      BUFFER
+```
+
+### Decision Flowchart
+
+1. **Can you lose old data?** Use **drop** mode
+2. **Can the producer wait?** Use **pause** mode
+3. **Need to handle bursts?** Use **buffer** mode
+
+## API Reference
+
+### BackpressureController
+
+```typescript
+class BackpressureController {
+  constructor(options: BackpressureOptions)
+
+  push(message: { data: unknown }): PushResult
+  drain(): { data: unknown } | undefined
+  clear(): void
+
+  readonly isPaused: boolean
+  readonly bufferSize: number
+}
+```
+
+### BackpressureOptions
+
+```typescript
+interface BackpressureOptions {
+  mode: 'pause' | 'drop' | 'buffer'
+  highWaterMark: number
+  lowWaterMark?: number      // Default: highWaterMark / 2
+  bufferLimit?: number       // Default: highWaterMark * 10
+  warningThreshold?: number  // Default: 0.8
+  onPause?: () => void
+  onResume?: () => void
+  onWarning?: (info: {
+    bufferSize: number
+    bufferLimit: number
+    utilizationPercent: number
+  }) => void
+}
+```
+
+### PushResult
+
+```typescript
+interface PushResult {
+  accepted: boolean
+  reason?: 'paused' | 'buffer_full'
+  dropped?: boolean
+  droppedMessage?: { data: unknown }
+}
+```

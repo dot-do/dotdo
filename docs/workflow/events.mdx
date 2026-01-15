@@ -1,0 +1,224 @@
+---
+title: Event Handlers
+description: React to domain events with $.on.Noun.verb() and wildcard matching
+---
+
+# Event Handlers ($.on)
+
+The event system enables reactive programming with a fluent `Noun.verb` syntax. Using JavaScript Proxies, any combination of nouns and verbs works without pre-registration.
+
+## Basic Usage
+
+```typescript
+// Register a handler
+$.on.Customer.signup(async (event) => {
+  console.log(`Welcome ${event.data.name}!`)
+  await sendWelcomeEmail(event.data.email)
+})
+
+// Register another for the same event
+$.on.Customer.signup((event) => {
+  trackAnalytics('signup', event.data)
+})
+```
+
+## Event Structure
+
+Every event handler receives an `Event` object:
+
+```typescript
+interface Event {
+  id: string        // Unique event ID (evt_1234...)
+  type: string      // Full type (e.g., "Customer.signup")
+  subject: string   // The noun (e.g., "Customer")
+  object: string    // The verb (e.g., "signup")
+  data: unknown     // Event payload
+  timestamp: Date   // When the event occurred
+}
+```
+
+Example event:
+```typescript
+{
+  id: 'evt_1705312345_abc123xyz',
+  type: 'Customer.signup',
+  subject: 'Customer',
+  object: 'signup',
+  data: { name: 'Alice', email: 'alice@example.com' },
+  timestamp: new Date('2025-01-15T10:00:00Z')
+}
+```
+
+## Wildcard Matching
+
+Match multiple events with wildcard patterns:
+
+### Match Any Noun (`*.verb`)
+
+```typescript
+// React to any entity being created
+$.on['*'].created((event) => {
+  console.log(`Created: ${event.subject}`)
+  auditLog('created', event)
+})
+
+// Triggered by:
+// - Customer.created
+// - Order.created
+// - Product.created
+```
+
+### Match Any Verb (`Noun.*`)
+
+```typescript
+// React to any Customer event
+$.on.Customer['*']((event) => {
+  console.log(`Customer event: ${event.object}`)
+  customerActivity.track(event)
+})
+
+// Triggered by:
+// - Customer.signup
+// - Customer.updated
+// - Customer.deleted
+```
+
+### Match Everything (`*.*`)
+
+```typescript
+// Global event logging
+$.on['*']['*']((event) => {
+  logger.info(`Event: ${event.type}`, event.data)
+})
+```
+
+## Handler Order
+
+Handlers execute in registration order:
+
+```typescript
+const order: number[] = []
+
+$.on.Customer.signup(() => order.push(1))
+$.on.Customer.signup(() => order.push(2))
+$.on.Customer.signup(() => order.push(3))
+
+await $.dispatch('Customer.signup', {})
+// order === [1, 2, 3]
+```
+
+## Async Handlers
+
+Both sync and async handlers are supported. Async handlers are awaited in sequence:
+
+```typescript
+$.on.Order.placed(async (event) => {
+  // First: reserve inventory
+  await inventory.reserve(event.data.items)
+})
+
+$.on.Order.placed(async (event) => {
+  // Second: notify warehouse (runs after first completes)
+  await warehouse.notify(event.data)
+})
+```
+
+## Unsubscribing
+
+Each registration returns an unsubscribe function:
+
+```typescript
+const unsubscribe = $.on.Customer.signup(handler)
+
+// Later: remove the handler
+unsubscribe()
+```
+
+## Dispatching Events
+
+Trigger events programmatically:
+
+```typescript
+// Dispatch and wait for all handlers
+await $.dispatch('Customer.signup', {
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+```
+
+For fire-and-forget event emission, use `$.send()` instead. See [Durability](/docs/workflow/durability).
+
+## Querying Handlers
+
+Inspect registered handlers:
+
+```typescript
+// Get handlers for exact match
+const handlers = $.getRegisteredHandlers('Customer.signup')
+console.log(`${handlers.length} handlers registered`)
+
+// Get all matching handlers (includes wildcards)
+const allMatching = $.matchHandlers('Customer.signup')
+// Includes: Customer.signup, *.signup, Customer.*, *.*
+```
+
+## Common Patterns
+
+### Domain Event Sourcing
+
+```typescript
+// Audit trail for all domain events
+$.on['*']['*']((event) => {
+  eventStore.append({
+    type: event.type,
+    data: event.data,
+    timestamp: event.timestamp,
+    actorId: getCurrentUser()
+  })
+})
+```
+
+### Cross-Cutting Concerns
+
+```typescript
+// Add timing to all events
+$.on['*']['*'](async (event) => {
+  const start = Date.now()
+  // Handlers run, then this continues
+  metrics.timing(`event.${event.type}`, Date.now() - start)
+})
+```
+
+### Entity Lifecycle
+
+```typescript
+// Customer lifecycle management
+$.on.Customer.created(initializeCustomer)
+$.on.Customer.verified(enableFeatures)
+$.on.Customer.upgraded(migrateToNewTier)
+$.on.Customer.churned(startWinbackCampaign)
+$.on.Customer.deleted(cleanupResources)
+```
+
+## Error Handling
+
+When using `$.dispatch()`, errors propagate to the caller. For fire-and-forget semantics with error tracking, use `$.send()` with `$.onError()`:
+
+```typescript
+$.onError((errorInfo) => {
+  alerting.notify({
+    error: errorInfo.error,
+    eventType: errorInfo.eventType,
+    eventId: errorInfo.eventId
+  })
+})
+
+$.on.Payment.process(() => {
+  throw new Error('Payment gateway unavailable')
+})
+
+// Does not throw - error captured via onError callback
+$.send('Payment.process', { amount: 100 })
+```
+
+See [Durability](/docs/workflow/durability) for more on error handling strategies.

@@ -278,7 +278,8 @@ function simulateExecution(
     // Check for fetch call when network blocked
     if (script.includes('fetch(') && context.fetch) {
       try {
-        context.fetch()
+        // Call the blocking fetch stub which throws an error
+        ;(context.fetch as () => never)()
       } catch (err) {
         if (script.includes('catch')) {
           // Return the error message if wrapped in try-catch
@@ -824,7 +825,7 @@ function createDatabaseStub() {
         )
       },
       insertOne: (doc: Record<string, unknown>) => {
-        const id = doc.$id || crypto.randomUUID()
+        const id = (doc.$id as string | undefined) || crypto.randomUUID()
         const items = store.get(name) || {}
         items[id] = { ...doc, $id: id }
         store.set(name, items)

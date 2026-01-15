@@ -1,0 +1,112 @@
+---
+title: WorkflowContext ($)
+description: The unified interface for Durable Object operations - events, scheduling, durability, and cross-DO RPC
+---
+
+# WorkflowContext ($)
+
+The `$` context is the unified interface for all workflow operations in dotdo. It provides a fluent DSL for event handling, scheduling, durable execution, and cross-DO communication.
+
+## The Five Pillars
+
+WorkflowContext implements five core capabilities that transform Durable Objects from simple storage into a complete workflow engine:
+
+| Pillar | API | Purpose |
+|--------|-----|---------|
+| **Events** | `$.on.Noun.verb()` | React to domain events with wildcards |
+| **Scheduling** | `$.every.Monday.at9am()` | Human-readable cron scheduling |
+| **Durability** | `$.send()`, `$.try()`, `$.do()` | Three levels of execution guarantees |
+| **RPC** | `$.Customer(id).method()` | Type-safe cross-DO communication |
+| **Cascade** | `$.cascade()` | Automatic code -> AI -> human escalation |
+
+## Quick Start
+
+```typescript
+import { createWorkflowContext } from 'dotdo/workflow'
+
+const $ = createWorkflowContext()
+
+// React to events
+$.on.Customer.signup(async (event) => {
+  console.log(`New customer: ${event.data.email}`)
+})
+
+// Schedule recurring tasks
+$.every.Monday.at9am(() => {
+  sendWeeklyReport()
+})
+
+// Durable execution with retries
+await $.do(async () => {
+  await sendCriticalEmail(user)
+}, { maxRetries: 3 })
+
+// Cross-DO communication
+const profile = await $.Customer('cust-123').getProfile()
+```
+
+## Design Philosophy
+
+### Fluent DSL Over Configuration
+
+Instead of:
+```typescript
+// Traditional approach
+scheduler.register({
+  cron: '0 9 * * 1',
+  handler: sendReport
+})
+```
+
+WorkflowContext uses:
+```typescript
+// Fluent DSL
+$.every.Monday.at9am(sendReport)
+```
+
+### Infinite Noun.verb Combinations
+
+The event system uses JavaScript Proxies to support any domain vocabulary without pre-registration:
+
+```typescript
+$.on.Customer.signup(handler)    // Works
+$.on.Payment.failed(handler)     // Works
+$.on.Spaceship.launched(handler) // Also works
+```
+
+### Progressive Durability
+
+Choose the right guarantee level for each operation:
+
+```typescript
+$.send(event)   // Fire-and-forget (fastest)
+$.try(action)   // Single attempt (simple)
+$.do(action)    // Durable with retries (safest)
+```
+
+## Integration with Durable Objects
+
+WorkflowContext is designed to be embedded in Durable Objects:
+
+```typescript
+import { DOWorkflow } from 'dotdo/workflow'
+
+class MyDO extends DOWorkflow {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // $ is available immediately
+    this.$.on.Order.created(async (event) => {
+      await this.processOrder(event.data)
+    })
+  }
+}
+```
+
+## Next Steps
+
+- [Events](/docs/workflow/events) - Event handlers with wildcards
+- [Scheduling](/docs/workflow/scheduling) - Fluent CRON DSL
+- [Durability](/docs/workflow/durability) - send vs try vs do
+- [RPC](/docs/workflow/rpc) - Cross-DO communication
+- [Cascade](/docs/workflow/cascade) - Automatic escalation tiers

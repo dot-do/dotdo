@@ -7,6 +7,17 @@
  * - Attenuation (deriving restricted capabilities)
  * - Revocation (instant invalidation)
  * - Time-limited expiration
+ *
+ * Note on Module-Level State:
+ * The capabilityRegistry and revokedCapabilities are intentionally
+ * module-level because:
+ * 1. Capabilities must be unforgeable - verification requires a shared registry
+ * 2. Revocation must propagate - a revoked capability must be invalid everywhere
+ *
+ * In Cloudflare Workers with isolate reuse, this means:
+ * - Capabilities persist within an isolate's lifetime
+ * - Different requests in the same isolate share capability state
+ * - For true isolation, use per-request capability validation via RPC
  */
 
 import { serialize, deserialize } from './transport'
@@ -198,29 +209,37 @@ class CapabilityImpl<T> implements Capability<T> {
     // Mark as revoked
     revokedCapabilities.add(this.id)
 
-    // Revoke all children
+    // Recursively revoke all children
+    this.revokeChildren()
+
+    // Remove from registry
+    capabilityRegistry.delete(this.id)
+  }
+
+  private revokeChildren(): void {
+    // Revoke all direct children
     for (const childId of this.children) {
       const child = capabilityRegistry.get(childId)
       if (child) {
         child.revoke()
       }
     }
-
-    // Remove from registry
-    capabilityRegistry.delete(this.id)
   }
 
   private isRevoked(): boolean {
+    // Check if this capability is revoked
     if (revokedCapabilities.has(this.id)) {
       return true
     }
 
-    // Check parent chain
-    if (this.parent) {
-      const parentImpl = capabilityRegistry.get(this.parent.id) as CapabilityImpl<unknown> | undefined
-      if (!parentImpl || parentImpl.isRevoked()) {
+    // Check parent chain - if any parent is revoked, this is revoked too
+    let current = this.parent
+    while (current) {
+      if (revokedCapabilities.has(current.id)) {
         return true
       }
+      const parentImpl = capabilityRegistry.get(current.id) as CapabilityImpl<unknown> | undefined
+      current = parentImpl?.parent
     }
 
     return false

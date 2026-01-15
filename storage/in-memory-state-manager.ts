@@ -3,6 +3,19 @@
  *
  * Fast O(1) CRUD operations with dirty tracking and LRU eviction.
  * This is the hot layer of the storage stack.
+ *
+ * @module storage/in-memory-state-manager
+ * @example
+ * const manager = new InMemoryStateManager({
+ *   maxEntries: 10000,
+ *   maxBytes: 10 * 1024 * 1024,
+ *   onEvict: (entries) => console.log(`Evicted ${entries.length} entries`)
+ * })
+ *
+ * const thing = manager.create({ $type: 'Customer', name: 'Alice' })
+ * manager.get(thing.$id) // O(1) read
+ * manager.update(thing.$id, { name: 'Bob' }) // Increments $version
+ * manager.delete(thing.$id)
  */
 
 export interface ThingData {
@@ -72,7 +85,14 @@ export class InMemoryStateManager {
   }
 
   /**
-   * Create a new thing with generated or provided $id
+   * Create a new thing with generated or provided $id.
+   *
+   * The created thing is automatically marked as dirty and added to tracking.
+   * If eviction thresholds are exceeded, LRU clean entries will be evicted.
+   *
+   * @param input - Creation input with $type and optional $id
+   * @returns The created thing with generated $id and $version=1
+   * @throws Never - LRU eviction handles capacity gracefully
    */
   create(input: CreateThingInput): ThingData {
     const $id = input.$id ?? generateId(input.$type)
@@ -95,7 +115,13 @@ export class InMemoryStateManager {
   }
 
   /**
-   * Get a thing by $id in O(1) time
+   * Get a thing by $id in O(1) time.
+   *
+   * Updates access time for LRU tracking (read-only access does not mark as dirty).
+   * Returns null if the thing does not exist.
+   *
+   * @param id - The $id to retrieve
+   * @returns The thing or null if not found
    */
   get(id: string): ThingData | null {
     const entry = this.store.get(id)
@@ -109,12 +135,20 @@ export class InMemoryStateManager {
   }
 
   /**
-   * Update a thing and increment $version
+   * Update a thing and increment $version.
+   *
+   * Updates are merged with existing data. The $id and $type are always preserved.
+   * The thing is marked as dirty and will be included in the next checkpoint.
+   *
+   * @param id - The $id of the thing to update
+   * @param updates - Partial updates to merge
+   * @returns The updated thing with incremented $version
+   * @throws Error if the thing with the given $id does not exist
    */
   update(id: string, updates: Partial<ThingData>): ThingData {
     const entry = this.store.get(id)
     if (!entry) {
-      throw new Error(`Thing with id ${id} not found`)
+      throw new Error(`Storage error: Thing with id '${id}' not found for update operation`)
     }
 
     const oldSize = entry.size

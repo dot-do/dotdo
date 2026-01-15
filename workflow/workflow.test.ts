@@ -522,6 +522,169 @@ describe('Durable Execution', () => {
       )
     })
   })
+
+  describe('$.send() error handling (fire-and-forget)', () => {
+    it('invokes onError callback when handler throws', async () => {
+      const errorCallback = vi.fn()
+      $.onError(errorCallback)
+
+      $.on.Customer.signup(() => {
+        throw new Error('Handler failed')
+      })
+
+      $.send('Customer.signup', { email: 'test@example.com' })
+
+      // Wait for the fire-and-forget dispatch to complete
+      await new Promise(r => setTimeout(r, 50))
+
+      expect(errorCallback).toHaveBeenCalledTimes(1)
+      expect(errorCallback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.any(Error),
+          eventType: 'Customer.signup',
+          eventId: expect.stringMatching(/^evt_/),
+        })
+      )
+    })
+
+    it('invokes onError callback for async handler rejections', async () => {
+      const errorCallback = vi.fn()
+      $.onError(errorCallback)
+
+      $.on.Order.created(async () => {
+        await new Promise(r => setTimeout(r, 10))
+        throw new Error('Async handler failed')
+      })
+
+      $.send('Order.created', { orderId: '123' })
+
+      // Wait for the async handler to complete and fail
+      await new Promise(r => setTimeout(r, 100))
+
+      expect(errorCallback).toHaveBeenCalledTimes(1)
+      expect(errorCallback.mock.calls[0][0].error.message).toBe('Async handler failed')
+    })
+
+    it('does not invoke onError callback when handlers succeed', async () => {
+      const errorCallback = vi.fn()
+      $.onError(errorCallback)
+
+      $.on.Customer.signup(() => {
+        // Success - no error
+      })
+
+      $.send('Customer.signup', { email: 'test@example.com' })
+
+      await new Promise(r => setTimeout(r, 50))
+
+      expect(errorCallback).not.toHaveBeenCalled()
+    })
+
+    it('supports multiple error callbacks', async () => {
+      const callback1 = vi.fn()
+      const callback2 = vi.fn()
+      $.onError(callback1)
+      $.onError(callback2)
+
+      $.on.Payment.failed(() => {
+        throw new Error('Payment handler error')
+      })
+
+      $.send('Payment.failed', { paymentId: '456' })
+
+      await new Promise(r => setTimeout(r, 50))
+
+      expect(callback1).toHaveBeenCalledTimes(1)
+      expect(callback2).toHaveBeenCalledTimes(1)
+    })
+
+    it('onError returns unsubscribe function', async () => {
+      const errorCallback = vi.fn()
+      const unsubscribe = $.onError(errorCallback)
+
+      $.on.Customer.signup(() => {
+        throw new Error('Should not call callback')
+      })
+
+      unsubscribe()
+
+      $.send('Customer.signup', { email: 'test@example.com' })
+
+      await new Promise(r => setTimeout(r, 50))
+
+      expect(errorCallback).not.toHaveBeenCalled()
+    })
+
+    it('tracks error count via getErrorCount()', async () => {
+      $.on.Customer.signup(() => {
+        throw new Error('Error 1')
+      })
+      $.on.Customer.signup(() => {
+        throw new Error('Error 2')
+      })
+
+      expect($.getErrorCount()).toBe(0)
+
+      $.send('Customer.signup', { email: 'test@example.com' })
+
+      await new Promise(r => setTimeout(r, 50))
+
+      expect($.getErrorCount()).toBe(2)
+    })
+
+    it('logs errors to structured error log', async () => {
+      $.on.Order.created(() => {
+        throw new Error('Logged error')
+      })
+
+      $.send('Order.created', { orderId: '789' })
+
+      await new Promise(r => setTimeout(r, 50))
+
+      const errorLog = $.getErrorLog()
+      expect(errorLog).toHaveLength(1)
+      expect(errorLog[0]).toMatchObject({
+        eventType: 'Order.created',
+        error: expect.objectContaining({ message: 'Logged error' }),
+        timestamp: expect.any(Date),
+      })
+    })
+
+    it('error log includes event ID for correlation', async () => {
+      $.on.Customer.signup(() => {
+        throw new Error('Correlated error')
+      })
+
+      const eventId = $.send('Customer.signup', { email: 'test@example.com' })
+
+      await new Promise(r => setTimeout(r, 50))
+
+      const errorLog = $.getErrorLog()
+      expect(errorLog[0].eventId).toBe(eventId)
+    })
+
+    it('maintains fire-and-forget semantics - send returns immediately', () => {
+      // Even with error handling, send() should never block
+      let handlerStarted = false
+
+      $.on.Slow.event(async () => {
+        handlerStarted = true
+        await new Promise(r => setTimeout(r, 1000))
+        throw new Error('Slow error')
+      })
+
+      const start = Date.now()
+      const eventId = $.send('Slow.event', {})
+      const elapsed = Date.now() - start
+
+      // send() should return in < 10ms (essentially synchronous)
+      expect(elapsed).toBeLessThan(10)
+      expect(typeof eventId).toBe('string')
+
+      // Handler may not have even started yet
+      // (it runs on next tick)
+    })
+  })
 })
 
 // ============================================================================

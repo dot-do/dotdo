@@ -1,0 +1,257 @@
+---
+title: Scheduling DSL
+description: Human-readable scheduling with $.every.Monday.at9am() and interval support
+---
+
+# Scheduling DSL ($.every)
+
+The scheduling DSL transforms complex CRON expressions into readable English. Instead of memorizing `0 9 * * 1`, write `$.every.Monday.at9am()`.
+
+## Day-Based Scheduling
+
+### Specific Days
+
+```typescript
+// Every Monday at 9am
+$.every.Monday.at9am(sendWeeklyReport)
+
+// Every Friday at 5pm
+$.every.Friday.at5pm(generateInvoices)
+
+// Every Sunday at 6am
+$.every.Sunday.at6am(runBackup)
+```
+
+Available days: `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday`, `Sunday`
+
+Available time shortcuts: `at6am`, `at9am`, `at5pm`
+
+### Custom Times
+
+Use `.at(time)` for any time:
+
+```typescript
+// Every day at 6pm
+$.every.day.at('6pm')(closeMarket)
+
+// Every Monday at 9:30am
+$.every.Monday.at('9:30am')(standupReminder)
+
+// Every day at noon
+$.every.day.at('noon')(lunchNotification)
+
+// Every day at midnight
+$.every.day.at('midnight')(dailyCleanup)
+```
+
+Time formats supported:
+- `9am`, `5pm` - Hour with AM/PM
+- `9:30am`, `6:45pm` - Hour:minute with AM/PM
+- `14`, `22` - 24-hour format
+- `noon`, `midnight` - Named times
+
+## Interval Scheduling
+
+### Simple Intervals
+
+```typescript
+// Every hour
+$.every.hour(checkHealth)
+
+// Every minute
+$.every.minute(updateMetrics)
+```
+
+### Custom Intervals
+
+```typescript
+// Every 5 minutes
+$.every(5).minutes(pollQueue)
+
+// Every 2 hours
+$.every(2).hours(syncData)
+
+// Every 30 seconds (sub-minute)
+$.every(30).seconds(heartbeat)
+```
+
+## One-Time Scheduling
+
+Schedule a single execution:
+
+```typescript
+// At a specific ISO date
+$.at('2024-12-25T00:00:00Z')(christmasGreeting)
+
+// Using a Date object
+const deadline = new Date('2024-12-31T23:59:59Z')
+$.at(deadline)(yearEndReport)
+```
+
+## Unsubscribing
+
+All schedule registrations return an unsubscribe function:
+
+```typescript
+// Register
+const cancel = $.every.Monday.at9am(sendReport)
+
+// Later: cancel the schedule
+cancel()
+```
+
+## CRON Expression Mapping
+
+The DSL generates standard CRON expressions internally:
+
+| DSL | CRON |
+|-----|------|
+| `$.every.Monday.at9am()` | `0 9 * * 1` |
+| `$.every.Friday.at5pm()` | `0 17 * * 5` |
+| `$.every.day.at6am()` | `0 6 * * *` |
+| `$.every.day.at('6pm')()` | `0 18 * * *` |
+| `$.every.day.at('9:30am')()` | `30 9 * * *` |
+| `$.every.day.at('noon')()` | `0 12 * * *` |
+| `$.every.day.at('midnight')()` | `0 0 * * *` |
+| `$.every.hour()` | `0 * * * *` |
+| `$.every.minute()` | `* * * * *` |
+| `$.every(5).minutes()` | `*/5 * * * *` |
+| `$.every(2).hours()` | `0 */2 * * *` |
+| `$.every(30).seconds()` | `every:30s` (custom) |
+
+## Querying Schedules
+
+```typescript
+// Check if a schedule exists
+const schedule = $.getSchedule('0 9 * * 1')
+if (schedule) {
+  console.log('Monday 9am is scheduled')
+}
+
+// Check one-time schedules
+const oneTime = $.getOneTimeSchedule('2024-12-25T00:00:00Z')
+```
+
+## Common Patterns
+
+### Business Hours
+
+```typescript
+// Market open
+$.every.day.at('9:30am')(() => {
+  market.open()
+  $.send('Market.opened', { timestamp: new Date() })
+})
+
+// Market close
+$.every.day.at('4pm')(() => {
+  market.close()
+  $.send('Market.closed', { timestamp: new Date() })
+})
+```
+
+### Maintenance Windows
+
+```typescript
+// Database maintenance at 3am
+$.every.day.at('3am')(async () => {
+  await database.vacuum()
+  await database.analyzeIndexes()
+})
+
+// Weekly full backup
+$.every.Sunday.at6am(async () => {
+  await backup.full()
+  await backup.verify()
+})
+```
+
+### Periodic Reporting
+
+```typescript
+// Hourly metrics
+$.every.hour(() => {
+  metrics.aggregate()
+  metrics.pushToTimeseries()
+})
+
+// Daily summary
+$.every.day.at('6am')(async () => {
+  const summary = await analytics.dailySummary()
+  await email.send({
+    to: 'team@company.com',
+    subject: 'Daily Summary',
+    body: formatSummary(summary)
+  })
+})
+
+// Weekly report
+$.every.Monday.at9am(async () => {
+  const report = await analytics.weeklyReport()
+  await slack.post('#reports', report)
+})
+```
+
+### Health Checks
+
+```typescript
+// Fast heartbeat
+$.every(30).seconds(() => {
+  health.ping()
+})
+
+// Detailed health check
+$.every(5).minutes(async () => {
+  const status = await health.check()
+  if (!status.healthy) {
+    await alerting.page('System unhealthy', status)
+  }
+})
+```
+
+## Day Constants
+
+The day names map to CRON day-of-week values:
+
+| Day | CRON Value |
+|-----|------------|
+| Sunday | 0 |
+| Monday | 1 |
+| Tuesday | 2 |
+| Wednesday | 3 |
+| Thursday | 4 |
+| Friday | 5 |
+| Saturday | 6 |
+
+## Sub-Minute Scheduling
+
+For intervals less than one minute, the system uses a custom format (`every:Ns`) rather than CRON, since CRON's minimum resolution is one minute. These schedules are typically implemented using Durable Object alarms.
+
+```typescript
+// Every 30 seconds
+$.every(30).seconds(heartbeat)
+// Stored as: every:30s
+
+// Every 10 seconds
+$.every(10).seconds(quickPoll)
+// Stored as: every:10s
+```
+
+## Integration with Durable Objects
+
+When used in a Durable Object, schedules are persisted to SQLite and restored on initialization:
+
+```typescript
+class MyDO extends DOWorkflow {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Schedules are persisted and restored automatically
+    this.$.every.Monday.at9am(this.weeklyReport.bind(this))
+  }
+
+  async weeklyReport() {
+    // This runs every Monday at 9am
+  }
+}
+```

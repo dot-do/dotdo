@@ -155,11 +155,29 @@ export interface NotificationResult {
 }
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * SLA timeout constants (in milliseconds)
+ */
+const SLA_CONSTANTS = {
+  /** Maximum allowed SLA deadline (1 year) */
+  MAX_DEADLINE_MS: 365 * 24 * 60 * 60 * 1000,
+  /** One year in milliseconds */
+  ONE_YEAR_MS: 365 * 24 * 60 * 60 * 1000,
+} as const
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 
 /**
  * Parse a duration string into milliseconds
+ *
+ * @param duration - Duration string (e.g., "1 hour", "30 minutes", "2 days")
+ * @returns Duration in milliseconds
+ * @throws {Error} If duration format is invalid
  */
 function parseDuration(duration: string): number {
   const patterns: Array<{ regex: RegExp; multiplier: number }> = [
@@ -180,9 +198,87 @@ function parseDuration(duration: string): number {
 
 /**
  * Generate a unique ID
+ *
+ * @returns Unique identifier combining timestamp and random string
  */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+}
+
+// ============================================================================
+// Validation Utilities (do-374)
+// ============================================================================
+
+/**
+ * Validate that a string is non-empty and not just whitespace
+ *
+ * @param value - Value to check
+ * @returns True if value is a non-empty string
+ */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/**
+ * Validate ApprovalRequest fields
+ *
+ * @param action - ApprovalRequest to validate
+ * @throws {Error} If any required field is invalid
+ */
+function validateApprovalRequest(action: ApprovalRequest): void {
+  if (!isNonEmptyString(action.id)) {
+    throw new Error('ApprovalRequest id is required')
+  }
+  if (!isNonEmptyString(action.type)) {
+    throw new Error('ApprovalRequest type is required')
+  }
+  if (!isNonEmptyString(action.title)) {
+    throw new Error('ApprovalRequest title is required')
+  }
+  if (!isNonEmptyString(action.description)) {
+    throw new Error('ApprovalRequest description is required')
+  }
+  if (!isNonEmptyString(action.requestedBy)) {
+    throw new Error('ApprovalRequest requestedBy is required')
+  }
+  if (!(action.requestedAt instanceof Date) || isNaN(action.requestedAt.getTime())) {
+    throw new Error('ApprovalRequest requestedAt must be a valid date')
+  }
+  if (action.amount !== undefined && (typeof action.amount !== 'number' || action.amount < 0)) {
+    throw new Error('ApprovalRequest amount must be a non-negative number')
+  }
+}
+
+/**
+ * Validate SLA deadline
+ *
+ * @param deadline - Deadline to validate
+ * @param now - Current time
+ * @throws {Error} If deadline is invalid
+ */
+function validateSLADeadline(deadline: Date, now: Date): void {
+  const deadlineTime = deadline.getTime()
+  const nowTime = now.getTime()
+
+  if (deadlineTime <= nowTime) {
+    throw new Error('SLA deadline must be in the future')
+  }
+
+  if (deadlineTime - nowTime > SLA_CONSTANTS.MAX_DEADLINE_MS) {
+    throw new Error('SLA deadline cannot be more than 1 year in the future')
+  }
+}
+
+/**
+ * Validate request ID
+ *
+ * @param requestId - Request ID to validate
+ * @throws {Error} If request ID is invalid
+ */
+function validateRequestId(requestId: string): void {
+  if (!isNonEmptyString(requestId)) {
+    throw new Error('Request ID is required')
+  }
 }
 
 /**
@@ -201,6 +297,30 @@ const PRIORITY_ORDER: Record<Priority, number> = {
 
 /**
  * ApprovalWorkflow - Manages multi-level approval chains
+ *
+ * Provides a complete workflow system for handling approval requests through
+ * multiple approval levels. Supports sequential approval chains where each
+ * approver must approve before proceeding to the next level, or the request
+ * can be rejected at any level.
+ *
+ * Features:
+ * - Multi-level approval chains with sequential progression
+ * - Optional deadlines and priority levels
+ * - Approval/rejection with optional comments and reasons
+ * - Complete audit history of all actions
+ * - Performance metrics (time per level, total approval time)
+ *
+ * @example
+ * ```typescript
+ * const workflow = new ApprovalWorkflow()
+ * const request = await workflow.request(
+ *   { id: 'exp-1', type: 'expense', title: '...', ... },
+ *   ['manager@example.com', 'director@example.com'],
+ *   { deadline: '24 hours', priority: 'high' }
+ * )
+ * await workflow.approve(request.id, 'manager@example.com')
+ * await workflow.approve(request.id, 'director@example.com')
+ * ```
  */
 export class ApprovalWorkflow {
   private requests: Map<string, ApprovalResponse> = new Map()
@@ -208,12 +328,26 @@ export class ApprovalWorkflow {
 
   /**
    * Create a new approval request
+   *
+   * @param action - The action/request to be approved
+   * @param approvers - Array of approver IDs in order (sequential chain)
+   * @param options - Optional configuration
+   * @param options.deadline - Deadline for completion (Date or duration string)
+   * @param options.priority - Priority level for the request
+   * @returns The created approval response with initial state
+   * @throws {Error} If action or approvers list is invalid
    */
   async request(
     action: ApprovalRequest,
     approvers: string[],
     options?: { deadline?: Date | string; priority?: Priority }
   ): Promise<ApprovalResponse> {
+    // Validate inputs (do-374)
+    validateApprovalRequest(action)
+    if (!approvers || approvers.length === 0) {
+      throw new Error('At least one approver is required')
+    }
+
     const id = generateId()
     const now = new Date()
 
@@ -247,6 +381,10 @@ export class ApprovalWorkflow {
 
   /**
    * Get an approval request by ID
+   *
+   * @param requestId - ID of the request to retrieve
+   * @returns The approval response with current state
+   * @throws {Error} If request is not found
    */
   async get(requestId: string): Promise<ApprovalResponse> {
     const request = this.requests.get(requestId)
@@ -258,6 +396,16 @@ export class ApprovalWorkflow {
 
   /**
    * Approve a request at the current level
+   *
+   * Advances to the next approval level or completes the workflow if this is
+   * the final approver. Automatically calculates metrics for the approval level.
+   *
+   * @param requestId - ID of the request to approve
+   * @param approverId - ID of the approver (must be current approver)
+   * @param options - Optional configuration
+   * @param options.comment - Optional comment on the approval
+   * @returns Updated approval response with new state
+   * @throws {Error} If request not found or approver is not authorized at current level
    */
   async approve(
     requestId: string,
@@ -338,6 +486,15 @@ export class ApprovalWorkflow {
 
   /**
    * Reject a request
+   *
+   * Immediately terminates the workflow. Any current or previous approver
+   * can reject the request, allowing for pull-back of approvals.
+   *
+   * @param requestId - ID of the request to reject
+   * @param approverId - ID of the rejecting approver (must be current or previous level)
+   * @param reason - Required reason for rejection
+   * @returns Updated approval response with rejected status
+   * @throws {Error} If request not found, approver not authorized, or reason is empty
    */
   async reject(
     requestId: string,
@@ -392,12 +549,43 @@ interface EscalationTracking {
 
 /**
  * EscalationPolicy - Configures automatic escalation rules
+ *
+ * Implements SLA breach escalation with support for configurable escalation chains.
+ * Automatically triggers escalations at specified time intervals, with optional
+ * notifications to both the original assignee and the escalated target.
+ *
+ * Features:
+ * - Fluent API for configurable escalation chains
+ * - Support for multiple escalation levels with different durations
+ * - Automatic escalation and notification on breach
+ * - Resolution tracking to prevent escalations after resolution
+ * - Complete resource cleanup with dispose() method
+ *
+ * @example
+ * ```typescript
+ * const policy = new EscalationPolicy()
+ * const config = policy
+ *   .escalateAfter('1 hour')
+ *   .escalateTo('manager@example.com')
+ *   .escalateAfter('2 hours')
+ *   .escalateTo('director@example.com')
+ *   .onEscalate(async (event) => console.log('Escalated:', event.escalatedTo))
+ *   .onNotify(async (notif) => console.log('Notifying:', notif.recipient))
+ *
+ * const tracking = await policy.track('request-123', config, { assignee: 'agent@example.com' })
+ * // Later: await tracking.resolve()
+ * policy.dispose() // Clean up resources
+ * ```
  */
 export class EscalationPolicy {
   private trackings: Map<string, EscalationTracking> = new Map()
 
   /**
    * Configure escalation timeout
+   *
+   * @param duration - Duration string (e.g., "1 hour", "30 minutes", "2 days")
+   * @returns Chainable configuration object
+   * @throws {Error} If duration format is invalid
    */
   escalateAfter(duration: string): EscalationConfig {
     const durationMs = parseDuration(duration)
@@ -444,12 +632,25 @@ export class EscalationPolicy {
 
   /**
    * Track a request for escalation
+   *
+   * Starts escalation timers for the configured escalation chain. Automatically
+   * triggers escalation and notification handlers when durations elapse.
+   *
+   * @param requestId - ID of the request to track
+   * @param config - Escalation configuration (from escalateAfter())
+   * @param options - Optional configuration
+   * @param options.assignee - Original assignee to notify on escalation
+   * @returns Tracking handle with resolve() method to stop escalation
+   * @throws {Error} If request ID is invalid
    */
   async track(
     requestId: string,
     config: EscalationConfig,
     options?: { assignee?: string }
   ): Promise<{ resolve: () => Promise<void> }> {
+    // Validate inputs (do-374)
+    validateRequestId(requestId)
+
     const tracking: EscalationTracking = {
       requestId,
       config,
@@ -518,6 +719,41 @@ export class EscalationPolicy {
       },
     }
   }
+
+  /**
+   * Dispose of all resources and clear all timers
+   *
+   * Stops all active escalation timers and clears tracking data.
+   * Should be called when the policy instance is no longer needed.
+   * This is critical to prevent memory leaks and timer callbacks
+   * from executing after disposal.
+   */
+  dispose(): void {
+    this.clearAllTimers()
+    this.trackings.clear()
+  }
+
+  /**
+   * Helper method to clear timers for a tracking instance
+   *
+   * @param tracking - Tracking instance to clear timers for
+   */
+  private clearTimersForTracking(tracking: EscalationTracking): void {
+    tracking.resolved = true
+    for (const timer of tracking.timers) {
+      clearTimeout(timer)
+    }
+    tracking.timers = []
+  }
+
+  /**
+   * Helper method to clear all timers across all trackings
+   */
+  private clearAllTimers(): void {
+    for (const tracking of this.trackings.values()) {
+      this.clearTimersForTracking(tracking)
+    }
+  }
 }
 
 // ============================================================================
@@ -548,6 +784,38 @@ interface SLAConfig {
 
 /**
  * SLATracker - Tracks SLA compliance and metrics
+ *
+ * Monitors Service Level Agreement deadlines and triggers callbacks at
+ * configurable warning and critical thresholds. Automatically tracks
+ * request completion times and calculates performance metrics
+ * (p50, p95, p99 response times, breach rate).
+ *
+ * Features:
+ * - Deadline tracking with configurable warning/critical/breach thresholds
+ * - Automatic callback triggering at threshold crossings
+ * - SLA breach detection and metrics
+ * - Performance statistics (percentiles, average, breach rate)
+ * - Per-priority metrics for fine-grained analysis
+ * - Per-request resource cleanup with stop()
+ * - Complete resource cleanup with dispose()
+ *
+ * @example
+ * ```typescript
+ * const sla = new SLATracker()
+ * sla.configure({
+ *   warningThreshold: 0.75,   // 75% of deadline
+ *   criticalThreshold: 0.90,  // 90% of deadline
+ *   onWarning: (event) => console.log('Warning:', event),
+ *   onCritical: (event) => console.log('Critical:', event),
+ *   onBreach: (event) => console.log('Breached:', event),
+ * })
+ *
+ * const tracking = sla.track('request-123', '4 hours')
+ * // ... later ...
+ * sla.recordCompletion('request-123', 3600000, { breached: false })
+ * const metrics = sla.getMetrics({ groupBy: 'priority' })
+ * sla.dispose() // Clean up all resources
+ * ```
  */
 export class SLATracker {
   private trackings: Map<string, SLATracking> = new Map()
@@ -556,18 +824,31 @@ export class SLATracker {
 
   /**
    * Configure SLA thresholds and callbacks
+   *
+   * @param options - Configuration options including thresholds and handlers
    */
   configure(options: SLAConfig): void {
     this.config = { ...this.config, ...options }
   }
 
   /**
-   * Start tracking a request
+   * Start tracking a request with an SLA deadline
+   *
+   * Automatically sets up timers for warning, critical, and breach thresholds.
+   * The thresholds are based on the total duration as percentages.
+   *
+   * @param requestId - ID of the request to track
+   * @param deadline - Deadline as Date or duration string (e.g., "4 hours")
+   * @returns Tracking info with request ID, deadline, and start time
+   * @throws {Error} If request ID is invalid or deadline is invalid
    */
   track(
     requestId: string,
     deadline: Date | string
   ): { requestId: string; deadline: Date; startedAt: Date } {
+    // Validate inputs (do-374)
+    validateRequestId(requestId)
+
     const now = new Date()
     const startedAt = now
 
@@ -577,6 +858,9 @@ export class SLATracker {
     } else {
       deadlineDate = new Date(now.getTime() + parseDuration(deadline))
     }
+
+    // Validate deadline (do-374)
+    validateSLADeadline(deadlineDate, now)
 
     const totalDuration = deadlineDate.getTime() - startedAt.getTime()
     const timers: ReturnType<typeof setTimeout>[] = []
@@ -792,6 +1076,56 @@ export class SLATracker {
 
     return result
   }
+
+  /**
+   * Stop tracking a specific request and clear its timers
+   *
+   * Cancels all pending timers for the given request and removes it from tracking.
+   * Should be called when a request is resolved or discarded.
+   *
+   * @param requestId - ID of the request to stop tracking
+   */
+  stop(requestId: string): void {
+    const tracking = this.trackings.get(requestId)
+    if (tracking) {
+      this.clearTimersForTracking(tracking)
+      this.trackings.delete(requestId)
+    }
+  }
+
+  /**
+   * Dispose of all resources and clear all timers
+   *
+   * Stops all active request timers and clears all tracking data.
+   * Should be called when the tracker instance is no longer needed.
+   * This is critical to prevent memory leaks and timer callbacks
+   * from executing after disposal.
+   */
+  dispose(): void {
+    this.clearAllTimers()
+    this.trackings.clear()
+  }
+
+  /**
+   * Helper method to clear timers for a tracking instance
+   *
+   * @param tracking - Tracking instance to clear timers for
+   */
+  private clearTimersForTracking(tracking: SLATracking): void {
+    for (const timer of tracking.timers) {
+      clearTimeout(timer)
+    }
+    tracking.timers = []
+  }
+
+  /**
+   * Helper method to clear all timers across all trackings
+   */
+  private clearAllTimers(): void {
+    for (const tracking of this.trackings.values()) {
+      this.clearTimersForTracking(tracking)
+    }
+  }
 }
 
 // ============================================================================
@@ -1003,6 +1337,32 @@ const SUPPORTED_CHANNELS: NotificationChannel[] = ['email', 'slack', 'sms', 'pus
 
 /**
  * NotificationDispatcher - Multi-channel notification delivery
+ *
+ * Manages reliable delivery of notifications across multiple channels
+ * (email, Slack, SMS, push) with configurable retry policies.
+ *
+ * Features:
+ * - Multi-channel delivery with channel-specific configurations
+ * - Configurable retry policies (exponential or linear backoff)
+ * - Per-channel and global retry configurations
+ * - Delivery status tracking and history
+ * - Optional before-send hooks for testing
+ * - Simulated failure support for testing
+ *
+ * @example
+ * ```typescript
+ * const dispatcher = new NotificationDispatcher()
+ * dispatcher.configure({
+ *   email: {
+ *     retryPolicy: { maxRetries: 3, backoff: 'exponential', initialDelay: 100 },
+ *   },
+ * })
+ *
+ * const result = await dispatcher.notify('user@example.com', 'email', {
+ *   subject: 'Approval Required',
+ *   body: 'Please review the request',
+ * })
+ * ```
  */
 export class NotificationDispatcher {
   private config: DispatcherConfig = {}
@@ -1011,6 +1371,8 @@ export class NotificationDispatcher {
 
   /**
    * Configure channel settings and retry policy
+   *
+   * @param options - Configuration options for channels and global retry policy
    */
   configure(options: DispatcherConfig): void {
     this.config = { ...this.config, ...options }
@@ -1018,6 +1380,15 @@ export class NotificationDispatcher {
 
   /**
    * Send a notification
+   *
+   * Routes the notification to the appropriate channel with configured retry policy.
+   * Supports hooks for testing and simulated failures.
+   *
+   * @param recipient - Recipient identifier (email, user ID, phone, etc.)
+   * @param channel - Target channel (email, slack, sms, push)
+   * @param message - Message content for the channel
+   * @returns Notification result with delivery status and attempt count
+   * @throws {Error} If channel is not supported
    */
   async notify(
     recipient: string,
@@ -1029,73 +1400,143 @@ export class NotificationDispatcher {
     }
 
     const id = generateId()
+    const sendConfig = this.buildSendConfig(channel)
+
+    const { delivered, attempts, error, deliveredAt } = await this.attemptNotification(
+      sendConfig
+    )
+
+    return this.storeAndReturnResult(
+      id,
+      recipient,
+      channel,
+      message,
+      delivered,
+      attempts,
+      error,
+      deliveredAt
+    )
+  }
+
+  /**
+   * Helper method to build send configuration from global and channel settings
+   *
+   * @param channel - Channel name
+   * @returns Merged send configuration
+   */
+  private buildSendConfig(
+    channel: NotificationChannel
+  ): {
+    channelConfig: ChannelConfig
+    maxRetries: number
+    backoff: 'exponential' | 'linear'
+    initialDelay: number
+    skipDelays: boolean
+  } {
     const channelConfig = this.config[channel] || {}
     const globalRetryPolicy = this.config.retryPolicy || {}
     const retryPolicy = {
       ...globalRetryPolicy,
       ...channelConfig.retryPolicy,
     }
-    const maxRetries = retryPolicy.maxRetries ?? 0
-    const backoff = retryPolicy.backoff || 'exponential'
-    const initialDelay = retryPolicy.initialDelay || 100
-    // Skip delays when simulating failures (for testing) unless beforeSend is defined
-    // (beforeSend tests may need real timing for validation)
-    const skipDelays = channelConfig.simulateFailure && !channelConfig.beforeSend
 
+    return {
+      channelConfig,
+      maxRetries: retryPolicy.maxRetries ?? 0,
+      backoff: retryPolicy.backoff || 'exponential',
+      initialDelay: retryPolicy.initialDelay || 100,
+      skipDelays: channelConfig.simulateFailure && !channelConfig.beforeSend,
+    }
+  }
+
+  /**
+   * Helper method to attempt sending a notification with retries
+   *
+   * @param config - Send configuration
+   * @returns Delivery result with status, attempts, error, and timestamp
+   */
+  private async attemptNotification(config: {
+    channelConfig: ChannelConfig
+    maxRetries: number
+    backoff: 'exponential' | 'linear'
+    initialDelay: number
+    skipDelays: boolean
+  }): Promise<{
+    delivered: boolean
+    attempts: number
+    error?: string
+    deliveredAt?: Date
+  }> {
     let attempts = 0
     let delivered = false
-    let error: string | undefined
     let deliveredAt: Date | undefined
 
-    const attemptSend = async (): Promise<boolean> => {
+    const send = async (): Promise<boolean> => {
       attempts++
 
-      // Check for beforeSend hook
-      if (channelConfig.beforeSend) {
+      if (config.channelConfig.beforeSend) {
         try {
-          channelConfig.beforeSend()
-        } catch (e) {
+          config.channelConfig.beforeSend()
+        } catch {
           return false
         }
       }
 
-      // Check for simulated failure
-      if (channelConfig.simulateFailure) {
-        return false
-      }
-
-      return true
+      return !config.channelConfig.simulateFailure
     }
 
     // Initial attempt
-    delivered = await attemptSend()
+    delivered = await send()
 
     // Retry loop
-    if (!delivered && maxRetries > 0) {
-      for (let i = 0; i < maxRetries; i++) {
-        // Calculate delay
+    if (!delivered && config.maxRetries > 0) {
+      for (let i = 0; i < config.maxRetries; i++) {
         const delay =
-          backoff === 'exponential'
-            ? initialDelay * Math.pow(2, i)
-            : initialDelay * (i + 1)
+          config.backoff === 'exponential'
+            ? config.initialDelay * Math.pow(2, i)
+            : config.initialDelay * (i + 1)
 
-        // Wait for delay (unless testing with simulated failures)
-        if (!skipDelays) {
+        if (!config.skipDelays) {
           await new Promise((resolve) => setTimeout(resolve, delay))
         }
 
-        delivered = await attemptSend()
-
+        delivered = await send()
         if (delivered) break
       }
     }
 
     if (delivered) {
       deliveredAt = new Date()
-    } else {
-      error = attempts > 1 ? 'Max retries exceeded' : 'Delivery failed'
     }
 
+    const error = delivered ? undefined : attempts > 1 ? 'Max retries exceeded' : 'Delivery failed'
+
+    return { delivered, attempts, error, deliveredAt }
+  }
+
+  /**
+   * Helper method to store notification result and update recipient history
+   *
+   * @param id - Notification ID
+   * @param recipient - Recipient identifier
+   * @param channel - Channel name
+   * @param message - Message content
+   * @param delivered - Delivery status
+   * @param attempts - Number of attempts
+   * @param error - Error message if failed
+   * @param deliveredAt - Delivery timestamp
+   * @returns Notification result
+   */
+  private storeAndReturnResult(
+    id: string,
+    recipient: string,
+    channel: NotificationChannel,
+    message: Record<string, unknown>,
+    delivered: boolean,
+    attempts: number,
+    error: string | undefined,
+    deliveredAt: Date | undefined
+  ): NotificationResult {
     const result: NotificationResult = {
       id,
       delivered,
@@ -1107,14 +1548,12 @@ export class NotificationDispatcher {
       attempts,
     }
 
-    // Store notification
     const stored: StoredNotification = {
       ...result,
       message,
     }
     this.notifications.set(id, stored)
 
-    // Update recipient history
     const history = this.recipientHistory.get(recipient) || []
     history.push(id)
     this.recipientHistory.set(recipient, history)

@@ -1,0 +1,264 @@
+---
+title: Consistent Hashing
+description: Map keys to nodes with minimal redistribution using a consistent hash ring
+---
+
+# Consistent Hashing
+
+The `ConsistentHashRing` maps keys to nodes (scanner DOs) with minimal redistribution when nodes are added or removed. This is essential for efficient sharding where you want to avoid reshuffling all data when the cluster changes.
+
+## The Problem
+
+With simple modulo hashing (`hash(key) % nodeCount`), adding or removing a node causes most keys to remap to different nodes:
+
+```
+Before (3 nodes): key "user-123" -> hash % 3 = node 1
+After (4 nodes):  key "user-123" -> hash % 4 = node 2  // Moved!
+```
+
+This causes massive data migration when scaling.
+
+## The Solution: Consistent Hashing
+
+Consistent hashing arranges nodes on a virtual ring (0 to 2^32). Keys hash to a position on the ring and map to the next node clockwise:
+
+```
+        0
+        |
+   Node A   Node B
+      \       /
+       \     /
+        Ring
+       /     \
+      /       \
+   Node D   Node C
+        |
+       2^32
+```
+
+When a node is added, only keys between the new node and its predecessor move. When removed, only that node's keys redistribute.
+
+## Basic Usage
+
+```typescript
+import { ConsistentHashRing } from 'dotdo/fanout'
+
+// Create ring with initial nodes
+const ring = new ConsistentHashRing(['node-0', 'node-1', 'node-2'])
+
+// Get the node responsible for a key
+const node = ring.getNode('user-123')
+console.log(node) // 'node-1' (deterministic)
+
+// Same key always maps to same node
+ring.getNode('user-123') === ring.getNode('user-123') // true
+```
+
+## Virtual Nodes
+
+Physical nodes are replicated as "virtual nodes" around the ring for even distribution. Without virtual nodes, a small number of physical nodes would have uneven key distribution.
+
+```typescript
+// Default: 150 virtual nodes per physical node
+const ring = new ConsistentHashRing(['node-0', 'node-1'])
+
+// Custom virtual node count
+const ring = new ConsistentHashRing(['node-0', 'node-1'], {
+  virtualNodesPerNode: 200
+})
+
+// Check virtual node count
+console.log(ring.getVirtualNodeCount()) // 400 (2 nodes * 200)
+```
+
+More virtual nodes = better distribution, but more memory and slower lookups.
+
+### Distribution Example
+
+With 2 physical nodes and 100 virtual nodes each, distributing 10,000 keys:
+
+```typescript
+const ring = new ConsistentHashRing(['node-0', 'node-1'], {
+  virtualNodesPerNode: 100
+})
+
+const distribution = new Map<string, number>()
+for (let i = 0; i < 10000; i++) {
+  const node = ring.getNode(`key-${i}`)
+  distribution.set(node, (distribution.get(node) || 0) + 1)
+}
+
+// Expected: ~50% each (4000-6000 per node)
+console.log(distribution)
+// Map { 'node-0' => 4892, 'node-1' => 5108 }
+```
+
+## Adding Nodes
+
+When a new node joins, only ~1/N of keys move (where N is the new node count):
+
+```typescript
+const ring = new ConsistentHashRing(['node-0', 'node-1', 'node-2', 'node-3'])
+
+// Record initial assignments
+const before = new Map<string, string>()
+for (let i = 0; i < 1000; i++) {
+  before.set(`key-${i}`, ring.getNode(`key-${i}`))
+}
+
+// Add new node
+ring.addNode('node-4')
+
+// Count how many keys moved
+let moved = 0
+for (const [key, oldNode] of before) {
+  if (ring.getNode(key) !== oldNode) moved++
+}
+
+// ~20% moved (1/5 of keys)
+console.log(`${moved} of 1000 keys moved`) // ~200
+```
+
+## Removing Nodes
+
+When a node leaves, only its keys redistribute to remaining nodes:
+
+```typescript
+const ring = new ConsistentHashRing(['node-0', 'node-1', 'node-2'])
+
+// Find keys on node-1
+const node1Keys = []
+for (let i = 0; i < 1000; i++) {
+  if (ring.getNode(`key-${i}`) === 'node-1') {
+    node1Keys.push(`key-${i}`)
+  }
+}
+
+// Remove node-1
+ring.removeNode('node-1')
+
+// All node-1 keys now on node-0 or node-2
+for (const key of node1Keys) {
+  const newNode = ring.getNode(key)
+  console.log(`${key}: node-1 -> ${newNode}`)
+}
+```
+
+### Error Cases
+
+```typescript
+// Cannot remove the last node
+const ring = new ConsistentHashRing(['node-0'])
+ring.removeNode('node-0') // Error: Cannot remove the last node
+
+// Cannot remove non-existent node
+ring.removeNode('node-99') // Error: Node node-99 not found
+```
+
+## Weighted Nodes
+
+Assign more virtual nodes to higher-capacity nodes:
+
+```typescript
+const ring = new ConsistentHashRing([])
+
+// Large node gets 4x more keys than small node
+ring.addNode('node-small', 1)  // 1x weight = 150 virtual nodes
+ring.addNode('node-large', 4)  // 4x weight = 600 virtual nodes
+
+// Distribution: ~80% to large, ~20% to small
+const distribution = new Map<string, number>()
+for (let i = 0; i < 5000; i++) {
+  const node = ring.getNode(`key-${i}`)
+  distribution.set(node, (distribution.get(node) || 0) + 1)
+}
+
+console.log(distribution)
+// Map { 'node-small' => 1012, 'node-large' => 3988 }
+```
+
+## Hash Function
+
+The ring uses a MurmurHash3-inspired hash for good distribution:
+
+```typescript
+// Hash a key to a 32-bit unsigned integer
+const hash = ring.hash('user-123')
+console.log(hash) // e.g., 2847392847
+
+// Same key = same hash (deterministic)
+ring.hash('user-123') === ring.hash('user-123') // true
+```
+
+The hash function provides:
+- Uniform distribution across the 32-bit space
+- Deterministic results (same input = same output)
+- Fast computation
+- Avalanche effect (small input changes = large hash changes)
+
+## API Reference
+
+### Constructor
+
+```typescript
+new ConsistentHashRing(
+  initialNodes?: string[],
+  options?: {
+    virtualNodesPerNode?: number  // Default: 150
+  }
+)
+```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `hash(key: string): number` | Hash a key to 32-bit integer |
+| `getNode(key: string): string` | Get the node responsible for a key |
+| `addNode(nodeId: string, weight?: number)` | Add a node to the ring |
+| `removeNode(nodeId: string)` | Remove a node from the ring |
+| `getNodes(): string[]` | Get all physical node IDs |
+| `getVirtualNodeCount(): number` | Get total virtual nodes |
+| `rebalance(): Map<string, string[]>` | Get map of moved keys (tracking) |
+
+## Integration with QueryCoordinator
+
+Pass the ring to the coordinator for single-shard routing:
+
+```typescript
+import { QueryCoordinator, ConsistentHashRing } from 'dotdo/fanout'
+
+const scannerIds = ['shard-0', 'shard-1', 'shard-2', 'shard-3']
+const ring = new ConsistentHashRing(scannerIds)
+
+const scanners = scannerIds.map(id => ({
+  id,
+  execute: (sql, params) => env.ScannerDO.get(env.ScannerDO.idFromName(id)).query(sql, params)
+}))
+
+const coordinator = new QueryCoordinator(scanners, { ring })
+
+// Fan-out: queries all scanners
+const allUsers = await coordinator.query('SELECT * FROM users')
+
+// Single-shard: routes to one scanner
+const tenantData = await coordinator.query(
+  'SELECT * FROM data WHERE tenant_id = ?',
+  ['tenant-abc'],
+  { shardKey: 'tenant-abc' }
+)
+```
+
+## Best Practices
+
+1. **Use enough virtual nodes**: 100-200 per physical node provides good distribution
+2. **Weight nodes appropriately**: Match weight to actual capacity
+3. **Plan for growth**: Adding nodes is cheap; start with what you need
+4. **Use meaningful shard keys**: Tenant ID, user ID, or other natural partition keys
+5. **Monitor distribution**: Check for hot spots periodically
+
+## See Also
+
+- [QueryCoordinator](/docs/fanout/coordinator) - Query dispatch
+- [Merge Strategies](/docs/fanout/merging) - Result combination
+- [Subrequest Budget](/docs/fanout/budget) - Cloudflare limits

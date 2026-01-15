@@ -1263,6 +1263,365 @@ describe('NotificationDispatcher', () => {
 // Integration Tests
 // ============================================================================
 
+// ============================================================================
+// 6. Input Validation Tests (do-374)
+// ============================================================================
+
+describe('Input Validation', () => {
+  describe('ApprovalRequest validation', () => {
+    let workflow: ApprovalWorkflow
+
+    beforeEach(() => {
+      workflow = new ApprovalWorkflow()
+    })
+
+    it('rejects request with empty id', async () => {
+      const action = createTestAction({ id: '' })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest id is required'
+      )
+    })
+
+    it('rejects request with empty type', async () => {
+      const action = createTestAction({ type: '' })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest type is required'
+      )
+    })
+
+    it('rejects request with empty title', async () => {
+      const action = createTestAction({ title: '' })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest title is required'
+      )
+    })
+
+    it('rejects request with empty description', async () => {
+      const action = createTestAction({ description: '' })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest description is required'
+      )
+    })
+
+    it('rejects request with empty requestedBy', async () => {
+      const action = createTestAction({ requestedBy: '' })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest requestedBy is required'
+      )
+    })
+
+    it('rejects request with invalid requestedAt', async () => {
+      const action = createTestAction({ requestedAt: new Date('invalid') })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest requestedAt must be a valid date'
+      )
+    })
+
+    it('rejects request with negative amount', async () => {
+      const action = createTestAction({ amount: -100 })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest amount must be a non-negative number'
+      )
+    })
+
+    it('rejects request with empty approvers list', async () => {
+      const action = createTestAction()
+
+      await expect(workflow.request(action, [])).rejects.toThrow(
+        'At least one approver is required'
+      )
+    })
+
+    it('rejects request with whitespace-only id', async () => {
+      const action = createTestAction({ id: '   ' })
+      const approvers = createApprovers()
+
+      await expect(workflow.request(action, approvers)).rejects.toThrow(
+        'ApprovalRequest id is required'
+      )
+    })
+
+    it('accepts valid request with all fields', async () => {
+      const action = createTestAction()
+      const approvers = createApprovers()
+
+      const result = await workflow.request(action, approvers)
+
+      expect(result.id).toBeDefined()
+      expect(result.status).toBe('pending')
+    })
+
+    it('accepts request with zero amount', async () => {
+      const action = createTestAction({ amount: 0 })
+      const approvers = createApprovers()
+
+      const result = await workflow.request(action, approvers)
+
+      expect(result.action.amount).toBe(0)
+    })
+
+    it('accepts request without optional amount', async () => {
+      const action = createTestAction()
+      delete action.amount
+      const approvers = createApprovers()
+
+      const result = await workflow.request(action, approvers)
+
+      expect(result.action.amount).toBeUndefined()
+    })
+  })
+
+  describe('SLA timeout validation', () => {
+    let sla: SLATracker
+
+    beforeEach(() => {
+      sla = new SLATracker()
+    })
+
+    it('rejects negative timeout duration', () => {
+      expect(() => sla.track('req-1', '-1 hour')).toThrow(
+        'Invalid duration format'
+      )
+    })
+
+    it('rejects zero timeout', () => {
+      const zeroDeadline = new Date(Date.now())
+      expect(() => sla.track('req-1', zeroDeadline)).toThrow(
+        'SLA deadline must be in the future'
+      )
+    })
+
+    it('rejects past deadline', () => {
+      const pastDeadline = new Date(Date.now() - 60000)
+      expect(() => sla.track('req-1', pastDeadline)).toThrow(
+        'SLA deadline must be in the future'
+      )
+    })
+
+    it('rejects deadline too far in future (> 1 year)', () => {
+      const farFuture = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000) // 400 days
+      expect(() => sla.track('req-1', farFuture)).toThrow(
+        'SLA deadline cannot be more than 1 year in the future'
+      )
+    })
+
+    it('rejects empty request ID', () => {
+      const deadline = new Date(Date.now() + 60000)
+      expect(() => sla.track('', deadline)).toThrow(
+        'Request ID is required'
+      )
+    })
+
+    it('rejects whitespace-only request ID', () => {
+      const deadline = new Date(Date.now() + 60000)
+      expect(() => sla.track('   ', deadline)).toThrow(
+        'Request ID is required'
+      )
+    })
+
+    it('accepts valid deadline in near future', () => {
+      const deadline = new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hours
+      const tracking = sla.track('req-1', deadline)
+
+      expect(tracking.requestId).toBe('req-1')
+      expect(tracking.deadline).toEqual(deadline)
+    })
+
+    it('accepts valid duration string', () => {
+      const tracking = sla.track('req-1', '4 hours')
+
+      expect(tracking.requestId).toBe('req-1')
+      expect(tracking.deadline.getTime()).toBeGreaterThan(Date.now())
+    })
+
+    it('accepts deadline at maximum allowed (1 year)', () => {
+      const maxDeadline = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // exactly 1 year
+      const tracking = sla.track('req-1', maxDeadline)
+
+      expect(tracking.requestId).toBe('req-1')
+    })
+  })
+
+  describe('EscalationPolicy validation', () => {
+    let policy: EscalationPolicy
+
+    beforeEach(() => {
+      policy = new EscalationPolicy()
+    })
+
+    it('rejects empty request ID in track()', async () => {
+      const config = policy.escalateAfter('1 hour').escalateTo('director')
+
+      await expect(policy.track('', config)).rejects.toThrow(
+        'Request ID is required'
+      )
+    })
+
+    it('rejects whitespace-only request ID in track()', async () => {
+      const config = policy.escalateAfter('1 hour').escalateTo('director')
+
+      await expect(policy.track('   ', config)).rejects.toThrow(
+        'Request ID is required'
+      )
+    })
+  })
+})
+
+// ============================================================================
+// 7. Timer Cleanup Tests (do-374)
+// ============================================================================
+
+describe('Timer Cleanup', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  describe('SLATracker.dispose()', () => {
+    it('clears all timers on dispose', async () => {
+      vi.useFakeTimers()
+      const onWarning = vi.fn()
+      const onBreach = vi.fn()
+
+      const sla = new SLATracker()
+      sla.configure({
+        warningThreshold: 0.75,
+        onWarning,
+        onBreach,
+      })
+
+      sla.track('req-1', '4 hours')
+      sla.track('req-2', '2 hours')
+
+      // Dispose before any timer fires
+      sla.dispose()
+
+      // Advance time past all thresholds
+      vi.advanceTimersByTime(5 * 60 * 60 * 1000) // 5 hours
+
+      // No callbacks should have been called
+      expect(onWarning).not.toHaveBeenCalled()
+      expect(onBreach).not.toHaveBeenCalled()
+    })
+
+    it('clears timers for specific request on stop()', async () => {
+      vi.useFakeTimers()
+      const onWarning = vi.fn()
+
+      const sla = new SLATracker()
+      sla.configure({
+        warningThreshold: 0.75,
+        onWarning,
+      })
+
+      sla.track('req-1', '4 hours')
+      sla.track('req-2', '4 hours')
+
+      // Stop tracking req-1 only
+      sla.stop('req-1')
+
+      // Advance time to warning threshold
+      vi.advanceTimersByTime(3 * 60 * 60 * 1000) // 3 hours (75%)
+
+      // Only req-2 should trigger warning
+      expect(onWarning).toHaveBeenCalledTimes(1)
+      expect(onWarning).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: 'req-2' })
+      )
+    })
+  })
+
+  describe('EscalationPolicy.dispose()', () => {
+    it('clears all escalation timers on dispose', async () => {
+      vi.useFakeTimers()
+      const escalated = vi.fn()
+
+      const policy = new EscalationPolicy()
+      const config = policy
+        .escalateAfter('1 hour')
+        .escalateTo('director')
+        .onEscalate(escalated)
+
+      await policy.track('req-1', config)
+      await policy.track('req-2', config)
+
+      // Dispose before escalation
+      policy.dispose()
+
+      // Advance time past escalation
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000) // 2 hours
+
+      expect(escalated).not.toHaveBeenCalled()
+    })
+
+    it('clears escalation timers on resolve without side effects', async () => {
+      vi.useFakeTimers()
+      const escalated = vi.fn()
+
+      const policy = new EscalationPolicy()
+      const config = policy
+        .escalateAfter('1 hour')
+        .escalateTo('director')
+        .escalateAfter('2 hours')
+        .escalateTo('vp')
+        .onEscalate(escalated)
+
+      const tracking = await policy.track('req-1', config)
+
+      // Resolve before any escalation
+      await tracking.resolve()
+
+      // Advance time past all escalations
+      vi.advanceTimersByTime(4 * 60 * 60 * 1000) // 4 hours
+
+      expect(escalated).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Memory leak prevention', () => {
+    it('SLATracker removes tracking data on stop()', () => {
+      const sla = new SLATracker()
+      const deadline = new Date(Date.now() + 4 * 60 * 60 * 1000)
+
+      sla.track('req-1', deadline)
+      expect(sla.get('req-1')).toBeDefined()
+
+      sla.stop('req-1')
+      expect(sla.get('req-1')).toBeUndefined()
+    })
+
+    it('SLATracker removes all tracking data on dispose()', () => {
+      const sla = new SLATracker()
+      const deadline = new Date(Date.now() + 4 * 60 * 60 * 1000)
+
+      sla.track('req-1', deadline)
+      sla.track('req-2', deadline)
+
+      sla.dispose()
+
+      expect(sla.get('req-1')).toBeUndefined()
+      expect(sla.get('req-2')).toBeUndefined()
+    })
+  })
+})
+
+// ============================================================================
+// Integration Tests
+// ============================================================================
+
 describe('Human-in-the-Loop Integration', () => {
   afterEach(() => {
     vi.useRealTimers()

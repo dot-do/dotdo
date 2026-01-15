@@ -3,6 +3,14 @@
  *
  * Implements union, intersect, sort, and limit operations
  * for merging results from multiple scanner DOs.
+ *
+ * Features:
+ * - Union: Combine all rows with optional deduplication
+ * - Intersect: Keep only rows present in ALL result sets
+ * - Sort: Sort combined results by key with null handling
+ * - Limit: Apply LIMIT/OFFSET pagination
+ *
+ * All operations preserve row order and handle null values safely.
  */
 
 export interface QueryResult<T = unknown> {
@@ -19,11 +27,35 @@ export interface UnionOptions {
 
 /**
  * Merge strategies for combining results from multiple scanners
+ *
+ * @example
+ * // Union all results
+ * const all = merge.union([result1, result2])
+ *
+ * // Intersect (only common rows)
+ * const common = merge.intersect([result1, result2], 'id')
+ *
+ * // Sort and limit
+ * const sorted = merge.sort([result1, result2], 'name', 'asc')
+ * const limited = merge.limit(sorted, 10)
  */
 export const merge = {
   /**
    * Union all results from multiple sources
-   * Preserves order: source 0, then source 1, etc.
+   *
+   * Combines all rows from all result sets, preserving order from each source.
+   * Optionally deduplicates by key to avoid duplicates across shards.
+   *
+   * @param results Array of query results to union
+   * @param options Union options (dedupeKey for deduplication)
+   * @returns Combined results (deduplicated if key provided)
+   *
+   * @example
+   * // Simple union
+   * const all = merge.union([result1, result2, result3])
+   *
+   * // Union with deduplication by id
+   * const unique = merge.union([result1, result2], { dedupeKey: 'id' })
    */
   union<T>(results: QueryResult<T>[], options?: UnionOptions): QueryResult<T> {
     const rows: T[] = []
@@ -46,6 +78,18 @@ export const merge = {
 
   /**
    * Intersect results - only rows present in ALL sources (by key)
+   *
+   * Returns only rows whose key value appears in ALL result sets.
+   * Preserves row order from the first result set.
+   * Handles duplicates correctly (counts occurrences per result set).
+   *
+   * @param results Array of query results to intersect
+   * @param key Field to use for intersection (must be unique identifier)
+   * @returns Only rows with keys present in ALL result sets
+   *
+   * @example
+   * // Intersect: only IDs present in all three shards
+   * const common = merge.intersect([shard1, shard2, shard3], 'userId')
    */
   intersect<T>(results: QueryResult<T>[], key: keyof T): QueryResult<T> {
     if (results.length === 0) return { rows: [] }
@@ -87,6 +131,14 @@ export const merge = {
 
   /**
    * Sort combined results by key
+   *
+   * @param results Array of query results to combine and sort
+   * @param key Field name to sort by
+   * @param direction Sort order - 'asc' (default) or 'desc'
+   * @returns Sorted combined results (nulls always last)
+   *
+   * @example
+   * const sorted = merge.sort(results, 'created', 'desc')
    */
   sort<T>(
     results: QueryResult<T>[],
@@ -101,23 +153,7 @@ export const merge = {
 
     // Sort with null handling (nulls last)
     allRows.sort((a, b) => {
-      const aVal = a[key]
-      const bVal = b[key]
-
-      // Nulls last
-      if (aVal === null || aVal === undefined) return 1
-      if (bVal === null || bVal === undefined) return -1
-
-      // Compare values
-      let comparison: number
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        comparison = aVal - bVal
-      } else if (typeof aVal === 'string' && typeof bVal === 'string') {
-        comparison = aVal.localeCompare(bVal)
-      } else {
-        comparison = String(aVal).localeCompare(String(bVal))
-      }
-
+      const comparison = this.compareValues(a[key], b[key])
       return direction === 'asc' ? comparison : -comparison
     })
 
@@ -126,6 +162,13 @@ export const merge = {
 
   /**
    * Limit results to N rows
+   *
+   * @param result Query result to limit
+   * @param n Maximum number of rows to return
+   * @returns Limited results with hasMore flag
+   *
+   * @example
+   * const limited = merge.limit(result, 100)
    */
   limit<T>(result: QueryResult<T>, n: number): QueryResult<T> {
     const rows = result.rows.slice(0, n)
@@ -135,5 +178,28 @@ export const merge = {
       rows,
       hasMore: rows.length < result.rows.length || result.hasMore === true,
     }
+  },
+
+  /**
+   * Compare two values for sorting
+   * Handles nulls (last), numbers, strings, and generic values
+   */
+  compareValues(aVal: unknown, bVal: unknown): number {
+    // Nulls always sort last
+    if (aVal === null || aVal === undefined) return 1
+    if (bVal === null || bVal === undefined) return -1
+
+    // Numeric comparison
+    if (typeof aVal === 'number' && typeof bVal === 'number') {
+      return aVal - bVal
+    }
+
+    // String comparison (case-sensitive, locale-aware)
+    if (typeof aVal === 'string' && typeof bVal === 'string') {
+      return aVal.localeCompare(bVal)
+    }
+
+    // Fallback: convert to string and compare
+    return String(aVal).localeCompare(String(bVal))
   },
 }

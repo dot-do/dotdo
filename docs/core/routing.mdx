@@ -1,0 +1,390 @@
+---
+title: HTTP Routing
+description: Hono-powered HTTP routing with middleware support, path parameters, and response helpers
+---
+
+# HTTP Routing
+
+DOCore uses [Hono](https://hono.dev) for HTTP routing, providing a fast and lightweight router with excellent TypeScript support. Routes handle incoming `fetch()` requests to the Durable Object.
+
+## Route Registration
+
+Routes are registered in the `createApp()` method, which is called during DO construction:
+
+```typescript
+import { DOCore } from 'dotdo/core'
+
+export class MyDO extends DOCore {
+  protected createApp() {
+    const app = super.createApp() // Get base app with core routes
+
+    // Add custom routes
+    app.get('/hello', (c) => c.json({ message: 'Hello, World!' }))
+
+    app.post('/users', async (c) => {
+      const body = await c.req.json()
+      return c.json({ created: body }, 201)
+    })
+
+    return app
+  }
+}
+```
+
+## HTTP Methods
+
+All standard HTTP methods are supported:
+
+```typescript
+app.get('/resource', handler)      // GET
+app.post('/resource', handler)     // POST
+app.put('/resource/:id', handler)  // PUT
+app.patch('/resource/:id', handler) // PATCH
+app.delete('/resource/:id', handler) // DELETE
+app.options('/resource', handler)   // OPTIONS
+```
+
+### Method Examples
+
+```typescript
+// GET - Retrieve data
+app.get('/api/items', async (c) => {
+  const items = await this.list({ prefix: 'item:' })
+  return c.json({ items: Object.values(items) })
+})
+
+// POST - Create resource
+app.post('/api/items', async (c) => {
+  const body = await c.req.json()
+  const id = crypto.randomUUID()
+  await this.set(`item:${id}`, body)
+  return c.json({ id, ...body }, 201)
+})
+
+// PUT - Replace resource
+app.put('/api/items/:id', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  await this.set(`item:${id}`, body)
+  return c.json(body)
+})
+
+// DELETE - Remove resource
+app.delete('/api/items/:id', async (c) => {
+  const id = c.req.param('id')
+  await this.delete(`item:${id}`)
+  return c.json({ deleted: true })
+})
+```
+
+## Path Parameters
+
+Extract dynamic segments from the URL path:
+
+```typescript
+// Single parameter
+app.get('/users/:id', (c) => {
+  const id = c.req.param('id')
+  return c.json({ userId: id })
+})
+
+// Multiple parameters
+app.get('/users/:userId/posts/:postId', (c) => {
+  const userId = c.req.param('userId')
+  const postId = c.req.param('postId')
+  return c.json({ userId, postId })
+})
+
+// Wildcard routes
+app.get('/files/*', (c) => {
+  const path = c.req.path.replace('/files/', '')
+  return c.json({ filePath: path })
+})
+```
+
+## Query Parameters
+
+Access query string parameters:
+
+```typescript
+app.get('/search', (c) => {
+  const q = c.req.query('q')
+  const limit = c.req.query('limit') ?? '10'
+  const offset = c.req.query('offset') ?? '0'
+
+  return c.json({
+    query: q,
+    limit: parseInt(limit),
+    offset: parseInt(offset)
+  })
+})
+
+// Request: /search?q=hello&limit=20
+// Response: { query: 'hello', limit: 20, offset: 0 }
+```
+
+## Request Body
+
+Parse JSON, form data, and other body formats:
+
+```typescript
+// JSON body
+app.post('/api/data', async (c) => {
+  const body = await c.req.json()
+  return c.json({ received: body })
+})
+
+// Form data
+app.post('/api/form', async (c) => {
+  const body = await c.req.parseBody()
+  return c.json({ form: body })
+})
+
+// Raw text
+app.post('/api/text', async (c) => {
+  const text = await c.req.text()
+  return c.text(`Received: ${text}`)
+})
+```
+
+## Response Helpers
+
+Hono provides convenient response methods:
+
+```typescript
+// JSON response
+app.get('/json', (c) => c.json({ format: 'json' }))
+
+// Text response
+app.get('/text', (c) => c.text('Plain text'))
+
+// HTML response
+app.get('/html', (c) => c.html('<html><body>Hello</body></html>'))
+
+// Custom status code
+app.post('/created', (c) => c.json({ id: 123 }, 201))
+
+// Custom headers
+app.get('/custom', (c) => {
+  c.header('X-Custom-Header', 'value')
+  return c.json({ custom: true })
+})
+
+// Redirect
+app.get('/old', (c) => c.redirect('/new'))
+
+// Not Found
+app.get('/maybe', (c) => {
+  const found = false
+  if (!found) {
+    return c.json({ error: 'Not Found' }, 404)
+  }
+  return c.json({ found: true })
+})
+```
+
+## Middleware
+
+Middleware functions run before route handlers:
+
+### Global Middleware
+
+Applied to all routes:
+
+```typescript
+protected createApp() {
+  const app = super.createApp()
+
+  // Logging middleware
+  app.use('*', async (c, next) => {
+    const start = Date.now()
+    await next()
+    const duration = Date.now() - start
+    console.log(`${c.req.method} ${c.req.path} - ${duration}ms`)
+  })
+
+  return app
+}
+```
+
+### Route-Specific Middleware
+
+Applied to individual routes:
+
+```typescript
+const authMiddleware = async (c, next) => {
+  const auth = c.req.header('Authorization')
+  if (!auth?.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+  await next()
+}
+
+// Apply to specific route
+app.get('/protected/data', authMiddleware, (c) => {
+  return c.json({ data: 'secret' })
+})
+```
+
+### Built-in Middleware
+
+DOCore includes these middleware by default:
+
+```typescript
+// CORS - enabled for all origins
+app.use('*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}))
+
+// Request context - adds request ID and DO state
+app.use('*', async (c, next) => {
+  c.set('middlewareExecuted', true)
+  c.set('requestId', crypto.randomUUID())
+  c.set('doState', this)
+  c.set('env', this.env)
+  c.header('X-DO-Version', '1.0.0')
+  await next()
+})
+```
+
+## Context Variables
+
+Access context variables set by middleware:
+
+```typescript
+app.get('/context', (c) => {
+  const requestId = c.get('requestId')
+  const doState = c.get('doState')
+  const env = c.get('env')
+
+  return c.json({
+    requestId,
+    hasState: !!doState,
+    hasEnv: !!env
+  })
+})
+```
+
+## Error Handling
+
+### Route-Level Errors
+
+```typescript
+app.get('/risky', async (c) => {
+  try {
+    const result = await riskyOperation()
+    return c.json(result)
+  } catch (error) {
+    return c.json({ error: error.message }, 500)
+  }
+})
+```
+
+### Global Error Handler
+
+DOCore includes a default error handler:
+
+```typescript
+app.onError((err, c) => {
+  return c.json({ error: err.message }, 500)
+})
+```
+
+Override for custom error handling:
+
+```typescript
+protected createApp() {
+  const app = super.createApp()
+
+  app.onError((err, c) => {
+    console.error('Error:', err)
+
+    if (err instanceof ValidationError) {
+      return c.json({ error: err.message, details: err.details }, 400)
+    }
+
+    return c.json({ error: 'Internal Server Error' }, 500)
+  })
+
+  return app
+}
+```
+
+### 404 Handler
+
+Handle unmatched routes:
+
+```typescript
+app.notFound((c) => {
+  return c.json({
+    error: 'Not Found',
+    path: c.req.path
+  }, 404)
+})
+```
+
+## Core Routes
+
+DOCore registers these routes by default:
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/health` | GET | Health check endpoint |
+| `/ready` | GET | Readiness check (after onStart) |
+| `/ws` | GET | WebSocket upgrade endpoint |
+| `/ws/hibernatable` | GET | Hibernatable WebSocket endpoint |
+
+## RPC vs Fetch
+
+Routing handles HTTP requests via `fetch()`. For programmatic access, prefer RPC:
+
+```typescript
+// Fetch - HTTP request through router
+const response = await stub.fetch('https://do.local/api/items')
+const data = await response.json()
+
+// RPC - Direct method call (faster, type-safe)
+const items = await stub.list({ prefix: 'item:' })
+```
+
+Use fetch when:
+- External clients need HTTP access
+- You need HTTP-specific features (headers, status codes)
+- Building REST APIs for external consumption
+
+Use RPC when:
+- Calling from worker code
+- Type safety is important
+- Performance is critical
+
+## Route Groups
+
+Organize related routes:
+
+```typescript
+protected createApp() {
+  const app = super.createApp()
+
+  // API routes group
+  const api = new Hono()
+  api.get('/users', (c) => c.json({ users: [] }))
+  api.get('/posts', (c) => c.json({ posts: [] }))
+  app.route('/api', api)
+
+  // Admin routes group
+  const admin = new Hono()
+  admin.use('*', authMiddleware)
+  admin.get('/stats', (c) => c.json({ stats: {} }))
+  app.route('/admin', admin)
+
+  return app
+}
+```
+
+## Next Steps
+
+- [WebSockets](/core/websockets) - Real-time WebSocket connections
+- [State Management](/core/state) - Store data from route handlers
+- [Lifecycle Hooks](/core/lifecycle) - Initialize routes on start

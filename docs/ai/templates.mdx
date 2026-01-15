@@ -1,0 +1,272 @@
+---
+title: Template Literals
+description: "ai`...`, is`...`, list`...`, and code`...` template literal functions for natural AI interactions"
+---
+
+# Template Literals
+
+The AI module provides four template literal functions, each optimized for specific use cases. All return `AIPromise<T>` for lazy evaluation.
+
+## Overview
+
+| Function | Purpose | Return Type |
+|----------|---------|-------------|
+| `ai` | General AI queries | `AIPromise<string>` |
+| `is` | Classification / Yes-No | `AIPromise<string>` |
+| `list` | Extract arrays | `AIPromise<string[]>` |
+| `code` | Generate code | `AIPromise<string>` |
+
+## ai\`...\` - General Queries
+
+The base template literal for open-ended AI interactions:
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Simple query
+const summary = await ai`Summarize this text: ${text}`
+
+// Multi-line prompts
+const analysis = await ai`
+  Analyze the following customer feedback and provide:
+  1. Main concerns
+  2. Suggested improvements
+  3. Overall sentiment
+
+  Feedback: ${feedback}
+`
+
+// With context
+const response = await ai`
+  You are a helpful assistant for ${companyName}.
+  Answer this question: ${userQuestion}
+`
+```
+
+## is\`...\` - Classification
+
+Optimized for classification tasks returning a single category:
+
+```typescript
+import { is } from 'dotdo/ai'
+
+// Binary classification
+const isSpam = await is`Is this email spam? ${emailContent}`
+// Returns: "yes" or "no"
+
+// Sentiment analysis
+const sentiment = await is`
+  Classify the sentiment as positive, negative, or neutral:
+  ${reviewText}
+`
+// Returns: "positive", "negative", or "neutral"
+
+// Multi-class classification
+const category = await is`
+  Categorize this support ticket as: billing, technical, general, or urgent
+  Ticket: ${ticketContent}
+`
+
+// Boolean-style checks
+const isToxic = await is`Does this message contain toxic content? ${message}`
+const isValidJSON = await is`Is this valid JSON? ${input}`
+```
+
+### Classification Best Practices
+
+1. **Provide clear options**: List the possible categories in your prompt
+2. **Keep prompts focused**: One classification per call
+3. **Use consistent labels**: Same labels across similar classifications
+
+## list\`...\` - Array Extraction
+
+Returns a parsed array of strings:
+
+```typescript
+import { list } from 'dotdo/ai'
+
+// Extract entities
+const names = await list`Extract all person names from: ${article}`
+// Returns: ["John Smith", "Jane Doe", ...]
+
+// Parse items
+const ingredients = await list`
+  List the ingredients mentioned in this recipe:
+  ${recipeText}
+`
+
+// Extract structured data
+const emails = await list`Find all email addresses in: ${document}`
+
+// Multiple extraction
+const topics = await list`
+  Extract the 5 main topics discussed in this article:
+  ${articleContent}
+`
+```
+
+### Handling Empty Results
+
+```typescript
+const items = await list`Extract product names from: ${text}`
+
+if (items.length === 0) {
+  console.log('No products found')
+}
+
+// Safe iteration
+for (const item of items) {
+  await processItem(item)
+}
+```
+
+## code\`...\` - Code Generation
+
+Generates clean code without markdown fences:
+
+```typescript
+import { code } from 'dotdo/ai'
+
+// Generate a function
+const validator = await code`
+  Write a TypeScript function that validates email addresses
+`
+
+// Specify requirements
+const sortFn = await code`
+  Write a TypeScript function that sorts an array of objects
+  by a given key in ascending or descending order.
+  Include proper TypeScript generics.
+`
+
+// Generate with context
+const handler = await code`
+  Write an Express route handler that:
+  - Accepts POST /api/users
+  - Validates the request body has 'name' and 'email'
+  - Returns 201 on success, 400 on validation error
+`
+```
+
+### Code Output Format
+
+The `code` function automatically strips markdown code fences:
+
+```typescript
+// Returns clean code, not:
+// ```typescript
+// function example() { ... }
+// ```
+
+// But instead:
+// function example() { ... }
+```
+
+## Template Composition
+
+AIPromise values can be used as interpolation values in other templates:
+
+```typescript
+import { ai, is, list } from 'dotdo/ai'
+
+// Chain operations (all lazy until final await)
+const sentiment = is`Classify sentiment: ${review}`
+const keywords = list`Extract keywords: ${review}`
+
+// Use results in another query
+const response = await ai`
+  Given:
+  - Sentiment: ${sentiment}
+  - Keywords: ${keywords}
+
+  Write a personalized response to the customer.
+`
+```
+
+### Execution Flow
+
+```typescript
+// Nothing executes yet - just building the pipeline
+const step1 = ai`Step 1: ${input}`
+const step2 = ai`Step 2 uses: ${step1}`
+const step3 = ai`Step 3 uses: ${step2}`
+
+// NOW all three execute in sequence
+const final = await step3
+
+// Or execute in parallel (independent operations)
+const [result1, result2, result3] = await Promise.all([
+  ai`Independent task 1`,
+  ai`Independent task 2`,
+  ai`Independent task 3`,
+])
+```
+
+## Interpolation Values
+
+Templates accept various value types:
+
+```typescript
+// Strings
+ai`Process: ${text}`
+
+// Numbers
+ai`Analyze score: ${score}`
+
+// Booleans
+ai`Is enabled: ${isEnabled}`
+
+// Arrays (joined with commas)
+ai`Categories: ${['tech', 'science', 'art']}`
+// Becomes: "Categories: tech, science, art"
+
+// AIPromise (resolved before execution)
+ai`Based on: ${previousResult}`
+
+// Null/undefined (converted to string)
+ai`Value is: ${maybeNull}`
+// Becomes: "Value is: null"
+```
+
+## Error Handling
+
+```typescript
+import { ai, AIBudgetExceededError } from 'dotdo/ai'
+
+try {
+  const result = await ai`Process: ${input}`
+} catch (error) {
+  if (error instanceof AIBudgetExceededError) {
+    console.error('Budget exceeded:', error.spent, '/', error.limit)
+  } else if (error.message === 'Cancelled') {
+    console.log('Operation was cancelled')
+  } else {
+    throw error
+  }
+}
+```
+
+## Cancellation
+
+```typescript
+const operation = ai`Long running analysis: ${data}`
+
+// Cancel before execution starts
+const cancelled = operation.cancel()
+if (cancelled) {
+  console.log('Successfully cancelled')
+}
+
+// Awaiting a cancelled promise throws
+try {
+  await operation
+} catch (error) {
+  console.log(error.message) // "Cancelled"
+}
+```
+
+## Next Steps
+
+- [Batch Processing](/ai/batch) - Process multiple items efficiently
+- [Budget Tracking](/ai/budget) - Control AI spending
+- [Caching](/ai/caching) - Cache repeated queries

@@ -1,0 +1,335 @@
+---
+title: Providers
+description: Configure OpenAI, Anthropic, Workers AI providers with fallback chains and model selection
+---
+
+# Providers
+
+The AI module abstracts provider differences, letting you switch between OpenAI, Anthropic, and Workers AI with consistent APIs.
+
+## Default Provider
+
+The default export uses a built-in provider suitable for testing:
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Uses default provider
+const result = await ai`Hello world`
+```
+
+## Configuring Providers
+
+### OpenAI
+
+```typescript
+import { createAI } from 'dotdo/ai'
+
+const ai = createAI({
+  providers: {
+    openai: {
+      apiKey: process.env.OPENAI_API_KEY,
+      execute: async (prompt, options) => {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: options?.model || 'gpt-4',
+            messages: [{ role: 'user', content: prompt }]
+          })
+        })
+        const data = await response.json()
+        return data.choices[0].message.content
+      },
+      configured: true
+    }
+  }
+})
+
+// Use OpenAI
+const openaiAI = ai.provider('openai')
+const result = await openaiAI`Analyze this text`
+```
+
+### Anthropic
+
+```typescript
+const ai = createAI({
+  providers: {
+    anthropic: {
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      execute: async (prompt, options) => {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: options?.model || 'claude-3-opus-20240229',
+            max_tokens: 4096,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        })
+        const data = await response.json()
+        return data.content[0].text
+      },
+      configured: true
+    }
+  }
+})
+
+// Use Anthropic
+const anthropicAI = ai.provider('anthropic')
+const result = await anthropicAI`Explain quantum computing`
+```
+
+## Provider Selection
+
+### Static Selection
+
+```typescript
+// Select at configuration
+const ai = createAI({
+  provider: myOpenAIProvider,
+  providers: {
+    openai: myOpenAIProvider,
+    anthropic: myAnthropicProvider
+  }
+})
+
+// Or select at runtime
+const openai = ai.provider('openai')
+const anthropic = ai.provider('anthropic')
+
+await openai`Query for OpenAI`
+await anthropic`Query for Anthropic`
+```
+
+### Dynamic Selection
+
+```typescript
+function getAI(task: string) {
+  // Route based on task type
+  if (task === 'code') {
+    return ai.provider('anthropic')  // Better for code
+  }
+  if (task === 'analysis') {
+    return ai.provider('openai')     // Better for analysis
+  }
+  return ai  // Default provider
+}
+
+const codeAI = getAI('code')
+const generated = await codeAI.code`Write a sorting function`
+```
+
+## Model Selection
+
+Switch models within a provider:
+
+```typescript
+const ai = createAI({ /* provider config */ })
+
+// Select model
+const gpt4 = ai.model('gpt-4')
+const gpt35 = ai.model('gpt-3.5-turbo')
+
+// Use different models for different tasks
+const complexAnalysis = await gpt4`Deep analysis: ${complex}`
+const simpleTask = await gpt35`Summarize: ${simple}`
+```
+
+### Model-Task Matching
+
+```typescript
+// High-quality tasks
+const premium = ai.model('gpt-4')
+const result = await premium`Write a detailed report on ${topic}`
+
+// Simple/fast tasks
+const fast = ai.model('gpt-3.5-turbo')
+const classification = await fast.is`Is this spam? ${email}`
+
+// Code generation
+const coder = ai.model('claude-3-opus-20240229')
+const code = await coder.code`Implement binary search`
+```
+
+## Fallback Chains
+
+Configure automatic fallback when primary provider fails:
+
+```typescript
+const ai = createAI({
+  providers: {
+    openai: openaiProvider,
+    anthropic: anthropicProvider
+  },
+  fallback: ['openai', 'anthropic']
+})
+
+// If OpenAI fails, automatically tries Anthropic
+const result = await ai`Process this request`
+```
+
+### Fallback Behavior
+
+```typescript
+const ai = createAI({
+  provider: primaryProvider,
+  providers: {
+    primary: primaryProvider,
+    backup: backupProvider,
+    emergency: emergencyProvider
+  },
+  fallback: ['backup', 'emergency']
+})
+
+// Execution order on failure:
+// 1. primaryProvider (from config.provider)
+// 2. backupProvider (first fallback)
+// 3. emergencyProvider (second fallback)
+// 4. Error thrown if all fail
+```
+
+### Disabling Fallback
+
+```typescript
+const ai = createAI({
+  fallback: false  // No fallback, fail immediately
+})
+```
+
+## Checking Provider Status
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Check if providers are configured
+console.log(ai.providers.openai.configured)    // true/false
+console.log(ai.providers.anthropic.configured) // true/false
+
+// Conditional logic based on availability
+if (ai.providers.openai.configured) {
+  await ai.provider('openai')`Use OpenAI`
+} else {
+  await ai.provider('anthropic')`Fallback to Anthropic`
+}
+```
+
+## Provider Interface
+
+Implement custom providers:
+
+```typescript
+interface AIProvider {
+  execute: (prompt: string, options?: ExecuteOptions) => Promise<string>
+  request?: (params: AIRequestParams) => Promise<AIProviderResponse>
+  apiKey?: string
+  configured?: boolean
+}
+
+interface ExecuteOptions {
+  model?: string
+  mode?: 'is' | 'list' | 'code' | 'general'
+}
+
+interface AIRequestParams {
+  messages: Array<{ role: string; content: string }>
+  model?: string
+  temperature?: number
+  max_tokens?: number
+}
+```
+
+### Custom Provider Example
+
+```typescript
+const customProvider: AIProvider = {
+  execute: async (prompt, options) => {
+    // Your custom AI logic
+    const response = await myCustomAI.generate({
+      prompt,
+      model: options?.model,
+      mode: options?.mode
+    })
+    return response.text
+  },
+  configured: true
+}
+
+const ai = createAI({
+  provider: customProvider
+})
+```
+
+## Workers AI Integration
+
+For Cloudflare Workers environments:
+
+```typescript
+const ai = createAI({
+  provider: {
+    execute: async (prompt, options) => {
+      // Access Workers AI binding
+      const response = await env.AI.run('@cf/meta/llama-2-7b-chat-int8', {
+        messages: [{ role: 'user', content: prompt }]
+      })
+      return response.response
+    },
+    configured: true
+  }
+})
+```
+
+## Best Practices
+
+### Environment-Based Configuration
+
+```typescript
+const ai = createAI({
+  providers: {
+    openai: {
+      apiKey: process.env.OPENAI_API_KEY,
+      execute: openaiExecute,
+      configured: !!process.env.OPENAI_API_KEY
+    },
+    anthropic: {
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      execute: anthropicExecute,
+      configured: !!process.env.ANTHROPIC_API_KEY
+    }
+  },
+  // Fallback to whatever is configured
+  fallback: [
+    process.env.OPENAI_API_KEY && 'openai',
+    process.env.ANTHROPIC_API_KEY && 'anthropic'
+  ].filter(Boolean) as string[]
+})
+```
+
+### Cost-Optimized Routing
+
+```typescript
+function costOptimizedAI(complexity: 'low' | 'medium' | 'high') {
+  switch (complexity) {
+    case 'low':
+      return ai.model('gpt-3.5-turbo')  // Cheapest
+    case 'medium':
+      return ai.model('gpt-4')          // Balanced
+    case 'high':
+      return ai.model('gpt-4-turbo')    // Best quality
+  }
+}
+```
+
+## Next Steps
+
+- [Templates](/ai/templates) - Use template literals with configured providers
+- [Budget Tracking](/ai/budget) - Monitor costs across providers
+- [Caching](/ai/caching) - Cache responses to reduce provider calls

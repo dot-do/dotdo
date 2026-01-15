@@ -1,0 +1,471 @@
+---
+title: Review Queues
+description: Priority-based review queues for human reviewers with claiming, completion tracking, reassignment, and metrics
+---
+
+# Review Queues
+
+The `ReviewQueue` class provides priority-based work queues for human review tasks. Items are claimed by reviewers, processed, and completed with full metrics tracking.
+
+## Overview
+
+```typescript
+import { ReviewQueue } from 'dotdo/human'
+
+const queue = new ReviewQueue()
+
+// Add items to the queue
+await queue.add(
+  {
+    id: 'review-001',
+    type: 'content-moderation',
+    title: 'User post flagged for review',
+    data: { postId: 'post-123', flagReason: 'spam' },
+    createdAt: new Date()
+  },
+  { priority: 'high' }
+)
+
+// Reviewer claims next item
+const item = await queue.claim('reviewer@company.com')
+
+// Complete with decision
+await queue.complete(item.id, { approved: true, notes: 'False positive' })
+```
+
+## Adding Items
+
+### Basic Add
+
+```typescript
+const item = await queue.add({
+  id: 'item-001',
+  type: 'document-review',
+  title: 'Contract needs legal review',
+  data: {
+    documentId: 'doc-456',
+    clientName: 'Acme Corp',
+    value: 50000
+  },
+  createdAt: new Date()
+})
+
+console.log(item.status)   // 'pending'
+console.log(item.addedAt)  // Date when added
+```
+
+### With Priority
+
+```typescript
+// Priority levels: 'critical' | 'high' | 'normal' | 'low'
+await queue.add(item, { priority: 'critical' })
+await queue.add(item, { priority: 'high' })
+await queue.add(item, { priority: 'normal' })  // default
+await queue.add(item, { priority: 'low' })
+```
+
+### ReviewItem Interface
+
+```typescript
+interface ReviewItem {
+  id: string                           // Unique identifier
+  type: string                         // Item type for routing
+  title: string                        // Human-readable title
+  data: Record<string, unknown>        // Item-specific data
+  createdAt: Date                      // Original creation time
+  priority?: Priority                  // Queue priority
+  status?: 'pending' | 'claimed' | 'completed'
+  addedAt?: Date                       // When added to queue
+  claimedBy?: string                   // Current reviewer
+  claimedAt?: Date                     // When claimed
+  completedAt?: Date                   // When completed
+  decision?: Record<string, unknown>   // Review decision
+  metrics?: {
+    timeInQueue?: number               // Ms waiting
+    timeToComplete?: number            // Ms to process
+  }
+  reassignedFrom?: string
+  reassignedAt?: Date
+  reassignmentHistory?: Array<{
+    from: string
+    to: string
+    at: Date
+  }>
+}
+```
+
+## Claiming Items
+
+### Basic Claim
+
+Reviewers claim the next highest-priority item:
+
+```typescript
+const item = await queue.claim('reviewer-001')
+
+if (item) {
+  console.log(item.id)        // Item ID
+  console.log(item.type)      // Item type
+  console.log(item.title)     // Item title
+  console.log(item.status)    // 'claimed'
+  console.log(item.claimedBy) // 'reviewer-001'
+  console.log(item.claimedAt) // Claim timestamp
+} else {
+  console.log('No items available')
+}
+```
+
+### Priority Ordering
+
+Items are claimed in priority order, then FIFO within same priority:
+
+```typescript
+// Add items with different priorities
+await queue.add({ id: 'low-1', ...rest }, { priority: 'low' })
+await queue.add({ id: 'high-1', ...rest }, { priority: 'high' })
+await queue.add({ id: 'critical-1', ...rest }, { priority: 'critical' })
+await queue.add({ id: 'high-2', ...rest }, { priority: 'high' })
+
+// Claims will return in order:
+// 1. critical-1 (highest priority)
+// 2. high-1 (high priority, added first)
+// 3. high-2 (high priority, added second)
+// 4. low-1 (lowest priority)
+
+const first = await queue.claim('reviewer')  // critical-1
+const second = await queue.claim('reviewer') // high-1
+const third = await queue.claim('reviewer')  // high-2
+const fourth = await queue.claim('reviewer') // low-1
+```
+
+### Priority Order
+
+```
+critical (0) > high (1) > normal (2) > low (3)
+```
+
+## Completing Items
+
+### Basic Completion
+
+```typescript
+const completed = await queue.complete(
+  'item-001',
+  { approved: true, reason: 'Meets guidelines' }
+)
+
+console.log(completed.status)      // 'completed'
+console.log(completed.completedAt) // Completion timestamp
+console.log(completed.decision)    // { approved: true, reason: '...' }
+```
+
+### With Metrics
+
+Completion automatically calculates timing metrics:
+
+```typescript
+const completed = await queue.complete(itemId, decision)
+
+console.log(completed.metrics)
+// {
+//   timeInQueue: 120000,     // 2 minutes waiting
+//   timeToComplete: 45000    // 45 seconds to review
+// }
+```
+
+### Completion Requirements
+
+Items must be claimed before completion:
+
+```typescript
+// Error: Item must be claimed first
+try {
+  await queue.complete('unclaimed-item', decision)
+} catch (error) {
+  console.log(error.message)  // 'Item must be claimed before completion'
+}
+```
+
+## Reassigning Items
+
+Transfer claimed items to another reviewer:
+
+```typescript
+// Reassign to different reviewer
+const reassigned = await queue.reassign('item-001', 'new-reviewer@company.com')
+
+console.log(reassigned.claimedBy)       // 'new-reviewer@company.com'
+console.log(reassigned.claimedAt)       // New claim time
+console.log(reassigned.reassignedFrom)  // Previous reviewer
+console.log(reassigned.reassignedAt)    // Reassignment time
+```
+
+### Reassignment History
+
+Track all reassignments for an item:
+
+```typescript
+console.log(item.reassignmentHistory)
+// [
+//   { from: 'reviewer-1', to: 'reviewer-2', at: Date },
+//   { from: 'reviewer-2', to: 'reviewer-3', at: Date }
+// ]
+```
+
+### Reassignment Rules
+
+```typescript
+// Cannot reassign completed items
+try {
+  await queue.reassign('completed-item', 'reviewer')
+} catch (error) {
+  console.log(error.message)  // 'Cannot reassign completed item'
+}
+```
+
+## Listing Items
+
+### All Items
+
+```typescript
+const items = await queue.list()
+console.log(items.length)
+```
+
+### Sorted by Priority
+
+```typescript
+const items = await queue.list({ sortBy: 'priority' })
+// Returns: critical items first, then high, normal, low
+```
+
+### Sorted by Creation Time
+
+```typescript
+const items = await queue.list({ sortBy: 'createdAt' })
+// Returns: oldest items first
+```
+
+## Queue Stats
+
+### Total Length
+
+```typescript
+const total = await queue.length()
+console.log(`Total items: ${total}`)
+```
+
+### Pending Count
+
+```typescript
+const pending = await queue.pendingCount()
+console.log(`Items waiting for review: ${pending}`)
+```
+
+## Retrieving Items
+
+Get a specific item by ID:
+
+```typescript
+const item = await queue.get('item-001')
+
+if (item) {
+  console.log(item.status)
+  console.log(item.claimedBy)
+} else {
+  console.log('Item not found')
+}
+```
+
+## Complete Workflow Example
+
+```typescript
+import { ReviewQueue, NotificationDispatcher } from 'dotdo/human'
+
+const queue = new ReviewQueue()
+const notifications = new NotificationDispatcher()
+
+// Submit content for moderation
+async function submitForModeration(content: {
+  id: string
+  type: string
+  text: string
+  authorId: string
+}) {
+  const item = await queue.add(
+    {
+      id: `mod-${content.id}`,
+      type: 'content-moderation',
+      title: `Review ${content.type} from user ${content.authorId}`,
+      data: {
+        contentId: content.id,
+        contentType: content.type,
+        text: content.text,
+        authorId: content.authorId
+      },
+      createdAt: new Date()
+    },
+    { priority: classifyPriority(content) }
+  )
+
+  return item
+}
+
+// Moderator workflow
+async function reviewContent(moderatorId: string) {
+  // Claim next item
+  const item = await queue.claim(moderatorId)
+
+  if (!item) {
+    return { status: 'empty', message: 'No items to review' }
+  }
+
+  // Notify moderator
+  await notifications.notify(
+    moderatorId,
+    'slack',
+    {
+      text: `New item assigned: ${item.title}`,
+      contentId: item.data.contentId
+    }
+  )
+
+  return item
+}
+
+// Complete review
+async function completeReview(
+  itemId: string,
+  decision: { approved: boolean; reason: string; action?: string }
+) {
+  const completed = await queue.complete(itemId, decision)
+
+  // Take action based on decision
+  if (!decision.approved) {
+    await handleRejection(completed.data, decision)
+  }
+
+  // Record metrics
+  console.log(`Review completed in ${completed.metrics?.timeToComplete}ms`)
+
+  return completed
+}
+
+// Handle moderator unavailability
+async function reassignItem(itemId: string, newModeratorId: string) {
+  const item = await queue.reassign(itemId, newModeratorId)
+
+  await notifications.notify(
+    newModeratorId,
+    'email',
+    {
+      subject: `Reassigned: ${item.title}`,
+      body: `This item has been reassigned to you for review.`
+    }
+  )
+
+  return item
+}
+
+// Dashboard stats
+async function getQueueStats() {
+  const [total, pending] = await Promise.all([
+    queue.length(),
+    queue.pendingCount()
+  ])
+
+  const items = await queue.list({ sortBy: 'priority' })
+  const byPriority = {
+    critical: items.filter(i => i.priority === 'critical').length,
+    high: items.filter(i => i.priority === 'high').length,
+    normal: items.filter(i => i.priority === 'normal').length,
+    low: items.filter(i => i.priority === 'low').length
+  }
+
+  return {
+    total,
+    pending,
+    inProgress: total - pending - items.filter(i => i.status === 'completed').length,
+    byPriority
+  }
+}
+```
+
+## Type-Based Routing
+
+Route items to specialized queues:
+
+```typescript
+const queues: Record<string, ReviewQueue> = {
+  'content-moderation': new ReviewQueue(),
+  'kyc-verification': new ReviewQueue(),
+  'refund-approval': new ReviewQueue(),
+  'fraud-review': new ReviewQueue()
+}
+
+async function routeToQueue(item: ReviewItem) {
+  const queue = queues[item.type]
+  if (!queue) {
+    throw new Error(`Unknown item type: ${item.type}`)
+  }
+
+  return queue.add(item, {
+    priority: getPriorityForType(item.type, item.data)
+  })
+}
+
+// Specialized reviewer claims from their queue
+async function claimFromSpecialty(
+  reviewerId: string,
+  specialty: string
+) {
+  const queue = queues[specialty]
+  return queue.claim(reviewerId)
+}
+```
+
+## Integration with Escalation
+
+Auto-escalate stale queue items:
+
+```typescript
+import { EscalationPolicy, ReviewQueue } from 'dotdo/human'
+
+const queue = new ReviewQueue()
+const escalation = new EscalationPolicy()
+
+async function addWithEscalation(item: ReviewItem) {
+  // Add to queue
+  await queue.add(item, { priority: 'normal' })
+
+  // Configure escalation
+  const config = escalation
+    .escalateAfter('1 hour')
+    .escalateTo('senior-reviewer')
+    .onEscalate(async (event) => {
+      // Get item and bump priority
+      const current = await queue.get(event.requestId)
+      if (current && current.status === 'pending') {
+        // Bump priority when escalated
+        // (In practice, you might re-add with higher priority)
+        console.log(`Escalating ${event.requestId} to ${event.escalatedTo}`)
+      }
+    })
+
+  await escalation.track(item.id, config)
+}
+```
+
+## Best Practices
+
+1. **Set appropriate priorities**: Reserve 'critical' for truly urgent items
+2. **Monitor queue depth**: Alert when pending count exceeds thresholds
+3. **Track metrics**: Use completion metrics to optimize reviewer allocation
+4. **Handle empty queues**: Gracefully handle when `claim()` returns null
+5. **Use reassignment**: Don't let items get stuck with unavailable reviewers
+
+## Next Steps
+
+- [Approval Workflows](/human/approvals) - Chain approvals with queued reviews
+- [Escalation Policies](/human/escalation) - Auto-escalate stale queue items
+- [Notifications](/human/notifications) - Alert reviewers of new items

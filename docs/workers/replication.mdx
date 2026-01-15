@@ -1,0 +1,385 @@
+---
+title: Replication
+description: Read replica routing for horizontal scaling of read-heavy workloads
+---
+
+# Replication
+
+The replication module routes requests between primary and replica Durable Objects. This enables horizontal read scaling by offloading reads to replicas while ensuring writes go to the primary.
+
+## Architecture
+
+```
+              ┌─────────────┐
+              │   Worker    │
+              └─────────────┘
+                    │
+         ┌─────────┴─────────┐
+         │                   │
+    Writes (POST/PUT/DELETE) Reads (GET/HEAD)
+         │                   │
+         ▼                   ▼
+    ┌─────────┐     ┌───────────────┐
+    │ Primary │────▶│  Replicas     │
+    │   DO    │     │ ┌───┐┌───┐┌───┐
+    │         │ sync│ │ 1 ││ 2 ││ N │
+    └─────────┘     └───┘└───┘└───┘
+                    Round-robin
+```
+
+## Request Intent Detection
+
+The `detectIntent` function determines if a request is a read or write:
+
+```typescript
+import { detectIntent } from 'dotdo/workers'
+
+const intent = detectIntent(request)
+// 'read' | 'write' | 'unknown'
+```
+
+### Intent Rules
+
+| Method | Intent | Notes |
+|--------|--------|-------|
+| GET | read | Idempotent retrieval |
+| HEAD | read | Metadata only |
+| OPTIONS | read | CORS preflight |
+| POST | write | Create resource |
+| PUT | write | Replace resource |
+| PATCH | write | Update resource |
+| DELETE | write | Remove resource |
+| Other | unknown | Defaults to primary |
+
+### Explicit Write Intent
+
+Force write routing with a header:
+
+```typescript
+// Client-side
+const response = await fetch('/api/resource', {
+  method: 'GET',
+  headers: {
+    'X-Write-Intent': 'true', // Force primary
+  },
+})
+```
+
+## Replica Router
+
+Create a router to direct traffic:
+
+```typescript
+import { createReplicaRouter } from 'dotdo/workers'
+
+const router = createReplicaRouter({
+  mode: 'primary-replica',
+  replicaCount: 3,
+  readPreference: 'replica',
+})
+
+// Route a request
+const { target, replicaIndex } = router.route(request)
+// { target: 'replica', replicaIndex: 1 }
+```
+
+### Configuration Options
+
+```typescript
+interface ReplicationConfig {
+  mode: 'primary-replica' | 'multi-primary'
+  replicaCount: number
+  readPreference: 'primary' | 'replica' | 'nearest'
+}
+```
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `mode` | `primary-replica` | Single writer, multiple readers |
+| | `multi-primary` | Multiple writers (requires conflict resolution) |
+| `replicaCount` | Number | How many read replicas |
+| `readPreference` | `primary` | Always read from primary |
+| | `replica` | Prefer replicas for reads |
+| | `nearest` | Route to lowest latency |
+
+## Consistency Overrides
+
+Clients can request specific consistency levels:
+
+### Via Query Parameter
+
+```typescript
+// Strong consistency - force primary
+fetch('/api/data?consistency=strong')
+
+// Eventual consistency - force replica
+fetch('/api/data?consistency=eventual')
+```
+
+### Via Header
+
+```typescript
+fetch('/api/data', {
+  headers: {
+    'X-Consistency': 'strong', // or 'eventual'
+  },
+})
+```
+
+### Override Behavior
+
+| Override | Read Requests | Write Requests |
+|----------|---------------|----------------|
+| `strong` | Primary | Primary |
+| `eventual` | Replica (round-robin) | Primary |
+| None | Based on `readPreference` | Primary |
+
+## Worker Integration
+
+### Basic Replicated Worker
+
+```typescript
+import { parseSubdomainRoute, createReplicaRouter } from 'dotdo/workers'
+
+const router = createReplicaRouter({
+  mode: 'primary-replica',
+  replicaCount: 3,
+  readPreference: 'replica',
+})
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+    if (!route) return new Response('Invalid', { status: 400 })
+
+    // Determine target
+    const { target, replicaIndex } = router.route(request)
+
+    // Build DO name
+    const doName = target === 'primary'
+      ? `${route.ns}-primary`
+      : `${route.ns}-replica-${replicaIndex}`
+
+    const id = env.DO.idFromName(doName)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+### Using the Preset
+
+```typescript
+import { createReplicatedWorker } from 'dotdo/workers'
+
+const worker = createReplicatedWorker({
+  replicaCount: 3,
+})
+
+export default {
+  fetch: worker.handleRequest,
+}
+```
+
+## Load Balancing
+
+The replica router uses round-robin by default:
+
+```typescript
+// First read  -> replica-0
+// Second read -> replica-1
+// Third read  -> replica-2
+// Fourth read -> replica-0
+// ...
+```
+
+This ensures even distribution across replicas within a single worker instance.
+
+## Read-After-Write Consistency
+
+For read-your-writes consistency, clients should route reads to primary immediately after writes:
+
+```typescript
+// Client-side pattern
+async function createAndRead(data: object) {
+  // Write to primary
+  await fetch('/api/items', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+  // Read with strong consistency to see write
+  const response = await fetch('/api/items/latest', {
+    headers: { 'X-Consistency': 'strong' },
+  })
+
+  return response.json()
+}
+```
+
+Or use session affinity:
+
+```typescript
+// Worker tracks recent writes
+const recentWriters = new Map<string, number>()
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const sessionId = request.headers.get('X-Session-ID')
+    const { target, replicaIndex } = router.route(request)
+
+    // Force primary if recent write from this session
+    const lastWrite = sessionId ? recentWriters.get(sessionId) : 0
+    const forceConsistency = lastWrite && Date.now() - lastWrite < 5000
+
+    const actualTarget = forceConsistency ? 'primary' : target
+
+    // Track writes
+    if (detectIntent(request) === 'write' && sessionId) {
+      recentWriters.set(sessionId, Date.now())
+    }
+
+    // ...
+  }
+}
+```
+
+## Replica Synchronization
+
+Replicas must be kept in sync with the primary. Common patterns:
+
+### Synchronous Replication
+
+Write to primary and all replicas before responding:
+
+```typescript
+// In DO primary
+async write(data: object) {
+  // Write locally
+  await this.storage.put('key', data)
+
+  // Sync to replicas
+  await Promise.all(
+    this.replicas.map(r => r.sync('key', data))
+  )
+
+  return { success: true }
+}
+```
+
+**Pros:** Strong consistency
+**Cons:** Higher latency, reduced availability
+
+### Asynchronous Replication
+
+Write to primary, sync replicas in background:
+
+```typescript
+async write(data: object) {
+  // Write locally
+  await this.storage.put('key', data)
+
+  // Queue sync (don't await)
+  this.ctx.waitUntil(
+    Promise.all(this.replicas.map(r => r.sync('key', data)))
+  )
+
+  return { success: true }
+}
+```
+
+**Pros:** Lower latency, better availability
+**Cons:** Eventual consistency, stale reads possible
+
+## Replica Count Guidelines
+
+| Workload | Replica Count | Notes |
+|----------|---------------|-------|
+| Light | 1-2 | Basic redundancy |
+| Read-heavy | 3-5 | Typical production |
+| Heavy read | 5-10 | High traffic apps |
+| Global | Regional | One per region |
+
+## Combining with Sharding
+
+For maximum scale, combine sharding and replication:
+
+```typescript
+import {
+  createHashRing,
+  hashKey,
+  createReplicaRouter,
+} from 'dotdo/workers'
+
+const ring = createHashRing({ shardCount: 16 })
+for (let i = 0; i < 16; i++) {
+  ring.addNode(`shard-${i}`)
+}
+
+const router = createReplicaRouter({
+  mode: 'primary-replica',
+  replicaCount: 3,
+  readPreference: 'replica',
+})
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // 1. Route to shard
+    const key = hashKey(route.ns, route.type, route.id)
+    const shard = ring.getNode(key)
+
+    // 2. Route to primary or replica
+    const { target, replicaIndex } = router.route(request)
+
+    // 3. Build final DO name
+    const doName = target === 'primary'
+      ? `${shard}-primary`
+      : `${shard}-replica-${replicaIndex}`
+
+    const id = env.DO.idFromName(doName)
+    return env.DO.get(id).fetch(request)
+  }
+}
+```
+
+## Monitoring
+
+Track replication metrics:
+
+```typescript
+const metrics = {
+  primaryReads: 0,
+  replicaReads: 0,
+  writes: 0,
+  consistencyOverrides: 0,
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { target } = router.route(request)
+    const intent = detectIntent(request)
+
+    if (intent === 'write') {
+      metrics.writes++
+    } else if (target === 'primary') {
+      metrics.primaryReads++
+    } else {
+      metrics.replicaReads++
+    }
+
+    // Log periodically
+    if (Math.random() < 0.001) {
+      console.log('Replication metrics:', metrics)
+    }
+
+    // ...
+  }
+}
+```
+
+## Next Steps
+
+- [Sharding](/workers/sharding) - Combine with horizontal partitioning
+- [Presets](/workers/presets) - Pre-configured replication setups
+- [Routing](/workers/routing) - URL patterns for tenant routing

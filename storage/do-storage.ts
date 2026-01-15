@@ -13,6 +13,32 @@ import { PipelineEmitter } from './pipeline-emitter'
 import { LazyCheckpointer, type DirtyTracker } from './lazy-checkpointer'
 import { IcebergWriter, type IcebergEvent } from './iceberg-writer'
 
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+/** Default interval (ms) between SQLite checkpoints */
+const DEFAULT_CHECKPOINT_INTERVAL_MS = 5000
+
+/** Default interval (ms) between Iceberg flushes */
+const DEFAULT_ICEBERG_FLUSH_INTERVAL_MS = 60000
+
+/** Default pipeline flush interval (ms) for WAL batching */
+const DEFAULT_PIPELINE_FLUSH_INTERVAL_MS = 100
+
+/** Default batch size for pipeline events */
+const DEFAULT_PIPELINE_BATCH_SIZE = 50
+
+// ============================================================================
+// SQL Query Constants
+// ============================================================================
+
+/** Query to select thing by ID */
+const SQL_SELECT_BY_ID = 'SELECT id, type, data FROM things WHERE id = ?'
+
+/** Query to insert or replace thing */
+const SQL_INSERT_OR_REPLACE_THING = 'INSERT OR REPLACE INTO things (id, type, data) VALUES (?, ?, ?)'
+
 export interface DOStorageConfig {
   namespace: string
   env: StorageEnv
@@ -104,8 +130,8 @@ export class DOStorage {
     this.config = {
       namespace: config.namespace,
       env: config.env,
-      checkpointInterval: config.checkpointInterval ?? 5000,
-      icebergFlushInterval: config.icebergFlushInterval ?? 60000,
+      checkpointInterval: config.checkpointInterval ?? DEFAULT_CHECKPOINT_INTERVAL_MS,
+      icebergFlushInterval: config.icebergFlushInterval ?? DEFAULT_ICEBERG_FLUSH_INTERVAL_MS,
       waitForPipeline: config.waitForPipeline ?? false,
     }
 
@@ -116,8 +142,8 @@ export class DOStorage {
     if (this.env.PIPELINE) {
       this.pipeline = new PipelineEmitter(this.env.PIPELINE, {
         namespace: this.namespace,
-        flushInterval: 100, // Quick flush for durability
-        batchSize: 50,
+        flushInterval: DEFAULT_PIPELINE_FLUSH_INTERVAL_MS,
+        batchSize: DEFAULT_PIPELINE_BATCH_SIZE,
       })
     }
 
@@ -193,18 +219,20 @@ export class DOStorage {
 
     // Fallback to L2 (SQLite)
     if (this.env.sql) {
-      const result = this.env.sql.exec(
-        'SELECT id, type, data FROM things WHERE id = ?',
-        id
-      )
-      const rows = result.toArray() as Array<{ id: string; type: string; data: string }>
-      if (rows.length > 0) {
-        const thing = JSON.parse(rows[0].data) as ThingData
+      try {
+        const result = this.env.sql.exec(SQL_SELECT_BY_ID, id)
+        const rows = result.toArray() as Array<{ id: string; type: string; data: string }>
+        if (rows.length > 0) {
+          const thing = JSON.parse(rows[0].data) as ThingData
 
-        // Hydrate L0 cache
-        this.memory.loadBulk([thing])
+          // Hydrate L0 cache
+          this.memory.loadBulk([thing])
 
-        return thing
+          return thing
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.error(`[DOStorage] Failed to read from SQLite for id '${id}': ${errorMsg}`)
       }
     }
 

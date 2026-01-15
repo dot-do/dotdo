@@ -1,0 +1,518 @@
+---
+title: Notifications
+description: Multi-channel notification dispatch with email, Slack, SMS, and push support, retry policies, and delivery tracking
+---
+
+# Notifications
+
+The `NotificationDispatcher` class provides multi-channel notification delivery with configurable retry policies, delivery tracking, and recipient history.
+
+## Overview
+
+```typescript
+import { NotificationDispatcher } from 'dotdo/human'
+
+const notifications = new NotificationDispatcher()
+
+// Send a notification
+const result = await notifications.notify(
+  'user@company.com',
+  'email',
+  {
+    subject: 'Action Required',
+    body: 'Please review the pending approval request.'
+  }
+)
+
+console.log(result.delivered)  // true
+console.log(result.channel)    // 'email'
+```
+
+## Supported Channels
+
+```typescript
+type NotificationChannel = 'email' | 'slack' | 'sms' | 'push'
+```
+
+### Email
+
+```typescript
+await notifications.notify(
+  'user@company.com',
+  'email',
+  {
+    subject: 'Approval Required',
+    body: 'You have a new approval request waiting.',
+    priority: 'high',
+    replyTo: 'support@company.com'
+  }
+)
+```
+
+### Slack
+
+```typescript
+await notifications.notify(
+  'user@company.com',  // Mapped to Slack user
+  'slack',
+  {
+    text: 'New approval request',
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*Approval Required*\nPlease review.' }
+      }
+    ],
+    channel: '#approvals'
+  }
+)
+```
+
+### SMS
+
+```typescript
+await notifications.notify(
+  '+1-555-123-4567',
+  'sms',
+  {
+    message: 'Urgent: Approval required. Log in to review.',
+    sender: 'Company'
+  }
+)
+```
+
+### Push Notifications
+
+```typescript
+await notifications.notify(
+  'user-device-token',
+  'push',
+  {
+    title: 'New Approval',
+    body: 'You have a pending approval request.',
+    data: { requestId: 'req-001', type: 'approval' },
+    badge: 3
+  }
+)
+```
+
+## NotificationResult Interface
+
+```typescript
+interface NotificationResult {
+  id: string                   // Unique notification ID
+  delivered: boolean           // Whether delivery succeeded
+  channel: NotificationChannel // Channel used
+  recipient: string            // Recipient identifier
+  sentAt: Date                 // When sent
+  deliveredAt?: Date           // When delivered (if successful)
+  error?: string               // Error message (if failed)
+  attempts?: number            // Number of delivery attempts
+}
+```
+
+## Configuration
+
+### Channel Settings
+
+Configure individual channels:
+
+```typescript
+notifications.configure({
+  email: {
+    // Email-specific config
+  },
+  slack: {
+    // Slack-specific config
+  },
+  sms: {
+    // SMS-specific config
+  },
+  push: {
+    // Push-specific config
+  }
+})
+```
+
+### Retry Policies
+
+Configure retry behavior for failed deliveries:
+
+```typescript
+notifications.configure({
+  // Global retry policy
+  retryPolicy: {
+    maxRetries: 3,
+    backoff: 'exponential',  // or 'linear'
+    initialDelay: 100        // ms
+  },
+
+  // Per-channel override
+  email: {
+    retryPolicy: {
+      maxRetries: 5,
+      backoff: 'linear',
+      initialDelay: 500
+    }
+  }
+})
+```
+
+### Backoff Strategies
+
+**Exponential backoff** (default):
+```
+Attempt 1: 100ms
+Attempt 2: 200ms
+Attempt 3: 400ms
+Attempt 4: 800ms
+```
+
+**Linear backoff**:
+```
+Attempt 1: 100ms
+Attempt 2: 200ms
+Attempt 3: 300ms
+Attempt 4: 400ms
+```
+
+## Multi-Channel Notifications
+
+Send to multiple channels simultaneously:
+
+```typescript
+const results = await notifications.notifyMultiple(
+  'user@company.com',
+  ['email', 'slack', 'push'],
+  {
+    email: {
+      subject: 'Urgent: Approval Needed',
+      body: 'Please review the request immediately.'
+    },
+    slack: {
+      text: 'Urgent: Approval needed',
+      channel: '#alerts'
+    },
+    push: {
+      title: 'Approval Needed',
+      body: 'Tap to review',
+      data: { requestId: 'req-001' }
+    }
+  }
+)
+
+// Check results for each channel
+for (const result of results) {
+  console.log(`${result.channel}: ${result.delivered ? 'delivered' : 'failed'}`)
+}
+```
+
+## Delivery Status
+
+### Check Status
+
+```typescript
+const status = await notifications.getDeliveryStatus(notificationId)
+
+console.log(status.delivered)    // true | false
+console.log(status.deliveredAt)  // Date (if delivered)
+console.log(status.error)        // Error message (if failed)
+```
+
+### Delivery History
+
+Get notification history for a recipient:
+
+```typescript
+const history = await notifications.getDeliveryHistory('user@company.com')
+
+for (const notification of history) {
+  console.log(`${notification.channel}: ${notification.delivered}`)
+  console.log(`  Sent: ${notification.sentAt}`)
+  console.log(`  Attempts: ${notification.attempts}`)
+}
+
+// Filter by channel
+const emailHistory = await notifications.getDeliveryHistory(
+  'user@company.com',
+  { channel: 'email' }
+)
+```
+
+## Error Handling
+
+### Delivery Failures
+
+```typescript
+const result = await notifications.notify(recipient, channel, message)
+
+if (!result.delivered) {
+  console.log(`Delivery failed: ${result.error}`)
+  console.log(`Attempts made: ${result.attempts}`)
+
+  // Fallback to another channel
+  if (channel === 'push') {
+    await notifications.notify(recipient, 'email', emailMessage)
+  }
+}
+```
+
+### Unsupported Channel
+
+```typescript
+try {
+  await notifications.notify(recipient, 'invalid' as any, message)
+} catch (error) {
+  console.log(error.message)  // 'Unsupported notification channel'
+}
+```
+
+## Complete Workflow Example
+
+```typescript
+import {
+  ApprovalWorkflow,
+  NotificationDispatcher,
+  EscalationPolicy
+} from 'dotdo/human'
+
+const workflow = new ApprovalWorkflow()
+const notifications = new NotificationDispatcher()
+const escalation = new EscalationPolicy()
+
+// Configure notifications with retries
+notifications.configure({
+  retryPolicy: {
+    maxRetries: 3,
+    backoff: 'exponential',
+    initialDelay: 100
+  }
+})
+
+// User preferences (from your user system)
+interface UserPreferences {
+  primaryChannel: NotificationChannel
+  fallbackChannel?: NotificationChannel
+  urgentChannels: NotificationChannel[]
+}
+
+async function getUserPreferences(userId: string): Promise<UserPreferences> {
+  // Fetch from your user system
+  return {
+    primaryChannel: 'email',
+    fallbackChannel: 'push',
+    urgentChannels: ['email', 'slack', 'sms']
+  }
+}
+
+// Smart notification sender
+async function sendNotification(
+  userId: string,
+  message: {
+    subject: string
+    body: string
+    priority: 'urgent' | 'normal'
+    data?: Record<string, unknown>
+  }
+) {
+  const prefs = await getUserPreferences(userId)
+
+  if (message.priority === 'urgent') {
+    // Send to all urgent channels
+    return notifications.notifyMultiple(
+      userId,
+      prefs.urgentChannels,
+      {
+        email: { subject: message.subject, body: message.body },
+        slack: { text: `${message.subject}\n${message.body}` },
+        sms: { message: message.body },
+        push: { title: message.subject, body: message.body, data: message.data }
+      }
+    )
+  }
+
+  // Normal priority: primary channel with fallback
+  const result = await notifications.notify(
+    userId,
+    prefs.primaryChannel,
+    buildMessage(prefs.primaryChannel, message)
+  )
+
+  if (!result.delivered && prefs.fallbackChannel) {
+    return notifications.notify(
+      userId,
+      prefs.fallbackChannel,
+      buildMessage(prefs.fallbackChannel, message)
+    )
+  }
+
+  return [result]
+}
+
+// Approval notification workflow
+async function notifyApprovalRequest(approval: ApprovalResponse) {
+  const isUrgent = approval.priority === 'critical' || approval.priority === 'high'
+
+  await sendNotification(
+    approval.currentApprover!,
+    {
+      subject: `Approval Required: ${approval.action.title}`,
+      body: `
+${approval.action.description}
+
+${approval.action.amount ? `Amount: $${approval.action.amount}` : ''}
+Deadline: ${approval.deadline?.toISOString() || 'None'}
+
+Please review and approve or reject.
+      `.trim(),
+      priority: isUrgent ? 'urgent' : 'normal',
+      data: { requestId: approval.id, type: 'approval' }
+    }
+  )
+}
+
+// Escalation notification
+async function notifyEscalation(event: EscalationEvent) {
+  await sendNotification(
+    event.escalatedTo,
+    {
+      subject: `Escalated: Request requires attention`,
+      body: `
+A request has been escalated to you due to ${event.reason}.
+
+Request ID: ${event.requestId}
+Escalated at: ${event.escalatedAt.toISOString()}
+
+Please review immediately.
+      `.trim(),
+      priority: 'urgent',
+      data: { requestId: event.requestId, type: 'escalation' }
+    }
+  )
+}
+
+// Completion notification
+async function notifyApprovalComplete(
+  approval: ApprovalResponse,
+  requester: string
+) {
+  const statusText = approval.status === 'approved' ? 'Approved' : 'Rejected'
+
+  await sendNotification(
+    requester,
+    {
+      subject: `${statusText}: ${approval.action.title}`,
+      body: `
+Your request has been ${approval.status}.
+
+${approval.status === 'rejected' ? `Reason: ${approval.rejectionReason}` : ''}
+${approval.comment ? `Comment: ${approval.comment}` : ''}
+      `.trim(),
+      priority: 'normal',
+      data: { requestId: approval.id, status: approval.status }
+    }
+  )
+}
+```
+
+## Notification Templates
+
+Build reusable notification templates:
+
+```typescript
+type NotificationTemplate = {
+  email: { subject: string; body: string }
+  slack: { text: string }
+  sms: { message: string }
+  push: { title: string; body: string }
+}
+
+const templates: Record<string, (data: any) => NotificationTemplate> = {
+  approvalRequest: (data) => ({
+    email: {
+      subject: `Approval Required: ${data.title}`,
+      body: `Please review: ${data.description}\nAmount: ${data.amount}`
+    },
+    slack: {
+      text: `*Approval Required*: ${data.title}\n${data.description}`
+    },
+    sms: {
+      message: `Approval needed: ${data.title}. Log in to review.`
+    },
+    push: {
+      title: 'Approval Required',
+      body: data.title
+    }
+  }),
+
+  escalation: (data) => ({
+    email: {
+      subject: `Escalated: ${data.requestId}`,
+      body: `Request ${data.requestId} requires immediate attention.`
+    },
+    slack: {
+      text: `:warning: *Escalated*: Request ${data.requestId} needs attention`
+    },
+    sms: {
+      message: `URGENT: Request ${data.requestId} escalated. Review now.`
+    },
+    push: {
+      title: 'Escalation',
+      body: `Request ${data.requestId} escalated`
+    }
+  })
+}
+
+async function sendTemplatedNotification(
+  recipient: string,
+  templateName: string,
+  data: any,
+  channels: NotificationChannel[]
+) {
+  const template = templates[templateName](data)
+  const messages: Partial<Record<NotificationChannel, Record<string, unknown>>> = {}
+
+  for (const channel of channels) {
+    messages[channel] = template[channel]
+  }
+
+  return notifications.notifyMultiple(recipient, channels, messages)
+}
+```
+
+## Best Practices
+
+1. **Respect preferences**: Let users choose notification channels
+2. **Use fallbacks**: Configure fallback channels for critical notifications
+3. **Rate limit**: Avoid overwhelming users with too many notifications
+4. **Batch when possible**: Combine related notifications
+5. **Track delivery**: Monitor delivery rates and address failures
+6. **Test channels**: Verify all channels work in staging before production
+
+## Channel-Specific Tips
+
+### Email
+- Include action links
+- Use clear subject lines
+- Test with spam filters
+
+### Slack
+- Use blocks for rich formatting
+- Link to relevant resources
+- Respect channel etiquette
+
+### SMS
+- Keep messages short
+- Include essential info only
+- Avoid marketing tone
+
+### Push
+- Use concise titles
+- Include actionable data
+- Respect quiet hours
+
+## Next Steps
+
+- [Approval Workflows](/human/approvals) - Send approval notifications
+- [Escalation Policies](/human/escalation) - Alert on escalations
+- [Review Queues](/human/queues) - Notify reviewers of new items

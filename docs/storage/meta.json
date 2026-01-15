@@ -1,0 +1,11 @@
+{
+  "title": "Storage",
+  "pages": [
+    "index",
+    "in-memory",
+    "pipeline-wal",
+    "lazy-checkpoint",
+    "cold-tier",
+    "recovery"
+  ]
+}

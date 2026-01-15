@@ -12,6 +12,15 @@
  */
 
 // ============================================================================
+// CONSTANTS - Retry & Timeout Configuration
+// ============================================================================
+
+const DEFAULT_MAX_RETRIES = 3
+const DEFAULT_RPC_TIMEOUT_MS = 30000
+const MAX_BACKOFF_MS = 10000
+const EXPONENTIAL_BACKOFF_BASE = 2
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -54,6 +63,22 @@ interface EventLogEntry {
   data: unknown
   timestamp: Date
 }
+
+/**
+ * Error information from fire-and-forget event dispatch
+ * Includes context for debugging and monitoring failed handler executions
+ */
+export interface SendErrorInfo {
+  error: Error
+  eventType: string
+  eventId: string
+  timestamp: Date
+  data: unknown
+  handlerIndex?: number
+  retriedCount?: number
+}
+
+type ErrorCallback = (errorInfo: SendErrorInfo) => void
 
 export interface CascadeOptions {
   task: string
@@ -149,18 +174,31 @@ class WorkflowContextImpl {
   private oneTimeSchedules: Map<string, OneTimeScheduleEntry> = new Map()
   private actionLog: ActionLogEntry[] = []
   private eventLog: EventLogEntry[] = []
+  private errorLog: SendErrorInfo[] = []
+  private errorCallbacks: ErrorCallback[] = []
   private stubResolver?: (noun: string, id: string) => Record<string, Function>
   private rpcTimeout: number
 
   constructor(options?: CreateContextOptions) {
     this.stubResolver = options?.stubResolver
-    this.rpcTimeout = options?.rpcTimeout ?? 30000
+    this.rpcTimeout = options?.rpcTimeout ?? DEFAULT_RPC_TIMEOUT_MS
   }
 
   // ==========================================================================
   // EVENT HANDLERS ($.on)
   // ==========================================================================
 
+  /**
+   * Register event handlers with pattern matching
+   *
+   * Usage:
+   *   $.on.Customer.signup(handler)  // Exact match
+   *   $.on['*'].created(handler)     // Wildcard noun match
+   *   $.on.Customer['*'](handler)    // Wildcard verb match
+   *   $.on['*']['*'](handler)        // All events
+   *
+   * @returns unsubscribe function to remove the handler
+   */
   get on(): Record<string, Record<string, (handler: EventHandler) => () => void>> {
     return new Proxy(
       {},
@@ -243,6 +281,18 @@ class WorkflowContextImpl {
   // SCHEDULING DSL ($.every)
   // ==========================================================================
 
+  /**
+   * Schedule periodic and one-time task execution
+   *
+   * Usage:
+   *   $.every.Monday.at9am(handler)      // Weekly schedule with time shortcut
+   *   $.every.day.at('6:30pm')(handler)  // Daily at specific time
+   *   $.every.hour(handler)              // Hourly
+   *   $.every(5).minutes(handler)        // Every N units
+   *   $.at('2024-12-25T00:00:00Z')(h)    // One-time execution
+   *
+   * @returns schedule builder with day/time properties and interval functions
+   */
   get every(): ScheduleBuilder & ((n: number) => IntervalBuilder) {
     const self = this
 
@@ -264,11 +314,7 @@ class WorkflowContextImpl {
               return (time: string) => {
                 return (handler: Function): (() => void) => {
                   const { hour, minute } = parseTime(time)
-                  const cron = `${minute} ${hour} * * ${dow}`
-                  self.schedules.set(cron, { handler, cron })
-                  return () => {
-                    self.schedules.delete(cron)
-                  }
+                  return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
                 }
               }
             }
@@ -276,11 +322,7 @@ class WorkflowContextImpl {
             if (shortcuts[prop]) {
               return (handler: Function): (() => void) => {
                 const { hour, minute } = shortcuts[prop]
-                const cron = `${minute} ${hour} * * ${dow}`
-                self.schedules.set(cron, { handler, cron })
-                return () => {
-                  self.schedules.delete(cron)
-                }
+                return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
               }
             }
 
@@ -299,52 +341,31 @@ class WorkflowContextImpl {
       Saturday: createTimeBuilder('Saturday'),
       Sunday: createTimeBuilder('Sunday'),
       day: createTimeBuilder(null),
-      hour: (handler: Function): (() => void) => {
-        const cron = '0 * * * *'
-        self.schedules.set(cron, { handler, cron })
-        return () => {
-          self.schedules.delete(cron)
-        }
-      },
-      minute: (handler: Function): (() => void) => {
-        const cron = '* * * * *'
-        self.schedules.set(cron, { handler, cron })
-        return () => {
-          self.schedules.delete(cron)
-        }
-      },
+      hour: (handler: Function): (() => void) => self.registerSchedule('0 * * * *', handler),
+      minute: (handler: Function): (() => void) => self.registerSchedule('* * * * *', handler),
     }
 
     // Make it callable for $.every(n)
     const everyFn = (n: number): IntervalBuilder => {
       return {
-        minutes: (handler: Function): (() => void) => {
-          const cron = `*/${n} * * * *`
-          self.schedules.set(cron, { handler, cron })
-          return () => {
-            self.schedules.delete(cron)
-          }
-        },
-        hours: (handler: Function): (() => void) => {
-          const cron = `0 */${n} * * *`
-          self.schedules.set(cron, { handler, cron })
-          return () => {
-            self.schedules.delete(cron)
-          }
-        },
-        seconds: (handler: Function): (() => void) => {
-          // Sub-minute scheduling uses custom format
-          const key = `every:${n}s`
-          self.schedules.set(key, { handler, cron: key })
-          return () => {
-            self.schedules.delete(key)
-          }
-        },
+        minutes: (handler: Function): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
+        hours: (handler: Function): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
+        seconds: (handler: Function): (() => void) => self.registerSchedule(`every:${n}s`, handler),
       }
     }
 
     // Combine function with schedule builder properties
     return Object.assign(everyFn, scheduleBuilder) as ScheduleBuilder & ((n: number) => IntervalBuilder)
+  }
+
+  /**
+   * Helper to register a schedule and return unsubscribe function
+   */
+  private registerSchedule(cron: string, handler: Function): () => void {
+    this.schedules.set(cron, { handler, cron })
+    return () => {
+      this.schedules.delete(cron)
+    }
   }
 
   at(date: string | Date): (handler: Function) => () => void {
@@ -367,9 +388,66 @@ class WorkflowContextImpl {
   }
 
   // ==========================================================================
+  // ERROR HANDLING (for fire-and-forget)
+  // ==========================================================================
+
+  onError(callback: ErrorCallback): () => void {
+    this.errorCallbacks.push(callback)
+    return () => {
+      const idx = this.errorCallbacks.indexOf(callback)
+      if (idx >= 0) {
+        this.errorCallbacks.splice(idx, 1)
+      }
+    }
+  }
+
+  getErrorCount(): number {
+    return this.errorLog.length
+  }
+
+  getErrorLog(): SendErrorInfo[] {
+    return [...this.errorLog]
+  }
+
+  private handleSendError(error: Error, eventType: string, eventId: string, data: unknown): void {
+    const errorInfo: SendErrorInfo = {
+      error,
+      eventType,
+      eventId,
+      timestamp: new Date(),
+      data,
+    }
+
+    // Log the error
+    this.errorLog.push(errorInfo)
+
+    // Invoke all registered error callbacks
+    for (const callback of this.errorCallbacks) {
+      try {
+        callback(errorInfo)
+      } catch {
+        // Swallow callback errors to prevent cascade
+      }
+    }
+  }
+
+  // ==========================================================================
   // DURABLE EXECUTION ($.send, $.try, $.do)
   // ==========================================================================
 
+  /**
+   * Fire-and-forget event emission
+   *
+   * - Dispatches event to all matching handlers
+   * - Returns immediately with event ID (no waiting)
+   * - Handlers execute asynchronously
+   * - Errors in handlers are logged but don't propagate
+   * - Does not retry
+   *
+   * @param eventType - Event type (e.g., "Customer.signup")
+   * @param data - Event payload
+   * @returns event ID for tracking
+   */
   send(eventType: string, data: unknown): string {
     const eventId = generateEventId()
     const event: EventLogEntry = {
@@ -380,16 +458,47 @@ class WorkflowContextImpl {
     }
     this.eventLog.push(event)
 
-    // Fire-and-forget dispatch (don't await, swallow errors)
-    Promise.resolve().then(() => {
-      this.dispatch(eventType, data).catch(() => {
-        // Intentionally swallow errors in fire-and-forget
-      })
+    // Fire-and-forget dispatch with per-handler error capture (don't await, don't throw)
+    Promise.resolve().then(async () => {
+      const [subject, object] = eventType.split('.')
+      const eventData: Event = {
+        id: eventId,
+        type: eventType,
+        subject,
+        object,
+        data,
+        timestamp: new Date(),
+      }
+
+      const handlers = this.matchHandlers(eventType)
+
+      // Execute all handlers, capturing errors from each individually
+      for (const handler of handlers) {
+        try {
+          await handler(eventData)
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err))
+          this.handleSendError(error, eventType, eventId, data)
+        }
+      }
     })
 
     return eventId
   }
 
+  /**
+   * Single-attempt action execution
+   *
+   * - Executes action once
+   * - No retries on failure
+   * - Does not persist to action log
+   * - Useful for non-critical, fast operations
+   * - Supports optional timeout
+   *
+   * @param action - The function to execute
+   * @param options - { timeout?: milliseconds }
+   * @returns action result
+   */
   async try<T>(action: () => T | Promise<T>, options?: { timeout?: number }): Promise<T> {
     if (options?.timeout) {
       return Promise.race([
@@ -400,9 +509,18 @@ class WorkflowContextImpl {
     return action()
   }
 
+  /**
+   * Execute action with durable semantics
+   * - Retries with exponential backoff on failure
+   * - Replays from log on restart (idempotent by stepId)
+   * - Records all attempts and final result
+   *
+   * @param action - The function to execute
+   * @param options - { stepId, maxRetries }
+   */
   async do<T>(action: () => T | Promise<T>, options?: { stepId?: string; maxRetries?: number }): Promise<T> {
     const stepId = options?.stepId ?? generateEventId()
-    const maxRetries = options?.maxRetries ?? 3
+    const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES
 
     // Check for existing completed entry (replay semantics)
     const existingEntry = this.actionLog.find((e) => e.stepId === stepId && e.status === 'completed')
@@ -417,39 +535,58 @@ class WorkflowContextImpl {
       attempts++
       try {
         const result = await action()
-
-        // Record successful completion
-        const logEntry: ActionLogEntry = {
-          stepId,
-          status: 'completed',
-          result,
-        }
-
-        // Update or add entry
-        const existingIdx = this.actionLog.findIndex((e) => e.stepId === stepId)
-        if (existingIdx >= 0) {
-          this.actionLog[existingIdx] = logEntry
-        } else {
-          this.actionLog.push(logEntry)
-        }
-
+        this.recordActionSuccess(stepId, result)
         return result
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err))
 
         // If not last attempt, wait with exponential backoff
         if (attempts < maxRetries) {
-          const backoffMs = Math.min(1000 * Math.pow(2, attempts - 1), 10000)
+          const backoffMs = this.calculateBackoff(attempts)
           await new Promise((r) => setTimeout(r, backoffMs))
         }
       }
     }
 
-    // Record failure
+    // Record failure and throw
+    this.recordActionFailure(stepId, lastError!)
+    throw lastError
+  }
+
+  /**
+   * Calculate exponential backoff with maximum cap
+   */
+  private calculateBackoff(attemptNumber: number): number {
+    const baseBackoff = 1000 * Math.pow(EXPONENTIAL_BACKOFF_BASE, attemptNumber - 1)
+    return Math.min(baseBackoff, MAX_BACKOFF_MS)
+  }
+
+  /**
+   * Record successful action completion
+   */
+  private recordActionSuccess<T>(stepId: string, result: T): void {
+    const logEntry: ActionLogEntry = {
+      stepId,
+      status: 'completed',
+      result,
+    }
+
+    const existingIdx = this.actionLog.findIndex((e) => e.stepId === stepId)
+    if (existingIdx >= 0) {
+      this.actionLog[existingIdx] = logEntry
+    } else {
+      this.actionLog.push(logEntry)
+    }
+  }
+
+  /**
+   * Record action failure
+   */
+  private recordActionFailure(stepId: string, error: Error): void {
     const failureEntry: ActionLogEntry = {
       stepId,
       status: 'failed',
-      error: { message: lastError!.message },
+      error: { message: error.message },
     }
 
     const existingIdx = this.actionLog.findIndex((e) => e.stepId === stepId)
@@ -458,8 +595,6 @@ class WorkflowContextImpl {
     } else {
       this.actionLog.push(failureEntry)
     }
-
-    throw lastError
   }
 
   track(_event: string, _data: unknown): void {
@@ -616,6 +751,11 @@ export interface WorkflowContext {
   getActionLog(): ActionLogEntry[]
   getEventLog(): EventLogEntry[]
 
+  // Error handling (for fire-and-forget)
+  onError(callback: (errorInfo: SendErrorInfo) => void): () => void
+  getErrorCount(): number
+  getErrorLog(): SendErrorInfo[]
+
   // Cascade
   cascade(options: CascadeOptions): Promise<CascadeResult>
 
@@ -627,6 +767,15 @@ export interface WorkflowContext {
 // PIPELINED PROMISE FOR RPC
 // ============================================================================
 
+/**
+ * Create a pipelined promise that supports chained property/method access
+ *
+ * Enables patterns like:
+ *   await $.Customer(id).getProfile().email
+ *   await $.Order(id).getItems().map(item => item.name)
+ *
+ * The promise chains lazy evaluation while remaining awaitable.
+ */
 function createPipelinedPromise<T>(promise: Promise<T>): Promise<T> & Record<string, unknown> {
   const handler: ProxyHandler<Promise<T>> = {
     get(target, prop) {
@@ -686,6 +835,18 @@ function createPipelinedPromise<T>(promise: Promise<T>): Promise<T> & Record<str
 // DOMAIN PROXY FOR RPC
 // ============================================================================
 
+/**
+ * Create a proxy for cross-DO RPC method calls
+ *
+ * Enables patterns like:
+ *   $.Customer(id).notify()
+ *   $.Order(id).ship()
+ *   $.Invoice(id).calculate()
+ *
+ * - Method calls are wrapped with RPC timeout
+ * - Results are pipelined promises (support chaining)
+ * - Errors propagate to caller
+ */
 function createDomainProxy(
   noun: string,
   id: string,
@@ -738,6 +899,10 @@ export function createWorkflowContext(options?: CreateContextOptions): WorkflowC
     getActionLog: impl.getActionLog.bind(impl),
     getEventLog: impl.getEventLog.bind(impl),
     cascade: impl.cascade.bind(impl),
+    // Error handling methods
+    onError: impl.onError.bind(impl),
+    getErrorCount: impl.getErrorCount.bind(impl),
+    getErrorLog: impl.getErrorLog.bind(impl),
   }
 
   // Create a proxy that handles both known methods and dynamic Noun(id) accessors
