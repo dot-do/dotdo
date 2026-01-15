@@ -1,7 +1,7 @@
 /**
  * Unified Event Schema Types
  *
- * A comprehensive 162-column event schema organized into 23 semantic groups.
+ * A comprehensive 165-column event schema organized into 23 semantic groups.
  * Designed for unified observability across traces, metrics, logs, CDC,
  * analytics, and browser instrumentation data.
  *
@@ -58,7 +58,7 @@ export interface CoreIdentity {
 }
 
 // ============================================================================
-// Semantic Group 2: CausalityChain (8 fields)
+// Semantic Group 2: CausalityChain (11 fields)
 // ============================================================================
 
 /**
@@ -647,11 +647,11 @@ export interface PartitionInternal {
 
 /**
  * The complete unified event type combining all 23 semantic groups.
- * Total: 162 columns
+ * Total: 165 columns
  *
  * Column count breakdown:
  * - CoreIdentity: 4
- * - CausalityChain: 8
+ * - CausalityChain: 11
  * - Actor: 4
  * - Resource: 5
  * - Timing: 6
@@ -772,6 +772,114 @@ export function isTailEvent(e: UnifiedEvent): e is UnifiedEvent & { event_type: 
 export function isSnippetEvent(e: UnifiedEvent): e is UnifiedEvent & { event_type: 'snippet' } {
   return e.event_type === 'snippet'
 }
+
+// ============================================================================
+// Discriminated Union Types
+// ============================================================================
+
+/**
+ * Specialized event types with required fields per event type.
+ * These provide stronger typing than the base UnifiedEvent for
+ * type-specific fields.
+ */
+
+/** Trace event with required tracing fields */
+export type TraceEvent = UnifiedEvent & {
+  event_type: 'trace'
+  trace_id: string
+  span_id: string
+}
+
+/** Metric event with required metric fields */
+export type MetricEvent = UnifiedEvent & {
+  event_type: 'metric'
+  metric_name: string
+}
+
+/** Log event with required logging fields */
+export type LogEvent = UnifiedEvent & {
+  event_type: 'log'
+  log_level: string
+}
+
+/** CDC event with required database change fields */
+export type CdcEvent = UnifiedEvent & {
+  event_type: 'cdc'
+  db_operation: string
+  db_table: string
+}
+
+/** Track event for user action tracking (Segment-style) */
+export type TrackEvent = UnifiedEvent & {
+  event_type: 'track'
+  actor_id: string | null
+  anonymous_id: string | null
+}
+
+/** Page event for page view tracking */
+export type PageEvent = UnifiedEvent & {
+  event_type: 'page'
+  http_url: string
+}
+
+/** Vital event for Web Vitals performance metrics */
+export type VitalEvent = UnifiedEvent & {
+  event_type: 'vital'
+  vital_name: string
+  vital_value: number
+}
+
+/** Replay event for session replay data */
+export type ReplayEvent = UnifiedEvent & {
+  event_type: 'replay'
+  session_id: string
+  replay_type: string
+}
+
+/** Tail event for Workers tail/real-time logs */
+export type TailEvent = UnifiedEvent & {
+  event_type: 'tail'
+  service_name: string
+}
+
+/** Snippet event for browser snippet proxy timing */
+export type SnippetEvent = UnifiedEvent & {
+  event_type: 'snippet'
+  snippet_request_id: string
+}
+
+/**
+ * Master discriminated union of all specialized event types.
+ * Use this when you need to narrow down to specific event type handling.
+ *
+ * @example
+ * ```typescript
+ * function handleEvent(event: DiscriminatedUnifiedEvent) {
+ *   switch (event.event_type) {
+ *     case 'trace':
+ *       // event.trace_id is now guaranteed to be string
+ *       console.log(`Trace: ${event.trace_id}`)
+ *       break
+ *     case 'metric':
+ *       // event.metric_name is now guaranteed to be string
+ *       console.log(`Metric: ${event.metric_name}`)
+ *       break
+ *     // ... handle other types
+ *   }
+ * }
+ * ```
+ */
+export type DiscriminatedUnifiedEvent =
+  | TraceEvent
+  | MetricEvent
+  | LogEvent
+  | CdcEvent
+  | TrackEvent
+  | PageEvent
+  | VitalEvent
+  | ReplayEvent
+  | TailEvent
+  | SnippetEvent
 
 // ============================================================================
 // Factory Function
@@ -1057,7 +1165,7 @@ export interface ColumnDefinition {
 
 /**
  * Complete column definitions for the unified event schema.
- * All 162 columns with their types and nullability.
+ * All 165 columns with their types and nullability.
  */
 export const UNIFIED_COLUMNS: readonly ColumnDefinition[] = [
   // CoreIdentity (4)

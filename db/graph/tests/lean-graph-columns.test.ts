@@ -1,12 +1,25 @@
 /**
  * Lean Graph Columns Tests - depth, is_leaf, is_root
  *
- * TDD RED Phase: Tests for computed graph hierarchy columns.
+ * TDD GREEN Phase: Tests for computed graph hierarchy columns.
  *
  * These columns provide efficient queries for hierarchical data:
  * - depth: How many levels deep in the hierarchy (0 for root nodes)
  * - is_leaf: Boolean, true if node has no children (no outgoing edges of this type)
  * - is_root: Boolean, true if node has no parent (no incoming edges of this type)
+ *
+ * Test Structure:
+ * - Section 1, 5, 6: Active tests using LeanGraphColumns class (11 tests - GREEN)
+ * - Sections 2, 3, 4, 7: SQL reference implementations (16 tests - SKIPPED)
+ *
+ * The skipped tests are SQL REFERENCE IMPLEMENTATIONS that demonstrate the raw
+ * SQL patterns for hierarchy queries. They require better-sqlite3 which is not
+ * available in the Workers/Miniflare environment. The same functionality is
+ * tested via the LeanGraphColumns class in Section 6, which uses the
+ * RelationshipsStore (in-memory Map implementation for tests).
+ *
+ * To run reference implementations locally (requires better-sqlite3):
+ *   Change describe.skip → describe for sections 2, 3, 4, 7
  *
  * Uses real SQLite, NO MOCKS - per project testing philosophy.
  */

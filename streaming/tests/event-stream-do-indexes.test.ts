@@ -6,6 +6,11 @@
  * - Partial indexes: Only index relevant subsets (errors, logs)
  */
 import { describe, it, expect } from 'vitest'
+
+// Install WebSocket mock for test environment
+import { installWebSocketMock } from './utils/websocket-mock'
+installWebSocketMock()
+
 import { HOT_TIER_SCHEMA } from '../event-stream-do'
 
 describe('Hot Tier Enhanced Indexes', () => {

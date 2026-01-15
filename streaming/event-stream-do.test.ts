@@ -16,6 +16,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// Install WebSocket mock for test environment (must be before imports that use WebSocketPair)
+import { installWebSocketMock } from './tests/utils/websocket-mock'
+installWebSocketMock()
+
 // Import from non-existent module - this will cause tests to fail
 import {
   EventStreamDO,

@@ -38,6 +38,49 @@
  */
 
 /**
+ * Storage interface for persisting event counts across restarts.
+ *
+ * Implement this interface to persist hot tenant detection state.
+ * Without persistence, event counts reset on restart and tenants
+ * must re-accumulate events to exceed the threshold.
+ *
+ * @example
+ * ```typescript
+ * // Durable Object storage implementation
+ * class DOShardRouterStorage implements ShardRouterStorage {
+ *   constructor(private storage: DurableObjectStorage) {}
+ *
+ *   async getEventCounts(): Promise<Map<string, number>> {
+ *     const counts = await this.storage.get<Record<string, number>>('event-counts')
+ *     return new Map(Object.entries(counts ?? {}))
+ *   }
+ *
+ *   async setEventCount(ns: string, count: number): Promise<void> {
+ *     const counts = await this.storage.get<Record<string, number>>('event-counts') ?? {}
+ *     counts[ns] = count
+ *     await this.storage.put('event-counts', counts)
+ *   }
+ * }
+ * ```
+ */
+export interface ShardRouterStorage {
+  /**
+   * Load all persisted event counts.
+   * Called on router initialization to restore state.
+   */
+  getEventCounts(): Promise<Map<string, number>>
+
+  /**
+   * Persist an event count for a namespace.
+   * Called periodically or when count crosses threshold.
+   *
+   * @param ns - Namespace (tenant identifier)
+   * @param count - Current event count
+   */
+  setEventCount(ns: string, count: number): Promise<void>
+}
+
+/**
  * Configuration for the shard router.
  */
 export interface ShardConfig {
@@ -99,7 +142,7 @@ export function traceToShard(traceId: string, shardCount: number): number {
     }
     return Math.abs(hash) % shardCount
   }
-  return parsed % shardCount
+  return Math.abs(parsed) % shardCount
 }
 
 /**
@@ -128,14 +171,68 @@ export function traceToShard(traceId: string, shardCount: number): number {
 export class TraceAwareShardRouter {
   private config: ShardConfig
   private eventCounts: Map<string, number> = new Map()
+  private storage?: ShardRouterStorage
+  private initialized = false
+  private initPromise?: Promise<void>
 
   /**
    * Create a new shard router.
    *
    * @param config - Partial configuration (defaults applied)
+   * @param storage - Optional storage for persisting event counts
+   *
+   * @example
+   * ```typescript
+   * // Without persistence (counts reset on restart)
+   * const router = new TraceAwareShardRouter({ shardCount: 16 })
+   *
+   * // With persistence (counts survive restarts)
+   * const storage = new DOShardRouterStorage(state.storage)
+   * const router = new TraceAwareShardRouter({ shardCount: 16 }, storage)
+   * await router.initialize() // Load persisted counts
+   * ```
    */
-  constructor(config?: Partial<ShardConfig>) {
+  constructor(config?: Partial<ShardConfig>, storage?: ShardRouterStorage) {
     this.config = { ...DEFAULT_CONFIG, ...config }
+    this.storage = storage
+  }
+
+  /**
+   * Initialize the router by loading persisted event counts.
+   *
+   * Call this before using the router if storage is provided.
+   * Safe to call multiple times (idempotent).
+   *
+   * @example
+   * ```typescript
+   * const router = new TraceAwareShardRouter(config, storage)
+   * await router.initialize()
+   * // Router now has persisted event counts loaded
+   * ```
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return
+    if (this.initPromise) return this.initPromise
+
+    this.initPromise = this._doInitialize()
+    await this.initPromise
+  }
+
+  private async _doInitialize(): Promise<void> {
+    if (!this.storage) {
+      this.initialized = true
+      return
+    }
+
+    try {
+      const counts = await this.storage.getEventCounts()
+      this.eventCounts = counts
+      this.initialized = true
+    } catch (error) {
+      // Log but don't fail - start fresh if storage fails
+      console.warn('[ShardRouter] Failed to load persisted event counts:', error)
+      this.initialized = true
+    }
   }
 
   /**
@@ -216,6 +313,8 @@ export class TraceAwareShardRouter {
    * Call this when ingesting events to track tenant volume.
    * When count exceeds highVolumeThreshold, tenant is marked high-volume.
    *
+   * If storage is provided, persists the count when crossing the threshold.
+   *
    * @param ns - Namespace (tenant identifier)
    *
    * @example
@@ -226,7 +325,17 @@ export class TraceAwareShardRouter {
    * ```
    */
   recordEvent(ns: string): void {
-    this.eventCounts.set(ns, (this.eventCounts.get(ns) ?? 0) + 1)
+    const previousCount = this.eventCounts.get(ns) ?? 0
+    const newCount = previousCount + 1
+    this.eventCounts.set(ns, newCount)
+
+    // Persist when crossing the threshold (tenant becomes high-volume)
+    if (this.storage && previousCount < this.config.highVolumeThreshold && newCount >= this.config.highVolumeThreshold) {
+      // Fire-and-forget persistence - don't block event ingestion
+      this.storage.setEventCount(ns, newCount).catch((error) => {
+        console.warn(`[ShardRouter] Failed to persist event count for ${ns}:`, error)
+      })
+    }
   }
 
   /**
@@ -237,5 +346,63 @@ export class TraceAwareShardRouter {
    */
   getEventCount(ns: string): number {
     return this.eventCounts.get(ns) ?? 0
+  }
+
+  /**
+   * Manually persist current event counts.
+   *
+   * Useful for periodic persistence or before shutdown.
+   * Does nothing if no storage is configured.
+   *
+   * @param namespaces - Optional list of namespaces to persist. If not provided, persists all.
+   *
+   * @example
+   * ```typescript
+   * // Persist all counts periodically
+   * await router.persistEventCounts()
+   *
+   * // Persist specific namespaces
+   * await router.persistEventCounts(['tenant-a', 'tenant-b'])
+   * ```
+   */
+  async persistEventCounts(namespaces?: string[]): Promise<void> {
+    if (!this.storage) return
+
+    const nsToPersist = namespaces ?? Array.from(this.eventCounts.keys())
+
+    await Promise.all(
+      nsToPersist.map(async (ns) => {
+        const count = this.eventCounts.get(ns)
+        if (count !== undefined && count > 0) {
+          try {
+            await this.storage!.setEventCount(ns, count)
+          } catch (error) {
+            console.warn(`[ShardRouter] Failed to persist event count for ${ns}:`, error)
+          }
+        }
+      })
+    )
+  }
+
+  /**
+   * Get all namespaces that have recorded events.
+   *
+   * @returns Array of namespace identifiers
+   */
+  getTrackedNamespaces(): string[] {
+    return Array.from(this.eventCounts.keys())
+  }
+
+  /**
+   * Clear event counts for testing or reset.
+   *
+   * @param ns - Optional namespace to clear. If not provided, clears all.
+   */
+  clearEventCounts(ns?: string): void {
+    if (ns) {
+      this.eventCounts.delete(ns)
+    } else {
+      this.eventCounts.clear()
+    }
   }
 }

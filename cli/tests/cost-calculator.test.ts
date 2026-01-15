@@ -467,6 +467,81 @@ describe('Region Support', () => {
 // CLI Argument Tests
 // ============================================================================
 
+// ============================================================================
+// CLI Input Validation Tests (do-oa7e)
+// ============================================================================
+
+describe('CLI input validation', () => {
+  it('rejects NaN for --events', async () => {
+    const { validateCostInputs } = await import('../commands/cost')
+
+    // Test with 'abc' as events value - should show error and exit
+    expect(() => validateCostInputs({ events: 'abc', size: '500', queries: '1000', retention: '30' }))
+      .toThrow(/invalid.*events/i)
+  })
+
+  it('rejects negative values for --events', async () => {
+    const { validateCostInputs } = await import('../commands/cost')
+
+    // Test with '-100' as events value
+    expect(() => validateCostInputs({ events: '-100', size: '500', queries: '1000', retention: '30' }))
+      .toThrow(/events.*must be positive|invalid.*events/i)
+  })
+
+  it('rejects zero for --retention', async () => {
+    const { validateCostInputs } = await import('../commands/cost')
+
+    // Retention must be positive
+    expect(() => validateCostInputs({ events: '1000000', size: '500', queries: '1000', retention: '0' }))
+      .toThrow(/retention.*must be positive|invalid.*retention/i)
+  })
+
+  it('rejects retention over 365 days', async () => {
+    const { validateCostInputs } = await import('../commands/cost')
+
+    // Reasonable upper bound
+    expect(() => validateCostInputs({ events: '1000000', size: '500', queries: '1000', retention: '400' }))
+      .toThrow(/retention.*exceed|retention.*365|invalid.*retention/i)
+  })
+})
+
+// ============================================================================
+// Pipeline Count Configuration Tests (do-3o4k)
+// ============================================================================
+
+describe('pipeline count configuration', () => {
+  const baseInputs: CostInputs = {
+    eventsPerDay: 1_000_000,
+    avgEventSizeBytes: 500,
+    queriesPerDay: 1000,
+    retentionDays: 30,
+  }
+
+  it('uses default pipeline count of 4 for multi mode', () => {
+    const single = calculateCost(baseInputs, 'single')
+    const multi = calculateCost(baseInputs, 'multi')
+
+    // Verify calculation uses 4 pipelines by checking the ratio
+    // Multi should be exactly 4x the pipeline ops cost of single
+    expect(multi.pipelineOps / single.pipelineOps).toBeCloseTo(4, 1)
+  })
+
+  it('accepts custom pipeline count via option', async () => {
+    const { calculateCostWithOptions } = await import('../commands/cost')
+
+    // Test with --pipelines 8
+    const result = calculateCostWithOptions(baseInputs, 'multi', { pipelineCount: 8 })
+    const singleResult = calculateCostWithOptions(baseInputs, 'single', { pipelineCount: 1 })
+
+    // With 8 pipelines, the ratio should be 8x
+    expect(result.pipelineOps / singleResult.pipelineOps).toBeCloseTo(8, 1)
+  })
+})
+
+// ============================================================================
+// CLI Arguments Tests
+// ============================================================================
+
 describe('CLI Arguments', () => {
   // These tests verify the CLI accepts the expected arguments
   // The actual command execution is tested via integration tests

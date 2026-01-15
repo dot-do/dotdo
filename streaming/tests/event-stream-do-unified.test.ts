@@ -659,4 +659,46 @@ describe('EventStreamDO Unified Event Integration', () => {
       expect(data.nested.a).toBe(1)
     })
   })
+
+  // ============================================================================
+  // Event Storage Edge Cases (do-gd2x)
+  // ============================================================================
+
+  describe('event storage edge cases', () => {
+    it('handles event with missing id field', async () => {
+      // Event with no id field - should throw descriptive error, not crash on undefined
+      const event = { event_type: 'test', event_name: 'test', ns: 'test' } as Partial<UnifiedEvent>
+
+      // Should throw a descriptive error about missing id, not crash
+      await expect(eventStream.broadcastUnifiedEvent(event as any))
+        .rejects.toThrow(/id.*required|missing.*id/i)
+    })
+
+    it('handles event with null id field', async () => {
+      // Event with null id field - should throw or handle gracefully
+      const event = { id: null, event_type: 'test', event_name: 'test', ns: 'test' } as unknown as Partial<UnifiedEvent>
+
+      // Should throw a descriptive error about invalid id, not crash
+      await expect(eventStream.broadcastUnifiedEvent(event as any))
+        .rejects.toThrow(/id.*required|invalid.*id|null.*id/i)
+    })
+
+    it('handles event with undefined id field', async () => {
+      // Event with explicit undefined id - should throw or handle gracefully
+      const event = { id: undefined, event_type: 'test', event_name: 'test', ns: 'test' } as Partial<UnifiedEvent>
+
+      // Should throw a descriptive error about invalid id, not crash
+      await expect(eventStream.broadcastUnifiedEvent(event as any))
+        .rejects.toThrow(/id.*required|invalid.*id/i)
+    })
+
+    it('handles event with empty string id field', async () => {
+      // Event with empty string id - should throw or handle gracefully
+      const event = { id: '', event_type: 'test', event_name: 'test', ns: 'test' } as Partial<UnifiedEvent>
+
+      // Should throw a descriptive error about empty id, not crash
+      await expect(eventStream.broadcastUnifiedEvent(event as any))
+        .rejects.toThrow(/id.*required|invalid.*id|empty.*id/i)
+    })
+  })
 })

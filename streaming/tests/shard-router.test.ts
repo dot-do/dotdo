@@ -81,6 +81,158 @@ describe('traceToShard', () => {
     expect(shard).toBeGreaterThanOrEqual(0)
     expect(shard).toBeLessThan(16)
   })
+
+  describe('edge cases', () => {
+    /**
+     * BUG DESCRIPTION - Negative Shard from Negative parseInt:
+     *
+     * The traceToShard function uses parseInt(prefix, 16) to convert the first
+     * 4 characters of a trace ID to a number. If the trace ID starts with a
+     * hyphen (e.g., "-abc"), parseInt returns a NEGATIVE number:
+     *
+     *   parseInt("-abc", 16) === -2748
+     *   -2748 % 16 === -12   (NEGATIVE shard index!)
+     *
+     * This violates the function's contract: shard must be in [0, shardCount).
+     *
+     * The hash fallback path (for non-hex characters) is protected by Math.abs(),
+     * but the hex parsing path has no such protection and can return negative shards.
+     */
+
+    it('demonstrates JavaScript negative modulo behavior', () => {
+      // JavaScript modulo operator can return negative values
+      // when the dividend is negative
+      expect(-2748 % 16).toBe(-12) // Negative!
+      expect(-100 % 7).toBe(-2) // Negative!
+      expect(-1 % 10).toBe(-1) // Negative!
+
+      // parseInt with hex can return negative numbers
+      expect(parseInt('-abc', 16)).toBe(-2748)
+      expect(parseInt('-fff', 16)).toBe(-4095)
+      expect(parseInt('-1', 16)).toBe(-1)
+    })
+
+    it('traceToShard returns negative shard for trace ID starting with hyphen', () => {
+      // BUG: Trace IDs starting with hyphen produce negative shards!
+      // parseInt('-abc', 16) === -2748
+      // -2748 % 16 === -12
+
+      const traceId = '-abc123def456' // Starts with hyphen
+      const shardCount = 16
+
+      const shard = traceToShard(traceId, shardCount)
+
+      // BUG: This FAILS because shard is -12
+      // The contract requires shard to be in [0, shardCount)
+      expect(shard).toBeGreaterThanOrEqual(0)
+      expect(shard).toBeLessThan(shardCount)
+    })
+
+    it('traceToShard must return non-negative shard for all hyphenated trace IDs', () => {
+      // Test various hyphen-prefixed trace IDs
+      const shardCount = 10
+
+      const hyphenatedTraceIds = [
+        '-abc',
+        '-1234',
+        '-ffff',
+        '-a',
+        '-0',
+        '-deadbeef',
+      ]
+
+      for (const traceId of hyphenatedTraceIds) {
+        const shard = traceToShard(traceId, shardCount)
+
+        // BUG: These will produce negative shards
+        expect(shard).toBeGreaterThanOrEqual(0)
+        expect(shard).toBeLessThan(shardCount)
+      }
+    })
+
+    it('traceToShard must return valid shard for edge case prefixes', () => {
+      // Test prefixes that might parse to unexpected values
+      const shardCount = 10
+
+      const edgeCaseTraceIds = [
+        '-fff0000', // Negative hex
+        '+abc1234', // Plus sign (parses as NaN, triggers hash)
+        ' abc1234', // Leading space
+        '\tabc123', // Leading tab
+        '-0000000', // Negative zero
+        '-1111111', // Negative small hex
+      ]
+
+      for (const traceId of edgeCaseTraceIds) {
+        const shard = traceToShard(traceId, shardCount)
+
+        // All shards must be valid
+        expect(shard).toBeGreaterThanOrEqual(0)
+        expect(shard).toBeLessThan(shardCount)
+      }
+    })
+
+    it('directly verifies the bug: parseInt with hyphen prefix produces negative modulo', () => {
+      // This test directly demonstrates the bug in the implementation logic
+      const traceId = '-abc'
+      const shardCount = 16
+
+      // Simulate what traceToShard does on the hex path:
+      const prefix = traceId.slice(0, 4).padEnd(4, '0')
+      expect(prefix).toBe('-abc')
+
+      const parsed = parseInt(prefix, 16)
+      expect(parsed).toBe(-2748) // Negative!
+      expect(Number.isNaN(parsed)).toBe(false) // Does NOT trigger hash fallback
+
+      // The buggy return: parsed % shardCount with no abs()
+      const buggyResult = parsed % shardCount
+      expect(buggyResult).toBe(-12) // NEGATIVE SHARD!
+
+      // Verify traceToShard is fixed and returns non-negative
+      const actualResult = traceToShard(traceId, shardCount)
+      expect(actualResult).toBe(12) // Fixed: returns absolute value (positive shard)
+    })
+
+    it('handles hash that would produce MIN_INT (-2147483648)', () => {
+      // Modern JavaScript uses 64-bit floats, so Math.abs(-2147483648) works correctly.
+      // This test documents that the hash fallback path is safe because it uses Math.abs().
+      const shardCount = 10
+
+      // Non-hex prefixes trigger the hash fallback which has Math.abs protection
+      // The hex path (which is the actual bug) doesn't have this protection
+      for (let i = 0; i < 10000; i++) {
+        // Use 'G' prefix to ensure hash fallback (G is not a valid hex char)
+        const traceId = `G${i}`
+        const shard = traceToShard(traceId, shardCount)
+        expect(shard).toBeGreaterThanOrEqual(0)
+        expect(shard).toBeLessThan(shardCount)
+      }
+    })
+
+    it('exhaustively tests valid hex prefixes work correctly', () => {
+      // Ensure valid hex prefixes still work
+      const shardCount = 16
+
+      const validHexPrefixes = [
+        '0000',
+        'ffff',
+        'abcd',
+        '1234',
+        'dead',
+        'beef',
+        'cafe',
+        'f00d',
+      ]
+
+      for (const prefix of validHexPrefixes) {
+        const traceId = prefix + 'suffix'
+        const shard = traceToShard(traceId, shardCount)
+        expect(shard).toBeGreaterThanOrEqual(0)
+        expect(shard).toBeLessThan(shardCount)
+      }
+    })
+  })
 })
 
 // ============================================================================

@@ -87,19 +87,29 @@ export interface SegmentContext {
 }
 
 /**
- * Extracted context fields for unified event schema
+ * Extracted context fields for unified event schema.
+ *
+ * Note: The `page_*` fields are Segment-specific and map to UnifiedEvent fields:
+ * - page_url -> http_url
+ * - page_path -> http_path
+ * - page_referrer -> http_referrer
+ * - page_title -> WebMarketing.page_title
+ * - page_search -> WebMarketing.page_search
  */
 export interface ExtractedSegmentContext {
-  // HTTP Context
+  // HTTP Context (maps directly to UnifiedEvent.HttpContext)
   http_url: string | null
   http_path: string | null
   http_referrer: string | null
   http_user_agent: string | null
   http_query: string | null
 
-  // Page/Marketing
+  // Page/Marketing (Segment-specific, maps to http_* and page_* in UnifiedEvent)
+  /** @deprecated Use http_url for UnifiedEvent mapping */
   page_url: string | null
+  /** @deprecated Use http_path for UnifiedEvent mapping */
   page_path: string | null
+  /** @deprecated Use http_referrer for UnifiedEvent mapping */
   page_referrer: string | null
   page_title: string | null
   page_search: string | null

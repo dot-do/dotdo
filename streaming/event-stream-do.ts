@@ -30,192 +30,14 @@
  * ```
  */
 
-// Polyfill WebSocketPair for test environment
+// WebSocketPair type declaration for Cloudflare Workers runtime
 declare global {
   var WebSocketPair: new () => { 0: WebSocket; 1: WebSocket }
 }
 
-if (typeof WebSocketPair === 'undefined') {
-  // Mock WebSocketPair for testing - includes test utilities matching createMockWebSocket
-  ;(globalThis as any).WebSocketPair = class MockWebSocketPair {
-    0: any
-    1: any
-
-    constructor() {
-      // Shared messages array - when server sends, client receives
-      const clientMessages: Array<{ data: string; timestamp: number }> = []
-      const serverMessages: Array<{ data: string; timestamp: number }> = []
-
-      const createMockSocket = (
-        isServer: boolean,
-        otherSocket: () => any,
-        myMessages: Array<{ data: string; timestamp: number }>,
-        otherMessages: Array<{ data: string; timestamp: number }>
-      ) => {
-        const handlers: Map<string, Set<(data: any) => void>> = new Map()
-        let isOpen = true
-        let closeCode: number | undefined
-        let closeReason: string | undefined
-
-        const socket: any = {
-          // Core WebSocket methods - send to OTHER socket's messages
-          send: function (data: string) {
-            if (!isOpen) throw new Error('WebSocket is closed')
-            // When sending, the OTHER socket receives it in their messages
-            otherMessages.push({ data, timestamp: Date.now() })
-            // Also trigger message handlers on other side
-            const other = otherSocket()
-            if (other) {
-              other._handlers?.get('message')?.forEach((h: Function) => h({ data }))
-            }
-            // Track this send in the OTHER socket's mock.calls for test assertions
-            // This allows tests to check ws.send.mock.calls even though server sends
-            if (other && other.send && other.send.mock && other.send.mock.calls) {
-              other.send.mock.calls.push([data])
-            }
-            // If the OTHER socket has a custom send implementation, call it too
-            // This allows tests to mock client.send and track server sends
-            if (other && other._customSendImpl) {
-              other._customSendImpl(data)
-            }
-          },
-          close: null as any, // Will be set below as a mock
-          _closeImpl: function (code?: number, reason?: string) {
-            isOpen = false
-            closeCode = code
-            closeReason = reason
-            handlers.get('close')?.forEach((h) => h({ code, reason }))
-            // Track this close in the OTHER socket's mock.calls for test assertions
-            const other = otherSocket()
-            if (other && other.close && other.close.mock && other.close.mock.calls) {
-              other.close.mock.calls.push([code, reason])
-            }
-          },
-          addEventListener: function (event: string, handler: (data: any) => void) {
-            if (!handlers.has(event)) handlers.set(event, new Set())
-            handlers.get(event)!.add(handler)
-          },
-          removeEventListener: function (event: string, handler: (data: any) => void) {
-            handlers.get(event)?.delete(handler)
-          },
-
-          // Test utilities - matching createMockWebSocket from tests
-          // Messages received BY this socket (sent from other socket)
-          get messages() {
-            return myMessages
-          },
-          get isOpen() {
-            return isOpen
-          },
-          get closeCode() {
-            return closeCode
-          },
-          get closeReason() {
-            return closeReason
-          },
-          simulateMessage: function (data: string) {
-            // Client simulates sending a message TO the server
-            // This triggers server's message handlers
-            const other = otherSocket()
-            if (other) {
-              other._handlers?.get('message')?.forEach((h: Function) => h({ data }))
-            }
-          },
-          simulateError: function (error: Error) {
-            // Simulate error on both sockets
-            handlers.get('error')?.forEach((h) => h(error))
-            const other = otherSocket()
-            if (other) {
-              other._handlers?.get('error')?.forEach((h: Function) => h(error))
-            }
-          },
-          simulateClose: function (code: number, reason: string) {
-            isOpen = false
-            closeCode = code
-            closeReason = reason
-            handlers.get('close')?.forEach((h) => h({ code, reason }))
-            // Also trigger on the other socket
-            const other = otherSocket()
-            if (other) {
-              other._handlers?.get('close')?.forEach((h: Function) => h({ code, reason }))
-            }
-          },
-
-          // For internal access to handlers
-          _handlers: handlers,
-        }
-
-        // Create a wrapper for send that acts like a vi.fn() mock
-        const mockCalls: any[][] = []
-        const originalSend = socket.send.bind(socket)
-
-        const sendMock: any = function (...args: any[]) {
-          mockCalls.push(args)
-          return originalSend(...args)
-        }
-
-        sendMock.mock = { calls: mockCalls, results: [], instances: [], invocationCallOrder: [] }
-        // Make vitest recognize this as a mock function
-        sendMock._isMockFunction = true
-        sendMock.getMockName = () => 'sendMock'
-        sendMock.mockName = sendMock.getMockName
-        sendMock.mockClear = function () {
-          mockCalls.length = 0
-          // Clear messages this socket has RECEIVED (from the other socket)
-          myMessages.length = 0
-        }
-        sendMock.mockImplementation = function (fn: Function) {
-          // Store custom implementation so the OTHER socket can call it
-          socket._customSendImpl = fn
-          const wrapperFn: any = function (...args: any[]) {
-            mockCalls.push(args)
-            // Still add to other's messages for compatibility
-            try {
-              otherMessages.push({ data: args[0], timestamp: Date.now() })
-            } catch {}
-            return fn(...args)
-          }
-          wrapperFn.mock = { calls: mockCalls }
-          wrapperFn.mockClear = sendMock.mockClear
-          wrapperFn.mockImplementation = sendMock.mockImplementation
-          socket.send = wrapperFn
-          return wrapperFn
-        }
-
-        socket.send = sendMock
-        socket._customSendImpl = null // Will be set by mockImplementation
-
-        // Create close mock similar to send mock
-        const closeMockCalls: any[][] = []
-        const closeMock: any = function (...args: any[]) {
-          closeMockCalls.push(args)
-          return socket._closeImpl(...args)
-        }
-        closeMock.mock = { calls: closeMockCalls, results: [], instances: [], invocationCallOrder: [] }
-        closeMock._isMockFunction = true
-        closeMock.getMockName = () => 'closeMock'
-        closeMock.mockName = closeMock.getMockName
-        closeMock.mockClear = function () {
-          closeMockCalls.length = 0
-        }
-        socket.close = closeMock
-
-        return socket
-      }
-
-      // Create sockets with cross-references
-      // socket0 = client, socket1 = server
-      // When server (socket1) sends, client (socket0) receives in clientMessages
-      // When client (socket0) sends, server (socket1) receives in serverMessages
-      let socket0: any, socket1: any
-      socket0 = createMockSocket(false, () => socket1, clientMessages, serverMessages)
-      socket1 = createMockSocket(true, () => socket0, serverMessages, clientMessages)
-
-      this[0] = socket0
-      this[1] = socket1
-    }
-  }
-}
+// Feature detection: WebSocketPair is provided by Cloudflare Workers runtime.
+// For testing, use installWebSocketMock() from streaming/tests/utils/websocket-mock.ts
+// in your test setup file.
 
 // DurableObject base class - may not be available in test environment
 let DurableObject: any
@@ -471,6 +293,8 @@ interface CoalescedMessage {
   events: BroadcastEvent[]
   topic: string
   scheduledAt: number
+  /** Last activity timestamp for stale buffer detection */
+  lastActivity: number
 }
 
 /**
@@ -669,11 +493,26 @@ function toStoredUnifiedEvent(event: BroadcastEvent | Partial<UnifiedEvent>): St
 
   // Handle UnifiedEvent format
   const unified = event as Partial<UnifiedEvent>
+
+  // Validate required fields to avoid unsafe non-null assertions
+  if (!unified.id || typeof unified.id !== 'string') {
+    throw new Error('id field is required and must be a string')
+  }
+  if (!unified.event_type) {
+    throw new Error('event_type field is required')
+  }
+  if (!unified.event_name) {
+    throw new Error('event_name field is required')
+  }
+  if (!unified.ns) {
+    throw new Error('ns field is required')
+  }
+
   return {
-    id: unified.id!,
-    event_type: unified.event_type || 'trace',
-    event_name: unified.event_name || 'unknown',
-    ns: unified.ns || 'default',
+    id: unified.id,
+    event_type: unified.event_type,
+    event_name: unified.event_name,
+    ns: unified.ns,
     trace_id: unified.trace_id || null,
     span_id: unified.span_id || null,
     parent_id: unified.parent_id || null,
@@ -1573,7 +1412,7 @@ export class EventStreamDO extends DurableObject {
   }
 
   private async handleBroadcastEndpoint(request: Request): Promise<Response> {
-    const body = await request.json() as {
+    let body: {
       topic?: string
       event?: Partial<BroadcastEvent>
       // UnifiedEvent fields
@@ -1582,6 +1421,26 @@ export class EventStreamDO extends DurableObject {
       event_name?: string
       ns?: string
       [key: string]: unknown
+    }
+
+    // Parse JSON with error handling
+    try {
+      const parsed = await request.json()
+
+      // Validate it's a non-null object
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return new Response(JSON.stringify({ error: 'Request body must be a JSON object' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      body = parsed as typeof body
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
     }
 
     // Check if this is a UnifiedEvent (has event_type field)
@@ -2078,11 +1937,13 @@ export class EventStreamDO extends DurableObject {
         events: [],
         topic,
         scheduledAt: Date.now(),
+        lastActivity: Date.now(),
       }
       this.coalescingBuffers.set(topic, buffer)
     }
 
     buffer.events.push(event)
+    buffer.lastActivity = Date.now()
 
     // Flush immediately if batch size reached
     if (buffer.events.length >= config.maxBatchSize) {
@@ -2148,6 +2009,48 @@ export class EventStreamDO extends DurableObject {
     for (const topic of topics) {
       await this.flushCoalescedBuffer(topic)
     }
+  }
+
+  /**
+   * Clean up stale coalescing buffers that haven't had activity.
+   *
+   * Stale buffers can accumulate when:
+   * - Topics stop receiving events but never hit batch size
+   * - Timer gets cleared but buffer not flushed
+   * - Network issues prevent flush completion
+   *
+   * Called periodically (e.g., in alarm handler) to prevent memory leaks.
+   *
+   * @param staleThresholdMs - Time in ms after which a buffer is considered stale (default: 5 minutes)
+   * @returns Number of stale buffers cleaned up
+   */
+  cleanupStaleBuffers(staleThresholdMs: number = 5 * 60 * 1000): number {
+    const now = Date.now()
+    let cleanedCount = 0
+
+    for (const [topic, buffer] of this.coalescingBuffers) {
+      if (now - buffer.lastActivity > staleThresholdMs) {
+        // Clear any pending timer
+        const timer = this.coalescingTimers.get(topic)
+        if (timer) {
+          clearTimeout(timer)
+          this.coalescingTimers.delete(topic)
+        }
+
+        // Remove the stale buffer
+        this.coalescingBuffers.delete(topic)
+        cleanedCount++
+
+        // Log for observability (buffer had events that were never flushed)
+        if (buffer.events.length > 0) {
+          console.warn(
+            `[EventStreamDO] Cleaned up stale buffer for topic "${topic}" with ${buffer.events.length} unflushed events`
+          )
+        }
+      }
+    }
+
+    return cleanedCount
   }
 
   /**
@@ -2498,10 +2401,24 @@ export class EventStreamDO extends DurableObject {
    * Broadcast a UnifiedEvent (public method)
    */
   async broadcastUnifiedEvent(event: Partial<UnifiedEvent>): Promise<void> {
-    const id = event.id || generateId()
-    const eventType = event.event_type || 'trace'
-    const eventName = event.event_name || 'unknown'
-    const ns = event.ns || 'default'
+    // Validate required fields to avoid unsafe operations
+    if (!event.id || typeof event.id !== 'string' || event.id.trim() === '') {
+      throw new Error('id field is required and must be a non-empty string')
+    }
+    if (!event.event_type) {
+      throw new Error('event_type field is required')
+    }
+    if (!event.event_name) {
+      throw new Error('event_name field is required')
+    }
+    if (!event.ns) {
+      throw new Error('ns field is required')
+    }
+
+    const id = event.id
+    const eventType = event.event_type
+    const eventName = event.event_name
+    const ns = event.ns
     const timestamp = event.timestamp || new Date().toISOString()
 
     // Check deduplication
@@ -2589,6 +2506,9 @@ export class EventStreamDO extends DurableObject {
         }
       }
     }
+
+    // Clean up stale coalescing buffers (5 minute threshold)
+    this.cleanupStaleBuffers(5 * 60 * 1000)
 
     // Schedule next cleanup
     if (this.connections.size > 0 || this.topicStats.size > 0) {

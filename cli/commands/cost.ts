@@ -338,6 +338,124 @@ export function formatJSON(result: ComparisonResult, inputs: CostInputs): string
 }
 
 // ============================================================================
+// Input Validation
+// ============================================================================
+
+interface ValidationResult {
+  valid: boolean
+  error?: string
+}
+
+/**
+ * Validates CLI input options for cost calculations.
+ * Throws an error if validation fails.
+ *
+ * @param options - Raw string options from CLI
+ * @throws Error with descriptive message if validation fails
+ */
+export function validateCostInputs(options: {
+  events: string
+  size: string
+  queries: string
+  retention: string
+}): ValidationResult {
+  const eventsPerDay = parseInt(options.events, 10)
+  if (isNaN(eventsPerDay) || eventsPerDay <= 0) {
+    throw new Error('Invalid events: Events per day must be a positive number')
+  }
+
+  const avgEventSize = parseInt(options.size, 10)
+  if (isNaN(avgEventSize) || avgEventSize <= 0) {
+    throw new Error('Invalid size: Event size must be a positive number')
+  }
+
+  const queriesPerDay = parseInt(options.queries, 10)
+  if (isNaN(queriesPerDay) || queriesPerDay < 0) {
+    throw new Error('Invalid queries: Queries per day must be non-negative')
+  }
+
+  const retentionDays = parseInt(options.retention, 10)
+  if (isNaN(retentionDays) || retentionDays <= 0 || retentionDays > 365) {
+    throw new Error('Invalid retention: Retention must be between 1 and 365 days')
+  }
+
+  return { valid: true }
+}
+
+// ============================================================================
+// Configurable Pipeline Calculation
+// ============================================================================
+
+export interface CostCalculationOptions {
+  pipelineCount?: number
+}
+
+/**
+ * Calculate monthly cost with configurable pipeline count.
+ *
+ * @param inputs - Cost calculation inputs
+ * @param mode - 'single' for one pipeline, 'multi' for type-specific pipelines
+ * @param options - Additional options including custom pipeline count
+ * @returns Cost breakdown in USD per month
+ */
+export function calculateCostWithOptions(
+  inputs: CostInputs,
+  mode: 'single' | 'multi',
+  options: CostCalculationOptions = {}
+): CostBreakdown {
+  const {
+    eventsPerDay,
+    avgEventSizeBytes,
+    queriesPerDay,
+    retentionDays,
+    infrequentAccessPercent = 0,
+    region = 'global',
+  } = inputs
+
+  // Get region-specific pricing
+  const pricing = getRegionPricing(region)
+
+  // Calculate monthly volumes
+  const eventsPerMonth = eventsPerDay * 30
+  const bytesPerMonth = eventsPerDay * avgEventSizeBytes * 30
+  const gbPerMonth = bytesPerMonth / (1024 ** 3)
+
+  // Storage: based on retention period
+  const storedGb = gbPerMonth * (retentionDays / 30)
+  const standardStorageGb = storedGb * (1 - infrequentAccessPercent)
+  const infrequentStorageGb = storedGb * infrequentAccessPercent
+  const storage =
+    standardStorageGb * pricing.r2StoragePerGbMonth +
+    infrequentStorageGb * pricing.r2InfrequentPerGbMonth
+
+  // Pipeline operations: use custom count or default (4 for multi, 1 for single)
+  const defaultPipelineCount = mode === 'multi' ? 4 : 1
+  const pipelineCount = options.pipelineCount ?? defaultPipelineCount
+  const pipelineOps = (eventsPerMonth / 1_000_000) * pricing.pipelinePerMillion * pipelineCount
+
+  // R2 Writes: Class A operations for storing events
+  const r2Writes = (eventsPerMonth / 1_000_000) * pricing.r2ClassAPerMillion
+
+  // R2 Reads: Class B operations for queries
+  const queriesPerMonth = queriesPerDay * 30
+  const r2Reads = (queriesPerMonth / 1_000_000) * pricing.r2ClassBPerMillion
+
+  // Egress: simplified to 0 for internal operations (most R2 access is within Cloudflare)
+  const egress = 0
+
+  const total = storage + pipelineOps + r2Writes + r2Reads + egress
+
+  return {
+    storage,
+    pipelineOps,
+    r2Writes,
+    r2Reads,
+    egress,
+    total,
+  }
+}
+
+// ============================================================================
 // CLI Commands
 // ============================================================================
 
@@ -359,6 +477,9 @@ costCommand
   .option('--region <region>', `Deployment region (${SUPPORTED_REGIONS.join('/')})`, 'global')
   .option('-f, --format <format>', 'Output format (table/json)', 'table')
   .action((options) => {
+    // Validate inputs first
+    validateCostInputs(options)
+
     const region = options.region as Region
     if (!SUPPORTED_REGIONS.includes(region)) {
       console.error(`Invalid region: ${region}. Supported: ${SUPPORTED_REGIONS.join(', ')}`)
@@ -398,6 +519,9 @@ costCommand
   .option('--region <region>', `Deployment region (${SUPPORTED_REGIONS.join('/')})`, 'global')
   .option('-f, --format <format>', 'Output format (table/json)', 'table')
   .action((options) => {
+    // Validate inputs first
+    validateCostInputs(options)
+
     const region = options.region as Region
     if (!SUPPORTED_REGIONS.includes(region)) {
       console.error(`Invalid region: ${region}. Supported: ${SUPPORTED_REGIONS.join(', ')}`)
