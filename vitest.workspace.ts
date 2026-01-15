@@ -118,6 +118,13 @@ const WORKERS_POOL_OPTIONS = {
       singleWorker: true,
     },
   },
+  eventStreamTest: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.event-stream-test.jsonc') },
+      isolatedStorage: true,
+      singleWorker: true,
+    },
+  },
 } as const
 
 /**
@@ -236,6 +243,15 @@ export default defineWorkspace([
 
   // ColumnarStore tests (analytics-optimized columnar storage with 99.4% cost savings)
   createNodeWorkspace('columnar', ['tests/db/columnar/**/*.test.ts', 'db/columnar/**/*.test.ts']),
+
+  // DocumentStore tests (schema-free JSON document storage with JSONPath queries)
+  createNodeWorkspace('document', ['tests/db/document/**/*.test.ts', 'db/document/**/*.test.ts']),
+
+  // Stress tests (concurrent writes, high contention, performance benchmarks)
+  createNodeWorkspace('stress', ['tests/db/stress/**/*.test.ts']),
+
+  // Unified Store Interface tests (Store<T> polymorphism across all store types)
+  createNodeWorkspace('unified', ['tests/db/unified/**/*.test.ts', 'db/unified/**/*.test.ts']),
 
   // Durable Objects tests (mocked runtime)
   // Excludes tests requiring cloudflare:test (handled by Workers workspaces)
@@ -817,6 +833,14 @@ export default defineWorkspace([
     'objects/tests/do-modules-integration.test.ts',
   ], {
     poolOptions: WORKERS_POOL_OPTIONS.modulesIntegration,
+  }),
+
+  // EventStreamDO integration tests (real miniflare DOs - NO MOCKS)
+  // Tests unified event storage, correlation queries, hot tier retention
+  createWorkersWorkspace('event-stream', [
+    'streaming/tests/event-stream-do-miniflare.test.ts',
+  ], {
+    poolOptions: WORKERS_POOL_OPTIONS.eventStreamTest,
   }),
 
   // DuckDB WASM tests - require Workers runtime for WASM instantiation

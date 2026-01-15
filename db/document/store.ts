@@ -10,11 +10,40 @@
  * - Storage tiering (hot/warm/cold)
  * - Change Data Capture (CDC) for event streaming
  * - Bloom filters for existence checks
+ * - Atomic batch operations with SQLite transactions
+ * - Optimistic locking with version checks
+ * - Transaction API for complex operations
  */
 
 import { sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import type Database from 'better-sqlite3'
+
+import {
+  WriteLockManager,
+  withRetry as withRetryInternal,
+  type RetryOptions,
+} from '../concurrency'
+
+/**
+ * Transient SQLite errors that can be retried
+ */
+const TRANSIENT_ERRORS = [
+  'SQLITE_BUSY',
+  'SQLITE_LOCKED',
+  'database is locked',
+  'database table is locked',
+]
+
+/**
+ * Check if an error is transient (can be retried)
+ */
+function isTransientError(error: Error): boolean {
+  const message = error.message.toLowerCase()
+  return TRANSIENT_ERRORS.some(e => message.includes(e.toLowerCase()))
+}
+
+export type { RetryOptions }
 import {
   buildWhereClause,
   buildOrderByClause,
@@ -128,6 +157,33 @@ export interface CDCSubscription {
 }
 
 /**
+ * Transaction context for atomic operations
+ */
+export interface TransactionContext<T extends Record<string, unknown>> {
+  /** Get a document by ID */
+  get($id: string): Promise<Document<T> | null>
+  /** Create a document */
+  create(input: CreateInput<T>): Promise<Document<T>>
+  /** Update a document */
+  update($id: string, updates: UpdateInput): Promise<Document<T>>
+  /** Delete a document */
+  delete($id: string): Promise<boolean>
+  /** Count documents matching filter */
+  count(options?: CountOptions): Promise<number>
+  /** Query documents */
+  query(options: QueryOptions): Promise<Document<T>[]>
+}
+
+/**
+ * Batch operation for atomicBatch
+ */
+export interface BatchOperation {
+  op: 'create' | 'update' | 'delete'
+  id?: string
+  data?: Record<string, unknown>
+}
+
+/**
  * DocumentStore class
  *
  * @example Basic usage
@@ -174,12 +230,20 @@ export class DocumentStore<T extends Record<string, unknown>> {
   private lsn: number = 0
   private onCDCChange?: (event: CDCChangeEvent) => void
 
+  // Transaction state
+  private inTransaction: boolean = false
+  private bufferedCDCEvents: Array<{ event: CDCEvent; version: number }> = []
+
+  // Concurrency control
+  private lockManager: WriteLockManager
+
   constructor(db: BetterSQLite3Database, options: DocumentStoreOptions | ExtendedDocumentStoreOptions) {
     this.db = db
     this.sqlite = getUnderlyingDb(db)
     this.type = options.type
     this.onEvent = options.onEvent
     this.cdcEmitter = options.cdcEmitter
+    this.lockManager = new WriteLockManager()
 
     // Initialize extended features if provided
     const extOptions = options as ExtendedDocumentStoreOptions
@@ -238,8 +302,22 @@ export class DocumentStore<T extends Record<string, unknown>> {
 
   /**
    * Emit a CDC event with enhanced metadata
+   * If in a transaction, buffers events until commit
    */
   private emit(event: CDCEvent, version: number = 1): void {
+    // If in a transaction, buffer the event for later emission
+    if (this.inTransaction) {
+      this.bufferedCDCEvents.push({ event, version })
+      return
+    }
+
+    this.emitImmediate(event, version)
+  }
+
+  /**
+   * Immediately emit a CDC event (bypasses transaction buffering)
+   */
+  private emitImmediate(event: CDCEvent, version: number = 1): void {
     // Increment LSN for ordering
     this.lsn++
 
@@ -283,6 +361,23 @@ export class DocumentStore<T extends Record<string, unknown>> {
         // Don't block on CDC pipeline errors
       })
     }
+  }
+
+  /**
+   * Flush all buffered CDC events (called on transaction commit)
+   */
+  private flushBufferedEvents(): void {
+    for (const { event, version } of this.bufferedCDCEvents) {
+      this.emitImmediate(event, version)
+    }
+    this.bufferedCDCEvents = []
+  }
+
+  /**
+   * Clear buffered CDC events without emitting (called on transaction rollback)
+   */
+  private clearBufferedEvents(): void {
+    this.bufferedCDCEvents = []
   }
 
   // ============================================================================
@@ -501,8 +596,28 @@ export class DocumentStore<T extends Record<string, unknown>> {
 
   /**
    * Update a document
+   *
+   * Uses write locks to serialize concurrent updates to the same document.
    */
   async update($id: string, updates: UpdateInput): Promise<Document<T>> {
+    // If already in a transaction, perform update directly (transaction holds the lock)
+    if (this.inTransaction) {
+      return this.updateInner($id, updates)
+    }
+
+    // Acquire lock for this document to serialize concurrent writes
+    const handle = await this.lockManager.acquireLock($id, { timeout: 30000 })
+    try {
+      return await this.updateInner($id, updates)
+    } finally {
+      handle.release()
+    }
+  }
+
+  /**
+   * Internal update implementation (assumes lock is held or in transaction)
+   */
+  private async updateInner($id: string, updates: UpdateInput): Promise<Document<T>> {
     // Get existing document
     const existing = await this.get($id)
     if (!existing) {
@@ -699,15 +814,9 @@ export class DocumentStore<T extends Record<string, unknown>> {
   }
 
   /**
-   * Create multiple documents
+   * Create multiple documents atomically using SQLite transaction
    */
   async createMany(inputs: CreateInput<T>[]): Promise<Document<T>[]> {
-    const documents: Document<T>[] = []
-
-    // Use a transaction for atomicity
-    // Since drizzle doesn't expose transaction easily for raw SQL,
-    // we'll collect errors and throw after checking for duplicates
-
     // First check for duplicate $ids within the batch
     const ids = inputs.map((i) => (i as Record<string, unknown>).$id).filter(Boolean)
     const uniqueIds = new Set(ids)
@@ -715,55 +824,615 @@ export class DocumentStore<T extends Record<string, unknown>> {
       throw new Error('Duplicate $id in batch')
     }
 
-    // Create each document
-    for (const input of inputs) {
-      try {
-        const doc = await this.create(input)
-        documents.push(doc)
-      } catch (e) {
-        // If any fails, we need to rollback (delete created docs)
-        // Since we don't have proper transactions, do manual cleanup
-        for (const doc of documents) {
-          await this.delete(doc.$id)
-        }
-        throw e
-      }
-    }
+    // Use SQLite transaction for atomicity
+    const documents: Document<T>[] = []
 
-    return documents
+    // Begin transaction
+    this.sqlite.exec('BEGIN IMMEDIATE')
+    this.inTransaction = true
+
+    try {
+      // Create each document
+      for (const input of inputs) {
+        const doc = await this.createInTransaction(input)
+        documents.push(doc)
+      }
+
+      // Commit transaction
+      this.sqlite.exec('COMMIT')
+      this.inTransaction = false
+
+      // Flush buffered CDC events after successful commit
+      this.flushBufferedEvents()
+
+      return documents
+    } catch (e) {
+      // Rollback on any error
+      this.sqlite.exec('ROLLBACK')
+      this.inTransaction = false
+
+      // Clear buffered events - don't emit since we rolled back
+      this.clearBufferedEvents()
+
+      throw e
+    }
   }
 
   /**
-   * Update multiple documents matching filter
+   * Internal create method for use within transactions
+   * Does not manage transaction state, just inserts
+   */
+  private async createInTransaction(input: CreateInput<T>): Promise<Document<T>> {
+    // Check for circular references
+    try {
+      JSON.stringify(input)
+    } catch (e) {
+      throw new Error('Cannot create document with circular reference')
+    }
+
+    const now = Date.now()
+    const $id = (input as Record<string, unknown>).$id as string || this.generateId()
+
+    // Extract data (without $id if provided)
+    const { $id: _, ...data } = input as Record<string, unknown>
+
+    const row: DocumentRow = {
+      $id,
+      $type: this.type,
+      data: JSON.stringify(data),
+      $createdAt: now,
+      $updatedAt: now,
+      $version: 1,
+    }
+
+    try {
+      this.db.run(sql`
+        INSERT INTO documents ("$id", "$type", data, "$createdAt", "$updatedAt", "$version")
+        VALUES (${row.$id}, ${row.$type}, ${row.data}, ${row.$createdAt}, ${row.$updatedAt}, ${row.$version})
+      `)
+    } catch (e) {
+      const error = e as Error
+      if (error.message.includes('UNIQUE constraint failed') || error.message.includes('PRIMARY KEY')) {
+        throw new Error(`Document with $id "${$id}" already exists`)
+      }
+      throw e
+    }
+
+    // Update bloom filter for common fields
+    if (typeof (data as Record<string, unknown>).email === 'string') {
+      this.updateBloomFilter('email', (data as Record<string, unknown>).email as string)
+    }
+
+    const document = this.rowToDocument(row)
+
+    // Update secondary indexes
+    if (this.indexManager) {
+      this.indexManager.updateDocument($id, {
+        ...data,
+        $id,
+        $type: this.type,
+        $createdAt: now,
+        $updatedAt: now,
+        $version: 1,
+      })
+    }
+
+    // Initialize tiering metadata
+    if (this.tieringManager) {
+      const sizeBytes = row.data.length
+      this.tieringManager.initializeMetadata($id, 1, sizeBytes)
+    }
+
+    // Emit CDC event (will be buffered if in transaction)
+    this.emit({
+      type: 'cdc.insert',
+      op: 'c',
+      store: 'document',
+      table: this.type,
+      key: $id,
+      after: { ...data },
+    }, 1)
+
+    return document
+  }
+
+  /**
+   * Update multiple documents matching filter atomically
    */
   async updateMany(
     filter: QueryOptions,
     updates: UpdateInput
   ): Promise<number> {
-    // Find matching documents
+    // Find matching documents first (outside transaction to avoid nested)
     const docs = await this.query(filter)
 
-    // Update each
-    for (const doc of docs) {
-      await this.update(doc.$id, updates)
+    if (docs.length === 0) {
+      return 0
     }
 
-    return docs.length
+    // Begin transaction
+    this.sqlite.exec('BEGIN IMMEDIATE')
+    this.inTransaction = true
+
+    try {
+      // Update each document
+      for (const doc of docs) {
+        await this.updateInTransaction(doc.$id, updates)
+      }
+
+      // Commit transaction
+      this.sqlite.exec('COMMIT')
+      this.inTransaction = false
+
+      // Flush buffered CDC events
+      this.flushBufferedEvents()
+
+      return docs.length
+    } catch (e) {
+      // Rollback on any error
+      this.sqlite.exec('ROLLBACK')
+      this.inTransaction = false
+
+      // Clear buffered events
+      this.clearBufferedEvents()
+
+      throw e
+    }
   }
 
   /**
-   * Delete multiple documents matching filter
+   * Internal update method for use within transactions
+   */
+  private async updateInTransaction($id: string, updates: UpdateInput): Promise<Document<T>> {
+    // Get existing document
+    const existing = await this.get($id)
+    if (!existing) {
+      throw new Error(`Document with $id "${$id}" not found`)
+    }
+
+    const now = Date.now()
+    const { $id: _, $type: __, $createdAt, $updatedAt: ___, $version, ...existingData } = existing
+
+    // Apply updates (handle dot notation)
+    const newData = { ...existingData } as Record<string, unknown>
+    const changedFields: Record<string, { before: unknown; after: unknown }> = {}
+
+    for (const [key, value] of Object.entries(updates)) {
+      const beforeValue = this.getNestedValue(newData, key)
+      this.setNestedValue(newData, key, value)
+      changedFields[key] = { before: beforeValue, after: value }
+    }
+
+    const newVersion = $version + 1
+
+    this.db.run(sql`
+      UPDATE documents
+      SET data = ${JSON.stringify(newData)},
+          "$updatedAt" = ${now},
+          "$version" = ${newVersion}
+      WHERE "$id" = ${$id}
+    `)
+
+    // Build before/after for CDC event with only changed fields
+    const before: Record<string, unknown> = {}
+    const after: Record<string, unknown> = {}
+    for (const [key, { before: b, after: a }] of Object.entries(changedFields)) {
+      before[key] = b
+      after[key] = a
+    }
+
+    // Update secondary indexes
+    if (this.indexManager) {
+      this.indexManager.updateDocument($id, {
+        ...newData,
+        $id,
+        $type: this.type,
+        $createdAt,
+        $updatedAt: now,
+        $version: newVersion,
+      })
+    }
+
+    // Record access for tiering
+    if (this.tieringManager) {
+      this.tieringManager.recordAccess($id)
+    }
+
+    // Emit CDC event (will be buffered if in transaction)
+    this.emit({
+      type: 'cdc.update',
+      op: 'u',
+      store: 'document',
+      table: this.type,
+      key: $id,
+      before,
+      after,
+    }, newVersion)
+
+    return {
+      ...newData,
+      $id,
+      $type: this.type,
+      $createdAt,
+      $updatedAt: now,
+      $version: newVersion,
+    } as Document<T>
+  }
+
+  /**
+   * Delete multiple documents matching filter atomically
    */
   async deleteMany(filter: QueryOptions): Promise<number> {
     // Find matching documents
     const docs = await this.query(filter)
 
-    // Delete each
-    for (const doc of docs) {
-      await this.delete(doc.$id)
+    if (docs.length === 0) {
+      return 0
     }
 
-    return docs.length
+    // Begin transaction
+    this.sqlite.exec('BEGIN IMMEDIATE')
+    this.inTransaction = true
+
+    try {
+      // Delete each document
+      for (const doc of docs) {
+        await this.deleteInTransaction(doc.$id)
+      }
+
+      // Commit transaction
+      this.sqlite.exec('COMMIT')
+      this.inTransaction = false
+
+      // Flush buffered CDC events
+      this.flushBufferedEvents()
+
+      return docs.length
+    } catch (e) {
+      // Rollback on any error
+      this.sqlite.exec('ROLLBACK')
+      this.inTransaction = false
+
+      // Clear buffered events
+      this.clearBufferedEvents()
+
+      throw e
+    }
+  }
+
+  /**
+   * Internal delete method for use within transactions
+   */
+  private async deleteInTransaction($id: string): Promise<boolean> {
+    // Get document for CDC event
+    const existing = await this.get($id)
+    if (!existing) {
+      return false
+    }
+
+    const { $id: _, $type: __, $createdAt: ___, $updatedAt: ____, $version, ...data } = existing
+
+    this.db.run(sql`
+      DELETE FROM documents
+      WHERE "$id" = ${$id} AND "$type" = ${this.type}
+    `)
+
+    // Remove from secondary indexes
+    if (this.indexManager) {
+      this.indexManager.removeDocument($id)
+    }
+
+    // Emit CDC event (will be buffered if in transaction)
+    this.emit({
+      type: 'cdc.delete',
+      op: 'd',
+      store: 'document',
+      table: this.type,
+      key: $id,
+      before: { ...data },
+    }, $version)
+
+    return true
+  }
+
+  // ============================================================================
+  // OPTIMISTIC LOCKING METHODS
+  // ============================================================================
+
+  /**
+   * Update a document only if the version matches (optimistic locking)
+   *
+   * This is atomic: the version check happens in the same SQL statement as the update.
+   * If the version doesn't match, throws an error without modifying the document.
+   *
+   * @example
+   * ```typescript
+   * const doc = await docs.get('cust_123')
+   * const updated = await docs.updateIfVersion('cust_123', { value: 100 }, doc.$version)
+   * ```
+   */
+  async updateIfVersion($id: string, updates: UpdateInput, expectedVersion: number): Promise<Document<T>> {
+    // Get existing document to build the new data
+    const existing = await this.get($id)
+    if (!existing) {
+      throw new Error(`Document with $id "${$id}" not found`)
+    }
+
+    const now = Date.now()
+    const { $id: _, $type: __, $createdAt, $updatedAt: ___, $version, ...existingData } = existing
+
+    // Apply updates (handle dot notation)
+    const newData = { ...existingData } as Record<string, unknown>
+    const changedFields: Record<string, { before: unknown; after: unknown }> = {}
+
+    for (const [key, value] of Object.entries(updates)) {
+      const beforeValue = this.getNestedValue(newData, key)
+      this.setNestedValue(newData, key, value)
+      changedFields[key] = { before: beforeValue, after: value }
+    }
+
+    const newVersion = expectedVersion + 1
+
+    // Atomic update with version check in WHERE clause
+    // This ensures the update only happens if version matches
+    const updateSql = `
+      UPDATE documents
+      SET data = ?,
+          "$updatedAt" = ?,
+          "$version" = ?
+      WHERE "$id" = ? AND "$type" = ? AND "$version" = ?
+    `
+    const stmt = this.sqlite.prepare(updateSql)
+    const result = stmt.run(
+      JSON.stringify(newData),
+      now,
+      newVersion,
+      $id,
+      this.type,
+      expectedVersion
+    )
+
+    // Check if any row was updated
+    if (result.changes === 0) {
+      // Re-fetch to get actual version for error message
+      const current = await this.get($id)
+      const actualVersion = current?.$version ?? 'unknown'
+      throw new Error(
+        `Version mismatch: expected ${expectedVersion}, found ${actualVersion}. Document was modified concurrently.`
+      )
+    }
+
+    // Build before/after for CDC event with only changed fields
+    const before: Record<string, unknown> = {}
+    const after: Record<string, unknown> = {}
+    for (const [key, { before: b, after: a }] of Object.entries(changedFields)) {
+      before[key] = b
+      after[key] = a
+    }
+
+    // Update secondary indexes
+    if (this.indexManager) {
+      this.indexManager.updateDocument($id, {
+        ...newData,
+        $id,
+        $type: this.type,
+        $createdAt,
+        $updatedAt: now,
+        $version: newVersion,
+      })
+    }
+
+    // Record access for tiering
+    if (this.tieringManager) {
+      this.tieringManager.recordAccess($id)
+    }
+
+    // Emit CDC event with version
+    this.emit({
+      type: 'cdc.update',
+      op: 'u',
+      store: 'document',
+      table: this.type,
+      key: $id,
+      before,
+      after,
+    }, newVersion)
+
+    return {
+      ...newData,
+      $id,
+      $type: this.type,
+      $createdAt,
+      $updatedAt: now,
+      $version: newVersion,
+    } as Document<T>
+  }
+
+  /**
+   * Update with version check (alias for updateIfVersion)
+   */
+  async updateWithVersion($id: string, updates: UpdateInput, expectedVersion: number): Promise<Document<T>> {
+    return this.updateIfVersion($id, updates, expectedVersion)
+  }
+
+  /**
+   * Delete a document only if the version matches (optimistic locking)
+   *
+   * @example
+   * ```typescript
+   * const doc = await docs.get('cust_123')
+   * const deleted = await docs.deleteIfVersion('cust_123', doc.$version)
+   * ```
+   */
+  async deleteIfVersion($id: string, expectedVersion: number): Promise<boolean> {
+    // Atomic delete with version check in WHERE clause
+    const deleteSql = `
+      DELETE FROM documents
+      WHERE "$id" = ? AND "$type" = ? AND "$version" = ?
+    `
+    const stmt = this.sqlite.prepare(deleteSql)
+    const result = stmt.run($id, this.type, expectedVersion)
+
+    return result.changes > 0
+  }
+
+  // ============================================================================
+  // TRANSACTION API
+  // ============================================================================
+
+  /**
+   * Execute operations within a transaction
+   *
+   * @example
+   * ```typescript
+   * const result = await docs.transaction(async (tx) => {
+   *   const a = await tx.get('account_a')
+   *   const b = await tx.get('account_b')
+   *   await tx.update('account_a', { balance: a.balance - 100 })
+   *   await tx.update('account_b', { balance: b.balance + 100 })
+   *   return { transferred: 100 }
+   * })
+   * ```
+   */
+  async transaction<R>(fn: (tx: TransactionContext<T>) => Promise<R>): Promise<R> {
+    // Begin transaction
+    this.sqlite.exec('BEGIN IMMEDIATE')
+    this.inTransaction = true
+
+    // Create transaction context
+    const tx: TransactionContext<T> = {
+      get: async ($id: string) => this.get($id),
+      create: async (input: CreateInput<T>) => this.createInTransaction(input),
+      update: async ($id: string, updates: UpdateInput) => this.updateInTransaction($id, updates),
+      delete: async ($id: string) => this.deleteInTransaction($id),
+      count: async (options?: CountOptions) => this.count(options),
+      query: async (options: QueryOptions) => this.query(options),
+    }
+
+    try {
+      const result = await fn(tx)
+
+      // Commit transaction
+      this.sqlite.exec('COMMIT')
+      this.inTransaction = false
+
+      // Flush buffered CDC events
+      this.flushBufferedEvents()
+
+      return result
+    } catch (e) {
+      // Rollback on any error
+      this.sqlite.exec('ROLLBACK')
+      this.inTransaction = false
+
+      // Clear buffered events
+      this.clearBufferedEvents()
+
+      throw e
+    }
+  }
+
+  /**
+   * Execute a complex operation with automatic rollback on failure
+   * Alias for transaction() for semantic clarity
+   */
+  async complexOperation<R>($id: string, fn: (tx: TransactionContext<T>) => Promise<R>): Promise<R> {
+    return this.transaction(fn)
+  }
+
+  /**
+   * Execute atomic batch operations
+   *
+   * @example
+   * ```typescript
+   * await docs.atomicBatch([
+   *   { op: 'update', id: 'doc_1', data: { value: 100 } },
+   *   { op: 'update', id: 'doc_2', data: { value: 200 } },
+   *   { op: 'delete', id: 'doc_3' },
+   * ])
+   * ```
+   */
+  async atomicBatch(operations: BatchOperation[]): Promise<void> {
+    await this.transaction(async (tx) => {
+      for (const op of operations) {
+        switch (op.op) {
+          case 'create':
+            if (!op.data) {
+              throw new Error('Create operation requires data')
+            }
+            await tx.create(op.data as CreateInput<T>)
+            break
+          case 'update':
+            if (!op.id) {
+              throw new Error('Update operation requires id')
+            }
+            // Verify document exists before updating
+            const existing = await tx.get(op.id)
+            if (!existing) {
+              throw new Error(`Document with $id "${op.id}" not found`)
+            }
+            await tx.update(op.id, op.data || {})
+            break
+          case 'delete':
+            if (!op.id) {
+              throw new Error('Delete operation requires id')
+            }
+            await tx.delete(op.id)
+            break
+          default:
+            throw new Error(`Unknown operation: ${(op as BatchOperation).op}`)
+        }
+      }
+    })
+  }
+
+  // ============================================================================
+  // RETRY HELPER
+  // ============================================================================
+
+  /**
+   * Execute a function with retry for transient errors
+   *
+   * @example
+   * ```typescript
+   * const doc = await docs.withRetry(
+   *   () => docs.create({ name: 'Test' }),
+   *   { maxRetries: 3, backoff: 'exponential' }
+   * )
+   * ```
+   */
+  async withRetry<R>(fn: () => Promise<R>, options: RetryOptions = {}): Promise<R> {
+    const maxRetries = options.maxRetries ?? 3
+    const backoff = options.backoff ?? 'exponential'
+    const baseDelayMs = options.baseDelayMs ?? 50
+
+    let lastError: Error | undefined
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn()
+      } catch (e) {
+        const error = e as Error
+
+        // Don't retry non-transient errors
+        if (!isTransientError(error)) {
+          throw error
+        }
+
+        lastError = error
+
+        // Don't delay after last attempt
+        if (attempt < maxRetries) {
+          const delayMs = backoff === 'exponential'
+            ? baseDelayMs * Math.pow(2, attempt)
+            : baseDelayMs
+
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+        }
+      }
+    }
+
+    throw lastError
   }
 
   /**

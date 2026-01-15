@@ -20,16 +20,45 @@ export interface VectorStoreOptions {
   onCDC?: (event: CDCEvent) => void
   /** Optional unified CDC emitter for pipeline integration */
   cdcEmitter?: CDCEmitter
+  /** Tiered storage configuration */
+  tieredStorage?: TieredStorageOptions
+  /** Index configuration for accelerated search */
+  indexConfig?: IndexConfig
+  /** Cache configuration for search optimization */
+  cacheConfig?: Partial<CacheConfig>
+}
+
+/**
+ * Cache configuration for VectorStore search optimization caches
+ */
+export interface CacheConfig {
+  /** Maximum number of entries in the cache */
+  maxSize: number
+  /** Maximum memory in bytes for the cache */
+  memoryLimitBytes?: number
+  /** Eviction threshold (0-1) for memory-based eviction */
+  evictionThreshold?: number
+  /** Separate max size for binary hash cache */
+  binaryHashMaxSize?: number
+  /** Separate max size for matryoshka cache */
+  matryoshkaMaxSize?: number
+  /** Auto-populate cache when documents are promoted to hot tier */
+  autoPopulateOnPromote?: boolean
 }
 
 export interface InsertOptions {
   partition?: string
 }
 
+/**
+ * Filter value types supported in metadata filtering
+ */
+export type FilterValue = string | number | boolean | null | undefined
+
 export interface SearchOptions {
   embedding: Float32Array
   limit: number
-  filter?: Record<string, any>
+  filter?: Record<string, FilterValue>
   useBinaryPrefilter?: boolean
 }
 
@@ -69,27 +98,27 @@ export interface ProgressiveTiming {
 // DATA TYPES
 // ============================================================================
 
-export interface VectorDocument {
+export interface VectorDocument<M extends Record<string, unknown> = Record<string, unknown>> {
   id: string
   content: string
   embedding: Float32Array
-  metadata?: Record<string, any>
+  metadata?: M
 }
 
-export interface StoredDocument {
+export interface StoredDocument<M extends Record<string, unknown> = Record<string, unknown>> {
   id: string
   content: string
   embedding: Float32Array
-  metadata: Record<string, any>
+  metadata: M
   mat_64?: Float32Array
   mat_256?: Float32Array
   binary_hash?: ArrayBuffer
 }
 
-export interface SearchResult {
+export interface SearchResult<M extends Record<string, unknown> = Record<string, unknown>> {
   id: string
   content: string
-  metadata: Record<string, any>
+  metadata: M
   similarity: number
   distance: number
   rrfScore?: number
@@ -141,7 +170,7 @@ export interface HybridQueryOptions {
   ftsWeight?: number
   vectorWeight?: number
   vectorDim?: number
-  where?: Record<string, any>
+  where?: Record<string, FilterValue>
 }
 
 // ============================================================================
@@ -301,12 +330,65 @@ export interface IndexConfig {
 // MOCK DB TYPE
 // ============================================================================
 
+/**
+ * Prepared statement result interface
+ */
+export interface PreparedStatement {
+  run: (...params: unknown[]) => void
+  get: (...params: unknown[]) => unknown
+  all: (...params: unknown[]) => unknown[]
+}
+
+/**
+ * Stored data value type for MockDb
+ */
+export interface MockDbStoredValue {
+  id: string
+  embedding?: Float32Array
+  content?: string
+  metadata?: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export interface MockDb {
-  data: Map<string, any>
+  data: Map<string, MockDbStoredValue>
   ftsData: Map<string, string>
-  events: any[]
+  events: CDCEvent[]
   exec: (sql: string) => void
-  prepare: (sql: string) => any
-  onCDC?: (handler: (event: any) => void) => { unsubscribe: () => void }
-  _emitCDC?: (event: any) => void
+  prepare: (sql: string) => PreparedStatement
+  onCDC?: (handler: (event: CDCEvent) => void) => { unsubscribe: () => void }
+  _emitCDC?: (event: CDCEvent) => void
+}
+
+// ============================================================================
+// TYPE GUARDS
+// ============================================================================
+
+/**
+ * Type guard to check if a value is a SearchResult
+ */
+export function isSearchResult(value: unknown): value is SearchResult<Record<string, unknown>> {
+  if (typeof value !== 'object' || value === null) return false
+  const obj = value as Record<string, unknown>
+  return (
+    typeof obj.id === 'string' &&
+    typeof obj.content === 'string' &&
+    typeof obj.similarity === 'number' &&
+    typeof obj.distance === 'number' &&
+    (typeof obj.metadata === 'object' || obj.metadata === undefined)
+  )
+}
+
+/**
+ * Type guard to check if a value is a VectorDocument
+ */
+export function isVectorDocument(value: unknown): value is VectorDocument<Record<string, unknown>> {
+  if (typeof value !== 'object' || value === null) return false
+  const obj = value as Record<string, unknown>
+  return (
+    typeof obj.id === 'string' &&
+    typeof obj.content === 'string' &&
+    obj.embedding instanceof Float32Array &&
+    (typeof obj.metadata === 'object' || obj.metadata === undefined)
+  )
 }

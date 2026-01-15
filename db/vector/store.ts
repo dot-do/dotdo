@@ -10,6 +10,15 @@
 import { MatryoshkaHandler, truncateEmbedding } from './matryoshka'
 import { toBinary, packBits, packedHammingDistance } from '../core/vector/quantization/binary'
 import { IVFIndex, type IVFConfig, type IVFTrainingOptions } from './ivf'
+import {
+  BoundedLRUCache,
+  binaryHashSizeCalculator,
+  matryoshkaSizeCalculator,
+  validateCacheConfig,
+  DEFAULT_CACHE_CONFIG,
+  type CacheConfig,
+  type CacheStats,
+} from './cache'
 import type {
   VectorStoreOptions,
   InsertOptions,
@@ -31,7 +40,25 @@ import type {
   ProgressiveSearchStats,
   EnhancedProgressiveResult,
   IndexConfig,
+  FilterValue,
 } from './types'
+
+// ============================================================================
+// DATABASE INTERFACE
+// ============================================================================
+
+/**
+ * Database interface for VectorStore storage
+ * Compatible with SQLite-based databases (SqlStorage, D1, etc.)
+ */
+export interface SqlStorageInterface {
+  exec: (sql: string) => void
+  prepare: (sql: string) => {
+    run: (...params: unknown[]) => void
+    get: (...params: unknown[]) => unknown
+    all: (...params: unknown[]) => unknown[]
+  }
+}
 
 // ============================================================================
 // VECTOR STORE CLASS
@@ -47,7 +74,7 @@ export class VectorStore {
   private readonly onCDCCallback?: (event: CDCEvent) => void
   private readonly cdcEmitter?: CDCEmitter
 
-  private db: any
+  private db: SqlStorageInterface
   private initialized = false
   private documents = new Map<string, StoredDocument>()
   private ftsIndex = new Map<string, string>()
@@ -66,11 +93,19 @@ export class VectorStore {
   private ivfIndex?: IVFIndex
   private ivfTrained = false
 
-  // Search optimization caches
-  private readonly binaryHashCache = new Map<string, Uint8Array>()
-  private readonly matryoshkaCache = new Map<string, Map<number, Float32Array>>()
+  // Search optimization caches (bounded LRU)
+  private readonly _cacheConfig: CacheConfig
+  private readonly binaryHashCache: BoundedLRUCache<string, Uint8Array>
+  private readonly matryoshkaCache: BoundedLRUCache<string, Map<number, Float32Array>>
 
-  constructor(db: any, options: VectorStoreOptions = {}) {
+  /**
+   * Get the cache configuration
+   */
+  get cacheConfig(): CacheConfig {
+    return { ...this._cacheConfig }
+  }
+
+  constructor(db: SqlStorageInterface, options: VectorStoreOptions = {}) {
     // Validate dimension
     if (options.dimension !== undefined && options.dimension <= 0) {
       throw new Error('Invalid dimension: must be a positive integer')
@@ -107,7 +142,7 @@ export class VectorStore {
     this.matryoshkaHandler = new MatryoshkaHandler({ originalDimension: this.dimension })
 
     // Initialize tiering with defaults
-    this.tieredStorage = (options as any).tieredStorage ?? {
+    this.tieredStorage = options.tieredStorage ?? {
       hot: { enabled: true, maxDocuments: 10000, maxAgeMs: 3600000 }, // 1 hour
       warm: { enabled: true, maxDocuments: 100000, maxAgeMs: 86400000 }, // 1 day
       cold: { enabled: true },
@@ -116,7 +151,41 @@ export class VectorStore {
     }
 
     // Index configuration
-    this.indexConfig = (options as any).indexConfig
+    this.indexConfig = options.indexConfig
+
+    // Cache configuration - validate and initialize
+    const cacheConfig = options.cacheConfig
+    if (cacheConfig) {
+      validateCacheConfig(cacheConfig)
+    }
+
+    this._cacheConfig = {
+      ...DEFAULT_CACHE_CONFIG,
+      ...cacheConfig,
+    }
+
+    // Determine cache sizes
+    const binaryHashMaxSize = this._cacheConfig.binaryHashMaxSize ?? this._cacheConfig.maxSize
+    const matryoshkaMaxSize = this._cacheConfig.matryoshkaMaxSize ?? this._cacheConfig.maxSize
+
+    // Initialize bounded LRU caches
+    this.binaryHashCache = new BoundedLRUCache<string, Uint8Array>(
+      binaryHashMaxSize,
+      binaryHashSizeCalculator,
+      {
+        memoryLimitBytes: this._cacheConfig.memoryLimitBytes,
+        evictionThreshold: this._cacheConfig.evictionThreshold,
+      }
+    )
+
+    this.matryoshkaCache = new BoundedLRUCache<string, Map<number, Float32Array>>(
+      matryoshkaMaxSize,
+      matryoshkaSizeCalculator,
+      {
+        memoryLimitBytes: this._cacheConfig.memoryLimitBytes,
+        evictionThreshold: this._cacheConfig.evictionThreshold,
+      }
+    )
 
     if (!this.lazyInit) {
       this.initSync()
@@ -248,8 +317,9 @@ export class VectorStore {
     // Try database operation to check for errors
     try {
       this.db.prepare('SELECT 1')
-    } catch (err: any) {
-      throw new Error(`Database error: ${err.message}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new Error(`Database error: ${message}`)
     }
 
     // Create matryoshka prefixes only if the dim is valid
@@ -292,8 +362,8 @@ export class VectorStore {
     this.tieredDocuments.set(doc.id, tieredDoc)
     this.hotTier.add(doc.id)
 
-    // Cache binary hash for fast access
-    this.binaryHashCache.set(doc.id, binary_hash)
+    // Note: Don't cache during insert - cache is populated lazily during search
+    // This allows hit/miss metrics to reflect actual search patterns
 
     if (emitEvent) {
       // Emit CDC event
@@ -367,8 +437,7 @@ export class VectorStore {
       this.tieredDocuments.set(doc.id, tieredDoc)
       this.hotTier.add(doc.id)
 
-      // Cache binary hash
-      this.binaryHashCache.set(doc.id, binary_hash)
+      // Note: Don't cache during insert - cache is populated lazily during search
     }
 
     // Emit batch CDC event
@@ -435,9 +504,13 @@ export class VectorStore {
         for (const [key, value] of Object.entries(filter)) {
           // Handle nested keys like 'metadata.category'
           const keys = key.split('.')
-          let current: any = doc
+          let current: unknown = doc as unknown
           for (const k of keys) {
-            current = current?.[k]
+            if (current && typeof current === 'object' && k in current) {
+              current = (current as Record<string, unknown>)[k]
+            } else {
+              current = undefined
+            }
           }
           if (current !== value) {
             return false
@@ -452,17 +525,25 @@ export class VectorStore {
       const queryBinaryBits = toBinary(embedding)
       const queryBinaryHash = packBits(queryBinaryBits)
 
-      // Sort by Hamming distance first (fast approximation)
-      candidates.sort((a, b) => {
-        const hashA = new Uint8Array(a.binary_hash!)
-        const hashB = new Uint8Array(b.binary_hash!)
-        const distA = packedHammingDistance(queryBinaryHash, hashA)
-        const distB = packedHammingDistance(queryBinaryHash, hashB)
-        return distA - distB
+      // Pre-compute hamming distances with cache tracking
+      // Use peek() to track hit/miss without affecting LRU order
+      // LRU order is only updated for final results
+      const scored = candidates.map((doc) => {
+        // Use peek() for internal access (tracks metrics, doesn't update LRU order)
+        let hash = this.binaryHashCache.peek(doc.id)
+        if (!hash && doc.binary_hash) {
+          hash = new Uint8Array(doc.binary_hash)
+          this.binaryHashCache.set(doc.id, hash)
+        }
+        const hamming = hash ? packedHammingDistance(queryBinaryHash, hash) : Infinity
+        return { doc, hamming }
       })
 
+      // Sort by Hamming distance first (fast approximation)
+      scored.sort((a, b) => a.hamming - b.hamming)
+
       // Keep top candidates for exact search
-      candidates = candidates.slice(0, Math.min(candidates.length, limit * 10))
+      candidates = scored.slice(0, Math.min(scored.length, limit * 10)).map((s) => s.doc)
     }
 
     // Compute exact cosine similarity
@@ -480,7 +561,25 @@ export class VectorStore {
     // Sort by similarity descending
     results.sort((a, b) => b.similarity - a.similarity)
 
-    return results.slice(0, limit)
+    const finalResults = results.slice(0, limit)
+
+    // Update cache access times for returned results to reflect "usage" in LRU
+    // This ensures the most relevant results are kept in cache longer
+    for (const result of finalResults) {
+      // Re-access cache entries for returned results to update their LRU position
+      const hash = this.binaryHashCache.get(result.id)
+      if (hash) {
+        // Touch the cache entry to move it to most recently used
+        this.binaryHashCache.set(result.id, hash)
+      }
+
+      // Record access for tiering (triggers promotion if enabled)
+      if (this.tieredStorage.autoPromote) {
+        this.recordAccess(result.id)
+      }
+    }
+
+    return finalResults
   }
 
   // ============================================================================
@@ -770,8 +869,9 @@ export class VectorStore {
 
       if (stage.type === 'binary' && candidates.length > targetCandidates) {
         // Use cached binary hashes when available
+        // Use peek() for internal access to not affect LRU order
         const scored = candidates.map((doc) => {
-          let binaryHash = this.binaryHashCache.get(doc.id)
+          let binaryHash = this.binaryHashCache.peek(doc.id)
           if (!binaryHash && doc.binary_hash) {
             binaryHash = new Uint8Array(doc.binary_hash)
             this.binaryHashCache.set(doc.id, binaryHash)
@@ -791,8 +891,8 @@ export class VectorStore {
         const queryTrunc = truncateEmbedding(embedding, stage.dim)
 
         const scored = candidates.map((doc) => {
-          // Check cache first
-          let cache = this.matryoshkaCache.get(doc.id)
+          // Check cache first - use peek() for internal access
+          let cache = this.matryoshkaCache.peek(doc.id)
           let docTrunc: Float32Array
 
           if (cache?.has(stage.dim!)) {
@@ -870,6 +970,21 @@ export class VectorStore {
       // Update access tracking for tiering
       if (this.tieredStorage.autoPromote) {
         this.recordAccess(doc.id)
+      }
+
+      // Populate matryoshka cache for all candidates (ensures cache population even for small collections)
+      // Use peek() to not affect LRU order during internal access
+      if (this.matryoshkaDims.length > 0) {
+        let cache = this.matryoshkaCache.peek(doc.id)
+        if (!cache) {
+          cache = new Map()
+          // Cache available matryoshka embeddings
+          if (doc.mat_64) cache.set(64, doc.mat_64)
+          if (doc.mat_256) cache.set(256, doc.mat_256)
+          if (cache.size > 0) {
+            this.matryoshkaCache.set(doc.id, cache)
+          }
+        }
       }
 
       return {
@@ -1016,6 +1131,26 @@ export class VectorStore {
     if (tieredDoc) {
       tieredDoc.tier = 'hot'
     }
+
+    // Auto-populate cache on promotion if configured
+    if (this._cacheConfig.autoPopulateOnPromote) {
+      const doc = this.documents.get(id)
+      if (doc) {
+        // Populate binary hash cache
+        if (doc.binary_hash && !this.binaryHashCache.has(id)) {
+          this.binaryHashCache.set(id, new Uint8Array(doc.binary_hash))
+        }
+        // Populate matryoshka cache
+        if (!this.matryoshkaCache.has(id)) {
+          const cache = new Map<number, Float32Array>()
+          if (doc.mat_64) cache.set(64, doc.mat_64)
+          if (doc.mat_256) cache.set(256, doc.mat_256)
+          if (cache.size > 0) {
+            this.matryoshkaCache.set(id, cache)
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1033,9 +1168,9 @@ export class VectorStore {
   }
 
   /**
-   * Demote a document to cold tier
+   * Demote a document to cold tier (public for manual tier management)
    */
-  private demoteToCold(id: string): void {
+  demoteToCold(id: string): void {
     this.hotTier.delete(id)
     this.warmTier.delete(id)
     this.coldTier.add(id)
@@ -1309,5 +1444,90 @@ export class VectorStore {
     const denom = Math.sqrt(normA) * Math.sqrt(normB)
     if (denom === 0) return 0
     return dot / denom
+  }
+
+  // ============================================================================
+  // CACHE MANAGEMENT API
+  // ============================================================================
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): CacheStats {
+    const binaryStats = this.binaryHashCache.getStats()
+    const matryoshkaStats = this.matryoshkaCache.getStats()
+    const totalMemoryBytes = binaryStats.memoryBytes + matryoshkaStats.memoryBytes
+    const memoryLimitBytes = this._cacheConfig.memoryLimitBytes ?? Infinity
+
+    return {
+      binaryHashCache: binaryStats,
+      matryoshkaCache: matryoshkaStats,
+      totalMemoryBytes,
+      memoryBytes: totalMemoryBytes,
+      memoryLimitBytes: memoryLimitBytes === Infinity ? 0 : memoryLimitBytes,
+      memoryUsagePercent: memoryLimitBytes !== Infinity
+        ? (totalMemoryBytes / memoryLimitBytes) * 100
+        : 0,
+    }
+  }
+
+  /**
+   * Clear cache (optionally by type)
+   */
+  clearCache(type?: 'binaryHash' | 'matryoshka'): void {
+    if (!type || type === 'binaryHash') {
+      this.binaryHashCache.clear()
+    }
+    if (!type || type === 'matryoshka') {
+      this.matryoshkaCache.clear()
+    }
+  }
+
+  /**
+   * Reset cache metrics without clearing cache data
+   */
+  resetCacheMetrics(): void {
+    this.binaryHashCache.resetMetrics()
+    this.matryoshkaCache.resetMetrics()
+  }
+
+  /**
+   * Resize cache with new configuration
+   */
+  resizeCache(config: { maxSize?: number; memoryLimitBytes?: number }): void {
+    if (config.maxSize !== undefined) {
+      validateCacheConfig({ maxSize: config.maxSize })
+      this._cacheConfig.maxSize = config.maxSize
+      this.binaryHashCache.resize(config.maxSize, config.memoryLimitBytes)
+      this.matryoshkaCache.resize(config.maxSize, config.memoryLimitBytes)
+    }
+    if (config.memoryLimitBytes !== undefined) {
+      this._cacheConfig.memoryLimitBytes = config.memoryLimitBytes
+    }
+  }
+
+  /**
+   * Warm cache with specific document IDs
+   */
+  async warmCache(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      const doc = this.documents.get(id)
+      if (doc) {
+        // Cache binary hash
+        if (doc.binary_hash && !this.binaryHashCache.has(id)) {
+          this.binaryHashCache.set(id, new Uint8Array(doc.binary_hash))
+        }
+
+        // Cache matryoshka embeddings
+        if (!this.matryoshkaCache.has(id)) {
+          const cache = new Map<number, Float32Array>()
+          if (doc.mat_64) cache.set(64, doc.mat_64)
+          if (doc.mat_256) cache.set(256, doc.mat_256)
+          if (cache.size > 0) {
+            this.matryoshkaCache.set(id, cache)
+          }
+        }
+      }
+    }
   }
 }

@@ -8,6 +8,14 @@
 
 export { VectorStore } from './store'
 export { HybridSearch, HybridVectorStore } from './hybrid'
+export { isSearchResult, isVectorDocument } from './types'
+export {
+  BoundedLRUCache,
+  binaryHashSizeCalculator,
+  matryoshkaSizeCalculator,
+  validateCacheConfig,
+  DEFAULT_CACHE_CONFIG,
+} from './cache'
 export {
   MatryoshkaHandler,
   truncateEmbedding,
@@ -16,6 +24,14 @@ export {
   computeStorageSavings,
   truncateAndQuantize,
 } from './matryoshka'
+
+export type {
+  CacheConfig,
+  CacheStats,
+  SingleCacheStats,
+  CacheEntry,
+  CacheMetrics,
+} from './cache'
 
 export type {
   VectorStoreOptions,
@@ -47,6 +63,12 @@ export type {
   // Index types
   IndexType,
   IndexConfig,
+  // Filter types
+  FilterValue,
+  // MockDb types
+  MockDb,
+  MockDbStoredValue,
+  PreparedStatement,
 } from './types'
 
 export type {
