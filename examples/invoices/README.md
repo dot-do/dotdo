@@ -141,6 +141,27 @@ async function processPayment(invoiceId: string) {
 
 ---
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const invoice of overdueInvoices) {
+  await $.Customer(invoice.customerId).sendReminder(invoice)
+}
+
+// ✅ Pipelined - fire and forget (no await needed for side effects)
+overdueInvoices.forEach(inv => $.Customer(inv.customerId).sendReminder(inv))
+
+// ✅ Pipelined - single round-trip for chained access
+const balance = await $.Customer(invoice.customerId).getAccount().balance
+```
+
+Only `await` at exit points when you actually need the value. Reminders, notifications, and logging are fire-and-forget - let them run without blocking.
+
+---
+
 ## Quick Start
 
 ```bash

@@ -156,6 +156,26 @@ const payment = await $.Payment(order.customerId).charge(order.total)
 const shipping = await $.Shipping(order.id).schedule(order.address)
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// Sequential - unnecessary blocking
+const user = await $.User(id)
+const profile = await user.getProfile()
+const email = await profile.email
+
+// Pipelined - single round-trip
+const email = await $.User(id).getProfile().email
+
+// Fire and forget - no await for side effects
+$.User(id).notify({ type: 'order_shipped' })
+$.Order(orderId).markFulfilled()
+```
+
+Only `await` at exit points when you actually need the value. Side effects like notifications and status updates don't require waiting for completion.
+
 ## Comparison
 
 | Feature | Temporal/Step Functions | dotdo |

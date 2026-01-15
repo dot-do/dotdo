@@ -198,6 +198,27 @@ SubscriptionManager.publish()
 WebSocket broadcast to subscribers
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const key of keys) {
+  await $.Cache(ns).invalidate(key)
+}
+
+// ✅ Pipelined - fire and forget
+keys.forEach(key => $.Cache(ns).invalidate(key))
+
+// ✅ Pipelined - single await at the end
+const results = await Promise.all(
+  keys.map(key => $.Cache(ns).get(key))
+)
+```
+
+Fire-and-forget is valid for side effects like cache invalidation. Only `await` at exit points when you need the value. This maps directly to Redis pipelining - batch commands, reduce round-trips.
+
 ## TTL Implementation
 
 TTL is tracked in the L0 store with lazy expiration:

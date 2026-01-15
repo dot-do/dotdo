@@ -134,6 +134,25 @@ $.on.*.created(async (event) => {
 })
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const subscriberId of subscribers) {
+  await $.Subscriber(subscriberId).notify(newPost)
+}
+
+// ✅ Pipelined - fire and forget
+subscribers.forEach(id => $.Subscriber(id).notify(newPost))
+
+// ✅ Pipelined - single round-trip
+const authorName = await $.Post(postId).getAuthor().name
+```
+
+Only `await` at exit points when you need the value. Fire-and-forget is valid for side effects like notifications.
+
 ## Scheduling
 
 Automate your blog with `$.every`:

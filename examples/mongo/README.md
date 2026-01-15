@@ -178,6 +178,28 @@ const result = await users.aggregate([
 { $lookup: { ... } }    // Join collections
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain methods without awaiting - the network call happens once at the end.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const doc of docs) {
+  await users.insertOne(doc)
+}
+
+// ✅ Pipelined - fire and forget (no await needed for side effects)
+docs.forEach(doc => users.insertOne(doc))
+
+// ✅ Pipelined - single round-trip for chained operations
+const count = await users.find({ status: 'active' })
+  .sort({ createdAt: -1 })
+  .limit(100)
+  .count()
+```
+
+Only `await` when you need the result. Fire-and-forget inserts, updates, and deletes are valid - dotdo's durability layer handles persistence.
+
 ## Collections as Nouns
 
 Under the hood, MongoDB collections map to dotdo Nouns:

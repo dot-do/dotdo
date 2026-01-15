@@ -189,6 +189,30 @@ $.onError((info) => console.error(`Failed: ${info.eventType}`, info.error))
 | Replay-safe | No | No | Yes |
 | Use case | Analytics | User requests | Critical ops |
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const job of jobs) {
+  await $.Worker(job.workerId).process(job)
+}
+
+// ✅ Pipelined - fire and forget
+jobs.forEach(job => $.Worker(job.workerId).process(job))
+
+// ✅ Pipelined - batch dispatch, single await
+const results = await Promise.all(
+  jobs.map(job => $.Worker(job.workerId).process(job))
+)
+
+// ✅ Chain without await - single round-trip
+const pending = await $.Queue(id).getMetrics().pending
+```
+
+Fire-and-forget is valid for side effects. Only `await` at exit points when you need the value.
+
 ## Deploy
 
 ```bash

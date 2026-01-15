@@ -108,6 +108,25 @@ async function dailyPipeline() {
 }
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const stage of stages) {
+  await $.Stage(stage.id).execute(data)
+}
+
+// ✅ Pipelined - fire and forget
+stages.forEach(s => $.Stage(s.id).execute(data))
+
+// ✅ Pipelined - single round-trip
+const result = await $.Pipeline(id).getStage(0).run(batch)
+```
+
+Fire-and-forget is valid for side effects like notifications or metrics. Only `await` at exit points when you need the value.
+
 ## Complete Example
 
 ```typescript

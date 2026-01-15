@@ -148,6 +148,28 @@ $.on.Deal.updated(async ({ deal, prev, $ }) => {
 })
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const id of contactIds) {
+  await $.Contact(id).sendEmail(campaign)
+}
+
+// ✅ Pipelined - fire and forget
+contactIds.forEach(id => $.Contact(id).sendEmail(campaign))
+
+// ✅ Pipelined - single round-trip for chained access
+const companyName = await $.Contact(id).getCompany().name
+
+// ✅ Batch deal updates - no await needed for side effects
+staleDeals.forEach(deal => $.Deal(deal.$id).nudgeOwner())
+```
+
+Only `await` at exit points when you need the value.
+
 ## Multi-Tenant URLs
 
 ```

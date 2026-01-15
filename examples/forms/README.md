@@ -54,6 +54,25 @@ $.on.Form.submitted(async (event) => {
 })
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const webhookId of form.webhooks) {
+  await $.Webhook(webhookId).deliver(submission)
+}
+
+// ✅ Pipelined - fire and forget
+form.webhooks.forEach(id => $.Webhook(id).deliver(submission))
+
+// ✅ Pipelined - single round-trip
+const fields = await $.Form(formId).getLatestVersion().fields
+```
+
+Only `await` at exit points when you need the value. Webhook delivery is a side effect - no result needed, no await needed.
+
 ## AI-Powered Validation
 
 ```typescript

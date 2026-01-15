@@ -111,14 +111,32 @@ export default DO.extend({
 import { $ } from 'dotdo'
 
 // Notify mentioned users
-$.on.Message.sent(async (event) => {
+$.on.Message.sent((event) => {
   const message = event.data as Message
   const mentions = extractMentions(message.content)
-  for (const userId of mentions) {
-    await $.User(userId).notify({ type: 'mention', room: message.room })
-  }
+  // Fire-and-forget - no await needed for side effects
+  mentions.forEach(userId => $.User(userId).notify({ type: 'mention', room: message.room }))
 })
 ```
+
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const userId of mentions) {
+  await $.User(userId).notify({ type: 'mention', room })
+}
+
+// ✅ Pipelined - fire and forget notifications
+mentions.forEach(userId => $.User(userId).notify({ type: 'mention', room }))
+
+// ✅ Pipelined - single round-trip for chained access
+const authorName = await $.User(message.author).getProfile().name
+```
+
+Only `await` at exit points when you need the value.
 
 ## Client Code
 

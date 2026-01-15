@@ -138,6 +138,25 @@ class RateLimitDO extends DO {
 }
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const violation of violations) {
+  await $.Security(violation.ip).flag(violation)
+}
+
+// ✅ Pipelined - fire and forget (side effects don't need await)
+violations.forEach(v => $.Security(v.ip).flag(v))
+
+// ✅ Pipelined - single round-trip for chained calls
+const max = await $.RateLimit(key).getConfig().maxRequests
+```
+
+Fire-and-forget is valid for side effects like flagging violations or sending events. Only `await` at exit points when you actually need the return value. This reduces N round-trips to zero for batch operations.
+
 ## Full Example
 
 ```typescript

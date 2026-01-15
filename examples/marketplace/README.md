@@ -180,6 +180,27 @@ await env.VENDOR.get(env.VENDOR.idFromName('acme')).initialize({
 
 ---
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const vendorId of vendorIds) {
+  await $.Vendor(vendorId).notify(order)
+}
+
+// ✅ Fire-and-forget - no await needed for side effects
+vendorIds.forEach(id => $.Vendor(id).notify(order))
+
+// ✅ Pipelined - single round-trip for chained access
+const stock = await $.Vendor(id).inventory().available('SKU-123')
+```
+
+Only `await` at exit points when you actually need the value. Notifications, logging, and side effects don't need to block.
+
+---
+
 ## Why This Works
 
 | Challenge | Solution |

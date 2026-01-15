@@ -133,6 +133,25 @@ async function shareNote(noteId: string, userId: string, permission: 'view' | 'e
 }
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const userId of collaborators) {
+  await $.User(userId).notify(noteUpdate)
+}
+
+// ✅ Pipelined - fire and forget
+collaborators.forEach(id => $.User(id).notify(noteUpdate))
+
+// ✅ Pipelined - single round-trip
+const folderName = await $.Note(id).getParent().name
+```
+
+Fire-and-forget is valid for side effects like notifications. Only `await` at exit points when you actually need the value.
+
 ## Quick Start
 
 ```bash

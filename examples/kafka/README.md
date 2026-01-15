@@ -131,6 +131,25 @@ await consumer.run({
 
 Each partition DO has: in-memory buffer (L0), Pipeline for durability (L1), lazy SQLite checkpoint (L2).
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips to commit offsets
+for (const partition of partitions) {
+  await $.Consumer(partition.id).commit(offset)
+}
+
+// ✅ Pipelined - fire and forget commits
+partitions.forEach(p => $.Consumer(p.id).commit(offset))
+
+// ✅ Pipelined - single round-trip for lag check
+const lag = await $.Topic(id).getPartition(0).lag
+```
+
+For streaming workloads, fire-and-forget is often correct. Offset commits, metric emissions, and heartbeats don't need `await`—only `await` at exit points when you need the value or must block on completion.
+
 ## Kafka vs dotdo
 
 | Feature | Kafka | dotdo |

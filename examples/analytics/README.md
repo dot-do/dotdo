@@ -128,6 +128,27 @@ async getRetention() {
 
 ---
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const event of batch) {
+  await $.Analytics(tenantId).track(event)
+}
+
+// ✅ Pipelined - fire and forget
+batch.forEach(e => $.Analytics(tenantId).track(e))
+
+// ✅ Pipelined - single round-trip
+const dau = await $.Analytics(tenantId).getDAU(7).then(r => r[0].dau)
+```
+
+Analytics events are fire-and-forget by nature. No need to `await` each `track()` call - just emit and move on. The Pipeline (L1) handles durability. Only `await` at exit points when you actually need the value.
+
+---
+
 ## Quick Start
 
 ```bash

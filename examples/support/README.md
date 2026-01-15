@@ -186,3 +186,25 @@ npx wrangler deploy
 - **Zero missed SLAs**: Hourly checks catch at-risk tickets before breach
 - **Clear escalation**: Events trigger notifications and reassignment
 - **Cost control**: Only pay for AI when deterministic lookup fails
+
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// Notify all available agents about escalation
+const availableAgents = await $.things.Agent.list({ where: { available: true } })
+
+// ❌ Sequential - N round-trips
+for (const agent of availableAgents) {
+  await $.Agent(agent.$id).notify(escalatedTicket)
+}
+
+// ✅ Pipelined - fire and forget
+availableAgents.forEach(agent => $.Agent(agent.$id).notify(escalatedTicket))
+
+// ✅ Pipelined - single round-trip for chained lookups
+const customerHistory = await $.Ticket(ticketId).getCustomer().history
+```
+
+Fire-and-forget works for side effects like notifications. Only `await` at exit points when you need the value.

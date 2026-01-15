@@ -142,6 +142,25 @@ const promise = ai`Expensive operation`
 promise.cancel()
 ```
 
+## Promise Pipelining
+
+AIPromises are stubs. Chain freely, await only when needed.
+
+```typescript
+// Sequential - N round-trips
+for (const doc of documents) {
+  await $.Embedding(doc.id).generate(doc.content)
+}
+
+// Pipelined - fire and forget (valid for side effects)
+documents.forEach(doc => $.Embedding(doc.id).generate(doc.content))
+
+// Pipelined - single round-trip for chained operations
+const insights = await $.Document(id).analyze().extractInsights().summarize()
+```
+
+Fire-and-forget is valid when you don't need the result. Only `await` at exit points when you actually need the value returned.
+
 ## Real-World Example
 
 ```typescript

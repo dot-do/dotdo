@@ -188,6 +188,34 @@ $.on.System.degraded(async (event) => {
 
 Runs inside your Durable Object. No external scheduler.
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// Batch notifications - fire and forget
+$.every.Monday.at9am(async () => {
+  const report = await generateReport()
+
+  // ❌ Sequential - N round-trips
+  for (const userId of subscribers) {
+    await $.User(userId).sendDigest(report)
+  }
+
+  // ✅ Pipelined - fire and forget
+  subscribers.forEach(id => $.User(id).sendDigest(report))
+})
+
+// Chain without awaiting intermediate results
+$.every.hour(async () => {
+  // ✅ Single round-trip - only await the final value
+  const status = await $.Monitor('health').check().status
+  if (status !== 'ok') $.Alert('oncall').notify(status)
+})
+```
+
+Only `await` at exit points when you need the value. Side effects don't require awaiting.
+
 ## See Also
 
 - [dotdo docs](https://dotdo.dev/docs) - Full documentation

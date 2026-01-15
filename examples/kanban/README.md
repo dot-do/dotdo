@@ -172,6 +172,25 @@ ws.send(JSON.stringify({
 }))
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const userId of card.watchers) {
+  await $.User(userId).notify(cardUpdate)
+}
+
+// ✅ Pipelined - fire and forget
+card.watchers.forEach(id => $.User(id).notify(cardUpdate))
+
+// ✅ Pipelined - single round-trip
+const email = await $.Card(cardId).getAssignee().email
+```
+
+When a card moves, notify watchers without blocking. The notifications fire in parallel - no await needed for side effects. Only await at exit points when you actually need the value (like fetching the assignee's email to send a summary).
+
 ## What You Get
 
 - Full audit trail of every card move

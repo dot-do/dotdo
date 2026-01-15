@@ -94,6 +94,25 @@ const orders = await sql`SELECT * FROM ${sql.forward('cust_abc', 'Order')}`
 const customer = await sql`SELECT * FROM ${sql.backward('order_xyz', 'Customer')}`
 ```
 
+## Promise Pipelining
+
+Queries return stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const row of rows) {
+  await sql`INSERT INTO orders (customer_id, total) VALUES (${row.customer}, ${row.total})`
+}
+
+// ✅ Pipelined - fire and forget
+rows.forEach(row => sql`INSERT INTO orders (customer_id, total) VALUES (${row.customer}, ${row.total})`)
+
+// ✅ Pipelined - single round-trip for chained operations
+const activeCount = await sql`SELECT * FROM customers WHERE status = 'active'`.count()
+```
+
+Only `await` at exit points when you need the result. Fire-and-forget is valid for writes where you don't need confirmation.
+
 ## How It Works
 
 ```

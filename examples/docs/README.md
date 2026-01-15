@@ -161,6 +161,33 @@ app.get('/:version/:page', async (c) => {
 })
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+$.on.Version.published(async (event) => {
+  const subscribers = event.thing <- 'Subscriber'
+  for (const sub of subscribers) {
+    await $.Customer(sub.$id).notify(`New version: ${event.thing.name}`)
+  }
+})
+
+// ✅ Pipelined - fire and forget
+$.on.Version.published(async (event) => {
+  const subscribers = event.thing <- 'Subscriber'
+  subscribers.forEach(sub =>
+    $.Customer(sub.$id).notify(`New version: ${event.thing.name}`)
+  )
+})
+
+// ✅ Pipelined - single round-trip
+const owner = await $.Doc(id).getWorkspace().owner
+```
+
+Fire-and-forget is valid for side effects like notifications. Only `await` at exit points when you actually need the value.
+
 ## Deploy
 
 ```bash

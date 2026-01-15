@@ -103,6 +103,25 @@ $.on.*.edited(async (event) => {
 })
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const watcherId of watchers) {
+  await $.User(watcherId).notify(pageUpdate)
+}
+
+// ✅ Pipelined - fire and forget
+watchers.forEach(id => $.User(id).notify(pageUpdate))
+
+// ✅ Pipelined - single round-trip
+const author = await $.Page(pageId).getLastRevision().author
+```
+
+Only `await` at exit points when you actually need the value. Fire-and-forget is valid for side effects like notifications.
+
 ## Querying Revision History
 
 Actions give you revision history for free:

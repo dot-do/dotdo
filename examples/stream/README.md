@@ -170,6 +170,27 @@ export class AnalyticsDO extends DO {
 
 ---
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const sub of subscribers) {
+  await pipeline.emit('stream.push', sub, event)
+}
+
+// ✅ Pipelined - fire and forget
+subscribers.forEach(s => pipeline.emit('stream.push', s, event))
+
+// ✅ Await only when you need the result
+const position = await pipeline.getConsumer(consumerId).checkpoint
+```
+
+Fire-and-forget is valid for side effects. Events are durable in Pipeline before your code continues - no `await` required. Only await at exit points when you actually need the value.
+
+---
+
 ## Quick Start
 
 ```bash

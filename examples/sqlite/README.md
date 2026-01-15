@@ -177,6 +177,29 @@ sql.exec(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`)
 const plan = sql.exec(`EXPLAIN QUERY PLAN SELECT * FROM users WHERE email = ?`, email)
 ```
 
+## Promise Pipelining
+
+When using `$.DB()` remotely, promises are stubs. Chain operations without awaiting each one.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const row of rows) {
+  await $.DB(name).insert('customers', row)
+}
+
+// ✅ Pipelined - fire and forget
+rows.forEach(row => $.DB(name).insert('customers', row))
+
+// ✅ Pipelined - batch then await once
+const inserts = rows.map(row => $.DB(name).insert('customers', row))
+await Promise.all(inserts)
+
+// ✅ Single round-trip for the result you need
+const count = await $.DB(name).table('customers').count()
+```
+
+Fire-and-forget is valid for side effects. Only `await` at exit points when you need the value.
+
 ## Limits
 
 | Resource | Limit |

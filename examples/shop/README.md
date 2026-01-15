@@ -139,6 +139,30 @@ async function checkout(customerId: string, cartId: string) {
 
 `$.do` retries with exponential backoff. If the DO restarts mid-checkout, replay resumes from the last completed step.
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const item of cart.items) {
+  await $.Inventory(item.sku).reserve(item.qty)
+}
+
+// ✅ Pipelined - parallel execution
+cart.items.forEach(item => $.Inventory(item.sku).reserve(item.qty))
+
+// ✅ Pipelined with collection
+const reservations = await Promise.all(
+  cart.items.map(item => $.Inventory(item.sku).reserve(item.qty))
+)
+
+// ✅ Fire-and-forget for side effects (no await needed)
+$.Customer(order.customer).trackView(product.$id)
+```
+
+Only `await` at exit points when you need the value. Side effects like analytics, notifications, and logging don't require awaiting.
+
 ## Scheduling
 
 ```typescript

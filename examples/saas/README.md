@@ -147,6 +147,25 @@ $.every.Monday.at9am(() => this.generateWeeklyReport())
 $.every(15).minutes(() => this.checkPendingRenewals())
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips per tenant
+for (const tenant of tenants) {
+  await $.Tenant(tenant.id).notify(announcement)
+}
+
+// ✅ Pipelined - fire and forget (no await needed for side effects)
+tenants.forEach(t => $.Tenant(t.id).notify(announcement))
+
+// ✅ Pipelined - single round-trip for chained calls
+const plan = await $.Tenant(id).getSubscription().plan
+```
+
+Only `await` at exit points when you actually need the result. For broadcast notifications, billing webhooks, or cross-tenant events—fire and move on.
+
 ## Tenant Provisioning
 
 ```typescript

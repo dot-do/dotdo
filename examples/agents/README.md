@@ -101,6 +101,25 @@ async function agentWorkflow(task: string) {
 
 If the DO restarts mid-workflow, `$.do` replays completed steps from the action log.
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// ❌ Sequential - N round-trips
+for (const task of pendingTasks) {
+  await $.Agent(task.agentId).assign(task)
+}
+
+// ✅ Pipelined - fire and forget
+pendingTasks.forEach(task => $.Agent(task.agentId).assign(task))
+
+// ✅ Pipelined - single round-trip
+const status = await $.Agent(id).getState().currentTask
+```
+
+Fire-and-forget is valid for side effects like agent assignments. Only `await` at exit points when you actually need the result. This reduces latency from N sequential round-trips to a single batch.
+
 ## Human-in-the-Loop Queue
 
 ```typescript

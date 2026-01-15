@@ -157,6 +157,25 @@ tag = "v1"
 new_sqlite_classes = ["GameRoom"]
 ```
 
+## Promise Pipelining
+
+Promises are stubs. Chain freely, await only when needed.
+
+```typescript
+// Sequential - N round-trips
+for (const playerId of playerIds) {
+  await $.Player(playerId).broadcast(gameState)
+}
+
+// Pipelined - fire and forget
+playerIds.forEach(id => $.Player(id).broadcast(gameState))
+
+// Pipelined - single round-trip for chained calls
+const stats = await $.Player(id).getProfile().stats
+```
+
+For game broadcasts, fire-and-forget is ideal. No await needed for side effects like notifying other players. Only `await` at exit points when you need the value.
+
 ## Cost Model
 
 | Scenario | Traditional | dotdo |
