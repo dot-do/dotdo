@@ -228,8 +228,8 @@ export class ColdStartRecovery {
       const sqliteResult = await this.loadFromSqlite()
       sqliteLoaded = sqliteResult.thingsLoaded
 
-      // If SQLite has data and we have no Iceberg, return SQLite result
-      if (sqliteLoaded > 0 && !this.iceberg) {
+      // If SQLite has data, prefer it over Iceberg (faster cold start)
+      if (sqliteLoaded > 0) {
         return sqliteResult
       }
     } catch (error) {
@@ -240,8 +240,11 @@ export class ColdStartRecovery {
       sqliteFailed = true
     }
 
-    // Merge with Iceberg replay (handles partial checkpoint scenarios)
-    // This replays from Iceberg while preserving SQLite state and deduplicating
+    // Fall back to Iceberg replay when SQLite is empty or failed
+    // This handles scenarios where:
+    // - SQLite has no data yet (fresh DO)
+    // - SQLite data was corrupted
+    // - Force rebuild from Iceberg is needed
     if (this.iceberg) {
       try {
         return await this.replayFromIceberg()

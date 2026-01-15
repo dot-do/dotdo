@@ -32,6 +32,10 @@ import {
   type MetricRecoverySource,
 } from './metrics'
 import { PrometheusExporter } from './prometheus-exporter'
+import {
+  CostMetricsCollector,
+  type TenantCostReport,
+} from './cost-attribution'
 
 // Re-export types for test file imports
 export type {
@@ -226,6 +230,7 @@ export class UnifiedStoreDO {
   // Metrics
   private _metrics: UnifiedStorageMetrics
   private _prometheusExporter: PrometheusExporter
+  private _costMetrics: CostMetricsCollector
 
   // Internal state
   private checkpointTimer?: ReturnType<typeof setTimeout>
@@ -254,6 +259,9 @@ export class UnifiedStoreDO {
     this._prometheusExporter = new PrometheusExporter(this._metrics, {
       namespace: this.namespace,
     })
+
+    // Initialize cost metrics collector
+    this._costMetrics = new CostMetricsCollector(this.namespace)
 
     // Initialize InMemoryStateManager with metrics
     this.stateManager = new InMemoryStateManager({
@@ -324,6 +332,13 @@ export class UnifiedStoreDO {
     return this._prometheusExporter
   }
 
+  /**
+   * Get the cost metrics collector
+   */
+  get costMetrics(): CostMetricsCollector {
+    return this._costMetrics
+  }
+
   // ==========================================================================
   // HTTP FETCH HANDLER
   // ==========================================================================
@@ -340,6 +355,11 @@ export class UnifiedStoreDO {
       return this.handleMetricsRequest()
     }
 
+    // Handle /cost-report endpoint
+    if (path === '/cost-report') {
+      return this.handleCostReportRequest(url)
+    }
+
     // Default: return 404
     return new Response('Not Found', { status: 404 })
   }
@@ -350,10 +370,41 @@ export class UnifiedStoreDO {
   private handleMetricsRequest(): Response {
     const metricsText = this._prometheusExporter.export()
 
-    return new Response(metricsText, {
+    // Append cost metrics
+    const costMetricsText = this._costMetrics.exportPrometheusMetrics()
+    const combinedMetrics = metricsText + (costMetricsText ? '\n' + costMetricsText : '')
+
+    return new Response(combinedMetrics, {
       status: 200,
       headers: {
         'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+    })
+  }
+
+  /**
+   * Handle /cost-report endpoint for tenant cost reports
+   */
+  private handleCostReportRequest(url: URL): Response {
+    // Parse optional time range from query params
+    const startParam = url.searchParams.get('start')
+    const endParam = url.searchParams.get('end')
+
+    const options: { start?: Date; end?: Date } = {}
+    if (startParam) {
+      options.start = new Date(startParam)
+    }
+    if (endParam) {
+      options.end = new Date(endParam)
+    }
+
+    const report = this._costMetrics.getTenantReport(this.namespace, options)
+
+    return new Response(JSON.stringify(report), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
     })
@@ -375,6 +426,12 @@ export class UnifiedStoreDO {
     const savedMetrics = await this.doState.storage.get<string>('prometheus_metrics')
     if (savedMetrics) {
       this._prometheusExporter.deserialize(savedMetrics)
+    }
+
+    // Try to restore cost metrics state
+    const savedCostMetrics = await this.doState.storage.get<string>('cost_metrics')
+    if (savedCostMetrics) {
+      this._costMetrics.deserialize(savedCostMetrics)
     }
 
     // First, try standard SQLite recovery
@@ -432,6 +489,9 @@ export class UnifiedStoreDO {
     // Persist Prometheus exporter state
     await this.doState.storage.put('prometheus_metrics', this._prometheusExporter.serialize())
 
+    // Persist cost metrics state
+    await this.doState.storage.put('cost_metrics', this._costMetrics.serialize())
+
     await this.checkpoint('hibernation')
   }
 
@@ -441,6 +501,16 @@ export class UnifiedStoreDO {
   async checkpoint(trigger: string = 'manual'): Promise<void> {
     const startTime = performance.now()
     const dirtyCountBefore = this.stateManager.getDirtyCount()
+
+    // Estimate bytes to checkpoint
+    const dirtyEntries = this.stateManager.getDirtyEntries()
+    let estimatedBytes = 0
+    for (const id of dirtyEntries) {
+      const thing = this.stateManager.get(id)
+      if (thing) {
+        estimatedBytes += JSON.stringify(thing).length
+      }
+    }
 
     await this.checkpointer.checkpoint(trigger as 'manual' | 'timer' | 'hibernation')
 
@@ -455,6 +525,9 @@ export class UnifiedStoreDO {
     if (dirtyCountBefore > 0) {
       this._prometheusExporter.trackBatch('checkpoint', dirtyCountBefore)
     }
+
+    // Track cost metrics for SQLite checkpoint - always track the checkpoint operation
+    this._costMetrics.trackCheckpoint(dirtyCountBefore, estimatedBytes)
   }
 
   /**
@@ -474,15 +547,29 @@ export class UnifiedStoreDO {
     // Track read metrics
     const durationSeconds = (performance.now() - startTime) / 1000
     if (thing) {
-      this._prometheusExporter.trackRead(thing.$type, true) // Cache hit
+      const thingBytes = JSON.stringify(thing).length
+      // Determine if this is a cache hit or miss based on read history
+      const isFirstRead = !this.readEntityIds.has(id)
+      this.readEntityIds.add(id)
+
+      // First read is considered a "cache miss" from cost perspective
+      // Subsequent reads are "cache hits"
+      const cacheHit = !isFirstRead
+      this._prometheusExporter.trackRead(thing.$type, cacheHit)
       this._prometheusExporter.trackOperation('read', thing.$type, durationSeconds)
+      this._costMetrics.trackRead(thing.$type, thingBytes, cacheHit)
     } else {
       this._prometheusExporter.trackRead('unknown', false) // Cache miss
       this._prometheusExporter.trackOperation('read', 'unknown', durationSeconds)
+      // Track cost metrics - cache miss
+      this._costMetrics.trackRead('unknown', 0, false)
     }
 
     return thing as Thing | null
   }
+
+  // Track entity IDs that have been read for cache hit/miss tracking
+  private readEntityIds: Set<string> = new Set()
 
   /**
    * Query Iceberg for events (for recovery)
@@ -509,18 +596,28 @@ export class UnifiedStoreDO {
       ...message.data,
     })
 
+    // Calculate bytes for cost tracking
+    const thingBytes = JSON.stringify(thing).length
+
     // Emit to Pipeline IMMEDIATELY (before SQLite)
     // This is the KEY INVARIANT - Pipeline is the WAL
-    this.emitToPipeline('thing.created', 'create', thing.$id, message.$type, {
+    const pipelinePayload = {
       ...thing,
       $createdAt: now,
       $updatedAt: now,
-    })
+    }
+    this.emitToPipeline('thing.created', 'create', thing.$id, message.$type, pipelinePayload)
 
     // Track operation metrics
     const durationSeconds = (performance.now() - startTime) / 1000
     this._prometheusExporter.trackOperation('create', message.$type, durationSeconds)
     this._prometheusExporter.trackEvent('thing.created')
+
+    // Track cost metrics - write
+    this._costMetrics.trackWrite('create', message.$type, thingBytes)
+    // Track cost metrics - pipeline event
+    const pipelineBytes = JSON.stringify(pipelinePayload).length
+    this._costMetrics.trackPipelineEvent('thing.created', pipelineBytes)
 
     // Send ACK to client BEFORE checkpoint (non-blocking)
     ws.send(
@@ -546,9 +643,12 @@ export class UnifiedStoreDO {
       const thing = this.stateManager.get(id)
       if (thing) {
         things[id] = thing as Thing
+        const thingBytes = JSON.stringify(thing).length
         this._prometheusExporter.trackRead(thing.$type, true) // Cache hit
+        this._costMetrics.trackRead(thing.$type, thingBytes, true)
       } else {
         this._prometheusExporter.trackRead('unknown', false) // Cache miss
+        this._costMetrics.trackRead('unknown', 0, false)
       }
     }
 
@@ -582,18 +682,28 @@ export class UnifiedStoreDO {
         $updatedAt: now,
       })
 
+      // Calculate bytes for cost tracking
+      const updateBytes = JSON.stringify(message.data).length
+
       // Emit to Pipeline IMMEDIATELY
-      this.emitToPipeline('thing.updated', 'update', message.$id, entityType, {
+      const pipelinePayload = {
         $id: message.$id,
         ...message.data,
         $version: updated.$version,
         $updatedAt: now,
-      })
+      }
+      this.emitToPipeline('thing.updated', 'update', message.$id, entityType, pipelinePayload)
 
       // Track operation metrics
       const durationSeconds = (performance.now() - startTime) / 1000
       this._prometheusExporter.trackOperation('update', entityType, durationSeconds)
       this._prometheusExporter.trackEvent('thing.updated')
+
+      // Track cost metrics - write
+      this._costMetrics.trackWrite('update', entityType, updateBytes)
+      // Track cost metrics - pipeline event
+      const pipelineBytes = JSON.stringify(pipelinePayload).length
+      this._costMetrics.trackPipelineEvent('thing.updated', pipelineBytes)
 
       // Send ACK
       ws.send(
@@ -630,15 +740,22 @@ export class UnifiedStoreDO {
 
     if (deleted) {
       // Emit to Pipeline IMMEDIATELY
-      this.emitToPipeline('thing.deleted', 'delete', message.$id, entityType, {
+      const pipelinePayload = {
         $id: message.$id,
         $deletedAt: now,
-      })
+      }
+      this.emitToPipeline('thing.deleted', 'delete', message.$id, entityType, pipelinePayload)
 
       // Track operation metrics
       const durationSeconds = (performance.now() - startTime) / 1000
       this._prometheusExporter.trackOperation('delete', entityType, durationSeconds)
       this._prometheusExporter.trackEvent('thing.deleted')
+
+      // Track cost metrics - write (delete is a write operation)
+      this._costMetrics.trackWrite('delete', entityType, 0) // Minimal bytes for delete
+      // Track cost metrics - pipeline event
+      const pipelineBytes = JSON.stringify(pipelinePayload).length
+      this._costMetrics.trackPipelineEvent('thing.deleted', pipelineBytes)
     }
 
     ws.send(
@@ -663,12 +780,22 @@ export class UnifiedStoreDO {
           ...op.data,
         })
 
+        // Calculate bytes for cost tracking
+        const thingBytes = JSON.stringify(thing).length
+
         // Emit to Pipeline
-        this.emitToPipeline('thing.created', 'create', thing.$id, op.$type, {
+        const pipelinePayload = {
           ...thing,
           $createdAt: now,
           $updatedAt: now,
-        })
+        }
+        this.emitToPipeline('thing.created', 'create', thing.$id, op.$type, pipelinePayload)
+
+        // Track cost metrics - write
+        this._costMetrics.trackWrite('create', op.$type, thingBytes)
+        // Track cost metrics - pipeline event
+        const pipelineBytes = JSON.stringify(pipelinePayload).length
+        this._costMetrics.trackPipelineEvent('thing.created', pipelineBytes)
 
         results.push({ $id: thing.$id, $version: thing.$version ?? 1 })
       }

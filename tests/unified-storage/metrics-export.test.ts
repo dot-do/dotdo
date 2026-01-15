@@ -514,10 +514,16 @@ describe('Prometheus Counter Metrics', () => {
       expect(text).toContain('# TYPE dotdo_reads_total counter')
       expect(text).toContain('dotdo_reads_total')
 
-      const metrics = parsePrometheusText(text)
-      const readsMetric = metrics.get('dotdo_reads_total')
-      expect(readsMetric).toBeDefined()
-      expect(readsMetric!.value).toBeGreaterThanOrEqual(10)
+      // The reads_total counter is split by cache_status (hit/miss)
+      // We need to sum all values across different label combinations
+      // Parse all lines to get total reads
+      const lines = text.split('\n').filter(l => l.startsWith('dotdo_reads_total{'))
+      const totalReads = lines.reduce((sum, line) => {
+        const match = line.match(/}\s+(\d+)$/)
+        return sum + (match ? parseInt(match[1], 10) : 0)
+      }, 0)
+
+      expect(totalReads).toBeGreaterThanOrEqual(10)
     })
 
     it('should track cache hits vs misses in reads', async () => {

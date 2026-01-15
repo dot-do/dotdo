@@ -22,8 +22,16 @@ import {
   type ReplicationEvent,
   type FollowerState,
   type LeaderState,
+  type QuorumCallback,
   ReplicationRole,
 } from '../../objects/unified-storage/leader-follower'
+
+/**
+ * Create a quorum callback that always grants quorum (for basic tests)
+ */
+const createAllowAllQuorumCallback = (): QuorumCallback => {
+  return async () => true
+}
 
 // ============================================================================
 // MOCK PIPELINE
@@ -1209,6 +1217,7 @@ describe('LeaderFollowerManager', () => {
           namespace: 'test-ns',
           leaderId: 'leader-node-1',
           heartbeatService: mockHeartbeat as any,
+          quorumCallback: createAllowAllQuorumCallback(),
         })
 
         await manager.start()
@@ -1228,6 +1237,7 @@ describe('LeaderFollowerManager', () => {
           stateStore: mockStateStore as any,
           namespace: 'test-ns',
           leaderId: 'leader-node-1',
+          quorumCallback: createAllowAllQuorumCallback(),
         })
 
         await manager.start()
@@ -1260,6 +1270,7 @@ describe('LeaderFollowerManager', () => {
           stateStore: mockStateStore as any,
           namespace: 'test-ns',
           leaderId: 'leader-node-1',
+          quorumCallback: createAllowAllQuorumCallback(),
         })
 
         await manager.start()
@@ -1284,6 +1295,7 @@ describe('LeaderFollowerManager', () => {
           stateStore: mockStateStore as any,
           namespace: 'test-ns',
           leaderId: 'leader-node-1',
+          quorumCallback: createAllowAllQuorumCallback(),
         })
 
         await manager.start()
@@ -1325,6 +1337,7 @@ describe('LeaderFollowerManager', () => {
           stateStore: mockStateStore as any,
           namespace: 'test-ns',
           leaderId: 'leader-node-1',
+          quorumCallback: createAllowAllQuorumCallback(),
         })
 
         await manager.start()

@@ -288,15 +288,17 @@ describe('PipelineEmitter', () => {
         namespace: 'test-ns',
         flushInterval: 60000,
         batchSize: 1000,
-        batchBytes: 500, // Small byte threshold
+        batchBytes: 800, // Byte threshold - a single large event is ~520 bytes
       })
 
-      // Emit large payloads that exceed byte threshold
+      // Emit large payloads - first event (~520 bytes) won't trigger flush
       const largePayload = { $id: 'thing-1', data: 'x'.repeat(300) }
       emitter.emit('thing.created', 'things', largePayload)
 
+      // First event should not exceed threshold alone
       expect(mockPipeline.send).not.toHaveBeenCalled()
 
+      // Second event will push total bytes over threshold (~1040 bytes > 800)
       const largePayload2 = { $id: 'thing-2', data: 'y'.repeat(300) }
       emitter.emit('thing.created', 'things', largePayload2)
 

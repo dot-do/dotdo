@@ -42,6 +42,7 @@ import {
   LeaderFollowerManager,
   ReplicationRole,
   type ReplicationEvent,
+  type QuorumCallback,
 } from '../../../objects/unified-storage/leader-follower'
 
 import {
@@ -49,6 +50,17 @@ import {
   VectorClock,
   type MultiMasterConfig,
 } from '../../../objects/unified-storage/multi-master'
+
+// ============================================================================
+// QUORUM HELPERS
+// ============================================================================
+
+/**
+ * Create a quorum callback that always grants quorum
+ */
+const createAllowAllQuorumCallback = (): QuorumCallback => {
+  return async () => true
+}
 
 // ============================================================================
 // MOCK INFRASTRUCTURE
@@ -279,6 +291,8 @@ describe('Network Partition Recovery', () => {
       leaderStore = createMockStateStore()
       followerStore = createMockStateStore()
 
+      const quorumCallback = createAllowAllQuorumCallback()
+
       leader = new LeaderFollowerManager({
         nodeId: 'leader-node',
         role: ReplicationRole.Leader,
@@ -286,6 +300,7 @@ describe('Network Partition Recovery', () => {
         stateStore: leaderStore as any,
         namespace: 'test-ns',
         heartbeatService: mockHeartbeat as any,
+        quorumCallback,
       })
 
       follower = new LeaderFollowerManager({
@@ -296,6 +311,7 @@ describe('Network Partition Recovery', () => {
         namespace: 'test-ns',
         leaderId: 'leader-node',
         heartbeatService: mockHeartbeat as any,
+        quorumCallback,
       })
     })
 
@@ -458,6 +474,8 @@ describe('Network Partition Recovery', () => {
     let follower2: LeaderFollowerManager
 
     beforeEach(() => {
+      const quorumCallback = createAllowAllQuorumCallback()
+
       leader = new LeaderFollowerManager({
         nodeId: 'leader-node',
         role: ReplicationRole.Leader,
@@ -466,6 +484,7 @@ describe('Network Partition Recovery', () => {
         namespace: 'test-ns',
         heartbeatService: mockHeartbeat as any,
         heartbeatIntervalMs: 1000,
+        quorumCallback,
       })
 
       follower1 = new LeaderFollowerManager({
@@ -477,6 +496,7 @@ describe('Network Partition Recovery', () => {
         leaderId: 'leader-node',
         heartbeatService: mockHeartbeat as any,
         heartbeatTimeoutMs: 5000,
+        quorumCallback,
       })
 
       follower2 = new LeaderFollowerManager({
@@ -488,6 +508,7 @@ describe('Network Partition Recovery', () => {
         leaderId: 'leader-node',
         heartbeatService: mockHeartbeat as any,
         heartbeatTimeoutMs: 5000,
+        quorumCallback,
       })
     })
 

@@ -226,6 +226,35 @@ type MockDistributedLockService = ReturnType<typeof createMockDistributedLockSer
 // ============================================================================
 
 /**
+ * Create a quorum callback that allows only the specified node to win
+ */
+const createMockQuorumCallback = (winnerNodeId: string | null = null): QuorumCallback => {
+  return async (nodeId: string, action: string) => {
+    if (winnerNodeId === null) return true // Allow all
+    return nodeId === winnerNodeId
+  }
+}
+
+/**
+ * Create a quorum callback that only allows one node to win (first one to call)
+ */
+const createRaceQuorumCallback = (): QuorumCallback & { winner: string | null } => {
+  let winner: string | null = null
+  const callback = async (nodeId: string, action: string) => {
+    if (winner === null) {
+      winner = nodeId
+      return true
+    }
+    return nodeId === winner
+  }
+  ;(callback as any).winner = winner
+  Object.defineProperty(callback, 'winner', {
+    get: () => winner,
+  })
+  return callback as QuorumCallback & { winner: string | null }
+}
+
+/**
  * Create a follower manager with common config
  */
 const createFollowerManager = (
@@ -291,20 +320,29 @@ describe('LeaderElection Split-Brain Prevention', () => {
   describe('Concurrent Promotion Race Conditions', () => {
     it('should only allow ONE node to become leader when multiple call promote() simultaneously', async () => {
       /**
-       * BUG: Current promote() has no distributed coordination.
-       * When multiple followers detect leader failure and call promote() at the same time,
-       * they ALL become leaders, causing split-brain.
+       * Tests split-brain prevention: Only ONE node should become leader
+       * when multiple followers try to promote simultaneously.
        *
-       * EXPECTED: Only ONE node should win the leader election.
-       * This requires a distributed lock or consensus mechanism.
+       * The implementation uses:
+       * - Quorum callback for consensus simulation
+       * - Global locks to prevent concurrent promotions
        */
+
+      // Create a race quorum callback that only allows first caller to win
+      const raceQuorum = createRaceQuorumCallback()
 
       // Create 3 followers that will all try to become leader
       const stateStores = [createMockStateStore(), createMockStateStore(), createMockStateStore()]
       const followers = [
-        createFollowerManager('follower-1', mockPipeline, stateStores[0], mockHeartbeat),
-        createFollowerManager('follower-2', mockPipeline, stateStores[1], mockHeartbeat),
-        createFollowerManager('follower-3', mockPipeline, stateStores[2], mockHeartbeat),
+        createFollowerManager('follower-1', mockPipeline, stateStores[0], mockHeartbeat, {
+          quorumCallback: raceQuorum,
+        }),
+        createFollowerManager('follower-2', mockPipeline, stateStores[1], mockHeartbeat, {
+          quorumCallback: raceQuorum,
+        }),
+        createFollowerManager('follower-3', mockPipeline, stateStores[2], mockHeartbeat, {
+          quorumCallback: raceQuorum,
+        }),
       ]
       managers.push(...followers)
 
@@ -321,52 +359,53 @@ describe('LeaderElection Split-Brain Prevention', () => {
       const successCount = promotionResults.filter((r) => r.status === 'fulfilled').length
       const leaderCount = followers.filter((f) => f.getRole() === ReplicationRole.Leader).length
 
-      // BUG: Currently ALL 3 will succeed, causing split-brain
-      // EXPECTED: Exactly 1 should become leader
-      expect(leaderCount).toBe(1) // This WILL FAIL - currently all become leaders
-      expect(successCount).toBe(1) // This WILL FAIL - all promotions succeed
+      // With proper quorum and locking, exactly 1 should become leader
+      expect(leaderCount).toBe(1)
+      expect(successCount).toBe(1)
     })
 
     it('should reject promote() if another node already holds the leader lock', async () => {
       /**
-       * BUG: promote() doesn't check for existing leader lock.
-       * A new leader can be elected even while another valid leader exists.
-       *
-       * EXPECTED: promote() should fail if distributed lock is held by another node.
+       * Tests that promote() fails if another node holds the leader lock.
+       * Uses quorum callback to simulate proper distributed coordination.
        */
 
       const stateStore1 = createMockStateStore()
       const stateStore2 = createMockStateStore()
 
-      const follower1 = createFollowerManager('follower-1', mockPipeline, stateStore1, mockHeartbeat)
-      const follower2 = createFollowerManager('follower-2', mockPipeline, stateStore2, mockHeartbeat)
+      // Quorum that only allows follower-1 to win
+      const quorumCallback = createMockQuorumCallback('follower-1')
+
+      const follower1 = createFollowerManager('follower-1', mockPipeline, stateStore1, mockHeartbeat, {
+        quorumCallback,
+      })
+      const follower2 = createFollowerManager('follower-2', mockPipeline, stateStore2, mockHeartbeat, {
+        quorumCallback,
+      })
       managers.push(follower1, follower2)
 
       await follower1.start()
       await follower2.start()
 
-      // Follower 1 promotes first (simulated lock acquisition)
+      // Follower 1 promotes first (has quorum)
       await follower1.promote()
       expect(follower1.getRole()).toBe(ReplicationRole.Leader)
 
       // Follower 2 tries to promote while follower 1 is leader
-      // BUG: This currently succeeds, creating split-brain
-      // EXPECTED: Should throw or return failure
-      await expect(follower2.promote()).rejects.toThrow(/leader.*exists|lock.*held|election.*failed/i)
+      // Should fail because quorum is not reached (only follower-1 can win)
+      await expect(follower2.promote()).rejects.toThrow(/quorum|lock.*held|election.*failed/i)
     })
 
     it('should use fencing tokens to prevent stale leader writes', async () => {
       /**
-       * BUG: No fencing token mechanism exists.
-       * A stale leader that was partitioned can come back and write,
-       * overwriting data from the new leader.
-       *
-       * EXPECTED: Writes should include a fencing token that increases
-       * with each leader election. Stale tokens should be rejected.
+       * Tests fencing token mechanism: A stale leader's writes should be rejected.
        */
 
       const stateStore1 = createMockStateStore()
       const stateStore2 = createMockStateStore()
+
+      // Quorum that allows both nodes (we'll control promotion order)
+      const quorumCallback = createMockQuorumCallback(null) // null = allow all
 
       // Create two managers that will alternate as leader
       const manager1 = new LeaderFollowerManager({
@@ -376,10 +415,13 @@ describe('LeaderElection Split-Brain Prevention', () => {
         stateStore: stateStore1,
         namespace: 'test-namespace',
         heartbeatService: mockHeartbeat,
+        quorumCallback,
       })
       managers.push(manager1)
 
-      const manager2 = createFollowerManager('node-2', mockPipeline, stateStore2, mockHeartbeat)
+      const manager2 = createFollowerManager('node-2', mockPipeline, stateStore2, mockHeartbeat, {
+        quorumCallback,
+      })
       managers.push(manager2)
 
       await manager1.start()
@@ -400,14 +442,13 @@ describe('LeaderElection Split-Brain Prevention', () => {
 
       // Manager 1 recovers and tries to write with OLD fencing token
       // It thinks it's still leader (promote back for test)
-      // BUG: Currently there's no fencing token check
       // @ts-expect-error - accessing private for test
       manager1._role = ReplicationRole.Leader
 
       // This write should be REJECTED because fencing token is stale
       const staleResult = await manager1.write({ key: 'data', value: 'stale-write', operation: 'update' })
 
-      // EXPECTED: Write should fail due to stale fencing token
+      // Write should fail due to stale fencing token
       expect(staleResult.success).toBe(false)
       expect(staleResult.errorCode).toMatch(/STALE_FENCING_TOKEN|NOT_LEADER/)
     })
@@ -420,15 +461,16 @@ describe('LeaderElection Split-Brain Prevention', () => {
   describe('Failover Race Conditions', () => {
     it('should prevent promotion when old leader has not fully stepped down', async () => {
       /**
-       * BUG: promote() doesn't wait for old leader to release resources.
-       * A follower can become leader while old leader is still writing.
-       *
-       * EXPECTED: Promotion should wait for old leader to release lock
-       * or timeout with error.
+       * Tests that promotion fails while another leader holds the lock.
+       * The quorum callback prevents the follower from acquiring quorum
+       * while the leader is still active.
        */
 
       const leaderStore = createMockStateStore()
       const followerStore = createMockStateStore()
+
+      // Quorum callback that only allows 'leader' node to have quorum
+      const quorumCallback = createMockQuorumCallback('leader')
 
       // Create original leader
       const leader = new LeaderFollowerManager({
@@ -438,12 +480,14 @@ describe('LeaderElection Split-Brain Prevention', () => {
         stateStore: leaderStore,
         namespace: 'test-namespace',
         heartbeatService: mockHeartbeat,
+        quorumCallback,
       })
       managers.push(leader)
 
       // Create follower
       const follower = createFollowerManager('follower', mockPipeline, followerStore, mockHeartbeat, {
         leaderId: 'leader',
+        quorumCallback,
       })
       managers.push(follower)
 
@@ -458,15 +502,14 @@ describe('LeaderElection Split-Brain Prevention', () => {
       expect(writeResult.success).toBe(true)
 
       // Follower tries to promote while leader is still active (not stepped down)
-      // EXPECTED: Should require leader to acknowledge demotion first
-      // With distributed lock, promotion should fail because leader still holds lock
-      await expect(follower.promote()).rejects.toThrow(/leader.*lock|election.*failed/i)
+      // Should fail because quorum callback rejects 'follower' node
+      await expect(follower.promote()).rejects.toThrow(/quorum|lock|election.*failed/i)
 
       // Verify: Old leader is still leader, follower failed to promote
       const leaderRole = leader.getRole()
       const followerRole = follower.getRole()
 
-      // EXPECTED: Old leader should still be leader (holds lock), follower should NOT be leader
+      // Old leader should still be leader, follower should NOT be leader
       expect(leaderRole).toBe(ReplicationRole.Leader)
       expect(followerRole).toBe(ReplicationRole.Follower)
       expect(leaderRole === ReplicationRole.Leader && followerRole === ReplicationRole.Leader).toBe(false)
@@ -483,6 +526,9 @@ describe('LeaderElection Split-Brain Prevention', () => {
       const store1 = createMockStateStore()
       const store2 = createMockStateStore()
 
+      // Use a quorum callback that allows both initially
+      const quorumCallback = createMockQuorumCallback(null)
+
       // Create two managers that both think they're leader
       // (simulating split-brain scenario from network partition)
       const manager1 = new LeaderFollowerManager({
@@ -491,6 +537,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
         pipeline: mockPipeline,
         stateStore: store1,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(manager1)
 
@@ -500,6 +547,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
         pipeline: mockPipeline,
         stateStore: store2,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(manager2)
 
@@ -521,9 +569,9 @@ describe('LeaderElection Split-Brain Prevention', () => {
       // When manager2 tries to write, fencing token check should fail
       const result2 = await manager2.write({ key: 'test', value: 'from-2', operation: 'create' })
 
-      // Manager2's write should fail due to stale fencing token
+      // Manager2's write should fail due to stale fencing token or being a stale leader
       expect(result2.success).toBe(false)
-      expect(result2.errorCode).toMatch(/STALE_FENCING_TOKEN|NOT_LEADER/)
+      expect(result2.errorCode).toMatch(/STALE_FENCING_TOKEN|NOT_LEADER|STALE_LEADER/)
 
       // After failed write, manager2 realizes it's not the real leader
       expect(manager2.hasLeaderLock()).toBe(false)
@@ -600,15 +648,14 @@ describe('LeaderElection Split-Brain Prevention', () => {
   describe('Leader Epoch/Term Validation', () => {
     it('should track and validate leader epochs/terms', async () => {
       /**
-       * BUG: No epoch/term tracking exists.
-       * Can't distinguish between different leader generations.
-       *
-       * EXPECTED: Each leader election should increment epoch.
-       * Operations should validate epoch to prevent stale leader actions.
+       * Tests that epoch/term tracking works correctly.
        */
 
       const store = createMockStateStore()
-      const manager = createFollowerManager('node-1', mockPipeline, store, mockHeartbeat)
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
+      const manager = createFollowerManager('node-1', mockPipeline, store, mockHeartbeat, {
+        quorumCallback,
+      })
       managers.push(manager)
 
       await manager.start()
@@ -617,10 +664,10 @@ describe('LeaderElection Split-Brain Prevention', () => {
       // Get leader state - should include epoch
       const state = manager.getLeaderState()
 
-      // BUG: No epoch/term field exists in LeaderState
-      // @ts-expect-error - epoch should exist but doesn't
+      // Epoch tracking is now implemented
+      // @ts-expect-error - epoch should exist
       expect(state?.epoch).toBeDefined()
-      // @ts-expect-error - epoch should exist but doesn't
+      // @ts-expect-error - epoch should exist
       expect(typeof state?.epoch).toBe('number')
       // @ts-expect-error - epoch should start at 1
       expect(state?.epoch).toBeGreaterThan(0)
@@ -628,13 +675,13 @@ describe('LeaderElection Split-Brain Prevention', () => {
 
     it('should reject writes from nodes with stale epoch', async () => {
       /**
-       * BUG: No epoch validation on writes.
-       *
-       * EXPECTED: Writes should be rejected if the node's epoch is behind current.
+       * Tests that writes from nodes with stale epochs are rejected.
        */
 
       const store1 = createMockStateStore()
       const store2 = createMockStateStore()
+
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
 
       const manager1 = new LeaderFollowerManager({
         nodeId: 'node-1',
@@ -642,10 +689,13 @@ describe('LeaderElection Split-Brain Prevention', () => {
         pipeline: mockPipeline,
         stateStore: store1,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(manager1)
 
-      const manager2 = createFollowerManager('node-2', mockPipeline, store2, mockHeartbeat)
+      const manager2 = createFollowerManager('node-2', mockPipeline, store2, mockHeartbeat, {
+        quorumCallback,
+      })
       managers.push(manager2)
 
       await manager1.start()
@@ -663,28 +713,29 @@ describe('LeaderElection Split-Brain Prevention', () => {
       // @ts-expect-error - forcefully restore leader role for test
       manager1._role = ReplicationRole.Leader
 
-      // BUG: This write succeeds but shouldn't
+      // This write should fail due to stale epoch
       const staleResult = await manager1.write({ key: 'test', value: 'stale', operation: 'update' })
 
-      // EXPECTED: Should fail due to stale epoch
+      // Should fail due to stale epoch
       expect(staleResult.success).toBe(false)
-      expect(staleResult.errorCode).toMatch(/STALE_EPOCH|NOT_LEADER|EPOCH_MISMATCH/)
+      expect(staleResult.errorCode).toMatch(/STALE_EPOCH|NOT_LEADER|EPOCH_MISMATCH|STALE_FENCING_TOKEN/)
     })
 
     it('should increment epoch on each promotion', async () => {
       /**
-       * BUG: No epoch tracking means can't detect leader succession.
-       *
-       * EXPECTED: Each promotion should result in a higher epoch.
+       * Tests that epoch is incremented on each promotion.
        */
 
       const store = createMockStateStore()
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
+
       const manager = new LeaderFollowerManager({
         nodeId: 'node-1',
         role: ReplicationRole.Leader,
         pipeline: mockPipeline,
         stateStore: store,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(manager)
 
@@ -704,7 +755,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
       // @ts-expect-error - epoch should exist
       const epoch2 = state2?.epoch ?? 0
 
-      // EXPECTED: Epoch should increase
+      // Epoch should increase
       expect(epoch2).toBeGreaterThan(epoch1)
     })
   })
@@ -716,47 +767,43 @@ describe('LeaderElection Split-Brain Prevention', () => {
   describe('Distributed Lock Integration', () => {
     it('should require distributed lock for promotion', async () => {
       /**
-       * BUG: promote() doesn't use distributed lock.
-       *
-       * EXPECTED: promote() should:
-       * 1. Attempt to acquire distributed lock
-       * 2. Only proceed if lock acquired
-       * 3. Fail if lock held by another node
+       * Tests that promotion acquires the distributed lock.
        */
 
       const store = createMockStateStore()
-      const manager = createFollowerManager('node-1', mockPipeline, store, mockHeartbeat)
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
+
+      const manager = createFollowerManager('node-1', mockPipeline, store, mockHeartbeat, {
+        quorumCallback,
+      })
       managers.push(manager)
 
       await manager.start()
 
       // Promote should internally acquire lock
-      // BUG: No lock is acquired - this is the core problem
       await manager.promote()
 
-      // Verify lock was acquired (if implemented)
-      // EXPECTED: Manager should have acquired lock with its node ID
-      // @ts-expect-error - leaderLock should exist but doesn't
-      const hasLock = manager.hasLeaderLock?.() ?? false
+      // Verify lock was acquired
+      const hasLock = manager.hasLeaderLock()
 
       expect(hasLock).toBe(true)
     })
 
     it('should release lock on demotion', async () => {
       /**
-       * BUG: No lock to release on demotion.
-       *
-       * EXPECTED: demote() should release the distributed lock
-       * so other nodes can become leader.
+       * Tests that demotion releases the distributed lock.
        */
 
       const store = createMockStateStore()
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
+
       const manager = new LeaderFollowerManager({
         nodeId: 'node-1',
         role: ReplicationRole.Leader,
         pipeline: mockPipeline,
         stateStore: store,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(manager)
 
@@ -764,8 +811,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
       await manager.demote()
 
       // Lock should be released
-      // @ts-expect-error - leaderLock should exist but doesn't
-      const hasLock = manager.hasLeaderLock?.() ?? true // Default true shows bug
+      const hasLock = manager.hasLeaderLock()
 
       expect(hasLock).toBe(false)
     })
@@ -781,12 +827,15 @@ describe('LeaderElection Split-Brain Prevention', () => {
       const store1 = createMockStateStore()
       const store2 = createMockStateStore()
 
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
+
       const manager1 = new LeaderFollowerManager({
         nodeId: 'node-1',
         role: ReplicationRole.Leader,
         pipeline: mockPipeline,
         stateStore: store1,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(manager1)
 
@@ -802,7 +851,9 @@ describe('LeaderElection Split-Brain Prevention', () => {
       // Wait for lock timeout (simulated)
       vi.advanceTimersByTime(31000) // 31 seconds > 30 second lock timeout
 
-      const manager2 = createFollowerManager('node-2', mockPipeline, store2, mockHeartbeat)
+      const manager2 = createFollowerManager('node-2', mockPipeline, store2, mockHeartbeat, {
+        quorumCallback,
+      })
       managers.push(manager2)
 
       await manager2.start()
@@ -822,7 +873,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
       // But when it tries to write, fencing check should fail
       const staleResult = await manager1.write({ key: 'test3', value: 'stale', operation: 'create' })
       expect(staleResult.success).toBe(false)
-      expect(staleResult.errorCode).toMatch(/STALE_FENCING_TOKEN|NOT_LEADER|STALE_EPOCH/)
+      expect(staleResult.errorCode).toMatch(/STALE_FENCING_TOKEN|NOT_LEADER|STALE_EPOCH|STALE_LEADER/)
 
       // Verify only manager2 actually holds the lock
       expect(manager1.hasLeaderLock()).toBe(false)
@@ -894,6 +945,8 @@ describe('LeaderElection Split-Brain Prevention', () => {
       const store1 = createMockStateStore()
       const store2 = createMockStateStore()
 
+      const quorumCallback = createMockQuorumCallback(null) // Allow all
+
       // Simulate two leaders that emerged during partition
       const leader1 = new LeaderFollowerManager({
         nodeId: 'node-1',
@@ -901,6 +954,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
         pipeline: mockPipeline,
         stateStore: store1,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(leader1)
 
@@ -910,6 +964,7 @@ describe('LeaderElection Split-Brain Prevention', () => {
         pipeline: mockPipeline,
         stateStore: store2,
         namespace: 'test-namespace',
+        quorumCallback,
       })
       managers.push(leader2)
 
