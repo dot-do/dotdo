@@ -423,3 +423,112 @@ export {
   type RemoteWriteResult,
   type LocalWriteResult,
 } from './partition-recovery'
+
+// BackpressureController - End-to-end backpressure coordination
+export {
+  BackpressureController,
+  type BackpressureStatus,
+  type BackpressureMetrics,
+  type BackpressureSignal,
+  type MemoryMonitor,
+  type BackpressureControllerConfig,
+  type StatusChangeListener,
+} from './backpressure-controller'
+
+// Query Layer - Fluent, type-safe query builder
+export {
+  Query,
+  createQuery,
+  type QueryOptions,
+  type QueryResult,
+  type QueryPlan,
+  type FilterOperator,
+  type SortDirection,
+  type CursorInfo,
+  type FilterCondition,
+  type SortSpec,
+  type IndexHint,
+  type QueryCost,
+  type CompoundFilter,
+  type QueryStore,
+  type StreamOptions,
+} from './query-layer'
+
+// TenantRateLimiter - Per-tenant rate limiting with token bucket and window algorithms
+export {
+  TenantRateLimiter,
+  type TenantRateLimitConfig,
+  type RateLimitResult,
+  type RateLimitMetrics,
+  type TokenBucketState,
+  type RateLimitHeaders,
+  type TenantOverride,
+  type WindowStrategy,
+  type ActiveOverride,
+  type AggregatedTenantMetrics,
+  type UsageStatus,
+  type WindowInfo,
+  type RateLimitStorage,
+  type WindowState,
+  type RateLimitMetricsCollector,
+  type RateLimitRequest,
+  type CheckOptions,
+  type TenantRateLimiterOptions,
+  type RateLimitAlgorithm,
+  type RateLimitError,
+} from './rate-limiter'
+
+// CostAttribution - Per-tenant cost tracking and reporting
+export {
+  CostMetricsCollector,
+  type CostAlertConfig,
+  type CostAlertEvent,
+  type WriteMetrics,
+  type ReadMetrics,
+  type PipelineMetrics,
+  type SqliteMetrics,
+  type TenantCostReport,
+  type HistoricalCostRecord,
+  type RetentionPolicy,
+  type HistoricalDataOptions,
+} from './cost-attribution'
+
+// SchemaValidator - JSON Schema validation for entity types
+export {
+  SchemaValidator,
+  createSchemaValidator,
+  type JSONSchema,
+  type SchemaVersion,
+  type MigrationPath,
+  type MigrationFn,
+  type ValidationMode,
+  type ValidationOptions,
+  type ValidationError,
+  type ValidationResult,
+  type SchemaIntrospection,
+  type FieldConstraints,
+  type SchemaDiff,
+  type SchemaValidatorConfig,
+} from './schema-validator'
+
+// UnifiedStore - Integration harness for the unified storage system
+export {
+  UnifiedStore,
+  type Thing as UnifiedStoreThing,
+  type WriteResult as UnifiedStoreWriteResult,
+  type UpdateResult,
+  type DeleteResult,
+  type WriteAcknowledgment,
+  type WriteOptions,
+  type TransactionContext,
+  type TransactionResult,
+  type ShardingConfig,
+  type MultiMasterConfig,
+  type ConflictHistoryEntry,
+  type ConflictMetrics,
+  type RecoveryProgress as UnifiedRecoveryProgress,
+  type ReplicationMetrics,
+  type StoreStats,
+  type WritePathMetrics,
+  type UnifiedStoreConfig as UnifiedStoreOptions,
+} from './unified-store'
