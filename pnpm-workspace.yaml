@@ -1,7 +1,0 @@
-packages:
-  - "packages/*"
-  - "examples/*"
-  - "app"
-  - "db/payload"
-  - "core"
-  - "ai/primitives/packages/*"

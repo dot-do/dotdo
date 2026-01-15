@@ -1,6 +1,0 @@
-{
-  "root": true,
-  "title": "Guides",
-  "description": "Step-by-step guides for common workflows and patterns",
-  "pages": ["index", "contributing", "testing", "advanced"]
-}

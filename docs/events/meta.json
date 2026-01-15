@@ -1,6 +1,0 @@
-{
-  "root": true,
-  "title": "Events",
-  "description": "Event-driven architecture with Noun.verb patterns",
-  "pages": ["index", "emission"]
-}
