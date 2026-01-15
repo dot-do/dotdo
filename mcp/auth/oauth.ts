@@ -112,7 +112,16 @@ export async function consumeOAuthState(
     }
 
     return oauthState
-  } catch {
+  } catch (err) {
+    // Log the JSON parse error for security monitoring
+    // Invalid state could indicate tampering or corruption
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(
+      '[oauth] OAuth state JSON parse failed for state:',
+      state,
+      'error:', errMsg,
+      'dataPreview:', data?.substring(0, 50) + (data?.length > 50 ? '...' : '')
+    )
     return null
   }
 }

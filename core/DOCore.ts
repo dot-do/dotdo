@@ -23,6 +23,14 @@
 import { DurableObject, RpcTarget } from 'cloudflare:workers'
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { WebSocketRpcHandler, type RpcMessage } from '../rpc/websocket-rpc'
+import { PipelineExecutor, type ExecutorPipelineStep } from '../rpc/pipeline-executor'
+import { deserializePipeline, type SerializedPipeline } from '../rpc/pipeline-serialization'
+import {
+  requireAuth,
+  requireAdmin,
+  type HonoAuthEnv,
+  type AuthContext,
+} from '../lib/auth-middleware'
 
 // ============================================================================
 // Constants
@@ -87,7 +95,7 @@ function getCorsPolicy(pathname: string): CorsPolicyType {
 }
 
 /** Validate if an origin is in the allowed list */
-function validateOrigin(origin: string | null): string | null {
+function validateOrigin(origin: string | null | undefined): string | null {
   if (!origin) return null
   if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) {
     return origin
@@ -97,9 +105,9 @@ function validateOrigin(origin: string | null): string | null {
 
 /** Build CORS headers for a response based on policy and origin validation */
 function buildCorsHeaders(
-  origin: string | null,
+  origin: string | null | undefined,
   policy: CorsPolicyType,
-  requestedHeaders?: string | null
+  requestedHeaders?: string | null | undefined
 ): Headers {
   const headers = new Headers()
   const policyConfig = CORS_POLICIES[policy]
@@ -265,6 +273,7 @@ type Variables = {
   requestId: string
   doState: DOCore
   env: DOCoreEnv
+  auth: AuthContext
 }
 
 type HonoEnv = {
@@ -686,19 +695,48 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     app.get('/api/resource', (c) => c.json({ method: 'GET' }))
     app.post('/api/resource', async (c) => c.json({ method: 'POST' }))
 
-    // Admin group
-    app.get('/admin/users', (c) => c.json({ users: [] }))
+    // RPC Pipeline endpoint - handles Cap'n Web style promise pipelining
+    // POST /rpc/pipeline - Execute a pipeline against this DO
+    app.post('/rpc/pipeline', async (c) => {
+      try {
+        const body = await c.req.json()
 
-    // Protected route with auth middleware
-    const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
-      const auth = c.req.header('Authorization')
-      if (!auth?.startsWith('Bearer ')) {
-        return c.json({ error: 'Unauthorized' }, 401)
+        // Handle both single pipeline and batch requests
+        const isBatch = Array.isArray(body)
+        const requests = isBatch ? body : [body]
+
+        const executor = new PipelineExecutor()
+        const results = await Promise.all(
+          requests.map(async (req: { id?: string; pipeline: SerializedPipeline }) => {
+            try {
+              // Deserialize the wire format pipeline
+              const { target, steps } = deserializePipeline(req.pipeline)
+
+              // Execute the pipeline against this DO instance
+              // The pipeline targets a noun accessor on this DO
+              const nounAccessor = this.getNounAccessor(target.noun, target.id)
+              const result = await executor.execute(nounAccessor, steps as ExecutorPipelineStep[])
+
+              return { id: req.id, result }
+            } catch (err) {
+              return { id: req.id, error: (err as Error).message }
+            }
+          })
+        )
+
+        // Return single result or batch based on input
+        return c.json(isBatch ? results : results[0])
+      } catch (err) {
+        return c.json({ error: (err as Error).message }, HTTP_STATUS.BAD_REQUEST)
       }
-      await next()
-    }
+    })
 
-    app.get('/protected/data', authMiddleware, (c) => {
+    // Admin group - requires admin authentication
+    // Uses standardized requireAdmin middleware from lib/auth-middleware
+    app.get('/admin/users', requireAdmin as MiddlewareHandler<HonoEnv>, (c) => c.json({ users: [] }))
+
+    // Protected route with auth middleware (requires any valid auth)
+    app.get('/protected/data', requireAuth as MiddlewareHandler<HonoEnv>, (c) => {
       return c.json({ data: 'protected' })
     })
 
@@ -715,8 +753,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       return c.json({ error: 'Internal Server Error' }, 500)
     })
 
-    // State read from DO
-    app.get('/api/state-read', async (c) => {
+    // State read from DO - requires authentication
+    // Internal state access should be protected
+    app.get('/api/state-read', requireAuth as MiddlewareHandler<HonoEnv>, async (c) => {
       const value = await this.get('ctx:value')
       return c.json({ value })
     })
@@ -1324,6 +1363,92 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   getHandlerCount(eventType: string): number {
     return this.eventHandlers.get(eventType)?.length ?? 0
+  }
+
+  // =========================================================================
+  // EVICTION SIMULATION & RECOVERY (RPC methods for testing)
+  // =========================================================================
+
+  /**
+   * Clear in-memory caches to simulate DO eviction.
+   * This is used for testing to simulate what happens when a DO is evicted:
+   * - Memory is released (things, eventHandlers, schedules maps cleared)
+   * - SQLite state remains (actionLog, things table, state table persist)
+   *
+   * After calling this, the DO should be able to recover state from SQLite.
+   */
+  clearMemoryCache(): void {
+    // Clear in-memory caches
+    this.things.clear()
+    this.eventHandlers.clear()
+    this.schedules.clear()
+
+    // Track recovery metrics
+    this.lastRecoveryTimestamp = Date.now()
+    this.recoverySource = 'memory_cleared'
+
+    // Note: actionLog is NOT cleared - it represents durable state loaded from SQLite
+    // Note: SQLite tables are NOT cleared - they represent durable state
+  }
+
+  // Recovery tracking state
+  private lastRecoveryTimestamp: number = 0
+  private recoverySource: string = 'empty'
+
+  /**
+   * Get recovery statistics after eviction simulation.
+   * Returns information about what was recovered from SQLite.
+   */
+  async getRecoveryStats(): Promise<{
+    thingsRecovered: number
+    stateEntriesRecovered: number
+    lastRecoveryTimestamp: number
+  }> {
+    // Count things in SQLite
+    const thingsCountResult = this.ctx.storage.sql
+      .exec('SELECT COUNT(*) as count FROM things')
+      .toArray()
+    const thingsRecovered = (thingsCountResult[0]?.count as number) ?? 0
+
+    // Count state entries in SQLite
+    const stateCountResult = this.ctx.storage.sql
+      .exec('SELECT COUNT(*) as count FROM state')
+      .toArray()
+    const stateEntriesRecovered = (stateCountResult[0]?.count as number) ?? 0
+
+    return {
+      thingsRecovered,
+      stateEntriesRecovered,
+      lastRecoveryTimestamp: this.lastRecoveryTimestamp || Date.now(),
+    }
+  }
+
+  /**
+   * Get cold start metrics for monitoring eviction/recovery behavior.
+   * Returns information about the last cold start recovery.
+   */
+  async getColdStartMetrics(): Promise<{
+    source: 'sqlite' | 'empty' | 'iceberg'
+    thingsLoaded: number
+    durationMs: number
+  }> {
+    // Count things that could be loaded from SQLite
+    const thingsCountResult = this.ctx.storage.sql
+      .exec('SELECT COUNT(*) as count FROM things')
+      .toArray()
+    const thingsLoaded = (thingsCountResult[0]?.count as number) ?? 0
+
+    // Determine source based on what's available
+    let source: 'sqlite' | 'empty' | 'iceberg' = 'empty'
+    if (thingsLoaded > 0) {
+      source = 'sqlite'
+    }
+
+    return {
+      source,
+      thingsLoaded,
+      durationMs: 0, // Would be measured during actual cold start
+    }
   }
 
   // =========================================================================

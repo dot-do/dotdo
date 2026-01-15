@@ -47,6 +47,7 @@ export class PipelineEmitter {
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private closed: boolean = false
   private flushPromise: Promise<void> | null = null
+  private pendingFlushes: Promise<void>[] = []
 
   constructor(pipeline: Pipeline, config: PipelineEmitterConfig) {
     this.pipeline = pipeline
@@ -98,6 +99,11 @@ export class PipelineEmitter {
    * Explicitly flush all buffered events
    */
   async flush(): Promise<void> {
+    // Wait for ALL in-flight flushes to complete first
+    if (this.pendingFlushes.length > 0) {
+      await Promise.all(this.pendingFlushes)
+    }
+
     if (this.buffer.length === 0) return
 
     const batch = this.buffer.splice(0, this.buffer.length)
@@ -106,24 +112,31 @@ export class PipelineEmitter {
 
   /**
    * Close the emitter, flushing remaining events
+   * Awaits all in-flight flush operations before returning.
    */
   async close(): Promise<void> {
+    // Stop accepting new events
     this.closed = true
+
+    // Stop the flush timer
     if (this.flushTimer) {
       clearTimeout(this.flushTimer)
       this.flushTimer = null
     }
 
-    // Flush remaining events in buffer (not yet started)
-    // These haven't been sent yet, so we await them
+    // Wait for all in-flight flush operations to complete
+    if (this.pendingFlushes.length > 0) {
+      await Promise.all(this.pendingFlushes)
+    }
+
+    // Flush any remaining events in the buffer
     if (this.buffer.length > 0) {
       const batch = this.buffer.splice(0, this.buffer.length)
       await this.sendWithRetry(batch)
     }
 
-    // Don't wait for any previously in-flight promise - it will complete in background
-    // This is safe because events are already on their way to pipeline
-    // Not awaiting prevents hanging when pipeline is slow
+    // Clear state
+    this.pendingFlushes = []
     this.flushPromise = null
   }
 
@@ -147,14 +160,26 @@ export class PipelineEmitter {
 
     const batch = this.buffer.splice(0, this.buffer.length)
 
-    // Fire and forget - don't await
-    this.flushPromise = this.sendWithRetry(batch).finally(() => {
-      this.flushPromise = null
+    // Fire and forget - but track the promise so close() can await it
+    const flushOp = this.sendWithRetry(batch).finally(() => {
+      // Remove this promise from pendingFlushes when done
+      const idx = this.pendingFlushes.indexOf(flushOp)
+      if (idx >= 0) {
+        this.pendingFlushes.splice(idx, 1)
+      }
+      // Clear flushPromise if it's this one
+      if (this.flushPromise === flushOp) {
+        this.flushPromise = null
+      }
     })
+
+    this.pendingFlushes.push(flushOp)
+    this.flushPromise = flushOp
   }
 
   /**
    * Send batch with retry logic
+   * @throws Error if all retries fail and no DLQ is configured (or DLQ also fails)
    */
   private async sendWithRetry(batch: EmittedEvent[]): Promise<void> {
     let lastError: Error | null = null
@@ -177,10 +202,16 @@ export class PipelineEmitter {
     if (this.config.deadLetterQueue) {
       try {
         await this.config.deadLetterQueue.send(batch)
+        return // DLQ succeeded, don't throw
       } catch {
-        // DLQ also failed - events are lost
+        // DLQ also failed - events are lost, throw the original error
         console.error('Failed to send to dead letter queue', lastError)
       }
+    }
+
+    // No DLQ or DLQ failed - propagate the error
+    if (lastError) {
+      throw lastError
     }
   }
 

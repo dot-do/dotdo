@@ -287,7 +287,16 @@ export async function getSession(
 
   try {
     return JSON.parse(data) as Session
-  } catch {
+  } catch (err) {
+    // Log the session parse error for security monitoring
+    // Corrupted sessions could indicate tampering or data integrity issues
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(
+      '[authkit] Session JSON parse failed for session:',
+      sessionId,
+      'error:', errMsg,
+      'dataPreview:', data?.substring(0, 50) + (data?.length > 50 ? '...' : '')
+    )
     return null
   }
 }

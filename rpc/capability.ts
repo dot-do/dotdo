@@ -73,8 +73,13 @@ function extractMethods(target: unknown): string[] {
       // These will be properly populated when the schema is fetched
       return ['getOrders', 'notify', 'charge']
     }
-  } catch {
-    // Ignore errors from accessing $meta
+  } catch (err) {
+    // Log error for debugging and security monitoring - silent errors can hide issues
+    console.error('[capability] Error accessing $meta on target:', {
+      error: err instanceof Error ? err.message : String(err),
+      targetType: typeof target,
+      stack: err instanceof Error ? err.stack : undefined,
+    })
   }
 
   const proto = Object.getPrototypeOf(target)

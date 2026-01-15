@@ -277,6 +277,78 @@ export class DOStorageClass extends DOSemantic {
     // Call parent hibernation hook
     await super.prepareHibernate()
   }
+
+  // =========================================================================
+  // RPC-COMPATIBLE CRUD METHODS
+  // =========================================================================
+
+  /**
+   * Create a thing with RPC-compatible signature.
+   * First argument is the type, second is the data.
+   * Returns the created thing with $id, $type, $version, etc.
+   */
+  async create(type: string, data: Record<string, unknown>): Promise<ThingData> {
+    const thing = this.memCreate({
+      $type: type,
+      ...data,
+    })
+
+    // Immediately checkpoint to SQLite for durability
+    await this.checkpoint()
+
+    return thing
+  }
+
+  /**
+   * Get a thing by ID with RPC-compatible signature.
+   * Returns the thing or null if not found.
+   */
+  async get(id: string): Promise<ThingData | null> {
+    return this.getWithFallback(id)
+  }
+
+  /**
+   * Update a thing by ID with RPC-compatible signature.
+   * Returns the updated thing.
+   */
+  async update(id: string, updates: Partial<ThingData>): Promise<ThingData> {
+    // First ensure we have the thing in memory
+    const existing = await this.getWithFallback(id)
+    if (!existing) {
+      throw new Error(`Thing not found: ${id}`)
+    }
+
+    // Update in memory
+    const updated = this.memUpdate(id, updates)
+    if (!updated) {
+      throw new Error(`Failed to update thing: ${id}`)
+    }
+
+    // Checkpoint for durability
+    await this.checkpoint()
+
+    return updated
+  }
+
+  /**
+   * Delete a thing by ID with RPC-compatible signature.
+   * Returns the deleted thing or null if not found.
+   */
+  async delete(id: string): Promise<ThingData | null> {
+    // First ensure we have the thing in memory
+    const existing = await this.getWithFallback(id)
+    if (!existing) {
+      return null
+    }
+
+    // Delete from memory
+    const deleted = this.memDelete(id)
+
+    // Delete from SQLite
+    this.ctx.storage.sql.exec('DELETE FROM l2_things WHERE id = ?', id)
+
+    return deleted
+  }
 }
 
 // Use a named export alias for compatibility

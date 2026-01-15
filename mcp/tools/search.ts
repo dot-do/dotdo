@@ -242,23 +242,35 @@ async function keywordSearch(
   const params: unknown[] = [escapeSearchQuery(query)]
 
   if (filters?.$type) {
-    conditions.push('t.type = ?')
-    params.push(filters.$type)
+    const sanitizedType = sanitizeFilterValue(filters.$type, 'type')
+    if (sanitizedType) {
+      conditions.push('t.type = ?')
+      params.push(sanitizedType)
+    }
   }
 
   if (filters?.namespace) {
-    conditions.push('t.namespace = ?')
-    params.push(filters.namespace)
+    const sanitizedNamespace = sanitizeFilterValue(filters.namespace, 'namespace')
+    if (sanitizedNamespace) {
+      conditions.push('t.namespace = ?')
+      params.push(sanitizedNamespace)
+    }
   }
 
   if (filters?.dateRange?.from) {
-    conditions.push('t.created_at >= ?')
-    params.push(filters.dateRange.from)
+    const sanitizedFrom = sanitizeFilterValue(filters.dateRange.from, 'date')
+    if (sanitizedFrom) {
+      conditions.push('t.created_at >= ?')
+      params.push(sanitizedFrom)
+    }
   }
 
   if (filters?.dateRange?.to) {
-    conditions.push('t.created_at <= ?')
-    params.push(filters.dateRange.to)
+    const sanitizedTo = sanitizeFilterValue(filters.dateRange.to, 'date')
+    if (sanitizedTo) {
+      conditions.push('t.created_at <= ?')
+      params.push(sanitizedTo)
+    }
   }
 
   // Add limit and offset
@@ -318,17 +330,26 @@ async function fallbackKeywordSearch(
     return []
   }
 
+  // Sanitize the query for LIKE clause - remove dangerous characters
+  const sanitizedQuery = sanitizeString(query)
+
   const conditions: string[] = ['data LIKE ?']
-  const params: unknown[] = [`%${query}%`]
+  const params: unknown[] = [`%${sanitizedQuery}%`]
 
   if (filters?.$type) {
-    conditions.push('type = ?')
-    params.push(filters.$type)
+    const sanitizedType = sanitizeFilterValue(filters.$type, 'type')
+    if (sanitizedType) {
+      conditions.push('type = ?')
+      params.push(sanitizedType)
+    }
   }
 
   if (filters?.namespace) {
-    conditions.push('namespace = ?')
-    params.push(filters.namespace)
+    const sanitizedNamespace = sanitizeFilterValue(filters.namespace, 'namespace')
+    if (sanitizedNamespace) {
+      conditions.push('namespace = ?')
+      params.push(sanitizedNamespace)
+    }
   }
 
   params.push(limit)
@@ -431,16 +452,164 @@ async function hybridSearch(
 // =============================================================================
 
 /**
+ * SQL keywords that should be filtered from search queries
+ * These could be used for injection attacks if included in FTS5 queries
+ */
+const SQL_KEYWORDS = new Set([
+  'select',
+  'insert',
+  'update',
+  'delete',
+  'drop',
+  'alter',
+  'create',
+  'truncate',
+  'union',
+  'from',
+  'where',
+  'table',
+  'or',
+  'and',
+  'not',
+  'null',
+  'is',
+  'in',
+  'like',
+  'between',
+  'join',
+  'on',
+  'as',
+  'case',
+  'when',
+  'then',
+  'else',
+  'end',
+  'exec',
+  'execute',
+  'near',
+])
+
+/**
+ * Sanitize a string by removing all dangerous characters and SQL keywords
+ * Uses allowlist approach - only allows alphanumeric, basic punctuation, and whitespace
+ */
+function sanitizeString(input: string): string {
+  // Remove null bytes and control characters first
+  let sanitized = input.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+
+  // Remove SQL comment markers
+  sanitized = sanitized.replace(/--/g, ' ')
+
+  // Remove semicolons (statement terminators)
+  sanitized = sanitized.replace(/;/g, ' ')
+
+  // Remove backslashes (escape characters)
+  sanitized = sanitized.replace(/\\/g, ' ')
+
+  // Remove backticks
+  sanitized = sanitized.replace(/`/g, ' ')
+
+  // Remove quotes (single and double)
+  sanitized = sanitized.replace(/['"]/g, ' ')
+
+  // Remove parentheses (FTS5 grouping)
+  sanitized = sanitized.replace(/[()]/g, ' ')
+
+  // Remove other potentially dangerous characters: ^~*:=<>
+  sanitized = sanitized.replace(/[\^~*:=<>]/g, ' ')
+
+  // Remove % (SQL wildcard) - except when used as percent sign in text
+  sanitized = sanitized.replace(/%/g, ' ')
+
+  // Remove SQL keywords to prevent injection attacks like UNION SELECT
+  // Split into words, filter out keywords, rejoin
+  sanitized = sanitized
+    .split(/\s+/)
+    .filter((word) => !SQL_KEYWORDS.has(word.toLowerCase()))
+    .join(' ')
+
+  return sanitized
+}
+
+/**
+ * Check if a term is a valid search term (not a SQL keyword)
+ */
+function isValidSearchTerm(term: string): boolean {
+  // Must be alphanumeric with basic punctuation only
+  if (!/^[\p{L}\p{N}\-_.@#]+$/u.test(term)) {
+    return false
+  }
+
+  // Must not be a SQL keyword
+  if (SQL_KEYWORDS.has(term.toLowerCase())) {
+    return false
+  }
+
+  // Must have at least some content
+  if (term.length === 0) {
+    return false
+  }
+
+  return true
+}
+
+/**
  * Escape special FTS5 characters in search query
+ * Uses comprehensive sanitization to prevent SQL injection
  */
 function escapeSearchQuery(query: string): string {
-  // Escape FTS5 special characters
-  return query
-    .replace(/['"()]/g, ' ')
+  // First sanitize the entire query string
+  const sanitized = sanitizeString(query)
+
+  // Split into terms and filter
+  const terms = sanitized
     .split(/\s+/)
     .filter((term) => term.length > 0)
-    .map((term) => `"${term}"*`)
-    .join(' OR ')
+    .filter(isValidSearchTerm)
+
+  // If no valid terms remain, return a safe empty query
+  // Use a term that won't match anything but is syntactically valid
+  if (terms.length === 0) {
+    return '__EMPTY_QUERY__'
+  }
+
+  // Join terms with spaces (FTS5 default is AND)
+  // Each term is validated to be safe alphanumeric
+  return terms.join(' ')
+}
+
+/**
+ * Sanitize filter parameter values
+ * Validates and cleans filter inputs to prevent injection via filter parameters
+ */
+function sanitizeFilterValue(value: string, type: 'type' | 'namespace' | 'date'): string {
+  const sanitized = sanitizeString(value)
+
+  switch (type) {
+    case 'type':
+      // Type names should be alphanumeric with underscores only
+      if (!/^[\p{L}\p{N}_]+$/u.test(sanitized)) {
+        return '' // Invalid type
+      }
+      return sanitized
+
+    case 'namespace':
+      // Namespaces can include hyphens and dots
+      if (!/^[\p{L}\p{N}\-_.]+$/u.test(sanitized)) {
+        return '' // Invalid namespace
+      }
+      return sanitized
+
+    case 'date':
+      // ISO date format validation (YYYY-MM-DD or full ISO string)
+      if (!/^\d{4}-\d{2}-\d{2}(T[\d:.Z+-]+)?$/.test(sanitized)) {
+        return '' // Invalid date format
+      }
+      return sanitized
+
+    default:
+      return ''
+  }
 }
 
 /**

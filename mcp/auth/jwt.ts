@@ -98,7 +98,7 @@ export async function validateJwt(
       return { valid: false, error: 'Invalid token format' }
     }
 
-    return { valid: false, error: 'Token validation failed' }
+    return { valid: false, error: 'Token validation failed: invalid or malformed token' }
   }
 }
 
@@ -107,6 +107,27 @@ export async function validateJwt(
  */
 export function decodeJwt(token: string): JwtPayload | null {
   try {
+    // Check for empty or malformed tokens before attempting decode
+    if (!token || token.trim() === '') {
+      console.error(
+        '[jwt] JWT decode failed: empty token provided',
+        'errorType:', 'EMPTY_TOKEN'
+      )
+      return null
+    }
+
+    // Check for proper JWT structure (should have 2 or 3 parts separated by dots)
+    const parts = token.split('.')
+    if (parts.length < 2 || parts.length > 3) {
+      console.error(
+        '[jwt] JWT decode failed: malformed token structure',
+        'errorType:', 'MALFORMED_TOKEN',
+        'tokenParts:', parts.length,
+        'expectedParts: 2 or 3'
+      )
+      return null
+    }
+
     const decoded = jose.decodeJwt(token)
 
     const payload: JwtPayload = {
@@ -118,8 +139,42 @@ export function decodeJwt(token: string): JwtPayload | null {
       permissions: (decoded.permissions as string[]) || [],
     }
 
-    return isJwtPayload(payload) ? payload : null
-  } catch {
+    // Check for suspicious payload patterns
+    if (decoded.sub && typeof decoded.sub === 'string' && decoded.sub.includes('..')) {
+      console.error(
+        '[jwt] JWT decode warning: suspicious subject claim',
+        'errorType:', 'SUSPICIOUS_PAYLOAD',
+        'sub:', decoded.sub
+      )
+    }
+
+    // Capture diagnostic values before type guard narrows the type
+    const hasSub = !!payload.sub
+    const hasIat = !!payload.iat
+    const hasExp = !!payload.exp
+
+    if (!isJwtPayload(payload)) {
+      console.error(
+        '[jwt] JWT decode failed: invalid payload structure',
+        'errorType:', 'INVALID_PAYLOAD',
+        'hasSub:', hasSub,
+        'hasIat:', hasIat,
+        'hasExp:', hasExp
+      )
+      return null
+    }
+
+    return payload
+  } catch (err) {
+    // Log the decode error for security monitoring
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(
+      '[jwt] JWT decode failed:',
+      'errorType:', 'DECODE_ERROR',
+      'error:', errMsg,
+      'tokenLength:', token?.length ?? 0,
+      'tokenPreview:', token?.substring(0, 20) + (token?.length > 20 ? '...' : '')
+    )
     return null
   }
 }

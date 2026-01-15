@@ -15,6 +15,38 @@
 
 import { VectorStore, getVectorStore, resetVectorStore, type VectorStoreConfig } from './vector-store'
 
+// Import canonical types from types/index.ts
+import type {
+  Noun,
+  NounOptions,
+  NounRegistry,
+  Verb,
+  VerbOptions,
+  VerbRegistry,
+  Thing,
+  Action,
+  ActionResult,
+  RelationshipOperator,
+  FuzzyOptions,
+  ScoredThing,
+} from '../types'
+
+// Re-export types for backwards compatibility
+export type {
+  Noun,
+  NounOptions,
+  NounRegistry,
+  Verb,
+  VerbOptions,
+  VerbRegistry,
+  Thing,
+  Action,
+  ActionResult,
+  RelationshipOperator,
+  FuzzyOptions,
+  ScoredThing,
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -27,129 +59,6 @@ const MIN_WORD_LENGTH = 3
 
 /** Characters that don't double in CVC pattern (consonant-vowel-consonant) */
 const NO_DOUBLE_CONSONANTS = new Set(['w', 'x', 'y'])
-
-// ============================================================================
-// TYPE DEFINITIONS
-// ============================================================================
-
-/**
- * Noun - Entity type definition with singular/plural forms
- */
-export interface Noun {
-  /** Singular form (e.g., 'Customer') */
-  singular: string
-  /** Plural form (e.g., 'Customers') */
-  plural: string
-}
-
-/**
- * NounOptions - Options for noun definition
- */
-export interface NounOptions {
-  /** Override the auto-derived plural form */
-  plural?: string
-}
-
-/**
- * NounRegistry - Map of noun names to Noun definitions
- */
-export type NounRegistry = Map<string, Noun>
-
-/**
- * Verb - Action definition with conjugated tenses
- */
-export interface Verb {
-  /** Base form / infinitive (e.g., 'create') */
-  base: string
-  /** Past tense (e.g., 'created') */
-  past: string
-  /** Third person singular present (e.g., 'creates') */
-  present: string
-  /** Present participle / gerund (e.g., 'creating') */
-  gerund: string
-}
-
-/**
- * VerbOptions - Options for verb definition
- */
-export interface VerbOptions {
-  /** Override the auto-derived past tense */
-  past?: string
-  /** Override the auto-derived present tense */
-  present?: string
-  /** Override the auto-derived gerund */
-  gerund?: string
-}
-
-/**
- * VerbRegistry - Map of verb names to Verb definitions
- */
-export type VerbRegistry = Map<string, Verb>
-
-/**
- * Thing - Entity instance with $id and $type
- */
-export interface Thing<T = Record<string, unknown>> {
-  /** Unique identifier */
-  $id: string
-  /** Type name (from Noun) */
-  $type: string
-  /** Data properties */
-  [key: string]: unknown
-}
-
-/**
- * Action - Unified event + edge + audit record
- */
-export interface Action {
-  event: {
-    type: string
-    subject: string
-    object?: string
-    timestamp: Date
-    metadata?: Record<string, unknown>
-  }
-  edge: {
-    from: string
-    to: string
-    verb: string
-  }
-  audit: {
-    actor: string
-    verb: string
-    target: string
-    timestamp: Date
-  }
-}
-
-/**
- * ActionResult - Result of creating an action
- */
-export interface ActionResult extends Action {
-  success: boolean
-}
-
-/**
- * RelationshipOperator - The four relationship operators
- */
-export type RelationshipOperator = '->' | '~>' | '<-' | '<~'
-
-/**
- * FuzzyOptions - Options for fuzzy relationship traversal
- */
-export interface FuzzyOptions {
-  /** Similarity threshold (0-1) */
-  threshold?: number
-  /** Include similarity scores in results */
-  withScores?: boolean
-}
-
-/**
- * ScoredThing - Thing with similarity score for fuzzy results
- */
-export interface ScoredThing<T = Record<string, unknown>> extends Thing<T> {
-  score: number
-}
 
 // ============================================================================
 // INTERNAL STATE
@@ -892,3 +801,13 @@ export {
   MockEmbeddingProvider,
   WorkersAIEmbeddingProvider,
 } from './vector-store'
+
+// Re-export DOSemantic class for the DO hierarchy
+export {
+  DOSemantic,
+  type DOSemanticEnv,
+  type Noun as DOSemanticNoun,
+  type Verb as DOSemanticVerb,
+  type Thing as DOSemanticThing,
+  type ActionResult as DOSemanticActionResult,
+} from './DOSemantic'

@@ -9,7 +9,173 @@
  * - Custom type handlers
  */
 
-import { isCapability, serializeCapabilityObject, isTypedObject, isCircularRefMarker } from './serialization-helpers'
+import { isCapability, serializeCapabilityObject } from './serialization-helpers'
+
+// =============================================================================
+// Wire Format Type Constants
+// =============================================================================
+
+/** Wire format type constant for Date */
+export const TYPE_DATE = 'Date' as const
+/** Wire format type constant for Map */
+export const TYPE_MAP = 'Map' as const
+/** Wire format type constant for Set */
+export const TYPE_SET = 'Set' as const
+/** Wire format type constant for BigInt */
+export const TYPE_BIGINT = 'BigInt' as const
+/** Wire format type constant for Capability */
+export const TYPE_CAPABILITY = 'Capability' as const
+
+/** Union of all wire format type constants */
+export type WireType = typeof TYPE_DATE | typeof TYPE_MAP | typeof TYPE_SET | typeof TYPE_BIGINT | typeof TYPE_CAPABILITY
+
+// =============================================================================
+// Wire Format Type Definitions (Discriminated Unions)
+// =============================================================================
+
+/** Wire format for serialized Date */
+export interface DateWireFormat {
+  $type: typeof TYPE_DATE
+  value: string
+}
+
+/** Wire format for serialized Map */
+export interface MapWireFormat {
+  $type: typeof TYPE_MAP
+  entries: [unknown, unknown][]
+}
+
+/** Wire format for serialized Set */
+export interface SetWireFormat {
+  $type: typeof TYPE_SET
+  values: unknown[]
+}
+
+/** Wire format for serialized BigInt */
+export interface BigIntWireFormat {
+  $type: typeof TYPE_BIGINT
+  value: string
+}
+
+/** Wire format for serialized Capability */
+export interface CapabilityWireFormat {
+  $type: typeof TYPE_CAPABILITY
+  id: string
+  type: string
+  methods: string[]
+  expiresAt?: string
+}
+
+/** Capability specification (used after deserialization) */
+export interface CapabilitySpec {
+  id: string
+  type: string
+  methods: string[]
+  expiresAt?: string
+}
+
+/** Circular reference marker */
+export interface CircularRefMarker {
+  $ref: string
+}
+
+/** Union of all wire format types */
+export type WireFormat = DateWireFormat | MapWireFormat | SetWireFormat | BigIntWireFormat | CapabilityWireFormat
+
+/** Union of all typed objects including circular refs */
+export type TypedWireFormat = WireFormat | CircularRefMarker
+
+// =============================================================================
+// Type Guards
+// =============================================================================
+
+/**
+ * Check if a value is a typed object (with $type marker)
+ */
+export function isTypedObject(value: unknown): value is WireFormat {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    '$type' in value &&
+    typeof (value as Record<string, unknown>).$type === 'string'
+  )
+}
+
+/**
+ * Check if a value is a circular reference marker
+ */
+export function isCircularRefMarker(value: unknown): value is CircularRefMarker {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    '$ref' in value &&
+    typeof (value as Record<string, unknown>).$ref === 'string'
+  )
+}
+
+/**
+ * Type guard for DateWireFormat
+ */
+export function isDateWireFormat(value: unknown): value is DateWireFormat {
+  return (
+    isTypedObject(value) &&
+    value.$type === TYPE_DATE &&
+    'value' in value &&
+    typeof (value as DateWireFormat).value === 'string'
+  )
+}
+
+/**
+ * Type guard for MapWireFormat
+ */
+export function isMapWireFormat(value: unknown): value is MapWireFormat {
+  return (
+    isTypedObject(value) &&
+    value.$type === TYPE_MAP &&
+    'entries' in value &&
+    Array.isArray((value as MapWireFormat).entries)
+  )
+}
+
+/**
+ * Type guard for SetWireFormat
+ */
+export function isSetWireFormat(value: unknown): value is SetWireFormat {
+  return (
+    isTypedObject(value) &&
+    value.$type === TYPE_SET &&
+    'values' in value &&
+    Array.isArray((value as SetWireFormat).values)
+  )
+}
+
+/**
+ * Type guard for BigIntWireFormat
+ */
+export function isBigIntWireFormat(value: unknown): value is BigIntWireFormat {
+  return (
+    isTypedObject(value) &&
+    value.$type === TYPE_BIGINT &&
+    'value' in value &&
+    typeof (value as BigIntWireFormat).value === 'string'
+  )
+}
+
+/**
+ * Type guard for CapabilityWireFormat
+ */
+export function isCapabilityWireFormat(value: unknown): value is CapabilityWireFormat {
+  return (
+    isTypedObject(value) &&
+    value.$type === TYPE_CAPABILITY &&
+    'id' in value &&
+    'type' in value &&
+    'methods' in value &&
+    typeof (value as CapabilityWireFormat).id === 'string' &&
+    typeof (value as CapabilityWireFormat).type === 'string' &&
+    Array.isArray((value as CapabilityWireFormat).methods)
+  )
+}
 
 /**
  * Serialization options
@@ -26,6 +192,32 @@ export interface TypeHandler {
   deserialize(value: unknown): unknown
 }
 
+/** Options for JSON serialization */
+export interface JsonSerializationOptions {
+  format?: 'json'
+  handlers?: Map<string, TypeHandler>
+}
+
+/** Options for binary serialization */
+export interface BinarySerializationOptions {
+  format: 'binary'
+  handlers?: Map<string, TypeHandler>
+}
+
+/**
+ * Serialize a value to JSON string
+ *
+ * Note: seenObjects is created per-call to avoid race conditions
+ * when multiple concurrent serializations occur in the same isolate.
+ */
+export function serialize(value: unknown, options?: JsonSerializationOptions): string
+/**
+ * Serialize a value to binary ArrayBuffer
+ *
+ * Note: seenObjects is created per-call to avoid race conditions
+ * when multiple concurrent serializations occur in the same isolate.
+ */
+export function serialize(value: unknown, options: BinarySerializationOptions): ArrayBuffer
 /**
  * Serialize a value to JSON string or binary ArrayBuffer
  *
@@ -192,36 +384,69 @@ function transformFromSerialization(value: unknown, handlers?: Map<string, TypeH
 
   const obj = value as Record<string, unknown>
 
-  // Check for typed objects
-  if (isTypedObject(obj)) {
-    const typeName = obj.$type
-
+  // Check for typed objects using specific type guards for type-safe access
+  if (isDateWireFormat(obj)) {
     // Check custom handlers first
     if (handlers) {
-      const handler = handlers.get(typeName)
+      const handler = handlers.get(obj.$type)
       if (handler) {
         return handler.deserialize(obj)
       }
     }
+    return new Date(obj.value)
+  }
 
-    // Built-in type handlers
-    switch (typeName) {
-      case 'Date':
-        return new Date(obj.value as string)
-      case 'Map':
-        return new Map(obj.entries as [unknown, unknown][])
-      case 'Set':
-        return new Set(obj.values as unknown[])
-      case 'BigInt':
-        return BigInt(obj.value as string)
-      case 'Capability':
-        // Return a capability proxy with invoke method
-        return createCapabilityProxy(obj as {
-          id: string
-          type: string
-          methods: string[]
-          expiresAt?: string
-        })
+  if (isMapWireFormat(obj)) {
+    if (handlers) {
+      const handler = handlers.get(obj.$type)
+      if (handler) {
+        return handler.deserialize(obj)
+      }
+    }
+    return new Map(obj.entries)
+  }
+
+  if (isSetWireFormat(obj)) {
+    if (handlers) {
+      const handler = handlers.get(obj.$type)
+      if (handler) {
+        return handler.deserialize(obj)
+      }
+    }
+    return new Set(obj.values)
+  }
+
+  if (isBigIntWireFormat(obj)) {
+    if (handlers) {
+      const handler = handlers.get(obj.$type)
+      if (handler) {
+        return handler.deserialize(obj)
+      }
+    }
+    return BigInt(obj.value)
+  }
+
+  if (isCapabilityWireFormat(obj)) {
+    if (handlers) {
+      const handler = handlers.get(obj.$type)
+      if (handler) {
+        return handler.deserialize(obj)
+      }
+    }
+    // Return a capability proxy with invoke method - properly typed from type guard
+    return createCapabilityProxy({
+      id: obj.id,
+      type: obj.type,
+      methods: obj.methods,
+      expiresAt: obj.expiresAt,
+    })
+  }
+
+  // Check for unknown typed objects (custom handlers only)
+  if (isTypedObject(obj) && handlers) {
+    const handler = handlers.get(obj.$type)
+    if (handler) {
+      return handler.deserialize(obj)
     }
   }
 

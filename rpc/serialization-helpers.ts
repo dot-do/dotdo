@@ -4,7 +4,7 @@
  * Consolidates common type detection and transformation logic.
  */
 
-import { TypeHandler } from './transport'
+import { TypeHandler, TYPE_CAPABILITY } from './transport'
 
 /**
  * Check if a value is a Capability object
@@ -37,7 +37,7 @@ export function serializeCapabilityObject(cap: {
   parent?: object
 }): Record<string, unknown> {
   return {
-    $type: 'Capability',
+    $type: TYPE_CAPABILITY,
     id: cap.id,
     type: cap.type,
     methods: cap.methods,

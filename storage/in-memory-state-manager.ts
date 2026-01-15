@@ -18,26 +18,32 @@
  * manager.delete(thing.$id)
  */
 
-export interface ThingData {
-  $id: string
-  $type: string
-  $version?: number
-  name?: string
-  data?: Record<string, unknown>
-  [key: string]: unknown
+// Import canonical types from types/index.ts
+import type { ThingData, CreateThingInput } from '../types'
+
+// Re-export for backwards compatibility
+export type { ThingData, CreateThingInput }
+
+export interface TelemetryEmitter {
+  emit: (event: TelemetryEvent) => void
 }
 
-export interface CreateThingInput {
-  $id?: string
-  $type: string
-  name?: string
-  [key: string]: unknown
+export interface TelemetryEvent {
+  type: string
+  tier: string
+  operation: string
+  entityType: string
+  entityId: string
+  durationMs: number
+  timestamp: number
 }
 
 export interface InMemoryStateManagerOptions {
   maxEntries?: number
   maxBytes?: number
   onEvict?: (entries: ThingData[]) => void
+  onMemoryPressure?: (stats: { dirtyCount: number; entryCount: number }) => void
+  telemetry?: TelemetryEmitter
 }
 
 export interface StateManagerStats {
@@ -46,10 +52,28 @@ export interface StateManagerStats {
   estimatedBytes: number
 }
 
+export interface TierMetadata {
+  residency: string[]
+  createdAt: number
+  lastPromoted?: number
+  lastAccess: number
+  accessCount: number
+}
+
+export interface AccessStats {
+  [id: string]: {
+    accessCount: number
+    lastAccess: number
+    createdAt: number
+  }
+}
+
 interface CacheEntry {
   data: ThingData
   size: number
   accessTime: number
+  accessCount: number
+  createdAt: number
 }
 
 /**
@@ -74,13 +98,47 @@ export class InMemoryStateManager {
   private dirtySet: Set<string> = new Set()
   private accessOrder: string[] = [] // For LRU tracking
   private totalBytes: number = 0
-  private options: Required<InMemoryStateManagerOptions>
+  private options: Required<Omit<InMemoryStateManagerOptions, 'telemetry'>> & { telemetry?: TelemetryEmitter }
 
   constructor(options: InMemoryStateManagerOptions = {}) {
     this.options = {
       maxEntries: options.maxEntries ?? Infinity,
       maxBytes: options.maxBytes ?? Infinity,
       onEvict: options.onEvict ?? (() => {}),
+      onMemoryPressure: options.onMemoryPressure ?? (() => {}),
+      telemetry: options.telemetry,
+    }
+  }
+
+  /**
+   * Get access statistics for all entries
+   */
+  getAccessStats(): AccessStats {
+    const stats: AccessStats = {}
+    for (const [id, entry] of this.store) {
+      stats[id] = {
+        accessCount: entry.accessCount,
+        lastAccess: entry.accessTime,
+        createdAt: entry.createdAt,
+      }
+    }
+    return stats
+  }
+
+  /**
+   * Emit a telemetry event
+   */
+  private emitTelemetry(operation: string, entityType: string, entityId: string, startTime: number): void {
+    if (this.options.telemetry) {
+      this.options.telemetry.emit({
+        type: `tier.L0.${operation}`,
+        tier: 'L0',
+        operation,
+        entityType,
+        entityId,
+        durationMs: Date.now() - startTime,
+        timestamp: Date.now(),
+      })
     }
   }
 
@@ -95,21 +153,36 @@ export class InMemoryStateManager {
    * @throws Never - LRU eviction handles capacity gracefully
    */
   create(input: CreateThingInput): ThingData {
+    const startTime = Date.now()
     const $id = input.$id ?? generateId(input.$type)
+    const now = Date.now()
+
+    // Add tier metadata to the thing
+    const tierMetadata: TierMetadata = {
+      residency: ['L0'],
+      createdAt: now,
+      lastAccess: now,
+      accessCount: 0,
+    }
+
     const thing: ThingData = {
       ...input,
       $id,
       $version: 1,
+      _tier: tierMetadata,
     }
 
     const size = estimateSize(thing)
-    this.store.set($id, { data: thing, size, accessTime: Date.now() })
+    this.store.set($id, { data: thing, size, accessTime: now, accessCount: 0, createdAt: now })
     this.totalBytes += size
     this.dirtySet.add($id)
     this.updateAccessOrder($id)
 
     // Check eviction thresholds
     this.maybeEvict()
+
+    // Emit telemetry
+    this.emitTelemetry('create', input.$type, $id, startTime)
 
     return { ...thing }
   }
@@ -127,9 +200,17 @@ export class InMemoryStateManager {
     const entry = this.store.get(id)
     if (!entry) return null
 
-    // Update access time for LRU
+    // Update access time and count for LRU
     entry.accessTime = Date.now()
+    entry.accessCount++
     this.updateAccessOrder(id)
+
+    // Update tier metadata access count
+    if (entry.data._tier && typeof entry.data._tier === 'object') {
+      const tier = entry.data._tier as TierMetadata
+      tier.lastAccess = entry.accessTime
+      tier.accessCount = entry.accessCount
+    }
 
     return { ...entry.data }
   }
@@ -185,6 +266,43 @@ export class InMemoryStateManager {
     this.removeFromAccessOrder(id)
 
     return { ...entry.data }
+  }
+
+  /**
+   * Put a thing into storage (upsert operation)
+   * Creates if not exists, updates if exists.
+   * Part of the StorageTier interface for polymorphic access.
+   *
+   * @param id - The $id to store the thing under
+   * @param data - The thing data to store
+   */
+  put(id: string, data: ThingData): void {
+    const existing = this.store.get(id)
+    if (existing) {
+      // Update existing entry
+      const oldSize = existing.size
+      const newSize = estimateSize(data)
+      this.totalBytes = this.totalBytes - oldSize + newSize
+      existing.data = { ...data, $id: id }
+      existing.size = newSize
+      existing.accessTime = Date.now()
+      this.dirtySet.add(id)
+      this.updateAccessOrder(id)
+    } else {
+      // Create new entry
+      const now = Date.now()
+      const thingData: ThingData = {
+        ...data,
+        $id: id,
+        $version: data.$version ?? 1,
+      }
+      const size = estimateSize(thingData)
+      this.store.set(id, { data: thingData, size, accessTime: now, accessCount: 0, createdAt: now })
+      this.totalBytes += size
+      this.dirtySet.add(id)
+      this.updateAccessOrder(id)
+      this.maybeEvict()
+    }
   }
 
   /**
@@ -244,17 +362,23 @@ export class InMemoryStateManager {
    * Load bulk data without marking as dirty (for recovery)
    */
   loadBulk(things: ThingData[]): void {
+    const now = Date.now()
     for (const thing of things) {
       const size = estimateSize(thing)
       this.store.set(thing.$id, {
         data: { ...thing },
         size,
-        accessTime: Date.now(),
+        accessTime: now,
+        accessCount: 0,
+        createdAt: (thing._tier as TierMetadata)?.createdAt ?? now,
       })
       this.totalBytes += size
       this.updateAccessOrder(thing.$id)
       // NOT marking as dirty - this is recovered data
     }
+
+    // Enforce limits after bulk load
+    this.maybeEvict()
   }
 
   /**
@@ -300,6 +424,40 @@ export class InMemoryStateManager {
   }
 
   /**
+   * Update tier residency for entries (called after checkpoint)
+   */
+  updateTierResidency(ids: string[], tier: string): void {
+    const now = Date.now()
+    for (const id of ids) {
+      const entry = this.store.get(id)
+      if (entry && entry.data._tier && typeof entry.data._tier === 'object') {
+        const tierMeta = entry.data._tier as TierMetadata
+        if (!tierMeta.residency.includes(tier)) {
+          tierMeta.residency.push(tier)
+          tierMeta.lastPromoted = now
+        }
+      }
+    }
+  }
+
+  /**
+   * Get entry by id for internal access (does not increment access count)
+   */
+  getEntry(id: string): CacheEntry | undefined {
+    return this.store.get(id)
+  }
+
+  /**
+   * Get a thing by $id without incrementing access count.
+   * Use this for internal operations like dirty tracking.
+   */
+  getRaw(id: string): ThingData | null {
+    const entry = this.store.get(id)
+    if (!entry) return null
+    return { ...entry.data }
+  }
+
+  /**
    * Update LRU access order
    */
   private updateAccessOrder(id: string): void {
@@ -318,23 +476,97 @@ export class InMemoryStateManager {
   }
 
   /**
+   * Force eviction of dirty entries under memory pressure.
+   *
+   * This should be called after triggering a checkpoint. It will evict
+   * dirty entries as a last resort when clean entries cannot be evicted.
+   *
+   * @param count - Number of entries to evict (default: evict until under limits)
+   * @returns Array of evicted entries (may include dirty entries)
+   */
+  forceEvict(count?: number): ThingData[] {
+    const toEvict: ThingData[] = []
+    const targetCount = count ?? Math.max(0, this.store.size - this.options.maxEntries)
+
+    // First try clean entries
+    for (let i = 0; i < targetCount; i++) {
+      const evicted = this.evictLRUClean()
+      if (evicted) {
+        toEvict.push(evicted)
+      } else {
+        break
+      }
+    }
+
+    // If we still need to evict more, force evict dirty entries (LRU order)
+    const remaining = targetCount - toEvict.length
+    for (let i = 0; i < remaining; i++) {
+      const evicted = this.evictLRUDirty()
+      if (evicted) {
+        toEvict.push(evicted)
+      } else {
+        break
+      }
+    }
+
+    if (toEvict.length > 0) {
+      this.options.onEvict(toEvict)
+    }
+
+    return toEvict
+  }
+
+  /**
    * Check and perform LRU eviction if thresholds exceeded
    */
   private maybeEvict(): void {
     const toEvict: ThingData[] = []
+    let calledMemoryPressure = false
 
     // Check entry count threshold
     while (this.store.size > this.options.maxEntries) {
       const evicted = this.evictLRUClean()
-      if (!evicted) break // No more clean entries to evict
-      toEvict.push(evicted)
+      if (!evicted) {
+        // No clean entries to evict - notify about memory pressure BEFORE evicting dirty
+        if (!calledMemoryPressure) {
+          calledMemoryPressure = true
+          this.options.onMemoryPressure({
+            dirtyCount: this.dirtySet.size,
+            entryCount: this.store.size,
+          })
+        }
+        // Try dirty entries as last resort
+        const dirtyEvicted = this.evictLRUDirty()
+        if (!dirtyEvicted) {
+          break
+        }
+        toEvict.push(dirtyEvicted)
+      } else {
+        toEvict.push(evicted)
+      }
     }
 
     // Check byte threshold
     while (this.totalBytes > this.options.maxBytes) {
       const evicted = this.evictLRUClean()
-      if (!evicted) break // No more clean entries to evict
-      toEvict.push(evicted)
+      if (!evicted) {
+        // No clean entries to evict - notify about memory pressure BEFORE evicting dirty
+        if (!calledMemoryPressure) {
+          calledMemoryPressure = true
+          this.options.onMemoryPressure({
+            dirtyCount: this.dirtySet.size,
+            entryCount: this.store.size,
+          })
+        }
+        // Try dirty entries as last resort
+        const dirtyEvicted = this.evictLRUDirty()
+        if (!dirtyEvicted) {
+          break
+        }
+        toEvict.push(dirtyEvicted)
+      } else {
+        toEvict.push(evicted)
+      }
     }
 
     if (toEvict.length > 0) {
@@ -353,6 +585,26 @@ export class InMemoryStateManager {
         if (entry) {
           this.store.delete(id)
           this.totalBytes -= entry.size
+          this.removeFromAccessOrder(id)
+          return entry.data
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * Evict the least recently used DIRTY entry (last resort)
+   */
+  private evictLRUDirty(): ThingData | null {
+    // Find oldest dirty entry
+    for (const id of this.accessOrder) {
+      if (this.dirtySet.has(id)) {
+        const entry = this.store.get(id)
+        if (entry) {
+          this.store.delete(id)
+          this.totalBytes -= entry.size
+          this.dirtySet.delete(id)
           this.removeFromAccessOrder(id)
           return entry.data
         }

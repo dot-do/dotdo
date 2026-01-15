@@ -60,7 +60,9 @@ export function createRecordingStub<T>(): RecordingStub<T> & T {
  * Creates a chained proxy that records operations to a shared array
  */
 function createChainedProxy<T>(operations: RecordedOperation[]): RecordingStub<T> & T {
-  const proxy = new Proxy(function () {} as any, {
+  // Use a callable target function for the Proxy so the `apply` trap works
+  const callableTarget = function (): void {} as unknown as RecordingStub<T> & T
+  const proxy = new Proxy(callableTarget, {
     get(target, prop, receiver) {
       // Handle Symbols specially - don't record them
       if (typeof prop === 'symbol') {
@@ -128,7 +130,7 @@ function createChainedProxy<T>(operations: RecordedOperation[]): RecordingStub<T
  * @returns The result of replaying all operations
  */
 export function replayRecording<T, R>(recording: Recording, element: T): R {
-  let current: any = element
+  let current: unknown = element
 
   for (let i = 0; i < recording.operations.length; i++) {
     const op = recording.operations[i]
@@ -142,10 +144,13 @@ export function replayRecording<T, R>(recording: Recording, element: T): R {
       )
     }
 
+    // Cast current to Record for property/method access (safe after null check above)
+    const currentRecord = current as Record<string, unknown>
+
     if (op.type === 'property') {
-      current = current[op.name]
+      current = currentRecord[op.name]
     } else if (op.type === 'method') {
-      const method = current[op.name]
+      const method = currentRecord[op.name]
       if (typeof method !== 'function') {
         throw new Error(
           `'${op.name}' is not a function at step ${i}. ` +
@@ -160,7 +165,7 @@ export function replayRecording<T, R>(recording: Recording, element: T): R {
       // Create a continuation that replays remaining operations on the resolved value
       const remainingOps = recording.operations.slice(i + 1)
       if (remainingOps.length > 0) {
-        return current.then((resolved: any) =>
+        return current.then((resolved: unknown) =>
           replayRecording({ operations: remainingOps }, resolved)
         ) as R
       }
@@ -219,14 +224,15 @@ export function serializeRecording(recording: Recording): Recording {
  */
 export function deserializeRecording(json: Recording): Recording {
   return {
-    operations: json.operations.map((op) => {
+    operations: json.operations.map((op): RecordedOperation => {
       if (op.type === 'property') {
-        return { type: 'property' as const, name: op.name }
+        return { type: 'property', name: op.name }
       }
+      // TypeScript narrows op to method type here
       return {
-        type: 'method' as const,
+        type: 'method',
         name: op.name,
-        args: (op as any).args ?? [],
+        args: op.args ?? [],
       }
     }),
   }

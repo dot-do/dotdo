@@ -146,9 +146,38 @@ export const MODEL_REGISTRY = {
 // =============================================================================
 
 /**
- * Template literal interpolation value - can be any primitive, array, or AIPromise
+ * Serializable types that can be returned from AI operations
+ * Functions, symbols, and other non-serializable types are excluded
  */
-export type TemplateValue = string | number | boolean | null | undefined | AIPromise<unknown> | readonly TemplateValue[]
+export type SerializableValue = string | number | boolean | object | null | string[]
+
+/**
+ * Template literal interpolation value - can be any primitive, Date, array, or AIPromise
+ */
+export type TemplateValue = string | number | boolean | null | undefined | Date | AIPromise<SerializableValue> | readonly TemplateValue[]
+
+/**
+ * Known model names for type safety with autocomplete
+ */
+export type KnownModelName =
+  | 'gpt-4'
+  | 'gpt-4-turbo'
+  | 'gpt-3.5-turbo'
+  | 'claude-3'
+  | 'claude-3-opus'
+  | 'claude-3-sonnet'
+  | 'claude-3-haiku'
+  | '@cf/openai/gpt-oss-120b'
+  | '@cf/openai/gpt-oss-20b'
+  | '@cf/meta/llama-4-scout-17b-16e-instruct'
+  | '@cf/ibm-granite/granite-4.0-h-micro'
+  | '@cf/deepgram/aura-2-en'
+  | '@cf/black-forest-labs/flux-2-dev'
+
+/**
+ * Model name type - known models only (narrower than string)
+ */
+export type ModelName = KnownModelName
 
 /**
  * AI provider request parameters (OpenAI/Anthropic compatible)
@@ -309,8 +338,17 @@ export interface AIConfig {
   providers?: Record<string, AIProvider & { request?: (params: AIRequestParams) => Promise<AIProviderResponse> }>
   model?: string
   budget?: { limit: number }
-  cache?: { enabled: boolean; ttl?: number; maxSize?: number }
+  cache?: {
+    enabled: boolean
+    ttl?: number
+    maxSize?: number
+    maxMemoryBytes?: number
+    cleanupInterval?: number
+    slidingTTL?: boolean
+  }
   fallback?: string[] | false
+  /** Return degraded responses instead of throwing when all providers fail (default: true) */
+  gracefulDegradation?: boolean
 }
 
 export interface AIBudget {
@@ -319,9 +357,22 @@ export interface AIBudget {
   limit: (amount: number) => AI
 }
 
+export interface CacheStats {
+  hits: number
+  misses: number
+  evictions: number
+  size: number
+}
+
 export interface AICache {
   ttl: number
+  size: number
+  maxSize: number
+  memoryUsage: number
+  cleanupInterval: number
+  stats: CacheStats
   clear: () => number
+  purgeExpired: () => number
 }
 
 export interface BatchResult<T> extends PromiseLike<T[]> {
@@ -336,8 +387,9 @@ export type BatchMode = 'immediate' | 'flex' | 'deferred'
 
 /**
  * Lazy-evaluated AI promise that only executes when awaited
+ * T is constrained to SerializableValue to prevent non-serializable types like Function
  */
-export class AIPromise<T = string> implements PromiseLike<T> {
+export class AIPromise<T extends SerializableValue = string> implements PromiseLike<T> {
   cancelled = false
   private _executed = false
   private _executing = false
@@ -454,56 +506,247 @@ function calculateOperationCost(modelName: string, inputTokens: number, outputTo
 // Cache Implementation
 // =============================================================================
 
+/** Maximum allowed cache size to prevent memory exhaustion */
+const MAX_SAFE_CACHE_SIZE = 100_000
+
 interface CacheEntry<T> {
   value: T
   timestamp: number
+  lastAccessed: number
+  byteSize: number
+}
+
+interface LRUCacheConfig {
+  maxSize?: number
+  ttl?: number
+  maxMemoryBytes?: number
+  cleanupInterval?: number
+  slidingTTL?: boolean
 }
 
 class LRUCache<T> {
   private cache = new Map<string, CacheEntry<T>>()
+  private _maxSize: number
+  private _ttl: number
+  private _maxMemoryBytes: number
+  private _cleanupInterval: number
+  private _slidingTTL: boolean
+  private _memoryUsage = 0
+  private _cleanupTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(
-    private maxSize: number = 1000,
-    private ttl: number = 5 * 60 * 1000 // 5 minutes default
-  ) {}
+  // Stats tracking
+  private _hits = 0
+  private _misses = 0
+  private _evictions = 0
+
+  // In-flight request coalescing
+  private _inFlight = new Map<string, Promise<T>>()
+
+  constructor(config: LRUCacheConfig = {}) {
+    this._maxSize = config.maxSize ?? 1000
+    this._ttl = config.ttl ?? 5 * 60 * 1000 // 5 minutes default
+    this._maxMemoryBytes = config.maxMemoryBytes ?? Infinity
+    // Default cleanup interval: 60 seconds or TTL * 3, whichever is smaller
+    // This ensures automatic cleanup runs periodically but doesn't interfere with manual purgeExpired() calls
+    // The size getter also triggers lazy cleanup for immediate accuracy
+    const ttl = config.ttl ?? 5 * 60 * 1000
+    this._cleanupInterval = config.cleanupInterval ?? Math.min(60_000, ttl * 3)
+    this._slidingTTL = config.slidingTTL ?? true // Sliding TTL by default
+
+    // Start proactive cleanup
+    this._startCleanup()
+  }
+
+  private _startCleanup(): void {
+    if (this._cleanupTimer) {
+      clearInterval(this._cleanupTimer)
+    }
+    this._cleanupTimer = setInterval(() => {
+      this.purgeExpired()
+    }, this._cleanupInterval)
+  }
+
+  private _estimateByteSize(value: T): number {
+    if (typeof value === 'string') {
+      // UTF-16 encoding: 2 bytes per character + overhead
+      return value.length * 2 + 64
+    }
+    // Rough estimate for other types
+    return JSON.stringify(value).length * 2 + 64
+  }
 
   get(key: string): T | undefined {
     const entry = this.cache.get(key)
-    if (!entry) return undefined
-
-    // Check TTL
-    if (Date.now() - entry.timestamp > this.ttl) {
-      this.cache.delete(key)
+    if (!entry) {
+      this._misses++
       return undefined
     }
+
+    const now = Date.now()
+    const relevantTimestamp = this._slidingTTL ? entry.lastAccessed : entry.timestamp
+
+    // Check TTL
+    if (now - relevantTimestamp > this._ttl) {
+      this._evict(key, entry)
+      this._misses++
+      return undefined
+    }
+
+    // Update last accessed time for sliding TTL
+    entry.lastAccessed = now
 
     // Move to end (most recently used)
     this.cache.delete(key)
     this.cache.set(key, entry)
+
+    this._hits++
     return entry.value
   }
 
   set(key: string, value: T): void {
-    // Remove if exists to update position
-    this.cache.delete(key)
+    const byteSize = this._estimateByteSize(value)
 
-    // Evict oldest if at capacity
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value
-      if (firstKey) this.cache.delete(firstKey)
+    // Remove existing entry if present
+    if (this.cache.has(key)) {
+      const existingEntry = this.cache.get(key)!
+      this._memoryUsage -= existingEntry.byteSize
+      this.cache.delete(key)
     }
 
-    this.cache.set(key, { value, timestamp: Date.now() })
+    // Evict entries if at capacity (by count or memory)
+    while (
+      (this.cache.size >= this._maxSize || this._memoryUsage + byteSize > this._maxMemoryBytes) &&
+      this.cache.size > 0
+    ) {
+      const firstKey = this.cache.keys().next().value
+      if (firstKey) {
+        const entry = this.cache.get(firstKey)!
+        this._evict(firstKey, entry)
+      }
+    }
+
+    const now = Date.now()
+    this.cache.set(key, {
+      value,
+      timestamp: now,
+      lastAccessed: now,
+      byteSize,
+    })
+    this._memoryUsage += byteSize
+  }
+
+  private _evict(key: string, entry: CacheEntry<T>): void {
+    this.cache.delete(key)
+    this._memoryUsage -= entry.byteSize
+    this._evictions++
+  }
+
+  /**
+   * Get or compute a value, coalescing concurrent requests for the same key
+   */
+  async getOrCompute(key: string, compute: () => Promise<T>): Promise<T> {
+    // Check cache first
+    const cached = this.get(key)
+    if (cached !== undefined) {
+      return cached
+    }
+
+    // Check if request is already in-flight
+    const inFlight = this._inFlight.get(key)
+    if (inFlight) {
+      return inFlight
+    }
+
+    // Create new request and track it
+    const promise = compute().then(
+      (result) => {
+        this.set(key, result)
+        this._inFlight.delete(key)
+        return result
+      },
+      (error) => {
+        this._inFlight.delete(key)
+        throw error
+      }
+    )
+
+    this._inFlight.set(key, promise)
+    return promise
+  }
+
+  /**
+   * Check if a key exists in the in-flight map (for testing)
+   */
+  hasInFlight(key: string): boolean {
+    return this._inFlight.has(key)
   }
 
   clear(): number {
     const count = this.cache.size
     this.cache.clear()
+    this._memoryUsage = 0
+    this._inFlight.clear()
     return count
   }
 
+  /**
+   * Purge expired entries proactively
+   * @returns Number of entries purged
+   */
+  purgeExpired(): number {
+    const now = Date.now()
+    let purged = 0
+
+    for (const [key, entry] of this.cache.entries()) {
+      const relevantTimestamp = this._slidingTTL ? entry.lastAccessed : entry.timestamp
+      if (now - relevantTimestamp > this._ttl) {
+        this._evict(key, entry)
+        purged++
+      }
+    }
+
+    return purged
+  }
+
+  get size(): number {
+    // Trigger lazy cleanup when checking size to ensure accurate count
+    this.purgeExpired()
+    return this.cache.size
+  }
+
+  get maxSize(): number {
+    return this._maxSize
+  }
+
+  get memoryUsage(): number {
+    return this._memoryUsage
+  }
+
+  get cleanupInterval(): number {
+    return this._cleanupInterval
+  }
+
   getTTL(): number {
-    return this.ttl
+    return this._ttl
+  }
+
+  get stats(): CacheStats {
+    return {
+      hits: this._hits,
+      misses: this._misses,
+      evictions: this._evictions,
+      size: this.cache.size,
+    }
+  }
+
+  /**
+   * Stop the cleanup timer (for testing/cleanup)
+   */
+  dispose(): void {
+    if (this._cleanupTimer) {
+      clearInterval(this._cleanupTimer)
+      this._cleanupTimer = null
+    }
   }
 }
 
@@ -634,21 +877,32 @@ const defaultProvider: AIProvider = {
 // AI Interface and Factory
 // =============================================================================
 
-export interface AI {
+/**
+ * AI interface with generic config branding for type differentiation
+ * The TConfig parameter enables TypeScript to distinguish between
+ * differently configured AI instances at compile time.
+ */
+export interface AI<TConfig extends AIConfig = AIConfig> {
   (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string>
-  is: (strings: TemplateStringsArray, ...values: TemplateValue[]) => AIPromise<string>
+  /**
+   * Classification template literal - returns a typed category string
+   * Generic T allows narrowing the return type for known classifications
+   */
+  is: <T extends string = string>(strings: TemplateStringsArray, ...values: TemplateValue[]) => AIPromise<T>
   list: (strings: TemplateStringsArray, ...values: TemplateValue[]) => AIPromise<string[]>
   code: (strings: TemplateStringsArray, ...values: TemplateValue[]) => AIPromise<string>
   batch: {
     <T>(items: T[], mode: BatchMode): BatchResult<string> & Promise<string[]>
-    <T, R>(items: T[], mode: BatchMode, template: (item: T) => AIPromise<R>): Promise<R[]>
+    <T, R extends SerializableValue>(items: T[], mode: BatchMode, template: (item: T) => AIPromise<R>): Promise<R[]>
     status: (batchId: string) => Promise<'pending' | 'processing' | 'completed'>
   }
   budget: AIBudget
   cache: AICache
-  provider: (name: 'openai' | 'anthropic') => AI
-  model: (name: string) => AI
+  provider: (name: 'openai' | 'anthropic') => AI<TConfig>
+  model: (name: ModelName) => AI<TConfig>
   providers: Record<string, { configured: boolean }>
+  /** Brand for distinguishing AI instances with different configs */
+  readonly __config?: TConfig
 }
 
 // Cost per operation (for budget tracking)
@@ -659,10 +913,22 @@ const COST_DEFERRED = 0.25
 /**
  * Create a configured AI instance
  *
+ * The generic TConfig parameter allows TypeScript to distinguish between
+ * differently configured AI instances at compile time.
+ *
  * Note: batchStatuses is per-instance to avoid race conditions when
  * multiple isolates share the same module in Cloudflare Workers.
  */
-export function createAI(config?: AIConfig): AI {
+export function createAI<TConfig extends AIConfig = AIConfig>(config?: TConfig): AI<TConfig> {
+  // Validate cache size before proceeding
+  const cacheMaxSize = config?.cache?.maxSize ?? 1000
+  if (cacheMaxSize > MAX_SAFE_CACHE_SIZE) {
+    throw new Error(
+      `Cache size ${cacheMaxSize} exceeds maximum safe cache size of ${MAX_SAFE_CACHE_SIZE}. ` +
+        `Use a smaller maxSize or consider memory-based limits with maxMemoryBytes.`
+    )
+  }
+
   // Batch tracking - per-instance to avoid race conditions across isolates
   const batchStatuses = new Map<string, 'pending' | 'processing' | 'completed'>()
 
@@ -670,6 +936,8 @@ export function createAI(config?: AIConfig): AI {
   const providers = config?.providers || {}
   const currentModel = config?.model || 'default'
   const fallbackProviders = config?.fallback
+  // Default to true - return degraded responses instead of throwing
+  const gracefulDegradation = config?.gracefulDegradation ?? true
 
   // Budget state
   let budgetLimit = config?.budget?.limit ?? Infinity
@@ -678,8 +946,16 @@ export function createAI(config?: AIConfig): AI {
   // Cache state
   const cacheEnabled = config?.cache?.enabled ?? false
   const cacheTTL = config?.cache?.ttl ?? 5 * 60 * 1000
-  const cacheMaxSize = config?.cache?.maxSize ?? 1000
-  const cache = new LRUCache<string>(cacheMaxSize, cacheTTL)
+  const cacheMaxMemoryBytes = config?.cache?.maxMemoryBytes
+  const cacheCleanupInterval = config?.cache?.cleanupInterval // Let LRUCache compute default based on TTL
+  const cacheSlidingTTL = config?.cache?.slidingTTL ?? true
+  const cache = new LRUCache<string>({
+    maxSize: cacheMaxSize,
+    ttl: cacheTTL,
+    maxMemoryBytes: cacheMaxMemoryBytes,
+    cleanupInterval: cacheCleanupInterval,
+    slidingTTL: cacheSlidingTTL,
+  })
 
   // Helper to build prompt from template
   function buildPrompt(strings: TemplateStringsArray, values: TemplateValue[]): string {
@@ -740,32 +1016,15 @@ export function createAI(config?: AIConfig): AI {
   }
 
   /**
-   * Executes AI operation with provider, fallback chain, and error handling
-   * @param prompt - The prompt to execute
-   * @param options - Execution options (model, mode)
-   * @param providerName - Optional provider name override
-   * @returns The AI-generated text result
-   * @throws Error with model-specific context on failure
+   * Internal execution without caching (for use within getOrCompute)
    */
-  async function executeWithProvider(
+  async function executeWithProviderInternal(
     prompt: string,
     options?: ExecuteOptions,
     providerName?: string
   ): Promise<string> {
     const cost = COST_IMMEDIATE
-    checkBudget(cost)
-
-    // Check cache
-    if (cacheEnabled) {
-      const cacheKey = getCacheKey(prompt, options?.mode || 'general')
-      const cached = cache.get(cacheKey)
-      if (cached !== undefined) {
-        return cached
-      }
-    }
-
     let result: string
-    let lastError: Error | undefined
 
     // Determine which provider to use
     const targetProvider = providerName ? providers[providerName] : provider
@@ -775,16 +1034,9 @@ export function createAI(config?: AIConfig): AI {
       try {
         result = await targetProvider.execute(prompt, options)
         trackCost(cost)
-
-        // Cache result
-        if (cacheEnabled) {
-          const cacheKey = getCacheKey(prompt, options?.mode || 'general')
-          cache.set(cacheKey, result)
-        }
-
         return result
       } catch (error) {
-        lastError = error as Error
+        const lastError = error as Error
         const errorMsg = lastError.message || 'Unknown error'
 
         // Try fallback providers
@@ -796,18 +1048,17 @@ export function createAI(config?: AIConfig): AI {
               try {
                 result = await fallbackProvider.execute(prompt, options)
                 trackCost(cost)
-
-                if (cacheEnabled) {
-                  const cacheKey = getCacheKey(prompt, options?.mode || 'general')
-                  cache.set(cacheKey, result)
-                }
-
                 return result
               } catch {
                 // Continue to next fallback
               }
             }
           }
+        }
+
+        // Graceful degradation: return degraded response instead of throwing
+        if (gracefulDegradation) {
+          return getDegradedResponse(options?.mode || 'general')
         }
 
         // Enhanced error message with model context
@@ -827,24 +1078,71 @@ export function createAI(config?: AIConfig): AI {
         // Extract text using consolidated helper with error context
         result = extractResponseTextSafe(response, modelName)
         trackCost(cost)
-
-        if (cacheEnabled) {
-          const cacheKey = getCacheKey(prompt, options?.mode || 'general')
-          cache.set(cacheKey, result)
-        }
-
         return result
       } catch (error) {
+        // Graceful degradation: return degraded response instead of throwing
+        if (gracefulDegradation) {
+          return getDegradedResponse(options?.mode || 'general')
+        }
         throw new Error(
           `Model '${modelName}' request failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         )
       }
     }
 
+    // Graceful degradation: return degraded response if no provider configured
+    if (gracefulDegradation) {
+      return getDegradedResponse(options?.mode || 'general')
+    }
+
     throw new Error(
       `AI Provider not configured for model '${modelName}'. ` +
         `Ensure provider has execute() or request() method.`
     )
+  }
+
+  /**
+   * Returns a degraded response based on the operation mode
+   */
+  function getDegradedResponse(mode: string): string {
+    switch (mode) {
+      case 'is':
+        return 'unknown'
+      case 'list':
+        return '[]'
+      case 'code':
+        return '// AI service unavailable'
+      case 'general':
+      default:
+        return 'AI service unavailable'
+    }
+  }
+
+  /**
+   * Executes AI operation with provider, fallback chain, and error handling
+   * Uses getOrCompute for in-flight request coalescing when caching is enabled
+   * @param prompt - The prompt to execute
+   * @param options - Execution options (model, mode)
+   * @param providerName - Optional provider name override
+   * @returns The AI-generated text result
+   * @throws Error with model-specific context on failure
+   */
+  async function executeWithProvider(
+    prompt: string,
+    options?: ExecuteOptions,
+    providerName?: string
+  ): Promise<string> {
+    checkBudget(COST_IMMEDIATE)
+
+    if (cacheEnabled) {
+      const cacheKey = getCacheKey(prompt, options?.mode || 'general')
+      return cache.getOrCompute(cacheKey, () =>
+        executeWithProviderInternal(prompt, options, providerName)
+      )
+    }
+
+    // Without caching, execute directly
+    return executeWithProviderInternal(prompt, options, providerName)
   }
 
   /**
@@ -927,6 +1225,10 @@ export function createAI(config?: AIConfig): AI {
           return result.split(',').map(s => s.trim()).filter(s => s.length > 0)
         }
       } catch (error) {
+        // Graceful degradation: return empty array instead of throwing
+        if (gracefulDegradation) {
+          return []
+        }
         throw new Error(`List extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     })
@@ -985,7 +1287,7 @@ export function createAI(config?: AIConfig): AI {
    * const status = await ai.batch.status('batch-123...')
    */
   const batchFunction = Object.assign(
-    function <T, R = string>(
+    function <T, R extends SerializableValue = string>(
       items: T[],
       mode: BatchMode,
       template?: (item: T) => AIPromise<R>
@@ -1001,9 +1303,12 @@ export function createAI(config?: AIConfig): AI {
 
           const results: R[] = []
           for (const item of items) {
-            const result = template
+            // When template is provided, await returns R
+            // When template is undefined, R defaults to string and executeBatchItem returns string
+            // Type assertion is safe because the runtime guarantees correctness
+            const result: R = template
               ? await template(item)
-              : await executeBatchItem(item as unknown as string, costMultiplier)
+              : (await executeBatchItem(item as unknown as string, costMultiplier)) as R
             results.push(result)
           }
 
@@ -1064,13 +1369,31 @@ export function createAI(config?: AIConfig): AI {
     get ttl() {
       return cache.getTTL()
     },
+    get size() {
+      return cache.size
+    },
+    get maxSize() {
+      return cache.maxSize
+    },
+    get memoryUsage() {
+      return cache.memoryUsage
+    },
+    get cleanupInterval() {
+      return cache.cleanupInterval
+    },
+    get stats() {
+      return cache.stats
+    },
     clear() {
       return cache.clear()
-    }
+    },
+    purgeExpired() {
+      return cache.purgeExpired()
+    },
   }
 
   // Provider function
-  function providerFn(name: 'openai' | 'anthropic'): AI {
+  function providerFn(name: 'openai' | 'anthropic'): AI<TConfig> {
     if (name !== 'openai' && name !== 'anthropic') {
       throw new Error(`Unknown provider: ${name}`)
     }
@@ -1080,15 +1403,15 @@ export function createAI(config?: AIConfig): AI {
       providers: providers,
       fallback: fallbackProviders,
       provider: providers[name] || defaultProvider,
-    })
+    } as TConfig)
   }
 
   // Model function
-  function modelFn(name: string): AI {
+  function modelFn(name: ModelName): AI<TConfig> {
     return createAI({
       ...config,
       model: name,
-    })
+    } as TConfig)
   }
 
   // Providers registry
@@ -1108,10 +1431,10 @@ export function createAI(config?: AIConfig): AI {
     provider: providerFn,
     model: modelFn,
     providers: providersRegistry,
-  }) as AI
+  }) as AI<TConfig>
 
   // Fix budget.limit to return this instance
-  budgetObject.limit = function (amount: number): AI {
+  budgetObject.limit = function (amount: number): AI<TConfig> {
     budgetLimit = amount
     budgetSpent = 0
     return ai

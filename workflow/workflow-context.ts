@@ -11,6 +11,35 @@
  * 5. Cascade Execution - code -> generative -> agentic -> human tiers
  */
 
+// Import canonical types from types/index.ts
+import type {
+  Event,
+  EventHandler,
+  CircuitBreakerContextConfig,
+  CreateContextOptions,
+  SendErrorInfo,
+  CascadeOptions,
+  CascadeResult,
+  CascadeTimeoutResult,
+  CascadeTierTimeout,
+  CascadeCircuitBreakerConfig,
+  GracefulDegradationOptions,
+} from '../types'
+
+// Re-export types for backwards compatibility
+export type {
+  Event,
+  CircuitBreakerContextConfig,
+  CreateContextOptions,
+  SendErrorInfo,
+  CascadeOptions,
+  CascadeResult,
+  CascadeTimeoutResult,
+  CascadeTierTimeout,
+  CascadeCircuitBreakerConfig,
+  GracefulDegradationOptions,
+}
+
 // ============================================================================
 // CONSTANTS - Retry & Timeout Configuration
 // ============================================================================
@@ -19,26 +48,230 @@ const DEFAULT_MAX_RETRIES = 3
 const DEFAULT_RPC_TIMEOUT_MS = 30000
 const MAX_BACKOFF_MS = 10000
 const EXPONENTIAL_BACKOFF_BASE = 2
+const DEFAULT_CASCADE_TIER_TIMEOUT_MS = 30000
+const DEFAULT_CASCADE_FAILURE_THRESHOLD = 5
+const DEFAULT_CASCADE_RESET_TIMEOUT_MS = 60000
 
 // ============================================================================
-// TYPES
+// CASCADE TIMEOUT HELPER
 // ============================================================================
 
-export interface CreateContextOptions {
-  stubResolver?: (noun: string, id: string) => Record<string, Function>
-  rpcTimeout?: number
+/**
+ * Execute a promise with timeout tracking
+ *
+ * Returns metadata about the execution including:
+ * - result: The resolved value (if successful)
+ * - timedOut: Whether the operation timed out
+ * - duration: How long the operation took (in ms)
+ *
+ * @param promise - The promise to execute
+ * @param ms - Timeout in milliseconds
+ * @param fallback - Optional fallback value to return on timeout
+ */
+async function withCascadeTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  fallback?: T
+): Promise<CascadeTimeoutResult<T>> {
+  const start = Date.now()
+
+  type SuccessResult = { value: T; timedOut: false }
+  type TimeoutResult = { timedOut: true }
+
+  const timeoutPromise = new Promise<TimeoutResult>((resolve) =>
+    setTimeout(() => resolve({ timedOut: true }), ms)
+  )
+
+  try {
+    const result: SuccessResult | TimeoutResult = await Promise.race([
+      promise.then((value): SuccessResult => ({ value, timedOut: false })),
+      timeoutPromise,
+    ])
+
+    const duration = Date.now() - start
+
+    if (result.timedOut === true) {
+      return {
+        result: fallback,
+        timedOut: true,
+        duration,
+      }
+    }
+
+    return {
+      result: result.value,
+      timedOut: false,
+      duration,
+    }
+  } catch (error) {
+    // Re-throw non-timeout errors
+    throw error
+  }
 }
 
-export interface Event {
-  id: string
-  type: string
-  subject: string
-  object: string
-  data: unknown
-  timestamp: Date
+// ============================================================================
+// CASCADE TIER CIRCUIT BREAKER
+// ============================================================================
+
+type CascadeTierName = 'code' | 'generative' | 'agentic' | 'human'
+type CascadeCircuitState = 'closed' | 'open' | 'half-open'
+
+interface CascadeTierCircuitState {
+  state: CascadeCircuitState
+  failures: number
+  lastFailure: number | null
+  lastSuccess: number | null
+  openedAt: number | null
 }
 
-type EventHandler = (event: Event) => void | Promise<void>
+/**
+ * Circuit breaker for cascade tier execution
+ *
+ * Maintains circuit breaker state per tier to prevent cascading failures:
+ * - Opens circuit after consecutive failures
+ * - Allows probe requests in half-open state
+ * - Resets to closed on successful probe
+ */
+class CascadeTierCircuitBreaker {
+  private circuits: Map<CascadeTierName, CascadeTierCircuitState> = new Map()
+  private failureThreshold: number
+  private resetTimeout: number
+  private fallback?: unknown
+
+  constructor(config?: CascadeCircuitBreakerConfig) {
+    this.failureThreshold = config?.failureThreshold ?? DEFAULT_CASCADE_FAILURE_THRESHOLD
+    this.resetTimeout = config?.resetTimeout ?? DEFAULT_CASCADE_RESET_TIMEOUT_MS
+    this.fallback = config?.fallback
+  }
+
+  /**
+   * Get or create circuit state for a tier
+   */
+  private getCircuitState(tier: CascadeTierName): CascadeTierCircuitState {
+    if (!this.circuits.has(tier)) {
+      this.circuits.set(tier, {
+        state: 'closed',
+        failures: 0,
+        lastFailure: null,
+        lastSuccess: null,
+        openedAt: null,
+      })
+    }
+    return this.circuits.get(tier)!
+  }
+
+  /**
+   * Check if a tier circuit allows execution
+   */
+  canExecute(tier: CascadeTierName): boolean {
+    const circuit = this.getCircuitState(tier)
+    this.checkStateTransition(tier, circuit)
+
+    if (circuit.state === 'open') {
+      return false
+    }
+
+    return true
+  }
+
+  /**
+   * Get the current state of a tier's circuit
+   */
+  getState(tier: CascadeTierName): CascadeCircuitState {
+    const circuit = this.getCircuitState(tier)
+    this.checkStateTransition(tier, circuit)
+    return circuit.state
+  }
+
+  /**
+   * Get all circuit states
+   */
+  getAllStates(): Record<string, CascadeCircuitState> {
+    const states: Record<string, CascadeCircuitState> = {}
+    for (const tier of ['code', 'generative', 'agentic', 'human'] as const) {
+      if (this.circuits.has(tier)) {
+        states[tier] = this.getState(tier)
+      }
+    }
+    return states
+  }
+
+  /**
+   * Record a successful execution for a tier
+   */
+  recordSuccess(tier: CascadeTierName): void {
+    const circuit = this.getCircuitState(tier)
+    circuit.failures = 0
+    circuit.lastSuccess = Date.now()
+
+    if (circuit.state === 'half-open') {
+      circuit.state = 'closed'
+      circuit.openedAt = null
+    }
+  }
+
+  /**
+   * Record a failed execution for a tier
+   */
+  recordFailure(tier: CascadeTierName): void {
+    const circuit = this.getCircuitState(tier)
+    circuit.failures++
+    circuit.lastFailure = Date.now()
+
+    if (circuit.state === 'half-open') {
+      // Failed probe - back to open
+      circuit.state = 'open'
+      circuit.openedAt = Date.now()
+      return
+    }
+
+    if (circuit.failures >= this.failureThreshold) {
+      circuit.state = 'open'
+      circuit.openedAt = Date.now()
+    }
+  }
+
+  /**
+   * Get fallback value if configured
+   */
+  getFallback(): unknown | undefined {
+    return this.fallback
+  }
+
+  /**
+   * Check and perform state transitions
+   */
+  private checkStateTransition(tier: CascadeTierName, circuit: CascadeTierCircuitState): void {
+    if (circuit.state === 'open' && circuit.openedAt !== null) {
+      const elapsed = Date.now() - circuit.openedAt
+      if (elapsed >= this.resetTimeout) {
+        circuit.state = 'half-open'
+      }
+    }
+  }
+
+  /**
+   * Reset a tier's circuit breaker
+   */
+  reset(tier: CascadeTierName): void {
+    this.circuits.set(tier, {
+      state: 'closed',
+      failures: 0,
+      lastFailure: null,
+      lastSuccess: null,
+      openedAt: null,
+    })
+  }
+
+  /**
+   * Reset all circuit breakers
+   */
+  resetAll(): void {
+    this.circuits.clear()
+  }
+}
+
+// EventHandler imported from ../types
 
 interface ScheduleEntry {
   handler: Function
@@ -64,45 +297,7 @@ interface EventLogEntry {
   timestamp: Date
 }
 
-/**
- * Error information from fire-and-forget event dispatch
- * Includes context for debugging and monitoring failed handler executions
- */
-export interface SendErrorInfo {
-  error: Error
-  eventType: string
-  eventId: string
-  timestamp: Date
-  data: unknown
-  handlerIndex?: number
-  retriedCount?: number
-}
-
 type ErrorCallback = (errorInfo: SendErrorInfo) => void
-
-export interface CascadeOptions {
-  task: string
-  tiers: {
-    code?: Function
-    generative?: Function
-    agentic?: Function
-    human?: Function
-  }
-  confidenceThreshold?: number
-  skipAutomation?: boolean
-  timeout?: number
-}
-
-export interface CascadeResult {
-  value: unknown
-  tier: 'code' | 'generative' | 'agentic' | 'human'
-  confidence?: number
-  executionPath?: string[]
-  attempts?: number
-  timing?: Record<string, number>
-  confidenceScores?: Record<string, number>
-  queueEntry?: unknown
-}
 
 class CascadeError extends Error {
   tierErrors: Record<string, Error>
@@ -168,6 +363,83 @@ function generateEventId(): string {
 // WORKFLOW CONTEXT IMPLEMENTATION
 // ============================================================================
 
+// ============================================================================
+// SIMPLE CIRCUIT BREAKER FOR WORKFLOW CONTEXT
+// ============================================================================
+
+type SimpleCircuitState = 'closed' | 'open' | 'half-open'
+
+class SimpleCircuitBreaker {
+  private state: SimpleCircuitState = 'closed'
+  private consecutiveFailures = 0
+  private failureThreshold: number
+  private resetTimeout: number
+  private openedAt: number | null = null
+
+  constructor(config: { failureThreshold: number; resetTimeout: number }) {
+    this.failureThreshold = config.failureThreshold
+    this.resetTimeout = config.resetTimeout
+  }
+
+  getState(): SimpleCircuitState {
+    this.checkStateTransition()
+    return this.state
+  }
+
+  private checkStateTransition(): void {
+    if (this.state === 'open' && this.openedAt !== null) {
+      const elapsed = Date.now() - this.openedAt
+      if (elapsed >= this.resetTimeout) {
+        this.state = 'half-open'
+      }
+    }
+  }
+
+  async execute<T>(fn: () => T | Promise<T>): Promise<T> {
+    this.checkStateTransition()
+
+    if (this.state === 'open') {
+      throw new Error('Circuit is open')
+    }
+
+    try {
+      const result = await fn()
+      this.recordSuccess()
+      return result
+    } catch (error) {
+      this.recordFailure()
+      throw error
+    }
+  }
+
+  private recordSuccess(): void {
+    this.consecutiveFailures = 0
+    if (this.state === 'half-open') {
+      this.state = 'closed'
+      this.openedAt = null
+    }
+  }
+
+  private recordFailure(): void {
+    this.consecutiveFailures++
+
+    if (this.state === 'half-open') {
+      this.state = 'open'
+      this.openedAt = Date.now()
+      return
+    }
+
+    if (this.consecutiveFailures >= this.failureThreshold) {
+      this.state = 'open'
+      this.openedAt = Date.now()
+    }
+  }
+}
+
+// ============================================================================
+// WORKFLOW CONTEXT IMPLEMENTATION
+// ============================================================================
+
 class WorkflowContextImpl {
   private handlers: Map<string, EventHandler[]> = new Map()
   private schedules: Map<string, ScheduleEntry> = new Map()
@@ -178,10 +450,42 @@ class WorkflowContextImpl {
   private errorCallbacks: ErrorCallback[] = []
   private stubResolver?: (noun: string, id: string) => Record<string, Function>
   private rpcTimeout: number
+  private circuitBreakerConfig?: CircuitBreakerContextConfig
+  private circuitBreakers: Map<string, SimpleCircuitBreaker> = new Map()
+  private cascadeCircuitBreakers: Map<string, CascadeTierCircuitBreaker> = new Map()
 
   constructor(options?: CreateContextOptions) {
     this.stubResolver = options?.stubResolver
     this.rpcTimeout = options?.rpcTimeout ?? DEFAULT_RPC_TIMEOUT_MS
+    this.circuitBreakerConfig = options?.circuitBreaker
+  }
+
+  /**
+   * Get or create a cascade circuit breaker for a specific task/context
+   */
+  getCascadeCircuitBreaker(taskId: string, config?: CascadeCircuitBreakerConfig): CascadeTierCircuitBreaker {
+    if (!this.cascadeCircuitBreakers.has(taskId)) {
+      this.cascadeCircuitBreakers.set(taskId, new CascadeTierCircuitBreaker(config))
+    }
+    return this.cascadeCircuitBreakers.get(taskId)!
+  }
+
+  getCircuitBreaker(id: string): SimpleCircuitBreaker {
+    if (!this.circuitBreakerConfig) {
+      throw new Error('Circuit breaker not configured')
+    }
+
+    if (!this.circuitBreakers.has(id)) {
+      this.circuitBreakers.set(
+        id,
+        new SimpleCircuitBreaker({
+          failureThreshold: this.circuitBreakerConfig.failureThreshold,
+          resetTimeout: this.circuitBreakerConfig.resetTimeout,
+        })
+      )
+    }
+
+    return this.circuitBreakers.get(id)!
   }
 
   // ==========================================================================
@@ -514,11 +818,15 @@ class WorkflowContextImpl {
    * - Retries with exponential backoff on failure
    * - Replays from log on restart (idempotent by stepId)
    * - Records all attempts and final result
+   * - Supports circuit breaker protection
    *
    * @param action - The function to execute
-   * @param options - { stepId, maxRetries }
+   * @param options - { stepId, maxRetries, circuitBreakerId }
    */
-  async do<T>(action: () => T | Promise<T>, options?: { stepId?: string; maxRetries?: number }): Promise<T> {
+  async do<T>(
+    action: () => T | Promise<T>,
+    options?: { stepId?: string; maxRetries?: number; circuitBreakerId?: string }
+  ): Promise<T> {
     const stepId = options?.stepId ?? generateEventId()
     const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES
 
@@ -528,6 +836,43 @@ class WorkflowContextImpl {
       return existingEntry.result as T
     }
 
+    // If circuit breaker is configured and an ID is provided, use circuit breaker
+    if (this.circuitBreakerConfig && options?.circuitBreakerId) {
+      const breaker = this.getCircuitBreaker(options.circuitBreakerId)
+
+      // With circuit breaker, we try each attempt through the breaker
+      let lastError: Error | undefined
+      let attempts = 0
+
+      while (attempts < maxRetries) {
+        attempts++
+        try {
+          const result = await breaker.execute(action)
+          this.recordActionSuccess(stepId, result)
+          return result
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+
+          // If circuit is open, fail immediately
+          if (lastError.message === 'Circuit is open') {
+            this.recordActionFailure(stepId, lastError)
+            throw lastError
+          }
+
+          // If not last attempt, wait with exponential backoff
+          if (attempts < maxRetries) {
+            const backoffMs = this.calculateBackoff(attempts)
+            await new Promise((r) => setTimeout(r, backoffMs))
+          }
+        }
+      }
+
+      // Record failure and throw
+      this.recordActionFailure(stepId, lastError!)
+      throw lastError
+    }
+
+    // Standard execution without circuit breaker
     let lastError: Error | undefined
     let attempts = 0
 
@@ -615,7 +960,16 @@ class WorkflowContextImpl {
   // ==========================================================================
 
   async cascade(options: CascadeOptions): Promise<CascadeResult> {
-    const { task, tiers, confidenceThreshold = 0.8, skipAutomation = false, timeout } = options
+    const {
+      task,
+      tiers,
+      confidenceThreshold = 0.8,
+      skipAutomation = false,
+      timeout,
+      tierTimeouts,
+      circuitBreaker: circuitBreakerConfig,
+      gracefulDegradation,
+    } = options
 
     const tierOrder: Array<'code' | 'generative' | 'agentic' | 'human'> = skipAutomation
       ? ['human']
@@ -625,56 +979,208 @@ class WorkflowContextImpl {
     const confidenceScores: Record<string, number> = {}
     const timing: Record<string, number> = {}
     const tierErrors: Record<string, Error> = {}
+    const completedTiers: string[] = []
+    const failedTiers: string[] = []
     let attempts = 0
+    let anyTimedOut = false
+    let bestPartialResult: unknown = undefined
+    let bestPartialTier: string | undefined = undefined
+    let bestPartialConfidence = 0
+
+    // Get or create circuit breaker for this cascade task if configured
+    const circuitBreaker = circuitBreakerConfig
+      ? this.getCascadeCircuitBreaker(task, circuitBreakerConfig)
+      : null
+
+    // Helper to build tier error messages for result
+    const buildTierErrorMessages = (): Record<string, string> => {
+      const messages: Record<string, string> = {}
+      for (const [tierName, error] of Object.entries(tierErrors)) {
+        messages[tierName] = error.message
+      }
+      return messages
+    }
+
+    // Helper to build a successful result with graceful degradation fields
+    const buildSuccessResult = (
+      value: unknown,
+      tierName: 'code' | 'generative' | 'agentic' | 'human',
+      confidence: number,
+      result: unknown
+    ): CascadeResult => {
+      const cascadeResult: CascadeResult = {
+        value,
+        tier: tierName,
+        confidence,
+        executionPath,
+        attempts,
+        timing,
+        confidenceScores,
+        timedOut: anyTimedOut,
+        degraded: false,
+        completedTiers,
+        failedTiers,
+      }
+
+      // Include tier errors if any tiers failed before success
+      if (failedTiers.length > 0) {
+        cascadeResult.tierErrors = buildTierErrorMessages()
+      }
+
+      // Include circuit states if circuit breaker is active
+      if (circuitBreaker) {
+        cascadeResult.circuitStates = circuitBreaker.getAllStates()
+      }
+
+      // Include queueEntry if present (for human tier)
+      if (typeof result === 'object' && result !== null && 'queueEntry' in result) {
+        cascadeResult.queueEntry = (result as { queueEntry: unknown }).queueEntry
+      }
+
+      return cascadeResult
+    }
+
+    // Helper to build a degraded result
+    const buildDegradedResult = (): CascadeResult => {
+      // Determine what value to return in degraded mode
+      let degradedValue: unknown = undefined
+      let degradedTier: 'code' | 'generative' | 'agentic' | 'human' = 'code'
+
+      // Priority: fallbackValue > partialResult from best tier > undefined
+      if (gracefulDegradation?.fallbackValue !== undefined) {
+        degradedValue = gracefulDegradation.fallbackValue
+      } else if (bestPartialResult !== undefined) {
+        degradedValue = bestPartialResult
+        degradedTier = bestPartialTier as 'code' | 'generative' | 'agentic' | 'human'
+      }
+
+      return {
+        value: degradedValue,
+        tier: degradedTier,
+        confidence: bestPartialConfidence,
+        executionPath,
+        attempts,
+        timing,
+        confidenceScores,
+        timedOut: anyTimedOut,
+        degraded: true,
+        completedTiers,
+        failedTiers,
+        partialResult: bestPartialResult,
+        tierErrors: buildTierErrorMessages(),
+        circuitStates: circuitBreaker?.getAllStates(),
+      }
+    }
 
     for (const tierName of tierOrder) {
       const tierHandler = tiers[tierName]
       if (!tierHandler) continue
+
+      // Check circuit breaker state before attempting tier
+      if (circuitBreaker && !circuitBreaker.canExecute(tierName)) {
+        // Circuit is open - skip this tier and record in errors
+        const circuitState = circuitBreaker.getState(tierName)
+        tierErrors[tierName] = new Error(`Circuit breaker ${circuitState} for tier ${tierName}`)
+        failedTiers.push(tierName)
+        timing[tierName] = 0
+
+        // If there's a fallback configured, we can use it
+        const fallback = circuitBreaker.getFallback()
+        if (fallback !== undefined && tierName === 'human') {
+          // Only use fallback for human tier as last resort
+          return {
+            value: fallback,
+            tier: tierName,
+            confidence: 0,
+            executionPath: [...executionPath, tierName],
+            attempts: attempts + 1,
+            timing,
+            confidenceScores,
+            circuitStates: circuitBreaker.getAllStates(),
+            degraded: true,
+            completedTiers,
+            failedTiers,
+            tierErrors: buildTierErrorMessages(),
+          }
+        }
+
+        // Continue to next tier
+        continue
+      }
 
       attempts++
       executionPath.push(tierName)
 
       const startTime = performance.now()
 
-      try {
-        let resultPromise = Promise.resolve(tierHandler())
+      // Determine timeout for this tier (per-tier takes precedence over global)
+      const tierTimeout = tierTimeouts?.[tierName] ?? timeout ?? DEFAULT_CASCADE_TIER_TIMEOUT_MS
 
-        if (timeout) {
-          resultPromise = Promise.race([
-            resultPromise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout)),
-          ])
+      try {
+        // Execute with timeout tracking
+        const timeoutResult = await withCascadeTimeout(
+          Promise.resolve(tierHandler()),
+          tierTimeout
+        )
+
+        // Use Math.max to ensure at least 0.001ms is recorded for synchronous operations
+        timing[tierName] = Math.max(timeoutResult.duration, 0.001)
+
+        if (timeoutResult.timedOut) {
+          anyTimedOut = true
+          failedTiers.push(tierName)
+
+          // Record timeout as failure in circuit breaker
+          if (circuitBreaker) {
+            circuitBreaker.recordFailure(tierName)
+          }
+
+          // For global timeout, throw immediately (unless graceful degradation with returnPartialOnTimeout)
+          if (timeout && !tierTimeouts) {
+            if (gracefulDegradation?.enabled && gracefulDegradation.returnPartialOnTimeout) {
+              tierErrors[tierName] = new Error(`Global timeout after ${timeout}ms`)
+              // Continue to return degraded result
+              break
+            }
+            throw new Error('Timeout')
+          }
+
+          // For per-tier timeout, record error and continue to next tier
+          tierErrors[tierName] = new Error(`Tier ${tierName} timed out after ${tierTimeout}ms`)
+          continue
         }
 
-        const result = await resultPromise
-        // Use Math.max to ensure at least 0.001ms is recorded for synchronous operations
-        timing[tierName] = Math.max(performance.now() - startTime, 0.001)
+        const result = timeoutResult.result
+        completedTiers.push(tierName)
+
+        // Record success in circuit breaker
+        if (circuitBreaker) {
+          circuitBreaker.recordSuccess(tierName)
+        }
 
         // Extract confidence and value
-        const confidence = typeof result === 'object' && result !== null && 'confidence' in result ? (result as { confidence: number }).confidence : 1.0
+        const confidence =
+          typeof result === 'object' && result !== null && 'confidence' in result
+            ? (result as { confidence: number }).confidence
+            : 1.0
 
         confidenceScores[tierName] = confidence
 
+        const value =
+          typeof result === 'object' && result !== null && 'value' in result
+            ? (result as { value: unknown }).value
+            : result
+
+        // Track best partial result (for graceful degradation)
+        if (confidence > bestPartialConfidence) {
+          bestPartialResult = value
+          bestPartialTier = tierName
+          bestPartialConfidence = confidence
+        }
+
         // Check if this tier meets the threshold
         if (confidence >= confidenceThreshold) {
-          const value = typeof result === 'object' && result !== null && 'value' in result ? (result as { value: unknown }).value : result
-
-          const cascadeResult: CascadeResult = {
-            value,
-            tier: tierName,
-            confidence,
-            executionPath,
-            attempts,
-            timing,
-            confidenceScores,
-          }
-
-          // Include queueEntry if present (for human tier)
-          if (typeof result === 'object' && result !== null && 'queueEntry' in result) {
-            cascadeResult.queueEntry = (result as { queueEntry: unknown }).queueEntry
-          }
-
-          return cascadeResult
+          return buildSuccessResult(value, tierName, confidence, result)
         }
 
         // Confidence too low, continue to next tier
@@ -682,16 +1188,38 @@ class WorkflowContextImpl {
         timing[tierName] = Math.max(performance.now() - startTime, 0.001)
         const error = err instanceof Error ? err : new Error(String(err))
         tierErrors[tierName] = error
+        failedTiers.push(tierName)
 
-        // If it's a timeout error, propagate it directly rather than continuing
+        // Record failure in circuit breaker
+        if (circuitBreaker) {
+          circuitBreaker.recordFailure(tierName)
+        }
+
+        // If it's a timeout error from global timeout, handle based on degradation settings
         if (error.message === 'Timeout') {
+          if (gracefulDegradation?.enabled && gracefulDegradation.returnPartialOnTimeout) {
+            // Return degraded result instead of throwing
+            break
+          }
           throw error
+        }
+
+        // For other errors, check if we should return partial on error
+        if (gracefulDegradation?.enabled && gracefulDegradation.returnPartialOnError && bestPartialResult !== undefined) {
+          // We have a partial result, we could continue or return it
+          // Continue to try remaining tiers for now
         }
         // Continue to next tier on other errors
       }
     }
 
     // All tiers failed or didn't meet confidence
+    // Check if graceful degradation is enabled
+    if (gracefulDegradation?.enabled) {
+      // Return degraded result instead of throwing
+      return buildDegradedResult()
+    }
+
     throw new CascadeError(`All tiers failed for task: ${task}`, tierErrors)
   }
 }
@@ -746,7 +1274,10 @@ export interface WorkflowContext {
   // Execution
   send(event: string, data: unknown): string
   try<T>(action: () => T | Promise<T>, options?: { timeout?: number }): Promise<T>
-  do<T>(action: () => T | Promise<T>, options?: { stepId?: string; maxRetries?: number }): Promise<T>
+  do<T>(
+    action: () => T | Promise<T>,
+    options?: { stepId?: string; maxRetries?: number; circuitBreakerId?: string }
+  ): Promise<T>
   track(event: string, data: unknown): void
   getActionLog(): ActionLogEntry[]
   getEventLog(): EventLogEntry[]
@@ -846,31 +1377,41 @@ function createPipelinedPromise<T>(promise: Promise<T>): Promise<T> & Record<str
  * - Method calls are wrapped with RPC timeout
  * - Results are pipelined promises (support chaining)
  * - Errors propagate to caller
+ * - Optional circuit breaker protection
  */
 function createDomainProxy(
   noun: string,
   id: string,
   stubResolver: (noun: string, id: string) => Record<string, Function>,
-  rpcTimeout: number
+  rpcTimeout: number,
+  circuitBreaker?: SimpleCircuitBreaker
 ): Record<string, (...args: unknown[]) => Promise<unknown>> {
-  const stub = stubResolver(noun, id)
-
   return new Proxy(
     {},
     {
       get(_target, method: string) {
         return (...args: unknown[]): Promise<unknown> & Record<string, unknown> => {
-          const methodFn = stub[method]
-          if (!methodFn) {
-            return createPipelinedPromise(Promise.reject(new Error(`Method ${method} not found on ${noun}`)))
+          const executeCall = async (): Promise<unknown> => {
+            // Resolve stub inside the execute call so circuit breaker tracks resolution errors
+            const stub = stubResolver(noun, id)
+            const methodFn = stub[method]
+            if (!methodFn) {
+              throw new Error(`Method ${method} not found on ${noun}`)
+            }
+
+            return Promise.race([
+              Promise.resolve(methodFn(...args)),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('RPC Timeout')), rpcTimeout)),
+            ])
           }
 
-          const resultPromise = Promise.race([
-            Promise.resolve(methodFn(...args)),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('RPC Timeout')), rpcTimeout)),
-          ])
+          // If circuit breaker is provided, use it
+          if (circuitBreaker) {
+            return createPipelinedPromise(circuitBreaker.execute(executeCall))
+          }
 
-          return createPipelinedPromise(resultPromise)
+          // Without circuit breaker, execute directly
+          return createPipelinedPromise(executeCall())
         }
       },
     }
@@ -930,7 +1471,16 @@ export function createWorkflowContext(options?: CreateContextOptions): WorkflowC
           if (!options?.stubResolver) {
             throw new Error(`No stubResolver configured for ${prop}(${id})`)
           }
-          return createDomainProxy(prop, id, options.stubResolver, options?.rpcTimeout ?? 30000)
+
+          // Get circuit breaker if configured
+          let circuitBreaker: SimpleCircuitBreaker | undefined
+          if (options?.circuitBreaker) {
+            // Determine circuit ID based on configuration
+            const circuitId = options.circuitBreaker.circuitPerDOType ? `rpc:${prop}` : 'rpc:global'
+            circuitBreaker = impl.getCircuitBreaker(circuitId)
+          }
+
+          return createDomainProxy(prop, id, options.stubResolver, options?.rpcTimeout ?? 30000, circuitBreaker)
         }
       }
 

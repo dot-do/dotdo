@@ -12,63 +12,25 @@
 import { DOCore, type DOCoreEnv } from '../core/DOCore'
 import { Hono } from 'hono'
 
+// Import canonical types from types/index.ts
+import type {
+  Noun,
+  NounOptions,
+  Verb,
+  VerbOptions,
+  Thing,
+  ActionResult,
+} from '../types'
+
+// Re-export for backwards compatibility
+export type { Noun, NounOptions, Verb, VerbOptions, Thing, ActionResult }
+
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface DOSemanticEnv extends DOCoreEnv {
+export interface DOSemanticEnv extends Omit<DOCoreEnv, 'DOSemantic'> {
   DOSemantic: DurableObjectNamespace<DOSemantic>
-}
-
-export interface Noun {
-  singular: string
-  plural: string
-}
-
-export interface NounOptions {
-  plural?: string
-}
-
-export interface Verb {
-  base: string
-  past: string
-  present: string
-  gerund: string
-}
-
-export interface VerbOptions {
-  past?: string
-  present?: string
-  gerund?: string
-}
-
-export interface Thing<T = Record<string, unknown>> {
-  $id: string
-  $type: string
-  $version?: number
-  [key: string]: unknown
-}
-
-export interface ActionResult {
-  success: boolean
-  event: {
-    type: string
-    subject: string
-    object?: string
-    timestamp: Date
-    metadata?: Record<string, unknown>
-  }
-  edge: {
-    from: string
-    to: string
-    verb: string
-  }
-  audit: {
-    actor: string
-    verb: string
-    target: string
-    timestamp: Date
-  }
 }
 
 interface Edge {
@@ -196,11 +158,12 @@ function deriveGerund(base: string): string {
 export class DOSemantic extends DOCore {
   protected nouns: Map<string, Noun> = new Map()
   protected verbs: Map<string, Verb> = new Map()
-  protected things: Map<string, Thing> = new Map()
+  protected semanticThings: Map<string, Thing> = new Map()
   protected edges: Edge[] = []
 
   constructor(ctx: DurableObjectState, env: DOSemanticEnv) {
-    super(ctx, env as DOCoreEnv)
+    // Cast through unknown because DOSemanticEnv omits DOSemantic from DOCoreEnv
+    super(ctx, env as unknown as DOCoreEnv)
 
     // Initialize semantic tables
     this.ctx.storage.sql.exec(`
@@ -270,7 +233,7 @@ export class DOSemantic extends DOCore {
     const things = this.ctx.storage.sql.exec('SELECT * FROM things').toArray()
     for (const row of things) {
       const data = JSON.parse(row.data as string)
-      this.things.set(row.id as string, {
+      this.semanticThings.set(row.id as string, {
         $id: row.id as string,
         $type: row.type as string,
         $version: row.version as number,
@@ -362,10 +325,10 @@ export class DOSemantic extends DOCore {
   }
 
   // =========================================================================
-  // THING OPERATIONS
+  // THING OPERATIONS (semantic versions - different signatures than DOCore)
   // =========================================================================
 
-  createThing<T = Record<string, unknown>>(
+  createSemanticThing<T = Record<string, unknown>>(
     typeName: string,
     data?: T,
     id?: string
@@ -373,16 +336,19 @@ export class DOSemantic extends DOCore {
     const $id = id ?? `${typeName.toLowerCase()}_${crypto.randomUUID().slice(0, 8)}`
     const $type = typeName
     const $version = 1
+    const now = new Date().toISOString()
 
     const thing: Thing<T> = {
       $id,
       $type,
       $version,
+      $createdAt: now,
+      $updatedAt: now,
       ...(data ?? {} as T),
     } as Thing<T>
 
     // Store in memory and SQLite
-    this.things.set($id, thing)
+    this.semanticThings.set($id, thing)
     this.ctx.storage.sql.exec(
       'INSERT OR REPLACE INTO things (id, type, version, data) VALUES (?, ?, ?, ?)',
       $id,
@@ -394,23 +360,25 @@ export class DOSemantic extends DOCore {
     return thing
   }
 
-  getThing(id: string): Thing | undefined {
-    return this.things.get(id)
+  getSemanticThing(id: string): Thing | undefined {
+    return this.semanticThings.get(id)
   }
 
-  updateThing(id: string, data: Record<string, unknown>): Thing | undefined {
-    const existing = this.things.get(id)
+  updateSemanticThing(id: string, data: Record<string, unknown>): Thing | undefined {
+    const existing = this.semanticThings.get(id)
     if (!existing) return undefined
 
+    const now = new Date().toISOString()
     const updated: Thing = {
       ...existing,
       ...data,
       $id: existing.$id,
       $type: existing.$type,
       $version: (existing.$version ?? 0) + 1,
+      $updatedAt: now,
     }
 
-    this.things.set(id, updated)
+    this.semanticThings.set(id, updated)
     this.ctx.storage.sql.exec(
       'UPDATE things SET version = ?, data = ? WHERE id = ?',
       updated.$version,
@@ -421,9 +389,9 @@ export class DOSemantic extends DOCore {
     return updated
   }
 
-  deleteThing(id: string): boolean {
-    const existed = this.things.has(id)
-    this.things.delete(id)
+  deleteSemanticThing(id: string): boolean {
+    const existed = this.semanticThings.has(id)
+    this.semanticThings.delete(id)
     this.ctx.storage.sql.exec('DELETE FROM things WHERE id = ?', id)
     return existed
   }
@@ -438,9 +406,9 @@ export class DOSemantic extends DOCore {
     objectId?: string,
     metadata?: Record<string, unknown>
   ): ActionResult {
-    const subject = this.things.get(subjectId)
+    const subject = this.semanticThings.get(subjectId)
     const verb = this.verbs.get(verbName)
-    const object = objectId ? this.things.get(objectId) : undefined
+    const object = objectId ? this.semanticThings.get(objectId) : undefined
 
     if (!subject) {
       throw new Error(`Subject thing not found: ${subjectId}`)
@@ -519,7 +487,7 @@ export class DOSemantic extends DOCore {
 
     for (const edge of this.edges) {
       if (edge.from === fromId && edge.toType === targetType) {
-        const targetThing = this.things.get(edge.to)
+        const targetThing = this.semanticThings.get(edge.to)
         if (targetThing) {
           results.push(targetThing)
         }
@@ -534,7 +502,7 @@ export class DOSemantic extends DOCore {
 
     for (const edge of this.edges) {
       if (edge.to === toId && edge.fromType === sourceType) {
-        const sourceThing = this.things.get(edge.from)
+        const sourceThing = this.semanticThings.get(edge.from)
         if (sourceThing) {
           results.push(sourceThing)
         }

@@ -5,7 +5,7 @@
  * Based on the official MCP specification and Cloudflare's agents framework.
  */
 
-import type { DurableObjectState, DurableObjectNamespace, KVNamespace, Ai } from '@cloudflare/workers-types'
+import type { DurableObjectState, DurableObjectNamespace, KVNamespace, Ai, RateLimit } from '@cloudflare/workers-types'
 
 // ============================================================================
 // Environment Types
@@ -21,6 +21,8 @@ export interface McpEnv {
   OAUTH_KV: KVNamespace
   /** Cloudflare AI binding for tool execution */
   AI: Ai
+  /** Cloudflare Rate Limiting binding (optional - falls back to in-memory) */
+  RATE_LIMITER?: RateLimit
   /** WorkOS API key for AuthKit */
   WORKOS_API_KEY: string
   /** WorkOS Client ID */

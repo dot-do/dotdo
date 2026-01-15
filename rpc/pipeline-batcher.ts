@@ -47,7 +47,12 @@ export interface BatchConfig {
 // PIPELINED STUB
 // ============================================================================
 
-const TARGET_SYMBOL = Symbol.for('target')
+// Import the canonical symbols from pipelined-stub for protocol compatibility
+import { PIPELINE_SYMBOL, TARGET_SYMBOL } from './pipelined-stub'
+
+// Also support Symbol.for() access for alternative compatibility
+const TARGET_SYMBOL_FOR = Symbol.for('target')
+const PIPELINE_SYMBOL_FOR = Symbol.for('pipeline')
 
 interface PendingRequest {
   id: string
@@ -78,9 +83,12 @@ function createCallableStub(
 
   return new Proxy(fn, {
     get(_target, prop) {
-      // Handle symbol access
-      if (prop === TARGET_SYMBOL) {
+      // Handle symbol access for protocol compatibility (both unique and Symbol.for)
+      if (prop === TARGET_SYMBOL || prop === TARGET_SYMBOL_FOR) {
         return target
+      }
+      if (prop === PIPELINE_SYMBOL || prop === PIPELINE_SYMBOL_FOR) {
+        return pipeline
       }
 
       // Handle 'then' for Promise resolution - this triggers the flush

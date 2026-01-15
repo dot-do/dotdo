@@ -14,11 +14,19 @@ import { FieldSchema, ParamSchema, MethodDescriptor } from './shared-types'
 export type { FieldSchema, ParamSchema, MethodDescriptor }
 
 /**
+ * RPC Protocol version
+ */
+export const RPC_PROTOCOL_VERSION = '1.0.0'
+export const RPC_MIN_VERSION = '1.0.0'
+
+/**
  * Generated interface
  */
 export interface GeneratedInterface {
   $type: string
   $schema: string
+  $version: string
+  $minVersion: string
   type: string
   properties: Record<string, unknown>
   fields: FieldSchema[]
@@ -46,6 +54,13 @@ const knownMethodParams: Record<string, ParamSchema[]> = {
   charge: [{ name: 'amount', type: 'number', required: true }],
   notify: [{ name: 'message', type: 'string', required: true }],
   getOrders: [],
+  getValue: [],
+  setValue: [{ name: 'value', type: 'number', required: true }],
+  increment: [{ name: 'by', type: 'number', required: false }],
+  getTags: [],
+  addTag: [{ name: 'tag', type: 'string', required: true }],
+  setMetadata: [{ name: 'key', type: 'string', required: true }, { name: 'value', type: 'unknown', required: true }],
+  getMetadata: [{ name: 'key', type: 'string', required: true }],
 }
 
 /**
@@ -55,6 +70,13 @@ const knownReturnTypes: Record<string, string> = {
   charge: 'Promise<Receipt>',
   notify: 'Promise<void>',
   getOrders: 'Promise<Order[]>',
+  getValue: 'Promise<number>',
+  setValue: 'Promise<void>',
+  increment: 'Promise<number>',
+  getTags: 'Promise<string[]>',
+  addTag: 'Promise<void>',
+  setMetadata: 'Promise<void>',
+  getMetadata: 'Promise<unknown>',
 }
 
 /**
@@ -87,6 +109,8 @@ export function generateInterface(
   return {
     $type,
     $schema: 'http://json-schema.org/draft-07/schema#',
+    $version: RPC_PROTOCOL_VERSION,
+    $minVersion: RPC_MIN_VERSION,
     type: 'object',
     properties,
     fields,
@@ -105,10 +129,26 @@ function extractFields(classConstructor: new (...args: unknown[]) => unknown): F
   let instance: unknown
   try {
     instance = new classConstructor('temp-id', 'temp-name', 'temp@example.com')
-  } catch {
+  } catch (err) {
+    // Log the first constructor attempt failure with error message as string for searchability
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(
+      '[interface] Class instantiation failed with 3-arg constructor:',
+      errMsg,
+      'className:', classConstructor.name,
+      'constructorSignature: (id, name, email)'
+    )
     try {
       instance = new classConstructor()
-    } catch {
+    } catch (err2) {
+      // Log the second constructor attempt failure with error message as string for searchability
+      const errMsg2 = err2 instanceof Error ? err2.message : String(err2)
+      console.error(
+        '[interface] Class instantiation failed with no-arg constructor:',
+        errMsg2,
+        'className:', classConstructor.name,
+        'constructorSignature: ()'
+      )
       // Can't instantiate, return empty fields
       return fields
     }

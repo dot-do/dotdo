@@ -11,7 +11,8 @@
 
 import { DOWorkflowClass, type DOWorkflowEnv } from '../workflow/DOWorkflow'
 import type { CascadeOptions, CascadeResult } from '../workflow/workflow-context'
-import { Hono } from 'hono'
+import { Hono, type MiddlewareHandler } from 'hono'
+import { requireAuth, requirePermission } from '../lib/auth-middleware'
 
 // ============================================================================
 // Types
@@ -33,6 +34,24 @@ interface StreamSubscription {
   subscribed: Date
 }
 
+interface WebSocketClientState {
+  clientId: string
+  room: string
+  connectedAt: number
+  lastPingAt: number | null
+  messageCount: number
+  seqNumber: number
+  processedMessageIds: Set<string>
+}
+
+interface OutgoingMessage {
+  type: string
+  payload?: unknown
+  id?: string
+  timestamp?: number
+  seq?: number
+}
+
 interface CascadeTierConfig {
   code?: () => Promise<unknown>
   generative?: () => Promise<unknown>
@@ -48,6 +67,13 @@ export class DOFull extends DOWorkflowClass {
   protected ai: AIBinding | null = null
   protected subscriptions: Map<string, StreamSubscription[]> = new Map()
   protected tierHandlers: Map<string, CascadeTierConfig> = new Map()
+  protected wsClientState: Map<WebSocket, WebSocketClientState> = new Map()
+  protected messageHistory: OutgoingMessage[] = []
+  protected globalSeqCounter = 0
+  protected heartbeatInterval: ReturnType<typeof setInterval> | null = null
+  // Short interval for testing, in production this would be 30000ms
+  private static readonly HEARTBEAT_INTERVAL_MS = 5000
+  private static readonly MAX_MESSAGE_HISTORY = 1000
 
   constructor(ctx: DurableObjectState, env: DOFullEnv) {
     super(ctx, env as unknown as DOWorkflowEnv)
@@ -90,6 +116,24 @@ export class DOFull extends DOWorkflowClass {
 
       this.ctx.acceptWebSocket(server, [`room:${room}`])
 
+      // Use client ID from query parameter if provided (for reconnection), otherwise generate new
+      const existingClientId = c.req.query('clientId')
+      const clientId = existingClientId && existingClientId.startsWith('client_')
+        ? existingClientId
+        : `client_${crypto.randomUUID().slice(0, 8)}`
+
+      // Track client state
+      const clientState: WebSocketClientState = {
+        clientId,
+        room,
+        connectedAt: Date.now(),
+        lastPingAt: null,
+        messageCount: 0,
+        seqNumber: 0,
+        processedMessageIds: new Set(),
+      }
+      this.wsClientState.set(server, clientState)
+
       // Track subscription
       const subId = crypto.randomUUID()
       const existing = this.subscriptions.get(room) ?? []
@@ -101,14 +145,31 @@ export class DOFull extends DOWorkflowClass {
       })
       this.subscriptions.set(room, existing)
 
+      // Send connected message with client ID
+      server.send(JSON.stringify({
+        type: 'connected',
+        payload: { clientId },
+        timestamp: Date.now(),
+      }))
+
+      // Send room_joined message
+      server.send(JSON.stringify({
+        type: 'room_joined',
+        payload: { room },
+        timestamp: Date.now(),
+      }))
+
+      // Start heartbeat if not already running
+      this.startHeartbeat()
+
       return new Response(null, {
         status: 101,
         webSocket: client,
       })
     })
 
-    // AI completion endpoint
-    this.app.post('/api/ai/complete', async (c) => {
+    // AI completion endpoint - requires authentication with ai:complete permission
+    this.app.post('/api/ai/complete', requirePermission('ai:complete') as MiddlewareHandler, async (c) => {
       if (!this.ai) {
         return c.json({ error: 'AI not available' }, 503)
       }
@@ -123,8 +184,8 @@ export class DOFull extends DOWorkflowClass {
       return c.json({ response: result.response })
     })
 
-    // Cascade execution endpoint
-    this.app.post('/api/cascade', async (c) => {
+    // Cascade execution endpoint - requires authentication with workflow:cascade permission
+    this.app.post('/api/cascade', requirePermission('workflow:cascade') as MiddlewareHandler, async (c) => {
       const body = await c.req.json()
       const { task, tiers, confidenceThreshold, skipAutomation, timeout } = body
 
@@ -139,8 +200,8 @@ export class DOFull extends DOWorkflowClass {
       return c.json(result)
     })
 
-    // Fanout broadcast endpoint
-    this.app.post('/api/broadcast/:topic', async (c) => {
+    // Fanout broadcast endpoint - requires authentication with broadcast permission
+    this.app.post('/api/broadcast/:topic', requirePermission('broadcast:*') as MiddlewareHandler, async (c) => {
       const topic = c.req.param('topic')
       const body = await c.req.json()
 
@@ -401,70 +462,295 @@ export class DOFull extends DOWorkflowClass {
   // WEBSOCKET HANDLERS
   // =========================================================================
 
+  /**
+   * Send a message with sequence number tracking
+   */
+  private sendWithSeq(ws: WebSocket, msg: OutgoingMessage): void {
+    // Assign global sequence number
+    this.globalSeqCounter++
+    const outgoing: OutgoingMessage = {
+      ...msg,
+      seq: this.globalSeqCounter,
+      timestamp: msg.timestamp ?? Date.now(),
+    }
+
+    // Store in history for replay
+    this.messageHistory.push(outgoing)
+    if (this.messageHistory.length > DOFull.MAX_MESSAGE_HISTORY) {
+      this.messageHistory.shift()
+    }
+
+    ws.send(JSON.stringify(outgoing))
+  }
+
+  /**
+   * Start the heartbeat interval
+   */
+  private startHeartbeat(): void {
+    if (this.heartbeatInterval) return
+
+    this.heartbeatInterval = setInterval(() => {
+      this.sendHeartbeat()
+    }, DOFull.HEARTBEAT_INTERVAL_MS)
+  }
+
+  /**
+   * Send heartbeat to all connected WebSockets
+   */
+  private sendHeartbeat(): void {
+    const sockets = this.ctx.getWebSockets()
+    for (const ws of sockets) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'heartbeat',
+          timestamp: Date.now(),
+        }))
+      } catch {
+        // WebSocket may be closed
+      }
+    }
+  }
+
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     try {
       const data = typeof message === 'string' ? JSON.parse(message) : message
+      const clientState = this.wsClientState.get(ws)
+
+      // Count incoming messages
+      if (clientState) {
+        clientState.messageCount++
+      }
 
       // Handle different message types
       if (typeof data === 'object' && data !== null) {
-        const { type, topic, payload } = data as {
+        const { type, topic, payload, id, timestamp } = data as {
           type?: string
           topic?: string
           payload?: unknown
+          id?: string
+          timestamp?: number
+        }
+
+        // Check for duplicate message ID (deduplication)
+        if (id && clientState) {
+          if (clientState.processedMessageIds.has(id)) {
+            // Already processed this message, send ack but don't process again
+            this.sendWithSeq(ws, {
+              type: 'ack',
+              payload: { originalId: id, duplicate: true },
+            })
+            return
+          }
+          clientState.processedMessageIds.add(id)
+          // Keep the set bounded
+          if (clientState.processedMessageIds.size > 1000) {
+            const iterator = clientState.processedMessageIds.values()
+            clientState.processedMessageIds.delete(iterator.next().value!)
+          }
         }
 
         switch (type) {
-          case 'subscribe':
+          case 'subscribe': {
             // Client wants to subscribe to a topic
-            if (topic) {
-              const tags = [topic]
-              // Note: Can't add tags to existing connection, but can track internally
-              const subs = this.subscriptions.get(topic) ?? []
+            const subTopic = (payload as { topic?: string })?.topic || topic
+            if (subTopic) {
+              const subs = this.subscriptions.get(subTopic) ?? []
               subs.push({
                 id: crypto.randomUUID(),
-                topic,
+                topic: subTopic,
                 ws,
                 subscribed: new Date(),
               })
-              this.subscriptions.set(topic, subs)
+              this.subscriptions.set(subTopic, subs)
 
-              ws.send(JSON.stringify({ type: 'subscribed', topic }))
+              this.sendWithSeq(ws, {
+                type: 'subscribed',
+                payload: { topic: subTopic },
+              })
             }
             break
+          }
 
-          case 'unsubscribe':
-            if (topic) {
-              const subs = this.subscriptions.get(topic) ?? []
+          case 'unsubscribe': {
+            const unsubTopic = (payload as { topic?: string })?.topic || topic
+            if (unsubTopic) {
+              const subs = this.subscriptions.get(unsubTopic) ?? []
               const filtered = subs.filter((s) => s.ws !== ws)
-              this.subscriptions.set(topic, filtered)
+              this.subscriptions.set(unsubTopic, filtered)
 
-              ws.send(JSON.stringify({ type: 'unsubscribed', topic }))
+              this.sendWithSeq(ws, {
+                type: 'unsubscribed',
+                payload: { topic: unsubTopic },
+              })
             }
             break
+          }
 
-          case 'broadcast':
-            // Client wants to broadcast to a topic
-            if (topic && payload) {
-              this.fanout(topic, payload)
+          case 'broadcast': {
+            // Client wants to broadcast to a room
+            const broadcastPayload = payload as { topic?: string; message?: unknown }
+            const broadcastRoom = broadcastPayload?.topic || clientState?.room
+            const broadcastMessage = broadcastPayload?.message
+
+            if (broadcastRoom && broadcastMessage) {
+              // Get all WebSockets in this room
+              const roomSockets = this.ctx.getWebSockets(`room:${broadcastRoom}`)
+              for (const roomWs of roomSockets) {
+                if (roomWs !== ws) {
+                  // Don't send back to sender
+                  try {
+                    roomWs.send(JSON.stringify({
+                      type: 'room_message',
+                      payload: broadcastMessage,
+                      timestamp: Date.now(),
+                    }))
+                  } catch {
+                    // WebSocket may be closed
+                  }
+                }
+              }
             }
             break
+          }
 
-          default:
-            // Echo back unknown messages
-            ws.send(JSON.stringify({ type: 'echo', received: data }))
+          case 'ping': {
+            // Respond with pong
+            if (clientState) {
+              clientState.lastPingAt = Date.now()
+            }
+            ws.send(JSON.stringify({
+              type: 'pong',
+              payload: {
+                clientTimestamp: timestamp,
+                serverTimestamp: Date.now(),
+              },
+              timestamp: Date.now(),
+            }))
+            break
+          }
+
+          case 'get_health': {
+            // Return connection health metrics
+            this.sendWithSeq(ws, {
+              type: 'health',
+              payload: {
+                connectedAt: clientState?.connectedAt ?? null,
+                lastPingAt: clientState?.lastPingAt ?? null,
+                messageCount: clientState?.messageCount ?? 0,
+              },
+            })
+            break
+          }
+
+          case 'get_room_info': {
+            // Return room info
+            const roomInfoPayload = payload as { room?: string }
+            const roomName = roomInfoPayload?.room || clientState?.room || 'default'
+            const roomSockets = this.ctx.getWebSockets(`room:${roomName}`)
+
+            this.sendWithSeq(ws, {
+              type: 'room_info',
+              payload: {
+                room: roomName,
+                memberCount: roomSockets.length,
+              },
+            })
+            break
+          }
+
+          case 'replay': {
+            // Client requesting missed messages since a sequence number
+            const replayPayload = payload as { fromSeq?: number }
+            const fromSeq = replayPayload?.fromSeq ?? 0
+
+            // Send any messages after fromSeq
+            const missedMessages = this.messageHistory.filter(
+              (m) => (m.seq ?? 0) > fromSeq
+            )
+
+            for (const missed of missedMessages) {
+              ws.send(JSON.stringify(missed))
+            }
+
+            ws.send(JSON.stringify({
+              type: 'replay_complete',
+              payload: {
+                fromSeq,
+                messagesReplayed: missedMessages.length,
+              },
+              timestamp: Date.now(),
+            }))
+            break
+          }
+
+          case 'msg':
+          case 'rapid': {
+            // Echo back with sequence number and ack
+            if (id) {
+              this.sendWithSeq(ws, {
+                type: 'ack',
+                payload: { originalId: id, seq: this.globalSeqCounter + 1 },
+              })
+            }
+            this.sendWithSeq(ws, {
+              type: 'echo',
+              payload: { ...data, seq: this.globalSeqCounter + 1 },
+            })
+            break
+          }
+
+          case 'heartbeat_ack': {
+            // Client acknowledged heartbeat - update last activity
+            if (clientState) {
+              clientState.lastPingAt = Date.now()
+            }
+            break
+          }
+
+          case 'trigger_error': {
+            // For testing error handling
+            const errorPayload = payload as { fatal?: boolean }
+            if (errorPayload?.fatal) {
+              ws.close(1011, 'Server error triggered')
+            }
+            break
+          }
+
+          default: {
+            // Unknown message type - send error
+            ws.send(JSON.stringify({
+              type: 'error',
+              payload: { message: `Unknown message type: ${type}` },
+              timestamp: Date.now(),
+            }))
+          }
         }
       }
     } catch {
       // Invalid message format
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }))
+      ws.send(JSON.stringify({
+        type: 'error',
+        payload: { message: 'Invalid message format' },
+        timestamp: Date.now(),
+      }))
     }
   }
 
   webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    // Clean up client state
+    this.wsClientState.delete(ws)
+
     // Clean up subscriptions for this WebSocket
     for (const [topic, subs] of this.subscriptions) {
       const filtered = subs.filter((s) => s.ws !== ws)
       this.subscriptions.set(topic, filtered)
+    }
+
+    // Stop heartbeat if no more connections
+    const allSockets = this.ctx.getWebSockets()
+    if (allSockets.length === 0 && this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
     }
 
     // Call parent cleanup

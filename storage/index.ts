@@ -17,6 +17,10 @@ export {
   type CreateThingInput,
   type InMemoryStateManagerOptions,
   type StateManagerStats,
+  type TierMetadata,
+  type AccessStats,
+  type TelemetryEmitter,
+  type TelemetryEvent,
 } from './in-memory-state-manager'
 
 // L1: PipelineEmitter (WAL)
@@ -32,6 +36,11 @@ export {
   type LazyCheckpointerOptions,
   type CheckpointStats,
   type DirtyTracker,
+  type CrossTierVerification,
+  type RepairResult,
+  type TierHealth,
+  type LatencyMetrics,
+  type L0DataProvider,
 } from './lazy-checkpointer'
 
 // L3: IcebergWriter (Cold Storage)
@@ -54,3 +63,92 @@ export {
   DOStorage,
   type DOStorageConfig,
 } from './do-storage'
+
+// ============================================================================
+// Unified StorageTier Interface
+// ============================================================================
+
+import type { ThingData } from './in-memory-state-manager'
+
+/**
+ * Unified StorageTier Interface
+ *
+ * All storage tiers (L0, L2, L3) implement this interface for consistent
+ * polymorphic access to storage operations.
+ */
+export interface StorageTier {
+  /**
+   * Get a thing by ID
+   */
+  get(id: string): Promise<ThingData | null> | ThingData | null
+
+  /**
+   * Put a thing into storage
+   */
+  put(id: string, data: ThingData): Promise<void> | void
+
+  /**
+   * Delete a thing from storage
+   */
+  delete(id: string): Promise<boolean> | boolean
+
+  /**
+   * List things with optional prefix filtering
+   */
+  list(options?: { prefix?: string; limit?: number }): Promise<ThingData[]> | ThingData[]
+}
+
+/**
+ * Storage tier statistics interface
+ */
+export interface StorageTierStats {
+  entryCount: number
+  estimatedBytes: number
+}
+
+/**
+ * Symbol to mark classes that implement StorageTier
+ * Used for runtime type checking
+ */
+export const StorageTierSymbol = Symbol.for('StorageTier')
+
+/**
+ * Runtime representation of StorageTier interface
+ * Since TypeScript interfaces are erased at compile time, this object
+ * provides runtime access to the interface definition for type checking.
+ */
+export const StorageTier = {
+  /**
+   * Required methods that all tiers must implement
+   */
+  requiredMethods: ['get', 'put', 'delete', 'list'] as const,
+
+  /**
+   * Check if an object implements the StorageTier interface
+   */
+  isStorageTier(obj: unknown): obj is StorageTierContract {
+    if (!obj || typeof obj !== 'object') return false
+    return (
+      typeof (obj as any).get === 'function' &&
+      typeof (obj as any).put === 'function' &&
+      typeof (obj as any).delete === 'function' &&
+      typeof (obj as any).list === 'function'
+    )
+  },
+
+  /**
+   * Symbol for runtime identification
+   */
+  symbol: StorageTierSymbol,
+}
+
+/**
+ * Contract type that matches the StorageTier interface
+ * Used for runtime type checking
+ */
+type StorageTierContract = {
+  get(id: string): Promise<ThingData | null> | ThingData | null
+  put(id: string, data: ThingData): Promise<void> | void
+  delete(id: string): Promise<boolean> | boolean
+  list(options?: { prefix?: string; limit?: number }): Promise<ThingData[]> | ThingData[]
+}

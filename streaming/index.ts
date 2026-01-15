@@ -35,11 +35,44 @@ export class WebSocketHub {
   private _rooms = new Map<string, Set<WebSocket>>()
   private _wsRooms = new Map<WebSocket, Set<string>>()
 
+  /**
+   * Check if a WebSocket is stale (not OPEN and not CONNECTING).
+   */
+  private _isStale(ws: WebSocket): boolean {
+    return ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING
+  }
+
+  /**
+   * Auto-clean a single WebSocket if stale.
+   * Returns true if the WebSocket was cleaned up.
+   */
+  private _autoCleanIfStale(ws: WebSocket): boolean {
+    if (this._isStale(ws)) {
+      this.disconnect(ws)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Auto-clean all stale connections proactively.
+   * Called internally to maintain clean state.
+   */
+  private _autoCleanAll(): void {
+    for (const ws of this._connections.keys()) {
+      this._autoCleanIfStale(ws)
+    }
+  }
+
   get connections(): Set<WebSocket> {
+    // Auto-clean stale connections before returning
+    this._autoCleanAll()
     return new Set(this._connections.keys())
   }
 
   get connectionCount(): number {
+    // Auto-clean stale connections before returning count
+    this._autoCleanAll()
     return this._connections.size
   }
 
@@ -86,13 +119,16 @@ export class WebSocketHub {
   /**
    * Broadcast a message to all connected WebSockets.
    * Optionally filters connections before sending.
+   * Automatically cleans up stale connections discovered during broadcast.
    */
   broadcast(message: unknown, filter?: (ws: WebSocket, meta?: Record<string, unknown>) => boolean): number {
     let count = 0
     const serialized = this._serializeMessage(message)
+    const staleConnections: WebSocket[] = []
 
     for (const [ws, meta] of this._connections) {
-      if (ws.readyState !== WebSocket.OPEN) {
+      if (this._isStale(ws)) {
+        staleConnections.push(ws)
         continue
       }
       if (filter && !filter(ws, meta)) {
@@ -100,6 +136,11 @@ export class WebSocketHub {
       }
       ws.send(serialized)
       count++
+    }
+
+    // Clean up stale connections discovered during broadcast
+    for (const ws of staleConnections) {
+      this.disconnect(ws)
     }
 
     return count
@@ -158,6 +199,7 @@ export class WebSocketHub {
     /**
      * Broadcast a message to all members of a room.
      * Returns count of messages sent.
+     * Automatically cleans up stale connections discovered during broadcast.
      */
     broadcast: (roomId: string, message: unknown): number => {
       const roomMembers = this._rooms.get(roomId)
@@ -167,13 +209,20 @@ export class WebSocketHub {
 
       let count = 0
       const serialized = this._serializeMessage(message)
+      const staleConnections: WebSocket[] = []
 
       for (const ws of roomMembers) {
-        if (ws.readyState !== WebSocket.OPEN) {
+        if (this._isStale(ws)) {
+          staleConnections.push(ws)
           continue
         }
         ws.send(serialized)
         count++
+      }
+
+      // Clean up stale connections discovered during broadcast
+      for (const ws of staleConnections) {
+        this.disconnect(ws)
       }
 
       return count
@@ -181,26 +230,72 @@ export class WebSocketHub {
 
     /**
      * Get all members of a room.
+     * Automatically cleans up stale connections.
      */
     members: (roomId: string): WebSocket[] => {
       const roomMembers = this._rooms.get(roomId)
-      return roomMembers ? Array.from(roomMembers) : []
+      if (!roomMembers) {
+        return []
+      }
+
+      const staleConnections: WebSocket[] = []
+      const liveMembers: WebSocket[] = []
+
+      for (const ws of roomMembers) {
+        if (this._isStale(ws)) {
+          staleConnections.push(ws)
+        } else {
+          liveMembers.push(ws)
+        }
+      }
+
+      // Clean up stale connections
+      for (const ws of staleConnections) {
+        this.disconnect(ws)
+      }
+
+      return liveMembers
     },
 
     /**
      * Get all rooms a WebSocket is a member of.
+     * Cleans up the WebSocket if it is stale.
      */
     rooms: (ws: WebSocket): string[] => {
+      // Clean up if stale
+      if (this._autoCleanIfStale(ws)) {
+        return []
+      }
       const wsRooms = this._wsRooms.get(ws)
       return wsRooms ? Array.from(wsRooms) : []
     },
 
     /**
      * Get the number of members in a room.
+     * Automatically cleans up stale connections before counting.
      */
     count: (roomId: string): number => {
       const roomMembers = this._rooms.get(roomId)
-      return roomMembers ? roomMembers.size : 0
+      if (!roomMembers) {
+        return 0
+      }
+
+      const staleConnections: WebSocket[] = []
+
+      for (const ws of roomMembers) {
+        if (this._isStale(ws)) {
+          staleConnections.push(ws)
+        }
+      }
+
+      // Clean up stale connections
+      for (const ws of staleConnections) {
+        this.disconnect(ws)
+      }
+
+      // Return updated count
+      const updatedMembers = this._rooms.get(roomId)
+      return updatedMembers ? updatedMembers.size : 0
     },
   }
 
@@ -793,6 +888,35 @@ export class SubscriptionManager {
   private _topics = new Map<string, Set<WebSocket>>()
 
   /**
+   * Check if a WebSocket is stale (not OPEN and not CONNECTING).
+   */
+  private _isStale(ws: WebSocket): boolean {
+    return ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING
+  }
+
+  /**
+   * Auto-clean a single WebSocket if stale.
+   * Returns true if the WebSocket was cleaned up.
+   */
+  private _autoCleanIfStale(ws: WebSocket): boolean {
+    if (this._isStale(ws)) {
+      this.unsubscribeAll(ws)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Auto-clean all stale subscriptions proactively.
+   * Called internally to maintain clean state.
+   */
+  private _autoCleanAll(): void {
+    for (const ws of this._subscriptions.keys()) {
+      this._autoCleanIfStale(ws)
+    }
+  }
+
+  /**
    * Subscribe a WebSocket to a topic.
    * Topic can be an exact match or a pattern (*, **).
    */
@@ -857,42 +981,79 @@ export class SubscriptionManager {
 
   /**
    * Check if a WebSocket is subscribed to a topic.
+   * Cleans up the WebSocket if it is stale.
    */
   isSubscribed(ws: WebSocket, topic: string): boolean {
+    // Clean up if stale
+    if (this._autoCleanIfStale(ws)) {
+      return false
+    }
     const wsTopics = this._subscriptions.get(ws)
     return wsTopics?.has(topic) ?? false
   }
 
   /**
    * Get all topics a WebSocket is subscribed to.
+   * Cleans up the WebSocket if it is stale.
    */
   getSubscriptions(ws: WebSocket): string[] {
+    // Clean up if stale
+    if (this._autoCleanIfStale(ws)) {
+      return []
+    }
     const wsTopics = this._subscriptions.get(ws)
     return wsTopics ? Array.from(wsTopics) : []
   }
 
   /**
    * Get all WebSockets subscribed to a topic.
+   * Automatically cleans up stale connections.
    */
   getSubscribers(topic: string): WebSocket[] {
     const topicSubs = this._topics.get(topic)
-    return topicSubs ? Array.from(topicSubs) : []
+    if (!topicSubs) {
+      return []
+    }
+
+    const staleConnections: WebSocket[] = []
+    const liveSubscribers: WebSocket[] = []
+
+    for (const ws of topicSubs) {
+      if (this._isStale(ws)) {
+        staleConnections.push(ws)
+      } else {
+        liveSubscribers.push(ws)
+      }
+    }
+
+    // Clean up stale connections
+    for (const ws of staleConnections) {
+      this.unsubscribeAll(ws)
+    }
+
+    return liveSubscribers
   }
 
   /**
    * Publish a message to all subscribers of a topic.
    * Supports pattern matching for subscriptions.
    * Returns the count of WebSockets that received the message.
+   * Automatically cleans up stale connections discovered during publish.
    */
   publish(topic: string, message: unknown): number {
     const serialized = JSON.stringify(message)
     const notified = new Set<WebSocket>()
+    const staleConnections = new Set<WebSocket>()
 
     // First, notify exact subscribers
     const exactSubs = this._topics.get(topic)
     if (exactSubs) {
       for (const ws of exactSubs) {
-        if (ws.readyState === WebSocket.OPEN && !notified.has(ws)) {
+        if (this._isStale(ws)) {
+          staleConnections.add(ws)
+          continue
+        }
+        if (!notified.has(ws)) {
           ws.send(serialized)
           notified.add(ws)
         }
@@ -904,12 +1065,21 @@ export class SubscriptionManager {
       if (pattern === topic) continue // Already handled exact match
       if (matchesTopic(topic, pattern)) {
         for (const ws of subscribers) {
-          if (ws.readyState === WebSocket.OPEN && !notified.has(ws)) {
+          if (this._isStale(ws)) {
+            staleConnections.add(ws)
+            continue
+          }
+          if (!notified.has(ws)) {
             ws.send(serialized)
             notified.add(ws)
           }
         }
       }
+    }
+
+    // Clean up stale connections discovered during publish
+    for (const ws of staleConnections) {
+      this.unsubscribeAll(ws)
     }
 
     return notified.size

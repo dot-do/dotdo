@@ -3,7 +3,11 @@
  *
  * Long-term storage in R2 with Iceberg-compatible format.
  * Supports time travel queries and schema evolution.
+ * Implements StorageTier interface for consistency with L0/L2.
  */
+
+// Import canonical types from types/index.ts
+import type { ThingData } from '../types'
 
 export interface IcebergWriterConfig {
   bucket: R2Bucket
@@ -48,10 +52,13 @@ export interface IcebergSchema {
   }>
 }
 
+// ThingData imported from ../types
+
 interface R2Bucket {
   put(key: string, data: ArrayBuffer | string | ReadableStream | Blob): Promise<R2Object | null>
   get(key: string): Promise<R2ObjectBody | null>
   list(options?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>
+  delete(key: string): Promise<void>
 }
 
 interface R2Object {
@@ -79,6 +86,21 @@ function encodeParquet(events: IcebergEvent[]): ArrayBuffer {
 }
 
 /**
+ * Decode Parquet data back to events
+ * Handles both ArrayBuffer and string inputs
+ */
+function decodeParquet(data: ArrayBuffer | string): IcebergEvent[] {
+  if (typeof data === 'string') {
+    return JSON.parse(data)
+  }
+  // Handle ArrayBuffer - need to create Uint8Array view
+  const uint8 = new Uint8Array(data)
+  const decoder = new TextDecoder()
+  const json = decoder.decode(uint8)
+  return JSON.parse(json)
+}
+
+/**
  * Format date for partitioning
  */
 function formatDate(ts: number): string {
@@ -100,6 +122,11 @@ export class IcebergWriter {
   private snapshots: IcebergSnapshot[] = []
   private schema: IcebergSchema
   private currentSnapshotId: number = 0
+  private totalBytes: number = 0
+  private entryCount: number = 0
+
+  // In-memory event cache for fast queries (indexed by entityId)
+  private eventCache: Map<string, IcebergEvent[]> = new Map()
 
   constructor(config: IcebergWriterConfig) {
     this.bucket = config.bucket
@@ -118,6 +145,138 @@ export class IcebergWriter {
     }
   }
 
+  // =========================================================================
+  // StorageTier Interface Methods
+  // =========================================================================
+
+  /**
+   * Get a thing by ID from L3 storage
+   * Reconstructs state from events
+   */
+  async get(id: string): Promise<ThingData | null> {
+    const events = await this.query({ entityId: id })
+    if (events.length === 0) return null
+
+    // Sort by timestamp and reconstruct state
+    events.sort((a, b) => a.ts - b.ts)
+
+    let state: ThingData | null = null
+    for (const event of events) {
+      if (event.type === 'thing.created') {
+        state = event.payload as ThingData
+      } else if (event.type === 'thing.updated' && state) {
+        state = { ...state, ...(event.payload as Partial<ThingData>) }
+      } else if (event.type === 'thing.deleted') {
+        state = null
+      }
+    }
+
+    return state
+  }
+
+  /**
+   * Create a thing in L3 storage
+   * Writes a thing.created event
+   */
+  async create(data: ThingData): Promise<ThingData> {
+    await this.write([
+      {
+        type: 'thing.created',
+        entityId: data.$id,
+        payload: data,
+        ts: Date.now(),
+      },
+    ])
+    return data
+  }
+
+  /**
+   * Put a thing into L3 storage (upsert)
+   * Creates or updates depending on existence
+   */
+  async put(id: string, data: ThingData): Promise<void> {
+    const existing = await this.get(id)
+    if (existing) {
+      await this.write([
+        {
+          type: 'thing.updated',
+          entityId: id,
+          payload: data,
+          ts: Date.now(),
+        },
+      ])
+    } else {
+      await this.write([
+        {
+          type: 'thing.created',
+          entityId: id,
+          payload: { ...data, $id: id },
+          ts: Date.now(),
+        },
+      ])
+    }
+  }
+
+  /**
+   * Delete a thing from L3 storage
+   * Writes a thing.deleted event (soft delete for event sourcing)
+   */
+  async delete(id: string): Promise<boolean> {
+    const existing = await this.get(id)
+    if (!existing) return false
+
+    await this.write([
+      {
+        type: 'thing.deleted',
+        entityId: id,
+        payload: {},
+        ts: Date.now(),
+      },
+    ])
+    return true
+  }
+
+  /**
+   * List things with optional prefix filtering
+   */
+  async list(options?: { prefix?: string; limit?: number }): Promise<ThingData[]> {
+    // Get all unique entity IDs from cache
+    const entityIds = new Set<string>()
+    for (const id of this.eventCache.keys()) {
+      if (!options?.prefix || id.startsWith(options.prefix)) {
+        entityIds.add(id)
+      }
+    }
+
+    // Reconstruct state for each entity
+    const things: ThingData[] = []
+    for (const id of entityIds) {
+      const thing = await this.get(id)
+      if (thing) {
+        things.push(thing)
+        if (options?.limit && things.length >= options.limit) {
+          break
+        }
+      }
+    }
+
+    return things
+  }
+
+  /**
+   * Get statistics for this storage tier
+   */
+  getStats(): { entryCount: number; estimatedBytes: number } {
+    return {
+      entryCount: this.entryCount,
+      estimatedBytes: this.totalBytes,
+    }
+  }
+
+  // =========================================================================
+  // Core IcebergWriter Methods
+  // =========================================================================
+
   /**
    * Write events to R2 in Iceberg-compatible format
    */
@@ -131,9 +290,19 @@ export class IcebergWriter {
       const existing = partitioned.get(date) ?? []
       existing.push(event)
       partitioned.set(date, existing)
+
+      // Update event cache for queries
+      const cached = this.eventCache.get(event.entityId) ?? []
+      cached.push(event)
+      this.eventCache.set(event.entityId, cached)
+
+      // Update stats
+      this.entryCount++
+      this.totalBytes += JSON.stringify(event).length
     }
 
     // Write each partition
+    const dataFiles: string[] = []
     for (const [date, partitionEvents] of partitioned) {
       const fileId = generateFileId()
       const key = this.buildDataPath(date, fileId)
@@ -141,13 +310,14 @@ export class IcebergWriter {
       // Encode as Parquet (simplified)
       const data = encodeParquet(partitionEvents)
       await this.bucket.put(key, data)
+      dataFiles.push(key)
 
       // Update schema if needed (schema evolution)
       this.evolveSchema(partitionEvents)
     }
 
-    // Create new snapshot
-    this.createSnapshot()
+    // Create new snapshot and write metadata
+    await this.createSnapshot(dataFiles)
   }
 
   /**
@@ -158,12 +328,87 @@ export class IcebergWriter {
   }
 
   /**
-   * Query events with time travel
+   * Query events with time travel support
    */
-  async query(query: TimeTravelQuery): Promise<IcebergEvent[]> {
-    // In production, this would read from R2 and filter
-    // For now, return empty array (mock)
-    return []
+  async query(queryOptions: TimeTravelQuery): Promise<IcebergEvent[]> {
+    const results: IcebergEvent[] = []
+
+    // If querying by entityId, check cache first
+    if (queryOptions.entityId) {
+      const cached = this.eventCache.get(queryOptions.entityId)
+      if (cached && cached.length > 0) {
+        // Filter by time if asOf is specified
+        if (queryOptions.asOf) {
+          const cutoff = queryOptions.asOf.getTime()
+          return cached.filter((e) => e.ts <= cutoff)
+        }
+        return [...cached]
+      }
+    }
+
+    // If not in cache, scan R2 for data files
+    try {
+      const prefix = `${this.tableName}/ns=${this.namespace}/`
+      const listResult = await this.bucket.list({ prefix })
+
+      for (const obj of listResult.objects) {
+        // Only process parquet data files
+        if (!obj.key.endsWith('.parquet')) continue
+
+        // If asOf query, check date partition
+        if (queryOptions.asOf) {
+          const dateMatch = obj.key.match(/date=(\d{4}-\d{2}-\d{2})/)
+          if (dateMatch) {
+            const fileDate = new Date(dateMatch[1])
+            if (fileDate.getTime() > queryOptions.asOf.getTime()) {
+              continue // Skip files after the asOf date
+            }
+          }
+        }
+
+        // Read and decode the file
+        const r2Object = await this.bucket.get(obj.key)
+        if (r2Object) {
+          // Try text() first since mock often returns strings, then arrayBuffer()
+          let data: ArrayBuffer | string
+          try {
+            data = await r2Object.text()
+          } catch {
+            data = await r2Object.arrayBuffer()
+          }
+          const events = decodeParquet(data)
+
+          for (const event of events) {
+            // Filter by entityId if specified
+            if (queryOptions.entityId && event.entityId !== queryOptions.entityId) {
+              continue
+            }
+
+            // Filter by timestamp if asOf is specified
+            if (queryOptions.asOf && event.ts > queryOptions.asOf.getTime()) {
+              continue
+            }
+
+            results.push(event)
+
+            // Update cache
+            const cached = this.eventCache.get(event.entityId) ?? []
+            if (!cached.some((e) => e.ts === event.ts && e.type === event.type)) {
+              cached.push(event)
+              this.eventCache.set(event.entityId, cached)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Log but don't throw - return what we have
+      console.error('[IcebergWriter] Error querying R2:', error)
+    }
+
+    // Sort results by timestamp
+    results.sort((a, b) => a.ts - b.ts)
+
+    return results
   }
 
   /**
@@ -174,10 +419,14 @@ export class IcebergWriter {
   }
 
   /**
-   * Close the writer
+   * Close the writer and persist final metadata
    */
   async close(): Promise<void> {
-    // Cleanup if needed
+    // Write final snapshot list to R2
+    if (this.snapshots.length > 0) {
+      const snapshotListPath = `${this.tableName}/metadata/version-hint.text`
+      await this.bucket.put(snapshotListPath, String(this.currentSnapshotId))
+    }
   }
 
   /**
@@ -216,18 +465,37 @@ export class IcebergWriter {
   }
 
   /**
-   * Create a new snapshot after writes
+   * Create a new snapshot after writes and persist metadata
    */
-  private createSnapshot(): void {
+  private async createSnapshot(dataFiles: string[]): Promise<void> {
     this.currentSnapshotId++
-    this.snapshots.push({
-      snapshotId: `snap-${this.currentSnapshotId}`,
+    const snapshotId = `snap-${this.currentSnapshotId}`
+
+    // Create manifest file listing the data files
+    const manifest = {
+      snapshotId,
+      timestamp: new Date().toISOString(),
+      dataFiles,
+      schema: this.schema,
+    }
+
+    const manifestPath = `${this.tableName}/metadata/${snapshotId}-manifest.json`
+    await this.bucket.put(manifestPath, JSON.stringify(manifest))
+
+    // Create snapshot metadata
+    const snapshot: IcebergSnapshot = {
+      snapshotId,
       timestamp: new Date(),
-      manifestList: `${this.tableName}/metadata/snap-${this.currentSnapshotId}-manifest.avro`,
+      manifestList: manifestPath,
       summary: {
         operation: 'append',
-        'added-data-files': '1',
+        'added-data-files': String(dataFiles.length),
       },
-    })
+    }
+    this.snapshots.push(snapshot)
+
+    // Write snapshot list
+    const snapshotListPath = `${this.tableName}/metadata/snapshots.json`
+    await this.bucket.put(snapshotListPath, JSON.stringify(this.snapshots))
   }
 }

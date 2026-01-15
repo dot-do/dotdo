@@ -69,16 +69,32 @@ export interface ApprovalResponse {
 }
 
 /**
+ * Escalation chain item with optional handler references
+ */
+export interface EscalationChainItem {
+  duration: number
+  target: string
+  /** Optional typed handler for escalation events (do-igh: type safety) */
+  onEscalateHandler?: (event: EscalationEvent) => void | Promise<void>
+  /** Optional typed handler for notifications (do-igh: type safety) */
+  onNotifyHandler?: (notification: EscalationNotification) => void | Promise<void>
+}
+
+/**
  * Escalation configuration
  */
 export interface EscalationConfig {
   duration: number
   target: string
-  chain?: Array<{ duration: number; target: string }>
+  chain?: Array<EscalationChainItem>
   escalateTo: (target: string) => EscalationConfig
   escalateAfter: (duration: string) => EscalationConfig
   onEscalate: (handler: (event: EscalationEvent) => void | Promise<void>) => EscalationConfig
   onNotify: (handler: (notification: EscalationNotification) => void | Promise<void>) => EscalationConfig
+  /** Typed storage for onEscalate handler (do-igh: eliminates any cast) */
+  onEscalateHandler?: (event: EscalationEvent) => void | Promise<void>
+  /** Typed storage for onNotify handler (do-igh: eliminates any cast) */
+  onNotifyHandler?: (notification: EscalationNotification) => void | Promise<void>
 }
 
 /**
@@ -618,11 +634,23 @@ export class EscalationPolicy {
         return newConfig
       },
       onEscalate: (handler: (event: EscalationEvent) => void | Promise<void>): EscalationConfig => {
-        (config as any)._onEscalate = handler
+        config.onEscalateHandler = handler
+        // Also attach handler to all chain items for type safety (do-igh)
+        if (config.chain) {
+          for (const item of config.chain) {
+            item.onEscalateHandler = handler
+          }
+        }
         return config
       },
       onNotify: (handler: (notification: EscalationNotification) => void | Promise<void>): EscalationConfig => {
-        (config as any)._onNotify = handler
+        config.onNotifyHandler = handler
+        // Also attach handler to all chain items for type safety (do-igh)
+        if (config.chain) {
+          for (const item of config.chain) {
+            item.onNotifyHandler = handler
+          }
+        }
         return config
       },
     }
@@ -670,8 +698,8 @@ export class EscalationPolicy {
       const timer = setTimeout(async () => {
         if (tracking.resolved) return
 
-        const onEscalate = (config as any)._onEscalate
-        const onNotify = (config as any)._onNotify
+        const onEscalate = config.onEscalateHandler
+        const onNotify = config.onNotifyHandler
 
         // Trigger escalation handler
         if (onEscalate) {
@@ -1445,7 +1473,7 @@ export class NotificationDispatcher {
       maxRetries: retryPolicy.maxRetries ?? 0,
       backoff: retryPolicy.backoff || 'exponential',
       initialDelay: retryPolicy.initialDelay || 100,
-      skipDelays: channelConfig.simulateFailure && !channelConfig.beforeSend,
+      skipDelays: !!channelConfig.simulateFailure && !channelConfig.beforeSend,
     }
   }
 

@@ -5,6 +5,9 @@
  * Replays pipeline events to catch up to latest state.
  */
 
+// Import canonical types from types/index.ts
+import type { ThingData } from '../types'
+
 export interface RecoveryResult {
   source: 'sqlite' | 'iceberg' | 'empty'
   thingsLoaded: number
@@ -18,14 +21,7 @@ export interface RecoveryOptions {
   iceberg?: IcebergReader
   namespace: string
   pipelineEvents?: PipelineEvent[]
-}
-
-interface ThingData {
-  $id: string
-  $type: string
-  $version?: number
-  name?: string
-  [key: string]: unknown
+  seenIdempotencyKeys?: Set<string> // For cross-session deduplication
 }
 
 interface SqlStorage {
@@ -49,6 +45,7 @@ interface PipelineEvent {
   entityId: string
   payload: Partial<ThingData>
   ts: number
+  idempotencyKey?: string
 }
 
 export class ColdStartRecovery {
@@ -56,12 +53,21 @@ export class ColdStartRecovery {
   private iceberg?: IcebergReader
   private namespace: string
   private pipelineEvents: PipelineEvent[]
+  private seenIdempotencyKeys: Set<string>
 
   constructor(options: RecoveryOptions) {
     this.sql = options.sql
     this.iceberg = options.iceberg
     this.namespace = options.namespace
     this.pipelineEvents = options.pipelineEvents ?? []
+    this.seenIdempotencyKeys = options.seenIdempotencyKeys ?? new Set()
+  }
+
+  /**
+   * Get all seen idempotency keys (for cross-session tracking)
+   */
+  getSeenIdempotencyKeys(): Set<string> {
+    return new Set(this.seenIdempotencyKeys)
   }
 
   /**
@@ -204,12 +210,27 @@ export class ColdStartRecovery {
   }
 
   /**
-   * Replay pipeline events that occurred after last checkpoint
+   * Replay pipeline events that occurred after last checkpoint.
+   * Deduplicates events by idempotency key.
    */
   private replayPipelineEvents(state: Map<string, ThingData>): number {
+    let replayed = 0
+
     for (const event of this.pipelineEvents) {
+      // Deduplicate by idempotency key
+      if (event.idempotencyKey) {
+        if (this.seenIdempotencyKeys.has(event.idempotencyKey)) {
+          // Skip duplicate event
+          continue
+        }
+        // Track this key
+        this.seenIdempotencyKeys.add(event.idempotencyKey)
+      }
+
       this.applyEvent(state, event)
+      replayed++
     }
-    return this.pipelineEvents.length
+
+    return replayed
   }
 }
