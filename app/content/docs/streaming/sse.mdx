@@ -1,0 +1,389 @@
+---
+title: Server-Sent Events (SSE)
+description: Unidirectional streaming from server to client using the SSE protocol
+---
+
+# Server-Sent Events (SSE)
+
+Server-Sent Events provide a simple, efficient way to push updates from server to client over a single HTTP connection. The SSE protocol is text-based and automatically handles reconnection.
+
+## Basic Usage
+
+```typescript
+import { createSSEStream } from 'dotdo/streaming'
+
+const { response, stream } = createSSEStream()
+
+// Send events
+stream.send({ data: 'Hello!' })
+
+// Return the response to the client
+return response
+```
+
+## Creating an SSE Stream
+
+The `createSSEStream()` function returns a Response and a stream controller:
+
+```typescript
+const { response, stream } = createSSEStream()
+
+// Response has correct headers:
+// Content-Type: text/event-stream
+// Cache-Control: no-cache
+// Connection: keep-alive
+```
+
+### Response Headers
+
+The SSE response is pre-configured with the required headers:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Content-Type` | `text/event-stream` | SSE MIME type |
+| `Cache-Control` | `no-cache` | Prevent caching |
+| `Connection` | `keep-alive` | Long-lived connection |
+
+The response body is a `ReadableStream` that you control via the `stream` object.
+
+## Sending Events
+
+### Simple Data
+
+```typescript
+stream.send({ data: 'Hello, world!' })
+// Output: data: Hello, world!\n\n
+```
+
+### Named Events
+
+```typescript
+stream.send({
+  event: 'user-joined',
+  data: { userId: '123', name: 'Alice' },
+})
+// Output:
+// event: user-joined
+// data: {"userId":"123","name":"Alice"}
+```
+
+### Event IDs
+
+Event IDs enable clients to resume from the last received event:
+
+```typescript
+stream.send({
+  id: '42',
+  data: { message: 'Update #42' },
+})
+// Output:
+// id: 42
+// data: {"message":"Update #42"}
+```
+
+### Retry Interval
+
+Tell clients how long to wait before reconnecting:
+
+```typescript
+stream.send({
+  retry: 5000, // 5 seconds
+  data: 'Reconnect in 5s if disconnected',
+})
+// Output:
+// retry: 5000
+// data: Reconnect in 5s if disconnected
+```
+
+### Object Data
+
+Objects are automatically JSON serialized:
+
+```typescript
+stream.send({
+  event: 'order-update',
+  data: {
+    orderId: 'ord-123',
+    status: 'shipped',
+    tracking: 'TRK-456',
+  },
+})
+```
+
+### Multiline Data
+
+Multiline strings are properly split into multiple `data:` lines:
+
+```typescript
+stream.send({ data: 'Line 1\nLine 2\nLine 3' })
+// Output:
+// data: Line 1
+// data: Line 2
+// data: Line 3
+```
+
+## Comments (Keep-Alive)
+
+Send SSE comments to keep the connection alive. Comments are lines starting with a colon and are ignored by clients:
+
+```typescript
+stream.comment('ping')
+// Output: : ping\n\n
+```
+
+Use comments for heartbeats to prevent connection timeouts:
+
+```typescript
+const keepAlive = setInterval(() => {
+  stream.comment('keep-alive')
+}, 30000) // Every 30 seconds
+
+// Clean up when done
+clearInterval(keepAlive)
+```
+
+### Why Keep-Alive?
+
+Keep-alive comments serve three important purposes:
+
+- **Proxy survival:** Prevents reverse proxies and load balancers from closing idle connections
+- **Client detection:** Helps detect disconnected clients earlier through write failures
+- **Connection health:** Maintains connection state through intermediate infrastructure
+
+## Closing the Stream
+
+```typescript
+stream.close()
+```
+
+After closing, calling `send()` or `comment()` throws an error:
+
+```typescript
+stream.close()
+stream.send({ data: 'test' }) // Throws: Stream is closed
+stream.comment('ping')        // Throws: Stream is closed
+```
+
+> **Warning:** Always handle the abort signal to clean up resources. SSE streams keep the Durable Object active, so failing to close them wastes compute time and prevents hibernation.
+
+### Safe Closing Pattern
+
+Use try-catch when sending in intervals to handle already-closed streams:
+
+```typescript
+const interval = setInterval(() => {
+  try {
+    stream.send({ data: 'heartbeat' })
+  } catch {
+    // Stream was closed, clean up
+    clearInterval(interval)
+  }
+}, 5000)
+```
+
+## Complete Example
+
+```typescript
+import { createSSEStream } from 'dotdo/streaming'
+
+export class NotificationsDO extends DurableObject {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const userId = url.searchParams.get('userId')
+
+    if (!userId) {
+      return new Response('Missing userId', { status: 400 })
+    }
+
+    const { response, stream } = createSSEStream()
+
+    // Send initial connection event
+    stream.send({
+      event: 'connected',
+      id: String(Date.now()),
+      data: {
+        userId,
+        connectedAt: new Date().toISOString(),
+      },
+    })
+
+    // Set retry interval for auto-reconnection
+    stream.send({
+      retry: 3000,
+      data: 'Connection established',
+    })
+
+    // Keep-alive heartbeat
+    const heartbeat = setInterval(() => {
+      try {
+        stream.comment('heartbeat')
+      } catch {
+        clearInterval(heartbeat)
+      }
+    }, 15000)
+
+    // Simulate periodic updates
+    let eventId = 1
+    const updates = setInterval(() => {
+      try {
+        stream.send({
+          event: 'notification',
+          id: String(eventId++),
+          data: {
+            type: 'info',
+            message: `Notification #${eventId}`,
+            timestamp: Date.now(),
+          },
+        })
+      } catch {
+        clearInterval(updates)
+      }
+    }, 5000)
+
+    // Handle client disconnect
+    request.signal.addEventListener('abort', () => {
+      clearInterval(heartbeat)
+      clearInterval(updates)
+      stream.close()
+    })
+
+    return response
+  }
+}
+```
+
+## Client-Side Usage
+
+### JavaScript EventSource
+
+```javascript
+const eventSource = new EventSource('/events?userId=123')
+
+// Listen for all messages
+eventSource.onmessage = (event) => {
+  console.log('Message:', event.data)
+}
+
+// Listen for specific event types
+eventSource.addEventListener('notification', (event) => {
+  const data = JSON.parse(event.data)
+  console.log('Notification:', data)
+})
+
+// Handle connection events
+eventSource.onopen = () => {
+  console.log('Connected')
+}
+
+eventSource.onerror = (error) => {
+  console.error('SSE error:', error)
+}
+
+// Close connection
+eventSource.close()
+```
+
+### React Hook
+
+```typescript
+import { useEffect, useState } from 'react'
+
+function useSSE<T>(url: string, eventType?: string) {
+  const [data, setData] = useState<T | null>(null)
+  const [error, setError] = useState<Error | null>(null)
+
+  useEffect(() => {
+    const source = new EventSource(url)
+
+    const handler = (event: MessageEvent) => {
+      try {
+        setData(JSON.parse(event.data))
+      } catch {
+        setData(event.data as T)
+      }
+    }
+
+    if (eventType) {
+      source.addEventListener(eventType, handler)
+    } else {
+      source.onmessage = handler
+    }
+
+    source.onerror = () => {
+      setError(new Error('SSE connection error'))
+    }
+
+    return () => source.close()
+  }, [url, eventType])
+
+  return { data, error }
+}
+
+// Usage
+function NotificationBell() {
+  const { data } = useSSE<{ message: string }>('/events', 'notification')
+
+  return <span>{data?.message}</span>
+}
+```
+
+## SSE vs WebSocket
+
+| Feature | SSE | WebSocket |
+|---------|-----|-----------|
+| Direction | Server to client | Bidirectional |
+| Protocol | HTTP | WebSocket |
+| Auto-reconnect | Built-in | Manual |
+| Binary data | No | Yes |
+| HTTP/2 multiplexing | Yes | No |
+| Browser support | All modern | All modern |
+| Complexity | Simple | Moderate |
+
+Choose SSE when:
+- You only need server-to-client updates
+- You want automatic reconnection
+- You prefer HTTP semantics
+- You are using HTTP/2
+
+Choose WebSocket when:
+- You need bidirectional communication
+- You are sending binary data
+- You need lower latency
+- Clients frequently send messages
+
+## API Reference
+
+### createSSEStream()
+
+Creates a new SSE stream with Response and controller.
+
+```typescript
+function createSSEStream(): {
+  response: Response
+  stream: SSEStream
+}
+```
+
+### SSEStream
+
+| Method | Description |
+|--------|-------------|
+| `send(event)` | Send an SSE event |
+| `close()` | Close the stream |
+| `comment(text)` | Send an SSE comment (keep-alive) |
+
+### SSEEvent
+
+```typescript
+interface SSEEvent {
+  event?: string    // Event type name
+  data: unknown     // Event data (auto-serialized if object)
+  id?: string       // Event ID for resumption
+  retry?: number    // Reconnection interval in ms
+}
+```
+
+## Related
+
+- [WebSocket Hub](/streaming/websocket-hub) - Bidirectional real-time communication
+- [Backpressure](/streaming/backpressure) - Flow control when clients cannot keep up

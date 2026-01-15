@@ -1,0 +1,423 @@
+---
+title: Actions
+description: Unified event + edge + audit records - one function, three purposes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Actions
+
+**One function, three records.** When a Thing performs an action on another Thing, the semantic module creates an event (what happened), an edge (graph connection), and an audit record (who did what when) - all from a single function call.
+
+```typescript
+import { noun, verb, thing, action } from '@dotdo/semantic'
+
+const Customer = noun('Customer')
+const Order = noun('Order')
+const purchase = verb('purchase')
+
+const alice = thing(Customer, { name: 'Alice' })
+const order = thing(Order, { total: 99.99 })
+
+const result = action(alice, purchase, order)
+// result.event  - What happened
+// result.edge   - Graph connection
+// result.audit  - Who did what when
+// result.success - Always true (reserved for future validation)
+```
+
+## Interface
+
+```typescript
+interface Action {
+  event: {
+    type: string              // Verb in past tense: 'purchased'
+    subject: string           // Actor $id
+    object?: string           // Target $id (optional for intransitive)
+    timestamp: Date
+    metadata?: Record<string, unknown>
+  }
+  edge: {
+    from: string              // Subject $id
+    to: string                // Object $id
+    verb: string              // Verb in past tense
+  }
+  audit: {
+    actor: string             // Who performed the action
+    verb: string              // What action
+    target: string            // On what
+    timestamp: Date
+  }
+}
+
+interface ActionResult extends Action {
+  success: boolean
+}
+```
+
+## Creating Actions
+
+### Basic Action
+
+```typescript
+const result = action(alice, purchase, order)
+
+// Event record
+console.log(result.event)
+// {
+//   type: 'purchased',
+//   subject: 'alice-uuid',
+//   object: 'order-uuid',
+//   timestamp: 2024-01-15T10:30:00.000Z
+// }
+
+// Edge record
+console.log(result.edge)
+// {
+//   from: 'alice-uuid',
+//   to: 'order-uuid',
+//   verb: 'purchased'
+// }
+
+// Audit record
+console.log(result.audit)
+// {
+//   actor: 'alice-uuid',
+//   verb: 'purchased',
+//   target: 'order-uuid',
+//   timestamp: 2024-01-15T10:30:00.000Z
+// }
+```
+
+### With Metadata
+
+```typescript
+const result = action(alice, purchase, order, {
+  source: 'checkout-page',
+  paymentMethod: 'credit_card',
+  couponCode: 'SUMMER20'
+})
+
+console.log(result.event.metadata)
+// { source: 'checkout-page', paymentMethod: 'credit_card', couponCode: 'SUMMER20' }
+```
+
+### Intransitive Actions
+
+For actions without a target object:
+
+```typescript
+const login = verb('login')
+const user = thing(User, { name: 'Alice' })
+
+const result = action(user, login)  // No object parameter
+
+console.log(result.event)
+// { type: 'logged', subject: 'user-uuid', timestamp: ... }
+// No object property
+
+console.log(result.edge)
+// { from: 'user-uuid', to: '', verb: 'logged' }
+// Empty 'to' for intransitive
+```
+
+## The Three Records
+
+### Event Record
+
+The event captures **what happened**:
+
+| Field | Description |
+|-------|-------------|
+| `type` | Verb in past tense (`purchased`, `shipped`, `created`) |
+| `subject` | The Thing performing the action |
+| `object` | The Thing being acted upon (optional) |
+| `timestamp` | When it happened |
+| `metadata` | Additional context |
+
+```typescript
+// Use events for:
+// - Event sourcing
+// - Analytics
+// - Activity feeds
+// - Notifications
+
+const events = [
+  action(alice, purchase, order1).event,
+  action(alice, purchase, order2).event,
+  action(bob, review, product).event,
+]
+
+// Query by type
+const purchases = events.filter(e => e.type === 'purchased')
+```
+
+### Edge Record
+
+The edge captures **graph connections**:
+
+| Field | Description |
+|-------|-------------|
+| `from` | Source Thing $id |
+| `to` | Target Thing $id |
+| `verb` | Relationship type (past tense) |
+
+```typescript
+// Use edges for:
+// - Graph traversal
+// - Relationship queries
+// - Network analysis
+
+// After multiple actions
+action(alice, purchase, order1)
+action(alice, purchase, order2)
+action(alice, follow, bob)
+
+// Traverse with forward/backward
+const orders = forward(alice, 'Order')   // [order1, order2]
+const followers = backward(bob, 'User')  // [alice]
+```
+
+<Callout type="info">
+Edges are stored internally when you call `action()` with an object parameter. Use `forward()` and `backward()` to traverse them.
+</Callout>
+
+### Audit Record
+
+The audit captures **who did what when**:
+
+| Field | Description |
+|-------|-------------|
+| `actor` | Who performed the action |
+| `verb` | What they did |
+| `target` | What they did it to |
+| `timestamp` | When |
+
+```typescript
+// Use audits for:
+// - Compliance logging
+// - Security monitoring
+// - Debugging
+// - History tracking
+
+const auditLog = []
+
+function loggedAction(subject, verb, object, metadata) {
+  const result = action(subject, verb, object, metadata)
+  auditLog.push(result.audit)
+  return result
+}
+
+// Later: query audit log
+const aliceActions = auditLog.filter(a => a.actor === alice.$id)
+const recentActions = auditLog.filter(a => a.timestamp > oneHourAgo)
+```
+
+## Verb Tense Usage
+
+Actions use the **past tense** form of verbs:
+
+```typescript
+const create = verb('create')   // base: 'create', past: 'created'
+const ship = verb('ship')       // base: 'ship', past: 'shipped'
+const buy = verb('buy', { past: 'bought' })
+
+const result1 = action(admin, create, product)
+console.log(result1.event.type)  // 'created'
+
+const result2 = action(warehouse, ship, order)
+console.log(result2.event.type)  // 'shipped'
+
+const result3 = action(customer, buy, product)
+console.log(result3.event.type)  // 'bought'
+```
+
+## Common Action Patterns
+
+### CRUD Operations
+
+```typescript
+const create = verb('create')
+const update = verb('update')
+const delete_ = verb('delete')
+
+// Create
+action(admin, create, product, { source: 'import' })
+
+// Update
+action(editor, update, article, { fields: ['title', 'content'] })
+
+// Delete
+action(admin, delete_, user, { reason: 'GDPR request' })
+```
+
+### Business Events
+
+```typescript
+const purchase = verb('purchase')
+const ship = verb('ship')
+const deliver = verb('deliver')
+const refund = verb('refund')
+
+// Order lifecycle
+action(customer, purchase, order)
+action(warehouse, ship, order, { carrier: 'FedEx', tracking: 'TRK123' })
+action(driver, deliver, order, { signature: 'J. Smith' })
+
+// Returns
+action(support, refund, order, { reason: 'damaged', amount: 99.99 })
+```
+
+### User Actions
+
+```typescript
+const signup = verb('signup')
+const login = verb('login')
+const logout = verb('logout')
+const upgrade = verb('upgrade')
+
+// Intransitive
+action(user, signup)
+action(user, login)
+action(user, logout)
+
+// Transitive
+action(user, upgrade, subscription, { from: 'starter', to: 'pro' })
+```
+
+### Social Actions
+
+```typescript
+const follow = verb('follow')
+const like = verb('like')
+const share = verb('share')
+const comment = verb('comment')
+
+action(alice, follow, bob)
+action(alice, like, post)
+action(alice, share, article, { platform: 'twitter' })
+action(alice, comment, post, { text: 'Great post!' })
+```
+
+## ActionResult
+
+Every action returns an `ActionResult`:
+
+```typescript
+interface ActionResult extends Action {
+  success: boolean
+}
+```
+
+Currently, `success` is always `true`. Future versions may add validation:
+
+```typescript
+const result = action(alice, purchase, order)
+
+if (result.success) {
+  // Action recorded successfully
+  console.log('Event:', result.event.type)
+  console.log('Edge:', result.edge.from, '->', result.edge.to)
+  console.log('Audit:', result.audit.actor, result.audit.verb)
+}
+```
+
+## Integration with Relationships
+
+Actions automatically create edges for relationship traversal:
+
+```typescript
+// Create actions
+action(alice, purchase, order1)
+action(alice, purchase, order2)
+action(bob, purchase, order3)
+
+// Traverse forward: What did Alice purchase?
+const aliceOrders = forward(alice, 'Order')
+// [order1, order2]
+
+// Traverse backward: Who purchased this order?
+const order1Buyers = backward(order1, 'Customer')
+// [alice]
+```
+
+See [Relationships](/docs/semantic/relationships) for full traversal documentation.
+
+## Testing
+
+```typescript
+import { resetState, noun, verb, thing, action } from '@dotdo/semantic'
+
+describe('Actions', () => {
+  beforeEach(() => {
+    resetState()
+  })
+
+  test('creates event, edge, and audit', () => {
+    const Customer = noun('Customer')
+    const Order = noun('Order')
+    const purchase = verb('purchase')
+
+    const customer = thing(Customer, { name: 'Alice' })
+    const order = thing(Order, { total: 99.99 })
+
+    const result = action(customer, purchase, order)
+
+    // Event
+    expect(result.event.type).toBe('purchased')
+    expect(result.event.subject).toBe(customer.$id)
+    expect(result.event.object).toBe(order.$id)
+
+    // Edge
+    expect(result.edge.from).toBe(customer.$id)
+    expect(result.edge.to).toBe(order.$id)
+    expect(result.edge.verb).toBe('purchased')
+
+    // Audit
+    expect(result.audit.actor).toBe(customer.$id)
+    expect(result.audit.target).toBe(order.$id)
+  })
+
+  test('supports metadata', () => {
+    const Customer = noun('Customer')
+    const Order = noun('Order')
+    const purchase = verb('purchase')
+
+    const customer = thing(Customer, { name: 'Alice' })
+    const order = thing(Order, { total: 99.99 })
+
+    const result = action(customer, purchase, order, { coupon: 'SAVE10' })
+
+    expect(result.event.metadata).toEqual({ coupon: 'SAVE10' })
+  })
+})
+```
+
+## DOSemantic Methods
+
+When using the `DOSemantic` Durable Object, actions are created via method calls:
+
+```typescript
+// Create an action (persists edge to SQLite)
+const result = this.createAction(
+  'alice',           // subject $id
+  'purchase',        // verb name (must be defined)
+  'order-123',       // object $id (optional)
+  { price: 99.99 }   // metadata (optional)
+)
+
+// The result has the same structure:
+// result.event  - { type: 'purchased', subject: 'alice', object: 'order-123', timestamp, metadata }
+// result.edge   - { from: 'alice', to: 'order-123', verb: 'purchased' }
+// result.audit  - { actor: 'alice', verb: 'purchased', target: 'order-123', timestamp }
+```
+
+<Callout type="info">
+DOSemantic validates that the subject Thing and Verb exist before creating the action. Missing subjects or verbs will throw an error.
+</Callout>
+
+## Next Steps
+
+- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Define entity types and action verbs
+- [Things](/docs/semantic/things) - Create entity instances
+- [Relationships](/docs/semantic/relationships) - Traverse the graph created by Actions

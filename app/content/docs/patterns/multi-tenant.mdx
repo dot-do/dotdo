@@ -1,0 +1,580 @@
+---
+title: Multi-Tenant Pattern
+description: Hostname-based namespace isolation for SaaS applications using Durable Objects
+---
+
+# Multi-Tenant Pattern
+
+This pattern demonstrates how to build a multi-tenant SaaS application where each tenant gets complete data isolation through separate Durable Object instances, routed via hostname.
+
+## Problem Statement
+
+Building multi-tenant SaaS applications typically requires:
+- Complete data isolation between tenants
+- Per-tenant rate limiting and quotas
+- Tenant-specific customization
+- Audit trails per tenant
+- Horizontal scaling without complex sharding
+
+Traditional approaches use database-level row filtering or separate databases, both adding complexity and potential security risks.
+
+## Trade-offs
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Complete isolation by default | Cross-tenant queries require aggregation |
+| Zero shared state | Each tenant has separate SQLite database |
+| Scales to millions of tenants | Cold start for inactive tenants (~50ms) |
+| Geographic locality per tenant | Tenant migration requires data export/import |
+| Simple security model | Admin dashboard needs separate design |
+
+**Use this pattern when:**
+- You need strong isolation guarantees
+- Tenants have independent data that rarely needs aggregation
+- You want automatic scaling without infrastructure management
+
+**Avoid this pattern when:**
+- You need frequent cross-tenant analytics
+- Tenants share significant data or state
+- You have a single-tenant application
+
+> **Tip**: Each tenant gets their own SQLite database (up to 1GB). For tenants with high data volumes, consider using the [Cold Tier](/storage/cold-tier) pattern to archive old data to R2.
+
+## Architecture Overview
+
+```
+                     ┌─────────────────────────────────────────┐
+                     │           Cloudflare Network            │
+                     │                                         │
+┌──────────────┐     │  ┌──────────────────────────────────┐  │
+│ tenant-a.app │─────┼──│         Worker (Passthrough)     │  │
+└──────────────┘     │  │                                  │  │
+                     │  │  hostname → namespace → DO stub  │  │
+┌──────────────┐     │  └──────────────────────────────────┘  │
+│ tenant-b.app │─────┼─────────────────┬───────────────────────
+└──────────────┘     │                 │                      │
+                     │     ┌───────────┴───────────┐          │
+┌──────────────┐     │     │                       │          │
+│ tenant-c.app │─────┼─────│                       │          │
+└──────────────┘     │     ▼                       ▼          │
+                     │  ┌──────┐               ┌──────┐       │
+                     │  │ DO-A │               │ DO-B │  ...  │
+                     │  │      │               │      │       │
+                     │  │SQLite│               │SQLite│       │
+                     │  └──────┘               └──────┘       │
+                     └─────────────────────────────────────────┘
+```
+
+## Complete Implementation
+
+### Worker Entry Point
+
+The worker extracts the tenant namespace from the hostname and routes to the appropriate DO:
+
+```typescript
+// api/index.ts
+import { DOWorkflow } from 'dotdo'
+
+export { DOWorkflow }
+
+interface Env {
+  DO: DurableObjectNamespace<DOWorkflow>
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+    const hostname = url.hostname
+
+    // Extract namespace from subdomain
+    // tenant-a.api.myapp.com -> tenant-a
+    // api.myapp.com -> default
+    const namespace = getNamespaceFromHostname(hostname)
+
+    // Validate tenant exists (optional)
+    if (!await isTenantValid(namespace, env)) {
+      return new Response('Tenant not found', { status: 404 })
+    }
+
+    // Route to tenant's Durable Object
+    const id = env.DO.idFromName(namespace)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+
+function getNamespaceFromHostname(hostname: string): string {
+  const parts = hostname.split('.')
+
+  // subdomain.api.domain.tld = 4+ parts
+  // api.domain.tld = 3 parts (default)
+  if (parts.length > 3) {
+    return parts[0]
+  }
+
+  return 'default'
+}
+
+async function isTenantValid(namespace: string, env: Env): Promise<boolean> {
+  // In production, check against a tenant registry
+  // Could be KV, D1, or another DO
+  return true
+}
+```
+
+### Tenant DO Class
+
+Each tenant gets their own DO with isolated storage:
+
+```typescript
+// objects/TenantDO.ts
+import { DOWorkflow } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
+
+export interface TenantConfig {
+  name: string
+  plan: 'free' | 'pro' | 'enterprise'
+  quotas: {
+    maxUsers: number
+    maxStorage: number
+    apiCallsPerDay: number
+  }
+  settings: Record<string, unknown>
+}
+
+export class TenantDO extends DOWorkflow {
+  private config: TenantConfig | null = null
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Register tenant-specific routes
+    this.registerTenantRoutes()
+
+    // Event handlers for audit trail
+    this.setupEventHandlers()
+  }
+
+  private registerTenantRoutes(): void {
+    // Config management
+    this.app.get('/api/config', async (c) => {
+      const config = await this.getConfig()
+      return c.json(config)
+    })
+
+    this.app.put('/api/config', async (c) => {
+      const updates = await c.req.json()
+      const config = await this.updateConfig(updates)
+      return c.json(config)
+    })
+
+    // Users (tenant-scoped)
+    this.app.get('/api/users', async (c) => {
+      const users = await this.listUsers()
+      return c.json(users)
+    })
+
+    this.app.post('/api/users', async (c) => {
+      const userData = await c.req.json()
+      const user = await this.createUser(userData)
+      return c.json(user, 201)
+    })
+
+    // Usage stats
+    this.app.get('/api/usage', async (c) => {
+      const stats = await this.getUsageStats()
+      return c.json(stats)
+    })
+  }
+
+  private setupEventHandlers(): void {
+    // Track all user actions for audit
+    this.$.on.User.created(async (event) => {
+      await this.trackUsage('users', 1)
+      await this.logAudit('user_created', event.data)
+    })
+
+    this.$.on.User.deleted(async (event) => {
+      await this.trackUsage('users', -1)
+      await this.logAudit('user_deleted', event.data)
+    })
+
+    // Track API calls
+    this.$.on.API.called(async (event) => {
+      await this.trackUsage('api_calls', 1)
+    })
+  }
+
+  // Config management
+  async getConfig(): Promise<TenantConfig> {
+    if (!this.config) {
+      const stored = await this.get<TenantConfig>('config')
+      this.config = stored ?? this.defaultConfig()
+    }
+    return this.config
+  }
+
+  async updateConfig(updates: Partial<TenantConfig>): Promise<TenantConfig> {
+    const current = await this.getConfig()
+    this.config = { ...current, ...updates }
+    await this.set('config', this.config)
+    return this.config
+  }
+
+  private defaultConfig(): TenantConfig {
+    return {
+      name: 'New Tenant',
+      plan: 'free',
+      quotas: {
+        maxUsers: 5,
+        maxStorage: 100_000_000, // 100MB
+        apiCallsPerDay: 1000
+      },
+      settings: {}
+    }
+  }
+
+  // User management (tenant-scoped)
+  async listUsers(): Promise<unknown[]> {
+    const result = this.ctx.storage.sql.exec<{ key: string; value: string }>(
+      `SELECT key, value FROM state WHERE key LIKE 'user:%'`
+    )
+    return result.toArray().map(row => JSON.parse(row.value))
+  }
+
+  async createUser(data: { email: string; role: string }): Promise<unknown> {
+    const config = await this.getConfig()
+    const users = await this.listUsers()
+
+    // Enforce quota
+    if (users.length >= config.quotas.maxUsers) {
+      throw new Error(`User limit reached (${config.quotas.maxUsers})`)
+    }
+
+    const user = {
+      $id: `user-${crypto.randomUUID()}`,
+      $type: 'User',
+      email: data.email,
+      role: data.role,
+      createdAt: new Date().toISOString()
+    }
+
+    await this.set(`user:${user.$id}`, user)
+
+    // Emit event for tracking
+    await this.$.send({
+      $type: 'User',
+      verb: 'created',
+      data: user
+    })
+
+    return user
+  }
+
+  // Usage tracking
+  async trackUsage(metric: string, delta: number): Promise<void> {
+    const today = new Date().toISOString().split('T')[0]
+    const key = `usage:${today}:${metric}`
+
+    const current = (await this.get<number>(key)) ?? 0
+    await this.set(key, current + delta)
+  }
+
+  async getUsageStats(): Promise<Record<string, number>> {
+    const today = new Date().toISOString().split('T')[0]
+    const result = this.ctx.storage.sql.exec<{ key: string; value: string }>(
+      `SELECT key, value FROM state WHERE key LIKE ?`,
+      `usage:${today}:%`
+    )
+
+    const stats: Record<string, number> = {}
+    for (const row of result.toArray()) {
+      const metric = row.key.split(':')[2]
+      stats[metric] = JSON.parse(row.value)
+    }
+
+    return stats
+  }
+
+  // Audit logging
+  async logAudit(action: string, data: unknown): Promise<void> {
+    const entry = {
+      timestamp: Date.now(),
+      action,
+      data
+    }
+
+    const key = `audit:${entry.timestamp}:${crypto.randomUUID()}`
+    await this.set(key, entry)
+  }
+}
+```
+
+### Tenant Registry (Optional)
+
+For tenant provisioning and validation:
+
+```typescript
+// objects/TenantRegistry.ts
+import { DOCore } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
+
+interface TenantRecord {
+  id: string
+  namespace: string
+  createdAt: string
+  plan: string
+  status: 'active' | 'suspended' | 'deleted'
+}
+
+export class TenantRegistry extends DOCore {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    this.app.post('/api/tenants', async (c) => {
+      const data = await c.req.json()
+      const tenant = await this.createTenant(data)
+      return c.json(tenant, 201)
+    })
+
+    this.app.get('/api/tenants/:namespace', async (c) => {
+      const namespace = c.req.param('namespace')
+      const tenant = await this.getTenant(namespace)
+      if (!tenant) {
+        return c.json({ error: 'Not found' }, 404)
+      }
+      return c.json(tenant)
+    })
+
+    this.app.get('/api/tenants', async (c) => {
+      const tenants = await this.listTenants()
+      return c.json(tenants)
+    })
+  }
+
+  async createTenant(data: { namespace: string; plan?: string }): Promise<TenantRecord> {
+    const existing = await this.getTenant(data.namespace)
+    if (existing) {
+      throw new Error('Tenant already exists')
+    }
+
+    const tenant: TenantRecord = {
+      id: crypto.randomUUID(),
+      namespace: data.namespace,
+      createdAt: new Date().toISOString(),
+      plan: data.plan ?? 'free',
+      status: 'active'
+    }
+
+    await this.set(`tenant:${tenant.namespace}`, tenant)
+    return tenant
+  }
+
+  async getTenant(namespace: string): Promise<TenantRecord | null> {
+    return await this.get<TenantRecord>(`tenant:${namespace}`)
+  }
+
+  async listTenants(): Promise<TenantRecord[]> {
+    const result = this.ctx.storage.sql.exec<{ value: string }>(
+      `SELECT value FROM state WHERE key LIKE 'tenant:%'`
+    )
+    return result.toArray().map(row => JSON.parse(row.value))
+  }
+
+  async validateTenant(namespace: string): Promise<boolean> {
+    const tenant = await this.getTenant(namespace)
+    return tenant?.status === 'active'
+  }
+}
+```
+
+### Wrangler Configuration
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "multi-tenant-app",
+  "main": "api/index.ts",
+  "compatibility_date": "2024-01-01",
+
+  "routes": [
+    { "pattern": "*.api.myapp.com/*", "zone_name": "myapp.com" }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "TenantDO" },
+      { "name": "REGISTRY", "class_name": "TenantRegistry" }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TenantDO", "TenantRegistry"] }
+  ]
+}
+```
+
+## Key Considerations
+
+### Isolation Guarantees
+
+Each Durable Object provides:
+- **Complete memory isolation**: No shared state between instances
+- **Separate SQLite database**: Each tenant has their own database
+- **Independent execution**: No resource contention between tenants
+- **Geographic locality**: DO runs close to the tenant's users
+
+### Scaling Characteristics
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Tenants      │ DOs Created │ Memory       │ Cold Starts        │
+├──────────────┼─────────────┼──────────────┼────────────────────┤
+│ 10           │ 10          │ 10 x 128MB   │ 10 independent     │
+│ 1,000        │ 1,000       │ On-demand    │ Hibernation saves  │
+│ 1,000,000    │ 1,000,000   │ Active only  │ Most hibernated    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Durable Objects only consume memory when active. Inactive tenants hibernate automatically, making million-tenant deployments practical.
+
+### Rate Limiting Per Tenant
+
+```typescript
+// Inside TenantDO
+async checkRateLimit(): Promise<boolean> {
+  const config = await this.getConfig()
+  const stats = await this.getUsageStats()
+
+  if (stats.api_calls >= config.quotas.apiCallsPerDay) {
+    return false // Rate limited
+  }
+
+  return true
+}
+```
+
+### Cross-Tenant Communication
+
+When tenants need to communicate (rare):
+
+```typescript
+// Use the $ context RPC
+const otherTenant = await this.$.Tenant('partner-tenant').getPublicProfile()
+```
+
+## Variations
+
+### Path-Based Routing
+
+If subdomains aren't available, use path prefixes:
+
+```typescript
+// /tenant-a/api/users -> DO('tenant-a')
+function getNamespaceFromPath(url: URL): string {
+  const segments = url.pathname.split('/').filter(Boolean)
+  if (segments.length > 0 && segments[0].startsWith('tenant-')) {
+    return segments[0]
+  }
+  return 'default'
+}
+```
+
+### Header-Based Routing
+
+For API-first applications:
+
+```typescript
+function getNamespaceFromHeader(request: Request): string {
+  return request.headers.get('X-Tenant-ID') ?? 'default'
+}
+```
+
+### JWT-Based Tenant Identification
+
+Extract tenant from authenticated JWT:
+
+```typescript
+async function getNamespaceFromJWT(request: Request): Promise<string> {
+  const auth = request.headers.get('Authorization')
+  if (!auth?.startsWith('Bearer ')) {
+    return 'default'
+  }
+
+  const token = auth.slice(7)
+  const payload = await verifyJWT(token)
+
+  return payload.tenant_id ?? 'default'
+}
+```
+
+## Real-World Example: SaaS Billing Integration
+
+This example shows how to integrate Stripe billing with per-tenant isolation:
+
+```typescript
+// Handle Stripe webhooks and route to correct tenant
+app.post('/webhooks/stripe', async (c) => {
+  const signature = c.req.header('stripe-signature')
+  const payload = await c.req.text()
+
+  // Verify webhook signature
+  const event = stripe.webhooks.constructEvent(
+    payload,
+    signature,
+    env.STRIPE_WEBHOOK_SECRET
+  )
+
+  // Extract tenant from Stripe metadata
+  const tenantId = event.data.object.metadata?.tenant_id
+  if (!tenantId) {
+    return c.json({ error: 'No tenant_id in metadata' }, 400)
+  }
+
+  // Route to tenant's DO
+  const stub = env.DO.get(env.DO.idFromName(tenantId))
+  await stub.fetch(new Request('https://internal/webhooks/stripe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(event)
+  }))
+
+  return c.json({ received: true })
+})
+```
+
+Inside the tenant DO, handle the webhook event:
+
+```typescript
+// Inside TenantDO
+this.app.post('/webhooks/stripe', async (c) => {
+  const event = await c.req.json()
+
+  switch (event.type) {
+    case 'invoice.paid':
+      await this.$.send('Payment.succeeded', event.data.object)
+      break
+    case 'invoice.payment_failed':
+      await this.$.send('Payment.failed', event.data.object)
+      break
+    case 'customer.subscription.updated':
+      await this.updateSubscription(event.data.object)
+      break
+  }
+
+  return c.json({ processed: true })
+})
+```
+
+## Related Documentation
+
+- [Core Module](/core) - Base class with routing and state management
+- [Workflow Module](/workflow) - Event handlers (`$.on`) and scheduling (`$.every`)
+- [RPC Module](/rpc) - Type-safe client for calling tenant DOs
+
+## Next Steps
+
+- [Event Sourcing Pattern](/patterns/event-sourcing) - Add audit trails to your tenant DOs
+- [Approval Workflow Pattern](/patterns/approval-workflow) - Add human oversight per tenant
+- [Real-Time Dashboard Pattern](/patterns/real-time-dashboard) - Per-tenant real-time updates

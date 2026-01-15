@@ -1,0 +1,11 @@
+{
+  "title": "Fanout",
+  "description": "Scatter-gather distributed queries across sharded Durable Objects",
+  "pages": [
+    "index",
+    "coordinator",
+    "hashing",
+    "merging",
+    "budget"
+  ]
+}

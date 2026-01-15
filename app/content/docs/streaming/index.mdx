@@ -1,0 +1,214 @@
+---
+title: Streaming Infrastructure
+description: Real-time WebSocket and Server-Sent Events streaming for Durable Objects
+---
+
+# Streaming Infrastructure
+
+The dotdo streaming module provides production-ready primitives for real-time communication in Durable Objects. It supports both bidirectional WebSocket connections and unidirectional Server-Sent Events (SSE).
+
+## Overview
+
+The streaming infrastructure consists of five core components:
+
+| Component | Purpose |
+|-----------|---------|
+| [WebSocketHub](/streaming/websocket-hub) | Connection management, rooms, and broadcasting |
+| [SSE Streaming](/streaming/sse) | Server-Sent Events for unidirectional updates |
+| [BackpressureController](/streaming/backpressure) | Flow control with pause/drop/buffer modes |
+| [RateLimiter](/streaming/rate-limiting) | Token bucket algorithm for rate limiting |
+| [SubscriptionManager](/streaming/pub-sub) | Topic-based publish/subscribe with wildcards |
+
+## Import
+
+```typescript
+import {
+  WebSocketHub,
+  createSSEStream,
+  BackpressureController,
+  RateLimiter,
+  SubscriptionManager,
+  matchesTopic,
+} from 'dotdo/streaming'
+```
+
+## Quick Start
+
+### WebSocket Hub
+
+```typescript
+import { WebSocketHub } from 'dotdo/streaming'
+
+const hub = new WebSocketHub()
+
+// Handle WebSocket upgrade
+export class MyDO extends DurableObject {
+  async fetch(request: Request) {
+    const upgradeHeader = request.headers.get('Upgrade')
+    if (upgradeHeader === 'websocket') {
+      const [client, server] = Object.values(new WebSocketPair())
+
+      hub.connect(server, { userId: 'user-123' })
+      server.accept()
+
+      server.addEventListener('close', () => {
+        hub.disconnect(server)
+      })
+
+      return new Response(null, { status: 101, webSocket: client })
+    }
+  }
+}
+
+// Broadcast to all connections
+hub.broadcast({ type: 'notification', message: 'Hello everyone!' })
+
+// Broadcast to specific room
+hub.room.join(ws, 'chat-room')
+hub.room.broadcast('chat-room', { type: 'message', text: 'Hello room!' })
+```
+
+### Server-Sent Events
+
+```typescript
+import { createSSEStream } from 'dotdo/streaming'
+
+export class MyDO extends DurableObject {
+  async fetch(request: Request) {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/events') {
+      const { response, stream } = createSSEStream()
+
+      // Send events
+      stream.send({ event: 'connected', data: { timestamp: Date.now() } })
+
+      // Keep-alive comments
+      const interval = setInterval(() => {
+        stream.comment('ping')
+      }, 30000)
+
+      // Clean up on disconnect
+      request.signal.addEventListener('abort', () => {
+        clearInterval(interval)
+        stream.close()
+      })
+
+      return response
+    }
+  }
+}
+```
+
+## When to Use What
+
+### Use WebSockets when:
+
+- You need bidirectional communication
+- Clients send frequent messages to the server
+- Low latency is critical (gaming, trading)
+- You need rooms/channels for group messaging
+
+### Use SSE when:
+
+- Server pushes updates to clients (one-way)
+- You want automatic reconnection built-in
+- HTTP/2 multiplexing is beneficial
+- Simpler protocol is preferred
+
+## Architecture
+
+All streaming components work within Durable Objects, leveraging their built-in WebSocket hibernation and single-threaded execution model:
+
+```
+Client <---> Worker <---> Durable Object
+                              |
+                         WebSocketHub
+                              |
+                    +----+----+----+
+                    |    |    |    |
+                  Room1 Room2 Room3 ...
+```
+
+The `WebSocketHub` maintains connection state in-memory, which is automatically persisted through Durable Object hibernation. When a DO hibernates, WebSocket connections remain open and messages are buffered until the DO wakes up.
+
+> **Note:** Hibernation only applies to WebSockets. SSE streams keep the Durable Object active for the duration of the connection since they use standard HTTP streaming.
+
+## Flow Control
+
+For high-throughput scenarios, combine streaming with backpressure control:
+
+```typescript
+import { WebSocketHub, BackpressureController } from 'dotdo/streaming'
+
+const hub = new WebSocketHub()
+const backpressure = new BackpressureController({
+  mode: 'drop',
+  highWaterMark: 1000,
+})
+
+function sendWithBackpressure(ws: WebSocket, message: unknown) {
+  const result = backpressure.push({ data: message })
+
+  if (result.dropped) {
+    console.log('Dropped oldest message due to backpressure')
+  }
+
+  // Drain buffer to WebSocket
+  let item
+  while ((item = backpressure.drain())) {
+    ws.send(JSON.stringify(item.data))
+  }
+}
+```
+
+## Rate Limiting
+
+Protect your streaming endpoints with token bucket rate limiting:
+
+```typescript
+import { RateLimiter } from 'dotdo/streaming'
+
+const limiter = new RateLimiter({
+  bucketSize: 100,    // Maximum burst
+  refillRate: 10,     // Tokens per second
+  perClient: true,    // Separate buckets per client
+})
+
+// In your message handler
+function handleMessage(ws: WebSocket, clientId: string, data: unknown) {
+  if (!limiter.tryAcquire(1, clientId)) {
+    ws.send(JSON.stringify({ error: 'Rate limited' }))
+    return
+  }
+
+  // Process message
+}
+```
+
+## Pub/Sub with Wildcards
+
+Route messages to subscribers using topic patterns:
+
+```typescript
+import { SubscriptionManager } from 'dotdo/streaming'
+
+const subs = new SubscriptionManager()
+
+// Subscribe with wildcards
+subs.subscribe(ws1, 'orders.created')     // Exact match
+subs.subscribe(ws2, 'orders.*')           // Single segment wildcard
+subs.subscribe(ws3, 'orders.**')          // Multi-segment wildcard
+
+// Publish to all matching subscribers
+subs.publish('orders.created', { orderId: '123' })
+// ws1, ws2, and ws3 all receive the message
+```
+
+## Next Steps
+
+- [WebSocket Hub](/streaming/websocket-hub) - Connection management and rooms
+- [SSE Streaming](/streaming/sse) - Server-Sent Events
+- [Backpressure](/streaming/backpressure) - Flow control strategies
+- [Rate Limiting](/streaming/rate-limiting) - Token bucket algorithm
+- [Pub/Sub](/streaming/pub-sub) - Topic-based subscriptions

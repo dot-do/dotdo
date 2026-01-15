@@ -1,0 +1,15 @@
+{
+  "title": "Reference",
+  "pages": [
+    "index",
+    "---Configuration---",
+    "configuration",
+    "environment",
+    "cli",
+    "---Types---",
+    "types",
+    "---Guides---",
+    "migration",
+    "troubleshooting"
+  ]
+}

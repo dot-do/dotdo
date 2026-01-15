@@ -1,0 +1,11 @@
+{
+  "title": "Workflow ($)",
+  "pages": [
+    "index",
+    "events",
+    "scheduling",
+    "durability",
+    "rpc",
+    "cascade"
+  ]
+}

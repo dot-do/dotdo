@@ -1,0 +1,926 @@
+---
+title: Event Sourcing Pattern
+description: Capture all state changes as immutable events for audit trails, replay, and projections
+---
+
+# Event Sourcing Pattern
+
+This pattern demonstrates how to implement event sourcing in Durable Objects, where all state changes are captured as immutable Actions (events) that can be replayed, projected, and audited.
+
+## Problem Statement
+
+Traditional CRUD applications face challenges with:
+- **Lost history**: Overwriting data loses the "why" and "when"
+- **Audit compliance**: Regulatory requirements need complete trails
+- **Debugging**: Hard to understand how state reached current values
+- **Analytics**: Aggregating changes requires additional infrastructure
+- **Recovery**: No way to restore previous states without backups
+
+Event sourcing solves these by treating events as the source of truth.
+
+## Trade-offs
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Complete audit trail of all changes | Storage grows with every event |
+| Time-travel debugging and replay | More complex query patterns |
+| Natural fit for event-driven systems | Eventual consistency for projections |
+| Built-in undo/redo capability | Schema evolution requires upcasting |
+| Perfect for regulatory compliance | Higher learning curve |
+
+**Use this pattern when:**
+- You need complete audit trails (finance, healthcare, compliance)
+- Your domain is naturally event-driven (orders, workflows, state machines)
+- You need to replay or reconstruct past states
+- Multiple projections of the same data are needed
+
+**Avoid this pattern when:**
+- Simple CRUD is sufficient for your use case
+- You need strong consistency for all queries
+- Storage costs are a primary concern
+- Your team is unfamiliar with event-driven patterns
+
+> **Warning**: Event stores grow unbounded. Plan for snapshotting (covered below) and consider archiving old events to cold storage for long-lived streams. Each DO has a SQLite storage limit of 1GB.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Event Flow                               │
+│                                                                 │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────────────────┐  │
+│  │ Commands │───▶│  Domain  │───▶│        Event Store       │  │
+│  │          │    │  Logic   │    │    (Actions table)       │  │
+│  └──────────┘    └──────────┘    └──────────────────────────┘  │
+│                        │                      │                 │
+│                        │                      │                 │
+│                        ▼                      ▼                 │
+│                 ┌──────────┐          ┌──────────────┐         │
+│                 │ Response │          │ Projections  │         │
+│                 │          │          │ (Read Models)│         │
+│                 └──────────┘          └──────────────┘         │
+│                                              │                  │
+│                                              ▼                  │
+│                                       ┌──────────────┐         │
+│                                       │  Streaming   │         │
+│                                       │  (Real-time) │         │
+│                                       └──────────────┘         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Complete Implementation
+
+### Event-Sourced DO Class
+
+```typescript
+// objects/EventSourcedDO.ts
+import { DOWorkflow } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
+
+// Event types
+interface DomainEvent {
+  $id: string
+  $type: string
+  verb: string
+  data: unknown
+  metadata: {
+    timestamp: number
+    causationId?: string
+    correlationId?: string
+    actor?: string
+    version: number
+  }
+}
+
+// Projection types
+interface OrderProjection {
+  id: string
+  status: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled'
+  items: Array<{ sku: string; quantity: number; price: number }>
+  total: number
+  customer: { id: string; email: string }
+  payments: Array<{ id: string; amount: number; method: string }>
+  createdAt: number
+  updatedAt: number
+}
+
+export class EventSourcedDO extends DOWorkflow {
+  private eventVersion = 0
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Initialize event store schema
+    this.initializeEventStore()
+
+    // Register command handlers
+    this.registerCommandRoutes()
+
+    // Set up event handlers for projections
+    this.setupProjectionHandlers()
+  }
+
+  private initializeEventStore(): void {
+    // Events/Actions table (append-only)
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY,
+        stream_id TEXT NOT NULL,
+        stream_type TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        event_verb TEXT NOT NULL,
+        data TEXT NOT NULL,
+        metadata TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        UNIQUE(stream_id, version)
+      )
+    `)
+
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_events_stream
+        ON events(stream_id, version)
+    `)
+
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_events_type
+        ON events(stream_type, event_verb)
+    `)
+
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_events_timestamp
+        ON events(timestamp)
+    `)
+
+    // Projections table (current state)
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS projections (
+        stream_id TEXT PRIMARY KEY,
+        stream_type TEXT NOT NULL,
+        data TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `)
+
+    // Load current version
+    const result = this.ctx.storage.sql.exec<{ max_version: number }>(
+      `SELECT COALESCE(MAX(version), 0) as max_version FROM events`
+    )
+    this.eventVersion = result.one()?.max_version ?? 0
+  }
+
+  private registerCommandRoutes(): void {
+    // Create order command
+    this.app.post('/api/orders', async (c) => {
+      const command = await c.req.json()
+      const correlationId = c.req.header('X-Correlation-ID') ?? crypto.randomUUID()
+
+      const orderId = `order-${crypto.randomUUID()}`
+
+      // Emit OrderCreated event
+      await this.appendEvent({
+        streamId: orderId,
+        streamType: 'Order',
+        eventType: 'Order',
+        eventVerb: 'created',
+        data: {
+          id: orderId,
+          items: command.items,
+          customer: command.customer
+        },
+        actor: command.actor,
+        correlationId
+      })
+
+      const projection = await this.getProjection<OrderProjection>(orderId)
+      return c.json(projection, 201)
+    })
+
+    // Add payment command
+    this.app.post('/api/orders/:id/payments', async (c) => {
+      const orderId = c.req.param('id')
+      const command = await c.req.json()
+      const correlationId = c.req.header('X-Correlation-ID') ?? crypto.randomUUID()
+
+      const order = await this.getProjection<OrderProjection>(orderId)
+      if (!order) {
+        return c.json({ error: 'Order not found' }, 404)
+      }
+
+      if (order.status !== 'pending') {
+        return c.json({ error: 'Order not payable' }, 400)
+      }
+
+      const paymentId = `payment-${crypto.randomUUID()}`
+
+      // Emit PaymentReceived event
+      await this.appendEvent({
+        streamId: orderId,
+        streamType: 'Order',
+        eventType: 'Payment',
+        eventVerb: 'received',
+        data: {
+          paymentId,
+          amount: command.amount,
+          method: command.method
+        },
+        actor: command.actor,
+        correlationId,
+        causationId: orderId
+      })
+
+      // Check if fully paid
+      const updated = await this.getProjection<OrderProjection>(orderId)
+      const totalPaid = updated!.payments.reduce((sum, p) => sum + p.amount, 0)
+
+      if (totalPaid >= updated!.total) {
+        await this.appendEvent({
+          streamId: orderId,
+          streamType: 'Order',
+          eventType: 'Order',
+          eventVerb: 'paid',
+          data: { totalPaid },
+          correlationId,
+          causationId: paymentId
+        })
+      }
+
+      return c.json(await this.getProjection<OrderProjection>(orderId))
+    })
+
+    // Ship order command
+    this.app.post('/api/orders/:id/ship', async (c) => {
+      const orderId = c.req.param('id')
+      const command = await c.req.json()
+      const correlationId = c.req.header('X-Correlation-ID') ?? crypto.randomUUID()
+
+      const order = await this.getProjection<OrderProjection>(orderId)
+      if (!order) {
+        return c.json({ error: 'Order not found' }, 404)
+      }
+
+      if (order.status !== 'paid') {
+        return c.json({ error: 'Order not ready to ship' }, 400)
+      }
+
+      await this.appendEvent({
+        streamId: orderId,
+        streamType: 'Order',
+        eventType: 'Order',
+        eventVerb: 'shipped',
+        data: {
+          trackingNumber: command.trackingNumber,
+          carrier: command.carrier
+        },
+        actor: command.actor,
+        correlationId
+      })
+
+      return c.json(await this.getProjection<OrderProjection>(orderId))
+    })
+
+    // Get order (from projection)
+    this.app.get('/api/orders/:id', async (c) => {
+      const orderId = c.req.param('id')
+      const projection = await this.getProjection<OrderProjection>(orderId)
+
+      if (!projection) {
+        return c.json({ error: 'Not found' }, 404)
+      }
+
+      return c.json(projection)
+    })
+
+    // Get order event history
+    this.app.get('/api/orders/:id/events', async (c) => {
+      const orderId = c.req.param('id')
+      const events = await this.getEventStream(orderId)
+      return c.json(events)
+    })
+
+    // Replay events for debugging
+    this.app.post('/api/orders/:id/replay', async (c) => {
+      const orderId = c.req.param('id')
+      const projection = await this.rebuildProjection(orderId)
+      return c.json(projection)
+    })
+
+    // List all orders (from projections)
+    this.app.get('/api/orders', async (c) => {
+      const status = c.req.query('status')
+      const orders = await this.listProjections<OrderProjection>('Order', {
+        filter: status ? { status } : undefined
+      })
+      return c.json(orders)
+    })
+  }
+
+  private setupProjectionHandlers(): void {
+    // Handle Order.created -> create projection
+    this.$.on.Order.created(async (event) => {
+      const data = event.data as {
+        id: string
+        items: Array<{ sku: string; quantity: number; price: number }>
+        customer: { id: string; email: string }
+      }
+
+      const total = data.items.reduce((sum, item) =>
+        sum + item.price * item.quantity, 0
+      )
+
+      const projection: OrderProjection = {
+        id: data.id,
+        status: 'pending',
+        items: data.items,
+        total,
+        customer: data.customer,
+        payments: [],
+        createdAt: event.metadata.timestamp,
+        updatedAt: event.metadata.timestamp
+      }
+
+      await this.saveProjection(data.id, 'Order', projection, event.metadata.version)
+    })
+
+    // Handle Payment.received -> update projection
+    this.$.on.Payment.received(async (event) => {
+      const streamId = event.metadata.causationId ?? (event.data as { orderId: string }).orderId
+      const projection = await this.getProjection<OrderProjection>(streamId)
+
+      if (projection) {
+        const paymentData = event.data as {
+          paymentId: string
+          amount: number
+          method: string
+        }
+
+        projection.payments.push({
+          id: paymentData.paymentId,
+          amount: paymentData.amount,
+          method: paymentData.method
+        })
+        projection.updatedAt = event.metadata.timestamp
+
+        await this.saveProjection(streamId, 'Order', projection, event.metadata.version)
+      }
+    })
+
+    // Handle Order.paid -> update status
+    this.$.on.Order.paid(async (event) => {
+      // Get stream ID from metadata or event data
+      const eventData = event.data as { orderId?: string }
+      const streamId = event.metadata.correlationId ?? eventData.orderId
+
+      if (!streamId) return
+
+      const projection = await this.getProjection<OrderProjection>(streamId)
+      if (projection) {
+        projection.status = 'paid'
+        projection.updatedAt = event.metadata.timestamp
+        await this.saveProjection(streamId, 'Order', projection, event.metadata.version)
+      }
+    })
+
+    // Handle Order.shipped -> update status
+    this.$.on.Order.shipped(async (event) => {
+      const streamId = event.metadata.correlationId
+      if (!streamId) return
+
+      const projection = await this.getProjection<OrderProjection>(streamId)
+      if (projection) {
+        projection.status = 'shipped'
+        projection.updatedAt = event.metadata.timestamp
+        await this.saveProjection(streamId, 'Order', projection, event.metadata.version)
+      }
+    })
+  }
+
+  // ============================================================
+  // Event Store Operations
+  // ============================================================
+
+  async appendEvent(params: {
+    streamId: string
+    streamType: string
+    eventType: string
+    eventVerb: string
+    data: unknown
+    actor?: string
+    correlationId?: string
+    causationId?: string
+  }): Promise<DomainEvent> {
+    this.eventVersion++
+
+    const event: DomainEvent = {
+      $id: `event-${crypto.randomUUID()}`,
+      $type: params.eventType,
+      verb: params.eventVerb,
+      data: params.data,
+      metadata: {
+        timestamp: Date.now(),
+        version: this.eventVersion,
+        actor: params.actor,
+        correlationId: params.correlationId,
+        causationId: params.causationId
+      }
+    }
+
+    // Append to event store (immutable)
+    this.ctx.storage.sql.exec(
+      `INSERT INTO events
+       (id, stream_id, stream_type, event_type, event_verb, data, metadata, version, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      event.$id,
+      params.streamId,
+      params.streamType,
+      event.$type,
+      event.verb,
+      JSON.stringify(event.data),
+      JSON.stringify(event.metadata),
+      event.metadata.version,
+      event.metadata.timestamp
+    )
+
+    // Emit through workflow context for projection updates
+    await this.$.send({
+      $type: event.$type,
+      verb: event.verb,
+      data: event.data,
+      metadata: {
+        ...event.metadata,
+        correlationId: params.correlationId ?? params.streamId
+      }
+    })
+
+    return event
+  }
+
+  async getEventStream(streamId: string): Promise<DomainEvent[]> {
+    const result = this.ctx.storage.sql.exec<{
+      id: string
+      event_type: string
+      event_verb: string
+      data: string
+      metadata: string
+    }>(
+      `SELECT id, event_type, event_verb, data, metadata
+       FROM events
+       WHERE stream_id = ?
+       ORDER BY version ASC`,
+      streamId
+    )
+
+    return result.toArray().map(row => ({
+      $id: row.id,
+      $type: row.event_type,
+      verb: row.event_verb,
+      data: JSON.parse(row.data),
+      metadata: JSON.parse(row.metadata)
+    }))
+  }
+
+  async getEventsAfter(afterVersion: number, limit = 100): Promise<DomainEvent[]> {
+    const result = this.ctx.storage.sql.exec<{
+      id: string
+      event_type: string
+      event_verb: string
+      data: string
+      metadata: string
+    }>(
+      `SELECT id, event_type, event_verb, data, metadata
+       FROM events
+       WHERE version > ?
+       ORDER BY version ASC
+       LIMIT ?`,
+      afterVersion,
+      limit
+    )
+
+    return result.toArray().map(row => ({
+      $id: row.id,
+      $type: row.event_type,
+      verb: row.event_verb,
+      data: JSON.parse(row.data),
+      metadata: JSON.parse(row.metadata)
+    }))
+  }
+
+  // ============================================================
+  // Projection Operations
+  // ============================================================
+
+  async saveProjection<T>(
+    streamId: string,
+    streamType: string,
+    data: T,
+    version: number
+  ): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO projections (stream_id, stream_type, data, version, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(stream_id) DO UPDATE SET
+         data = excluded.data,
+         version = excluded.version,
+         updated_at = excluded.updated_at`,
+      streamId,
+      streamType,
+      JSON.stringify(data),
+      version,
+      Date.now()
+    )
+  }
+
+  async getProjection<T>(streamId: string): Promise<T | null> {
+    const result = this.ctx.storage.sql.exec<{ data: string }>(
+      `SELECT data FROM projections WHERE stream_id = ?`,
+      streamId
+    )
+
+    const row = result.one()
+    return row ? JSON.parse(row.data) : null
+  }
+
+  async listProjections<T>(
+    streamType: string,
+    options?: { filter?: Record<string, unknown>; limit?: number }
+  ): Promise<T[]> {
+    const result = this.ctx.storage.sql.exec<{ data: string }>(
+      `SELECT data FROM projections
+       WHERE stream_type = ?
+       LIMIT ?`,
+      streamType,
+      options?.limit ?? 100
+    )
+
+    let projections = result.toArray().map(row => JSON.parse(row.data) as T)
+
+    // Apply in-memory filter if provided
+    if (options?.filter) {
+      projections = projections.filter(p => {
+        for (const [key, value] of Object.entries(options.filter!)) {
+          if ((p as Record<string, unknown>)[key] !== value) {
+            return false
+          }
+        }
+        return true
+      })
+    }
+
+    return projections
+  }
+
+  async rebuildProjection(streamId: string): Promise<unknown> {
+    // Get all events for stream
+    const events = await this.getEventStream(streamId)
+
+    if (events.length === 0) {
+      return null
+    }
+
+    // Delete existing projection
+    this.ctx.storage.sql.exec(
+      `DELETE FROM projections WHERE stream_id = ?`,
+      streamId
+    )
+
+    // Replay events through handlers
+    for (const event of events) {
+      await this.$.send({
+        $type: event.$type,
+        verb: event.verb,
+        data: event.data,
+        metadata: event.metadata
+      })
+    }
+
+    return this.getProjection(streamId)
+  }
+}
+```
+
+### Audit Trail Query API
+
+```typescript
+// Additional routes for audit/compliance
+this.app.get('/api/audit', async (c) => {
+  const fromTimestamp = parseInt(c.req.query('from') ?? '0')
+  const toTimestamp = parseInt(c.req.query('to') ?? String(Date.now()))
+  const actor = c.req.query('actor')
+  const eventType = c.req.query('type')
+
+  let query = `
+    SELECT id, stream_id, stream_type, event_type, event_verb, data, metadata, timestamp
+    FROM events
+    WHERE timestamp BETWEEN ? AND ?
+  `
+  const params: (string | number)[] = [fromTimestamp, toTimestamp]
+
+  if (actor) {
+    query += ` AND json_extract(metadata, '$.actor') = ?`
+    params.push(actor)
+  }
+
+  if (eventType) {
+    query += ` AND event_type = ?`
+    params.push(eventType)
+  }
+
+  query += ` ORDER BY timestamp DESC LIMIT 1000`
+
+  const result = this.ctx.storage.sql.exec(query, ...params)
+  return c.json(result.toArray())
+})
+
+// Point-in-time projection
+this.app.get('/api/orders/:id/at/:timestamp', async (c) => {
+  const orderId = c.req.param('id')
+  const timestamp = parseInt(c.req.param('timestamp'))
+
+  // Get events up to timestamp
+  const result = this.ctx.storage.sql.exec<{
+    event_type: string
+    event_verb: string
+    data: string
+    metadata: string
+  }>(
+    `SELECT event_type, event_verb, data, metadata
+     FROM events
+     WHERE stream_id = ? AND timestamp <= ?
+     ORDER BY version ASC`,
+    orderId,
+    timestamp
+  )
+
+  // Rebuild projection at that point
+  let projection: OrderProjection | null = null
+
+  for (const row of result.toArray()) {
+    const event = {
+      $type: row.event_type,
+      verb: row.event_verb,
+      data: JSON.parse(row.data),
+      metadata: JSON.parse(row.metadata)
+    }
+
+    projection = applyEvent(projection, event)
+  }
+
+  return c.json(projection)
+})
+
+function applyEvent(
+  state: OrderProjection | null,
+  event: { $type: string; verb: string; data: unknown; metadata: unknown }
+): OrderProjection | null {
+  const data = event.data as Record<string, unknown>
+  const meta = event.metadata as { timestamp: number }
+
+  if (event.$type === 'Order' && event.verb === 'created') {
+    const items = data.items as Array<{ sku: string; quantity: number; price: number }>
+    return {
+      id: data.id as string,
+      status: 'pending',
+      items,
+      total: items.reduce((sum, i) => sum + i.price * i.quantity, 0),
+      customer: data.customer as { id: string; email: string },
+      payments: [],
+      createdAt: meta.timestamp,
+      updatedAt: meta.timestamp
+    }
+  }
+
+  if (!state) return null
+
+  if (event.$type === 'Payment' && event.verb === 'received') {
+    return {
+      ...state,
+      payments: [...state.payments, {
+        id: data.paymentId as string,
+        amount: data.amount as number,
+        method: data.method as string
+      }],
+      updatedAt: meta.timestamp
+    }
+  }
+
+  if (event.$type === 'Order' && event.verb === 'paid') {
+    return { ...state, status: 'paid', updatedAt: meta.timestamp }
+  }
+
+  if (event.$type === 'Order' && event.verb === 'shipped') {
+    return { ...state, status: 'shipped', updatedAt: meta.timestamp }
+  }
+
+  return state
+}
+```
+
+## Key Considerations
+
+### Event Schema Evolution
+
+As your domain evolves, events need versioning:
+
+```typescript
+interface VersionedEvent {
+  schemaVersion: number
+  // ... rest of event
+}
+
+// Upcaster for older events
+function upcast(event: DomainEvent): DomainEvent {
+  const version = (event.metadata as Record<string, number>).schemaVersion ?? 1
+
+  if (version === 1 && event.$type === 'Order' && event.verb === 'created') {
+    // V1 didn't have customer.phone, add default
+    const data = event.data as Record<string, unknown>
+    return {
+      ...event,
+      data: {
+        ...data,
+        customer: {
+          ...(data.customer as Record<string, unknown>),
+          phone: null
+        }
+      }
+    }
+  }
+
+  return event
+}
+```
+
+### Event Store Compaction
+
+For long-lived streams, consider snapshotting:
+
+```typescript
+async createSnapshot(streamId: string): Promise<void> {
+  const projection = await this.getProjection(streamId)
+  const lastEvent = await this.getLastEvent(streamId)
+
+  if (projection && lastEvent) {
+    await this.set(`snapshot:${streamId}`, {
+      projection,
+      atVersion: lastEvent.metadata.version,
+      createdAt: Date.now()
+    })
+  }
+}
+
+async getProjectionWithSnapshot<T>(streamId: string): Promise<T | null> {
+  // Try snapshot first
+  const snapshot = await this.get<{
+    projection: T
+    atVersion: number
+  }>(`snapshot:${streamId}`)
+
+  if (snapshot) {
+    // Get events after snapshot
+    const events = await this.getEventsAfter(snapshot.atVersion)
+
+    // Apply only new events
+    let projection = snapshot.projection
+    for (const event of events) {
+      projection = applyEvent(projection, event) as T
+    }
+    return projection
+  }
+
+  // No snapshot, rebuild from scratch
+  return this.rebuildProjection(streamId) as Promise<T | null>
+}
+```
+
+### Concurrency and Ordering
+
+Durable Objects guarantee single-threaded execution, so events within a stream are always ordered. For cross-stream ordering, use timestamps and correlation IDs.
+
+## Variations
+
+### CQRS with Separate Read Models
+
+Maintain multiple projections for different query patterns:
+
+```typescript
+// Write side
+await this.appendEvent({ streamId, streamType: 'Order', ... })
+
+// Read side - multiple projections
+await this.updateOrderProjection(event)
+await this.updateCustomerOrdersProjection(event)
+await this.updateDailyStatsProjection(event)
+```
+
+### Event Streaming to External Systems
+
+Push events to Kafka, webhooks, or other systems:
+
+```typescript
+this.$.on['*'].created(async (event) => {
+  // Forward all created events to webhook
+  await fetch('https://analytics.example.com/events', {
+    method: 'POST',
+    body: JSON.stringify(event)
+  })
+})
+```
+
+## Real-World Example: Order Lifecycle
+
+This example shows how events capture the full order lifecycle:
+
+```typescript
+// 1. Customer places order
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Order',
+  eventVerb: 'placed',
+  data: { items, customer, shippingAddress },
+  actor: customerId,
+  correlationId: sessionId
+})
+
+// 2. Payment is processed
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Payment',
+  eventVerb: 'authorized',
+  data: { paymentId, amount, method: 'card' },
+  causationId: orderId
+})
+
+// 3. Inventory is reserved
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Inventory',
+  eventVerb: 'reserved',
+  data: { warehouseId, items: reservedItems },
+  causationId: orderId
+})
+
+// 4. Order is shipped
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Shipment',
+  eventVerb: 'dispatched',
+  data: { carrier: 'fedex', trackingNumber: 'FX123456' },
+  causationId: orderId
+})
+
+// 5. Delivery confirmed
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Shipment',
+  eventVerb: 'delivered',
+  data: { signedBy: 'Alice', deliveredAt: new Date().toISOString() },
+  causationId: orderId
+})
+```
+
+Each event is immutable and includes:
+- **correlationId**: Links related events across the flow
+- **causationId**: Shows which event caused this one
+- **actor**: Who initiated the action
+
+## Querying Event History
+
+The `$.on` event handlers automatically update projections, but you can also query the event store directly:
+
+```typescript
+// Get full timeline for an order
+const events = await this.getEventStream(orderId)
+console.log(`Order has ${events.length} events`)
+
+// Get events by type
+const payments = events.filter(e => e.$type === 'Payment')
+
+// Get events after a point (for incremental sync)
+const newEvents = await this.getEventsAfter(lastKnownVersion, 100)
+
+// Query by time range for audit
+const auditResult = this.ctx.storage.sql.exec(`
+  SELECT * FROM events
+  WHERE timestamp BETWEEN ? AND ?
+  AND json_extract(metadata, '$.actor') = ?
+  ORDER BY timestamp DESC
+`, startTime, endTime, userId)
+```
+
+## Related Documentation
+
+- [Workflow Module](/workflow) - Event handlers for projection updates
+- [Storage Layer](/storage) - SQLite APIs for event persistence
+- [Streaming Module](/streaming) - Push events to clients in real-time
+
+## Next Steps
+
+- [Multi-Tenant Pattern](/patterns/multi-tenant) - Event sourcing per tenant
+- [Approval Workflow Pattern](/patterns/approval-workflow) - Events trigger approvals
+- [Real-Time Dashboard Pattern](/patterns/real-time-dashboard) - Stream events to clients

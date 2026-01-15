@@ -1,0 +1,10 @@
+{
+  "title": "Patterns",
+  "pages": [
+    "index",
+    "multi-tenant",
+    "event-sourcing",
+    "approval-workflow",
+    "real-time-dashboard"
+  ]
+}

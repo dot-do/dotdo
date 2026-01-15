@@ -1,0 +1,535 @@
+---
+title: Lifecycle Hooks
+description: Initialization, hibernation, wake, and alarm handlers for Durable Object lifecycle management
+---
+
+# Lifecycle Hooks
+
+DOCore provides hooks for managing the Durable Object lifecycle, including cold starts, hibernation, waking, and scheduled alarms. All lifecycle state is persisted in SQLite using `_lifecycle:` prefixed keys.
+
+## Lifecycle Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Durable Object Lifecycle                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   ┌──────────┐    First Request    ┌─────────────┐              │
+│   │  Evicted │ ─────────────────>  │  onStart()  │              │
+│   └──────────┘                     └──────┬──────┘              │
+│        ^                                  │                      │
+│        │                                  v                      │
+│        │                           ┌─────────────┐              │
+│        │                           │   Active    │◄─── Requests │
+│        │                           └──────┬──────┘              │
+│        │                                  │                      │
+│        │           Idle timeout           │                      │
+│        │                                  v                      │
+│        │                         ┌────────────────┐              │
+│        │                         │ onHibernate()  │              │
+│        │                         └───────┬────────┘              │
+│        │                                 │                       │
+│        │                                 v                       │
+│        │    Eviction            ┌────────────────┐              │
+│        └─────────────────────── │  Hibernating   │              │
+│                                 └───────┬────────┘              │
+│                                         │                        │
+│                           Request/Alarm │                        │
+│                                         v                        │
+│                                 ┌────────────┐                   │
+│                                 │  onWake()  │ ──> Active       │
+│                                 └────────────┘                   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## onStart (Cold Start)
+
+The `initSync()` method runs synchronously during DO construction, before handling any requests.
+
+### Default Behavior
+
+DOCore tracks initialization state automatically using synchronous SQL:
+
+```typescript
+// Set during constructor via initSync()
+await stub.get('_lifecycle:onStart')      // true
+await stub.get('_lifecycle:onStartCount') // Increments each cold start
+await stub.get('_initialized')            // true
+```
+
+### Implementation
+
+```typescript
+private initSync(): void {
+  if (this.started) return
+
+  // Read current count
+  const countResult = this.ctx.storage.sql
+    .exec('SELECT value FROM state WHERE key = ?', '_lifecycle:onStartCount')
+    .toArray()
+  const count = countResult.length > 0
+    ? JSON.parse(countResult[0].value as string)
+    : 0
+
+  // Set lifecycle state synchronously
+  this.setStateSync('_lifecycle:onStart', true)
+  this.setStateSync('_lifecycle:onStartCount', count + 1)
+  this.setStateSync('_initialized', true)
+
+  this.started = true
+}
+```
+
+### Customizing Initialization
+
+The `initSync()` method is private and cannot be overridden. For custom initialization:
+
+1. **Synchronous setup**: Override the constructor and use `this.ctx.storage.sql.exec()` after calling `super()`
+2. **Async setup**: Use the first request or schedule an alarm
+
+```typescript
+export class MyDO extends DOCore {
+  private cache = new Map<string, unknown>()
+
+  constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+    super(ctx, env)  // DOCore handles initSync() internally
+
+    // Additional synchronous initialization
+    const hasConfig = this.ctx.storage.sql
+      .exec('SELECT value FROM state WHERE key = ?', 'config')
+      .toArray().length > 0
+
+    if (!hasConfig) {
+      this.ctx.storage.sql.exec(
+        'INSERT INTO state (key, value) VALUES (?, ?)',
+        'config',
+        JSON.stringify({ theme: 'light', language: 'en' })
+      )
+    }
+  }
+}
+```
+
+<Callout type="warning">
+Constructor code MUST be synchronous. Use `this.ctx.storage.sql.exec()` directly, not `await this.set()`. For async initialization, use the first request or an alarm.
+</Callout>
+
+### Checking Ready State
+
+The `/ready` endpoint reports initialization status:
+
+```typescript
+// Via fetch
+const response = await stub.fetch('https://do.local/ready')
+const data = await response.json()
+// { ready: true }
+
+// Via RPC (check internal state)
+const ready = await stub.get('_initialized')
+// true
+```
+
+## onHibernate (Before Eviction)
+
+The `prepareHibernate()` method can be called to prepare the DO for hibernation, cleaning up temporary state.
+
+### Default Behavior
+
+```typescript
+async prepareHibernate(): Promise<void> {
+  // Mark hibernation
+  await this.set('_lifecycle:onHibernate', true)
+
+  // Clean up all 'temp:' prefixed state
+  const tempEntries = await this.list({ prefix: 'temp:' })
+  await this.deleteMany(Object.keys(tempEntries))
+}
+```
+
+<Callout type="info">
+`prepareHibernate()` is an RPC method you can call explicitly. Cloudflare may hibernate the DO without calling this method. Use it for controlled cleanup scenarios.
+</Callout>
+
+### Customizing Hibernation
+
+Override to add custom cleanup:
+
+```typescript
+export class MyDO extends DOCore {
+  async prepareHibernate(): Promise<void> {
+    await super.prepareHibernate()
+
+    // Flush pending writes
+    await this.flushWrites()
+
+    // Close external connections
+    await this.closeConnections()
+
+    // Save session state
+    await this.set('session:lastActive', Date.now())
+  }
+
+  private async flushWrites(): Promise<void> {
+    // Flush any buffered writes...
+  }
+
+  private async closeConnections(): Promise<void> {
+    // Close any external connections...
+  }
+}
+```
+
+### Triggering Hibernation
+
+Hibernation happens automatically when the DO is idle. For testing, call explicitly:
+
+```typescript
+// Via RPC
+await stub.prepareHibernate()
+```
+
+## onWake (After Hibernation)
+
+The `wake()` method is an RPC method for manually signaling a wake event. It tracks wake count in both memory and persistent state.
+
+### Default Behavior
+
+```typescript
+async wake(): Promise<void> {
+  await this.set('_lifecycle:onWake', true)
+  await this.set('_connections:restored', true)
+
+  this.wakeCount++  // In-memory counter
+  await this.set('_lifecycle:wakeCount', this.wakeCount)
+}
+```
+
+<Callout type="info">
+`wake()` is an RPC method you call explicitly. Cloudflare's automatic wake from hibernation does not call this method - it just starts processing the incoming request. Use `wake()` if you need to explicitly track wake events.
+</Callout>
+
+### Customizing Wake
+
+Override to restore state or connections:
+
+```typescript
+export class MyDO extends DOCore {
+  private dbConnection: DatabaseClient | null = null
+
+  async wake(): Promise<void> {
+    await super.wake()
+
+    // Restore external connections
+    this.dbConnection = await createDatabaseClient()
+
+    // Reload cached data
+    await this.reloadCache()
+
+    // Log wake event
+    console.log(`DO woke up. Wake count: ${this.wakeCount}`)
+  }
+
+  private async reloadCache(): Promise<void> {
+    // Reload frequently-accessed data into memory...
+  }
+}
+```
+
+### Wake Count
+
+Track how many times the DO has woken:
+
+```typescript
+const wakeCount = await stub.get('_lifecycle:wakeCount')
+// Number of times this DO has woken from hibernation
+```
+
+## Alarms
+
+Alarms schedule the DO to wake at a specific time, even if no requests come in. Only one alarm can be scheduled at a time.
+
+### setAlarm(time)
+
+Schedule an alarm using Cloudflare's storage alarm API:
+
+```typescript
+// Via RPC - accepts Date or milliseconds
+await stub.setAlarm(new Date(Date.now() + 60000)) // 1 minute from now
+await stub.setAlarm(Date.now() + 60000)           // Same thing
+
+// Implementation
+async setAlarm(time: Date | number): Promise<void> {
+  const timestamp = time instanceof Date ? time.getTime() : time
+  await this.ctx.storage.setAlarm(timestamp)
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `time` | `Date \| number` | Yes | When to trigger the alarm |
+
+### getAlarm()
+
+Check the currently scheduled alarm:
+
+```typescript
+const alarm = await stub.getAlarm()
+if (alarm) {
+  console.log(`Alarm scheduled for: ${alarm}`)
+} else {
+  console.log('No alarm scheduled')
+}
+
+// Implementation
+async getAlarm(): Promise<Date | null> {
+  const alarm = await this.ctx.storage.getAlarm()
+  return alarm ? new Date(alarm) : null
+}
+```
+
+**Returns:** `Promise<Date | null>` - The scheduled time, or `null` if no alarm
+
+### deleteAlarm()
+
+Cancel a scheduled alarm:
+
+```typescript
+await stub.deleteAlarm()
+
+// Implementation
+async deleteAlarm(): Promise<void> {
+  await this.ctx.storage.deleteAlarm()
+}
+```
+
+### alarm() Handler
+
+Override the `alarm()` method to handle triggers. DOCore's default just marks the event:
+
+```typescript
+// Default implementation
+async alarm(): Promise<void> {
+  await this.set('_alarm_triggered', true)
+}
+
+// Custom implementation
+export class MyDO extends DOCore {
+  async alarm(): Promise<void> {
+    await this.set('_alarm_triggered', true)
+
+    // Process scheduled work
+    await this.processScheduledWork()
+
+    // Schedule next alarm for recurring tasks
+    await this.setAlarm(Date.now() + 3600000) // Next hour
+  }
+
+  private async processScheduledWork(): Promise<void> {
+    const queue = await this.list({ prefix: 'queue:' })
+    for (const [key, item] of Object.entries(queue)) {
+      await this.processItem(item)
+      await this.delete(key)
+    }
+  }
+}
+```
+
+### Alarm Patterns
+
+```typescript
+// One-time delayed task
+await stub.setAlarm(Date.now() + 5000) // 5 seconds
+
+// Recurring task (reschedule in alarm handler)
+async alarm(): Promise<void> {
+  await this.doPeriodicWork()
+  await this.setAlarm(Date.now() + 60000) // Every minute
+}
+
+// Specific time
+const tomorrow9am = new Date()
+tomorrow9am.setDate(tomorrow9am.getDate() + 1)
+tomorrow9am.setHours(9, 0, 0, 0)
+await stub.setAlarm(tomorrow9am)
+```
+
+## Lifecycle State Keys
+
+DOCore defines these keys as constants in `STATE_KEYS`:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `_lifecycle:onStart` | `boolean` | True after `initSync()` runs |
+| `_lifecycle:onStartCount` | `number` | Increments on each cold start |
+| `_lifecycle:onHibernate` | `boolean` | True after `prepareHibernate()` |
+| `_lifecycle:onWake` | `boolean` | True after `wake()` |
+| `_lifecycle:wakeCount` | `number` | Incremented by `wake()` |
+| `_initialized` | `boolean` | True when construction complete |
+| `_connections:restored` | `boolean` | Set by `wake()` |
+| `_alarm_triggered` | `boolean` | True after `alarm()` fires |
+
+```typescript
+// Constants defined in DOCore
+const STATE_KEYS = {
+  LIFECYCLE_START: '_lifecycle:onStart',
+  LIFECYCLE_START_COUNT: '_lifecycle:onStartCount',
+  LIFECYCLE_HIBERNATE: '_lifecycle:onHibernate',
+  LIFECYCLE_WAKE: '_lifecycle:onWake',
+  LIFECYCLE_WAKE_COUNT: '_lifecycle:wakeCount',
+  INITIALIZED: '_initialized',
+  ALARM_TRIGGERED: '_alarm_triggered',
+  CONNECTIONS_RESTORED: '_connections:restored',
+} as const
+```
+
+<Callout type="info">
+Keys starting with `_` are internal. Use your own prefix (e.g., `app:`) for application state.
+</Callout>
+
+## Hibernation with WebSockets
+
+Hibernatable WebSockets interact with lifecycle:
+
+```typescript
+export class ChatDO extends DOCore {
+  async wake(): Promise<void> {
+    await super.wake()
+
+    // WebSocket connections survive hibernation
+    const sockets = this.ctx.getWebSockets()
+    console.log(`Woke with ${sockets.length} active connections`)
+
+    // Notify clients of wake
+    for (const ws of sockets) {
+      ws.send(JSON.stringify({ type: 'server:wake' }))
+    }
+  }
+
+  async prepareHibernate(): Promise<void> {
+    await super.prepareHibernate()
+
+    // Notify clients before hibernation
+    const sockets = this.ctx.getWebSockets()
+    for (const ws of sockets) {
+      ws.send(JSON.stringify({ type: 'server:hibernate' }))
+    }
+  }
+}
+```
+
+## Error Handling in Lifecycle
+
+Handle errors gracefully in lifecycle hooks:
+
+```typescript
+export class MyDO extends DOCore {
+  async wake(): Promise<void> {
+    try {
+      await super.wake()
+      await this.restoreExternalConnections()
+    } catch (error) {
+      // Log but don't fail - DO should still be usable
+      console.error('Wake error:', error)
+      await this.set('_lifecycle:wakeError', error.message)
+    }
+  }
+
+  async alarm(): Promise<void> {
+    try {
+      await this.processWork()
+    } catch (error) {
+      console.error('Alarm error:', error)
+      // Reschedule for retry
+      await this.setAlarm(Date.now() + 60000)
+    }
+  }
+}
+```
+
+## Best Practices
+
+### Keep Constructor Fast and Synchronous
+
+```typescript
+// Good: Quick synchronous initialization
+constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+  super(ctx, env)
+  this.cache = new Map()
+
+  // Use synchronous SQL
+  this.ctx.storage.sql.exec(
+    'INSERT OR IGNORE INTO state (key, value) VALUES (?, ?)',
+    'config',
+    JSON.stringify({ default: true })
+  )
+}
+
+// Bad: Async operations in constructor
+constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+  super(ctx, env)
+  await this.set('key', 'value')  // ERROR: Can't await in constructor!
+}
+```
+
+### Use `temp:` Prefix for Ephemeral State
+
+```typescript
+// State with 'temp:' prefix is deleted by prepareHibernate()
+await stub.set('temp:processing', true)
+await stub.set('temp:cache', cachedData)
+
+// Permanent state uses other prefixes
+await stub.set('user:123', userData)
+await stub.set('config:theme', 'dark')
+```
+
+### Use Alarms, Not setTimeout
+
+```typescript
+// Good: Use alarms for delayed/scheduled work
+await stub.setAlarm(Date.now() + 60000)
+
+// Bad: setTimeout doesn't survive hibernation
+setTimeout(() => this.doWork(), 60000)  // Lost on hibernate!
+```
+
+### Track Start Count for Debugging
+
+```typescript
+// Check cold start frequency
+const startCount = await stub.get('_lifecycle:onStartCount')
+console.log(`This DO has cold-started ${startCount} times`)
+```
+
+## Constructor Flow
+
+Understanding the full constructor flow:
+
+```typescript
+constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+  super(ctx, env)  // DurableObject base class
+
+  // 1. Create SQLite state table (synchronous)
+  this.ctx.storage.sql.exec(`
+    CREATE TABLE IF NOT EXISTS state (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `)
+
+  // 2. Create Hono app with routes and middleware
+  this.app = this.createApp()
+
+  // 3. Run synchronous initialization
+  this.initSync()  // Sets lifecycle state, marks started
+}
+```
+
+## Next Steps
+
+- [State Management](/core/state) - Persist lifecycle state
+- [WebSockets](/core/websockets) - Hibernatable WebSocket connections
+- [DOWorkflow](/workflow) - Advanced workflow scheduling with `$`

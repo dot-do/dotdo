@@ -1,0 +1,116 @@
+---
+title: AI Module
+description: Template literal AI operations with lazy evaluation, batch processing, budget tracking, and provider abstraction
+---
+
+# AI Module
+
+The dotdo AI module provides a template literal approach to AI operations. Instead of verbose API calls, write natural language prompts inline with your code.
+
+## Key Features
+
+- **Template Literal Syntax**: Write AI prompts as naturally as template strings
+- **Lazy Evaluation**: AI calls only execute when awaited (`AIPromise`)
+- **Batch Processing**: Process multiple items with cost optimization (immediate/flex/deferred modes)
+- **Budget Tracking**: Control and monitor AI spending with per-model cost tiers
+- **Response Caching**: LRU cache with configurable TTL for repeated queries
+- **Provider Abstraction**: Switch between OpenAI, Anthropic, and Workers AI
+- **Fallback Chains**: Automatic model fallback when primary fails
+
+## Quick Start
+
+```typescript
+import { ai, is, list, code } from 'dotdo/ai'
+
+// General AI query - lazy, only executes when awaited
+const summary = await ai`Summarize this article: ${articleText}`
+
+// Classification with is`...`
+const sentiment = await is`Is this review positive or negative: ${review}`
+
+// List extraction with list`...`
+const topics = await list`Extract key topics from: ${document}`
+
+// Code generation with code`...`
+const validator = await code`Write a TypeScript email validator function`
+```
+
+## Lazy Evaluation
+
+<Callout type="info">
+All template literal functions return `AIPromise`, which only executes when you `await` it. This enables conditional execution, parallel batching, and cancellation without wasted API calls.
+</Callout>
+
+Unlike traditional AI APIs that execute immediately, dotdo's AI operations use `AIPromise`:
+
+```typescript
+// This does NOT call the AI - just creates a lazy promise
+const analysis = ai`Analyze ${text}`
+
+// The AI call happens HERE when we await
+const result = await analysis
+
+// Or cancel if no longer needed
+analysis.cancel()
+```
+
+## Template Composition
+
+AIPromise values can be interpolated into other templates, creating pipelines:
+
+```typescript
+// First analysis (lazy)
+const sentiment = is`Classify sentiment: ${review}`
+
+// Second analysis uses the first (both lazy until awaited)
+const response = ai`Given sentiment ${sentiment}, suggest a response`
+
+// Only now do both execute, in sequence
+const finalResponse = await response
+```
+
+## Documentation
+
+| Page | Description |
+|------|-------------|
+| [Templates](./templates) | Complete guide to `ai`, `is`, `list`, and `code` template literals |
+| [Batch Processing](./batch) | Process multiple items with immediate, flex, or deferred modes |
+| [Budget Tracking](./budget) | Monitor and limit AI spending per operation |
+| [Caching](./caching) | Configure LRU cache with TTL for response caching |
+| [Providers](./providers) | Configure OpenAI, Anthropic, Workers AI, and fallback chains |
+
+## Available Models (Workers AI)
+
+The AI module includes a model registry for Workers AI with automatic fallback chains:
+
+| Model | Tier | Input Cost | Output Cost | Capabilities |
+|-------|------|------------|-------------|--------------|
+| GPT OSS 120B | Premium | $2.50/M | $10.00/M | Text, Streaming |
+| GPT OSS 20B | Standard | $0.50/M | $1.50/M | Text, Streaming |
+| Llama 4 Scout | Standard | $0.30/M | $1.00/M | Text |
+| Granite 4.0 H Micro | Budget | $0.15/M | $0.50/M | Text, Tools, Structured |
+| Aura 2 English | Standard | - | - | TTS, Streaming |
+| Flux 2 Dev | Premium | - | - | Image |
+
+<Callout>
+Models automatically fall back to cheaper alternatives when primary fails. See [Providers](./providers) for fallback chain configuration.
+</Callout>
+
+## Installation
+
+The AI module is included with dotdo:
+
+```bash
+npm install dotdo
+```
+
+```typescript
+import { ai, is, list, code, createAI, AIPromise, AIBudgetExceededError } from 'dotdo/ai'
+```
+
+## Next Steps
+
+- [Templates](./templates) - Learn the four template literal functions
+- [Batch Processing](./batch) - Process collections efficiently
+- [Budget Tracking](./budget) - Monitor costs with per-model pricing
+- [Providers](./providers) - Set up your preferred AI provider

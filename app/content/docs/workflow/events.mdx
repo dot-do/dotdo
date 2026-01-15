@@ -1,0 +1,339 @@
+---
+title: Event Handlers
+description: React to domain events with on.Noun.verb() and handler lifecycle management
+---
+
+# Event Handlers (on)
+
+The event system enables reactive programming with a fluent `Noun.verb` syntax. Using JavaScript Proxies, any combination of nouns and verbs works without pre-registration.
+
+```typescript
+import { on, send, clearHandlersByContext, getHandlerCount } from 'dotdo/workflows'
+```
+
+## Basic Usage
+
+```typescript
+// Register a handler - returns unsubscribe function
+const unsubscribe = on.Customer.signup((customer) => {
+  console.log(`Welcome ${customer.name}!`)
+  sendWelcomeEmail(customer.email)
+})
+
+// Register another for the same event
+on.Customer.signup((customer) => {
+  trackAnalytics('signup', customer)
+})
+
+// Later: remove the handler
+unsubscribe()
+```
+
+## Context-Based Cleanup
+
+Register handlers with a context for grouped cleanup - essential for Durable Objects:
+
+```typescript
+// Register with context (e.g., DO namespace)
+on.Order.created((order) => {
+  processOrder(order)
+}, { context: 'order-processor' })
+
+on.Order.shipped((order) => {
+  notifyCustomer(order)
+}, { context: 'order-processor' })
+
+// Later: clean up ALL handlers for this context
+const removedCount = clearHandlersByContext('order-processor')
+console.log(`Removed ${removedCount} handlers`)
+```
+
+## Handler Registration
+
+Each handler registration captures metadata and returns an unsubscribe function:
+
+```typescript
+interface HandlerRegistration {
+  handler: Function      // The registered handler
+  eventKey: string       // Event key (e.g., "Customer.signup")
+  context?: string       // Optional context for cleanup
+  registeredAt: number   // Registration timestamp
+}
+
+interface OnHandlerOptions {
+  /** Context identifier for grouped cleanup (e.g., DO namespace) */
+  context?: string
+}
+```
+
+## Event Key Format
+
+Events use a `Noun.verb` key format:
+
+```typescript
+// Event keys
+'Customer.signup'    // on.Customer.signup()
+'Payment.failed'     // on.Payment.failed()
+'Order.shipped'      // on.Order.shipped()
+
+// Handler receives the event payload directly
+on.Customer.signup((customer) => {
+  // customer is the payload, not wrapped in an event object
+  console.log(customer.email)
+})
+```
+
+## Wildcard Matching
+
+Match multiple events with wildcard patterns:
+
+### Match Any Noun (`*.verb`)
+
+```typescript
+// React to any entity being created
+on['*'].created((event) => {
+  console.log(`Created: ${event.subject}`)
+  auditLog('created', event)
+})
+
+// Triggered by:
+// - Customer.created
+// - Order.created
+// - Product.created
+```
+
+### Match Any Verb (`Noun.*`)
+
+```typescript
+// React to any Customer event
+on.Customer['*']((event) => {
+  console.log(`Customer event: ${event.object}`)
+  customerActivity.track(event)
+})
+
+// Triggered by:
+// - Customer.signup
+// - Customer.updated
+// - Customer.deleted
+```
+
+### Match Everything (`*.*`)
+
+```typescript
+// Global event logging
+on['*']['*']((event) => {
+  logger.info(`Event: ${event.type}`, event.data)
+})
+```
+
+## Handler Order
+
+Handlers execute in registration order:
+
+```typescript
+const order: number[] = []
+
+on.Customer.signup(() => order.push(1))
+on.Customer.signup(() => order.push(2))
+on.Customer.signup(() => order.push(3))
+
+// When 'Customer.signup' is dispatched:
+// order === [1, 2, 3]
+```
+
+## Async Handlers
+
+Both sync and async handlers are supported. Async handlers are awaited in sequence:
+
+```typescript
+on.Order.placed(async (event) => {
+  // First: reserve inventory
+  await inventory.reserve(event.data.items)
+})
+
+on.Order.placed(async (event) => {
+  // Second: notify warehouse (runs after first completes)
+  await warehouse.notify(event.data)
+})
+```
+
+## Unsubscribing
+
+Each registration returns an unsubscribe function:
+
+```typescript
+const unsubscribe = on.Customer.signup(handler)
+
+// Later: remove the handler
+const wasRemoved = unsubscribe() // returns boolean
+```
+
+You can also unregister by reference:
+
+```typescript
+import { unregisterHandler } from 'dotdo/workflows'
+
+function myHandler(customer) {
+  console.log(customer.name)
+}
+
+on.Customer.signup(myHandler)
+
+// Later: unregister by reference
+const removed = unregisterHandler('Customer.signup', myHandler)
+```
+
+## Emitting Events
+
+Use the `send` proxy for fire-and-forget event emission:
+
+```typescript
+import { send } from 'dotdo/workflows'
+
+// Fire-and-forget - returns PipelinePromise
+send.Order.shipped({
+  orderId: '12345',
+  carrier: 'UPS',
+  trackingNumber: '1Z999AA10123456784'
+})
+
+// Chain with other operations
+send.Customer.created({
+  id: 'cust_123',
+  email: 'user@example.com',
+  name: 'John Doe'
+})
+```
+
+See [Durability](./durability) for more on event emission patterns.
+
+## Querying Handlers
+
+Inspect registered handlers:
+
+```typescript
+import {
+  getRegisteredHandlers,
+  getHandlerRegistrations,
+  getHandlerCount,
+  getRegisteredEventKeys,
+  clearHandlers
+} from 'dotdo/workflows'
+
+// Get handlers for an event (optionally filtered by context)
+const handlers = getRegisteredHandlers('Customer.signup')
+console.log(`${handlers.length} handlers registered`)
+
+// Filter by context
+const contextHandlers = getRegisteredHandlers('Customer.signup', 'my-do')
+
+// Get full registrations with metadata
+const registrations = getHandlerRegistrations('Customer.signup')
+registrations.forEach(reg => {
+  console.log(`Handler registered at ${reg.registeredAt}, context: ${reg.context}`)
+})
+
+// Get total handler count (optionally by context)
+const total = getHandlerCount()
+const contextCount = getHandlerCount('my-do')
+
+// Get all registered event keys
+const eventKeys = getRegisteredEventKeys()
+// ['Customer.signup', 'Order.created', 'Payment.failed', ...]
+
+// Clear all handlers (for testing/reset)
+clearHandlers()
+```
+
+## Common Patterns
+
+### Domain Event Sourcing
+
+```typescript
+// Audit trail for all domain events
+on['*']['*']((event) => {
+  eventStore.append({
+    type: event.type,
+    data: event.data,
+    timestamp: event.timestamp,
+    actorId: getCurrentUser()
+  })
+})
+```
+
+### Cross-Cutting Concerns
+
+```typescript
+// Add timing to all events
+on['*']['*'](async (event) => {
+  const start = Date.now()
+  // Handlers run, then this continues
+  metrics.timing(`event.${event.type}`, Date.now() - start)
+})
+```
+
+### Entity Lifecycle
+
+```typescript
+// Customer lifecycle management
+on.Customer.created(initializeCustomer)
+on.Customer.verified(enableFeatures)
+on.Customer.upgraded(migrateToNewTier)
+on.Customer.churned(startWinbackCampaign)
+on.Customer.deleted(cleanupResources)
+```
+
+## Durable Object Integration
+
+Best practices for using events in Durable Objects:
+
+```typescript
+import { on, clearHandlersByContext } from 'dotdo/workflows'
+
+class OrderProcessor {
+  private contextId: string
+
+  constructor(ctx: DurableObjectState) {
+    // Use DO ID as context for handler cleanup
+    this.contextId = ctx.id.toString()
+
+    // Register handlers with context
+    on.Order.created(this.handleOrderCreated.bind(this), {
+      context: this.contextId
+    })
+
+    on.Order.shipped(this.handleOrderShipped.bind(this), {
+      context: this.contextId
+    })
+  }
+
+  private handleOrderCreated(order: Order) {
+    // Process new order
+  }
+
+  private handleOrderShipped(order: Order) {
+    // Handle shipment
+  }
+
+  // Call when DO is being destroyed
+  cleanup() {
+    const removed = clearHandlersByContext(this.contextId)
+    console.log(`Cleaned up ${removed} handlers`)
+  }
+}
+```
+
+## API Reference
+
+| Function | Description |
+|----------|-------------|
+| `on.Noun.verb(handler, options?)` | Register event handler, returns unsubscribe |
+| `getRegisteredHandlers(eventKey, context?)` | Get handlers for event key |
+| `getHandlerRegistrations(eventKey)` | Get registrations with metadata |
+| `getHandlerCount(context?)` | Get total handler count |
+| `getRegisteredEventKeys()` | Get all event keys with handlers |
+| `unregisterHandler(eventKey, handler)` | Remove specific handler |
+| `clearHandlersByContext(context)` | Remove all handlers for context |
+| `clearHandlers()` | Remove all handlers |
+
+See [Durability](./durability) for more on event emission and execution patterns.

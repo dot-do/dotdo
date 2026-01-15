@@ -1,0 +1,11 @@
+{
+  "title": "AI Module",
+  "pages": [
+    "index",
+    "templates",
+    "batch",
+    "budget",
+    "caching",
+    "providers"
+  ]
+}

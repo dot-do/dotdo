@@ -3,8 +3,10 @@
  *
  * This is the root layout component that wraps all other routes.
  * It provides the HTML structure, head elements, and outlet for nested routes.
+ * Includes RootProvider from fumadocs for theme/search context.
  *
  * @see https://tanstack.com/start/latest/docs/routing/root-routes
+ * @see https://fumadocs.dev/docs/manual-installation/tanstack-start
  */
 import type { ReactNode } from 'react'
 import {
@@ -13,6 +15,8 @@ import {
   ScrollRestoration,
   ErrorComponent,
 } from '@tanstack/react-router'
+import { RootProvider } from 'fumadocs-ui/provider'
+import '../styles/app.css'
 
 /**
  * Error fallback component for route errors
@@ -68,14 +72,17 @@ export const Route = createRootRoute({
  * Root layout component
  *
  * Provides the HTML document structure for all routes.
+ * Wraps application with RootProvider for fumadocs theming/search.
  * Head elements are managed by TanStack Start's head() configuration.
  */
 function RootComponent(): ReactNode {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head />
       <body>
-        <Outlet />
+        <RootProvider>
+          <Outlet />
+        </RootProvider>
         <ScrollRestoration />
       </body>
     </html>

@@ -1,0 +1,284 @@
+---
+title: Budget Tracking
+description: Monitor and limit AI spending with budget controls, cost tracking, and spending limits
+---
+
+# Budget Tracking
+
+The AI module includes built-in budget tracking to monitor and control AI spending. Set limits, track costs, and prevent runaway expenses.
+
+<Callout type="info">
+Budget tracking uses abstract cost units, not real currency. One unit equals one AI call at immediate priority.
+</Callout>
+
+## Budget Interface
+
+```typescript
+interface AIBudget {
+  remaining: number  // Available budget units
+  spent: number      // Total spent units
+  limit: (amount: number) => AI  // Set new limit and reset spent
+}
+```
+
+Every AI instance has a `budget` property:
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+console.log(ai.budget.remaining)  // Available budget
+console.log(ai.budget.spent)      // Total spent
+```
+
+## Setting Budget Limits
+
+### At Creation Time
+
+```typescript
+import { createAI } from 'dotdo/ai'
+
+const ai = createAI({
+  budget: { limit: 100 }
+})
+
+// Now operations are tracked against this limit
+await ai`Process something`
+console.log(ai.budget.spent)     // 1
+console.log(ai.budget.remaining) // 99
+```
+
+### Dynamically
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Set limit and reset spent counter
+ai.budget.limit(50)
+
+// Returns the AI instance for chaining
+ai.budget.limit(100).model('gpt-4')
+```
+
+## Cost Model
+
+### Operation Costs
+
+Operations have different costs based on mode:
+
+| Operation | Cost |
+|-----------|------|
+| Single AI call | 1.0 |
+| Batch (immediate) | 1.0 per item |
+| Batch (flex) | 0.5 per item |
+| Batch (deferred) | 0.25 per item |
+| Cached response | 0 |
+
+### Per-Model Pricing (Workers AI)
+
+For real-world cost estimation, each model has tier-based pricing:
+
+| Model | Tier | Input ($/M tokens) | Output ($/M tokens) |
+|-------|------|-------------------|---------------------|
+| GPT OSS 120B | Premium | $2.50 | $10.00 |
+| GPT OSS 20B | Standard | $0.50 | $1.50 |
+| Llama 4 Scout | Standard | $0.30 | $1.00 |
+| Granite 4.0 Micro | Budget | $0.15 | $0.50 |
+
+TTS and image models have flat per-request pricing.
+
+```typescript
+import { createAI } from 'dotdo/ai'
+
+const ai = createAI({ budget: { limit: 10 } })
+
+// Each template call costs 1
+await ai`Query 1`            // spent: 1
+await ai.is`Classify`        // spent: 2
+await ai.list`Extract`       // spent: 3
+await ai.code`Generate`      // spent: 4
+
+// Batch costs depend on mode and item count
+await ai.batch(['a', 'b'], 'immediate')  // +2 (1.0 * 2)
+await ai.batch(['a', 'b'], 'flex')       // +1 (0.5 * 2)
+await ai.batch(['a', 'b'], 'deferred')   // +0.5 (0.25 * 2)
+```
+
+## Budget Exceeded Error
+
+When budget is exhausted, operations throw `AIBudgetExceededError`:
+
+```typescript
+import { createAI, AIBudgetExceededError } from 'dotdo/ai'
+
+// Error class definition
+class AIBudgetExceededError extends Error {
+  spent: number      // Amount already spent
+  limit: number      // Budget limit
+  requested: number  // Cost of attempted operation
+}
+
+const ai = createAI({ budget: { limit: 2 } })
+
+await ai`First call`   // spent: 1, remaining: 1
+await ai`Second call`  // spent: 2, remaining: 0
+
+try {
+  await ai`Third call` // Throws!
+} catch (error) {
+  if (error instanceof AIBudgetExceededError) {
+    console.log('Budget exceeded!')
+    console.log('Spent:', error.spent)       // 2
+    console.log('Limit:', error.limit)       // 2
+    console.log('Requested:', error.requested) // 1
+    // error.message: "Budget exceeded: requested 1, spent 2, limit 2"
+  }
+}
+```
+
+## Budget Patterns
+
+### Per-Request Budgets
+
+Isolate budgets per user request:
+
+```typescript
+async function handleRequest(userId: string, query: string) {
+  // Fresh budget per request
+  const ai = createAI({ budget: { limit: 10 } })
+
+  try {
+    return await ai`Answer for user ${userId}: ${query}`
+  } catch (error) {
+    if (error instanceof AIBudgetExceededError) {
+      return 'Request exceeded AI budget limit'
+    }
+    throw error
+  }
+}
+```
+
+### Tiered Budgets
+
+Different budgets for different user tiers:
+
+```typescript
+const TIER_LIMITS = {
+  free: 10,
+  pro: 100,
+  enterprise: 1000
+}
+
+function createUserAI(tier: keyof typeof TIER_LIMITS) {
+  return createAI({
+    budget: { limit: TIER_LIMITS[tier] }
+  })
+}
+
+const freeUserAI = createUserAI('free')
+const proUserAI = createUserAI('pro')
+```
+
+### Budget Monitoring
+
+Track usage over time:
+
+```typescript
+const ai = createAI({ budget: { limit: 1000 } })
+
+// After operations
+const usage = {
+  spent: ai.budget.spent,
+  remaining: ai.budget.remaining,
+  percentUsed: (ai.budget.spent / 1000) * 100
+}
+
+// Log or store usage metrics
+console.log(`Used ${usage.percentUsed}% of budget`)
+
+// Alert at thresholds
+if (usage.percentUsed > 80) {
+  console.warn('Budget 80% consumed!')
+}
+```
+
+### Graceful Degradation
+
+Handle budget exhaustion gracefully:
+
+```typescript
+async function smartQuery(input: string) {
+  try {
+    // Try full analysis
+    return await ai`Detailed analysis: ${input}`
+  } catch (error) {
+    if (error instanceof AIBudgetExceededError) {
+      // Fall back to simpler operation
+      return await ai.is`Is this positive or negative: ${input}`
+    }
+    throw error
+  }
+}
+```
+
+## Budget with Caching
+
+Cached responses don't consume budget:
+
+```typescript
+const ai = createAI({
+  budget: { limit: 10 },
+  cache: { enabled: true }
+})
+
+// First call: costs 1
+await ai`Analyze: ${text}`
+console.log(ai.budget.spent) // 1
+
+// Second identical call: free (cached)
+await ai`Analyze: ${text}`
+console.log(ai.budget.spent) // Still 1!
+```
+
+## Budget Reset
+
+Reset budget for new periods:
+
+```typescript
+// Reset by setting new limit
+ai.budget.limit(100)
+console.log(ai.budget.spent)     // 0 (reset)
+console.log(ai.budget.remaining) // 100
+
+// Or create fresh instance
+const freshAI = createAI({ budget: { limit: 100 } })
+```
+
+## Unlimited Budget
+
+By default, budget is unlimited (uses `Infinity` internally):
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Default instance has no limit
+// Returns Number.MAX_SAFE_INTEGER - spent to avoid Infinity serialization issues
+console.log(ai.budget.remaining) // 9007199254740990 (or similar large number)
+
+// Unlimited can still track spending
+await ai`Process`
+console.log(ai.budget.spent) // 1
+```
+
+To explicitly configure unlimited budget:
+
+```typescript
+const ai = createAI({ budget: { limit: Infinity } })
+// or simply omit the budget option
+const ai = createAI({})
+```
+
+## Next Steps
+
+- [Caching](./caching) - Reduce costs with response caching
+- [Batch Processing](./batch) - Cost-effective batch operations
+- [Providers](./providers) - Configure provider-specific pricing

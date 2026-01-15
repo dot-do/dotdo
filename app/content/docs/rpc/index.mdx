@@ -1,0 +1,318 @@
+---
+title: Cap'n Web RPC
+description: Capability-based RPC layer for dotdo with promise pipelining, unforgeable references, and type-safe remote execution
+---
+
+# Cap'n Web RPC
+
+Cap'n Web RPC is dotdo's capability-based remote procedure call layer, inspired by [Cap'n Proto](https://capnproto.org/) but designed for the web and Cloudflare Workers runtime.
+
+## Overview
+
+Cap'n Web RPC provides a secure, efficient way to invoke methods on Durable Objects with:
+
+- **Capability-based Security** - Unforgeable references with attenuation and revocation
+- **Promise Pipelining** - Chain calls without intermediate round-trips
+- **$meta Introspection** - Runtime schema and method discovery
+- **Type-safe Execution** - Full TypeScript type preservation across RPC boundaries
+- **Flexible Serialization** - JSON and binary formats with special type support
+
+## Installation
+
+Cap'n Web RPC is included with dotdo:
+
+```typescript
+import {
+  // Client and Pipelining
+  createRPCClient,
+  pipeline,
+  RPCError,
+
+  // Capabilities
+  createCapability,
+  verifyCapability,
+  assertUnforgeable,
+  serializeCapability,
+  deserializeCapability,
+
+  // Serialization
+  serialize,
+  deserialize,
+
+  // Interface Generation
+  generateInterface,
+} from 'dotdo/rpc'
+
+// Type imports
+import type {
+  Capability,
+  Schema,
+  FieldSchema,
+  MethodSchema,
+  ParamSchema,
+  MethodDescriptor,
+  MetaInterface,
+  PipelineBuilder,
+  PipelineStep,
+  RPCClientOptions,
+  SerializationOptions,
+  TypeHandler,
+} from 'dotdo/rpc'
+```
+
+## Quick Start
+
+### Creating an RPC Client
+
+```typescript
+import { createRPCClient } from 'dotdo/rpc'
+
+// Create a typed client for a Durable Object
+const customer = createRPCClient<CustomerDO>({
+  target: 'https://customer.api.dotdo.dev/cust-123',
+  timeout: 5000,  // Optional: request timeout (default: 30000ms)
+  retry: {        // Optional: retry configuration
+    maxAttempts: 3,
+    backoffMs: 100,
+  },
+})
+
+// Invoke methods remotely
+const orders = await customer.getOrders()
+await customer.notify('Your order has shipped!')
+
+// Handle errors with full context
+try {
+  await customer.charge(-100)
+} catch (err) {
+  if (err instanceof RPCError) {
+    console.error(err.message)  // Error message
+    console.error(err.method)   // 'charge'
+    console.error(err.target)   // Target URL
+  }
+}
+```
+
+### Using a Durable Object Stub
+
+When calling from within a Worker, you can pass a DO stub directly:
+
+```typescript
+const id = env.CUSTOMER.idFromName('cust-123')
+const stub = env.CUSTOMER.get(id)
+
+const customer = createRPCClient<CustomerDO>({
+  target: stub,  // Pass stub directly - no network hop
+})
+```
+
+### Using $meta Introspection
+
+Every RPC client exposes a `$meta` interface for runtime discovery:
+
+```typescript
+// Get the full schema (cached after first call)
+const schema = await customer.$meta.schema()
+console.log(schema.name)   // 'Customer'
+console.log(schema.fields) // [{ name: '$id', type: 'string', required: true }, ...]
+
+// Discover available methods with full descriptors
+const methods = await customer.$meta.methods()
+console.log(methods.map(m => m.name))
+// ['charge', 'getOrders', 'notify']
+
+// Methods include type information
+console.log(methods[0])
+// {
+//   name: 'charge',
+//   params: [{ name: 'amount', type: 'number', required: true }],
+//   returns: 'Promise<Receipt>',
+//   isAsync: true,
+//   description: 'charge method'
+// }
+
+// Get available capabilities
+const caps = await customer.$meta.capabilities()
+
+// Get version info
+const version = await customer.$meta.version()
+console.log(version)  // { major: 1, minor: 0, patch: 0 }
+```
+
+### Capability-based Access Control
+
+```typescript
+import { createCapability } from 'dotdo/rpc'
+
+// Create a full-access capability
+const fullCap = createCapability(customer)
+
+// Attenuate to read-only
+const readOnlyCap = fullCap.attenuate(['getOrders'])
+
+// Invoke through the capability
+const orders = await readOnlyCap.invoke('getOrders')
+
+// This throws - not authorized
+await readOnlyCap.invoke('charge', 100)
+// Error: Method 'charge' is not authorized
+```
+
+### Promise Pipelining
+
+```typescript
+import { pipeline } from 'dotdo/rpc'
+
+// Single network request for chained operations
+const result = await pipeline(customer)
+  .then('getOrders')
+  .then('filter', (o) => o.total > 100)
+  .then('map', (o) => o.id)
+  .execute()
+```
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         RPC Client                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│  │ $meta       │  │ Pipeline    │  │ Capability              │   │
+│  │ Interface   │  │ Builder     │  │ System                  │   │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘   │
+│         │                │                      │                 │
+│         └────────────────┼──────────────────────┘                 │
+│                          ▼                                        │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    Transport Layer                          │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │  │
+│  │  │ JSON Format  │  │ Binary Format│  │ Type Handlers   │   │  │
+│  │  │ (readable)   │  │ (compact)    │  │ (Date,Map,Set)  │   │  │
+│  │  └──────────────┘  └──────────────┘  └─────────────────┘   │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                          │                                        │
+│              ┌───────────┴───────────┐                           │
+│              │  HTTP / fetch()       │                           │
+│              │  URL or DO Stub       │                           │
+│              └───────────┬───────────┘                           │
+└──────────────────────────┼───────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    Durable Object                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│  │ Interface   │  │ Methods     │  │ Capability              │   │
+│  │ Generator   │  │             │  │ Registry                │   │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘   │
+│                                                                   │
+│  Module-level State:                                              │
+│  - capabilityRegistry (unforgeable tokens)                        │
+│  - revokedCapabilities (instant invalidation)                     │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## Configuration Constants
+
+The RPC layer uses these default values (from `rpc/constants.ts`):
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `DEFAULT_REQUEST_TIMEOUT` | 30000ms | Request timeout before abort |
+| `DEFAULT_RETRY_BACKOFF` | 10ms | Initial retry backoff delay |
+
+<Callout type="info">
+Timeouts and retries work together. If a request times out, it will not be retried. Retries only apply to recoverable errors like network failures.
+</Callout>
+
+## Core Concepts
+
+### Unforgeable Capabilities
+
+Capabilities in Cap'n Web RPC are **unforgeable tokens** - you cannot create a valid capability by copying its properties. The system validates that capability invocations come from registered, non-revoked capability objects.
+
+```typescript
+const cap = createCapability(target)
+
+// This will fail - copying doesn't create a valid capability
+const fakeCap = { ...cap }
+fakeCap.invoke('method')  // Throws: Capability is unforgeable: cannot invoke on copied object
+```
+
+### Attenuation
+
+Capabilities can be **attenuated** to create restricted versions. An attenuated capability can never grant more permissions than its parent:
+
+```typescript
+const full = createCapability(target, ['read', 'write', 'delete'])
+const restricted = full.attenuate(['read'])  // OK
+const expanded = restricted.attenuate(['read', 'write'])  // Error!
+```
+
+### Revocation
+
+When you revoke a capability, all capabilities derived from it are also revoked:
+
+```typescript
+const parent = createCapability(target)
+const child = parent.attenuate(['read'])
+
+parent.revoke()
+
+// Both are now invalid
+await parent.invoke('read')  // Throws: revoked
+await child.invoke('read')   // Throws: revoked
+```
+
+## Interface Generation
+
+Generate RPC interfaces from TypeScript classes for schema introspection:
+
+```typescript
+import { generateInterface } from 'dotdo/rpc'
+
+class CustomerDO {
+  static readonly $type = 'Customer'
+
+  $id: string
+  name: string
+  email: string
+
+  constructor(id: string, name: string, email: string) {
+    this.$id = id
+    this.name = name
+    this.email = email
+  }
+
+  async charge(amount: number): Promise<Receipt> { /* ... */ }
+  async getOrders(): Promise<Order[]> { /* ... */ }
+  async notify(message: string): Promise<void> { /* ... */ }
+}
+
+const iface = generateInterface(CustomerDO)
+console.log(iface.$type)    // 'Customer'
+console.log(iface.$schema)  // 'http://json-schema.org/draft-07/schema#'
+console.log(iface.fields)   // Field definitions with types
+console.log(iface.methods)  // Method descriptors with params/returns
+```
+
+### Generator Options
+
+```typescript
+const iface = generateInterface(CustomerDO, {
+  includePrivate: false,  // Include private methods (default: false)
+  streaming: true,        // Generate streaming support (default: true)
+  format: 'json',         // Serialization format (json or binary)
+})
+```
+
+<Callout type="info">
+The interface generator extracts type information at runtime. For full TypeScript type preservation, use the generated interface with `createRPCClient<T>()` to get compile-time type checking.
+</Callout>
+
+## Next Steps
+
+- [Capabilities](/rpc/capabilities) - Deep dive into the security model
+- [Pipelining](/rpc/pipelining) - Optimize network calls with promise pipelining
+- [Serialization](/rpc/serialization) - JSON and binary formats, custom type handlers
+- [Wire Protocol](/rpc/wire-protocol) - Message formats and transport specification
+- [WebSocket RPC](/rpc/websocket) - Bidirectional RPC with hibernation support

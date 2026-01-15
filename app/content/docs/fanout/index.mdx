@@ -1,0 +1,222 @@
+---
+title: Fanout / Distributed Queries
+description: Scatter-gather pattern for distributed query execution across sharded Durable Objects
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Fanout / Distributed Queries
+
+The fanout module implements the scatter-gather pattern for executing queries across multiple sharded Durable Objects and aggregating results. This enables horizontal scaling of read-heavy workloads beyond what a single DO can handle.
+
+<Callout type="info">
+Fanout is designed for read-heavy workloads where data is partitioned across multiple DOs. For write-heavy workloads, consider routing writes to a single coordinator DO that handles distribution.
+</Callout>
+
+## Overview
+
+When data is partitioned across multiple DOs (shards), fanout provides the coordination layer to:
+
+1. **Scatter** - Dispatch queries to all relevant scanners in parallel
+2. **Gather** - Collect and aggregate results from each scanner
+3. **Merge** - Combine results using union, intersect, sort, or limit strategies
+
+| Component | Purpose |
+|-----------|---------|
+| [QueryCoordinator](/docs/fanout/coordinator) | Dispatches queries and aggregates results |
+| [ScannerDO](/docs/fanout/coordinator#scanner-interface) | Executes queries on local data partitions |
+| [ConsistentHashRing](/docs/fanout/hashing) | Maps keys to nodes with minimal redistribution |
+| [Merge Strategies](/docs/fanout/merging) | Union, intersect, sort, and limit operations |
+| [SubrequestBudget](/docs/fanout/budget) | Tracks and enforces Cloudflare subrequest limits |
+
+## Architecture
+
+```
+                    QueryCoordinator
+                          |
+          +-------+-------+-------+-------+
+          |       |       |       |       |
+       Scanner  Scanner Scanner Scanner Scanner
+       (Shard0) (Shard1)(Shard2)(Shard3)(Shard4)
+          |       |       |       |       |
+        SQLite  SQLite  SQLite  SQLite  SQLite
+```
+
+Each scanner is a Durable Object containing a partition of the data. The coordinator dispatches queries in parallel and merges results.
+
+## Quick Start
+
+### Basic Distributed Query
+
+```typescript
+import { QueryCoordinator, ScannerDO, ConsistentHashRing } from 'dotdo/fanout'
+
+// Setup coordinator with scanner stubs
+const shardIds = ['shard-0', 'shard-1', 'shard-2', 'shard-3']
+const scanners = shardIds.map(id => ({
+  id,
+  execute: <T>(sql: string, params?: unknown[]) =>
+    env.ScannerDO.get(env.ScannerDO.idFromName(id)).query<T>(sql, params)
+}))
+
+const coordinator = new QueryCoordinator(scanners)
+
+// Execute query across all shards
+const result = await coordinator.query('SELECT * FROM users WHERE status = ?', ['active'])
+
+// Results are automatically aggregated
+console.log(result.rows) // All matching users from all shards
+```
+
+### Single-Shard Routing
+
+For queries that target a specific shard (e.g., by tenant), use the consistent hash ring to route directly:
+
+```typescript
+import { QueryCoordinator, ConsistentHashRing } from 'dotdo/fanout'
+
+const ring = new ConsistentHashRing(scanners.map(s => s.id))
+const coordinator = new QueryCoordinator(scanners, { ring })
+
+// Route to specific shard by key
+const result = await coordinator.query(
+  'SELECT * FROM orders WHERE tenant_id = ?',
+  ['tenant-123'],
+  { shardKey: 'tenant-123' }
+)
+// Only queries the shard responsible for tenant-123
+```
+
+## Aggregation
+
+The coordinator automatically handles SQL aggregate functions:
+
+### COUNT
+
+Sums count values from all scanners:
+
+```typescript
+const result = await coordinator.query('SELECT COUNT(*) as count FROM users')
+// { rows: [{ count: 50000 }] } // Total across all shards
+```
+
+### SUM
+
+Sums values from all scanners:
+
+```typescript
+const result = await coordinator.query('SELECT SUM(amount) as total FROM orders')
+// { rows: [{ total: 1250000 }] }
+```
+
+### AVG
+
+Computes weighted average (requires _count from each scanner):
+
+```typescript
+const result = await coordinator.query('SELECT AVG(amount) as avg FROM orders')
+// Internally: sum(avg * count) / sum(count)
+```
+
+## Failure Handling
+
+The coordinator handles partial failures gracefully:
+
+- **Single scanner failure**: Returns results from healthy scanners with error marker
+- **Majority failure**: Throws error (quorum not met)
+- **Timeout**: Slow scanners are timed out and marked unhealthy
+
+```typescript
+const coordinator = new QueryCoordinator(scanners, {
+  maxRetries: 3,     // Retry failed scanners
+  timeoutMs: 5000,   // 5 second timeout per scanner
+})
+
+const result = await coordinator.query('SELECT * FROM users')
+
+if (result.error) {
+  console.warn('Partial results:', result.error)
+}
+```
+
+## Streaming Results
+
+For large result sets, stream results as they arrive:
+
+```typescript
+for await (const batch of coordinator.queryStream('SELECT * FROM events')) {
+  // Process each scanner's results as they complete
+  console.log(`Received ${batch.rows.length} rows`)
+  await processBatch(batch.rows)
+}
+```
+
+Results arrive in completion order (fastest scanners first), enabling progressive rendering. This is useful for:
+- Real-time dashboards that show partial results
+- Long-running queries where early feedback matters
+- Memory-constrained environments that can't hold all results
+
+## ScannerDO
+
+Each scanner is a Durable Object that holds a partition of data. The `ScannerDO` class provides:
+
+- Parameterized query execution (SQL injection safe)
+- Cursor-based pagination for large result sets
+- Health status tracking
+- Local row counting
+
+```typescript
+import { ScannerDO } from 'dotdo/fanout'
+
+const scanner = new ScannerDO({ id: 'scanner-0' })
+
+// Seed with data (in production, data would be written via normal operations)
+await scanner.seed([
+  { id: 1, name: 'Alice', tenant_id: 'tenant-1' },
+  { id: 2, name: 'Bob', tenant_id: 'tenant-1' },
+])
+
+// Execute query with parameterized values (safe from SQL injection)
+const result = await scanner.execute(
+  'SELECT * FROM users WHERE tenant_id = ?',
+  ['tenant-1']
+)
+
+// Paginated query with cursor
+const page1 = await scanner.executeWithCursor('SELECT * FROM users', undefined, 10)
+if (page1.cursor) {
+  const page2 = await scanner.executeWithCursor('SELECT * FROM users', page1.cursor, 10)
+}
+```
+
+<Callout type="warn">
+Cursors have a default TTL of 60 seconds. Long-running pagination operations should complete within this window or use a custom `cursorTtlMs` option.
+</Callout>
+
+## Subrequest Budget
+
+Cloudflare limits subrequests per request. The coordinator automatically batches scanner calls:
+
+```typescript
+import { SubrequestBudget } from 'dotdo/fanout'
+
+const budget = new SubrequestBudget(50) // Workers limit
+
+// Automatically batches 128 scanners into 3 rounds of 50
+const result = await coordinator.queryWithBudget('SELECT * FROM users', budget)
+
+console.log(budget.used) // 128 total subrequests across 3 rounds
+```
+
+<Callout type="warn">
+The coordinator enforces a maximum of 3 batches. If your scanner count would require more batches, the query throws an error. For larger fan-outs, use a coordinator DO with its 1000-subrequest limit.
+</Callout>
+
+See [Subrequest Budget](/docs/fanout/budget) for details on Workers vs DO limits.
+
+## Next Steps
+
+- [QueryCoordinator](/docs/fanout/coordinator) - Query dispatch and aggregation
+- [Consistent Hashing](/docs/fanout/hashing) - Key-to-node mapping
+- [Merge Strategies](/docs/fanout/merging) - Union, intersect, sort, limit
+- [Subrequest Budget](/docs/fanout/budget) - Cloudflare limits (50/1000)

@@ -1,0 +1,394 @@
+---
+title: CLI Commands
+description: Reference for dotdo CLI commands and Wrangler operations
+---
+
+# CLI Commands
+
+dotdo uses Wrangler CLI for development, testing, and deployment. This page documents all commands and their options.
+
+> **First time setup?** See [Installation](/getting-started/installation) for prerequisites and initial configuration.
+
+## Development
+
+### Start Development Server
+
+```bash
+npm run dev
+```
+
+Or directly with Wrangler:
+
+```bash
+wrangler dev
+```
+
+Options:
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--local` | Run locally without remote resources | `wrangler dev --local` |
+| `--port` | Set the server port | `wrangler dev --port 8080` |
+| `--ip` | Bind to specific IP | `wrangler dev --ip 0.0.0.0` |
+| `--persist-to` | Persist DO state to directory | `wrangler dev --persist-to .wrangler/state` |
+| `--env` | Use specific environment | `wrangler dev --env staging` |
+
+### Local Development with Persistence
+
+To preserve DO state between restarts:
+
+```bash
+wrangler dev --persist-to .wrangler/state
+```
+
+This creates a local SQLite database at `.wrangler/state/` that persists your DO data.
+
+## Testing
+
+### Run All Tests
+
+```bash
+npm test
+```
+
+Or directly with Vitest:
+
+```bash
+npx vitest
+```
+
+### Run Tests Once (CI Mode)
+
+```bash
+npm run test:run
+```
+
+Or:
+
+```bash
+npx vitest run
+```
+
+### Run Specific Test File
+
+```bash
+npx vitest run path/to/test.ts
+```
+
+### Run Tests by Project
+
+dotdo uses Vitest workspaces for different test environments:
+
+```bash
+# Run DO tests (real miniflare runtime)
+npx vitest --project=objects
+
+# Run worker tests
+npx vitest --project=workers
+
+# Run unit tests
+npx vitest --project=unit
+```
+
+### Watch Mode
+
+```bash
+npx vitest
+```
+
+Press `a` to run all tests, `f` to run only failed tests, `q` to quit.
+
+### Test Coverage
+
+```bash
+npx vitest run --coverage
+```
+
+## Type Checking
+
+### Check Types
+
+```bash
+npm run typecheck
+```
+
+Or directly:
+
+```bash
+tsc --noEmit
+```
+
+This runs TypeScript compiler without emitting files, checking for type errors.
+
+## Deployment
+
+### Deploy to Production
+
+```bash
+npm run deploy
+```
+
+Or directly:
+
+```bash
+wrangler deploy
+```
+
+### Deploy to Specific Environment
+
+```bash
+# Deploy to staging
+wrangler deploy --env staging
+
+# Deploy to development
+wrangler deploy --env development
+```
+
+### Deploy Static Assets
+
+If you have a static site build:
+
+```bash
+npm run build:static
+npm run deploy:static
+```
+
+Or:
+
+```bash
+vite build --config vite.static.config.ts
+wrangler deploy --config wrangler.static.jsonc
+```
+
+## Secrets Management
+
+### Set a Secret
+
+```bash
+wrangler secret put SECRET_NAME
+```
+
+You'll be prompted to enter the secret value.
+
+### Set Secret from Stdin
+
+```bash
+echo "secret-value" | wrangler secret put SECRET_NAME
+```
+
+### List Secrets
+
+```bash
+wrangler secret list
+```
+
+### Delete a Secret
+
+```bash
+wrangler secret delete SECRET_NAME
+```
+
+## KV Namespace Operations
+
+### Create KV Namespace
+
+```bash
+wrangler kv:namespace create "NAMESPACE_NAME"
+```
+
+### List KV Namespaces
+
+```bash
+wrangler kv:namespace list
+```
+
+### Put a Value
+
+```bash
+wrangler kv:key put --binding=NAMESPACE_NAME "key" "value"
+```
+
+### Get a Value
+
+```bash
+wrangler kv:key get --binding=NAMESPACE_NAME "key"
+```
+
+### Delete a Key
+
+```bash
+wrangler kv:key delete --binding=NAMESPACE_NAME "key"
+```
+
+### List Keys
+
+```bash
+wrangler kv:key list --binding=NAMESPACE_NAME
+```
+
+## R2 Bucket Operations
+
+### Create R2 Bucket
+
+```bash
+wrangler r2 bucket create bucket-name
+```
+
+### List R2 Buckets
+
+```bash
+wrangler r2 bucket list
+```
+
+### Upload Object
+
+```bash
+wrangler r2 object put bucket-name/path/to/object --file=./local/file.txt
+```
+
+### Download Object
+
+```bash
+wrangler r2 object get bucket-name/path/to/object
+```
+
+### Delete Object
+
+```bash
+wrangler r2 object delete bucket-name/path/to/object
+```
+
+## Durable Object Operations
+
+### Tail DO Logs
+
+```bash
+wrangler tail --format=pretty
+```
+
+This streams live logs from your deployed worker, including DO operations.
+
+### List DO Namespaces
+
+Durable Object namespaces are defined in `wrangler.toml` and automatically created on deployment.
+
+## Debugging
+
+### View Worker Logs
+
+```bash
+wrangler tail
+```
+
+Options:
+
+| Flag | Description |
+|------|-------------|
+| `--format=pretty` | Human-readable output |
+| `--format=json` | JSON output for parsing |
+| `--status=error` | Filter to errors only |
+| `--search="pattern"` | Filter logs by pattern |
+
+### Debug Local Development
+
+Enable verbose logging:
+
+```bash
+wrangler dev --local --log-level=debug
+```
+
+## Process Management
+
+### Kill Orphan Processes
+
+Vitest/Vite can leave orphan processes. To clean up:
+
+```bash
+# Kill vitest processes
+pkill -9 -f vitest
+
+# Kill vite processes
+pkill -9 -f vite
+
+# Kill wrangler processes
+pkill -9 -f wrangler
+```
+
+### Check for Running Processes
+
+```bash
+ps aux | grep -E "(vitest|vite|wrangler)"
+```
+
+## Common Workflows
+
+### Full Development Cycle
+
+```bash
+# Start fresh
+pkill -9 -f vitest 2>/dev/null || true
+
+# Run tests
+npm run test:run
+
+# Type check
+npm run typecheck
+
+# Start dev server
+npm run dev
+```
+
+### Pre-Deployment Checklist
+
+```bash
+# Run all checks
+npm run test:run && npm run typecheck
+
+# Deploy if checks pass
+npm run deploy
+```
+
+### CI Pipeline Commands
+
+```bash
+# Install dependencies
+npm ci
+
+# Run tests in CI mode
+npm run test:run
+
+# Type check
+npm run typecheck
+
+# Deploy (with CI token)
+wrangler deploy
+```
+
+## Environment Variables in CLI
+
+### Set Environment Variable for Command
+
+```bash
+ENVIRONMENT=staging npm run dev
+```
+
+### Use .env Files
+
+Create a `.env` file for local development:
+
+```bash
+# Load env and run
+source .env && wrangler dev
+```
+
+Or use a tool like `dotenv-cli`:
+
+```bash
+npx dotenv-cli -e .env -- wrangler dev
+```
+
+## Related Documentation
+
+- [Configuration Reference](/reference/configuration) - Wrangler.toml options
+- [Environment Variables](/reference/environment) - Secrets and bindings
+- [Troubleshooting](/reference/troubleshooting) - Common issues and solutions

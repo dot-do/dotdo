@@ -1,0 +1,340 @@
+---
+title: Routing
+description: URL routing patterns for namespace, type, and ID extraction in multi-tenant applications
+---
+
+# Routing
+
+The routing module extracts namespace (tenant), resource type, and ID from incoming request URLs. It supports three patterns for multi-tenant deployments.
+
+## Routing Patterns Comparison
+
+| Pattern | URL Format | Best For | Tradeoffs |
+|---------|-----------|----------|-----------|
+| **Subdomain** | `tenant.api.dotdo.dev/customers/123` | Enterprise SaaS, branded subdomains | Requires wildcard DNS, more complex SSL |
+| **Path** | `api.dotdo.dev/tenant/customers/123` | Simple multi-tenancy, internal APIs | Simpler setup, no DNS changes needed |
+| **Path-Base** | `api.dotdo.dev/v1/tenant/customers/123` | Versioned APIs, API gateways | Supports API versioning, clean URLs |
+
+## Route Info Structure
+
+All routing functions return a `RouteInfo` object:
+
+```typescript
+interface RouteInfo {
+  ns: string           // Namespace (tenant)
+  type?: string        // Resource type (e.g., 'customers')
+  id?: string          // Resource ID (e.g., '123')
+  remainingPath: string // Path after extraction
+}
+```
+
+## Subdomain Routing
+
+Extract namespace from the subdomain:
+
+```typescript
+import { parseSubdomainRoute } from 'dotdo/workers'
+
+// Request: https://acme.api.dotdo.dev/customers/123
+const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+
+// Result:
+// {
+//   ns: 'acme',
+//   type: 'customers',
+//   id: '123',
+//   remainingPath: ''
+// }
+```
+
+### Subdomain Examples
+
+| URL | Result |
+|-----|--------|
+| `acme.api.dotdo.dev/` | `{ ns: 'acme', remainingPath: '/' }` |
+| `acme.api.dotdo.dev/customers` | `{ ns: 'acme', type: 'customers' }` |
+| `acme.api.dotdo.dev/customers/123` | `{ ns: 'acme', type: 'customers', id: '123' }` |
+| `acme.api.dotdo.dev/customers/123/orders` | `{ ns: 'acme', type: 'customers', id: '123', remainingPath: '/orders' }` |
+| `api.dotdo.dev/customers` | `null` (no subdomain) |
+
+### Worker with Subdomain Routing
+
+```typescript
+import { parseSubdomainRoute } from 'dotdo/workers'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+
+    if (!route) {
+      return new Response('Invalid tenant', { status: 400 })
+    }
+
+    // Route to tenant-specific DO
+    const id = env.DO.idFromName(route.ns)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+## Path Routing
+
+Extract namespace from the first path segment:
+
+```typescript
+import { parsePathRoute } from 'dotdo/workers'
+
+// Request: https://api.dotdo.dev/acme/customers/123
+const route = parsePathRoute(request.url)
+
+// Result:
+// {
+//   ns: 'acme',
+//   type: 'customers',
+//   id: '123',
+//   remainingPath: ''
+// }
+```
+
+### Path Examples
+
+| URL | Result |
+|-----|--------|
+| `api.dotdo.dev/acme` | `{ ns: 'acme' }` |
+| `api.dotdo.dev/acme/customers` | `{ ns: 'acme', type: 'customers' }` |
+| `api.dotdo.dev/acme/customers/123` | `{ ns: 'acme', type: 'customers', id: '123' }` |
+| `api.dotdo.dev/acme/customers/123/orders/456` | `{ ns: 'acme', type: 'customers', id: '123', remainingPath: '/orders/456' }` |
+| `api.dotdo.dev/` | `null` (no namespace) |
+
+### Worker with Path Routing
+
+```typescript
+import { parsePathRoute } from 'dotdo/workers'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parsePathRoute(request.url)
+
+    if (!route) {
+      return new Response('Namespace required', { status: 400 })
+    }
+
+    // Strip namespace from path before forwarding
+    const url = new URL(request.url)
+    url.pathname = url.pathname.replace(`/${route.ns}`, '') || '/'
+
+    const id = env.DO.idFromName(route.ns)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(new Request(url, request))
+  }
+}
+```
+
+## Path-Base Routing
+
+Extract namespace after stripping a base path (e.g., API version):
+
+```typescript
+import { parsePathBaseRoute } from 'dotdo/workers'
+
+// Request: https://api.dotdo.dev/v1/acme/customers/123
+const route = parsePathBaseRoute(request.url, '/v1')
+
+// Result:
+// {
+//   ns: 'acme',
+//   type: 'customers',
+//   id: '123',
+//   remainingPath: ''
+// }
+```
+
+### Path-Base Examples
+
+| URL | Base Path | Result |
+|-----|-----------|--------|
+| `api.dotdo.dev/v1/acme/customers` | `/v1` | `{ ns: 'acme', type: 'customers' }` |
+| `api.dotdo.dev/api/v2/acme/orders/123` | `/api/v2` | `{ ns: 'acme', type: 'orders', id: '123' }` |
+| `api.dotdo.dev/acme/customers` | `/v1` | `null` (no matching base) |
+| `api.dotdo.dev/v1/` | `/v1` | `null` (no namespace after base) |
+
+### Versioned API Worker
+
+```typescript
+import { parsePathBaseRoute, parsePathRoute } from 'dotdo/workers'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+
+    // Try versioned routes first
+    let route = parsePathBaseRoute(request.url, '/v2')
+    let version = 'v2'
+
+    if (!route) {
+      route = parsePathBaseRoute(request.url, '/v1')
+      version = 'v1'
+    }
+
+    // Fall back to unversioned
+    if (!route) {
+      route = parsePathRoute(request.url)
+      version = 'latest'
+    }
+
+    if (!route) {
+      return new Response('Invalid route', { status: 400 })
+    }
+
+    const id = env.DO.idFromName(route.ns)
+    const stub = env.DO.get(id)
+
+    // Forward with version header
+    const headers = new Headers(request.headers)
+    headers.set('X-API-Version', version)
+
+    return stub.fetch(new Request(request, { headers }))
+  }
+}
+```
+
+## Type-Based Routing
+
+Route different resource types to different DOs:
+
+```typescript
+import { parseSubdomainRoute } from 'dotdo/workers'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+
+    if (!route) {
+      return new Response('Invalid route', { status: 400 })
+    }
+
+    // Route to type-specific DO
+    const doKey = route.type
+      ? `${route.ns}:${route.type}`
+      : route.ns
+
+    const id = env.DO.idFromName(doKey)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+## Combining with Sharding
+
+Use routing to feed into the sharding layer:
+
+```typescript
+import { parseSubdomainRoute, createHashRing, hashKey } from 'dotdo/workers'
+
+// Initialize ring once at module level for performance
+const SHARD_COUNT = 16
+const ring = createHashRing({ shardCount: SHARD_COUNT, virtualNodes: 150 })
+for (let i = 0; i < SHARD_COUNT; i++) {
+  ring.addNode(`shard-${i}`)
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+
+    if (!route) {
+      return new Response('Invalid route', { status: 400 })
+    }
+
+    // Use consistent hashing to select shard
+    // hashKey creates composite key: 'ns:type:id'
+    const key = hashKey(route.ns, route.type || '_', route.id || '_')
+    const shard = ring.getNode(key)
+
+    const id = env.DO.idFromName(shard)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+## Query Parameters
+
+Query parameters are preserved in `remainingPath` for routes without deep paths:
+
+```typescript
+// Request: https://acme.api.dotdo.dev/customers?limit=10&offset=0
+const route = parseSubdomainRoute(url, 'api.dotdo.dev')
+
+// Result:
+// {
+//   ns: 'acme',
+//   type: 'customers',
+//   remainingPath: '?limit=10&offset=0'
+// }
+```
+
+## Error Handling
+
+All parsing functions return `null` for invalid routes. Internally, invalid URLs are caught and logged:
+
+```typescript
+import { parseSubdomainRoute } from 'dotdo/workers'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+
+    // Handle invalid routes (no subdomain, apex domain, or invalid URL)
+    if (!route) {
+      return new Response(JSON.stringify({
+        error: 'Invalid route',
+        message: 'Request must include a valid subdomain',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Handle missing required segments
+    if (!route.type) {
+      return new Response(JSON.stringify({
+        error: 'Resource type required',
+        message: 'URL must include resource type: /customers, /orders, etc.',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Continue with valid route
+    const id = env.DO.idFromName(route.ns)
+    const stub = env.DO.get(id)
+    return stub.fetch(request)
+  }
+}
+```
+
+### Invalid Route Cases
+
+Routes return `null` in these situations:
+
+| Pattern | Invalid Case | Example |
+|---------|--------------|---------|
+| Subdomain | No subdomain (apex domain) | `api.dotdo.dev/customers` |
+| Subdomain | Hostname doesn't match root domain | `acme.other.com/customers` |
+| Path | Empty path | `api.dotdo.dev/` |
+| Path-Base | Base path doesn't match | `api.dotdo.dev/acme/customers` (expected `/v1`) |
+| Path-Base | Nothing after base path | `api.dotdo.dev/v1/` |
+
+## Next Steps
+
+- [Sharding](/workers/sharding) - Distribute load with consistent hashing
+- [Replication](/workers/replication) - Scale reads with replicas
+- [Presets](/workers/presets) - Pre-configured routing patterns

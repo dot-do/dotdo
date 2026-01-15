@@ -1,0 +1,10 @@
+{
+  "title": "Core",
+  "pages": [
+    "index",
+    "state",
+    "routing",
+    "websockets",
+    "lifecycle"
+  ]
+}

@@ -83,9 +83,9 @@ export class CompletionEngine {
 declare const $: DotdoContext;
 
 /**
- * Standard CRUD methods available on all nouns
+ * Base CRUD methods available on all nouns
  */
-interface NounProxy<T = Thing> {
+interface NounMethods<T = Thing> {
   /** Get entity by ID */
   get(id: string): Promise<T>;
   /** List all entities */
@@ -100,8 +100,27 @@ interface NounProxy<T = Thing> {
   query(filter: Record<string, unknown>): Promise<T[]>;
   /** Count entities */
   count(): Promise<number>;
+}
+
+/**
+ * Time travel callable interface - enables Noun@'timestamp' syntax
+ * @example Customer@'2024-01-01'.get('c-123')
+ * @example Customer@'-1h'.list()
+ */
+interface TimeTravelProxy<T = Thing> {
+  /** Time travel to a specific point - supports ISO dates, relative time (-1h, -7d), versions (v1234, ~1) */
+  (timestamp: VersionRef): NounProxy<T>;
+}
+
+/**
+ * Standard CRUD methods available on all nouns with time travel support
+ * Combines base methods with time travel callable syntax
+ */
+interface NounProxy<T = Thing> extends NounMethods<T>, TimeTravelProxy<T> {
+  /** Index signature for @ time travel syntax - Customer['@2024-01-01'] returns NounProxy */
+  [K: \`@\${string}\`]: NounProxy<T>;
   /** Index signature for other dynamic methods */
-  [method: string]: (...args: unknown[]) => Promise<unknown>;
+  [method: string]: ((...args: unknown[]) => Promise<unknown>) | NounProxy<T>;
 }
 
 /**
@@ -221,7 +240,7 @@ declare const console: {
     // Initialize flat namespace globals (utilities + nouns from RPC types)
     this.updateGlobalNamespace(rpcTypeDefinitions)
 
-    // Initialize the REPL file
+    // Initialize the REPL file (content will be prepended with module header in updateReplContent)
     this.files.set('/repl.ts', { content: '', version: 1 })
   }
 
@@ -354,12 +373,18 @@ declare const Account: typeof $.Account;
     return ts.createLanguageService(host, ts.createDocumentRegistry())
   }
 
+  /** Module header to enable top-level await in REPL */
+  private static readonly MODULE_HEADER = 'export {};\n'
+  /** Length of module header for cursor position adjustment */
+  private static readonly MODULE_HEADER_LENGTH = CompletionEngine.MODULE_HEADER.length
+
   /**
    * Update the REPL content and get completions at cursor position
    */
   updateReplContent(content: string): void {
     const file = this.files.get('/repl.ts')!
-    file.content = content
+    // Prepend module header to enable top-level await
+    file.content = CompletionEngine.MODULE_HEADER + content
     file.version++
   }
 
@@ -396,16 +421,70 @@ declare const Account: typeof $.Account;
   }
 
   /**
+   * Transform time travel @ syntax into valid TypeScript
+   * Converts: Customer@'2024-01-01' -> Customer('2024-01-01')
+   * Converts: $.Customer@'-1h' -> $.Customer('-1h')
+   * Returns the transformed content and adjusted cursor position
+   */
+  private transformTimeTravelSyntax(content: string, cursorPosition: number): { content: string; cursorPosition: number } {
+    // Pattern matches Identifier@'string' or Identifier@"string"
+    // Group 1: everything before the @
+    // Group 2: the @ symbol
+    // Group 3: the quoted string
+    const pattern = /([A-Z][a-zA-Z0-9]*|\$\.[A-Z][a-zA-Z0-9]*)@('[^']*'|"[^"]*")/g
+
+    let transformed = content
+    let offset = 0
+
+    let match
+    while ((match = pattern.exec(content)) !== null) {
+      const fullMatch = match[0]
+      const identifier = match[1]
+      const timestamp = match[2]
+      const matchStart = match.index
+
+      // Replace Identifier@'timestamp' with Identifier('timestamp')
+      const replacement = `${identifier}(${timestamp})`
+
+      // Apply the replacement
+      const before = transformed.slice(0, matchStart + offset)
+      const after = transformed.slice(matchStart + offset + fullMatch.length)
+      transformed = before + replacement + after
+
+      // Adjust cursor position if it's after the replacement point
+      // The @ is removed, so length difference is 1 (we add '(' and ')' but remove '@')
+      const lengthDiff = replacement.length - fullMatch.length
+      if (cursorPosition > matchStart + fullMatch.length) {
+        cursorPosition += lengthDiff
+      } else if (cursorPosition > matchStart && cursorPosition <= matchStart + fullMatch.length) {
+        // Cursor is within the match, adjust relative position
+        cursorPosition += lengthDiff
+      }
+
+      offset += lengthDiff
+    }
+
+    return { content: transformed, cursorPosition }
+  }
+
+  /**
    * Get completions at a specific position in the REPL
    */
   getCompletions(content: string, cursorPosition: number): CompletionItem[] {
-    // Update REPL content
-    this.updateReplContent(content)
+    // Transform time travel @ syntax to valid TypeScript
+    const { content: transformedContent, cursorPosition: transformedPosition } =
+      this.transformTimeTravelSyntax(content, cursorPosition)
+
+    // Update REPL content with transformed code
+    this.updateReplContent(transformedContent)
+
+    // Adjust cursor position for module header offset
+    const adjustedPosition = transformedPosition + CompletionEngine.MODULE_HEADER_LENGTH
 
     // Get completions from language service
     const completions = this.languageService.getCompletionsAtPosition(
       '/repl.ts',
-      cursorPosition,
+      adjustedPosition,
       {
         includeCompletionsForModuleExports: true,
         includeCompletionsWithInsertText: true,
@@ -421,7 +500,7 @@ declare const Account: typeof $.Account;
     return completions.entries.map((entry) => {
       const details = this.languageService.getCompletionEntryDetails(
         '/repl.ts',
-        cursorPosition,
+        adjustedPosition,
         entry.name,
         undefined,
         undefined,
@@ -462,7 +541,10 @@ declare const Account: typeof $.Account;
   getQuickInfo(content: string, cursorPosition: number): string | undefined {
     this.updateReplContent(content)
 
-    const info = this.languageService.getQuickInfoAtPosition('/repl.ts', cursorPosition)
+    // Adjust cursor position for module header offset
+    const adjustedPosition = cursorPosition + CompletionEngine.MODULE_HEADER_LENGTH
+
+    const info = this.languageService.getQuickInfoAtPosition('/repl.ts', adjustedPosition)
     if (!info) return undefined
 
     const displayString = ts.displayPartsToString(info.displayParts)
@@ -475,7 +557,10 @@ declare const Account: typeof $.Account;
    * Get diagnostics for the current content
    */
   getDiagnostics(content: string): ts.Diagnostic[] {
-    this.updateReplContent(content)
+    // Transform time travel @ syntax to valid TypeScript
+    const { content: transformedContent } = this.transformTimeTravelSyntax(content, 0)
+
+    this.updateReplContent(transformedContent)
 
     const syntactic = this.languageService.getSyntacticDiagnostics('/repl.ts')
     const semantic = this.languageService.getSemanticDiagnostics('/repl.ts')
@@ -488,7 +573,11 @@ declare const Account: typeof $.Account;
    */
   getSignatureHelp(content: string, cursorPosition: number): ts.SignatureHelpItems | undefined {
     this.updateReplContent(content)
-    return this.languageService.getSignatureHelpItems('/repl.ts', cursorPosition, undefined)
+
+    // Adjust cursor position for module header offset
+    const adjustedPosition = cursorPosition + CompletionEngine.MODULE_HEADER_LENGTH
+
+    return this.languageService.getSignatureHelpItems('/repl.ts', adjustedPosition, undefined)
   }
 
   /**

@@ -1,0 +1,12 @@
+{
+  "title": "Streaming",
+  "description": "Real-time streaming infrastructure for WebSockets, SSE, and pub/sub",
+  "pages": [
+    "index",
+    "websocket-hub",
+    "sse",
+    "backpressure",
+    "rate-limiting",
+    "pub-sub"
+  ]
+}

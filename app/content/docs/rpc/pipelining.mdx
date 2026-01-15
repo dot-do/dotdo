@@ -1,0 +1,390 @@
+---
+title: Promise Pipelining
+description: Chain RPC calls without intermediate round-trips for efficient network usage
+---
+
+# Promise Pipelining
+
+Promise pipelining allows you to chain multiple RPC calls into a single network request, eliminating the latency of intermediate round-trips. This is especially valuable when working with remote Durable Objects across Cloudflare's global network.
+
+## The Problem: Sequential Round-trips
+
+Without pipelining, each RPC call requires a full network round-trip:
+
+```typescript
+// WITHOUT pipelining: 2 network round-trips
+const orders = await customer.getOrders()           // Round-trip 1
+const filtered = orders.filter(o => o.total > 100)  // Local
+const ids = filtered.map(o => o.id)                 // Local
+await customer.notify(`Processed ${ids.length}`)    // Round-trip 2
+```
+
+If each round-trip takes 50ms, this sequence takes at least 100ms of network time, plus any additional latency from Cloudflare's global network.
+
+## The Solution: Promise Pipelining
+
+With pipelining, chain operations execute in a **single request**:
+
+```typescript
+import { pipeline } from 'dotdo/rpc'
+
+// WITH pipelining: 1 network round-trip
+const result = await pipeline(customer)
+  .then('getOrders')
+  .then('filter', (o) => o.total > 100)
+  .then('map', (o) => o.id)
+  .execute()
+```
+
+The entire chain is sent as a single request, with all operations executed server-side.
+
+## Creating Pipelines
+
+Use the `pipeline()` function to create a pipeline builder:
+
+```typescript
+import { pipeline, createRPCClient } from 'dotdo/rpc'
+
+const customer = createRPCClient<CustomerDO>({
+  target: 'https://customer.api.dotdo.dev/cust-123',
+})
+
+const builder = pipeline(customer)
+```
+
+### Chaining Methods
+
+Use `.then()` to chain method calls:
+
+```typescript
+const builder = pipeline(customer)
+  .then('getOrders')              // Call getOrders()
+  .then('notify', 'Order ready')  // Then call notify('Order ready')
+```
+
+Each `.then()` takes a method name and optional arguments.
+
+### Executing the Pipeline
+
+Use `.execute()` to run the pipeline and get the final result:
+
+```typescript
+const result = await pipeline(customer)
+  .then('getOrders')
+  .then('filter', (o) => o.total > 100)
+  .execute()
+
+console.log(result)  // Filtered orders array
+```
+
+## Pipeline Operations
+
+### Method Calls
+
+Call any method on the target:
+
+```typescript
+await pipeline(customer)
+  .then('charge', 99.99)
+  .execute()
+```
+
+### Array Operations
+
+Apply transformations to array results. These operations are detected by name and applied locally to the result:
+
+```typescript
+const orderIds = await pipeline(customer)
+  .then('getOrders')
+  .then('filter', (order) => order.status === 'pending')
+  .then('map', (order) => order.id)
+  .execute()
+```
+
+Supported array operations:
+- `filter` - Filter elements by predicate function
+- `map` - Transform elements with mapping function
+
+### Conditional Branching
+
+Use `branch` for conditional logic within pipelines:
+
+```typescript
+const result = await pipeline(customer)
+  .then('getOrders')
+  .then('branch', {
+    condition: (orders) => orders.length > 0,
+    ifTrue: (orders) => orders[0],      // Return first order
+    ifFalse: () => null,                 // Return null if empty
+  })
+  .execute()
+```
+
+<Callout type="info">
+Pipeline operations like `filter`, `map`, and `branch` are executed locally on the result of the previous step. Only actual method calls on the target object result in RPC invocations.
+</Callout>
+
+## Inspecting Pipelines
+
+### The Execution Plan
+
+Use `.plan()` to inspect what will be executed:
+
+```typescript
+const builder = pipeline(customer)
+  .then('getOrders')
+  .then('filter', (o) => o.total > 100)
+  .then('notify', 'Processed!')
+
+const plan = builder.plan()
+console.log(plan)
+// [
+//   { method: 'getOrders', args: [], index: 0 },
+//   { method: 'filter', args: [Function], index: 1 },
+//   { method: 'notify', args: ['Processed!'], index: 2 }
+// ]
+```
+
+This is useful for:
+- Debugging pipeline construction
+- Logging and monitoring
+- Testing pipeline structure
+
+### PipelineStep Structure
+
+Each step in the plan has:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `method` | `string` | Method name to call |
+| `args` | `unknown[]` | Arguments for the method |
+| `index` | `number` | Position in the pipeline (0-based) |
+
+## Error Handling
+
+### Pipeline Errors
+
+Errors include context about where the failure occurred:
+
+```typescript
+import { RPCError } from 'dotdo/rpc'
+
+try {
+  await pipeline(customer)
+    .then('getOrders')
+    .then('invalidMethod')  // This will fail
+    .execute()
+} catch (error) {
+  if (error instanceof RPCError) {
+    console.error(error.message)
+    // "Pipeline step 1 failed: method 'invalidMethod()' is invalid or failed (after 1 successful steps)"
+    console.error(error.method)  // 'invalidMethod'
+    console.error(error.target)  // Target URL
+  }
+}
+```
+
+### Partial Results
+
+On failure, you can access results from completed steps:
+
+```typescript
+try {
+  await pipeline(customer)
+    .then('getOrders')      // Step 0: succeeds
+    .then('failingMethod')  // Step 1: fails
+    .execute()
+} catch (error) {
+  if (error instanceof RPCError && error.partialResults) {
+    console.log('Completed steps:', error.partialResults.length)
+    console.log('Orders from step 0:', error.partialResults[0])
+  }
+}
+```
+
+The `partialResults` array contains results from all steps that completed before the failure.
+
+### RPCError Properties
+
+Pipeline errors include full RPC context:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Always `'RPCError'` |
+| `message` | `string` | Error description with step context |
+| `code` | `string` | Error code (`'RPC_ERROR'`) |
+| `method` | `string` | Method that failed |
+| `target` | `string` | Target URL or stub identifier |
+| `partialResults` | `unknown[]` | Results from completed steps |
+| `stack` | `string` | Stack trace (inherited from Error) |
+
+## Nested Pipelines
+
+Pipelines can be nested for complex operations:
+
+```typescript
+const result = await pipeline(customer)
+  .then('getOrders')
+  .then('map', async (order) =>
+    pipeline(order)
+      .then('items')
+      .execute()
+  )
+  .execute()
+
+// Note: map returns promises, so result is Promise<Items>[]
+// Use Promise.all if needed:
+const resolved = await Promise.all(result)
+```
+
+<Callout type="info">
+Nested pipelines are resolved recursively. Each nested pipeline may result in additional network calls depending on the data locality. The outer pipeline does not automatically await nested pipeline results - use `Promise.all()` if you need to wait for all nested operations.
+</Callout>
+
+## Streaming Support
+
+For methods that return async iterables, the RPC client handles streaming automatically:
+
+```typescript
+// Methods starting with 'stream' return async iterables
+for await (const order of customer.streamOrders()) {
+  console.log(order.id)
+}
+```
+
+This is handled at the client level, not through pipelines. Streaming methods bypass the pipeline system since they return iterables rather than single values.
+
+<Callout type="warning">
+Streaming methods cannot be combined with pipelining. Each streaming method establishes a separate connection that yields items as they become available. Use pipelining for batch operations and streaming for real-time data feeds.
+</Callout>
+
+## Performance Characteristics
+
+### Network Efficiency
+
+| Operation | Round-trips | Notes |
+|-----------|-------------|-------|
+| Sequential calls | N | One per call |
+| Pipelined calls | 1 | All in single request |
+| Nested pipelines | 1-N | Depends on nesting depth |
+
+### When to Use Pipelining
+
+**Use pipelining when:**
+- Making multiple related calls to the same target
+- Performing filter/map operations on remote data
+- Building conditional workflows on remote state
+
+**Consider alternatives when:**
+- Making a single call
+- Calls are to different targets
+- You need intermediate results for local logic
+
+## Advanced Patterns
+
+### Pipeline with Capabilities
+
+Combine pipelining with capability-based access:
+
+```typescript
+const readCap = createCapability(customer, ['getOrders'])
+
+const result = await pipeline(readCap)
+  .then('getOrders')
+  .then('filter', (o) => o.total > 100)
+  .execute()
+```
+
+### Conditional Notification Pattern
+
+```typescript
+const summary = await pipeline(customer)
+  .then('getOrders')
+  .then('filter', (o) => o.status === 'shipped')
+  .then('branch', {
+    condition: (orders) => orders.length > 5,
+    ifTrue: () => 'Many orders shipped!',
+    ifFalse: (orders) => `${orders.length} orders shipped`,
+  })
+  .execute()
+
+// Use the summary for notification
+await customer.notify(summary)
+```
+
+### Aggregation Pipeline
+
+```typescript
+const stats = await pipeline(customer)
+  .then('getOrders')
+  .then('map', (order) => ({
+    total: order.total,
+    items: order.items.length,
+  }))
+  .then('branch', {
+    condition: (mapped) => mapped.length > 0,
+    ifTrue: (mapped) => ({
+      totalRevenue: mapped.reduce((sum, o) => sum + o.total, 0),
+      totalItems: mapped.reduce((sum, o) => sum + o.items, 0),
+      count: mapped.length,
+    }),
+    ifFalse: () => ({ totalRevenue: 0, totalItems: 0, count: 0 }),
+  })
+  .execute()
+```
+
+## API Reference
+
+### `pipeline<T>(target)`
+
+Create a pipeline builder for a target.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `target` | `T` | Yes | RPC client or object to pipeline |
+
+**Returns:** `PipelineBuilder<T>`
+
+### `PipelineBuilder<T>.then(method, ...args)`
+
+Add a step to the pipeline.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `method` | `keyof T` | Yes | Method name to call |
+| `args` | `unknown[]` | No | Arguments for the method |
+
+**Returns:** `PipelineBuilder<T>`
+
+### `PipelineBuilder<T>.execute()`
+
+Execute the pipeline and return the final result.
+
+**Returns:** `Promise<T>`
+
+**Throws:** `RPCError` with `partialResults` on failure
+
+### `PipelineBuilder<T>.plan()`
+
+Get the execution plan without executing.
+
+**Returns:** `PipelineStep[]`
+
+### `PipelineStep`
+
+```typescript
+interface PipelineStep {
+  method: string
+  args: unknown[]
+  index: number
+}
+```
+
+## Next Steps
+
+- [Serialization](/rpc/serialization) - How data is encoded for transfer
+- [Capabilities](/rpc/capabilities) - Secure pipeline execution

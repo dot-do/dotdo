@@ -1,0 +1,434 @@
+---
+title: Approval Workflows
+description: Multi-level approval chains with hierarchical approvers, deadlines, priority levels, and complete audit history
+---
+
+# Approval Workflows
+
+The `ApprovalWorkflow` class manages multi-level approval chains where requests flow through a sequence of approvers. Each level must approve before advancing to the next, with full audit history and metrics tracking.
+
+## Overview
+
+```typescript
+import { ApprovalWorkflow } from 'dotdo/human'
+
+const workflow = new ApprovalWorkflow()
+
+// Create a request requiring two approvals
+const approval = await workflow.request(
+  {
+    id: 'po-2026-001',
+    type: 'purchase_order',
+    title: 'Server Hardware Upgrade',
+    description: 'New production servers for Q2',
+    amount: 25000,
+    requestedBy: 'ops@company.com',
+    requestedAt: new Date()
+  },
+  ['engineering-lead@company.com', 'cfo@company.com'],
+  { deadline: '72 hours', priority: 'high' }
+)
+```
+
+## Creating Approval Requests
+
+### Basic Request
+
+```typescript
+const approval = await workflow.request(
+  {
+    id: 'unique-id',
+    type: 'expense',
+    title: 'Business Lunch',
+    description: 'Client meeting at downtown restaurant',
+    amount: 150,
+    requestedBy: 'sales@company.com',
+    requestedAt: new Date()
+  },
+  ['manager@company.com']
+)
+```
+
+### With Deadline and Priority
+
+```typescript
+const approval = await workflow.request(
+  action,
+  ['level1@company.com', 'level2@company.com', 'level3@company.com'],
+  {
+    deadline: '24 hours',  // String duration
+    priority: 'critical'   // 'critical' | 'high' | 'normal' | 'low'
+  }
+)
+
+// Or with explicit Date
+const approval = await workflow.request(
+  action,
+  approvers,
+  {
+    deadline: new Date('2026-01-20T17:00:00Z'),
+    priority: 'high'
+  }
+)
+```
+
+### ApprovalRequest Interface
+
+```typescript
+interface ApprovalRequest {
+  id: string                        // Unique identifier
+  type: string                      // Request type (expense, purchase, etc.)
+  title: string                     // Short description
+  description: string               // Detailed description
+  amount?: number                   // Optional monetary amount
+  requestedBy: string               // Requester identifier
+  requestedAt: Date                 // Request timestamp
+  metadata?: Record<string, unknown> // Custom data
+}
+```
+
+## Approval Flow
+
+### Single-Level Approval
+
+```typescript
+const workflow = new ApprovalWorkflow()
+
+// Create request with one approver
+const request = await workflow.request(
+  {
+    id: 'req-001',
+    type: 'leave',
+    title: 'Vacation Request',
+    description: 'Annual leave Dec 23-27',
+    requestedBy: 'employee@company.com',
+    requestedAt: new Date()
+  },
+  ['manager@company.com']
+)
+
+// Approve
+const result = await workflow.approve(request.id, 'manager@company.com')
+
+console.log(result.status)      // 'approved'
+console.log(result.approvedBy)  // 'manager@company.com'
+console.log(result.approvedAt)  // Date when approved
+```
+
+### Multi-Level Approval Chain
+
+```typescript
+// Three-level approval for high-value purchases
+const request = await workflow.request(
+  {
+    id: 'po-001',
+    type: 'purchase',
+    title: 'Annual Software Licenses',
+    description: 'Enterprise license renewal',
+    amount: 50000,
+    requestedBy: 'it@company.com',
+    requestedAt: new Date()
+  },
+  [
+    'it-manager@company.com',      // Level 0
+    'finance@company.com',         // Level 1
+    'ceo@company.com'              // Level 2
+  ],
+  { priority: 'high' }
+)
+
+// Level 0: IT Manager approves
+let result = await workflow.approve(request.id, 'it-manager@company.com')
+console.log(result.status)          // 'approved_at_level'
+console.log(result.currentLevel)    // 1
+console.log(result.currentApprover) // 'finance@company.com'
+
+// Level 1: Finance approves
+result = await workflow.approve(request.id, 'finance@company.com')
+console.log(result.status)          // 'approved_at_level'
+console.log(result.currentLevel)    // 2
+console.log(result.currentApprover) // 'ceo@company.com'
+
+// Level 2: CEO approves (final)
+result = await workflow.approve(request.id, 'ceo@company.com')
+console.log(result.status)          // 'approved'
+console.log(result.completedAt)     // Final completion timestamp
+```
+
+### Approval with Comments
+
+```typescript
+await workflow.approve(
+  request.id,
+  'manager@company.com',
+  { comment: 'Approved - within budget guidelines' }
+)
+```
+
+## Rejecting Requests
+
+Any authorized approver can reject at their level:
+
+```typescript
+const result = await workflow.reject(
+  request.id,
+  'finance@company.com',
+  'Budget exceeded for this quarter'  // Reason required
+)
+
+console.log(result.status)           // 'rejected'
+console.log(result.rejectedBy)       // 'finance@company.com'
+console.log(result.rejectedAt)       // Rejection timestamp
+console.log(result.rejectionReason)  // 'Budget exceeded...'
+```
+
+<Callout type="info">
+**Rejection Rules**
+
+1. **Reason required**: All rejections must include a reason
+2. **Level authority**: Only the current approver or any previous approver can reject
+3. **Final state**: Rejected requests cannot be modified
+</Callout>
+
+```typescript
+// Invalid: rejection without reason
+try {
+  await workflow.reject(request.id, approver, '')
+} catch (error) {
+  console.log(error.message)  // 'Rejection reason is required'
+}
+
+// Invalid: unauthorized approver
+try {
+  await workflow.reject(request.id, 'random@company.com', 'reason')
+} catch (error) {
+  console.log(error.message)  // 'Not authorized to reject'
+}
+```
+
+## Retrieving Requests
+
+```typescript
+const request = await workflow.get(requestId)
+
+// Check current state
+console.log(request.status)          // 'pending' | 'approved' | 'rejected'
+console.log(request.currentApprover) // Who needs to approve next
+console.log(request.currentLevel)    // Current approval level (0-indexed)
+console.log(request.approvers)       // Full list of approvers
+```
+
+## Audit History
+
+Every action is recorded in the history array:
+
+```typescript
+const request = await workflow.get(requestId)
+
+for (const entry of request.history) {
+  console.log(`${entry.action} by ${entry.by} at ${entry.at}`)
+  if (entry.reason) {
+    console.log(`  Reason: ${entry.reason}`)
+  }
+}
+
+// Example output:
+// approved by manager@company.com at 2026-01-15T10:00:00Z
+// approved by finance@company.com at 2026-01-15T14:30:00Z
+// rejected by ceo@company.com at 2026-01-15T16:00:00Z
+//   Reason: Defer to next quarter
+```
+
+## Metrics
+
+Completed requests include timing metrics:
+
+```typescript
+const result = await workflow.approve(request.id, finalApprover)
+
+console.log(result.metrics)
+// {
+//   totalApprovalTime: 86400000,  // Total time in ms (24 hours)
+//   timePerLevel: [
+//     7200000,   // Level 0: 2 hours
+//     14400000,  // Level 1: 4 hours
+//     64800000   // Level 2: 18 hours
+//   ]
+// }
+```
+
+## Response Interface
+
+```typescript
+interface ApprovalResponse {
+  id: string
+  status: 'pending' | 'approved' | 'approved_at_level' | 'rejected'
+  action: ApprovalRequest
+  approvers: string[]
+  currentApprover?: string
+  currentLevel?: number
+  createdAt: Date
+  deadline?: Date
+  priority?: Priority
+  approvedBy?: string
+  approvedAt?: Date
+  rejectedBy?: string
+  rejectedAt?: Date
+  rejectionReason?: string
+  completedAt?: Date
+  comment?: string
+  history?: Array<{
+    action: string
+    by: string
+    at: Date
+    reason?: string
+  }>
+  metrics?: {
+    totalApprovalTime?: number
+    timePerLevel?: number[]
+  }
+}
+```
+
+## Common Patterns
+
+### Amount-Based Approval Routing
+
+```typescript
+function getApproversForAmount(amount: number): string[] {
+  if (amount < 500) {
+    return ['manager@company.com']
+  } else if (amount < 5000) {
+    return ['manager@company.com', 'finance@company.com']
+  } else if (amount < 50000) {
+    return ['manager@company.com', 'finance@company.com', 'cfo@company.com']
+  } else {
+    return ['manager@company.com', 'finance@company.com', 'cfo@company.com', 'ceo@company.com']
+  }
+}
+
+const approval = await workflow.request(
+  expense,
+  getApproversForAmount(expense.amount),
+  { priority: expense.amount > 10000 ? 'high' : 'normal' }
+)
+```
+
+### Type-Based Routing
+
+```typescript
+const APPROVAL_CHAINS: Record<string, string[]> = {
+  expense: ['manager', 'finance'],
+  leave: ['manager', 'hr'],
+  hiring: ['manager', 'hr', 'director'],
+  contract: ['legal', 'finance', 'ceo']
+}
+
+async function routeApproval(request: ApprovalRequest) {
+  const approvers = APPROVAL_CHAINS[request.type] || ['manager']
+  return workflow.request(request, approvers)
+}
+```
+
+### Integration with Notifications
+
+```typescript
+import { NotificationDispatcher } from 'dotdo/human'
+
+const notifications = new NotificationDispatcher()
+
+async function approveWithNotification(
+  requestId: string,
+  approverId: string
+) {
+  const result = await workflow.approve(requestId, approverId)
+
+  if (result.status === 'approved_at_level') {
+    // Notify next approver
+    await notifications.notify(
+      result.currentApprover!,
+      'email',
+      {
+        subject: `Approval Required: ${result.action.title}`,
+        body: `Please review and approve: ${result.action.description}`
+      }
+    )
+  } else if (result.status === 'approved') {
+    // Notify requester of completion
+    await notifications.notify(
+      result.action.requestedBy,
+      'email',
+      {
+        subject: `Approved: ${result.action.title}`,
+        body: `Your request has been fully approved.`
+      }
+    )
+  }
+
+  return result
+}
+```
+
+## Validation
+
+The workflow validates all inputs with comprehensive error messages:
+
+```typescript
+// Required string fields must be non-empty
+await workflow.request({
+  id: '',           // Error: ApprovalRequest id is required
+  type: '',         // Error: ApprovalRequest type is required
+  title: '',        // Error: ApprovalRequest title is required
+  description: '',  // Error: ApprovalRequest description is required
+  requestedBy: '',  // Error: ApprovalRequest requestedBy is required
+  requestedAt: new Date()
+}, approvers)
+
+// At least one approver required
+await workflow.request(action, [])
+// Error: At least one approver is required
+
+// Amount must be non-negative when provided
+await workflow.request({
+  ...action,
+  amount: -100  // Error: ApprovalRequest amount must be a non-negative number
+}, approvers)
+
+// Date must be valid
+await workflow.request({
+  ...action,
+  requestedAt: new Date('invalid')  // Error: ApprovalRequest requestedAt must be a valid date
+}, approvers)
+
+// Whitespace-only strings are rejected
+await workflow.request({
+  ...action,
+  title: '   '  // Error: ApprovalRequest title is required
+}, approvers)
+```
+
+## Duration Strings
+
+Deadlines support natural language duration strings:
+
+```typescript
+// Minutes
+'15 minutes', '30 min', '5m'
+
+// Hours
+'2 hours', '4 hr', '1h'
+
+// Days
+'3 days', '1 day', '7d'
+
+// Examples
+await workflow.request(action, approvers, { deadline: '24 hours' })
+await workflow.request(action, approvers, { deadline: '2 days' })
+await workflow.request(action, approvers, { deadline: '30m' })
+```
+
+## Next Steps
+
+- [Escalation Policies](./escalation) - Add automatic escalation to approvals
+- [Review Queues](./queues) - Manage pending approvals in priority queues
+- [Notifications](./notifications) - Send approval notifications

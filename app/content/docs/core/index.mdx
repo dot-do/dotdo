@@ -1,0 +1,226 @@
+---
+title: DOCore
+description: The foundational Durable Object class providing state management, routing, WebSockets, and lifecycle hooks
+---
+
+# DOCore
+
+DOCore is the minimal foundation class for the dotdo Durable Object hierarchy. It provides the essential building blocks that all higher-level DO classes extend: state management via SQLite, Hono HTTP routing, hibernatable WebSocket support, and lifecycle hooks.
+
+## Class Hierarchy
+
+DOCore sits at the base of the dotdo class hierarchy:
+
+| Class | Capabilities |
+|-------|--------------|
+| **DOCore** | State, alarms, Hono routing, WebSockets |
+| DOSemantic | Nouns, Verbs, Things, Actions, operators |
+| DOStorage | InMemory + Pipeline + SQLite + Iceberg |
+| DOWorkflow | WorkflowContext ($), cascade, scheduling |
+| DOFull | AI, human-in-loop, fanout, streaming |
+
+Each class extends the previous, so DOFull includes all capabilities. Choose the smallest class that meets your needs.
+
+## Core Capabilities
+
+DOCore provides four fundamental capabilities:
+
+### State Management
+
+Key-value storage backed by SQLite with support for JSON values, batch operations, transactions, and range queries.
+
+```typescript
+// Via RPC (preferred for type safety)
+const stub = env.DOCore.get(id)
+
+await stub.set('user:123', { name: 'Alice', role: 'admin' })
+const user = await stub.get('user:123')
+
+// List with prefix filtering
+const users = await stub.list({ prefix: 'user:', limit: 10 })
+```
+
+[Learn more about State Management](/core/state)
+
+### HTTP Routing
+
+Hono-powered routing with middleware, path parameters, query strings, and all HTTP methods.
+
+```typescript
+// Routes are registered in createApp()
+app.get('/users/:id', (c) => {
+  const id = c.req.param('id')
+  return c.json({ userId: id })
+})
+
+// Query parameters
+app.get('/search', (c) => {
+  const q = c.req.query('q')
+  return c.json({ query: q })
+})
+```
+
+[Learn more about Routing](/core/routing)
+
+### WebSocket Connections
+
+Hibernatable WebSocket support with tagging for pub/sub patterns. Connections survive DO hibernation.
+
+```typescript
+// Accept WebSocket with tags for broadcast
+this.ctx.acceptWebSocket(server, ['room:lobby'])
+
+// Broadcast to tagged connections via RPC
+await stub.broadcast('room:lobby', { type: 'message', text: 'Hello!' })
+// Returns: { sent: 5 } - number of messages sent
+```
+
+[Learn more about WebSockets](/core/websockets)
+
+### Lifecycle Hooks
+
+Hooks for hibernation preparation, wake events, and scheduled alarms.
+
+```typescript
+// Called before hibernation (RPC method)
+async prepareHibernate(): Promise<void> {
+  await super.prepareHibernate()
+  await this.cleanupTempState()
+}
+
+// Called when alarm triggers
+async alarm(): Promise<void> {
+  await this.processScheduledWork()
+}
+```
+
+[Learn more about Lifecycle](/core/lifecycle)
+
+## RPC vs Fetch
+
+DOCore supports two access patterns:
+
+### RPC (Recommended)
+
+Direct method calls on the stub provide type safety and better performance:
+
+```typescript
+const stub = env.DOCore.get(id)
+
+// Direct method calls - type-safe
+await stub.set('key', 'value')
+const value = await stub.get('key')
+const result = stub.ping() // Returns 'pong' (synchronous)
+const sum = stub.add(2, 3) // Returns 5
+
+// Async operations
+const result = await stub.asyncOperation('input')
+// { status: 'complete', input: 'input' }
+```
+
+RPC benefits:
+- Full TypeScript type inference
+- No HTTP overhead within the same runtime
+- Simpler code with direct method calls
+- Automatic serialization/deserialization
+
+### Fetch (HTTP)
+
+Standard HTTP requests for external access or when HTTP semantics are needed:
+
+```typescript
+const stub = env.DOCore.get(id)
+
+// HTTP request through Hono router
+const response = await stub.fetch('https://do.local/users/123')
+const data = await response.json()
+// { params: { id: '123' } }
+
+// Health check
+const health = await stub.fetch('https://do.local/health')
+// { path: '/health' }
+```
+
+Fetch benefits:
+- Standard HTTP interface for external clients
+- Middleware pipeline with CORS, auth, etc.
+- REST semantics for CRUD operations
+- Compatible with any HTTP client
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { DOCore, type DOCoreEnv } from './core/DOCore'
+
+// Re-export for wrangler binding
+export { DOCore }
+
+// Worker passthrough - route by hostname
+export default {
+  async fetch(request: Request, env: DOCoreEnv): Promise<Response> {
+    const url = new URL(request.url)
+    const hostParts = url.hostname.split('.')
+    // tenant.api.dotdo.dev -> DO('tenant')
+    const ns = hostParts.length > 2 ? hostParts[0] : 'default'
+
+    const id = env.DOCore.idFromName(ns)
+    const stub = env.DOCore.get(id)
+    return stub.fetch(request)
+  }
+}
+```
+
+### Extending DOCore
+
+Create custom classes by extending DOCore:
+
+```typescript
+import { DOCore, type DOCoreEnv } from './core/DOCore'
+import type { Hono } from 'hono'
+
+export class MyDO extends DOCore {
+  protected createApp(): Hono {
+    const app = super.createApp() // Includes core routes
+
+    // Add custom routes
+    app.get('/custom', (c) => c.json({ custom: true }))
+
+    app.post('/data', async (c) => {
+      const body = await c.req.json()
+      await this.set('data', body)
+      return c.json({ saved: true }, 201)
+    })
+
+    return app
+  }
+
+  // Add custom RPC methods
+  async myMethod(input: string): Promise<string> {
+    await this.set('lastInput', input)
+    return `Processed: ${input}`
+  }
+}
+```
+
+## Environment Types
+
+DOCore uses typed environment bindings:
+
+```typescript
+export interface DOCoreEnv {
+  DOCore: DurableObjectNamespace<DOCore>
+  DOSemantic?: DurableObjectNamespace
+  DOStorage?: DurableObjectNamespace
+  DOWorkflow?: DurableObjectNamespace
+  DOFull?: DurableObjectNamespace
+}
+```
+
+## Next Steps
+
+- [State Management](/core/state) - Key-value storage with SQLite
+- [HTTP Routing](/core/routing) - Hono routes and middleware
+- [WebSockets](/core/websockets) - Real-time connections
+- [Lifecycle Hooks](/core/lifecycle) - Initialization and hibernation

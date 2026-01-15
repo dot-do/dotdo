@@ -1,0 +1,377 @@
+---
+title: Presets
+description: Ready-to-use worker configurations for common deployment patterns
+---
+
+# Presets
+
+Presets provide pre-configured worker deployment patterns for common use cases. Instead of manually wiring routing, sharding, and replication, use a preset to get started quickly.
+
+## Available Presets
+
+| Preset | Use Case | Description |
+|--------|----------|-------------|
+| `single` | Simple apps | One DO per namespace (tenant) |
+| `typed` | Type isolation | Separate DO per resource type |
+| `sharded` | High volume | Consistent hash distribution across shards |
+| `replicated` | Read heavy | Primary + read replicas |
+
+## Creating a Preset
+
+Use `createWorkerPreset` with your configuration:
+
+```typescript
+import { createWorkerPreset } from 'dotdo/workers'
+
+const worker = createWorkerPreset({
+  type: 'single', // or 'typed', 'sharded', 'replicated'
+  config: {
+    rootDomain: 'api.dotdo.dev',
+  },
+})
+
+export default {
+  fetch: worker.handleRequest,
+}
+```
+
+All presets use subdomain routing by default (`tenant.api.dotdo.dev`). The `rootDomain` config defaults to `'api.dotdo.dev'` if not specified.
+
+## Single Preset
+
+The simplest deployment - one DO per tenant:
+
+```typescript
+import { createWorkerPreset } from 'dotdo/workers'
+
+const worker = createWorkerPreset({
+  type: 'single',
+  config: {
+    rootDomain: 'api.dotdo.dev',
+  },
+})
+```
+
+### Routing Behavior
+
+| Request | DO Name |
+|---------|---------|
+| `acme.api.dotdo.dev/customers` | `acme` |
+| `acme.api.dotdo.dev/orders` | `acme` |
+| `bigco.api.dotdo.dev/products` | `bigco` |
+
+### When to Use
+
+- Small to medium applications
+- Simple multi-tenancy
+- Development and prototyping
+- When tenant data fits in one DO (~1GB SQLite limit)
+
+## Typed Preset
+
+Separate DOs for different resource types:
+
+```typescript
+import { createWorkerPreset } from 'dotdo/workers'
+
+const worker = createWorkerPreset({
+  type: 'typed',
+  config: {
+    rootDomain: 'api.dotdo.dev',
+  },
+})
+```
+
+### Routing Behavior
+
+| Request | DO Name |
+|---------|---------|
+| `acme.api.dotdo.dev/customers/123` | `acme:customers` |
+| `acme.api.dotdo.dev/orders/456` | `acme:orders` |
+| `acme.api.dotdo.dev/products` | `acme:products` |
+
+### When to Use
+
+- Different access patterns per type
+- Type-specific optimization needed
+- Isolation between resource types
+- Large datasets split by type
+
+## Sharded Preset
+
+Distribute data across multiple DOs using consistent hashing:
+
+```typescript
+import { createShardedWorker } from 'dotdo/workers'
+
+// Convenience function
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
+
+// Or using createWorkerPreset for more control
+const worker = createWorkerPreset({
+  type: 'sharded',
+  config: {
+    rootDomain: 'api.dotdo.dev',
+    shardCount: 16,
+    virtualNodes: 150, // Default: 150 for even distribution
+  },
+})
+```
+
+Internally, the sharded preset:
+1. Creates a hash ring with the configured shard count
+2. Initializes nodes named `shard-0` through `shard-{N-1}`
+3. Uses `hashKey(ns, type || '_', id || '_')` to create composite keys
+4. Routes via consistent hash to the appropriate shard
+
+### Routing Behavior
+
+| Request | Shard Selection |
+|---------|-----------------|
+| `acme.api.dotdo.dev/customers/123` | `hash('acme:customers:123')` -> `shard-7` |
+| `acme.api.dotdo.dev/customers/456` | `hash('acme:customers:456')` -> `shard-3` |
+| `acme.api.dotdo.dev/orders/789` | `hash('acme:orders:789')` -> `shard-12` |
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `shardCount` | Required | Number of shards |
+| `virtualNodes` | 150 | Virtual nodes per shard for distribution |
+
+### When to Use
+
+- High volume applications
+- Data exceeds single DO limits
+- Need horizontal scaling
+- Even load distribution required
+
+## Replicated Preset
+
+Primary DO with read replicas:
+
+```typescript
+import { createReplicatedWorker } from 'dotdo/workers'
+
+// Convenience function (defaults to rootDomain: 'api.dotdo.dev')
+const worker = createReplicatedWorker({
+  replicaCount: 3,
+})
+
+// Or using createWorkerPreset for more control
+const worker = createWorkerPreset({
+  type: 'replicated',
+  config: {
+    rootDomain: 'api.dotdo.dev',
+    replicaCount: 3,
+    readPreference: 'replica', // Default: 'replica'
+  },
+})
+```
+
+Internally, the replicated preset:
+1. Creates a replica router with `mode: 'primary-replica'`
+2. Detects request intent (read vs write)
+3. Routes writes to primary
+4. Routes reads to replicas with round-robin load balancing
+
+### Routing Behavior
+
+| Request | Target |
+|---------|--------|
+| `GET /customers` | Replica (round-robin) |
+| `POST /customers` | Primary |
+| `PUT /customers/123` | Primary |
+| `GET /customers?consistency=strong` | Primary |
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `replicaCount` | Required | Number of read replicas |
+| `readPreference` | `replica` | Where to route reads |
+
+### When to Use
+
+- Read-heavy workloads
+- Need read scaling
+- Can tolerate eventual consistency
+- High availability requirements
+
+## Production Preset
+
+Combine authentication, sharding, and replication.
+
+> **Note:** The production preset demonstrates the full pattern. For production deployments, customize the authentication logic and ensure you have proper replica synchronization configured.
+
+```typescript
+import { createProductionWorker } from 'dotdo/workers'
+
+const worker = createProductionWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+  replicaCount: 3,
+  authenticate: async (request) => {
+    const token = request.headers.get('Authorization')
+    if (!token?.startsWith('Bearer ')) {
+      return false
+    }
+    // Validate token (implement your auth logic)
+    return validateToken(token.slice(7))
+  },
+})
+
+export default {
+  fetch: worker.handleRequest,
+}
+```
+
+The production worker follows this pipeline:
+1. **Authenticate** - Reject unauthorized requests with 401
+2. **Parse Route** - Extract tenant from subdomain
+3. **Select Shard** - Hash `(tenant:type:id)` to determine shard
+4. **Detect Intent** - Read vs write classification
+5. **Route** - Primary for writes, replica (round-robin) for reads
+
+### Configuration Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `rootDomain` | `string` | Root domain for subdomain routing |
+| `shardCount` | `number` | Number of shards for distribution |
+| `replicaCount` | `number` | Number of read replicas per shard |
+| `authenticate` | `(req) => Promise<boolean>` | Authentication callback |
+
+## Accessing Configuration
+
+All presets expose their configuration:
+
+```typescript
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
+
+const config = worker.getConfig()
+// {
+//   type: 'sharded',
+//   rootDomain: 'api.dotdo.dev',
+//   shardCount: 16
+// }
+```
+
+## Custom Presets
+
+Build on presets for custom behavior:
+
+```typescript
+import { createWorkerPreset } from 'dotdo/workers'
+
+function createCustomWorker(options: {
+  rootDomain: string
+  shardCount: number
+  rateLimitRps: number
+}) {
+  const baseWorker = createWorkerPreset({
+    type: 'sharded',
+    config: {
+      rootDomain: options.rootDomain,
+      shardCount: options.shardCount,
+    },
+  })
+
+  const rateLimiter = new Map<string, number>()
+
+  return {
+    async handleRequest(request: Request, env: unknown): Promise<Response> {
+      // Rate limiting
+      const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown'
+      const count = rateLimiter.get(clientIp) || 0
+
+      if (count >= options.rateLimitRps) {
+        return new Response('Rate limited', { status: 429 })
+      }
+
+      rateLimiter.set(clientIp, count + 1)
+      setTimeout(() => rateLimiter.delete(clientIp), 1000)
+
+      // Delegate to base worker
+      return baseWorker.handleRequest(request, env)
+    },
+    getConfig: baseWorker.getConfig,
+  }
+}
+```
+
+## Preset Comparison
+
+| Feature | Single | Typed | Sharded | Replicated |
+|---------|--------|-------|---------|------------|
+| DO per tenant | 1 | N (by type) | N (by hash) | 1 + replicas |
+| Scaling | Vertical | Type-based | Horizontal | Read |
+| Complexity | Low | Low | Medium | Medium |
+| Best for | Simple apps | Type isolation | Volume | Read-heavy |
+
+## Migration Path
+
+Start simple and scale up:
+
+```
+Single → Typed → Sharded → Sharded + Replicated
+```
+
+### Single to Typed
+
+When you need type isolation:
+
+```typescript
+// Before
+const worker = createWorkerPreset({ type: 'single', config: {} })
+
+// After
+const worker = createWorkerPreset({ type: 'typed', config: {} })
+```
+
+### Typed to Sharded
+
+When you need horizontal scaling:
+
+```typescript
+// Before
+const worker = createWorkerPreset({ type: 'typed', config: {} })
+
+// After
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
+```
+
+### Adding Replication
+
+When reads become bottleneck:
+
+```typescript
+// Before
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
+
+// After
+const worker = createProductionWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+  replicaCount: 3,
+  authenticate: validateToken,
+})
+```
+
+## Next Steps
+
+- [Routing](/workers/routing) - URL patterns used by presets
+- [Sharding](/workers/sharding) - How sharding works internally
+- [Replication](/workers/replication) - Replica routing details

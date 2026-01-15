@@ -1,0 +1,370 @@
+---
+title: Merge Strategies
+description: Combine results from multiple scanners using union, intersect, sort, and limit operations
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Merge Strategies
+
+The `merge` module provides strategies for combining query results from multiple scanner DOs. These operations are essential for aggregating distributed query results into a single coherent result set.
+
+<Callout type="info">
+The QueryCoordinator automatically applies `merge.union()` for non-aggregate queries. Use these merge functions directly when you need custom aggregation logic.
+</Callout>
+
+## Overview
+
+| Strategy | Purpose | Use Case |
+|----------|---------|----------|
+| `union` | Combine all rows | SELECT * queries |
+| `intersect` | Rows present in ALL sources | Set intersection |
+| `sort` | Order combined results | ORDER BY queries |
+| `limit` | Take first N results | LIMIT queries |
+
+## Import
+
+```typescript
+import { merge, type QueryResult } from 'dotdo/fanout'
+```
+
+## Union
+
+Combine all rows from multiple result sets, preserving order from each source.
+
+### Basic Union
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1 }, { id: 2 }] },
+  { rows: [{ id: 3 }, { id: 4 }] },
+  { rows: [{ id: 5 }] },
+]
+
+const merged = merge.union(results)
+
+// { rows: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }] }
+```
+
+Order is preserved: source 0 rows first, then source 1, then source 2.
+
+### Deduplication
+
+Remove duplicates by a key field:
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }] },
+  { rows: [{ id: 2, name: 'Bob Updated' }, { id: 3, name: 'Charlie' }] },
+]
+
+const merged = merge.union(results, { dedupeKey: 'id' })
+
+// { rows: [
+//   { id: 1, name: 'Alice' },
+//   { id: 2, name: 'Bob' },      // First occurrence wins
+//   { id: 3, name: 'Charlie' }
+// ] }
+```
+
+### Empty Handling
+
+Empty result sets are handled gracefully:
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [] },
+  { rows: [{ id: 1 }] },
+  { rows: [] },
+]
+
+const merged = merge.union(results)
+// { rows: [{ id: 1 }] }
+```
+
+## Intersect
+
+Return only rows present in ALL result sets (by key).
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1 }, { id: 2 }, { id: 3 }] },
+  { rows: [{ id: 2 }, { id: 3 }, { id: 4 }] },
+  { rows: [{ id: 3 }, { id: 4 }, { id: 5 }] },
+]
+
+const merged = merge.intersect(results, 'id')
+
+// { rows: [{ id: 3 }] }  // Only id: 3 is in ALL three
+```
+
+### How Intersect Works
+
+The algorithm uses a count-based approach:
+1. Count how many result sets each key appears in (counting only once per result set)
+2. Keep only keys that appear in ALL result sets (count === results.length)
+3. Preserve order from the first result set
+4. Use the row data from the first occurrence
+
+### No Common Rows
+
+Returns empty when no rows are in all sources:
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1 }, { id: 2 }] },
+  { rows: [{ id: 3 }, { id: 4 }] },
+]
+
+const merged = merge.intersect(results, 'id')
+// { rows: [] }
+```
+
+### Two-Way Intersection
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1 }, { id: 2 }, { id: 3 }] },
+  { rows: [{ id: 2 }, { id: 3 }] },
+]
+
+const merged = merge.intersect(results, 'id')
+// { rows: [{ id: 2 }, { id: 3 }] }
+```
+
+## Sort
+
+Sort combined results by a key field.
+
+### Ascending (default)
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 3 }, { id: 1 }] },
+  { rows: [{ id: 4 }, { id: 2 }] },
+]
+
+const merged = merge.sort(results, 'id', 'asc')
+// { rows: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }] }
+```
+
+### Descending
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1 }, { id: 3 }] },
+  { rows: [{ id: 2 }, { id: 4 }] },
+]
+
+const merged = merge.sort(results, 'id', 'desc')
+// { rows: [{ id: 4 }, { id: 3 }, { id: 2 }, { id: 1 }] }
+```
+
+### String Sorting
+
+Strings are sorted alphabetically using `localeCompare`:
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ name: 'Charlie' }, { name: 'Alice' }] },
+  { rows: [{ name: 'Bob' }] },
+]
+
+const merged = merge.sort(results, 'name', 'asc')
+// { rows: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Charlie' }] }
+```
+
+### Date Sorting
+
+ISO date strings sort correctly as strings:
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ created: '2024-01-15' }, { created: '2024-01-01' }] },
+  { rows: [{ created: '2024-01-10' }] },
+]
+
+const merged = merge.sort(results, 'created', 'asc')
+// { rows: [
+//   { created: '2024-01-01' },
+//   { created: '2024-01-10' },
+//   { created: '2024-01-15' }
+// ] }
+```
+
+### Null Handling
+
+Null values sort last regardless of direction:
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 1 }, { id: null }] },
+  { rows: [{ id: 2 }] },
+]
+
+const merged = merge.sort(results, 'id', 'asc')
+// { rows: [{ id: 1 }, { id: 2 }, { id: null }] }
+```
+
+## Limit
+
+Return only the first N rows.
+
+### Basic Limit
+
+```typescript
+const result: QueryResult = {
+  rows: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }],
+}
+
+const limited = merge.limit(result, 3)
+// { rows: [{ id: 1 }, { id: 2 }, { id: 3 }], hasMore: true }
+```
+
+### hasMore Flag
+
+The `hasMore` flag indicates if more rows were available. It's true if:
+- The limit truncated rows (more rows exist locally), OR
+- The input result already had `hasMore: true` (more rows exist remotely)
+
+```typescript
+const result: QueryResult = {
+  rows: [{ id: 1 }, { id: 2 }],
+  hasMore: false,  // No more rows from source
+}
+
+const limited = merge.limit(result, 3)
+// { rows: [{ id: 1 }, { id: 2 }], hasMore: false }
+// No truncation, source had no more
+
+const limited2 = merge.limit(result, 1)
+// { rows: [{ id: 1 }], hasMore: true }
+// Truncated: 2 rows -> 1 row
+
+// With source hasMore
+const paged: QueryResult = {
+  rows: [{ id: 1 }],
+  hasMore: true,  // More rows available from source
+}
+const limited3 = merge.limit(paged, 10)
+// { rows: [{ id: 1 }], hasMore: true }
+// Preserves source hasMore
+```
+
+### Edge Cases
+
+```typescript
+// Limit 0 returns empty
+merge.limit({ rows: [{ id: 1 }] }, 0)
+// { rows: [], hasMore: true }
+
+// Limit exceeds count
+merge.limit({ rows: [{ id: 1 }, { id: 2 }] }, 10)
+// { rows: [{ id: 1 }, { id: 2 }], hasMore: false }
+```
+
+## Combined Operations
+
+Chain operations for complex queries like `SELECT ... ORDER BY ... LIMIT`.
+
+### Sort + Limit (ORDER BY LIMIT)
+
+```typescript
+const results: QueryResult[] = [
+  { rows: [{ id: 5 }, { id: 3 }, { id: 1 }] },
+  { rows: [{ id: 4 }, { id: 2 }] },
+]
+
+// Get top 3 by id ascending
+const sorted = merge.sort(results, 'id', 'asc')
+const limited = merge.limit(sorted, 3)
+
+// { rows: [{ id: 1 }, { id: 2 }, { id: 3 }], hasMore: true }
+```
+
+### Union + Sort + Limit
+
+```typescript
+// Combine, dedupe, sort, and limit
+const unioned = merge.union(results, { dedupeKey: 'id' })
+const sorted = merge.sort([unioned], 'created', 'desc')
+const limited = merge.limit(sorted, 10)
+```
+
+### Distributed Top-N Pattern
+
+For efficient distributed top-N queries, have each scanner return their top N, then merge:
+
+```typescript
+// Each scanner returns top 10
+const scannerResults = await Promise.all(
+  scanners.map(s => s.execute('SELECT * FROM events ORDER BY created DESC LIMIT 10'))
+)
+
+// Merge and re-sort to get global top 10
+const sorted = merge.sort(scannerResults, 'created', 'desc')
+const top10 = merge.limit(sorted, 10)
+```
+
+<Callout type="info">
+This is more efficient than returning all rows and sorting globally. Each scanner only returns N rows, reducing network transfer and memory usage.
+</Callout>
+
+## Type Safety
+
+The merge functions are generic and preserve types:
+
+```typescript
+interface User {
+  id: number
+  name: string
+  email: string
+}
+
+const results: QueryResult<User>[] = [
+  { rows: [{ id: 1, name: 'Alice', email: 'alice@example.com' }] },
+  { rows: [{ id: 2, name: 'Bob', email: 'bob@example.com' }] },
+]
+
+const merged = merge.union<User>(results)
+// merged.rows is User[]
+```
+
+## Comparison Function
+
+The `merge.compareValues()` function is used internally for sorting and can be used directly:
+
+```typescript
+// Compare two values (used by sort)
+merge.compareValues(1, 2)           // -1 (1 < 2)
+merge.compareValues('bob', 'alice') // 1 ('bob' > 'alice')
+merge.compareValues(null, 1)        // 1 (nulls sort last)
+merge.compareValues(1, null)        // -1
+```
+
+Comparison rules:
+- `null`/`undefined` always sort last (return 1 if a is null, -1 if b is null)
+- Numbers use numeric comparison (`a - b`)
+- Strings use `localeCompare` for locale-aware sorting
+- Other types are converted to strings
+
+## Performance Considerations
+
+1. **Union**: O(n) where n is total rows. Dedupe adds O(n) memory for the seen set.
+
+2. **Intersect**: O(n + m*k) where n is total rows across all sets, m is number of results, and k is rows in first result. Uses a Map for O(1) lookups.
+
+3. **Sort**: O(n log n) where n is total rows. Uses JavaScript's built-in sort with custom comparator.
+
+4. **Limit**: O(k) where k is the limit - uses array slice.
+
+For large result sets, consider:
+- Limiting at each scanner before merge (distributed top-N)
+- Streaming results instead of collecting all
+- Using cursor-based pagination in ScannerDO
+
+## See Also
+
+- [QueryCoordinator](/docs/fanout/coordinator) - Automatic aggregation
+- [Consistent Hashing](/docs/fanout/hashing) - Single-shard routing
+- [Subrequest Budget](/docs/fanout/budget) - Cloudflare limits

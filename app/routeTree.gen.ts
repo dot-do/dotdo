@@ -11,6 +11,7 @@
 import { Route as rootRoute } from './routes/__root'
 import { Route as IndexRoute } from './routes/index'
 import { Route as DocsRoute } from './routes/docs'
+import { Route as DocsSplatRoute } from './routes/docs/$'
 
 /**
  * Type-safe route path declarations
@@ -25,18 +26,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsRoute
       parentRoute: typeof rootRoute
     }
+    '/docs/$': {
+      preLoaderRoute: typeof DocsSplatRoute
+      parentRoute: typeof DocsRoute
+    }
   }
 }
 
 /**
  * Route tree with all application routes
  */
+const DocsRouteWithChildren = DocsRoute.addChildren([
+  DocsSplatRoute,
+])
+
 const rootRouteTree = rootRoute.addChildren([
   IndexRoute,
-  DocsRoute,
+  DocsRouteWithChildren,
 ])
 
 export const routeTree = rootRouteTree
 
 /** Re-export individual routes for direct access */
-export { rootRoute, IndexRoute, DocsRoute }
+export { rootRoute, IndexRoute, DocsRoute, DocsSplatRoute }

@@ -1,0 +1,549 @@
+---
+title: Security
+description: Permission system, tool access control, code sandboxing, and security best practices for MCP
+---
+
+# Security
+
+The MCP server implements multiple layers of security to protect your runtime and ensure AI agents operate within defined boundaries. This page covers permission management, access control, sandboxing, and best practices.
+
+## Permission System
+
+### Permission Structure
+
+Permissions use a hierarchical colon-separated format:
+
+```
+resource:action
+resource:subresource:action
+```
+
+Examples:
+- `tools:read` - Read tool definitions
+- `tools:execute` - Execute tools
+- `db:read` - Read database entries
+- `db:write` - Write database entries
+- `external:weather` - Access weather API
+
+### Special Permissions
+
+| Permission | Description |
+|------------|-------------|
+| `*` | Wildcard - grants all permissions |
+| `tools:*` | All tool permissions |
+| `db:*` | All database permissions |
+
+### Permission Checking
+
+Use the permission utilities to check access:
+
+```typescript
+import {
+  hasPermission,
+  hasAllPermissions,
+  hasAnyPermission
+} from 'dotdo/mcp'
+
+const userPerms = ['tools:read', 'tools:execute', 'db:read']
+
+// Single permission check
+hasPermission(userPerms, 'tools:read')      // true
+hasPermission(userPerms, 'db:write')        // false
+
+// Wildcard expansion
+hasPermission(['tools:*'], 'tools:execute') // true
+hasPermission(['*'], 'anything')            // true
+
+// Hierarchical matching - wildcards match sub-permissions
+hasPermission(['db:*'], 'db:read:all')      // true
+
+// All permissions required (AND logic)
+hasAllPermissions(userPerms, ['tools:read', 'tools:execute'])  // true
+hasAllPermissions(userPerms, ['tools:read', 'db:write'])       // false
+
+// Any permission sufficient (OR logic)
+hasAnyPermission(userPerms, ['admin', 'tools:execute'])  // true
+hasAnyPermission(userPerms, ['admin', 'superuser'])      // false
+```
+
+### Role-Based Permissions
+
+WorkOS roles map to permissions automatically via `mapRolesToPermissions`. Permissions are additive:
+
+| Role | Base Permissions | Additional |
+|------|------------------|------------|
+| All users | `tools:read`, `resources:read` | - |
+| `viewer` | (base only) | - |
+| `member` | (base) | `tools:execute` |
+| `admin` / `owner` | (base) | `*` (full access) |
+
+```typescript
+// Default permissions (all authenticated users)
+const DEFAULT_PERMISSIONS = ['tools:read', 'resources:read']
+
+// Role mappings (permissions are additive)
+switch (role) {
+  case 'admin':
+  case 'owner':
+    // Full access - adds '*' to default permissions
+    permissions.push('*')
+    break
+
+  case 'member':
+    // Execute access - adds 'tools:execute' to default
+    permissions.push('tools:execute')
+    break
+
+  case 'viewer':
+    // Read only - uses default permissions
+    break
+}
+
+// Permissions are deduplicated before being assigned
+return [...new Set(permissions)]
+```
+
+## Tool Access Control
+
+### Permission Requirements
+
+Each tool declares required permissions:
+
+```typescript
+const myTool: McpTool = {
+  name: 'sensitive_action',
+  description: 'Perform a sensitive action',
+  inputSchema: { type: 'object', properties: {} },
+  requiredPermissions: ['admin', 'sensitive:execute']  // User needs both
+}
+```
+
+### Permission Enforcement
+
+The MCP server enforces permissions at two points:
+
+1. **Tool Listing**: Users only see tools they can access
+2. **Tool Execution**: Permissions verified before execution
+
+```typescript
+// Internal enforcement
+private getAvailableTools(permissions: string[]): McpTool[] {
+  const tools: McpTool[] = []
+
+  for (const tool of toolRegistry.getAll()) {
+    const required = tool.requiredPermissions || []
+
+    // Only include if user has all required permissions
+    if (required.length === 0 || hasAllPermissions(permissions, required)) {
+      tools.push(tool)
+    }
+  }
+
+  return tools
+}
+
+private async executeTool(call: McpToolCall, props: McpAgentProps) {
+  const tool = toolRegistry.get(call.name)
+
+  // Permission check
+  const required = tool.requiredPermissions || []
+  if (!hasAllPermissions(props.permissions, required)) {
+    return {
+      content: [{ type: 'text', text: 'Insufficient permissions' }],
+      isError: true
+    }
+  }
+
+  // Execute if permitted
+  return handler(call.arguments, props, this.env)
+}
+```
+
+## Code Execution Sandboxing
+
+The `do` tool executes code in isolated V8 workers with strict security controls.
+
+### Isolation Features
+
+The `do` tool runs code in isolated V8 workers with multiple security layers:
+
+```typescript
+import { z } from 'zod'
+
+// Schema with security defaults (from mcp/tools/do.ts)
+const doToolSchema = z.object({
+  code: z.string(),
+  module: z.string().optional(),
+  tests: z.string().optional(),
+  env: z.record(z.string()).optional(),
+  timeout: z.number().optional().default(5000),    // Max execution time (ms)
+  sdk: z.boolean().optional().default(false),       // SDK globals disabled by default
+  allowNetwork: z.boolean().optional().default(false), // Network blocked by default
+})
+```
+
+**Security guarantees**:
+- Isolated V8 worker with no filesystem access
+- Memory limits enforced by Cloudflare Workers runtime
+- CPU time limits enforced by Cloudflare Workers runtime
+- Console output captured via custom proxy
+- No access to environment secrets unless explicitly passed
+
+### Network Isolation
+
+```typescript
+// Network blocked by default
+await mcpClient.executeTool('do', {
+  code: `
+    // This throws an error
+    const resp = await fetch('https://api.example.com')
+    return resp.json()
+  `
+})
+// Error: "Network access is blocked. Set allowNetwork: true to enable."
+
+// Explicitly enable network
+await mcpClient.executeTool('do', {
+  code: `
+    const resp = await fetch('https://api.example.com')
+    return resp.json()
+  `,
+  allowNetwork: true
+})
+```
+
+### SDK Access Control
+
+```typescript
+// No SDK by default - $, db, ai unavailable
+await mcpClient.executeTool('do', {
+  code: `$.send({ type: 'Event' })`
+})
+// Error: "$ is not defined"
+
+// Enable SDK with explicit flag
+// Creates stub implementations for $, db, ai
+await mcpClient.executeTool('do', {
+  code: `
+    await $.send({ type: 'UserEvent', user: { id: '123' } })
+    const doc = db.collection('users').findOne({ id: '123' })
+    return doc
+  `,
+  sdk: true
+})
+
+// SDK globals provided:
+// - $ (WorkflowContext stub)
+// - db (Database stub)
+// - ai (AI stub)
+```
+
+### Timeout Enforcement
+
+```typescript
+// Long-running code is terminated
+await mcpClient.executeTool('do', {
+  code: `
+    while (true) {} // Infinite loop
+    return 'never reached'
+  `,
+  timeout: 5000
+})
+// Error: "Execution timeout after 5000ms"
+```
+
+## Authentication Security
+
+### PKCE Protection
+
+OAuth flow uses PKCE (Proof Key for Code Exchange) to prevent authorization code interception:
+
+```typescript
+import {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generateState,
+  storeOAuthState,
+  consumeOAuthState
+} from 'dotdo/mcp'
+
+// 1. Generate cryptographically secure verifier (32 random bytes, base64url)
+const verifier = generateCodeVerifier()
+
+// 2. Create challenge (SHA-256 hash, base64url encoded)
+const challenge = await generateCodeChallenge(verifier)
+
+// 3. State for CSRF protection (16 random bytes, base64url)
+const state = generateState()
+
+// 4. Store state temporarily (10 minute TTL)
+await storeOAuthState({
+  state,
+  codeVerifier: verifier,
+  redirectUri,
+  createdAt: Date.now()
+}, kv)
+
+// 5. On callback, verify state and exchange code
+// consumeOAuthState deletes state after read (one-time use)
+const oauthState = await consumeOAuthState(state, kv)
+if (!oauthState) {
+  throw new Error('Invalid or expired state')
+}
+```
+
+> **Note**: State tokens are automatically deleted after consumption, preventing replay attacks.
+
+### JWT Security
+
+```typescript
+// Token configuration (from mcp/auth/jwt.ts)
+const JWT_ALGORITHM = 'HS256'      // HMAC-SHA256 signing via jose library
+const DEFAULT_EXPIRATION = '24h'   // 24-hour token lifetime
+const CLOCK_TOLERANCE = 60         // 60-second clock skew tolerance
+
+// Validation checks
+const result = await validateJwt(token, secret)
+
+// Checks performed:
+// - Signature verification (JWSSignatureVerificationFailed)
+// - Algorithm validation (HS256 only)
+// - Expiration check (JWTExpired)
+// - Issued-at validation (JWTClaimValidationFailed)
+// - Payload structure validation (isJwtPayload type guard)
+// - Token format validation (JWTInvalid)
+
+// Error types returned:
+// - "Token has expired"
+// - "Token claim validation failed"
+// - "Invalid token signature"
+// - "Invalid token format"
+// - "Invalid JWT payload structure"
+```
+
+### Session Security
+
+```typescript
+// Sessions stored in KV with TTL
+await kv.put(`session:${id}`, JSON.stringify(session), {
+  expirationTtl: ttlSeconds
+})
+
+// Sessions indexed by user for lookup
+await kv.put(`user_session:${userId}`, sessionId, {
+  expirationTtl: ttlSeconds
+})
+
+// Session validation
+function isSessionValid(session: Session): boolean {
+  return session.expiresAt > Date.now()
+}
+```
+
+## Request Security
+
+### Auth Middleware
+
+All protected routes require authentication:
+
+```typescript
+// Applied to /sse and /tools/* routes
+app.use('/sse', async (c, next) => {
+  const auth = await authenticateRequest(c.req.raw, env)
+
+  if (!auth.authenticated) {
+    return c.json({
+      error: 'UNAUTHORIZED',
+      message: 'Authentication required'
+    }, 401)
+  }
+
+  // Set context for handlers
+  c.set('auth', auth)
+  await next()
+})
+```
+
+### CORS Configuration
+
+```typescript
+// CORS middleware configuration
+app.use('*', cors({
+  origin: '*',                         // Configure for your domains
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization']
+}))
+```
+
+## Error Handling
+
+### Error Codes
+
+```typescript
+enum McpErrorCode {
+  Unauthorized = 'UNAUTHORIZED',        // No valid token
+  Forbidden = 'FORBIDDEN',             // Insufficient permissions
+  InvalidRequest = 'INVALID_REQUEST',  // Malformed request
+  ToolNotFound = 'TOOL_NOT_FOUND',     // Unknown tool name
+  ToolExecutionFailed = 'TOOL_EXECUTION_FAILED',
+  InternalError = 'INTERNAL_ERROR'
+}
+```
+
+### Error Responses
+
+```typescript
+// 401 Unauthorized
+{ "error": "UNAUTHORIZED", "message": "Authentication required" }
+
+// 403 Forbidden
+{ "error": "FORBIDDEN", "message": "Insufficient permissions" }
+
+// 400 Bad Request
+{ "error": "INVALID_REQUEST", "message": "Missing required field" }
+
+// 500 Internal Error
+{ "error": "INTERNAL_ERROR", "message": "Tool execution failed" }
+```
+
+## Security Best Practices
+
+Follow these guidelines to maintain a secure MCP deployment.
+
+### 1. Principle of Least Privilege
+
+Grant only the permissions each tool actually needs:
+
+```typescript
+// Good: Specific permissions
+const tool: McpTool = {
+  requiredPermissions: ['customers:read']  // Only what's needed
+}
+
+// Avoid: Overly broad permissions
+const tool: McpTool = {
+  requiredPermissions: ['*']  // Too permissive - use sparingly
+}
+```
+
+### 2. Input Validation
+
+Always validate tool inputs with Zod schemas to prevent injection attacks:
+
+```typescript
+import { z } from 'zod'
+
+const myToolSchema = z.object({
+  email: z.string().email(),
+  age: z.number().int().positive().max(150),
+  role: z.enum(['admin', 'member', 'viewer'])
+})
+
+toolRegistry.register(myTool, async (args, props, env) => {
+  // Validate inputs - throws on invalid data
+  const validated = myToolSchema.parse(args)
+  // Use validated data safely
+})
+```
+
+### 3. Secure Secrets
+
+Never hardcode secrets. Use Wrangler secrets for production:
+
+```bash
+# Set production secrets
+wrangler secret put JWT_SECRET
+wrangler secret put WORKOS_API_KEY
+```
+
+```typescript
+// Access via env binding - secrets are encrypted at rest
+const token = await createJwt(payload, env.JWT_SECRET)
+```
+
+> **Warning**: Avoid using `[vars]` in `wrangler.toml` for sensitive values in production. Use `wrangler secret put` instead.
+
+### 4. Audit Logging
+
+Log all sensitive operations for security monitoring:
+
+```typescript
+toolRegistry.register(sensitiveTool, async (args, props, env) => {
+  // Log sensitive operations
+  console.log(JSON.stringify({
+    event: 'tool_execution',
+    tool: 'sensitive_tool',
+    userId: props.userId,
+    orgId: props.orgId,
+    timestamp: new Date().toISOString()
+  }))
+
+  // Execute tool
+  return doSensitiveAction(args)
+})
+```
+
+These logs are available in Cloudflare's Workers Logs and can be forwarded to external logging services.
+
+### 5. Rate Limiting
+
+```typescript
+// Implement rate limiting for tools
+const rateLimiter = new Map<string, number[]>()
+
+function checkRateLimit(userId: string, limit: number, window: number): boolean {
+  const now = Date.now()
+  const userRequests = rateLimiter.get(userId) || []
+
+  // Remove old requests outside window
+  const recent = userRequests.filter(t => now - t < window)
+
+  if (recent.length >= limit) {
+    return false  // Rate limited
+  }
+
+  recent.push(now)
+  rateLimiter.set(userId, recent)
+  return true
+}
+```
+
+### 6. Network Allowlisting
+
+```typescript
+// For tools with network access, restrict destinations
+const allowedHosts = new Set([
+  'api.trusted-service.com',
+  'data.internal.example.com'
+])
+
+async function secureFetch(url: string): Promise<Response> {
+  const parsedUrl = new URL(url)
+
+  if (!allowedHosts.has(parsedUrl.host)) {
+    throw new Error(`Host not allowed: ${parsedUrl.host}`)
+  }
+
+  return fetch(url)
+}
+```
+
+## Security Checklist
+
+Use this checklist when deploying MCP to production:
+
+- [ ] **HTTPS Only**: Use HTTPS for all MCP endpoints
+- [ ] **Strong JWT Secret**: Use 32+ bytes of cryptographically random data
+- [ ] **Token Expiration**: Set appropriate lifetime (24h recommended)
+- [ ] **Rate Limiting**: Implement rate limits for sensitive tools
+- [ ] **Input Validation**: Validate all tool inputs with Zod schemas
+- [ ] **Least Privilege**: Use minimum required permissions for each tool
+- [ ] **Audit Logging**: Log security-relevant events
+- [ ] **Network Isolation**: Restrict network access in code execution tools
+- [ ] **Regular Reviews**: Review tool permissions periodically
+- [ ] **Monitoring**: Set up alerts for unusual activity patterns
+
+## Next Steps
+
+- **[Authentication](/mcp/authentication)**: OAuth and JWT setup
+- **[Tools](/mcp/tools)**: Implement secure custom tools

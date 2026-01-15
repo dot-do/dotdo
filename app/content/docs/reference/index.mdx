@@ -1,0 +1,263 @@
+---
+title: API Reference
+description: Complete API documentation for dotdo classes, methods, and types
+---
+
+# API Reference
+
+This reference section documents all public APIs in the dotdo runtime. Use this as a comprehensive guide when building with dotdo Durable Objects.
+
+## Quick Navigation
+
+### By Topic
+
+| Topic | Description | Pages |
+|-------|-------------|-------|
+| **DO Classes** | Hierarchical Durable Object classes | [Core](/core), [Semantic](/semantic), [Storage](/storage), [Workflow](/workflow) |
+| **WorkflowContext** | Unified DSL for events, scheduling, execution | [Workflow Context](/workflow) |
+| **Configuration** | Wrangler config, bindings, runtime options | [Configuration](/reference/configuration) |
+| **Environment** | Environment variables, secrets, bindings | [Environment](/reference/environment) |
+| **CLI** | Development, testing, deployment commands | [CLI Commands](/reference/cli) |
+| **Types** | TypeScript type definitions | [Types](/reference/types) |
+| **Migration** | Version upgrades and schema changes | [Migration Guide](/reference/migration) |
+| **Troubleshooting** | Common issues and solutions | [Troubleshooting](/reference/troubleshooting) |
+
+## DO Class Hierarchy
+
+dotdo provides a hierarchy of Durable Object classes, each adding capabilities:
+
+```
+DOCore (~5KB)
+    State, alarms, routing, WebSockets
+
+    DOSemantic (~20KB)
+        Nouns, Verbs, Things, Actions, Relationships
+
+        DOStorage (~40KB)
+            L0-L3 storage stack, time travel
+
+            DOWorkflow (~60KB)
+                WorkflowContext ($), scheduling, cascade
+
+                DOFull (~80KB)
+                    AI integration, human-in-loop, streaming
+```
+
+### Choosing the Right Class
+
+| Class | Size | Best For | Example Use Case |
+|-------|------|----------|------------------|
+| [DOCore](/core) | ~5KB | Simple state storage, real-time features | Chat rooms, game state |
+| [DOSemantic](/semantic) | ~20KB | Domain modeling with entities | CRM, inventory systems |
+| [DOStorage](/storage) | ~40KB | High-throughput data with durability | Event sourcing, audit logs |
+| [DOWorkflow](/workflow) | ~60KB | Business processes, scheduled tasks | Order processing, notifications |
+| DOFull | ~80KB | AI-powered applications | Intelligent agents, automation |
+
+Choose the smallest class that provides the capabilities you need to minimize cold start time and memory usage.
+
+> **Note:** For detailed documentation on each DO class, see the dedicated guide sections linked above.
+
+## Core APIs by Capability
+
+### State Management
+
+```typescript
+// Store and retrieve values
+await stub.set('user:123', { name: 'Alice' })
+const user = await stub.get('user:123')
+
+// List with filtering
+const users = await stub.list({ prefix: 'user:', limit: 10 })
+
+// Atomic transactions
+await stub.transaction([
+  { op: 'set', key: 'balance', value: 100 },
+  { op: 'delete', key: 'temp:cache' }
+])
+```
+
+| Method | Class | Description |
+|--------|-------|-------------|
+| `get(key)` | DOCore | Retrieve value by key |
+| `set(key, value)` | DOCore | Store a value |
+| `delete(key)` | DOCore | Remove a value |
+| `list(options)` | DOCore | List entries with filtering |
+| `transaction(ops)` | DOCore | Atomic operations |
+
+See [State Management](/core/state) for detailed documentation.
+
+### Semantic Types
+
+```typescript
+// Define domain model
+stub.defineNoun('Customer')
+stub.defineVerb('purchase')
+
+// Create entities
+const customer = stub.createThing('Customer', { name: 'Alice' })
+const order = stub.createThing('Order', { total: 99.99 })
+
+// Create relationships
+stub.createAction(customer.$id, 'purchase', order.$id)
+
+// Traverse graph
+const purchases = stub.forward(customer.$id, 'Order')
+```
+
+| Method | Class | Description |
+|--------|-------|-------------|
+| `defineNoun(name)` | DOSemantic | Define noun with pluralization |
+| `defineVerb(name)` | DOSemantic | Define verb with conjugation |
+| `createThing(type, data)` | DOSemantic | Create typed entity |
+| `createAction(subject, verb, object)` | DOSemantic | Record event + edge + audit |
+| `forward(id, type)` | DOSemantic | Traverse relationships forward |
+| `backward(id, type)` | DOSemantic | Traverse relationships backward |
+
+See [Semantic Layer](/semantic) for detailed documentation.
+
+### Workflow & Events
+
+```typescript
+// Event handlers with wildcards
+$.on.Customer.signup(async (event) => {
+  await sendWelcomeEmail(event.data)
+})
+$.on['*'].created(logCreation)  // All creation events
+
+// Scheduling
+$.every.Monday.at9am(generateReport)
+$.every.day.at('6pm')(sendDigest)
+$.every(5).minutes(checkHealth)
+
+// Durable execution
+const eventId = $.send('Order.placed', order)        // Fire-and-forget
+const result = await $.try(() => callAPI())          // Single attempt
+const final = await $.do(() => processPayment())    // Retry with backoff
+```
+
+| Method | Class | Description |
+|--------|-------|-------------|
+| `$.on.Noun.verb(handler)` | DOWorkflow | Register event handler |
+| `$.every.Day.atTime(handler)` | DOWorkflow | Schedule periodic task |
+| `$.send(event, data)` | DOWorkflow | Fire-and-forget event |
+| `$.try(action)` | DOWorkflow | Single-attempt execution |
+| `$.do(action)` | DOWorkflow | Durable execution with retries |
+| `$.cascade(options)` | DOWorkflow | Tiered execution |
+
+See [Workflow Context](/workflow) for detailed documentation.
+
+### Cross-DO Communication
+
+```typescript
+// Type-safe RPC to other DOs
+await $.Customer(id).notify({ message: 'Order shipped' })
+await $.Order(id).ship()
+await $.Invoice(id).calculate()
+
+// WebSocket broadcast
+await stub.broadcast('room:general', { type: 'message', text: 'Hello!' })
+```
+
+| Method | Class | Description |
+|--------|-------|-------------|
+| `$.Noun(id).method()` | DOWorkflow | Cross-DO RPC |
+| `broadcast(tag, message)` | DOCore | WebSocket pub/sub |
+
+See [RPC](/rpc) and [WebSockets](/core/websockets) for detailed documentation.
+
+## Configuration Quick Reference
+
+### Wrangler.toml
+
+```toml
+name = "my-app"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "DOCore", class_name = "DOCore" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DOCore"]
+
+[ai]
+binding = "AI"
+```
+
+See [Configuration Reference](/reference/configuration) for all options.
+
+### Environment Variables
+
+```bash
+# Required secrets (set via wrangler secret)
+JWT_SECRET=your-jwt-secret
+
+# Optional integrations
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+See [Environment Reference](/reference/environment) for all variables.
+
+## TypeScript Support
+
+dotdo is written in TypeScript and provides full type definitions:
+
+```typescript
+// Import types
+import type {
+  DOCoreEnv,
+  ListOptions,
+  Thing,
+  Noun,
+  Verb,
+  WorkflowContext,
+  CascadeOptions
+} from 'dotdo/core'
+
+// Use with full inference
+const stub = env.DOSemantic.get(id)
+const thing = await stub.createThing('Customer', { name: 'Alice' })
+// thing: Thing<{ name: string }>
+```
+
+See [Type Definitions](/reference/types) for all exported types.
+
+## Import Paths
+
+All public APIs are exported from module entry points:
+
+```typescript
+// DO Classes
+import { DOCore } from 'dotdo/core'
+import { DOSemantic } from 'dotdo/semantic'
+import { DOStorage } from 'dotdo/storage'
+import { DOWorkflow } from 'dotdo/workflow'
+
+// Types
+import type { Thing, Noun, Verb } from 'dotdo/semantic'
+import type { WorkflowContext, CascadeOptions } from 'dotdo/workflow'
+import type { DOStorageConfig } from 'dotdo/storage'
+
+// Factory functions
+import { createWorkflowContext } from 'dotdo/workflow'
+```
+
+## Version Compatibility
+
+This reference documents dotdo v2.x. The API follows semantic versioning:
+
+- **Patch releases** (2.0.x) - Bug fixes, no API changes
+- **Minor releases** (2.x.0) - New features, backwards compatible
+- **Major releases** (x.0.0) - Breaking changes (with migration guide)
+
+See [Migration Guide](/reference/migration) for upgrading between versions.
+
+## Getting Help
+
+- [Troubleshooting](/reference/troubleshooting) - Common issues and solutions
+- [Migration Guide](/reference/migration) - Version upgrade instructions
+- [GitHub Issues](https://github.com/dot-do/dotdo/issues) - Report bugs and request features

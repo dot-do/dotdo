@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "Semantic",
+  "description": "Domain modeling DSL with linguistic automation for Nouns, Verbs, Things, Actions, and Relationships",
+  "pages": ["index", "nouns-verbs", "things", "actions", "relationships"]
+}

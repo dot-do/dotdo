@@ -1,0 +1,354 @@
+---
+title: Durability and Control Flow
+description: Event emission, human-in-the-loop, and declarative conditionals
+---
+
+# Durability and Control Flow
+
+The workflows module provides primitives for event emission, human-in-the-loop waits, and declarative control flow that integrate with promise pipelining.
+
+```typescript
+import { send, when, waitFor, Domain, createWorkflowProxy } from 'dotdo/workflows'
+```
+
+> **Tip**: The `$` workflow proxy provides additional methods like `$.branch()` and `$.match()` for complex control flow. Create it with `createWorkflowProxy()` and your execution function.
+
+## The API Matrix
+
+| API | Description | Returns | Blocks |
+|-----|-------------|---------|--------|
+| `send.Noun.verb(payload)` | Fire-and-forget event | PipelinePromise | No |
+| `waitFor(event, options)` | Human-in-the-loop | PipelinePromise | Yes |
+| `when(cond, { then, else })` | Binary conditional | PipelinePromise | No |
+| `$.branch(value, cases)` | Multi-way switch | PipelinePromise | No |
+| `$.match(value, patterns)` | Pattern matching | PipelinePromise | No |
+
+## send.Noun.verb() - Fire and Forget
+
+Emit domain events as pipeline expressions for deferred execution.
+
+```typescript
+import { send } from 'dotdo/workflows'
+
+// Emit order shipped event
+send.Order.shipped({
+  orderId: '12345',
+  carrier: 'UPS',
+  trackingNumber: '1Z999AA10123456784'
+})
+
+// Emit customer created event
+send.Customer.created({
+  id: 'cust_123',
+  email: 'user@example.com',
+  name: 'John Doe'
+})
+```
+
+### Characteristics
+
+- **Non-blocking**: Returns immediately as PipelinePromise
+- **Deferred execution**: Captured as expression for batch execution
+- **Promise pipelining**: Can be composed with other operations
+
+### In Workflow Context
+
+```typescript
+async function processOrder(order: Order) {
+  await validateOrder(order)
+
+  // Fire-and-forget notification
+  send.Order.validated({ orderId: order.id })
+
+  await chargePayment(order)
+  send.Payment.captured({ orderId: order.id, amount: order.total })
+
+  return order
+}
+```
+
+## waitFor() - Human-in-the-Loop
+
+Suspend workflow execution until an external event or approval is received.
+
+```typescript
+import { waitFor } from 'dotdo/workflows'
+
+// Wait for human approval
+const approval = await waitFor('manager.approval', {
+  timeout: '24 hours',
+  type: 'approval'
+})
+
+if (approval.approved) {
+  processRefund(order)
+}
+
+// Wait for external webhook
+const paymentResult = await waitFor('payment.completed', {
+  timeout: '30 minutes'
+})
+
+if (paymentResult.success) {
+  send.Order.paid({ orderId: order.id })
+}
+```
+
+### Characteristics
+
+- **Blocking**: Workflow hibernates until event received
+- **Deferred execution**: Captured as expression
+- **Timeout support**: Can specify maximum wait time
+- **Typed events**: Can specify event type for validation
+
+### Approval Workflow Example
+
+```typescript
+async function processLargeRefund(refund: Refund) {
+  // Escalate to manager for approval
+  send.Approval.requested({
+    type: 'refund',
+    amount: refund.amount,
+    customerId: refund.customerId
+  })
+
+  // Workflow hibernates until approval
+  const decision = await waitFor('refund.decision')
+
+  return decision.approved
+    ? executeRefund(refund)
+    : rejectRefund(refund, decision.reason)
+}
+```
+
+### waitFor Options
+
+```typescript
+interface WaitForOptions {
+  timeout?: string   // e.g., '24 hours', '30 minutes'
+  type?: string      // Event type for validation
+}
+```
+
+## when() - Declarative Conditional
+
+Create conditional expressions for workflow branching.
+
+```typescript
+import { when } from 'dotdo/workflows'
+
+// Basic conditional
+const result = when(order.total > 100, {
+  then: () => applyDiscount(order, 0.1),
+  else: () => order
+})
+
+// With pipeline promise condition
+const status = $.Inventory(product).check()
+const outcome = when(status.available, {
+  then: () => $.Order(order).fulfill(),
+  else: () => $.Order(order).backorder()
+})
+
+// Without else branch
+when(user.isVIP, {
+  then: () => send.Notification.vipWelcome({ userId: user.id })
+})
+```
+
+### Characteristics
+
+- **Declarative**: Conditions and branches are captured as expressions
+- **Deferred execution**: Not executed until awaited
+- **Pipeline compatible**: Works with unawaited promises
+
+## $.branch() - Multi-way Conditional
+
+Switch on a value with multiple cases.
+
+```typescript
+const $ = createWorkflowProxy(options)
+
+const result = $.branch(order.status, {
+  pending: () => $.Order(order).process(),
+  shipped: () => $.Order(order).track(),
+  delivered: () => $.Order(order).complete(),
+  default: () => $.Order(order).review()
+})
+```
+
+### Characteristics
+
+- **Multi-way**: Handle many cases in one expression
+- **Default case**: Optional fallback handler
+- **Expression capture**: All branches captured for analysis
+
+## $.match() - Pattern Matching
+
+Match values against predicates.
+
+```typescript
+const $ = createWorkflowProxy(options)
+
+const result = $.match(payment, [
+  [p => p.amount > 10000, () => $.Approval(payment).escalate()],
+  [p => p.type === 'refund', () => $.Refund(payment).process()],
+  [() => true, () => $.Payment(payment).complete()]  // Default
+])
+```
+
+### Characteristics
+
+- **Ordered evaluation**: First matching predicate wins
+- **Predicate functions**: Flexible matching logic
+- **Expression serialization**: Predicates captured as source strings
+
+## Domain() - Callable Domain Objects
+
+Create reusable domain objects for business logic.
+
+```typescript
+import { Domain } from 'dotdo/workflows'
+
+const CRM = Domain('CRM', {
+  createAccount: (customer) => ({
+    id: generateId(),
+    ...customer,
+    createdAt: new Date()
+  }),
+  sendWelcome: (account) => sendEmail({
+    to: account.email,
+    template: 'welcome'
+  })
+})
+
+// Direct invocation returns PipelinePromise
+const account = CRM(customer).createAccount()
+const emailResult = CRM(account).sendWelcome()
+
+// Can be awaited when needed
+const result = await account
+```
+
+### Chaining Domains
+
+```typescript
+const Inventory = Domain('Inventory', {
+  check: (product) => getStock(product.id),
+  reserve: (product, quantity) => reserveStock(product.id, quantity),
+  release: (reservation) => releaseStock(reservation.id)
+})
+
+const Shipping = Domain('Shipping', {
+  calculate: (order) => calculateRates(order),
+  create: (order, rate) => createShipment(order, rate)
+})
+
+// Compose domains in workflows
+async function fulfillOrder(order: Order) {
+  const stock = await Inventory(order.product).check()
+  if (stock.available >= order.quantity) {
+    const reservation = await Inventory(order.product).reserve(order.quantity)
+    const rates = await Shipping(order).calculate()
+    return Shipping(order).create(rates[0])
+  }
+}
+```
+
+## Choosing the Right API
+
+```
+What type of operation?
+├── Event emission → send.Noun.verb()
+├── Wait for external input → waitFor()
+├── Binary decision → when()
+├── Multi-way switch → $.branch()
+├── Pattern matching → $.match()
+└── Domain business logic → Domain()
+```
+
+### Decision Guide
+
+| Scenario | API |
+|----------|-----|
+| Notify order shipped | `send.Order.shipped()` |
+| Wait for manager approval | `waitFor('approval')` |
+| Apply discount if VIP | `when(user.isVIP, {...})` |
+| Route by status | `$.branch(status, {...})` |
+| Match payment patterns | `$.match(payment, [...])` |
+| CRM operations | `Domain('CRM', {...})` |
+
+## Expression Types
+
+All APIs create pipeline expressions for analysis and batch execution:
+
+| Expression Type | Created By | Description |
+|----------------|------------|-------------|
+| `send` | `send.Noun.verb()` | Event emission |
+| `waitFor` | `waitFor()` | External event wait |
+| `conditional` | `when()` | Binary conditional |
+| `branch` | `$.branch()` | Multi-way switch |
+| `match` | `$.match()` | Pattern matching |
+| `call` | `Domain().method()` | Domain method call |
+| `literal` | Direct values | Wrapped values |
+
+## Combining APIs
+
+```typescript
+import { send, when, waitFor, Domain } from 'dotdo/workflows'
+import { createWorkflowProxy } from 'dotdo/workflows'
+
+const $ = createWorkflowProxy({ execute: async (expr) => rpc.execute(expr) })
+
+// Order processing workflow
+async function processOrder(order: Order) {
+  // Emit domain event
+  send.Order.received({ orderId: order.id })
+
+  // Check inventory
+  const stock = await $.Inventory(order.product).check()
+
+  // Conditional processing
+  const result = await when(stock.available >= order.quantity, {
+    then: async () => {
+      // Reserve inventory
+      await $.Inventory(order.product).reserve(order.quantity)
+
+      // Process payment
+      const payment = await $.Payment(order).charge()
+
+      // Wait for payment confirmation if large amount
+      if (order.total > 10000) {
+        const approval = await waitFor('payment.approval', { timeout: '1 hour' })
+        if (!approval.approved) {
+          await $.Inventory(order.product).release(order.quantity)
+          throw new Error('Payment approval denied')
+        }
+      }
+
+      // Emit completion
+      send.Order.completed({ orderId: order.id })
+      return { success: true, orderId: order.id }
+    },
+    else: async () => {
+      send.Order.backordered({ orderId: order.id })
+      return { success: false, reason: 'out_of_stock' }
+    }
+  })
+
+  return result
+}
+```
+
+## API Reference
+
+| API | Signature | Returns |
+|-----|-----------|---------|
+| `send` | `send.Noun.verb(payload)` | PipelinePromise |
+| `when` | `when(condition, { then, else? })` | PipelinePromise |
+| `waitFor` | `waitFor(eventName, options?)` | PipelinePromise |
+| `Domain` | `Domain(name, handlers)` | DomainCallable |
+| `$.branch` | `$.branch(value, cases)` | PipelinePromise |
+| `$.match` | `$.match(value, patterns)` | PipelinePromise |
+| `$.waitFor` | `$.waitFor(eventName, options?)` | PipelinePromise |
+| `$.when` | `$.when(condition, branches)` | PipelinePromise |

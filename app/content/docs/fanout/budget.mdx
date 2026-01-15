@@ -1,0 +1,356 @@
+---
+title: Subrequest Budget
+description: Track and enforce Cloudflare subrequest limits for Workers (50) and Durable Objects (1000)
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Subrequest Budget
+
+Cloudflare imposes limits on the number of subrequests (fetch calls to other services or DOs) a single request can make. The `SubrequestBudget` class helps track and manage these limits in distributed query scenarios.
+
+<Callout type="warn">
+Exceeding subrequest limits causes your request to fail. Use the budget tracker to plan batching strategies before executing queries.
+</Callout>
+
+## Cloudflare Limits
+
+| Context | Subrequest Limit |
+|---------|------------------|
+| Workers (Free) | 50 |
+| Workers (Paid) | 50 |
+| Durable Objects | 1000 |
+
+A "subrequest" includes:
+- Fetch calls to external services
+- Fetch calls to other Workers
+- RPC calls to Durable Objects
+- Cache API operations
+
+## Basic Usage
+
+```typescript
+import { SubrequestBudget } from 'dotdo/fanout'
+
+// Create budget with Workers limit
+const budget = new SubrequestBudget(50)
+
+// Track subrequest usage
+budget.track(10)  // Used 10 subrequests
+
+console.log(budget.used)      // 10
+console.log(budget.remaining) // 40
+console.log(budget.exhausted) // false
+```
+
+## Budget Properties
+
+```typescript
+const budget = new SubrequestBudget(50)
+
+budget.initial    // 50 - Original budget
+budget.used       // Number of subrequests tracked
+budget.remaining  // initial - used
+budget.exhausted  // true when remaining <= 0
+```
+
+## Tracking Methods
+
+### track()
+
+Track subrequest usage with bounds checking:
+
+```typescript
+const budget = new SubrequestBudget(50)
+
+budget.track(30)  // OK
+budget.track(10)  // OK - 40 used, 10 remaining
+
+try {
+  budget.track(15)  // Throws!
+} catch (e) {
+  console.error(e.message)
+  // "Budget exceeded: attempting to use 15 but only 10 remaining"
+}
+```
+
+The error message includes the attempted usage and remaining budget for debugging.
+
+### trackUnchecked()
+
+Track without bounds checking (for multi-batch operations):
+
+```typescript
+const budget = new SubrequestBudget(50)
+
+// Multi-batch operation: 3 batches of 50
+budget.trackUnchecked(50)  // Batch 1
+budget.trackUnchecked(50)  // Batch 2
+budget.trackUnchecked(28)  // Batch 3 (partial)
+
+console.log(budget.used)  // 128 total across batches
+```
+
+### canMake()
+
+Check if budget allows N subrequests:
+
+```typescript
+const budget = new SubrequestBudget(50)
+budget.track(40)
+
+budget.canMake(10)  // true - exactly 10 remaining
+budget.canMake(9)   // true
+budget.canMake(11)  // false
+```
+
+## Batch Size Calculation
+
+Calculate optimal batch size for a number of scanners:
+
+```typescript
+const budget = new SubrequestBudget(50)
+
+// Full budget available
+budget.optimalBatchSize(128)  // 50 (limited by budget)
+budget.optimalBatchSize(30)   // 30 (limited by scanner count)
+
+// After using some budget
+budget.track(30)
+budget.optimalBatchSize(100)  // 20 (only 20 remaining)
+```
+
+The formula is simply: `Math.min(remaining, scannerCount)`
+
+Use this when manually implementing batched operations:
+
+```typescript
+const budget = new SubrequestBudget(50)
+const scanners = getScanners()  // 128 scanners
+
+for (let i = 0; i < scanners.length; ) {
+  const batchSize = budget.optimalBatchSize(scanners.length - i)
+  const batch = scanners.slice(i, i + batchSize)
+
+  // Execute batch
+  await Promise.all(batch.map(s => s.execute(sql)))
+  budget.trackUnchecked(batchSize)
+
+  i += batchSize
+}
+```
+
+## Integration with QueryCoordinator
+
+### Automatic Batching
+
+The coordinator batches scanner calls to respect budget limits:
+
+```typescript
+import { QueryCoordinator, SubrequestBudget } from 'dotdo/fanout'
+
+const scanners = Array.from({ length: 128 }, (_, i) => ({
+  id: `scanner-${i}`,
+  execute: async (sql) => ({ rows: [] }),
+}))
+
+const coordinator = new QueryCoordinator(scanners)
+const budget = new SubrequestBudget(50)  // Workers limit
+
+// 128 scanners with 50 budget = 3 batches
+const result = await coordinator.queryWithBudget('SELECT * FROM users', budget)
+
+// Batch 1: scanners 0-49   (50 subrequests)
+// Batch 2: scanners 50-99  (50 subrequests)
+// Batch 3: scanners 100-127 (28 subrequests)
+// Total: 128 subrequests across 3 rounds
+```
+
+### Budget Exhaustion
+
+If budget is too small for the scanner count, the query fails:
+
+```typescript
+const budget = new SubrequestBudget(10)  // Very limited
+
+// 128 scanners would need 13 batches (too many)
+await coordinator.queryWithBudget('SELECT * FROM users', budget)
+// Error: "Subrequest budget exhausted - too many batches required"
+```
+
+The coordinator enforces a **maximum of 3 batches** to prevent:
+- Excessive round-trip latency
+- Timeout issues with long-running multi-batch operations
+- Resource exhaustion from too many sequential operations
+
+| Scanners | Budget | Batches | Result |
+|----------|--------|---------|--------|
+| 128 | 50 | 3 | OK |
+| 128 | 43 | 3 | OK |
+| 128 | 42 | 4 | Error |
+| 256 | 100 | 3 | OK |
+| 256 | 85 | 4 | Error |
+
+<Callout type="info">
+Formula: `ceil(scannerCount / budget) <= 3`. Use `budget >= ceil(scannerCount / 3)` to ensure your query succeeds.
+</Callout>
+
+## Workers vs Durable Objects
+
+### Workers (50 limit)
+
+In a Worker, you have 50 subrequests per incoming request:
+
+```typescript
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const budget = new SubrequestBudget(50)
+
+    // Query 128 scanners in 3 batches
+    const coordinator = new QueryCoordinator(scanners)
+    const result = await coordinator.queryWithBudget(
+      'SELECT * FROM users',
+      budget
+    )
+
+    return Response.json(result)
+  }
+}
+```
+
+### Durable Objects (1000 limit)
+
+DOs have a much higher limit, enabling larger fan-outs:
+
+```typescript
+export class CoordinatorDO extends DurableObject {
+  async query(sql: string): Promise<QueryResult> {
+    const budget = new SubrequestBudget(1000)
+
+    // Can query up to 1000 scanners in a single batch
+    const coordinator = new QueryCoordinator(scanners)
+    return coordinator.queryWithBudget(sql, budget)
+  }
+}
+```
+
+### Hybrid Architecture
+
+Use a coordinator DO to handle large fan-outs:
+
+<Callout type="info">
+This is the recommended pattern for fan-outs exceeding 150 scanners. The Worker makes a single subrequest to the coordinator DO, which can then make up to 1000 subrequests to scanners.
+</Callout>
+
+```
+Worker (50 limit) -> Coordinator DO (1000 limit) -> Scanner DOs
+                            |
+                            +-> 256 scanners in parallel
+```
+
+```typescript
+// Worker - single subrequest to coordinator
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const coordinatorId = env.CoordinatorDO.idFromName('default')
+    const coordinator = env.CoordinatorDO.get(coordinatorId)
+
+    // 1 subrequest from Worker
+    const result = await coordinator.distributedQuery('SELECT * FROM users')
+
+    return Response.json(result)
+  }
+}
+
+// Coordinator DO - up to 1000 subrequests
+export class CoordinatorDO extends DurableObject {
+  async distributedQuery(sql: string): Promise<QueryResult> {
+    const budget = new SubrequestBudget(1000)
+    const coordinator = new QueryCoordinator(this.scanners)
+    return coordinator.queryWithBudget(sql, budget)
+  }
+}
+```
+
+## Budget Strategies
+
+### Conservative
+
+Reserve budget for retries and error handling:
+
+```typescript
+const budget = new SubrequestBudget(50)
+const reserved = 5  // Reserve for retries
+const available = budget.remaining - reserved
+
+const batchSize = Math.min(available, scannerCount)
+```
+
+### Aggressive
+
+Use full budget with multi-batch fallback:
+
+```typescript
+// First try with full budget
+const budget = new SubrequestBudget(50)
+
+try {
+  return await coordinator.queryWithBudget(sql, budget)
+} catch (e) {
+  // Fallback: sample subset of scanners
+  const sampled = scanners.slice(0, 50)
+  const sampledCoordinator = new QueryCoordinator(sampled)
+  return sampledCoordinator.query(sql)
+}
+```
+
+### Streaming
+
+Use streaming to process batches as they complete:
+
+```typescript
+const budget = new SubrequestBudget(50)
+const batchSize = budget.optimalBatchSize(scanners.length)
+
+for (let i = 0; i < scanners.length; i += batchSize) {
+  const batch = scanners.slice(i, i + batchSize)
+  const batchCoordinator = new QueryCoordinator(batch)
+
+  for await (const result of batchCoordinator.queryStream(sql)) {
+    await processResult(result)
+  }
+}
+```
+
+## API Reference
+
+### Constructor
+
+```typescript
+new SubrequestBudget(limit?: number)
+// limit defaults to 50 (Workers limit)
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `initial` | `number` | Original budget limit |
+| `used` | `number` | Subrequests tracked so far |
+| `remaining` | `number` | Budget remaining (initial - used) |
+| `exhausted` | `boolean` | True when remaining <= 0 |
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `track(count)` | Track usage, throws if exceeds budget |
+| `trackUnchecked(count)` | Track usage without bounds check |
+| `canMake(count)` | Check if budget allows N subrequests |
+| `optimalBatchSize(scannerCount)` | Calculate optimal batch size |
+
+## See Also
+
+- [QueryCoordinator](/docs/fanout/coordinator) - Automatic batching
+- [Consistent Hashing](/docs/fanout/hashing) - Single-shard routing
+- [Merge Strategies](/docs/fanout/merging) - Result combination

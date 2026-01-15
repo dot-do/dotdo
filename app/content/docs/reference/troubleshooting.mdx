@@ -1,0 +1,476 @@
+---
+title: Troubleshooting
+description: Common issues and solutions when working with dotdo
+---
+
+# Troubleshooting
+
+This guide covers common issues you may encounter when developing with dotdo and their solutions.
+
+> **Quick Tip:** Most issues are resolved by clearing local state with `rm -rf .wrangler` and restarting the dev server.
+
+## Development Issues
+
+### Wrangler Dev Server Won't Start
+
+**Symptom**: `wrangler dev` hangs or fails to start.
+
+**Causes and Solutions**:
+
+1. **Port already in use**
+
+   ```bash
+   # Check what's using port 8787
+   lsof -i :8787
+
+   # Kill the process
+   kill -9 <PID>
+
+   # Or use a different port
+   wrangler dev --port 8788
+   ```
+
+2. **Orphan processes from previous session**
+
+   ```bash
+   # Kill all wrangler processes
+   pkill -9 -f wrangler
+
+   # Kill vitest/vite if running
+   pkill -9 -f vitest
+   pkill -9 -f vite
+   ```
+
+3. **Corrupted .wrangler cache**
+
+   ```bash
+   # Remove cache directory
+   rm -rf .wrangler
+
+   # Restart dev server
+   wrangler dev
+   ```
+
+### Tests Fail with "DO not found"
+
+**Symptom**: Tests fail with errors like `DurableObjectNamespace 'DOCore' not found`.
+
+**Solution**: Ensure your vitest config includes the DO bindings:
+
+```typescript
+// vitest.config.ts
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+
+export default defineWorkersConfig({
+  test: {
+    poolOptions: {
+      workers: {
+        wrangler: { configPath: './wrangler.toml' },
+        miniflare: {
+          durableObjects: {
+            DOCore: 'DOCore'
+          }
+        }
+      }
+    }
+  }
+})
+```
+
+### Memory Issues with Vitest
+
+**Symptom**: Tests hang or crash with memory errors.
+
+**Solutions**:
+
+1. **Never run multiple vitest instances**
+
+   ```bash
+   # Check for running instances
+   ps aux | grep vitest
+
+   # Kill all
+   pkill -9 -f vitest
+   ```
+
+2. **Use `run` mode instead of watch**
+
+   ```bash
+   # Instead of watch mode
+   npx vitest run
+   ```
+
+3. **Run one test file at a time**
+
+   ```bash
+   npx vitest run path/to/specific.test.ts
+   ```
+
+### SQLite Errors in DO
+
+**Symptom**: `SQLITE_ERROR: no such table` or similar errors.
+
+**Solutions**:
+
+1. **Check migration tags in wrangler.toml**
+
+   ```toml
+   [[migrations]]
+   tag = "v1"
+   new_sqlite_classes = ["DOCore"]
+   ```
+
+2. **Clear local state and restart**
+
+   ```bash
+   rm -rf .wrangler/state
+   wrangler dev
+   ```
+
+3. **Verify table creation in constructor**
+
+   ```typescript
+   constructor(ctx: DurableObjectState, env: Env) {
+     super(ctx, env)
+
+     // Tables must be created synchronously
+     this.ctx.storage.sql.exec(`
+       CREATE TABLE IF NOT EXISTS my_table (
+         id TEXT PRIMARY KEY,
+         data TEXT
+       )
+     `)
+   }
+   ```
+
+## Deployment Issues
+
+### Deployment Fails with Migration Error
+
+**Symptom**: `Migration tag 'vX' already exists` error.
+
+**Solution**: Migration tags must be unique and sequential. Add a new tag:
+
+```toml
+[[migrations]]
+tag = "v3"  # Use a new tag
+new_sqlite_classes = ["NewDOClass"]
+```
+
+### Secret Not Found
+
+**Symptom**: `Error: Missing environment variable: JWT_SECRET`
+
+**Solutions**:
+
+1. **Set the secret**
+
+   ```bash
+   wrangler secret put JWT_SECRET
+   ```
+
+2. **Verify secret is set**
+
+   ```bash
+   wrangler secret list
+   ```
+
+3. **Check environment**
+
+   ```bash
+   # Secrets are per-environment
+   wrangler secret list --env staging
+   ```
+
+### KV Namespace Not Found
+
+**Symptom**: `KVNamespace 'OAUTH_KV' not found`
+
+**Solution**: Create the namespace and update wrangler.toml:
+
+```bash
+# Create namespace
+wrangler kv:namespace create "OAUTH_KV"
+
+# Update wrangler.toml with the returned ID
+```
+
+## Runtime Issues
+
+### RPC Timeout
+
+**Symptom**: `Error: RPC Timeout` when calling cross-DO methods.
+
+**Solutions**:
+
+1. **Increase timeout**
+
+   ```typescript
+   const $ = createWorkflowContext({
+     stubResolver: resolver,
+     rpcTimeout: 60000  // 1 minute
+   })
+   ```
+
+2. **Check if target DO exists**
+
+   ```typescript
+   // Verify the binding exists
+   if (!env.DOSemantic) {
+     throw new Error('DOSemantic binding not configured')
+   }
+   ```
+
+3. **Check for deadlocks**
+   - Ensure DOs don't call each other in a cycle
+   - Use `$.send()` for fire-and-forget instead of awaiting
+
+### WebSocket Connection Fails
+
+**Symptom**: WebSocket upgrade returns 426 or connection drops immediately.
+
+**Solutions**:
+
+1. **Check upgrade header**
+
+   ```typescript
+   const isUpgrade = request.headers.get('Upgrade') === 'websocket'
+   if (!isUpgrade) {
+     return new Response('Upgrade required', { status: 426 })
+   }
+   ```
+
+2. **Verify WebSocket handling**
+
+   ```typescript
+   // In your DO
+   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+     // Handle messages
+   }
+
+   webSocketClose(ws: WebSocket, code: number, reason: string): void {
+     // Clean up
+   }
+   ```
+
+3. **Check hibernation settings**
+
+   ```typescript
+   // For hibernatable WebSockets
+   this.ctx.acceptWebSocket(server, ['hibernatable'])
+   ```
+
+### Event Handler Not Called
+
+**Symptom**: Registered event handlers never execute.
+
+**Solutions**:
+
+1. **Verify registration pattern**
+
+   ```typescript
+   // Correct: returns unsubscribe function
+   const unsub = $.on.Customer.signup(handler)
+
+   // Incorrect: missing handler
+   $.on.Customer.signup  // Does nothing
+   ```
+
+2. **Check event type format**
+
+   ```typescript
+   // Event type must match: "Noun.verb"
+   $.send('Customer.signup', data)  // Correct
+   $.send('customer-signup', data)  // Won't match
+   ```
+
+3. **Verify dispatch is awaited**
+
+   ```typescript
+   // Await dispatch for synchronous handlers
+   await $.dispatch('Customer.signup', data)
+   ```
+
+### Cascade All Tiers Fail
+
+**Symptom**: `CascadeError: All tiers failed for task`
+
+**Solutions**:
+
+1. **Add error handling per tier**
+
+   ```typescript
+   const result = await $.cascade({
+     task: 'Process order',
+     tiers: {
+       code: async () => {
+         try {
+           return { value: process(), confidence: 0.9 }
+         } catch (e) {
+           console.error('Code tier failed:', e)
+           throw e
+         }
+       },
+       human: async () => {
+         return { value: null, queueEntry: { id: 'q_123' } }
+       }
+     }
+   })
+   ```
+
+2. **Lower confidence threshold**
+
+   ```typescript
+   confidenceThreshold: 0.7  // Accept lower confidence
+   ```
+
+3. **Always include a fallback tier**
+
+   ```typescript
+   tiers: {
+     code: ...,
+     human: async () => {
+       // Human fallback always succeeds
+       return { value: 'pending_review' }
+     }
+   }
+   ```
+
+## Type Issues
+
+### Type Errors with Thing
+
+**Symptom**: TypeScript errors when working with Thing properties.
+
+**Solution**: Use proper type parameters:
+
+```typescript
+interface Customer {
+  name: string
+  email: string
+}
+
+// Create typed thing
+const customer = stub.createThing<Customer>('Customer', {
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+
+// Access with type safety
+console.log(customer.name)  // OK
+console.log(customer.phone) // Error: Property 'phone' does not exist
+```
+
+### Environment Type Mismatch
+
+**Symptom**: `Property 'X' does not exist on type 'DOCoreEnv'`
+
+**Solution**: Extend the environment interface:
+
+```typescript
+interface MyEnv extends DOCoreEnv {
+  MY_KV: KVNamespace
+  MY_SECRET: string
+}
+
+export class MyDO extends DOCore {
+  constructor(ctx: DurableObjectState, env: MyEnv) {
+    super(ctx, env)
+  }
+}
+```
+
+## Performance Issues
+
+### Slow DO Cold Starts
+
+**Symptom**: First request to a DO takes several seconds.
+
+**Solutions**:
+
+1. **Use smaller DO classes**
+
+   ```typescript
+   // Use DOCore (~5KB) instead of DOFull (~80KB) if you don't need all features
+   export class MyDO extends DOCore { }
+   ```
+
+2. **Minimize constructor work**
+
+   ```typescript
+   constructor(ctx: DurableObjectState, env: Env) {
+     super(ctx, env)
+
+     // Only create tables, don't load data
+     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS ...`)
+
+     // Load data lazily on first request
+   }
+   ```
+
+3. **Enable hibernation**
+
+   ```typescript
+   // Use hibernatable WebSockets
+   this.ctx.acceptWebSocket(server, ['hibernatable'])
+   ```
+
+### High Memory Usage
+
+**Symptom**: DO crashes with out-of-memory errors.
+
+**Solutions**:
+
+1. **Implement LRU eviction**
+
+   ```typescript
+   const stateManager = new InMemoryStateManager({
+     maxEntries: 1000  // Limit cache size
+   })
+   ```
+
+2. **Paginate large queries**
+
+   ```typescript
+   // Instead of loading all
+   const all = await stub.list({ prefix: 'item:' })
+
+   // Paginate
+   const page1 = await stub.list({ prefix: 'item:', limit: 100 })
+   ```
+
+3. **Clean up subscriptions**
+
+   ```typescript
+   // Store unsubscribe function
+   const unsub = $.on.Event.type(handler)
+
+   // Clean up when done
+   unsub()
+   ```
+
+## Getting Help
+
+If you can't resolve an issue:
+
+1. **Check the logs**
+
+   ```bash
+   wrangler tail --format=pretty
+   ```
+
+2. **Enable debug logging**
+
+   ```typescript
+   console.log('Debug:', { state, error })
+   ```
+
+3. **Search existing issues** on [GitHub](https://github.com/dot-do/dotdo/issues)
+
+4. **Create a minimal reproduction** and file an issue
+
+## Related Documentation
+
+- [CLI Commands](/reference/cli) - Development and debugging commands
+- [Configuration Reference](/reference/configuration) - Wrangler.toml options
+- [Migration Guide](/reference/migration) - Version upgrade help

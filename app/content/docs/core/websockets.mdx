@@ -1,0 +1,422 @@
+---
+title: WebSockets
+description: Hibernatable WebSocket connections with tagging for pub/sub and broadcast patterns
+---
+
+# WebSockets
+
+DOCore provides native WebSocket support with Cloudflare's hibernatable WebSocket API. This allows Durable Objects to maintain WebSocket connections while hibernating, dramatically reducing costs for idle connections.
+
+## WebSocket Endpoints
+
+DOCore includes two WebSocket endpoints:
+
+| Endpoint | Query Params | Description |
+|----------|--------------|-------------|
+| `/ws` | `?room=<name>` | Standard WebSocket with optional room tag |
+| `/ws/hibernatable` | - | Hibernatable WebSocket with `hibernatable` tag |
+
+Both endpoints require the `Upgrade: websocket` header or return 426 Upgrade Required.
+
+## Establishing Connections
+
+### Client-Side
+
+```typescript
+// Standard WebSocket
+const ws = new WebSocket('wss://your-do.workers.dev/ws')
+
+// With room tag
+const ws = new WebSocket('wss://your-do.workers.dev/ws?room=lobby')
+
+// Hibernatable connection
+const ws = new WebSocket('wss://your-do.workers.dev/ws/hibernatable')
+
+ws.onopen = () => {
+  console.log('Connected')
+  ws.send(JSON.stringify({ type: 'hello' }))
+}
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  console.log('Received:', data)
+}
+
+ws.onclose = (event) => {
+  console.log('Disconnected:', event.code, event.reason)
+}
+```
+
+### Server-Side (DO)
+
+DOCore handles WebSocket upgrades internally. The built-in `/ws` route:
+
+```typescript
+// Built-in /ws route implementation
+app.get('/ws', (c) => {
+  if (!this.isWebSocketUpgradeRequest(c)) {
+    return c.json({ error: 'Upgrade required' }, 426)
+  }
+
+  const room = c.req.query('room')
+  const tags: string[] = room ? [`room:${room}`] : []
+  return this.handleWebSocketUpgrade(c, tags, false)
+})
+```
+
+<Callout type="info">
+The `isWebSocketUpgradeRequest()` and `handleWebSocketUpgrade()` methods are private helpers in DOCore. To create custom WebSocket endpoints, register new routes in `createApp()` that follow the same pattern.
+</Callout>
+
+## Hibernatable WebSockets
+
+Hibernatable WebSockets allow the DO to hibernate while maintaining active connections. When a message arrives, the DO wakes automatically.
+
+```typescript
+// Built-in /ws/hibernatable route
+app.get('/ws/hibernatable', (c) => {
+  if (!this.isWebSocketUpgradeRequest(c)) {
+    return c.json({ error: 'Upgrade required' }, 426)
+  }
+
+  return this.handleWebSocketUpgrade(c, ['hibernatable'], true)
+})
+```
+
+The key difference is passing `true` for hibernatable and using `['hibernatable']` as tags with `ctx.acceptWebSocket()`.
+
+### Hibernation Benefits
+
+| Aspect | Standard | Hibernatable |
+|--------|----------|--------------|
+| Memory while idle | Full DO in memory | Minimal (just connection) |
+| Cost while idle | Full billing | Reduced billing |
+| Wake on message | N/A | Automatic |
+| Connection limit | Same | Same |
+
+### How It Works
+
+1. When `ctx.acceptWebSocket(server, ['hibernatable'])` is called, Cloudflare tracks the connection
+2. The DO can hibernate normally after processing the upgrade
+3. When a message arrives on any hibernatable WebSocket, the DO wakes
+4. `webSocketMessage()` is called with the message
+5. After processing, the DO can hibernate again
+
+## Broadcasting
+
+### broadcast(tag, message)
+
+Send a message to all connections with a specific tag using `ctx.getWebSockets()`:
+
+```typescript
+// Via RPC
+await stub.broadcast('room:lobby', {
+  type: 'message',
+  text: 'Hello everyone!'
+})
+
+// Returns count of messages sent
+const result = await stub.broadcast('room:lobby', { event: 'update' })
+console.log(`Sent to ${result.sent} connections`)
+```
+
+**Implementation:**
+
+```typescript
+async broadcast(tag: string, message: unknown): Promise<{ sent: number }> {
+  let sent = 0
+  const sockets = this.ctx.getWebSockets(tag)
+
+  for (const ws of sockets) {
+    try {
+      ws.send(JSON.stringify(message))
+      sent++
+    } catch {
+      // Socket may be closed, skip it
+    }
+  }
+
+  return { sent }
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tag` | `string` | Yes | Tag to match connections (e.g., `room:lobby`) |
+| `message` | `unknown` | Yes | Message to send (JSON-serialized) |
+
+**Returns:** `Promise<{ sent: number }>` - Count of successfully sent messages
+
+### Broadcast Patterns
+
+```typescript
+// Room-based messaging
+await stub.broadcast('room:lobby', { type: 'chat', text: 'Hello!' })
+await stub.broadcast('room:game-123', { type: 'move', x: 5, y: 3 })
+
+// User-specific notifications
+await stub.broadcast('user:alice', { type: 'notification', count: 3 })
+
+// Global announcements
+await stub.broadcast('all', { type: 'maintenance', message: 'Restarting soon' })
+```
+
+## Connection Tagging
+
+DOCore tracks tags in an internal Map. The built-in `/ws` route supports a single `room` tag:
+
+```typescript
+// Built-in: /ws?room=lobby creates tag ['room:lobby']
+```
+
+For custom tagging, override the route:
+
+```typescript
+app.get('/ws/custom', (c) => {
+  if (!this.isWebSocketUpgradeRequest(c)) {
+    return c.json({ error: 'Upgrade required' }, 426)
+  }
+
+  const room = c.req.query('room')
+  const userId = c.req.query('userId')
+
+  // Build multiple tags
+  const tags: string[] = []
+  if (room) tags.push(`room:${room}`)
+  if (userId) tags.push(`user:${userId}`)
+  tags.push('all') // Everyone gets 'all' tag
+
+  return this.handleWebSocketUpgrade(c, tags, false)
+})
+```
+
+### Getting Connection Tags
+
+```typescript
+// Via RPC - gets tags of the LAST connected WebSocket
+const tags = await stub.getWebSocketTags()
+// ['room:lobby', 'user:alice', 'all']
+```
+
+<Callout type="info">
+WebSocket objects cannot be passed via RPC. The `getWebSocketTags()` method returns tags for the most recently connected WebSocket, stored in `this.lastWebSocketTags`.
+</Callout>
+
+### Tag Storage
+
+DOCore maintains two tracking structures:
+
+```typescript
+private websocketTags = new Map<WebSocket, string[]>()  // All connections
+private lastWebSocketTags: string[] = []               // For RPC access
+private lastWebSocketHibernatable = false              // For RPC access
+```
+
+## WebSocket Event Handlers
+
+DOCore implements base handlers that you can override:
+
+```typescript
+export class MyDO extends DOCore {
+  // Handle incoming messages (base implementation is empty)
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    const data = JSON.parse(message as string)
+
+    switch (data.type) {
+      case 'ping':
+        ws.send(JSON.stringify({ type: 'pong' }))
+        break
+      case 'broadcast':
+        this.broadcast(data.room, data.payload)
+        break
+    }
+  }
+
+  // Handle disconnection - base cleans up tracking maps
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    // DOCore.cleanupWebSocket is called automatically
+    console.log(`Connection closed: ${code} ${reason}`)
+    // Custom cleanup...
+  }
+
+  // Handle errors - base cleans up tracking maps
+  webSocketError(ws: WebSocket, error: unknown): void {
+    // DOCore.cleanupWebSocket is called automatically
+    console.error('WebSocket error:', error)
+    // Custom error handling...
+  }
+}
+```
+
+### Base Cleanup
+
+DOCore's `cleanupWebSocket()` method removes the WebSocket from tracking:
+
+```typescript
+private cleanupWebSocket(ws: WebSocket): void {
+  this.websocketTags.delete(ws)
+  this.hibernatableWebSockets.delete(ws)
+}
+```
+
+This is called automatically by `webSocketClose()` and `webSocketError()`.
+
+## Checking Hibernation Status
+
+```typescript
+// Via RPC - checks if last connected WebSocket is hibernatable
+const isHibernatable = await stub.isWebSocketHibernatable()
+// true or false
+```
+
+## Using getWebSockets()
+
+Access WebSockets by tag within the DO:
+
+```typescript
+export class MyDO extends DOCore {
+  async notifyRoom(room: string, message: unknown): Promise<number> {
+    const sockets = this.ctx.getWebSockets(`room:${room}`)
+    let sent = 0
+
+    for (const ws of sockets) {
+      try {
+        ws.send(JSON.stringify(message))
+        sent++
+      } catch {
+        // Socket may be closed
+      }
+    }
+
+    return sent
+  }
+}
+```
+
+## Presence Tracking
+
+Track active users with WebSockets:
+
+```typescript
+export class ChatRoom extends DOCore {
+  private presence = new Map<string, { userId: string; joinedAt: number }>()
+
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    const data = JSON.parse(message as string)
+
+    if (data.type === 'join') {
+      this.presence.set(data.userId, {
+        userId: data.userId,
+        joinedAt: Date.now()
+      })
+      this.broadcastPresence()
+    }
+  }
+
+  webSocketClose(ws: WebSocket): void {
+    // Remove from presence (need to track ws -> userId mapping)
+    this.broadcastPresence()
+  }
+
+  private broadcastPresence(): void {
+    const users = Array.from(this.presence.values())
+    this.broadcast('all', { type: 'presence', users })
+  }
+}
+```
+
+## RPC vs Fetch for WebSockets
+
+WebSocket establishment requires HTTP (fetch), but management uses RPC:
+
+```typescript
+// Establishing connection - must use fetch/HTTP
+const response = await stub.fetch('https://do.local/ws', {
+  headers: {
+    Upgrade: 'websocket',
+    Connection: 'Upgrade',
+  },
+})
+
+// Broadcasting - use RPC
+await stub.broadcast('room:lobby', { message: 'Hello!' })
+
+// Checking status - use RPC
+const tags = await stub.getWebSocketTags()
+const isHibernatable = await stub.isWebSocketHibernatable()
+```
+
+## Error Handling
+
+Handle WebSocket errors gracefully:
+
+```typescript
+webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+  try {
+    const data = JSON.parse(message as string)
+    this.handleMessage(ws, data)
+  } catch (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Invalid message format'
+    }))
+  }
+}
+
+private handleMessage(ws: WebSocket, data: unknown): void {
+  // Process message...
+}
+```
+
+## Best Practices
+
+### Use Hibernatable WebSockets for Idle Connections
+
+```typescript
+// For chat rooms, notifications, etc.
+// Use /ws/hibernatable to reduce costs when users are idle
+```
+
+### Tag Connections Meaningfully
+
+```typescript
+// Good: Specific, queryable tags
+const tags = [`room:${roomId}`, `user:${userId}`, 'all']
+
+// Bad: Generic or no tags
+const tags = ['connection']
+```
+
+### Clean Up on Disconnect
+
+```typescript
+webSocketClose(ws: WebSocket): void {
+  this.websocketTags.delete(ws)
+  this.hibernatableWebSockets.delete(ws)
+  // Clean up any other per-connection state
+}
+```
+
+### Handle Binary Messages
+
+```typescript
+webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+  if (message instanceof ArrayBuffer) {
+    // Handle binary data
+    const bytes = new Uint8Array(message)
+    // Process bytes...
+  } else {
+    // Handle text/JSON
+    const data = JSON.parse(message)
+    // Process data...
+  }
+}
+```
+
+## Next Steps
+
+- [Lifecycle Hooks](/core/lifecycle) - Wake handling for hibernatable WebSockets
+- [State Management](/core/state) - Persist WebSocket-related state
+- [HTTP Routing](/core/routing) - Custom WebSocket endpoints

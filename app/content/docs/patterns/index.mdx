@@ -1,0 +1,200 @@
+---
+title: Patterns
+description: Real-world architectural patterns combining dotdo modules for production applications
+---
+
+# Patterns
+
+This section presents production-ready architectural patterns that combine multiple dotdo modules. Each pattern addresses a common real-world challenge and demonstrates how Durable Objects can solve complex problems elegantly.
+
+> Start with [Multi-Tenant](/patterns/multi-tenant) if you're building a SaaS application. It's the simplest pattern and provides a foundation for the others.
+
+## Available Patterns
+
+| Pattern | Modules Used | Use Case | Complexity |
+|---------|--------------|----------|------------|
+| [Multi-Tenant](/patterns/multi-tenant) | DOCore, Routing | SaaS namespace isolation | Low |
+| [Event Sourcing](/patterns/event-sourcing) | Events, Storage | Audit logs, replays, projections | Medium |
+| [Approval Workflow](/patterns/approval-workflow) | Cascade, Human-in-Loop | Compliance, reviews, escalation | Medium |
+| [Real-Time Dashboard](/patterns/real-time-dashboard) | Streaming, Fanout | Live metrics, notifications | High |
+
+## Pattern Structure
+
+Each pattern follows a consistent format:
+
+1. **Problem Statement** - The challenge being addressed
+2. **Trade-offs** - When to use and when to avoid this pattern (read this first)
+3. **Architecture Overview** - Visual diagram and component breakdown
+4. **Complete Implementation** - Working code combining multiple modules
+5. **Key Considerations** - Performance, scaling, and edge cases
+6. **Variations** - Alternative approaches for different requirements
+
+## When to Use These Patterns
+
+| If you need... | Use this pattern |
+|----------------|------------------|
+| Customer isolation in SaaS | [Multi-Tenant](/patterns/multi-tenant) |
+| Complete audit trail of all changes | [Event Sourcing](/patterns/event-sourcing) |
+| Human review of automated decisions | [Approval Workflow](/patterns/approval-workflow) |
+| Real-time updates to many clients | [Real-Time Dashboard](/patterns/real-time-dashboard) |
+| Combination of above | Compose multiple patterns together |
+
+## Combining Modules
+
+The power of dotdo comes from composing its modules. Here's how the class hierarchy enables this:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ DOFull (~80KB)                                                  │
+│ ├── AI template literals, cascade, streaming, fanout           │
+│ └── extends DOWorkflow                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ DOWorkflow (~60KB)                                              │
+│ ├── WorkflowContext ($), events, scheduling, RPC               │
+│ └── extends DOStorage                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ DOStorage (~40KB)                                               │
+│ ├── InMemory, Pipeline WAL, SQLite, Iceberg                    │
+│ └── extends DOSemantic                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ DOSemantic (~20KB)                                              │
+│ ├── Things, Actions, Nouns, Verbs, operators                   │
+│ └── extends DOCore                                             │
+├─────────────────────────────────────────────────────────────────┤
+│ DOCore (~5KB)                                                   │
+│ └── State, alarms, routing, WebSockets                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Choose the smallest class that provides all the capabilities you need to minimize cold start time and memory footprint.
+
+## Common Composition Patterns
+
+### Events + Streaming
+
+React to domain events and broadcast updates in real-time:
+
+```typescript
+import { DOFull } from 'dotdo'
+
+class LiveFeed extends DOFull {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // React to events
+    this.$.on.Order.created(async (event) => {
+      // Broadcast to all connected dashboards
+      await this.fanout('orders', {
+        type: 'new-order',
+        data: event.data
+      })
+    })
+  }
+}
+```
+
+### Cascade + Human-in-Loop
+
+Automatic escalation with human oversight:
+
+```typescript
+const result = await this.$.cascade({
+  task: 'approve-expense',
+  tiers: {
+    code: () => autoApproveUnder(expense, 100),
+    generative: () => analyzeWithAI(expense),
+    human: () => createApprovalRequest(expense)
+  }
+})
+```
+
+### Multi-Tenant + Event Sourcing
+
+Isolated namespaces with complete audit trails:
+
+```typescript
+// Worker routes tenant to their DO
+const ns = getTenantFromHostname(request)
+const id = env.DO.idFromName(ns)
+const stub = env.DO.get(id)
+
+// Inside DO, all events are captured
+await this.$.do(async () => {
+  await this.createAction({
+    noun: 'User',
+    verb: 'invited',
+    data: { email, role }
+  })
+})
+```
+
+## Architecture Principles
+
+### 1. Namespace Isolation
+
+Each Durable Object instance is completely isolated. Use hostname-based routing to achieve multi-tenancy without complex access control:
+
+```
+tenant-a.api.example.com -> DO('tenant-a')
+tenant-b.api.example.com -> DO('tenant-b')
+```
+
+### 2. Event-First Design
+
+Design around events rather than entities. This enables:
+- Complete audit trails
+- State replay and recovery
+- Loose coupling between components
+- Real-time streaming to clients
+
+### 3. Progressive Automation
+
+Use cascade tiers to balance automation with human oversight:
+- Start with deterministic rules
+- Escalate to AI for ambiguous cases
+- Fall back to humans for edge cases
+
+### 4. Edge-Native Streaming
+
+Leverage Durable Objects' built-in WebSocket hibernation for efficient real-time features:
+- Connections survive DO hibernation
+- No separate WebSocket servers needed
+- Global distribution via Cloudflare network
+
+## Quick Start
+
+The fastest way to get started is with the Multi-Tenant pattern. It requires minimal code and provides immediate value:
+
+```typescript
+// api/index.ts - Complete multi-tenant setup in 10 lines
+import { DO } from 'dotdo'
+
+export { DO }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const tenant = new URL(request.url).hostname.split('.')[0]
+    const stub = env.DO.get(env.DO.idFromName(tenant))
+    return stub.fetch(request)
+  }
+}
+```
+
+From there, you can layer on additional patterns:
+- Add [Event Sourcing](/patterns/event-sourcing) for audit trails
+- Add [Approval Workflow](/patterns/approval-workflow) for compliance
+- Add [Real-Time Dashboard](/patterns/real-time-dashboard) for live updates
+
+## Related Documentation
+
+- [Core Module](/core) - Base class with routing, state, and WebSockets
+- [Workflow Module](/workflow) - Event handlers and scheduling
+- [Streaming Module](/streaming) - WebSocket and SSE utilities
+- [Storage Layer](/storage) - SQLite and pipeline APIs
+
+## Next Steps
+
+- [Multi-Tenant Pattern](/patterns/multi-tenant) - Namespace isolation for SaaS
+- [Event Sourcing Pattern](/patterns/event-sourcing) - Actions as durable events
+- [Approval Workflow Pattern](/patterns/approval-workflow) - Cascade with human oversight
+- [Real-Time Dashboard Pattern](/patterns/real-time-dashboard) - Streaming and fanout

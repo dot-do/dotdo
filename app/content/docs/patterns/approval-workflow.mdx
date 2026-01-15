@@ -1,0 +1,1007 @@
+---
+title: Approval Workflow Pattern
+description: Combine cascade execution with human-in-the-loop for compliant, auditable approval processes
+---
+
+# Approval Workflow Pattern
+
+This pattern demonstrates how to build approval workflows that combine automated decision-making with human oversight using cascade execution and the human-in-the-loop module.
+
+## Problem Statement
+
+Many business processes require approvals:
+- **Expense reports** above certain thresholds
+- **Content moderation** for edge cases
+- **Contract reviews** for legal compliance
+- **Code deployments** to production
+- **Customer refunds** requiring manager sign-off
+
+These workflows need:
+- Automatic handling of clear-cut cases
+- Escalation for uncertain decisions
+- Human review for high-stakes items
+- Complete audit trails
+- SLA tracking and escalation
+
+## Trade-offs
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Progressive automation saves human time | Requires careful policy configuration |
+| Complete audit trail of all decisions | More complex than simple if/else logic |
+| AI can handle ambiguous cases | AI tier adds latency (~1-2s) |
+| Automatic SLA tracking and escalation | Escalation chains need maintenance |
+| DO hibernation = zero cost while waiting | Human tier has unpredictable latency |
+
+**Use this pattern when:**
+- You have clear approval policies that can be codified
+- Some decisions can be automated while others need human judgment
+- Compliance requires complete audit trails
+- You need SLA enforcement and escalation
+
+**Avoid this pattern when:**
+- All decisions require human review (just use a queue)
+- Decisions are too complex for rule-based automation
+- Response time is critical (AI tier adds latency)
+- You lack clear approval policies
+
+> **Prerequisites**: This pattern requires `DOFull` which includes cascade execution and AI template literals. If you only need human-in-the-loop without AI, use `DOWorkflow` with the [Human Module](/human) directly.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Approval Request                            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Cascade Execution                            │
+│                                                                 │
+│  ┌─────────────┐   ┌──────────────┐   ┌───────────────────┐   │
+│  │ Code Rules  │──▶│  AI Analysis │──▶│  Human Queue      │   │
+│  │             │   │              │   │                   │   │
+│  │ Auto-approve│   │ Risk scoring │   │ Multi-level       │   │
+│  │ Auto-reject │   │ Confidence   │   │ Deadline tracking │   │
+│  └─────────────┘   └──────────────┘   └───────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Event Store                                │
+│         (Complete audit trail of decisions)                     │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Notifications                                │
+│            (Slack, Email, Push to approvers)                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Complete Implementation
+
+### Approval Workflow DO
+
+```typescript
+// objects/ApprovalWorkflowDO.ts
+import { DOFull } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
+
+// Types
+interface ApprovalRequest {
+  id: string
+  type: string
+  title: string
+  description: string
+  data: unknown
+  requestedBy: string
+  requestedAt: number
+  status: 'pending' | 'approved' | 'rejected' | 'escalated'
+  tier: 'code' | 'generative' | 'agentic' | 'human'
+  confidence?: number
+  decisions: ApprovalDecision[]
+  dueAt?: number
+  escalatedAt?: number
+}
+
+interface ApprovalDecision {
+  approver: string
+  decision: 'approved' | 'rejected'
+  comment?: string
+  decidedAt: number
+  tier: 'code' | 'generative' | 'agentic' | 'human'
+}
+
+interface ApprovalPolicy {
+  type: string
+  rules: {
+    autoApprove?: (data: unknown) => boolean | { approved: boolean; confidence: number }
+    autoReject?: (data: unknown) => boolean | { rejected: boolean; confidence: number }
+    requiredApprovers: string[]
+    escalationPath: string[]
+    slaMinutes: number
+  }
+}
+
+export class ApprovalWorkflowDO extends DOFull {
+  private policies: Map<string, ApprovalPolicy> = new Map()
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    this.initializeApprovalStore()
+    this.registerApprovalRoutes()
+    this.setupEventHandlers()
+    this.registerDefaultPolicies()
+  }
+
+  private initializeApprovalStore(): void {
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS approvals (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        requested_by TEXT NOT NULL,
+        requested_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        confidence REAL,
+        decisions TEXT NOT NULL,
+        due_at INTEGER,
+        escalated_at INTEGER
+      )
+    `)
+
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_approvals_status
+        ON approvals(status, type)
+    `)
+
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_approvals_due
+        ON approvals(due_at) WHERE status = 'pending'
+    `)
+  }
+
+  private registerDefaultPolicies(): void {
+    // Expense approval policy
+    this.policies.set('expense', {
+      type: 'expense',
+      rules: {
+        autoApprove: (data) => {
+          const expense = data as { amount: number; category: string }
+          // Auto-approve small expenses
+          if (expense.amount < 50) {
+            return { approved: true, confidence: 1.0 }
+          }
+          // Auto-approve pre-approved categories under threshold
+          if (expense.category === 'office-supplies' && expense.amount < 200) {
+            return { approved: true, confidence: 0.95 }
+          }
+          return false
+        },
+        autoReject: (data) => {
+          const expense = data as { amount: number; category: string }
+          // Auto-reject obviously invalid
+          if (expense.amount <= 0) {
+            return { rejected: true, confidence: 1.0 }
+          }
+          return false
+        },
+        requiredApprovers: ['manager'],
+        escalationPath: ['manager', 'director', 'vp-finance'],
+        slaMinutes: 60 * 24 // 24 hours
+      }
+    })
+
+    // Content moderation policy
+    this.policies.set('content', {
+      type: 'content',
+      rules: {
+        autoApprove: (data) => {
+          const content = data as { text: string; flagged: boolean }
+          if (!content.flagged && content.text.length < 100) {
+            return { approved: true, confidence: 0.9 }
+          }
+          return false
+        },
+        autoReject: (data) => {
+          const content = data as { text: string; blocklist?: boolean }
+          if (content.blocklist) {
+            return { rejected: true, confidence: 1.0 }
+          }
+          return false
+        },
+        requiredApprovers: ['moderator'],
+        escalationPath: ['moderator', 'senior-moderator', 'trust-safety'],
+        slaMinutes: 60 // 1 hour
+      }
+    })
+
+    // Contract approval policy
+    this.policies.set('contract', {
+      type: 'contract',
+      rules: {
+        autoApprove: () => false, // Never auto-approve contracts
+        autoReject: () => false,  // Never auto-reject contracts
+        requiredApprovers: ['legal', 'finance', 'executive'],
+        escalationPath: ['legal', 'general-counsel', 'ceo'],
+        slaMinutes: 60 * 48 // 48 hours
+      }
+    })
+  }
+
+  private registerApprovalRoutes(): void {
+    // Submit approval request
+    this.app.post('/api/approvals', async (c) => {
+      const body = await c.req.json()
+      const approval = await this.submitApproval(body)
+      return c.json(approval, 201)
+    })
+
+    // Get approval status
+    this.app.get('/api/approvals/:id', async (c) => {
+      const id = c.req.param('id')
+      const approval = await this.getApproval(id)
+      if (!approval) {
+        return c.json({ error: 'Not found' }, 404)
+      }
+      return c.json(approval)
+    })
+
+    // Make a decision
+    this.app.post('/api/approvals/:id/decide', async (c) => {
+      const id = c.req.param('id')
+      const body = await c.req.json()
+      const approval = await this.decide(id, body)
+      return c.json(approval)
+    })
+
+    // List pending approvals for an approver
+    this.app.get('/api/approvals/pending/:approver', async (c) => {
+      const approver = c.req.param('approver')
+      const approvals = await this.getPendingFor(approver)
+      return c.json(approvals)
+    })
+
+    // Get approval metrics
+    this.app.get('/api/approvals/metrics', async (c) => {
+      const metrics = await this.getMetrics()
+      return c.json(metrics)
+    })
+  }
+
+  private setupEventHandlers(): void {
+    // Handle SLA escalation via alarms
+    this.$.every.minute(async () => {
+      await this.checkEscalations()
+    })
+
+    // Notify on status changes
+    this.$.on.Approval.submitted(async (event) => {
+      const approval = event.data as ApprovalRequest
+      if (approval.status === 'pending' && approval.tier === 'human') {
+        await this.notifyApprovers(approval)
+      }
+    })
+
+    this.$.on.Approval.escalated(async (event) => {
+      const approval = event.data as ApprovalRequest
+      await this.notifyEscalation(approval)
+    })
+
+    this.$.on.Approval.decided(async (event) => {
+      const approval = event.data as ApprovalRequest
+      await this.notifyRequester(approval)
+    })
+  }
+
+  // ============================================================
+  // Core Approval Logic
+  // ============================================================
+
+  async submitApproval(request: {
+    type: string
+    title: string
+    description?: string
+    data: unknown
+    requestedBy: string
+  }): Promise<ApprovalRequest> {
+    const policy = this.policies.get(request.type)
+    if (!policy) {
+      throw new Error(`Unknown approval type: ${request.type}`)
+    }
+
+    const id = `approval-${crypto.randomUUID()}`
+    const now = Date.now()
+
+    // Run through cascade
+    const cascadeResult = await this.$.cascade({
+      task: `approval-${request.type}-${id}`,
+      tiers: {
+        code: async () => {
+          // Check auto-approve rules
+          const autoApprove = policy.rules.autoApprove?.(request.data)
+          if (autoApprove) {
+            const result = typeof autoApprove === 'boolean'
+              ? { approved: autoApprove, confidence: 1.0 }
+              : autoApprove
+            if (result.approved) {
+              return {
+                value: { status: 'approved', decision: 'Auto-approved by policy' },
+                confidence: result.confidence
+              }
+            }
+          }
+
+          // Check auto-reject rules
+          const autoReject = policy.rules.autoReject?.(request.data)
+          if (autoReject) {
+            const result = typeof autoReject === 'boolean'
+              ? { rejected: autoReject, confidence: 1.0 }
+              : autoReject
+            if (result.rejected) {
+              return {
+                value: { status: 'rejected', decision: 'Auto-rejected by policy' },
+                confidence: result.confidence
+              }
+            }
+          }
+
+          // Not enough confidence for auto-decision
+          return { value: null, confidence: 0.3 }
+        },
+
+        generative: async () => {
+          // AI risk analysis
+          if (this.hasAI()) {
+            const analysis = await this.aiTemplate`
+              Analyze this ${request.type} approval request:
+              Title: ${request.title}
+              Data: ${JSON.stringify(request.data)}
+
+              Provide:
+              1. Risk level (low/medium/high)
+              2. Recommendation (approve/reject/review)
+              3. Confidence (0-1)
+              4. Reasoning
+
+              Respond in JSON format.
+            `
+
+            try {
+              const result = JSON.parse(analysis)
+              return {
+                value: {
+                  status: result.recommendation === 'approve' ? 'approved'
+                    : result.recommendation === 'reject' ? 'rejected' : null,
+                  analysis: result.reasoning,
+                  riskLevel: result.riskLevel
+                },
+                confidence: result.confidence
+              }
+            } catch {
+              return { value: null, confidence: 0.5 }
+            }
+          }
+
+          return { value: null, confidence: 0.4 }
+        },
+
+        human: async () => {
+          // Queue for human review
+          return {
+            value: { status: 'pending', assignTo: policy.rules.requiredApprovers },
+            confidence: 1.0
+          }
+        }
+      },
+      confidenceThreshold: 0.85
+    })
+
+    // Determine initial status based on cascade result
+    const cascadeValue = cascadeResult.value as {
+      status?: string
+      decision?: string
+      analysis?: string
+      assignTo?: string[]
+    } | null
+
+    let status: ApprovalRequest['status'] = 'pending'
+    const decisions: ApprovalDecision[] = []
+
+    if (cascadeValue?.status === 'approved') {
+      status = 'approved'
+      decisions.push({
+        approver: 'system',
+        decision: 'approved',
+        comment: cascadeValue.decision ?? cascadeValue.analysis,
+        decidedAt: now,
+        tier: cascadeResult.tier
+      })
+    } else if (cascadeValue?.status === 'rejected') {
+      status = 'rejected'
+      decisions.push({
+        approver: 'system',
+        decision: 'rejected',
+        comment: cascadeValue.decision ?? cascadeValue.analysis,
+        decidedAt: now,
+        tier: cascadeResult.tier
+      })
+    }
+
+    const approval: ApprovalRequest = {
+      id,
+      type: request.type,
+      title: request.title,
+      description: request.description ?? '',
+      data: request.data,
+      requestedBy: request.requestedBy,
+      requestedAt: now,
+      status,
+      tier: cascadeResult.tier,
+      confidence: cascadeResult.confidence,
+      decisions,
+      dueAt: now + (policy.rules.slaMinutes * 60 * 1000)
+    }
+
+    // Persist
+    await this.saveApproval(approval)
+
+    // Emit event
+    await this.$.send({
+      $type: 'Approval',
+      verb: 'submitted',
+      data: approval
+    })
+
+    return approval
+  }
+
+  async decide(
+    id: string,
+    decision: {
+      approver: string
+      decision: 'approved' | 'rejected'
+      comment?: string
+    }
+  ): Promise<ApprovalRequest> {
+    const approval = await this.getApproval(id)
+    if (!approval) {
+      throw new Error('Approval not found')
+    }
+
+    if (approval.status !== 'pending') {
+      throw new Error(`Approval already ${approval.status}`)
+    }
+
+    const policy = this.policies.get(approval.type)!
+
+    // Add decision
+    approval.decisions.push({
+      approver: decision.approver,
+      decision: decision.decision,
+      comment: decision.comment,
+      decidedAt: Date.now(),
+      tier: 'human'
+    })
+
+    // Check if all required approvers have approved
+    const requiredApprovers = policy.rules.requiredApprovers
+    const approvedBy = approval.decisions
+      .filter(d => d.decision === 'approved')
+      .map(d => d.approver)
+
+    const allApproved = requiredApprovers.every(req =>
+      approvedBy.includes(req) || approvedBy.includes('system')
+    )
+
+    // Any rejection finalizes as rejected
+    const hasRejection = approval.decisions.some(d => d.decision === 'rejected')
+
+    if (hasRejection) {
+      approval.status = 'rejected'
+    } else if (allApproved) {
+      approval.status = 'approved'
+    }
+
+    await this.saveApproval(approval)
+
+    // Emit event
+    await this.$.send({
+      $type: 'Approval',
+      verb: 'decided',
+      data: approval
+    })
+
+    return approval
+  }
+
+  async checkEscalations(): Promise<void> {
+    const now = Date.now()
+
+    // Find overdue pending approvals
+    const result = this.ctx.storage.sql.exec<{ id: string; data: string }>(
+      `SELECT id, data FROM approvals
+       WHERE status = 'pending'
+         AND due_at < ?
+         AND escalated_at IS NULL`,
+      now
+    )
+
+    for (const row of result.toArray()) {
+      const approval: ApprovalRequest = {
+        ...JSON.parse(row.data),
+        id: row.id
+      }
+
+      const policy = this.policies.get(approval.type)
+      if (!policy) continue
+
+      // Find next escalation level
+      const escalationPath = policy.rules.escalationPath
+      const currentApprovers = approval.decisions.map(d => d.approver)
+      const nextLevel = escalationPath.find(level => !currentApprovers.includes(level))
+
+      if (nextLevel) {
+        approval.status = 'escalated'
+        approval.escalatedAt = now
+        approval.dueAt = now + (policy.rules.slaMinutes * 60 * 1000) // Reset SLA
+
+        await this.saveApproval(approval)
+
+        await this.$.send({
+          $type: 'Approval',
+          verb: 'escalated',
+          data: { ...approval, escalatedTo: nextLevel }
+        })
+      }
+    }
+  }
+
+  // ============================================================
+  // Notifications
+  // ============================================================
+
+  async notifyApprovers(approval: ApprovalRequest): Promise<void> {
+    const policy = this.policies.get(approval.type)!
+
+    for (const approver of policy.rules.requiredApprovers) {
+      // Broadcast via WebSocket to online approvers
+      await this.fanout(`approver:${approver}`, {
+        type: 'new-approval',
+        approval: {
+          id: approval.id,
+          type: approval.type,
+          title: approval.title,
+          requestedBy: approval.requestedBy,
+          dueAt: approval.dueAt
+        }
+      })
+
+      // Queue email notification
+      await this.$.send({
+        $type: 'Notification',
+        verb: 'queued',
+        data: {
+          channel: 'email',
+          recipient: approver,
+          template: 'approval-request',
+          data: approval
+        }
+      })
+    }
+  }
+
+  async notifyEscalation(approval: ApprovalRequest): Promise<void> {
+    const policy = this.policies.get(approval.type)!
+    const escalationPath = policy.rules.escalationPath
+    const currentApprovers = approval.decisions.map(d => d.approver)
+    const escalatedTo = escalationPath.find(level => !currentApprovers.includes(level))
+
+    if (escalatedTo) {
+      await this.fanout(`approver:${escalatedTo}`, {
+        type: 'escalated-approval',
+        approval,
+        message: `Approval escalated due to SLA breach`
+      })
+    }
+  }
+
+  async notifyRequester(approval: ApprovalRequest): Promise<void> {
+    await this.fanout(`user:${approval.requestedBy}`, {
+      type: 'approval-decided',
+      approval: {
+        id: approval.id,
+        title: approval.title,
+        status: approval.status,
+        decisions: approval.decisions
+      }
+    })
+  }
+
+  // ============================================================
+  // Persistence
+  // ============================================================
+
+  async saveApproval(approval: ApprovalRequest): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO approvals
+       (id, type, title, data, requested_by, requested_at, status, tier, confidence, decisions, due_at, escalated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         status = excluded.status,
+         tier = excluded.tier,
+         confidence = excluded.confidence,
+         decisions = excluded.decisions,
+         due_at = excluded.due_at,
+         escalated_at = excluded.escalated_at`,
+      approval.id,
+      approval.type,
+      approval.title,
+      JSON.stringify(approval.data),
+      approval.requestedBy,
+      approval.requestedAt,
+      approval.status,
+      approval.tier,
+      approval.confidence ?? null,
+      JSON.stringify(approval.decisions),
+      approval.dueAt ?? null,
+      approval.escalatedAt ?? null
+    )
+  }
+
+  async getApproval(id: string): Promise<ApprovalRequest | null> {
+    const result = this.ctx.storage.sql.exec<{
+      id: string
+      type: string
+      title: string
+      data: string
+      requested_by: string
+      requested_at: number
+      status: string
+      tier: string
+      confidence: number | null
+      decisions: string
+      due_at: number | null
+      escalated_at: number | null
+    }>(
+      `SELECT * FROM approvals WHERE id = ?`,
+      id
+    )
+
+    const row = result.one()
+    if (!row) return null
+
+    return {
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      description: '',
+      data: JSON.parse(row.data),
+      requestedBy: row.requested_by,
+      requestedAt: row.requested_at,
+      status: row.status as ApprovalRequest['status'],
+      tier: row.tier as ApprovalRequest['tier'],
+      confidence: row.confidence ?? undefined,
+      decisions: JSON.parse(row.decisions),
+      dueAt: row.due_at ?? undefined,
+      escalatedAt: row.escalated_at ?? undefined
+    }
+  }
+
+  async getPendingFor(approver: string): Promise<ApprovalRequest[]> {
+    // Get all pending approvals where this approver is in the chain
+    const result = this.ctx.storage.sql.exec<{ id: string }>(
+      `SELECT id FROM approvals WHERE status = 'pending'`
+    )
+
+    const approvals: ApprovalRequest[] = []
+
+    for (const row of result.toArray()) {
+      const approval = await this.getApproval(row.id)
+      if (!approval) continue
+
+      const policy = this.policies.get(approval.type)
+      if (!policy) continue
+
+      // Check if approver is in required approvers or escalation path
+      const relevantApprovers = [
+        ...policy.rules.requiredApprovers,
+        ...policy.rules.escalationPath
+      ]
+
+      if (relevantApprovers.includes(approver)) {
+        // Check if not already decided by this approver
+        const alreadyDecided = approval.decisions.some(d => d.approver === approver)
+        if (!alreadyDecided) {
+          approvals.push(approval)
+        }
+      }
+    }
+
+    return approvals
+  }
+
+  async getMetrics(): Promise<{
+    total: number
+    pending: number
+    approved: number
+    rejected: number
+    escalated: number
+    avgTimeToDecision: number
+    byType: Record<string, { total: number; approved: number; rejected: number }>
+  }> {
+    const total = this.ctx.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM approvals`
+    ).one()?.count ?? 0
+
+    const pending = this.ctx.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM approvals WHERE status = 'pending'`
+    ).one()?.count ?? 0
+
+    const approved = this.ctx.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM approvals WHERE status = 'approved'`
+    ).one()?.count ?? 0
+
+    const rejected = this.ctx.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM approvals WHERE status = 'rejected'`
+    ).one()?.count ?? 0
+
+    const escalated = this.ctx.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM approvals WHERE escalated_at IS NOT NULL`
+    ).one()?.count ?? 0
+
+    // Calculate average time to decision
+    const timeResult = this.ctx.storage.sql.exec<{ avg_time: number }>(
+      `SELECT AVG(
+         json_extract(decisions, '$[' || (json_array_length(decisions) - 1) || '].decidedAt') - requested_at
+       ) as avg_time
+       FROM approvals
+       WHERE status IN ('approved', 'rejected')`
+    )
+    const avgTimeToDecision = timeResult.one()?.avg_time ?? 0
+
+    // Breakdown by type
+    const typeResult = this.ctx.storage.sql.exec<{
+      type: string
+      total: number
+      approved: number
+      rejected: number
+    }>(
+      `SELECT
+         type,
+         COUNT(*) as total,
+         SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+         SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected
+       FROM approvals
+       GROUP BY type`
+    )
+
+    const byType: Record<string, { total: number; approved: number; rejected: number }> = {}
+    for (const row of typeResult.toArray()) {
+      byType[row.type] = {
+        total: row.total,
+        approved: row.approved,
+        rejected: row.rejected
+      }
+    }
+
+    return {
+      total,
+      pending,
+      approved,
+      rejected,
+      escalated,
+      avgTimeToDecision,
+      byType
+    }
+  }
+}
+```
+
+## Key Considerations
+
+### Confidence Threshold Tuning
+
+Adjust thresholds based on approval type risk:
+
+```typescript
+// Low-risk: lower threshold, more automation
+const lowRiskResult = await $.cascade({
+  ...options,
+  confidenceThreshold: 0.7 // More automation
+})
+
+// High-risk: higher threshold, more human review
+const highRiskResult = await $.cascade({
+  ...options,
+  confidenceThreshold: 0.95 // More human review
+})
+```
+
+### SLA Management
+
+Configure escalation chains based on urgency:
+
+```typescript
+const urgentPolicy = {
+  slaMinutes: 15,
+  escalationPath: ['on-call', 'manager', 'director'],
+  escalationIntervals: [15, 30, 60] // Minutes before each escalation
+}
+```
+
+### Audit Requirements
+
+All decisions are recorded with:
+- Who made the decision
+- When it was made
+- What tier (code/AI/human) processed it
+- Confidence scores
+- Comments and reasoning
+
+## Variations
+
+### Parallel Approvers
+
+Require multiple independent approvals:
+
+```typescript
+const parallelPolicy = {
+  requiredApprovers: ['legal', 'finance', 'engineering'],
+  approvalMode: 'all', // vs 'any' for first-wins
+  quorum: 2 // At least 2 of 3 must approve
+}
+```
+
+### Conditional Approval
+
+Approvals with conditions or partial acceptance:
+
+```typescript
+await decide(id, {
+  approver: 'manager',
+  decision: 'approved',
+  conditions: [
+    { field: 'amount', maxValue: 500 },
+    { field: 'category', mustBe: 'pre-approved' }
+  ]
+})
+```
+
+### Delegation
+
+Allow approvers to delegate to others:
+
+```typescript
+await delegate(approvalId, {
+  from: 'manager',
+  to: 'assistant-manager',
+  reason: 'On vacation',
+  expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+})
+```
+
+## Real-World Example: Expense Approval Flow
+
+This example shows how expenses move through the cascade tiers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Expense Submission                           │
+│                         $250                                    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  CODE TIER (instant)                                            │
+│  ├── Amount < $50? → Auto-approve ✓                             │
+│  ├── Office supplies < $200? → Auto-approve ✓                   │
+│  ├── Amount <= 0? → Auto-reject ✗                               │
+│  └── None match → Continue (confidence: 0.3)                    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  GENERATIVE TIER (~1-2s)                                        │
+│  AI Analysis:                                                   │
+│  ├── Risk level: medium                                         │
+│  ├── Category match: team-dinner (pre-approved)                 │
+│  ├── Receipt attached: yes                                      │
+│  └── Recommendation: approve (confidence: 0.88)                 │
+│                                                                 │
+│  0.88 >= 0.85 threshold? → Auto-approve ✓                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+If AI confidence was below threshold:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  HUMAN TIER (minutes to hours)                                  │
+│  ├── Queued for: manager                                        │
+│  ├── SLA: 24 hours                                              │
+│  ├── Escalation: manager → director → vp-finance                │
+│  └── DO hibernates (zero cost) until decision                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Cascade Configuration Examples
+
+Different approval types need different confidence thresholds:
+
+```typescript
+// Low-risk: more automation (70% confidence threshold)
+this.policies.set('office-supplies', {
+  type: 'office-supplies',
+  rules: {
+    autoApprove: (data) => data.amount < 100,
+    confidenceThreshold: 0.7,  // Lower threshold
+    requiredApprovers: ['manager'],
+    escalationPath: ['manager'],
+    slaMinutes: 60 * 48  // 48 hours
+  }
+})
+
+// High-risk: more human review (95% confidence threshold)
+this.policies.set('contract', {
+  type: 'contract',
+  rules: {
+    autoApprove: () => false,  // Never auto-approve
+    autoReject: () => false,   // Never auto-reject
+    confidenceThreshold: 0.95, // Very high threshold
+    requiredApprovers: ['legal', 'finance', 'executive'],
+    escalationPath: ['legal', 'general-counsel', 'ceo'],
+    slaMinutes: 60 * 72  // 72 hours
+  }
+})
+```
+
+## Notification Integration
+
+Send notifications through multiple channels:
+
+```typescript
+this.$.on.Approval.submitted(async (event) => {
+  const approval = event.data as ApprovalRequest
+
+  // WebSocket for real-time UI updates
+  await this.fanout(`approver:${approver}`, {
+    type: 'new-approval',
+    approval
+  })
+
+  // Email for async notification
+  await this.$.send('Notification.queued', {
+    channel: 'email',
+    recipient: approver,
+    template: 'approval-request',
+    data: approval
+  })
+
+  // Slack for urgent items
+  if (approval.tier === 'human') {
+    await this.$.send('Notification.queued', {
+      channel: 'slack',
+      webhook: env.SLACK_APPROVALS_WEBHOOK,
+      message: formatSlackMessage(approval)
+    })
+  }
+})
+```
+
+## Related Documentation
+
+- [Workflow Module](/workflow) - Cascade execution and event handlers
+- [Streaming Module](/streaming) - WebSocket fanout for notifications
+- [AI Module](/ai) - Template literals for AI analysis tier
+
+## Next Steps
+
+- [Multi-Tenant Pattern](/patterns/multi-tenant) - Per-tenant approval policies
+- [Event Sourcing Pattern](/patterns/event-sourcing) - Complete approval history
+- [Real-Time Dashboard Pattern](/patterns/real-time-dashboard) - Live approval queue

@@ -1,0 +1,10 @@
+{
+  "title": "Human-in-the-Loop",
+  "pages": [
+    "index",
+    "approvals",
+    "escalation",
+    "queues",
+    "notifications"
+  ]
+}

@@ -1,0 +1,403 @@
+---
+title: WebSocket RPC
+description: Bidirectional RPC over WebSocket with hibernation support and callback proxying
+---
+
+# WebSocket RPC
+
+Cap'n Web RPC supports bidirectional communication over WebSocket, enabling real-time updates, server-initiated callbacks, and event subscriptions while taking advantage of Cloudflare's hibernatable WebSocket API.
+
+## Overview
+
+WebSocket RPC provides capabilities beyond standard HTTP requests:
+
+- **Bidirectional Communication** - Server can push messages to clients
+- **Callbacks** - Pass functions over RPC that the server can invoke
+- **Event Subscriptions** - Subscribe to events with wildcard patterns
+- **Hibernation Support** - Compatible with Cloudflare's hibernatable WebSocket API
+
+```
+┌──────────────────┐                    ┌──────────────────┐
+│  WebSocket RPC   │                    │  Durable Object  │
+│     Client       │                    │   with Handler   │
+├──────────────────┤                    ├──────────────────┤
+│                  │   call: charge()   │                  │
+│   createStub()   │ ─────────────────► │  handleRpcMsg()  │
+│                  │                    │                  │
+│                  │  response: {rcpt}  │                  │
+│                  │ ◄───────────────── │                  │
+│                  │                    │                  │
+│  callbacks Map   │  callback: notify  │  wsCallbacks     │
+│                  │ ◄───────────────── │                  │
+│                  │                    │                  │
+│  subscriptions   │  event: updated    │  broadcastEvent  │
+│                  │ ◄───────────────── │                  │
+└──────────────────┘                    └──────────────────┘
+```
+
+## Client Setup
+
+### Creating a WebSocket RPC Client
+
+```typescript
+import { WebSocketRpcClient } from 'dotdo/rpc'
+
+// Create client with options
+const client = new WebSocketRpcClient({
+  timeout: 30000,  // Request timeout (default: 30000ms)
+  debug: false,    // Enable debug logging
+})
+
+// Connect to a Durable Object
+const doStub = env.CUSTOMER.get(env.CUSTOMER.idFromName('cust-123'))
+await client.connect(doStub, '/ws/rpc')
+```
+
+### Creating a Type-Safe Stub
+
+```typescript
+interface CustomerAPI {
+  getOrders(): Promise<Order[]>
+  charge(amount: number): Promise<Receipt>
+  notify(message: string): Promise<void>
+  subscribe(callback: (event: CustomerEvent) => void): Promise<void>
+}
+
+const api = client.createStub<CustomerAPI>()
+
+// Call methods through the proxy
+const orders = await api.getOrders()
+const receipt = await api.charge(99.99)
+```
+
+### Passing Callbacks
+
+The key feature of WebSocket RPC is bidirectional callbacks:
+
+```typescript
+// Pass a callback function - it will be invoked by the server
+await api.subscribe((event) => {
+  console.log('Customer event:', event)
+})
+
+// The server can call this function at any time
+// Each invocation sends a message back to the client
+```
+
+When you pass a function as an argument:
+1. The client registers the callback locally with a unique ID
+2. A callback stub (`{ __rpc_callback_id: "cb_..." }`) is sent instead
+3. When the server invokes the callback, it sends a `callback` message
+4. The client looks up and invokes the original function
+
+<Callout type="info">
+Callbacks remain registered for the lifetime of the WebSocket connection. They are automatically cleaned up when the connection closes.
+</Callout>
+
+## Server Setup
+
+### Adding WebSocket RPC Handler
+
+Mix in the `WebSocketRpcHandler` to your Durable Object:
+
+```typescript
+import { WebSocketRpcHandler } from 'dotdo/rpc'
+
+export class CustomerDO {
+  private rpcHandler = new WebSocketRpcHandler()
+
+  // Handle WebSocket upgrade
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/ws/rpc') {
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('Expected WebSocket', { status: 400 })
+      }
+
+      const pair = new WebSocketPair()
+      const [client, server] = Object.values(pair)
+
+      this.ctx.acceptWebSocket(server)
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      })
+    }
+
+    return new Response('Not Found', { status: 404 })
+  }
+
+  // Handle incoming messages
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    this.rpcHandler.handleRpcMessage(ws, message, this)
+  }
+
+  // Clean up on close
+  webSocketClose(ws: WebSocket) {
+    this.rpcHandler.cleanupWebSocketRpc(ws)
+  }
+
+  // Handle hibernation wake
+  webSocketError(ws: WebSocket) {
+    this.rpcHandler.restoreSubscriptionsFromAttachment(ws)
+  }
+
+  // Methods exposed via RPC
+  async getOrders(): Promise<Order[]> {
+    return this.orders
+  }
+
+  async charge(amount: number): Promise<Receipt> {
+    // Process charge...
+    return { id: `rcpt-${Date.now()}`, amount }
+  }
+
+  async subscribe(callback: (event: CustomerEvent) => void): Promise<void> {
+    // Store callback and invoke later
+    this.subscribers.push(callback)
+  }
+
+  // Invoke all subscriber callbacks
+  notifySubscribers(event: CustomerEvent) {
+    for (const callback of this.subscribers) {
+      callback(event)  // This sends a message back to the client
+    }
+  }
+}
+```
+
+### Broadcasting Events
+
+Use `broadcastEvent` to send events to subscribed clients:
+
+```typescript
+// In your Durable Object
+async updateCustomer(data: Partial<Customer>) {
+  // Update state...
+  this.customer = { ...this.customer, ...data }
+
+  // Broadcast to subscribed clients
+  this.rpcHandler.broadcastEvent(
+    this.ctx,
+    'Customer.updated',
+    { customerId: this.customer.id, changes: data }
+  )
+}
+```
+
+## Event Subscriptions
+
+### Subscribing to Events
+
+```typescript
+// Subscribe to specific event type
+const unsubscribe = client.subscribe('Customer.updated', (data) => {
+  console.log('Customer updated:', data)
+})
+
+// Later: unsubscribe
+unsubscribe()
+```
+
+### Wildcard Patterns
+
+Subscribe to multiple events with patterns:
+
+```typescript
+// All update events for any entity
+client.subscribe('*.updated', (data) => {
+  console.log('Something updated:', data)
+})
+
+// All Customer events
+client.subscribe('Customer.*', (data) => {
+  console.log('Customer event:', data)
+})
+
+// All events (global listener)
+client.subscribe('*.*', (data) => {
+  console.log('Event:', data)
+})
+```
+
+### Subscription Persistence
+
+Subscriptions are stored in WebSocket attachments for hibernation support:
+
+```typescript
+// Handler automatically manages attachment storage
+// Subscriptions survive hibernation cycles
+```
+
+When the Worker hibernates and wakes:
+1. WebSocket attachments preserve subscription state
+2. `restoreSubscriptionsFromAttachment()` rebuilds in-memory state
+3. Event delivery resumes automatically
+
+## Hibernation Support
+
+WebSocket RPC is designed for Cloudflare's hibernatable WebSocket API:
+
+```typescript
+export class CustomerDO {
+  // Use ctx.acceptWebSocket for hibernation support
+  async handleWebSocket(request: Request) {
+    const pair = new WebSocketPair()
+    const [client, server] = Object.values(pair)
+
+    // Accept with hibernation support
+    this.ctx.acceptWebSocket(server)
+
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  // Called when WebSocket message arrives (may be after wake)
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    // Restore subscriptions if waking from hibernation
+    this.rpcHandler.restoreSubscriptionsFromAttachment(ws)
+    this.rpcHandler.handleRpcMessage(ws, message, this)
+  }
+}
+```
+
+### How It Works
+
+1. **Subscription Storage** - When a client subscribes, the event type is stored in the WebSocket's serializable attachment
+2. **Hibernation** - When the DO hibernates, WebSocket connections remain open but the DO instance is evicted
+3. **Wake** - On wake, `restoreSubscriptionsFromAttachment()` rebuilds the in-memory subscription map
+4. **Delivery** - `broadcastEvent()` checks both in-memory and attachment-based subscriptions
+
+<Callout type="warning">
+Callbacks (functions passed over RPC) do NOT survive hibernation. Only event subscriptions are persisted. If you need durable callbacks, use event subscriptions instead.
+</Callout>
+
+## Error Handling
+
+### Connection Errors
+
+```typescript
+try {
+  await client.connect(doStub)
+} catch (error) {
+  if (error.message.includes('upgrade failed')) {
+    console.error('WebSocket upgrade rejected')
+  }
+  if (error.message.includes('timeout')) {
+    console.error('Connection timed out')
+  }
+}
+```
+
+### RPC Call Errors
+
+```typescript
+try {
+  await api.charge(-100)
+} catch (error) {
+  console.error('RPC call failed:', error.message)
+}
+```
+
+### Disconnection Handling
+
+```typescript
+// Client automatically rejects pending calls on disconnect
+// All pending promises reject with "Connection closed"
+
+// Clean disconnect
+client.disconnect()
+```
+
+## API Reference
+
+### `WebSocketRpcClient`
+
+```typescript
+class WebSocketRpcClient {
+  constructor(options?: WebSocketRpcOptions)
+  connect(doStub: DurableObjectStub, endpoint?: string): Promise<void>
+  call(path: string[], args: unknown[]): Promise<unknown>
+  subscribe(eventType: string, handler: Function): () => void
+  createStub<T>(): T
+  disconnect(): void
+}
+```
+
+### `WebSocketRpcHandler`
+
+```typescript
+class WebSocketRpcHandler {
+  handleRpcMessage(ws: WebSocket, message: string | ArrayBuffer, target: unknown): void
+  broadcastEvent(ctx: DurableObjectState, eventType: string, data: unknown): void
+  cleanupWebSocketRpc(ws: WebSocket): void
+  restoreSubscriptionsFromAttachment(ws: WebSocket): void
+}
+```
+
+### `WebSocketRpcOptions`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `timeout` | `number` | 30000 | Request timeout in milliseconds |
+| `debug` | `boolean` | false | Enable debug logging |
+
+### Message Types
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `call` | Client -> Server | Method invocation |
+| `response` | Server -> Client | Method result |
+| `callback` | Both | Callback invocation |
+| `subscribe` | Client -> Server | Event subscription |
+| `unsubscribe` | Client -> Server | Remove subscription |
+| `event` | Server -> Client | Event broadcast |
+| `error` | Server -> Client | Error notification |
+
+## Best Practices
+
+### 1. Use Event Subscriptions Over Callbacks
+
+For durable notifications, prefer event subscriptions:
+
+```typescript
+// GOOD: Survives hibernation
+client.subscribe('Order.shipped', handleShipment)
+
+// LESS GOOD: Lost on hibernation
+await api.onShipment(handleShipment)
+```
+
+### 2. Handle Reconnection
+
+```typescript
+async function connectWithRetry(maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await client.connect(doStub)
+      return
+    } catch (error) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)))
+    }
+  }
+  throw new Error('Failed to connect after retries')
+}
+```
+
+### 3. Clean Up Resources
+
+```typescript
+// Always disconnect when done
+try {
+  // Use WebSocket RPC...
+} finally {
+  client.disconnect()
+}
+```
+
+## Next Steps
+
+- [Wire Protocol](/rpc/wire-protocol) - Message format details
+- [Capabilities](/rpc/capabilities) - Security with WebSocket RPC
+- [Pipelining](/rpc/pipelining) - Optimize batched calls

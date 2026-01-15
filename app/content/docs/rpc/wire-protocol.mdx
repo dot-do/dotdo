@@ -1,0 +1,498 @@
+---
+title: Wire Protocol
+description: Low-level protocol specification for Cap'n Web RPC message formats and transport
+---
+
+# Wire Protocol
+
+This document describes the wire-level protocol for Cap'n Web RPC, including message formats, type encoding, and transport mechanisms.
+
+## Protocol Versions
+
+Cap'n Web RPC uses semantic versioning for protocol compatibility:
+
+| Version | Status | Description |
+|---------|--------|-------------|
+| 1.0.0 | Current | Initial release with JSON and binary formats |
+| 1.1.0 | Current | Added streaming RPC support |
+
+Version negotiation ensures client and server agree on compatible protocol features.
+
+## Request Format
+
+### RPC Request Envelope
+
+```typescript
+interface RPCRequest {
+  /** Protocol version (e.g., "1.0.0") */
+  version: string
+  /** Unique request identifier for correlation */
+  id: string
+  /** Target object reference */
+  target: { type: string; id: string }
+  /** Method name to invoke */
+  method: string
+  /** Serialized arguments */
+  args: unknown[]
+  /** Optional request metadata */
+  meta?: {
+    timeout?: number
+    retries?: number
+    correlationId?: string
+  }
+}
+```
+
+### Example Request
+
+```json
+{
+  "version": "1.0.0",
+  "id": "req-1705329421-a7f3b",
+  "target": { "type": "Customer", "id": "cust-123" },
+  "method": "charge",
+  "args": [99.99],
+  "meta": { "timeout": 5000 }
+}
+```
+
+## Response Format
+
+### RPC Response Envelope
+
+```typescript
+interface RPCResponse {
+  /** Protocol version */
+  version: string
+  /** Request ID for correlation */
+  id: string
+  /** Success or error status */
+  status: 'success' | 'error'
+  /** Result value on success */
+  result?: unknown
+  /** Error details on failure */
+  error?: {
+    code: string
+    message: string
+    details?: unknown
+    stack?: string
+  }
+  /** Response metadata */
+  meta?: {
+    duration?: number
+    retryCount?: number
+  }
+}
+```
+
+### Success Response
+
+```json
+{
+  "version": "1.0.0",
+  "id": "req-1705329421-a7f3b",
+  "status": "success",
+  "result": {
+    "$type": "Receipt",
+    "id": "rcpt-456",
+    "amount": 99.99,
+    "timestamp": { "$type": "Date", "value": "2025-01-15T12:00:00.000Z" }
+  },
+  "meta": { "duration": 45 }
+}
+```
+
+### Error Response
+
+```json
+{
+  "version": "1.0.0",
+  "id": "req-1705329421-a7f3b",
+  "status": "error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid argument 'amount' for method charge(): expected number, got string"
+  }
+}
+```
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| `RPC_ERROR` | General RPC failure |
+| `VALIDATION_ERROR` | Argument validation failed |
+| `METHOD_NOT_FOUND` | Method does not exist on target |
+| `TIMEOUT` | Request exceeded timeout |
+| `UNAUTHORIZED` | Capability authorization failed |
+| `REVOKED` | Capability has been revoked |
+| `EXPIRED` | Capability has expired |
+| `VERSION_MISMATCH` | Protocol version incompatible |
+
+## Type Encoding
+
+Special JavaScript types are encoded with a `$type` discriminator for round-trip fidelity.
+
+### Date Encoding
+
+```json
+{ "$type": "Date", "value": "2025-01-15T12:00:00.000Z" }
+```
+
+### Map Encoding
+
+```json
+{
+  "$type": "Map",
+  "entries": [
+    ["key1", "value1"],
+    ["key2", { "nested": true }]
+  ]
+}
+```
+
+### Set Encoding
+
+```json
+{
+  "$type": "Set",
+  "values": ["a", "b", "c"]
+}
+```
+
+### BigInt Encoding
+
+```json
+{ "$type": "BigInt", "value": "9007199254740993" }
+```
+
+### Capability Encoding
+
+```json
+{
+  "$type": "Capability",
+  "id": "a7f3b2c1d4e5f6789...",
+  "type": "Customer",
+  "methods": ["getOrders", "notify"],
+  "expiresAt": "2025-01-16T12:00:00.000Z"
+}
+```
+
+### Circular Reference Encoding
+
+Circular references use JSON Pointer notation:
+
+```json
+{
+  "name": "parent",
+  "child": {
+    "name": "child",
+    "parent": { "$ref": "#" }
+  }
+}
+```
+
+## Binary Format
+
+For compact encoding, Cap'n Web RPC supports a binary format inspired by MessagePack.
+
+### Binary Structure
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Header (4 bytes)  │         Body (N bytes)          │
+├────────────────────┼─────────────────────────────────┤
+│  uint32 length     │  UTF-8 encoded JSON             │
+│  (little-endian)   │  (transformed with $type tags)  │
+└──────────────────────────────────────────────────────┘
+```
+
+### Using Binary Format
+
+```typescript
+import { serialize, deserialize } from 'dotdo/rpc'
+
+// Serialize to binary
+const buffer = serialize(data, { format: 'binary' })
+// Returns: ArrayBuffer
+
+// Deserialize from binary
+const result = deserialize(buffer, { format: 'binary' })
+```
+
+<Callout type="info">
+The binary format currently uses length-prefixed JSON. True MessagePack encoding is planned for a future version to achieve better compression ratios.
+</Callout>
+
+## Pipeline Wire Format
+
+Promise pipelining uses a specialized wire format to batch multiple operations.
+
+### Pipeline Request
+
+```typescript
+interface BatchRequest {
+  /** Unique request ID */
+  id: string
+  /** Target path (e.g., ["Customer", "cust-123"]) */
+  target: string[]
+  /** Pipeline steps to execute */
+  pipeline: PipelineStep[]
+}
+
+type PipelineStep =
+  | { type: 'property'; name: string }
+  | { type: 'method'; name: string; args: unknown[] }
+```
+
+### Example Pipeline Request
+
+```json
+{
+  "id": "batch-001",
+  "target": ["Customer", "cust-123"],
+  "pipeline": [
+    { "type": "property", "name": "orders" },
+    { "type": "method", "name": "filter", "args": ["(o) => o.total > 100"] }
+  ]
+}
+```
+
+### Batched Request
+
+Multiple pipelines can be batched into a single network request:
+
+```json
+[
+  {
+    "id": "req-1",
+    "target": ["Customer", "cust-123"],
+    "pipeline": [{ "type": "property", "name": "profile" }]
+  },
+  {
+    "id": "req-2",
+    "target": ["Customer", "cust-123"],
+    "pipeline": [{ "type": "property", "name": "orders" }]
+  }
+]
+```
+
+### Batched Response
+
+```json
+[
+  { "id": "req-1", "index": 0, "result": { "name": "Alice", "email": "alice@example.com" } },
+  { "id": "req-2", "index": 1, "result": [] }
+]
+```
+
+## Capability Negotiation Protocol
+
+Before making RPC calls, clients can negotiate capabilities with the server.
+
+### Negotiation Request
+
+```typescript
+interface CapabilityNegotiationRequest {
+  /** Client protocol version */
+  version: { major: number; minor: number; patch: number }
+  /** Capabilities the client supports */
+  supportedCapabilities: string[]
+  /** Required capabilities (connection fails if not met) */
+  requiredCapabilities?: string[]
+  /** Client identifier for debugging */
+  clientId?: string
+}
+```
+
+### Negotiation Response
+
+```typescript
+interface CapabilityNegotiationResponse {
+  /** Negotiated protocol version */
+  version: { major: number; minor: number; patch: number }
+  /** Capabilities enabled for this connection */
+  enabledCapabilities: string[]
+  /** Available but not requested capabilities */
+  availableCapabilities: string[]
+  /** Negotiation success status */
+  success: boolean
+  /** Error message on failure */
+  error?: string
+  /** Server-assigned session ID */
+  sessionId: string
+}
+```
+
+### Standard Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| `rpc.basic` | Basic method invocation |
+| `rpc.streaming` | Streaming RPC support |
+| `rpc.pipelining` | Promise pipelining |
+
+### Example Negotiation
+
+```typescript
+import { createNegotiatingClient } from 'dotdo/rpc'
+
+const client = createNegotiatingClient<CustomerAPI>({
+  target: 'https://customer.api.dotdo.dev',
+})
+
+const connection = await client.connect({
+  version: { major: 1, minor: 0, patch: 0 },
+  supportedCapabilities: ['rpc.basic', 'rpc.pipelining'],
+})
+
+console.log(connection.capabilities)
+// ['rpc.basic', 'rpc.pipelining']
+
+if (connection.hasCapability('rpc.streaming')) {
+  // Use streaming features
+}
+```
+
+## WebSocket RPC Protocol
+
+For bidirectional communication, Cap'n Web RPC supports WebSocket transport with hibernation support.
+
+### Message Types
+
+```typescript
+interface RpcMessage {
+  /** Unique message ID */
+  id: string
+  /** Message type */
+  type: 'call' | 'response' | 'callback' | 'subscribe' | 'unsubscribe' | 'event' | 'error'
+  /** Method path for calls */
+  path?: string[]
+  /** Arguments (with callback stubs) */
+  args?: unknown[]
+  /** Result for responses */
+  result?: unknown
+  /** Error details */
+  error?: { message: string; code?: string }
+  /** Callback ID for callback invocations */
+  callbackId?: string
+  /** Event type for subscriptions */
+  eventType?: string
+  /** Event data */
+  data?: unknown
+}
+```
+
+### RPC Call
+
+```json
+{
+  "id": "msg_1705329421_1_a7f3b",
+  "type": "call",
+  "path": ["customer", "charge"],
+  "args": [99.99]
+}
+```
+
+### RPC Response
+
+```json
+{
+  "id": "msg_1705329421_1_a7f3b",
+  "type": "response",
+  "result": { "id": "rcpt-456", "amount": 99.99 }
+}
+```
+
+### Callback Stub
+
+Functions passed over RPC are replaced with callback stubs:
+
+```json
+{
+  "__rpc_callback_id": "cb_1705329421_x9y8z7w6v"
+}
+```
+
+When the server needs to invoke the callback, it sends:
+
+```json
+{
+  "id": "msg_1705329421_2_b8c9d",
+  "type": "callback",
+  "callbackId": "cb_1705329421_x9y8z7w6v",
+  "args": ["callback argument"]
+}
+```
+
+### Event Subscription
+
+Subscribe to events:
+
+```json
+{
+  "id": "msg_1705329421_3_c0d1e",
+  "type": "subscribe",
+  "eventType": "Customer.updated"
+}
+```
+
+Receive events:
+
+```json
+{
+  "id": "msg_1705329421_4_d2e3f",
+  "type": "event",
+  "eventType": "Customer.updated",
+  "data": { "customerId": "cust-123", "field": "email" }
+}
+```
+
+### Wildcard Subscriptions
+
+Subscribe to patterns:
+
+- `*.updated` - All update events
+- `Customer.*` - All Customer events
+- `*.*` - All events
+
+## Transport Layers
+
+### HTTP/fetch()
+
+Default transport using standard HTTP requests:
+
+```typescript
+const client = createRPCClient<CustomerDO>({
+  target: 'https://customer.api.dotdo.dev/cust-123',
+})
+```
+
+### Durable Object Stub
+
+Direct stub access (no network hop within the same Worker):
+
+```typescript
+const stub = env.CUSTOMER.get(env.CUSTOMER.idFromName('cust-123'))
+const client = createRPCClient<CustomerDO>({ target: stub })
+```
+
+### WebSocket
+
+Persistent bidirectional connection:
+
+```typescript
+import { WebSocketRpcClient } from 'dotdo/rpc'
+
+const wsClient = new WebSocketRpcClient({ timeout: 30000 })
+await wsClient.connect(doStub, '/ws/rpc')
+
+const api = wsClient.createStub<CustomerAPI>()
+const orders = await api.customer.getOrders()
+```
+
+## Next Steps
+
+- [Serialization](/rpc/serialization) - Custom type handlers
+- [Pipelining](/rpc/pipelining) - Efficient batching
+- [Capabilities](/rpc/capabilities) - Security model

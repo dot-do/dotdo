@@ -1,0 +1,710 @@
+---
+title: Cascade Execution and Fan-Out
+description: Automatic escalation from code to generative to agentic to human tiers, plus fan-out patterns
+---
+
+# Cascade Execution and Fan-Out
+
+The cascade pattern automatically escalates tasks through execution tiers until one succeeds with sufficient confidence. It implements the pattern: **code -> generative -> agentic -> human**.
+
+This page covers the cascade escalation pattern and fan-out patterns for parallel execution across multiple targets.
+
+> **Note**: The cascade pattern is implemented as a workflow helper, not as a core `$` method. Integrate it with your workflow proxy using the patterns shown below.
+
+## The Cascade Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Task Input                               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Code Tier                                                        │
+│ Deterministic functions, rule engines, exact matches            │
+│ Speed: Instant | Cost: Free | Confidence: Known                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              confidence < threshold?
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Generative Tier                                                  │
+│ LLM generation, embeddings, semantic matching                   │
+│ Speed: Fast | Cost: Low | Confidence: Estimated                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              confidence < threshold?
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Agentic Tier                                                     │
+│ Multi-step reasoning, tool use, research                        │
+│ Speed: Slow | Cost: Medium | Confidence: Self-assessed          │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              confidence < threshold?
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Human Tier                                                       │
+│ Human review, approval queues, manual override                  │
+│ Speed: Variable | Cost: High | Confidence: 100%                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Basic Usage
+
+```typescript
+import { cascade } from './cascade-helper' // Your cascade implementation
+
+const result = await cascade({
+  task: 'classify-support-ticket',
+  tiers: {
+    code: () => ruleBasedClassifier(ticket),
+    generative: () => llmClassify(ticket),
+    agentic: () => agentAnalyze(ticket),
+    human: () => createApprovalRequest(ticket)
+  }
+})
+
+console.log(`Resolved by: ${result.tier}`)
+console.log(`Result: ${result.value}`)
+```
+
+## Tier Definitions
+
+### Code Tier
+
+Deterministic, fast, rule-based execution. Returns either a direct value or a confidence-tagged result.
+
+```typescript
+tiers: {
+  code: () => {
+    // Direct return (implies 100% confidence)
+    if (exactMatch(input)) {
+      return knownAnswer
+    }
+
+    // Or return with confidence
+    const match = fuzzyMatch(input)
+    return {
+      value: match.answer,
+      confidence: match.score
+    }
+  }
+}
+```
+
+### Generative Tier
+
+LLM-powered generation with confidence estimation.
+
+```typescript
+tiers: {
+  generative: async () => {
+    const response = await llm.generate({
+      prompt: `Classify: ${ticket.subject}`,
+      model: 'gpt-4'
+    })
+
+    return {
+      value: response.classification,
+      confidence: response.confidence ?? 0.8
+    }
+  }
+}
+```
+
+### Agentic Tier
+
+Multi-step reasoning with tool use and self-assessment.
+
+```typescript
+tiers: {
+  agentic: async () => {
+    const agent = createAgent({
+      tools: [searchTool, analysisTool, compareTool],
+      maxSteps: 10
+    })
+
+    const result = await agent.run({
+      task: 'Analyze and classify this ticket',
+      context: ticket
+    })
+
+    return {
+      value: result.classification,
+      confidence: result.selfAssessedConfidence,
+      reasoning: result.steps
+    }
+  }
+}
+```
+
+### Human Tier
+
+Queue for human review with tracking.
+
+```typescript
+tiers: {
+  human: async () => {
+    const queueEntry = await approvalQueue.create({
+      type: 'ticket-classification',
+      data: ticket,
+      assignee: 'support-team'
+    })
+
+    // Wait for human decision (or return pending)
+    const decision = await queueEntry.waitForDecision()
+
+    return {
+      value: decision.classification,
+      confidence: 1.0, // Human decision = full confidence
+      queueEntry
+    }
+  }
+}
+```
+
+## Confidence Thresholds
+
+The system escalates when a tier's confidence is below the threshold.
+
+```typescript
+// Default threshold is 0.8 (80%)
+const result = await cascade({
+  task: 'sentiment-analysis',
+  tiers: { code, generative, agentic },
+  confidenceThreshold: 0.8 // Default
+})
+
+// Lower threshold = more trust in automation
+const result = await cascade({
+  task: 'simple-classification',
+  tiers: { code, generative },
+  confidenceThreshold: 0.5 // Accept 50% confidence
+})
+
+// Higher threshold = stricter escalation
+const result = await cascade({
+  task: 'medical-diagnosis',
+  tiers: { code, generative, agentic, human },
+  confidenceThreshold: 0.95 // Require 95% confidence
+})
+```
+
+## Cascade Options
+
+```typescript
+interface CascadeOptions {
+  task: string           // Description for logging/tracking
+  tiers: {
+    code?: Function      // Deterministic tier
+    generative?: Function // LLM tier
+    agentic?: Function   // Agent tier
+    human?: Function     // Human review tier
+  }
+  confidenceThreshold?: number // Default: 0.8
+  skipAutomation?: boolean     // Go directly to human
+  timeout?: number             // Max time per tier (ms)
+}
+```
+
+## Cascade Result
+
+```typescript
+interface CascadeResult {
+  value: unknown              // The resolved value
+  tier: 'code' | 'generative' | 'agentic' | 'human'
+  confidence?: number         // Final confidence score
+  executionPath?: string[]    // Tiers attempted
+  attempts?: number           // Total tier attempts
+  timing?: Record<string, number>     // Ms per tier
+  confidenceScores?: Record<string, number> // Score per tier
+  queueEntry?: unknown        // Human tier queue reference
+}
+```
+
+### Example Result
+
+```typescript
+{
+  value: 'billing',
+  tier: 'generative',
+  confidence: 0.92,
+  executionPath: ['code', 'generative'],
+  attempts: 2,
+  timing: {
+    code: 2,        // 2ms
+    generative: 450 // 450ms
+  },
+  confidenceScores: {
+    code: 0.3,
+    generative: 0.92
+  }
+}
+```
+
+## Skip Automation
+
+Force human review from the start:
+
+```typescript
+const result = await cascade({
+  task: 'sensitive-decision',
+  tiers: {
+    human: () => createApproval(data)
+  },
+  skipAutomation: true // Skip code/generative/agentic
+})
+
+// result.tier === 'human'
+```
+
+## Timeout Handling
+
+Set a maximum time for tier execution:
+
+```typescript
+const result = await cascade({
+  task: 'time-sensitive',
+  tiers: {
+    generative: () => slowLLMCall(),
+    agentic: () => agentAnalysis(),
+    human: () => quickHumanReview()
+  },
+  timeout: 5000 // 5 second max per tier
+})
+```
+
+Timeouts are thrown as errors and cause escalation:
+
+```typescript
+try {
+  await cascade({
+    task: 'urgent',
+    tiers: {
+      generative: async () => {
+        await sleep(10000) // 10 seconds
+        return { value: 'result', confidence: 0.9 }
+      }
+    },
+    timeout: 1000 // 1 second timeout
+  })
+} catch (error) {
+  // Error: Timeout
+}
+```
+
+## Error Handling
+
+### Tier Errors
+
+Errors in a tier cause escalation to the next tier:
+
+```typescript
+const result = await cascade({
+  task: 'error-prone',
+  tiers: {
+    code: () => {
+      throw new Error('Rule not found')
+    },
+    generative: () => ({ value: 'fallback', confidence: 0.85 })
+  }
+})
+
+// result.tier === 'generative' (escalated due to code error)
+```
+
+### All Tiers Fail
+
+When all tiers fail, a `CascadeError` is thrown:
+
+```typescript
+try {
+  await cascade({
+    task: 'impossible',
+    tiers: {
+      code: () => { throw new Error('Code fail') },
+      generative: () => { throw new Error('Gen fail') }
+    }
+  })
+} catch (error) {
+  // CascadeError: All tiers failed for task: impossible
+  console.log(error.tierErrors)
+  // {
+  //   code: Error('Code fail'),
+  //   generative: Error('Gen fail')
+  // }
+}
+```
+
+## Patterns
+
+### Email Classification
+
+```typescript
+async function classifyEmail(email: Email) {
+  return await cascade({
+    task: `classify-email-${email.id}`,
+    tiers: {
+      // Tier 1: Rule-based keywords
+      code: () => {
+        const spamKeywords = ['lottery', 'winner', 'urgent']
+        const hasSpam = spamKeywords.some(k =>
+          email.subject.toLowerCase().includes(k)
+        )
+        if (hasSpam) return { value: 'spam', confidence: 0.95 }
+        return { value: 'unknown', confidence: 0.1 }
+      },
+
+      // Tier 2: ML classifier
+      generative: async () => {
+        const result = await mlClassifier.classify(email)
+        return {
+          value: result.label,
+          confidence: result.probability
+        }
+      },
+
+      // Tier 3: Human review
+      human: async () => {
+        return await createReviewTask({
+          type: 'email-classification',
+          email
+        })
+      }
+    },
+    confidenceThreshold: 0.85
+  })
+}
+```
+
+### Content Moderation
+
+```typescript
+async function moderateContent(content: Content) {
+  return await cascade({
+    task: `moderate-${content.id}`,
+    tiers: {
+      code: () => {
+        // Blocklist check
+        if (blocklist.contains(content.text)) {
+          return { value: 'blocked', confidence: 1.0 }
+        }
+        return { value: 'allowed', confidence: 0.5 }
+      },
+
+      generative: async () => {
+        const analysis = await contentAI.analyze(content)
+        return {
+          value: analysis.safe ? 'allowed' : 'review',
+          confidence: analysis.confidence
+        }
+      },
+
+      agentic: async () => {
+        const agent = moderationAgent()
+        const result = await agent.deepAnalyze(content)
+        return {
+          value: result.decision,
+          confidence: result.confidence,
+          reasoning: result.explanation
+        }
+      },
+
+      human: () => createModerationQueue(content)
+    }
+  })
+}
+```
+
+### Customer Support Routing
+
+```typescript
+async function routeTicket(ticket: Ticket) {
+  return await cascade({
+    task: `route-${ticket.id}`,
+    tiers: {
+      // Known patterns
+      code: () => {
+        if (ticket.subject.includes('billing')) {
+          return { value: 'billing-team', confidence: 0.9 }
+        }
+        if (ticket.subject.includes('bug')) {
+          return { value: 'engineering', confidence: 0.9 }
+        }
+        return { value: 'general', confidence: 0.3 }
+      },
+
+      // Semantic routing
+      generative: async () => {
+        const embedding = await embed(ticket.body)
+        const match = await findSimilarTickets(embedding)
+        return {
+          value: match.team,
+          confidence: match.similarity
+        }
+      },
+
+      // Agent analysis
+      agentic: async () => {
+        const agent = routingAgent()
+        return await agent.analyzeAndRoute(ticket)
+      },
+
+      // Manual triage
+      human: () => createTriageTask(ticket)
+    },
+    confidenceThreshold: 0.8
+  })
+}
+```
+
+## Metrics and Observability
+
+Track cascade performance:
+
+```typescript
+const result = await cascade({ task, tiers })
+
+// Log execution path
+analytics.track('cascade_completed', {
+  task,
+  tier: result.tier,
+  attempts: result.attempts,
+  timing: result.timing,
+  confidenceScores: result.confidenceScores
+})
+
+// Monitor tier distribution
+if (result.tier === 'human') {
+  metrics.increment('cascade.human_escalations')
+}
+```
+
+---
+
+# Fan-Out Patterns
+
+Fan-out enables parallel execution across multiple targets, leveraging promise pipelining for efficiency.
+
+## Basic Fan-Out
+
+```typescript
+import { createWorkflowProxy } from 'dotdo/workflows'
+
+const $ = createWorkflowProxy({ execute: async (expr) => rpc.execute(expr) })
+
+// Fan-out to multiple customers
+async function notifyAllCustomers(message: string, customerIds: string[]) {
+  // Create expressions (not executed yet)
+  const notifications = customerIds.map(id =>
+    $.Customer(id).notify(message)
+  )
+
+  // Single await executes all in parallel
+  const results = await Promise.all(notifications)
+  return results.filter(r => r.sent).length
+}
+```
+
+## Fan-Out with Cascade
+
+Combine fan-out with cascade for intelligent parallel processing:
+
+```typescript
+async function processDocuments(documents: Document[]) {
+  // Fan-out document classification with cascade
+  const results = await Promise.all(
+    documents.map(doc =>
+      cascade({
+        task: `classify-${doc.id}`,
+        tiers: {
+          code: () => ruleBasedClassify(doc),
+          generative: () => llmClassify(doc),
+          human: () => createReviewTask(doc)
+        },
+        confidenceThreshold: 0.85
+      })
+    )
+  )
+
+  return {
+    automated: results.filter(r => r.tier !== 'human').length,
+    humanReview: results.filter(r => r.tier === 'human').length
+  }
+}
+```
+
+## Fan-Out with Error Handling
+
+Handle partial failures gracefully:
+
+```typescript
+import { send } from 'dotdo/workflows'
+
+async function batchProcess(items: Item[]) {
+  const results = await Promise.allSettled(
+    items.map(async item => {
+      try {
+        return await $.Processor(item.id).process()
+      } catch (error) {
+        send.Processing.failed({ itemId: item.id, error: error.message })
+        throw error
+      }
+    })
+  )
+
+  const succeeded = results.filter(r => r.status === 'fulfilled')
+  const failed = results.filter(r => r.status === 'rejected')
+
+  return {
+    successCount: succeeded.length,
+    failedCount: failed.length,
+    failed: failed.map((r, i) => ({
+      itemId: items[i].id,
+      error: (r as PromiseRejectedResult).reason
+    }))
+  }
+}
+```
+
+## Chunked Fan-Out
+
+Process large batches in chunks to manage resources:
+
+```typescript
+async function processLargeBatch(items: Item[], chunkSize = 10) {
+  const results: Result[] = []
+
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize)
+
+    // Process chunk in parallel
+    const chunkResults = await Promise.all(
+      chunk.map(item => $.Processor(item.id).process())
+    )
+
+    results.push(...chunkResults)
+
+    // Emit progress
+    send.Batch.progress({
+      completed: results.length,
+      total: items.length,
+      percentage: Math.round((results.length / items.length) * 100)
+    })
+  }
+
+  return results
+}
+```
+
+## Fan-Out with Aggregation
+
+Collect and aggregate results from parallel operations:
+
+```typescript
+async function aggregateMetrics(serviceIds: string[]) {
+  // Fan-out metric collection
+  const metrics = await Promise.all(
+    serviceIds.map(id => $.Service(id).getMetrics())
+  )
+
+  // Aggregate results
+  return {
+    totalRequests: metrics.reduce((sum, m) => sum + m.requests, 0),
+    avgLatency: metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length,
+    errorRate: metrics.reduce((sum, m) => sum + m.errors, 0) / metrics.reduce((sum, m) => sum + m.requests, 0),
+    byService: Object.fromEntries(
+      serviceIds.map((id, i) => [id, metrics[i]])
+    )
+  }
+}
+```
+
+## Fan-Out with Human-in-the-Loop
+
+Combine fan-out with human approval for sensitive operations:
+
+```typescript
+import { waitFor, send, when } from 'dotdo/workflows'
+
+async function batchRefund(refunds: Refund[]) {
+  // Calculate total for approval check
+  const total = refunds.reduce((sum, r) => sum + r.amount, 0)
+
+  // Require approval for large batch refunds
+  const approved = await when(total > 50000, {
+    then: async () => {
+      send.Approval.requested({
+        type: 'batch_refund',
+        count: refunds.length,
+        total
+      })
+      const decision = await waitFor('batch.approval', { timeout: '4 hours' })
+      return decision.approved
+    },
+    else: () => true
+  })
+
+  if (!approved) {
+    send.Batch.rejected({ type: 'refund', reason: 'approval_denied' })
+    return { processed: 0, rejected: refunds.length }
+  }
+
+  // Fan-out refund processing
+  const results = await Promise.allSettled(
+    refunds.map(refund => $.Payment(refund.paymentId).refund(refund.amount))
+  )
+
+  const succeeded = results.filter(r => r.status === 'fulfilled').length
+  send.Batch.completed({ type: 'refund', succeeded, failed: refunds.length - succeeded })
+
+  return { processed: succeeded, failed: refunds.length - succeeded }
+}
+```
+
+## Fan-Out Best Practices
+
+### 1. Use Promise.allSettled for Partial Failures
+
+```typescript
+// Good: Handle partial failures
+const results = await Promise.allSettled(operations)
+
+// Risky: One failure cancels all
+const results = await Promise.all(operations)
+```
+
+### 2. Implement Backpressure
+
+```typescript
+// Good: Chunk large batches
+for (const chunk of chunks(items, 50)) {
+  await Promise.all(chunk.map(process))
+}
+
+// Risky: Unbounded parallelism
+await Promise.all(items.map(process))
+```
+
+### 3. Track Progress for Long Operations
+
+```typescript
+// Good: Emit progress events
+send.Batch.progress({ completed, total })
+
+// Less helpful: Silent processing
+```
+
+### 4. Combine with Expression Analysis
+
+```typescript
+import { collectExpressions, analyzeExpressions } from 'dotdo/workflows'
+
+// Analyze fan-out for optimal execution
+const expressions = collectExpressions(operations)
+const { independent } = analyzeExpressions(expressions)
+
+// All fan-out operations should be independent
+console.log(`${independent.length} operations can run in parallel`)
+```

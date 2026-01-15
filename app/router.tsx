@@ -1,47 +1,98 @@
 /**
- * Router configuration for TanStack Start
+ * Router configuration for Docs SPA
  *
- * Creates the router instance with file-based routing.
- * This is imported by both client and server entry points.
+ * Creates the TanStack Router instance for client-side routing.
  *
- * @see https://tanstack.com/start/latest/docs/routing/router
+ * @see https://tanstack.com/router/latest/docs/framework/react/guide/router-configuration
  */
-import { createRouter as createTanStackRouter } from '@tanstack/react-router'
-import { routeTree } from './routeTree.gen'
+import { createRouter as createTanStackRouter, createRootRoute, createRoute, Outlet } from '@tanstack/react-router'
+import { DocsLayout } from './components/docs/layout'
+import { DocsPage } from './components/docs/page'
+import { source } from './lib/source'
 
 /**
- * Router configuration options
+ * Root route - wraps all other routes
  */
-export interface RouterOptions {
-  /** Preload strategy for route transitions */
-  defaultPreload?: 'intent' | 'viewport' | 'render' | false
-  /** Default pending delay in ms before showing pending UI */
-  defaultPendingMs?: number
-  /** Default minimum pending time in ms */
-  defaultPendingMinMs?: number
-}
+const rootRoute = createRootRoute({
+  component: () => <Outlet />,
+})
+
+/**
+ * Home route - redirects to docs
+ */
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  component: () => (
+    <DocsLayout>
+      <main className="prose dark:prose-invert max-w-3xl mx-auto py-8 px-4">
+        <h1>dotdo Documentation</h1>
+        <p>Durable Objects runtime framework</p>
+        <a href="/docs/getting-started">Get Started</a>
+      </main>
+    </DocsLayout>
+  ),
+})
+
+/**
+ * Docs index route
+ */
+const docsIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs',
+  component: () => {
+    const page = source.getPage([])
+    return (
+      <DocsLayout>
+        <DocsPage title="Documentation" description="dotdo documentation and guides">
+          <p>Welcome to the dotdo documentation. Select a topic from the sidebar to get started.</p>
+        </DocsPage>
+      </DocsLayout>
+    )
+  },
+})
+
+/**
+ * Docs catch-all route for MDX pages
+ */
+const docsSplatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/$',
+  component: () => {
+    // In a full implementation, this would parse the splat param and load MDX
+    return (
+      <DocsLayout>
+        <DocsPage title="Page" description="Documentation page">
+          <p>Documentation page content would be rendered here.</p>
+        </DocsPage>
+      </DocsLayout>
+    )
+  },
+})
+
+/**
+ * Route tree with all application routes
+ */
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  docsIndexRoute,
+  docsSplatRoute,
+])
 
 /**
  * Creates and configures the TanStack Router instance
- *
- * @param options - Optional router configuration overrides
- * @returns Configured router instance
  */
-export function createRouter(options: RouterOptions = {}) {
-  const router = createTanStackRouter({
+export function createRouter() {
+  return createTanStackRouter({
     routeTree,
-    defaultPreload: options.defaultPreload ?? 'intent',
-    defaultPendingMs: options.defaultPendingMs,
-    defaultPendingMinMs: options.defaultPendingMinMs,
+    defaultPreload: 'intent',
     defaultNotFoundComponent: () => (
-      <div>
+      <div className="prose dark:prose-invert max-w-3xl mx-auto py-8 px-4">
         <h1>404 - Page Not Found</h1>
         <p>The page you are looking for does not exist.</p>
       </div>
     ),
   })
-
-  return router
 }
 
 /** Type of the router instance */

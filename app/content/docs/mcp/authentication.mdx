@@ -1,0 +1,448 @@
+---
+title: Authentication
+description: OAuth 2.0 with PKCE flow, JWT token management, and WorkOS AuthKit integration for MCP
+---
+
+# Authentication
+
+The MCP server uses a two-layer authentication system:
+
+1. **OAuth 2.0 with PKCE**: Initial user authentication via WorkOS AuthKit
+2. **JWT Tokens**: Stateless authentication for subsequent API requests
+
+This approach combines the security of OAuth with the performance benefits of JWT tokens.
+
+## OAuth Flow Overview
+
+```
++--------+                               +----------+                            +---------+
+| Client |                               |   MCP    |                            | WorkOS  |
++--------+                               +----------+                            +---------+
+    |                                         |                                       |
+    | 1. GET /authorize                       |                                       |
+    |---------------------------------------->|                                       |
+    |                                         |                                       |
+    | 2. Redirect to WorkOS                   |                                       |
+    |<----------------------------------------|                                       |
+    |                                         |                                       |
+    | 3. User authenticates                   |                                       |
+    |------------------------------------------------------------------>              |
+    |                                         |                                       |
+    | 4. Redirect with code                   |                                       |
+    |<------------------------------------------------------------------|             |
+    |                                         |                                       |
+    | 5. GET /callback?code=...               |                                       |
+    |---------------------------------------->|                                       |
+    |                                         |                                       |
+    |                                         | 6. Exchange code for tokens           |
+    |                                         |-------------------------------------->|
+    |                                         |                                       |
+    |                                         | 7. Tokens + user profile              |
+    |                                         |<--------------------------------------|
+    |                                         |                                       |
+    | 8. JWT token                            |                                       |
+    |<----------------------------------------|                                       |
+    |                                         |                                       |
+    | 9. SSE with Bearer token                |                                       |
+    |---------------------------------------->|                                       |
+```
+
+## Starting the OAuth Flow
+
+### 1. Authorize Endpoint
+
+Redirect users to start authentication:
+
+```typescript
+// Initiate OAuth flow
+const response = await fetch('https://mcp.your-domain.com/authorize?provider=google')
+// Response: 302 Redirect to WorkOS
+```
+
+Query parameters:
+- `provider` (optional): OAuth provider (e.g., `google`, `github`, `microsoft`)
+- `connection` (optional): WorkOS connection ID for enterprise SSO
+
+### 2. PKCE Security
+
+The server implements PKCE (Proof Key for Code Exchange) for enhanced security. This is handled automatically, but you can use the utilities directly if needed:
+
+```typescript
+import {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generateState
+} from 'dotdo/mcp'
+
+// Generate PKCE values (done automatically by MCP server)
+const codeVerifier = generateCodeVerifier()
+// 32 random bytes, base64url encoded
+
+const codeChallenge = await generateCodeChallenge(codeVerifier)
+// SHA-256 hash of verifier, base64url encoded
+
+const state = generateState()
+// 16 random bytes, base64url encoded
+```
+
+PKCE prevents authorization code interception attacks by:
+
+1. Generating a random `code_verifier` on the server
+2. Sending the SHA-256 hash (`code_challenge`) to WorkOS during authorization
+3. Sending the original `code_verifier` during token exchange
+4. WorkOS verifies the hash matches before issuing tokens
+
+### 3. OAuth Callback
+
+After authentication, WorkOS redirects to your callback:
+
+```typescript
+// GET /callback?code=xxx&state=yyy
+
+// The server automatically:
+// 1. Validates state parameter (CSRF protection)
+// 2. Exchanges code for tokens using PKCE verifier
+// 3. Creates a session
+// 4. Returns a JWT token
+
+// Response:
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_01H...",
+    "email": "user@example.com",
+    "firstName": "Jane",
+    "lastName": "Doe"
+  },
+  "expiresAt": 1705420800000
+}
+```
+
+## JWT Tokens
+
+### Token Structure
+
+```typescript
+interface JwtPayload {
+  sub: string       // User ID
+  iat: number       // Issued at timestamp
+  exp: number       // Expiration timestamp
+  email?: string    // User email
+  org_id?: string   // Organization ID
+  permissions: string[]  // User permissions
+}
+```
+
+### Creating Tokens
+
+```typescript
+import { createJwt } from 'dotdo/mcp'
+
+const token = await createJwt(
+  {
+    sub: 'user_01H...',
+    email: 'user@example.com',
+    org_id: 'org_01H...',
+    permissions: ['tools:read', 'tools:execute']
+  },
+  env.JWT_SECRET,
+  { expiresIn: '24h' }
+)
+```
+
+The `createJwt` function uses the [jose](https://github.com/panva/jose) library with HS256 algorithm. It automatically sets `iat` (issued at) and `exp` (expiration) claims based on the current time and the specified expiration.
+
+### Validating Tokens
+
+```typescript
+import { validateJwt } from 'dotdo/mcp'
+
+const result = await validateJwt(token, env.JWT_SECRET)
+
+if (result.valid) {
+  console.log('User:', result.payload.sub)
+  console.log('Permissions:', result.payload.permissions)
+} else {
+  console.error('Invalid token:', result.error)
+  // Possible errors:
+  // - "Token has expired"
+  // - "Token claim validation failed"
+  // - "Invalid token signature"
+  // - "Invalid token format"
+}
+```
+
+> **Note**: Token validation includes a 60-second clock tolerance to account for minor time differences between servers.
+
+### Token Extraction
+
+The server extracts tokens from two sources:
+
+```typescript
+import { extractBearerToken, extractQueryToken } from 'dotdo/mcp'
+
+// 1. Authorization header (preferred for API calls)
+const request = new Request('https://mcp.example.com/tools', {
+  headers: { Authorization: 'Bearer eyJhbGciOi...' }
+})
+const token = extractBearerToken(request)  // "eyJhbGciOi..."
+
+// 2. Query parameter (required for SSE connections)
+const url = new URL('https://mcp.example.com/sse?token=eyJhbGciOi...')
+const queryToken = extractQueryToken(url)  // "eyJhbGciOi..."
+```
+
+> **Warning**: Query parameter tokens are visible in server logs and browser history. Use short expiration times and HTTPS exclusively.
+
+### Token Refresh
+
+Check and refresh tokens before expiration:
+
+```typescript
+import { tokenNeedsRefresh, refreshJwt, decodeJwt } from 'dotdo/mcp'
+
+const payload = decodeJwt(token)
+
+if (payload && tokenNeedsRefresh(payload)) {
+  // Token expires within 5 minutes - refresh it
+  const newToken = await refreshJwt(payload, env.JWT_SECRET)
+}
+```
+
+The `tokenNeedsRefresh` function returns `true` when the token expires within 5 minutes, giving clients time to refresh before the token becomes invalid.
+
+## Session Management
+
+Sessions are stored in Cloudflare KV with automatic expiration:
+
+```typescript
+interface Session {
+  id: string           // Session ID
+  userId: string       // User ID
+  accessToken: string  // WorkOS access token
+  refreshToken?: string
+  email?: string
+  orgId?: string
+  permissions: string[]
+  createdAt: number
+  expiresAt: number
+}
+```
+
+### Session Operations
+
+```typescript
+import {
+  createSession,
+  storeSession,
+  getSession,
+  getSessionByUserId,
+  deleteSession,
+  isSessionValid
+} from 'dotdo/mcp'
+
+// Create session after OAuth (includes role-based permission mapping)
+const session = await createSession(user, accessToken, refreshToken, env)
+
+// Store in KV (with automatic TTL based on session expiration)
+await storeSession(session, env.OAUTH_KV)
+
+// Retrieve by session ID
+const retrieved = await getSession(sessionId, env.OAUTH_KV)
+
+// Retrieve by user ID (uses indexed lookup)
+const userSession = await getSessionByUserId(userId, env.OAUTH_KV)
+
+// Check validity before use
+if (!isSessionValid(userSession)) {
+  await deleteSession(userSession, env.OAUTH_KV)
+}
+```
+
+Sessions are stored with two keys for efficient lookup:
+
+- `session:{id}`: Primary session data with full details
+- `user_session:{userId}`: Index mapping user ID to session ID for lookups by user
+
+## WorkOS AuthKit Integration
+
+### Role Mapping
+
+WorkOS organization roles automatically map to MCP permissions:
+
+```typescript
+import { mapRolesToPermissions, getPrimaryOrgId } from 'dotdo/mcp'
+
+const user = {
+  id: 'user_01H...',
+  email: 'user@example.com',
+  organizationMemberships: [
+    { id: 'mem_1', organizationId: 'org_1', role: { slug: 'admin' } }
+  ]
+}
+
+const permissions = mapRolesToPermissions(user)
+// Default permissions: ['tools:read', 'resources:read']
+// admin/owner -> adds ['*'] (full access)
+// member     -> adds ['tools:execute']
+// viewer     -> no additional permissions
+
+const orgId = getPrimaryOrgId(user)  // 'org_1' (first organization)
+```
+
+| Role | Additional Permissions |
+|------|----------------------|
+| `admin` / `owner` | `*` (full access) |
+| `member` | `tools:execute` |
+| `viewer` | None (read-only) |
+
+### Token Exchange
+
+Exchange the authorization code for tokens after the OAuth callback:
+
+```typescript
+import { exchangeCodeForTokens, refreshAccessToken } from 'dotdo/mcp'
+
+// After OAuth callback
+const tokens = await exchangeCodeForTokens(
+  code,
+  codeVerifier,
+  redirectUri,
+  env
+)
+
+if (tokens) {
+  console.log('Access token:', tokens.accessToken)
+  console.log('User:', tokens.user)
+  console.log('Refresh token:', tokens.refreshToken)
+}
+
+// Refresh when access token expires
+const newTokens = await refreshAccessToken(refreshToken, env)
+```
+
+## Request Authentication
+
+### Auth Context
+
+All authenticated requests receive an `AuthContext`:
+
+```typescript
+interface AuthContext {
+  authenticated: boolean
+  userId?: string
+  permissions: string[]
+  session?: Session
+  jwt?: JwtPayload
+}
+```
+
+### Middleware Usage
+
+The MCP server applies auth middleware to protected routes:
+
+```typescript
+// Internal server implementation
+app.use('/sse', async (c, next) => {
+  const auth = await authenticateRequest(c.req.raw, env)
+
+  if (!auth.authenticated) {
+    return c.json({ error: 'UNAUTHORIZED' }, 401)
+  }
+
+  c.set('auth', auth)
+  c.set('props', {
+    userId: auth.userId,
+    permissions: auth.permissions,
+    sessionId: auth.session?.id,
+    orgId: auth.jwt?.org_id
+  })
+
+  await next()
+})
+```
+
+## Client Implementation
+
+### JavaScript Client
+
+```typescript
+class McpClient {
+  private eventSource: EventSource | null = null
+  private token: string | null = null
+
+  async authenticate(authUrl: string): Promise<void> {
+    // Open OAuth popup/redirect
+    const popup = window.open(`${authUrl}/authorize`, 'mcp-auth')
+
+    // Wait for callback token
+    this.token = await new Promise((resolve) => {
+      window.addEventListener('message', (event) => {
+        if (event.data.type === 'mcp-token') {
+          resolve(event.data.token)
+          popup?.close()
+        }
+      })
+    })
+  }
+
+  connect(sseUrl: string): void {
+    this.eventSource = new EventSource(
+      `${sseUrl}?token=${this.token}`
+    )
+
+    this.eventSource.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+      this.handleMessage(message)
+    }
+  }
+
+  async executeTool(name: string, args: object): Promise<any> {
+    const response = await fetch(`/tools/${name}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`
+      },
+      body: JSON.stringify({ arguments: args })
+    })
+    return response.json()
+  }
+}
+```
+
+## Logout
+
+End a user session:
+
+```typescript
+// POST /logout
+const response = await fetch('https://mcp.your-domain.com/logout', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}` }
+})
+
+// Response:
+{ "success": true, "message": "Logged out successfully" }
+```
+
+> **Note**: The JWT remains valid until its expiration time, but session-based checks will fail after logout. Clients should discard the token after logout.
+
+## Security Considerations
+
+The authentication system includes several security measures:
+
+| Feature | Purpose |
+|---------|---------|
+| HTTPS Only | Encrypts token transmission |
+| Short Token Lifetime | 24-hour JWT expiration limits exposure window |
+| PKCE Required | Prevents authorization code interception attacks |
+| State Parameter | CSRF protection on OAuth flow |
+| One-Time State | State tokens are consumed on use, preventing replay |
+| Clock Tolerance | 60-second tolerance handles server time drift |
+
+## Next Steps
+
+- **[Tools](/mcp/tools)**: Use built-in tools and register custom ones
+- **[Security](/mcp/security)**: Configure permissions and access control

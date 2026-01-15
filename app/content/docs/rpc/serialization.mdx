@@ -1,0 +1,553 @@
+---
+title: Serialization
+description: JSON and binary serialization formats with support for special types and custom handlers
+---
+
+# Serialization
+
+Cap'n Web RPC provides a flexible serialization layer that handles JavaScript's rich type system, including Date, Map, Set, BigInt, and circular references. Choose between JSON for readability or binary for efficiency.
+
+## Formats
+
+Cap'n Web RPC supports two serialization formats:
+
+| Format | Use Case | Size | Speed | Human Readable |
+|--------|----------|------|-------|----------------|
+| JSON | Debugging, APIs, small payloads | Larger | Fast | Yes |
+| Binary | Large data, performance-critical | Smaller | Fastest | No |
+
+## JSON Serialization
+
+### Basic Usage
+
+```typescript
+import { serialize, deserialize } from 'dotdo/rpc'
+
+// Serialize any value
+const json = serialize({ name: 'Alice', age: 30 })
+// '{"name":"Alice","age":30}'
+
+// Deserialize back
+const obj = deserialize<{ name: string; age: number }>(json)
+```
+
+### Primitive Types
+
+Primitives serialize directly:
+
+```typescript
+serialize('hello')  // '"hello"'
+serialize(42)       // '42'
+serialize(true)     // 'true'
+serialize(null)     // 'null'
+```
+
+### Objects and Arrays
+
+Standard objects and arrays work as expected:
+
+```typescript
+const obj = { name: 'Alice', tags: ['admin', 'user'] }
+const json = serialize(obj)
+// '{"name":"Alice","tags":["admin","user"]}'
+
+const restored = deserialize(json)
+// { name: 'Alice', tags: ['admin', 'user'] }
+```
+
+## Special Types
+
+Cap'n Web RPC handles JavaScript types that JSON cannot represent natively.
+
+### Date
+
+Dates serialize with a `$type` marker:
+
+```typescript
+const date = new Date('2026-01-15T12:00:00Z')
+const json = serialize(date)
+// '{"$type":"Date","value":"2026-01-15T12:00:00.000Z"}'
+
+const restored = deserialize<Date>(json)
+console.log(restored instanceof Date)  // true
+console.log(restored.toISOString())    // '2026-01-15T12:00:00.000Z'
+```
+
+### Map
+
+Maps preserve key-value pairs:
+
+```typescript
+const map = new Map([
+  ['a', 1],
+  ['b', 2],
+])
+const json = serialize(map)
+// '{"$type":"Map","entries":[["a",1],["b",2]]}'
+
+const restored = deserialize<Map<string, number>>(json)
+console.log(restored instanceof Map)  // true
+console.log(restored.get('a'))        // 1
+```
+
+### Set
+
+Sets preserve their values:
+
+```typescript
+const set = new Set([1, 2, 3])
+const json = serialize(set)
+// '{"$type":"Set","values":[1,2,3]}'
+
+const restored = deserialize<Set<number>>(json)
+console.log(restored instanceof Set)  // true
+console.log(restored.has(2))          // true
+console.log(restored.size)            // 3
+```
+
+### BigInt
+
+BigInt values serialize as strings to avoid precision loss:
+
+```typescript
+const big = BigInt('9007199254740993')  // Beyond Number.MAX_SAFE_INTEGER
+const json = serialize(big)
+// '{"$type":"BigInt","value":"9007199254740993"}'
+
+const restored = deserialize<bigint>(json)
+console.log(typeof restored)        // 'bigint'
+console.log(restored.toString())    // '9007199254740993'
+```
+
+### Capability
+
+Capabilities serialize with their access metadata:
+
+```typescript
+const cap = createCapability(customer, ['getOrders', 'notify'])
+const json = serialize(cap)
+// '{"$type":"Capability","id":"a7f3b2c1...","type":"Customer","methods":["getOrders","notify"]}'
+
+const restored = deserialize<Capability<CustomerDO>>(json)
+console.log(restored.id)       // Same ID
+console.log(restored.methods)  // ['getOrders', 'notify']
+```
+
+## Handling Undefined
+
+Properties with `undefined` values are omitted from serialized output:
+
+```typescript
+const obj = { a: 1, b: undefined, c: 3 }
+const json = serialize(obj)
+// '{"a":1,"c":3}'
+
+const restored = deserialize(json)
+// { a: 1, c: 3 }  (b is missing, not undefined)
+```
+
+## Circular References
+
+Cap'n Web RPC detects and handles circular references using per-call tracking:
+
+```typescript
+const obj = { name: 'root' }
+obj.self = obj  // Circular reference
+
+const json = serialize(obj)
+// '{"name":"root","self":{"$ref":"#"}}'
+
+const restored = deserialize(json)
+console.log(restored.self === restored)  // true
+```
+
+### Reference Syntax
+
+Circular references use JSON Pointer syntax with `$ref`:
+
+```typescript
+// Self-reference (currently supported)
+{ "$ref": "#" }
+
+// Nested reference path (tracked but self-ref resolved)
+{ "$ref": "#/child/nested" }
+```
+
+### Thread Safety
+
+The serialization system creates a fresh `seenObjects` Map for each `serialize()` call. This avoids race conditions when multiple concurrent serializations occur in the same isolate:
+
+```typescript
+// These can safely run concurrently
+const [json1, json2] = await Promise.all([
+  serialize(objectA),
+  serialize(objectB),
+])
+```
+
+## Binary Serialization
+
+For performance-critical applications, use binary format:
+
+```typescript
+const data = {
+  items: Array.from({ length: 1000 }, (_, i) => ({
+    id: i,
+    name: `Item ${i}`,
+    value: Math.random(),
+  })),
+}
+
+// Binary format
+const binary = serialize(data, { format: 'binary' })
+console.log(binary instanceof ArrayBuffer)  // true
+
+// Deserialize binary
+const restored = deserialize(binary, { format: 'binary' })
+```
+
+### Binary Format Structure
+
+The binary format uses a simple structure:
+
+```
+┌────────────────┬──────────────────────────────────────┐
+│ Header (4B)    │ Body (UTF-8 encoded JSON)            │
+├────────────────┼──────────────────────────────────────┤
+│ uint32 length  │ TextEncoder.encode(JSON.stringify()) │
+│ (little-endian)│                                      │
+└────────────────┴──────────────────────────────────────┘
+```
+
+The binary format:
+- 4-byte header containing the body length as a little-endian uint32
+- Body contains UTF-8 encoded JSON with special type markers preserved
+
+### Size Comparison
+
+Binary format adds minimal overhead (4-byte header) and preserves all type information:
+
+```typescript
+const largeData = {
+  items: Array.from({ length: 100 }, (_, i) => ({
+    id: i,
+    name: `Item ${i}`,
+    value: Math.random(),
+  })),
+}
+
+const jsonSize = (serialize(largeData) as string).length
+const binarySize = (serialize(largeData, { format: 'binary' }) as ArrayBuffer).byteLength
+
+console.log(`JSON: ${jsonSize} bytes`)
+console.log(`Binary: ${binarySize} bytes`)
+// Binary is typically similar size but benefits from binary transport
+```
+
+<Callout type="info">
+The current binary format is optimized for compatibility and type preservation rather than compression. Future versions may implement MessagePack-style encoding for smaller payloads.
+</Callout>
+
+### Type Preservation
+
+Binary format preserves all special types:
+
+```typescript
+const original = {
+  date: new Date(),
+  map: new Map([['key', 'value']]),
+  set: new Set([1, 2, 3]),
+  bigint: BigInt(12345),
+}
+
+const binary = serialize(original, { format: 'binary' })
+const restored = deserialize(binary, { format: 'binary' })
+
+console.log(restored.date instanceof Date)  // true
+console.log(restored.map instanceof Map)    // true
+console.log(restored.set instanceof Set)    // true
+console.log(typeof restored.bigint)         // 'bigint'
+```
+
+## Streaming Deserialization
+
+For large binary payloads, use streaming deserialization:
+
+```typescript
+const largeArray = Array.from({ length: 10000 }, (_, i) => ({ id: i }))
+const binary = serialize(largeArray, { format: 'binary' })
+
+// Stream items one at a time
+let count = 0
+for await (const item of deserialize.stream(binary)) {
+  console.log(item.id)
+  count++
+}
+console.log(`Processed ${count} items`)
+```
+
+Streaming is memory-efficient for large arrays:
+- Processes one item at a time
+- Does not load entire array into memory
+- Supports async iteration with backpressure
+
+## Custom Type Handlers
+
+Register custom serialization handlers for your own types:
+
+```typescript
+import { serialize, deserialize, TypeHandler } from 'dotdo/rpc'
+
+// Define a custom type
+class Money {
+  constructor(
+    public amount: number,
+    public currency: string
+  ) {}
+
+  toString() {
+    return `${this.currency} ${this.amount.toFixed(2)}`
+  }
+}
+
+// Create handlers
+const handlers = new Map<string, TypeHandler>([
+  [
+    'Money',
+    {
+      serialize: (value: Money) => ({
+        $type: 'Money',
+        amount: value.amount,
+        currency: value.currency,
+      }),
+      deserialize: (data: { amount: number; currency: string }) =>
+        new Money(data.amount, data.currency),
+    },
+  ],
+])
+
+// Use with serialize/deserialize
+const money = new Money(99.99, 'USD')
+const json = serialize(money, { handlers })
+// '{"$type":"Money","amount":99.99,"currency":"USD"}'
+
+const restored = deserialize<Money>(json, { handlers })
+console.log(restored instanceof Money)  // true
+console.log(restored.toString())        // 'USD 99.99'
+```
+
+### TypeHandler Interface
+
+```typescript
+interface TypeHandler {
+  serialize(value: unknown): unknown
+  deserialize(value: unknown): unknown
+}
+```
+
+### Handler Priority
+
+Custom handlers take precedence over built-in types:
+
+```typescript
+// Override Date handling
+const customHandlers = new Map([
+  [
+    'Date',
+    {
+      serialize: (d: Date) => ({ $type: 'Date', unix: d.getTime() }),
+      deserialize: (v: { unix: number }) => new Date(v.unix),
+    },
+  ],
+])
+
+const date = new Date()
+serialize(date, { handlers: customHandlers })
+// '{"$type":"Date","unix":1705320000000}'
+```
+
+## Serialization Options
+
+### SerializationOptions
+
+```typescript
+interface SerializationOptions {
+  /** Format: json (default) or binary */
+  format?: 'json' | 'binary'
+  /** Custom type handlers */
+  handlers?: Map<string, TypeHandler>
+}
+```
+
+### Usage
+
+```typescript
+// JSON format (default)
+serialize(data)
+serialize(data, { format: 'json' })
+
+// Binary format
+serialize(data, { format: 'binary' })
+
+// With custom handlers
+serialize(data, { handlers: myHandlers })
+
+// Combined options
+serialize(data, {
+  format: 'binary',
+  handlers: myHandlers,
+})
+```
+
+## API Reference
+
+### `serialize(value, options?)`
+
+Serialize a value to JSON string or binary ArrayBuffer.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `value` | `unknown` | Yes | Value to serialize |
+| `options` | `SerializationOptions` | No | Serialization options |
+
+**Returns:** `string | ArrayBuffer`
+
+**Example:**
+
+```typescript
+// JSON output
+const json = serialize({ name: 'Alice' }) as string
+
+// Binary output
+const binary = serialize({ name: 'Alice' }, { format: 'binary' }) as ArrayBuffer
+```
+
+### `deserialize<T>(data, options?)`
+
+Deserialize a JSON string or binary ArrayBuffer to a value.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `data` | `string \| ArrayBuffer` | Yes | Data to deserialize |
+| `options` | `SerializationOptions` | No | Deserialization options |
+
+**Returns:** `T`
+
+**Example:**
+
+```typescript
+// From JSON
+const obj = deserialize<{ name: string }>('{"name":"Alice"}')
+
+// From binary
+const obj2 = deserialize<{ name: string }>(binaryData, { format: 'binary' })
+```
+
+### `deserialize.stream(buffer)`
+
+Stream-deserialize a binary ArrayBuffer.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `buffer` | `ArrayBuffer` | Yes | Binary data to stream |
+
+**Returns:** `AsyncIterable<unknown>`
+
+**Example:**
+
+```typescript
+for await (const item of deserialize.stream(binaryBuffer)) {
+  process(item)
+}
+```
+
+## Type Markers
+
+Special types use these `$type` markers in JSON:
+
+| Type | Marker | Structure |
+|------|--------|-----------|
+| Date | `"Date"` | `{ $type: "Date", value: "ISO string" }` |
+| Map | `"Map"` | `{ $type: "Map", entries: [[key, value], ...] }` |
+| Set | `"Set"` | `{ $type: "Set", values: [value, ...] }` |
+| BigInt | `"BigInt"` | `{ $type: "BigInt", value: "string" }` |
+| Capability | `"Capability"` | `{ $type: "Capability", id, type, methods, expiresAt? }` |
+| Reference | - | `{ $ref: "JSON Pointer" }` |
+
+### Type Detection
+
+The serialization layer uses internal helper functions to detect special types. These checks happen automatically during serialization and deserialization:
+
+- **Capability detection**: Checks for `id`, `type`, `methods`, and `invoke` properties
+- **Typed object detection**: Checks for `$type` string property
+- **Circular reference detection**: Checks for `$ref` string property
+
+<Callout type="info">
+Type detection is automatic. You do not need to manually mark objects with `$type` - the serializer infers types from JavaScript's built-in type system (Date, Map, Set, BigInt) and recognizes Capability objects by their structure.
+</Callout>
+
+## Best Practices
+
+### 1. Choose Format Based on Use Case
+
+```typescript
+// API responses: JSON for readability
+app.get('/api/data', (c) => {
+  return c.json(deserialize(storedData))
+})
+
+// Internal communication: Binary for efficiency
+const binary = serialize(largePayload, { format: 'binary' })
+await stub.fetch(new Request('/', { body: binary }))
+```
+
+### 2. Type Your Deserializations
+
+```typescript
+// Always provide type parameter
+interface User {
+  name: string
+  email: string
+}
+
+const user = deserialize<User>(json)  // Typed result
+```
+
+### 3. Handle Unknown Types Gracefully
+
+```typescript
+const handlers = new Map<string, TypeHandler>([
+  [
+    'Unknown',
+    {
+      serialize: (v) => ({ $type: 'Unknown', data: JSON.stringify(v) }),
+      deserialize: (v: { data: string }) => JSON.parse(v.data),
+    },
+  ],
+])
+```
+
+### 4. Stream Large Datasets
+
+```typescript
+// For large arrays, stream instead of loading all at once
+const items: Item[] = []
+for await (const item of deserialize.stream(largeBinary)) {
+  items.push(item as Item)
+  if (items.length >= 100) {
+    await processBatch(items)
+    items.length = 0
+  }
+}
+```
+
+## Next Steps
+
+- [Capabilities](/rpc/capabilities) - Serialize and transfer capabilities
+- [Pipelining](/rpc/pipelining) - Efficient multi-step operations

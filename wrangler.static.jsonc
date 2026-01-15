@@ -6,9 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
 
   // Static assets configuration
-  // Points to the build output directory from TanStack Start
+  // Points to the build output directory from TanStack Start in app/
   "assets": {
-    "directory": "./dist/client",
+    "directory": "./app/.output/public",
     // Enable HTML handling for SPA-style navigation
     "html_handling": "auto-trailing-slash",
     // 404 handling - serve custom 404 page if available

@@ -1,0 +1,241 @@
+---
+title: Storage Architecture
+description: A 4-layer tiered storage system for Durable Objects with sub-millisecond reads and guaranteed durability
+---
+
+# Storage Architecture
+
+The dotdo storage system implements a **4-layer tiered architecture** that balances speed, durability, and cost. This design delivers sub-millisecond reads while maintaining strong durability guarantees through write-ahead logging and eventual cold storage archival.
+
+## Architecture Overview
+
+```
+Write Path: Client -> L0 (memory) -> L1 (WAL ACK) -> lazy L2 -> eventual L3
+Read Path:  L0 (hit?) -> L2 (hit?) -> L3 (restore)
+```
+
+### The Four Layers
+
+| Layer | Component | Latency | Durability | Purpose |
+|-------|-----------|---------|------------|---------|
+| **L0** | `InMemoryStateManager` | ~0.01ms | None | Hot cache with O(1) CRUD |
+| **L1** | `PipelineEmitter` (WAL) | ~1ms | High | Fire-and-forget durability |
+| **L2** | `LazyCheckpointer` (SQLite) | ~5ms | High | Batched persistence |
+| **L3** | `IcebergWriter` (R2) | ~50ms | Permanent | Cold storage with time travel |
+
+### Architecture Diagram
+
+```
+                    Client Request
+                          |
+                          v
+            +-------------------------+
+            |    L0: InMemory Cache   |  <- Sub-ms reads
+            |    (Hot Data Layer)     |     O(1) CRUD
+            +------------+------------+     LRU eviction
+                         |                  Dirty tracking
+                         | write
+                         v
+            +-------------------------+
+            |   L1: Pipeline (WAL)    |  <- Durability ACK
+            |   (Write-Ahead Log)     |     Fire-and-forget
+            +------------+------------+     Idempotency keys
+                         |                  Batch emission
+                         | lazy (5s)
+                         v
+            +-------------------------+
+            |   L2: SQLite Checkpoint |  <- Batched writes
+            |   (Persistent Cache)    |     95% write reduction
+            +------------+------------+     Threshold triggers
+                         |                  Version tracking
+                         | eventual (60s)
+                         v
+            +-------------------------+
+            |   L3: Iceberg/R2        |  <- Permanent archive
+            |   (Cold Storage)        |     Time travel queries
+            +-------------------------+     Schema evolution
+                                           Parquet format
+```
+
+## Design Principles
+
+### Speed Over Everything (L0)
+
+The in-memory layer handles all read operations with O(1) complexity. No database round-trips for cached data:
+
+```typescript
+// Synchronous read - no await needed
+const customer = storage.get('cust_123')
+```
+
+### Durability Before ACK (L1)
+
+Events are durable in the Pipeline **before** acknowledging to the client. This guarantees zero data loss even if the DO is evicted immediately after write:
+
+```typescript
+// Write path ensures L1 ACK before returning
+const thing = await storage.create({
+  $type: 'Customer',
+  name: 'Alice'
+})
+// At this point: L0 written, L1 ACK'd
+```
+
+### Lazy Persistence (L2)
+
+SQLite writes are batched and lazy, reducing write operations by approximately 95%. Only dirty entries are checkpointed:
+
+```typescript
+// Checkpoint occurs on:
+// - Timer interval (default: 5s)
+// - Dirty count threshold (default: 100 entries)
+// - Memory threshold (default: 10MB)
+// - Hibernation
+```
+
+### Infinite Retention (L3)
+
+Cold storage in Iceberg format provides:
+- **Time travel queries** - reconstruct state at any point in time
+- **Schema evolution** - safely add fields without migration
+- **Cost efficiency** - R2 storage at $0.015/GB/month
+
+## Data Flow
+
+### Write Path
+
+1. **L0 Write** - Data written to memory immediately
+2. **L1 Emit** - Event emitted to Pipeline (WAL)
+3. **L1 ACK** - Client receives acknowledgment
+4. **L2 Checkpoint** - Dirty entries batched to SQLite (lazy)
+5. **L3 Archive** - Events written to Iceberg (eventual)
+
+### Read Path
+
+1. **L0 Check** - Try memory cache first (sub-ms)
+2. **L2 Fallback** - Query SQLite if L0 miss
+3. **L3 Restore** - Reconstruct from Iceberg events if L2 miss
+
+## Quick Start
+
+```typescript
+import { DOStorage } from 'dotdo/storage'
+
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: {
+    PIPELINE: env.PIPELINE,   // Optional: Cloudflare Pipeline binding
+    R2: env.COLD_STORAGE,     // Optional: R2 bucket for cold storage
+    sql: ctx.storage.sql      // Optional: SQLite storage from DO context
+  },
+  checkpointInterval: 5000,    // L2 checkpoint every 5s (default)
+  icebergFlushInterval: 60000, // L3 flush every 60s (default)
+  waitForPipeline: false       // Block until Pipeline ACK (default: false)
+})
+
+// Write (L0 -> L1 ACK -> lazy L2 -> eventual L3)
+const customer = await storage.create({
+  $type: 'Customer',
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+
+// Read (L0 hit - sub-ms, synchronous)
+const cached = storage.get(customer.$id)
+
+// Read with L2 fallback (L0 -> SQLite)
+const fromSqlite = await storage.getWithFallback('cust_123')
+
+// Read with full fallback (L0 -> L2 -> L3)
+const restored = await storage.getWithFullFallback('cust_old_123')
+```
+
+## Layer Documentation
+
+- [L0: In-Memory Cache](/storage/in-memory) - Hot data layer with LRU eviction
+- [L1: Pipeline WAL](/storage/pipeline-wal) - Write-ahead log for durability
+- [L2: Lazy Checkpoint](/storage/lazy-checkpoint) - Batched SQLite persistence
+- [L3: Cold Tier](/storage/cold-tier) - Iceberg/R2 archival storage
+- [Recovery](/storage/recovery) - Cold start and state reconstruction
+
+## Configuration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `namespace` | Required | Tenant/DO namespace identifier |
+| `checkpointInterval` | `5000` | Milliseconds between L2 SQLite checkpoints |
+| `icebergFlushInterval` | `60000` | Milliseconds between L3 Iceberg flushes |
+| `waitForPipeline` | `false` | Block until Pipeline ACK (stronger durability, higher latency) |
+
+### Environment Bindings
+
+The storage system gracefully degrades when bindings are unavailable:
+
+| Binding | Layer | Required | Fallback Behavior |
+|---------|-------|----------|-------------------|
+| `sql` | L2 | No | No SQLite persistence, L0 only |
+| `PIPELINE` | L1 | No | No WAL, events not emitted |
+| `R2` | L3 | No | No cold storage archival |
+
+## Performance Characteristics
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| L0 read (hit) | ~0.01ms | Synchronous, no I/O |
+| L0 write | ~0.05ms | Memory + dirty tracking |
+| L1 emit | ~1ms | Async, fire-and-forget |
+| L2 checkpoint | ~5ms | Batched, only dirty entries |
+| L3 write | ~50ms | Eventual, partitioned by date |
+| Cold start (L2) | ~10ms | Load from SQLite |
+| Cold start (L3) | ~100ms | Event replay from Iceberg |
+
+## Integration with DOStorage
+
+The `DOStorage` class provides a high-level API that integrates all four layers with the DO lifecycle:
+
+```typescript
+import { DOStorage } from 'dotdo/storage'
+
+// Create storage instance with all layers configured
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: {
+    PIPELINE: env.PIPELINE,
+    R2: env.COLD_STORAGE,
+    sql: ctx.storage.sql
+  },
+  checkpointInterval: 5000,
+  icebergFlushInterval: 60000
+})
+
+// Write operations flow through all layers automatically
+const thing = await storage.create({ $type: 'Task', name: 'Important' })
+
+// Read with automatic L0 -> L2 -> L3 fallback
+const existing = await storage.getWithFallback('task_123')
+
+// Explicit checkpoint (usually automatic via timer)
+await storage.checkpoint()
+
+// Before hibernation - flush all pending state
+await storage.beforeHibernation()
+```
+
+## Durability Guarantees
+
+The 4-layer architecture provides strong durability guarantees:
+
+| Scenario | Data Safety | Recovery Time |
+|----------|-------------|---------------|
+| DO evicted after write | Safe (L1 WAL) | ~10ms from L2 |
+| SQLite corrupted | Safe (L3 Iceberg) | ~100ms from L3 |
+| Network partition | Retry with idempotency | Automatic |
+| Power failure | Safe (L1 ACK before response) | ~10ms from L2 |
+
+<Callout type="info">
+  The default configuration (`waitForPipeline: false`) provides fire-and-forget durability. For maximum consistency, enable `waitForPipeline: true` to block until the Pipeline acknowledges receipt.
+</Callout>
+
+## Next Steps
+
+Start with [L0: In-Memory Cache](/storage/in-memory) to understand the hot data layer, then follow the write path through [L1: Pipeline WAL](/storage/pipeline-wal) and [L2: Lazy Checkpoint](/storage/lazy-checkpoint). For cold start scenarios, see [Recovery](/storage/recovery).

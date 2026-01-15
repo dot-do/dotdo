@@ -1,0 +1,162 @@
+---
+title: Why dotdo?
+description: The semantic runtime for Cloudflare Durable Objects - model your domain with linguistic primitives, not database tables.
+---
+
+# Why dotdo?
+
+dotdo is a runtime framework for Cloudflare Durable Objects that lets you model your domain using semantic primitives instead of raw database tables and boilerplate code.
+
+<Callout type="info">
+dotdo is the **runtime layer** (like Node.js), not a platform. If you're looking for a hosted platform to deploy agents and workflows, see [workers.do](https://workers.do).
+</Callout>
+
+## The Problem
+
+Building applications on Durable Objects typically means:
+
+- Writing boilerplate for state persistence
+- Managing SQLite schemas manually
+- Building your own event system
+- Implementing retry logic and durability patterns
+- Creating scheduling mechanisms from scratch
+- Wiring up WebSockets and streaming
+
+You end up spending more time on infrastructure than on your actual domain logic.
+
+## The dotdo Approach
+
+dotdo provides a progressive enhancement stack where you only pay for what you use:
+
+```
+DOCore      (~5KB)   State, alarms, routing
+DOSemantic  (~20KB)  Nouns, Verbs, Things, Actions
+DOStorage   (~40KB)  Pipeline-as-WAL, lazy checkpointing
+DOWorkflow  (~60KB)  WorkflowContext ($), scheduling
+DOFull      (~80KB)  AI, human-in-loop, streaming
+```
+
+Start with the smallest layer that meets your needs. Upgrade as your requirements grow.
+
+## Semantic Modeling
+
+Instead of thinking in tables and rows, model your domain using linguistic primitives:
+
+```typescript
+import { noun, verb, thing, action } from 'dotdo/semantic'
+
+// Nouns name entities with auto-derived singular/plural forms
+const Customer = noun('Customer')  // { singular: 'Customer', plural: 'Customers' }
+const Order = noun('Order')        // { singular: 'Order', plural: 'Orders' }
+
+// Verbs describe actions with auto-derived tenses
+const purchase = verb('purchase')  // { base: 'purchase', past: 'purchased', ... }
+const ship = verb('ship')          // { base: 'ship', past: 'shipped', ... }
+
+// Things are instances with $id and $type
+const alice = thing(Customer, 'alice-123')  // { $id: 'alice-123', $type: 'Customer' }
+const order = thing(Order, 'order-456')     // { $id: 'order-456', $type: 'Order' }
+
+// Actions capture what happened - unified event + edge + audit
+const result = action(alice, purchase, order)
+```
+
+This single action simultaneously represents:
+- An **event** (something happened)
+- An **edge** (alice relates to order)
+- An **audit log entry** (who did what when)
+
+No more maintaining separate tables for events, relationships, and audit logs.
+
+## The WorkflowContext ($)
+
+Your universal API for DO operations:
+
+```typescript
+import { createWorkflowContext } from 'dotdo/workflow'
+
+const $ = createWorkflowContext()
+
+// Event handling with infinite Noun.verb combinations
+$.on.Customer.signup(async (event) => { /* ... */ })
+$.on.Payment.failed(async (event) => { /* ... */ })
+$.on['*'].created(async (event) => { /* ... */ })  // Wildcard noun
+
+// Scheduling with fluent DSL (compiles to CRON)
+$.every.Monday.at9am(sendWeeklyReport)
+$.every.day.at('6pm')(endOfDayProcessing)
+$.every.hour(healthCheck)
+$.every(5).minutes(cacheRefresh)
+
+// Durable execution with three durability levels
+$.send('Order.placed', data)           // Fire-and-forget, returns event ID
+await $.try(() => processOrder())      // Single attempt with optional timeout
+await $.do(() => chargePayment(), { stepId: 'payment-123' })  // Retries + replay protection
+```
+
+## Cost-Optimized Durability
+
+dotdo's Pipeline-as-WAL architecture achieves 95%+ SQLite write cost reduction:
+
+```
+L0: InMemory   O(1) reads, dirty tracking
+L1: Pipeline   WAL for durability, immediate ACK
+L2: SQLite     Lazy checkpoint, batched writes
+L3: Iceberg    Cold storage, time travel
+```
+
+Writes acknowledge immediately at L1, then lazily checkpoint to SQLite. Your application stays fast while maintaining full durability guarantees.
+
+## Real Testing, No Mocks
+
+Miniflare runs real Durable Objects with real SQLite locally. Test your actual code:
+
+```typescript
+import { env } from 'cloudflare:test'
+import { describe, it, expect } from 'vitest'
+
+describe('DOCore', () => {
+  it('persists state via RPC', async () => {
+    const stub = env.DOCore.get(env.DOCore.idFromName('test'))
+
+    // Test via RPC - methods are directly callable
+    await stub.set('user:alice', { name: 'Alice', role: 'admin' })
+    const user = await stub.get('user:alice')
+
+    expect(user).toEqual({ name: 'Alice', role: 'admin' })
+  })
+})
+```
+
+No mocking, no faking, no surprises in production.
+
+## When to Use dotdo
+
+dotdo is ideal when you need:
+
+- **Semantic data modeling** - your domain has clear nouns, verbs, and relationships
+- **Event-driven architecture** - you want `Noun.verb` event patterns
+- **Durable execution** - retries, persistence, and exactly-once semantics
+- **Multi-tenant applications** - each tenant gets their own DO instance
+- **Real-time collaboration** - WebSocket support built-in
+- **AI integration** - template literal AI with cascade execution
+
+## When Not to Use dotdo
+
+<Callout type="warn">
+dotdo is optimized for **stateful, per-entity workloads**. It may not be the right fit for every use case.
+</Callout>
+
+Consider alternatives if you need:
+
+- **Simple key-value storage** - use Cloudflare KV directly
+- **Relational queries across entities** - use D1 or external PostgreSQL
+- **Massive read scale** - add Cloudflare Workers + caching in front
+
+## Next Steps
+
+Ready to get started?
+
+- [Installation](/docs/getting-started/installation) - Set up your development environment
+- [Quick Start](/docs/getting-started/quick-start) - Build your first DO in 5 minutes
+- [Core Concepts](/docs/getting-started/concepts) - Understand the mental model

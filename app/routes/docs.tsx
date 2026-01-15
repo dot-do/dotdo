@@ -10,8 +10,8 @@
  */
 import type { ReactNode } from 'react'
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
-import { generateMeta, generateJsonLd } from '../../lib/seo'
-import { DocsLayout } from '../../components/docs/layout'
+import { generateMeta, generateJsonLd } from '../lib/seo'
+import { DocsLayout } from '../components/docs/layout'
 
 // Generate JSON-LD for documentation as Article
 const jsonLdArticle = generateJsonLd({

@@ -1,0 +1,606 @@
+---
+title: Type Definitions
+description: Complete TypeScript type definitions for all dotdo public APIs
+---
+
+# Type Definitions
+
+This page documents all TypeScript types exported by dotdo. Types are organized by module.
+
+> **Note:** All types are exported from their respective module entry points. Use `import type { ... }` for type-only imports to improve bundling.
+
+## Core Types
+
+### DOCoreEnv
+
+Environment bindings for DOCore and related DO classes.
+
+```typescript
+interface DOCoreEnv {
+  DOCore: DurableObjectNamespace<DOCore>
+  DOSemantic?: DurableObjectNamespace
+  DOStorage?: DurableObjectNamespace
+  DOWorkflow?: DurableObjectNamespace
+  DOFull?: DurableObjectNamespace
+}
+```
+
+### ListOptions
+
+Options for listing state entries with filtering and pagination.
+
+```typescript
+interface ListOptions {
+  /** Prefix to filter keys by (e.g., "user:" matches "user:1", "user:2") */
+  prefix?: string
+  /** Start of key range (inclusive) */
+  start?: string
+  /** End of key range (exclusive) */
+  end?: string
+  /** Maximum number of entries to return */
+  limit?: number
+  /** Sort results in reverse order */
+  reverse?: boolean
+}
+```
+
+### TransactionOp
+
+Operation for transactional updates to state.
+
+```typescript
+interface TransactionOp {
+  /** Operation type: 'set' to store, 'delete' to remove, 'error' to trigger rollback */
+  op: 'set' | 'delete' | 'error'
+  /** Key for set/delete operations */
+  key?: string
+  /** Value for set operations */
+  value?: unknown
+}
+```
+
+## Semantic Types
+
+### Noun
+
+Represents a noun with singular and plural forms.
+
+```typescript
+interface Noun {
+  singular: string
+  plural: string
+}
+```
+
+### NounOptions
+
+Options for defining a noun.
+
+```typescript
+interface NounOptions {
+  /** Override auto-derived plural form */
+  plural?: string
+}
+```
+
+### Verb
+
+Represents a verb with all conjugated forms.
+
+```typescript
+interface Verb {
+  base: string
+  past: string
+  present: string
+  gerund: string
+}
+```
+
+### VerbOptions
+
+Options for defining a verb.
+
+```typescript
+interface VerbOptions {
+  /** Override auto-derived past tense */
+  past?: string
+  /** Override auto-derived present tense */
+  present?: string
+  /** Override auto-derived gerund */
+  gerund?: string
+}
+```
+
+### Thing
+
+A typed entity instance with metadata.
+
+```typescript
+interface Thing<T = Record<string, unknown>> {
+  /** Unique identifier (e.g., "customer_abc123") */
+  $id: string
+  /** Type name (e.g., "Customer") */
+  $type: string
+  /** Version number for optimistic concurrency */
+  $version?: number
+  /** Additional properties from T */
+  [key: string]: unknown
+}
+```
+
+Usage example:
+
+```typescript
+interface Customer {
+  name: string
+  email: string
+}
+
+const customer: Thing<Customer> = {
+  $id: 'customer_abc123',
+  $type: 'Customer',
+  $version: 1,
+  name: 'Alice',
+  email: 'alice@example.com'
+}
+```
+
+### ActionResult
+
+Result of creating an action (unified event + edge + audit).
+
+```typescript
+interface ActionResult {
+  success: boolean
+  event: {
+    type: string
+    subject: string
+    object?: string
+    timestamp: Date
+    metadata?: Record<string, unknown>
+  }
+  edge: {
+    from: string
+    to: string
+    verb: string
+  }
+  audit: {
+    actor: string
+    verb: string
+    target: string
+    timestamp: Date
+  }
+}
+```
+
+## Storage Types
+
+### ThingData
+
+Internal representation of a Thing in storage.
+
+```typescript
+interface ThingData {
+  id: string
+  type: string
+  version: number
+  data: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+```
+
+### CreateThingInput
+
+Input for creating a new Thing.
+
+```typescript
+interface CreateThingInput {
+  type: string
+  data?: Record<string, unknown>
+  id?: string
+}
+```
+
+### InMemoryStateManagerOptions
+
+Options for L0 in-memory cache.
+
+```typescript
+interface InMemoryStateManagerOptions {
+  /** Maximum entries before LRU eviction */
+  maxEntries?: number
+  /** TTL for cached entries in milliseconds */
+  ttlMs?: number
+}
+```
+
+### StateManagerStats
+
+Statistics from the state manager.
+
+```typescript
+interface StateManagerStats {
+  entries: number
+  hits: number
+  misses: number
+  evictions: number
+  dirtyCount: number
+}
+```
+
+### PipelineEmitterConfig
+
+Configuration for L1 pipeline emitter.
+
+```typescript
+interface PipelineEmitterConfig {
+  /** Batch size before automatic flush */
+  batchSize?: number
+  /** Flush interval in milliseconds */
+  flushIntervalMs?: number
+}
+```
+
+### EmittedEvent
+
+Event emitted to the pipeline.
+
+```typescript
+interface EmittedEvent {
+  id: string
+  type: 'create' | 'update' | 'delete'
+  thingId: string
+  thingType: string
+  data?: Record<string, unknown>
+  timestamp: number
+}
+```
+
+### LazyCheckpointerOptions
+
+Options for L2 lazy checkpointer.
+
+```typescript
+interface LazyCheckpointerOptions {
+  /** Number of dirty entries before checkpoint */
+  dirtyThreshold?: number
+  /** Checkpoint interval in milliseconds */
+  intervalMs?: number
+}
+```
+
+### CheckpointStats
+
+Statistics from checkpointing.
+
+```typescript
+interface CheckpointStats {
+  checkpoints: number
+  entriesWritten: number
+  lastCheckpoint: number
+  avgDuration: number
+}
+```
+
+### IcebergWriterConfig
+
+Configuration for L3 Iceberg writer.
+
+```typescript
+interface IcebergWriterConfig {
+  /** R2 bucket binding name */
+  bucketBinding: string
+  /** Partition size in records */
+  partitionSize?: number
+  /** Enable time travel queries */
+  timeTravelEnabled?: boolean
+}
+```
+
+### IcebergPartition
+
+Partition information for cold storage.
+
+```typescript
+interface IcebergPartition {
+  id: string
+  path: string
+  recordCount: number
+  minTimestamp: number
+  maxTimestamp: number
+  sizeBytes: number
+}
+```
+
+### TimeTravelQuery
+
+Query options for time travel.
+
+```typescript
+interface TimeTravelQuery {
+  /** Point in time to query (ISO timestamp or Date) */
+  asOf: string | Date
+  /** Thing ID to retrieve */
+  thingId?: string
+  /** Thing type to filter by */
+  thingType?: string
+}
+```
+
+### RecoveryResult
+
+Result of cold start recovery.
+
+```typescript
+interface RecoveryResult {
+  success: boolean
+  entriesRecovered: number
+  duration: number
+  source: 'memory' | 'sqlite' | 'iceberg'
+}
+```
+
+### DOStorageConfig
+
+Full configuration for DOStorage.
+
+```typescript
+interface DOStorageConfig {
+  memoryCache?: InMemoryStateManagerOptions
+  pipeline?: PipelineEmitterConfig
+  checkpoint?: LazyCheckpointerOptions
+  iceberg?: IcebergWriterConfig
+}
+```
+
+## Workflow Types
+
+### Event
+
+Event object passed to handlers.
+
+```typescript
+interface Event {
+  id: string
+  type: string
+  subject: string
+  object: string
+  data: unknown
+  timestamp: Date
+}
+```
+
+### CreateContextOptions
+
+Options for creating a WorkflowContext.
+
+```typescript
+interface CreateContextOptions {
+  /** Function to resolve DO stubs for cross-DO RPC */
+  stubResolver?: (noun: string, id: string) => Record<string, Function>
+  /** RPC timeout in milliseconds (default: 30000) */
+  rpcTimeout?: number
+}
+```
+
+### SendErrorInfo
+
+Error information from fire-and-forget event dispatch.
+
+```typescript
+interface SendErrorInfo {
+  error: Error
+  eventType: string
+  eventId: string
+  timestamp: Date
+  data: unknown
+  handlerIndex?: number
+  retriedCount?: number
+}
+```
+
+### CascadeOptions
+
+Options for tiered cascade execution.
+
+```typescript
+interface CascadeOptions {
+  /** Task description for logging/debugging */
+  task: string
+  /** Tier handlers (code -> generative -> agentic -> human) */
+  tiers: {
+    code?: () => Promise<unknown>
+    generative?: () => Promise<unknown>
+    agentic?: () => Promise<unknown>
+    human?: () => Promise<unknown>
+  }
+  /** Confidence threshold to accept result (0-1, default: 0.8) */
+  confidenceThreshold?: number
+  /** Skip automation tiers and go directly to human */
+  skipAutomation?: boolean
+  /** Timeout per tier in milliseconds */
+  timeout?: number
+}
+```
+
+### CascadeResult
+
+Result of cascade execution.
+
+```typescript
+interface CascadeResult {
+  /** The returned value from the successful tier */
+  value: unknown
+  /** Which tier produced the result */
+  tier: 'code' | 'generative' | 'agentic' | 'human'
+  /** Confidence score (0-1) if provided */
+  confidence?: number
+  /** Path of tiers attempted */
+  executionPath?: string[]
+  /** Number of tiers attempted */
+  attempts?: number
+  /** Timing per tier in milliseconds */
+  timing?: Record<string, number>
+  /** Confidence scores per tier */
+  confidenceScores?: Record<string, number>
+  /** Queue entry for human tier */
+  queueEntry?: unknown
+}
+```
+
+### WorkflowContext
+
+The unified interface for DO operations.
+
+```typescript
+interface WorkflowContext {
+  // Event handlers
+  on: Record<string, Record<string, (handler: EventHandler) => () => void>>
+  getRegisteredHandlers(eventKey: string): Function[]
+  matchHandlers(eventKey: string): Function[]
+  dispatch(eventKey: string, data: unknown): Promise<void>
+
+  // Scheduling
+  every: ScheduleBuilder & ((n: number) => IntervalBuilder)
+  at(date: string | Date): (handler: Function) => () => void
+  getSchedule(cron: string): { handler: Function } | undefined
+  getOneTimeSchedule(date: string): { handler: Function } | undefined
+
+  // Execution
+  send(event: string, data: unknown): string
+  try<T>(action: () => T | Promise<T>, options?: { timeout?: number }): Promise<T>
+  do<T>(action: () => T | Promise<T>, options?: { stepId?: string; maxRetries?: number }): Promise<T>
+  track(event: string, data: unknown): void
+  getActionLog(): ActionLogEntry[]
+  getEventLog(): EventLogEntry[]
+
+  // Error handling
+  onError(callback: (errorInfo: SendErrorInfo) => void): () => void
+  getErrorCount(): number
+  getErrorLog(): SendErrorInfo[]
+
+  // Cascade
+  cascade(options: CascadeOptions): Promise<CascadeResult>
+
+  // Cross-DO RPC (dynamic)
+  [noun: string]: unknown
+}
+```
+
+### ScheduleBuilder
+
+Builder for scheduling periodic tasks.
+
+```typescript
+interface ScheduleBuilder {
+  Monday: TimeBuilder
+  Tuesday: TimeBuilder
+  Wednesday: TimeBuilder
+  Thursday: TimeBuilder
+  Friday: TimeBuilder
+  Saturday: TimeBuilder
+  Sunday: TimeBuilder
+  day: TimeBuilder
+  hour: (handler: Function) => () => void
+  minute: (handler: Function) => () => void
+}
+```
+
+### TimeBuilder
+
+Builder for time-specific scheduling.
+
+```typescript
+interface TimeBuilder {
+  at9am: (handler: Function) => () => void
+  at5pm: (handler: Function) => () => void
+  at6am: (handler: Function) => () => void
+  at: (time: string) => (handler: Function) => () => void
+}
+```
+
+### IntervalBuilder
+
+Builder for interval-based scheduling.
+
+```typescript
+interface IntervalBuilder {
+  minutes: (handler: Function) => () => void
+  hours: (handler: Function) => () => void
+  seconds: (handler: Function) => () => void
+}
+```
+
+## Import Paths
+
+All public types are available from the main entry points:
+
+```typescript
+// Core types
+import type {
+  DOCoreEnv,
+  ListOptions,
+  TransactionOp
+} from 'dotdo/core'
+
+// Semantic types
+import type {
+  Noun,
+  NounOptions,
+  Verb,
+  VerbOptions,
+  Thing,
+  ActionResult
+} from 'dotdo/semantic'
+
+// Storage types
+import type {
+  ThingData,
+  CreateThingInput,
+  DOStorageConfig,
+  StateManagerStats
+} from 'dotdo/storage'
+
+// Workflow types
+import type {
+  Event,
+  WorkflowContext,
+  CascadeOptions,
+  CascadeResult,
+  SendErrorInfo
+} from 'dotdo/workflow'
+```
+
+## Type Guards
+
+Utility functions for type narrowing:
+
+```typescript
+// Check if a value is a Thing
+function isThing(value: unknown): value is Thing {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '$id' in value &&
+    '$type' in value
+  )
+}
+
+// Check if a value is an Event
+function isEvent(value: unknown): value is Event {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    'type' in value &&
+    'timestamp' in value
+  )
+}
+```
+
+## Related Documentation
+
+- [Semantic Layer](/semantic) - Working with Things, Nouns, and Verbs
+- [Workflow Context](/workflow) - Event handling and scheduling
+- [Storage Layer](/storage) - Storage configuration types

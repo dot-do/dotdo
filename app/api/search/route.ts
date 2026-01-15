@@ -9,7 +9,7 @@
  */
 
 import { createSearchAPI } from 'fumadocs-core/search/server'
-import { source, type DocsPageData } from '@/lib/source'
+import { source, type DocsPageData } from '../../lib/source'
 
 /**
  * Search index entry type for type safety.

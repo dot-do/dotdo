@@ -1,0 +1,374 @@
+---
+title: State Management
+description: Key-value state storage with SQLite backing, batch operations, transactions, and range queries
+---
+
+# State Management
+
+DOCore provides durable key-value state storage backed by SQLite. All values are JSON-serialized and stored in a `state` table. State operations are available as RPC methods, providing type-safe access from worker code.
+
+## Basic Operations
+
+### get(key)
+
+Retrieve a value by key. Returns `undefined` if the key doesn't exist.
+
+```typescript
+const stub = env.DOCore.get(id)
+
+// Get a simple value
+const name = await stub.get('user:name')
+
+// Get a complex object (automatically deserialized from JSON)
+const user = await stub.get('user:123')
+// { name: 'Alice', age: 30, tags: ['admin', 'user'] }
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `key` | `string` | Yes | The key to retrieve |
+
+**Returns:** `Promise<unknown>` - The value, or `undefined` if not found
+
+### set(key, value)
+
+Store a value. Overwrites any existing value at the key.
+
+```typescript
+// Set a string
+await stub.set('config:theme', 'dark')
+
+// Set an object (automatically serialized to JSON)
+await stub.set('user:123', {
+  name: 'Alice',
+  age: 30,
+  tags: ['admin', 'user']
+})
+
+// Set null (distinct from undefined/missing)
+await stub.set('user:deletedAt', null)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `key` | `string` | Yes | The key to set |
+| `value` | `unknown` | Yes | The value to store (JSON-serializable) |
+
+**Returns:** `Promise<boolean>` - Always returns `true`
+
+### delete(key)
+
+Remove a key from storage.
+
+```typescript
+await stub.delete('session:abc123')
+
+// Subsequent get returns undefined
+const session = await stub.get('session:abc123')
+// undefined
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `key` | `string` | Yes | The key to delete |
+
+**Returns:** `Promise<boolean>` - Always returns `true`
+
+## Batch Operations
+
+### setMany(entries)
+
+Set multiple key-value pairs in a single call.
+
+```typescript
+await stub.setMany({
+  'user:1': { name: 'Alice' },
+  'user:2': { name: 'Bob' },
+  'user:3': { name: 'Charlie' },
+  'config:count': 3
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entries` | `Record<string, unknown>` | Yes | Object with key-value pairs |
+
+**Returns:** `Promise<boolean>` - Always returns `true`
+
+### deleteMany(keys)
+
+Delete multiple keys in a single call.
+
+```typescript
+await stub.deleteMany(['session:1', 'session:2', 'session:3'])
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `keys` | `string[]` | Yes | Array of keys to delete |
+
+**Returns:** `Promise<boolean>` - Always returns `true`
+
+## Listing and Querying
+
+### list(options?)
+
+Query keys with optional filtering, pagination, and ordering.
+
+```typescript
+// List all keys
+const all = await stub.list()
+
+// List with prefix filter
+const users = await stub.list({ prefix: 'user:' })
+// { 'user:1': {...}, 'user:2': {...}, 'user:3': {...} }
+
+// List with range (start inclusive, end exclusive)
+const range = await stub.list({ start: 'b', end: 'd' })
+
+// Limit results
+const page = await stub.list({ prefix: 'order:', limit: 10 })
+
+// Reverse order
+const recent = await stub.list({
+  prefix: 'event:',
+  limit: 5,
+  reverse: true
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `options` | `ListOptions` | No | Query options |
+
+**ListOptions:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `prefix` | `string` | Filter keys starting with this prefix |
+| `start` | `string` | Start of key range (inclusive) |
+| `end` | `string` | End of key range (exclusive) |
+| `limit` | `number` | Maximum number of results |
+| `reverse` | `boolean` | Return results in reverse order |
+
+**Returns:** `Promise<Record<string, unknown>>` - Object with matching key-value pairs
+
+## Transactions
+
+### transaction(ops)
+
+Execute multiple operations atomically with automatic rollback on failure. Original values are stored before modification and restored if any operation fails.
+
+```typescript
+// Successful transaction
+const result = await stub.transaction([
+  { op: 'set', key: 'account:123:balance', value: 1000 },
+  { op: 'set', key: 'account:456:balance', value: 500 },
+])
+// { success: true }
+
+// Failed transaction (all changes rolled back)
+const failed = await stub.transaction([
+  { op: 'set', key: 'counter', value: 1 },
+  { op: 'error' }, // Triggers rollback
+])
+// { success: false, error: 'Transaction operation error triggered' }
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ops` | `TransactionOp[]` | Yes | Array of operations |
+
+**TransactionOp:**
+
+```typescript
+interface TransactionOp {
+  op: 'set' | 'delete' | 'error'
+  key?: string       // Required for set/delete
+  value?: unknown    // Required for set
+}
+```
+
+| Operation | Fields | Description |
+|-----------|--------|-------------|
+| `set` | `key`, `value` | Store a value |
+| `delete` | `key` | Remove a key |
+| `error` | - | Force rollback (for testing) |
+
+**Returns:** `Promise<{ success: boolean; error?: string }>`
+
+The rollback mechanism stores original values (including `undefined` for new keys) and restores them in reverse order on failure.
+
+## Raw SQL Access
+
+### query(sql, params?)
+
+Execute raw SQL queries for advanced use cases. Parameters use `?` placeholders and are spread as arguments.
+
+```typescript
+// Query with parameters
+const results = await stub.query(
+  'SELECT * FROM state WHERE key LIKE ? ORDER BY key',
+  ['user:%']
+)
+
+// Results are automatically parsed - JSON values are deserialized
+results.forEach(row => {
+  console.log(row.key, row.value) // value is parsed JSON
+})
+
+// Multiple parameters
+const range = await stub.query(
+  'SELECT key, value FROM state WHERE key >= ? AND key < ? LIMIT ?',
+  ['a', 'c', 10]
+)
+```
+
+<Callout type="warning">
+Raw SQL queries bypass the key-value abstraction. Use with caution and prefer the standard methods when possible.
+</Callout>
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sql` | `string` | Yes | SQL query with `?` placeholders |
+| `params` | `unknown[]` | No | Query parameters (default: `[]`) |
+
+**Returns:** `Promise<Record<string, unknown>[]>` - Query results with parsed JSON values
+
+## Internal Storage Schema
+
+DOCore uses a simple SQLite table for state:
+
+```sql
+CREATE TABLE state (
+  key TEXT PRIMARY KEY,
+  value TEXT
+)
+```
+
+Values are stored as JSON strings. The `list()` method uses SQL `LIKE` for prefix matching and standard comparison operators for range queries.
+
+## RPC vs Fetch for State
+
+State operations are only available via RPC, not HTTP endpoints:
+
+```typescript
+// RPC - Direct method calls (recommended)
+const stub = env.DOCore.get(id)
+await stub.set('key', 'value')
+const value = await stub.get('key')
+
+// Fetch - For HTTP access, use routes that call state methods
+const response = await stub.fetch('https://do.local/api/state-read')
+```
+
+To expose state via HTTP, create routes in your DO:
+
+```typescript
+protected createApp() {
+  const app = super.createApp()
+
+  app.get('/state/:key', async (c) => {
+    const key = c.req.param('key')
+    const value = await this.get(key)
+    return c.json({ key, value })
+  })
+
+  app.put('/state/:key', async (c) => {
+    const key = c.req.param('key')
+    const { value } = await c.req.json()
+    await this.set(key, value)
+    return c.json({ success: true })
+  })
+
+  return app
+}
+```
+
+## Best Practices
+
+### Key Naming Conventions
+
+Use prefixes to organize keys by type:
+
+```typescript
+// Good: Clear prefixes
+'user:123'
+'session:abc'
+'config:theme'
+'temp:draft'
+
+// Bad: No structure
+'123'
+'abc'
+'theme'
+```
+
+### Temporary State
+
+Use the `temp:` prefix for ephemeral data that should be cleaned up on hibernation:
+
+```typescript
+// Temporary state (cleaned up by prepareHibernate())
+await stub.set('temp:processing', true)
+await stub.set('temp:cache', cachedData)
+
+// Lifecycle state is reserved for DOCore internal use
+// Keys starting with '_' are internal
+await stub.get('_lifecycle:onStart')
+```
+
+### Avoid Large Values
+
+While there's no hard limit, prefer smaller values for better performance:
+
+```typescript
+// Good: Store reference, not blob
+await stub.set('file:123', { path: '/storage/file.pdf', size: 1024 })
+
+// Bad: Large inline data
+await stub.set('file:123', { data: '...[10MB base64]...' })
+```
+
+## Implementation Details
+
+The `list()` method builds SQL queries dynamically:
+
+```typescript
+// Prefix uses LIKE
+'key LIKE ?' with 'prefix%'
+
+// Range uses comparison operators
+'key >= ?' (start, inclusive)
+'key < ?' (end, exclusive)
+
+// Combined example query:
+SELECT key, value FROM state
+WHERE key LIKE 'user:%' AND key >= 'user:100'
+ORDER BY key ASC
+LIMIT 10
+```
+
+Results are sorted by key (ascending by default, descending with `reverse: true`).
+
+## Next Steps
+
+- [HTTP Routing](/core/routing) - Expose state via HTTP endpoints
+- [Lifecycle Hooks](/core/lifecycle) - Initialize and clean up state
+- [DOSemantic](/semantic) - Structured Things, Nouns, and Verbs

@@ -1,0 +1,498 @@
+---
+title: Capabilities
+description: Capability-based security model with unforgeable references, attenuation, and revocation
+---
+
+# Capability-based Security
+
+Cap'n Web RPC implements a **capability-based security model** where access to resources is controlled through unforgeable tokens called capabilities. This approach provides fine-grained access control that is both flexible and secure.
+
+## Why Capabilities?
+
+Traditional access control (ACLs, RBAC) asks "who are you?" to determine permissions. Capability-based security asks "what token do you have?" This shift provides significant security and usability benefits:
+
+| Traditional ACL | Capability-based |
+|-----------------|------------------|
+| Identity-centric | Token-centric |
+| Ambient authority | Explicit authority |
+| Hard to delegate | Easy to delegate |
+| Global permissions | Scoped permissions |
+
+## Capability Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Capability Lifecycle                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   createCapability(target)                                       │
+│           │                                                      │
+│           ▼                                                      │
+│   ┌───────────────┐                                              │
+│   │  Full Access  │──────────────────┐                           │
+│   │  Capability   │                  │                           │
+│   │  (registered) │                  │ .attenuate(['read'])      │
+│   └───────┬───────┘                  ▼                           │
+│           │              ┌───────────────────┐                   │
+│           │              │  Read-Only        │                   │
+│           │              │  Capability       │                   │
+│           │              │  (child)          │                   │
+│           │              └─────────┬─────────┘                   │
+│           │                        │                             │
+│           │  .revoke()             │ .attenuate(['getOrders'])   │
+│           │                        ▼                             │
+│           │              ┌───────────────────┐                   │
+│           │              │  Viewer-Only      │                   │
+│           │              │  Capability       │                   │
+│           ▼              │  (grandchild)     │                   │
+│   ┌───────────────┐      └───────────────────┘                   │
+│   │   REVOKED     │                                              │
+│   │  (cascades to │◄─────── All children also revoked            │
+│   │   all children)│                                             │
+│   └───────────────┘                                              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Creating Capabilities
+
+Use `createCapability()` to create a capability from any target object:
+
+```typescript
+import { createCapability } from 'dotdo/rpc'
+
+class CustomerDO {
+  static readonly $type = 'Customer'
+
+  async getOrders(): Promise<Order[]> { /* ... */ }
+  async notify(message: string): Promise<void> { /* ... */ }
+  async charge(amount: number): Promise<Receipt> { /* ... */ }
+}
+
+const customer = new CustomerDO()
+
+// Create capability with all public methods
+const fullCap = createCapability(customer)
+console.log(fullCap.methods)
+// ['getOrders', 'notify', 'charge']
+
+// Create capability with specific methods only
+const readOnlyCap = createCapability(customer, ['getOrders'])
+console.log(readOnlyCap.methods)
+// ['getOrders']
+```
+
+### Capability Properties
+
+Every capability has these properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique cryptographic identifier (32 hex chars) |
+| `type` | `string` | Type name of the target object |
+| `methods` | `string[]` | Methods accessible through this capability |
+| `expiresAt` | `Date?` | Optional expiration timestamp |
+| `parent` | `Capability?` | Parent capability (for attenuated capabilities) |
+
+```typescript
+const cap = createCapability(customer)
+
+console.log(cap.id)       // 'a7f3b2c1...' (32 hex chars)
+console.log(cap.type)     // 'Customer'
+console.log(cap.methods)  // ['getOrders', 'notify', 'charge']
+```
+
+## Invoking Through Capabilities
+
+Use `invoke()` to call methods through a capability:
+
+```typescript
+const cap = createCapability(customer)
+
+// Invoke a method
+const orders = await cap.invoke('getOrders')
+
+// With arguments
+await cap.invoke('notify', 'Your order shipped!')
+const receipt = await cap.invoke('charge', 99.99)
+```
+
+### Authorization Checks
+
+Each invocation validates:
+
+1. The capability is registered (not forged)
+2. The capability is not revoked
+3. The capability has not expired
+4. The requested method is in the `methods` list
+
+```typescript
+const readOnlyCap = createCapability(customer, ['getOrders'])
+
+// This works
+const orders = await readOnlyCap.invoke('getOrders')
+
+// This throws
+try {
+  await readOnlyCap.invoke('charge', 100)
+} catch (error) {
+  console.error(error.message)
+  // "Method 'charge' is not authorized for capability a7f3b2c1..."
+}
+```
+
+## Attenuation
+
+**Attenuation** creates a restricted capability from an existing one. The child capability can never have more permissions than its parent.
+
+```typescript
+// Full capability
+const fullCap = createCapability(customer)
+
+// Attenuate to read-only
+const readOnlyCap = fullCap.attenuate(['getOrders'])
+console.log(readOnlyCap.methods)  // ['getOrders']
+console.log(readOnlyCap.parent)   // fullCap
+
+// Further attenuation
+const notifyCap = fullCap.attenuate(['notify'])
+```
+
+### Attenuation Rules
+
+Attenuation **cannot exceed parent permissions**:
+
+```typescript
+const limitedCap = createCapability(customer, ['getOrders', 'notify'])
+
+// OK - subset of parent methods
+const readOnly = limitedCap.attenuate(['getOrders'])
+
+// ERROR - 'charge' not in parent
+try {
+  limitedCap.attenuate(['getOrders', 'charge'])
+} catch (error) {
+  console.error(error.message)
+  // "Cannot attenuate: method 'charge' cannot exceed parent permissions"
+}
+```
+
+### Multiple Attenuation Levels
+
+Create delegation chains with progressively restricted access:
+
+```typescript
+// Admin: full access
+const adminCap = createCapability(customer)
+
+// Manager: can view and notify
+const managerCap = adminCap.attenuate(['getOrders', 'notify'])
+
+// Viewer: read-only
+const viewerCap = managerCap.attenuate(['getOrders'])
+
+// Each level tracks its parent
+console.log(viewerCap.parent === managerCap)  // true
+console.log(managerCap.parent === adminCap)   // true
+```
+
+## Revocation
+
+Capabilities can be **revoked** to instantly invalidate access:
+
+```typescript
+const cap = createCapability(customer)
+
+// Works before revocation
+await cap.invoke('getOrders')
+
+// Revoke the capability
+cap.revoke()
+
+// Fails after revocation
+try {
+  await cap.invoke('getOrders')
+} catch (error) {
+  console.error(error.message)
+  // "Capability a7f3b2c1... has been revoked"
+}
+```
+
+### Cascading Revocation
+
+When you revoke a capability, **all derived capabilities are also revoked**:
+
+```typescript
+const parent = createCapability(customer)
+const child1 = parent.attenuate(['getOrders', 'notify'])
+const child2 = child1.attenuate(['getOrders'])
+
+// Revoke the parent
+parent.revoke()
+
+// All children are now revoked
+await child1.invoke('notify', 'test')   // Throws: revoked
+await child2.invoke('getOrders')        // Throws: revoked
+```
+
+This provides a powerful security primitive: revoke a single capability to invalidate an entire delegation tree.
+
+<Callout type="warning">
+Revocation is immediate but not retroactive. Any operations already in flight will complete, but no new operations can be started after revocation.
+</Callout>
+
+## Time-Limited Capabilities
+
+Set an expiration to create time-limited access:
+
+```typescript
+const cap = createCapability(customer)
+
+// Set expiration (1 hour from now)
+cap.expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+
+// Works before expiration
+await cap.invoke('getOrders')
+
+// After expiration...
+// Throws: "Capability a7f3b2c1... has expired"
+```
+
+## Unforgeability
+
+Capabilities are **unforgeable** - you cannot create a valid capability by copying or constructing one manually.
+
+```typescript
+const realCap = createCapability(customer)
+
+// Attempt to forge by copying properties
+const forgery = {
+  id: realCap.id,
+  type: realCap.type,
+  methods: realCap.methods,
+  invoke: realCap.invoke,
+}
+
+// This throws - the invoke function validates its context
+try {
+  forgery.invoke('getOrders')
+} catch (error) {
+  console.error(error.message)
+  // "Capability is unforgeable: cannot invoke on copied object"
+}
+```
+
+### How Unforgeability Works
+
+The unforgeability mechanism uses three layers of protection:
+
+1. **Module-level Registry** - Each capability is registered in a `capabilityRegistry` Map using its unique cryptographic ID (32 hex characters from 16 random bytes)
+
+2. **`this` Context Validation** - The `invoke` function validates that `this` refers to the original capability object. When you spread-copy a capability, `this` becomes the copy, not the original
+
+3. **Registry Lookup** - Even if an attacker constructs an object with a valid ID, the registry lookup confirms the actual capability object matches
+
+```typescript
+import { verifyCapability, assertUnforgeable } from 'dotdo/rpc'
+
+// Check if a capability is genuine (returns boolean)
+const isReal = verifyCapability(cap)
+
+// Assert and throw if forged (throws on invalid)
+assertUnforgeable(suspiciousObject)
+// Throws: "Capability is unforgeable: not registered"
+```
+
+### Module-Level State
+
+<Callout type="info">
+The `capabilityRegistry` and `revokedCapabilities` are intentionally module-level because:
+
+1. **Unforgeability requires shared state** - Verification must check against a central registry
+2. **Revocation must propagate** - A revoked capability must be invalid everywhere in the isolate
+
+In Cloudflare Workers with isolate reuse, capabilities persist within an isolate's lifetime. For true isolation across requests, use per-request capability validation via RPC.
+</Callout>
+
+## Capability Transfer
+
+Capabilities can be serialized for transfer across network boundaries using dedicated serialization functions:
+
+```typescript
+import { serializeCapability, deserializeCapability } from 'dotdo/rpc'
+
+// Serialize for transfer (returns JSON string)
+const serialized = serializeCapability(cap)
+// '{"$type":"Capability","id":"a7f3b2c1...","type":"Customer","methods":["getOrders","notify"]}'
+
+// Transfer to another service...
+
+// Deserialize on the receiving end
+const transferred = deserializeCapability<CustomerDO>(serialized)
+
+// The transferred capability retains all restrictions
+console.log(transferred.id)       // Same ID
+console.log(transferred.methods)  // Same methods
+```
+
+### Transfer Behavior
+
+When deserializing a capability:
+
+1. **Local lookup first** - If the capability ID exists in the local registry, the original capability is returned
+2. **Remote proxy fallback** - If not found locally, a remote proxy capability is created
+
+```typescript
+// Remote capabilities require RPC transport for invocation
+const remote = deserializeCapability<CustomerDO>(serializedFromAnotherWorker)
+
+try {
+  await remote.invoke('getOrders')
+} catch (err) {
+  // "Remote capability invocation requires RPC transport"
+}
+```
+
+<Callout type="warning">
+Transferred capabilities create remote proxies that require RPC transport to invoke methods. Local capabilities can invoke directly on the target object. The remote proxy still validates expiration and method authorization locally before attempting the RPC call.
+</Callout>
+
+## Security Best Practices
+
+### 1. Principle of Least Authority
+
+Always create capabilities with the minimum required permissions:
+
+```typescript
+// BAD: Giving full access when only read is needed
+const cap = createCapability(customer)
+sendToThirdParty(cap)
+
+// GOOD: Attenuate to minimum required
+const readOnlyCap = createCapability(customer, ['getOrders'])
+sendToThirdParty(readOnlyCap)
+```
+
+### 2. Short Expiration Times
+
+For sensitive operations, use short-lived capabilities:
+
+```typescript
+const shortLivedCap = createCapability(customer, ['charge'])
+shortLivedCap.expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+```
+
+### 3. Revoke When Done
+
+Explicitly revoke capabilities when access is no longer needed:
+
+```typescript
+async function processOrder(customer: CustomerDO) {
+  const cap = createCapability(customer, ['charge'])
+
+  try {
+    await cap.invoke('charge', 99.99)
+  } finally {
+    cap.revoke()  // Always revoke
+  }
+}
+```
+
+### 4. Validate Before Processing
+
+When receiving capabilities, validate them:
+
+```typescript
+import { verifyCapability } from 'dotdo/rpc'
+
+function processRequest(cap: Capability) {
+  if (!verifyCapability(cap)) {
+    throw new Error('Invalid capability')
+  }
+
+  // Proceed with trusted capability
+  return cap.invoke('process')
+}
+```
+
+## API Reference
+
+### `createCapability<T>(target, methods?)`
+
+Create a capability from a target object.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `target` | `T` | Yes | The object to create a capability for |
+| `methods` | `string[]` | No | Methods to include (defaults to all public methods) |
+
+**Returns:** `Capability<T>`
+
+### `verifyCapability(cap)`
+
+Check if a capability is genuine (registered and not revoked).
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cap` | `Capability` | Yes | The capability to verify |
+
+**Returns:** `boolean`
+
+### `assertUnforgeable(cap)`
+
+Assert that a capability is genuine, throwing if not.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cap` | `unknown` | Yes | The object to validate |
+
+**Throws:** `Error` if the capability is invalid or forged
+
+### `Capability<T>.invoke(method, ...args)`
+
+Invoke a method through the capability.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `method` | `keyof T` | Yes | Method name to invoke |
+| `args` | `unknown[]` | No | Arguments to pass to the method |
+
+**Returns:** `Promise<T[method]>`
+
+**Throws:**
+- If capability is revoked
+- If capability has expired
+- If method is not authorized
+
+### `Capability<T>.attenuate(methods)`
+
+Create a restricted capability.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `methods` | `string[]` | Yes | Methods to include in the restricted capability |
+
+**Returns:** `Capability<T>`
+
+**Throws:** If any method is not in the parent capability's methods
+
+### `Capability<T>.revoke()`
+
+Revoke this capability and all derived capabilities.
+
+**Returns:** `void`
+
+## Next Steps
+
+- [Pipelining](/rpc/pipelining) - Chain calls efficiently
+- [Serialization](/rpc/serialization) - Transfer capabilities across boundaries

@@ -1,0 +1,181 @@
+---
+title: WorkflowContext ($)
+description: The unified interface for Durable Object operations - events, scheduling, durability, and cross-DO RPC
+---
+
+# WorkflowContext ($)
+
+The `$` context is the unified interface for all workflow operations in dotdo. It provides a fluent DSL for event handling, scheduling, durable execution, and cross-DO communication with promise pipelining.
+
+## The Six Pillars
+
+WorkflowContext implements six core capabilities that transform Durable Objects from simple storage into a complete workflow engine:
+
+| Pillar | API | Purpose |
+|--------|-----|---------|
+| **Events** | `on.Noun.verb()` | React to domain events with wildcards |
+| **Scheduling** | `every.Monday.at9am()` | Human-readable cron scheduling |
+| **Durability** | `send()`, `waitFor()` | Fire-and-forget events and human-in-the-loop |
+| **Conditionals** | `when()`, `branch()`, `match()` | Declarative workflow branching |
+| **RPC** | `$.Customer(id).method()` | Type-safe cross-DO communication with pipelining |
+| **Cascade** | Tier-based escalation | Automatic code -> AI -> human escalation |
+
+## Quick Start
+
+```typescript
+import { on, every, send, when, waitFor } from 'dotdo/workflows'
+import { createWorkflowProxy } from 'dotdo/workflows'
+
+// React to events with cleanup support
+const unsubscribe = on.Customer.signup((customer) => {
+  console.log(`New customer: ${customer.name}`)
+  sendWelcomeEmail(customer.email)
+}, { context: 'signup-handler' })
+
+// Schedule recurring tasks (generates CRON: 0 9 * * 1)
+every.Monday.at9am(() => {
+  sendWeeklyReport()
+})
+
+// Fire-and-forget event emission
+send.Order.shipped({ orderId: '123', carrier: 'UPS' })
+
+// Human-in-the-loop with waitFor
+const approval = await waitFor('manager.approval', { timeout: '24 hours' })
+
+// Conditional workflow branching
+const result = when(order.total > 1000, {
+  then: () => applyDiscount(order),
+  else: () => order
+})
+
+// Cross-DO communication with promise pipelining
+const $ = createWorkflowProxy({ execute: async (expr) => rpc.execute(expr) })
+const profile = await $.Customer('cust-123').getProfile()
+```
+
+## Design Philosophy
+
+### Fluent DSL Over Configuration
+
+Instead of:
+```typescript
+// Traditional approach
+scheduler.register({
+  cron: '0 9 * * 1',
+  handler: sendReport
+})
+```
+
+The workflow DSL uses:
+```typescript
+// Fluent DSL
+every.Monday.at9am(sendReport)
+```
+
+### Infinite Noun.verb Combinations
+
+The event system uses JavaScript Proxies to support any domain vocabulary without pre-registration:
+
+```typescript
+on.Customer.signup(handler)    // Works
+on.Payment.failed(handler)     // Works
+on.Spaceship.launched(handler) // Also works
+```
+
+### Promise Pipelining
+
+Operations are captured as expressions for deferred execution, enabling entire pipelines to execute in a single network round trip:
+
+```typescript
+// Traditional - 3 round trips
+const user = await $.User(userId).get()
+const orders = await $.Order(user.id).list()
+const total = await $.Analytics(orders).summarize()
+
+// Pipelined - 1 round trip (all operations batched)
+const user = $.User(userId).get()           // Not awaited
+const orders = $.Order(user.id).list()      // Uses unawaited user
+const total = await $.Analytics(orders).summarize()  // Await triggers execution
+```
+
+### Declarative Control Flow
+
+Instead of imperative conditionals, use declarative expressions:
+
+```typescript
+// Declarative conditional
+const result = when(stock.available, {
+  then: () => $.Order(order).fulfill(),
+  else: () => $.Order(order).backorder()
+})
+
+// Multi-way branching
+const action = $.branch(order.status, {
+  pending: () => $.Order(order).process(),
+  shipped: () => $.Order(order).track(),
+  default: () => $.Order(order).review()
+})
+```
+
+## Integration with Durable Objects
+
+WorkflowContext is designed to be embedded in Durable Objects:
+
+```typescript
+import { DOWorkflow } from 'dotdo/workflow'
+import { on, every, send } from 'dotdo/workflows'
+
+class MyDO extends DOWorkflow {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Register handlers with DO context for automatic cleanup
+    on.Order.created(async (event) => {
+      await this.processOrder(event.data)
+    }, { context: this.ctx.id.toString() })
+
+    // Schedule recurring tasks
+    every.Monday.at9am(() => {
+      this.generateWeeklyReport()
+    }, { context: this.ctx.id.toString() })
+  }
+
+  // Cleanup handlers when DO is destroyed
+  async destroy() {
+    clearHandlersByContext(this.ctx.id.toString())
+  }
+}
+```
+
+## Domain Factory
+
+Create callable domain objects for cross-cutting concerns:
+
+```typescript
+import { Domain } from 'dotdo/workflows'
+
+const CRM = Domain('CRM', {
+  createAccount: (customer) => ({
+    id: generateId(),
+    ...customer,
+    createdAt: new Date()
+  }),
+  sendWelcome: (account) => sendEmail({
+    to: account.email,
+    template: 'welcome'
+  })
+})
+
+// Use directly - returns PipelinePromise
+const account = CRM(customer).createAccount()
+const emailResult = CRM(account).sendWelcome()
+```
+
+## Next Steps
+
+- [Events](./events) - Event handlers with wildcards and cleanup
+- [Scheduling](./scheduling) - Fluent CRON DSL with AI parsing
+- [Durability](./durability) - send, waitFor, and conditional execution
+- [RPC](./rpc) - Cross-DO communication with promise pipelining
+- [Cascade](./cascade) - Automatic escalation tiers

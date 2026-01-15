@@ -1,0 +1,439 @@
+---
+title: Migration Guide
+description: Guide for migrating between dotdo versions and upgrading DO classes
+---
+
+# Migration Guide
+
+This guide covers migrations between dotdo versions, upgrading DO classes, and managing schema changes.
+
+> **Important:** Always test migrations locally before deploying to production. Use `wrangler dev --persist-to` to preserve state between runs.
+
+## Version Migration
+
+### From v1.x to v2.x
+
+dotdo v2 introduces the hierarchical DO class system. Here's how to migrate:
+
+#### 1. Update Dependencies
+
+```bash
+npm install dotdo@^2.0.0
+```
+
+#### 2. Update Imports
+
+```typescript
+// Before (v1)
+import { DO } from 'dotdo'
+
+// After (v2)
+import { DOCore } from 'dotdo/core'
+// Or use the appropriate class for your needs:
+import { DOSemantic } from 'dotdo/semantic'
+import { DOStorage } from 'dotdo/storage'
+import { DOWorkflow } from 'dotdo/workflow'
+```
+
+#### 3. Update Class Hierarchy
+
+Choose the smallest class that provides the features you need:
+
+| Class | Size | Use When |
+|-------|------|----------|
+| DOCore | ~5KB | Basic state, routing, WebSockets only |
+| DOSemantic | ~20KB | Need nouns, verbs, things, relationships |
+| DOStorage | ~40KB | Need 4-layer storage with time travel |
+| DOWorkflow | ~60KB | Need WorkflowContext ($), scheduling |
+| DOFull | ~80KB | Need AI, human-in-loop, full runtime |
+
+```typescript
+// Before
+export class MyDO extends DO { }
+
+// After - choose appropriate base class
+export class MyDO extends DOCore { }
+// or
+export class MyDO extends DOSemantic { }
+```
+
+#### 4. Update wrangler.toml
+
+Add migration tags for SQLite classes:
+
+```toml
+# Existing migrations
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DO"]
+
+# Add v2 migration
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DOCore", "DOSemantic", "DOStorage", "DOWorkflow"]
+```
+
+### Breaking Changes in v2
+
+1. **WorkflowContext ($)** - Now created via factory function:
+
+   ```typescript
+   // Before (v1)
+   this.$ = new WorkflowContext()
+
+   // After (v2)
+   this.$ = createWorkflowContext({
+     stubResolver: (noun, id) => this.resolveStub(noun, id)
+   })
+   ```
+
+2. **Event handler registration** - Returns unsubscribe function:
+
+   ```typescript
+   // Before (v1)
+   $.on('Customer.signup', handler)
+
+   // After (v2)
+   const unsub = $.on.Customer.signup(handler)
+   // Call unsub() to remove handler
+   ```
+
+3. **Schedule DSL** - More fluent API:
+
+   ```typescript
+   // Before (v1)
+   $.schedule('0 9 * * 1', handler)  // CRON string
+
+   // After (v2)
+   $.every.Monday.at9am(handler)      // Fluent DSL
+   $.every.day.at('6:30pm')(handler)
+   $.every(5).minutes(handler)
+   ```
+
+## Schema Migrations
+
+### Adding Tables
+
+When adding new SQLite tables to existing DOs:
+
+```typescript
+export class MyDO extends DOCore {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // New table - CREATE IF NOT EXISTS is idempotent
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS new_table (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER DEFAULT (strftime('%s', 'now'))
+      )
+    `)
+  }
+}
+```
+
+### Adding Columns
+
+SQLite requires careful column additions:
+
+```typescript
+constructor(ctx: DurableObjectState, env: Env) {
+  super(ctx, env)
+
+  // Check if column exists before adding
+  const columns = this.ctx.storage.sql
+    .exec("PRAGMA table_info(my_table)")
+    .toArray()
+
+  const hasNewColumn = columns.some(c => c.name === 'new_column')
+
+  if (!hasNewColumn) {
+    this.ctx.storage.sql.exec(`
+      ALTER TABLE my_table ADD COLUMN new_column TEXT DEFAULT NULL
+    `)
+  }
+}
+```
+
+### Data Migration
+
+For complex data migrations, use a version tracking approach:
+
+```typescript
+const SCHEMA_VERSION = 3
+
+export class MyDO extends DOCore {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    this.migrateSchema()
+  }
+
+  private migrateSchema(): void {
+    // Get current version
+    const result = this.ctx.storage.sql
+      .exec("SELECT value FROM state WHERE key = '_schema_version'")
+      .toArray()
+
+    const currentVersion = result.length > 0
+      ? JSON.parse(result[0].value as string)
+      : 0
+
+    // Apply migrations in sequence
+    if (currentVersion < 1) {
+      this.migrateToV1()
+    }
+    if (currentVersion < 2) {
+      this.migrateToV2()
+    }
+    if (currentVersion < 3) {
+      this.migrateToV3()
+    }
+
+    // Update version
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO state (key, value) VALUES ('_schema_version', ?)",
+      JSON.stringify(SCHEMA_VERSION)
+    )
+  }
+
+  private migrateToV1(): void {
+    // Initial schema setup
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS items (
+        id TEXT PRIMARY KEY,
+        data TEXT
+      )
+    `)
+  }
+
+  private migrateToV2(): void {
+    // Add created_at column
+    this.ctx.storage.sql.exec(`
+      ALTER TABLE items ADD COLUMN created_at INTEGER
+    `)
+  }
+
+  private migrateToV3(): void {
+    // Backfill created_at
+    this.ctx.storage.sql.exec(`
+      UPDATE items SET created_at = strftime('%s', 'now')
+      WHERE created_at IS NULL
+    `)
+  }
+}
+```
+
+## DO Class Migration
+
+### Upgrading Base Class
+
+When upgrading from one DO class to another (e.g., DOCore to DOSemantic):
+
+1. **Update wrangler.toml**
+
+   ```toml
+   # Add new class to migrations
+   [[migrations]]
+   tag = "v2"
+   new_sqlite_classes = ["DOSemantic"]
+   ```
+
+2. **Update class definition**
+
+   ```typescript
+   // Before
+   export class MyDO extends DOCore {
+     constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+       super(ctx, env)
+     }
+   }
+
+   // After
+   export class MyDO extends DOSemantic {
+     constructor(ctx: DurableObjectState, env: DOSemanticEnv) {
+       super(ctx, env)
+       // DOSemantic creates additional tables automatically
+     }
+   }
+   ```
+
+3. **Migrate existing data** (if needed)
+
+   ```typescript
+   // DOSemantic expects data in specific tables
+   // Migrate existing state entries to things table
+   private migrateStateToThings(): void {
+     const entries = this.ctx.storage.sql
+       .exec("SELECT key, value FROM state WHERE key LIKE 'item:%'")
+       .toArray()
+
+     for (const entry of entries) {
+       const data = JSON.parse(entry.value as string)
+       this.createThing('Item', data, entry.key as string)
+     }
+   }
+   ```
+
+## Handling Breaking Changes
+
+### Backward Compatibility
+
+Maintain backward compatibility during transitions:
+
+```typescript
+export class MyDO extends DOSemantic {
+  // Support both old and new API
+  async getItem(id: string): Promise<unknown> {
+    // Try new storage first
+    const thing = this.getThing(id)
+    if (thing) return thing
+
+    // Fall back to old state storage
+    return this.get(`item:${id}`)
+  }
+
+  // Deprecate old methods
+  /** @deprecated Use createThing() instead */
+  async createItem(data: Record<string, unknown>): Promise<string> {
+    console.warn('createItem is deprecated, use createThing')
+    const thing = this.createThing('Item', data)
+    return thing.$id
+  }
+}
+```
+
+### Feature Flags
+
+Use feature flags for gradual rollout:
+
+```typescript
+export class MyDO extends DOWorkflow {
+  private useNewStorage: boolean
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Read feature flag from state
+    const flag = this.ctx.storage.sql
+      .exec("SELECT value FROM state WHERE key = '_feature:newStorage'")
+      .toArray()
+
+    this.useNewStorage = flag.length > 0
+      ? JSON.parse(flag[0].value as string)
+      : false
+  }
+
+  async enableNewStorage(): Promise<void> {
+    this.useNewStorage = true
+    await this.set('_feature:newStorage', true)
+  }
+
+  async getData(id: string): Promise<unknown> {
+    if (this.useNewStorage) {
+      return this.getThing(id)
+    }
+    return this.get(id)
+  }
+}
+```
+
+## Rollback Procedures
+
+### Reverting Migrations
+
+If a migration causes issues:
+
+1. **Keep old code available**
+
+   ```typescript
+   // In git, create a rollback branch before migration
+   git checkout -b pre-migration-backup
+   git checkout main
+   ```
+
+2. **Schema rollback** (if possible)
+
+   ```typescript
+   // Some migrations can be reversed
+   private rollbackToV2(): void {
+     // Remove added column (SQLite limitation: must recreate table)
+     this.ctx.storage.sql.exec(`
+       CREATE TABLE items_backup AS SELECT id, data FROM items;
+       DROP TABLE items;
+       ALTER TABLE items_backup RENAME TO items;
+     `)
+   }
+   ```
+
+3. **Deploy previous version**
+
+   ```bash
+   # Revert to previous deployment
+   wrangler rollback
+   ```
+
+### Data Backup
+
+Before major migrations, back up critical data:
+
+```typescript
+async backupData(): Promise<Record<string, unknown>> {
+  const backup: Record<string, unknown> = {}
+
+  // Export all things
+  const things = this.ctx.storage.sql
+    .exec("SELECT * FROM things")
+    .toArray()
+  backup.things = things
+
+  // Export edges
+  const edges = this.ctx.storage.sql
+    .exec("SELECT * FROM edges")
+    .toArray()
+  backup.edges = edges
+
+  // Export state
+  const state = this.ctx.storage.sql
+    .exec("SELECT * FROM state")
+    .toArray()
+  backup.state = state
+
+  return backup
+}
+
+async restoreFromBackup(backup: Record<string, unknown>): Promise<void> {
+  // Restore things
+  for (const thing of backup.things as any[]) {
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO things (id, type, version, data) VALUES (?, ?, ?, ?)",
+      thing.id, thing.type, thing.version, thing.data
+    )
+  }
+
+  // ... restore other tables
+}
+```
+
+## Best Practices
+
+1. **Test migrations locally first**
+
+   ```bash
+   wrangler dev --persist-to .wrangler/migration-test
+   ```
+
+2. **Use idempotent migrations** - Migrations should be safe to run multiple times.
+
+3. **Version your schema** - Track schema version in state.
+
+4. **Keep migrations small** - One change per migration for easy debugging.
+
+5. **Document breaking changes** - Update changelog and migration guide.
+
+6. **Plan rollback strategy** - Know how to revert before deploying.
+
+## Related Documentation
+
+- [Configuration Reference](/reference/configuration) - Wrangler.toml migration tags
+- [Troubleshooting](/reference/troubleshooting) - Migration error solutions
+- [Storage Layer](/storage) - Understanding the 4-layer storage stack

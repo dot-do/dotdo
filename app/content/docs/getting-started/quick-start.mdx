@@ -1,0 +1,510 @@
+---
+title: Quick Start
+description: Build your first Durable Object with dotdo in 5 minutes.
+---
+
+# Quick Start
+
+Let's build a task manager DO that demonstrates dotdo's core features: state management, HTTP routing, and RPC methods.
+
+<Callout type="info">
+This guide assumes you've completed the [Installation](/docs/getting-started/installation) steps. If not, start there first.
+</Callout>
+
+## What We're Building
+
+A `TaskManager` Durable Object that:
+- Stores tasks with SQLite persistence
+- Exposes HTTP endpoints via Hono
+- Provides RPC methods for direct calls
+
+## Step 1: Create the Base DO
+
+Start by extending `DurableObject` and adding SQLite-backed state management:
+
+```typescript
+// src/task-manager.ts
+import { DurableObject } from 'cloudflare:workers'
+import { Hono } from 'hono'
+
+interface Task {
+  id: string
+  title: string
+  completed: boolean
+  createdAt: string
+}
+
+interface Env {
+  TaskManager: DurableObjectNamespace<TaskManager>
+}
+
+export class TaskManager extends DurableObject<Env> {
+  private app: Hono
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Initialize SQLite table
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS state (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `)
+
+    this.app = this.createApp()
+  }
+
+  // RPC method: Create a new task
+  async createTask(title: string): Promise<Task> {
+    const task: Task = {
+      id: crypto.randomUUID(),
+      title,
+      completed: false,
+      createdAt: new Date().toISOString(),
+    }
+
+    // Store in SQLite
+    this.ctx.storage.sql.exec(
+      'INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)',
+      `task:${task.id}`,
+      JSON.stringify(task)
+    )
+
+    return task
+  }
+
+  // RPC method: Get a task by ID
+  async getTask(id: string): Promise<Task | undefined> {
+    const results = this.ctx.storage.sql
+      .exec('SELECT value FROM state WHERE key = ?', `task:${id}`)
+      .toArray()
+
+    if (results.length === 0) return undefined
+    return JSON.parse(results[0].value as string)
+  }
+
+  // RPC method: List all tasks
+  async listTasks(): Promise<Task[]> {
+    const results = this.ctx.storage.sql
+      .exec('SELECT value FROM state WHERE key LIKE ?', 'task:%')
+      .toArray()
+
+    return results.map(row => JSON.parse(row.value as string))
+  }
+
+  // RPC method: Complete a task
+  async completeTask(id: string): Promise<Task | undefined> {
+    const task = await this.getTask(id)
+    if (!task) return undefined
+
+    task.completed = true
+    this.ctx.storage.sql.exec(
+      'INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)',
+      `task:${id}`,
+      JSON.stringify(task)
+    )
+
+    return task
+  }
+
+  // RPC method: Delete a task
+  async deleteTask(id: string): Promise<boolean> {
+    this.ctx.storage.sql.exec('DELETE FROM state WHERE key = ?', `task:${id}`)
+    return true
+  }
+}
+```
+
+## Step 2: Add HTTP Routes
+
+Add a `createApp()` method and `fetch()` handler to expose HTTP endpoints:
+
+```typescript
+// src/task-manager.ts (continued)
+
+export class TaskManager extends DurableObject<Env> {
+  // ... constructor and RPC methods from Step 1 ...
+
+  private createApp(): Hono {
+    const app = new Hono()
+
+    // GET /tasks - list all tasks
+    app.get('/tasks', async (c) => {
+      const tasks = await this.listTasks()
+      return c.json({ tasks })
+    })
+
+    // POST /tasks - create a task
+    app.post('/tasks', async (c) => {
+      const { title } = await c.req.json()
+      if (!title) {
+        return c.json({ error: 'Title required' }, 400)
+      }
+      const task = await this.createTask(title)
+      return c.json({ task }, 201)
+    })
+
+    // GET /tasks/:id - get a task
+    app.get('/tasks/:id', async (c) => {
+      const task = await this.getTask(c.req.param('id'))
+      if (!task) {
+        return c.json({ error: 'Not found' }, 404)
+      }
+      return c.json({ task })
+    })
+
+    // POST /tasks/:id/complete - complete a task
+    app.post('/tasks/:id/complete', async (c) => {
+      const task = await this.completeTask(c.req.param('id'))
+      if (!task) {
+        return c.json({ error: 'Not found' }, 404)
+      }
+      return c.json({ task })
+    })
+
+    // DELETE /tasks/:id - delete a task
+    app.delete('/tasks/:id', async (c) => {
+      await this.deleteTask(c.req.param('id'))
+      return c.json({ deleted: true })
+    })
+
+    return app
+  }
+
+  // Handle incoming HTTP requests
+  async fetch(request: Request): Promise<Response> {
+    return this.app.fetch(request)
+  }
+}
+```
+
+## Step 3: Use RPC Methods
+
+Public methods on your DO class are automatically available as RPC methods. Call them directly from the worker or other DOs:
+
+```typescript
+// From the worker, you can call DO methods directly:
+const stub = env.TaskManager.get(id)
+
+// RPC calls - no HTTP needed!
+const task = await stub.createTask('Buy milk')
+const tasks = await stub.listTasks()
+const completed = await stub.completeTask(task.id)
+```
+
+This is more efficient than HTTP for DO-to-DO communication.
+
+## Step 4: Wire Up the Worker
+
+Create the worker entry point that routes requests to DO instances:
+
+```typescript
+// src/index.ts
+import { TaskManager } from './task-manager'
+
+interface Env {
+  TaskManager: DurableObjectNamespace<TaskManager>
+}
+
+// Export the DO class for Cloudflare
+export { TaskManager }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+
+    // Route: /api/:userId/tasks/*
+    const match = url.pathname.match(/^\/api\/([^\/]+)\/tasks(.*)$/)
+    if (match) {
+      const [, userId, rest] = match
+
+      // Each user gets their own DO instance (multi-tenancy!)
+      const id = env.TaskManager.idFromName(userId)
+      const stub = env.TaskManager.get(id)
+
+      // Rewrite URL to task manager routes
+      const taskUrl = new URL(request.url)
+      taskUrl.pathname = `/tasks${rest}`
+
+      return stub.fetch(new Request(taskUrl, request))
+    }
+
+    return new Response('Not Found', { status: 404 })
+  },
+}
+```
+
+Each `userId` gets an isolated DO instance with its own SQLite database.
+
+## Step 5: Update wrangler.toml
+
+```toml
+name = "task-manager"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+
+[durable_objects]
+bindings = [
+  { name = "TaskManager", class_name = "TaskManager" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TaskManager"]
+```
+
+## Step 6: Test It
+
+```bash
+# Start dev server
+npm run dev
+
+# Create a task
+curl -X POST http://localhost:8787/api/alice/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Learn dotdo"}'
+
+# List tasks
+curl http://localhost:8787/api/alice/tasks
+
+# Complete a task
+curl -X POST http://localhost:8787/api/alice/tasks/{id}/complete
+```
+
+## Step 7: Add Events (Optional)
+
+<Callout type="info">
+The WorkflowContext (`$`) is an advanced feature that provides event handling, scheduling, and durable execution. It's optional for basic DOs.
+</Callout>
+
+Add event handling with the WorkflowContext pattern:
+
+```typescript
+import { createWorkflowContext } from 'dotdo/workflow'
+
+export class TaskManager extends DurableObject<Env> {
+  private $ = createWorkflowContext()
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    this.initDatabase()
+
+    // Register event handlers
+    this.$.on.Task.created(async (event) => {
+      console.log('Task created:', event.data)
+    })
+
+    this.$.on.Task.completed(async (event) => {
+      console.log('Task completed:', event.data)
+    })
+  }
+
+  async createTask(title: string): Promise<Task> {
+    const task = /* ... same as before ... */
+
+    // Fire event (fire-and-forget, returns event ID)
+    this.$.send('Task.created', { task })
+
+    return task
+  }
+
+  async completeTask(id: string): Promise<Task | undefined> {
+    const task = /* ... same as before ... */
+
+    // Fire event
+    this.$.send('Task.completed', { task })
+
+    return task
+  }
+}
+```
+
+## Step 8: Add Scheduling (Optional)
+
+Schedule recurring tasks with the fluent DSL:
+
+```typescript
+constructor(ctx: DurableObjectState, env: Env) {
+  super(ctx, env)
+  this.initDatabase()
+
+  // Daily summary at 9am (compiles to CRON: "0 9 * * *")
+  this.$.every.day.at('9am')(async () => {
+    const tasks = await this.listTasks()
+    const incomplete = tasks.filter(t => !t.completed)
+    console.log(`Daily summary: ${incomplete.length} tasks remaining`)
+  })
+
+  // Other schedule options:
+  // this.$.every.Monday.at9am(handler)     // Weekly
+  // this.$.every.hour(handler)             // Hourly
+  // this.$.every(5).minutes(handler)       // Every 5 minutes
+}
+```
+
+## Full Example
+
+Here's the complete `TaskManager` with all features:
+
+```typescript
+// src/task-manager.ts
+import { DurableObject } from 'cloudflare:workers'
+import { Hono } from 'hono'
+import { createWorkflowContext } from 'dotdo/workflow'
+
+interface Task {
+  id: string
+  title: string
+  completed: boolean
+  createdAt: string
+}
+
+interface Env {
+  TaskManager: DurableObjectNamespace<TaskManager>
+}
+
+export class TaskManager extends DurableObject<Env> {
+  private app: Hono
+  private $ = createWorkflowContext()
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Initialize SQLite
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS state (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `)
+
+    // Event handlers
+    this.$.on.Task.created(async (event) => {
+      console.log('Task created:', event.data)
+    })
+
+    this.$.on.Task.completed(async (event) => {
+      console.log('Task completed:', event.data)
+    })
+
+    // Daily summary at 9am
+    this.$.every.day.at('9am')(async () => {
+      const tasks = await this.listTasks()
+      const incomplete = tasks.filter(t => !t.completed)
+      console.log(`${incomplete.length} tasks remaining`)
+    })
+
+    this.app = this.createApp()
+  }
+
+  // State helpers
+  private setState(key: string, value: unknown): void {
+    this.ctx.storage.sql.exec(
+      'INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)',
+      key,
+      JSON.stringify(value)
+    )
+  }
+
+  private getState<T>(key: string): T | undefined {
+    const results = this.ctx.storage.sql
+      .exec('SELECT value FROM state WHERE key = ?', key)
+      .toArray()
+    if (results.length === 0) return undefined
+    return JSON.parse(results[0].value as string)
+  }
+
+  // RPC Methods
+  async createTask(title: string): Promise<Task> {
+    const task: Task = {
+      id: crypto.randomUUID(),
+      title,
+      completed: false,
+      createdAt: new Date().toISOString(),
+    }
+    this.setState(`task:${task.id}`, task)
+    this.$.send('Task.created', { task })
+    return task
+  }
+
+  async getTask(id: string): Promise<Task | undefined> {
+    return this.getState<Task>(`task:${id}`)
+  }
+
+  async listTasks(): Promise<Task[]> {
+    const results = this.ctx.storage.sql
+      .exec('SELECT value FROM state WHERE key LIKE ?', 'task:%')
+      .toArray()
+    return results.map(row => JSON.parse(row.value as string))
+  }
+
+  async completeTask(id: string): Promise<Task | undefined> {
+    const task = await this.getTask(id)
+    if (!task) return undefined
+    task.completed = true
+    this.setState(`task:${id}`, task)
+    this.$.send('Task.completed', { task })
+    return task
+  }
+
+  async deleteTask(id: string): Promise<boolean> {
+    this.ctx.storage.sql.exec('DELETE FROM state WHERE key = ?', `task:${id}`)
+    return true
+  }
+
+  // HTTP Routes
+  private createApp(): Hono {
+    const app = new Hono()
+
+    app.get('/tasks', async (c) => {
+      return c.json({ tasks: await this.listTasks() })
+    })
+
+    app.post('/tasks', async (c) => {
+      const { title } = await c.req.json()
+      if (!title) return c.json({ error: 'Title required' }, 400)
+      return c.json({ task: await this.createTask(title) }, 201)
+    })
+
+    app.get('/tasks/:id', async (c) => {
+      const task = await this.getTask(c.req.param('id'))
+      if (!task) return c.json({ error: 'Not found' }, 404)
+      return c.json({ task })
+    })
+
+    app.post('/tasks/:id/complete', async (c) => {
+      const task = await this.completeTask(c.req.param('id'))
+      if (!task) return c.json({ error: 'Not found' }, 404)
+      return c.json({ task })
+    })
+
+    app.delete('/tasks/:id', async (c) => {
+      await this.deleteTask(c.req.param('id'))
+      return c.json({ deleted: true })
+    })
+
+    return app
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    return this.app.fetch(request)
+  }
+}
+```
+
+## Next Steps
+
+You've built a complete task manager with:
+- SQLite-backed state persistence
+- HTTP API with Hono routing
+- RPC methods for direct calls
+- Event handling with `$.on`
+- Scheduled tasks with `$.every`
+
+<Callout type="info">
+**What's next?** Learn about semantic modeling (Nouns, Verbs, Things) and the full WorkflowContext API in Core Concepts.
+</Callout>
+
+Continue learning:
+- [Core Concepts](/docs/getting-started/concepts) - Understand semantic types and the WorkflowContext

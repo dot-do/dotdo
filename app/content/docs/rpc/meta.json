@@ -1,0 +1,11 @@
+{
+  "title": "Cap'n Web RPC",
+  "pages": [
+    "index",
+    "capabilities",
+    "pipelining",
+    "serialization",
+    "wire-protocol",
+    "websocket"
+  ]
+}

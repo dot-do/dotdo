@@ -6,8 +6,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build:static": "vite build --config vite.static.config.ts",
-    "deploy:static": "wrangler deploy --config wrangler.static.jsonc"
+    "build:docs": "cd app && npm run build",
+    "deploy:docs": "wrangler deploy --config wrangler.static.jsonc"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",
@@ -18,9 +18,6 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
-    "fumadocs-core": "^15.8.5",
-    "fumadocs-mdx": "^11.10.1",
-    "fumadocs-ui": "^15.8.5",
     "hono": "^4.6.0",
     "jose": "^6.1.3",
     "zod": "^3.24.0"

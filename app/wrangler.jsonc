@@ -1,0 +1,19 @@
+{
+  // Cloudflare Workers Static Site Configuration for Docs
+  // Local development config within app/ directory
+  "name": "dotdo-docs",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static assets configuration
+  "assets": {
+    "directory": "./.output/public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application"
+  },
+
+  // Observability settings
+  "observability": {
+    "enabled": true
+  }
+}
