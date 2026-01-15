@@ -253,12 +253,15 @@ export function transformOtelLog(log: OtlpLogRecord, resource?: OtlpResource): U
   const traceId = log.traceId && log.traceId.length > 0 ? log.traceId : null
   const spanId = log.spanId && log.spanId.length > 0 ? log.spanId : null
 
+  // Determine namespace from service name or use default
+  const logNs = serviceName ? `otel.logs.${serviceName}` : 'otel.logs'
+
   return createUnifiedEvent({
     // Core Identity
     id: generateEventId(),
     event_type: 'log',
     event_name: 'otel.log',
-    ns: 'otel://logs',
+    ns: logNs,
 
     // Timing
     timestamp: nanoToISOString(log.timeUnixNano),

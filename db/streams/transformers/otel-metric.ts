@@ -246,10 +246,10 @@ export function transformOtelMetric(
     metricAttributes.description = metric.description
   }
 
-  // Determine namespace from resource or default
+  // Determine namespace from resource or default (must be valid topic name)
   const ns = resourceFields.service_name
-    ? `https://${resourceFields.service_name}.otel`
-    : 'https://otel.metrics'
+    ? `otel.metrics.${resourceFields.service_name}`
+    : 'otel.metrics'
 
   // Process gauge metrics
   if (metric.gauge?.dataPoints) {

@@ -28,6 +28,10 @@ import type {
   DistanceMetric,
   VectorFilter,
 } from '../types/analytics-api'
+import {
+  HTTPEndpointRateLimiter,
+  type HTTPRateLimitConfig,
+} from './middleware/query-rate-limit'
 
 // ============================================================================
 // TYPES
@@ -967,6 +971,21 @@ export class QueryRouteError extends Error {
 // ============================================================================
 
 /**
+ * Default rate limit configuration for query router
+ * 100 requests per minute per IP
+ */
+const DEFAULT_RATE_LIMIT_CONFIG: HTTPRateLimitConfig = {
+  requestsPerWindow: 100,
+  windowMs: 60000, // 1 minute
+  keyStrategy: 'ip',
+  windowStrategy: 'fixed',
+  failOpen: true,
+}
+
+// Global rate limiter instance for the worker
+const rateLimiter = new HTTPEndpointRateLimiter(DEFAULT_RATE_LIMIT_CONFIG)
+
+/**
  * Query Router Worker fetch handler
  *
  * Standalone worker that handles query routing. Can be deployed
@@ -1011,6 +1030,33 @@ export default {
       )
     }
 
+    // Check rate limit for query endpoints
+    const rateLimitResult = await rateLimiter.check(request)
+
+    // Build base headers including rate limit headers
+    const baseHeaders: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      ...rateLimitResult.headers,
+    }
+
+    // If rate limited, return 429 response
+    if (!rateLimitResult.allowed) {
+      return Response.json(
+        {
+          error: rateLimitResult.error?.message ?? 'rate limit exceeded',
+          code: rateLimitResult.error?.code ?? 'RATE_LIMIT_EXCEEDED',
+          retryAfter: rateLimitResult.retryAfterMs
+            ? Math.ceil(rateLimitResult.retryAfterMs / 1000)
+            : undefined,
+        },
+        {
+          status: 429,
+          headers: baseHeaders,
+        }
+      )
+    }
+
     try {
       const parseStart = Date.now()
       const query = await parseQuery(request)
@@ -1022,8 +1068,7 @@ export default {
       result.timing.parseMs = parseMs
 
       const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        ...baseHeaders,
         'X-Query-Type': query.type,
         'X-Execution-Path': query.executionPath,
         'X-Total-Time-Ms': String(result.timing.totalMs),
@@ -1052,10 +1097,7 @@ export default {
           },
           {
             status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            },
+            headers: baseHeaders,
           }
         )
       }
@@ -1069,10 +1111,7 @@ export default {
         },
         {
           status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
+          headers: baseHeaders,
         }
       )
     }

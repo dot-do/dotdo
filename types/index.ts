@@ -445,6 +445,18 @@ export type {
   SnippetProxy,
   FlexiblePayloads,
   PartitionInternal,
+  // Discriminated union types (by event_type field)
+  DiscriminatedUnifiedEvent,
+  TraceEvent,
+  MetricEvent,
+  LogEvent,
+  CdcEvent,
+  TrackEvent,
+  PageEvent,
+  VitalEvent,
+  ReplayEvent,
+  TailEvent,
+  SnippetEvent,
   // Column metadata
   ColumnType,
   ColumnDefinition,

@@ -315,7 +315,14 @@ interface CoalescedMessage {
   scheduledAt: number
   /** Last activity timestamp for stale buffer detection */
   lastActivity: number
+  /** Flush ID to prevent concurrent flushes - set when flush starts */
+  flushId?: string
+  /** Retry count to limit retries on failure */
+  retryCount?: number
 }
+
+/** Maximum number of retries for failed flushes */
+const MAX_FLUSH_RETRIES = 3
 
 /**
  * Fan-out batch configuration
@@ -443,6 +450,115 @@ class DefaultRateLimiterFactory implements IRateLimiterFactory {
   constructor(private readonly rate: number, private readonly burst: number) {}
   create(): IConnectionRateLimiter { return new TokenBucket(this.rate, this.burst) }
 }
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/**
+ * ID generation constants - slice positions for random portion of generated IDs.
+ * generateId() produces: `${Date.now()}-${Math.random().toString(36).slice(ID_SLICE_START, ID_SLICE_END)}`
+ */
+const ID_SLICE_START = 2
+const ID_SLICE_END = 11
+
+/**
+ * Default stale buffer threshold in milliseconds.
+ * Coalescing buffers inactive for longer than this are cleaned up.
+ */
+const DEFAULT_STALE_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
+
+/**
+ * Maximum latency samples to keep for percentile calculations.
+ * Older samples are shifted out when this limit is exceeded.
+ */
+const MAX_LATENCY_SAMPLES = 1000
+
+/**
+ * Default rate limit configuration
+ */
+const DEFAULT_RATE_MESSAGES_PER_SECOND = 1000
+const DEFAULT_RATE_BURST_SIZE = 1000
+
+/**
+ * Default hot tier retention in milliseconds (5 minutes)
+ */
+const DEFAULT_HOT_TIER_RETENTION_MS = 5 * 60 * 1000
+
+/**
+ * Default maximum WebSocket connections
+ */
+const DEFAULT_MAX_CONNECTIONS = 10_000
+
+/**
+ * Default maximum topics
+ */
+const DEFAULT_MAX_TOPICS = 10_000
+
+/**
+ * Default cleanup interval in milliseconds (1 minute)
+ */
+const DEFAULT_CLEANUP_INTERVAL_MS = 60_000
+
+/**
+ * Default maximum pending messages per connection before backpressure kicks in
+ */
+const DEFAULT_MAX_PENDING_MESSAGES = 100
+
+/**
+ * Default deduplication window in milliseconds (1 minute)
+ */
+const DEFAULT_DEDUP_WINDOW_MS = 60_000
+
+/**
+ * Default token TTL in seconds (1 hour)
+ */
+const DEFAULT_TOKEN_TTL_SECONDS = 3600
+
+/**
+ * Default fan-out batch size (subscribers per batch)
+ */
+const DEFAULT_FANOUT_BATCH_SIZE = 1000
+
+/**
+ * Default fan-out yield interval in milliseconds (0 = no yielding)
+ */
+const DEFAULT_FANOUT_YIELD_INTERVAL_MS = 0
+
+/**
+ * Default drain timeout during graceful shutdown in milliseconds
+ */
+const DEFAULT_DRAIN_TIMEOUT_MS = 5000
+
+/**
+ * Metrics calculation divisor for messages per second
+ */
+const METRICS_SAMPLE_WINDOW_SECONDS = 60
+
+/**
+ * SQL validation constants
+ */
+const SQL_MAX_QUERY_LENGTH = 10240 // 10KB
+const SQL_MAX_NESTED_SUBQUERIES = 4 // Allows up to 3 levels of nesting
+const SQL_MAX_JOIN_COUNT = 5
+const SQL_TRUNCATE_LENGTH = 200 // Max SQL length to log for safety
+
+/**
+ * WebSocket close code for server-initiated shutdown (Going Away)
+ */
+const WS_CLOSE_CODE_GOING_AWAY = 1001
+
+/**
+ * Latency percentile thresholds for metrics calculation
+ */
+const LATENCY_PERCENTILE_P50 = 0.5
+const LATENCY_PERCENTILE_P95 = 0.95
+const LATENCY_PERCENTILE_P99 = 0.99
+
+/**
+ * Data preview slice length for error logging
+ */
+const ERROR_DATA_PREVIEW_LENGTH = 100
 
 // ============================================================================
 // TOPIC VALIDATION
@@ -651,12 +767,19 @@ export interface StoredUnifiedEvent {
   session_id: string | null
   correlation_id: string | null
 
-  // Key queryable columns
+  // Timing
   timestamp: string
-  outcome: string | null
-  http_url: string | null
-  http_status: number | null
   duration_ms: number | null
+
+  // Outcome
+  outcome: string | null
+  error_message: string | null
+
+  // HTTP Context
+  http_method: string | null
+  http_url: string | null
+  http_host: string | null
+  http_status: number | null
 
   // Service
   service_name: string | null
@@ -669,6 +792,11 @@ export interface StoredUnifiedEvent {
   // Logging
   log_level: string | null
   log_message: string | null
+
+  // Metrics
+  metric_name: string | null
+  metric_value: number | null
+  metric_unit: string | null
 
   // Actor
   actor_id: string | null
@@ -707,16 +835,22 @@ function toStoredUnifiedEvent(event: BroadcastEvent | Partial<UnifiedEvent>): St
       timestamp: typeof legacy.timestamp === 'number'
         ? new Date(legacy.timestamp).toISOString()
         : legacy.timestamp?.toString() || new Date().toISOString(),
-      outcome: null,
-      http_url: null,
-      http_status: null,
       duration_ms: null,
+      outcome: null,
+      error_message: null,
+      http_method: null,
+      http_url: null,
+      http_host: null,
+      http_status: null,
       service_name: null,
       vital_name: null,
       vital_value: null,
       vital_rating: null,
       log_level: null,
       log_message: null,
+      metric_name: null,
+      metric_value: null,
+      metric_unit: null,
       actor_id: null,
       data: legacy.payload ? JSON.stringify(legacy.payload) : null,
       attributes: null,
@@ -756,16 +890,22 @@ function toStoredUnifiedEvent(event: BroadcastEvent | Partial<UnifiedEvent>): St
     session_id: unified.session_id || null,
     correlation_id: unified.correlation_id || null,
     timestamp: unified.timestamp || new Date().toISOString(),
-    outcome: unified.outcome || null,
-    http_url: unified.http_url || null,
-    http_status: unified.http_status || null,
     duration_ms: unified.duration_ms || null,
+    outcome: unified.outcome || null,
+    error_message: unified.error_message || null,
+    http_method: unified.http_method || null,
+    http_url: unified.http_url || null,
+    http_host: unified.http_host || null,
+    http_status: unified.http_status || null,
     service_name: unified.service_name || null,
     vital_name: unified.vital_name || null,
     vital_value: unified.vital_value || null,
     vital_rating: unified.vital_rating || null,
     log_level: unified.log_level || null,
     log_message: unified.log_message || null,
+    metric_name: unified.metric_name || null,
+    metric_value: unified.metric_value || null,
+    metric_unit: unified.metric_unit || null,
     actor_id: unified.actor_id || null,
     data: unified.data ? JSON.stringify(unified.data) : null,
     attributes: unified.attributes ? JSON.stringify(unified.attributes) : null,
@@ -1257,7 +1397,7 @@ const DEFAULT_CONFIG: ResolvedEventStreamConfig = {
  * Generate unique ID
  */
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+  return `${Date.now()}-${Math.random().toString(36).slice(ID_SLICE_START, ID_SLICE_END)}`
 }
 
 /**
@@ -1355,6 +1495,13 @@ export class EventStreamDO extends DurableObject {
   // Message coalescing state
   private coalescingBuffers: Map<string, CoalescedMessage> = new Map() // topic -> pending coalesced message
   private coalescingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map() // topic -> flush timer
+  private flushInProgress: Map<string, Promise<void>> = new Map() // topic -> ongoing flush promise
+  // Flushing buffers for recovery on failure - topic -> events being flushed
+  private flushingBuffers: Map<string, BroadcastEvent[]> = new Map()
+  // Concurrency limiting for flush operations
+  private static readonly MAX_CONCURRENT_FLUSHES = 10
+  private activeFlushCount = 0
+  private flushQueue: Array<() => void> = [] // Queue of resolve functions for waiting flushes
 
   constructor(state: DurableObjectState | any, envOrConfig?: unknown | EventStreamConfig, config?: EventStreamConfig) {
     super(state, envOrConfig as Record<string, unknown>)
@@ -1688,17 +1835,31 @@ export class EventStreamDO extends DurableObject {
       this.cleanupAlarmSet = true
     }
 
-    // Return a mock response object that mimics Cloudflare's WebSocket upgrade response
-    // Can't use new Response() with status 101 in Node.js
-    return {
-      status: 101,
-      webSocket: client,
-      headers: new Headers(),
-      ok: true,
-      statusText: 'Switching Protocols',
-      json: async () => ({}),
-      text: async () => '',
-    } as unknown as Response
+    // Return WebSocket upgrade response
+    // In Workers runtime, use the proper Response constructor with webSocket property
+    // In Node.js test environment, return a mock response object
+    //
+    // Detection: Workers runtime Response accepts status 101 + webSocket property
+    // Node.js Response throws RangeError for status outside 200-599
+    try {
+      // Workers runtime supports Response with status 101 and webSocket property
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      } as ResponseInit & { webSocket: WebSocket })
+    } catch {
+      // Node.js fallback - return mock response object with webSocket
+      // Node.js Response throws RangeError for status 101
+      return {
+        status: 101,
+        webSocket: client,
+        headers: new Headers(),
+        ok: true,
+        statusText: 'Switching Protocols',
+        json: async () => ({}),
+        text: async () => '',
+      } as unknown as Response
+    }
   }
 
   private async handleBroadcastEndpoint(request: Request): Promise<Response> {
@@ -1820,7 +1981,8 @@ export class EventStreamDO extends DurableObject {
         : Date.now(),
     }
 
-    await this.broadcastToTopic(topic, broadcastEvent)
+    // Skip storage since we already stored via insertUnified above
+    await this.broadcastToTopic(topic, broadcastEvent, { skipStorage: true })
 
     return new Response(JSON.stringify({
       success: true,
@@ -1876,7 +2038,7 @@ export class EventStreamDO extends DurableObject {
       // Log SQL query errors with context for debugging
       console.error('[event-stream] SQL query execution error:', {
         operation: 'handleQueryEndpoint',
-        sql: sql?.slice(0, 200), // Truncate for safety
+        sql: sql?.slice(0, SQL_TRUNCATE_LENGTH), // Truncate for safety
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       })
@@ -2191,7 +2353,7 @@ export class EventStreamDO extends DurableObject {
       // Log the error with context for debugging
       console.error('[event-stream] WebSocket message parse error:', {
         error: error instanceof Error ? error.message : 'unknown',
-        dataPreview: data.slice(0, 100),
+        dataPreview: data.slice(0, ERROR_DATA_PREVIEW_LENGTH),
       })
 
       // Send error response to client
@@ -2521,7 +2683,7 @@ export class EventStreamDO extends DurableObject {
 
     this.metrics.messagesSent++
     this.metrics.latencies.push(Date.now() - startTime)
-    if (this.metrics.latencies.length > 1000) {
+    if (this.metrics.latencies.length > MAX_LATENCY_SAMPLES) {
       this.metrics.latencies.shift()
     }
 
@@ -2535,7 +2697,7 @@ export class EventStreamDO extends DurableObject {
     }
   }
 
-  async broadcastToTopic(topic: string, event: BroadcastEvent): Promise<void> {
+  async broadcastToTopic(topic: string, event: BroadcastEvent, options?: { skipStorage?: boolean }): Promise<void> {
     // Check deduplication
     if (this.isDuplicate(topic, event.id)) {
       this.dedupStats.deduplicatedCount++
@@ -2543,8 +2705,10 @@ export class EventStreamDO extends DurableObject {
     }
     this.dedupStats.uniqueCount++
 
-    // Store in hot tier
-    this._db.insert(event)
+    // Store in hot tier (unless caller has already stored it)
+    if (!options?.skipStorage) {
+      this._db.insert(event)
+    }
 
     // Update topic stats
     const stats = this.topicStats.get(topic)
@@ -2569,11 +2733,24 @@ export class EventStreamDO extends DurableObject {
   /**
    * Coalesce events for high-frequency scenarios.
    * Buffers events and flushes them as a batch after maxDelayMs or when maxBatchSize is reached.
+   *
+   * Race condition prevention:
+   * - Uses flushId to mark buffers being flushed
+   * - Atomically checks and clears timer before flush
+   * - Creates new buffer for events arriving during flush
    */
   private coalesceEvent(topic: string, event: BroadcastEvent): void {
     const config = this._config.coalescing!
 
+    // Get or create buffer - must check if buffer is being flushed
     let buffer = this.coalescingBuffers.get(topic)
+
+    // If buffer exists but is being flushed (has flushId), create a new buffer
+    // This prevents adding events to a buffer that's about to be deleted
+    if (buffer && buffer.flushId) {
+      buffer = undefined
+    }
+
     if (!buffer) {
       buffer = {
         events: [],
@@ -2587,8 +2764,16 @@ export class EventStreamDO extends DurableObject {
     buffer.events.push(event)
     buffer.lastActivity = Date.now()
 
-    // Flush immediately if batch size reached
-    if (buffer.events.length >= config.maxBatchSize) {
+    // Check if batch size reached - atomic with buffer manipulation above
+    const shouldFlush = buffer.events.length >= config.maxBatchSize
+
+    if (shouldFlush) {
+      // Clear timer BEFORE triggering flush to prevent timer-triggered duplicate
+      const timer = this.coalescingTimers.get(topic)
+      if (timer) {
+        clearTimeout(timer)
+        this.coalescingTimers.delete(topic)
+      }
       this.flushCoalescedBuffer(topic)
       return
     }
@@ -2603,44 +2788,150 @@ export class EventStreamDO extends DurableObject {
   }
 
   /**
+   * Acquire a flush slot from the concurrency limiter.
+   * Returns a release function to call when done.
+   */
+  private async acquireFlushSlot(): Promise<() => void> {
+    // If under the limit, acquire immediately
+    if (this.activeFlushCount < EventStreamDO.MAX_CONCURRENT_FLUSHES) {
+      this.activeFlushCount++
+      return () => this.releaseFlushSlot()
+    }
+
+    // Otherwise, wait in queue for a slot
+    await new Promise<void>((resolve) => {
+      this.flushQueue.push(resolve)
+    })
+    this.activeFlushCount++
+    return () => this.releaseFlushSlot()
+  }
+
+  /**
+   * Release a flush slot, allowing queued flushes to proceed.
+   */
+  private releaseFlushSlot(): void {
+    this.activeFlushCount--
+    // If there are waiting flushes, allow the next one to proceed
+    const next = this.flushQueue.shift()
+    if (next) {
+      next()
+    }
+  }
+
+  /**
    * Flush coalesced events for a topic.
+   *
+   * Race condition prevention:
+   * - Uses flushId to mark buffer as being flushed atomically
+   * - Clears timer first to prevent timer-triggered duplicate
+   * - Waits for ongoing flush to complete if one exists
+   * - Updates metrics only after successful send
+   * - Stores events in flushingBuffers for recovery on failure
+   * - Limits concurrent flushes to prevent memory pressure
    */
   private async flushCoalescedBuffer(topic: string): Promise<void> {
+    // Wait for any ongoing flush to complete first
+    const existingFlush = this.flushInProgress.get(topic)
+    if (existingFlush) {
+      await existingFlush
+    }
+
     const buffer = this.coalescingBuffers.get(topic)
     if (!buffer || buffer.events.length === 0) return
 
-    // Clear timer
+    // Mark buffer as being flushed with unique ID - this is atomic
+    // Any new events during flush will create a new buffer
+    const flushId = `flush_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    buffer.flushId = flushId
+
+    // Clear timer atomically before processing
     const timer = this.coalescingTimers.get(topic)
     if (timer) {
       clearTimeout(timer)
       this.coalescingTimers.delete(topic)
     }
 
-    // Get events and clear buffer
-    const events = buffer.events
+    // Capture events and retry count, then delete buffer atomically
+    // New events will create a fresh buffer with the same key
+    const events = [...buffer.events]
+    const retryCount = buffer.retryCount || 0
     this.coalescingBuffers.delete(topic)
 
-    this.metrics.coalescedBatches++
+    // Store events in flushingBuffers for recovery on failure
+    this.flushingBuffers.set(topic, events)
 
-    // Send coalesced batch
-    if (events.length === 1) {
-      await this.fanOutToSubscribers(topic, events[0])
-    } else {
-      // Send as a batch message
-      const batchEvent: BroadcastEvent = {
-        id: generateId(),
-        type: 'batch',
-        topic,
-        payload: { events },
-        timestamp: Date.now(),
+    // Create and track the flush promise
+    const flushPromise = (async () => {
+      // Acquire a slot from the concurrency limiter
+      const releaseSlot = await this.acquireFlushSlot()
+      try {
+        // Send coalesced batch
+        if (events.length === 1) {
+          await this.fanOutToSubscribers(topic, events[0])
+        } else {
+          // Send as a batch message
+          const batchEvent: BroadcastEvent = {
+            id: generateId(),
+            type: 'batch',
+            topic,
+            payload: { events },
+            timestamp: Date.now(),
+          }
+          await this.fanOutToSubscribers(topic, batchEvent)
+        }
+
+        // Success - remove from flushingBuffers and increment metrics
+        this.flushingBuffers.delete(topic)
+        this.metrics.coalescedBatches++
+
+        // Notify live query subscribers for all events
+        for (const event of events) {
+          await this.notifyLiveQuerySubscribers(event)
+        }
+      } catch (error) {
+        // On failure, restore events to the buffer for recovery
+        // If a new buffer was created during flush, prepend failed events to it
+        const currentBuffer = this.coalescingBuffers.get(topic)
+        const newRetryCount = retryCount + 1
+        if (currentBuffer) {
+          // Prepend failed events to new buffer (maintain order)
+          currentBuffer.events = [...events, ...currentBuffer.events]
+          // Increment retry count
+          currentBuffer.retryCount = Math.max(currentBuffer.retryCount || 0, newRetryCount)
+        } else {
+          // No new buffer, create one with the failed events
+          this.coalescingBuffers.set(topic, {
+            events,
+            topic,
+            scheduledAt: Date.now(),
+            lastActivity: Date.now(),
+            retryCount: newRetryCount,
+          })
+        }
+        // Schedule retry timer for failed events, but only if under retry limit
+        const config = this._config.coalescing
+        if (config && !this.coalescingTimers.has(topic) && newRetryCount < MAX_FLUSH_RETRIES) {
+          const retryTimer = setTimeout(() => {
+            this.flushCoalescedBuffer(topic)
+          }, config.maxDelayMs)
+          this.coalescingTimers.set(topic, retryTimer)
+        }
+        // Clean up flushingBuffers - events are now in main buffer
+        this.flushingBuffers.delete(topic)
+        // Re-throw to allow caller to handle
+        throw error
+      } finally {
+        // Release the concurrency slot
+        releaseSlot()
+        // Clean up flush tracking
+        if (this.flushInProgress.get(topic) === flushPromise) {
+          this.flushInProgress.delete(topic)
+        }
       }
-      await this.fanOutToSubscribers(topic, batchEvent)
-    }
+    })()
 
-    // Notify live query subscribers for all events
-    for (const event of events) {
-      await this.notifyLiveQuerySubscribers(event)
-    }
+    this.flushInProgress.set(topic, flushPromise)
+    await flushPromise
   }
 
   /**
@@ -2666,7 +2957,7 @@ export class EventStreamDO extends DurableObject {
    * @param staleThresholdMs - Time in ms after which a buffer is considered stale (default: 5 minutes)
    * @returns Number of stale buffers cleaned up
    */
-  cleanupStaleBuffers(staleThresholdMs: number = 5 * 60 * 1000): number {
+  cleanupStaleBuffers(staleThresholdMs: number = DEFAULT_STALE_THRESHOLD_MS): number {
     const now = Date.now()
     let cleanedCount = 0
 
@@ -2713,7 +3004,7 @@ export class EventStreamDO extends DurableObject {
       await this._fanOutManager.broadcast(topic, event)
       this.metrics.messagesSent++
       this.metrics.latencies.push(Date.now() - startTime)
-      if (this.metrics.latencies.length > 1000) {
+      if (this.metrics.latencies.length > MAX_LATENCY_SAMPLES) {
         this.metrics.latencies.shift()
       }
       return
@@ -2751,7 +3042,7 @@ export class EventStreamDO extends DurableObject {
 
     this.metrics.messagesSent++
     this.metrics.latencies.push(Date.now() - startTime)
-    if (this.metrics.latencies.length > 1000) {
+    if (this.metrics.latencies.length > MAX_LATENCY_SAMPLES) {
       this.metrics.latencies.shift()
     }
   }
@@ -3203,8 +3494,8 @@ export class EventStreamDO extends DurableObject {
       }
     }
 
-    // Clean up stale coalescing buffers (5 minute threshold)
-    this.cleanupStaleBuffers(5 * 60 * 1000)
+    // Clean up stale coalescing buffers
+    this.cleanupStaleBuffers(DEFAULT_STALE_THRESHOLD_MS)
 
     // Schedule next cleanup
     if (this.connections.size > 0 || this.topicStats.size > 0) {
@@ -3226,15 +3517,15 @@ export class EventStreamDO extends DurableObject {
 
     // Calculate latency percentiles
     const sorted = [...this.metrics.latencies].sort((a, b) => a - b)
-    const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0
-    const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0
-    const p99 = sorted[Math.floor(sorted.length * 0.99)] ?? 0
+    const p50 = sorted[Math.floor(sorted.length * LATENCY_PERCENTILE_P50)] ?? 0
+    const p95 = sorted[Math.floor(sorted.length * LATENCY_PERCENTILE_P95)] ?? 0
+    const p99 = sorted[Math.floor(sorted.length * LATENCY_PERCENTILE_P99)] ?? 0
 
     return {
       activeConnections: this.connections.size,
       totalConnections: this.metrics.totalConnections,
       messagesSent: this.metrics.messagesSent,
-      messagesPerSecond: this.metrics.messagesSent > 0 ? this.metrics.messagesSent / 60 : 0,
+      messagesPerSecond: this.metrics.messagesSent > 0 ? this.metrics.messagesSent / METRICS_SAMPLE_WINDOW_SECONDS : 0,
       errorCount: this.metrics.errorCount,
       topicStats,
       latencyP50: p50,
@@ -3376,7 +3667,7 @@ export class EventStreamDO extends DurableObject {
     // Flush any pending coalesced messages before shutdown
     await this.flushAllCoalescedBuffers()
 
-    const drainTimeout = options?.drainTimeout ?? 5000
+    const drainTimeout = options?.drainTimeout ?? DEFAULT_DRAIN_TIMEOUT_MS
 
     // Wait for connections to drain or timeout
     await Promise.race([
@@ -3395,11 +3686,16 @@ export class EventStreamDO extends DurableObject {
     }
     this.coalescingTimers.clear()
     this.coalescingBuffers.clear()
+    this.flushInProgress.clear()
+    this.flushingBuffers.clear()
+    // Reset concurrency limiter state
+    this.activeFlushCount = 0
+    this.flushQueue = []
 
     // Force close remaining connections
     for (const [_, conn] of this.connections) {
       try {
-        conn.ws.close(1001, 'Server shutdown')
+        conn.ws.close(WS_CLOSE_CODE_GOING_AWAY, 'Server shutdown')
       } catch (error) {
         // Log close errors during shutdown for debugging
         console.debug('[event-stream] Graceful shutdown ws.close failed:', {

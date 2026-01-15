@@ -33,7 +33,7 @@ function createTestUnifiedEvent(overrides: Partial<UnifiedEvent> = {}): Partial<
     id: generateId(),
     event_type: 'trace',
     event_name: 'http.request',
-    ns: 'https://api.example.com',
+    ns: 'api.example.com',
     timestamp: new Date().toISOString(),
     trace_id: null,
     span_id: null,

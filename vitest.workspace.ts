@@ -121,7 +121,7 @@ const WORKERS_POOL_OPTIONS = {
   eventStreamTest: {
     workers: {
       wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.event-stream-test.jsonc') },
-      isolatedStorage: true,
+      isolatedStorage: false,  // Disabled to avoid async storage issues with DO SQLite
       singleWorker: true,
     },
   },
@@ -723,7 +723,13 @@ export default defineWorkspace([
   createNodeWorkspace('isolation', ['tests/isolation/**/*.test.ts']),
 
   // Integration tests (cross-subsystem, cascade E2E, etc.)
-  createNodeWorkspace('integration', ['tests/integration/**/*.test.ts', 'tests/e2e/**/*.test.ts']),
+  // Excludes websocket-realtime and transformer-pipeline which run in event-stream workspace (Workers)
+  createNodeWorkspace('integration', ['tests/integration/**/*.test.ts', 'tests/e2e/**/*.test.ts'], {
+    exclude: [
+      '**/websocket-realtime.test.ts', // Runs in event-stream workspace (Workers environment)
+      '**/transformer-pipeline.test.ts', // Runs in event-stream workspace (Workers environment)
+    ],
+  }),
 
   // DuckDB Iceberg extension tests (R2 Data Catalog integration)
   createNodeWorkspace('duckdb-iceberg', ['db/compat/sql/duckdb-wasm/iceberg/tests/**/*.test.ts']),
@@ -847,8 +853,12 @@ export default defineWorkspace([
 
   // EventStreamDO integration tests (real miniflare DOs - NO MOCKS)
   // Tests unified event storage, correlation queries, hot tier retention
+  // Also includes transformer pipeline E2E tests (OTEL → transform → store → query)
+  // And WebSocket real-time delivery E2E tests
   createWorkersWorkspace('event-stream', [
     'streaming/tests/event-stream-do-miniflare.test.ts',
+    'tests/e2e/transformer-pipeline.test.ts',
+    'tests/e2e/websocket-realtime.test.ts',
   ], {
     poolOptions: WORKERS_POOL_OPTIONS.eventStreamTest,
   }),

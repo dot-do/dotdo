@@ -193,6 +193,10 @@ describe('Coalescing Buffer Race Conditions', () => {
       // This is the potential bug: if timer wasn't properly set, event-6 could be orphaned
       expect(timers.has('test-topic')).toBe(true)
 
+      // Allow microtasks to run so acquireFlushSlot completes and fanOut is called
+      await Promise.resolve()
+      await Promise.resolve()
+
       // Complete the first flush
       fanOutResolve!()
 
@@ -524,6 +528,10 @@ describe('Coalescing Buffer Race Conditions', () => {
         payload: { order: 6 },
         timestamp: Date.now(),
       })
+
+      // Allow microtasks to run so acquireFlushSlot completes and fanOut is called
+      await Promise.resolve()
+      await Promise.resolve()
 
       // Complete first flush
       firstFlushResolve!()
