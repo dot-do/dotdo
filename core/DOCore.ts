@@ -452,6 +452,17 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   /**
+   * Get a noun accessor for pipeline execution
+   * Supports dynamic noun resolution for any noun type
+   */
+  getNounAccessor(noun: string, id: string): NounAccessor | NounInstanceAccessor {
+    if (id) {
+      return new NounInstanceAccessor(this, noun, id)
+    }
+    return new NounAccessor(this, noun)
+  }
+
+  /**
    * Create a new thing of any noun type - direct RPC method
    */
   create(noun: string, data: Record<string, unknown>): Promise<ThingData> {
@@ -1905,8 +1916,15 @@ class NounAccessor extends RpcTarget {
 /**
  * NounInstanceAccessor - RpcTarget class for noun instance operations
  * Supports: this.Customer('id').update(), this.Customer('id').delete()
+ *
+ * Also supports property access for pipelining:
+ * - this.Customer('id').profile.email via getProperty()
+ * - Pipeline executor can traverse properties by calling getProperty()
  */
 class NounInstanceAccessor extends RpcTarget {
+  // Cached thing data for property access
+  private _thingData: ThingData | null = null
+
   constructor(private doCore: DOCore, private noun: string, private id: string) {
     super()
   }
@@ -1929,6 +1947,60 @@ class NounInstanceAccessor extends RpcTarget {
 
   async getStatus(): Promise<{ status: string }> {
     return { status: 'active' }
+  }
+
+  /**
+   * Get the full thing data for property access in pipelines
+   * This enables: Customer('id').profile.email
+   */
+  async getData(): Promise<ThingData | null> {
+    if (!this._thingData) {
+      this._thingData = this.doCore.getThingPublic(this.id)
+    }
+    return this._thingData
+  }
+
+  /**
+   * Get a specific property value from the thing
+   * Used by pipeline executor for property access
+   */
+  async getProperty(name: string): Promise<unknown> {
+    const data = await this.getData()
+    if (!data) {
+      throw new Error(`Thing not found: ${this.id}`)
+    }
+    return data[name]
+  }
+
+  // Direct property accessors for common patterns
+  // These allow pipeline executor to access thing properties directly
+
+  get profile(): Promise<unknown> {
+    return this.getProperty('profile')
+  }
+
+  get email(): Promise<unknown> {
+    return this.getProperty('email')
+  }
+
+  get name(): Promise<unknown> {
+    return this.getProperty('name')
+  }
+
+  get settings(): Promise<unknown> {
+    return this.getProperty('settings')
+  }
+
+  get orders(): Promise<unknown> {
+    return this.getProperty('orders')
+  }
+
+  get data(): Promise<unknown> {
+    return this.getProperty('data')
+  }
+
+  get value(): Promise<unknown> {
+    return this.getProperty('value')
   }
 }
 
