@@ -5,18 +5,50 @@ description: Configure OpenAI, Anthropic, Workers AI providers with fallback cha
 
 # Providers
 
-The AI module abstracts provider differences, letting you switch between OpenAI, Anthropic, and Workers AI with consistent APIs.
+The AI module abstracts provider differences, letting you switch between OpenAI, Anthropic, and Workers AI with consistent APIs. It includes a model registry and automatic fallback chains.
+
+<Callout type="info">
+The default provider uses mock responses for testing. Configure a real provider for production use.
+</Callout>
+
+## Provider Interface
+
+```typescript
+interface AIProvider {
+  execute: (prompt: string, options?: ExecuteOptions) => Promise<string>
+  request?: (params: AIRequestParams) => Promise<AIProviderResponse>
+  apiKey?: string
+  configured?: boolean
+}
+
+interface ExecuteOptions {
+  model?: string
+  mode?: 'is' | 'list' | 'code' | 'general'
+}
+
+interface AIRequestParams {
+  messages: Array<{ role: string; content: string }>
+  model?: string
+  temperature?: number
+  max_tokens?: number
+}
+```
 
 ## Default Provider
 
-The default export uses a built-in provider suitable for testing:
+The default export uses a built-in mock provider suitable for testing:
 
 ```typescript
 import { ai } from 'dotdo/ai'
 
-// Uses default provider
+// Uses default provider - mock responses for testing
 const result = await ai`Hello world`
 ```
+
+The default provider intelligently handles different modes:
+- `is` mode: Detects classification options and returns appropriate values
+- `list` mode: Parses and returns JSON arrays
+- `code` mode: Returns generated code samples
 
 ## Configuring Providers
 
@@ -177,6 +209,29 @@ const ai = createAI({
 const result = await ai`Process this request`
 ```
 
+### Built-in Model Fallback Chains
+
+Workers AI models have pre-configured fallback chains:
+
+```typescript
+import { FALLBACK_CHAIN } from 'dotdo/ai'
+
+// Model fallback configuration
+const chains = {
+  '@cf/openai/gpt-oss-120b': [
+    '@cf/openai/gpt-oss-20b',
+    '@cf/meta/llama-4-scout-17b-16e-instruct'
+  ],
+  '@cf/openai/gpt-oss-20b': [
+    '@cf/meta/llama-4-scout-17b-16e-instruct'
+  ],
+  '@cf/meta/llama-4-scout-17b-16e-instruct': [
+    '@cf/ibm-granite/granite-4.0-h-micro'
+  ],
+  '@cf/ibm-granite/granite-4.0-h-micro': []  // Budget tier, no fallback
+}
+```
+
 ### Fallback Behavior
 
 ```typescript
@@ -197,6 +252,20 @@ const ai = createAI({
 // 4. Error thrown if all fail
 ```
 
+### Error Messages with Fallback Context
+
+When all providers fail, errors include model and provider context:
+
+```typescript
+try {
+  await ai`Query`
+} catch (error) {
+  // "Model 'gpt-4' failed (provider: openai): Rate limited.
+  //  Try with a different model or check that the model supports
+  //  the requested capability (mode: general)."
+}
+```
+
 ### Disabling Fallback
 
 ```typescript
@@ -204,6 +273,10 @@ const ai = createAI({
   fallback: false  // No fallback, fail immediately
 })
 ```
+
+<Callout type="warn">
+Disabling fallback means a single provider failure will cause the entire request to fail. Use with caution in production.
+</Callout>
 
 ## Checking Provider Status
 
@@ -222,29 +295,27 @@ if (ai.providers.openai.configured) {
 }
 ```
 
-## Provider Interface
+## Custom Provider Implementation
 
-Implement custom providers:
+### Response Format Handling
+
+The module automatically handles OpenAI and Anthropic response formats:
 
 ```typescript
-interface AIProvider {
-  execute: (prompt: string, options?: ExecuteOptions) => Promise<string>
-  request?: (params: AIRequestParams) => Promise<AIProviderResponse>
-  apiKey?: string
-  configured?: boolean
+// OpenAI format
+interface OpenAIResponse {
+  choices?: Array<{
+    message?: { content?: string }
+  }>
 }
 
-interface ExecuteOptions {
-  model?: string
-  mode?: 'is' | 'list' | 'code' | 'general'
+// Anthropic format
+interface AnthropicResponse {
+  content?: Array<{ text?: string }>
 }
 
-interface AIRequestParams {
-  messages: Array<{ role: string; content: string }>
-  model?: string
-  temperature?: number
-  max_tokens?: number
-}
+// Both are handled automatically via extractResponseText()
+type AIProviderResponse = OpenAIResponse | AnthropicResponse | string
 ```
 
 ### Custom Provider Example
@@ -268,16 +339,103 @@ const ai = createAI({
 })
 ```
 
+### Using the `request` Method
+
+For more control, implement the `request` method:
+
+```typescript
+const advancedProvider: AIProvider = {
+  execute: async (prompt) => {
+    // Simple interface
+    return 'response'
+  },
+  request: async (params) => {
+    // Full control over request/response
+    const response = await fetch('https://api.example.com/v1/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: params.model,
+        messages: params.messages,
+        temperature: params.temperature,
+        max_tokens: params.max_tokens
+      })
+    })
+    return response.json() // OpenAI or Anthropic format
+  },
+  configured: true
+}
+```
+
 ## Workers AI Integration
 
-For Cloudflare Workers environments:
+The module includes a comprehensive model registry for Cloudflare Workers AI:
+
+### Model Registry
+
+```typescript
+import { MODEL_CONFIG, MODEL_REGISTRY, FALLBACK_CHAIN } from 'dotdo/ai'
+
+// Available models
+const models = {
+  GPT_OSS_120B: '@cf/openai/gpt-oss-120b',
+  GPT_OSS_20B: '@cf/openai/gpt-oss-20b',
+  LLAMA_4_SCOUT: '@cf/meta/llama-4-scout-17b-16e-instruct',
+  GRANITE_4H_MICRO: '@cf/ibm-granite/granite-4.0-h-micro',
+  AURA_2_EN: '@cf/deepgram/aura-2-en',       // TTS
+  FLUX_2_DEV: '@cf/black-forest-labs/flux-2-dev',  // Image
+}
+```
+
+### Model Capabilities
+
+Each model has detailed configuration:
+
+```typescript
+interface ModelConfig {
+  name: string
+  displayName: string
+  capabilities: {
+    text: boolean
+    tool_calling: boolean
+    structured: boolean
+    tts: boolean
+    image: boolean
+  }
+  costTier: {
+    tier: 'budget' | 'standard' | 'premium'
+    costPerMTokenInput: number
+    costPerMTokenOutput: number
+  }
+  maxInputTokens: number
+  maxOutputTokens: number
+  defaultTemperature: number
+  supportsStreaming: boolean
+  inputFormat: 'prompt' | 'input' | 'messages'
+}
+```
+
+### Model Capability Matrix
+
+| Model | Text | Tools | Structured | TTS | Image | Streaming |
+|-------|------|-------|------------|-----|-------|-----------|
+| GPT OSS 120B | Yes | No | No | No | No | Yes |
+| GPT OSS 20B | Yes | No | No | No | No | Yes |
+| Llama 4 Scout | Yes | No | No | No | No | No |
+| Granite 4.0 Micro | Yes | Yes | Yes | No | No | No |
+| Aura 2 EN | No | No | No | Yes | No | Yes |
+| Flux 2 Dev | No | No | No | No | Yes | No |
+
+### Workers AI Provider Example
 
 ```typescript
 const ai = createAI({
   provider: {
     execute: async (prompt, options) => {
+      const model = options?.model || '@cf/meta/llama-4-scout-17b-16e-instruct'
+
       // Access Workers AI binding
-      const response = await env.AI.run('@cf/meta/llama-2-7b-chat-int8', {
+      const response = await env.AI.run(model, {
         messages: [{ role: 'user', content: prompt }]
       })
       return response.response
@@ -328,8 +486,65 @@ function costOptimizedAI(complexity: 'low' | 'medium' | 'high') {
 }
 ```
 
+## LLM Routing
+
+The AI module routes requests based on model configuration and capabilities:
+
+### Model Selection by Capability
+
+```typescript
+import { MODEL_CONFIG } from 'dotdo/ai'
+
+// Find models with specific capabilities
+const textModels = Object.values(MODEL_CONFIG)
+  .filter(m => m.capabilities.text)
+
+const toolModels = Object.values(MODEL_CONFIG)
+  .filter(m => m.capabilities.tool_calling)
+
+const streamingModels = Object.values(MODEL_CONFIG)
+  .filter(m => m.supportsStreaming)
+```
+
+### Input Format Routing
+
+Models require different input formats:
+
+```typescript
+// 'prompt' format - simple string input
+// Used by: Llama 4 Scout
+{ prompt: "Your question here" }
+
+// 'input' format - single input field
+// Used by: GPT OSS models
+{ input: "Your question here" }
+
+// 'messages' format - chat-style array
+// Used by: Granite, Aura, Flux
+{ messages: [{ role: 'user', content: 'Your question' }] }
+```
+
+### Cost-Optimized Routing
+
+Route by cost tier for budget optimization:
+
+```typescript
+function selectModelByBudget(budget: 'low' | 'medium' | 'high') {
+  const tierMap = {
+    low: 'budget',
+    medium: 'standard',
+    high: 'premium'
+  }
+
+  const model = Object.values(MODEL_CONFIG)
+    .find(m => m.costTier.tier === tierMap[budget] && m.capabilities.text)
+
+  return model?.name || MODEL_CONFIG.GRANITE_4H_MICRO.name
+}
+```
+
 ## Next Steps
 
-- [Templates](/ai/templates) - Use template literals with configured providers
-- [Budget Tracking](/ai/budget) - Monitor costs across providers
-- [Caching](/ai/caching) - Cache responses to reduce provider calls
+- [Templates](./templates) - Use template literals with configured providers
+- [Budget Tracking](./budget) - Monitor costs across providers
+- [Caching](./caching) - Cache responses to reduce provider calls

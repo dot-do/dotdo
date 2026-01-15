@@ -1,11 +1,15 @@
 ---
-title: Cascade Execution
-description: Automatic escalation from code to generative to agentic to human tiers
+title: Cascade Execution and Fan-Out
+description: Automatic escalation from code to generative to agentic to human tiers, plus fan-out patterns
 ---
 
-# Cascade Execution
+# Cascade Execution and Fan-Out
 
-The cascade system automatically escalates tasks through execution tiers until one succeeds with sufficient confidence. It implements the pattern: **code -> generative -> agentic -> human**.
+The cascade pattern automatically escalates tasks through execution tiers until one succeeds with sufficient confidence. It implements the pattern: **code -> generative -> agentic -> human**.
+
+This page covers the cascade escalation pattern and fan-out patterns for parallel execution across multiple targets.
+
+> **Note**: The cascade pattern is implemented as a workflow helper, not as a core `$` method. Integrate it with your workflow proxy using the patterns shown below.
 
 ## The Cascade Model
 
@@ -49,7 +53,9 @@ The cascade system automatically escalates tasks through execution tiers until o
 ## Basic Usage
 
 ```typescript
-const result = await $.cascade({
+import { cascade } from './cascade-helper' // Your cascade implementation
+
+const result = await cascade({
   task: 'classify-support-ticket',
   tiers: {
     code: () => ruleBasedClassifier(ticket),
@@ -164,21 +170,21 @@ The system escalates when a tier's confidence is below the threshold.
 
 ```typescript
 // Default threshold is 0.8 (80%)
-const result = await $.cascade({
+const result = await cascade({
   task: 'sentiment-analysis',
   tiers: { code, generative, agentic },
   confidenceThreshold: 0.8 // Default
 })
 
 // Lower threshold = more trust in automation
-const result = await $.cascade({
+const result = await cascade({
   task: 'simple-classification',
   tiers: { code, generative },
   confidenceThreshold: 0.5 // Accept 50% confidence
 })
 
 // Higher threshold = stricter escalation
-const result = await $.cascade({
+const result = await cascade({
   task: 'medical-diagnosis',
   tiers: { code, generative, agentic, human },
   confidenceThreshold: 0.95 // Require 95% confidence
@@ -242,7 +248,7 @@ interface CascadeResult {
 Force human review from the start:
 
 ```typescript
-const result = await $.cascade({
+const result = await cascade({
   task: 'sensitive-decision',
   tiers: {
     human: () => createApproval(data)
@@ -258,7 +264,7 @@ const result = await $.cascade({
 Set a maximum time for tier execution:
 
 ```typescript
-const result = await $.cascade({
+const result = await cascade({
   task: 'time-sensitive',
   tiers: {
     generative: () => slowLLMCall(),
@@ -273,7 +279,7 @@ Timeouts are thrown as errors and cause escalation:
 
 ```typescript
 try {
-  await $.cascade({
+  await cascade({
     task: 'urgent',
     tiers: {
       generative: async () => {
@@ -295,7 +301,7 @@ try {
 Errors in a tier cause escalation to the next tier:
 
 ```typescript
-const result = await $.cascade({
+const result = await cascade({
   task: 'error-prone',
   tiers: {
     code: () => {
@@ -314,7 +320,7 @@ When all tiers fail, a `CascadeError` is thrown:
 
 ```typescript
 try {
-  await $.cascade({
+  await cascade({
     task: 'impossible',
     tiers: {
       code: () => { throw new Error('Code fail') },
@@ -337,7 +343,7 @@ try {
 
 ```typescript
 async function classifyEmail(email: Email) {
-  return await $.cascade({
+  return await cascade({
     task: `classify-email-${email.id}`,
     tiers: {
       // Tier 1: Rule-based keywords
@@ -376,7 +382,7 @@ async function classifyEmail(email: Email) {
 
 ```typescript
 async function moderateContent(content: Content) {
-  return await $.cascade({
+  return await cascade({
     task: `moderate-${content.id}`,
     tiers: {
       code: () => {
@@ -415,7 +421,7 @@ async function moderateContent(content: Content) {
 
 ```typescript
 async function routeTicket(ticket: Ticket) {
-  return await $.cascade({
+  return await cascade({
     task: `route-${ticket.id}`,
     tiers: {
       // Known patterns
@@ -458,7 +464,7 @@ async function routeTicket(ticket: Ticket) {
 Track cascade performance:
 
 ```typescript
-const result = await $.cascade({ task, tiers })
+const result = await cascade({ task, tiers })
 
 // Log execution path
 analytics.track('cascade_completed', {
@@ -473,4 +479,232 @@ analytics.track('cascade_completed', {
 if (result.tier === 'human') {
   metrics.increment('cascade.human_escalations')
 }
+```
+
+---
+
+# Fan-Out Patterns
+
+Fan-out enables parallel execution across multiple targets, leveraging promise pipelining for efficiency.
+
+## Basic Fan-Out
+
+```typescript
+import { createWorkflowProxy } from 'dotdo/workflows'
+
+const $ = createWorkflowProxy({ execute: async (expr) => rpc.execute(expr) })
+
+// Fan-out to multiple customers
+async function notifyAllCustomers(message: string, customerIds: string[]) {
+  // Create expressions (not executed yet)
+  const notifications = customerIds.map(id =>
+    $.Customer(id).notify(message)
+  )
+
+  // Single await executes all in parallel
+  const results = await Promise.all(notifications)
+  return results.filter(r => r.sent).length
+}
+```
+
+## Fan-Out with Cascade
+
+Combine fan-out with cascade for intelligent parallel processing:
+
+```typescript
+async function processDocuments(documents: Document[]) {
+  // Fan-out document classification with cascade
+  const results = await Promise.all(
+    documents.map(doc =>
+      cascade({
+        task: `classify-${doc.id}`,
+        tiers: {
+          code: () => ruleBasedClassify(doc),
+          generative: () => llmClassify(doc),
+          human: () => createReviewTask(doc)
+        },
+        confidenceThreshold: 0.85
+      })
+    )
+  )
+
+  return {
+    automated: results.filter(r => r.tier !== 'human').length,
+    humanReview: results.filter(r => r.tier === 'human').length
+  }
+}
+```
+
+## Fan-Out with Error Handling
+
+Handle partial failures gracefully:
+
+```typescript
+import { send } from 'dotdo/workflows'
+
+async function batchProcess(items: Item[]) {
+  const results = await Promise.allSettled(
+    items.map(async item => {
+      try {
+        return await $.Processor(item.id).process()
+      } catch (error) {
+        send.Processing.failed({ itemId: item.id, error: error.message })
+        throw error
+      }
+    })
+  )
+
+  const succeeded = results.filter(r => r.status === 'fulfilled')
+  const failed = results.filter(r => r.status === 'rejected')
+
+  return {
+    successCount: succeeded.length,
+    failedCount: failed.length,
+    failed: failed.map((r, i) => ({
+      itemId: items[i].id,
+      error: (r as PromiseRejectedResult).reason
+    }))
+  }
+}
+```
+
+## Chunked Fan-Out
+
+Process large batches in chunks to manage resources:
+
+```typescript
+async function processLargeBatch(items: Item[], chunkSize = 10) {
+  const results: Result[] = []
+
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize)
+
+    // Process chunk in parallel
+    const chunkResults = await Promise.all(
+      chunk.map(item => $.Processor(item.id).process())
+    )
+
+    results.push(...chunkResults)
+
+    // Emit progress
+    send.Batch.progress({
+      completed: results.length,
+      total: items.length,
+      percentage: Math.round((results.length / items.length) * 100)
+    })
+  }
+
+  return results
+}
+```
+
+## Fan-Out with Aggregation
+
+Collect and aggregate results from parallel operations:
+
+```typescript
+async function aggregateMetrics(serviceIds: string[]) {
+  // Fan-out metric collection
+  const metrics = await Promise.all(
+    serviceIds.map(id => $.Service(id).getMetrics())
+  )
+
+  // Aggregate results
+  return {
+    totalRequests: metrics.reduce((sum, m) => sum + m.requests, 0),
+    avgLatency: metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length,
+    errorRate: metrics.reduce((sum, m) => sum + m.errors, 0) / metrics.reduce((sum, m) => sum + m.requests, 0),
+    byService: Object.fromEntries(
+      serviceIds.map((id, i) => [id, metrics[i]])
+    )
+  }
+}
+```
+
+## Fan-Out with Human-in-the-Loop
+
+Combine fan-out with human approval for sensitive operations:
+
+```typescript
+import { waitFor, send, when } from 'dotdo/workflows'
+
+async function batchRefund(refunds: Refund[]) {
+  // Calculate total for approval check
+  const total = refunds.reduce((sum, r) => sum + r.amount, 0)
+
+  // Require approval for large batch refunds
+  const approved = await when(total > 50000, {
+    then: async () => {
+      send.Approval.requested({
+        type: 'batch_refund',
+        count: refunds.length,
+        total
+      })
+      const decision = await waitFor('batch.approval', { timeout: '4 hours' })
+      return decision.approved
+    },
+    else: () => true
+  })
+
+  if (!approved) {
+    send.Batch.rejected({ type: 'refund', reason: 'approval_denied' })
+    return { processed: 0, rejected: refunds.length }
+  }
+
+  // Fan-out refund processing
+  const results = await Promise.allSettled(
+    refunds.map(refund => $.Payment(refund.paymentId).refund(refund.amount))
+  )
+
+  const succeeded = results.filter(r => r.status === 'fulfilled').length
+  send.Batch.completed({ type: 'refund', succeeded, failed: refunds.length - succeeded })
+
+  return { processed: succeeded, failed: refunds.length - succeeded }
+}
+```
+
+## Fan-Out Best Practices
+
+### 1. Use Promise.allSettled for Partial Failures
+
+```typescript
+// Good: Handle partial failures
+const results = await Promise.allSettled(operations)
+
+// Risky: One failure cancels all
+const results = await Promise.all(operations)
+```
+
+### 2. Implement Backpressure
+
+```typescript
+// Good: Chunk large batches
+for (const chunk of chunks(items, 50)) {
+  await Promise.all(chunk.map(process))
+}
+
+// Risky: Unbounded parallelism
+await Promise.all(items.map(process))
+```
+
+### 3. Track Progress for Long Operations
+
+```typescript
+// Good: Emit progress events
+send.Batch.progress({ completed, total })
+
+// Less helpful: Silent processing
+```
+
+### 4. Combine with Expression Analysis
+
+```typescript
+import { collectExpressions, analyzeExpressions } from 'dotdo/workflows'
+
+// Analyze fan-out for optimal execution
+const expressions = collectExpressions(operations)
+const { independent } = analyzeExpressions(expressions)
+
+// All fan-out operations should be independent
+console.log(`${independent.length} operations can run in parallel`)
 ```

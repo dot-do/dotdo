@@ -7,24 +7,37 @@ description: Real-world architectural patterns combining dotdo modules for produ
 
 This section presents production-ready architectural patterns that combine multiple dotdo modules. Each pattern addresses a common real-world challenge and demonstrates how Durable Objects can solve complex problems elegantly.
 
+> Start with [Multi-Tenant](/patterns/multi-tenant) if you're building a SaaS application. It's the simplest pattern and provides a foundation for the others.
+
 ## Available Patterns
 
-| Pattern | Modules Used | Use Case |
-|---------|--------------|----------|
-| [Multi-Tenant](/patterns/multi-tenant) | DOCore, Routing | SaaS namespace isolation |
-| [Event Sourcing](/patterns/event-sourcing) | Events, Storage | Audit logs, replays, projections |
-| [Approval Workflow](/patterns/approval-workflow) | Cascade, Human-in-Loop | Compliance, reviews, escalation |
-| [Real-Time Dashboard](/patterns/real-time-dashboard) | Streaming, Fanout | Live metrics, notifications |
+| Pattern | Modules Used | Use Case | Complexity |
+|---------|--------------|----------|------------|
+| [Multi-Tenant](/patterns/multi-tenant) | DOCore, Routing | SaaS namespace isolation | Low |
+| [Event Sourcing](/patterns/event-sourcing) | Events, Storage | Audit logs, replays, projections | Medium |
+| [Approval Workflow](/patterns/approval-workflow) | Cascade, Human-in-Loop | Compliance, reviews, escalation | Medium |
+| [Real-Time Dashboard](/patterns/real-time-dashboard) | Streaming, Fanout | Live metrics, notifications | High |
 
 ## Pattern Structure
 
 Each pattern follows a consistent format:
 
 1. **Problem Statement** - The challenge being addressed
-2. **Architecture Overview** - Visual diagram and component breakdown
-3. **Complete Implementation** - Working code combining multiple modules
-4. **Key Considerations** - Performance, scaling, and edge cases
-5. **Variations** - Alternative approaches for different requirements
+2. **Trade-offs** - When to use and when to avoid this pattern (read this first)
+3. **Architecture Overview** - Visual diagram and component breakdown
+4. **Complete Implementation** - Working code combining multiple modules
+5. **Key Considerations** - Performance, scaling, and edge cases
+6. **Variations** - Alternative approaches for different requirements
+
+## When to Use These Patterns
+
+| If you need... | Use this pattern |
+|----------------|------------------|
+| Customer isolation in SaaS | [Multi-Tenant](/patterns/multi-tenant) |
+| Complete audit trail of all changes | [Event Sourcing](/patterns/event-sourcing) |
+| Human review of automated decisions | [Approval Workflow](/patterns/approval-workflow) |
+| Real-time updates to many clients | [Real-Time Dashboard](/patterns/real-time-dashboard) |
+| Combination of above | Compose multiple patterns together |
 
 ## Combining Modules
 
@@ -147,6 +160,37 @@ Leverage Durable Objects' built-in WebSocket hibernation for efficient real-time
 - Connections survive DO hibernation
 - No separate WebSocket servers needed
 - Global distribution via Cloudflare network
+
+## Quick Start
+
+The fastest way to get started is with the Multi-Tenant pattern. It requires minimal code and provides immediate value:
+
+```typescript
+// api/index.ts - Complete multi-tenant setup in 10 lines
+import { DO } from 'dotdo'
+
+export { DO }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const tenant = new URL(request.url).hostname.split('.')[0]
+    const stub = env.DO.get(env.DO.idFromName(tenant))
+    return stub.fetch(request)
+  }
+}
+```
+
+From there, you can layer on additional patterns:
+- Add [Event Sourcing](/patterns/event-sourcing) for audit trails
+- Add [Approval Workflow](/patterns/approval-workflow) for compliance
+- Add [Real-Time Dashboard](/patterns/real-time-dashboard) for live updates
+
+## Related Documentation
+
+- [Core Module](/core) - Base class with routing, state, and WebSockets
+- [Workflow Module](/workflow) - Event handlers and scheduling
+- [Streaming Module](/streaming) - WebSocket and SSE utilities
+- [Storage Layer](/storage) - SQLite and pipeline APIs
 
 ## Next Steps
 

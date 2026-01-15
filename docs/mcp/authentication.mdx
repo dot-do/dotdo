@@ -6,8 +6,11 @@ description: OAuth 2.0 with PKCE flow, JWT token management, and WorkOS AuthKit 
 # Authentication
 
 The MCP server uses a two-layer authentication system:
-1. **OAuth 2.0 with PKCE** for initial authentication via WorkOS AuthKit
-2. **JWT tokens** for subsequent API requests
+
+1. **OAuth 2.0 with PKCE**: Initial user authentication via WorkOS AuthKit
+2. **JWT Tokens**: Stateless authentication for subsequent API requests
+
+This approach combines the security of OAuth with the performance benefits of JWT tokens.
 
 ## OAuth Flow Overview
 
@@ -62,7 +65,7 @@ Query parameters:
 
 ### 2. PKCE Security
 
-The server implements PKCE (Proof Key for Code Exchange) for enhanced security:
+The server implements PKCE (Proof Key for Code Exchange) for enhanced security. This is handled automatically, but you can use the utilities directly if needed:
 
 ```typescript
 import {
@@ -73,20 +76,21 @@ import {
 
 // Generate PKCE values (done automatically by MCP server)
 const codeVerifier = generateCodeVerifier()
-// "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+// 32 random bytes, base64url encoded
 
 const codeChallenge = await generateCodeChallenge(codeVerifier)
-// "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+// SHA-256 hash of verifier, base64url encoded
 
 const state = generateState()
-// "abc123xyz789"
+// 16 random bytes, base64url encoded
 ```
 
 PKCE prevents authorization code interception attacks by:
-1. Generating a random `code_verifier`
-2. Sending the SHA-256 hash (`code_challenge`) to WorkOS
+
+1. Generating a random `code_verifier` on the server
+2. Sending the SHA-256 hash (`code_challenge`) to WorkOS during authorization
 3. Sending the original `code_verifier` during token exchange
-4. WorkOS verifies they match
+4. WorkOS verifies the hash matches before issuing tokens
 
 ### 3. OAuth Callback
 
@@ -142,25 +146,34 @@ const token = await createJwt(
     org_id: 'org_01H...',
     permissions: ['tools:read', 'tools:execute']
   },
-  process.env.JWT_SECRET,
+  env.JWT_SECRET,
   { expiresIn: '24h' }
 )
 ```
+
+The `createJwt` function uses the [jose](https://github.com/panva/jose) library with HS256 algorithm. It automatically sets `iat` (issued at) and `exp` (expiration) claims based on the current time and the specified expiration.
 
 ### Validating Tokens
 
 ```typescript
 import { validateJwt } from 'dotdo/mcp'
 
-const result = await validateJwt(token, process.env.JWT_SECRET)
+const result = await validateJwt(token, env.JWT_SECRET)
 
 if (result.valid) {
   console.log('User:', result.payload.sub)
   console.log('Permissions:', result.payload.permissions)
 } else {
   console.error('Invalid token:', result.error)
+  // Possible errors:
+  // - "Token has expired"
+  // - "Token claim validation failed"
+  // - "Invalid token signature"
+  // - "Invalid token format"
 }
 ```
+
+> **Note**: Token validation includes a 60-second clock tolerance to account for minor time differences between servers.
 
 ### Token Extraction
 
@@ -169,16 +182,18 @@ The server extracts tokens from two sources:
 ```typescript
 import { extractBearerToken, extractQueryToken } from 'dotdo/mcp'
 
-// 1. Authorization header (preferred)
+// 1. Authorization header (preferred for API calls)
 const request = new Request('https://mcp.example.com/tools', {
   headers: { Authorization: 'Bearer eyJhbGciOi...' }
 })
 const token = extractBearerToken(request)  // "eyJhbGciOi..."
 
-// 2. Query parameter (for SSE connections)
+// 2. Query parameter (required for SSE connections)
 const url = new URL('https://mcp.example.com/sse?token=eyJhbGciOi...')
-const token = extractQueryToken(url)  // "eyJhbGciOi..."
+const queryToken = extractQueryToken(url)  // "eyJhbGciOi..."
 ```
+
+> **Warning**: Query parameter tokens are visible in server logs and browser history. Use short expiration times and HTTPS exclusively.
 
 ### Token Refresh
 
@@ -191,9 +206,11 @@ const payload = decodeJwt(token)
 
 if (payload && tokenNeedsRefresh(payload)) {
   // Token expires within 5 minutes - refresh it
-  const newToken = await refreshJwt(payload, process.env.JWT_SECRET)
+  const newToken = await refreshJwt(payload, env.JWT_SECRET)
 }
 ```
+
+The `tokenNeedsRefresh` function returns `true` when the token expires within 5 minutes, giving clients time to refresh before the token becomes invalid.
 
 ## Session Management
 
@@ -225,29 +242,34 @@ import {
   isSessionValid
 } from 'dotdo/mcp'
 
-// Create session after OAuth
+// Create session after OAuth (includes role-based permission mapping)
 const session = await createSession(user, accessToken, refreshToken, env)
 
-// Store in KV (with TTL)
+// Store in KV (with automatic TTL based on session expiration)
 await storeSession(session, env.OAUTH_KV)
 
 // Retrieve by session ID
-const session = await getSession(sessionId, env.OAUTH_KV)
+const retrieved = await getSession(sessionId, env.OAUTH_KV)
 
-// Retrieve by user ID
-const session = await getSessionByUserId(userId, env.OAUTH_KV)
+// Retrieve by user ID (uses indexed lookup)
+const userSession = await getSessionByUserId(userId, env.OAUTH_KV)
 
-// Check validity
-if (!isSessionValid(session)) {
-  await deleteSession(session, env.OAUTH_KV)
+// Check validity before use
+if (!isSessionValid(userSession)) {
+  await deleteSession(userSession, env.OAUTH_KV)
 }
 ```
+
+Sessions are stored with two keys for efficient lookup:
+
+- `session:{id}`: Primary session data with full details
+- `user_session:{userId}`: Index mapping user ID to session ID for lookups by user
 
 ## WorkOS AuthKit Integration
 
 ### Role Mapping
 
-WorkOS organization roles map to MCP permissions:
+WorkOS organization roles automatically map to MCP permissions:
 
 ```typescript
 import { mapRolesToPermissions, getPrimaryOrgId } from 'dotdo/mcp'
@@ -261,16 +283,23 @@ const user = {
 }
 
 const permissions = mapRolesToPermissions(user)
-// admin/owner -> ['*'] (full access)
-// member     -> ['tools:read', 'resources:read', 'tools:execute']
-// viewer     -> ['tools:read', 'resources:read']
+// Default permissions: ['tools:read', 'resources:read']
+// admin/owner -> adds ['*'] (full access)
+// member     -> adds ['tools:execute']
+// viewer     -> no additional permissions
 
-const orgId = getPrimaryOrgId(user)  // 'org_1'
+const orgId = getPrimaryOrgId(user)  // 'org_1' (first organization)
 ```
+
+| Role | Additional Permissions |
+|------|----------------------|
+| `admin` / `owner` | `*` (full access) |
+| `member` | `tools:execute` |
+| `viewer` | None (read-only) |
 
 ### Token Exchange
 
-Exchange authorization code for tokens:
+Exchange the authorization code for tokens after the OAuth callback:
 
 ```typescript
 import { exchangeCodeForTokens, refreshAccessToken } from 'dotdo/mcp'
@@ -286,9 +315,10 @@ const tokens = await exchangeCodeForTokens(
 if (tokens) {
   console.log('Access token:', tokens.accessToken)
   console.log('User:', tokens.user)
+  console.log('Refresh token:', tokens.refreshToken)
 }
 
-// Refresh when needed
+// Refresh when access token expires
 const newTokens = await refreshAccessToken(refreshToken, env)
 ```
 
@@ -397,18 +427,22 @@ const response = await fetch('https://mcp.your-domain.com/logout', {
 { "success": true, "message": "Logged out successfully" }
 ```
 
-Note: The JWT remains valid until expiration but subsequent session checks will fail.
+> **Note**: The JWT remains valid until its expiration time, but session-based checks will fail after logout. Clients should discard the token after logout.
 
 ## Security Considerations
 
-1. **HTTPS Only**: Always use HTTPS for token transmission
-2. **Short Token Lifetime**: 24-hour JWT expiration by default
-3. **PKCE Required**: Prevents authorization code interception
-4. **State Parameter**: CSRF protection on OAuth flow
-5. **One-Time State**: State tokens are consumed on use
-6. **Clock Tolerance**: 60-second tolerance for token validation
+The authentication system includes several security measures:
+
+| Feature | Purpose |
+|---------|---------|
+| HTTPS Only | Encrypts token transmission |
+| Short Token Lifetime | 24-hour JWT expiration limits exposure window |
+| PKCE Required | Prevents authorization code interception attacks |
+| State Parameter | CSRF protection on OAuth flow |
+| One-Time State | State tokens are consumed on use, preventing replay |
+| Clock Tolerance | 60-second tolerance handles server time drift |
 
 ## Next Steps
 
-- [Tools Guide](/mcp/tools) - Available tools and custom registration
-- [Security Guide](/mcp/security) - Permissions and access control
+- **[Tools](/mcp/tools)**: Use built-in tools and register custom ones
+- **[Security](/mcp/security)**: Configure permissions and access control

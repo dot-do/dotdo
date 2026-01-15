@@ -14,6 +14,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { env } from 'cloudflare:test'
+import { stripCodeFences } from './index'
 
 // =============================================================================
 // Types for Workers AI
@@ -65,8 +66,10 @@ function extractToolCalls(result: ToolCallResponse): Array<{
 }
 
 // Helper to extract response text from OpenAI-compatible response
+// Uses stripCodeFences from library to handle markdown-wrapped JSON
 function extractResponseText(result: ToolCallResponse): string {
-  return result.choices?.[0]?.message?.content || ''
+  const raw = result.choices?.[0]?.message?.content || ''
+  return stripCodeFences(raw)
 }
 
 interface StructuredOutputResponse<T = unknown> {

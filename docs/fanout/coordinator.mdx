@@ -3,9 +3,15 @@ title: QueryCoordinator
 description: Dispatch queries to scanner DOs and aggregate results using the scatter-gather pattern
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
 # QueryCoordinator
 
 The QueryCoordinator orchestrates distributed queries across multiple scanner Durable Objects. It implements the scatter-gather pattern with parallel execution, result aggregation, failure handling, and timeout management.
+
+<Callout type="info">
+The coordinator dispatches queries in parallel to all scanners and aggregates results based on query type. Use [Consistent Hashing](/docs/fanout/hashing) to route single-tenant queries to specific shards for better performance.
+</Callout>
 
 ## Basic Usage
 
@@ -49,9 +55,9 @@ interface QueryResult<T = unknown> {
 
 ```typescript
 interface CoordinatorOptions {
-  maxRetries?: number    // Retry count for failed scanners (default: 1)
-  timeoutMs?: number     // Per-scanner timeout in ms (default: 30000)
-  ring?: ConsistentHashRing  // For single-shard routing
+  maxRetries?: number         // Retry count for failed scanners (default: 1)
+  timeoutMs?: number          // Per-scanner timeout in ms (default: 30000)
+  ring?: ConsistentHashRing   // For single-shard routing
 }
 
 const coordinator = new QueryCoordinator(scanners, {
@@ -59,6 +65,12 @@ const coordinator = new QueryCoordinator(scanners, {
   timeoutMs: 5000,
 })
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `maxRetries` | 1 | Number of retry attempts per scanner |
+| `timeoutMs` | 30000 | Timeout per scanner in milliseconds |
+| `ring` | undefined | Hash ring for single-shard routing |
 
 ## Query Methods
 
@@ -170,13 +182,15 @@ When some scanners fail, the coordinator returns partial results:
 const result = await coordinator.query('SELECT * FROM users')
 
 if (result.error) {
-  // Some scanners failed
+  // Some scanners failed - error includes shard context
   console.warn('Partial results:', result.error)
-  // e.g., "scanner-1: timeout; scanner-3: connection refused"
+  // e.g., "Shard 2/4 (scanner-1): timeout; Shard 4/4 (scanner-3): connection refused"
 }
 
 // result.rows contains data from successful scanners
 ```
+
+Error messages include shard context (shard number, total shards, and scanner ID) for easier debugging in distributed systems.
 
 ### Majority Failures
 
@@ -196,11 +210,16 @@ Failed scanners are retried with exponential backoff:
 
 ```typescript
 const coordinator = new QueryCoordinator(scanners, {
-  maxRetries: 3, // Retry up to 3 times
+  maxRetries: 3, // Up to 3 total attempts (1 initial + 2 retries)
 })
 
-// Backoff: 10ms, 20ms, 40ms between retries
+// Backoff schedule (base: 10ms):
+// Attempt 0 (initial): immediate
+// Attempt 1 (retry 1): 10ms delay  (2^0 * 10)
+// Attempt 2 (retry 2): 20ms delay  (2^1 * 10)
 ```
+
+The backoff uses exponential growth: `2^attempt * 10ms` where attempt starts at 0 for the first retry.
 
 ### Timeouts
 
@@ -277,6 +296,40 @@ const tenantOrders = await coordinator.query(
   { shardKey: 'tenant-123' }
 )
 ```
+
+## Budget-Aware Batching
+
+When using `queryWithBudget()`, the coordinator enforces a maximum of 3 batches:
+
+```typescript
+import { SubrequestBudget } from 'dotdo/fanout'
+
+// 128 scanners with budget of 50 = 3 batches (OK)
+const budget = new SubrequestBudget(50)
+await coordinator.queryWithBudget('SELECT * FROM users', budget)
+// Batch 1: 50, Batch 2: 50, Batch 3: 28
+
+// 128 scanners with budget of 10 = 13 batches (FAIL)
+const tinyBudget = new SubrequestBudget(10)
+await coordinator.queryWithBudget('SELECT * FROM users', tinyBudget)
+// Error: "Subrequest budget exhausted - too many batches required"
+```
+
+<Callout type="warn">
+The 3-batch limit prevents excessive round-trips that would degrade performance. For larger fan-outs (150+ scanners with a 50-subrequest budget), use a coordinator DO with its 1000-subrequest limit instead.
+</Callout>
+
+## How Aggregation Detection Works
+
+The coordinator automatically detects aggregate functions by parsing the SQL:
+
+| SQL Contains | Aggregation Type |
+|--------------|------------------|
+| `COUNT(` | Sum all count values |
+| `SUM(` | Sum all sum values |
+| `AVG(` | Weighted average using `_count` |
+
+For non-aggregate queries, results are merged using `merge.union()`.
 
 ## See Also
 

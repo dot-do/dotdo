@@ -1,0 +1,320 @@
+---
+title: Environment Variables
+description: Complete reference for dotdo environment variables, secrets, and bindings
+---
+
+# Environment Variables
+
+This page documents all environment variables, secrets, and bindings used by dotdo.
+
+> **Security Note:** Never commit secrets to version control. Use `.dev.vars` locally and `wrangler secret` for production.
+
+## Setting Environment Variables
+
+### Development (.dev.vars)
+
+Create a `.dev.vars` file in your project root for local development:
+
+```bash
+# .dev.vars
+WORKOS_API_KEY=sk_test_...
+WORKOS_CLIENT_ID=client_...
+JWT_SECRET=your-jwt-secret
+OAUTH_REDIRECT_URI=http://localhost:8787/auth/callback
+```
+
+This file should be in `.gitignore` and never committed.
+
+### Production (Wrangler Secrets)
+
+Set secrets using the Wrangler CLI:
+
+```bash
+# Set a single secret
+wrangler secret put WORKOS_API_KEY
+
+# Set from a file
+echo "your-secret-value" | wrangler secret put JWT_SECRET
+
+# List secrets
+wrangler secret list
+
+# Delete a secret
+wrangler secret delete WORKOS_API_KEY
+```
+
+### Wrangler.toml (Non-sensitive)
+
+Non-sensitive environment variables can be set in `wrangler.toml`:
+
+```toml
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+API_VERSION = "v2"
+```
+
+## Required Variables
+
+### Authentication
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `JWT_SECRET` | Secret for signing JWT tokens | Yes | `your-256-bit-secret` |
+| `WORKOS_API_KEY` | WorkOS API key for SSO | If using WorkOS | `sk_live_...` |
+| `WORKOS_CLIENT_ID` | WorkOS client ID | If using WorkOS | `client_...` |
+| `OAUTH_REDIRECT_URI` | OAuth callback URL | If using OAuth | `https://app.com/auth/callback` |
+
+### Database
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `DATABASE_URL` | External database URL | If using external DB | `postgres://...` |
+
+### AI Integration
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `OPENAI_API_KEY` | OpenAI API key | If using OpenAI | `sk-...` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | If using Claude | `sk-ant-...` |
+
+## Binding Types
+
+### Durable Object Bindings
+
+Durable Object bindings are configured in `wrangler.toml` and accessed via the `env` parameter:
+
+```typescript
+interface DOCoreEnv {
+  DOCore: DurableObjectNamespace<DOCore>
+  DOSemantic?: DurableObjectNamespace<DOSemantic>
+  DOStorage?: DurableObjectNamespace<DOStorage>
+  DOWorkflow?: DurableObjectNamespace<DOWorkflow>
+  DOFull?: DurableObjectNamespace<DOFull>
+}
+```
+
+Usage in worker:
+
+```typescript
+export default {
+  async fetch(request: Request, env: DOCoreEnv): Promise<Response> {
+    const id = env.DOCore.idFromName('default')
+    const stub = env.DOCore.get(id)
+    return stub.fetch(request)
+  }
+}
+```
+
+### KV Namespace Bindings
+
+```typescript
+interface EnvWithKV {
+  OAUTH_KV: KVNamespace
+  CACHE_KV: KVNamespace
+}
+```
+
+Configuration:
+
+```toml
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "abc123..."
+
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "def456..."
+```
+
+### R2 Bucket Bindings
+
+```typescript
+interface EnvWithR2 {
+  COLD_STORAGE: R2Bucket
+  ASSETS: R2Bucket
+}
+```
+
+Configuration:
+
+```toml
+[[r2_buckets]]
+binding = "COLD_STORAGE"
+bucket_name = "iceberg-storage"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "static-assets"
+```
+
+### AI Binding
+
+```typescript
+interface EnvWithAI {
+  AI: Ai
+}
+```
+
+Configuration:
+
+```toml
+[ai]
+binding = "AI"
+```
+
+Usage:
+
+```typescript
+const response = await env.AI.run('@cf/meta/llama-2-7b-chat-int8', {
+  prompt: 'Hello, world!'
+})
+```
+
+## Environment-Specific Configuration
+
+### Development vs Production
+
+Use environment detection to configure behavior:
+
+```typescript
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const isDev = env.ENVIRONMENT === 'development'
+
+    if (isDev) {
+      // Enable debug logging
+      console.log('Request:', request.url)
+    }
+
+    // Use different rate limits
+    const rateLimit = isDev ? 1000 : 100
+
+    // ...
+  }
+}
+```
+
+### Multi-Environment Wrangler Configs
+
+Create environment-specific configurations:
+
+```toml
+# wrangler.toml
+
+name = "dotdo-app"
+main = "src/index.ts"
+
+[vars]
+ENVIRONMENT = "production"
+
+[env.staging]
+name = "dotdo-app-staging"
+vars = { ENVIRONMENT = "staging" }
+
+[env.development]
+name = "dotdo-app-dev"
+vars = { ENVIRONMENT = "development" }
+```
+
+Deploy to specific environments:
+
+```bash
+# Deploy to production
+wrangler deploy
+
+# Deploy to staging
+wrangler deploy --env staging
+
+# Deploy to development
+wrangler deploy --env development
+```
+
+## Type-Safe Environment
+
+Create a typed environment interface:
+
+```typescript
+// types/env.ts
+export interface Env {
+  // Durable Objects
+  DOCore: DurableObjectNamespace<DOCore>
+  DOSemantic: DurableObjectNamespace<DOSemantic>
+  DOStorage: DurableObjectNamespace<DOStorage>
+  DOWorkflow: DurableObjectNamespace<DOWorkflow>
+
+  // KV Namespaces
+  OAUTH_KV: KVNamespace
+  CACHE_KV: KVNamespace
+
+  // R2 Buckets
+  COLD_STORAGE: R2Bucket
+
+  // AI
+  AI: Ai
+
+  // Secrets (set via wrangler secret)
+  JWT_SECRET: string
+  WORKOS_API_KEY?: string
+  WORKOS_CLIENT_ID?: string
+  OPENAI_API_KEY?: string
+  ANTHROPIC_API_KEY?: string
+
+  // Variables (set in wrangler.toml)
+  ENVIRONMENT: 'development' | 'staging' | 'production'
+  LOG_LEVEL: 'debug' | 'info' | 'warn' | 'error'
+  API_VERSION: string
+}
+```
+
+## Accessing Environment in DOs
+
+Environment is available in DO constructors and methods:
+
+```typescript
+export class MyDO extends DOCore {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Access environment
+    if (env.ENVIRONMENT === 'development') {
+      console.log('Running in development mode')
+    }
+  }
+
+  async someMethod(): Promise<void> {
+    // Environment is available via this.env
+    const apiKey = (this.env as Env).OPENAI_API_KEY
+  }
+}
+```
+
+## Security Best Practices
+
+1. **Never commit secrets** - Use `.dev.vars` for local development and `wrangler secret` for production.
+
+2. **Use minimal permissions** - Only grant the permissions your worker needs.
+
+3. **Rotate secrets regularly** - Update secrets periodically using `wrangler secret put`.
+
+4. **Validate environment** - Check required variables at startup:
+
+```typescript
+function validateEnv(env: Env): void {
+  const required = ['JWT_SECRET']
+
+  for (const key of required) {
+    if (!env[key as keyof Env]) {
+      throw new Error(`Missing required environment variable: ${key}`)
+    }
+  }
+}
+```
+
+5. **Use environment-specific values** - Never use production secrets in development.
+
+## Related Documentation
+
+- [Configuration Reference](/reference/configuration) - Wrangler.toml options
+- [CLI Commands](/reference/cli) - Secret management commands
+- [Troubleshooting](/reference/troubleshooting) - Common configuration issues

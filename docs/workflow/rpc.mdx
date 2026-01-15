@@ -1,148 +1,215 @@
 ---
-title: Cross-DO RPC
-description: Type-safe communication between Durable Objects with $.Customer(id).method()
+title: Cross-DO RPC with Promise Pipelining
+description: Type-safe communication between Durable Objects with $.Customer(id).method() and expression capture
 ---
 
-# Cross-DO RPC
+# Cross-DO RPC with Promise Pipelining
 
-WorkflowContext provides a fluent API for calling methods on other Durable Objects. Instead of manually resolving stubs and constructing requests, use `$.Noun(id).method()`.
+The workflow proxy provides a fluent API for cross-DO communication that captures operations as expressions for deferred execution and batch optimization.
+
+```typescript
+import { createWorkflowProxy, isPipelinePromise } from 'dotdo/workflows'
+```
 
 ## Basic Usage
 
 ```typescript
-// Call a method on another DO
-const result = await $.Customer('cust-123').notify('Your order shipped!')
+const $ = createWorkflowProxy({
+  execute: async (expr) => await rpc.execute(expr)
+})
 
-// Get data from another DO
-const profile = await $.Customer('cust-123').getProfile()
+// Call a method on another DO (creates expression, not executed yet)
+const profile = $.Customer('cust-123').getProfile()
 
-// Execute an action
-const tracking = await $.Order('order-456').ship()
+// Property access on unawaited result (creates property expression)
+const email = profile.email
+
+// Await triggers execution
+const result = await email
+```
+
+## Promise Pipelining Concept
+
+Traditional async/await requires waiting for each promise before using its result. Promise pipelining allows passing unawaited promises directly to subsequent operations, enabling entire pipelines to execute in a single network round trip.
+
+```typescript
+// Traditional - 3 round trips
+const user = await $.User(userId).get()
+const orders = await $.Order(user.id).list()
+const total = await $.Analytics(orders).summarize()
+
+// Pipelined - 1 round trip (all operations batched)
+const user = $.User(userId).get()           // Not awaited
+const orders = $.Order(user.id).list()      // Uses unawaited user
+const total = await $.Analytics(orders).summarize()  // Await triggers execution
 ```
 
 ## How It Works
 
-The RPC system uses JavaScript Proxies to intercept property access:
+The workflow proxy captures operations as expressions rather than executing them:
 
-1. `$.Customer` - Returns a function (noun accessor)
-2. `$.Customer('cust-123')` - Returns a domain proxy for that ID
-3. `$.Customer('cust-123').notify` - Returns an RPC method
-4. `$.Customer('cust-123').notify(args)` - Executes the call
+1. `$.Customer` - Returns a function (domain accessor)
+2. `$.Customer('cust-123')` - Returns a method proxy with context
+3. `$.Customer('cust-123').getProfile` - Returns expression-creating function
+4. `$.Customer('cust-123').getProfile()` - Returns PipelinePromise with captured expression
+
+```typescript
+const promise = $.Customer('cust-123').getProfile()
+console.log(promise.__expr)
+// {
+//   type: 'call',
+//   domain: 'Customer',
+//   method: ['getProfile'],
+//   context: 'cust-123',
+//   args: []
+// }
+```
 
 ## Configuration
 
-RPC requires a `stubResolver` to map nouns and IDs to actual DO stubs:
+Create a workflow proxy with an execute function:
 
 ```typescript
-const $ = createWorkflowContext({
-  stubResolver: (noun: string, id: string) => {
-    // Return an object with callable methods
-    const ns = env[noun] // e.g., env.Customer, env.Order
-    const doId = ns.idFromName(id)
-    const stub = ns.get(doId)
+import { createWorkflowProxy } from 'dotdo/workflows'
 
-    return {
-      notify: (msg: string) => stub.notify(msg),
-      getProfile: () => stub.getProfile(),
-      // ... other methods
-    }
+const $ = createWorkflowProxy({
+  // Called when a PipelinePromise is awaited
+  execute: async (expr) => {
+    // Send expression to server for execution
+    return await rpc.execute(expr)
   },
-  rpcTimeout: 30000 // 30 second timeout (default)
+
+  // Optional: Called when any domain method is called (for testing/debugging)
+  onExecute: (expr) => {
+    console.log('Expression captured:', expr)
+  }
 })
 ```
 
-## Promise Pipelining
-
-RPC results support pipelined property access and method calls:
-
-### Property Access
+### WorkflowProxyOptions
 
 ```typescript
-// Without pipelining
+interface WorkflowProxyOptions {
+  /** Called when a PipelinePromise is awaited */
+  execute?: (expr: PipelineExpression) => Promise<unknown>
+  /** Called when any domain method is called (for testing) */
+  onExecute?: (expr: PipelineExpression) => void
+}
+```
+
+## Expression Types
+
+PipelinePromises capture different expression types:
+
+| Type | Created By | Example |
+|------|------------|---------|
+| `call` | Domain method | `$.User(id).get()` |
+| `property` | Property access | `user.name` |
+| `map` | Array map | `orders.map(o => ...)` |
+| `conditional` | `$.when()` | `$.when(cond, {...})` |
+| `branch` | `$.branch()` | `$.branch(val, {...})` |
+| `match` | `$.match()` | `$.match(val, [...])` |
+| `waitFor` | `$.waitFor()` | `$.waitFor('approval')` |
+| `literal` | Direct values | Wrapped values |
+
+### Property Access (Pipelining)
+
+```typescript
+// Without pipelining - 2 round trips
 const profile = await $.Customer('cust-123').getProfile()
 const email = profile.email
 
-// With pipelining - single await
+// With pipelining - 1 round trip
 const email = await $.Customer('cust-123').getProfile().email
+// Creates: { type: 'property', base: callExpr, property: 'email' }
 ```
 
-### Method Chaining
+### Map Operations (Record-Replay)
 
 ```typescript
-// Get items and transform
-const names = await $.Order('order-123')
-  .getItems()
-  .map((item: { name: string }) => item.name)
+// Map creates expressions for each operation in callback
+const totals = orders.map(order => $.Pricing(order).calculate())
 
-// Chain multiple operations
-const total = await $.Cart('cart-456')
-  .getItems()
-  .reduce((sum: number, item: { price: number }) => sum + item.price, 0)
+// The callback is recorded once with a placeholder,
+// then replayed for each actual item during execution
 ```
 
-## Error Handling
+## Expression Analysis
 
-### Method Not Found
-
-```typescript
-try {
-  await $.Customer('cust-123').unknownMethod()
-} catch (error) {
-  // Error: Method unknownMethod not found on Customer
-}
-```
-
-### Remote Errors
-
-Errors from the remote DO propagate to the caller:
+Analyze expressions to determine which can run in parallel:
 
 ```typescript
-try {
-  await $.Payment('pay-789').charge(100)
-} catch (error) {
-  // Error from Payment DO: "Insufficient funds"
-}
-```
+import { collectExpressions, analyzeExpressions } from 'dotdo/workflows'
 
-### Timeouts
-
-RPC calls timeout after the configured duration:
-
-```typescript
-const $ = createWorkflowContext({
-  stubResolver: resolver,
-  rpcTimeout: 5000 // 5 seconds
+// Collect all PipelinePromises from a value tree
+const expressions = collectExpressions({
+  userA: $.User('a').get(),
+  userB: $.User('b').get(),
+  orders: $.Order(userA).list()
 })
 
-try {
-  await $.SlowService('svc-1').longOperation()
-} catch (error) {
-  // Error: RPC Timeout
+// Analyze dependencies
+const { independent, dependent } = analyzeExpressions(expressions)
+// independent: [userA, userB] - can run in parallel
+// dependent: [orders] - must wait for userA
+```
+
+### Batch Execution Strategy
+
+```typescript
+// Execute independent expressions in parallel
+const independentResults = await Promise.all(
+  independent.map(expr => execute(expr.__expr))
+)
+
+// Then execute dependent expressions
+for (const expr of dependent) {
+  await execute(expr.__expr)
+}
+```
+
+## Type Guards
+
+```typescript
+import { isPipelinePromise } from 'dotdo/workflows'
+
+const maybePromise = $.User('123').get()
+
+if (isPipelinePromise(maybePromise)) {
+  console.log('Expression:', maybePromise.__expr)
 }
 ```
 
 ## Patterns
 
-### Service Layer
+### Service Layer with Pipelining
 
 ```typescript
 class OrderService {
-  constructor(private $: WorkflowContext) {}
+  constructor(private $: typeof createWorkflowProxy) {}
 
   async createOrder(customerId: string, items: Item[]) {
-    // Verify customer exists
-    const customer = await this.$.Customer(customerId).getProfile()
+    // Build pipeline - nothing executed yet
+    const customer = this.$.Customer(customerId).getProfile()
 
-    // Check inventory
-    for (const item of items) {
-      const available = await this.$.Inventory(item.sku).check(item.quantity)
-      if (!available) {
-        throw new Error(`${item.sku} out of stock`)
-      }
-    }
+    // Check inventory in parallel
+    const stockChecks = items.map(item =>
+      this.$.Inventory(item.sku).check(item.quantity)
+    )
+
+    // Single await triggers all execution
+    const [customerData, ...stockResults] = await Promise.all([
+      customer,
+      ...stockChecks
+    ])
+
+    // Validate results
+    stockResults.forEach((available, i) => {
+      if (!available) throw new Error(`${items[i].sku} out of stock`)
+    })
 
     // Create order
-    return await this.$.Order('new').create({
+    return this.$.Order('new').create({
       customerId,
       items,
       total: items.reduce((sum, i) => sum + i.price * i.quantity, 0)
@@ -151,45 +218,62 @@ class OrderService {
 }
 ```
 
-### Fan-Out
+### Fan-Out with Expressions
 
 ```typescript
 async function notifyAllCustomers(message: string, customerIds: string[]) {
-  const results = await Promise.all(
-    customerIds.map(id => $.Customer(id).notify(message))
+  // Create expressions (not executed)
+  const notifications = customerIds.map(id =>
+    $.Customer(id).notify(message)
   )
+
+  // Single await executes all in parallel
+  const results = await Promise.all(notifications)
   return results.filter(r => r.sent).length
 }
 ```
 
-### Orchestration
+### Orchestration with Conditionals
 
 ```typescript
+import { when, send, waitFor } from 'dotdo/workflows'
+
 async function processRefund(orderId: string, reason: string) {
   // Get order details
   const order = await $.Order(orderId).getDetails()
 
-  // Reverse payment
-  await $.Payment(order.paymentId).refund(order.total, reason)
+  // Large refunds require approval
+  const canProceed = await when(order.total > 1000, {
+    then: async () => {
+      send.Approval.requested({ orderId, amount: order.total })
+      const approval = await waitFor('refund.approval', { timeout: '24 hours' })
+      return approval.approved
+    },
+    else: () => true
+  })
 
-  // Update inventory
-  for (const item of order.items) {
-    await $.Inventory(item.sku).release(item.quantity)
+  if (!canProceed) {
+    send.Refund.rejected({ orderId, reason: 'approval_denied' })
+    return { orderId, status: 'rejected' }
   }
 
-  // Update order status
-  await $.Order(orderId).updateStatus('refunded', { reason })
+  // Process refund
+  await $.Payment(order.paymentId).refund(order.total, reason)
 
-  // Notify customer
-  await $.Customer(order.customerId).notify(
-    `Your refund of $${order.total} has been processed`
+  // Release inventory in parallel
+  await Promise.all(
+    order.items.map(item => $.Inventory(item.sku).release(item.quantity))
   )
+
+  // Update and notify
+  await $.Order(orderId).updateStatus('refunded', { reason })
+  send.Refund.completed({ orderId, amount: order.total })
 
   return { orderId, refundedAmount: order.total }
 }
 ```
 
-### Saga Pattern
+### Saga Pattern with Expression Capture
 
 ```typescript
 async function transferFunds(fromId: string, toId: string, amount: number) {
@@ -197,6 +281,7 @@ async function transferFunds(fromId: string, toId: string, amount: number) {
   try {
     await $.Account(fromId).debit(amount)
   } catch (error) {
+    send.Transfer.failed({ fromId, toId, amount, reason: 'debit_failed' })
     throw new Error(`Debit failed: ${error.message}`)
   }
 
@@ -206,103 +291,96 @@ async function transferFunds(fromId: string, toId: string, amount: number) {
   } catch (error) {
     // Compensate: reverse the debit
     await $.Account(fromId).credit(amount)
+    send.Transfer.reversed({ fromId, toId, amount, reason: 'credit_failed' })
     throw new Error(`Credit failed, debit reversed: ${error.message}`)
   }
 
+  send.Transfer.completed({ fromId, toId, amount })
   return { fromId, toId, amount, status: 'completed' }
 }
 ```
 
-## Real DO Implementation
-
-In a real Durable Object, the stubResolver connects to actual DO namespaces:
+## PipelinePromise Interface
 
 ```typescript
-class MyDO extends DOWorkflow {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-  }
-
-  protected resolveStub(noun: string, id: string): Record<string, Function> {
-    // Map noun to DO namespace
-    const namespace = this.env[noun as keyof Env] as DurableObjectNamespace
-    if (!namespace) {
-      throw new Error(`Unknown namespace: ${noun}`)
-    }
-
-    const doId = namespace.idFromName(id)
-    const stub = namespace.get(doId)
-
-    // Return proxy that forwards calls to stub
-    return new Proxy({}, {
-      get: (_target, method: string) => {
-        return async (...args: unknown[]) => {
-          // Call via RPC
-          return await (stub as any)[method](...args)
-        }
-      }
-    })
-  }
+interface PipelinePromise<T = unknown> extends PromiseLike<T> {
+  readonly __expr: PipelineExpression     // Captured expression
+  readonly __isPipelinePromise: true      // Type marker
+  [key: string]: unknown                  // Property access
 }
+```
+
+### Expression Structure
+
+```typescript
+type PipelineExpression =
+  | { type: 'call'; domain: string; method: string[]; context: unknown; args: unknown[] }
+  | { type: 'property'; base: PipelineExpression; property: string }
+  | { type: 'map'; array: PipelineExpression; mapper: MapperInstruction[] }
+  | { type: 'conditional'; condition: PipelineExpression; thenBranch: PipelineExpression; elseBranch: PipelineExpression | null }
+  | { type: 'branch'; value: PipelineExpression; cases: Record<string, PipelineExpression> }
+  | { type: 'match'; value: PipelineExpression; patterns: Array<{ predicateSource: string; result: PipelineExpression }> }
+  | { type: 'waitFor'; eventName: string; options: { timeout?: string; type?: string } }
+  | { type: 'literal'; value: unknown }
+  | { type: 'placeholder'; path: string[] }
 ```
 
 ## Best Practices
 
-### 1. Keep Calls Focused
+### 1. Leverage Pipelining
 
 ```typescript
-// Good: Single-purpose call
-const email = await $.Customer(id).getEmail()
+// Good: Build expression pipeline, single await
+const user = $.User(id).get()
+const email = user.email
+const domain = email.split('@')[1]
+const result = await domain  // Single execution
 
-// Avoid: Fetching everything
-const customer = await $.Customer(id).getFullProfile()
+// Less optimal: Multiple awaits
+const user = await $.User(id).get()
+const email = await user.email  // Extra round trip
 ```
 
-### 2. Batch When Possible
+### 2. Parallelize Independent Operations
 
 ```typescript
-// Good: Single call for multiple items
-const items = await $.Cart(cartId).getItems()
-
-// Avoid: N+1 calls
-const items = await Promise.all(
-  itemIds.map(id => $.Item(id).get())
-)
+// Good: Create expressions, parallel execution
+const [user, orders, notifications] = await Promise.all([
+  $.User(id).get(),
+  $.Order(id).list(),
+  $.Notification(id).unread()
+])
 ```
 
-### 3. Handle Timeouts Gracefully
+### 3. Use Analysis for Optimization
 
 ```typescript
-async function safeRPC<T>(
-  call: () => Promise<T>,
-  fallback: T
-): Promise<T> {
-  try {
-    return await call()
-  } catch (error) {
-    if (error.message.includes('Timeout')) {
-      console.warn('RPC timeout, using fallback')
-      return fallback
-    }
-    throw error
-  }
-}
+import { collectExpressions, analyzeExpressions } from 'dotdo/workflows'
 
-const profile = await safeRPC(
-  () => $.Customer(id).getProfile(),
-  { name: 'Unknown', email: '' }
-)
+// Analyze workflow for execution planning
+const expressions = collectExpressions(workflowResult)
+const { independent, dependent } = analyzeExpressions(expressions)
+
+// Execute optimally based on dependencies
 ```
 
-### 4. Use Durable Execution for Critical Paths
+### 4. Combine with Control Flow
 
 ```typescript
-// Combine $.do() with RPC for critical operations
-await $.do(
-  async () => {
-    await $.Payment(paymentId).capture()
-    await $.Order(orderId).fulfill()
-  },
-  { stepId: `fulfill-${orderId}`, maxRetries: 3 }
-)
+// Use $.when, $.branch, $.match for complex logic
+const result = await $.branch(order.priority, {
+  urgent: () => $.Order(order).expedite(),
+  normal: () => $.Order(order).process(),
+  default: () => $.Order(order).queue()
+})
 ```
+
+## API Reference
+
+| Function | Description |
+|----------|-------------|
+| `createWorkflowProxy(options)` | Create $ workflow proxy |
+| `createPipelinePromise(expr, options)` | Create pipeline promise |
+| `isPipelinePromise(value)` | Type guard |
+| `collectExpressions(value)` | Collect all expressions from tree |
+| `analyzeExpressions(expressions)` | Analyze dependencies |

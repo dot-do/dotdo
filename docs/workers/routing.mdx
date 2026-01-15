@@ -193,10 +193,10 @@ export default {
     const stub = env.DO.get(id)
 
     // Forward with version header
-    const newRequest = new Request(request)
-    newRequest.headers.set('X-API-Version', version)
+    const headers = new Headers(request.headers)
+    headers.set('X-API-Version', version)
 
-    return stub.fetch(newRequest)
+    return stub.fetch(new Request(request, { headers }))
   }
 }
 ```
@@ -236,8 +236,10 @@ Use routing to feed into the sharding layer:
 ```typescript
 import { parseSubdomainRoute, createHashRing, hashKey } from 'dotdo/workers'
 
-const ring = createHashRing({ shardCount: 16 })
-for (let i = 0; i < 16; i++) {
+// Initialize ring once at module level for performance
+const SHARD_COUNT = 16
+const ring = createHashRing({ shardCount: SHARD_COUNT, virtualNodes: 150 })
+for (let i = 0; i < SHARD_COUNT; i++) {
   ring.addNode(`shard-${i}`)
 }
 
@@ -250,6 +252,7 @@ export default {
     }
 
     // Use consistent hashing to select shard
+    // hashKey creates composite key: 'ns:type:id'
     const key = hashKey(route.ns, route.type || '_', route.id || '_')
     const shard = ring.getNode(key)
 
@@ -279,7 +282,7 @@ const route = parseSubdomainRoute(url, 'api.dotdo.dev')
 
 ## Error Handling
 
-All parsing functions return `null` for invalid routes:
+All parsing functions return `null` for invalid routes. Internally, invalid URLs are caught and logged:
 
 ```typescript
 import { parseSubdomainRoute } from 'dotdo/workers'
@@ -288,7 +291,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
 
-    // Handle invalid routes
+    // Handle invalid routes (no subdomain, apex domain, or invalid URL)
     if (!route) {
       return new Response(JSON.stringify({
         error: 'Invalid route',
@@ -311,10 +314,24 @@ export default {
     }
 
     // Continue with valid route
-    // ...
+    const id = env.DO.idFromName(route.ns)
+    const stub = env.DO.get(id)
+    return stub.fetch(request)
   }
 }
 ```
+
+### Invalid Route Cases
+
+Routes return `null` in these situations:
+
+| Pattern | Invalid Case | Example |
+|---------|--------------|---------|
+| Subdomain | No subdomain (apex domain) | `api.dotdo.dev/customers` |
+| Subdomain | Hostname doesn't match root domain | `acme.other.com/customers` |
+| Path | Empty path | `api.dotdo.dev/` |
+| Path-Base | Base path doesn't match | `api.dotdo.dev/acme/customers` (expected `/v1`) |
+| Path-Base | Nothing after base path | `api.dotdo.dev/v1/` |
 
 ## Next Steps
 

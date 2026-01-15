@@ -5,18 +5,23 @@ description: Hono-powered HTTP routing with middleware support, path parameters,
 
 # HTTP Routing
 
-DOCore uses [Hono](https://hono.dev) for HTTP routing, providing a fast and lightweight router with excellent TypeScript support. Routes handle incoming `fetch()` requests to the Durable Object.
+DOCore uses [Hono](https://hono.dev) for HTTP routing, providing a fast, lightweight router with excellent TypeScript support. Routes handle incoming `fetch()` requests to the Durable Object.
+
+<Callout type="info">
+Hono is created once during DO construction and reused for all requests. The `createApp()` method returns a Hono instance that processes all HTTP traffic.
+</Callout>
 
 ## Route Registration
 
 Routes are registered in the `createApp()` method, which is called during DO construction:
 
 ```typescript
-import { DOCore } from 'dotdo/core'
+import { DOCore, type DOCoreEnv } from './core/DOCore'
+import type { Hono } from 'hono'
 
 export class MyDO extends DOCore {
-  protected createApp() {
-    const app = super.createApp() // Get base app with core routes
+  protected createApp(): Hono {
+    const app = super.createApp() // Get base app with core routes and middleware
 
     // Add custom routes
     app.get('/hello', (c) => c.json({ message: 'Hello, World!' }))
@@ -30,6 +35,8 @@ export class MyDO extends DOCore {
   }
 }
 ```
+
+Always call `super.createApp()` first to inherit core routes and middleware.
 
 ## HTTP Methods
 
@@ -238,15 +245,31 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Request context - adds request ID and DO state
+// Request context - adds request ID, DO state reference, and version header
 app.use('*', async (c, next) => {
   c.set('middlewareExecuted', true)
   c.set('requestId', crypto.randomUUID())
-  c.set('doState', this)
-  c.set('env', this.env)
+  c.set('doState', this)  // Reference to the DO instance
+  c.set('env', this.env)  // Environment bindings
   c.header('X-DO-Version', '1.0.0')
   await next()
 })
+```
+
+These context variables are typed via Hono's generic system:
+
+```typescript
+type Variables = {
+  middlewareExecuted: boolean
+  requestId: string
+  doState: DOCore
+  env: DOCoreEnv
+}
+
+type HonoEnv = {
+  Bindings: DOCoreEnv
+  Variables: Variables
+}
 ```
 
 ## Context Variables
@@ -284,18 +307,19 @@ app.get('/risky', async (c) => {
 
 ### Global Error Handler
 
-DOCore includes a default error handler:
+DOCore includes a default error handler that logs and returns a generic error:
 
 ```typescript
 app.onError((err, c) => {
-  return c.json({ error: err.message }, 500)
+  console.error('Request error:', err.message)
+  return c.json({ error: 'Internal server error' }, 500)
 })
 ```
 
 Override for custom error handling:
 
 ```typescript
-protected createApp() {
+protected createApp(): Hono {
   const app = super.createApp()
 
   app.onError((err, c) => {
@@ -314,13 +338,22 @@ protected createApp() {
 
 ### 404 Handler
 
-Handle unmatched routes:
+DOCore returns JSON for unmatched routes:
+
+```typescript
+app.notFound((c) => {
+  return c.json({ error: 'Not Found' }, 404)
+})
+```
+
+Override for custom 404 handling:
 
 ```typescript
 app.notFound((c) => {
   return c.json({
     error: 'Not Found',
-    path: c.req.path
+    path: c.req.path,
+    method: c.req.method
   }, 404)
 })
 ```
@@ -331,10 +364,24 @@ DOCore registers these routes by default:
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/health` | GET | Health check endpoint |
-| `/ready` | GET | Readiness check (after onStart) |
-| `/ws` | GET | WebSocket upgrade endpoint |
+| `/health` | GET | Health check - returns `{ path: '/health' }` |
+| `/ready` | GET | Readiness check - returns `{ ready: boolean }` |
+| `/ws` | GET | WebSocket upgrade with optional `?room=` tag |
 | `/ws/hibernatable` | GET | Hibernatable WebSocket endpoint |
+| `/users/:id` | GET | Example param route - returns `{ params: { id } }` |
+| `/users/:userId/posts/:postId` | GET | Multi-param example |
+| `/files/*` | GET | Wildcard route example |
+| `/search` | GET | Query params - `?q=&limit=` |
+| `/api/items` | GET, POST, PUT, DELETE, PATCH | CRUD example |
+| `/api/status` | GET | Returns `{ status: 'ok' }` |
+| `/api/echo` | POST | Echo request body |
+| `/api/context-check` | GET | Returns middleware context |
+| `/protected/data` | GET | Auth-protected route |
+| `/admin/users` | GET | Admin group example |
+
+<Callout type="info">
+The `/health` endpoint returns 405 Method Not Allowed for non-GET requests (except OPTIONS).
+</Callout>
 
 ## RPC vs Fetch
 

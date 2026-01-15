@@ -15,7 +15,8 @@ The `InMemoryStateManager` is the hot data layer of the storage stack. It provid
 +---------------------------+
 |  Map<id, CacheEntry>      |  <- O(1) lookup
 |  Set<id> dirtySet         |  <- Track modifications
-|  Array accessOrder        |  <- LRU tracking
+|  string[] accessOrder     |  <- LRU tracking
+|  number totalBytes        |  <- Memory tracking
 +---------------------------+
 ```
 
@@ -25,6 +26,7 @@ The `InMemoryStateManager` is the hot data layer of the storage stack. It provid
 - **Dirty tracking** - Only modified entries are checkpointed to L2
 - **LRU eviction** - Least-recently-used clean entries evicted on memory pressure
 - **Version tracking** - Automatic `$version` increment on updates
+- **Memory estimation** - Tracks approximate byte usage for threshold-based eviction
 
 ## Basic Usage
 
@@ -79,10 +81,19 @@ const updated = manager.update(customer.$id, {
 console.log(updated.$version) // 2
 console.log(updated.name)     // 'Alice' (preserved)
 console.log(updated.email)    // 'alice@newdomain.com' (updated)
+
+// $id and $type are always preserved, even if included in updates
+const withOverrides = manager.update(customer.$id, {
+  $id: 'different_id',        // Ignored - $id preserved
+  $type: 'DifferentType',     // Ignored - $type preserved
+  name: 'Bob'
+})
+console.log(withOverrides.$id)   // Original ID preserved
+console.log(withOverrides.$type) // Original type preserved
 ```
 
 <Callout type="warning">
-  Updating a non-existent ID throws an error. Always check existence first or use try/catch.
+  Updating a non-existent ID throws an error: `Storage error: Thing with id '...' not found for update operation`. Always check existence first or use try/catch.
 </Callout>
 
 ### Deleting Things
@@ -293,11 +304,12 @@ manager.has('customer_123')  // => true/false
 
 ```typescript
 interface ThingData {
-  $id: string           // Unique identifier
-  $type: string         // Entity type (e.g., 'Customer')
-  $version?: number     // Auto-incremented on update
-  name?: string         // Optional name field
-  [key: string]: unknown // Arbitrary properties
+  $id: string                    // Unique identifier
+  $type: string                  // Entity type (e.g., 'Customer')
+  $version?: number              // Auto-incremented on update (starts at 1)
+  name?: string                  // Optional name field
+  data?: Record<string, unknown> // Optional nested data object
+  [key: string]: unknown         // Arbitrary additional properties
 }
 ```
 
@@ -305,10 +317,10 @@ interface ThingData {
 
 ```typescript
 interface CreateThingInput {
-  $id?: string    // Optional - auto-generated if not provided
-  $type: string   // Required - entity type
-  name?: string   // Optional name
-  [key: string]: unknown
+  $id?: string             // Optional - auto-generated if not provided
+  $type: string            // Required - entity type
+  name?: string            // Optional name
+  [key: string]: unknown   // Any additional properties
 }
 ```
 
@@ -316,9 +328,9 @@ interface CreateThingInput {
 
 ```typescript
 interface InMemoryStateManagerOptions {
-  maxEntries?: number                    // Default: Infinity
-  maxBytes?: number                      // Default: Infinity
-  onEvict?: (entries: ThingData[]) => void  // Eviction callback
+  maxEntries?: number                       // Default: Infinity
+  maxBytes?: number                         // Default: Infinity
+  onEvict?: (entries: ThingData[]) => void  // Called with evicted entries
 }
 ```
 
@@ -326,23 +338,40 @@ interface InMemoryStateManagerOptions {
 
 ```typescript
 interface StateManagerStats {
-  entryCount: number      // Total entries
-  dirtyCount: number      // Dirty entry count
-  estimatedBytes: number  // Memory estimate
+  entryCount: number      // Total entries in cache
+  dirtyCount: number      // Entries modified since last checkpoint
+  estimatedBytes: number  // Approximate memory usage (2 bytes per JSON char)
+}
+```
+
+### CacheEntry (Internal)
+
+```typescript
+interface CacheEntry {
+  data: ThingData    // The actual thing data
+  size: number       // Estimated byte size
+  accessTime: number // Last access timestamp for LRU
 }
 ```
 
 ## ID Generation
 
-When `$id` is not provided, IDs are auto-generated with the format:
+When `$id` is not provided, IDs are auto-generated using the `generateId()` function:
 
+```typescript
+function generateId(type: string): string {
+  const prefix = type.toLowerCase()
+  const random = Math.random().toString(36).substring(2, 10)
+  const timestamp = Date.now().toString(36)
+  return `${prefix}_${timestamp}${random}`
+}
 ```
-{type}_{timestamp}{random}
-```
+
+**Format:** `{type}_{timestamp}{random}`
 
 - **type** - Lowercase `$type` value
-- **timestamp** - Base36 encoded timestamp
-- **random** - 8 character random string
+- **timestamp** - Base36 encoded `Date.now()`
+- **random** - 8 character random string (base36)
 
 Examples:
 - `customer_m1abc123xyz`
@@ -364,6 +393,18 @@ Examples:
 <Callout type="info">
   Eviction scans the access order array to find clean entries, which is O(n) in worst case. Keep `maxEntries` and `maxBytes` balanced to avoid frequent eviction scans.
 </Callout>
+
+### Memory Estimation
+
+Memory usage is estimated at 2 bytes per JSON character. This is a rough approximation that accounts for string encoding overhead:
+
+```typescript
+function estimateSize(obj: unknown): number {
+  return JSON.stringify(obj).length * 2
+}
+```
+
+For more accurate memory tracking in production, consider implementing a custom size estimator based on your data patterns.
 
 ## Next Steps
 

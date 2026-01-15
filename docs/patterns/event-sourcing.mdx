@@ -18,6 +18,30 @@ Traditional CRUD applications face challenges with:
 
 Event sourcing solves these by treating events as the source of truth.
 
+## Trade-offs
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Complete audit trail of all changes | Storage grows with every event |
+| Time-travel debugging and replay | More complex query patterns |
+| Natural fit for event-driven systems | Eventual consistency for projections |
+| Built-in undo/redo capability | Schema evolution requires upcasting |
+| Perfect for regulatory compliance | Higher learning curve |
+
+**Use this pattern when:**
+- You need complete audit trails (finance, healthcare, compliance)
+- Your domain is naturally event-driven (orders, workflows, state machines)
+- You need to replay or reconstruct past states
+- Multiple projections of the same data are needed
+
+**Avoid this pattern when:**
+- Simple CRUD is sufficient for your use case
+- You need strong consistency for all queries
+- Storage costs are a primary concern
+- Your team is unfamiliar with event-driven patterns
+
+> **Warning**: Event stores grow unbounded. Plan for snapshotting (covered below) and consider archiving old events to cold storage for long-lived streams. Each DO has a SQLite storage limit of 1GB.
+
 ## Architecture Overview
 
 ```
@@ -50,7 +74,8 @@ Event sourcing solves these by treating events as the source of truth.
 
 ```typescript
 // objects/EventSourcedDO.ts
-import { DOWorkflow, type DOWorkflowEnv } from '../workflow/DOWorkflow'
+import { DOWorkflow } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
 
 // Event types
 interface DomainEvent {
@@ -82,7 +107,7 @@ interface OrderProjection {
 export class EventSourcedDO extends DOWorkflow {
   private eventVersion = 0
 
-  constructor(ctx: DurableObjectState, env: DOWorkflowEnv) {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
 
     // Initialize event store schema
@@ -801,6 +826,98 @@ this.$.on['*'].created(async (event) => {
   })
 })
 ```
+
+## Real-World Example: Order Lifecycle
+
+This example shows how events capture the full order lifecycle:
+
+```typescript
+// 1. Customer places order
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Order',
+  eventVerb: 'placed',
+  data: { items, customer, shippingAddress },
+  actor: customerId,
+  correlationId: sessionId
+})
+
+// 2. Payment is processed
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Payment',
+  eventVerb: 'authorized',
+  data: { paymentId, amount, method: 'card' },
+  causationId: orderId
+})
+
+// 3. Inventory is reserved
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Inventory',
+  eventVerb: 'reserved',
+  data: { warehouseId, items: reservedItems },
+  causationId: orderId
+})
+
+// 4. Order is shipped
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Shipment',
+  eventVerb: 'dispatched',
+  data: { carrier: 'fedex', trackingNumber: 'FX123456' },
+  causationId: orderId
+})
+
+// 5. Delivery confirmed
+await this.appendEvent({
+  streamId: orderId,
+  streamType: 'Order',
+  eventType: 'Shipment',
+  eventVerb: 'delivered',
+  data: { signedBy: 'Alice', deliveredAt: new Date().toISOString() },
+  causationId: orderId
+})
+```
+
+Each event is immutable and includes:
+- **correlationId**: Links related events across the flow
+- **causationId**: Shows which event caused this one
+- **actor**: Who initiated the action
+
+## Querying Event History
+
+The `$.on` event handlers automatically update projections, but you can also query the event store directly:
+
+```typescript
+// Get full timeline for an order
+const events = await this.getEventStream(orderId)
+console.log(`Order has ${events.length} events`)
+
+// Get events by type
+const payments = events.filter(e => e.$type === 'Payment')
+
+// Get events after a point (for incremental sync)
+const newEvents = await this.getEventsAfter(lastKnownVersion, 100)
+
+// Query by time range for audit
+const auditResult = this.ctx.storage.sql.exec(`
+  SELECT * FROM events
+  WHERE timestamp BETWEEN ? AND ?
+  AND json_extract(metadata, '$.actor') = ?
+  ORDER BY timestamp DESC
+`, startTime, endTime, userId)
+```
+
+## Related Documentation
+
+- [Workflow Module](/workflow) - Event handlers for projection updates
+- [Storage Layer](/storage) - SQLite APIs for event persistence
+- [Streaming Module](/streaming) - Push events to clients in real-time
 
 ## Next Steps
 

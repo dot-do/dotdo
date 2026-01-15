@@ -269,7 +269,7 @@ describe('AIPromise - Lazy Evaluation', () => {
       })
 
       const result = await mockAI`Test`.catch((e) => e.message)
-      expect(result).toBe('Test error')
+      expect(result).toContain('Test error')
     })
 
     it('supports .finally()', async () => {

@@ -49,7 +49,12 @@ const intent = detectIntent(request)
 | PUT | write | Replace resource |
 | PATCH | write | Update resource |
 | DELETE | write | Remove resource |
-| Other | unknown | Defaults to primary |
+| Other | unknown | Defaults to primary for safety |
+
+The detection logic follows this priority:
+1. Check `X-Write-Intent: true` header (forces write)
+2. Classify by HTTP method (read methods vs write methods)
+3. Unknown methods return `'unknown'` which routes to primary
 
 ### Explicit Write Intent
 
@@ -104,7 +109,7 @@ interface ReplicationConfig {
 
 ## Consistency Overrides
 
-Clients can request specific consistency levels:
+Clients can request specific consistency levels via query parameter or header:
 
 ### Via Query Parameter
 
@@ -112,7 +117,7 @@ Clients can request specific consistency levels:
 // Strong consistency - force primary
 fetch('/api/data?consistency=strong')
 
-// Eventual consistency - force replica
+// Eventual consistency - force replica (round-robin)
 fetch('/api/data?consistency=eventual')
 ```
 
@@ -125,6 +130,8 @@ fetch('/api/data', {
   },
 })
 ```
+
+The router checks both query parameter and header, with query parameter taking precedence if both are present.
 
 ### Override Behavior
 
@@ -196,6 +203,8 @@ The replica router uses round-robin by default:
 
 This ensures even distribution across replicas within a single worker instance.
 
+> **Note:** Round-robin state is per-worker-instance. In production, Cloudflare runs multiple worker instances, so the overall distribution depends on how requests are load-balanced across instances.
+
 ## Read-After-Write Consistency
 
 For read-your-writes consistency, clients should route reads to primary immediately after writes:
@@ -221,6 +230,14 @@ async function createAndRead(data: object) {
 Or use session affinity:
 
 ```typescript
+import { detectIntent, createReplicaRouter } from 'dotdo/workers'
+
+const router = createReplicaRouter({
+  mode: 'primary-replica',
+  replicaCount: 3,
+  readPreference: 'replica',
+})
+
 // Worker tracks recent writes
 const recentWriters = new Map<string, number>()
 
@@ -246,6 +263,8 @@ export default {
 ```
 
 ## Replica Synchronization
+
+> **Important:** The replication module handles routing only. You must implement the actual synchronization between primary and replica DOs.
 
 Replicas must be kept in sync with the primary. Common patterns:
 
@@ -307,6 +326,7 @@ For maximum scale, combine sharding and replication:
 
 ```typescript
 import {
+  parseSubdomainRoute,
   createHashRing,
   hashKey,
   createReplicaRouter,
@@ -325,8 +345,11 @@ const router = createReplicaRouter({
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+    if (!route) return new Response('Invalid', { status: 400 })
+
     // 1. Route to shard
-    const key = hashKey(route.ns, route.type, route.id)
+    const key = hashKey(route.ns, route.type || '_', route.id || '_')
     const shard = ring.getNode(key)
 
     // 2. Route to primary or replica

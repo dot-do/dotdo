@@ -3,9 +3,15 @@ title: Merge Strategies
 description: Combine results from multiple scanners using union, intersect, sort, and limit operations
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
 # Merge Strategies
 
 The `merge` module provides strategies for combining query results from multiple scanner DOs. These operations are essential for aggregating distributed query results into a single coherent result set.
+
+<Callout type="info">
+The QueryCoordinator automatically applies `merge.union()` for non-aggregate queries. Use these merge functions directly when you need custom aggregation logic.
+</Callout>
 
 ## Overview
 
@@ -91,6 +97,14 @@ const merged = merge.intersect(results, 'id')
 
 // { rows: [{ id: 3 }] }  // Only id: 3 is in ALL three
 ```
+
+### How Intersect Works
+
+The algorithm uses a count-based approach:
+1. Count how many result sets each key appears in (counting only once per result set)
+2. Keep only keys that appear in ALL result sets (count === results.length)
+3. Preserve order from the first result set
+4. Use the row data from the first occurrence
 
 ### No Common Rows
 
@@ -209,19 +223,32 @@ const limited = merge.limit(result, 3)
 
 ### hasMore Flag
 
-The `hasMore` flag indicates if more rows were available:
+The `hasMore` flag indicates if more rows were available. It's true if:
+- The limit truncated rows (more rows exist locally), OR
+- The input result already had `hasMore: true` (more rows exist remotely)
 
 ```typescript
 const result: QueryResult = {
   rows: [{ id: 1 }, { id: 2 }],
-  hasMore: false,
+  hasMore: false,  // No more rows from source
 }
 
 const limited = merge.limit(result, 3)
 // { rows: [{ id: 1 }, { id: 2 }], hasMore: false }
+// No truncation, source had no more
 
 const limited2 = merge.limit(result, 1)
-// { rows: [{ id: 1 }], hasMore: true }  // More available locally
+// { rows: [{ id: 1 }], hasMore: true }
+// Truncated: 2 rows -> 1 row
+
+// With source hasMore
+const paged: QueryResult = {
+  rows: [{ id: 1 }],
+  hasMore: true,  // More rows available from source
+}
+const limited3 = merge.limit(paged, 10)
+// { rows: [{ id: 1 }], hasMore: true }
+// Preserves source hasMore
 ```
 
 ### Edge Cases
@@ -279,7 +306,9 @@ const sorted = merge.sort(scannerResults, 'created', 'desc')
 const top10 = merge.limit(sorted, 10)
 ```
 
-This is more efficient than returning all rows and sorting globally.
+<Callout type="info">
+This is more efficient than returning all rows and sorting globally. Each scanner only returns N rows, reducing network transfer and memory usage.
+</Callout>
 
 ## Type Safety
 
@@ -301,20 +330,38 @@ const merged = merge.union<User>(results)
 // merged.rows is User[]
 ```
 
+## Comparison Function
+
+The `merge.compareValues()` function is used internally for sorting and can be used directly:
+
+```typescript
+// Compare two values (used by sort)
+merge.compareValues(1, 2)           // -1 (1 < 2)
+merge.compareValues('bob', 'alice') // 1 ('bob' > 'alice')
+merge.compareValues(null, 1)        // 1 (nulls sort last)
+merge.compareValues(1, null)        // -1
+```
+
+Comparison rules:
+- `null`/`undefined` always sort last (return 1 if a is null, -1 if b is null)
+- Numbers use numeric comparison (`a - b`)
+- Strings use `localeCompare` for locale-aware sorting
+- Other types are converted to strings
+
 ## Performance Considerations
 
-1. **Union**: O(n) where n is total rows. Dedupe adds overhead for maintaining seen set.
+1. **Union**: O(n) where n is total rows. Dedupe adds O(n) memory for the seen set.
 
-2. **Intersect**: O(n*m) where n is rows in first result and m is number of results. Uses count-based approach.
+2. **Intersect**: O(n + m*k) where n is total rows across all sets, m is number of results, and k is rows in first result. Uses a Map for O(1) lookups.
 
-3. **Sort**: O(n log n) where n is total rows. Uses JavaScript's built-in sort.
+3. **Sort**: O(n log n) where n is total rows. Uses JavaScript's built-in sort with custom comparator.
 
-4. **Limit**: O(1) - just slices the array.
+4. **Limit**: O(k) where k is the limit - uses array slice.
 
 For large result sets, consider:
-- Limiting at each scanner before merge
+- Limiting at each scanner before merge (distributed top-N)
 - Streaming results instead of collecting all
-- Using cursor-based pagination
+- Using cursor-based pagination in ScannerDO
 
 ## See Also
 

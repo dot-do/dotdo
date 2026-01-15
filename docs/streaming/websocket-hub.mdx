@@ -48,11 +48,29 @@ hub.disconnect(ws)
 ### Connection Properties
 
 ```typescript
-// Get all connected WebSockets
+// Get all connected WebSockets as a Set
 const allConnections = hub.connections // Set<WebSocket>
 
 // Get connection count
 const count = hub.connectionCount // number
+
+// Check if a specific WebSocket is connected
+const isConnected = hub.connections.has(ws) // boolean
+```
+
+### Metadata Access
+
+Retrieve metadata associated with a connection:
+
+```typescript
+const metadata = hub.getMetadata(ws)
+
+if (metadata) {
+  console.log(`User ${metadata.userId} connected at ${metadata.connectedAt}`)
+}
+
+// Returns undefined for unknown connections
+const unknown = hub.getMetadata(unknownWs) // undefined
 ```
 
 ## Broadcasting
@@ -107,7 +125,7 @@ hub.room.join(ws, 'announcements')
 hub.room.join(ws, `user:${userId}`) // User-specific room
 ```
 
-Note: WebSocket must be connected before joining a room:
+> **Important:** A WebSocket must be connected to the hub before joining a room. Attempting to join with an unconnected WebSocket throws an error.
 
 ```typescript
 hub.connect(ws)
@@ -144,8 +162,27 @@ const members = hub.room.members('general-chat') // WebSocket[]
 // Get all rooms a connection belongs to
 const rooms = hub.room.rooms(ws) // string[]
 
-// Get member count
+// Get member count for a room
 const count = hub.room.count('general-chat') // number
+
+// Returns 0 for non-existent rooms
+hub.room.count('non-existent') // 0
+```
+
+### Automatic Room Cleanup
+
+When a WebSocket disconnects, it is automatically removed from all rooms. Empty rooms are deleted:
+
+```typescript
+hub.connect(ws)
+hub.room.join(ws, 'room-1')
+hub.room.join(ws, 'room-2')
+
+// Both room memberships are cleaned up
+hub.disconnect(ws)
+
+// If no other members, rooms are removed
+hub.room.count('room-1') // 0 (room deleted)
 ```
 
 ## Cleanup and Disposal
@@ -190,6 +227,8 @@ setInterval(() => {
   hub.cleanupStale()
 }, 5 * 60 * 1000)
 ```
+
+> **Tip:** In production, trigger cleanup via Durable Object alarms rather than `setInterval` to ensure cleanup happens even after hibernation.
 
 ## Complete Example
 
@@ -291,3 +330,9 @@ export class ChatDO extends DurableObject {
 |----------|------|-------------|
 | `connections` | `Set<WebSocket>` | All connected WebSockets |
 | `connectionCount` | `number` | Number of connections |
+
+## Related
+
+- [Backpressure](/streaming/backpressure) - Flow control for high-throughput scenarios
+- [Rate Limiting](/streaming/rate-limiting) - Prevent abuse with token bucket limiting
+- [Pub/Sub](/streaming/pub-sub) - Topic-based subscriptions with wildcards

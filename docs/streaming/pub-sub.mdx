@@ -54,6 +54,10 @@ manager.getSubscriptions(ws) // ['orders']
 
 ## Topic Patterns
 
+Topics use dot-separated segments (e.g., `orders.created`, `users.123.profile`). Patterns support two wildcard types for flexible matching.
+
+> **Note:** Wildcards are matched when publishing, not when subscribing. Subscribe to patterns like `orders.*` and they will match published topics like `orders.created`.
+
 ### Exact Match
 
 ```typescript
@@ -64,23 +68,45 @@ manager.subscribe(ws, 'orders.created')
 
 ### Single-Segment Wildcard (`*`)
 
-Matches exactly one segment:
+The `*` wildcard matches exactly one segment:
 
 ```typescript
 manager.subscribe(ws, 'orders.*')
 // Receives: orders.created, orders.updated, orders.deleted
-// Ignores: orders.items.added (multiple segments)
+// Ignores: orders.items.added (has 3 segments, pattern has 2)
+```
+
+Segment count must match:
+```
+Topic:    orders.created      (2 segments)
+Pattern:  orders.*            (2 segments) -> MATCH
+
+Topic:    orders.items.added  (3 segments)
+Pattern:  orders.*            (2 segments) -> NO MATCH
 ```
 
 ### Multi-Segment Wildcard (`**`)
 
-Matches one or more segments:
+The `**` wildcard matches one or more segments:
 
 ```typescript
 manager.subscribe(ws, 'orders.**')
 // Receives: orders.created
 // Receives: orders.items.added
 // Receives: orders.items.quantity.updated
+```
+
+Think of `**` as "everything under this prefix":
+```
+Pattern: orders.**
+
+Matches:
+  orders.created                -> YES (1 segment after orders)
+  orders.items.added            -> YES (2 segments after orders)
+  orders.items.qty.updated      -> YES (3 segments after orders)
+
+Does NOT match:
+  products.created              -> NO (different prefix)
 ```
 
 ### Pattern at Start
@@ -96,6 +122,7 @@ manager.subscribe(ws, '*.created')
 ```typescript
 manager.subscribe(ws, '*.orders.*')
 // Receives: us.orders.created, eu.orders.updated
+// Ignores: orders.created (only 2 segments)
 ```
 
 ## Publishing
@@ -126,7 +153,7 @@ manager.publish('events', {
 
 ### Pattern Matching on Publish
 
-When publishing, all matching pattern subscribers are notified:
+When publishing, all matching pattern subscribers are notified. Each subscriber receives the message at most once, even if multiple patterns match:
 
 ```typescript
 // Subscribers
@@ -137,7 +164,19 @@ manager.subscribe(ws4, '*.created')       // Prefix wildcard
 
 // Publish
 manager.publish('orders.created', { id: '123' })
-// All 4 subscribers receive the message (no duplicates)
+// All 4 subscribers receive the message exactly once (deduplicated)
+```
+
+> **Important:** Messages are deduplicated per WebSocket. If a client subscribes to both `orders.created` and `orders.*`, they receive the message only once when publishing to `orders.created`.
+
+### Closed Connections are Skipped
+
+Publishing automatically skips WebSockets that are not in OPEN state:
+
+```typescript
+// If ws2 is closed, only ws1 and ws3 receive the message
+const count = manager.publish('events', { data: 'test' })
+console.log(`Sent to ${count} active connections`)
 ```
 
 ## Unsubscribing
@@ -363,3 +402,8 @@ function matchesTopic(topic: string, pattern: string): boolean
 ```
 
 Returns `true` if the topic matches the pattern.
+
+## Related
+
+- [WebSocket Hub](/streaming/websocket-hub) - Connection management and rooms
+- [Rate Limiting](/streaming/rate-limiting) - Limit publish/subscribe rates

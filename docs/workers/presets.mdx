@@ -35,6 +35,8 @@ export default {
 }
 ```
 
+All presets use subdomain routing by default (`tenant.api.dotdo.dev`). The `rootDomain` config defaults to `'api.dotdo.dev'` if not specified.
+
 ## Single Preset
 
 The simplest deployment - one DO per tenant:
@@ -102,21 +104,28 @@ Distribute data across multiple DOs using consistent hashing:
 ```typescript
 import { createShardedWorker } from 'dotdo/workers'
 
+// Convenience function
 const worker = createShardedWorker({
   rootDomain: 'api.dotdo.dev',
   shardCount: 16,
 })
 
-// Or using createWorkerPreset
+// Or using createWorkerPreset for more control
 const worker = createWorkerPreset({
   type: 'sharded',
   config: {
     rootDomain: 'api.dotdo.dev',
     shardCount: 16,
-    virtualNodes: 150,
+    virtualNodes: 150, // Default: 150 for even distribution
   },
 })
 ```
+
+Internally, the sharded preset:
+1. Creates a hash ring with the configured shard count
+2. Initializes nodes named `shard-0` through `shard-{N-1}`
+3. Uses `hashKey(ns, type || '_', id || '_')` to create composite keys
+4. Routes via consistent hash to the appropriate shard
 
 ### Routing Behavior
 
@@ -147,20 +156,27 @@ Primary DO with read replicas:
 ```typescript
 import { createReplicatedWorker } from 'dotdo/workers'
 
+// Convenience function (defaults to rootDomain: 'api.dotdo.dev')
 const worker = createReplicatedWorker({
   replicaCount: 3,
 })
 
-// Or using createWorkerPreset
+// Or using createWorkerPreset for more control
 const worker = createWorkerPreset({
   type: 'replicated',
   config: {
     rootDomain: 'api.dotdo.dev',
     replicaCount: 3,
-    readPreference: 'replica',
+    readPreference: 'replica', // Default: 'replica'
   },
 })
 ```
+
+Internally, the replicated preset:
+1. Creates a replica router with `mode: 'primary-replica'`
+2. Detects request intent (read vs write)
+3. Routes writes to primary
+4. Routes reads to replicas with round-robin load balancing
 
 ### Routing Behavior
 
@@ -187,7 +203,9 @@ const worker = createWorkerPreset({
 
 ## Production Preset
 
-Combine authentication, sharding, and replication:
+Combine authentication, sharding, and replication.
+
+> **Note:** The production preset demonstrates the full pattern. For production deployments, customize the authentication logic and ensure you have proper replica synchronization configured.
 
 ```typescript
 import { createProductionWorker } from 'dotdo/workers'
@@ -201,7 +219,7 @@ const worker = createProductionWorker({
     if (!token?.startsWith('Bearer ')) {
       return false
     }
-    // Validate token
+    // Validate token (implement your auth logic)
     return validateToken(token.slice(7))
   },
 })
@@ -211,14 +229,21 @@ export default {
 }
 ```
 
+The production worker follows this pipeline:
+1. **Authenticate** - Reject unauthorized requests with 401
+2. **Parse Route** - Extract tenant from subdomain
+3. **Select Shard** - Hash `(tenant:type:id)` to determine shard
+4. **Detect Intent** - Read vs write classification
+5. **Route** - Primary for writes, replica (round-robin) for reads
+
 ### Configuration Options
 
-| Option | Description |
-|--------|-------------|
-| `rootDomain` | Root domain for subdomain routing |
-| `shardCount` | Number of shards for distribution |
-| `replicaCount` | Number of read replicas per shard |
-| `authenticate` | Authentication function |
+| Option | Type | Description |
+|--------|------|-------------|
+| `rootDomain` | `string` | Root domain for subdomain routing |
+| `shardCount` | `number` | Number of shards for distribution |
+| `replicaCount` | `number` | Number of read replicas per shard |
+| `authenticate` | `(req) => Promise<boolean>` | Authentication callback |
 
 ## Accessing Configuration
 
@@ -319,7 +344,10 @@ When you need horizontal scaling:
 const worker = createWorkerPreset({ type: 'typed', config: {} })
 
 // After
-const worker = createShardedWorker({ shardCount: 16 })
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
 ```
 
 ### Adding Replication
@@ -328,10 +356,14 @@ When reads become bottleneck:
 
 ```typescript
 // Before
-const worker = createShardedWorker({ shardCount: 16 })
+const worker = createShardedWorker({
+  rootDomain: 'api.dotdo.dev',
+  shardCount: 16,
+})
 
 // After
 const worker = createProductionWorker({
+  rootDomain: 'api.dotdo.dev',
   shardCount: 16,
   replicaCount: 3,
   authenticate: validateToken,

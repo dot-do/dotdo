@@ -5,6 +5,7 @@
     "routing",
     "sharding",
     "replication",
-    "presets"
+    "presets",
+    "rpc-proxy"
   ]
 }

@@ -13,11 +13,24 @@ The streaming infrastructure consists of five core components:
 
 | Component | Purpose |
 |-----------|---------|
-| [WebSocketHub](/docs/streaming/websocket-hub) | Connection management, rooms, and broadcasting |
-| [SSE Streaming](/docs/streaming/sse) | Server-Sent Events for unidirectional updates |
-| [BackpressureController](/docs/streaming/backpressure) | Flow control with pause/drop/buffer modes |
-| [RateLimiter](/docs/streaming/rate-limiting) | Token bucket algorithm for rate limiting |
-| [SubscriptionManager](/docs/streaming/pub-sub) | Topic-based publish/subscribe patterns |
+| [WebSocketHub](/streaming/websocket-hub) | Connection management, rooms, and broadcasting |
+| [SSE Streaming](/streaming/sse) | Server-Sent Events for unidirectional updates |
+| [BackpressureController](/streaming/backpressure) | Flow control with pause/drop/buffer modes |
+| [RateLimiter](/streaming/rate-limiting) | Token bucket algorithm for rate limiting |
+| [SubscriptionManager](/streaming/pub-sub) | Topic-based publish/subscribe with wildcards |
+
+## Import
+
+```typescript
+import {
+  WebSocketHub,
+  createSSEStream,
+  BackpressureController,
+  RateLimiter,
+  SubscriptionManager,
+  matchesTopic,
+} from 'dotdo/streaming'
+```
 
 ## Quick Start
 
@@ -105,7 +118,7 @@ export class MyDO extends DurableObject {
 
 ## Architecture
 
-All streaming components are designed to work within Durable Objects, leveraging their built-in WebSocket hibernation and single-threaded execution model:
+All streaming components work within Durable Objects, leveraging their built-in WebSocket hibernation and single-threaded execution model:
 
 ```
 Client <---> Worker <---> Durable Object
@@ -118,6 +131,8 @@ Client <---> Worker <---> Durable Object
 ```
 
 The `WebSocketHub` maintains connection state in-memory, which is automatically persisted through Durable Object hibernation. When a DO hibernates, WebSocket connections remain open and messages are buffered until the DO wakes up.
+
+> **Note:** Hibernation only applies to WebSockets. SSE streams keep the Durable Object active for the duration of the connection since they use standard HTTP streaming.
 
 ## Flow Control
 
@@ -147,10 +162,53 @@ function sendWithBackpressure(ws: WebSocket, message: unknown) {
 }
 ```
 
+## Rate Limiting
+
+Protect your streaming endpoints with token bucket rate limiting:
+
+```typescript
+import { RateLimiter } from 'dotdo/streaming'
+
+const limiter = new RateLimiter({
+  bucketSize: 100,    // Maximum burst
+  refillRate: 10,     // Tokens per second
+  perClient: true,    // Separate buckets per client
+})
+
+// In your message handler
+function handleMessage(ws: WebSocket, clientId: string, data: unknown) {
+  if (!limiter.tryAcquire(1, clientId)) {
+    ws.send(JSON.stringify({ error: 'Rate limited' }))
+    return
+  }
+
+  // Process message
+}
+```
+
+## Pub/Sub with Wildcards
+
+Route messages to subscribers using topic patterns:
+
+```typescript
+import { SubscriptionManager } from 'dotdo/streaming'
+
+const subs = new SubscriptionManager()
+
+// Subscribe with wildcards
+subs.subscribe(ws1, 'orders.created')     // Exact match
+subs.subscribe(ws2, 'orders.*')           // Single segment wildcard
+subs.subscribe(ws3, 'orders.**')          // Multi-segment wildcard
+
+// Publish to all matching subscribers
+subs.publish('orders.created', { orderId: '123' })
+// ws1, ws2, and ws3 all receive the message
+```
+
 ## Next Steps
 
-- [WebSocket Hub](/docs/streaming/websocket-hub) - Connection management and rooms
-- [SSE Streaming](/docs/streaming/sse) - Server-Sent Events
-- [Backpressure](/docs/streaming/backpressure) - Flow control strategies
-- [Rate Limiting](/docs/streaming/rate-limiting) - Token bucket algorithm
-- [Pub/Sub](/docs/streaming/pub-sub) - Topic-based subscriptions
+- [WebSocket Hub](/streaming/websocket-hub) - Connection management and rooms
+- [SSE Streaming](/streaming/sse) - Server-Sent Events
+- [Backpressure](/streaming/backpressure) - Flow control strategies
+- [Rate Limiting](/streaming/rate-limiting) - Token bucket algorithm
+- [Pub/Sub](/streaming/pub-sub) - Topic-based subscriptions

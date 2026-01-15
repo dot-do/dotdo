@@ -115,15 +115,27 @@ interface NotificationResult {
 
 ### Channel Settings
 
-Configure individual channels:
+Configure individual channels with retry policies and test hooks:
 
 ```typescript
 notifications.configure({
   email: {
-    // Email-specific config
+    retryPolicy: {
+      maxRetries: 3,
+      backoff: 'exponential',
+      initialDelay: 100
+    },
+    // For testing: simulate delivery failures
+    simulateFailure: false,
+    // For testing: hook called before each send attempt
+    beforeSend: () => { /* custom logic */ }
   },
   slack: {
-    // Slack-specific config
+    retryPolicy: {
+      maxRetries: 2,
+      backoff: 'linear',
+      initialDelay: 200
+    }
   },
   sms: {
     // SMS-specific config
@@ -132,6 +144,20 @@ notifications.configure({
     // Push-specific config
   }
 })
+```
+
+### Configuration Interface
+
+```typescript
+interface ChannelConfig {
+  simulateFailure?: boolean    // For testing: always fail delivery
+  beforeSend?: () => void      // For testing: hook before each attempt
+  retryPolicy?: {
+    maxRetries?: number        // Max retry attempts (default: 0)
+    backoff?: 'exponential' | 'linear'  // Backoff strategy
+    initialDelay?: number      // Initial delay in ms (default: 100)
+  }
+}
 ```
 
 ### Retry Policies
@@ -159,6 +185,10 @@ notifications.configure({
 ```
 
 ### Backoff Strategies
+
+<Callout type="info">
+**Exponential backoff** (default) doubles the delay each retry. **Linear backoff** adds the initial delay each time.
+</Callout>
 
 **Exponential backoff** (default):
 ```
@@ -255,6 +285,18 @@ if (!result.delivered) {
     await notifications.notify(recipient, 'email', emailMessage)
   }
 }
+```
+
+### Error Messages
+
+The dispatcher provides specific error messages:
+
+```typescript
+// Single attempt failure
+result.error  // 'Delivery failed'
+
+// All retries exhausted
+result.error  // 'Max retries exceeded'
 ```
 
 ### Unsupported Channel
@@ -482,12 +524,14 @@ async function sendTemplatedNotification(
 
 ## Best Practices
 
-1. **Respect preferences**: Let users choose notification channels
+<Callout type="tip">
+1. **Respect preferences**: Let users choose their notification channels
 2. **Use fallbacks**: Configure fallback channels for critical notifications
 3. **Rate limit**: Avoid overwhelming users with too many notifications
 4. **Batch when possible**: Combine related notifications
 5. **Track delivery**: Monitor delivery rates and address failures
 6. **Test channels**: Verify all channels work in staging before production
+</Callout>
 
 ## Channel-Specific Tips
 
@@ -513,6 +557,6 @@ async function sendTemplatedNotification(
 
 ## Next Steps
 
-- [Approval Workflows](/human/approvals) - Send approval notifications
-- [Escalation Policies](/human/escalation) - Alert on escalations
-- [Review Queues](/human/queues) - Notify reviewers of new items
+- [Approval Workflows](./approvals) - Send approval notifications
+- [Escalation Policies](./escalation) - Alert on escalations
+- [Review Queues](./queues) - Notify reviewers of new items

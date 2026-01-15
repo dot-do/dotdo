@@ -10,7 +10,7 @@ import { Callout } from 'fumadocs-ui/components/callout'
 **One function, three records.** When a Thing performs an action on another Thing, the semantic module creates an event (what happened), an edge (graph connection), and an audit record (who did what when) - all from a single function call.
 
 ```typescript
-import { noun, verb, thing, action } from 'dotdo/semantic'
+import { noun, verb, thing, action } from '@dotdo/semantic'
 
 const Customer = noun('Customer')
 const Order = noun('Order')
@@ -23,6 +23,7 @@ const result = action(alice, purchase, order)
 // result.event  - What happened
 // result.edge   - Graph connection
 // result.audit  - Who did what when
+// result.success - Always true (reserved for future validation)
 ```
 
 ## Interface
@@ -345,7 +346,7 @@ See [Relationships](/docs/semantic/relationships) for full traversal documentati
 ## Testing
 
 ```typescript
-import { resetState, noun, verb, thing, action } from 'dotdo/semantic'
+import { resetState, noun, verb, thing, action } from '@dotdo/semantic'
 
 describe('Actions', () => {
   beforeEach(() => {
@@ -392,10 +393,31 @@ describe('Actions', () => {
 })
 ```
 
-## Related
+## DOSemantic Methods
 
-- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Defining types and actions
-- [Things](/docs/semantic/things) - Entity instances
-- [Relationships](/docs/semantic/relationships) - Graph traversal with edges
-- [Concepts: Actions](/docs/concepts/actions) - Noun.verb pattern in dotdo
-- [Concepts: Events](/docs/concepts/events) - Event system integration
+When using the `DOSemantic` Durable Object, actions are created via method calls:
+
+```typescript
+// Create an action (persists edge to SQLite)
+const result = this.createAction(
+  'alice',           // subject $id
+  'purchase',        // verb name (must be defined)
+  'order-123',       // object $id (optional)
+  { price: 99.99 }   // metadata (optional)
+)
+
+// The result has the same structure:
+// result.event  - { type: 'purchased', subject: 'alice', object: 'order-123', timestamp, metadata }
+// result.edge   - { from: 'alice', to: 'order-123', verb: 'purchased' }
+// result.audit  - { actor: 'alice', verb: 'purchased', target: 'order-123', timestamp }
+```
+
+<Callout type="info">
+DOSemantic validates that the subject Thing and Verb exist before creating the action. Missing subjects or verbs will throw an error.
+</Callout>
+
+## Next Steps
+
+- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Define entity types and action verbs
+- [Things](/docs/semantic/things) - Create entity instances
+- [Relationships](/docs/semantic/relationships) - Traverse the graph created by Actions

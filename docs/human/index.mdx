@@ -5,7 +5,7 @@ description: Primitives for human oversight and intervention in AI workflows wit
 
 # Human-in-the-Loop
 
-The dotdo Human-in-the-Loop (HITL) module provides primitives for integrating human oversight into automated workflows. Essential for AI systems that require human judgment, compliance review, or quality control.
+The dotdo Human-in-the-Loop (HITL) module provides primitives for integrating human oversight into automated workflows. Use these when your AI systems require human judgment, compliance review, or quality control.
 
 ## Key Features
 
@@ -60,19 +60,28 @@ await workflow.approve(approval.id, 'finance@company.com')
 ## Type Definitions
 
 ```typescript
-// Priority levels
+// Priority levels (ordered from highest to lowest)
 type Priority = 'critical' | 'high' | 'normal' | 'low'
 
 // Notification channels
 type NotificationChannel = 'email' | 'slack' | 'sms' | 'push'
 
 // Approval status
+// - 'pending': Waiting for current approver
+// - 'approved_at_level': Current level approved, advancing to next
+// - 'approved': All levels complete, workflow finished
+// - 'rejected': Workflow rejected at any level
 type ApprovalStatus = 'pending' | 'approved' | 'approved_at_level' | 'rejected'
+
+// Duration strings supported (for deadlines and escalation)
+// Minutes: '15 minutes', '30 min', '5m'
+// Hours: '2 hours', '4 hr', '1h'
+// Days: '3 days', '1 day', '7d'
 ```
 
 ## When to Use HITL
 
-Human-in-the-loop is essential when:
+Use Human-in-the-loop patterns when:
 
 - **High-stakes decisions**: Financial approvals, legal reviews, HR actions
 - **Compliance requirements**: Regulated industries requiring audit trails
@@ -82,7 +91,7 @@ Human-in-the-loop is essential when:
 
 ## Workflow Integration
 
-HITL primitives integrate seamlessly with dotdo workflows:
+HITL primitives integrate with dotdo's event-driven workflows. Trigger approval requests from events and handle completions as new events:
 
 ```typescript
 import { $ } from 'dotdo'
@@ -128,10 +137,10 @@ $.on.Expense.approved(async ({ payload }) => {
 
 | Page | Description |
 |------|-------------|
-| [Approvals](/human/approvals) | Multi-level approval chains with history tracking |
-| [Escalation](/human/escalation) | SLA-based routing and automatic escalation |
-| [Queues](/human/queues) | Priority review queues for human reviewers |
-| [Notifications](/human/notifications) | Multi-channel notification dispatch |
+| [Approvals](./approvals) | Multi-level approval chains with history tracking |
+| [Escalation](./escalation) | SLA-based routing and automatic escalation |
+| [Queues](./queues) | Priority review queues for human reviewers |
+| [Notifications](./notifications) | Multi-channel notification dispatch |
 
 ## Installation
 
@@ -147,12 +156,126 @@ import {
   EscalationPolicy,
   SLATracker,
   ReviewQueue,
-  NotificationDispatcher
+  NotificationDispatcher,
+  type ApprovalRequest,
+  type ApprovalResponse,
+  type EscalationConfig,
+  type EscalationEvent,
+  type EscalationNotification,
+  type SLACheck,
+  type ReviewItem,
+  type NotificationResult,
+  type NotificationChannel,
+  type Priority
 } from 'dotdo/human'
+```
+
+## Module Architecture
+
+The HITL module provides five core classes that work together:
+
+```
+ApprovalWorkflow          EscalationPolicy
+      |                         |
+      v                         v
+   ReviewQueue  <-------->  SLATracker
+                    |
+                    v
+          NotificationDispatcher
+```
+
+- **ApprovalWorkflow** handles multi-level approval chains with audit trails
+- **EscalationPolicy** triggers automatic escalation based on time thresholds
+- **SLATracker** monitors deadlines and calculates response metrics
+- **ReviewQueue** manages priority-based work distribution
+- **NotificationDispatcher** delivers alerts across multiple channels
+
+<Callout type="warn">
+**Resource Cleanup Required**: Both `EscalationPolicy` and `SLATracker` use internal timers. Always call `dispose()` when you're done to prevent memory leaks. See [Escalation](./escalation) for cleanup patterns.
+</Callout>
+
+## Common Patterns
+
+### Approval with Escalation
+
+Combine approvals with automatic escalation when reviewers don't respond:
+
+```typescript
+const workflow = new ApprovalWorkflow()
+const escalation = new EscalationPolicy()
+
+async function submitWithEscalation(action: ApprovalRequest) {
+  const approval = await workflow.request(
+    action,
+    ['reviewer@company.com', 'manager@company.com'],
+    { deadline: '8 hours', priority: 'high' }
+  )
+
+  const config = escalation
+    .escalateAfter('4 hours')
+    .escalateTo('backup-reviewer@company.com')
+    .onEscalate(async (event) => {
+      console.log(`Escalated to ${event.escalatedTo}`)
+    })
+
+  const tracking = await escalation.track(approval.id, config)
+
+  return { approval, tracking }
+}
+```
+
+### Queue-Based Review System
+
+Use queues for fair work distribution:
+
+```typescript
+const queue = new ReviewQueue()
+const notifications = new NotificationDispatcher()
+
+// Items enter the queue
+async function addForReview(item: ReviewItem) {
+  await queue.add(item, { priority: 'normal' })
+}
+
+// Reviewers pull from queue
+async function getNextItem(reviewerId: string) {
+  const item = await queue.claim(reviewerId)
+  if (item) {
+    await notifications.notify(reviewerId, 'slack', {
+      text: `Claimed: ${item.title}`
+    })
+  }
+  return item
+}
+```
+
+### SLA Monitoring Dashboard
+
+Track response times across your team:
+
+```typescript
+const sla = new SLATracker()
+
+// Configure thresholds
+sla.configure({
+  warningThreshold: 0.75,
+  criticalThreshold: 0.90,
+  onWarning: ({ requestId, remaining }) => {
+    console.log(`Warning: ${remaining}ms remaining for ${requestId}`)
+  },
+  onBreach: ({ requestId, overdueBy }) => {
+    console.log(`Breached: ${requestId} is ${overdueBy}ms overdue`)
+  }
+})
+
+// Get performance metrics
+const metrics = sla.getMetrics({ groupBy: 'priority' })
+console.log(`P95 response time: ${metrics.p95}ms`)
+console.log(`Breach rate: ${(metrics.breachRate * 100).toFixed(1)}%`)
 ```
 
 ## Next Steps
 
-- [Approvals Guide](/human/approvals) - Build multi-level approval workflows
-- [Escalation Policies](/human/escalation) - Configure automatic escalation
-- [Review Queues](/human/queues) - Manage priority-based work distribution
+- [Approvals Guide](./approvals) - Build multi-level approval workflows
+- [Escalation Policies](./escalation) - Configure automatic escalation
+- [Review Queues](./queues) - Manage priority-based work distribution

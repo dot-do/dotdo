@@ -1,13 +1,15 @@
 {
-  "title": "API Reference",
+  "title": "Reference",
   "pages": [
     "index",
-    "do-core",
-    "do-semantic",
-    "do-storage",
-    "do-workflow",
-    "do-full",
-    "workflow-context",
-    "types"
+    "---Configuration---",
+    "configuration",
+    "environment",
+    "cli",
+    "---Types---",
+    "types",
+    "---Guides---",
+    "migration",
+    "troubleshooting"
   ]
 }

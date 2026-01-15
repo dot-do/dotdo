@@ -3,6 +3,8 @@ title: Consistent Hashing
 description: Map keys to nodes with minimal redistribution using a consistent hash ring
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
 # Consistent Hashing
 
 The `ConsistentHashRing` maps keys to nodes (scanner DOs) with minimal redistribution when nodes are added or removed. This is essential for efficient sharding where you want to avoid reshuffling all data when the cluster changes.
@@ -53,6 +55,17 @@ console.log(node) // 'node-1' (deterministic)
 // Same key always maps to same node
 ring.getNode('user-123') === ring.getNode('user-123') // true
 ```
+
+### How Node Lookup Works
+
+The ring uses binary search to find the node responsible for a key:
+
+1. Hash the key to a 32-bit integer
+2. Binary search the sorted virtual node list for the first hash >= key hash
+3. If past the end, wrap to the first node (ring behavior)
+4. Return the physical node ID for that virtual node
+
+This provides O(log n) lookup time where n is the total virtual nodes.
 
 ## Virtual Nodes
 
@@ -179,7 +192,7 @@ console.log(distribution)
 
 ## Hash Function
 
-The ring uses a MurmurHash3-inspired hash for good distribution:
+The ring uses an FNV-1a inspired hash with additional mixing for better distribution:
 
 ```typescript
 // Hash a key to a 32-bit unsigned integer
@@ -191,10 +204,28 @@ ring.hash('user-123') === ring.hash('user-123') // true
 ```
 
 The hash function provides:
-- Uniform distribution across the 32-bit space
+- Uniform distribution across the 32-bit space (0 to 2^32 - 1)
 - Deterministic results (same input = same output)
-- Fast computation
+- Fast computation using FNV-1a base with final mixing
 - Avalanche effect (small input changes = large hash changes)
+
+### Internal Algorithm
+
+```typescript
+// FNV-1a base
+let h = 0x811c9dc5  // FNV offset basis
+for (char of key) {
+  h ^= char.charCodeAt(0)
+  h = Math.imul(h, 0x01000193)  // FNV prime
+}
+// Final mixing for better distribution
+h ^= h >>> 16
+h = Math.imul(h, 0x85ebca6b)
+h ^= h >>> 13
+h = Math.imul(h, 0xc2b2ae35)
+h ^= h >>> 16
+return h >>> 0  // Unsigned 32-bit
+```
 
 ## API Reference
 
@@ -251,11 +282,32 @@ const tenantData = await coordinator.query(
 
 ## Best Practices
 
-1. **Use enough virtual nodes**: 100-200 per physical node provides good distribution
-2. **Weight nodes appropriately**: Match weight to actual capacity
-3. **Plan for growth**: Adding nodes is cheap; start with what you need
+1. **Use enough virtual nodes**: 100-200 per physical node provides good distribution (default: 150)
+2. **Weight nodes appropriately**: Match weight to actual capacity (e.g., 2x weight for 2x capacity)
+3. **Plan for growth**: Adding nodes only moves ~1/N keys; start conservatively
 4. **Use meaningful shard keys**: Tenant ID, user ID, or other natural partition keys
 5. **Monitor distribution**: Check for hot spots periodically
+6. **Avoid empty rings**: Always have at least one node; removing the last throws an error
+
+### Common Pitfalls
+
+<Callout type="error">
+Always ensure your ring has at least one node before calling `getNode()`. An empty ring throws an error.
+</Callout>
+
+```typescript
+// Error: No nodes in ring
+const emptyRing = new ConsistentHashRing([])
+emptyRing.getNode('key')  // Throws: "No nodes in ring"
+
+// Error: Cannot remove the last node
+const singleNodeRing = new ConsistentHashRing(['node-0'])
+singleNodeRing.removeNode('node-0')  // Throws: "Cannot remove the last node from the ring"
+
+// Error: Node not found
+const ring = new ConsistentHashRing(['node-0', 'node-1'])
+ring.removeNode('node-99')  // Throws: "Node node-99 not found in ring"
+```
 
 ## See Also
 

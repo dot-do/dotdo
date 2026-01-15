@@ -34,6 +34,18 @@ const { response, stream } = createSSEStream()
 // Connection: keep-alive
 ```
 
+### Response Headers
+
+The SSE response is pre-configured with the required headers:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Content-Type` | `text/event-stream` | SSE MIME type |
+| `Cache-Control` | `no-cache` | Prevent caching |
+| `Connection` | `keep-alive` | Long-lived connection |
+
+The response body is a `ReadableStream` that you control via the `stream` object.
+
 ## Sending Events
 
 ### Simple Data
@@ -112,20 +124,31 @@ stream.send({ data: 'Line 1\nLine 2\nLine 3' })
 
 ## Comments (Keep-Alive)
 
-Send SSE comments to keep the connection alive:
+Send SSE comments to keep the connection alive. Comments are lines starting with a colon and are ignored by clients:
 
 ```typescript
 stream.comment('ping')
 // Output: : ping\n\n
 ```
 
-Use comments for heartbeats:
+Use comments for heartbeats to prevent connection timeouts:
 
 ```typescript
 const keepAlive = setInterval(() => {
   stream.comment('keep-alive')
 }, 30000) // Every 30 seconds
+
+// Clean up when done
+clearInterval(keepAlive)
 ```
+
+### Why Keep-Alive?
+
+Keep-alive comments serve three important purposes:
+
+- **Proxy survival:** Prevents reverse proxies and load balancers from closing idle connections
+- **Client detection:** Helps detect disconnected clients earlier through write failures
+- **Connection health:** Maintains connection state through intermediate infrastructure
 
 ## Closing the Stream
 
@@ -138,6 +161,24 @@ After closing, calling `send()` or `comment()` throws an error:
 ```typescript
 stream.close()
 stream.send({ data: 'test' }) // Throws: Stream is closed
+stream.comment('ping')        // Throws: Stream is closed
+```
+
+> **Warning:** Always handle the abort signal to clean up resources. SSE streams keep the Durable Object active, so failing to close them wastes compute time and prevents hibernation.
+
+### Safe Closing Pattern
+
+Use try-catch when sending in intervals to handle already-closed streams:
+
+```typescript
+const interval = setInterval(() => {
+  try {
+    stream.send({ data: 'heartbeat' })
+  } catch {
+    // Stream was closed, clean up
+    clearInterval(interval)
+  }
+}, 5000)
 ```
 
 ## Complete Example
@@ -341,3 +382,8 @@ interface SSEEvent {
   retry?: number    // Reconnection interval in ms
 }
 ```
+
+## Related
+
+- [WebSocket Hub](/streaming/websocket-hub) - Bidirectional real-time communication
+- [Backpressure](/streaming/backpressure) - Flow control when clients cannot keep up

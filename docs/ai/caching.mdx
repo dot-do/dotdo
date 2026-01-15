@@ -5,7 +5,20 @@ description: LRU cache with TTL for AI responses to reduce costs and improve lat
 
 # Caching
 
-The AI module includes an LRU (Least Recently Used) cache with configurable TTL (Time To Live) to cache repeated queries. This reduces costs and improves response times for identical prompts.
+The AI module includes an LRU (Least Recently Used) cache with configurable TTL (Time To Live) for repeated queries. This reduces costs and improves response times for identical prompts.
+
+<Callout type="info">
+Cached responses consume zero budget. Enable caching to extend your budget significantly.
+</Callout>
+
+## Cache Interface
+
+```typescript
+interface AICache {
+  ttl: number       // Current TTL in milliseconds
+  clear: () => number  // Clear cache, returns count of removed entries
+}
+```
 
 ## Enabling Cache
 
@@ -32,6 +45,10 @@ The cache uses a composite key of `model:mode:prompt`:
 await ai`Analyze: ${text}`           // key: "default:general:Analyze: ..."
 await ai.is`Classify: ${text}`       // key: "default:is:Classify: ..."
 await ai.model('gpt-4')`${text}`     // key: "gpt-4:general:..."
+
+// Same model + mode + prompt = cache hit
+await ai`Analyze: ${text}`           // First call - cache miss
+await ai`Analyze: ${text}`           // Second call - cache hit!
 ```
 
 ## Cache Benefits
@@ -126,7 +143,7 @@ const ai = createAI({
 
 ## LRU Eviction
 
-When the cache reaches `maxSize`, the least recently used entry is evicted:
+When the cache reaches `maxSize`, the least recently used entry is evicted. The implementation uses a `Map` for O(1) operations:
 
 ```typescript
 const ai = createAI({
@@ -136,21 +153,30 @@ const ai = createAI({
 await ai`Query A` // Cache: [A]
 await ai`Query B` // Cache: [A, B]
 await ai`Query C` // Cache: [A, B, C]
-await ai`Query D` // Cache: [B, C, D] - A evicted
+await ai`Query D` // Cache: [B, C, D] - A evicted (oldest)
 
-// Accessing moves to most recent
+// Accessing moves to most recent (delete + re-add)
 await ai`Query B` // Cache: [C, D, B] - B moved to end
-await ai`Query E` // Cache: [D, B, E] - C evicted
+await ai`Query E` // Cache: [D, B, E] - C evicted (now oldest)
 ```
+
+The LRU implementation details:
+- Uses JavaScript `Map` which maintains insertion order
+- `get()` removes and re-adds entries to update recency
+- `set()` checks capacity before adding new entries
+- TTL is checked on `get()`, expired entries are removed
 
 ## Clearing Cache
 
-Manually clear all cached entries:
+Manually clear all cached entries. Returns the number of entries removed:
 
 ```typescript
 // Clear and get count of removed entries
 const cleared = ai.cache.clear()
 console.log(`Cleared ${cleared} cached entries`)
+
+// Read current TTL (read-only)
+console.log(`Cache TTL: ${ai.cache.ttl}ms`) // e.g., 300000
 ```
 
 ### When to Clear
@@ -275,6 +301,6 @@ const ai = createAI({
 
 ## Next Steps
 
-- [Budget Tracking](/ai/budget) - Control costs alongside caching
-- [Batch Processing](/ai/batch) - Efficient multi-item processing
-- [Providers](/ai/providers) - Configure AI providers
+- [Budget Tracking](./budget) - Control costs alongside caching
+- [Batch Processing](./batch) - Efficient multi-item processing
+- [Providers](./providers) - Configure AI providers

@@ -9,7 +9,7 @@ Cap'n Web RPC implements a **capability-based security model** where access to r
 
 ## Why Capabilities?
 
-Traditional access control (ACLs, RBAC) asks "who are you?" to determine permissions. Capability-based security asks "what token do you have?" This subtle shift provides:
+Traditional access control (ACLs, RBAC) asks "who are you?" to determine permissions. Capability-based security asks "what token do you have?" This shift provides significant security and usability benefits:
 
 | Traditional ACL | Capability-based |
 |-----------------|------------------|
@@ -17,6 +17,42 @@ Traditional access control (ACLs, RBAC) asks "who are you?" to determine permiss
 | Ambient authority | Explicit authority |
 | Hard to delegate | Easy to delegate |
 | Global permissions | Scoped permissions |
+
+## Capability Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Capability Lifecycle                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   createCapability(target)                                       │
+│           │                                                      │
+│           ▼                                                      │
+│   ┌───────────────┐                                              │
+│   │  Full Access  │──────────────────┐                           │
+│   │  Capability   │                  │                           │
+│   │  (registered) │                  │ .attenuate(['read'])      │
+│   └───────┬───────┘                  ▼                           │
+│           │              ┌───────────────────┐                   │
+│           │              │  Read-Only        │                   │
+│           │              │  Capability       │                   │
+│           │              │  (child)          │                   │
+│           │              └─────────┬─────────┘                   │
+│           │                        │                             │
+│           │  .revoke()             │ .attenuate(['getOrders'])   │
+│           │                        ▼                             │
+│           │              ┌───────────────────┐                   │
+│           │              │  Viewer-Only      │                   │
+│           │              │  Capability       │                   │
+│           ▼              │  (grandchild)     │                   │
+│   ┌───────────────┐      └───────────────────┘                   │
+│   │   REVOKED     │                                              │
+│   │  (cascades to │◄─────── All children also revoked            │
+│   │   all children)│                                             │
+│   └───────────────┘                                              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Creating Capabilities
 
@@ -201,6 +237,10 @@ await child2.invoke('getOrders')        // Throws: revoked
 
 This provides a powerful security primitive: revoke a single capability to invalidate an entire delegation tree.
 
+<Callout type="warning">
+Revocation is immediate but not retroactive. Any operations already in flight will complete, but no new operations can be started after revocation.
+</Callout>
+
 ## Time-Limited Capabilities
 
 Set an expiration to create time-limited access:
@@ -244,42 +284,77 @@ try {
 
 ### How Unforgeability Works
 
-1. Each capability is registered in a module-level registry
-2. The `invoke` function validates that `this` refers to the original capability object
-3. Even if you copy all properties, the validation fails because `this` context differs
+The unforgeability mechanism uses three layers of protection:
+
+1. **Module-level Registry** - Each capability is registered in a `capabilityRegistry` Map using its unique cryptographic ID (32 hex characters from 16 random bytes)
+
+2. **`this` Context Validation** - The `invoke` function validates that `this` refers to the original capability object. When you spread-copy a capability, `this` becomes the copy, not the original
+
+3. **Registry Lookup** - Even if an attacker constructs an object with a valid ID, the registry lookup confirms the actual capability object matches
 
 ```typescript
 import { verifyCapability, assertUnforgeable } from 'dotdo/rpc'
 
-// Check if a capability is genuine
+// Check if a capability is genuine (returns boolean)
 const isReal = verifyCapability(cap)
 
-// Assert and throw if forged
+// Assert and throw if forged (throws on invalid)
 assertUnforgeable(suspiciousObject)
+// Throws: "Capability is unforgeable: not registered"
 ```
+
+### Module-Level State
+
+<Callout type="info">
+The `capabilityRegistry` and `revokedCapabilities` are intentionally module-level because:
+
+1. **Unforgeability requires shared state** - Verification must check against a central registry
+2. **Revocation must propagate** - A revoked capability must be invalid everywhere in the isolate
+
+In Cloudflare Workers with isolate reuse, capabilities persist within an isolate's lifetime. For true isolation across requests, use per-request capability validation via RPC.
+</Callout>
 
 ## Capability Transfer
 
-Capabilities can be serialized for transfer across network boundaries:
+Capabilities can be serialized for transfer across network boundaries using dedicated serialization functions:
 
 ```typescript
-import { serialize, deserialize } from 'dotdo/rpc'
+import { serializeCapability, deserializeCapability } from 'dotdo/rpc'
 
-// Serialize for transfer
-const serialized = serialize(cap)
+// Serialize for transfer (returns JSON string)
+const serialized = serializeCapability(cap)
+// '{"$type":"Capability","id":"a7f3b2c1...","type":"Customer","methods":["getOrders","notify"]}'
 
 // Transfer to another service...
 
 // Deserialize on the receiving end
-const transferred = deserialize<Capability<CustomerDO>>(serialized)
+const transferred = deserializeCapability<CustomerDO>(serialized)
 
 // The transferred capability retains all restrictions
 console.log(transferred.id)       // Same ID
 console.log(transferred.methods)  // Same methods
 ```
 
+### Transfer Behavior
+
+When deserializing a capability:
+
+1. **Local lookup first** - If the capability ID exists in the local registry, the original capability is returned
+2. **Remote proxy fallback** - If not found locally, a remote proxy capability is created
+
+```typescript
+// Remote capabilities require RPC transport for invocation
+const remote = deserializeCapability<CustomerDO>(serializedFromAnotherWorker)
+
+try {
+  await remote.invoke('getOrders')
+} catch (err) {
+  // "Remote capability invocation requires RPC transport"
+}
+```
+
 <Callout type="warning">
-Transferred capabilities create remote proxies that require RPC transport to invoke methods. Local capabilities can invoke directly on the target object.
+Transferred capabilities create remote proxies that require RPC transport to invoke methods. Local capabilities can invoke directly on the target object. The remote proxy still validates expiration and method authorization locally before attempting the RPC call.
 </Callout>
 
 ## Security Best Practices

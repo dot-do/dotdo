@@ -18,10 +18,10 @@ Read Path:  L0 (hit?) -> L2 (hit?) -> L3 (restore)
 
 | Layer | Component | Latency | Durability | Purpose |
 |-------|-----------|---------|------------|---------|
-| **L0** | InMemoryStateManager | ~0.01ms | None | Hot cache with O(1) CRUD |
-| **L1** | PipelineEmitter (WAL) | ~1ms | High | Fire-and-forget durability |
-| **L2** | LazyCheckpointer (SQLite) | ~5ms | High | Batched persistence |
-| **L3** | IcebergWriter (R2) | ~50ms | Permanent | Cold storage with time travel |
+| **L0** | `InMemoryStateManager` | ~0.01ms | None | Hot cache with O(1) CRUD |
+| **L1** | `PipelineEmitter` (WAL) | ~1ms | High | Fire-and-forget durability |
+| **L2** | `LazyCheckpointer` (SQLite) | ~5ms | High | Batched persistence |
+| **L3** | `IcebergWriter` (R2) | ~50ms | Permanent | Cold storage with time travel |
 
 ### Architecture Diagram
 
@@ -124,12 +124,13 @@ import { DOStorage } from 'dotdo/storage'
 const storage = new DOStorage({
   namespace: 'tenant-123',
   env: {
-    PIPELINE: env.PIPELINE,
-    R2: env.COLD_STORAGE,
-    sql: ctx.storage.sql
+    PIPELINE: env.PIPELINE,   // Optional: Cloudflare Pipeline binding
+    R2: env.COLD_STORAGE,     // Optional: R2 bucket for cold storage
+    sql: ctx.storage.sql      // Optional: SQLite storage from DO context
   },
-  checkpointInterval: 5000,    // L2 checkpoint every 5s
-  icebergFlushInterval: 60000  // L3 flush every 60s
+  checkpointInterval: 5000,    // L2 checkpoint every 5s (default)
+  icebergFlushInterval: 60000, // L3 flush every 60s (default)
+  waitForPipeline: false       // Block until Pipeline ACK (default: false)
 })
 
 // Write (L0 -> L1 ACK -> lazy L2 -> eventual L3)
@@ -139,10 +140,13 @@ const customer = await storage.create({
   email: 'alice@example.com'
 })
 
-// Read (L0 hit - sub-ms)
+// Read (L0 hit - sub-ms, synchronous)
 const cached = storage.get(customer.$id)
 
-// Read with fallback (L0 -> L2 -> L3)
+// Read with L2 fallback (L0 -> SQLite)
+const fromSqlite = await storage.getWithFallback('cust_123')
+
+// Read with full fallback (L0 -> L2 -> L3)
 const restored = await storage.getWithFullFallback('cust_old_123')
 ```
 
@@ -158,9 +162,20 @@ const restored = await storage.getWithFullFallback('cust_old_123')
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `checkpointInterval` | `5000` | Milliseconds between L2 checkpoints |
-| `icebergFlushInterval` | `60000` | Milliseconds between L3 flushes |
-| `waitForPipeline` | `false` | Block until L1 ACK (stronger durability) |
+| `namespace` | Required | Tenant/DO namespace identifier |
+| `checkpointInterval` | `5000` | Milliseconds between L2 SQLite checkpoints |
+| `icebergFlushInterval` | `60000` | Milliseconds between L3 Iceberg flushes |
+| `waitForPipeline` | `false` | Block until Pipeline ACK (stronger durability, higher latency) |
+
+### Environment Bindings
+
+The storage system gracefully degrades when bindings are unavailable:
+
+| Binding | Layer | Required | Fallback Behavior |
+|---------|-------|----------|-------------------|
+| `sql` | L2 | No | No SQLite persistence, L0 only |
+| `PIPELINE` | L1 | No | No WAL, events not emitted |
+| `R2` | L3 | No | No cold storage archival |
 
 ## Performance Characteristics
 
@@ -174,6 +189,53 @@ const restored = await storage.getWithFullFallback('cust_old_123')
 | Cold start (L2) | ~10ms | Load from SQLite |
 | Cold start (L3) | ~100ms | Event replay from Iceberg |
 
+## Integration with DOStorage
+
+The `DOStorage` class provides a high-level API that integrates all four layers with the DO lifecycle:
+
+```typescript
+import { DOStorage } from 'dotdo/storage'
+
+// Create storage instance with all layers configured
+const storage = new DOStorage({
+  namespace: 'tenant-123',
+  env: {
+    PIPELINE: env.PIPELINE,
+    R2: env.COLD_STORAGE,
+    sql: ctx.storage.sql
+  },
+  checkpointInterval: 5000,
+  icebergFlushInterval: 60000
+})
+
+// Write operations flow through all layers automatically
+const thing = await storage.create({ $type: 'Task', name: 'Important' })
+
+// Read with automatic L0 -> L2 -> L3 fallback
+const existing = await storage.getWithFallback('task_123')
+
+// Explicit checkpoint (usually automatic via timer)
+await storage.checkpoint()
+
+// Before hibernation - flush all pending state
+await storage.beforeHibernation()
+```
+
+## Durability Guarantees
+
+The 4-layer architecture provides strong durability guarantees:
+
+| Scenario | Data Safety | Recovery Time |
+|----------|-------------|---------------|
+| DO evicted after write | Safe (L1 WAL) | ~10ms from L2 |
+| SQLite corrupted | Safe (L3 Iceberg) | ~100ms from L3 |
+| Network partition | Retry with idempotency | Automatic |
+| Power failure | Safe (L1 ACK before response) | ~10ms from L2 |
+
+<Callout type="info">
+  The default configuration (`waitForPipeline: false`) provides fire-and-forget durability. For maximum consistency, enable `waitForPipeline: true` to block until the Pipeline acknowledges receipt.
+</Callout>
+
 ## Next Steps
 
-Start with the [L0: In-Memory Cache](/storage/in-memory) documentation to understand the hot data layer, or jump to [Recovery](/storage/recovery) to learn about cold start patterns.
+Start with [L0: In-Memory Cache](/storage/in-memory) to understand the hot data layer, then follow the write path through [L1: Pipeline WAL](/storage/pipeline-wal) and [L2: Lazy Checkpoint](/storage/lazy-checkpoint). For cold start scenarios, see [Recovery](/storage/recovery).

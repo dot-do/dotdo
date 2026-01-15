@@ -45,6 +45,16 @@ const config = escalation
   .escalateTo('vp@company.com')
 ```
 
+<Callout type="warn">
+**Escalation times are cumulative.** In the example above:
+- Team lead is notified at **15 minutes** (0:15)
+- Manager is notified at **1 hour 15 minutes** (1:15)
+- Director is notified at **5 hours 15 minutes** (5:15)
+- VP is notified at **29 hours 15 minutes** (29:15)
+
+Each `escalateAfter()` adds to the total elapsed time from when tracking started.
+</Callout>
+
 ### Duration Formats
 
 Supports natural duration strings:
@@ -130,7 +140,9 @@ interface EscalationNotification {
 
 ### Resource Cleanup
 
-Always dispose of the policy when done to prevent timer leaks:
+<Callout type="error">
+**Always dispose of escalation policies when done to prevent timer leaks.** Failing to call `dispose()` can cause memory leaks and unexpected callbacks after your code has moved on.
+</Callout>
 
 ```typescript
 const escalation = new EscalationPolicy()
@@ -155,7 +167,7 @@ Monitor SLA compliance with real-time checks:
 ```typescript
 const slaTracker = new SLATracker()
 
-// Start tracking with deadline
+// Start tracking with deadline duration string
 const tracking = slaTracker.track('request-001', '4 hours')
 // Or with explicit Date
 const tracking = slaTracker.track('request-001', new Date('2026-01-16T17:00:00Z'))
@@ -163,6 +175,20 @@ const tracking = slaTracker.track('request-001', new Date('2026-01-16T17:00:00Z'
 console.log(tracking.requestId)  // 'request-001'
 console.log(tracking.deadline)   // Date object
 console.log(tracking.startedAt)  // When tracking started
+```
+
+<Callout type="info">
+**Validation Rules**:
+- Deadline must be in the future (cannot track already-expired SLAs)
+- Deadline cannot exceed 1 year from now
+- Request ID must be a non-empty string
+</Callout>
+
+```typescript
+// These will throw errors:
+slaTracker.track('req-1', new Date('2020-01-01'))  // Error: must be in the future
+slaTracker.track('req-1', '500 days')              // Error: cannot exceed 1 year
+slaTracker.track('', '4 hours')                    // Error: Request ID is required
 ```
 
 ### Checking SLA Status
@@ -440,6 +466,6 @@ function getEscalationConfig(priority: Priority) {
 
 ## Next Steps
 
-- [Approval Workflows](/human/approvals) - Create multi-level approval chains
-- [Review Queues](/human/queues) - Manage escalated items in priority queues
-- [Notifications](/human/notifications) - Configure escalation alerts
+- [Approval Workflows](./approvals) - Create multi-level approval chains
+- [Review Queues](./queues) - Manage escalated items in priority queues
+- [Notifications](./notifications) - Configure escalation alerts

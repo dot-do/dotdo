@@ -210,6 +210,21 @@ const snapshotState = await writer.query({
 })
 ```
 
+### TimeTravelQuery Interface
+
+```typescript
+interface TimeTravelQuery {
+  asOf?: Date          // Query state as of this timestamp
+  snapshotId?: string  // Query specific snapshot
+  entityType?: string  // Filter by entity type
+  entityId?: string    // Filter by specific entity
+}
+```
+
+<Callout type="warning">
+  The current `query()` implementation is a placeholder that returns an empty array. Full time travel query support is planned for a future release and will require reading from R2 and filtering by the specified criteria.
+</Callout>
+
 ### IcebergSnapshot
 
 ```typescript
@@ -314,9 +329,21 @@ data-m1abc123.parquet
 └── Footer (schema, statistics)
 ```
 
-<Callout type="info">
-  The current implementation uses JSON encoding for simplicity. Production deployments should use a proper Parquet library like `parquetjs` for full columnar benefits.
+<Callout type="warning">
+  The current implementation uses JSON encoding as a simplified mock of Parquet format. The `encodeParquet()` function simply JSON-stringifies the events. Production deployments should use a proper Parquet library like `parquetjs` for full columnar benefits.
 </Callout>
+
+### Current Encoding (Simplified)
+
+```typescript
+function encodeParquet(events: IcebergEvent[]): ArrayBuffer {
+  // Simple JSON-based encoding for now
+  // In production, use parquetjs or similar
+  const json = JSON.stringify(events)
+  const encoder = new TextEncoder()
+  return encoder.encode(json).buffer
+}
+```
 
 ## Configuration
 
@@ -326,7 +353,19 @@ data-m1abc123.parquet
 interface IcebergWriterConfig {
   bucket: R2Bucket     // Required: R2 bucket binding
   namespace: string    // Required: Tenant namespace
-  tableName: string    // Required: Table name
+  tableName: string    // Required: Table name (e.g., 'events')
+}
+```
+
+### R2Bucket Interface
+
+The R2 bucket must implement:
+
+```typescript
+interface R2Bucket {
+  put(key: string, data: ArrayBuffer | string | ReadableStream | Blob): Promise<R2Object | null>
+  get(key: string): Promise<R2ObjectBody | null>
+  list(options?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>
 }
 ```
 
@@ -383,9 +422,11 @@ await storage.flushToIceberg()
 
 ## State Reconstruction
 
+The cold tier stores **events**, not snapshots. This event-sourcing approach provides complete audit trails and enables time travel queries.
+
 ### From Events
 
-The cold tier stores events, not snapshots. State is reconstructed by replaying events:
+State is reconstructed by replaying events in timestamp order:
 
 ```typescript
 // Example: Reconstruct customer state

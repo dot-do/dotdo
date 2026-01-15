@@ -5,31 +5,35 @@ description: Set up your development environment for building with dotdo.
 
 # Installation
 
-This guide walks you through setting up dotdo for local development.
+This guide walks you through setting up a Cloudflare Durable Objects project using the dotdo patterns.
+
+<Callout type="info">
+If you prefer a quickstart template, use `npx create-cloudflare@latest my-do-app --template durable-objects` and skip to the [Quick Start](/docs/getting-started/quick-start).
+</Callout>
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
-- **Node.js 18+** - dotdo requires a modern Node.js runtime
-- **npm or pnpm** - for package management
-- **Cloudflare account** - free tier is sufficient for development
-- **Wrangler CLI** - Cloudflare's developer tool (installed automatically)
+- **Node.js 18+** - Modern Node.js runtime required
+- **npm or pnpm** - Package manager
+- **Cloudflare account** - Free tier is sufficient for development
+- **Wrangler CLI** - Cloudflare's developer tool (installed as dev dependency)
 
 ## Quick Setup
 
-Create a new dotdo project:
+Create a new project:
 
 ```bash
 # Create project directory
-mkdir my-dotdo-app
-cd my-dotdo-app
+mkdir my-do-app
+cd my-do-app
 
 # Initialize package.json
 npm init -y
 
 # Install dependencies
-npm install dotdo hono
+npm install hono
 npm install -D wrangler typescript @cloudflare/workers-types vitest @cloudflare/vitest-pool-workers
 ```
 
@@ -38,9 +42,10 @@ npm install -D wrangler typescript @cloudflare/workers-types vitest @cloudflare/
 Create the following file structure:
 
 ```
-my-dotdo-app/
+my-do-app/
 ├── src/
-│   └── index.ts       # Worker entry point
+│   ├── index.ts       # Worker entry point
+│   └── index.test.ts  # Tests
 ├── wrangler.toml      # Cloudflare configuration
 ├── tsconfig.json      # TypeScript configuration
 ├── vitest.config.ts   # Test configuration
@@ -54,7 +59,7 @@ my-dotdo-app/
 Create your Wrangler configuration:
 
 ```toml
-name = "my-dotdo-app"
+name = "my-do-app"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 
@@ -68,7 +73,9 @@ tag = "v1"
 new_sqlite_classes = ["MyDO"]
 ```
 
-The `new_sqlite_classes` migration tag enables SQLite storage for your Durable Object.
+<Callout type="warn">
+The `new_sqlite_classes` migration enables SQLite storage for your Durable Object. This is **required** for dotdo storage patterns. Without it, `this.ctx.storage.sql` will be undefined.
+</Callout>
 
 ### tsconfig.json
 
@@ -141,7 +148,7 @@ interface Env {
 
 export class MyDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
-    return new Response('Hello from dotdo!')
+    return new Response('Hello from Durable Objects!')
   }
 }
 
@@ -160,7 +167,7 @@ Start the development server:
 npm run dev
 ```
 
-Visit `http://localhost:8787` - you should see "Hello from dotdo!"
+Visit `http://localhost:8787` - you should see "Hello from Durable Objects!"
 
 ## Development Workflow
 
@@ -193,7 +200,7 @@ describe('MyDO', () => {
   it('responds to requests', async () => {
     const stub = env.DO.get(env.DO.idFromName('test'))
     const response = await stub.fetch('http://test/')
-    expect(await response.text()).toBe('Hello from dotdo!')
+    expect(await response.text()).toBe('Hello from Durable Objects!')
   })
 })
 ```
@@ -203,6 +210,10 @@ Run the test:
 ```bash
 npm run test:run
 ```
+
+<Callout type="info">
+Each test gets an isolated DO instance. State does not persist between tests, which makes tests deterministic and parallelizable.
+</Callout>
 
 ## Environment Variables
 
@@ -262,7 +273,11 @@ describe('MyDO', () => {
 
 ### Memory issues with Vitest
 
-Never run multiple Vitest instances in parallel. If tests hang, kill orphan processes:
+<Callout type="warn">
+Never run multiple Vitest instances in parallel. The Miniflare runtime is memory-intensive and running concurrent test processes can exhaust available memory.
+</Callout>
+
+If tests hang, kill orphan processes:
 
 ```bash
 pkill -9 -f vitest

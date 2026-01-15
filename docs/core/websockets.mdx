@@ -11,10 +11,12 @@ DOCore provides native WebSocket support with Cloudflare's hibernatable WebSocke
 
 DOCore includes two WebSocket endpoints:
 
-| Endpoint | Description |
-|----------|-------------|
-| `/ws` | Standard WebSocket connection |
-| `/ws/hibernatable` | Hibernatable WebSocket with auto-wake |
+| Endpoint | Query Params | Description |
+|----------|--------------|-------------|
+| `/ws` | `?room=<name>` | Standard WebSocket with optional room tag |
+| `/ws/hibernatable` | - | Hibernatable WebSocket with `hibernatable` tag |
+
+Both endpoints require the `Upgrade: websocket` header or return 426 Upgrade Required.
 
 ## Establishing Connections
 
@@ -47,54 +49,41 @@ ws.onclose = (event) => {
 
 ### Server-Side (DO)
 
-WebSocket upgrades are handled in the `/ws` route:
+DOCore handles WebSocket upgrades internally. The built-in `/ws` route:
 
 ```typescript
+// Built-in /ws route implementation
 app.get('/ws', (c) => {
-  const upgradeHeader = c.req.header('Upgrade')
-  if (upgradeHeader !== 'websocket') {
-    return c.json({ error: 'Upgrade Required' }, 426)
+  if (!this.isWebSocketUpgradeRequest(c)) {
+    return c.json({ error: 'Upgrade required' }, 426)
   }
 
   const room = c.req.query('room')
-  const [client, server] = Object.values(new WebSocketPair())
-
-  // Accept the WebSocket
-  this.ctx.acceptWebSocket(server)
-
-  // Tag for broadcasting
-  const tags = room ? [`room:${room}`] : []
-  this.websocketTags.set(server, tags)
-
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-  })
+  const tags: string[] = room ? [`room:${room}`] : []
+  return this.handleWebSocketUpgrade(c, tags, false)
 })
 ```
+
+<Callout type="info">
+The `isWebSocketUpgradeRequest()` and `handleWebSocketUpgrade()` methods are private helpers in DOCore. To create custom WebSocket endpoints, register new routes in `createApp()` that follow the same pattern.
+</Callout>
 
 ## Hibernatable WebSockets
 
 Hibernatable WebSockets allow the DO to hibernate while maintaining active connections. When a message arrives, the DO wakes automatically.
 
 ```typescript
+// Built-in /ws/hibernatable route
 app.get('/ws/hibernatable', (c) => {
-  const upgradeHeader = c.req.header('Upgrade')
-  if (upgradeHeader !== 'websocket') {
-    return c.json({ error: 'Upgrade Required' }, 426)
+  if (!this.isWebSocketUpgradeRequest(c)) {
+    return c.json({ error: 'Upgrade required' }, 426)
   }
 
-  const [client, server] = Object.values(new WebSocketPair())
-
-  // Accept with hibernation tag
-  this.ctx.acceptWebSocket(server, ['hibernatable'])
-
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-  })
+  return this.handleWebSocketUpgrade(c, ['hibernatable'], true)
 })
 ```
+
+The key difference is passing `true` for hibernatable and using `['hibernatable']` as tags with `ctx.acceptWebSocket()`.
 
 ### Hibernation Benefits
 
@@ -105,11 +94,19 @@ app.get('/ws/hibernatable', (c) => {
 | Wake on message | N/A | Automatic |
 | Connection limit | Same | Same |
 
+### How It Works
+
+1. When `ctx.acceptWebSocket(server, ['hibernatable'])` is called, Cloudflare tracks the connection
+2. The DO can hibernate normally after processing the upgrade
+3. When a message arrives on any hibernatable WebSocket, the DO wakes
+4. `webSocketMessage()` is called with the message
+5. After processing, the DO can hibernate again
+
 ## Broadcasting
 
 ### broadcast(tag, message)
 
-Send a message to all connections with a specific tag:
+Send a message to all connections with a specific tag using `ctx.getWebSockets()`:
 
 ```typescript
 // Via RPC
@@ -123,14 +120,34 @@ const result = await stub.broadcast('room:lobby', { event: 'update' })
 console.log(`Sent to ${result.sent} connections`)
 ```
 
+**Implementation:**
+
+```typescript
+async broadcast(tag: string, message: unknown): Promise<{ sent: number }> {
+  let sent = 0
+  const sockets = this.ctx.getWebSockets(tag)
+
+  for (const ws of sockets) {
+    try {
+      ws.send(JSON.stringify(message))
+      sent++
+    } catch {
+      // Socket may be closed, skip it
+    }
+  }
+
+  return { sent }
+}
+```
+
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `tag` | `string` | Yes | Tag to match connections |
+| `tag` | `string` | Yes | Tag to match connections (e.g., `room:lobby`) |
 | `message` | `unknown` | Yes | Message to send (JSON-serialized) |
 
-**Returns:** `Promise<{ sent: number }>` - Count of messages sent
+**Returns:** `Promise<{ sent: number }>` - Count of successfully sent messages
 
 ### Broadcast Patterns
 
@@ -148,47 +165,62 @@ await stub.broadcast('all', { type: 'maintenance', message: 'Restarting soon' })
 
 ## Connection Tagging
 
-Tags allow grouping connections for targeted broadcasts:
+DOCore tracks tags in an internal Map. The built-in `/ws` route supports a single `room` tag:
 
 ```typescript
-app.get('/ws', (c) => {
+// Built-in: /ws?room=lobby creates tag ['room:lobby']
+```
+
+For custom tagging, override the route:
+
+```typescript
+app.get('/ws/custom', (c) => {
+  if (!this.isWebSocketUpgradeRequest(c)) {
+    return c.json({ error: 'Upgrade required' }, 426)
+  }
+
   const room = c.req.query('room')
   const userId = c.req.query('userId')
 
-  const [client, server] = Object.values(new WebSocketPair())
-  this.ctx.acceptWebSocket(server)
-
-  // Multiple tags per connection
-  const tags = []
+  // Build multiple tags
+  const tags: string[] = []
   if (room) tags.push(`room:${room}`)
   if (userId) tags.push(`user:${userId}`)
   tags.push('all') // Everyone gets 'all' tag
 
-  this.websocketTags.set(server, tags)
-
-  return new Response(null, { status: 101, webSocket: client })
+  return this.handleWebSocketUpgrade(c, tags, false)
 })
 ```
 
 ### Getting Connection Tags
 
 ```typescript
-// Via RPC - gets tags of last connected WebSocket
+// Via RPC - gets tags of the LAST connected WebSocket
 const tags = await stub.getWebSocketTags()
 // ['room:lobby', 'user:alice', 'all']
 ```
 
 <Callout type="info">
-WebSocket objects cannot be passed via RPC. The `getWebSocketTags()` method returns tags for the most recently connected WebSocket.
+WebSocket objects cannot be passed via RPC. The `getWebSocketTags()` method returns tags for the most recently connected WebSocket, stored in `this.lastWebSocketTags`.
 </Callout>
+
+### Tag Storage
+
+DOCore maintains two tracking structures:
+
+```typescript
+private websocketTags = new Map<WebSocket, string[]>()  // All connections
+private lastWebSocketTags: string[] = []               // For RPC access
+private lastWebSocketHibernatable = false              // For RPC access
+```
 
 ## WebSocket Event Handlers
 
-Override these methods to handle WebSocket events:
+DOCore implements base handlers that you can override:
 
 ```typescript
 export class MyDO extends DOCore {
-  // Handle incoming messages
+  // Handle incoming messages (base implementation is empty)
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     const data = JSON.parse(message as string)
 
@@ -202,19 +234,34 @@ export class MyDO extends DOCore {
     }
   }
 
-  // Handle disconnection
+  // Handle disconnection - base cleans up tracking maps
   webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    // DOCore.cleanupWebSocket is called automatically
     console.log(`Connection closed: ${code} ${reason}`)
-    this.websocketTags.delete(ws)
+    // Custom cleanup...
   }
 
-  // Handle errors
+  // Handle errors - base cleans up tracking maps
   webSocketError(ws: WebSocket, error: unknown): void {
+    // DOCore.cleanupWebSocket is called automatically
     console.error('WebSocket error:', error)
-    this.websocketTags.delete(ws)
+    // Custom error handling...
   }
 }
 ```
+
+### Base Cleanup
+
+DOCore's `cleanupWebSocket()` method removes the WebSocket from tracking:
+
+```typescript
+private cleanupWebSocket(ws: WebSocket): void {
+  this.websocketTags.delete(ws)
+  this.hibernatableWebSockets.delete(ws)
+}
+```
+
+This is called automatically by `webSocketClose()` and `webSocketError()`.
 
 ## Checking Hibernation Status
 

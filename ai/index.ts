@@ -9,23 +9,136 @@
  */
 
 // =============================================================================
-// Model Registry
+// Model Configuration
 // =============================================================================
 
 /**
- * Registry of supported AI models with their configurations
+ * Model capability flags
+ */
+export interface ModelCapabilities {
+  text: boolean
+  tool_calling: boolean
+  structured: boolean
+  tts: boolean
+  image: boolean
+}
+
+/**
+ * Cost tier information for budget tracking
+ */
+export interface CostTier {
+  tier: 'budget' | 'standard' | 'premium'
+  costPerMTokenInput: number
+  costPerMTokenOutput: number
+}
+
+/**
+ * Complete model metadata configuration
+ */
+export interface ModelConfig {
+  name: string
+  displayName: string
+  capabilities: ModelCapabilities
+  costTier: CostTier
+  maxInputTokens: number
+  maxOutputTokens: number
+  defaultTemperature: number
+  supportsStreaming: boolean
+  inputFormat: 'prompt' | 'input' | 'messages'
+}
+
+/**
+ * Comprehensive model registry with all metadata
+ */
+export const MODEL_CONFIG: Record<string, ModelConfig> = {
+  GPT_OSS_120B: {
+    name: '@cf/openai/gpt-oss-120b',
+    displayName: 'GPT OSS 120B',
+    capabilities: { text: true, tool_calling: false, structured: false, tts: false, image: false },
+    costTier: { tier: 'premium', costPerMTokenInput: 2.5, costPerMTokenOutput: 10.0 },
+    maxInputTokens: 8192,
+    maxOutputTokens: 4096,
+    defaultTemperature: 0.7,
+    supportsStreaming: true,
+    inputFormat: 'input',
+  },
+  GPT_OSS_20B: {
+    name: '@cf/openai/gpt-oss-20b',
+    displayName: 'GPT OSS 20B',
+    capabilities: { text: true, tool_calling: false, structured: false, tts: false, image: false },
+    costTier: { tier: 'standard', costPerMTokenInput: 0.5, costPerMTokenOutput: 1.5 },
+    maxInputTokens: 8192,
+    maxOutputTokens: 4096,
+    defaultTemperature: 0.7,
+    supportsStreaming: true,
+    inputFormat: 'input',
+  },
+  LLAMA_4_SCOUT: {
+    name: '@cf/meta/llama-4-scout-17b-16e-instruct',
+    displayName: 'Llama 4 Scout',
+    capabilities: { text: true, tool_calling: false, structured: false, tts: false, image: false },
+    costTier: { tier: 'standard', costPerMTokenInput: 0.3, costPerMTokenOutput: 1.0 },
+    maxInputTokens: 8192,
+    maxOutputTokens: 4096,
+    defaultTemperature: 0.7,
+    supportsStreaming: false,
+    inputFormat: 'prompt',
+  },
+  GRANITE_4H_MICRO: {
+    name: '@cf/ibm-granite/granite-4.0-h-micro',
+    displayName: 'Granite 4.0 H Micro',
+    capabilities: { text: true, tool_calling: true, structured: true, tts: false, image: false },
+    costTier: { tier: 'budget', costPerMTokenInput: 0.15, costPerMTokenOutput: 0.5 },
+    maxInputTokens: 8192,
+    maxOutputTokens: 4096,
+    defaultTemperature: 0.7,
+    supportsStreaming: false,
+    inputFormat: 'messages',
+  },
+  AURA_2_EN: {
+    name: '@cf/deepgram/aura-2-en',
+    displayName: 'Aura 2 English',
+    capabilities: { text: false, tool_calling: false, structured: false, tts: true, image: false },
+    costTier: { tier: 'standard', costPerMTokenInput: 0.0, costPerMTokenOutput: 0.0 },
+    maxInputTokens: 2000,
+    maxOutputTokens: 0,
+    defaultTemperature: 0.5,
+    supportsStreaming: true,
+    inputFormat: 'messages',
+  },
+  FLUX_2_DEV: {
+    name: '@cf/black-forest-labs/flux-2-dev',
+    displayName: 'Flux 2 Dev',
+    capabilities: { text: false, tool_calling: false, structured: false, tts: false, image: true },
+    costTier: { tier: 'premium', costPerMTokenInput: 0.0, costPerMTokenOutput: 0.0 },
+    maxInputTokens: 1000,
+    maxOutputTokens: 0,
+    defaultTemperature: 0.0,
+    supportsStreaming: false,
+    inputFormat: 'messages',
+  },
+}
+
+/**
+ * Fallback chain configuration - models to try in order when primary fails
+ */
+export const FALLBACK_CHAIN: Record<string, string[]> = {
+  '@cf/openai/gpt-oss-120b': ['@cf/openai/gpt-oss-20b', '@cf/meta/llama-4-scout-17b-16e-instruct'],
+  '@cf/openai/gpt-oss-20b': ['@cf/meta/llama-4-scout-17b-16e-instruct'],
+  '@cf/meta/llama-4-scout-17b-16e-instruct': ['@cf/ibm-granite/granite-4.0-h-micro'],
+  '@cf/ibm-granite/granite-4.0-h-micro': [],
+}
+
+/**
+ * Legacy registry for backward compatibility
  */
 export const MODEL_REGISTRY = {
-  // Text generation models
-  GPT_OSS_120B: '@cf/openai/gpt-oss-120b',
-  GPT_OSS_20B: '@cf/openai/gpt-oss-20b',
-  LLAMA_4_SCOUT: '@cf/meta/llama-4-scout-17b-16e-instruct',
-  // Tool calling and structured output
-  GRANITE_4H_MICRO: '@cf/ibm-granite/granite-4.0-h-micro',
-  // TTS (Text-to-Speech)
-  AURA_2_EN: '@cf/deepgram/aura-2-en',
-  // Image generation
-  FLUX_2_DEV: '@cf/black-forest-labs/flux-2-dev',
+  GPT_OSS_120B: MODEL_CONFIG.GPT_OSS_120B.name,
+  GPT_OSS_20B: MODEL_CONFIG.GPT_OSS_20B.name,
+  LLAMA_4_SCOUT: MODEL_CONFIG.LLAMA_4_SCOUT.name,
+  GRANITE_4H_MICRO: MODEL_CONFIG.GRANITE_4H_MICRO.name,
+  AURA_2_EN: MODEL_CONFIG.AURA_2_EN.name,
+  FLUX_2_DEV: MODEL_CONFIG.FLUX_2_DEV.name,
 } as const
 
 // =============================================================================
@@ -74,6 +187,8 @@ export type AIProviderResponse = OpenAIResponse | AnthropicResponse | string
 
 /**
  * Type guard for OpenAI-style response
+ * @param response - The response to check
+ * @returns True if response is OpenAI-compatible format
  */
 function isOpenAIResponse(response: AIProviderResponse): response is OpenAIResponse {
   return typeof response === 'object' && response !== null && 'choices' in response
@@ -81,14 +196,32 @@ function isOpenAIResponse(response: AIProviderResponse): response is OpenAIRespo
 
 /**
  * Type guard for Anthropic-style response
+ * @param response - The response to check
+ * @returns True if response is Anthropic-compatible format
  */
 function isAnthropicResponse(response: AIProviderResponse): response is AnthropicResponse {
   return typeof response === 'object' && response !== null && 'content' in response && !('choices' in response)
 }
 
 /**
- * Extracts text content from AI provider responses of various formats
- * Handles OpenAI, Anthropic, and generic string responses
+ * Extracts text content from AI provider responses
+ * Handles OpenAI, Anthropic, and generic string responses with a unified interface.
+ * This is the central point for all response format handling.
+ *
+ * @param response - The AI provider response in any supported format
+ * @returns Extracted text content, or empty string if unable to extract
+ *
+ * @example
+ * // OpenAI format
+ * const text = extractResponseText({ choices: [{ message: { content: 'Hello' } }] })
+ *
+ * @example
+ * // Anthropic format
+ * const text = extractResponseText({ content: [{ text: 'Hello' }] })
+ *
+ * @example
+ * // String format
+ * const text = extractResponseText('Hello')
  */
 function extractResponseText(response: AIProviderResponse): string {
   if (typeof response === 'string') {
@@ -104,6 +237,59 @@ function extractResponseText(response: AIProviderResponse): string {
   }
 
   return ''
+}
+
+/**
+ * Strips markdown code fences from text if present.
+ * LLMs often wrap JSON or code responses in ```json or ``` blocks.
+ *
+ * @param text - Text that may contain code fences
+ * @returns Text with code fences removed
+ *
+ * @example
+ * stripCodeFences('```json\n{"key": "value"}\n```') // '{"key": "value"}'
+ * stripCodeFences('plain text') // 'plain text'
+ */
+export function stripCodeFences(text: string): string {
+  if (!text) return text
+
+  // Match opening fence with optional language specifier and closing fence
+  const fencePattern = /^```[\w]*\n?([\s\S]*?)\n?```$/
+  const match = text.trim().match(fencePattern)
+
+  if (match) {
+    return match[1].trim()
+  }
+
+  return text
+}
+
+/**
+ * Safely extracts and validates response text with error handling.
+ * Automatically strips markdown code fences from the response.
+ *
+ * @param response - The AI provider response
+ * @param modelName - Model name for error context
+ * @returns Extracted text (with code fences stripped) or throws descriptive error
+ * @throws Error with model-specific context if extraction fails
+ */
+function extractResponseTextSafe(response: AIProviderResponse, modelName?: string): string {
+  if (!response) {
+    throw new Error(
+      `Empty response${modelName ? ` from ${modelName}` : ''}. Ensure the model completed successfully.`
+    )
+  }
+
+  const rawText = extractResponseText(response)
+
+  if (!rawText || rawText.trim().length === 0) {
+    throw new Error(
+      `No text content in response${modelName ? ` from ${modelName}` : ''}. Response format may be incompatible.`
+    )
+  }
+
+  // Strip code fences - LLMs often wrap structured output in markdown
+  return stripCodeFences(rawText)
 }
 
 export interface AIProvider {
@@ -229,6 +415,39 @@ export class AIBudgetExceededError extends Error {
     super(message)
     this.name = 'AIBudgetExceededError'
   }
+}
+
+// =============================================================================
+// Cost Tracking Infrastructure
+// =============================================================================
+
+/**
+ * Tracks cost per operation type for budget management
+ */
+interface CostTracker {
+  modelName: string
+  inputTokens: number
+  outputTokens: number
+  estimatedCost: number
+  timestamp: number
+}
+
+/**
+ * Calculates estimated cost for a given operation
+ * @param modelName - Name of the model
+ * @param inputTokens - Number of input tokens (estimated)
+ * @param outputTokens - Number of output tokens (estimated)
+ * @returns Estimated cost in cents
+ */
+function calculateOperationCost(modelName: string, inputTokens: number, outputTokens: number): number {
+  const config = Object.values(MODEL_CONFIG).find((c) => c.name === modelName)
+  if (!config) {
+    return 1 // Default cost unit
+  }
+
+  const inputCost = (inputTokens / 1_000_000) * config.costTier.costPerMTokenInput
+  const outputCost = (outputTokens / 1_000_000) * config.costTier.costPerMTokenOutput
+  return inputCost + outputCost
 }
 
 // =============================================================================
@@ -520,7 +739,14 @@ export function createAI(config?: AIConfig): AI {
     }
   }
 
-  // Execute with provider
+  /**
+   * Executes AI operation with provider, fallback chain, and error handling
+   * @param prompt - The prompt to execute
+   * @param options - Execution options (model, mode)
+   * @param providerName - Optional provider name override
+   * @returns The AI-generated text result
+   * @throws Error with model-specific context on failure
+   */
   async function executeWithProvider(
     prompt: string,
     options?: ExecuteOptions,
@@ -543,6 +769,7 @@ export function createAI(config?: AIConfig): AI {
 
     // Determine which provider to use
     const targetProvider = providerName ? providers[providerName] : provider
+    const modelName = options?.model || currentModel
 
     if (targetProvider?.execute) {
       try {
@@ -558,6 +785,7 @@ export function createAI(config?: AIConfig): AI {
         return result
       } catch (error) {
         lastError = error as Error
+        const errorMsg = lastError.message || 'Unknown error'
 
         // Try fallback providers
         if (fallbackProviders && Array.isArray(fallbackProviders)) {
@@ -582,32 +810,59 @@ export function createAI(config?: AIConfig): AI {
           }
         }
 
-        throw lastError
+        // Enhanced error message with model context
+        throw new Error(
+          `Model '${modelName}' failed${providerName ? ` (provider: ${providerName})` : ''}: ${errorMsg}. ` +
+            `Try with a different model or check that the model supports the requested capability (mode: ${options?.mode || 'general'}).`
+        )
       }
     }
 
     // Use request method if available (for provider-specific formatting)
     if (targetProvider?.request) {
-      const requestParams: AIRequestParams = { messages: [{ role: 'user', content: prompt }] }
-      const response = await targetProvider.request(requestParams)
+      try {
+        const requestParams: AIRequestParams = { messages: [{ role: 'user', content: prompt }] }
+        const response = await targetProvider.request(requestParams)
 
-      // Extract text using consolidated helper
-      result = extractResponseText(response)
-      trackCost(cost)
+        // Extract text using consolidated helper with error context
+        result = extractResponseTextSafe(response, modelName)
+        trackCost(cost)
 
-      if (cacheEnabled) {
-        const cacheKey = getCacheKey(prompt, options?.mode || 'general')
-        cache.set(cacheKey, result)
+        if (cacheEnabled) {
+          const cacheKey = getCacheKey(prompt, options?.mode || 'general')
+          cache.set(cacheKey, result)
+        }
+
+        return result
+      } catch (error) {
+        throw new Error(
+          `Model '${modelName}' request failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        )
       }
-
-      return result
     }
 
-    throw new Error(`AI Provider failed: No provider configured for prompt. Ensure provider has execute() or request() method.`)
+    throw new Error(
+      `AI Provider not configured for model '${modelName}'. ` +
+        `Ensure provider has execute() or request() method.`
+    )
   }
 
   /**
    * Main AI template literal - general text generation and reasoning
+   * Supports lazy evaluation with AIPromise - only executes when awaited.
+   *
+   * @param strings - Template string parts
+   * @param values - Interpolated values (can be primitives or AIPromises)
+   * @returns AIPromise that resolves to generated text
+   *
+   * @example
+   * const result = await ai`Generate text about ${topic}`
+   *
+   * @example
+   * const lazy = ai`Generate...` // Not executed yet
+   * if (someCondition) {
+   *   const result = await lazy // Only executes if condition is true
+   * }
    */
   const aiFunction = function (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string> {
     return new AIPromise(async () => {
@@ -619,8 +874,20 @@ export function createAI(config?: AIConfig): AI {
 
   /**
    * Classification template literal - extract discrete categories/classes from text
-   * Returns a single string representing the classified value
-   * Example: ai.is`Is this sentiment positive? ${userInput}` => 'positive'
+   * Returns a single string representing the classified value.
+   * Optimized for boolean, categorical, or enum-like outputs.
+   *
+   * @param strings - Template string parts
+   * @param values - Interpolated values (can be primitives or AIPromises)
+   * @returns AIPromise that resolves to classified category
+   *
+   * @example
+   * const sentiment = await ai.is`Is this sentiment positive or negative? ${userInput}`
+   * // Returns: 'positive' | 'negative'
+   *
+   * @example
+   * const isValid = await ai.is`Is this email valid? ${email}`
+   * // Returns: 'true' | 'false'
    */
   const isFunction = function (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string> {
     return new AIPromise(async () => {
@@ -632,8 +899,20 @@ export function createAI(config?: AIConfig): AI {
 
   /**
    * List extraction template literal - extract structured lists from text
-   * Returns an array of strings parsed from JSON or comma-separated format
-   * Example: ai.list`Extract colors: ${userInput}` => ['red', 'blue', 'yellow']
+   * Returns an array of strings parsed from JSON or comma-separated format.
+   * Useful for extracting multiple items, tags, or enumerated values.
+   *
+   * @param strings - Template string parts
+   * @param values - Interpolated values (can be primitives or AIPromises)
+   * @returns AIPromise that resolves to array of extracted items
+   *
+   * @example
+   * const colors = await ai.list`Extract colors: ${userInput}`
+   * // Returns: ['red', 'blue', 'yellow']
+   *
+   * @example
+   * const tags = await ai.list`Extract tags from: ${article}`
+   * // Returns: ['tag1', 'tag2', 'tag3']
    */
   const listFunction = function (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string[]> {
     return new AIPromise(async () => {
@@ -655,8 +934,19 @@ export function createAI(config?: AIConfig): AI {
 
   /**
    * Code generation template literal - generate source code in various languages
-   * Automatically strips markdown code fences from output
-   * Example: ai.code`Write a function that ${requirement}` => 'function foo() { ... }'
+   * Automatically strips markdown code fences from output.
+   * Supports generation in Python, TypeScript, JavaScript, and other languages.
+   *
+   * @param strings - Template string parts
+   * @param values - Interpolated values (can be primitives or AIPromises)
+   * @returns AIPromise that resolves to generated source code
+   *
+   * @example
+   * const code = await ai.code`Write a TypeScript function that ${requirement}`
+   * // Returns: 'function foo() { ... }' (without markdown fences)
+   *
+   * @example
+   * const pythonCode = await ai.code`Write Python code that ${description}`
    */
   const codeFunction = function (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string> {
     return new AIPromise(async () => {
@@ -675,7 +965,24 @@ export function createAI(config?: AIConfig): AI {
 
   /**
    * Batch processing - execute multiple AI operations with cost optimization
-   * Modes: 'immediate' (full cost), 'flex' (50% cost), 'deferred' (25% cost)
+   * Supports three pricing tiers for cost control:
+   * - 'immediate': Full cost, responds immediately
+   * - 'flex': 50% cost, slightly delayed processing
+   * - 'deferred': 25% cost, batch processing for maximum savings
+   *
+   * @param items - Array of items to process
+   * @param mode - Batch mode: 'immediate', 'flex', or 'deferred'
+   * @param template - Optional template function to transform each item
+   * @returns BatchResult with batchId and promise resolving to results array
+   *
+   * @example
+   * const results = await ai.batch([1, 2, 3], 'deferred', (n) =>
+   *   ai`Generate text for number ${n}`
+   * )
+   *
+   * @example
+   * // Check batch status
+   * const status = await ai.batch.status('batch-123...')
    */
   const batchFunction = Object.assign(
     function <T, R = string>(
@@ -819,20 +1126,54 @@ export function createAI(config?: AIConfig): AI {
 
 /**
  * Default AI instance with template literal support
+ * Provides full access to all AI capabilities: text generation, classification,
+ * list extraction, code generation, batch processing, and budget tracking.
  *
- * Usage:
- *   const result = await ai`Generate text about ${topic}`
- *   const classification = await ai.is`Is this ${text} positive or negative?`
- *   const items = await ai.list`Extract numbers from: ${input}`
- *   const source = await ai.code`Write a function that ${requirement}`
+ * @example
+ * // General text generation
+ * const result = await ai`Generate text about ${topic}`
+ *
+ * @example
+ * // Classification
+ * const classification = await ai.is`Is this ${text} positive or negative?`
+ *
+ * @example
+ * // List extraction
+ * const items = await ai.list`Extract numbers from: ${input}`
+ *
+ * @example
+ * // Code generation
+ * const source = await ai.code`Write a function that ${requirement}`
+ *
+ * @example
+ * // Budget management
+ * const limited = ai.budget.limit(100) // 100 units max
+ * const remaining = ai.budget.remaining // Check remaining budget
+ *
+ * @example
+ * // Batch processing
+ * const results = await ai.batch([1, 2, 3], 'deferred', (n) =>
+ *   ai`Process item ${n}`
+ * )
  */
 export const ai: AI = createAI()
 
 /**
  * Classification template literal (shorthand for ai.is)
+ * Extracts discrete categories or boolean values from text.
+ * Useful for sentiment analysis, validation, and categorization tasks.
  *
- * Extracts discrete categories from text.
- * Example: is`Classify sentiment: ${text}` => 'positive'
+ * @param strings - Template string parts
+ * @param values - Interpolated values
+ * @returns AIPromise resolving to classification result
+ *
+ * @example
+ * const sentiment = await is`Classify sentiment: ${text}`
+ * // Returns: 'positive' | 'negative' | 'neutral'
+ *
+ * @example
+ * const isValid = await is`Is this valid JSON? ${input}`
+ * // Returns: 'true' | 'false'
  */
 export const is = (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string> => {
   return ai.is(strings, ...values)
@@ -840,9 +1181,20 @@ export const is = (strings: TemplateStringsArray, ...values: TemplateValue[]): A
 
 /**
  * List extraction template literal (shorthand for ai.list)
+ * Extracts structured lists from text with fallback JSON parsing.
+ * Supports both JSON arrays and comma-separated lists.
  *
- * Extracts structured lists from text.
- * Example: list`Extract colors: ${text}` => ['red', 'blue', 'yellow']
+ * @param strings - Template string parts
+ * @param values - Interpolated values
+ * @returns AIPromise resolving to array of extracted items
+ *
+ * @example
+ * const colors = await list`Extract colors: ${text}`
+ * // Returns: ['red', 'blue', 'yellow']
+ *
+ * @example
+ * const keywords = await list`Extract keywords from: ${article}`
+ * // Returns: ['keyword1', 'keyword2', 'keyword3']
  */
 export const list = (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string[]> => {
   return ai.list(strings, ...values)
@@ -850,10 +1202,20 @@ export const list = (strings: TemplateStringsArray, ...values: TemplateValue[]):
 
 /**
  * Code generation template literal (shorthand for ai.code)
+ * Generates source code in multiple programming languages.
+ * Automatically strips markdown code fences from output.
  *
- * Generates source code in various languages.
- * Automatically strips markdown code fences.
- * Example: code`Write a function that ${requirement}` => 'function foo() { ... }'
+ * @param strings - Template string parts
+ * @param values - Interpolated values
+ * @returns AIPromise resolving to generated code
+ *
+ * @example
+ * const tsCode = await code`Write a TypeScript function that ${requirement}`
+ * // Returns: 'function foo() { ... }' (without markdown)
+ *
+ * @example
+ * const pythonCode = await code`Write Python code to ${task}`
+ * // Returns: 'def foo():\n    ...'
  */
 export const code = (strings: TemplateStringsArray, ...values: TemplateValue[]): AIPromise<string> => {
   return ai.code(strings, ...values)

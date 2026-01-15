@@ -207,6 +207,10 @@ The Pipeline service is a **separate durable system** from the DO:
   For maximum durability, enable `waitForPipeline: true` in DOStorage config. This blocks until Pipeline acknowledges receipt.
 </Callout>
 
+<Callout type="warning">
+  Fire-and-forget mode provides eventual durability. In rare failure scenarios (Pipeline service unavailable during emit), events may be lost. For mission-critical data, use `waitForPipeline: true` or implement application-level confirmation.
+</Callout>
+
 ## Error Handling
 
 ### Automatic Retry
@@ -216,14 +220,15 @@ Transient failures (network issues, rate limits) are automatically retried:
 ```typescript
 const emitter = new PipelineEmitter(env.PIPELINE, {
   namespace: 'tenant-123',
-  maxRetries: 3,    // Try 3 times
+  maxRetries: 3,    // Try 3 times total
   retryDelay: 100   // 100ms between retries
 })
 
 // If Pipeline.send() fails:
 // Attempt 1: immediate
-// Attempt 2: after 100ms
-// Attempt 3: after 200ms
+// Attempt 2: after 100ms delay
+// Attempt 3: after 100ms delay
+// (retryDelay is constant, not exponential)
 ```
 
 ### Dead Letter Queue
@@ -239,8 +244,12 @@ const emitter = new PipelineEmitter(env.PIPELINE, {
 
 // Failed events after 3 retries:
 // 1. Sent to DLQ_PIPELINE for manual review
-// 2. Logged with error context
+// 2. If DLQ also fails, logged with error context
 ```
+
+<Callout type="warning">
+  If both the main Pipeline and DLQ fail, events are lost. The error is logged to console but not thrown to avoid blocking the application.
+</Callout>
 
 ### Error Isolation
 
@@ -260,11 +269,21 @@ Individual batch failures don't affect subsequent batches:
 ```typescript
 interface PipelineEmitterConfig {
   namespace: string           // Required: tenant/DO namespace
-  flushInterval?: number      // Default: 1000 (ms)
-  batchSize?: number          // Default: 100
-  maxRetries?: number         // Default: 3
-  retryDelay?: number         // Default: 100 (ms)
-  deadLetterQueue?: Pipeline  // Optional: DLQ for failed events
+  flushInterval?: number      // Default: 1000 (ms) - set to 0 for immediate mode
+  batchSize?: number          // Default: 100 - events before forced flush
+  maxRetries?: number         // Default: 3 - retry attempts on failure
+  retryDelay?: number         // Default: 100 (ms) - delay between retries
+  deadLetterQueue?: Pipeline  // Optional: separate Pipeline for failed events
+}
+```
+
+### Pipeline Interface
+
+The Pipeline binding must implement this interface:
+
+```typescript
+interface Pipeline {
+  send(batch: unknown[]): Promise<void>
 }
 ```
 
@@ -291,6 +310,12 @@ async beforeHibernation() {
 }
 ```
 
+The `close()` method:
+1. Sets the closed flag to prevent new emits
+2. Clears the flush timer
+3. Flushes any remaining buffered events
+4. Does not wait for in-flight flush promises (they complete in background)
+
 ### Closed State
 
 After `close()`, further emits throw an error:
@@ -301,6 +326,10 @@ await emitter.close()
 emitter.emit('thing.created', 'things', { $id: 'x' })
 // Throws: "PipelineEmitter is closed"
 ```
+
+<Callout type="info">
+  The close() method is designed to not hang even if the Pipeline is slow. In-flight batches complete in the background while close() returns after flushing the buffer.
+</Callout>
 
 ## Integration with DOStorage
 

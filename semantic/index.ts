@@ -667,7 +667,7 @@ function formatFuzzyResults(
     return scored
   }
   // Remove score property from results
-  return scored.map(({ score: _unused, ...rest }) => rest as Thing)
+  return scored.map(({ score: _score, ...rest }) => rest as Thing)
 }
 
 /**

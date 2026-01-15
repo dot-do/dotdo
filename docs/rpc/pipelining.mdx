@@ -12,14 +12,14 @@ Promise pipelining allows you to chain multiple RPC calls into a single network 
 Without pipelining, each RPC call requires a full network round-trip:
 
 ```typescript
-// WITHOUT pipelining: 3 network round-trips
+// WITHOUT pipelining: 2 network round-trips
 const orders = await customer.getOrders()           // Round-trip 1
 const filtered = orders.filter(o => o.total > 100)  // Local
 const ids = filtered.map(o => o.id)                 // Local
 await customer.notify(`Processed ${ids.length}`)    // Round-trip 2
 ```
 
-If each round-trip takes 50ms, this sequence takes at least 100ms of network time.
+If each round-trip takes 50ms, this sequence takes at least 100ms of network time, plus any additional latency from Cloudflare's global network.
 
 ## The Solution: Promise Pipelining
 
@@ -91,7 +91,7 @@ await pipeline(customer)
 
 ### Array Operations
 
-Apply transformations to array results:
+Apply transformations to array results. These operations are detected by name and applied locally to the result:
 
 ```typescript
 const orderIds = await pipeline(customer)
@@ -102,8 +102,8 @@ const orderIds = await pipeline(customer)
 ```
 
 Supported array operations:
-- `filter` - Filter elements by predicate
-- `map` - Transform elements
+- `filter` - Filter elements by predicate function
+- `map` - Transform elements with mapping function
 
 ### Conditional Branching
 
@@ -119,6 +119,10 @@ const result = await pipeline(customer)
   })
   .execute()
 ```
+
+<Callout type="info">
+Pipeline operations like `filter`, `map`, and `branch` are executed locally on the result of the previous step. Only actual method calls on the target object result in RPC invocations.
+</Callout>
 
 ## Inspecting Pipelines
 
@@ -163,14 +167,20 @@ Each step in the plan has:
 Errors include context about where the failure occurred:
 
 ```typescript
+import { RPCError } from 'dotdo/rpc'
+
 try {
   await pipeline(customer)
     .then('getOrders')
     .then('invalidMethod')  // This will fail
     .execute()
 } catch (error) {
-  console.error(error.message)
-  // "Method 'invalidMethod' failed at pipeline step 1"
+  if (error instanceof RPCError) {
+    console.error(error.message)
+    // "Pipeline step 1 failed: method 'invalidMethod()' is invalid or failed (after 1 successful steps)"
+    console.error(error.method)  // 'invalidMethod'
+    console.error(error.target)  // Target URL
+  }
 }
 ```
 
@@ -185,7 +195,7 @@ try {
     .then('failingMethod')  // Step 1: fails
     .execute()
 } catch (error) {
-  if (error.partialResults) {
+  if (error instanceof RPCError && error.partialResults) {
     console.log('Completed steps:', error.partialResults.length)
     console.log('Orders from step 0:', error.partialResults[0])
   }
@@ -200,11 +210,13 @@ Pipeline errors include full RPC context:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `message` | `string` | Error description |
+| `name` | `string` | Always `'RPCError'` |
+| `message` | `string` | Error description with step context |
 | `code` | `string` | Error code (`'RPC_ERROR'`) |
 | `method` | `string` | Method that failed |
 | `target` | `string` | Target URL or stub identifier |
 | `partialResults` | `unknown[]` | Results from completed steps |
+| `stack` | `string` | Stack trace (inherited from Error) |
 
 ## Nested Pipelines
 
@@ -213,16 +225,37 @@ Pipelines can be nested for complex operations:
 ```typescript
 const result = await pipeline(customer)
   .then('getOrders')
-  .then('map', (order) =>
+  .then('map', async (order) =>
     pipeline(order)
       .then('items')
       .execute()
   )
   .execute()
+
+// Note: map returns promises, so result is Promise<Items>[]
+// Use Promise.all if needed:
+const resolved = await Promise.all(result)
 ```
 
 <Callout type="info">
-Nested pipelines are resolved recursively. Each nested pipeline may result in additional network calls depending on the data locality.
+Nested pipelines are resolved recursively. Each nested pipeline may result in additional network calls depending on the data locality. The outer pipeline does not automatically await nested pipeline results - use `Promise.all()` if you need to wait for all nested operations.
+</Callout>
+
+## Streaming Support
+
+For methods that return async iterables, the RPC client handles streaming automatically:
+
+```typescript
+// Methods starting with 'stream' return async iterables
+for await (const order of customer.streamOrders()) {
+  console.log(order.id)
+}
+```
+
+This is handled at the client level, not through pipelines. Streaming methods bypass the pipeline system since they return iterables rather than single values.
+
+<Callout type="warning">
+Streaming methods cannot be combined with pipelining. Each streaming method establishes a separate connection that yields items as they become available. Use pipelining for batch operations and streaming for real-time data feeds.
 </Callout>
 
 ## Performance Characteristics

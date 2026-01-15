@@ -97,19 +97,21 @@ if (result.source === 'sqlite') {
 **SQLite Recovery Flow:**
 
 1. Query all rows from `things` table
-2. Parse JSON data
+2. Parse JSON data from each row
 3. Build state Map
 4. Replay Pipeline events (if any)
 5. Return populated state
 
 ```typescript
-// Internal SQLite query
-const rows = sql.exec('SELECT id, type, data FROM things').toArray()
-const state = new Map()
+// Internal SQLite query in ColdStartRecovery
+private loadFromSQLite(): ThingData[] {
+  const result = this.sql.exec('SELECT id, type, data FROM things')
+  const rows = result.toArray()
 
-for (const row of rows) {
-  const thing = JSON.parse(row.data)
-  state.set(row.id, thing)
+  return rows.map((row) => {
+    const data = JSON.parse(row.data) as ThingData
+    return data
+  })
 }
 ```
 
@@ -194,47 +196,56 @@ const result = await recovery.recover()
 
 ### Event Application
 
+The `applyEvent` method handles all event types:
+
 ```typescript
-function applyEvent(state, event) {
+private applyEvent(
+  state: Map<string, ThingData>,
+  event: IcebergEvent | PipelineEvent
+): void {
   const { type, entityId, payload } = event
 
-  switch (type) {
-    case 'thing.created':
-      state.set(entityId, {
-        $id: entityId,
-        $type: payload.$type ?? 'Unknown',
-        $version: 1,
-        ...payload
-      })
-      break
-
-    case 'thing.updated':
-      const existing = state.get(entityId)
-      if (existing) {
-        state.set(entityId, {
-          ...existing,
-          ...payload,
-          $id: existing.$id,
-          $type: existing.$type,
-          $version: (existing.$version ?? 0) + 1
-        })
-      } else {
-        // Create from update (event sourcing)
-        state.set(entityId, {
-          $id: entityId,
-          $type: payload.$type ?? 'Unknown',
-          $version: 1,
-          ...payload
-        })
+  if (type === 'thing.created') {
+    // Create new entity
+    const thing: ThingData = {
+      $id: entityId,
+      $type: (payload as ThingData).$type ?? 'Unknown',
+      $version: 1,
+      ...payload,
+    }
+    state.set(entityId, thing)
+  } else if (type === 'thing.updated') {
+    const existing = state.get(entityId)
+    if (existing) {
+      // Merge updates, preserving $id and $type
+      const updated: ThingData = {
+        ...existing,
+        ...payload,
+        $id: existing.$id,
+        $type: existing.$type,
+        $version: (existing.$version ?? 0) + 1,
       }
-      break
-
-    case 'thing.deleted':
-      state.delete(entityId)
-      break
+      state.set(entityId, updated)
+    } else {
+      // Event sourcing: create from update if entity doesn't exist
+      const thing: ThingData = {
+        $id: entityId,
+        $type: (payload as ThingData).$type ?? 'Unknown',
+        $version: 1,
+        ...payload,
+      }
+      state.set(entityId, thing)
+    }
+  } else if (type === 'thing.deleted') {
+    // Remove entity from state
+    state.delete(entityId)
   }
 }
 ```
+
+<Callout type="info">
+  The update handler creates an entity if it doesn't exist. This supports event sourcing scenarios where a `thing.created` event might be missing or out of order.
+</Callout>
 
 ## RecoveryResult
 
@@ -242,13 +253,17 @@ function applyEvent(state, event) {
 
 ```typescript
 interface RecoveryResult {
-  source: 'sqlite' | 'iceberg' | 'empty'  // Recovery source
-  thingsLoaded: number                     // Base state count
-  eventsReplayed: number                   // Pipeline events applied
-  state: Map<string, ThingData>            // Final state
-  durationMs: number                       // Recovery duration
+  source: 'sqlite' | 'iceberg' | 'empty'  // Where base state came from
+  thingsLoaded: number                     // Number of things in final state
+  eventsReplayed: number                   // Total events applied (Iceberg + Pipeline)
+  state: Map<string, ThingData>            // Final reconstructed state
+  durationMs: number                       // Total recovery duration
 }
 ```
+
+<Callout type="info">
+  For SQLite recovery, `eventsReplayed` only counts Pipeline events. For Iceberg recovery, it includes both Iceberg events (to reconstruct base state) and Pipeline events (catch-up).
+</Callout>
 
 ### Interpreting Results
 
@@ -266,10 +281,39 @@ interface RecoveryResult {
 
 ```typescript
 interface RecoveryOptions {
-  sql: SqlStorage              // Required: SQLite storage
-  iceberg?: IcebergReader      // Optional: Iceberg for fallback
-  namespace: string            // Required: Tenant namespace
-  pipelineEvents?: PipelineEvent[]  // Optional: Events to replay
+  sql: SqlStorage                   // Required: SQLite storage
+  iceberg?: IcebergReader           // Optional: Iceberg reader for L3 fallback
+  namespace: string                 // Required: Tenant namespace
+  pipelineEvents?: PipelineEvent[]  // Optional: Events to replay on top of base state
+}
+```
+
+### SqlStorage Interface
+
+```typescript
+interface SqlStorage {
+  exec(query: string, ...params: unknown[]): {
+    toArray(): Array<{ id: string; type: string; data: string }>
+  }
+}
+```
+
+### IcebergReader Interface
+
+```typescript
+interface IcebergReader {
+  query(options?: unknown): Promise<IcebergEvent[]>
+}
+```
+
+### PipelineEvent Interface
+
+```typescript
+interface PipelineEvent {
+  type: string                  // Event type (e.g., 'thing.created')
+  entityId: string              // Entity identifier
+  payload: Partial<ThingData>   // Event data
+  ts: number                    // Unix timestamp (milliseconds)
 }
 ```
 
@@ -536,6 +580,10 @@ async ensureRecovered() {
 | Iceberg | ~100ms | Last L3 flush | High |
 | Pipeline | ~1ms per event | Real-time | Depends on retention |
 
+<Callout type="info">
+  Recovery latency depends primarily on the number of entities and the storage source. SQLite recovery is always preferred due to its speed and local availability.
+</Callout>
+
 ### Expected Recovery Times
 
 | Things Count | SQLite | Iceberg | Notes |
@@ -544,6 +592,10 @@ async ensureRecovered() {
 | 1,000 | ~10ms | ~50ms | Typical workload |
 | 10,000 | ~50ms | ~200ms | Large DO |
 | 100,000 | ~500ms | ~2s | Very large - consider sharding |
+
+<Callout type="warning">
+  For DOs with more than 100,000 entities, consider sharding across multiple DO instances or implementing lazy loading to reduce cold start time.
+</Callout>
 
 ## Next Steps
 

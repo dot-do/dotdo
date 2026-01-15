@@ -182,11 +182,13 @@ console.log(result.rejectedAt)       // Rejection timestamp
 console.log(result.rejectionReason)  // 'Budget exceeded...'
 ```
 
-### Rejection Rules
+<Callout type="info">
+**Rejection Rules**
 
 1. **Reason required**: All rejections must include a reason
-2. **Level authority**: Only current or previous level approvers can reject
+2. **Level authority**: Only the current approver or any previous approver can reject
 3. **Final state**: Rejected requests cannot be modified
+</Callout>
 
 ```typescript
 // Invalid: rejection without reason
@@ -369,35 +371,64 @@ async function approveWithNotification(
 
 ## Validation
 
-The workflow validates all inputs:
+The workflow validates all inputs with comprehensive error messages:
 
 ```typescript
-// Required fields
+// Required string fields must be non-empty
 await workflow.request({
-  id: '',  // Error: ApprovalRequest id is required
-  type: 'expense',
-  // ...
+  id: '',           // Error: ApprovalRequest id is required
+  type: '',         // Error: ApprovalRequest type is required
+  title: '',        // Error: ApprovalRequest title is required
+  description: '',  // Error: ApprovalRequest description is required
+  requestedBy: '',  // Error: ApprovalRequest requestedBy is required
+  requestedAt: new Date()
 }, approvers)
 
-// At least one approver
+// At least one approver required
 await workflow.request(action, [])
 // Error: At least one approver is required
 
-// Valid amount
+// Amount must be non-negative when provided
 await workflow.request({
   ...action,
-  amount: -100  // Error: amount must be non-negative
+  amount: -100  // Error: ApprovalRequest amount must be a non-negative number
 }, approvers)
 
-// Valid date
+// Date must be valid
 await workflow.request({
   ...action,
-  requestedAt: new Date('invalid')  // Error: must be valid date
+  requestedAt: new Date('invalid')  // Error: ApprovalRequest requestedAt must be a valid date
 }, approvers)
+
+// Whitespace-only strings are rejected
+await workflow.request({
+  ...action,
+  title: '   '  // Error: ApprovalRequest title is required
+}, approvers)
+```
+
+## Duration Strings
+
+Deadlines support natural language duration strings:
+
+```typescript
+// Minutes
+'15 minutes', '30 min', '5m'
+
+// Hours
+'2 hours', '4 hr', '1h'
+
+// Days
+'3 days', '1 day', '7d'
+
+// Examples
+await workflow.request(action, approvers, { deadline: '24 hours' })
+await workflow.request(action, approvers, { deadline: '2 days' })
+await workflow.request(action, approvers, { deadline: '30m' })
 ```
 
 ## Next Steps
 
-- [Escalation Policies](/human/escalation) - Add automatic escalation to approvals
-- [Review Queues](/human/queues) - Manage pending approvals in priority queues
-- [Notifications](/human/notifications) - Send approval notifications
+- [Escalation Policies](./escalation) - Add automatic escalation to approvals
+- [Review Queues](./queues) - Manage pending approvals in priority queues
+- [Notifications](./notifications) - Send approval notifications

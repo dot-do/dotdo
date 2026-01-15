@@ -13,7 +13,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     globals: true,
-    include: ['tests/app.test.ts'],
+    include: ['tests/app.test.ts', 'tests/workers-config.test.ts', 'tests/fumadocs.test.ts', 'tests/seo.test.ts', 'tests/layout.test.ts'],
     exclude: ['node_modules', 'dist'],
     testTimeout: 10_000,
   },

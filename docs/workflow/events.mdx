@@ -1,52 +1,86 @@
 ---
 title: Event Handlers
-description: React to domain events with $.on.Noun.verb() and wildcard matching
+description: React to domain events with on.Noun.verb() and handler lifecycle management
 ---
 
-# Event Handlers ($.on)
+# Event Handlers (on)
 
 The event system enables reactive programming with a fluent `Noun.verb` syntax. Using JavaScript Proxies, any combination of nouns and verbs works without pre-registration.
+
+```typescript
+import { on, send, clearHandlersByContext, getHandlerCount } from 'dotdo/workflows'
+```
 
 ## Basic Usage
 
 ```typescript
-// Register a handler
-$.on.Customer.signup(async (event) => {
-  console.log(`Welcome ${event.data.name}!`)
-  await sendWelcomeEmail(event.data.email)
+// Register a handler - returns unsubscribe function
+const unsubscribe = on.Customer.signup((customer) => {
+  console.log(`Welcome ${customer.name}!`)
+  sendWelcomeEmail(customer.email)
 })
 
 // Register another for the same event
-$.on.Customer.signup((event) => {
-  trackAnalytics('signup', event.data)
+on.Customer.signup((customer) => {
+  trackAnalytics('signup', customer)
 })
+
+// Later: remove the handler
+unsubscribe()
 ```
 
-## Event Structure
+## Context-Based Cleanup
 
-Every event handler receives an `Event` object:
+Register handlers with a context for grouped cleanup - essential for Durable Objects:
 
 ```typescript
-interface Event {
-  id: string        // Unique event ID (evt_1234...)
-  type: string      // Full type (e.g., "Customer.signup")
-  subject: string   // The noun (e.g., "Customer")
-  object: string    // The verb (e.g., "signup")
-  data: unknown     // Event payload
-  timestamp: Date   // When the event occurred
+// Register with context (e.g., DO namespace)
+on.Order.created((order) => {
+  processOrder(order)
+}, { context: 'order-processor' })
+
+on.Order.shipped((order) => {
+  notifyCustomer(order)
+}, { context: 'order-processor' })
+
+// Later: clean up ALL handlers for this context
+const removedCount = clearHandlersByContext('order-processor')
+console.log(`Removed ${removedCount} handlers`)
+```
+
+## Handler Registration
+
+Each handler registration captures metadata and returns an unsubscribe function:
+
+```typescript
+interface HandlerRegistration {
+  handler: Function      // The registered handler
+  eventKey: string       // Event key (e.g., "Customer.signup")
+  context?: string       // Optional context for cleanup
+  registeredAt: number   // Registration timestamp
+}
+
+interface OnHandlerOptions {
+  /** Context identifier for grouped cleanup (e.g., DO namespace) */
+  context?: string
 }
 ```
 
-Example event:
+## Event Key Format
+
+Events use a `Noun.verb` key format:
+
 ```typescript
-{
-  id: 'evt_1705312345_abc123xyz',
-  type: 'Customer.signup',
-  subject: 'Customer',
-  object: 'signup',
-  data: { name: 'Alice', email: 'alice@example.com' },
-  timestamp: new Date('2025-01-15T10:00:00Z')
-}
+// Event keys
+'Customer.signup'    // on.Customer.signup()
+'Payment.failed'     // on.Payment.failed()
+'Order.shipped'      // on.Order.shipped()
+
+// Handler receives the event payload directly
+on.Customer.signup((customer) => {
+  // customer is the payload, not wrapped in an event object
+  console.log(customer.email)
+})
 ```
 
 ## Wildcard Matching
@@ -57,7 +91,7 @@ Match multiple events with wildcard patterns:
 
 ```typescript
 // React to any entity being created
-$.on['*'].created((event) => {
+on['*'].created((event) => {
   console.log(`Created: ${event.subject}`)
   auditLog('created', event)
 })
@@ -72,7 +106,7 @@ $.on['*'].created((event) => {
 
 ```typescript
 // React to any Customer event
-$.on.Customer['*']((event) => {
+on.Customer['*']((event) => {
   console.log(`Customer event: ${event.object}`)
   customerActivity.track(event)
 })
@@ -87,7 +121,7 @@ $.on.Customer['*']((event) => {
 
 ```typescript
 // Global event logging
-$.on['*']['*']((event) => {
+on['*']['*']((event) => {
   logger.info(`Event: ${event.type}`, event.data)
 })
 ```
@@ -99,11 +133,11 @@ Handlers execute in registration order:
 ```typescript
 const order: number[] = []
 
-$.on.Customer.signup(() => order.push(1))
-$.on.Customer.signup(() => order.push(2))
-$.on.Customer.signup(() => order.push(3))
+on.Customer.signup(() => order.push(1))
+on.Customer.signup(() => order.push(2))
+on.Customer.signup(() => order.push(3))
 
-await $.dispatch('Customer.signup', {})
+// When 'Customer.signup' is dispatched:
 // order === [1, 2, 3]
 ```
 
@@ -112,12 +146,12 @@ await $.dispatch('Customer.signup', {})
 Both sync and async handlers are supported. Async handlers are awaited in sequence:
 
 ```typescript
-$.on.Order.placed(async (event) => {
+on.Order.placed(async (event) => {
   // First: reserve inventory
   await inventory.reserve(event.data.items)
 })
 
-$.on.Order.placed(async (event) => {
+on.Order.placed(async (event) => {
   // Second: notify warehouse (runs after first completes)
   await warehouse.notify(event.data)
 })
@@ -128,38 +162,87 @@ $.on.Order.placed(async (event) => {
 Each registration returns an unsubscribe function:
 
 ```typescript
-const unsubscribe = $.on.Customer.signup(handler)
+const unsubscribe = on.Customer.signup(handler)
 
 // Later: remove the handler
-unsubscribe()
+const wasRemoved = unsubscribe() // returns boolean
 ```
 
-## Dispatching Events
-
-Trigger events programmatically:
+You can also unregister by reference:
 
 ```typescript
-// Dispatch and wait for all handlers
-await $.dispatch('Customer.signup', {
-  name: 'Alice',
-  email: 'alice@example.com'
+import { unregisterHandler } from 'dotdo/workflows'
+
+function myHandler(customer) {
+  console.log(customer.name)
+}
+
+on.Customer.signup(myHandler)
+
+// Later: unregister by reference
+const removed = unregisterHandler('Customer.signup', myHandler)
+```
+
+## Emitting Events
+
+Use the `send` proxy for fire-and-forget event emission:
+
+```typescript
+import { send } from 'dotdo/workflows'
+
+// Fire-and-forget - returns PipelinePromise
+send.Order.shipped({
+  orderId: '12345',
+  carrier: 'UPS',
+  trackingNumber: '1Z999AA10123456784'
+})
+
+// Chain with other operations
+send.Customer.created({
+  id: 'cust_123',
+  email: 'user@example.com',
+  name: 'John Doe'
 })
 ```
 
-For fire-and-forget event emission, use `$.send()` instead. See [Durability](/docs/workflow/durability).
+See [Durability](./durability) for more on event emission patterns.
 
 ## Querying Handlers
 
 Inspect registered handlers:
 
 ```typescript
-// Get handlers for exact match
-const handlers = $.getRegisteredHandlers('Customer.signup')
+import {
+  getRegisteredHandlers,
+  getHandlerRegistrations,
+  getHandlerCount,
+  getRegisteredEventKeys,
+  clearHandlers
+} from 'dotdo/workflows'
+
+// Get handlers for an event (optionally filtered by context)
+const handlers = getRegisteredHandlers('Customer.signup')
 console.log(`${handlers.length} handlers registered`)
 
-// Get all matching handlers (includes wildcards)
-const allMatching = $.matchHandlers('Customer.signup')
-// Includes: Customer.signup, *.signup, Customer.*, *.*
+// Filter by context
+const contextHandlers = getRegisteredHandlers('Customer.signup', 'my-do')
+
+// Get full registrations with metadata
+const registrations = getHandlerRegistrations('Customer.signup')
+registrations.forEach(reg => {
+  console.log(`Handler registered at ${reg.registeredAt}, context: ${reg.context}`)
+})
+
+// Get total handler count (optionally by context)
+const total = getHandlerCount()
+const contextCount = getHandlerCount('my-do')
+
+// Get all registered event keys
+const eventKeys = getRegisteredEventKeys()
+// ['Customer.signup', 'Order.created', 'Payment.failed', ...]
+
+// Clear all handlers (for testing/reset)
+clearHandlers()
 ```
 
 ## Common Patterns
@@ -168,7 +251,7 @@ const allMatching = $.matchHandlers('Customer.signup')
 
 ```typescript
 // Audit trail for all domain events
-$.on['*']['*']((event) => {
+on['*']['*']((event) => {
   eventStore.append({
     type: event.type,
     data: event.data,
@@ -182,7 +265,7 @@ $.on['*']['*']((event) => {
 
 ```typescript
 // Add timing to all events
-$.on['*']['*'](async (event) => {
+on['*']['*'](async (event) => {
   const start = Date.now()
   // Handlers run, then this continues
   metrics.timing(`event.${event.type}`, Date.now() - start)
@@ -193,32 +276,64 @@ $.on['*']['*'](async (event) => {
 
 ```typescript
 // Customer lifecycle management
-$.on.Customer.created(initializeCustomer)
-$.on.Customer.verified(enableFeatures)
-$.on.Customer.upgraded(migrateToNewTier)
-$.on.Customer.churned(startWinbackCampaign)
-$.on.Customer.deleted(cleanupResources)
+on.Customer.created(initializeCustomer)
+on.Customer.verified(enableFeatures)
+on.Customer.upgraded(migrateToNewTier)
+on.Customer.churned(startWinbackCampaign)
+on.Customer.deleted(cleanupResources)
 ```
 
-## Error Handling
+## Durable Object Integration
 
-When using `$.dispatch()`, errors propagate to the caller. For fire-and-forget semantics with error tracking, use `$.send()` with `$.onError()`:
+Best practices for using events in Durable Objects:
 
 ```typescript
-$.onError((errorInfo) => {
-  alerting.notify({
-    error: errorInfo.error,
-    eventType: errorInfo.eventType,
-    eventId: errorInfo.eventId
-  })
-})
+import { on, clearHandlersByContext } from 'dotdo/workflows'
 
-$.on.Payment.process(() => {
-  throw new Error('Payment gateway unavailable')
-})
+class OrderProcessor {
+  private contextId: string
 
-// Does not throw - error captured via onError callback
-$.send('Payment.process', { amount: 100 })
+  constructor(ctx: DurableObjectState) {
+    // Use DO ID as context for handler cleanup
+    this.contextId = ctx.id.toString()
+
+    // Register handlers with context
+    on.Order.created(this.handleOrderCreated.bind(this), {
+      context: this.contextId
+    })
+
+    on.Order.shipped(this.handleOrderShipped.bind(this), {
+      context: this.contextId
+    })
+  }
+
+  private handleOrderCreated(order: Order) {
+    // Process new order
+  }
+
+  private handleOrderShipped(order: Order) {
+    // Handle shipment
+  }
+
+  // Call when DO is being destroyed
+  cleanup() {
+    const removed = clearHandlersByContext(this.contextId)
+    console.log(`Cleaned up ${removed} handlers`)
+  }
+}
 ```
 
-See [Durability](/docs/workflow/durability) for more on error handling strategies.
+## API Reference
+
+| Function | Description |
+|----------|-------------|
+| `on.Noun.verb(handler, options?)` | Register event handler, returns unsubscribe |
+| `getRegisteredHandlers(eventKey, context?)` | Get handlers for event key |
+| `getHandlerRegistrations(eventKey)` | Get registrations with metadata |
+| `getHandlerCount(context?)` | Get total handler count |
+| `getRegisteredEventKeys()` | Get all event keys with handlers |
+| `unregisterHandler(eventKey, handler)` | Remove specific handler |
+| `clearHandlersByContext(context)` | Remove all handlers for context |
+| `clearHandlers()` | Remove all handlers |
+
+See [Durability](./durability) for more on event emission and execution patterns.

@@ -18,6 +18,28 @@ Building multi-tenant SaaS applications typically requires:
 
 Traditional approaches use database-level row filtering or separate databases, both adding complexity and potential security risks.
 
+## Trade-offs
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Complete isolation by default | Cross-tenant queries require aggregation |
+| Zero shared state | Each tenant has separate SQLite database |
+| Scales to millions of tenants | Cold start for inactive tenants (~50ms) |
+| Geographic locality per tenant | Tenant migration requires data export/import |
+| Simple security model | Admin dashboard needs separate design |
+
+**Use this pattern when:**
+- You need strong isolation guarantees
+- Tenants have independent data that rarely needs aggregation
+- You want automatic scaling without infrastructure management
+
+**Avoid this pattern when:**
+- You need frequent cross-tenant analytics
+- Tenants share significant data or state
+- You have a single-tenant application
+
+> **Tip**: Each tenant gets their own SQLite database (up to 1GB). For tenants with high data volumes, consider using the [Cold Tier](/storage/cold-tier) pattern to archive old data to R2.
+
 ## Architecture Overview
 
 ```
@@ -51,7 +73,7 @@ The worker extracts the tenant namespace from the hostname and routes to the app
 
 ```typescript
 // api/index.ts
-import { DOWorkflow } from '../workflow/DOWorkflow'
+import { DOWorkflow } from 'dotdo'
 
 export { DOWorkflow }
 
@@ -107,7 +129,8 @@ Each tenant gets their own DO with isolated storage:
 
 ```typescript
 // objects/TenantDO.ts
-import { DOWorkflow, type DOWorkflowEnv } from '../workflow/DOWorkflow'
+import { DOWorkflow } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
 
 export interface TenantConfig {
   name: string
@@ -123,7 +146,7 @@ export interface TenantConfig {
 export class TenantDO extends DOWorkflow {
   private config: TenantConfig | null = null
 
-  constructor(ctx: DurableObjectState, env: DOWorkflowEnv) {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
 
     // Register tenant-specific routes
@@ -294,7 +317,8 @@ For tenant provisioning and validation:
 
 ```typescript
 // objects/TenantRegistry.ts
-import { DOCore, type DOCoreEnv } from '../core/DOCore'
+import { DOCore } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
 
 interface TenantRecord {
   id: string
@@ -305,7 +329,7 @@ interface TenantRecord {
 }
 
 export class TenantRegistry extends DOCore {
-  constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
 
     this.app.post('/api/tenants', async (c) => {
@@ -484,6 +508,70 @@ async function getNamespaceFromJWT(request: Request): Promise<string> {
   return payload.tenant_id ?? 'default'
 }
 ```
+
+## Real-World Example: SaaS Billing Integration
+
+This example shows how to integrate Stripe billing with per-tenant isolation:
+
+```typescript
+// Handle Stripe webhooks and route to correct tenant
+app.post('/webhooks/stripe', async (c) => {
+  const signature = c.req.header('stripe-signature')
+  const payload = await c.req.text()
+
+  // Verify webhook signature
+  const event = stripe.webhooks.constructEvent(
+    payload,
+    signature,
+    env.STRIPE_WEBHOOK_SECRET
+  )
+
+  // Extract tenant from Stripe metadata
+  const tenantId = event.data.object.metadata?.tenant_id
+  if (!tenantId) {
+    return c.json({ error: 'No tenant_id in metadata' }, 400)
+  }
+
+  // Route to tenant's DO
+  const stub = env.DO.get(env.DO.idFromName(tenantId))
+  await stub.fetch(new Request('https://internal/webhooks/stripe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(event)
+  }))
+
+  return c.json({ received: true })
+})
+```
+
+Inside the tenant DO, handle the webhook event:
+
+```typescript
+// Inside TenantDO
+this.app.post('/webhooks/stripe', async (c) => {
+  const event = await c.req.json()
+
+  switch (event.type) {
+    case 'invoice.paid':
+      await this.$.send('Payment.succeeded', event.data.object)
+      break
+    case 'invoice.payment_failed':
+      await this.$.send('Payment.failed', event.data.object)
+      break
+    case 'customer.subscription.updated':
+      await this.updateSubscription(event.data.object)
+      break
+  }
+
+  return c.json({ processed: true })
+})
+```
+
+## Related Documentation
+
+- [Core Module](/core) - Base class with routing and state management
+- [Workflow Module](/workflow) - Event handlers (`$.on`) and scheduling (`$.every`)
+- [RPC Module](/rpc) - Type-safe client for calling tenant DOs
 
 ## Next Steps
 

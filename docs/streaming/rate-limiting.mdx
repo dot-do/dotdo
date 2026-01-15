@@ -10,29 +10,41 @@ The `RateLimiter` class implements the token bucket algorithm for controlling re
 ## Token Bucket Algorithm
 
 The token bucket algorithm works like a bucket that:
-- Holds up to `bucketSize` tokens
-- Refills at `refillRate` tokens per second
+- Holds up to `bucketSize` tokens (burst capacity)
+- Refills at `refillRate` tokens per second (sustained rate)
 - Each request consumes tokens
 - Requests are rejected when tokens are exhausted
 
 ```
-    +----------------+
-    |   Bucket       |  <- Refills at `refillRate` tokens/sec
-    |  [===========] |  <- Current tokens
-    |  [           ] |  <- bucketSize capacity
-    +-------+--------+
-            |
-            v
-    Request comes in
-            |
-    +-------+--------+
-    | Have tokens?   |
-    +-------+--------+
-       / Y      \ N
-      /          \
-  Allow        Reject
-  (-1 token)
+    +------------------+
+    |   Token Bucket   |
+    |                  |
+    |  [=============] |  <- bucketSize: 100 (max capacity)
+    |  [=======       ] |  <- availableTokens: 70
+    +--------+---------+
+             |
+             v  Refills at refillRate tokens/sec
+             |
+    +--------+---------+
+    |  Request arrives |
+    +--------+---------+
+             |
+    +--------+---------+
+    | tokens >= cost?  |
+    +--------+---------+
+        /         \
+       YES         NO
+        |           |
+        v           v
+    [ALLOW]     [REJECT]
+    tokens -= 1  (try again later)
 ```
+
+### Key Concepts
+
+- **Burst capacity:** Initial requests up to `bucketSize` always succeed immediately
+- **Sustained rate:** After burst exhaustion, requests are limited to `refillRate` per second
+- **Fractional refill:** Tokens accumulate fractionally between requests, enabling smooth rate limiting
 
 ## Basic Usage
 
@@ -129,17 +141,36 @@ try {
 }
 ```
 
+The `waitForToken()` method:
+- Returns immediately if tokens are available
+- Waits and polls until a token becomes available via refill
+- Throws `Error('Timeout waiting for token')` if timeout is exceeded
+- Consumes exactly 1 token when it resolves
+
+> **Tip:** Use `waitForToken()` for request queuing scenarios where you want to delay rather than reject. Use `tryAcquire()` for immediate accept/reject decisions.
+
 ## Token Status
 
 ### Available Tokens
 
+The `availableTokens` property behaves differently based on configuration:
+
 ```typescript
-// Global limiter
-const tokens = limiter.availableTokens
+// Global limiter - availableTokens is a number
+const globalLimiter = new RateLimiter({
+  bucketSize: 100,
+  refillRate: 10,
+})
+const tokens = globalLimiter.availableTokens // number
 console.log(`${tokens} tokens available`)
 
-// Per-client limiter
-const clientTokens = limiter.availableTokens('client-123')
+// Per-client limiter - availableTokens is a function
+const clientLimiter = new RateLimiter({
+  bucketSize: 10,
+  refillRate: 1,
+  perClient: true,
+})
+const clientTokens = clientLimiter.availableTokens('client-123') // function call
 ```
 
 ### Full Status
@@ -147,14 +178,16 @@ const clientTokens = limiter.availableTokens('client-123')
 ```typescript
 const status = limiter.getStatus()
 console.log({
-  availableTokens: status.availableTokens,
-  bucketSize: status.bucketSize,
-  refillRate: status.refillRate,
+  availableTokens: status.availableTokens,  // Current tokens (floored)
+  bucketSize: status.bucketSize,            // Maximum capacity
+  refillRate: status.refillRate,            // Tokens per second
 })
 
 // Per-client status
 const clientStatus = limiter.getStatus('client-123')
 ```
+
+Note: `availableTokens` in the status is floored to an integer.
 
 ## Per-Client Rate Limiting
 
@@ -182,6 +215,8 @@ limiter.tryAcquire(1, 'client-b') // true - client-b has full bucket
 - User-specific request limits
 - Tenant isolation in multi-tenant systems
 - WebSocket message limits per connection
+
+> **Note:** Per-client buckets are created on first access and persist in memory. For high-cardinality client IDs, consider periodic cleanup or using a global limiter with client-aware fairness.
 
 ## Reset
 
@@ -335,3 +370,8 @@ interface RateLimiterStatus {
   refillRate: number
 }
 ```
+
+## Related
+
+- [Backpressure](/streaming/backpressure) - Flow control for buffer management
+- [WebSocket Hub](/streaming/websocket-hub) - Rate limit WebSocket messages

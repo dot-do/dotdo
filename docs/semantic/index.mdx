@@ -4,13 +4,14 @@ description: Domain modeling DSL with automatic linguistic automation for Nouns,
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
+import { Cards, Card } from 'fumadocs-ui/components/card'
 
 # Semantic Type System
 
 **Domain modeling that reads like natural language.** The semantic module provides a complete type system where Nouns define entity types, Verbs define actions, Things are instances, and Relationships connect everything through a graph you can traverse with simple operators.
 
 ```typescript
-import { noun, verb, thing, action, forward, backward } from 'dotdo/semantic'
+import { noun, verb, thing, action, forward, backward } from '@dotdo/semantic'
 
 // Define your domain
 const Customer = noun('Customer')
@@ -28,6 +29,10 @@ const result = action(alice, purchase, order)
 const orders = forward(alice, 'Order')      // alice -> Order
 const buyers = backward(order, 'Customer')  // order <- Customer
 ```
+
+<Callout type="info">
+The semantic module is available as both standalone functions (for testing and simple usage) and as the `DOSemantic` Durable Object class (for production with persistent storage).
+</Callout>
 
 ## Core Concepts
 
@@ -152,7 +157,7 @@ Fuzzy operators use vector embeddings for semantic similarity. Configure `config
 All semantic types are fully typed for TypeScript:
 
 ```typescript
-import type { Noun, Verb, Thing, Action, ActionResult } from 'dotdo/semantic'
+import type { Noun, Verb, Thing, Action, ActionResult, ScoredThing } from '@dotdo/semantic'
 
 interface CustomerData {
   name: string
@@ -165,6 +170,11 @@ const customer: Thing<CustomerData> = thing(Customer, {
   email: 'alice@example.com',
   plan: 'pro'
 })
+
+// Fuzzy search results include similarity scores
+const similar: ScoredThing<CustomerData>[] = await forwardFuzzy(
+  customer, 'Customer', { withScores: true }
+) as ScoredThing<CustomerData>[]
 ```
 
 ## Documentation
@@ -184,8 +194,49 @@ const customer: Thing<CustomerData> = thing(Customer, {
   </Card>
 </Cards>
 
-## Related
+## DOSemantic Durable Object
 
-- [Concepts: Things](/docs/concepts/things) - URL-based Thing identity in dotdo
-- [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern
-- [Concepts: Relationships](/docs/concepts/relationships) - Thing connections
+<Callout type="warning">
+Use standalone functions for testing and simple scripts. Use `DOSemantic` for production - it persists all data to SQLite and survives restarts.
+</Callout>
+
+For production use with persistent storage, use the `DOSemantic` Durable Object class:
+
+```typescript
+import { DOSemantic, type DOSemanticEnv } from '@dotdo/semantic/DOSemantic'
+
+// In your worker
+export default {
+  async fetch(request: Request, env: DOSemanticEnv): Promise<Response> {
+    const id = env.DOSemantic.idFromName('my-namespace')
+    const stub = env.DOSemantic.get(id)
+    return stub.fetch(request)
+  }
+}
+
+export { DOSemantic }
+```
+
+The DOSemantic class provides the same semantic operations with SQLite-backed persistence:
+
+```typescript
+// Inside a DOSemantic method
+const Customer = this.defineNoun('Customer')
+const purchase = this.defineVerb('purchase')
+
+const alice = this.createThing('Customer', { name: 'Alice' })
+const order = this.createThing('Order', { total: 99.99 })
+
+const result = this.createAction(alice.$id, 'purchase', order.$id)
+
+// Traverse relationships
+const orders = this.forward(alice.$id, 'Order')
+const buyers = this.backward(order.$id, 'Customer')
+```
+
+## Next Steps
+
+- Read [Nouns & Verbs](/docs/semantic/nouns-verbs) to learn about linguistic automation
+- Explore [Things](/docs/semantic/things) for entity instance patterns
+- Understand [Actions](/docs/semantic/actions) for the unified event model
+- Navigate your graph with [Relationships](/docs/semantic/relationships)

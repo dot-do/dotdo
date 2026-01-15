@@ -5,15 +5,29 @@ description: Process multiple AI operations with immediate, flex, and deferred b
 
 # Batch Processing
 
-The batch system allows you to process multiple items through AI operations with different cost/speed tradeoffs. Choose the mode that matches your latency requirements and budget.
+The batch system processes multiple items through AI operations with different cost/speed tradeoffs. Choose the mode that matches your latency requirements and budget.
 
 ## Batch Modes
 
-| Mode | Cost Multiplier | Use Case |
-|------|-----------------|----------|
-| `immediate` | 1.0x | Real-time, user-facing operations |
-| `flex` | 0.5x | Background processing with some urgency |
-| `deferred` | 0.25x | Bulk processing, no time pressure |
+| Mode | Cost Multiplier | Budget Cost | Use Case |
+|------|-----------------|-------------|----------|
+| `immediate` | 1.0x | 1.0 per item | Real-time, user-facing operations |
+| `flex` | 0.5x | 0.5 per item | Background processing with some urgency |
+| `deferred` | 0.25x | 0.25 per item | Bulk processing, no time pressure |
+
+## Type Definition
+
+```typescript
+type BatchMode = 'immediate' | 'flex' | 'deferred'
+
+interface BatchResult<T> extends PromiseLike<T[]> {
+  batchId: string
+}
+
+// Overloaded signatures
+batch<T>(items: T[], mode: BatchMode): BatchResult<string> & Promise<string[]>
+batch<T, R>(items: T[], mode: BatchMode, template: (item: T) => AIPromise<R>): Promise<R[]>
+```
 
 ## Basic Usage
 
@@ -64,13 +78,13 @@ const keywordLists = await ai.batch(
 
 ## Batch Result Object
 
-The batch function returns a `BatchResult` that is also a `Promise`:
+The batch function returns a `BatchResult` that is also a `Promise`. The batch ID format is `batch-{timestamp}-{random}`:
 
 ```typescript
 const batch = ai.batch(items, 'immediate')
 
 // Get the batch ID for tracking
-console.log(batch.batchId) // "batch-1234567890-abc123"
+console.log(batch.batchId) // "batch-1705329876543-a1b2c3"
 
 // Await results
 const results = await batch
@@ -78,14 +92,17 @@ const results = await batch
 
 ## Tracking Batch Status
 
-Monitor batch progress with the status function:
+Monitor batch progress with the status function. Status is tracked per-AI-instance to avoid race conditions in Cloudflare Workers:
 
 ```typescript
 const batch = ai.batch(items, 'deferred')
 
-// Check status periodically
+// Check status
 const status = await ai.batch.status(batch.batchId)
 // Returns: 'pending' | 'processing' | 'completed'
+
+// Status transitions:
+// 'pending' -> 'processing' -> 'completed'
 
 // Poll for completion
 while (await ai.batch.status(batch.batchId) !== 'completed') {
@@ -94,6 +111,10 @@ while (await ai.batch.status(batch.batchId) !== 'completed') {
 
 const results = await batch
 ```
+
+<Callout type="warn">
+If a batch fails, status still transitions to `'completed'`. Check for errors by awaiting the batch.
+</Callout>
 
 ## Mode Selection Guide
 
@@ -202,18 +223,18 @@ console.log('Remaining:', ai.budget.remaining)
 
 ## Error Handling
 
-Batch operations fail fast by default:
+Batch operations fail fast by default. Errors include the batch ID for debugging:
 
 ```typescript
 try {
   const results = await ai.batch(items, 'immediate')
 } catch (error) {
-  // One item failed - entire batch fails
-  console.error('Batch failed:', error)
+  // Error format: "Batch batch-123456-abc failed: <reason>"
+  console.error('Batch failed:', error.message)
 }
 ```
 
-For partial results, process individually:
+For partial results, process individually with `Promise.allSettled`:
 
 ```typescript
 const results = await Promise.allSettled(
@@ -227,6 +248,23 @@ const successful = results
 const failed = results
   .filter(r => r.status === 'rejected')
   .map(r => r.reason)
+```
+
+Budget errors during batch processing also fail fast:
+
+```typescript
+import { createAI, AIBudgetExceededError } from 'dotdo/ai'
+
+const ai = createAI({ budget: { limit: 5 } })
+
+try {
+  // If 10 items exceed budget, fails mid-batch
+  await ai.batch(tenItems, 'immediate')
+} catch (error) {
+  if (error.cause instanceof AIBudgetExceededError) {
+    console.log('Budget exhausted during batch')
+  }
+}
 ```
 
 ## Performance Considerations
@@ -249,6 +287,6 @@ const results2 = await ai.batch(items, 'immediate') // Instant from cache
 
 ## Next Steps
 
-- [Budget Tracking](/ai/budget) - Monitor costs across batch operations
-- [Caching](/ai/caching) - Reduce costs with response caching
-- [Providers](/ai/providers) - Configure batch processing providers
+- [Budget Tracking](./budget) - Monitor costs across batch operations
+- [Caching](./caching) - Reduce costs with response caching
+- [Providers](./providers) - Configure batch processing providers

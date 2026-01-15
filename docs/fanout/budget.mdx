@@ -3,9 +3,15 @@ title: Subrequest Budget
 description: Track and enforce Cloudflare subrequest limits for Workers (50) and Durable Objects (1000)
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
 # Subrequest Budget
 
 Cloudflare imposes limits on the number of subrequests (fetch calls to other services or DOs) a single request can make. The `SubrequestBudget` class helps track and manage these limits in distributed query scenarios.
+
+<Callout type="warn">
+Exceeding subrequest limits causes your request to fail. Use the budget tracker to plan batching strategies before executing queries.
+</Callout>
 
 ## Cloudflare Limits
 
@@ -60,9 +66,15 @@ const budget = new SubrequestBudget(50)
 budget.track(30)  // OK
 budget.track(10)  // OK - 40 used, 10 remaining
 
-budget.track(15)  // Error: Budget exceeded
-// "Budget exceeded: attempting to use 15 but only 10 remaining"
+try {
+  budget.track(15)  // Throws!
+} catch (e) {
+  console.error(e.message)
+  // "Budget exceeded: attempting to use 15 but only 10 remaining"
+}
 ```
+
+The error message includes the attempted usage and remaining budget for debugging.
 
 ### trackUnchecked()
 
@@ -108,6 +120,26 @@ budget.track(30)
 budget.optimalBatchSize(100)  // 20 (only 20 remaining)
 ```
 
+The formula is simply: `Math.min(remaining, scannerCount)`
+
+Use this when manually implementing batched operations:
+
+```typescript
+const budget = new SubrequestBudget(50)
+const scanners = getScanners()  // 128 scanners
+
+for (let i = 0; i < scanners.length; ) {
+  const batchSize = budget.optimalBatchSize(scanners.length - i)
+  const batch = scanners.slice(i, i + batchSize)
+
+  // Execute batch
+  await Promise.all(batch.map(s => s.execute(sql)))
+  budget.trackUnchecked(batchSize)
+
+  i += batchSize
+}
+```
+
 ## Integration with QueryCoordinator
 
 ### Automatic Batching
@@ -146,7 +178,22 @@ await coordinator.queryWithBudget('SELECT * FROM users', budget)
 // Error: "Subrequest budget exhausted - too many batches required"
 ```
 
-The coordinator rejects queries requiring more than 3 batches.
+The coordinator enforces a **maximum of 3 batches** to prevent:
+- Excessive round-trip latency
+- Timeout issues with long-running multi-batch operations
+- Resource exhaustion from too many sequential operations
+
+| Scanners | Budget | Batches | Result |
+|----------|--------|---------|--------|
+| 128 | 50 | 3 | OK |
+| 128 | 43 | 3 | OK |
+| 128 | 42 | 4 | Error |
+| 256 | 100 | 3 | OK |
+| 256 | 85 | 4 | Error |
+
+<Callout type="info">
+Formula: `ceil(scannerCount / budget) <= 3`. Use `budget >= ceil(scannerCount / 3)` to ensure your query succeeds.
+</Callout>
 
 ## Workers vs Durable Objects
 
@@ -190,6 +237,10 @@ export class CoordinatorDO extends DurableObject {
 ### Hybrid Architecture
 
 Use a coordinator DO to handle large fan-outs:
+
+<Callout type="info">
+This is the recommended pattern for fan-outs exceeding 150 scanners. The Worker makes a single subrequest to the coordinator DO, which can then make up to 1000 subrequests to scanners.
+</Callout>
 
 ```
 Worker (50 limit) -> Coordinator DO (1000 limit) -> Scanner DOs

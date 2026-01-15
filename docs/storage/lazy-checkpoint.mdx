@@ -157,8 +157,14 @@ async beforeHibernation() {
 The checkpointer requires a `DirtyTracker` to know what to persist:
 
 ```typescript
+interface DirtyEntry {
+  type: string     // Entity type (e.g., 'Customer')
+  data: unknown    // The actual data to persist
+  size: number     // Estimated byte size
+}
+
 interface DirtyTracker {
-  getDirtyEntries(): Map<string, { type: string; data: unknown; size: number }>
+  getDirtyEntries(): Map<string, DirtyEntry>
   getDirtyCount(): number
   getMemoryUsage(): number
   clearDirty(keys: string[]): void
@@ -166,21 +172,23 @@ interface DirtyTracker {
 }
 ```
 
-### InMemoryStateManager as DirtyTracker
+### InMemoryStateManager Adapter
 
-The `InMemoryStateManager` implements this interface natively:
+The `DOStorage` class provides an adapter to use `InMemoryStateManager` as a `DirtyTracker`:
 
 ```typescript
 import { InMemoryStateManager } from 'dotdo/storage'
 
 const memory = new InMemoryStateManager()
 
-// Create adapter if needed
-const dirtyTracker: DirtyTracker = {
-  getDirtyEntries() {
+// The InMemoryDirtyTracker adapter (built into DOStorage)
+class InMemoryDirtyTracker implements DirtyTracker {
+  constructor(private manager: InMemoryStateManager) {}
+
+  getDirtyEntries(): Map<string, { type: string; data: unknown; size: number }> {
     const entries = new Map()
-    for (const key of memory.getDirtyKeys()) {
-      const thing = memory.get(key)
+    for (const key of this.manager.getDirtyKeys()) {
+      const thing = this.manager.get(key)
       if (thing) {
         entries.set(key, {
           type: thing.$type,
@@ -190,11 +198,23 @@ const dirtyTracker: DirtyTracker = {
       }
     }
     return entries
-  },
-  getDirtyCount: () => memory.getDirtyCount(),
-  getMemoryUsage: () => memory.getStats().estimatedBytes,
-  clearDirty: (keys) => memory.markClean(keys),
-  clear: () => memory.clear()
+  }
+
+  getDirtyCount(): number {
+    return this.manager.getDirtyCount()
+  }
+
+  getMemoryUsage(): number {
+    return this.manager.getStats().estimatedBytes
+  }
+
+  clearDirty(keys: string[]): void {
+    this.manager.markClean(keys)
+  }
+
+  clear(): void {
+    this.manager.clear()
+  }
 }
 ```
 
@@ -324,11 +344,23 @@ interface LazyCheckpointerOptions {
   dirtyTracker: DirtyTracker   // Required: Dirty entry tracker
   intervalMs?: number          // Default: 5000 (5 seconds)
   dirtyCountThreshold?: number // Default: 100 entries
-  memoryThresholdBytes?: number // Default: 10MB
-  columnarThreshold?: number   // Default: 1000 (storage optimization)
-  onCheckpoint?: (stats: CheckpointStats) => void
+  memoryThresholdBytes?: number // Default: 10MB (10 * 1024 * 1024)
+  columnarThreshold?: number   // Default: 1000 (for future storage optimization)
+  onCheckpoint?: (stats: CheckpointStats) => void  // Callback after each checkpoint
 }
 ```
+
+### SqlStorage Interface
+
+The SQLite storage must implement:
+
+```typescript
+interface SqlStorage {
+  exec(query: string, ...params: unknown[]): { toArray(): unknown[] }
+}
+```
+
+This matches the Cloudflare Durable Objects `ctx.storage.sql` interface.
 
 ### Recommended Settings
 
@@ -379,7 +411,9 @@ class MyDO extends DurableObject {
 
 ## SQLite Schema
 
-The checkpointer writes to a `things` table:
+The checkpointer writes to a `things` table. The `DOStorage` class may use a slightly different schema with version tracking:
+
+### Standard Schema (LazyCheckpointer)
 
 ```sql
 CREATE TABLE IF NOT EXISTS things (
@@ -391,15 +425,40 @@ CREATE TABLE IF NOT EXISTS things (
 CREATE INDEX IF NOT EXISTS idx_things_type ON things(type);
 ```
 
+### Extended Schema (DOStorage)
+
+```sql
+CREATE TABLE IF NOT EXISTS l2_things (
+  id TEXT PRIMARY KEY,
+  type TEXT,
+  version INTEGER DEFAULT 1,
+  data TEXT,
+  updated_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_l2_things_type ON l2_things(type);
+```
+
 ### Write Pattern
 
 ```typescript
-// Each dirty entry written as:
+// LazyCheckpointer pattern:
 sql.exec(
   'INSERT OR REPLACE INTO things (id, type, data) VALUES (?, ?, ?)',
   key,
   entry.type,
   JSON.stringify(entry.data)
+)
+
+// DOStorage pattern (with version and timestamp):
+sql.exec(
+  `INSERT OR REPLACE INTO l2_things (id, type, version, data, updated_at)
+   VALUES (?, ?, ?, ?, ?)`,
+  thing.$id,
+  thing.$type,
+  thing.$version ?? 1,
+  JSON.stringify(thing),
+  Date.now()
 )
 ```
 
@@ -451,6 +510,10 @@ If checkpoint fails mid-way, unflushed entries remain dirty:
 // Entry 3 and 4 remain dirty
 // Next checkpoint will retry both
 ```
+
+<Callout type="info">
+  Partial checkpoints are safe because entries remain dirty until successfully written. The next checkpoint will retry all failed entries. No data is lost.
+</Callout>
 
 ## Integration with DOStorage
 

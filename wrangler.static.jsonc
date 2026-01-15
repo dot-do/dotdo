@@ -1,0 +1,40 @@
+{
+  // Cloudflare Workers Static Site Configuration
+  // For deploying static documentation site with TanStack Start prerendering
+  "name": "dotdo-docs",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static assets configuration
+  // Points to the build output directory from TanStack Start
+  "assets": {
+    "directory": "./dist/client",
+    // Enable HTML handling for SPA-style navigation
+    "html_handling": "auto-trailing-slash",
+    // 404 handling - serve custom 404 page if available
+    "not_found_handling": "single-page-application"
+  },
+
+  // Observability settings for production monitoring
+  "observability": {
+    "enabled": true
+  },
+
+  // Limits configuration for production stability
+  "limits": {
+    // Default CPU time limit (50ms for static sites is usually sufficient)
+    "cpu_ms": 50
+  },
+
+  // Environment-specific overrides
+  "env": {
+    "production": {
+      // Production route configuration
+      // Add routes when ready: { "pattern": "docs.dotdo.dev/*", "zone_name": "dotdo.dev" }
+      "name": "dotdo-docs-prod"
+    },
+    "staging": {
+      "name": "dotdo-docs-staging"
+    }
+  }
+}

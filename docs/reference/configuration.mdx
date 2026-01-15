@@ -1,0 +1,390 @@
+---
+title: Configuration
+description: Complete configuration reference for dotdo wrangler.toml, bindings, and runtime options
+---
+
+# Configuration Reference
+
+This page documents all configuration options for dotdo, including Wrangler configuration, Durable Object bindings, and runtime options.
+
+> **Getting Started?** See the [Installation Guide](/getting-started/installation) for initial setup instructions.
+
+## Wrangler Configuration
+
+dotdo uses Cloudflare's Wrangler for deployment and local development. Create a `wrangler.toml` file in your project root.
+
+### Basic Configuration
+
+```toml
+name = "my-dotdo-app"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `name` | string | Worker name (used in deployment URLs) |
+| `main` | string | Entry point file path |
+| `compatibility_date` | string | Cloudflare Workers compatibility date |
+
+### Durable Object Bindings
+
+Define your DO classes and bindings:
+
+```toml
+[durable_objects]
+bindings = [
+  { name = "DOCore", class_name = "DOCore" },
+  { name = "DOSemantic", class_name = "DOSemantic" },
+  { name = "DOStorage", class_name = "DOStorageClass" },
+  { name = "DOWorkflow", class_name = "DOWorkflowClass" },
+  { name = "DOFull", class_name = "DOFull" }
+]
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | string | Binding name accessible in code via `env.NAME` |
+| `class_name` | string | The exported class name from your entry point |
+
+### Migrations
+
+SQLite-backed DOs require migration tags:
+
+```toml
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DOCore"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DOSemantic", "DOStorageClass", "DOWorkflowClass", "DOFull"]
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `tag` | string | Unique migration identifier (e.g., "v1", "v2") |
+| `new_sqlite_classes` | string[] | DO classes that use SQLite storage |
+| `new_classes` | string[] | DO classes without SQLite storage |
+
+### KV Namespaces
+
+For session storage and caching:
+
+```toml
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "your-kv-namespace-id"
+preview_id = "your-preview-kv-namespace-id"
+```
+
+### AI Binding
+
+Enable Cloudflare Workers AI:
+
+```toml
+[ai]
+binding = "AI"
+```
+
+### R2 Buckets
+
+For cold storage (IcebergWriter L3):
+
+```toml
+[[r2_buckets]]
+binding = "COLD_STORAGE"
+bucket_name = "my-iceberg-bucket"
+```
+
+## DO Class Configuration
+
+### DOCore Options
+
+DOCore is configured through constructor options passed to subclasses:
+
+```typescript
+import { DOCore, type DOCoreEnv } from 'dotdo/core'
+
+export class MyDO extends DOCore {
+  constructor(ctx: DurableObjectState, env: DOCoreEnv) {
+    super(ctx, env)
+    // Custom initialization
+  }
+}
+```
+
+### ListOptions
+
+Options for the `list()` method:
+
+```typescript
+interface ListOptions {
+  /** Filter keys by prefix (e.g., "user:" matches "user:1", "user:2") */
+  prefix?: string
+  /** Start of key range (inclusive) */
+  start?: string
+  /** End of key range (exclusive) */
+  end?: string
+  /** Maximum entries to return */
+  limit?: number
+  /** Sort in reverse order */
+  reverse?: boolean
+}
+```
+
+Example usage:
+
+```typescript
+// List all users
+const users = await stub.list({ prefix: 'user:' })
+
+// Paginated list with limit
+const page = await stub.list({ prefix: 'item:', limit: 10 })
+
+// Range query
+const range = await stub.list({ start: 'a', end: 'm' })
+```
+
+### TransactionOp
+
+Operations for atomic transactions:
+
+```typescript
+interface TransactionOp {
+  /** Operation type */
+  op: 'set' | 'delete' | 'error'
+  /** Key for set/delete */
+  key?: string
+  /** Value for set */
+  value?: unknown
+}
+```
+
+Example:
+
+```typescript
+const result = await stub.transaction([
+  { op: 'set', key: 'balance', value: 100 },
+  { op: 'set', key: 'updated', value: new Date().toISOString() },
+  { op: 'delete', key: 'temp:cache' }
+])
+
+if (result.success) {
+  console.log('Transaction committed')
+} else {
+  console.error('Transaction failed:', result.error)
+}
+```
+
+## DOSemantic Options
+
+### NounOptions
+
+Options for defining nouns:
+
+```typescript
+interface NounOptions {
+  /** Override auto-derived plural form */
+  plural?: string
+}
+```
+
+Example:
+
+```typescript
+// Auto-derived: "Customer" -> "Customers"
+stub.defineNoun('Customer')
+
+// Override plural: "Person" -> "People"
+stub.defineNoun('Person', { plural: 'People' })
+
+// Irregular: "Sheep" -> "Sheep"
+stub.defineNoun('Sheep', { plural: 'Sheep' })
+```
+
+### VerbOptions
+
+Options for defining verbs:
+
+```typescript
+interface VerbOptions {
+  /** Override auto-derived past tense */
+  past?: string
+  /** Override auto-derived present tense */
+  present?: string
+  /** Override auto-derived gerund */
+  gerund?: string
+}
+```
+
+Example:
+
+```typescript
+// Auto-derived: "run" -> ran, runs, running
+stub.defineVerb('run', { past: 'ran' })
+
+// Regular verb: "create" -> created, creates, creating
+stub.defineVerb('create')
+
+// Irregular: "go" -> went, goes, going
+stub.defineVerb('go', { past: 'went' })
+```
+
+## DOStorage Configuration
+
+### DOStorageConfig
+
+Configuration for the 4-layer storage stack:
+
+```typescript
+interface DOStorageConfig {
+  /** L0: In-memory cache options */
+  memoryCache?: {
+    /** Maximum entries before LRU eviction */
+    maxEntries?: number
+    /** TTL for cached entries in ms */
+    ttlMs?: number
+  }
+
+  /** L1: Pipeline emitter options */
+  pipeline?: {
+    /** Batch size before flush */
+    batchSize?: number
+    /** Flush interval in ms */
+    flushIntervalMs?: number
+  }
+
+  /** L2: Lazy checkpointer options */
+  checkpoint?: {
+    /** Dirty threshold before checkpoint */
+    dirtyThreshold?: number
+    /** Checkpoint interval in ms */
+    intervalMs?: number
+  }
+
+  /** L3: Iceberg writer options */
+  iceberg?: {
+    /** R2 bucket binding name */
+    bucketBinding?: string
+    /** Partition size in records */
+    partitionSize?: number
+  }
+}
+```
+
+## WorkflowContext Options
+
+### CreateContextOptions
+
+Options for creating a WorkflowContext:
+
+```typescript
+interface CreateContextOptions {
+  /** Function to resolve DO stubs for cross-DO RPC */
+  stubResolver?: (noun: string, id: string) => Record<string, Function>
+  /** RPC timeout in milliseconds (default: 30000) */
+  rpcTimeout?: number
+}
+```
+
+Example:
+
+```typescript
+const $ = createWorkflowContext({
+  stubResolver: (noun, id) => {
+    const binding = env[noun]
+    if (!binding) throw new Error(`Unknown noun: ${noun}`)
+    return binding.get(binding.idFromName(id))
+  },
+  rpcTimeout: 60000 // 1 minute
+})
+```
+
+### CascadeOptions
+
+Options for tiered execution:
+
+```typescript
+interface CascadeOptions {
+  /** Task description for logging/debugging */
+  task: string
+  /** Tier handlers (code -> generative -> agentic -> human) */
+  tiers: {
+    code?: () => Promise<unknown>
+    generative?: () => Promise<unknown>
+    agentic?: () => Promise<unknown>
+    human?: () => Promise<unknown>
+  }
+  /** Confidence threshold to accept result (0-1, default: 0.8) */
+  confidenceThreshold?: number
+  /** Skip automation tiers and go directly to human */
+  skipAutomation?: boolean
+  /** Timeout per tier in ms */
+  timeout?: number
+}
+```
+
+Example:
+
+```typescript
+const result = await $.cascade({
+  task: 'Classify customer inquiry',
+  tiers: {
+    code: async () => {
+      // Rule-based classification
+      return { value: 'billing', confidence: 0.95 }
+    },
+    generative: async () => {
+      // LLM classification
+      return { value: 'billing', confidence: 0.85 }
+    },
+    human: async () => {
+      // Queue for human review
+      return { value: 'billing', queueEntry: { id: 'q_123' } }
+    }
+  },
+  confidenceThreshold: 0.9,
+  timeout: 5000
+})
+```
+
+## CORS Configuration
+
+Default CORS configuration applied to all DO routes:
+
+```typescript
+const CORS_CONFIG = {
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization']
+}
+```
+
+To customize CORS, override the `createApp()` method in your DO class:
+
+```typescript
+import { DOCore } from 'dotdo/core'
+import { cors } from 'hono/cors'
+
+export class MyDO extends DOCore {
+  protected createApp() {
+    const app = super.createApp()
+
+    // Replace default CORS
+    app.use('*', cors({
+      origin: ['https://myapp.com', 'https://admin.myapp.com'],
+      allowMethods: ['GET', 'POST'],
+      credentials: true
+    }))
+
+    return app
+  }
+}
+```
+
+## Related Documentation
+
+- [Environment Variables](/reference/environment) - Secrets and bindings configuration
+- [CLI Commands](/reference/cli) - Development and deployment commands
+- [Migration Guide](/reference/migration) - Upgrading between versions

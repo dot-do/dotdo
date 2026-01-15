@@ -5,16 +5,17 @@ description: Template literal AI operations with lazy evaluation, batch processi
 
 # AI Module
 
-The dotdo AI module provides a revolutionary approach to AI operations using JavaScript template literals. Instead of verbose API calls, you write natural language prompts inline with your code.
+The dotdo AI module provides a template literal approach to AI operations. Instead of verbose API calls, write natural language prompts inline with your code.
 
 ## Key Features
 
 - **Template Literal Syntax**: Write AI prompts as naturally as template strings
-- **Lazy Evaluation**: AI calls only execute when awaited (AIPromise)
-- **Batch Processing**: Process multiple items with cost optimization
-- **Budget Tracking**: Control and monitor AI spending
-- **Response Caching**: LRU cache with TTL for repeated queries
+- **Lazy Evaluation**: AI calls only execute when awaited (`AIPromise`)
+- **Batch Processing**: Process multiple items with cost optimization (immediate/flex/deferred modes)
+- **Budget Tracking**: Control and monitor AI spending with per-model cost tiers
+- **Response Caching**: LRU cache with configurable TTL for repeated queries
 - **Provider Abstraction**: Switch between OpenAI, Anthropic, and Workers AI
+- **Fallback Chains**: Automatic model fallback when primary fails
 
 ## Quick Start
 
@@ -34,9 +35,13 @@ const topics = await list`Extract key topics from: ${document}`
 const validator = await code`Write a TypeScript email validator function`
 ```
 
-## The Magic of Lazy Evaluation
+## Lazy Evaluation
 
-Unlike traditional AI APIs that execute immediately, dotdo's AI operations use `AIPromise` - a lazy promise that only executes when you `await` it:
+<Callout type="info">
+All template literal functions return `AIPromise`, which only executes when you `await` it. This enables conditional execution, parallel batching, and cancellation without wasted API calls.
+</Callout>
+
+Unlike traditional AI APIs that execute immediately, dotdo's AI operations use `AIPromise`:
 
 ```typescript
 // This does NOT call the AI - just creates a lazy promise
@@ -48,8 +53,6 @@ const result = await analysis
 // Or cancel if no longer needed
 analysis.cancel()
 ```
-
-This enables powerful patterns like conditional execution, parallel batching, and cancellation without wasted API calls.
 
 ## Template Composition
 
@@ -70,11 +73,28 @@ const finalResponse = await response
 
 | Page | Description |
 |------|-------------|
-| [Templates](/ai/templates) | Complete guide to `ai`, `is`, `list`, and `code` template literals |
-| [Batch Processing](/ai/batch) | Process multiple items with immediate, flex, or deferred modes |
-| [Budget Tracking](/ai/budget) | Monitor and limit AI spending per operation |
-| [Caching](/ai/caching) | Configure LRU cache with TTL for response caching |
-| [Providers](/ai/providers) | Configure OpenAI, Anthropic, Workers AI, and fallback chains |
+| [Templates](./templates) | Complete guide to `ai`, `is`, `list`, and `code` template literals |
+| [Batch Processing](./batch) | Process multiple items with immediate, flex, or deferred modes |
+| [Budget Tracking](./budget) | Monitor and limit AI spending per operation |
+| [Caching](./caching) | Configure LRU cache with TTL for response caching |
+| [Providers](./providers) | Configure OpenAI, Anthropic, Workers AI, and fallback chains |
+
+## Available Models (Workers AI)
+
+The AI module includes a model registry for Workers AI with automatic fallback chains:
+
+| Model | Tier | Input Cost | Output Cost | Capabilities |
+|-------|------|------------|-------------|--------------|
+| GPT OSS 120B | Premium | $2.50/M | $10.00/M | Text, Streaming |
+| GPT OSS 20B | Standard | $0.50/M | $1.50/M | Text, Streaming |
+| Llama 4 Scout | Standard | $0.30/M | $1.00/M | Text |
+| Granite 4.0 H Micro | Budget | $0.15/M | $0.50/M | Text, Tools, Structured |
+| Aura 2 English | Standard | - | - | TTS, Streaming |
+| Flux 2 Dev | Premium | - | - | Image |
+
+<Callout>
+Models automatically fall back to cheaper alternatives when primary fails. See [Providers](./providers) for fallback chain configuration.
+</Callout>
 
 ## Installation
 
@@ -85,11 +105,12 @@ npm install dotdo
 ```
 
 ```typescript
-import { ai, is, list, code, createAI } from 'dotdo/ai'
+import { ai, is, list, code, createAI, AIPromise, AIBudgetExceededError } from 'dotdo/ai'
 ```
 
 ## Next Steps
 
-- [Templates Guide](/ai/templates) - Learn the four template literal functions
-- [Batch Processing](/ai/batch) - Process collections efficiently
-- [Provider Configuration](/ai/providers) - Set up your preferred AI provider
+- [Templates](./templates) - Learn the four template literal functions
+- [Batch Processing](./batch) - Process collections efficiently
+- [Budget Tracking](./budget) - Monitor costs with per-model pricing
+- [Providers](./providers) - Set up your preferred AI provider

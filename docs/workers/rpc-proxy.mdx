@@ -1,0 +1,227 @@
+---
+title: RPC Proxy
+description: Authentication, authorization, and JSON-RPC 2.0 protocol support for Cap'n Web RPC
+---
+
+# RPC Proxy
+
+The RPC proxy handles Cap'n Web RPC requests with authentication, authorization, and JSON-RPC 2.0 protocol support. It sits between clients and Durable Objects, providing a security layer for RPC calls.
+
+## Overview
+
+```
+Client                  RPC Proxy                 Durable Object
+  │                        │                           │
+  │─── RPC Request ────────▶│                           │
+  │                        │── Authenticate ──▶        │
+  │                        │── Authorize ──▶           │
+  │                        │── Parse JSON-RPC ──▶      │
+  │                        │────── Forward ───────────▶│
+  │◀─── Response ──────────│◀───── Response ──────────│
+```
+
+## Creating an RPC Proxy
+
+```typescript
+import { createRPCProxy } from 'dotdo/workers'
+
+const proxy = createRPCProxy({
+  authenticate: async (request) => {
+    const token = request.headers.get('Authorization')
+    if (!token?.startsWith('Bearer ')) {
+      return { valid: false }
+    }
+    // Validate token and extract identity
+    const user = await validateToken(token.slice(7))
+    return { valid: true, identity: user.id }
+  },
+  authorize: async (identity, method) => {
+    // Optional: Block specific methods for certain users
+    if (method.startsWith('admin.') && !isAdmin(identity)) {
+      return false
+    }
+    return true
+  },
+})
+
+export default {
+  fetch: proxy.handleRequest,
+}
+```
+
+## Configuration
+
+### `authenticate` (required)
+
+Validates incoming requests and extracts user identity:
+
+```typescript
+interface AuthResult {
+  valid: boolean
+  identity?: string // Passed to authorize callback
+}
+
+authenticate: (request: Request) => Promise<AuthResult>
+```
+
+Returns `{ valid: false }` to reject with 401 Unauthorized.
+
+### `authorize` (optional)
+
+Controls access to specific RPC methods:
+
+```typescript
+authorize: (identity: string, method: string) => Promise<boolean>
+```
+
+Returns `false` to reject with 403 Forbidden.
+
+## Request Processing Pipeline
+
+1. **Authentication** - Validate request credentials
+2. **JSON Parsing** - Parse request body (reject with 400 if invalid)
+3. **Authorization** - Check method access (if `authorize` configured)
+4. **Method Routing** - Handle batch vs single requests
+5. **Response** - JSON or event-stream based on method type
+
+## JSON-RPC 2.0 Support
+
+### Single Request
+
+```typescript
+// Client
+const response = await fetch('/rpc', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer token',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    method: 'things.get',
+    params: { id: '123' },
+  }),
+})
+
+// Response
+{ "result": { "id": "123", "name": "Widget" } }
+```
+
+### Batch Requests
+
+```typescript
+// Client - send multiple requests in one call
+const response = await fetch('/rpc', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer token',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify([
+    { id: 1, method: 'things.get', params: { id: '123' } },
+    { id: 2, method: 'things.get', params: { id: '456' } },
+    { id: 3, method: 'things.list', params: { limit: 10 } },
+  ]),
+})
+
+// Response - array of results in same order
+[
+  { "id": 1, "result": { "id": "123", "name": "Widget" } },
+  { "id": 2, "result": { "id": "456", "name": "Gadget" } },
+  { "id": 3, "result": { "items": [...], "total": 42 } }
+]
+```
+
+### Error Handling in Batch
+
+Individual requests in a batch can fail without affecting others:
+
+```typescript
+// Response with mixed success/failure
+[
+  { "id": 1, "result": { "id": "123" } },
+  { "id": 2, "error": { "code": 403, "message": "Forbidden" } },
+  { "id": 3, "result": { "items": [...] } }
+]
+```
+
+## Streaming Methods
+
+The proxy automatically detects streaming methods and returns appropriate content types:
+
+### Streaming Method Patterns
+
+Methods ending with these patterns return `text/event-stream`:
+
+- `events.stream`
+- `events.subscribe`
+- `stream`
+- `subscribe`
+
+### Example
+
+```typescript
+// Request
+{ "method": "events.stream", "params": { "filter": "Customer.*" } }
+
+// Response (Server-Sent Events)
+// Content-Type: text/event-stream
+data: {"event":"Customer.created","data":{"id":"123"}}
+
+data: {"event":"Customer.updated","data":{"id":"123"}}
+```
+
+## Error Responses
+
+| Status | Condition | Response |
+|--------|-----------|----------|
+| 400 | Invalid JSON body | `{ "error": "Invalid JSON body" }` |
+| 401 | Authentication failed | `{ "error": "Unauthorized" }` |
+| 403 | Authorization failed | `{ "error": "Forbidden" }` |
+
+## Integration with Routing
+
+Combine RPC proxy with routing for tenant isolation:
+
+```typescript
+import { parseSubdomainRoute, createRPCProxy } from 'dotdo/workers'
+
+const proxy = createRPCProxy({
+  authenticate: async (request) => {
+    // ... auth logic
+    return { valid: true, identity: 'user-123' }
+  },
+})
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Extract tenant from subdomain
+    const route = parseSubdomainRoute(request.url, 'api.dotdo.dev')
+    if (!route) {
+      return new Response('Invalid tenant', { status: 400 })
+    }
+
+    // Handle RPC for this tenant
+    // In real implementation, forward to tenant-specific DO
+    return proxy.handleRequest(request, env)
+  }
+}
+```
+
+## Type Definitions
+
+```typescript
+interface RPCProxyConfig {
+  authenticate: (request: Request) => Promise<{ valid: boolean; identity?: string }>
+  authorize?: (identity: string, method: string) => Promise<boolean>
+}
+
+interface RPCProxy {
+  handleRequest: (request: Request, env: unknown) => Promise<Response>
+}
+```
+
+## Next Steps
+
+- [Routing](/workers/routing) - URL patterns for multi-tenancy
+- [Presets](/workers/presets) - Pre-configured worker patterns
+- [RPC Layer](/rpc) - Cap'n Web RPC protocol details

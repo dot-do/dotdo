@@ -1,0 +1,11 @@
+# Robots.txt for dotdo
+# https://dotdo.dev
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /_/
+Disallow: /admin/
+
+# Sitemap location
+Sitemap: https://dotdo.dev/sitemap.xml

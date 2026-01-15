@@ -10,7 +10,7 @@ import { Callout } from 'fumadocs-ui/components/callout'
 **Navigate your domain graph.** The semantic module provides four operators for traversing relationships between Things: exact forward (`->`), fuzzy forward (`~>`), exact backward (`<-`), and fuzzy backward (`<~`).
 
 ```typescript
-import { noun, verb, thing, action, forward, backward, forwardFuzzy, backwardFuzzy } from 'dotdo/semantic'
+import { noun, verb, thing, action, forward, backward, forwardFuzzy, backwardFuzzy } from '@dotdo/semantic'
 
 // Setup
 const Customer = noun('Customer')
@@ -87,6 +87,10 @@ const buyers = backward(product, 'Customer')
 
 Fuzzy operators use vector embeddings to find semantically similar Things.
 
+<Callout type="warning">
+Fuzzy operators require Things to be indexed first with `indexThing()` or `indexThings()`. Without indexing, fuzzy operators fall back to exact graph matches.
+</Callout>
+
 ### Forward Fuzzy: ~>
 
 Find Things semantically similar to the source:
@@ -143,7 +147,7 @@ const related = await backwardFuzzy(product, 'Customer', {
 
 ```typescript
 interface FuzzyOptions {
-  /** Similarity threshold (0-1). Default: 0.5 */
+  /** Similarity threshold (0-1). Default: 0 for fuzzy operators */
   threshold?: number
   /** Include similarity scores in results. Default: false */
   withScores?: boolean
@@ -152,9 +156,13 @@ interface FuzzyOptions {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `threshold` | `number` | 0.5 | Minimum similarity score (0-1) |
+| `threshold` | `number` | 0 | Minimum similarity score (0-1) |
 | `withScores` | `boolean` | false | Return `ScoredThing[]` with scores |
 | `topK` | `number` | 10 | Maximum results to return |
+
+<Callout type="info">
+When fuzzy operators find no vector search results, they fall back to exact graph matches with a simulated score of 0.95.
+</Callout>
 
 ### ScoredThing
 
@@ -171,7 +179,7 @@ interface ScoredThing<T = Record<string, unknown>> extends Thing<T> {
 Fuzzy operators require vector embeddings. Configure the vector store for production:
 
 ```typescript
-import { configureVectorStore } from 'dotdo/semantic'
+import { configureVectorStore, VectorStore } from '@dotdo/semantic'
 
 // Production: Use Cloudflare Vectorize and Workers AI
 configureVectorStore({
@@ -183,17 +191,36 @@ configureVectorStore({
 })
 ```
 
+### VectorStoreConfig Interface
+
+```typescript
+interface VectorStoreConfig {
+  /** Vectorize index binding */
+  vectorize?: VectorizeIndex
+  /** Workers AI binding for embeddings */
+  ai?: WorkersAI
+  /** Embedding model (default: @cf/baai/bge-base-en-v1.5) */
+  embeddingModel?: string
+  /** Custom embedding provider (overrides ai binding) */
+  embeddingProvider?: EmbeddingProvider
+  /** Default number of results (default: 10) */
+  defaultTopK?: number
+  /** Default similarity threshold (default: 0.5) */
+  defaultThreshold?: number
+}
+```
+
 ### Indexing Things
 
 Index Things to make them searchable with fuzzy operators:
 
 ```typescript
-import { indexThing, indexThings, unindexThing } from 'dotdo/semantic'
+import { indexThing, indexThings, unindexThing } from '@dotdo/semantic'
 
 // Index a single Thing
 await indexThing(product)
 
-// Index multiple Things
+// Index multiple Things (batched for efficiency)
 await indexThings([product1, product2, product3])
 
 // Remove from index
@@ -205,7 +232,7 @@ await unindexThing(product.$id)
 Search across all indexed Things:
 
 ```typescript
-import { semanticSearch } from 'dotdo/semantic'
+import { semanticSearch } from '@dotdo/semantic'
 
 // Search by text query
 const results = await semanticSearch('wireless bluetooth headphones', 'Product', {
@@ -216,8 +243,29 @@ const results = await semanticSearch('wireless bluetooth headphones', 'Product',
 ```
 
 <Callout type="info">
-Without configuration, fuzzy operators fall back to exact matches with simulated scores. In production, configure Vectorize for true semantic search.
+Without configuration, the vector store uses `InMemoryVectorIndex` and `MockEmbeddingProvider` - suitable for testing but not production. In production, configure Cloudflare Vectorize and Workers AI.
 </Callout>
+
+### Testing with Mock Providers
+
+For unit tests, the semantic module provides mock implementations:
+
+```typescript
+import {
+  VectorStore,
+  InMemoryVectorIndex,
+  MockEmbeddingProvider
+} from '@dotdo/semantic'
+
+// Create test store with mocks (this is the default)
+const store = new VectorStore()
+
+// Or explicitly configure mocks
+const store = new VectorStore({
+  vectorize: new InMemoryVectorIndex(),
+  embeddingProvider: new MockEmbeddingProvider(768)
+})
+```
 
 ## How Edges Are Created
 
@@ -349,7 +397,7 @@ Future versions may add verb filtering directly to `forward()` and `backward()`.
 ## Testing
 
 ```typescript
-import { resetState, noun, verb, thing, action, forward, backward } from 'dotdo/semantic'
+import { resetState, noun, verb, thing, action, forward, backward } from '@dotdo/semantic'
 
 describe('Relationships', () => {
   beforeEach(() => {
@@ -396,9 +444,35 @@ describe('Relationships', () => {
 })
 ```
 
-## Related
+## DOSemantic Methods
 
-- [Things](/docs/semantic/things) - Entity instances
-- [Actions](/docs/semantic/actions) - Creating edges via actions
-- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Type definitions
-- [Concepts: Relationships](/docs/concepts/relationships) - Relationships in dotdo
+When using the `DOSemantic` Durable Object, relationship traversal uses ID-based methods:
+
+```typescript
+// Forward traversal (returns Things)
+const orders = this.forward('alice', 'Order')
+
+// Backward traversal
+const buyers = this.backward('order-123', 'Customer')
+
+// Fuzzy forward (returns Promise)
+const similar = await this.forwardFuzzy('alice', 'Customer', {
+  threshold: 0.7,
+  withScores: true
+})
+
+// Fuzzy backward
+const related = await this.backwardFuzzy('order-123', 'Product', {
+  threshold: 0.5
+})
+```
+
+<Callout type="info">
+DOSemantic stores edges in SQLite and loads them into memory on initialization for fast traversal. Fuzzy methods currently simulate scores using exact matches.
+</Callout>
+
+## Next Steps
+
+- [Things](/docs/semantic/things) - Create entity instances
+- [Actions](/docs/semantic/actions) - Create edges through Actions
+- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Define entity types and Verbs

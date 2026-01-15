@@ -148,7 +148,7 @@ const restored = deserialize(json)
 
 ## Circular References
 
-Cap'n Web RPC detects and handles circular references:
+Cap'n Web RPC detects and handles circular references using per-call tracking:
 
 ```typescript
 const obj = { name: 'root' }
@@ -166,11 +166,23 @@ console.log(restored.self === restored)  // true
 Circular references use JSON Pointer syntax with `$ref`:
 
 ```typescript
-// Self-reference
+// Self-reference (currently supported)
 { "$ref": "#" }
 
-// Nested reference (future support)
+// Nested reference path (tracked but self-ref resolved)
 { "$ref": "#/child/nested" }
+```
+
+### Thread Safety
+
+The serialization system creates a fresh `seenObjects` Map for each `serialize()` call. This avoids race conditions when multiple concurrent serializations occur in the same isolate:
+
+```typescript
+// These can safely run concurrently
+const [json1, json2] = await Promise.all([
+  serialize(objectA),
+  serialize(objectB),
+])
 ```
 
 ## Binary Serialization
@@ -194,9 +206,26 @@ console.log(binary instanceof ArrayBuffer)  // true
 const restored = deserialize(binary, { format: 'binary' })
 ```
 
+### Binary Format Structure
+
+The binary format uses a simple structure:
+
+```
+┌────────────────┬──────────────────────────────────────┐
+│ Header (4B)    │ Body (UTF-8 encoded JSON)            │
+├────────────────┼──────────────────────────────────────┤
+│ uint32 length  │ TextEncoder.encode(JSON.stringify()) │
+│ (little-endian)│                                      │
+└────────────────┴──────────────────────────────────────┘
+```
+
+The binary format:
+- 4-byte header containing the body length as a little-endian uint32
+- Body contains UTF-8 encoded JSON with special type markers preserved
+
 ### Size Comparison
 
-Binary format is more compact for large payloads:
+Binary format adds minimal overhead (4-byte header) and preserves all type information:
 
 ```typescript
 const largeData = {
@@ -212,8 +241,12 @@ const binarySize = (serialize(largeData, { format: 'binary' }) as ArrayBuffer).b
 
 console.log(`JSON: ${jsonSize} bytes`)
 console.log(`Binary: ${binarySize} bytes`)
-// Binary is typically 10-30% smaller
+// Binary is typically similar size but benefits from binary transport
 ```
+
+<Callout type="info">
+The current binary format is optimized for compatibility and type preservation rather than compression. Future versions may implement MessagePack-style encoding for smaller payloads.
+</Callout>
 
 ### Type Preservation
 
@@ -444,8 +477,20 @@ Special types use these `$type` markers in JSON:
 | Map | `"Map"` | `{ $type: "Map", entries: [[key, value], ...] }` |
 | Set | `"Set"` | `{ $type: "Set", values: [value, ...] }` |
 | BigInt | `"BigInt"` | `{ $type: "BigInt", value: "string" }` |
-| Capability | `"Capability"` | `{ $type: "Capability", id, type, methods, ... }` |
+| Capability | `"Capability"` | `{ $type: "Capability", id, type, methods, expiresAt? }` |
 | Reference | - | `{ $ref: "JSON Pointer" }` |
+
+### Type Detection
+
+The serialization layer uses internal helper functions to detect special types. These checks happen automatically during serialization and deserialization:
+
+- **Capability detection**: Checks for `id`, `type`, `methods`, and `invoke` properties
+- **Typed object detection**: Checks for `$type` string property
+- **Circular reference detection**: Checks for `$ref` string property
+
+<Callout type="info">
+Type detection is automatic. You do not need to manually mark objects with `$type` - the serializer infers types from JavaScript's built-in type system (Date, Map, Set, BigInt) and recognizes Capability objects by their structure.
+</Callout>
 
 ## Best Practices
 
@@ -477,12 +522,12 @@ const user = deserialize<User>(json)  // Typed result
 ### 3. Handle Unknown Types Gracefully
 
 ```typescript
-const handlers = new Map([
+const handlers = new Map<string, TypeHandler>([
   [
     'Unknown',
     {
       serialize: (v) => ({ $type: 'Unknown', data: JSON.stringify(v) }),
-      deserialize: (v) => JSON.parse(v.data),
+      deserialize: (v: { data: string }) => JSON.parse(v.data),
     },
   ],
 ])

@@ -23,12 +23,40 @@ Cap'n Web RPC is included with dotdo:
 
 ```typescript
 import {
+  // Client and Pipelining
   createRPCClient,
-  createCapability,
   pipeline,
+  RPCError,
+
+  // Capabilities
+  createCapability,
+  verifyCapability,
+  assertUnforgeable,
+  serializeCapability,
+  deserializeCapability,
+
+  // Serialization
   serialize,
   deserialize,
+
+  // Interface Generation
   generateInterface,
+} from 'dotdo/rpc'
+
+// Type imports
+import type {
+  Capability,
+  Schema,
+  FieldSchema,
+  MethodSchema,
+  ParamSchema,
+  MethodDescriptor,
+  MetaInterface,
+  PipelineBuilder,
+  PipelineStep,
+  RPCClientOptions,
+  SerializationOptions,
+  TypeHandler,
 } from 'dotdo/rpc'
 ```
 
@@ -42,11 +70,40 @@ import { createRPCClient } from 'dotdo/rpc'
 // Create a typed client for a Durable Object
 const customer = createRPCClient<CustomerDO>({
   target: 'https://customer.api.dotdo.dev/cust-123',
+  timeout: 5000,  // Optional: request timeout (default: 30000ms)
+  retry: {        // Optional: retry configuration
+    maxAttempts: 3,
+    backoffMs: 100,
+  },
 })
 
 // Invoke methods remotely
 const orders = await customer.getOrders()
 await customer.notify('Your order has shipped!')
+
+// Handle errors with full context
+try {
+  await customer.charge(-100)
+} catch (err) {
+  if (err instanceof RPCError) {
+    console.error(err.message)  // Error message
+    console.error(err.method)   // 'charge'
+    console.error(err.target)   // Target URL
+  }
+}
+```
+
+### Using a Durable Object Stub
+
+When calling from within a Worker, you can pass a DO stub directly:
+
+```typescript
+const id = env.CUSTOMER.idFromName('cust-123')
+const stub = env.CUSTOMER.get(id)
+
+const customer = createRPCClient<CustomerDO>({
+  target: stub,  // Pass stub directly - no network hop
+})
 ```
 
 ### Using $meta Introspection
@@ -54,18 +111,32 @@ await customer.notify('Your order has shipped!')
 Every RPC client exposes a `$meta` interface for runtime discovery:
 
 ```typescript
-// Discover available methods
+// Get the full schema (cached after first call)
+const schema = await customer.$meta.schema()
+console.log(schema.name)   // 'Customer'
+console.log(schema.fields) // [{ name: '$id', type: 'string', required: true }, ...]
+
+// Discover available methods with full descriptors
 const methods = await customer.$meta.methods()
 console.log(methods.map(m => m.name))
 // ['charge', 'getOrders', 'notify']
 
-// Get the full schema
-const schema = await customer.$meta.schema()
-console.log(schema.name)  // 'Customer'
-console.log(schema.fields) // [{ name: '$id', type: 'string' }, ...]
+// Methods include type information
+console.log(methods[0])
+// {
+//   name: 'charge',
+//   params: [{ name: 'amount', type: 'number', required: true }],
+//   returns: 'Promise<Receipt>',
+//   isAsync: true,
+//   description: 'charge method'
+// }
 
 // Get available capabilities
 const caps = await customer.$meta.capabilities()
+
+// Get version info
+const version = await customer.$meta.version()
+console.log(version)  // { major: 1, minor: 0, patch: 0 }
 ```
 
 ### Capability-based Access Control
@@ -103,30 +174,55 @@ const result = await pipeline(customer)
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         RPC Client                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ $meta       │  │ Pipeline    │  │ Capability              │  │
-│  │ Interface   │  │ Builder     │  │ Manager                 │  │
-│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │
-│         │                │                      │                │
-│         └────────────────┼──────────────────────┘                │
-│                          ▼                                       │
-│                  ┌───────────────┐                               │
-│                  │  Transport    │                               │
-│                  │  (JSON/Binary)│                               │
-│                  └───────┬───────┘                               │
-└──────────────────────────┼──────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         RPC Client                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│  │ $meta       │  │ Pipeline    │  │ Capability              │   │
+│  │ Interface   │  │ Builder     │  │ System                  │   │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘   │
+│         │                │                      │                 │
+│         └────────────────┼──────────────────────┘                 │
+│                          ▼                                        │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    Transport Layer                          │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │  │
+│  │  │ JSON Format  │  │ Binary Format│  │ Type Handlers   │   │  │
+│  │  │ (readable)   │  │ (compact)    │  │ (Date,Map,Set)  │   │  │
+│  │  └──────────────┘  └──────────────┘  └─────────────────┘   │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                          │                                        │
+│              ┌───────────┴───────────┐                           │
+│              │  HTTP / fetch()       │                           │
+│              │  URL or DO Stub       │                           │
+│              └───────────┬───────────┘                           │
+└──────────────────────────┼───────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                    Durable Object                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
-│  │ Schema      │  │ Methods     │  │ Capability              │   │
-│  │ Registry    │  │             │  │ Validation              │   │
+│  │ Interface   │  │ Methods     │  │ Capability              │   │
+│  │ Generator   │  │             │  │ Registry                │   │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘   │
+│                                                                   │
+│  Module-level State:                                              │
+│  - capabilityRegistry (unforgeable tokens)                        │
+│  - revokedCapabilities (instant invalidation)                     │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Configuration Constants
+
+The RPC layer uses these default values (from `rpc/constants.ts`):
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `DEFAULT_REQUEST_TIMEOUT` | 30000ms | Request timeout before abort |
+| `DEFAULT_RETRY_BACKOFF` | 10ms | Initial retry backoff delay |
+
+<Callout type="info">
+Timeouts and retries work together. If a request times out, it will not be retried. Retries only apply to recoverable errors like network failures.
+</Callout>
 
 ## Core Concepts
 
@@ -139,7 +235,7 @@ const cap = createCapability(target)
 
 // This will fail - copying doesn't create a valid capability
 const fakeCap = { ...cap }
-fakeCap.invoke('method')  // Throws: Capability is unforgeable
+fakeCap.invoke('method')  // Throws: Capability is unforgeable: cannot invoke on copied object
 ```
 
 ### Attenuation
@@ -166,6 +262,52 @@ parent.revoke()
 await parent.invoke('read')  // Throws: revoked
 await child.invoke('read')   // Throws: revoked
 ```
+
+## Interface Generation
+
+Generate RPC interfaces from TypeScript classes for schema introspection:
+
+```typescript
+import { generateInterface } from 'dotdo/rpc'
+
+class CustomerDO {
+  static readonly $type = 'Customer'
+
+  $id: string
+  name: string
+  email: string
+
+  constructor(id: string, name: string, email: string) {
+    this.$id = id
+    this.name = name
+    this.email = email
+  }
+
+  async charge(amount: number): Promise<Receipt> { /* ... */ }
+  async getOrders(): Promise<Order[]> { /* ... */ }
+  async notify(message: string): Promise<void> { /* ... */ }
+}
+
+const iface = generateInterface(CustomerDO)
+console.log(iface.$type)    // 'Customer'
+console.log(iface.$schema)  // 'http://json-schema.org/draft-07/schema#'
+console.log(iface.fields)   // Field definitions with types
+console.log(iface.methods)  // Method descriptors with params/returns
+```
+
+### Generator Options
+
+```typescript
+const iface = generateInterface(CustomerDO, {
+  includePrivate: false,  // Include private methods (default: false)
+  streaming: true,        // Generate streaming support (default: true)
+  format: 'json',         // Serialization format (json or binary)
+})
+```
+
+<Callout type="info">
+The interface generator extracts type information at runtime. For full TypeScript type preservation, use the generated interface with `createRPCClient<T>()` to get compile-time type checking.
+</Callout>
 
 ## Next Steps
 

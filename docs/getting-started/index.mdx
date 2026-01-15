@@ -5,7 +5,11 @@ description: The semantic runtime for Cloudflare Durable Objects - model your do
 
 # Why dotdo?
 
-dotdo is a runtime layer for Cloudflare Durable Objects that lets you model your domain using semantic primitives instead of raw database tables and boilerplate code.
+dotdo is a runtime framework for Cloudflare Durable Objects that lets you model your domain using semantic primitives instead of raw database tables and boilerplate code.
+
+<Callout type="info">
+dotdo is the **runtime layer** (like Node.js), not a platform. If you're looking for a hosted platform to deploy agents and workflows, see [workers.do](https://workers.do).
+</Callout>
 
 ## The Problem
 
@@ -39,20 +43,22 @@ Start with the smallest layer that meets your needs. Upgrade as your requirement
 Instead of thinking in tables and rows, model your domain using linguistic primitives:
 
 ```typescript
-// Nouns name things
-const Customer = noun('Customer')
-const Order = noun('Order')
+import { noun, verb, thing, action } from 'dotdo/semantic'
 
-// Verbs describe actions
-const purchase = verb('purchase')
-const ship = verb('ship')
+// Nouns name entities with auto-derived singular/plural forms
+const Customer = noun('Customer')  // { singular: 'Customer', plural: 'Customers' }
+const Order = noun('Order')        // { singular: 'Order', plural: 'Orders' }
 
-// Things are instances
-const alice = thing(Customer, 'alice-123')
-const order = thing(Order, 'order-456')
+// Verbs describe actions with auto-derived tenses
+const purchase = verb('purchase')  // { base: 'purchase', past: 'purchased', ... }
+const ship = verb('ship')          // { base: 'ship', past: 'shipped', ... }
 
-// Actions capture what happened
-const action = alice.purchased(order).at(store).on(new Date())
+// Things are instances with $id and $type
+const alice = thing(Customer, 'alice-123')  // { $id: 'alice-123', $type: 'Customer' }
+const order = thing(Order, 'order-456')     // { $id: 'order-456', $type: 'Order' }
+
+// Actions capture what happened - unified event + edge + audit
+const result = action(alice, purchase, order)
 ```
 
 This single action simultaneously represents:
@@ -64,26 +70,28 @@ No more maintaining separate tables for events, relationships, and audit logs.
 
 ## The WorkflowContext ($)
 
-Your universal API for everything:
+Your universal API for DO operations:
 
 ```typescript
-// Event handling with infinite Noun.verb combinations
-$.on.Customer.signup(async (event) => { ... })
-$.on.Payment.failed(async (event) => { ... })
-$.on.*.created(async (event) => { ... })  // Wildcards
+import { createWorkflowContext } from 'dotdo/workflow'
 
-// Scheduling with fluent DSL
+const $ = createWorkflowContext()
+
+// Event handling with infinite Noun.verb combinations
+$.on.Customer.signup(async (event) => { /* ... */ })
+$.on.Payment.failed(async (event) => { /* ... */ })
+$.on['*'].created(async (event) => { /* ... */ })  // Wildcard noun
+
+// Scheduling with fluent DSL (compiles to CRON)
 $.every.Monday.at9am(sendWeeklyReport)
 $.every.day.at('6pm')(endOfDayProcessing)
 $.every.hour(healthCheck)
+$.every(5).minutes(cacheRefresh)
 
-// Cross-DO RPC
-await $.Customer(id).notify('Welcome!')
-
-// Durable execution
-$.do(action)      // Retries + persistence
-$.try(action)     // Single attempt
-$.send(event)     // Fire-and-forget
+// Durable execution with three durability levels
+$.send('Order.placed', data)           // Fire-and-forget, returns event ID
+await $.try(() => processOrder())      // Single attempt with optional timeout
+await $.do(() => chargePayment(), { stepId: 'payment-123' })  // Retries + replay protection
 ```
 
 ## Cost-Optimized Durability
@@ -105,15 +113,19 @@ Miniflare runs real Durable Objects with real SQLite locally. Test your actual c
 
 ```typescript
 import { env } from 'cloudflare:test'
+import { describe, it, expect } from 'vitest'
 
-const stub = env.DO.get(env.DO.idFromName('test'))
+describe('DOCore', () => {
+  it('persists state via RPC', async () => {
+    const stub = env.DOCore.get(env.DOCore.idFromName('test'))
 
-// Test via RPC
-const customer = await stub.things.create({
-  $type: 'Customer',
-  name: 'Alice'
+    // Test via RPC - methods are directly callable
+    await stub.set('user:alice', { name: 'Alice', role: 'admin' })
+    const user = await stub.get('user:alice')
+
+    expect(user).toEqual({ name: 'Alice', role: 'admin' })
+  })
 })
-expect(customer.$id).toBeDefined()
 ```
 
 No mocking, no faking, no surprises in production.
@@ -131,6 +143,10 @@ dotdo is ideal when you need:
 
 ## When Not to Use dotdo
 
+<Callout type="warn">
+dotdo is optimized for **stateful, per-entity workloads**. It may not be the right fit for every use case.
+</Callout>
+
 Consider alternatives if you need:
 
 - **Simple key-value storage** - use Cloudflare KV directly
@@ -141,6 +157,6 @@ Consider alternatives if you need:
 
 Ready to get started?
 
-1. [Installation](/docs/getting-started/installation) - Set up your development environment
-2. [Quick Start](/docs/getting-started/quick-start) - Build your first DO in 5 minutes
-3. [Core Concepts](/docs/getting-started/concepts) - Understand the mental model
+- [Installation](/docs/getting-started/installation) - Set up your development environment
+- [Quick Start](/docs/getting-started/quick-start) - Build your first DO in 5 minutes
+- [Core Concepts](/docs/getting-started/concepts) - Understand the mental model

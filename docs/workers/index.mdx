@@ -11,10 +11,10 @@ The Workers module provides deployment patterns for routing requests to Durable 
 
 Workers sit between incoming requests and Durable Objects, handling:
 
-- **Routing** - Extract namespace, type, and ID from URLs
-- **Sharding** - Distribute data across multiple DOs using consistent hashing
-- **Replication** - Route reads to replicas for horizontal scaling
-- **RPC Proxy** - Handle authentication and authorization for RPC calls
+- **Routing** - Extract namespace, type, and ID from URLs (subdomain, path, path-base patterns)
+- **Sharding** - Distribute data across multiple DOs using consistent hashing with virtual nodes
+- **Replication** - Route reads to replicas for horizontal scaling with round-robin load balancing
+- **RPC Proxy** - Handle authentication, authorization, and JSON-RPC 2.0 protocol for Cap'n Web RPC
 
 ## Architecture
 
@@ -96,11 +96,38 @@ Pre-configured deployment patterns for common use cases:
 | Preset | Use Case | Description |
 |--------|----------|-------------|
 | `single` | Simple apps | One DO per namespace |
-| `typed` | Type isolation | Separate DO per resource type |
-| `sharded` | High volume | Consistent hash distribution |
-| `replicated` | Read heavy | Primary + read replicas |
+| `typed` | Type isolation | Separate DO per `namespace:type` combination |
+| `sharded` | High volume | Consistent hash distribution across N shards |
+| `replicated` | Read heavy | Primary + read replicas with round-robin |
 
 [Learn more about Presets](/workers/presets)
+
+## RPC Proxy
+
+The RPC proxy handles Cap'n Web RPC requests with authentication and authorization:
+
+```typescript
+import { createRPCProxy } from 'dotdo/workers'
+
+const proxy = createRPCProxy({
+  authenticate: async (request) => {
+    const token = request.headers.get('Authorization')
+    if (!token?.startsWith('Bearer ')) {
+      return { valid: false }
+    }
+    return { valid: true, identity: 'user-123' }
+  },
+  authorize: async (identity, method) => {
+    // Block admin methods for non-admins
+    return !method.startsWith('admin.')
+  },
+})
+```
+
+Features:
+- JSON-RPC 2.0 protocol support (single and batch requests)
+- Streaming method detection (SSE for `events.stream`, `events.subscribe`)
+- Identity-based authorization
 
 ## Quick Start
 
@@ -152,6 +179,7 @@ export default {
 ## Type Definitions
 
 ```typescript
+/** Parsed URL route info extracted from request */
 interface RouteInfo {
   ns: string           // Namespace (tenant)
   type?: string        // Resource type (e.g., 'customers')
@@ -159,23 +187,80 @@ interface RouteInfo {
   remainingPath: string // Path after extraction
 }
 
+/** Worker routing configuration */
 interface RoutingConfig {
   mode: 'subdomain' | 'path' | 'path-base'
-  rootDomain?: string
-  basePath?: string
+  rootDomain?: string  // e.g., 'api.dotdo.dev'
+  basePath?: string    // e.g., '/v1' for versioned APIs
 }
 
+/** Shard configuration for consistent hashing */
 interface ShardConfig {
   shardCount: number
-  virtualNodes?: number  // Default 150
+  virtualNodes?: number  // Default 150 for even distribution
   replicationFactor?: number
 }
 
+/** Replication configuration */
 interface ReplicationConfig {
   mode: 'primary-replica' | 'multi-primary'
   replicaCount: number
   readPreference: 'primary' | 'replica' | 'nearest'
 }
+
+/** Request intent for replication routing */
+type RequestIntent = 'read' | 'write' | 'unknown'
+
+/** RPC proxy configuration */
+interface RPCProxyConfig {
+  authenticate: (request: Request) => Promise<{ valid: boolean; identity?: string }>
+  authorize?: (identity: string, method: string) => Promise<boolean>
+}
+
+/** Consistent hash ring interface */
+interface ConsistentHashRing {
+  addNode(node: string): void
+  removeNode(node: string): void
+  getNode(key: string): string
+  getNodes(): string[]
+  getVirtualNodeCount(): number
+}
+```
+
+## Module Exports
+
+All worker utilities are exported from `dotdo/workers`:
+
+```typescript
+// Types
+export type {
+  RouteInfo,
+  RoutingConfig,
+  ShardConfig,
+  ReplicationConfig,
+  RequestIntent,
+  ConsistentHashRing,
+  RPCProxyConfig,
+  RPCProxy,
+  ReplicaRouter,
+  WorkerPreset,
+  WorkerPresetInstance,
+}
+
+// Routing
+export { parseSubdomainRoute, parsePathRoute, parsePathBaseRoute }
+
+// Sharding
+export { createHashRing, hashKey }
+
+// Replication
+export { detectIntent, createReplicaRouter }
+
+// RPC Proxy
+export { createRPCProxy }
+
+// Presets
+export { createWorkerPreset, createShardedWorker, createReplicatedWorker, createProductionWorker }
 ```
 
 ## Next Steps
@@ -184,3 +269,4 @@ interface ReplicationConfig {
 - [Sharding](/workers/sharding) - Horizontal scaling with consistent hashing
 - [Replication](/workers/replication) - Read replica routing
 - [Presets](/workers/presets) - Ready-to-use configurations
+- [RPC Proxy](/workers/rpc-proxy) - Authentication and JSON-RPC 2.0 support

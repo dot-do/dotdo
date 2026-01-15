@@ -10,7 +10,7 @@ import { Callout } from 'fumadocs-ui/components/callout'
 **Every entity in your domain is a Thing.** Things are instances of Nouns with a unique `$id` and a `$type` that links back to the Noun definition. They can carry any additional data you need.
 
 ```typescript
-import { noun, thing } from 'dotdo/semantic'
+import { noun, thing } from '@dotdo/semantic'
 
 const Customer = noun('Customer')
 
@@ -177,19 +177,26 @@ For type safety with flexible schemas, use TypeScript generics and optional prop
 Things are stored internally for relationship traversal:
 
 ```typescript
-import { thing, forward, backward } from 'dotdo/semantic'
+import { thing, forward, backward, action, verb, noun } from '@dotdo/semantic'
+
+const Customer = noun('Customer')
+const Order = noun('Order')
+const purchase = verb('purchase')
 
 const alice = thing(Customer, { name: 'Alice' })
 const order = thing(Order, { total: 99.99 })
 
-// After action(alice, purchase, order), relationships are stored
+// Create relationship via action
+action(alice, purchase, order)
+
+// Traverse relationships
 const orders = forward(alice, 'Order')      // Returns [order]
 const buyers = backward(order, 'Customer')  // Returns [alice]
 ```
 
 ### Storage Lifecycle
 
-1. `thing()` creates and stores the Thing
+1. `thing()` creates and stores the Thing in the global registry
 2. `action()` creates edges between Things
 3. `forward()`/`backward()` traverse stored edges
 4. `resetState()` clears all storage (for testing)
@@ -296,7 +303,7 @@ const event = thing(Event, {
 ## Testing
 
 ```typescript
-import { resetState, noun, thing } from 'dotdo/semantic'
+import { resetState, noun, thing } from '@dotdo/semantic'
 
 describe('Things', () => {
   beforeEach(() => {
@@ -323,9 +330,36 @@ describe('Things', () => {
 })
 ```
 
-## Related
+## DOSemantic Methods
 
-- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Defining entity types
-- [Actions](/docs/semantic/actions) - Recording operations on Things
-- [Relationships](/docs/semantic/relationships) - Connecting Things
-- [Concepts: Things](/docs/concepts/things) - URL-based Things in dotdo
+When using the `DOSemantic` Durable Object, Things have persistent storage with versioning:
+
+```typescript
+// Create a Thing (stored in SQLite)
+const alice = this.createThing('Customer', { name: 'Alice' })
+// { $id: 'customer_a1b2c3d4', $type: 'Customer', $version: 1, name: 'Alice' }
+
+// Create with explicit ID
+const bob = this.createThing('Customer', { name: 'Bob' }, 'cust-bob')
+// { $id: 'cust-bob', $type: 'Customer', $version: 1, name: 'Bob' }
+
+// Retrieve a Thing
+const customer = this.getThing('cust-bob')
+
+// Update a Thing (increments $version)
+const updated = this.updateThing('cust-bob', { name: 'Robert' })
+// { $id: 'cust-bob', $type: 'Customer', $version: 2, name: 'Robert' }
+
+// Delete a Thing
+const deleted = this.deleteThing('cust-bob')  // returns true if existed
+```
+
+<Callout type="info">
+DOSemantic Things include a `$version` property that auto-increments on each update, providing optimistic concurrency control.
+</Callout>
+
+## Next Steps
+
+- [Nouns & Verbs](/docs/semantic/nouns-verbs) - Define entity types
+- [Actions](/docs/semantic/actions) - Record operations on Things
+- [Relationships](/docs/semantic/relationships) - Connect and traverse Things

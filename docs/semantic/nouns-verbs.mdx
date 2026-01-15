@@ -10,7 +10,7 @@ import { Callout } from 'fumadocs-ui/components/callout'
 **Define once, derive automatically.** The semantic module applies English grammar rules to generate singular/plural forms and verb tenses. Override any form when the rules don't fit.
 
 ```typescript
-import { noun, verb, getNoun, getVerb, getAllNouns, getAllVerbs } from 'dotdo/semantic'
+import { noun, verb, getNoun, getVerb, getAllNouns, getAllVerbs } from '@dotdo/semantic'
 
 // Nouns auto-derive plurals
 const Customer = noun('Customer')  // plural: 'Customers'
@@ -324,10 +324,10 @@ const Tag = noun('Tag')
 Reset state between tests:
 
 ```typescript
-import { resetState, noun, verb } from 'dotdo/semantic'
+import { resetState, noun, verb } from '@dotdo/semantic'
 
 beforeEach(() => {
-  resetState()  // Clears all registries
+  resetState()  // Clears noun, verb, thing, and edge registries
 })
 
 test('noun registration', () => {
@@ -336,8 +336,32 @@ test('noun registration', () => {
 })
 ```
 
-## Related
+<Callout type="info">
+The `resetState()` function clears all registries: nouns, verbs, things, edges, and the vector store. Always call it in `beforeEach()` to ensure test isolation.
+</Callout>
 
-- [Things](/docs/semantic/things) - Creating instances from Nouns
-- [Actions](/docs/semantic/actions) - Using Verbs to record operations
-- [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern in dotdo
+## DOSemantic Methods
+
+When using the `DOSemantic` Durable Object, use the method-based API:
+
+```typescript
+// Define nouns (idempotent - returns existing if already defined)
+const Customer = this.defineNoun('Customer')
+const Category = this.defineNoun('Category', { plural: 'Categories' })
+
+// Define verbs
+const purchase = this.defineVerb('purchase')
+const send = this.defineVerb('send', { past: 'sent' })
+
+// Query registries
+const allNouns = this.getAllNouns()
+const allVerbs = this.getAllVerbs()
+```
+
+The DOSemantic class stores definitions in SQLite for persistence across restarts.
+
+## Next Steps
+
+- [Things](/docs/semantic/things) - Create entity instances from Nouns
+- [Actions](/docs/semantic/actions) - Use Verbs to record operations
+- [Relationships](/docs/semantic/relationships) - Navigate the graph created by Actions

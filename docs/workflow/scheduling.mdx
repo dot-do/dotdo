@@ -1,11 +1,15 @@
 ---
 title: Scheduling DSL
-description: Human-readable scheduling with $.every.Monday.at9am() and interval support
+description: Human-readable scheduling with every.Monday.at9am() and AI-powered parsing
 ---
 
-# Scheduling DSL ($.every)
+# Scheduling DSL (every)
 
-The scheduling DSL transforms complex CRON expressions into readable English. Instead of memorizing `0 9 * * 1`, write `$.every.Monday.at9am()`.
+The scheduling DSL transforms complex CRON expressions into readable English. Instead of memorizing `0 9 * * 1`, write `every.Monday.at9am()`.
+
+```typescript
+import { every, createScheduleBuilderProxy } from 'dotdo/workflows'
+```
 
 ## Day-Based Scheduling
 
@@ -13,18 +17,22 @@ The scheduling DSL transforms complex CRON expressions into readable English. In
 
 ```typescript
 // Every Monday at 9am
-$.every.Monday.at9am(sendWeeklyReport)
+every.Monday.at9am(sendWeeklyReport)
 
 // Every Friday at 5pm
-$.every.Friday.at5pm(generateInvoices)
+every.Friday.at5pm(generateInvoices)
 
 // Every Sunday at 6am
-$.every.Sunday.at6am(runBackup)
+every.Sunday.at6am(runBackup)
 ```
 
 Available days: `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday`, `Sunday`
 
-Available time shortcuts: `at6am`, `at9am`, `at5pm`
+Available time shortcuts:
+- `at6am` through `at6pm` (all hours)
+- `atnoon` and `atmidnight`
+
+For other times, use the `.at()` method with a time string.
 
 ### Custom Times
 
@@ -32,22 +40,28 @@ Use `.at(time)` for any time:
 
 ```typescript
 // Every day at 6pm
-$.every.day.at('6pm')(closeMarket)
+every.day.at('6pm')(closeMarket)
 
 // Every Monday at 9:30am
-$.every.Monday.at('9:30am')(standupReminder)
+every.Monday.at('9:30am')(standupReminder)
 
 // Every day at noon
-$.every.day.at('noon')(lunchNotification)
+every.day.atnoon(lunchNotification)
 
 // Every day at midnight
-$.every.day.at('midnight')(dailyCleanup)
+every.day.atmidnight(dailyCleanup)
+
+// Weekdays at 8:30am
+every.weekday.at('8:30am')(sendDailyBriefing)
+
+// Weekends at 10am
+every.weekend.at('10am')(weekendSummary)
 ```
 
 Time formats supported:
 - `9am`, `5pm` - Hour with AM/PM
 - `9:30am`, `6:45pm` - Hour:minute with AM/PM
-- `14`, `22` - 24-hour format
+- `14:30`, `09:00` - 24-hour format
 - `noon`, `midnight` - Named times
 
 ## Interval Scheduling
@@ -56,37 +70,37 @@ Time formats supported:
 
 ```typescript
 // Every hour
-$.every.hour(checkHealth)
+every.hour(checkHealth)
 
 // Every minute
-$.every.minute(updateMetrics)
+every.minute(updateMetrics)
 ```
 
-### Custom Intervals
+### Natural Language Scheduling
+
+Use function call syntax for natural language schedules:
 
 ```typescript
 // Every 5 minutes
-$.every(5).minutes(pollQueue)
+every('every 5 minutes', syncExternalData)
 
-// Every 2 hours
-$.every(2).hours(syncData)
+// Daily at specific time
+every('daily at 6am', prepareReports)
 
-// Every 30 seconds (sub-minute)
-$.every(30).seconds(heartbeat)
+// Monthly patterns
+every('first day of month at 9am', generateMonthlyInvoices)
+
+// Weekly patterns
+every('weekly on friday at 5pm', sendWeeklyNewsletter)
 ```
 
-## One-Time Scheduling
-
-Schedule a single execution:
-
-```typescript
-// At a specific ISO date
-$.at('2024-12-25T00:00:00Z')(christmasGreeting)
-
-// Using a Date object
-const deadline = new Date('2024-12-31T23:59:59Z')
-$.at(deadline)(yearEndReport)
-```
+Pre-cached common patterns for fast parsing:
+- `every minute`, `every hour`, `hourly`
+- `every 5/10/15/30 minutes`
+- `every 2/3/4/6/8/12 hours`
+- `daily at 6am/9am/noon/midnight`
+- `weekdays at 9am`, `weekends at 10am`
+- `first day of month`, `15th of month`
 
 ## Unsubscribing
 
@@ -94,59 +108,78 @@ All schedule registrations return an unsubscribe function:
 
 ```typescript
 // Register
-const cancel = $.every.Monday.at9am(sendReport)
+const cancel = every.Monday.at9am(sendReport)
 
 // Later: cancel the schedule
 cancel()
+
+// With context for grouped cleanup
+every.day.at9am(handler, { context: 'reports' })
 ```
 
 ## CRON Expression Mapping
 
-The DSL generates standard CRON expressions internally:
+The DSL generates standard 5-field CRON expressions:
 
 | DSL | CRON |
 |-----|------|
-| `$.every.Monday.at9am()` | `0 9 * * 1` |
-| `$.every.Friday.at5pm()` | `0 17 * * 5` |
-| `$.every.day.at6am()` | `0 6 * * *` |
-| `$.every.day.at('6pm')()` | `0 18 * * *` |
-| `$.every.day.at('9:30am')()` | `30 9 * * *` |
-| `$.every.day.at('noon')()` | `0 12 * * *` |
-| `$.every.day.at('midnight')()` | `0 0 * * *` |
-| `$.every.hour()` | `0 * * * *` |
-| `$.every.minute()` | `* * * * *` |
-| `$.every(5).minutes()` | `*/5 * * * *` |
-| `$.every(2).hours()` | `0 */2 * * *` |
-| `$.every(30).seconds()` | `every:30s` (custom) |
+| `every.Monday.at9am()` | `0 9 * * 1` |
+| `every.Friday.at5pm()` | `0 17 * * 5` |
+| `every.day.at6am()` | `0 6 * * *` |
+| `every.day.at('6pm')()` | `0 18 * * *` |
+| `every.day.at('9:30am')()` | `30 9 * * *` |
+| `every.day.atnoon()` | `0 12 * * *` |
+| `every.day.atmidnight()` | `0 0 * * *` |
+| `every.weekday.at9am()` | `0 9 * * 1-5` |
+| `every.weekend.at10am()` | `0 10 * * 0,6` |
+| `every.hour()` | `0 * * * *` |
+| `every.minute()` | `* * * * *` |
+| `every('every 5 minutes')` | `*/5 * * * *` |
+| `every('every 2 hours')` | `0 */2 * * *` |
+| `every('first of month')` | `0 0 1 * *` |
+| `every('15th of month at 9am')` | `0 9 15 * *` |
 
-## Querying Schedules
+## AI-Powered Natural Language Parsing
+
+When AI environment bindings are available, complex natural language schedules are parsed using Claude:
 
 ```typescript
-// Check if a schedule exists
-const schedule = $.getSchedule('0 9 * * 1')
-if (schedule) {
-  console.log('Monday 9am is scheduled')
-}
+import { createScheduleBuilderProxy } from 'dotdo/workflows'
 
-// Check one-time schedules
-const oneTime = $.getOneTimeSchedule('2024-12-25T00:00:00Z')
+// Create schedule builder with AI support
+const every = createScheduleBuilderProxy({
+  state: ctx.state,
+  env: ctx.env  // Enables AI parsing when ANTHROPIC_API_KEY is set
+})
+
+// These work with or without AI (regex fallback)
+every('every 5 minutes', handler)
+every('daily at 9am', handler)
+
+// These benefit from AI for accurate parsing
+every('every second Tuesday at 3pm', handler)
+every('last Friday of month', handler)
 ```
+
+> **Warning**: Standard 5-field cron expressions do not support `last day of month`. Attempting to use this pattern will throw an error. Use a workaround like running on the 28th or implementing custom logic.
 
 ## Common Patterns
 
 ### Business Hours
 
 ```typescript
-// Market open
-$.every.day.at('9:30am')(() => {
+import { send } from 'dotdo/workflows'
+
+// Market open (weekdays only)
+every.weekday.at('9:30am')(() => {
   market.open()
-  $.send('Market.opened', { timestamp: new Date() })
+  send.Market.opened({ timestamp: new Date() })
 })
 
 // Market close
-$.every.day.at('4pm')(() => {
+every.weekday.at('4pm')(() => {
   market.close()
-  $.send('Market.closed', { timestamp: new Date() })
+  send.Market.closed({ timestamp: new Date() })
 })
 ```
 
@@ -154,15 +187,21 @@ $.every.day.at('4pm')(() => {
 
 ```typescript
 // Database maintenance at 3am
-$.every.day.at('3am')(async () => {
+every.day.at('3am')(async () => {
   await database.vacuum()
   await database.analyzeIndexes()
 })
 
 // Weekly full backup
-$.every.Sunday.at6am(async () => {
+every.Sunday.at6am(async () => {
   await backup.full()
   await backup.verify()
+})
+
+// Monthly cleanup on the 1st
+every('first of month at 2am', async () => {
+  await archiveOldRecords()
+  await compactDatabase()
 })
 ```
 
@@ -170,13 +209,13 @@ $.every.Sunday.at6am(async () => {
 
 ```typescript
 // Hourly metrics
-$.every.hour(() => {
+every.hour(() => {
   metrics.aggregate()
   metrics.pushToTimeseries()
 })
 
 // Daily summary
-$.every.day.at('6am')(async () => {
+every.day.at('6am')(async () => {
   const summary = await analytics.dailySummary()
   await email.send({
     to: 'team@company.com',
@@ -186,7 +225,7 @@ $.every.day.at('6am')(async () => {
 })
 
 // Weekly report
-$.every.Monday.at9am(async () => {
+every.Monday.at9am(async () => {
   const report = await analytics.weeklyReport()
   await slack.post('#reports', report)
 })
@@ -195,13 +234,13 @@ $.every.Monday.at9am(async () => {
 ### Health Checks
 
 ```typescript
-// Fast heartbeat
-$.every(30).seconds(() => {
+// Every minute heartbeat
+every.minute(() => {
   health.ping()
 })
 
-// Detailed health check
-$.every(5).minutes(async () => {
+// Detailed health check every 5 minutes
+every('every 5 minutes', async () => {
   const status = await health.check()
   if (!status.healthy) {
     await alerting.page('System unhealthy', status)
@@ -213,8 +252,8 @@ $.every(5).minutes(async () => {
 
 The day names map to CRON day-of-week values:
 
-| Day | CRON Value |
-|-----|------------|
+| Day/Group | CRON Value |
+|-----------|------------|
 | Sunday | 0 |
 | Monday | 1 |
 | Tuesday | 2 |
@@ -222,36 +261,63 @@ The day names map to CRON day-of-week values:
 | Thursday | 4 |
 | Friday | 5 |
 | Saturday | 6 |
-
-## Sub-Minute Scheduling
-
-For intervals less than one minute, the system uses a custom format (`every:Ns`) rather than CRON, since CRON's minimum resolution is one minute. These schedules are typically implemented using Durable Object alarms.
-
-```typescript
-// Every 30 seconds
-$.every(30).seconds(heartbeat)
-// Stored as: every:30s
-
-// Every 10 seconds
-$.every(10).seconds(quickPoll)
-// Stored as: every:10s
-```
+| day | * (every day) |
+| weekday | 1-5 (Mon-Fri) |
+| weekend | 0,6 (Sat-Sun) |
 
 ## Integration with Durable Objects
 
-When used in a Durable Object, schedules are persisted to SQLite and restored on initialization:
+Use `createScheduleBuilderProxy` for DO integration with alarm management:
 
 ```typescript
-class MyDO extends DOWorkflow {
+import { createScheduleBuilderProxy } from 'dotdo/workflows'
+
+class MyDO extends DurableObject {
+  private every: ScheduleBuilderProxy
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
 
-    // Schedules are persisted and restored automatically
-    this.$.every.Monday.at9am(this.weeklyReport.bind(this))
+    this.every = createScheduleBuilderProxy({
+      state: ctx.state,
+      env: env,
+      onScheduleRegistered: (cron, name, handler) => {
+        console.log(`Registered schedule ${name}: ${cron}`)
+      }
+    })
+
+    // Register schedules - automatically sets DO alarms
+    this.every.Monday.at9am(() => this.weeklyReport())
+    this.every('every 5 minutes', () => this.healthCheck())
   }
 
-  async weeklyReport() {
-    // This runs every Monday at 9am
+  async alarm() {
+    // Called when alarm fires
   }
+}
+```
+
+## API Reference
+
+| Function | Description |
+|----------|-------------|
+| `every.Day.atTime(handler, options?)` | Schedule on specific day/time |
+| `every.day.at('time')(handler)` | Schedule daily at custom time |
+| `every.hour(handler)` | Schedule every hour |
+| `every.minute(handler)` | Schedule every minute |
+| `every('natural language', handler)` | Natural language scheduling |
+| `createScheduleBuilderProxy(config)` | Create DO-integrated scheduler |
+
+### Schedule Builder Options
+
+```typescript
+interface ScheduleBuilderConfig {
+  state: DurableObjectState
+  onScheduleRegistered?: (cron: string, name: string, handler: Function) => void
+  env?: AIGatewayEnv  // Enables AI-powered parsing
+}
+
+interface EveryHandlerOptions {
+  context?: string  // For grouped cleanup
 }
 ```

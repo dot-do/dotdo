@@ -54,6 +54,21 @@ console.log(item.status)   // 'pending'
 console.log(item.addedAt)  // Date when added
 ```
 
+### Duplicate Prevention
+
+Items with the same ID cannot be added twice:
+
+```typescript
+await queue.add({ id: 'item-001', ...rest })
+
+// This will throw an error
+try {
+  await queue.add({ id: 'item-001', ...rest })
+} catch (error) {
+  console.log(error.message)  // 'Item already exists in queue'
+}
+```
+
 ### With Priority
 
 ```typescript
@@ -140,9 +155,9 @@ const fourth = await queue.claim('reviewer') // low-1
 
 ### Priority Order
 
-```
-critical (0) > high (1) > normal (2) > low (3)
-```
+<Callout type="info">
+Priority ordering (highest to lowest): `critical (0) > high (1) > normal (2) > low (3)`
+</Callout>
 
 ## Completing Items
 
@@ -458,14 +473,16 @@ async function addWithEscalation(item: ReviewItem) {
 
 ## Best Practices
 
-1. **Set appropriate priorities**: Reserve 'critical' for truly urgent items
+<Callout type="tip">
+1. **Set appropriate priorities**: Reserve `critical` for truly urgent items
 2. **Monitor queue depth**: Alert when pending count exceeds thresholds
 3. **Track metrics**: Use completion metrics to optimize reviewer allocation
-4. **Handle empty queues**: Gracefully handle when `claim()` returns null
+4. **Handle empty queues**: Gracefully handle when `claim()` returns `null`
 5. **Use reassignment**: Don't let items get stuck with unavailable reviewers
+</Callout>
 
 ## Next Steps
 
-- [Approval Workflows](/human/approvals) - Chain approvals with queued reviews
-- [Escalation Policies](/human/escalation) - Auto-escalate stale queue items
-- [Notifications](/human/notifications) - Alert reviewers of new items
+- [Approval Workflows](./approvals) - Chain approvals with queued reviews
+- [Escalation Policies](./escalation) - Auto-escalate stale queue items
+- [Notifications](./notifications) - Alert reviewers of new items

@@ -1,0 +1,914 @@
+---
+title: Real-Time Dashboard Pattern
+description: Build live dashboards with WebSocket streaming, SSE, fanout, and backpressure control
+---
+
+# Real-Time Dashboard Pattern
+
+This pattern demonstrates how to build real-time dashboards that stream live updates to connected clients using WebSockets, Server-Sent Events, and the streaming infrastructure.
+
+## Problem Statement
+
+Modern applications need real-time capabilities:
+- **Live metrics dashboards** showing current system state
+- **Notification feeds** delivering instant updates
+- **Collaborative features** with presence indicators
+- **Trading/analytics** platforms with sub-second updates
+- **Chat and messaging** with instant delivery
+
+Traditional polling approaches waste bandwidth and add latency. WebSockets provide efficiency but require careful management.
+
+## Trade-offs
+
+| Advantage | Disadvantage |
+|-----------|--------------|
+| Sub-second updates to clients | More complex than REST APIs |
+| Efficient use of bandwidth | WebSocket connections need management |
+| Built-in hibernation (zero cost idle) | Backpressure logic required for high volume |
+| Global distribution via Cloudflare | Debugging real-time issues is harder |
+| SSE fallback for simple clients | State sync on reconnection needs handling |
+
+**Use this pattern when:**
+- Users expect instant updates (dashboards, notifications, chat)
+- You have high-frequency data changes (metrics, trading)
+- Multiple clients need the same updates (broadcasting)
+- You want to reduce polling overhead
+
+**Avoid this pattern when:**
+- Updates are infrequent (use polling or long-polling)
+- Clients cannot maintain persistent connections
+- Simplicity is more important than latency
+- You have limited experience with async patterns
+
+> **Note**: Durable Objects support WebSocket hibernation, which allows the DO to sleep while maintaining open connections. This is critical for cost efficiency at scale. See [Cloudflare's hibernation docs](https://developers.cloudflare.com/durable-objects/api/websockets/#websocket-hibernation) for details.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Data Sources                               │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐      │
+│   │  Events  │  │  Metrics │  │   State  │  │ External │      │
+│   └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘      │
+└────────┼─────────────┼─────────────┼─────────────┼─────────────┘
+         │             │             │             │
+         └─────────────┴─────────────┴─────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Durable Object                               │
+│   ┌──────────────┐  ┌───────────────┐  ┌──────────────────┐   │
+│   │ WebSocketHub │  │ BackpressureCtl│  │ RateLimiter      │   │
+│   └──────────────┘  └───────────────┘  └──────────────────┘   │
+│   ┌──────────────────────────────────────────────────────────┐ │
+│   │              SubscriptionManager                         │ │
+│   │    Topic: metrics.*  Topic: orders.*  Topic: alerts.*    │ │
+│   └──────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+         ┌────────────────────┼────────────────────┐
+         │                    │                    │
+         ▼                    ▼                    ▼
+   ┌──────────┐        ┌──────────┐        ┌──────────┐
+   │ Client A │        │ Client B │        │ Client C │
+   │ Dashboard│        │ Mobile   │        │ Alerts   │
+   │ (WS)     │        │ (SSE)    │        │ (WS)     │
+   └──────────┘        └──────────┘        └──────────┘
+```
+
+## Complete Implementation
+
+### Dashboard DO Class
+
+```typescript
+// objects/DashboardDO.ts
+import { DOFull, WebSocketHub, SubscriptionManager, BackpressureController, RateLimiter, createSSEStream } from 'dotdo'
+import type { Env } from '../types/CloudflareBindings'
+
+// Types
+interface DashboardMetrics {
+  activeUsers: number
+  ordersPerMinute: number
+  revenue: number
+  errorRate: number
+  latencyP50: number
+  latencyP99: number
+  timestamp: number
+}
+
+interface DashboardAlert {
+  id: string
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  message: string
+  source: string
+  timestamp: number
+  acknowledged: boolean
+}
+
+export class DashboardDO extends DOFull {
+  private hub: WebSocketHub
+  private subscriptions: SubscriptionManager
+  private backpressure: BackpressureController
+  private rateLimiter: RateLimiter
+
+  // Current state
+  private currentMetrics: DashboardMetrics = {
+    activeUsers: 0,
+    ordersPerMinute: 0,
+    revenue: 0,
+    errorRate: 0,
+    latencyP50: 0,
+    latencyP99: 0,
+    timestamp: Date.now()
+  }
+
+  private alerts: Map<string, DashboardAlert> = new Map()
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Initialize streaming infrastructure
+    this.hub = new WebSocketHub()
+    this.subscriptions = new SubscriptionManager()
+    this.backpressure = new BackpressureController({
+      mode: 'drop',
+      highWaterMark: 1000,
+      onWarning: (info) => {
+        console.warn(`Backpressure warning: ${info.utilizationPercent}% buffer used`)
+      }
+    })
+    this.rateLimiter = new RateLimiter({
+      bucketSize: 100,
+      refillRate: 10,
+      perClient: true
+    })
+
+    this.initializeDashboard()
+    this.registerDashboardRoutes()
+    this.setupMetricsCollection()
+  }
+
+  private initializeDashboard(): void {
+    // Alerts table
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS alerts (
+        id TEXT PRIMARY KEY,
+        severity TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        source TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        acknowledged INTEGER DEFAULT 0
+      )
+    `)
+
+    // Metrics history (time-series)
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS metrics_history (
+        timestamp INTEGER PRIMARY KEY,
+        data TEXT NOT NULL
+      )
+    `)
+
+    // Load active alerts
+    const result = this.ctx.storage.sql.exec<{
+      id: string
+      severity: string
+      title: string
+      message: string
+      source: string
+      timestamp: number
+      acknowledged: number
+    }>(
+      `SELECT * FROM alerts WHERE acknowledged = 0`
+    )
+
+    for (const row of result.toArray()) {
+      this.alerts.set(row.id, {
+        id: row.id,
+        severity: row.severity as DashboardAlert['severity'],
+        title: row.title,
+        message: row.message,
+        source: row.source,
+        timestamp: row.timestamp,
+        acknowledged: row.acknowledged === 1
+      })
+    }
+  }
+
+  private registerDashboardRoutes(): void {
+    // WebSocket upgrade for real-time updates
+    this.app.get('/ws', (c) => {
+      const upgradeHeader = c.req.header('Upgrade')
+      if (upgradeHeader !== 'websocket') {
+        return c.json({ error: 'Upgrade Required' }, 426)
+      }
+
+      const [client, server] = Object.values(new WebSocketPair())
+
+      // Rate limit check
+      const clientId = c.req.header('X-Client-ID') ?? 'anonymous'
+      if (!this.rateLimiter.tryAcquire(1, clientId)) {
+        return c.json({ error: 'Rate limited' }, 429)
+      }
+
+      // Accept with hibernation support
+      this.ctx.acceptWebSocket(server, ['dashboard'])
+      this.hub.connect(server, { clientId, connectedAt: Date.now() })
+
+      // Send current state immediately
+      server.send(JSON.stringify({
+        type: 'initial',
+        metrics: this.currentMetrics,
+        alerts: Array.from(this.alerts.values()).filter(a => !a.acknowledged)
+      }))
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client
+      })
+    })
+
+    // SSE endpoint for simpler clients
+    this.app.get('/events', (c) => {
+      const { response, stream } = createSSEStream()
+
+      // Track SSE connection
+      const connectionId = crypto.randomUUID()
+
+      // Send initial state
+      stream.send({
+        event: 'initial',
+        data: {
+          metrics: this.currentMetrics,
+          alerts: Array.from(this.alerts.values()).filter(a => !a.acknowledged)
+        }
+      })
+
+      // Keep-alive ping
+      const pingInterval = setInterval(() => {
+        stream.comment('ping')
+      }, 30000)
+
+      // Subscribe to updates
+      const unsubscribe = this.onMetricsUpdate((metrics) => {
+        stream.send({
+          event: 'metrics',
+          data: metrics
+        })
+      })
+
+      // Cleanup on disconnect
+      c.req.raw.signal.addEventListener('abort', () => {
+        clearInterval(pingInterval)
+        unsubscribe()
+        stream.close()
+      })
+
+      return response
+    })
+
+    // REST endpoints for current state
+    this.app.get('/api/metrics', (c) => {
+      return c.json(this.currentMetrics)
+    })
+
+    this.app.get('/api/metrics/history', async (c) => {
+      const hours = parseInt(c.req.query('hours') ?? '1')
+      const since = Date.now() - (hours * 60 * 60 * 1000)
+
+      const result = this.ctx.storage.sql.exec<{ timestamp: number; data: string }>(
+        `SELECT timestamp, data FROM metrics_history
+         WHERE timestamp > ?
+         ORDER BY timestamp ASC`,
+        since
+      )
+
+      return c.json(result.toArray().map(row => ({
+        timestamp: row.timestamp,
+        ...JSON.parse(row.data)
+      })))
+    })
+
+    this.app.get('/api/alerts', (c) => {
+      const includeAcknowledged = c.req.query('acknowledged') === 'true'
+      const alerts = Array.from(this.alerts.values())
+        .filter(a => includeAcknowledged || !a.acknowledged)
+        .sort((a, b) => b.timestamp - a.timestamp)
+
+      return c.json(alerts)
+    })
+
+    this.app.post('/api/alerts/:id/acknowledge', async (c) => {
+      const id = c.req.param('id')
+      const alert = this.alerts.get(id)
+
+      if (!alert) {
+        return c.json({ error: 'Not found' }, 404)
+      }
+
+      alert.acknowledged = true
+      this.alerts.set(id, alert)
+
+      // Persist
+      this.ctx.storage.sql.exec(
+        `UPDATE alerts SET acknowledged = 1 WHERE id = ?`,
+        id
+      )
+
+      // Broadcast acknowledgment
+      await this.broadcastToAll({
+        type: 'alert-acknowledged',
+        alertId: id
+      })
+
+      return c.json(alert)
+    })
+
+    // Ingest endpoint for external metrics
+    this.app.post('/api/metrics/ingest', async (c) => {
+      const metrics = await c.req.json() as Partial<DashboardMetrics>
+      await this.updateMetrics(metrics)
+      return c.json({ success: true })
+    })
+
+    // Alert creation endpoint
+    this.app.post('/api/alerts', async (c) => {
+      const body = await c.req.json()
+      const alert = await this.createAlert(body)
+      return c.json(alert, 201)
+    })
+  }
+
+  private setupMetricsCollection(): void {
+    // Aggregate metrics every second
+    this.$.every.second(async () => {
+      await this.aggregateAndBroadcast()
+    })
+
+    // Store history every minute
+    this.$.every.minute(async () => {
+      await this.storeMetricsHistory()
+    })
+
+    // Clean old history daily
+    this.$.every.day.at('3am')(async () => {
+      await this.cleanOldHistory()
+    })
+
+    // Event handlers for metrics updates
+    this.$.on.Order.created(async () => {
+      this.currentMetrics.ordersPerMinute++
+    })
+
+    this.$.on.User.connected(async () => {
+      this.currentMetrics.activeUsers++
+    })
+
+    this.$.on.User.disconnected(async () => {
+      this.currentMetrics.activeUsers = Math.max(0, this.currentMetrics.activeUsers - 1)
+    })
+
+    this.$.on.Error.occurred(async (event) => {
+      const data = event.data as { source: string; message: string }
+
+      // Update error rate
+      this.currentMetrics.errorRate = Math.min(100, this.currentMetrics.errorRate + 1)
+
+      // Create alert for critical errors
+      if (this.currentMetrics.errorRate > 10) {
+        await this.createAlert({
+          severity: 'critical',
+          title: 'High Error Rate',
+          message: `Error rate is ${this.currentMetrics.errorRate}%`,
+          source: data.source
+        })
+      }
+    })
+  }
+
+  // ============================================================
+  // Metrics Operations
+  // ============================================================
+
+  async updateMetrics(updates: Partial<DashboardMetrics>): Promise<void> {
+    this.currentMetrics = {
+      ...this.currentMetrics,
+      ...updates,
+      timestamp: Date.now()
+    }
+
+    await this.broadcastMetrics()
+  }
+
+  async aggregateAndBroadcast(): Promise<void> {
+    // Reset per-second counters
+    this.currentMetrics.timestamp = Date.now()
+
+    // Decay error rate over time
+    this.currentMetrics.errorRate = Math.max(0, this.currentMetrics.errorRate * 0.95)
+
+    await this.broadcastMetrics()
+  }
+
+  async storeMetricsHistory(): Promise<void> {
+    const now = Date.now()
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO metrics_history (timestamp, data) VALUES (?, ?)`,
+      now,
+      JSON.stringify(this.currentMetrics)
+    )
+  }
+
+  async cleanOldHistory(): Promise<void> {
+    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000) // 7 days
+
+    this.ctx.storage.sql.exec(
+      `DELETE FROM metrics_history WHERE timestamp < ?`,
+      cutoff
+    )
+  }
+
+  private metricsUpdateCallbacks: Array<(metrics: DashboardMetrics) => void> = []
+
+  onMetricsUpdate(callback: (metrics: DashboardMetrics) => void): () => void {
+    this.metricsUpdateCallbacks.push(callback)
+    return () => {
+      const index = this.metricsUpdateCallbacks.indexOf(callback)
+      if (index > -1) {
+        this.metricsUpdateCallbacks.splice(index, 1)
+      }
+    }
+  }
+
+  // ============================================================
+  // Alert Operations
+  // ============================================================
+
+  async createAlert(data: {
+    severity: DashboardAlert['severity']
+    title: string
+    message: string
+    source: string
+  }): Promise<DashboardAlert> {
+    const alert: DashboardAlert = {
+      id: `alert-${crypto.randomUUID()}`,
+      severity: data.severity,
+      title: data.title,
+      message: data.message,
+      source: data.source,
+      timestamp: Date.now(),
+      acknowledged: false
+    }
+
+    // Dedup by title/source within 5 minutes
+    const existing = Array.from(this.alerts.values()).find(a =>
+      a.title === alert.title &&
+      a.source === alert.source &&
+      !a.acknowledged &&
+      (Date.now() - a.timestamp) < 5 * 60 * 1000
+    )
+
+    if (existing) {
+      // Update existing instead of creating new
+      return existing
+    }
+
+    this.alerts.set(alert.id, alert)
+
+    // Persist
+    this.ctx.storage.sql.exec(
+      `INSERT INTO alerts (id, severity, title, message, source, timestamp, acknowledged)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      alert.id,
+      alert.severity,
+      alert.title,
+      alert.message,
+      alert.source,
+      alert.timestamp,
+      0
+    )
+
+    // Broadcast to all connected clients
+    await this.broadcastToAll({
+      type: 'new-alert',
+      alert
+    })
+
+    // Emit event for other handlers
+    await this.$.send({
+      $type: 'Alert',
+      verb: 'created',
+      data: alert
+    })
+
+    return alert
+  }
+
+  // ============================================================
+  // Broadcasting
+  // ============================================================
+
+  async broadcastMetrics(): Promise<void> {
+    const message = {
+      type: 'metrics',
+      data: this.currentMetrics
+    }
+
+    // Use backpressure for high-frequency updates
+    const result = this.backpressure.push({ data: message })
+
+    if (result.dropped) {
+      // Oldest message was dropped, that's fine for metrics
+      console.debug('Dropped old metrics update due to backpressure')
+    }
+
+    // Drain buffer to WebSocket clients
+    let item
+    while ((item = this.backpressure.drain())) {
+      // Broadcast via WebSocket hub
+      this.hub.broadcast(JSON.stringify(item.data))
+
+      // Notify SSE callbacks
+      for (const callback of this.metricsUpdateCallbacks) {
+        callback(this.currentMetrics)
+      }
+    }
+  }
+
+  async broadcastToAll(message: unknown): Promise<void> {
+    // WebSocket clients
+    const wsCount = this.hub.broadcast(JSON.stringify(message))
+
+    // Topic-based subscribers
+    const topicCount = this.subscriptions.publish('dashboard', message)
+
+    console.debug(`Broadcast to ${wsCount} WS clients, ${topicCount} topic subscribers`)
+  }
+
+  // ============================================================
+  // WebSocket Handlers
+  // ============================================================
+
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    try {
+      const data = typeof message === 'string' ? JSON.parse(message) : message
+
+      if (typeof data !== 'object' || data === null) return
+
+      const { type, topic } = data as { type?: string; topic?: string }
+
+      switch (type) {
+        case 'subscribe':
+          if (topic) {
+            this.subscriptions.subscribe(ws, topic)
+            ws.send(JSON.stringify({ type: 'subscribed', topic }))
+          }
+          break
+
+        case 'unsubscribe':
+          if (topic) {
+            this.subscriptions.unsubscribe(ws, topic)
+            ws.send(JSON.stringify({ type: 'unsubscribed', topic }))
+          }
+          break
+
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }))
+          break
+
+        default:
+          // Echo unknown messages
+          ws.send(JSON.stringify({ type: 'echo', received: data }))
+      }
+    } catch (e) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }))
+    }
+  }
+
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    // Clean up hub and subscriptions
+    this.hub.disconnect(ws)
+    this.subscriptions.unsubscribeAll(ws)
+
+    // Track disconnection
+    this.$.send({
+      $type: 'User',
+      verb: 'disconnected',
+      data: { code, reason, wasClean }
+    })
+  }
+
+  webSocketError(ws: WebSocket, error: unknown): void {
+    console.error('WebSocket error:', error)
+    this.hub.disconnect(ws)
+    this.subscriptions.unsubscribeAll(ws)
+  }
+}
+```
+
+### Client-Side Integration
+
+```typescript
+// Client: React hook for dashboard
+function useDashboard(url: string) {
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
+  const [alerts, setAlerts] = useState<DashboardAlert[]>([])
+  const [connected, setConnected] = useState(false)
+
+  useEffect(() => {
+    const ws = new WebSocket(`wss://${url}/ws`)
+
+    ws.onopen = () => setConnected(true)
+    ws.onclose = () => setConnected(false)
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+
+      switch (data.type) {
+        case 'initial':
+          setMetrics(data.metrics)
+          setAlerts(data.alerts)
+          break
+
+        case 'metrics':
+          setMetrics(data.data)
+          break
+
+        case 'new-alert':
+          setAlerts(prev => [data.alert, ...prev])
+          break
+
+        case 'alert-acknowledged':
+          setAlerts(prev =>
+            prev.map(a =>
+              a.id === data.alertId ? { ...a, acknowledged: true } : a
+            )
+          )
+          break
+      }
+    }
+
+    // Ping every 30 seconds to keep connection alive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      }
+    }, 30000)
+
+    return () => {
+      clearInterval(pingInterval)
+      ws.close()
+    }
+  }, [url])
+
+  return { metrics, alerts, connected }
+}
+
+// Usage in component
+function Dashboard() {
+  const { metrics, alerts, connected } = useDashboard('dashboard.example.com')
+
+  if (!connected) {
+    return <div>Connecting...</div>
+  }
+
+  return (
+    <div>
+      <MetricsPanel metrics={metrics} />
+      <AlertsList alerts={alerts} />
+    </div>
+  )
+}
+```
+
+## Key Considerations
+
+### Connection Management
+
+Durable Objects support WebSocket hibernation, allowing thousands of connections per DO:
+
+```typescript
+// DO hibernates between messages
+// Connections stay open, messages are buffered
+// Wake on message, alarm, or fetch
+```
+
+### Backpressure Strategies
+
+Choose the right mode for your use case:
+
+```typescript
+// 'drop' - Best for high-frequency metrics (drop oldest)
+new BackpressureController({ mode: 'drop', highWaterMark: 1000 })
+
+// 'pause' - Best for ordered delivery (pause producer)
+new BackpressureController({ mode: 'pause', highWaterMark: 100 })
+
+// 'buffer' - Best for guaranteed delivery (grow buffer)
+new BackpressureController({ mode: 'buffer', bufferLimit: 10000 })
+```
+
+### Rate Limiting
+
+Protect against connection spam:
+
+```typescript
+const limiter = new RateLimiter({
+  bucketSize: 10,      // Max burst
+  refillRate: 1,       // Per second
+  perClient: true      // Separate limits per client
+})
+
+if (!limiter.tryAcquire(1, clientId)) {
+  return new Response('Rate limited', { status: 429 })
+}
+```
+
+### Topic-Based Subscriptions
+
+Allow clients to subscribe to specific data streams:
+
+```typescript
+// Subscribe to specific metrics
+ws.send(JSON.stringify({ type: 'subscribe', topic: 'metrics.cpu' }))
+ws.send(JSON.stringify({ type: 'subscribe', topic: 'alerts.critical' }))
+
+// Server-side publishing
+this.subscriptions.publish('metrics.cpu', { value: 45.2 })
+this.subscriptions.publish('alerts.critical', newAlert)
+```
+
+## Variations
+
+### Multi-Region with Fanout
+
+For global dashboards, fan out from regional DOs:
+
+```typescript
+// Regional DO aggregates local metrics
+// Central DO receives from all regions
+async function fanoutToGlobal(metrics: DashboardMetrics, region: string) {
+  const globalDO = env.GLOBAL_DASHBOARD.get(
+    env.GLOBAL_DASHBOARD.idFromName('global')
+  )
+
+  await globalDO.fetch('https://global/api/metrics/ingest', {
+    method: 'POST',
+    body: JSON.stringify({ ...metrics, region })
+  })
+}
+```
+
+### Hybrid SSE + WebSocket
+
+Use SSE for read-only clients, WebSocket for interactive:
+
+```typescript
+// Mobile app - read-only SSE
+const eventSource = new EventSource('/events')
+
+// Desktop dashboard - interactive WebSocket
+const ws = new WebSocket('/ws')
+ws.send(JSON.stringify({ type: 'acknowledge-alert', id: alertId }))
+```
+
+### Throttled Updates
+
+Batch updates to reduce bandwidth:
+
+```typescript
+const throttledBroadcast = throttle(async (metrics) => {
+  await this.broadcastMetrics()
+}, 100) // Max 10 updates per second
+
+this.$.on.Metric.updated(async (event) => {
+  this.currentMetrics = { ...this.currentMetrics, ...event.data }
+  throttledBroadcast(this.currentMetrics)
+})
+```
+
+## WebSocket vs SSE Decision Matrix
+
+Choose the right protocol for your use case:
+
+| Feature | WebSocket | SSE |
+|---------|-----------|-----|
+| Direction | Bidirectional | Server → Client only |
+| Connection | Single persistent | Auto-reconnect built-in |
+| Browser support | All modern | All modern |
+| Binary data | Yes | No (text only) |
+| Use case | Chat, games, interactive | Notifications, metrics |
+| Complexity | Higher | Lower |
+
+```typescript
+// Use WebSocket for interactive features
+this.app.get('/ws', (c) => {
+  const [client, server] = Object.values(new WebSocketPair())
+  this.ctx.acceptWebSocket(server)
+  this.hub.connect(server)
+  return new Response(null, { status: 101, webSocket: client })
+})
+
+// Use SSE for one-way notifications
+this.app.get('/events', (c) => {
+  const { response, stream } = createSSEStream()
+
+  // Subscribe to updates
+  const unsubscribe = this.onMetricsUpdate((metrics) => {
+    stream.send({ event: 'metrics', data: metrics })
+  })
+
+  c.req.raw.signal.addEventListener('abort', () => {
+    unsubscribe()
+    stream.close()
+  })
+
+  return response
+})
+```
+
+## Handling Reconnection
+
+Clients will disconnect and reconnect. Handle this gracefully:
+
+```typescript
+// Client-side: reconnect with last event ID
+function connectSSE(url: string, lastEventId?: string) {
+  const eventSource = new EventSource(url)
+
+  eventSource.onmessage = (event) => {
+    lastEventId = event.lastEventId
+    handleEvent(JSON.parse(event.data))
+  }
+
+  eventSource.onerror = () => {
+    eventSource.close()
+    setTimeout(() => connectSSE(url, lastEventId), 1000)
+  }
+
+  return eventSource
+}
+
+// Server-side: send missed events on reconnection
+this.app.get('/events', (c) => {
+  const lastEventId = c.req.header('Last-Event-ID')
+  const { response, stream } = createSSEStream()
+
+  // Send missed events first
+  if (lastEventId) {
+    const missedEvents = await this.getEventsAfter(parseInt(lastEventId))
+    for (const event of missedEvents) {
+      stream.send({ id: event.id, event: 'update', data: event })
+    }
+  }
+
+  // Then subscribe to new events
+  // ...
+
+  return response
+})
+```
+
+## Performance Monitoring
+
+Track dashboard health with built-in metrics:
+
+```typescript
+// Monitor connection health
+this.$.every.minute(async () => {
+  const stats = {
+    activeConnections: this.hub.connectionCount,
+    bufferUtilization: this.backpressure.bufferSize,
+    topicStats: this.subscriptions.getTopicStats(),
+    timestamp: Date.now()
+  }
+
+  // Store for historical analysis
+  await this.set(`stats:${stats.timestamp}`, stats)
+
+  // Alert on thresholds
+  if (stats.activeConnections > 10000) {
+    await this.createAlert({
+      severity: 'warning',
+      title: 'High connection count',
+      message: `${stats.activeConnections} active connections`,
+      source: 'dashboard-monitor'
+    })
+  }
+})
+```
+
+## Related Documentation
+
+- [Streaming Module](/streaming) - WebSocketHub, SSEStream, BackpressureController
+- [Workflow Module](/workflow) - Scheduling for metrics aggregation
+- [Fanout Module](/fanout) - Coordinated broadcasting across DOs
+
+## Next Steps
+
+- [Multi-Tenant Pattern](/patterns/multi-tenant) - Per-tenant dashboards
+- [Event Sourcing Pattern](/patterns/event-sourcing) - Stream events to dashboard
+- [Approval Workflow Pattern](/patterns/approval-workflow) - Live approval queues

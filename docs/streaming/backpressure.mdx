@@ -9,10 +9,13 @@ The `BackpressureController` manages flow control when producers generate messag
 
 ## Overview
 
-Backpressure occurs when:
-- A slow client cannot keep up with message rate
-- Network congestion delays message delivery
-- Client processing is slower than server production
+Backpressure occurs when producers generate messages faster than consumers can process them. Common causes include:
+
+- **Slow clients** that cannot keep up with the message rate
+- **Network congestion** delaying message delivery
+- **Processing bottlenecks** where client-side handling is slower than server-side production
+
+Without backpressure handling, unbounded queues lead to memory exhaustion and service degradation.
 
 ## Mode Comparison
 
@@ -23,6 +26,30 @@ Backpressure occurs when:
 | **buffer** | Queues up to limit | None* | High | Burst handling, eventual delivery |
 
 *Buffer mode rejects messages when the buffer limit is exceeded.
+
+### Visual Mode Comparison
+
+```
+PAUSE MODE                    DROP MODE                     BUFFER MODE
+============                  ============                  ============
+
+[Producer] ---> [Buffer]      [Producer] ---> [Buffer]      [Producer] ---> [Buffer]
+                   |                             |                             |
+              highWaterMark                 highWaterMark                 bufferLimit
+                   |                             |                             |
+                   v                             v                             v
+              [PAUSED]                    [Drop Oldest]                  [REJECTED]
+                   |                             |                             |
+              lowWaterMark                  (always                      (warning at
+                   |                         accepts)                    threshold)
+                   v
+              [RESUMED]
+
+Result:                       Result:                       Result:
+- No data loss               - Oldest data dropped          - No data loss*
+- Producer must wait         - Producer never waits         - Producer rejected when full
+- Memory bounded             - Memory bounded               - Memory bounded by limit
+```
 
 ## Pause Mode
 
@@ -68,6 +95,8 @@ Drain:       100 -----> 50 (lowWaterMark)
 - Cooperative producers that can wait
 - Database write queues
 
+> **Note:** Pause mode requires producers to check `isPaused` or handle rejected pushes. If your producer cannot be paused (e.g., external event source), consider drop or buffer mode.
+
 ## Drop Mode
 
 Drop mode always accepts new messages but discards the oldest when the buffer is full. This ensures bounded memory and fresh data.
@@ -103,6 +132,8 @@ Buffer: [msg2] [msg3] [msg4] ... [msg101]
 - Stock tickers (latest price matters)
 - Telemetry where recent data is more valuable
 
+> **Warning:** Drop mode silently discards data. Ensure your application can tolerate gaps. Log dropped messages for observability.
+
 ## Buffer Mode
 
 Buffer mode queues messages up to a configurable limit, providing a warning callback when approaching capacity.
@@ -126,6 +157,15 @@ if (!result.accepted && result.reason === 'buffer_full') {
 }
 ```
 
+### Default Values
+
+When not specified, buffer mode uses these defaults:
+
+- `bufferLimit`: `highWaterMark * 10` (10x multiplier)
+- `warningThreshold`: `0.8` (80% utilization)
+
+The warning callback fires once when crossing the threshold and resets when buffer drains below it.
+
 ### Buffer Flow
 
 ```
@@ -144,6 +184,8 @@ Push new:     v
 - Eventual consistency is acceptable
 - Memory is available for queuing
 - Processing rate is temporarily slower
+
+> **Warning:** Buffer mode can consume significant memory. Always set a reasonable `bufferLimit` and monitor via `onWarning`. The default limit is `highWaterMark * 10`.
 
 ## Draining the Buffer
 
@@ -319,3 +361,8 @@ interface PushResult {
   droppedMessage?: { data: unknown }
 }
 ```
+
+## Related
+
+- [Rate Limiting](/streaming/rate-limiting) - Control request rates with token buckets
+- [WebSocket Hub](/streaming/websocket-hub) - Combine with per-connection backpressure

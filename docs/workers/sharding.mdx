@@ -70,16 +70,34 @@ The `hashKey` function creates composite keys from namespace, type, and ID:
 ```typescript
 import { hashKey } from 'dotdo/workers'
 
-// Basic key
+// Full key with all components
 const key1 = hashKey('tenant-a', 'customers', '123')
 // Result: 'tenant-a:customers:123'
 
-// Use '_' for missing components
+// Use '_' for missing components (convention)
 const key2 = hashKey('tenant-a', '_', '_')
 // Result: 'tenant-a:_:_'
+
+// The key format is always 'ns:type:id'
+// This ensures consistent hashing for the same resource
+```
+
+Use the key with the hash ring:
+
+```typescript
+const ring = createHashRing({ shardCount: 4 })
+ring.addNode('shard-0')
+ring.addNode('shard-1')
+ring.addNode('shard-2')
+ring.addNode('shard-3')
+
+const key = hashKey('tenant-1', 'customers', '123')
+const shard = ring.getNode(key) // Maps key to one of the shards
 ```
 
 ## Worker Integration
+
+> **Note:** Initialize the hash ring at module level, not per-request. Workers can handle thousands of requests per second, and creating a new ring on each request would be wasteful.
 
 ### Basic Sharded Worker
 
@@ -191,13 +209,16 @@ ring.removeNode('shard-5')
 ### Inspecting the Ring
 
 ```typescript
-// Get all nodes
+// Get all physical nodes (returns a copy, safe to modify)
 const nodes = ring.getNodes()
 // ['shard-0', 'shard-1', ..., 'shard-15']
 
-// Get virtual node count
+// Get configured virtual node count
 const vnodes = ring.getVirtualNodeCount()
 // 150
+
+// Note: Duplicate addNode calls are safely ignored
+ring.addNode('shard-0') // No-op if already exists
 ```
 
 ## FNV-1a Hash Function
@@ -210,16 +231,26 @@ The sharding module uses FNV-1a for consistent hashing:
 - 32-bit output fits in JavaScript number
 
 ```typescript
-// Internal implementation
+// Internal implementation (not exported)
+const FNV_OFFSET_BASIS = 2166136261
+const FNV_PRIME = 16777619
+
 function hashString(str: string): number {
-  let hash = 2166136261 // FNV offset basis
+  let hash = FNV_OFFSET_BASIS
   for (let i = 0; i < str.length; i++) {
     hash ^= str.charCodeAt(i)
-    hash = (hash * 16777619) >>> 0 // FNV prime
+    // Multiply by FNV prime and convert to unsigned 32-bit
+    hash = (hash * FNV_PRIME) >>> 0
   }
-  return hash >>> 0
+  return hash >>> 0 // Ensure unsigned 32-bit
 }
 ```
+
+The algorithm:
+1. Start with the FNV offset basis (2166136261)
+2. XOR each character's code point
+3. Multiply by the FNV prime (16777619)
+4. Use `>>> 0` to ensure unsigned 32-bit integers
 
 ## Shard Count Guidelines
 
@@ -238,13 +269,17 @@ For read-heavy workloads, combine sharding with replication:
 
 ```typescript
 import {
+  parseSubdomainRoute,
   createHashRing,
   hashKey,
   createReplicaRouter,
-  detectIntent
 } from 'dotdo/workers'
 
 const ring = createHashRing({ shardCount: 16 })
+for (let i = 0; i < 16; i++) {
+  ring.addNode(`shard-${i}`)
+}
+
 const replicaRouter = createReplicaRouter({
   mode: 'primary-replica',
   replicaCount: 3,
