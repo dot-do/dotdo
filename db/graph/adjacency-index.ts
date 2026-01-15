@@ -1362,6 +1362,297 @@ export class AdjacencyIndex implements IAdjacencyIndex {
       this.vertexBloomFilter.add(edge.target_id)
     }
   }
+
+  // =========================================================================
+  // LEAN GRAPH COLUMNS - Hierarchy Operations (depth, is_leaf, is_root)
+  // =========================================================================
+
+  /**
+   * Get hierarchy information for a node.
+   *
+   * @param nodeId - The node to get hierarchy info for
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns NodeHierarchyInfo with depth, is_leaf, is_root, and counts
+   */
+  async getNodeHierarchy(
+    nodeId: string,
+    edgeType: string
+  ): Promise<{
+    nodeId: string
+    depth: number
+    is_leaf: boolean
+    is_root: boolean
+    childCount: number
+    parentCount: number
+  }> {
+    await this.ensureInitialized()
+
+    // Count children (outgoing edges)
+    const childResult = this.sqlite!.prepare(`
+      SELECT COUNT(*) as count FROM adjacency_out
+      WHERE node_id = ? AND edge_type = ?
+    `).get(nodeId, edgeType) as { count: number }
+
+    // Count parents (incoming edges)
+    const parentResult = this.sqlite!.prepare(`
+      SELECT COUNT(*) as count FROM adjacency_in
+      WHERE node_id = ? AND edge_type = ?
+    `).get(nodeId, edgeType) as { count: number }
+
+    // Compute depth using recursive traversal
+    const depth = await this.computeNodeDepth(nodeId, edgeType)
+
+    return {
+      nodeId,
+      depth,
+      is_leaf: childResult.count === 0,
+      is_root: parentResult.count === 0,
+      childCount: childResult.count,
+      parentCount: parentResult.count,
+    }
+  }
+
+  /**
+   * Get all leaf nodes for a hierarchy (nodes with no children).
+   *
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns Array of node IDs that are leaves
+   */
+  async getLeafNodes(edgeType: string): Promise<string[]> {
+    await this.ensureInitialized()
+
+    // Leaf nodes are targets (in adjacency_in) that are not sources (not in adjacency_out)
+    const results = this.sqlite!.prepare(`
+      SELECT DISTINCT ai.node_id
+      FROM adjacency_in ai
+      WHERE ai.edge_type = ?
+        AND ai.node_id NOT IN (
+          SELECT ao.node_id FROM adjacency_out ao WHERE ao.edge_type = ?
+        )
+    `).all(edgeType, edgeType) as { node_id: string }[]
+
+    return results.map((r) => r.node_id)
+  }
+
+  /**
+   * Get all root nodes for a hierarchy (nodes with no parent).
+   *
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns Array of node IDs that are roots
+   */
+  async getRootNodes(edgeType: string): Promise<string[]> {
+    await this.ensureInitialized()
+
+    // Root nodes are sources (in adjacency_out) that are not targets (not in adjacency_in)
+    const results = this.sqlite!.prepare(`
+      SELECT DISTINCT ao.node_id
+      FROM adjacency_out ao
+      WHERE ao.edge_type = ?
+        AND ao.node_id NOT IN (
+          SELECT ai.node_id FROM adjacency_in ai WHERE ai.edge_type = ?
+        )
+    `).all(edgeType, edgeType) as { node_id: string }[]
+
+    return results.map((r) => r.node_id)
+  }
+
+  /**
+   * Get all nodes at a specific depth in the hierarchy.
+   *
+   * @param edgeType - The edge type defining the hierarchy
+   * @param depth - The depth level (0 = roots)
+   * @returns Array of node IDs at the specified depth
+   */
+  async getNodesAtDepth(edgeType: string, depth: number): Promise<string[]> {
+    await this.ensureInitialized()
+
+    // Get all root nodes first
+    const roots = await this.getRootNodes(edgeType)
+
+    if (depth === 0) {
+      return roots
+    }
+
+    // BFS to find nodes at the target depth
+    let currentLevel = roots
+    for (let d = 0; d < depth; d++) {
+      if (currentLevel.length === 0) {
+        return []
+      }
+
+      const nextLevel: string[] = []
+      for (const nodeId of currentLevel) {
+        const children = await this.getOutNeighbors(nodeId, edgeType)
+        nextLevel.push(...children)
+      }
+      currentLevel = [...new Set(nextLevel)] // Deduplicate
+    }
+
+    return currentLevel
+  }
+
+  /**
+   * Get the maximum depth of the hierarchy.
+   *
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns Maximum depth (-1 if empty)
+   */
+  async getMaxDepth(edgeType: string): Promise<number> {
+    await this.ensureInitialized()
+
+    // Use recursive CTE to compute max depth
+    const result = this.sqlite!.prepare(`
+      WITH RECURSIVE hierarchy AS (
+        -- Base case: root nodes have depth 0
+        SELECT node_id, 0 as depth
+        FROM adjacency_out
+        WHERE edge_type = ?
+          AND node_id NOT IN (
+            SELECT DISTINCT node_id FROM adjacency_in WHERE edge_type = ?
+          )
+
+        UNION ALL
+
+        -- Recursive case: children have parent's depth + 1
+        SELECT ao.target_id as node_id, h.depth + 1 as depth
+        FROM adjacency_out ao
+        INNER JOIN hierarchy h ON ao.node_id = h.node_id
+        WHERE ao.edge_type = ?
+          AND h.depth < 100  -- Prevent infinite recursion
+      )
+      SELECT MAX(depth) as max_depth FROM hierarchy
+    `).get(edgeType, edgeType, edgeType) as { max_depth: number | null }
+
+    return result.max_depth ?? -1
+  }
+
+  /**
+   * Compute the depth of a specific node in the hierarchy.
+   *
+   * @param nodeId - The node to compute depth for
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns Depth from root (0 for root nodes)
+   */
+  private async computeNodeDepth(nodeId: string, edgeType: string): Promise<number> {
+    // Trace path to root by following incoming edges
+    let depth = 0
+    let current = nodeId
+    const visited = new Set<string>()
+
+    while (true) {
+      if (visited.has(current)) {
+        // Cycle detected
+        break
+      }
+      visited.add(current)
+
+      // Get parent
+      const parent = this.sqlite!.prepare(`
+        SELECT source_id FROM adjacency_in
+        WHERE node_id = ? AND edge_type = ?
+        LIMIT 1
+      `).get(current, edgeType) as { source_id: string } | undefined
+
+      if (!parent) {
+        // Reached root
+        break
+      }
+
+      current = parent.source_id
+      depth++
+    }
+
+    return depth
+  }
+
+  /**
+   * Get the path from a node to its root.
+   *
+   * @param nodeId - The node to trace from
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns Array of node IDs from nodeId to root (inclusive)
+   */
+  async getPathToRoot(nodeId: string, edgeType: string): Promise<string[]> {
+    await this.ensureInitialized()
+
+    const path: string[] = [nodeId]
+    let current = nodeId
+    const visited = new Set<string>()
+
+    while (true) {
+      if (visited.has(current)) {
+        break
+      }
+      visited.add(current)
+
+      const parent = this.sqlite!.prepare(`
+        SELECT source_id FROM adjacency_in
+        WHERE node_id = ? AND edge_type = ?
+        LIMIT 1
+      `).get(current, edgeType) as { source_id: string } | undefined
+
+      if (!parent) {
+        break
+      }
+
+      current = parent.source_id
+      path.push(current)
+    }
+
+    return path
+  }
+
+  /**
+   * Get all descendants of a node.
+   *
+   * @param nodeId - The node to get descendants for
+   * @param edgeType - The edge type defining the hierarchy
+   * @param maxDepth - Maximum depth to traverse (optional)
+   * @returns Array of descendant node IDs
+   */
+  async getDescendants(
+    nodeId: string,
+    edgeType: string,
+    maxDepth?: number
+  ): Promise<string[]> {
+    await this.ensureInitialized()
+
+    const descendants: string[] = []
+    const queue: Array<{ id: string; depth: number }> = [{ id: nodeId, depth: 0 }]
+    const visited = new Set<string>([nodeId])
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!
+
+      if (maxDepth !== undefined && depth >= maxDepth) {
+        continue
+      }
+
+      const children = await this.getOutNeighbors(id, edgeType)
+      for (const child of children) {
+        if (!visited.has(child)) {
+          visited.add(child)
+          descendants.push(child)
+          queue.push({ id: child, depth: depth + 1 })
+        }
+      }
+    }
+
+    return descendants
+  }
+
+  /**
+   * Get all ancestors of a node.
+   *
+   * @param nodeId - The node to get ancestors for
+   * @param edgeType - The edge type defining the hierarchy
+   * @returns Array of ancestor node IDs (from immediate parent to root)
+   */
+  async getAncestors(nodeId: string, edgeType: string): Promise<string[]> {
+    const path = await this.getPathToRoot(nodeId, edgeType)
+    // Remove the node itself from the path
+    return path.slice(1)
+  }
 }
 
 // ============================================================================
