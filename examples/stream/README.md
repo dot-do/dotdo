@@ -170,24 +170,24 @@ export class AnalyticsDO extends DO {
 
 ---
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const sub of subscribers) {
-  await pipeline.emit('stream.push', sub, event)
+  await this.pipeline.emit('stream.push', sub, event)
 }
 
 // ✅ Pipelined - fire and forget
-subscribers.forEach(s => pipeline.emit('stream.push', s, event))
+subscribers.forEach(s => this.pipeline.emit('stream.push', s, event))
 
 // ✅ Await only when you need the result
-const position = await pipeline.getConsumer(consumerId).checkpoint
+const position = await this.pipeline.Consumer(consumerId).checkpoint
 ```
 
-Fire-and-forget is valid for side effects. Events are durable in Pipeline before your code continues - no `await` required. Only await at exit points when you actually need the value.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects. Events are durable in Pipeline before your code continues - no `await` required.
 
 ---
 

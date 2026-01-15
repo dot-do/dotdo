@@ -198,26 +198,26 @@ SubscriptionManager.publish()
 WebSocket broadcast to subscribers
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const key of keys) {
-  await $.Cache(ns).invalidate(key)
+  await this.Cache(ns).invalidate(key)
 }
 
 // ✅ Pipelined - fire and forget
-keys.forEach(key => $.Cache(ns).invalidate(key))
+keys.forEach(key => this.Cache(ns).invalidate(key))
 
 // ✅ Pipelined - single await at the end
 const results = await Promise.all(
-  keys.map(key => $.Cache(ns).get(key))
+  keys.map(key => this.Cache(ns).get(key))
 )
 ```
 
-Fire-and-forget is valid for side effects like cache invalidation. Only `await` at exit points when you need the value. This maps directly to Redis pipelining - batch commands, reduce round-trips.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects like cache invalidation. This maps directly to Redis pipelining - batch commands, reduce round-trips.
 
 ## TTL Implementation
 

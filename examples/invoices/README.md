@@ -6,10 +6,10 @@ You're a freelancer. You finish the project, send an invoice, and... wait. Days 
 
 Invoice tools charge $10-20/month for the privilege of sending PDFs. Building your own means wrestling with reminders, payment processing, and state management.
 
-With dotdo, invoices are just Things. Payments are events. Reminders are `$.every.day.at9am`. Payment processing is `$.do` (durable, retried automatically). Deploy once, invoice forever.
+With dotdo, invoices are just Things. Payments are events. Reminders are `this.every.day.at('9am')`. Payment processing is `this.do` (durable, retried automatically). Deploy once, invoice forever.
 
 ```typescript
-const invoice = await $.Invoice.create({
+const invoice = await this.Invoice.create({
   customer: 'acme-corp',
   items: [{ description: 'Website Redesign', amount: 5000 }],
   dueDate: '2025-02-15',
@@ -22,7 +22,7 @@ const invoice = await $.Invoice.create({
 ## Setup
 
 ```typescript
-import { $, ai, DO } from 'dotdo'
+import { DO, ai } from 'dotdo'
 ```
 
 ---
@@ -70,18 +70,18 @@ interface Payment {
 ## Event Handlers
 
 ```typescript
-$.on.Invoice.sent(async ({ invoice }) => {
+this.on.Invoice.sent(async ({ invoice }) => {
   console.log(`Invoice ${invoice.$id} sent to ${invoice.customerId}`)
 })
 
-$.on.Payment.received(async ({ payment }) => {
-  await $.Invoice.update(payment.invoiceId, {
+this.on.Payment.received(async ({ payment }) => {
+  await this.Invoice.update(payment.invoiceId, {
     status: 'paid',
     paidAt: new Date().toISOString(),
   })
 })
 
-$.on.Payment.failed(async ({ payment }) => {
+this.on.Payment.failed(async ({ payment }) => {
   console.log(`Payment failed: ${payment.failureReason}`)
 })
 ```
@@ -91,20 +91,20 @@ $.on.Payment.failed(async ({ payment }) => {
 ## Scheduled Reminders
 
 ```typescript
-$.every.day.at9am(async () => {
-  const overdue = await $.Invoice.list({
+this.every.day.at('9am')(async () => {
+  const overdue = await this.Invoice.list({
     status: 'sent',
     dueDate: { $lt: new Date().toISOString() },
   })
 
   for (const invoice of overdue) {
-    await $.Invoice.update(invoice.$id, { status: 'overdue' })
-    $.send('Invoice.overdue', { invoice })
+    await this.Invoice.update(invoice.$id, { status: 'overdue' })
+    this.send('Invoice.overdue', { invoice })
   }
 })
 
-$.on.Invoice.overdue(async ({ invoice }) => {
-  const customer = await $.Customer.get(invoice.customerId)
+this.on.Invoice.overdue(async ({ invoice }) => {
+  const customer = await this.Customer.get(invoice.customerId)
   console.log(`Reminder sent to ${customer.email}`)
 })
 ```
@@ -114,51 +114,51 @@ $.on.Invoice.overdue(async ({ invoice }) => {
 ## Durable Payment Processing
 
 ```typescript
-async function processPayment(invoiceId: string) {
-  const invoice = await $.Invoice.get(invoiceId)
-  const customer = await $.Customer.get(invoice.customerId)
+async processPayment(invoiceId: string) {
+  const invoice = await this.Invoice.get(invoiceId)
+  const customer = await this.Customer.get(invoice.customerId)
 
-  // $.do = durable execution with automatic retries
-  await $.do('charge-card', async () => {
+  // this.do = durable execution with automatic retries
+  await this.do(async () => {
     return await stripe.charges.create({
       amount: invoice.total * 100,
       currency: 'usd',
       source: customer.paymentMethod.token,
       metadata: { invoiceId },
     })
-  })
+  }, { stepId: 'charge-card' })
 
-  await $.Payment.create({
+  await this.Payment.create({
     invoiceId,
     amount: invoice.total,
     status: 'succeeded',
     attemptedAt: new Date().toISOString(),
   })
 
-  $.send('Payment.received', { payment: { invoiceId, amount: invoice.total } })
+  this.send('Payment.received', { payment: { invoiceId, amount: invoice.total } })
 }
 ```
 
 ---
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const invoice of overdueInvoices) {
-  await $.Customer(invoice.customerId).sendReminder(invoice)
+  await this.Customer(invoice.customerId).sendReminder(invoice)
 }
 
 // ✅ Pipelined - fire and forget (no await needed for side effects)
-overdueInvoices.forEach(inv => $.Customer(inv.customerId).sendReminder(inv))
+overdueInvoices.forEach(inv => this.Customer(inv.customerId).sendReminder(inv))
 
 // ✅ Pipelined - single round-trip for chained access
-const balance = await $.Customer(invoice.customerId).getAccount().balance
+const balance = await this.Customer(invoice.customerId).account.balance
 ```
 
-Only `await` at exit points when you actually need the value. Reminders, notifications, and logging are fire-and-forget - let them run without blocking.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Reminders, notifications, and logging are fire-and-forget - let them run without blocking.
 
 ---
 
@@ -206,22 +206,22 @@ npm run deploy
 ```
 Invoice.create ──► Invoice.send ──► Invoice.sent
                                         |
-                           $.every.day.at9am checks overdue
+                           this.every.day.at('9am') checks overdue
                                         |
                               Invoice.overdue ──► Send reminder
 
-Payment.process ($.do)
+Payment.process (this.do)
     |
     ├─► success ──► Payment.received ──► Invoice.paid
-    └─► failure ──► auto-retry via $.do
+    └─► failure ──► auto-retry via this.do
 ```
 
 ---
 
 | Traditional | dotdo |
 |-------------|-------|
-| Cron jobs on separate servers | `$.every.day.at9am` |
-| Payment webhooks + retry logic | `$.do` with automatic retries |
+| Cron jobs on separate servers | `this.every.day.at('9am')` |
+| Payment webhooks + retry logic | `this.do` with automatic retries |
 | Database + cache + queue | SQLite in Durable Object |
 | $10-20/month invoice tools | Deploy once, free forever |
 

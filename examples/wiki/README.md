@@ -84,43 +84,43 @@ React to edits in real-time:
 
 ```typescript
 // Notify watchers when pages are edited
-$.on.Page.edited(async (event) => {
-  const watchers = await $.things.User.watching(event.object)
+this.on.Page.edited(async (event) => {
+  const watchers = await this.things.User.watching(event.object)
   for (const watcher of watchers) {
-    await $.send({ type: 'notification', to: watcher.$id, message: `Page edited` })
+    await this.send({ type: 'notification', to: watcher.$id, message: `Page edited` })
   }
 })
 
 // Index content for search
-$.on.Page.created(async (event) => {
-  const page = await $.things.Page(event.object)
+this.on.Page.created(async (event) => {
+  const page = await this.things.Page(event.object)
   await indexThing(page)
 })
 
 // Track all changes (wildcard)
-$.on.*.edited(async (event) => {
+this.on.*.edited(async (event) => {
   console.log(`${event.subject} edited ${event.object}`)
 })
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const watcherId of watchers) {
-  await $.User(watcherId).notify(pageUpdate)
+  await this.User(watcherId).notify(pageUpdate)
 }
 
 // ✅ Pipelined - fire and forget
-watchers.forEach(id => $.User(id).notify(pageUpdate))
+watchers.forEach(id => this.User(id).notify(pageUpdate))
 
-// ✅ Pipelined - single round-trip
-const author = await $.Page(pageId).getLastRevision().author
+// ✅ Pipelined - single round-trip for chained access
+const author = await this.Page(pageId).lastRevision.author
 ```
 
-Only `await` at exit points when you actually need the value. Fire-and-forget is valid for side effects like notifications.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Fire-and-forget is valid for side effects like notifications.
 
 ## Querying Revision History
 
@@ -128,17 +128,17 @@ Actions give you revision history for free:
 
 ```typescript
 // Get all edits to a page
-const pageHistory = await $.actions
+const pageHistory = await this.actions
   .filter({ verb: 'edited', object: pageId })
   .orderBy('timestamp', 'desc')
 
 // Get all edits by a user
-const userEdits = await $.actions
+const userEdits = await this.actions
   .filter({ verb: 'edited', subject: userId })
   .orderBy('timestamp', 'desc')
 
 // Get recent activity across all pages
-const recentActivity = await $.actions
+const recentActivity = await this.actions
   .filter({ verb: ['created', 'edited'] })
   .orderBy('timestamp', 'desc')
   .limit(50)

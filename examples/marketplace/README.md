@@ -104,16 +104,16 @@ const stats = await coordinator.query('SELECT COUNT(*) as count FROM products')
 Route orders to the correct vendor DO:
 
 ```typescript
-export class MarketplaceDO extends DO {
-  constructor(state, env) {
-    super(state, env)
+import { DO } from 'dotdo'
 
-    this.$.on.Order.placed(async (event) => {
+export default DO.extend({
+  init() {
+    this.on.Order.placed(async (event) => {
       const { vendorId, orderId, items, customer } = event.data
       const vendor = this.env.VENDOR.get(this.env.VENDOR.idFromName(vendorId))
       await vendor.handleOrder({ orderId, items, customer })
     })
-  }
+  },
 
   async placeOrder(cart: Cart) {
     const byVendor = groupBy(cart.items, 'vendorId')
@@ -123,12 +123,12 @@ export class MarketplaceDO extends DO {
         const order = await this.things.create({
           $type: 'Order', vendorId, items, customer: cart.customerId
         })
-        this.$.send('Order.placed', { orderId: order.$id, vendorId, items })
+        this.send('Order.placed', { orderId: order.$id, vendorId, items })
         return order
       })
     )
   }
-}
+})
 ```
 
 ---
@@ -180,24 +180,24 @@ await env.VENDOR.get(env.VENDOR.idFromName('acme')).initialize({
 
 ---
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const vendorId of vendorIds) {
-  await $.Vendor(vendorId).notify(order)
+  await this.Vendor(vendorId).notify(order)
 }
 
 // ✅ Fire-and-forget - no await needed for side effects
-vendorIds.forEach(id => $.Vendor(id).notify(order))
+vendorIds.forEach(id => this.Vendor(id).notify(order))
 
 // ✅ Pipelined - single round-trip for chained access
-const stock = await $.Vendor(id).inventory().available('SKU-123')
+const stock = await this.Vendor(id).inventory.available('SKU-123')
 ```
 
-Only `await` at exit points when you actually need the value. Notifications, logging, and side effects don't need to block.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Notifications, logging, and side effects don't need to block.
 
 ---
 
@@ -207,7 +207,7 @@ Only `await` at exit points when you actually need the value. Notifications, log
 |-----------|----------|
 | Vendor isolation | Each vendor = separate DO with own SQLite |
 | Cross-vendor queries | Fanout with parallel scatter-gather |
-| Order routing | `$.on.Order.placed` routes to vendor DO |
+| Order routing | `this.on.Order.placed` routes to vendor DO |
 | Scale | Consistent hashing distributes load |
 
 One architecture. One to one million vendors.

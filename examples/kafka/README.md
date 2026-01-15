@@ -131,24 +131,24 @@ await consumer.run({
 
 Each partition DO has: in-memory buffer (L0), Pipeline for durability (L1), lazy SQLite checkpoint (L2).
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips to commit offsets
 for (const partition of partitions) {
-  await $.Consumer(partition.id).commit(offset)
+  await this.Consumer(partition.id).commit(offset)
 }
 
 // ✅ Pipelined - fire and forget commits
-partitions.forEach(p => $.Consumer(p.id).commit(offset))
+partitions.forEach(p => this.Consumer(p.id).commit(offset))
 
-// ✅ Pipelined - single round-trip for lag check
-const lag = await $.Topic(id).getPartition(0).lag
+// ✅ Pipelined - single round-trip for chained access
+const lag = await this.Topic(id).partition(0).lag
 ```
 
-For streaming workloads, fire-and-forget is often correct. Offset commits, metric emissions, and heartbeats don't need `await`—only `await` at exit points when you need the value or must block on completion.
+`this.Noun(id)` returns a pipelined stub. For streaming workloads, fire-and-forget is often correct. Offset commits, metric emissions, and heartbeats don't need `await`.
 
 ## Kafka vs dotdo
 
@@ -182,7 +182,7 @@ const kafka = new Kafka({
 ## Limitations
 
 - Max message size: 1MB (Cloudflare limit)
-- Transactions: Not supported (use `$.do()` for durable workflows)
+- Transactions: Not supported (use `this.do()` for durable workflows)
 - Exactly-once: Idempotency keys handle deduplication
 
 ## See Also

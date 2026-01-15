@@ -71,47 +71,51 @@ const q1Orders = await store.l3.query({
 ## Event Handlers
 
 ```typescript
-import { $ } from 'dotdo'
+import { DO } from 'dotdo'
 
-$.on.Order.placed(async (event) => {
-  const order = event.data
-  // Reserve inventory
-  for (const item of order.items) {
-    await store.things.update(item.sku, {
-      inventory: { decrement: item.qty }
+export default DO.extend({
+  init() {
+    this.on.Order.placed(async (event) => {
+      const order = event.data
+      // Reserve inventory
+      for (const item of order.items) {
+        await this.things.update(item.sku, {
+          inventory: { decrement: item.qty }
+        })
+      }
+      // Notify customer
+      await this.Customer(order.customer).notify({
+        template: 'order-confirmation',
+        order
+      })
+    })
+
+    this.on.Inventory.low(async (event) => {
+      await this.send('Alert.inventory', {
+        message: `${event.data.sku} low: ${event.data.current} units`,
+        priority: 'high'
+      })
     })
   }
-  // Notify customer
-  await $.Customer(order.customer).notify({
-    template: 'order-confirmation',
-    order
-  })
-})
-
-$.on.Inventory.low(async (event) => {
-  await $.send('Alert.inventory', {
-    message: `${event.data.sku} low: ${event.data.current} units`,
-    priority: 'high'
-  })
 })
 ```
 
-## Durable Checkout with $.do
+## Durable Checkout with this.do
 
 ```typescript
-async function checkout(customerId: string, cartId: string) {
-  const cart = await store.l0.get(`cart:${cartId}`)
+async checkout(customerId: string, cartId: string) {
+  const cart = await this.store.l0.get(`cart:${cartId}`)
 
   // Validate inventory (retriable)
-  await $.do(async () => {
+  await this.do(async () => {
     for (const item of cart.items) {
-      const p = await store.things.get('Product', item.sku)
+      const p = await this.things.get('Product', item.sku)
       if (p.inventory < item.qty) throw new Error(`Out of stock: ${item.sku}`)
     }
   }, { stepId: 'validate' })
 
   // Charge payment (retriable, idempotent)
-  const charge = await $.do(async () => {
+  const charge = await this.do(async () => {
     return payments.charge({
       customer: customerId,
       amount: cart.total,
@@ -120,8 +124,8 @@ async function checkout(customerId: string, cartId: string) {
   }, { stepId: 'charge' })
 
   // Create order (retriable)
-  const order = await $.do(async () => {
-    return store.things.create({
+  const order = await this.do(async () => {
+    return this.things.create({
       $type: 'Order',
       customer: customerId,
       items: cart.items,
@@ -131,62 +135,62 @@ async function checkout(customerId: string, cartId: string) {
     })
   }, { stepId: 'create-order' })
 
-  $.send('Cart.cleared', { cartId })
-  $.send('Order.placed', order)
+  this.send('Cart.cleared', { cartId })
+  this.send('Order.placed', order)
   return order
 }
 ```
 
-`$.do` retries with exponential backoff. If the DO restarts mid-checkout, replay resumes from the last completed step.
+`this.do` retries with exponential backoff. If the DO restarts mid-checkout, replay resumes from the last completed step.
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const item of cart.items) {
-  await $.Inventory(item.sku).reserve(item.qty)
+  await this.Inventory(item.sku).reserve(item.qty)
 }
 
 // ✅ Pipelined - parallel execution
-cart.items.forEach(item => $.Inventory(item.sku).reserve(item.qty))
+cart.items.forEach(item => this.Inventory(item.sku).reserve(item.qty))
 
 // ✅ Pipelined with collection
 const reservations = await Promise.all(
-  cart.items.map(item => $.Inventory(item.sku).reserve(item.qty))
+  cart.items.map(item => this.Inventory(item.sku).reserve(item.qty))
 )
 
 // ✅ Fire-and-forget for side effects (no await needed)
-$.Customer(order.customer).trackView(product.$id)
+this.Customer(order.customer).trackView(product.$id)
 ```
 
-Only `await` at exit points when you need the value. Side effects like analytics, notifications, and logging don't require awaiting.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Side effects like analytics, notifications, and logging don't require awaiting.
 
 ## Scheduling
 
 ```typescript
 // Daily inventory check
-$.every.day.at('6am')(async () => {
-  const lowStock = await store.things.list({
+this.every.day.at('6am')(async () => {
+  const lowStock = await this.things.list({
     $type: 'Product',
     inventory: { lt: 10 }
   })
   for (const p of lowStock) {
-    $.send('Inventory.low', { sku: p.$id, current: p.inventory, threshold: 10 })
+    this.send('Inventory.low', { sku: p.$id, current: p.inventory, threshold: 10 })
   }
 })
 
 // Weekly archive to Iceberg
-$.every.Sunday.at('2am')(async () => {
-  const old = await store.things.list({
+this.every.Sunday.at('2am')(async () => {
+  const old = await this.things.list({
     $type: 'Order',
     status: 'fulfilled',
     updatedAt: { lt: Date.now() - 30 * 24 * 60 * 60 * 1000 }
   })
   for (const order of old) {
-    await store.l3.archive(order)
-    await store.things.delete('Order', order.$id)
+    await this.store.l3.archive(order)
+    await this.things.delete('Order', order.$id)
   }
 })
 ```
@@ -203,14 +207,14 @@ npm run deploy
 - **Sub-ms cart ops** - L0 in-memory
 - **Durable orders** - Pipeline-as-WAL, no data loss
 - **Infinite history** - L3 Iceberg with time travel
-- **Event-driven** - $.on.Order.placed, $.on.Inventory.low
-- **Automatic retries** - $.do handles failures
+- **Event-driven** - this.on.Order.placed, this.on.Inventory.low
+- **Automatic retries** - this.do handles failures
 
 ## Next Steps
 
-1. Add products: `store.things.create({ $type: 'Product', ... })`
+1. Add products: `this.things.create({ $type: 'Product', ... })`
 2. Integrate payments: Stripe, Square, any provider
-3. Add events: `$.on.Order.refunded`, `$.on.Customer.signup`
+3. Add events: `this.on.Order.refunded`, `this.on.Customer.signup`
 
 ---
 

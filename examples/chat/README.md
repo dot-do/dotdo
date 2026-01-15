@@ -64,7 +64,7 @@ export default DO.extend({
 The DO hibernates between messages. Cloudflare wakes it when a WebSocket message arrives:
 
 ```typescript
-import { $, DO } from 'dotdo'
+import { DO } from 'dotdo'
 
 export default DO.extend({
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
@@ -83,7 +83,7 @@ export default DO.extend({
       this.broadcast(`room:${data.room}`, { type: 'message', message: msg })
 
       // Emit event for handlers
-      $.send('Message.sent', msg)
+      this.send('Message.sent', msg)
     }
   }
 })
@@ -108,35 +108,39 @@ export default DO.extend({
 ## Event Handlers
 
 ```typescript
-import { $ } from 'dotdo'
+import { DO } from 'dotdo'
 
-// Notify mentioned users
-$.on.Message.sent((event) => {
-  const message = event.data as Message
-  const mentions = extractMentions(message.content)
-  // Fire-and-forget - no await needed for side effects
-  mentions.forEach(userId => $.User(userId).notify({ type: 'mention', room: message.room }))
+export default DO.extend({
+  init() {
+    // Notify mentioned users
+    this.on.Message.sent((event) => {
+      const message = event.data as Message
+      const mentions = extractMentions(message.content)
+      // Fire-and-forget - no await needed for side effects
+      mentions.forEach(userId => this.User(userId).notify({ type: 'mention', room: message.room }))
+    })
+  }
 })
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const userId of mentions) {
-  await $.User(userId).notify({ type: 'mention', room })
+  await this.User(userId).notify({ type: 'mention', room })
 }
 
 // ✅ Pipelined - fire and forget notifications
-mentions.forEach(userId => $.User(userId).notify({ type: 'mention', room }))
+mentions.forEach(userId => this.User(userId).notify({ type: 'mention', room }))
 
 // ✅ Pipelined - single round-trip for chained access
-const authorName = await $.User(message.author).getProfile().name
+const authorName = await this.User(message.author).profile.name
 ```
 
-Only `await` at exit points when you need the value.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`.
 
 ## Client Code
 

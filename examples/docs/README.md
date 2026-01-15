@@ -27,7 +27,7 @@ Version ──┬── Page ──┬── Section
 ## Schema
 
 ```typescript
-import { $, noun, verb } from 'dotdo'
+import { DO, noun, verb } from 'dotdo'
 
 // Define your documentation types
 const Version = noun('Version')   // v1, v2, v3
@@ -43,7 +43,7 @@ const contain = verb('contain')   // contained, containing
 ### Creating a Version
 
 ```typescript
-const v2 = $.things.create('Version', {
+const v2 = this.things.create('Version', {
   name: 'v2',
   status: 'current',
   releaseDate: new Date('2025-01-15'),
@@ -53,7 +53,7 @@ const v2 = $.things.create('Version', {
 ### Adding Pages to a Version
 
 ```typescript
-const gettingStarted = $.things.create('Page', {
+const gettingStarted = this.things.create('Page', {
   slug: 'getting-started',
   title: 'Getting Started',
   order: 1,
@@ -66,7 +66,7 @@ v2.contains(gettingStarted)
 ### Adding Sections to Pages
 
 ```typescript
-const installation = $.things.create('Section', {
+const installation = this.things.create('Section', {
   slug: 'installation',
   title: 'Installation',
   content: '## Install\n\n```bash\nnpm install dotdo\n```',
@@ -92,36 +92,40 @@ const backlinks = gettingStarted <- 'Page'
 ## Event-Driven Cache Invalidation
 
 ```typescript
-import { $ } from 'dotdo'
+import { DO } from 'dotdo'
 
-// Invalidate CDN cache when any page updates
-$.on.Page.updated(async (event) => {
-  const page = event.thing
-  const version = page <- 'Version'
+export default DO.extend({
+  init() {
+    // Invalidate CDN cache when any page updates
+    this.on.Page.updated(async (event) => {
+      const page = event.thing
+      const version = page <- 'Version'
 
-  await $.do(async () => {
-    await fetch(`https://cdn.example.com/purge`, {
-      method: 'POST',
-      body: JSON.stringify({
-        paths: [`/${version.name}/${page.slug}`],
-      }),
+      await this.do(async () => {
+        await fetch(`https://cdn.example.com/purge`, {
+          method: 'POST',
+          body: JSON.stringify({
+            paths: [`/${version.name}/${page.slug}`],
+          }),
+        })
+      })
     })
-  })
-})
 
-// Rebuild search index when sections change
-$.on.Section.updated(async (event) => {
-  const section = event.thing
-  const page = section <- 'Page'
+    // Rebuild search index when sections change
+    this.on.Section.updated(async (event) => {
+      const section = event.thing
+      const page = section <- 'Page'
 
-  $.send('search.reindex', { pageId: page.$id })
-})
+      this.send('search.reindex', { pageId: page.$id })
+    })
 
-// Notify subscribers when new version published
-$.on.Version.published(async (event) => {
-  const subscribers = event.thing <- 'Subscriber'
-  for (const sub of subscribers) {
-    await $.Customer(sub.$id).notify(`New docs version: ${event.thing.name}`)
+    // Notify subscribers when new version published
+    this.on.Version.published(async (event) => {
+      const subscribers = event.thing <- 'Subscriber'
+      for (const sub of subscribers) {
+        await this.Customer(sub.$id).notify(`New docs version: ${event.thing.name}`)
+      }
+    })
   }
 })
 ```
@@ -129,64 +133,65 @@ $.on.Version.published(async (event) => {
 ## Version Switching
 
 ```typescript
-import { $ } from 'dotdo'
-
-// API endpoint: GET /versions
-app.get('/versions', async (c) => {
-  const versions = $.things.list('Version')
-  return c.json(versions.map(v => ({
-    name: v.name,
-    status: v.status,
-    current: v.status === 'current',
-  })))
-})
-
-// API endpoint: GET /:version/:page
-app.get('/:version/:page', async (c) => {
-  const { version, page } = c.req.param()
-
-  const versionThing = $.things.find('Version', { name: version })
-  const pages = versionThing -> 'Page'
-  const pageThing = pages.find(p => p.slug === page)
-
-  if (!pageThing) return c.notFound()
-
-  const sections = pageThing -> 'Section'
-
-  return c.json({
-    version: versionThing,
-    page: pageThing,
-    sections: sections.sort((a, b) => a.order - b.order),
+// Inside DO.extend:
+onRequest() {
+  // API endpoint: GET /versions
+  this.app.get('/versions', async (c) => {
+    const versions = this.things.list('Version')
+    return c.json(versions.map(v => ({
+      name: v.name,
+      status: v.status,
+      current: v.status === 'current',
+    })))
   })
-})
+
+  // API endpoint: GET /:version/:page
+  this.app.get('/:version/:page', async (c) => {
+    const { version, page } = c.req.param()
+
+    const versionThing = this.things.find('Version', { name: version })
+    const pages = versionThing -> 'Page'
+    const pageThing = pages.find(p => p.slug === page)
+
+    if (!pageThing) return c.notFound()
+
+    const sections = pageThing -> 'Section'
+
+    return c.json({
+      version: versionThing,
+      page: pageThing,
+      sections: sections.sort((a, b) => a.order - b.order),
+    })
+  })
+}
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
-$.on.Version.published(async (event) => {
+this.on.Version.published(async (event) => {
   const subscribers = event.thing <- 'Subscriber'
   for (const sub of subscribers) {
-    await $.Customer(sub.$id).notify(`New version: ${event.thing.name}`)
+    await this.Customer(sub.$id).notify(`New version: ${event.thing.name}`)
   }
 })
 
 // ✅ Pipelined - fire and forget
-$.on.Version.published(async (event) => {
+this.on.Version.published(async (event) => {
   const subscribers = event.thing <- 'Subscriber'
   subscribers.forEach(sub =>
-    $.Customer(sub.$id).notify(`New version: ${event.thing.name}`)
+    this.Customer(sub.$id).notify(`New version: ${event.thing.name}`)
   )
 })
 
-// ✅ Pipelined - single round-trip
-const owner = await $.Doc(id).getWorkspace().owner
+// ✅ Pipelined - single round-trip for chained access
+const owner = await this.Doc(id).workspace.owner
 ```
 
-Fire-and-forget is valid for side effects like notifications. Only `await` at exit points when you actually need the value.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects like notifications.
 
 ## Deploy
 

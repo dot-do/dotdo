@@ -17,7 +17,7 @@ https://crm.example.com.ai/:tenant
 ## Data Model
 
 ```typescript
-import { $, ai, DO, noun, verb } from 'dotdo'
+import { DO, noun, verb } from 'dotdo'
 
 // Nouns
 const Contact = noun('Contact')
@@ -34,18 +34,19 @@ const lose = verb('lose', { past: 'lost' })
 ### Creating Things
 
 ```typescript
-const acme = $.things.create('Company', {
+// Inside DO class methods:
+const acme = this.things.create('Company', {
   name: 'Acme Corp',
   industry: 'Manufacturing'
 })
 
-const alice = $.things.create('Contact', {
+const alice = this.things.create('Contact', {
   name: 'Alice Chen',
   email: 'alice@acme.com',
   role: 'VP Engineering'
 })
 
-const deal = $.things.create('Deal', {
+const deal = this.things.create('Deal', {
   name: 'Acme Enterprise',
   value: 50000,
   stage: 'discovery'
@@ -67,23 +68,24 @@ const company = await alice <- 'Company'   // Alice's company
 ## Event Handlers
 
 ```typescript
-$.on.Deal.won(async ({ deal, $, ai }) => {
-  await $.things.create('Activity', {
+// Inside DO.extend({ init() { ... } })
+this.on.Deal.won(async ({ deal }) => {
+  await this.things.create('Activity', {
     type: 'deal_won',
     dealId: deal.$id,
     value: deal.value
   })
 
-  await $.send({
+  await this.send({
     type: 'slack.message',
     channel: '#wins',
-    text: ai`Celebrate: ${deal.name} closed for $${deal.value}!`
+    text: `Celebrate: ${deal.name} closed for $${deal.value}!`
   })
 })
 
-$.on.Deal.lost(async ({ deal, $ }) => {
+this.on.Deal.lost(async ({ deal }) => {
   // Schedule follow-up in 90 days
-  await $.schedule(
+  await this.schedule(
     new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
     { type: 'Deal.followup', dealId: deal.$id }
   )
@@ -95,14 +97,14 @@ $.on.Deal.lost(async ({ deal, $ }) => {
 ### Weekly Pipeline
 
 ```typescript
-$.every.Monday.at9am(async ({ $ }) => {
-  const deals = await $.things.list('Deal', {
+this.every.Monday.at('9am')(async () => {
+  const deals = await this.things.list('Deal', {
     where: { stage: { $ne: 'closed' } }
   })
 
   const totalValue = deals.reduce((sum, d) => sum + d.value, 0)
 
-  await $.send({
+  await this.send({
     type: 'email',
     to: 'team@startup.com',
     subject: `Pipeline: $${totalValue.toLocaleString()}`
@@ -113,10 +115,10 @@ $.every.Monday.at9am(async ({ $ }) => {
 ### Daily Stale Check
 
 ```typescript
-$.every.day.at('8am')(async ({ $ }) => {
+this.every.day.at('8am')(async () => {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
-  const staleDeals = await $.things.list('Deal', {
+  const staleDeals = await this.things.list('Deal', {
     where: {
       stage: { $ne: 'closed' },
       updatedAt: { $lt: thirtyDaysAgo }
@@ -124,7 +126,7 @@ $.every.day.at('8am')(async ({ $ }) => {
   })
 
   for (const deal of staleDeals) {
-    await $.send({
+    await this.send({
       type: 'slack.dm',
       user: deal.ownerId,
       text: `"${deal.name}" needs attention`
@@ -136,10 +138,10 @@ $.every.day.at('8am')(async ({ $ }) => {
 ## Pipeline Transitions
 
 ```typescript
-$.on.Deal.updated(async ({ deal, prev, $ }) => {
+this.on.Deal.updated(async ({ deal, prev }) => {
   if (deal.stage === prev.stage) return
 
-  await $.things.create('Activity', {
+  await this.things.create('Activity', {
     type: 'stage_change',
     dealId: deal.$id,
     from: prev.stage,
@@ -148,27 +150,27 @@ $.on.Deal.updated(async ({ deal, prev, $ }) => {
 })
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const id of contactIds) {
-  await $.Contact(id).sendEmail(campaign)
+  await this.Contact(id).sendEmail(campaign)
 }
 
 // ✅ Pipelined - fire and forget
-contactIds.forEach(id => $.Contact(id).sendEmail(campaign))
+contactIds.forEach(id => this.Contact(id).sendEmail(campaign))
 
 // ✅ Pipelined - single round-trip for chained access
-const companyName = await $.Contact(id).getCompany().name
+const companyName = await this.Contact(id).company.name
 
 // ✅ Batch deal updates - no await needed for side effects
-staleDeals.forEach(deal => $.Deal(deal.$id).nudgeOwner())
+staleDeals.forEach(deal => this.Deal(deal.$id).nudgeOwner())
 ```
 
-Only `await` at exit points when you need the value.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`.
 
 ## Multi-Tenant URLs
 

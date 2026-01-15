@@ -71,10 +71,10 @@ handleBlockUpdate(block: Block) {
 Use `ai` template literals to suggest completions and summaries:
 
 ```typescript
-import { ai, $ } from 'dotdo'
+import { ai, DO } from 'dotdo'
 
 // Suggest next steps based on note content
-async function suggestNextSteps(note: Note) {
+async suggestNextSteps(note: Note) {
   const blocks = await note -> 'Block'
   const content = blocks.map(b => b.content).join('\n')
 
@@ -82,7 +82,7 @@ async function suggestNextSteps(note: Note) {
 }
 
 // Auto-generate summary when note changes
-$.on.Note.updated(async (event) => {
+this.on.Note.updated(async (event) => {
   const note = event.data as Note
   const blocks = await note -> 'Block'
 
@@ -91,7 +91,7 @@ $.on.Note.updated(async (event) => {
     ${blocks.map(b => b.content).join('\n')}
   `
 
-  await $.things.Note(note.$id).update({ summary })
+  await this.things.Note(note.$id).update({ summary })
 })
 ```
 
@@ -110,22 +110,22 @@ Notes emit events when shared. Subscribe to trigger notifications or access cont
 
 ```typescript
 // Handle share events
-$.on.Note.shared(async (event) => {
+this.on.Note.shared(async (event) => {
   const { note, sharedWith, permission } = event.data
 
   // Create access relationship
-  await $.things.User(sharedWith).canAccess(note, { permission })
+  await this.things.User(sharedWith).canAccess(note, { permission })
 
   // Notify recipient
-  await $.User(sharedWith).notify({
+  await this.User(sharedWith).notify({
     title: `${event.subject} shared a note with you`,
     noteId: note.$id
   })
 })
 
 // Trigger a share
-async function shareNote(noteId: string, userId: string, permission: 'view' | 'edit') {
-  $.send('Note.shared', {
+async shareNote(noteId: string, userId: string, permission: 'view' | 'edit') {
+  this.send('Note.shared', {
     note: { $id: noteId },
     sharedWith: userId,
     permission
@@ -133,24 +133,24 @@ async function shareNote(noteId: string, userId: string, permission: 'view' | 'e
 }
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const userId of collaborators) {
-  await $.User(userId).notify(noteUpdate)
+  await this.User(userId).notify(noteUpdate)
 }
 
 // ✅ Pipelined - fire and forget
-collaborators.forEach(id => $.User(id).notify(noteUpdate))
+collaborators.forEach(id => this.User(id).notify(noteUpdate))
 
-// ✅ Pipelined - single round-trip
-const folderName = await $.Note(id).getParent().name
+// ✅ Pipelined - single round-trip for chained access
+const folderName = await this.Note(id).parent.name
 ```
 
-Fire-and-forget is valid for side effects like notifications. Only `await` at exit points when you actually need the value.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects like notifications.
 
 ## Quick Start
 

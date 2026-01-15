@@ -7,12 +7,13 @@ Form services charge per submission and lock you into their ecosystem. With dotd
 ## Quick Start
 
 ```typescript
-import { $, ai, DO } from 'dotdo'
+import { DO, ai } from 'dotdo'
 
-// Define your domain
-$.defineNoun('Form')
-$.defineNoun('Submission')
-$.defineVerb('submit')
+export default DO.extend({
+  init() {
+    // Domain nouns and verbs are inferred from things.create() calls
+  }
+})
 ```
 
 ## Form Schema
@@ -20,7 +21,7 @@ $.defineVerb('submit')
 Forms are Things with fields as nested data:
 
 ```typescript
-const contactForm = $.createThing('Form', {
+const contactForm = this.things.create('Form', {
   name: 'Contact Us',
   slug: 'contact',
   fields: [
@@ -40,38 +41,38 @@ const surveyFields = await ai`
 ## Handling Submissions
 
 ```typescript
-$.on.Form.submitted(async (event) => {
+this.on.Form.submitted(async (event) => {
   const { formId, responses } = event.data
 
-  const submission = $.createThing('Submission', {
+  const submission = this.things.create('Submission', {
     formId,
     responses,
     submittedAt: new Date(),
   })
 
   // Link submission to form
-  $.createAction(formId, 'submit', submission.$id)
+  this.actions.create(formId, 'submit', submission.$id)
 })
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const webhookId of form.webhooks) {
-  await $.Webhook(webhookId).deliver(submission)
+  await this.Webhook(webhookId).deliver(submission)
 }
 
 // ✅ Pipelined - fire and forget
-form.webhooks.forEach(id => $.Webhook(id).deliver(submission))
+form.webhooks.forEach(id => this.Webhook(id).deliver(submission))
 
-// ✅ Pipelined - single round-trip
-const fields = await $.Form(formId).getLatestVersion().fields
+// ✅ Pipelined - single round-trip for chained access
+const fields = await this.Form(formId).latestVersion.fields
 ```
 
-Only `await` at exit points when you need the value. Webhook delivery is a side effect - no result needed, no await needed.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Webhook delivery is a side effect - no result needed, no await needed.
 
 ## AI-Powered Validation
 
@@ -117,20 +118,12 @@ GET  /forms/:slug/submissions      # List submissions
 ## Full Example
 
 ```typescript
-import { $, ai, DO } from 'dotdo'
+import { DO, ai } from 'dotdo'
 
-export class FormsDO extends DO {
-  $
-
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-
-    this.defineNoun('Form')
-    this.defineNoun('Submission')
-    this.defineVerb('submit')
-
-    this.$.on.Form.submitted(async (event) => {
-      const submission = this.createThing('Submission', {
+export default DO.extend({
+  init() {
+    this.on.Form.submitted(async (event) => {
+      const submission = this.things.create('Submission', {
         formId: event.data.formId,
         responses: event.data.responses,
         submittedAt: new Date(),
@@ -142,19 +135,17 @@ export class FormsDO extends DO {
       `
 
       if (isSpam === 'true') {
-        this.updateThing(submission.$id, { flagged: true })
+        this.things.update(submission.$id, { flagged: true })
       }
     })
 
     // Daily digest
-    this.$.every.day.at('9am')(async () => {
+    this.every.day.at('9am')(async () => {
       const yesterday = new Date(Date.now() - 86400000)
       // Process submissions from last 24h
     })
   }
-}
-
-export { FormsDO as DO }
+})
 ```
 
 ## Deploy

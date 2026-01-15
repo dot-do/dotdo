@@ -47,26 +47,30 @@ const moveAction = action(alice, move, card, {
 ## Event Handling
 
 ```typescript
-import { $, WebSocketHub } from 'dotdo'
+import { DO, WebSocketHub } from 'dotdo'
 
-const hub = new WebSocketHub()
+export default DO.extend({
+  hub: new WebSocketHub(),
 
-$.on.Card.moved(async (event) => {
-  const { from, to } = event.data
+  init() {
+    this.on.Card.moved(async (event) => {
+      const { from, to } = event.data
 
-  // Broadcast to all connected clients
-  hub.broadcast({
-    type: 'card:moved',
-    cardId: event.object,
-    from,
-    to,
-    movedBy: event.subject
-  })
-})
+      // Broadcast to all connected clients
+      this.hub.broadcast({
+        type: 'card:moved',
+        cardId: event.object,
+        from,
+        to,
+        movedBy: event.subject
+      })
+    })
 
-$.on.Card.*(async (event) => {
-  // Log all card activity
-  await $.do(() => auditLog.append(event))
+    this.on.Card.*(async (event) => {
+      // Log all card activity
+      await this.do(() => auditLog.append(event))
+    })
+  }
 })
 ```
 
@@ -107,7 +111,7 @@ const TRANSITIONS = {
   'Done': ['In Progress']
 }
 
-$.on.Card.moved(async (event) => {
+this.on.Card.moved(async (event) => {
   const card = getCard(event.object)
   const fromName = getColumn(card.column).name
   const toName = getColumn(event.data.to).name
@@ -117,25 +121,23 @@ $.on.Card.moved(async (event) => {
   }
 
   card.column = event.data.to
-  await $.do(() => saveCard(card))
+  await this.do(() => saveCard(card))
 })
 ```
 
 ## Board DO
 
 ```typescript
-import { $, WebSocketHub } from 'dotdo'
+import { DO, WebSocketHub } from 'dotdo'
 
-export class KanbanBoardDO extends DurableObject {
-  hub = new WebSocketHub()
+export default DO.extend({
+  hub: new WebSocketHub(),
 
-  constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-
-    this.$.on.Card.moved(async (event) => {
+  init() {
+    this.on.Card.moved(async (event) => {
       this.hub.broadcast({ type: 'card:moved', ...event.data })
     })
-  }
+  },
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') === 'websocket') {
@@ -148,7 +150,7 @@ export class KanbanBoardDO extends DurableObject {
     }
     return Response.json(this.getCards())
   }
-}
+})
 ```
 
 ## Client
@@ -172,24 +174,24 @@ ws.send(JSON.stringify({
 }))
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const userId of card.watchers) {
-  await $.User(userId).notify(cardUpdate)
+  await this.User(userId).notify(cardUpdate)
 }
 
 // ✅ Pipelined - fire and forget
-card.watchers.forEach(id => $.User(id).notify(cardUpdate))
+card.watchers.forEach(id => this.User(id).notify(cardUpdate))
 
-// ✅ Pipelined - single round-trip
-const email = await $.Card(cardId).getAssignee().email
+// ✅ Pipelined - single round-trip for chained access
+const email = await this.Card(cardId).assignee.email
 ```
 
-When a card moves, notify watchers without blocking. The notifications fire in parallel - no await needed for side effects. Only await at exit points when you actually need the value (like fetching the assignee's email to send a summary).
+`this.Noun(id)` returns a pipelined stub. When a card moves, notify watchers without blocking. The notifications fire in parallel - no await needed for side effects.
 
 ## What You Get
 

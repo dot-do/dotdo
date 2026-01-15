@@ -59,36 +59,40 @@ function isBreached(ticket: Ticket): boolean {
 ## Event Handlers
 
 ```typescript
-import { $ } from 'dotdo'
+import { DO } from 'dotdo'
 
-// New ticket: set SLA and attempt auto-response
-$.on.Ticket.created(async (event) => {
-  const ticket = event.data as Ticket
-  ticket.slaDeadline = calculateDeadline(ticket.priority)
+export default DO.extend({
+  init() {
+    // New ticket: set SLA and attempt auto-response
+    this.on.Ticket.created(async (event) => {
+      const ticket = event.data as Ticket
+      ticket.slaDeadline = calculateDeadline(ticket.priority)
 
-  const response = await $.cascade({
-    task: `Respond to: ${ticket.subject}`,
-    tiers: {
-      code: () => findKBArticle(ticket),
-      generative: () => generateResponse(ticket),
-      human: () => queueForAgent(ticket),
-    },
-    confidenceThreshold: 0.8,
-  })
+      const response = await this.cascade({
+        task: `Respond to: ${ticket.subject}`,
+        tiers: {
+          code: () => findKBArticle(ticket),
+          generative: () => generateResponse(ticket),
+          human: () => queueForAgent(ticket),
+        },
+        confidenceThreshold: 0.8,
+      })
 
-  if (response.tier !== 'human') {
-    await postAutoResponse(ticket, response.value as string)
-  }
-})
+      if (response.tier !== 'human') {
+        await postAutoResponse(ticket, response.value as string)
+      }
+    })
 
-// Escalation: notify on-call
-$.on.Ticket.escalated(async (event) => {
-  const ticket = event.data as Ticket
-  const onCall = await findOnCallAgent(ticket.priority)
+    // Escalation: notify on-call
+    this.on.Ticket.escalated(async (event) => {
+      const ticket = event.data as Ticket
+      const onCall = await findOnCallAgent(ticket.priority)
 
-  if (onCall) {
-    await $.things.Ticket(ticket.$id).update({ assignedTo: onCall.$id })
-    await notifyAgent(onCall, ticket)
+      if (onCall) {
+        await this.things.Ticket(ticket.$id).update({ assignedTo: onCall.$id })
+        await notifyAgent(onCall, ticket)
+      }
+    })
   }
 })
 ```
@@ -97,18 +101,18 @@ $.on.Ticket.escalated(async (event) => {
 
 ```typescript
 // Check every hour for SLA breaches
-$.every.hour(async () => {
-  const openTickets = await $.things.Ticket.list({ where: { status: 'open' } })
+this.every.hour(async () => {
+  const openTickets = await this.things.Ticket.list({ where: { status: 'open' } })
 
   for (const ticket of openTickets) {
     if (isBreached(ticket)) {
-      $.send('Ticket.escalated', { ...ticket, reason: 'sla_breach' })
+      this.send('Ticket.escalated', { ...ticket, reason: 'sla_breach' })
     }
   }
 })
 
 // Daily SLA report at 9am
-$.every.day.at('9am')(async () => {
+this.every.day.at('9am')(async () => {
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
   await sendDailyReport({
     resolved: await countResolvedSince(yesterday),
@@ -187,24 +191,24 @@ npx wrangler deploy
 - **Clear escalation**: Events trigger notifications and reassignment
 - **Cost control**: Only pay for AI when deterministic lookup fails
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // Notify all available agents about escalation
-const availableAgents = await $.things.Agent.list({ where: { available: true } })
+const availableAgents = await this.things.Agent.list({ where: { available: true } })
 
 // ❌ Sequential - N round-trips
 for (const agent of availableAgents) {
-  await $.Agent(agent.$id).notify(escalatedTicket)
+  await this.Agent(agent.$id).notify(escalatedTicket)
 }
 
 // ✅ Pipelined - fire and forget
-availableAgents.forEach(agent => $.Agent(agent.$id).notify(escalatedTicket))
+availableAgents.forEach(agent => this.Agent(agent.$id).notify(escalatedTicket))
 
-// ✅ Pipelined - single round-trip for chained lookups
-const customerHistory = await $.Ticket(ticketId).getCustomer().history
+// ✅ Pipelined - single round-trip for chained access
+const customerHistory = await this.Ticket(ticketId).customer.history
 ```
 
-Fire-and-forget works for side effects like notifications. Only `await` at exit points when you need the value.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget works for side effects like notifications.

@@ -90,35 +90,32 @@ export default {
 }
 ```
 
-## Billing Webhooks with $.on
+## Billing Webhooks with this.on
 
 ```typescript
-import { DO, $ } from 'dotdo'
+import { DO } from 'dotdo'
 
-export class TenantDO extends DO {
-
-  constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-
-    $.on.Customer.signup(async (event) => {
+export default DO.extend({
+  init() {
+    this.on.Customer.signup(async (event) => {
       await this.sendWelcomeEmail(event.data)
     })
 
-    $.on.Payment.succeeded(async (event) => {
+    this.on.Payment.succeeded(async (event) => {
       await this.updateSubscription(event.data)
     })
 
-    $.on.Payment.failed(async (event) => {
+    this.on.Payment.failed(async (event) => {
       await this.notifyBillingFailure(event.data)
     })
 
-    $.on.Webhook.stripe(async (event) => {
+    this.on.Webhook.stripe(async (event) => {
       const { type, data } = event.data
-      if (type === 'invoice.paid') $.send('Payment.succeeded', data)
-      if (type === 'invoice.payment_failed') $.send('Payment.failed', data)
+      if (type === 'invoice.paid') this.send('Payment.succeeded', data)
+      if (type === 'invoice.payment_failed') this.send('Payment.failed', data)
     })
   }
-}
+})
 ```
 
 ## Stripe Webhook Endpoint
@@ -142,29 +139,29 @@ app.post('/webhooks/stripe', async (c) => {
 ## Scheduling
 
 ```typescript
-$.every.day.at('3am')(() => this.cleanupExpiredSessions())
-$.every.Monday.at9am(() => this.generateWeeklyReport())
-$.every(15).minutes(() => this.checkPendingRenewals())
+this.every.day.at('3am')(() => this.cleanupExpiredSessions())
+this.every.Monday.at('9am')(() => this.generateWeeklyReport())
+this.every(15).minutes(() => this.checkPendingRenewals())
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips per tenant
 for (const tenant of tenants) {
-  await $.Tenant(tenant.id).notify(announcement)
+  await this.Tenant(tenant.id).notify(announcement)
 }
 
 // ✅ Pipelined - fire and forget (no await needed for side effects)
-tenants.forEach(t => $.Tenant(t.id).notify(announcement))
+tenants.forEach(t => this.Tenant(t.id).notify(announcement))
 
-// ✅ Pipelined - single round-trip for chained calls
-const plan = await $.Tenant(id).getSubscription().plan
+// ✅ Pipelined - single round-trip for chained access
+const plan = await this.Tenant(id).subscription.plan
 ```
 
-Only `await` at exit points when you actually need the result. For broadcast notifications, billing webhooks, or cross-tenant events—fire and move on.
+`this.Noun(id)` returns a pipelined stub. For broadcast notifications, billing webhooks, or cross-tenant events—fire and move on.
 
 ## Tenant Provisioning
 

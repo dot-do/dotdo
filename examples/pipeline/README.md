@@ -13,15 +13,19 @@ All of them need servers. All of them separate scheduling from execution.
 
 ## The Solution
 
-dotdo pipelines are TypeScript functions with `$.every` scheduling. No YAML. No orchestrators.
+dotdo pipelines are TypeScript functions with `this.every` scheduling. No YAML. No orchestrators.
 
 ```typescript
-import { $ } from 'dotdo'
+import { DO } from 'dotdo'
 
-$.every.day.at('2am')(async () => {
-  const raw = await extract('s3://data-lake/events/')
-  const clean = transform(raw)
-  await load(clean, iceberg)
+export default DO.extend({
+  init() {
+    this.every.day.at('2am')(async () => {
+      const raw = await extract('s3://data-lake/events/')
+      const clean = transform(raw)
+      await load(clean, iceberg)
+    })
+  }
 })
 ```
 
@@ -56,13 +60,13 @@ async function load(events: CleanEvent[], iceberg: IcebergWriter) {
 }
 ```
 
-## Scheduling with $.every
+## Scheduling with this.every
 
 ```typescript
-$.every.day.at('2am')(runETL)        // Daily at 2am
-$.every.Monday.at9am(generateReport) // Weekly on Monday
-$.every.hour(syncInventory)          // Every hour
-$.every(15).minutes(checkAlerts)     // Every 15 minutes
+this.every.day.at('2am')(runETL)        // Daily at 2am
+this.every.Monday.at('9am')(generateReport) // Weekly on Monday
+this.every.hour(syncInventory)          // Every hour
+this.every(15).minutes(checkAlerts)     // Every 15 minutes
 ```
 
 ## Fanout for Parallel Processing
@@ -86,84 +90,90 @@ for await (const batch of coordinator.queryStream(sql)) {
 ## Pipeline DAG with Dependencies
 
 ```typescript
-async function dailyPipeline() {
+async dailyPipeline() {
   // Stage 1: Parallel extract
   const [users, events, products] = await Promise.all([
-    $.do(() => extract('users'), { stepId: 'extract-users' }),
-    $.do(() => extract('events'), { stepId: 'extract-events' }),
-    $.do(() => extract('products'), { stepId: 'extract-products' })
+    this.do(() => extract('users'), { stepId: 'extract-users' }),
+    this.do(() => extract('events'), { stepId: 'extract-events' }),
+    this.do(() => extract('products'), { stepId: 'extract-products' })
   ])
 
   // Stage 2: Transform (depends on Stage 1)
-  const enriched = await $.do(
+  const enriched = await this.do(
     () => enrichEvents(events, users, products),
     { stepId: 'enrich-events' }
   )
 
   // Stage 3: Load to Iceberg
-  await $.do(() => load(enriched, iceberg), { stepId: 'load' })
+  await this.do(() => load(enriched, iceberg), { stepId: 'load' })
 
   // Stage 4: Notify (fire-and-forget)
-  $.send('Pipeline.completed', { records: enriched.length })
+  this.send('Pipeline.completed', { records: enriched.length })
 }
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const stage of stages) {
-  await $.Stage(stage.id).execute(data)
+  await this.Stage(stage.id).execute(data)
 }
 
-// ✅ Pipelined - fire and forget
-stages.forEach(s => $.Stage(s.id).execute(data))
+// ✅ Pipelined - fire and forget (side effects don't need await)
+stages.forEach(s => this.Stage(s.id).execute(data))
 
-// ✅ Pipelined - single round-trip
-const result = await $.Pipeline(id).getStage(0).run(batch)
+// ✅ Pipelined - single round-trip for chained access
+const result = await this.Pipeline(id).getStage(0).run(batch)
 ```
 
-Fire-and-forget is valid for side effects like notifications or metrics. Only `await` at exit points when you need the value.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Fire-and-forget is valid for side effects like notifications or metrics.
 
 ## Complete Example
 
 ```typescript
-import { $, IcebergWriter } from 'dotdo'
+import { DO, IcebergWriter } from 'dotdo'
 
-const iceberg = new IcebergWriter({
-  bucket: env.R2_BUCKET,
-  namespace: 'analytics',
-  tableName: 'events'
-})
+export default DO.extend({
+  iceberg: null as IcebergWriter | null,
 
-$.every.day.at('2am')(async () => {
-  // Extract
-  const sources = ['events', 'users', 'products']
-  const data = await Promise.all(
-    sources.map(s => $.do(
-      () => fetch(`https://api.example.com/${s}`).then(r => r.json()),
-      { stepId: `extract-${s}` }
-    ))
-  )
+  init() {
+    this.iceberg = new IcebergWriter({
+      bucket: this.env.R2_BUCKET,
+      namespace: 'analytics',
+      tableName: 'events'
+    })
 
-  // Transform
-  const [events, users, products] = data
-  const enriched = events.map(e => ({
-    ...e,
-    userName: users.find(u => u.id === e.userId)?.name
-  }))
+    this.every.day.at('2am')(async () => {
+      // Extract
+      const sources = ['events', 'users', 'products']
+      const data = await Promise.all(
+        sources.map(s => this.do(
+          () => fetch(`https://api.example.com/${s}`).then(r => r.json()),
+          { stepId: `extract-${s}` }
+        ))
+      )
 
-  // Load
-  await $.do(() => iceberg.write(enriched.map(e => ({
-    type: 'event',
-    entityId: e.id,
-    payload: e,
-    ts: Date.now()
-  }))), { stepId: 'load' })
+      // Transform
+      const [events, users, products] = data
+      const enriched = events.map(e => ({
+        ...e,
+        userName: users.find(u => u.id === e.userId)?.name
+      }))
 
-  $.send('Pipeline.completed', { count: enriched.length })
+      // Load
+      await this.do(() => this.iceberg!.write(enriched.map(e => ({
+        type: 'event',
+        entityId: e.id,
+        payload: e,
+        ts: Date.now()
+      }))), { stepId: 'load' })
+
+      this.send('Pipeline.completed', { count: enriched.length })
+    })
+  }
 })
 ```
 
@@ -172,7 +182,7 @@ $.every.day.at('2am')(async () => {
 | Traditional | dotdo |
 |------------|-------|
 | YAML DAG definitions | TypeScript functions |
-| Separate scheduler | `$.every` built-in |
+| Separate scheduler | `this.every` built-in |
 | Task queues + workers | Durable Objects |
 | S3 + Spark | Fanout + Iceberg |
 | Servers to manage | Edge runtime |

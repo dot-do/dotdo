@@ -18,24 +18,15 @@ All this for a blog.
 One Durable Object. One deployment. Done.
 
 ```typescript
-import { $, ai, DO } from 'dotdo'
+import { DO, ai } from 'dotdo'
 
-export class BlogDO extends DO {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-
-    // Define your domain
-    this.defineNoun('Post')
-    this.defineNoun('Author')
-    this.defineNoun('Comment')
-    this.defineVerb('publish')
-    this.defineVerb('write')
-
+export default DO.extend({
+  init() {
     // React to events
-    $.on.Post.published(this.notifySubscribers)
-    $.on.Comment.created(this.moderateComment)
+    this.on.Post.published(this.notifySubscribers)
+    this.on.Comment.created(this.moderateComment)
   }
-}
+})
 ```
 
 ## Semantic Model
@@ -43,29 +34,20 @@ export class BlogDO extends DO {
 Your blog domain expressed as Nouns, Verbs, and Things:
 
 ```typescript
-// Nouns - auto-derive singular/plural
-this.defineNoun('Post')      // post, posts
-this.defineNoun('Author')    // author, authors
-this.defineNoun('Comment')   // comment, comments
-
-// Verbs - auto-derive tenses
-this.defineVerb('write')     // wrote, writes, writing
-this.defineVerb('publish')   // published, publishes, publishing
-
 // Things - instances with $id and $type
-const author = this.createThing('Author', {
+const author = this.things.create('Author', {
   name: 'Jane Smith',
   email: 'jane@example.com'
 })
 
-const post = this.createThing('Post', {
+const post = this.things.create('Post', {
   title: 'Getting Started with dotdo',
   content: '...',
   status: 'draft'
 })
 
 // Actions - unified event + edge + audit
-this.createAction(author.$id, 'write', post.$id)
+this.actions.create(author.$id, 'write', post.$id)
 // Creates:
 //   Event: { type: 'wrote', subject: author, object: post }
 //   Edge:  author -> post (wrote)
@@ -78,32 +60,32 @@ Navigate your content graph:
 
 ```typescript
 // Forward: get all posts by an author
-const posts = this.forward(author.$id, 'Post')
+const posts = this.relationships.forward(author.$id, 'Post')
 
 // Backward: get the author of a post
-const [author] = this.backward(post.$id, 'Author')
+const [author] = this.relationships.backward(post.$id, 'Author')
 
 // Build a post with full context
 const fullPost = {
   ...post,
-  author: this.backward(post.$id, 'Author')[0],
-  comments: this.forward(post.$id, 'Comment'),
-  tags: this.forward(post.$id, 'Tag')
+  author: this.relationships.backward(post.$id, 'Author')[0],
+  comments: this.relationships.forward(post.$id, 'Comment'),
+  tags: this.relationships.forward(post.$id, 'Tag')
 }
 ```
 
 ## Event Handlers
 
-React to domain events with `$.on.Noun.verb`:
+React to domain events with `this.on.Noun.verb`:
 
 ```typescript
 // When a post is published
-$.on.Post.published(async (event) => {
-  const post = this.getThing(event.subject)
+this.on.Post.published(async (event) => {
+  const post = this.things.get(event.subject)
   const subscribers = await this.getSubscribers()
 
   for (const sub of subscribers) {
-    $.send('Notification.created', {
+    this.send('Notification.created', {
       to: sub.email,
       subject: `New post: ${post.title}`
     })
@@ -111,10 +93,10 @@ $.on.Post.published(async (event) => {
 })
 
 // When a comment is created - auto-moderate with cascade
-$.on.Comment.created(async (event) => {
-  const comment = this.getThing(event.subject)
+this.on.Comment.created(async (event) => {
+  const comment = this.things.get(event.subject)
 
-  const result = await $.cascade({
+  const result = await this.cascade({
     task: 'Moderate comment',
     tiers: {
       code: () => this.checkSpamPatterns(comment),
@@ -124,48 +106,48 @@ $.on.Comment.created(async (event) => {
   })
 
   if (result.value === 'spam') {
-    this.deleteThing(comment.$id)
+    this.things.delete(comment.$id)
   }
 })
 
 // Wildcard: any entity created
-$.on.*.created(async (event) => {
+this.on.*.created(async (event) => {
   console.log(`${event.subject} created`)
 })
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const subscriberId of subscribers) {
-  await $.Subscriber(subscriberId).notify(newPost)
+  await this.Subscriber(subscriberId).notify(newPost)
 }
 
 // ✅ Pipelined - fire and forget
-subscribers.forEach(id => $.Subscriber(id).notify(newPost))
+subscribers.forEach(id => this.Subscriber(id).notify(newPost))
 
-// ✅ Pipelined - single round-trip
-const authorName = await $.Post(postId).getAuthor().name
+// ✅ Pipelined - single round-trip for chained access
+const authorName = await this.Post(postId).author.name
 ```
 
-Only `await` at exit points when you need the value. Fire-and-forget is valid for side effects like notifications.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects like notifications.
 
 ## Scheduling
 
-Automate your blog with `$.every`:
+Automate your blog with `this.every`:
 
 ```typescript
 // Daily digest at 9am
-$.every.day.at('9am')(async () => {
+this.every.day.at('9am')(async () => {
   const newPosts = this.getPostsSince(yesterday)
   if (newPosts.length > 0) await this.sendDigest(newPosts)
 })
 
 // Weekly stats every Monday
-$.every.Monday.at9am(async () => {
+this.every.Monday.at('9am')(async () => {
   const stats = this.calculateWeeklyStats()
   await this.notifyAuthors(stats)
 })

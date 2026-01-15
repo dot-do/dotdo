@@ -142,24 +142,24 @@ const promise = ai`Expensive operation`
 promise.cancel()
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-AIPromises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // Sequential - N round-trips
 for (const doc of documents) {
-  await $.Embedding(doc.id).generate(doc.content)
+  await this.Embedding(doc.id).generate(doc.content)
 }
 
 // Pipelined - fire and forget (valid for side effects)
-documents.forEach(doc => $.Embedding(doc.id).generate(doc.content))
+documents.forEach(doc => this.Embedding(doc.id).generate(doc.content))
 
 // Pipelined - single round-trip for chained operations
-const insights = await $.Document(id).analyze().extractInsights().summarize()
+const insights = await this.Document(id).analyze().extractInsights().summarize()
 ```
 
-Fire-and-forget is valid when you don't need the result. Only `await` at exit points when you actually need the value returned.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid when you don't need the result.
 
 ## Real-World Example
 

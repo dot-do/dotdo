@@ -29,27 +29,25 @@ cd game-example && npm install && npm run deploy
 ## GameRoom DO
 
 ```typescript
-import { DO, $ } from 'dotdo'
+import { DO } from 'dotdo'
 import { WebSocketHub } from 'dotdo/streaming'
 
 interface Player { id: string; x: number; y: number; color: string }
 
-export class GameRoom extends DO {
-  private hub = new WebSocketHub()
-  private players = new Map<string, Player>()
+export default DO.extend({
+  hub: new WebSocketHub(),
+  players: new Map<string, Player>(),
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-
+  init() {
     // Player joins
-    this.$.on.Player.joined(async (event) => {
+    this.on.Player.joined(async (event) => {
       const player = event.data as Player
       this.players.set(player.id, player)
       this.hub.broadcast({ type: 'player:joined', player })
     })
 
     // Player moves
-    this.$.on.Player.moved(async (event) => {
+    this.on.Player.moved(async (event) => {
       const { id, x, y } = event.data as { id: string; x: number; y: number }
       const player = this.players.get(id)
       if (player) {
@@ -60,12 +58,12 @@ export class GameRoom extends DO {
     })
 
     // Player leaves
-    this.$.on.Player.left(async (event) => {
+    this.on.Player.left(async (event) => {
       const { id } = event.data as { id: string }
       this.players.delete(id)
       this.hub.broadcast({ type: 'player:left', id })
     })
-  }
+  },
 ```
 
 ## WebSocket with Hibernation
@@ -80,7 +78,7 @@ export class GameRoom extends DO {
     this.hub.connect(server, { playerId })
 
     // Emit join event
-    this.$.send('Player.joined', {
+    this.send('Player.joined', {
       id: playerId,
       x: Math.random() * 800,
       y: Math.random() * 600,
@@ -88,7 +86,7 @@ export class GameRoom extends DO {
     })
 
     return new Response(null, { status: 101, webSocket: client })
-  }
+  },
 
   // Called when hibernated DO receives message
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
@@ -96,16 +94,16 @@ export class GameRoom extends DO {
     const playerId = this.hub.getMetadata(ws)?.playerId as string
 
     if (data.type === 'move') {
-      this.$.send('Player.moved', { id: playerId, x: data.x, y: data.y })
+      this.send('Player.moved', { id: playerId, x: data.x, y: data.y })
     }
-  }
+  },
 
   webSocketClose(ws: WebSocket) {
     const playerId = this.hub.getMetadata(ws)?.playerId as string
-    this.$.send('Player.left', { id: playerId })
+    this.send('Player.left', { id: playerId })
     this.hub.disconnect(ws)
   }
-}
+})
 ```
 
 ## Worker
@@ -157,24 +155,24 @@ tag = "v1"
 new_sqlite_classes = ["GameRoom"]
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // Sequential - N round-trips
 for (const playerId of playerIds) {
-  await $.Player(playerId).broadcast(gameState)
+  await this.Player(playerId).broadcast(gameState)
 }
 
 // Pipelined - fire and forget
-playerIds.forEach(id => $.Player(id).broadcast(gameState))
+playerIds.forEach(id => this.Player(id).broadcast(gameState))
 
-// Pipelined - single round-trip for chained calls
-const stats = await $.Player(id).getProfile().stats
+// Pipelined - single round-trip for chained access
+const stats = await this.Player(id).profile.stats
 ```
 
-For game broadcasts, fire-and-forget is ideal. No await needed for side effects like notifying other players. Only `await` at exit points when you need the value.
+`this.Noun(id)` returns a pipelined stub. For game broadcasts, fire-and-forget is ideal. No await needed for side effects like notifying other players.
 
 ## Cost Model
 

@@ -13,7 +13,7 @@ dotdo's L0 InMemory layer keeps counters in DO memory with O(1) reads. No extern
 ```
 Request → DO → InMemory Check → Response
               ↓ (exceeded)
-         $.on.RateLimit.exceeded
+         this.on.RateLimit.exceeded
 ```
 
 ## Quick Start
@@ -21,8 +21,8 @@ Request → DO → InMemory Check → Response
 ```typescript
 import { DO } from 'dotdo'
 
-class RateLimitDO extends DO {
-  private windows = new Map<string, { count: number; start: number }>()
+export default DO.extend({
+  windows: new Map<string, { count: number; start: number }>(),
 
   check(key: string, limit: number, windowMs: number): boolean {
     const now = Date.now()
@@ -34,14 +34,14 @@ class RateLimitDO extends DO {
     }
 
     if (window.count >= limit) {
-      this.$.send('RateLimit.exceeded', { key, limit, windowMs })
+      this.send('RateLimit.exceeded', { key, limit, windowMs })
       return false
     }
 
     window.count++
     return true
   }
-}
+})
 ```
 
 ## Sliding Window Algorithm
@@ -113,58 +113,56 @@ class RateLimitDO extends DO {
 
 ## Event Handling
 
-React to violations with `$.on.RateLimit.exceeded`:
+React to violations with `this.on.RateLimit.exceeded`:
 
 ```typescript
-class RateLimitDO extends DO {
-  constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-
-    this.$.on.RateLimit.exceeded(async ({ data }) => {
+export default DO.extend({
+  init() {
+    this.on.RateLimit.exceeded(async ({ data }) => {
       console.log(`Rate limit exceeded: ${data.key}`)
 
       const violations = this.trackViolation(data.key)
       if (violations > 10) {
-        this.$.send('Security.suspiciousActivity', { key: data.key, violations })
+        this.send('Security.suspiciousActivity', { key: data.key, violations })
       }
     })
 
-    this.$.on.Security.suspiciousActivity(async ({ data }) => {
+    this.on.Security.suspiciousActivity(async ({ data }) => {
       if (data.key.startsWith('ip:')) {
         this.blocked.add(data.key)
       }
     })
   }
-}
+})
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const violation of violations) {
-  await $.Security(violation.ip).flag(violation)
+  await this.Security(violation.ip).flag(violation)
 }
 
 // ✅ Pipelined - fire and forget (side effects don't need await)
-violations.forEach(v => $.Security(v.ip).flag(v))
+violations.forEach(v => this.Security(v.ip).flag(v))
 
-// ✅ Pipelined - single round-trip for chained calls
-const max = await $.RateLimit(key).getConfig().maxRequests
+// ✅ Pipelined - single round-trip for chained access
+const max = await this.RateLimit(key).config.maxRequests
 ```
 
-Fire-and-forget is valid for side effects like flagging violations or sending events. Only `await` at exit points when you actually need the return value. This reduces N round-trips to zero for batch operations.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects like flagging violations. This reduces N round-trips to zero for batch operations.
 
 ## Full Example
 
 ```typescript
 import { DO } from 'dotdo'
 
-export class RateLimitDO extends DO {
-  private limiter = new SlidingWindowLimiter()
-  private blocked = new Set<string>()
+export default DO.extend({
+  limiter: new SlidingWindowLimiter(),
+  blocked: new Set<string>(),
 
   async fetch(request: Request): Promise<Response> {
     const key = this.getKey(request)
@@ -175,13 +173,13 @@ export class RateLimitDO extends DO {
 
     const config = this.getConfig(request)
     if (!this.limiter.check(key, config.requests, config.windowMs)) {
-      this.$.send('RateLimit.exceeded', { key, ...config })
+      this.send('RateLimit.exceeded', { key, ...config })
       return new Response('Too Many Requests', { status: 429 })
     }
 
     return this.handleRequest(request)
   }
-}
+})
 ```
 
 ## Why It Works

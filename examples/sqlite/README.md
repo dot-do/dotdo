@@ -177,28 +177,28 @@ sql.exec(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`)
 const plan = sql.exec(`EXPLAIN QUERY PLAN SELECT * FROM users WHERE email = ?`, email)
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-When using `$.DB()` remotely, promises are stubs. Chain operations without awaiting each one.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const row of rows) {
-  await $.DB(name).insert('customers', row)
+  await this.DB(name).insert('customers', row)
 }
 
 // ✅ Pipelined - fire and forget
-rows.forEach(row => $.DB(name).insert('customers', row))
+rows.forEach(row => this.DB(name).insert('customers', row))
 
 // ✅ Pipelined - batch then await once
-const inserts = rows.map(row => $.DB(name).insert('customers', row))
+const inserts = rows.map(row => this.DB(name).insert('customers', row))
 await Promise.all(inserts)
 
 // ✅ Single round-trip for the result you need
-const count = await $.DB(name).table('customers').count()
+const count = await this.DB(name).table('customers').count()
 ```
 
-Fire-and-forget is valid for side effects. Only `await` at exit points when you need the value.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for side effects. Only `await` at exit points when you need the value.
 
 ## Limits
 

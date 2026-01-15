@@ -3,10 +3,10 @@
 **Product analytics at the cost of a side project.**
 
 ```typescript
-await $.track('PageView', { userId: 'alice', page: '/pricing' })
+await this.track('PageView', { userId: 'alice', page: '/pricing' })
 
-const activeNow = await $.counters.get('active_users_1m')  // real-time
-const retention = await $.iceberg.query({ sql: '...' })    // historical
+const activeNow = await this.counters.get('active_users_1m')  // real-time
+const retention = await this.iceberg.query({ sql: '...' })    // historical
 ```
 
 **10M events/day. $5/month. No vendor lock-in.**
@@ -41,11 +41,11 @@ L3: Iceberg     Historical archive     (time travel)
 ### L0: InMemory - Real-Time Counters
 
 ```typescript
-$.counters.incr('pageviews_1m', 1, { ttl: 60 })
-$.counters.incr(`active:${userId}`, 1, { ttl: 60 })
+this.counters.incr('pageviews_1m', 1, { ttl: 60 })
+this.counters.incr(`active:${userId}`, 1, { ttl: 60 })
 
 // Read instantly (no query)
-const active = $.counters.count('active:*')
+const active = this.counters.count('active:*')
 ```
 
 ### L1: Pipeline - High-Volume Ingestion
@@ -65,7 +65,7 @@ async track(event: string, props: Record<string, unknown>) {
 ### L2: SQLite - Scheduled Rollups
 
 ```typescript
-$.every.hour(async () => {
+this.every.hour(async () => {
   await this.sql`
     INSERT INTO hourly_events (hour, event, count)
     SELECT strftime('%Y-%m-%d %H:00', timestamp/1000, 'unixepoch'),
@@ -77,7 +77,7 @@ $.every.hour(async () => {
   `
 })
 
-$.every.day.at('3am')(async () => {
+this.every.day.at('3am')(async () => {
   await this.sql`
     INSERT INTO daily_metrics (date, dau, events)
     SELECT date(timestamp/1000, 'unixepoch'),
@@ -91,7 +91,7 @@ $.every.day.at('3am')(async () => {
 ### L3: Iceberg - Historical Archive
 
 ```typescript
-$.every.Sunday.at('4am')(async () => {
+this.every.Sunday.at('4am')(async () => {
   const weekAgo = Date.now() - 7 * 86400000
   const old = await this.sql`SELECT * FROM raw_events WHERE timestamp < ${weekAgo}`
   await this.iceberg.write(old)
@@ -128,24 +128,24 @@ async getRetention() {
 
 ---
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const event of batch) {
-  await $.Analytics(tenantId).track(event)
+  await this.Analytics(tenantId).track(event)
 }
 
 // ✅ Pipelined - fire and forget
-batch.forEach(e => $.Analytics(tenantId).track(e))
+batch.forEach(e => this.Analytics(tenantId).track(e))
 
-// ✅ Pipelined - single round-trip
-const dau = await $.Analytics(tenantId).getDAU(7).then(r => r[0].dau)
+// ✅ Pipelined - single round-trip for chained access
+const dau = await this.Analytics(tenantId).getDAU(7).then(r => r[0].dau)
 ```
 
-Analytics events are fire-and-forget by nature. No need to `await` each `track()` call - just emit and move on. The Pipeline (L1) handles durability. Only `await` at exit points when you actually need the value.
+`this.Noun(id)` returns a pipelined stub. Analytics events are fire-and-forget by nature. No need to `await` each `track()` call - just emit and move on. The Pipeline (L1) handles durability.
 
 ---
 
@@ -197,9 +197,9 @@ track() ──▶ Pipeline (L1) ──▶ ACK
                 ▼
           InMemory (L0) counters
                 │
-          $.every.hour ──▶ SQLite (L2) rollups
+          this.every.hour ──▶ SQLite (L2) rollups
                                │
-                         $.every.week ──▶ Iceberg (L3) archive
+                         this.every.week ──▶ Iceberg (L3) archive
 
 Query:  Real-time → L0    Recent → L2    Historical → L3
 ```

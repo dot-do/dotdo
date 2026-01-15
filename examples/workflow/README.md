@@ -8,30 +8,29 @@ Building business processes that survive failures is hard. You need Temporal, St
 
 ## The Solution
 
-dotdo's WorkflowContext (`$`) gives you durable execution built into every Durable Object. No external services. Just `$.do` for durable steps.
+dotdo gives you durable execution built into every Durable Object. No external services. Just `this.do` for durable steps.
 
 ```typescript
-import { $, DO } from 'dotdo'
+import { DO } from 'dotdo'
 
-class OrderWorkflow extends DO {
+export default DO.extend({
   async processOrder(order: Order) {
-
-    // Each $.do step is durable - survives crashes and restarts
-    const validated = await $.do(() => this.validateOrder(order), { stepId: 'validate' })
-    const payment = await $.do(() => this.chargePayment(order), { stepId: 'charge' })
-    const fulfilled = await $.do(() => this.fulfillOrder(order), { stepId: 'fulfill' })
+    // Each this.do step is durable - survives crashes and restarts
+    const validated = await this.do(() => this.validateOrder(order), { stepId: 'validate' })
+    const payment = await this.do(() => this.chargePayment(order), { stepId: 'charge' })
+    const fulfilled = await this.do(() => this.fulfillOrder(order), { stepId: 'fulfill' })
 
     return { validated, payment, fulfilled }
   }
-}
+})
 ```
 
 ## Durability Levels
 
 ```typescript
-$.send('Order.placed', order)                                    // Fire-and-forget
-await $.try(() => sendEmail(user), { timeout: 5000 })            // Single attempt
-await $.do(() => processPayment(order), { stepId: 'payment' })   // Durable with retries
+this.send('Order.placed', order)                                    // Fire-and-forget
+await this.try(() => sendEmail(user), { timeout: 5000 })            // Single attempt
+await this.do(() => processPayment(order), { stepId: 'payment' })   // Durable with retries
 ```
 
 ## Compensation Pattern
@@ -41,20 +40,20 @@ async bookTrip(trip: Trip) {
   const compensations: Array<() => Promise<void>> = []
 
   try {
-    const flight = await $.do(() => this.bookFlight(trip), { stepId: 'flight' })
+    const flight = await this.do(() => this.bookFlight(trip), { stepId: 'flight' })
     compensations.push(() => this.cancelFlight(flight.id))
 
-    const hotel = await $.do(() => this.bookHotel(trip), { stepId: 'hotel' })
+    const hotel = await this.do(() => this.bookHotel(trip), { stepId: 'hotel' })
     compensations.push(() => this.cancelHotel(hotel.id))
 
-    const car = await $.do(() => this.bookCar(trip), { stepId: 'car' })
+    const car = await this.do(() => this.bookCar(trip), { stepId: 'car' })
     compensations.push(() => this.cancelCar(car.id))
 
     return { flight, hotel, car, status: 'confirmed' }
   } catch (error) {
     // Rollback in reverse order
     for (const compensate of compensations.reverse()) {
-      await $.do(compensate, { stepId: `compensate-${compensations.length}` })
+      await this.do(compensate, { stepId: `compensate-${compensations.length}` })
     }
     throw error
   }
@@ -66,11 +65,10 @@ async bookTrip(trip: Trip) {
 Workflows pause indefinitely for human input. The DO hibernates (zero cost) until approval arrives.
 
 ```typescript
-import { $, DO } from 'dotdo'
+import { DO } from 'dotdo'
 
-class ExpenseWorkflow extends DO {
+export default DO.extend({
   async submitExpense(expense: Expense) {
-
     // Auto-approve under $100
     if (expense.amount < 100) {
       return this.processApproval(expense)
@@ -90,7 +88,7 @@ class ExpenseWorkflow extends DO {
     }
     return { status: 'rejected', reason: approval.rejectionReason }
   }
-}
+})
 ```
 
 ## Multi-Level Approval
@@ -110,24 +108,24 @@ const approval = await this.approvalFlow.requestApproval({
 ## Scheduled Workflows
 
 ```typescript
-$.every.Monday.at9am(() => this.generateWeeklyReport())
-$.every.day.at('6pm')(() => this.sendDailySummary())
-$.every(15).minutes(() => this.checkHealthStatus())
+this.every.Monday.at('9am')(() => this.generateWeeklyReport())
+this.every.day.at('6pm')(() => this.sendDailySummary())
+this.every(15).minutes(() => this.checkHealthStatus())
 ```
 
 ## Event-Driven
 
 ```typescript
-$.on.Order.placed(async (event) => {
-  await $.do(() => this.sendConfirmation(event.data), { stepId: 'confirm' })
+this.on.Order.placed(async (event) => {
+  await this.do(() => this.sendConfirmation(event.data), { stepId: 'confirm' })
 })
 
-$.on.Payment.failed(async (event) => {
-  await $.do(() => this.retryPayment(event.data), { stepId: 'retry' })
+this.on.Payment.failed(async (event) => {
+  await this.do(() => this.retryPayment(event.data), { stepId: 'retry' })
 })
 
-$.on.*.failed(async (event) => {
-  await $.do(() => this.logFailure(event), { stepId: 'log-failure' })
+this.on.*.failed(async (event) => {
+  await this.do(() => this.logFailure(event), { stepId: 'log-failure' })
 })
 ```
 
@@ -136,7 +134,7 @@ $.on.*.failed(async (event) => {
 Try automation first, fall back to humans only when needed:
 
 ```typescript
-const result = await $.cascade({
+const result = await this.cascade({
   task: 'categorize-expense',
   tiers: {
     code: () => this.ruleBasedCategorize(expense),      // Instant
@@ -151,30 +149,30 @@ const result = await $.cascade({
 ## Cross-DO Orchestration
 
 ```typescript
-const inventory = await $.Inventory(order.warehouseId).reserve(order.items)
-const payment = await $.Payment(order.customerId).charge(order.total)
-const shipping = await $.Shipping(order.id).schedule(order.address)
+const inventory = await this.Inventory(order.warehouseId).reserve(order.items)
+const payment = await this.Payment(order.customerId).charge(order.total)
+const shipping = await this.Shipping(order.id).schedule(order.address)
 ```
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // Sequential - unnecessary blocking
-const user = await $.User(id)
-const profile = await user.getProfile()
+const user = await this.User(id)
+const profile = await user.profile
 const email = await profile.email
 
-// Pipelined - single round-trip
-const email = await $.User(id).getProfile().email
+// Pipelined - single round-trip for chained access
+const email = await this.User(id).profile.email
 
 // Fire and forget - no await for side effects
-$.User(id).notify({ type: 'order_shipped' })
-$.Order(orderId).markFulfilled()
+this.User(id).notify({ type: 'order_shipped' })
+this.Order(orderId).markFulfilled()
 ```
 
-Only `await` at exit points when you actually need the value. Side effects like notifications and status updates don't require waiting for completion.
+`this.Noun(id)` returns a pipelined stub. Property access and method calls are recorded, then executed server-side on `await`. Side effects like notifications don't require waiting.
 
 ## Comparison
 
@@ -188,6 +186,6 @@ Only `await` at exit points when you actually need the value. Side effects like 
 ## Next Steps
 
 1. Extend `DO` for your domain
-2. Define steps with `$.do` for durability
+2. Define steps with `this.do` for durability
 3. Add human gates where needed
 4. Deploy as a standard Cloudflare Worker

@@ -129,24 +129,24 @@ const janEvents = await this.iceberg.query({
 
 ---
 
-## Promise Pipelining
+## Promise Pipelining (Cap'n Web)
 
-Promises are stubs. Chain freely, await only when needed.
+True Cap'n Proto-style pipelining: method calls on stubs batch until `await`, then resolve in a single round-trip.
 
 ```typescript
 // ❌ Sequential - N round-trips
 for (const batch of batches) {
-  await $.Table(name).append(batch)
+  await this.Table(name).append(batch)
 }
 
 // ✅ Pipelined - fire and forget
-batches.forEach(b => $.Table(name).append(b))
+batches.forEach(b => this.Table(name).append(b))
 
 // ✅ Pipelined - single round-trip for chained metadata
-const snapshot = await $.Table(name).getMetadata().currentSnapshot
+const snapshot = await this.Table(name).metadata.currentSnapshot
 ```
 
-Fire-and-forget is valid for append-only operations like Iceberg writes. The Pipeline (L1) guarantees durability before acknowledgment, so you don't need to await every batch. Only `await` at exit points when you actually need the result.
+`this.Noun(id)` returns a pipelined stub. Fire-and-forget is valid for append-only operations like Iceberg writes. The Pipeline (L1) guarantees durability before acknowledgment.
 
 ---
 
