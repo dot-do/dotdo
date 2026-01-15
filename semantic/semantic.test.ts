@@ -46,6 +46,12 @@ import {
   backward,
   forwardFuzzy,
   backwardFuzzy,
+
+  // Vector indexing
+  indexThing,
+  indexThings,
+  semanticSearch,
+  type ScoredThing,
 } from './index'
 
 // ============================================================================
@@ -874,5 +880,122 @@ describe('Integration: Full Semantic Workflow', () => {
     const productOrders = backward(macbook, 'Order')
     expect(productOrders).toHaveLength(1)
     expect(productOrders[0].$id).toBe('order-1')
+  })
+})
+
+// ============================================================================
+// VECTOR SEARCH INTEGRATION TESTS
+// ============================================================================
+
+describe('Vector Search Integration', () => {
+  describe('forwardFuzzy with vector store', () => {
+    it('should find semantically similar items when indexed', async () => {
+      const Product = noun('Product')
+
+      // Create and index products
+      const laptop = thing(Product, 'laptop', { name: 'Gaming Laptop', category: 'electronics' })
+      const phone = thing(Product, 'phone', { name: 'Smartphone', category: 'electronics' })
+      const book = thing(Product, 'book', { name: 'Programming Book', category: 'books' })
+
+      await indexThings([laptop, phone, book])
+
+      // Search query
+      const query = thing(Product, 'query', { name: 'Computer electronics' })
+
+      // Forward fuzzy search
+      const results = await forwardFuzzy(query, 'Product', { threshold: 0 })
+
+      expect(results.length).toBeGreaterThan(0)
+      expect(results.every((r) => r.$type === 'Product')).toBe(true)
+    })
+
+    it('should return scores when withScores is true', async () => {
+      const Article = noun('Article')
+
+      const article = thing(Article, 'ml-article', { title: 'Machine Learning Guide' })
+      await indexThing(article)
+
+      const query = thing(Article, 'query', { title: 'AI and ML tutorial' })
+      const results = (await forwardFuzzy(query, 'Article', {
+        threshold: 0,
+        withScores: true,
+      })) as ScoredThing[]
+
+      expect(results.length).toBeGreaterThan(0)
+      expect(results[0]).toHaveProperty('score')
+      expect(results[0].score).toBeGreaterThanOrEqual(0)
+      expect(results[0].score).toBeLessThanOrEqual(1)
+    })
+  })
+
+  describe('backwardFuzzy with vector store', () => {
+    it('should find semantically related source items', async () => {
+      const Customer = noun('Customer')
+      const Product = noun('Product')
+
+      // Index customers with interests
+      const alice = thing(Customer, 'alice', { name: 'Alice', interests: 'technology, gadgets' })
+      const bob = thing(Customer, 'bob', { name: 'Bob', interests: 'sports, fitness' })
+      await indexThings([alice, bob])
+
+      // Query product looking for related customers
+      const techProduct = thing(Product, 'laptop', { name: 'Gaming Laptop', category: 'tech' })
+
+      const relatedCustomers = await backwardFuzzy(techProduct, 'Customer', { threshold: 0 })
+
+      expect(relatedCustomers.length).toBeGreaterThan(0)
+      expect(relatedCustomers.every((r) => r.$type === 'Customer')).toBe(true)
+    })
+  })
+
+  describe('semanticSearch', () => {
+    it('should search by text query', async () => {
+      const Document = noun('Document')
+
+      await indexThings([
+        thing(Document, 'ai-doc', { title: 'Introduction to AI', content: 'Neural networks...' }),
+        thing(Document, 'web-doc', { title: 'Web Development', content: 'HTML CSS JS...' }),
+      ])
+
+      const results = await semanticSearch('artificial intelligence', 'Document', { threshold: 0 })
+
+      expect(results.length).toBeGreaterThan(0)
+    })
+
+    it('should filter by type', async () => {
+      const Article = noun('Article')
+      const Video = noun('Video')
+
+      await indexThings([
+        thing(Article, 'tech-article', { title: 'Tech News' }),
+        thing(Video, 'tech-video', { title: 'Tech Review' }),
+      ])
+
+      const articles = await semanticSearch('technology', 'Article', { threshold: 0 })
+      const videos = await semanticSearch('technology', 'Video', { threshold: 0 })
+
+      expect(articles.every((r) => r.$type === 'Article')).toBe(true)
+      expect(videos.every((r) => r.$type === 'Video')).toBe(true)
+    })
+  })
+
+  describe('Fallback behavior', () => {
+    it('should fallback to exact matches when no vector results', async () => {
+      const Customer = noun('Customer')
+      const Order = noun('Order')
+      const Place = verb('place')
+
+      const alice = thing(Customer, 'alice', { name: 'Alice' })
+      const order = thing(Order, 'order-1', { total: 100 })
+
+      // Create edge relationship but don't index
+      action(alice, Place, order)
+
+      // Fuzzy should fallback to exact match
+      const results = await forwardFuzzy(alice, 'Order', { threshold: 0.9 })
+
+      expect(results).toHaveLength(1)
+      expect(results[0].$id).toBe('order-1')
+    })
   })
 })
