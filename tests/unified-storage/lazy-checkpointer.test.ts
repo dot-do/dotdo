@@ -840,8 +840,6 @@ describe('LazyCheckpointer', () => {
     })
 
     it('should continue operating after checkpoint failure', async () => {
-      vi.useFakeTimers()
-
       const sql = createMockSqlStorage()
       const dirtyTracker = createMockDirtyTracker()
 
@@ -854,30 +852,29 @@ describe('LazyCheckpointer', () => {
         return { toArray: () => [] }
       })
 
+      const errors: Error[] = []
       const checkpointer = new LazyCheckpointer({
         sql,
         dirtyTracker,
         intervalMs: 5000,
-        onError: () => {}, // Suppress error
+        onError: (error) => errors.push(error), // Capture errors
       })
 
       dirtyTracker.markDirty('User', 'user-1', { name: 'Alice' })
-      checkpointer.start()
 
-      // First checkpoint fails
-      vi.advanceTimersByTime(5001)
+      // First manual checkpoint fails - onError is always called
+      await expect(checkpointer.checkpoint()).rejects.toThrow('Temporary error')
+      expect(errors.length).toBe(1) // onError called before rethrow
+      expect(errors[0].message).toBe('Temporary error')
 
       // Add new data
       dirtyTracker.markDirty('User', 'user-2', { name: 'Bob' })
 
       // Second checkpoint should succeed
-      vi.advanceTimersByTime(5001)
+      await checkpointer.checkpoint()
 
       expect(failCount).toBe(2) // Two attempts
       expect(dirtyTracker.clearDirty).toHaveBeenCalled()
-
-      checkpointer.stop()
-      vi.useRealTimers()
     })
   })
 

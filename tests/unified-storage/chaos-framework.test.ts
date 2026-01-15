@@ -1194,11 +1194,14 @@ describe('ChaosController', () => {
       const startTime = Date.now()
       const sendPromise = wrappedPipeline.send([{ event: 1 }])
 
+      // Attach rejection handler BEFORE advancing time to prevent unhandled rejection
+      const expectation = expect(sendPromise).rejects.toThrow('After latency')
+
       await vi.advanceTimersByTimeAsync(300)
 
       const elapsed = Date.now() - startTime
 
-      await expect(sendPromise).rejects.toThrow('After latency')
+      await expectation
       expect(elapsed).toBeGreaterThanOrEqual(200)
     })
 
