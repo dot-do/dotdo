@@ -10,7 +10,7 @@
  * @module unified-storage/leader-follower
  */
 
-import type { Pipeline } from './pipeline-emitter'
+import type { Pipeline } from './types/pipeline'
 
 // ============================================================================
 // TYPES
@@ -93,6 +93,90 @@ export interface HeartbeatService {
 }
 
 /**
+ * Distributed lock service interface for coordinated leader election
+ *
+ * This interface abstracts the distributed lock mechanism used to ensure
+ * only one node can be the leader at a time. In production deployments,
+ * this should be backed by a distributed consensus system like:
+ * - etcd (recommended for Kubernetes environments)
+ * - Redis with SETNX/Redlock algorithm
+ * - ZooKeeper
+ * - Consul
+ * - Custom Raft implementation
+ *
+ * The lock service provides fencing tokens to prevent split-brain scenarios
+ * where network partitions could result in multiple nodes thinking they're leader.
+ *
+ * @example
+ * ```typescript
+ * // Production implementation with etcd
+ * const lockService: DistributedLockService = {
+ *   async tryAcquireLock(nodeId) {
+ *     const lease = await etcd.lease(30000) // 30s TTL
+ *     const token = await etcd.put('/leader').value(nodeId).lease(lease)
+ *     return token.revision // Use revision as fencing token
+ *   },
+ *   async releaseLock(nodeId) {
+ *     await etcd.delete('/leader')
+ *     return true
+ *   },
+ *   getCurrentHolder() { return cachedLeader },
+ *   getFencingToken() { return currentRevision }
+ * }
+ * ```
+ */
+export interface DistributedLockService {
+  /**
+   * Attempt to acquire the leader lock
+   * @param nodeId - The unique identifier of the node attempting to acquire the lock
+   * @returns The fencing token on success, or `null` if the lock is already held
+   */
+  tryAcquireLock(nodeId: string): Promise<number | null>
+
+  /**
+   * Release the leader lock
+   * @param nodeId - The unique identifier of the node releasing the lock
+   * @returns `true` if successfully released, `false` if the lock wasn't held by this node
+   */
+  releaseLock(nodeId: string): Promise<boolean>
+
+  /**
+   * Get the node ID of the current lock holder
+   * @returns The node ID of the current holder, or `null` if no node holds the lock
+   */
+  getCurrentHolder(): string | null
+
+  /**
+   * Get the current fencing token
+   * @returns The fencing token of the current lock holder (0 if no holder)
+   */
+  getFencingToken(): number
+}
+
+/**
+ * Callback function for quorum-based consensus simulation
+ *
+ * This callback is invoked during promotion/demotion to verify that a
+ * majority of nodes in the cluster agree with the leadership change.
+ * It enables simulation of distributed consensus for testing and can
+ * be replaced with actual consensus protocol calls in production.
+ *
+ * @param nodeId - The node requesting the action
+ * @param action - Either 'promote' (become leader) or 'demote' (step down)
+ * @returns A promise resolving to `true` if quorum is reached, `false` otherwise
+ *
+ * @example
+ * ```typescript
+ * const quorumCallback: QuorumCallback = async (nodeId, action) => {
+ *   const votes = await pollClusterNodes(nodeId, action)
+ *   const majority = Math.floor(clusterSize / 2) + 1
+ *   return votes >= majority
+ * }
+ * ```
+ */
+export type QuorumCallback = (nodeId: string, action: 'promote' | 'demote') => Promise<boolean>
+
+/**
  * Leader-follower manager configuration
  */
 export interface LeaderFollowerConfig {
@@ -108,6 +192,12 @@ export interface LeaderFollowerConfig {
   maxStalenessMs?: number
   lastAppliedSequence?: number
   promotionEligible?: boolean
+  /** Distributed lock service for coordinated leader election */
+  distributedLock?: DistributedLockService
+  /** Quorum callback for consensus simulation */
+  quorumCallback?: QuorumCallback
+  /** Lock timeout in ms (default 30000) */
+  lockTimeoutMs?: number
 }
 
 /**
@@ -131,6 +221,10 @@ export interface LeaderState {
   currentSequence: number
   followerCount: number
   followers: Map<string, FollowerInfo>
+  /** Epoch/term that increments on each leader election - used for fencing */
+  epoch: number
+  /** Fencing token for this leader term */
+  fencingToken: number
 }
 
 /**
@@ -204,6 +298,7 @@ const DEFAULT_CONFIG = {
   heartbeatTimeoutMs: 5000,
   maxStalenessMs: 30000,
   promotionEligible: true,
+  lockTimeoutMs: 30000,
 } as const
 
 // ============================================================================
@@ -217,6 +312,8 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
   private pipeline: Pipeline & { subscribe?: (namespace: string, callback: (event: unknown) => void) => () => void; getEvents?: (fromSequence?: number) => unknown[] }
   private stateStore: StateStore
   private heartbeatService?: HeartbeatService
+  private distributedLock?: DistributedLockService
+  private quorumCallback?: QuorumCallback
 
   private _config: ResolvedLeaderFollowerConfig
   private _role: ReplicationRole
@@ -249,17 +346,39 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
   private _eventsEmitted: number = 0
   private _eventsApplied: number = 0
 
+  // Distributed leader election state
+  private _epoch: number = 0
+  private _fencingToken: number = 0
+  private _hasLeaderLock: boolean = false
+  private _lockTimeoutMs: number = DEFAULT_CONFIG.lockTimeoutMs
+  private _lockAcquiredAt?: number
+
+  // Global lock for single-process coordination (simulates distributed lock)
+  private static _globalLeaderLock: Map<string, { holder: string; epoch: number; acquiredAt: number }> = new Map()
+  // Track highest epoch per namespace for monotonic epoch progression
+  private static _globalMaxEpoch: Map<string, number> = new Map()
+
   constructor(config: LeaderFollowerConfig) {
     super()
 
     this.pipeline = config.pipeline as Pipeline & { subscribe?: (namespace: string, callback: (event: unknown) => void) => () => void; getEvents?: (fromSequence?: number) => unknown[] }
     this.stateStore = config.stateStore
     this.heartbeatService = config.heartbeatService
+    this.distributedLock = config.distributedLock
+    this.quorumCallback = config.quorumCallback
 
     this._role = config.role
     this._leaderId = config.leaderId || config.nodeId
     this._appliedSequence = config.lastAppliedSequence || 0
     this._currentSequence = config.lastAppliedSequence || 0
+    this._lockTimeoutMs = config.lockTimeoutMs ?? DEFAULT_CONFIG.lockTimeoutMs
+
+    // If starting as leader, initialize epoch
+    if (config.role === ReplicationRole.Leader) {
+      this._epoch = 1
+      this._fencingToken = 1
+      this._hasLeaderLock = true
+    }
 
     this._config = Object.freeze({
       nodeId: config.nodeId,
@@ -296,6 +415,55 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
     return this._closed
   }
 
+  /**
+   * Check if this node currently holds the leader lock
+   *
+   * The leader lock is a distributed lock that ensures only one node can be
+   * the active leader at a time. A node must hold this lock to accept writes.
+   *
+   * The lock may be lost due to:
+   * - Explicit `demote()` call
+   * - Lock timeout expiration
+   * - Another node acquiring the lock with a higher epoch
+   *
+   * @returns `true` if this node holds the leader lock, `false` otherwise
+   */
+  hasLeaderLock(): boolean {
+    return this._hasLeaderLock
+  }
+
+  /**
+   * Get the current epoch (term number) for this node
+   *
+   * The epoch is a monotonically increasing counter that increments with each
+   * leader election. It's used for:
+   * - Fencing: Preventing split-brain scenarios where two nodes think they're leader
+   * - Ordering: Determining which leader is "newer" during partition recovery
+   * - Staleness detection: Rejecting operations from stale leaders
+   *
+   * A higher epoch always wins in conflict resolution.
+   *
+   * @returns The current epoch number (starts at 0 for followers, 1+ for leaders)
+   */
+  getEpoch(): number {
+    return this._epoch
+  }
+
+  /**
+   * Get the current fencing token for this node
+   *
+   * The fencing token is assigned when acquiring the leader lock and is used to
+   * prevent stale leaders from performing operations. It serves as a "lease number"
+   * that storage systems can validate to reject requests from old leaders.
+   *
+   * In this implementation, the fencing token equals the epoch.
+   *
+   * @returns The fencing token (0 if not a leader, otherwise equals epoch)
+   */
+  getFencingToken(): number {
+    return this._fencingToken
+  }
+
   // ==========================================================================
   // LIFECYCLE
   // ==========================================================================
@@ -308,6 +476,8 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
     this._started = true
 
     if (this._role === ReplicationRole.Leader) {
+      // Acquire leader lock when starting as leader
+      await this.acquireLock()
       this.startHeartbeat()
     } else {
       // Subscribe to Pipeline events
@@ -359,6 +529,11 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
       await this.flushPendingEvents()
     }
 
+    // Release leader lock if held
+    if (this._hasLeaderLock) {
+      await this.releaseLock()
+    }
+
     // Clean up event emitter
     this.removeAllListeners()
   }
@@ -390,6 +565,40 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
         error: wasDemoted ? 'Not the leader' : 'Follower is read-only. Redirect to leader.',
         errorCode: wasDemoted ? 'NOT_LEADER' : 'FOLLOWER_READ_ONLY',
         leaderId: this._leaderId,
+      }
+    }
+
+    // Check if we still hold the leader lock
+    if (!this._hasLeaderLock) {
+      return {
+        success: false,
+        error: 'Not the leader - lost leader lock',
+        errorCode: 'NOT_LEADER',
+        leaderId: this._leaderId,
+      }
+    }
+
+    // Check for stale fencing token (split-brain prevention)
+    const globalLock = LeaderFollowerManager._globalLeaderLock.get(this._config.namespace)
+    if (globalLock && globalLock.holder !== this._config.nodeId) {
+      // Another node has the lock - we're stale
+      this._hasLeaderLock = false
+      return {
+        success: false,
+        error: 'Stale leader - another leader exists with higher fencing token',
+        errorCode: 'STALE_LEADER',
+        leaderId: globalLock.holder,
+      }
+    }
+
+    // Check epoch - if global epoch is higher, we're stale
+    if (globalLock && globalLock.epoch > this._epoch) {
+      this._hasLeaderLock = false
+      return {
+        success: false,
+        error: 'Stale leader - another leader has taken over with higher epoch',
+        errorCode: 'STALE_LEADER',
+        leaderId: globalLock.holder,
       }
     }
 
@@ -517,6 +726,8 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
       currentSequence: this._currentSequence,
       followerCount: this._followers.size,
       followers: new Map(this._followers),
+      epoch: this._epoch,
+      fencingToken: this._fencingToken,
     }
   }
 
@@ -564,12 +775,33 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
       throw new Error('This node is not eligible for promotion')
     }
 
+    // Step 1: Check quorum if quorum callback is configured
+    if (this.quorumCallback) {
+      const hasQuorum = await this.quorumCallback(this._config.nodeId, 'promote')
+      if (!hasQuorum) {
+        throw new Error('Cannot promote: quorum not reached - requires majority consensus')
+      }
+    } else {
+      // No quorum callback - check if we can achieve quorum via canAchieveQuorum()
+      const canPromote = await this.canAchieveQuorum()
+      if (!canPromote) {
+        throw new Error('Cannot promote: quorum not reached - requires majority consensus')
+      }
+    }
+
+    // Step 2: Try to acquire distributed lock
+    const lockAcquired = await this.acquireLock()
+    if (!lockAcquired) {
+      throw new Error('Cannot promote: leader lock already held by another node - election failed')
+    }
+
     // Before promotion, flush any buffered events to ensure we have the latest state
     // This handles the case where we received events out of order and some are still buffered
     this.flushBufferedEventsOnPromotion()
 
     // Change role
     const previousRole = this._role
+    const previousLeaderId = this._leaderId
     this._role = ReplicationRole.Leader
     this._leaderId = this._config.nodeId
 
@@ -590,7 +822,7 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
       type: 'replication.leader_changed',
       namespace: this._config.namespace,
       newLeaderId: this._config.nodeId,
-      previousLeaderId: this._leaderId,
+      previousLeaderId: previousLeaderId,
     }
 
     try {
@@ -599,18 +831,55 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
       // Best effort
     }
 
-    this.emit('promoted', { previousRole, newRole: ReplicationRole.Leader })
+    this.emit('promoted', { previousRole, newRole: ReplicationRole.Leader, epoch: this._epoch })
   }
 
   /**
    * Demote this leader to follower
    */
   async demote(): Promise<void> {
+    // Release leader lock first
+    if (this._hasLeaderLock) {
+      await this.releaseLock()
+    }
+
     this._role = ReplicationRole.Follower
     this.stopHeartbeat()
 
     // Subscribe to Pipeline events
     this.subscribeToPipeline()
+  }
+
+  /**
+   * Reconcile with a peer node after network partition
+   * Resolves split-brain by comparing epochs - higher epoch wins
+   */
+  async reconcileWithPeer(peerId: string): Promise<{ resolved: boolean; winner: string }> {
+    // Check the global lock to see the current state
+    const globalLock = LeaderFollowerManager._globalLeaderLock.get(this._config.namespace)
+
+    // If there's no global lock state, this node is the valid leader
+    if (!globalLock) {
+      return { resolved: true, winner: this._config.nodeId }
+    }
+
+    // Compare epochs - higher epoch wins
+    if (globalLock.epoch > this._epoch) {
+      // Other node has higher epoch - we should demote
+      if (this._role === ReplicationRole.Leader) {
+        await this.demote()
+      }
+      return { resolved: true, winner: globalLock.holder }
+    } else if (globalLock.epoch < this._epoch) {
+      // We have higher epoch - we're the valid leader
+      return { resolved: true, winner: this._config.nodeId }
+    } else {
+      // Same epoch - the lock holder wins
+      if (globalLock.holder !== this._config.nodeId && this._role === ReplicationRole.Leader) {
+        await this.demote()
+      }
+      return { resolved: true, winner: globalLock.holder }
+    }
   }
 
   // ==========================================================================
@@ -626,6 +895,190 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
       eventsEmitted: this._eventsEmitted,
       eventsApplied: this._eventsApplied,
       nodeId: this._config.nodeId,
+    }
+  }
+
+  // ==========================================================================
+  // PARTITION RECOVERY METHODS
+  // ==========================================================================
+
+  /**
+   * Get the current applied sequence number (follower only)
+   */
+  getAppliedSequence(): number {
+    return this._appliedSequence
+  }
+
+  /**
+   * Get the replication lag (events behind leader)
+   * Returns the difference between leader's current sequence and follower's applied sequence
+   */
+  getReplicationLag(): number {
+    if (this._role === ReplicationRole.Leader) {
+      return 0
+    }
+
+    // For followers, try to get leader's sequence from pipeline events
+    // If we're partitioned, we won't know the actual lag, so estimate based on time
+    const events = this.pipeline.getEvents?.() as ReplicationEvent[] || []
+    const leaderEvents = events.filter(
+      e => e.type === 'replication.write' && e.namespace === this._config.namespace
+    )
+
+    if (leaderEvents.length > 0) {
+      const maxSequence = Math.max(...leaderEvents.map(e => e.sequence))
+      return Math.max(0, maxSequence - this._appliedSequence)
+    }
+
+    return 0
+  }
+
+  /**
+   * Request catch-up from the leader's event log
+   * Public method that can be called to trigger recovery
+   */
+  async requestCatchUp(fromSequence?: number): Promise<void> {
+    const startSequence = fromSequence ?? this._appliedSequence
+    const recoveryStartTime = Date.now()
+    const initialSequence = this._appliedSequence
+
+    if (!this.pipeline.getEvents) return
+
+    const events = this.pipeline.getEvents(startSequence) as ReplicationEvent[]
+
+    for (const event of events) {
+      if (event.type === 'replication.write' && event.namespace === this._config.namespace) {
+        // Only apply events we haven't seen
+        if (event.sequence > this._appliedSequence) {
+          this.bufferAndApplyEvent(event)
+        }
+      }
+    }
+
+    // Emit recovery complete event if we recovered any events
+    const eventsRecovered = this._appliedSequence - initialSequence
+    if (eventsRecovered > 0) {
+      this.emit('recoveryComplete', {
+        eventsRecovered,
+        recoveryDurationMs: Date.now() - recoveryStartTime,
+      })
+    }
+  }
+
+  /**
+   * Check if this node can achieve quorum for leader election
+   * In a real system, this would query other nodes
+   */
+  async canAchieveQuorum(): Promise<boolean> {
+    // Use quorum callback if configured
+    if (this.quorumCallback) {
+      return this.quorumCallback(this._config.nodeId, 'promote')
+    }
+
+    // If no callback and we're partitioned, assume we can't achieve quorum
+    // This prevents split-brain scenarios
+    return false
+  }
+
+  /**
+   * Force promote to leader (bypasses quorum check - for testing/recovery)
+   */
+  async forcePromote(): Promise<void> {
+    // Bypass quorum check but still acquire lock
+    const lockAcquired = await this.acquireLock()
+    if (!lockAcquired) {
+      // If another node has the lock, we still force promote but with a higher epoch
+      const globalLock = LeaderFollowerManager._globalLeaderLock.get(this._config.namespace)
+      if (globalLock) {
+        this._epoch = globalLock.epoch + 1
+      } else {
+        this._epoch = (LeaderFollowerManager._globalMaxEpoch.get(this._config.namespace) || 0) + 1
+      }
+      this._fencingToken = this._epoch
+      this._hasLeaderLock = true
+
+      // Update global state
+      LeaderFollowerManager._globalLeaderLock.set(this._config.namespace, {
+        holder: this._config.nodeId,
+        epoch: this._epoch,
+        acquiredAt: Date.now(),
+      })
+      LeaderFollowerManager._globalMaxEpoch.set(this._config.namespace, this._epoch)
+    }
+
+    // Flush any buffered events before promotion
+    this.flushBufferedEventsOnPromotion()
+
+    // Change role
+    const previousRole = this._role
+    this._role = ReplicationRole.Leader
+    this._leaderId = this._config.nodeId
+
+    // Continue sequence from last applied
+    this._currentSequence = this._appliedSequence
+
+    // Unsubscribe from Pipeline events
+    if (this._unsubscribe) {
+      this._unsubscribe()
+      this._unsubscribe = undefined
+    }
+
+    // Start heartbeat
+    this.startHeartbeat()
+
+    this.emit('promoted', { previousRole, newRole: ReplicationRole.Leader, epoch: this._epoch, forced: true })
+  }
+
+  /**
+   * Detect if a new leader has been elected and step down if necessary
+   */
+  async detectNewLeader(): Promise<boolean> {
+    const globalLock = LeaderFollowerManager._globalLeaderLock.get(this._config.namespace)
+
+    if (!globalLock) {
+      return false
+    }
+
+    // If another node holds the lock with a higher epoch, step down
+    if (globalLock.holder !== this._config.nodeId && globalLock.epoch >= this._epoch) {
+      if (this._role === ReplicationRole.Leader) {
+        await this.demote()
+        this._leaderId = globalLock.holder
+      }
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * Resolve split-brain scenario by comparing fencing tokens
+   * Node with lower token steps down
+   */
+  async resolveSplitBrain(): Promise<void> {
+    const globalLock = LeaderFollowerManager._globalLeaderLock.get(this._config.namespace)
+
+    if (!globalLock) {
+      return
+    }
+
+    // If we're leader but another node has a higher epoch, step down
+    if (this._role === ReplicationRole.Leader &&
+        globalLock.holder !== this._config.nodeId &&
+        globalLock.epoch > this._epoch) {
+      await this.demote()
+      this._leaderId = globalLock.holder
+    }
+
+    // If we're leader and have equal epoch, use node ID as tiebreaker
+    if (this._role === ReplicationRole.Leader &&
+        globalLock.holder !== this._config.nodeId &&
+        globalLock.epoch === this._epoch) {
+      // Higher node ID wins
+      if (globalLock.holder > this._config.nodeId) {
+        await this.demote()
+        this._leaderId = globalLock.holder
+      }
     }
   }
 
@@ -732,25 +1185,6 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
   }
 
   // ==========================================================================
-  // PRIVATE: CATCH-UP
-  // ==========================================================================
-
-  private async requestCatchUp(fromSequence: number): Promise<void> {
-    if (!this.pipeline.getEvents) return
-
-    const events = this.pipeline.getEvents(fromSequence) as ReplicationEvent[]
-
-    for (const event of events) {
-      if (event.type === 'replication.write' && event.namespace === this._config.namespace) {
-        // Only apply events we haven't seen
-        if (event.sequence > this._appliedSequence) {
-          this.bufferAndApplyEvent(event)
-        }
-      }
-    }
-  }
-
-  // ==========================================================================
   // PRIVATE: HEARTBEAT
   // ==========================================================================
 
@@ -781,5 +1215,116 @@ export class LeaderFollowerManager extends SimpleEventEmitter {
   private async flushPendingEvents(): Promise<void> {
     // No-op for now - events are sent immediately
     // Could be used for batching in the future
+  }
+
+  // ==========================================================================
+  // PRIVATE: DISTRIBUTED LOCK
+  // ==========================================================================
+
+  /**
+   * Acquire the leader lock for this namespace
+   * Uses either an external distributed lock service or the internal global lock
+   * Returns true if lock acquired, false if lock held by another node
+   */
+  private async acquireLock(): Promise<boolean> {
+    const namespace = this._config.namespace
+    const nodeId = this._config.nodeId
+    const now = Date.now()
+
+    // If using external distributed lock service
+    if (this.distributedLock) {
+      const fencingToken = await this.distributedLock.tryAcquireLock(nodeId)
+      if (fencingToken === null) {
+        return false
+      }
+      this._fencingToken = fencingToken
+      this._epoch = fencingToken // Use fencing token as epoch
+      this._hasLeaderLock = true
+      this._lockAcquiredAt = now
+      return true
+    }
+
+    // Use internal global lock for single-process coordination
+    const existingLock = LeaderFollowerManager._globalLeaderLock.get(namespace)
+    const maxEpoch = LeaderFollowerManager._globalMaxEpoch.get(namespace) || 0
+
+    if (existingLock) {
+      // Check if the existing lock has expired
+      const lockAge = now - existingLock.acquiredAt
+      if (lockAge < this._lockTimeoutMs && existingLock.holder !== nodeId) {
+        // Lock is still valid and held by another node
+        return false
+      }
+      // Lock expired or held by us - we can take it
+      // Increment epoch from maximum of previous lock's epoch and tracked max epoch
+      this._epoch = Math.max(existingLock.epoch, maxEpoch) + 1
+    } else {
+      // First lock acquisition for this namespace OR re-acquisition after release
+      // Use max epoch to ensure monotonic progression
+      this._epoch = maxEpoch + 1
+    }
+
+    // Update the global max epoch
+    LeaderFollowerManager._globalMaxEpoch.set(namespace, this._epoch)
+
+    // Acquire the lock
+    this._fencingToken = this._epoch
+    this._hasLeaderLock = true
+    this._lockAcquiredAt = now
+
+    LeaderFollowerManager._globalLeaderLock.set(namespace, {
+      holder: nodeId,
+      epoch: this._epoch,
+      acquiredAt: now,
+    })
+
+    return true
+  }
+
+  /**
+   * Release the leader lock for this namespace
+   */
+  private async releaseLock(): Promise<boolean> {
+    const namespace = this._config.namespace
+    const nodeId = this._config.nodeId
+
+    // If using external distributed lock service
+    if (this.distributedLock) {
+      const released = await this.distributedLock.releaseLock(nodeId)
+      if (released) {
+        this._hasLeaderLock = false
+        this._lockAcquiredAt = undefined
+      }
+      return released
+    }
+
+    // Use internal global lock
+    const existingLock = LeaderFollowerManager._globalLeaderLock.get(namespace)
+
+    if (existingLock && existingLock.holder === nodeId) {
+      LeaderFollowerManager._globalLeaderLock.delete(namespace)
+      this._hasLeaderLock = false
+      this._lockAcquiredAt = undefined
+      return true
+    }
+
+    // We don't hold the lock
+    this._hasLeaderLock = false
+    return false
+  }
+
+  /**
+   * Static method to clear global lock state (for testing)
+   */
+  static clearGlobalLocks(): void {
+    LeaderFollowerManager._globalLeaderLock.clear()
+    LeaderFollowerManager._globalMaxEpoch.clear()
+  }
+
+  /**
+   * Static method to get current global lock state (for testing/debugging)
+   */
+  static getGlobalLockState(namespace: string): { holder: string; epoch: number; acquiredAt: number } | undefined {
+    return LeaderFollowerManager._globalLeaderLock.get(namespace)
   }
 }

@@ -10,6 +10,7 @@
  */
 
 import type { RecoveryMetrics, MetricRecoverySource } from './metrics'
+import { IdempotencyTracker, type IdempotencyConfig } from './idempotency-tracker'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -51,6 +52,8 @@ export interface RecoveryOptions {
   onProgress?: (progress: RecoveryProgress) => void
   /** Metrics collector for observability */
   metrics?: RecoveryMetrics
+  /** Idempotency configuration for event deduplication */
+  idempotencyConfig?: IdempotencyConfig
 }
 
 /**
@@ -61,6 +64,8 @@ export interface RecoveryProgress {
   loaded: number
   total: number
   elapsedMs: number
+  /** Number of duplicate events skipped (optional) */
+  duplicatesSkipped?: number
 }
 
 /**
@@ -72,6 +77,8 @@ export interface RecoveryResult {
   eventsReplayed: number
   durationMs: number
   state: Map<string, Thing>
+  /** Number of duplicate events skipped during replay */
+  duplicatesSkipped?: number
 }
 
 /**
@@ -123,6 +130,9 @@ export class ColdStartRecovery {
   // Metrics
   private metrics?: RecoveryMetrics
 
+  // Idempotency tracking
+  private readonly idempotencyTracker: IdempotencyTracker
+
   constructor(options: RecoveryOptions) {
     this.namespace = options.namespace
     this.sql = options.sql
@@ -130,6 +140,7 @@ export class ColdStartRecovery {
     this.timeout = options.timeout ?? 30000 // 30s default
     this.onProgress = options.onProgress
     this.metrics = options.metrics
+    this.idempotencyTracker = new IdempotencyTracker(options.idempotencyConfig)
   }
 
   /**
@@ -209,10 +220,16 @@ export class ColdStartRecovery {
     this.startTime = performance.now()
     this.state.clear()
 
+    let sqliteLoaded = 0
+    let sqliteFailed = false
+
     // Try SQLite first (fast path)
     try {
       const sqliteResult = await this.loadFromSqlite()
-      if (sqliteResult.thingsLoaded > 0) {
+      sqliteLoaded = sqliteResult.thingsLoaded
+
+      // If SQLite has data and we have no Iceberg, return SQLite result
+      if (sqliteLoaded > 0 && !this.iceberg) {
         return sqliteResult
       }
     } catch (error) {
@@ -220,17 +237,33 @@ export class ColdStartRecovery {
       console.warn('SQLite load failed, falling back to Iceberg:', error)
       // Track recovery error
       this.metrics?.errorsCount.inc()
+      sqliteFailed = true
     }
 
-    // Fall back to Iceberg replay
+    // Merge with Iceberg replay (handles partial checkpoint scenarios)
+    // This replays from Iceberg while preserving SQLite state and deduplicating
     if (this.iceberg) {
       try {
         return await this.replayFromIceberg()
       } catch (error) {
-        // Iceberg replay failed
+        // Timeouts should be propagated - they indicate operational issues
+        if (error instanceof Error && error.message.includes('timed out')) {
+          throw error
+        }
+        // Other Iceberg replay failures fall through to empty state
         console.warn('Iceberg replay failed:', error)
         this.metrics?.errorsCount.inc()
+
+        // If SQLite loaded data before Iceberg failed, return SQLite result
+        if (sqliteLoaded > 0) {
+          return this.createResult('sqlite', sqliteLoaded, 0)
+        }
       }
+    }
+
+    // If SQLite loaded something (and Iceberg was not available), return that
+    if (sqliteLoaded > 0 && !sqliteFailed) {
+      return this.createResult('sqlite', sqliteLoaded, 0)
     }
 
     // No data anywhere
@@ -316,6 +349,9 @@ export class ColdStartRecovery {
       return this.createResult('empty', 0, 0)
     }
 
+    // Track state size before replay to detect new entities from Iceberg
+    const stateSizeBeforeReplay = this.state.size
+
     this.reportProgress('iceberg', 0, 0)
 
     // Create timeout promise
@@ -336,25 +372,57 @@ export class ColdStartRecovery {
     const totalEvents = events.length
     this.reportProgress('applying', 0, totalEvents)
 
-    // Apply events in order
+    // Apply events in order with idempotency tracking
     let appliedCount = 0
+    let processedCount = 0
     for (const event of events) {
+      processedCount++
+
+      // Check idempotency key to skip duplicates
+      const idempotencyKey = (event as DomainEvent & { idempotencyKey?: string }).idempotencyKey
+      if (idempotencyKey && this.idempotencyTracker.checkAndTrack(idempotencyKey, event.ts)) {
+        // Duplicate event, skip it
+        // Report progress periodically
+        if (processedCount % 100 === 0 || processedCount === totalEvents) {
+          this.reportProgress('applying', processedCount, totalEvents)
+        }
+        continue
+      }
+
       this.applyEvent(event)
       appliedCount++
 
       // Report progress periodically
-      if (appliedCount % 100 === 0 || appliedCount === totalEvents) {
-        this.reportProgress('applying', appliedCount, totalEvents)
+      if (processedCount % 100 === 0 || processedCount === totalEvents) {
+        this.reportProgress('applying', processedCount, totalEvents)
       }
     }
 
     this.reportProgress('complete', this.state.size, totalEvents)
 
-    return this.createResult(
-      totalEvents > 0 ? 'iceberg' : 'empty',
-      this.state.size,
-      totalEvents
-    )
+    // Determine source:
+    // - If no events were applied, state came from SQLite (or empty)
+    // - If state had items before and Iceberg added more, source is 'iceberg' (merge)
+    // - If state was empty and Iceberg added items, source is 'iceberg'
+    // - If state had items and Iceberg only updated existing (no new items), source is 'sqlite'
+    const newEntitiesFromIceberg = this.state.size - stateSizeBeforeReplay
+    let source: 'sqlite' | 'iceberg' | 'empty'
+
+    if (appliedCount === 0) {
+      // No events applied from Iceberg
+      source = stateSizeBeforeReplay > 0 ? 'sqlite' : 'empty'
+    } else if (stateSizeBeforeReplay > 0 && newEntitiesFromIceberg === 0) {
+      // SQLite had data and Iceberg only updated existing entities (no new ones)
+      // Treat this as SQLite being the authoritative source
+      source = 'sqlite'
+    } else if (newEntitiesFromIceberg > 0) {
+      // Iceberg added new entities not in SQLite
+      source = 'iceberg'
+    } else {
+      source = appliedCount > 0 ? 'iceberg' : 'empty'
+    }
+
+    return this.createResult(source, this.state.size, appliedCount)
   }
 
   private applyEvent(event: DomainEvent): void {
@@ -414,6 +482,7 @@ export class ColdStartRecovery {
         loaded,
         total,
         elapsedMs: performance.now() - this.startTime,
+        duplicatesSkipped: this.idempotencyTracker.duplicatesSkipped,
       })
     }
   }
@@ -424,6 +493,7 @@ export class ColdStartRecovery {
     eventsReplayed: number
   ): RecoveryResult {
     const durationMs = performance.now() - this.startTime
+    const duplicatesSkipped = this.idempotencyTracker.duplicatesSkipped
 
     // Update metrics
     this.metrics?.duration.observe(durationMs)
@@ -437,6 +507,7 @@ export class ColdStartRecovery {
       eventsReplayed,
       durationMs,
       state: this.state,
+      duplicatesSkipped,
     }
   }
 }

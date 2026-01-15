@@ -62,19 +62,23 @@ interface WriteEvent {
 
 /**
  * Create a mock Pipeline for event propagation
+ * Uses batch interface: send(events: unknown[])
  */
 function createMockPipeline() {
   const subscribers: Map<string, ((event: WriteEvent) => Promise<void>)[]> = new Map()
   const events: WriteEvent[] = []
 
   return {
-    send: vi.fn(async (event: WriteEvent) => {
-      events.push(event)
-      // Notify all subscribers except the sender
-      for (const [masterId, handlers] of subscribers) {
-        if (masterId !== event.masterId) {
-          for (const handler of handlers) {
-            await handler(event)
+    // Batch interface - receives array of events
+    send: vi.fn(async (eventBatch: unknown[]) => {
+      for (const evt of eventBatch as WriteEvent[]) {
+        events.push(evt)
+        // Notify all subscribers except the sender
+        for (const [masterId, handlers] of subscribers) {
+          if (masterId !== evt.masterId) {
+            for (const handler of handlers) {
+              await handler(evt)
+            }
           }
         }
       }

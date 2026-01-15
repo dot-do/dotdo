@@ -33,6 +33,8 @@ export interface DirtyTracker {
   clearDirty(keys: string[]): void
   /** Clear all dirty entries */
   clear(): void
+  /** Add an entry (used for tracking modifications) */
+  add?(key: string, type: string, data: unknown): void
 }
 
 /**
@@ -151,9 +153,16 @@ export class LazyCheckpointer {
   // Metrics
   private metrics?: CheckpointerMetrics
 
+  // Concurrency guard
+  private checkpointInProgress = false
+  private currentCheckpointPromise: Promise<CheckpointStats> | null = null
+
+  // Version tracking for detecting writes during checkpoint
+  private entryVersions = new Map<string, number>()
+  private globalVersion = 0
+
   constructor(options: LazyCheckpointerOptions) {
     this.sql = options.sql
-    this.dirtyTracker = options.dirtyTracker
     this.config = {
       intervalMs: options.intervalMs ?? 10000,
       dirtyCountThreshold: options.dirtyCountThreshold ?? 100,
@@ -163,6 +172,29 @@ export class LazyCheckpointer {
     this.onCheckpointCallback = options.onCheckpoint
     this.onErrorCallback = options.onError
     this.metrics = options.metrics
+
+    // Wrap the dirty tracker to intercept add() calls for version tracking
+    this.dirtyTracker = this.wrapDirtyTracker(options.dirtyTracker)
+  }
+
+  /**
+   * Wrap the dirty tracker to intercept add() calls for version tracking
+   */
+  private wrapDirtyTracker(tracker: DirtyTracker): DirtyTracker {
+    const self = this
+
+    // If tracker has an add method, wrap it
+    if (tracker.add) {
+      const originalAdd = tracker.add.bind(tracker)
+      tracker.add = function (key: string, type: string, data: unknown) {
+        // Track the write version
+        self.trackWrite(key)
+        // Call original
+        return originalAdd(key, type, data)
+      }
+    }
+
+    return tracker
   }
 
   /**
@@ -203,10 +235,70 @@ export class LazyCheckpointer {
   }
 
   /**
+   * Check if a checkpoint is currently in progress
+   *
+   * This method is useful for:
+   * - Avoiding duplicate checkpoint triggers during threshold-based checkpoints
+   * - Coordinating external operations that need to wait for checkpoint completion
+   * - Testing and debugging checkpoint behavior
+   *
+   * @returns `true` if a checkpoint is currently executing, `false` otherwise
+   */
+  isCheckpointInProgress(): boolean {
+    return this.checkpointInProgress
+  }
+
+  /**
+   * Wait for the current checkpoint to complete (if any)
+   *
+   * If a checkpoint is in progress, this method returns a promise that resolves
+   * when the checkpoint completes (successfully or with an error). If no checkpoint
+   * is in progress, it returns immediately.
+   *
+   * This is useful for ensuring all dirty data is persisted before:
+   * - Shutting down the application
+   * - Performing migrations
+   * - Taking consistent snapshots
+   *
+   * @returns A promise that resolves when any in-progress checkpoint completes
+   */
+  async waitForCheckpoint(): Promise<void> {
+    if (this.currentCheckpointPromise) {
+      await this.currentCheckpointPromise.catch(() => {
+        // Ignore errors - we just want to wait for completion
+      })
+    }
+  }
+
+  /**
+   * Track a write to an entry by incrementing its version
+   *
+   * This method is called automatically when entries are modified through the
+   * wrapped DirtyTracker. It enables safe concurrent operation detection during
+   * checkpoints by tracking which entries have been modified.
+   *
+   * When a checkpoint runs, it snapshots the version of each entry. After the
+   * checkpoint completes, only entries whose version hasn't changed are cleared
+   * from the dirty set. Entries modified during the checkpoint remain dirty
+   * for the next checkpoint cycle.
+   *
+   * @param key - The unique key of the entry being modified
+   */
+  trackWrite(key: string): void {
+    this.globalVersion++
+    this.entryVersions.set(key, this.globalVersion)
+  }
+
+  /**
    * Notify the checkpointer that data has become dirty.
    * This may trigger an immediate checkpoint if thresholds are exceeded.
    */
   notifyDirty(): void {
+    // Skip if a checkpoint is already in progress
+    if (this.checkpointInProgress) {
+      return
+    }
+
     const dirtyCount = this.dirtyTracker.getDirtyCount()
     const memoryUsage = this.dirtyTracker.getMemoryUsage()
 
@@ -229,10 +321,55 @@ export class LazyCheckpointer {
 
   /**
    * Perform a checkpoint - persist all dirty entries to SQLite
+   *
+   * Concurrency safety:
+   * - If a checkpoint is already in progress, returns the existing promise
+   * - Uses version tracking to detect writes during checkpoint
+   * - Only clears dirty flags for entries unchanged since checkpoint start
    */
-  async checkpoint(trigger: CheckpointTrigger = 'manual'): Promise<CheckpointStats> {
+  checkpoint(trigger: CheckpointTrigger = 'manual'): Promise<CheckpointStats> {
+    // If checkpoint is already in progress, return the existing promise
+    // This serializes concurrent checkpoint calls
+    if (this.checkpointInProgress && this.currentCheckpointPromise) {
+      return this.currentCheckpointPromise
+    }
+
+    // Set the guard for the duration of the checkpoint
+    this.checkpointInProgress = true
+
+    // Execute checkpoint - the guard is cleared internally after critical section
+    const promise = this.executeCheckpoint(trigger)
+
+    // Store for concurrent call deduplication
+    this.currentCheckpointPromise = promise
+
+    // Clear stored promise when done (for gc and to allow new checkpoints)
+    promise.finally(() => {
+      this.currentCheckpointPromise = null
+    })
+
+    return promise
+  }
+
+  /**
+   * Internal checkpoint execution (called by checkpoint() with guards)
+   */
+  private async executeCheckpoint(trigger: CheckpointTrigger): Promise<CheckpointStats> {
     const startTime = performance.now()
+
+    // CRITICAL: Snapshot ALL current versions BEFORE calling getDirtyEntries()
+    // This ensures any writes that occur during getDirtyEntries() will have higher versions
+    const snapshotVersions = new Map<string, number>(this.entryVersions)
+
+    // Also bump the global version so any writes during getDirtyEntries() get a new version
+    const checkpointGeneration = this.globalVersion
+
+    // Get dirty entries - writes may occur during this call via hooks
     const dirtyEntries = this.dirtyTracker.getDirtyEntries()
+
+    // For entries that didn't have a version before checkpoint, they were
+    // added during this checkpoint, so they shouldn't be cleaned
+    // (snapshotVersions won't have them)
 
     if (dirtyEntries.size === 0) {
       return {
@@ -254,7 +391,7 @@ export class LazyCheckpointer {
 
     let totalBytesWritten = 0
     let totalRowsWritten = 0
-    const keysToClean: string[] = []
+    const allKeys: string[] = []
 
     try {
       // Write each collection type
@@ -263,14 +400,37 @@ export class LazyCheckpointer {
         totalBytesWritten += bytesWritten
         totalRowsWritten += rowsWritten
 
-        // Track keys for cleanup
+        // Track keys
         for (const entry of entries) {
-          keysToClean.push(entry.key)
+          allKeys.push(entry.key)
         }
       }
 
-      // Clear dirty flags only after successful write
-      this.dirtyTracker.clearDirty(keysToClean)
+      // Only clear dirty flags for entries whose version hasn't changed since snapshot
+      // This prevents clearing flags for entries modified during checkpoint
+      const keysToClean: string[] = []
+      for (const key of allKeys) {
+        const snapshotVersion = snapshotVersions.get(key)
+        const currentVersion = this.entryVersions.get(key)
+
+        // Three cases:
+        // 1. Both undefined: entry was never tracked, safe to clean
+        // 2. Both defined and equal: entry unchanged during checkpoint, safe to clean
+        // 3. Different versions: entry was modified during checkpoint, keep dirty
+        if (snapshotVersion === currentVersion) {
+          keysToClean.push(key)
+        }
+        // If version changed, entry was modified during checkpoint - leave it dirty
+      }
+
+      // Clear dirty flags only for unchanged entries
+      if (keysToClean.length > 0) {
+        this.dirtyTracker.clearDirty(keysToClean)
+      }
+
+      // Critical section complete - clear the guard
+      // This allows timer-based checkpoints to proceed while we handle callbacks
+      this.checkpointInProgress = false
 
       const durationMs = performance.now() - startTime
 
@@ -296,6 +456,8 @@ export class LazyCheckpointer {
 
       return stats
     } catch (error) {
+      // Clear the guard on error
+      this.checkpointInProgress = false
       // On error, call error callback and rethrow
       this.onErrorCallback?.(error as Error)
       throw error
@@ -348,6 +510,12 @@ export class LazyCheckpointer {
    * Timer-triggered checkpoint
    */
   private timerCheckpoint(): void {
+    // Skip if another checkpoint is already in progress
+    // (we'll pick up the data on the next timer tick)
+    if (this.checkpointInProgress) {
+      return
+    }
+
     // Only checkpoint if there are dirty entries
     if (this.dirtyTracker.getDirtyCount() === 0) {
       return

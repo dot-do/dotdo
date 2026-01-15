@@ -39,6 +39,14 @@
  * @see README.md for detailed documentation
  */
 
+// Unified Pipeline types (canonical interface)
+export {
+  type Pipeline,
+  type SubscribablePipeline,
+  sendOne,
+  isSubscribablePipeline,
+} from './types/pipeline'
+
 // InMemoryStateManager - O(1) reads/writes with dirty tracking
 export {
   InMemoryStateManager,
@@ -48,7 +56,7 @@ export {
   type StateManagerStats,
 } from './in-memory-state-manager'
 
-// PipelineEmitter - Fire-and-forget event emission
+// PipelineEmitter - Fire-and-forget event emission with resilient failure handling
 export {
   PipelineEmitter,
   type EventVerb,
@@ -56,7 +64,14 @@ export {
   type EmittedEvent,
   type PipelineEmitterConfig,
   type ResolvedPipelineEmitterConfig,
-  type Pipeline,
+  type DLQMetadata,
+  type HealthStatus as PipelineHealthStatus,
+  type HealthChangeCallback,
+  type BackpressureChangeCallback,
+  type OverflowPolicy,
+  type LocalStorage as PipelineLocalStorage,
+  type HealthDetails as PipelineHealthDetails,
+  type RetryQueueMetrics,
 } from './pipeline-emitter'
 
 // LazyCheckpointer - Lazy SQLite persistence
@@ -84,6 +99,14 @@ export {
   type ValidationResult,
 } from './cold-start-recovery'
 
+// IdempotencyTracker - TTL-based deduplication for event replay
+export {
+  IdempotencyTracker,
+  type IdempotencyConfig,
+  type ResolvedIdempotencyConfig,
+  type IdempotencyStats as TrackerIdempotencyStats,
+} from './idempotency-tracker'
+
 // UnifiedStoreDO - Main DO class
 export { UnifiedStoreDO, type UnifiedStoreConfig } from './unified-store-do'
 
@@ -103,6 +126,20 @@ export {
   type MetricCheckpointTrigger,
   type MetricRecoverySource,
 } from './metrics'
+
+// Prometheus Exporter - Export metrics in Prometheus text format
+export {
+  PrometheusExporter,
+  type PrometheusMetricType,
+  type Labels,
+  type MetricDefinition,
+  type PrometheusExporterConfig,
+  type TrackedOperation,
+  type TrackedEvent,
+  type TrackedCheckpoint,
+  type TrackedRecovery,
+  type MetricsProvider,
+} from './prometheus-exporter'
 
 // WSProtocol - WebSocket message types and serialization
 export {
@@ -258,7 +295,7 @@ export {
   type WriteResult,
   type ConflictInfo,
   type MultiMasterMetrics,
-  type Pipeline as MultiMasterPipeline,
+  type MultiMasterPipeline,
   type StateManager,
   type MergeFn,
   type MasterNode,
@@ -275,6 +312,8 @@ export {
   type WriteResult,
   type StateStore,
   type HeartbeatService,
+  type DistributedLockService,
+  type QuorumCallback,
   type LeaderFollowerConfig,
   type ResolvedLeaderFollowerConfig,
   type LeaderState,
@@ -315,3 +354,72 @@ export {
   type ReplicationManager,
   type ConsistencyMetrics,
 } from './consistency-modes'
+
+// HealthCheckManager - Health check endpoints for unified storage DOs
+export {
+  HealthCheckManager,
+  type HealthCheckConfig,
+  type HealthStatus,
+  type ComponentHealth,
+  type HealthCheckCallback,
+  type ReplicationLagMetrics,
+  type LivenessResponse,
+  type ReadinessResponse,
+  type DetailedHealthResponse,
+  type HealthCheckThresholds,
+  type RecoveryProgress,
+  type StateManager as HealthStateManager,
+  type PipelineEmitter as HealthPipelineEmitter,
+  type SqlStorage as HealthSqlStorage,
+  type ReplicationManager as HealthReplicationManager,
+} from './health-check'
+
+// OtelTracer - OpenTelemetry distributed tracing
+export {
+  OtelTracer,
+  createUnifiedStorageTracer,
+  type TraceContext,
+  type Span,
+  type SpanOptions,
+  type SpanEvent,
+  type SpanExporter,
+  type CollectedSpan,
+  type TracerConfig,
+} from './otel-tracer'
+
+// ChaosController - Chaos testing framework for fault injection
+export {
+  ChaosController,
+  ChaosError,
+  type FaultConfig,
+  type FaultType,
+  type FaultScope,
+  type FaultTarget,
+  type ChaosControllerConfig,
+  type InjectedFault,
+  type ChaosStats,
+  type ChaosEventType,
+  type FaultTriggeredEvent,
+  type EvictionEvent,
+  type DOState,
+  type Clock,
+  type DelayConfig,
+} from './chaos-controller'
+
+// PartitionRecoveryManager - Network partition detection and recovery
+export {
+  PartitionRecoveryManager,
+  NetworkSimulator,
+  type PartitionRecoveryConfig,
+  type PartitionState,
+  type RecoveryEvent,
+  type PartitionMetrics,
+  type BufferMetrics,
+  type NetworkPartition,
+  type PartitionInfo,
+  type Client,
+  type ClientStatus,
+  type DegradationConfig,
+  type RemoteWriteResult,
+  type LocalWriteResult,
+} from './partition-recovery'

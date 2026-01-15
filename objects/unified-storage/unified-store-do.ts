@@ -28,7 +28,10 @@ import {
   NoOpMetricsCollector,
   type UnifiedStorageMetrics,
   type MetricsSnapshot,
+  type MetricCheckpointTrigger,
+  type MetricRecoverySource,
 } from './metrics'
+import { PrometheusExporter } from './prometheus-exporter'
 
 // Re-export types for test file imports
 export type {
@@ -222,6 +225,7 @@ export class UnifiedStoreDO {
 
   // Metrics
   private _metrics: UnifiedStorageMetrics
+  private _prometheusExporter: PrometheusExporter
 
   // Internal state
   private checkpointTimer?: ReturnType<typeof setTimeout>
@@ -243,10 +247,13 @@ export class UnifiedStoreDO {
       enableMetrics: config.enableMetrics ?? false,
     }
 
-    // Initialize metrics collector
-    this._metrics = this.config.enableMetrics
-      ? new MetricsCollector()
-      : new NoOpMetricsCollector()
+    // Initialize metrics collector (always enabled for Prometheus)
+    this._metrics = new MetricsCollector()
+
+    // Initialize Prometheus exporter
+    this._prometheusExporter = new PrometheusExporter(this._metrics, {
+      namespace: this.namespace,
+    })
 
     // Initialize InMemoryStateManager with metrics
     this.stateManager = new InMemoryStateManager({
@@ -310,6 +317,48 @@ export class UnifiedStoreDO {
     this._metrics.reset()
   }
 
+  /**
+   * Get the Prometheus exporter
+   */
+  get prometheusExporter(): PrometheusExporter {
+    return this._prometheusExporter
+  }
+
+  // ==========================================================================
+  // HTTP FETCH HANDLER
+  // ==========================================================================
+
+  /**
+   * Handle HTTP fetch requests (including /metrics endpoint)
+   */
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const path = url.pathname
+
+    // Handle /metrics endpoint
+    if (path === '/metrics') {
+      return this.handleMetricsRequest()
+    }
+
+    // Default: return 404
+    return new Response('Not Found', { status: 404 })
+  }
+
+  /**
+   * Handle /metrics endpoint for Prometheus scraping
+   */
+  private handleMetricsRequest(): Response {
+    const metricsText = this._prometheusExporter.export()
+
+    return new Response(metricsText, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+    })
+  }
+
   // ==========================================================================
   // LIFECYCLE
   // ==========================================================================
@@ -319,6 +368,15 @@ export class UnifiedStoreDO {
    * If `queryIceberg` is overridden on this instance, it will also replay events from Iceberg
    */
   async onStart(): Promise<void> {
+    const startTime = performance.now()
+    let recoverySource: MetricRecoverySource = 'empty'
+
+    // Try to restore Prometheus exporter state
+    const savedMetrics = await this.doState.storage.get<string>('prometheus_metrics')
+    if (savedMetrics) {
+      this._prometheusExporter.deserialize(savedMetrics)
+    }
+
     // First, try standard SQLite recovery
     const result = await this.coldStartRecovery.recover()
 
@@ -326,6 +384,10 @@ export class UnifiedStoreDO {
     for (const [, thing] of result.state) {
       // Use loadBulk to avoid marking as dirty
       this.stateManager.loadBulk([thing as ThingData])
+    }
+
+    if (result.state.size > 0) {
+      recoverySource = 'sqlite'
     }
 
     // Check if queryIceberg is overridden (for testing or real Iceberg integration)
@@ -353,13 +415,23 @@ export class UnifiedStoreDO {
           }
         }
       }
+      if (events.length > 0) {
+        recoverySource = 'iceberg'
+      }
     }
+
+    // Track recovery metrics
+    const durationSeconds = (performance.now() - startTime) / 1000
+    this._prometheusExporter.trackRecovery(recoverySource, durationSeconds)
   }
 
   /**
    * Called before hibernation to persist state
    */
   async beforeHibernation(): Promise<void> {
+    // Persist Prometheus exporter state
+    await this.doState.storage.put('prometheus_metrics', this._prometheusExporter.serialize())
+
     await this.checkpoint('hibernation')
   }
 
@@ -367,7 +439,22 @@ export class UnifiedStoreDO {
    * Checkpoint dirty state to SQLite
    */
   async checkpoint(trigger: string = 'manual'): Promise<void> {
+    const startTime = performance.now()
+    const dirtyCountBefore = this.stateManager.getDirtyCount()
+
     await this.checkpointer.checkpoint(trigger as 'manual' | 'timer' | 'hibernation')
+
+    // Track checkpoint metrics
+    const durationSeconds = (performance.now() - startTime) / 1000
+    this._prometheusExporter.trackCheckpoint(
+      trigger as MetricCheckpointTrigger,
+      durationSeconds
+    )
+
+    // Track batch size
+    if (dirtyCountBefore > 0) {
+      this._prometheusExporter.trackBatch('checkpoint', dirtyCountBefore)
+    }
   }
 
   /**
@@ -381,7 +468,19 @@ export class UnifiedStoreDO {
    * Get a thing by ID (from memory, O(1))
    */
   async get(id: string): Promise<Thing | null> {
+    const startTime = performance.now()
     const thing = this.stateManager.get(id)
+
+    // Track read metrics
+    const durationSeconds = (performance.now() - startTime) / 1000
+    if (thing) {
+      this._prometheusExporter.trackRead(thing.$type, true) // Cache hit
+      this._prometheusExporter.trackOperation('read', thing.$type, durationSeconds)
+    } else {
+      this._prometheusExporter.trackRead('unknown', false) // Cache miss
+      this._prometheusExporter.trackOperation('read', 'unknown', durationSeconds)
+    }
+
     return thing as Thing | null
   }
 
@@ -401,6 +500,7 @@ export class UnifiedStoreDO {
    * Handle create operation
    */
   async handleCreate(ws: WebSocket, message: CreateMessage): Promise<void> {
+    const startTime = performance.now()
     const now = Date.now()
 
     // Create thing in memory first
@@ -416,6 +516,11 @@ export class UnifiedStoreDO {
       $createdAt: now,
       $updatedAt: now,
     })
+
+    // Track operation metrics
+    const durationSeconds = (performance.now() - startTime) / 1000
+    this._prometheusExporter.trackOperation('create', message.$type, durationSeconds)
+    this._prometheusExporter.trackEvent('thing.created')
 
     // Send ACK to client BEFORE checkpoint (non-blocking)
     ws.send(
@@ -434,14 +539,22 @@ export class UnifiedStoreDO {
    * Handle read operation (batch)
    */
   async handleRead(ws: WebSocket, message: ReadMessage): Promise<void> {
+    const startTime = performance.now()
     const things: Record<string, Thing> = {}
 
     for (const id of message.$ids) {
       const thing = this.stateManager.get(id)
       if (thing) {
         things[id] = thing as Thing
+        this._prometheusExporter.trackRead(thing.$type, true) // Cache hit
+      } else {
+        this._prometheusExporter.trackRead('unknown', false) // Cache miss
       }
     }
+
+    // Track operation duration
+    const durationSeconds = (performance.now() - startTime) / 1000
+    this._prometheusExporter.trackOperation('read', 'batch', durationSeconds)
 
     ws.send(
       JSON.stringify({
@@ -455,6 +568,7 @@ export class UnifiedStoreDO {
    * Handle update operation
    */
   async handleUpdate(ws: WebSocket, message: UpdateMessage): Promise<void> {
+    const startTime = performance.now()
     const now = Date.now()
 
     try {
@@ -475,6 +589,11 @@ export class UnifiedStoreDO {
         $version: updated.$version,
         $updatedAt: now,
       })
+
+      // Track operation metrics
+      const durationSeconds = (performance.now() - startTime) / 1000
+      this._prometheusExporter.trackOperation('update', entityType, durationSeconds)
+      this._prometheusExporter.trackEvent('thing.updated')
 
       // Send ACK
       ws.send(
@@ -500,6 +619,7 @@ export class UnifiedStoreDO {
    * Handle delete operation
    */
   async handleDelete(ws: WebSocket, message: DeleteMessage): Promise<void> {
+    const startTime = performance.now()
     const now = Date.now()
 
     // Get type info before deleting
@@ -514,6 +634,11 @@ export class UnifiedStoreDO {
         $id: message.$id,
         $deletedAt: now,
       })
+
+      // Track operation metrics
+      const durationSeconds = (performance.now() - startTime) / 1000
+      this._prometheusExporter.trackOperation('delete', entityType, durationSeconds)
+      this._prometheusExporter.trackEvent('thing.deleted')
     }
 
     ws.send(
