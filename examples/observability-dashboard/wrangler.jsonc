@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "observability-dashboard",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev
+  "workers_dev": true,
+
+  // Durable Objects for event streaming
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EVENT_STREAM",
+        "class_name": "EventStreamDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DOs with WebSocket hibernation
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EventStreamDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}
