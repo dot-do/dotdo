@@ -270,37 +270,68 @@ class AccountThingStoreImpl implements AccountThingStore {
 
   async getAccountByProvider(provider: string, providerAccountId: string): Promise<Account | null> {
     // Query all Account Things
+    // Note: This could be further optimized with a JSON index on (provider, providerAccountId)
+    // but that requires GraphStore extension. For now we filter in-app after fetching.
     const accounts = await this.store.getThingsByType({
       typeName: ACCOUNT_TYPE_NAME,
       limit: 1000,
     })
 
-    for (const thing of accounts) {
+    // Find matching account first without N+1 relationship queries
+    const matchingThing = accounts.find((thing) => {
       const data = thing.data as Record<string, unknown>
-      if (data.provider === provider && data.providerAccountId === providerAccountId) {
-        // Get userId from relationship or data (using auth:// URL scheme)
-        const rels = await this.store.queryRelationshipsFrom(accountUrl(thing.id), { verb: LINKED_TO_VERB })
-        const rawUserId = rels.length > 0
-          ? rels[0]!.to.replace('auth://users/', '')
-          : (data.userId as string)
-        return thingToAccount(thing, rawUserId)
-      }
+      return data.provider === provider && data.providerAccountId === providerAccountId
+    })
+
+    if (!matchingThing) {
+      return null
     }
 
-    return null
+    // Only query relationship for the single matching account
+    const data = matchingThing.data as Record<string, unknown>
+    const rels = await this.store.queryRelationshipsFrom(accountUrl(matchingThing.id), { verb: LINKED_TO_VERB })
+    const rawUserId = rels.length > 0
+      ? rels[0]!.to.replace('auth://users/', '')
+      : (data.userId as string)
+    return thingToAccount(matchingThing, rawUserId)
   }
 
   async getAccountsByUserId(userId: string): Promise<Account[]> {
     // Query relationships TO user with verb linkedTo (using auth:// URL scheme)
     const rels = await this.store.queryRelationshipsTo(userUrl(userId), { verb: LINKED_TO_VERB })
 
+    if (rels.length === 0) {
+      return []
+    }
+
+    // Extract all account IDs from relationships
+    const accountIds = rels.map((rel) => rel.from.replace('auth://accounts/', ''))
+
+    // Batch fetch all accounts using getThings (if available) or fallback to single calls
+    // This eliminates the N+1 query pattern
+    if ('getThings' in this.store && typeof this.store.getThings === 'function') {
+      const thingsMap = await this.store.getThings(accountIds)
+      const accounts: Account[] = []
+      for (const id of accountIds) {
+        const thing = thingsMap.get(id)
+        if (thing && thing.typeName === ACCOUNT_TYPE_NAME && thing.deletedAt === null) {
+          accounts.push(thingToAccount(thing, userId))
+        }
+      }
+      return accounts
+    }
+
+    // Fallback: batch by fetching all accounts once and filtering locally
+    const allAccountThings = await this.store.getThingsByType({
+      typeName: ACCOUNT_TYPE_NAME,
+      limit: 1000,
+    })
+
+    const accountIdSet = new Set(accountIds)
     const accounts: Account[] = []
-    for (const rel of rels) {
-      // Extract raw account ID from auth:// URL
-      const rawAccountId = rel.from.replace('auth://accounts/', '')
-      const account = await this.getAccountById(rawAccountId)
-      if (account) {
-        accounts.push(account)
+    for (const thing of allAccountThings) {
+      if (accountIdSet.has(thing.id) && thing.deletedAt === null) {
+        accounts.push(thingToAccount(thing, userId))
       }
     }
 

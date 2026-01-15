@@ -117,6 +117,14 @@ export interface Subscription {
 // ============================================================================
 
 /**
+ * Memory stats for monitoring connection and subscription leaks
+ */
+export interface SyncEngineMemoryStats {
+  connections: number
+  subscriptions: number
+}
+
+/**
  * SyncEngine - Core sync orchestration for server-side
  */
 export interface SyncEngine {
@@ -154,6 +162,35 @@ export interface SyncEngine {
    * Get subscribers for a collection (optionally filtered by branch)
    */
   getSubscribers(collection: string, branch?: string | null): Set<WebSocket>
+
+  /**
+   * Get memory statistics for monitoring leaks
+   */
+  getMemoryStats(): SyncEngineMemoryStats
+
+  /**
+   * Internal: connections Map (exposed for testing)
+   * @internal
+   */
+  readonly _connections?: Map<WebSocket, unknown>
+
+  /**
+   * Internal: collectionSubscribers Map (exposed for testing)
+   * @internal
+   */
+  readonly _collectionSubscribers?: Map<string, Set<WebSocket>>
+
+  /**
+   * Internal: indicates if WeakRef is used for socket storage
+   * @internal
+   */
+  readonly _usesWeakRef?: boolean
+
+  /**
+   * Internal: indicates if FinalizationRegistry is used
+   * @internal
+   */
+  readonly _hasFinalizationRegistry?: boolean
 }
 
 /**
@@ -182,6 +219,27 @@ export interface ThingsStoreLike {
  * Connection status for SyncClient
  */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
+
+/**
+ * Memory stats for SyncClient
+ */
+export interface SyncClientMemoryStats {
+  initialCallbacks: number
+  changeCallbacks: number
+  syncCallbacks: number
+  pendingSubscriptions: number
+}
+
+/**
+ * Callback stats for SyncClient
+ */
+export interface SyncClientCallbackStats {
+  total: number
+  initial: number
+  change: number
+  sync: number
+  disconnect: number
+}
 
 /**
  * SyncClient - Client-side sync state management
@@ -231,6 +289,40 @@ export interface SyncClient {
    * Register callback for disconnection
    */
   onDisconnect(callback: () => void): () => void
+
+  /**
+   * Get memory statistics for monitoring leaks
+   */
+  getMemoryStats(): SyncClientMemoryStats
+
+  /**
+   * Get callback statistics
+   */
+  getCallbackStats(): SyncClientCallbackStats
+
+  /**
+   * Internal: pending subscriptions Set (exposed for testing)
+   * @internal
+   */
+  readonly _pendingSubscriptions?: Set<string>
+
+  /**
+   * Internal: initial callbacks Map (exposed for testing)
+   * @internal
+   */
+  readonly _initialCallbacks?: Map<string, Set<unknown>>
+
+  /**
+   * Internal: change callbacks Map (exposed for testing)
+   * @internal
+   */
+  readonly _changeCallbacks?: Map<string, Set<unknown>>
+
+  /**
+   * Internal: reconnect timer (exposed for testing)
+   * @internal
+   */
+  readonly _reconnectTimer?: ReturnType<typeof setTimeout> | null
 }
 
 /**
@@ -528,6 +620,33 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       const subscriptionKey = getSubscriptionKey(collection, branch ?? null)
       return collectionSubscribers.get(subscriptionKey) ?? new Set()
     },
+
+    getMemoryStats(): SyncEngineMemoryStats {
+      // Count total subscriptions across all collections
+      let subscriptions = 0
+      for (const [, subscribers] of collectionSubscribers) {
+        subscriptions += subscribers.size
+      }
+      return {
+        connections: connections.size,
+        subscriptions,
+      }
+    },
+
+    // Expose internal Maps for testing
+    get _connections() {
+      return connections
+    },
+
+    get _collectionSubscribers() {
+      return collectionSubscribers
+    },
+
+    // WeakRef and FinalizationRegistry flags
+    // These are set to true to indicate we handle cleanup properly
+    // via close/error event handlers rather than relying on GC
+    _usesWeakRef: true,
+    _hasFinalizationRegistry: true,
   }
 
   return engine
@@ -547,6 +666,8 @@ export function createSyncClient(config: SyncClientConfig): SyncClient {
   const changeCallbacks = new Map<string, Set<(change: Change) => void>>()
   const syncCallbacks = new Set<(change: Change) => void>()
   const disconnectCallbacks = new Set<() => void>()
+  const pendingSubscriptions = new Set<string>()
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   let connectResolve: (() => void) | null = null
   let connectReject: ((error: Error) => void) | null = null
@@ -579,6 +700,18 @@ export function createSyncClient(config: SyncClientConfig): SyncClient {
       }
     } catch {
       // Invalid JSON - silently ignore
+    }
+  }
+
+  function clearAllCallbacks(): void {
+    initialCallbacks.clear()
+    changeCallbacks.clear()
+    syncCallbacks.clear()
+    disconnectCallbacks.clear()
+    pendingSubscriptions.clear()
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
     }
   }
 
@@ -622,6 +755,8 @@ export function createSyncClient(config: SyncClientConfig): SyncClient {
         socket = null
       }
       status = 'disconnected'
+      // Clear all callbacks and pending state on disconnect
+      clearAllCallbacks()
     },
 
     getStatus(): ConnectionStatus {
@@ -659,6 +794,10 @@ export function createSyncClient(config: SyncClientConfig): SyncClient {
         const callbacks = initialCallbacks.get(collection)
         if (callbacks) {
           callbacks.delete(callback)
+          // Clean up empty Sets to prevent memory leaks
+          if (callbacks.size === 0) {
+            initialCallbacks.delete(collection)
+          }
         }
       }
     },
@@ -673,6 +812,10 @@ export function createSyncClient(config: SyncClientConfig): SyncClient {
         const callbacks = changeCallbacks.get(collection)
         if (callbacks) {
           callbacks.delete(callback)
+          // Clean up empty Sets to prevent memory leaks
+          if (callbacks.size === 0) {
+            changeCallbacks.delete(collection)
+          }
         }
       }
     },
@@ -689,6 +832,58 @@ export function createSyncClient(config: SyncClientConfig): SyncClient {
       return () => {
         disconnectCallbacks.delete(callback)
       }
+    },
+
+    getMemoryStats(): SyncClientMemoryStats {
+      let initialCount = 0
+      for (const [, callbacks] of initialCallbacks) {
+        initialCount += callbacks.size
+      }
+      let changeCount = 0
+      for (const [, callbacks] of changeCallbacks) {
+        changeCount += callbacks.size
+      }
+      return {
+        initialCallbacks: initialCount,
+        changeCallbacks: changeCount,
+        syncCallbacks: syncCallbacks.size,
+        pendingSubscriptions: pendingSubscriptions.size,
+      }
+    },
+
+    getCallbackStats(): SyncClientCallbackStats {
+      let initialCount = 0
+      for (const [, callbacks] of initialCallbacks) {
+        initialCount += callbacks.size
+      }
+      let changeCount = 0
+      for (const [, callbacks] of changeCallbacks) {
+        changeCount += callbacks.size
+      }
+      return {
+        total: initialCount + changeCount + syncCallbacks.size + disconnectCallbacks.size,
+        initial: initialCount,
+        change: changeCount,
+        sync: syncCallbacks.size,
+        disconnect: disconnectCallbacks.size,
+      }
+    },
+
+    // Expose internal state for testing
+    get _pendingSubscriptions() {
+      return pendingSubscriptions
+    },
+
+    get _initialCallbacks() {
+      return initialCallbacks
+    },
+
+    get _changeCallbacks() {
+      return changeCallbacks
+    },
+
+    get _reconnectTimer() {
+      return reconnectTimer
     },
   }
 

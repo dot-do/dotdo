@@ -81,8 +81,9 @@
  * @see {@link DOBase} for how stores integrate with Durable Objects
  */
 
-import { eq, and, or, desc, asc, isNull, sql } from 'drizzle-orm'
+import { eq, and, or, desc, asc, isNull, sql, gte } from 'drizzle-orm'
 import type { DODatabase, AppSchema } from '../types/drizzle'
+import type { SQL } from 'drizzle-orm'
 import * as schema from '../db'
 import { logBestEffortError } from '../lib/logging/error-logger'
 import { safeJsonParse } from '../lib/safe-stringify'
@@ -1870,32 +1871,32 @@ export class EventsStore {
   }
 
   async list(options: EventsListOptions = {}): Promise<EventEntity[]> {
-    const conditions: ReturnType<typeof eq>[] = []
+    // Build conditions array - filter in SQL, not JavaScript
+    const conditions: SQL[] = []
     if (options.source) conditions.push(eq(schema.events.source, options.source))
     if (options.verb) conditions.push(eq(schema.events.verb, options.verb))
+    if (options.afterSequence !== undefined) {
+      conditions.push(sql`${schema.events.sequence} > ${options.afterSequence}`)
+    }
 
-    let query = this.ctx.db.select().from(schema.events)
+    // Determine sort order - apply in SQL, not JavaScript
+    const orderColumn = options.orderBy === 'sequence' ? schema.events.sequence : schema.events.createdAt
+    const orderDir = options.order === 'desc' ? desc(orderColumn) : asc(orderColumn)
 
+    // Build and execute optimized query
     let results
     if (conditions.length > 0) {
-      results = await query.where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, any, ...any[]]))
+      const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions as [SQL, SQL, ...SQL[]])
+      results = await this.ctx.db
+        .select()
+        .from(schema.events)
+        .where(whereClause)
+        .orderBy(orderDir)
     } else {
-      results = await query
-    }
-
-    // Filter by afterSequence if specified
-    if (options.afterSequence !== undefined) {
-      results = results.filter((r) => r.sequence > options.afterSequence!)
-    }
-
-    // Sort
-    if (options.orderBy === 'sequence') {
-      results.sort((a, b) => {
-        if (options.order === 'desc') {
-          return b.sequence - a.sequence
-        }
-        return a.sequence - b.sequence
-      })
+      results = await this.ctx.db
+        .select()
+        .from(schema.events)
+        .orderBy(orderDir)
     }
 
     return results.map((r) => ({
@@ -1914,25 +1915,25 @@ export class EventsStore {
   async replay(options: EventsReplayOptions): Promise<EventEntity[]> {
     const limit = options.limit ?? 100
 
+    // Filter in SQL using the sequence index, not in JavaScript
     const results = await this.ctx.db
       .select()
       .from(schema.events)
+      .where(gte(schema.events.sequence, options.fromSequence))
       .orderBy(asc(schema.events.sequence))
       .limit(limit)
 
-    return results
-      .filter((r) => r.sequence >= options.fromSequence)
-      .map((r) => ({
-        id: r.id,
-        verb: r.verb,
-        source: r.source,
-        data: r.data as Record<string, unknown>,
-        actionId: r.actionId,
-        sequence: r.sequence,
-        streamed: !!r.streamed,
-        streamedAt: r.streamedAt ?? undefined,
-        createdAt: r.createdAt,
-      }))
+    return results.map((r) => ({
+      id: r.id,
+      verb: r.verb,
+      source: r.source,
+      data: r.data as Record<string, unknown>,
+      actionId: r.actionId,
+      sequence: r.sequence,
+      streamed: !!r.streamed,
+      streamedAt: r.streamedAt ?? undefined,
+      createdAt: r.createdAt,
+    }))
   }
 }
 

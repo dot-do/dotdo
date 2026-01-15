@@ -35,5 +35,10 @@ export const events = sqliteTable(
     sourceVerbIdx: index('events_source_verb_idx').on(table.source, table.verb),
     sequenceIdx: index('events_sequence_idx').on(table.sequence),
     streamedIdx: index('events_streamed_idx').on(table.streamed),
+    // Composite indexes for replay and streaming queries
+    actionIdIdx: index('events_action_id_idx').on(table.actionId),
+    streamedSeqIdx: index('events_streamed_seq_idx').on(table.streamed, table.sequence),
+    createdAtIdx: index('events_created_at_idx').on(table.createdAt),
+    sourceSeqIdx: index('events_source_seq_idx').on(table.source, table.sequence),
   }),
 )

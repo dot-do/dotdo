@@ -77,6 +77,14 @@ export const actions = sqliteTable(
     index('actions_request_idx').on(table.requestId),
     index('actions_created_idx').on(table.createdAt),
     index('actions_output_idx').on(table.output),
+    // Composite indexes for common query patterns
+    index('actions_target_verb_idx').on(table.target, table.verb),
+    index('actions_actor_target_idx').on(table.actor, table.target),
+    index('actions_status_created_idx').on(table.status, table.createdAt),
+    index('actions_workflow_status_idx').on(table.workflowId, table.status),
+    index('actions_session_idx').on(table.sessionId),
+    // Input index for time-travel queries joining with things
+    index('actions_input_idx').on(table.input),
   ],
 )
 

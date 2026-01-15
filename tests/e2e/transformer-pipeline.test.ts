@@ -435,18 +435,9 @@ describe('Transformer Pipeline E2E', () => {
       expect(event.log_level).toBe('error')
 
       const response = await broadcastEvent(stub, event)
-      const responseBody = await response.json() as Record<string, unknown>
-      console.log('[DEBUG] Broadcast response:', response.status, responseBody)
-      console.log('[DEBUG] Event being broadcast:', { event_type: event.event_type, log_level: event.log_level, log_message: event.log_message })
       expect(response.status).toBe(200)
 
       const result = await queryUnifiedEvents(stub, { event_type: 'log' })
-      console.log('[DEBUG] Query result count:', result.count)
-      if (result.count > 0) {
-        console.log('[DEBUG] First stored event log_message:', result.events[0].log_message)
-        console.log('[DEBUG] First stored event log_level:', result.events[0].log_level)
-        console.log('[DEBUG] First stored event data:', result.events[0].data)
-      }
       const stored = result.events.find((e) => e.log_message === 'Database connection failed')
 
       expect(stored).toBeDefined()

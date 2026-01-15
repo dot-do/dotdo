@@ -489,6 +489,9 @@ describe('SyncClient - Memory Growth Prevention', () => {
       client.disconnect()
     }
 
+    // Wait for all microtasks to complete (MockWebSocket.close() uses Promise.resolve())
+    await new Promise(resolve => setTimeout(resolve, 0))
+
     // After all cycles, there should be no leaked resources
     // This is hard to verify without internal access, but we can check
     // that all WebSockets are properly closed

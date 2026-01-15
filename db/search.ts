@@ -33,5 +33,17 @@ export const search = sqliteTable(
     typeIdx: index('search_type_idx').on(table.$type),
     clusterIdx: index('search_cluster_idx').on(table.cluster),
     semanticIdx: index('search_semantic_idx').on(table.semanticL1, table.semanticL2),
+    // LSH indexes for locality-sensitive hashing similarity search
+    lsh1Idx: index('search_lsh1_idx').on(table.lsh1),
+    lsh2Idx: index('search_lsh2_idx').on(table.lsh2),
+    lsh3Idx: index('search_lsh3_idx').on(table.lsh3),
+    // Composite LSH index for multi-probe queries
+    lshCompositeIdx: index('search_lsh_composite_idx').on(table.lsh1, table.lsh2, table.lsh3),
+    // Type + cluster for filtered similarity search
+    typeClusterIdx: index('search_type_cluster_idx').on(table.$type, table.cluster),
+    // Embedding dimension for MRL truncation queries
+    embeddingDimIdx: index('search_embedding_dim_idx').on(table.embeddingDim),
+    // Full semantic hierarchy for hierarchical navigation
+    semanticFullIdx: index('search_semantic_full_idx').on(table.semanticL1, table.semanticL2, table.semanticL3),
   }),
 )
