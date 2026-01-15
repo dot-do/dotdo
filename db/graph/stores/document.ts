@@ -28,6 +28,12 @@ import type {
   CreateRelationshipInput,
   RelationshipQueryOptions,
 } from '../types'
+import {
+  Errors,
+  ThingExistsError,
+  RelationshipExistsError,
+  StoreNotInitializedError,
+} from '../../errors'
 
 // ============================================================================
 // Types
@@ -317,7 +323,7 @@ export class DocumentGraphStore implements GraphStore {
         error instanceof Error &&
         (error.message.includes('UNIQUE constraint failed') || error.message.includes('PRIMARY KEY'))
       ) {
-        throw new Error(`Thing with ID '${input.id}' already exists`)
+        throw Errors.thingExists('DocumentGraphStore', input.id)
       }
       throw error
     }
@@ -547,9 +553,7 @@ export class DocumentGraphStore implements GraphStore {
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-        throw new Error(
-          `Relationship with (verb='${input.verb}', from='${input.from}', to='${input.to}') already exists`
-        )
+        throw Errors.relationshipExists('DocumentGraphStore', input.verb, input.from, input.to)
       }
       throw error
     }
@@ -882,7 +886,7 @@ export class DocumentGraphStore implements GraphStore {
         error instanceof Error &&
         (error.message.includes('UNIQUE constraint failed') || error.message.includes('PRIMARY KEY'))
       ) {
-        throw new Error(`Batch creation failed: duplicate ID found`)
+        throw Errors.batchDuplicate('DocumentGraphStore')
       }
       throw error
     }
@@ -926,7 +930,7 @@ export class DocumentGraphStore implements GraphStore {
       return results
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-        throw new Error(`Batch creation failed: duplicate relationship found`)
+        throw Errors.batchDuplicate('DocumentGraphStore')
       }
       throw error
     }
@@ -1325,7 +1329,7 @@ export class DocumentGraphStore implements GraphStore {
    */
   private ensureInitialized(): void {
     if (!this.sqlite) {
-      throw new Error('DocumentGraphStore not initialized. Call initialize() first.')
+      throw Errors.notInitialized('DocumentGraphStore')
     }
   }
 

@@ -20,6 +20,11 @@ import {
   type CacheStats,
 } from './cache'
 import { WriteLockManager } from '../concurrency'
+import {
+  Errors,
+  DimensionMismatchError,
+  StoreNotInitializedError,
+} from '../errors'
 import type {
   VectorStoreOptions,
   InsertOptions,
@@ -116,7 +121,7 @@ export class VectorStore {
   constructor(db: SqlStorageInterface, options: VectorStoreOptions = {}) {
     // Validate dimension
     if (options.dimension !== undefined && options.dimension <= 0) {
-      throw new Error('Invalid dimension: must be a positive integer')
+      throw Errors.validation('VectorStore', 'construct', 'dimension must be a positive integer', 'dimension', options.dimension)
     }
 
     this.db = db
@@ -144,7 +149,7 @@ export class VectorStore {
     // Validate matryoshka dims don't exceed main dimension
     for (const dim of this.matryoshkaDims) {
       if (dim > this.dimension) {
-        throw new Error(`Matryoshka dimension ${dim} exceeds original dimension ${this.dimension}`)
+        throw Errors.dimensionMismatch('VectorStore', this.dimension, dim)
       }
     }
 
@@ -344,19 +349,17 @@ export class VectorStore {
 
     // Validate id
     if (!doc.id || doc.id.length === 0) {
-      throw new Error('ID must be a non-empty string')
+      throw Errors.invalidId('VectorStore')
     }
 
     // Validate content type
     if (typeof doc.content !== 'string') {
-      throw new Error('Content must be a string')
+      throw Errors.invalidContent('VectorStore')
     }
 
     // Validate embedding dimension
     if (doc.embedding.length !== this.dimension) {
-      throw new Error(
-        `Embedding dimension mismatch: expected ${this.dimension}, got ${doc.embedding.length}`
-      )
+      throw Errors.dimensionMismatch('VectorStore', this.dimension, doc.embedding.length)
     }
 
     // Try database operation to check for errors
@@ -364,7 +367,7 @@ export class VectorStore {
       this.db.prepare('SELECT 1')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      throw new Error(`Database error: ${message}`)
+      throw Errors.connectionNotAvailable('VectorStore', 'insert', `database error: ${message}`)
     }
 
     // Create matryoshka prefixes only if the dim is valid
@@ -434,15 +437,13 @@ export class VectorStore {
     for (const doc of docs) {
       // Store without emitting individual events
       if (!doc.id || doc.id.length === 0) {
-        throw new Error('ID must be a non-empty string')
+        throw Errors.invalidId('VectorStore')
       }
       if (typeof doc.content !== 'string') {
-        throw new Error('Content must be a string')
+        throw Errors.invalidContent('VectorStore')
       }
       if (doc.embedding.length !== this.dimension) {
-        throw new Error(
-          `Embedding dimension mismatch: expected ${this.dimension}, got ${doc.embedding.length}`
-        )
+        throw Errors.dimensionMismatch('VectorStore', this.dimension, doc.embedding.length)
       }
 
       const mat_64 =
@@ -1347,12 +1348,15 @@ export class VectorStore {
     warnings: string[]
   }> {
     if (!this.ivfIndex) {
-      throw new Error('IVF index not initialized. Call initializeIVFIndex() first.')
+      throw Errors.notInitialized('IVFIndex')
     }
 
     if (this.documents.size < (this.ivfIndex.config.nlist ?? 16)) {
-      throw new Error(
-        `Not enough documents for training. Have ${this.documents.size}, need at least ${this.ivfIndex.config.nlist}.`
+      throw Errors.invalidState(
+        'VectorStore',
+        'train',
+        `not enough documents for training. Have ${this.documents.size}, need at least ${this.ivfIndex.config.nlist}`,
+        `${this.documents.size} documents`
       )
     }
 
@@ -1379,11 +1383,11 @@ export class VectorStore {
     nprobe?: number
   }): Promise<SearchResult[]> {
     if (!this.ivfIndex) {
-      throw new Error('IVF index not initialized. Call initializeIVFIndex() first.')
+      throw Errors.notInitialized('IVFIndex')
     }
 
     if (!this.ivfTrained) {
-      throw new Error('IVF index not trained. Call trainIVFIndex() first.')
+      throw Errors.invalidState('VectorStore', 'search', 'IVF index not trained. Call trainIVFIndex() first', 'untrained')
     }
 
     const { embedding, limit, nprobe } = options

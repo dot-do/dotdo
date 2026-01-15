@@ -125,6 +125,13 @@ const WORKERS_POOL_OPTIONS = {
       singleWorker: true,
     },
   },
+  tieringTest: {
+    workers: {
+      wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.tiering-test.jsonc') },
+      isolatedStorage: true,
+      singleWorker: true,
+    },
+  },
 } as const
 
 /**
@@ -862,6 +869,11 @@ export default defineWorkspace([
   // ShardManager integration tests (real DO stubs via miniflare)
   createWorkersWorkspace('shard-integration', ['db/core/shard-integration.test.ts'], {
     poolOptions: WORKERS_POOL_OPTIONS.workersTest,
+  }),
+
+  // R2 Tiering integration tests (real R2 buckets via miniflare)
+  createWorkersWorkspace('tiering-integration', ['objects/tests/r2-tiering-integration.test.ts'], {
+    poolOptions: WORKERS_POOL_OPTIONS.tieringTest,
   }),
 
   // @dotdo/duckdb-worker package Workers tests

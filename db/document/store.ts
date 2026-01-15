@@ -24,6 +24,11 @@ import {
   withRetry as withRetryInternal,
   type RetryOptions,
 } from '../concurrency'
+import {
+  Errors,
+  DocumentExistsError,
+  NotFoundError,
+} from '../errors'
 
 /**
  * Transient SQLite errors that can be retried
@@ -522,7 +527,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     try {
       JSON.stringify(input)
     } catch (e) {
-      throw new Error('Cannot create document with circular reference')
+      throw Errors.validation('DocumentStore', 'create', 'cannot create document with circular reference')
     }
 
     const now = Date.now()
@@ -548,7 +553,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     } catch (e) {
       const error = e as Error
       if (error.message.includes('UNIQUE constraint failed') || error.message.includes('PRIMARY KEY')) {
-        throw new Error(`Document with $id "${$id}" already exists`)
+        throw Errors.documentExists('DocumentStore', $id)
       }
       throw e
     }
@@ -647,7 +652,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     // Get existing document
     const existing = await this.get($id)
     if (!existing) {
-      throw new Error(`Document with $id "${$id}" not found`)
+      throw Errors.notFound('DocumentStore', 'update', $id, 'document')
     }
 
     const now = Date.now()
@@ -893,7 +898,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     try {
       JSON.stringify(input)
     } catch (e) {
-      throw new Error('Cannot create document with circular reference')
+      throw Errors.validation('DocumentStore', 'create', 'cannot create document with circular reference')
     }
 
     const now = Date.now()
@@ -919,7 +924,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     } catch (e) {
       const error = e as Error
       if (error.message.includes('UNIQUE constraint failed') || error.message.includes('PRIMARY KEY')) {
-        throw new Error(`Document with $id "${$id}" already exists`)
+        throw Errors.documentExists('DocumentStore', $id)
       }
       throw e
     }
@@ -1085,7 +1090,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     // Get existing document
     const existing = await this.get($id)
     if (!existing) {
-      throw new Error(`Document with $id "${$id}" not found`)
+      throw Errors.notFound('DocumentStore', 'update', $id, 'document')
     }
 
     const now = Date.now()
@@ -1282,7 +1287,7 @@ export class DocumentStore<T extends Record<string, unknown>> {
     // Get existing document to build the new data
     const existing = await this.get($id)
     if (!existing) {
-      throw new Error(`Document with $id "${$id}" not found`)
+      throw Errors.notFound('DocumentStore', 'update', $id, 'document')
     }
 
     const now = Date.now()
@@ -1324,8 +1329,11 @@ export class DocumentStore<T extends Record<string, unknown>> {
       // Re-fetch to get actual version for error message
       const current = await this.get($id)
       const actualVersion = current?.$version ?? 'unknown'
-      throw new Error(
-        `Version mismatch: expected ${expectedVersion}, found ${actualVersion}. Document was modified concurrently.`
+      throw Errors.invalidState(
+        'DocumentStore',
+        'update',
+        `version mismatch: expected ${expectedVersion}, found ${actualVersion}. Document was modified concurrently`,
+        `version ${actualVersion}`
       )
     }
 
@@ -1485,29 +1493,29 @@ export class DocumentStore<T extends Record<string, unknown>> {
         switch (op.op) {
           case 'create':
             if (!op.data) {
-              throw new Error('Create operation requires data')
+              throw Errors.missingRequired('DocumentStore', 'data')
             }
             await tx.create(op.data as CreateInput<T>)
             break
           case 'update':
             if (!op.id) {
-              throw new Error('Update operation requires id')
+              throw Errors.missingRequired('DocumentStore', 'id')
             }
             // Verify document exists before updating
             const existing = await tx.get(op.id)
             if (!existing) {
-              throw new Error(`Document with $id "${op.id}" not found`)
+              throw Errors.notFound('DocumentStore', 'update', op.id, 'document')
             }
             await tx.update(op.id, op.data || {})
             break
           case 'delete':
             if (!op.id) {
-              throw new Error('Delete operation requires id')
+              throw Errors.missingRequired('DocumentStore', 'id')
             }
             await tx.delete(op.id)
             break
           default:
-            throw new Error(`Unknown operation: ${(op as BatchOperation).op}`)
+            throw Errors.validation('DocumentStore', 'batch', `unknown operation: ${(op as BatchOperation).op}`)
         }
       }
     })

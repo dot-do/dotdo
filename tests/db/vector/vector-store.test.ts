@@ -1305,8 +1305,9 @@ describe('VectorStore - Error Handling', () => {
 
     const db = createMockDb()
 
-    expect(() => new VectorStore(db, { dimension: -1 })).toThrow(/invalid.*dimension/i)
-    expect(() => new VectorStore(db, { dimension: 0 })).toThrow(/invalid.*dimension/i)
+    // Standardized error: "[VectorStore] Construct failed: dimension must be a positive integer"
+    expect(() => new VectorStore(db, { dimension: -1 })).toThrow(/dimension.*positive/i)
+    expect(() => new VectorStore(db, { dimension: 0 })).toThrow(/dimension.*positive/i)
   })
 
   it('should throw error for invalid Matryoshka dimensions', async () => {
@@ -1314,13 +1315,14 @@ describe('VectorStore - Error Handling', () => {
 
     const db = createMockDb()
 
+    // Standardized error: "[VectorStore] Validate failed: dimension mismatch..."
     expect(
       () =>
         new VectorStore(db, {
           dimension: 1536,
           matryoshkaDims: [64, 2048], // 2048 > 1536
         })
-    ).toThrow(/matryoshka.*dimension.*exceed/i)
+    ).toThrow(/dimension.*mismatch/i)
   })
 
   it('should handle database errors gracefully', async () => {

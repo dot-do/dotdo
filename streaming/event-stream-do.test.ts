@@ -247,6 +247,31 @@ describe('EventStreamDO', () => {
       // Should have initialized PGLite database
       expect(eventStream.db).toBeDefined()
     })
+
+    it('should accept IFanOutManager via config', () => {
+      // Create a mock fan-out manager
+      const mockFanOutManager = {
+        broadcast: vi.fn().mockResolvedValue(5),
+        broadcastWithResult: vi.fn().mockResolvedValue({ delivered: 5, failed: 0, failedConnections: [] }),
+        broadcastBatch: vi.fn().mockResolvedValue(10),
+        sendToConnection: vi.fn().mockResolvedValue(true),
+        sendToConnections: vi.fn().mockResolvedValue(3),
+      }
+
+      eventStream = new EventStreamDO(mockState as any, { fanOutManager: mockFanOutManager })
+
+      // @issue do-aqmf - Inject IFanOutManager into EventStreamDO
+      expect(eventStream.hasInjectedFanOutManager).toBe(true)
+      expect(eventStream.fanOutManager).toBe(mockFanOutManager)
+    })
+
+    it('should use internal fan-out when no IFanOutManager injected', () => {
+      eventStream = new EventStreamDO(mockState as any)
+
+      // @issue do-aqmf - Inject IFanOutManager into EventStreamDO
+      expect(eventStream.hasInjectedFanOutManager).toBe(false)
+      expect(eventStream.fanOutManager).toBeUndefined()
+    })
   })
 
   // ============================================================================

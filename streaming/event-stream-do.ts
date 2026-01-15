@@ -195,6 +195,15 @@ export interface EventStreamConfig {
    * @issue do-j4j4 - REFACTOR: Inject IEventStore into EventStreamDO
    */
   eventStore?: IEventStore
+  /**
+   * Injected connection manager for WebSocket connection lifecycle management.
+   * If not provided, creates a default ConnectionManager.
+   * @see IConnectionManager
+   * @issue do-djjc - REFACTOR: Inject IConnectionManager into EventStreamDO
+   */
+  connectionManager?: IConnectionManager
+  /** Injected rate limiter factory. @issue do-d8ir */
+  rateLimiterFactory?: IRateLimiterFactory
 }
 
 /**
@@ -223,6 +232,7 @@ export interface ResolvedEventStreamConfig {
     batchSize: number
     yieldIntervalMs: number
   }
+  readonly rateLimiterFactory: IRateLimiterFactory
 }
 
 /**
@@ -282,7 +292,7 @@ interface ConnectionInfo {
   ws: WebSocket
   state: ConnectionState
   pendingMessages: number
-  rateLimiter: TokenBucket
+  rateLimiter: IConnectionRateLimiter
   hasBackPressure: boolean
 }
 
@@ -368,10 +378,21 @@ interface ErrorInfo {
 }
 
 // ============================================================================
-// TOKEN BUCKET (Rate Limiting)
+// RATE LIMITING INTERFACES AND FACTORIES
 // ============================================================================
 
-class TokenBucket {
+/** Per-connection rate limiter interface. @issue do-d8ir */
+export interface IConnectionRateLimiter {
+  consume(): boolean
+}
+
+/** Factory for creating per-connection rate limiters. @issue do-d8ir */
+export interface IRateLimiterFactory {
+  create(): IConnectionRateLimiter
+}
+
+/** TokenBucket implements IConnectionRateLimiter. @issue do-d8ir */
+class TokenBucket implements IConnectionRateLimiter {
   private tokens: number
   private lastRefill: number
   private readonly rate: number
@@ -400,6 +421,27 @@ class TokenBucket {
     this.tokens = Math.min(this.burst, this.tokens + toAdd)
     this.lastRefill = now
   }
+}
+
+/** Adapter wrapping IRateLimiter for per-connection use. @issue do-d8ir */
+class KeyedRateLimiterAdapter implements IConnectionRateLimiter {
+  constructor(private readonly rateLimiter: IRateLimiter, private readonly key: string) {}
+  consume(): boolean { return this.rateLimiter.tryAcquire(this.key, 1) }
+}
+
+/** Factory creating adapters from shared IRateLimiter. @issue do-d8ir */
+export class SharedRateLimiterFactory implements IRateLimiterFactory {
+  private connectionCounter = 0
+  constructor(private readonly rateLimiter: IRateLimiter) {}
+  create(): IConnectionRateLimiter {
+    return new KeyedRateLimiterAdapter(this.rateLimiter, `conn-${++this.connectionCounter}`)
+  }
+}
+
+/** Default factory using TokenBucket. @issue do-d8ir */
+class DefaultRateLimiterFactory implements IRateLimiterFactory {
+  constructor(private readonly rate: number, private readonly burst: number) {}
+  create(): IConnectionRateLimiter { return new TokenBucket(this.rate, this.burst) }
 }
 
 // ============================================================================
@@ -1182,6 +1224,14 @@ class MockPGLite {
 // DEFAULT CONFIG
 // ============================================================================
 
+/** Create default rate limiter factory. @issue do-d8ir */
+function createDefaultRateLimiterFactory(rateLimit?: { messagesPerSecond: number; burstSize: number }): IRateLimiterFactory {
+  if (rateLimit) {
+    return new DefaultRateLimiterFactory(rateLimit.messagesPerSecond, rateLimit.burstSize)
+  }
+  return new DefaultRateLimiterFactory(1000, 1000)
+}
+
 const DEFAULT_CONFIG: ResolvedEventStreamConfig = {
   hotTierRetentionMs: 5 * 60 * 1000, // 5 minutes
   maxConnections: 10_000,
@@ -1193,9 +1243,10 @@ const DEFAULT_CONFIG: ResolvedEventStreamConfig = {
   requireAuth: false,
   tokenTTL: 3600,
   fanOut: {
-    batchSize: 1000, // Process 1000 subscribers per batch
-    yieldIntervalMs: 0, // No yield by default for max throughput
+    batchSize: 1000,
+    yieldIntervalMs: 0,
   },
+  rateLimiterFactory: new DefaultRateLimiterFactory(1000, 1000),
 }
 
 // ============================================================================
@@ -1259,6 +1310,12 @@ export class EventStreamDO extends DurableObject {
    * @issue do-j4j4 - REFACTOR: Inject IEventStore into EventStreamDO
    */
   private _db: IEventStore
+  /**
+   * Connection manager for WebSocket connection lifecycle management.
+   * Can be injected via config.connectionManager or defaults to ConnectionManager.
+   * @issue do-djjc - REFACTOR: Inject IConnectionManager into EventStreamDO
+   */
+  private _connectionManager: IConnectionManager
   private connections: Map<string, ConnectionInfo> = new Map()
   private clientToConnId: Map<WebSocket, string> = new Map() // client socket -> connectionId
   private topicSubscribers: Map<string, Set<string>> = new Map() // topic -> Set<connectionId>
@@ -1317,11 +1374,19 @@ export class EventStreamDO extends DurableObject {
         'dedupWindowMs' in (envOrConfig as any) ||
         'maxPendingMessages' in (envOrConfig as any) ||
         'topicTTL' in (envOrConfig as any) ||
-        'tokenTTL' in (envOrConfig as any))
+        'tokenTTL' in (envOrConfig as any) ||
+        'fanOutManager' in (envOrConfig as any) ||
+        'eventStore' in (envOrConfig as any) ||
+        'rateLimiterFactory' in (envOrConfig as any))
         ? (envOrConfig as EventStreamConfig)
         : undefined)
 
     // Merge config with defaults
+    // Create rate limiter factory: use injected or create from config
+    // @issue do-d8ir - Inject IRateLimiter into EventStreamDO
+    const rateLimiterFactory = resolvedConfig?.rateLimiterFactory ??
+      createDefaultRateLimiterFactory(resolvedConfig?.rateLimit)
+
     this._config = {
       hotTierRetentionMs: resolvedConfig?.hotTierRetentionMs ?? DEFAULT_CONFIG.hotTierRetentionMs,
       maxConnections: resolvedConfig?.maxConnections ?? DEFAULT_CONFIG.maxConnections,
@@ -1335,6 +1400,7 @@ export class EventStreamDO extends DurableObject {
       rateLimit: resolvedConfig?.rateLimit,
       coalescing: resolvedConfig?.coalescing,
       fanOut: resolvedConfig?.fanOut ?? DEFAULT_CONFIG.fanOut,
+      rateLimiterFactory,
     }
 
     // Initialize event store
@@ -1342,6 +1408,16 @@ export class EventStreamDO extends DurableObject {
     // Use injected event store or default to MockPGLite for backwards compatibility
     this._db = resolvedConfig?.eventStore ?? new MockPGLite()
     this.initDatabase()
+
+    // Store injected fan-out manager for dependency injection
+    // When set, fanOutToSubscribers will delegate to this manager
+    // @issue do-aqmf - REFACTOR: Inject IFanOutManager into EventStreamDO
+    this._fanOutManager = resolvedConfig?.fanOutManager
+
+    // Initialize connection manager
+    // @issue do-djjc - REFACTOR: Inject IConnectionManager into EventStreamDO
+    // Use injected connection manager or create default for backwards compatibility
+    this._connectionManager = resolvedConfig?.connectionManager ?? new ConnectionManager()
   }
 
   private async initDatabase(): Promise<void> {
@@ -1534,10 +1610,9 @@ export class EventStreamDO extends DurableObject {
     ;(client as any).serializeAttachment = () => state
     ;(client as any).deserializeAttachment = () => state
 
-    // Create rate limiter
-    const rateLimiter = this._config.rateLimit
-      ? new TokenBucket(this._config.rateLimit.messagesPerSecond, this._config.rateLimit.burstSize)
-      : new TokenBucket(1000, 1000) // Effectively unlimited
+    // Create rate limiter using injected factory
+    // @issue do-d8ir - Inject IRateLimiter into EventStreamDO
+    const rateLimiter = this._config.rateLimiterFactory.create()
 
     // Store connection
     const connInfo: ConnectionInfo = {
@@ -2241,6 +2316,12 @@ export class EventStreamDO extends DurableObject {
           }
         }
       } catch (err) {
+        // Log token validation errors with context for debugging
+        console.error('[event-stream] Token refresh validation error:', {
+          operation: 'handleTokenRefresh',
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        })
         this.safeSend(ws, JSON.stringify({
           type: 'token_error',
           error: 'Token validation error',
@@ -2304,9 +2385,12 @@ export class EventStreamDO extends DurableObject {
           return { valid: false, error: 'Token is expired' }
         }
       }
-    } catch {
-      // If we can't decode the payload, still accept the token
-      // (format was valid, just can't check expiration)
+    } catch (error) {
+      // Log JWT decode errors for debugging - token still accepted since format is valid
+      console.debug('[event-stream] JWT payload decode failed (accepting token):', {
+        operation: 'validateJWTFormat',
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     return { valid: true }
@@ -2614,12 +2698,29 @@ export class EventStreamDO extends DurableObject {
   /**
    * Optimized fan-out to subscribers with batching for large subscriber counts.
    * Uses cached arrays for efficient iteration and yields periodically to prevent blocking.
+   *
+   * If an IFanOutManager was injected via config, delegates to it for broadcasting.
+   * Otherwise, uses the internal implementation with rate limiting and backpressure.
+   *
+   * @issue do-aqmf - REFACTOR: Inject IFanOutManager into EventStreamDO
    */
   private async fanOutToSubscribers(topic: string, event: BroadcastEvent): Promise<void> {
-    // Get all matching subscribers (including wildcards)
-    const subscribers = this.getMatchingSubscribersOptimized(topic)
-
     const startTime = Date.now()
+
+    // If an IFanOutManager was injected, delegate to it
+    // @issue do-aqmf - REFACTOR: Inject IFanOutManager into EventStreamDO
+    if (this._fanOutManager) {
+      await this._fanOutManager.broadcast(topic, event)
+      this.metrics.messagesSent++
+      this.metrics.latencies.push(Date.now() - startTime)
+      if (this.metrics.latencies.length > 1000) {
+        this.metrics.latencies.shift()
+      }
+      return
+    }
+
+    // Internal implementation: Get all matching subscribers (including wildcards)
+    const subscribers = this.getMatchingSubscribersOptimized(topic)
     const eventJson = JSON.stringify(event)
     const batchSize = this._config.fanOut.batchSize
     const yieldInterval = this._config.fanOut.yieldIntervalMs
@@ -2820,6 +2921,14 @@ export class EventStreamDO extends DurableObject {
     } catch (error) {
       conn.pendingMessages = Math.max(0, conn.pendingMessages - 1)
       this.metrics.errorCount++
+      // Log send errors with connection context for debugging
+      console.error('[event-stream] sendToConnection failed:', {
+        operation: 'sendToConnection',
+        connectionId: conn.state.connectionId,
+        pendingMessages: conn.pendingMessages,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
     }
   }
 
@@ -3200,9 +3309,9 @@ export class EventStreamDO extends DurableObject {
     for (const ws of websockets) {
       const state = (ws as any).deserializeAttachment?.()
       if (state) {
-        const rateLimiter = this._config.rateLimit
-          ? new TokenBucket(this._config.rateLimit.messagesPerSecond, this._config.rateLimit.burstSize)
-          : new TokenBucket(1000, 1000)
+        // Create rate limiter using injected factory
+        // @issue do-d8ir - Inject IRateLimiter into EventStreamDO
+        const rateLimiter = this._config.rateLimiterFactory.create()
 
         const conn: ConnectionInfo = {
           ws,
@@ -3325,5 +3434,25 @@ export class EventStreamDO extends DurableObject {
       fanOutBatches: this.metrics.fanOutBatches,
       subscriberArrayCacheSize: this.subscriberArrayCache.size,
     }
+  }
+
+  /**
+   * Get the injected fan-out manager (if any).
+   * Returns undefined if using internal fan-out implementation.
+   *
+   * @issue do-aqmf - REFACTOR: Inject IFanOutManager into EventStreamDO
+   */
+  get fanOutManager(): IFanOutManager | undefined {
+    return this._fanOutManager
+  }
+
+  /**
+   * Check if using an injected fan-out manager.
+   * Useful for testing and debugging.
+   *
+   * @issue do-aqmf - REFACTOR: Inject IFanOutManager into EventStreamDO
+   */
+  get hasInjectedFanOutManager(): boolean {
+    return this._fanOutManager !== undefined
   }
 }
