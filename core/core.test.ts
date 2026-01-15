@@ -414,6 +414,30 @@ describe('Fetch Routing', () => {
       expect(data.wildcard).toBe('path/to/file.txt')
     })
 
+    it('should reject path traversal attempts in wildcard routes', async () => {
+      const core = getCore('path-test-traversal')
+
+      // Attempt path traversal attack with double-encoded dots
+      // Note: The URL API normalizes single-encoded .. sequences, so we double-encode
+      // %252e%252e decodes to %2e%2e which decodes to .. (path traversal)
+      const response = await core.fetch('https://test.local/files/%252e%252e/etc/passwd')
+
+      expect(response.status).toBe(400)
+      const data = await response.json()
+      expect(data.error).toContain('traversal')
+    })
+
+    it('should reject null bytes in wildcard routes', async () => {
+      const core = getCore('path-test-nullbyte')
+
+      // Attempt null byte injection
+      const response = await core.fetch('https://test.local/files/file.txt%00.jpg')
+
+      expect(response.status).toBe(400)
+      const data = await response.json()
+      expect(data.error).toContain('null')
+    })
+
     it('should handle query parameters', async () => {
       const core = getCore('path-test-5')
 

@@ -293,34 +293,46 @@ export class LazyCheckpointer {
   }
 
   /**
-   * Flush all dirty state before hibernation
+   * Flush all dirty state before hibernation.
+   * CRITICAL: This must succeed even if a concurrent checkpoint fails.
+   * Data MUST be persisted before hibernation/eviction.
    */
   beforeHibernation(): Promise<CheckpointStats> {
-    // If checkpoint is in progress, wait for it first, then do our own
+    // If checkpoint is in progress, wait for it first (catching errors), then do our own
     if (this._checkpointPromise) {
       const existingPromise = this._checkpointPromise
-      return existingPromise.then(() => {
-        // After waiting, acquire mutex and run hibernation checkpoint
-        this.checkpointInProgress = true
-        const promise = this.doCheckpointInternal('hibernation')
-        this._checkpointPromise = promise
-        void promise.finally(() => {
-          this._checkpointPromise = null
-          this.checkpointInProgress = false
+      return existingPromise
+        .catch(() => {
+          // Swallow error from existing checkpoint - we still need to persist
         })
-        return promise
-      })
+        .then(() => {
+          // After waiting, acquire mutex and run hibernation checkpoint
+          // Use checkpoint() to get proper mutex handling (not direct doCheckpointInternal)
+          return this.doHibernationCheckpoint()
+        })
     }
 
+    return this.doHibernationCheckpoint()
+  }
+
+  /**
+   * Internal hibernation checkpoint with proper mutex handling.
+   * Separated to avoid code duplication in beforeHibernation.
+   */
+  private doHibernationCheckpoint(): Promise<CheckpointStats> {
     // SYNCHRONOUSLY acquire mutex
     this.checkpointInProgress = true
     const promise = this.doCheckpointInternal('hibernation')
     this._checkpointPromise = promise
 
-    void promise.finally(() => {
-      this._checkpointPromise = null
-      this.checkpointInProgress = false
-    })
+    void promise
+      .catch(() => {
+        // Swallow error for cleanup only - error will be re-thrown via return promise
+      })
+      .finally(() => {
+        this._checkpointPromise = null
+        this.checkpointInProgress = false
+      })
 
     return promise
   }

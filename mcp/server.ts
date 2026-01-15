@@ -62,8 +62,10 @@ const RATE_LIMIT_CONFIG = {
   // Per-client limits per window
   limit: 100,           // requests per window
   burstLimit: 10,       // max concurrent requests in burst
-  // Use 1-second window in tests to allow reset testing
-  windowSeconds: IS_TEST_ENV ? 1 : 60,
+  // Use 2-second window in tests to allow reset testing while maintaining fast tests
+  windowSeconds: IS_TEST_ENV ? 2 : 60,
+  // Burst window in milliseconds (shorter for burst detection)
+  burstWindowMs: 1000,  // 1 second burst window
   // Separate buckets for read vs write
   readLimit: 100,
   writeLimit: 100,
@@ -79,11 +81,11 @@ const RATE_LIMIT_CONFIG = {
 
 interface RateLimitEntry {
   count: number
-  windowStart: number
+  windowStart: number           // Second-precision for main window
   readBurstCount: number
-  readBurstWindowStart: number
+  readBurstWindowStartMs: number  // Millisecond-precision for burst detection
   writeBurstCount: number
-  writeBurstWindowStart: number
+  writeBurstWindowStartMs: number // Millisecond-precision for burst detection
   readCount: number
   writeCount: number
 }
@@ -115,52 +117,91 @@ interface RateLimitResult {
 class RateLimiter {
   private entries = new Map<string, RateLimitEntry>()
   private sseConnectionCounts = new Map<string, number>()
+  private storage: DurableObjectStorage | null = null
+  private initialized = false
+
+  /**
+   * Initialize with DO storage for persistence
+   */
+  init(storage: DurableObjectStorage): void {
+    this.storage = storage
+  }
+
+  /**
+   * Load entries from storage (call once during DO initialization)
+   */
+  async loadFromStorage(): Promise<void> {
+    if (!this.storage || this.initialized) return
+    this.initialized = true
+
+    // Load rate limit entries from storage
+    const stored = await this.storage.get<Record<string, RateLimitEntry>>('rate_limit_entries')
+    if (stored) {
+      // Convert plain object to Map
+      this.entries = new Map(Object.entries(stored))
+    }
+  }
+
+  /**
+   * Save entries to storage
+   */
+  private async saveToStorage(): Promise<void> {
+    if (!this.storage) return
+    // Convert Map to plain object for storage
+    const obj = Object.fromEntries(this.entries)
+    await this.storage.put('rate_limit_entries', obj)
+  }
 
   /**
    * Get or create a rate limit entry for a client (in-memory fallback)
    */
   private getEntry(clientId: string): RateLimitEntry {
-    const now = Math.floor(Date.now() / 1000)
+    const nowSec = Math.floor(Date.now() / 1000)
+    const nowMs = Date.now()
     let entry = this.entries.get(clientId)
 
     if (!entry) {
       entry = {
         count: 0,
-        windowStart: now,
+        windowStart: nowSec,
         readBurstCount: 0,
-        readBurstWindowStart: now,
+        readBurstWindowStartMs: nowMs,
         writeBurstCount: 0,
-        writeBurstWindowStart: now,
+        writeBurstWindowStartMs: nowMs,
         readCount: 0,
         writeCount: 0,
       }
       this.entries.set(clientId, entry)
     }
 
-    // Reset window if expired
-    if (now - entry.windowStart >= RATE_LIMIT_CONFIG.windowSeconds) {
+    // Reset main window if expired (second precision)
+    if (nowSec - entry.windowStart >= RATE_LIMIT_CONFIG.windowSeconds) {
       entry.count = 0
-      entry.windowStart = now
+      entry.windowStart = nowSec
       entry.readCount = 0
       entry.writeCount = 0
     }
 
-    // Reset burst windows if expired (1 second burst window)
-    if (now - entry.readBurstWindowStart >= 1) {
+    // Reset burst windows if expired (millisecond precision)
+    if (nowMs - entry.readBurstWindowStartMs >= RATE_LIMIT_CONFIG.burstWindowMs) {
       entry.readBurstCount = 0
-      entry.readBurstWindowStart = now
+      entry.readBurstWindowStartMs = nowMs
     }
-    if (now - entry.writeBurstWindowStart >= 1) {
+    if (nowMs - entry.writeBurstWindowStartMs >= RATE_LIMIT_CONFIG.burstWindowMs) {
       entry.writeBurstCount = 0
-      entry.writeBurstWindowStart = now
+      entry.writeBurstWindowStartMs = nowMs
     }
 
     return entry
   }
 
   /**
-   * Check rate limit using Cloudflare's native binding.
-   * Falls back to in-memory if binding is not available.
+   * Check rate limit using in-memory tracking with optional Cloudflare binding.
+   *
+   * Always uses in-memory tracking for accurate remaining counts, burst limits, and
+   * read/write bucket separation. When Cloudflare binding is available, it's used
+   * as an additional distributed check but the in-memory tracking provides the
+   * accurate response headers.
    *
    * @param clientId - Unique identifier for the client (user ID, API key, etc.)
    * @param env - Environment with optional RATE_LIMITER binding
@@ -172,13 +213,37 @@ class RateLimiter {
     env: McpEnv,
     options: { isWrite?: boolean } = {}
   ): Promise<RateLimitResult> {
-    // Use Cloudflare binding if available
-    if (env.RATE_LIMITER) {
-      return this.checkCloudflareBinding(clientId, env.RATE_LIMITER, options)
+    // Always use in-memory for accurate tracking (remaining counts, burst limits)
+    const result = await this.checkAsync(clientId, options)
+
+    // If Cloudflare binding is available and local check passed, also check distributed limit
+    // This provides defense in depth - local tracking gives accurate headers,
+    // distributed check prevents abuse across edge locations
+    if (result.allowed && env.RATE_LIMITER) {
+      try {
+        const isWrite = options.isWrite ?? false
+        const operationType = isWrite ? 'write' : 'read'
+        const key = `${clientId}:${operationType}`
+        const { success } = await env.RATE_LIMITER.limit({ key })
+
+        if (!success) {
+          // Distributed limit exceeded - update result
+          const now = Math.floor(Date.now() / 1000)
+          return {
+            ...result,
+            allowed: false,
+            remaining: 0,
+            retryAfter: 60, // Cloudflare uses 60-second windows
+            reason: 'RATE_LIMITED',
+          }
+        }
+      } catch (error) {
+        // If binding fails, rely on local tracking (fail open for availability)
+        console.error('Rate limiting binding error:', error)
+      }
     }
 
-    // Fall back to in-memory for local development
-    return this.check(clientId, options)
+    return result
   }
 
   /**
@@ -234,10 +299,10 @@ class RateLimiter {
   }
 
   /**
-   * Check and consume rate limit for a request (in-memory fallback).
-   * Read and write operations have completely separate buckets including burst limits.
+   * Async version of check that awaits storage save.
+   * Used when storage persistence is needed (test environment).
    */
-  check(clientId: string, options: { isWrite?: boolean } = {}): RateLimitResult {
+  async checkAsync(clientId: string, options: { isWrite?: boolean } = {}): Promise<RateLimitResult> {
     const entry = this.getEntry(clientId)
     const now = Math.floor(Date.now() / 1000)
     const reset = entry.windowStart + RATE_LIMIT_CONFIG.windowSeconds
@@ -283,6 +348,9 @@ class RateLimiter {
     }
     // Update overall count for reporting
     entry.count = entry.readCount + entry.writeCount
+
+    // Persist state change to storage and await completion
+    await this.saveToStorage()
 
     return {
       allowed: true,
@@ -331,10 +399,15 @@ export class McpServer extends DurableObject<McpEnv> {
     version: '1.0.0',
   }
   private sseConnections = new Map<string, WritableStreamDefaultWriter<Uint8Array>>()
-  private rateLimiter = new RateLimiter()
+  private rateLimiter: RateLimiter
+  private rateLimiterReady: Promise<void>
 
   constructor(ctx: DurableObjectState, env: McpEnv) {
     super(ctx, env)
+    // Each DO instance gets its own rate limiter with its own storage
+    this.rateLimiter = new RateLimiter()
+    this.rateLimiter.init(ctx.storage)
+    this.rateLimiterReady = this.rateLimiter.loadFromStorage()
     this.app = this.createApp()
   }
 
@@ -542,6 +615,8 @@ export class McpServer extends DurableObject<McpEnv> {
   // ==========================================================================
 
   async fetch(request: Request): Promise<Response> {
+    // Ensure rate limiter state is loaded before processing requests
+    await this.rateLimiterReady
     return this.app.fetch(request)
   }
 

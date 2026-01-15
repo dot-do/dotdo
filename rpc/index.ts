@@ -68,3 +68,31 @@ export type {
   CallbackStub,
   WebSocketRpcOptions,
 } from './websocket-rpc'
+
+// Re-export from capability-token - HMAC-signed tokens for three-party handoff
+export {
+  createCapabilityToken,
+  verifyCapabilityToken,
+  attenuateCapability,
+  isMethodAllowed,
+  isScopeAllowed,
+  CapabilityError,
+} from './capability-token'
+export type { CapabilityPayload, CapabilityErrorCode } from './capability-token'
+
+// Re-export from shard-router - Consistent hash ring for shard routing
+export { ShardRouter } from './shard-router'
+export type { ShardRouterOptions } from './shard-router'
+
+// Re-export from broker-metrics - Metrics collection for broker routing
+export { BrokerMetricsCollector } from './broker-metrics'
+export type {
+  BrokerMetrics,
+  BrokerMetricsOptions,
+  BrokerMetricsJSON,
+  LatencyStats,
+} from './broker-metrics'
+
+// Re-export from parent-child-router - Hierarchical DO routing with capability delegation
+export { ParentChildRouter, createHierarchyResolver } from './parent-child-router'
+export type { ParentChildRouterOptions } from './parent-child-router'

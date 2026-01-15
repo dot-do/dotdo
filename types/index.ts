@@ -344,7 +344,7 @@ export interface CascadeOptions<T = unknown> {
   }
   confidenceThreshold?: number
   skipAutomation?: boolean
-  /** Global timeout for all tiers (ms) */
+  /** Global timeout for all tiers (ms) - overrides context cascadeTimeout */
   timeout?: number
   /** Per-tier timeout configuration (ms) */
   tierTimeouts?: CascadeTierTimeout
@@ -352,6 +352,8 @@ export interface CascadeOptions<T = unknown> {
   circuitBreaker?: CascadeCircuitBreakerConfig
   /** Graceful degradation configuration */
   gracefulDegradation?: GracefulDegradationOptions
+  /** Fallback value to return on timeout */
+  fallbackValue?: unknown
 }
 
 /**
@@ -361,7 +363,7 @@ export interface CascadeResult<T = unknown> {
   /** The final result value */
   value: T
   /** Which tier produced the result */
-  tier: 'code' | 'generative' | 'agentic' | 'human'
+  tier?: 'code' | 'generative' | 'agentic' | 'human'
   /** Confidence score of the result */
   confidence?: number
   /** Path of tiers attempted */
@@ -376,18 +378,32 @@ export interface CascadeResult<T = unknown> {
   queueEntry?: unknown
   /** Whether any tier timed out */
   timedOut?: boolean
+  /** Total duration of the cascade in ms */
+  duration?: number
+  /** Which tier timed out (if applicable) */
+  timeoutTier?: string
+  /** List of tiers that timed out */
+  tierTimeouts?: string[]
   /** Circuit breaker states per tier */
   circuitStates?: Record<string, 'closed' | 'open' | 'half-open'>
+  /** Whether circuit breaker is open (fail-fast scenario) */
+  circuitOpen?: boolean
 
   // Graceful degradation fields
   /** Partial result if full result not available (completed before failure) */
   partialResult?: T
+  /** Partial results from each tier before timeout/failure */
+  partialResults?: Record<string, unknown>
+  /** Partial value from streaming/progressive handlers */
+  partialValue?: unknown
   /** True if fallback or partial result was used */
-  degraded: boolean
+  degraded?: boolean
+  /** Whether fallback value was used */
+  usedFallback?: boolean
   /** List of tiers that completed successfully */
-  completedTiers: string[]
+  completedTiers?: string[]
   /** List of tiers that failed */
-  failedTiers: string[]
+  failedTiers?: string[]
   /** Errors from failed tiers */
   tierErrors?: Record<string, string>
 }
@@ -429,10 +445,34 @@ export interface CircuitBreakerContextConfig {
 }
 
 /**
+ * CascadeCircuitBreakerContextConfig - Configuration for cascade-level circuit breaker
+ */
+export interface CascadeCircuitBreakerContextConfig {
+  /** Number of failures before opening circuit */
+  threshold: number
+  /** Time in ms before transitioning from open to half-open */
+  resetTimeout: number
+  /** Whether each task type has its own circuit breaker */
+  perTaskType?: boolean
+}
+
+/**
  * CreateContextOptions - Options for creating workflow context
  */
 export interface CreateContextOptions {
   stubResolver?: (noun: string, id: string) => Record<string, Function>
   rpcTimeout?: number
   circuitBreaker?: CircuitBreakerContextConfig
+  /** Default timeout for cascade operations in ms */
+  cascadeTimeout?: number
+  /** Per-tier timeout in ms */
+  tierTimeout?: number
+  /** Circuit breaker configuration for cascade operations */
+  cascadeCircuitBreaker?: CascadeCircuitBreakerContextConfig
+  /** Enable graceful degradation on timeout */
+  gracefulDegradation?: boolean
+  /** Maximum concurrent cascade executions */
+  maxConcurrentCascades?: number
+  /** Maximum queued cascade requests when at capacity */
+  maxQueuedCascades?: number
 }

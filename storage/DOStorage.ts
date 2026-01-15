@@ -308,6 +308,31 @@ export class DOStorageClass extends DOSemantic {
   }
 
   /**
+   * Override DOCore.getThingById to use DOStorage's L0/L2 storage
+   * This enables NounInstanceAccessor to access things stored in DOStorage
+   */
+  override async getThingById(id: string): Promise<ThingData | null> {
+    return this.getWithFallback(id)
+  }
+
+  /**
+   * Override DOCore.updateThingById to use DOStorage's L0/L2 storage
+   * This enables NounInstanceAccessor to update things stored in DOStorage
+   */
+  override async updateThingById(id: string, updates: Record<string, unknown>): Promise<ThingData> {
+    return this.update(id, updates as Partial<ThingData>)
+  }
+
+  /**
+   * Override DOCore.deleteThingById to use DOStorage's L0/L2 storage
+   * This enables NounInstanceAccessor to delete things stored in DOStorage
+   */
+  override async deleteThingById(id: string): Promise<boolean> {
+    const deleted = await this.delete(id)
+    return deleted !== null
+  }
+
+  /**
    * Update a thing by ID with RPC-compatible signature.
    * Returns the updated thing.
    */

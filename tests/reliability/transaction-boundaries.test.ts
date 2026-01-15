@@ -246,9 +246,12 @@ describe('Transaction Boundaries: Multi-Step Atomicity', () => {
       const thing = await storage.create({ $type: 'Test', name: 'Test' })
       expect(thing.$id).toBeDefined()
 
-      // Verify pipeline received exactly one event
+      // Verify pipeline received exactly one business event (excluding health probes)
       await storage.close()
-      expect(mockPipeline.sent.length).toBeLessThanOrEqual(1)
+      const businessEvents = mockPipeline.sent.flatMap((batch) =>
+        (batch as Array<{ type?: string }>).filter((event) => event.type !== '__probe__')
+      )
+      expect(businessEvents.length).toBeLessThanOrEqual(1)
     })
 
     it('should maintain consistency between L0 and L1 after partial failure', async () => {

@@ -23,6 +23,7 @@ import type {
   CascadeTimeoutResult,
   CascadeTierTimeout,
   CascadeCircuitBreakerConfig,
+  CascadeCircuitBreakerContextConfig,
   GracefulDegradationOptions,
 } from '../types'
 
@@ -37,6 +38,7 @@ export type {
   CascadeTimeoutResult,
   CascadeTierTimeout,
   CascadeCircuitBreakerConfig,
+  CascadeCircuitBreakerContextConfig,
   GracefulDegradationOptions,
 }
 
@@ -440,6 +442,157 @@ class SimpleCircuitBreaker {
 // WORKFLOW CONTEXT IMPLEMENTATION
 // ============================================================================
 
+// ============================================================================
+// CASCADE CONCURRENCY LIMITER
+// ============================================================================
+
+/**
+ * Semaphore for limiting concurrent cascade executions
+ */
+class CascadeConcurrencyLimiter {
+  private currentCount = 0
+  private readonly maxConcurrent: number
+  private readonly maxQueued: number
+  private readonly queue: Array<{
+    resolve: () => void
+    reject: (error: Error) => void
+  }> = []
+
+  constructor(maxConcurrent: number, maxQueued: number) {
+    this.maxConcurrent = maxConcurrent
+    this.maxQueued = maxQueued
+  }
+
+  async acquire(): Promise<void> {
+    if (this.currentCount < this.maxConcurrent) {
+      this.currentCount++
+      return
+    }
+
+    if (this.queue.length >= this.maxQueued) {
+      throw new Error('Cascade queue is full')
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      this.queue.push({ resolve, reject })
+    })
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift()!
+      next.resolve()
+    } else {
+      this.currentCount--
+    }
+  }
+}
+
+// ============================================================================
+// CASCADE TASK CIRCUIT BREAKER
+// ============================================================================
+
+/**
+ * Circuit breaker for cascade tasks (operates at task level, not tier level)
+ */
+class CascadeTaskCircuitBreaker {
+  private circuits: Map<string, {
+    state: 'closed' | 'open' | 'half-open'
+    failures: number
+    openedAt: number | null
+  }> = new Map()
+  private readonly threshold: number
+  private readonly resetTimeout: number
+  private readonly perTaskType: boolean
+
+  constructor(config: CascadeCircuitBreakerContextConfig) {
+    this.threshold = config.threshold
+    this.resetTimeout = config.resetTimeout
+    this.perTaskType = config.perTaskType ?? false
+  }
+
+  private getCircuitKey(taskName: string): string {
+    if (this.perTaskType) {
+      // Extract task type prefix (e.g., "email.send" -> "email")
+      const parts = taskName.split('.')
+      return parts.length > 1 ? parts[0] : taskName
+    }
+    return 'global'
+  }
+
+  private getOrCreateCircuit(key: string) {
+    if (!this.circuits.has(key)) {
+      this.circuits.set(key, {
+        state: 'closed',
+        failures: 0,
+        openedAt: null,
+      })
+    }
+    return this.circuits.get(key)!
+  }
+
+  canExecute(taskName: string): boolean {
+    const key = this.getCircuitKey(taskName)
+    const circuit = this.getOrCreateCircuit(key)
+
+    // Check for state transition
+    if (circuit.state === 'open' && circuit.openedAt !== null) {
+      const elapsed = Date.now() - circuit.openedAt
+      if (elapsed >= this.resetTimeout) {
+        circuit.state = 'half-open'
+      }
+    }
+
+    return circuit.state !== 'open'
+  }
+
+  isOpen(taskName: string): boolean {
+    const key = this.getCircuitKey(taskName)
+    const circuit = this.getOrCreateCircuit(key)
+
+    // Check for state transition
+    if (circuit.state === 'open' && circuit.openedAt !== null) {
+      const elapsed = Date.now() - circuit.openedAt
+      if (elapsed >= this.resetTimeout) {
+        circuit.state = 'half-open'
+      }
+    }
+
+    return circuit.state === 'open'
+  }
+
+  recordSuccess(taskName: string): void {
+    const key = this.getCircuitKey(taskName)
+    const circuit = this.getOrCreateCircuit(key)
+    circuit.failures = 0
+    if (circuit.state === 'half-open') {
+      circuit.state = 'closed'
+      circuit.openedAt = null
+    }
+  }
+
+  recordFailure(taskName: string): void {
+    const key = this.getCircuitKey(taskName)
+    const circuit = this.getOrCreateCircuit(key)
+    circuit.failures++
+
+    if (circuit.state === 'half-open') {
+      circuit.state = 'open'
+      circuit.openedAt = Date.now()
+      return
+    }
+
+    if (circuit.failures >= this.threshold) {
+      circuit.state = 'open'
+      circuit.openedAt = Date.now()
+    }
+  }
+}
+
+// ============================================================================
+// WORKFLOW CONTEXT IMPLEMENTATION
+// ============================================================================
+
 class WorkflowContextImpl {
   private handlers: Map<string, EventHandler[]> = new Map()
   private schedules: Map<string, ScheduleEntry> = new Map()
@@ -454,10 +607,37 @@ class WorkflowContextImpl {
   private circuitBreakers: Map<string, SimpleCircuitBreaker> = new Map()
   private cascadeCircuitBreakers: Map<string, CascadeTierCircuitBreaker> = new Map()
 
+  // New cascade timeout & concurrency fields
+  private cascadeTimeout?: number
+  private tierTimeout?: number
+  private cascadeCircuitBreakerConfig?: CascadeCircuitBreakerContextConfig
+  private cascadeTaskCircuitBreaker?: CascadeTaskCircuitBreaker
+  private gracefulDegradationEnabled: boolean
+  private concurrencyLimiter?: CascadeConcurrencyLimiter
+
   constructor(options?: CreateContextOptions) {
     this.stubResolver = options?.stubResolver
     this.rpcTimeout = options?.rpcTimeout ?? DEFAULT_RPC_TIMEOUT_MS
     this.circuitBreakerConfig = options?.circuitBreaker
+
+    // New cascade timeout configuration
+    this.cascadeTimeout = options?.cascadeTimeout
+    this.tierTimeout = options?.tierTimeout
+    this.cascadeCircuitBreakerConfig = options?.cascadeCircuitBreaker
+    this.gracefulDegradationEnabled = options?.gracefulDegradation ?? false
+
+    // Initialize cascade circuit breaker if configured
+    if (this.cascadeCircuitBreakerConfig) {
+      this.cascadeTaskCircuitBreaker = new CascadeTaskCircuitBreaker(this.cascadeCircuitBreakerConfig)
+    }
+
+    // Initialize concurrency limiter if configured
+    if (options?.maxConcurrentCascades) {
+      this.concurrencyLimiter = new CascadeConcurrencyLimiter(
+        options.maxConcurrentCascades,
+        options.maxQueuedCascades ?? Infinity
+      )
+    }
   }
 
   /**
@@ -965,11 +1145,98 @@ class WorkflowContextImpl {
       tiers,
       confidenceThreshold = 0.8,
       skipAutomation = false,
-      timeout,
+      timeout: explicitTimeout,
       tierTimeouts,
       circuitBreaker: circuitBreakerConfig,
       gracefulDegradation,
+      fallbackValue,
     } = options
+
+    const cascadeStartTime = Date.now()
+
+    // Compute effective timeout: explicit > context > default
+    const effectiveCascadeTimeout = explicitTimeout ?? this.cascadeTimeout ?? DEFAULT_CASCADE_TIER_TIMEOUT_MS
+    const effectiveTierTimeout = this.tierTimeout
+
+    // Check context-level cascade circuit breaker first (fail-fast)
+    if (this.cascadeTaskCircuitBreaker && !this.cascadeTaskCircuitBreaker.canExecute(task)) {
+      // Circuit is open - return immediately
+      return {
+        value: undefined as unknown,
+        tier: undefined,
+        circuitOpen: true,
+        timedOut: false,
+        duration: Date.now() - cascadeStartTime,
+        executionPath: [],
+        attempts: 0,
+        timing: {},
+        confidenceScores: {},
+        completedTiers: [],
+        failedTiers: [],
+      }
+    }
+
+    // Acquire concurrency permit if limiter is configured
+    if (this.concurrencyLimiter) {
+      try {
+        await this.concurrencyLimiter.acquire()
+      } catch (err) {
+        // Queue is full
+        throw new Error('Cascade queue is full')
+      }
+    }
+
+    try {
+      return await this.executeCascade({
+        task,
+        tiers,
+        confidenceThreshold,
+        skipAutomation,
+        cascadeTimeout: effectiveCascadeTimeout,
+        tierTimeout: effectiveTierTimeout,
+        tierTimeouts,
+        circuitBreakerConfig,
+        gracefulDegradation,
+        fallbackValue,
+        cascadeStartTime,
+      })
+    } finally {
+      // Release concurrency permit
+      if (this.concurrencyLimiter) {
+        this.concurrencyLimiter.release()
+      }
+    }
+  }
+
+  /**
+   * Internal cascade execution logic
+   */
+  private async executeCascade(params: {
+    task: string
+    tiers: CascadeOptions['tiers']
+    confidenceThreshold: number
+    skipAutomation: boolean
+    cascadeTimeout: number
+    tierTimeout?: number
+    tierTimeouts?: CascadeTierTimeout
+    circuitBreakerConfig?: CascadeCircuitBreakerConfig
+    gracefulDegradation?: GracefulDegradationOptions
+    fallbackValue?: unknown
+    cascadeStartTime: number
+  }): Promise<CascadeResult> {
+    const {
+      task,
+      tiers,
+      confidenceThreshold,
+      skipAutomation,
+      cascadeTimeout,
+      tierTimeout,
+      tierTimeouts,
+      circuitBreakerConfig,
+      gracefulDegradation,
+      fallbackValue,
+      cascadeStartTime,
+    } = params
 
     const tierOrder: Array<'code' | 'generative' | 'agentic' | 'human'> = skipAutomation
       ? ['human']
@@ -981,16 +1248,28 @@ class WorkflowContextImpl {
     const tierErrors: Record<string, Error> = {}
     const completedTiers: string[] = []
     const failedTiers: string[] = []
+    const tierTimeoutsList: string[] = []
+    const partialResults: Record<string, unknown> = {}
     let attempts = 0
     let anyTimedOut = false
+    let timeoutTier: string | undefined = undefined
     let bestPartialResult: unknown = undefined
     let bestPartialTier: string | undefined = undefined
     let bestPartialConfidence = 0
 
-    // Get or create circuit breaker for this cascade task if configured
-    const circuitBreaker = circuitBreakerConfig
+    // Get or create tier-level circuit breaker for this cascade task if configured
+    const tierCircuitBreaker = circuitBreakerConfig
       ? this.getCascadeCircuitBreaker(task, circuitBreakerConfig)
       : null
+
+    // Helper to compute total elapsed time
+    const getElapsedTime = (): number => Date.now() - cascadeStartTime
+
+    // Helper to check if we've exceeded cascade timeout
+    const hasExceededCascadeTimeout = (): boolean => getElapsedTime() >= cascadeTimeout
+
+    // Helper to get remaining time for cascade
+    const getRemainingCascadeTime = (): number => Math.max(0, cascadeTimeout - getElapsedTime())
 
     // Helper to build tier error messages for result
     const buildTierErrorMessages = (): Record<string, string> => {
@@ -1001,13 +1280,18 @@ class WorkflowContextImpl {
       return messages
     }
 
-    // Helper to build a successful result with graceful degradation fields
+    // Helper to build a successful result
     const buildSuccessResult = (
       value: unknown,
       tierName: 'code' | 'generative' | 'agentic' | 'human',
       confidence: number,
       result: unknown
     ): CascadeResult => {
+      // Record success in task-level circuit breaker
+      if (this.cascadeTaskCircuitBreaker) {
+        this.cascadeTaskCircuitBreaker.recordSuccess(task)
+      }
+
       const cascadeResult: CascadeResult = {
         value,
         tier: tierName,
@@ -1017,22 +1301,28 @@ class WorkflowContextImpl {
         timing,
         confidenceScores,
         timedOut: anyTimedOut,
-        degraded: false,
+        duration: getElapsedTime(),
         completedTiers,
         failedTiers,
+        degraded: false,
       }
 
-      // Include tier errors if any tiers failed before success
+      if (tierTimeoutsList.length > 0) {
+        cascadeResult.tierTimeouts = tierTimeoutsList
+      }
+
+      if (anyTimedOut && timeoutTier) {
+        cascadeResult.timeoutTier = timeoutTier
+      }
+
       if (failedTiers.length > 0) {
         cascadeResult.tierErrors = buildTierErrorMessages()
       }
 
-      // Include circuit states if circuit breaker is active
-      if (circuitBreaker) {
-        cascadeResult.circuitStates = circuitBreaker.getAllStates()
+      if (tierCircuitBreaker) {
+        cascadeResult.circuitStates = tierCircuitBreaker.getAllStates()
       }
 
-      // Include queueEntry if present (for human tier)
       if (typeof result === 'object' && result !== null && 'queueEntry' in result) {
         cascadeResult.queueEntry = (result as { queueEntry: unknown }).queueEntry
       }
@@ -1040,35 +1330,112 @@ class WorkflowContextImpl {
       return cascadeResult
     }
 
+    // Helper to build a timeout result (returns result instead of throwing)
+    const buildTimeoutResult = (): CascadeResult => {
+      // Record failure in task-level circuit breaker
+      if (this.cascadeTaskCircuitBreaker) {
+        this.cascadeTaskCircuitBreaker.recordFailure(task)
+      }
+
+      // Check if we should use fallback
+      if (fallbackValue !== undefined) {
+        return {
+          value: fallbackValue,
+          tier: undefined,
+          timedOut: true,
+          duration: getElapsedTime(),
+          timeoutTier,
+          usedFallback: true,
+          executionPath,
+          attempts,
+          timing,
+          confidenceScores,
+          completedTiers,
+          failedTiers,
+          tierTimeouts: tierTimeoutsList.length > 0 ? tierTimeoutsList : undefined,
+          partialResults: Object.keys(partialResults).length > 0 ? partialResults : undefined,
+          tierErrors: Object.keys(tierErrors).length > 0 ? buildTierErrorMessages() : undefined,
+          degraded: true,
+        }
+      }
+
+      // Check graceful degradation
+      if (gracefulDegradation?.enabled || this.gracefulDegradationEnabled) {
+        return {
+          value: bestPartialResult,
+          tier: bestPartialTier as 'code' | 'generative' | 'agentic' | 'human' | undefined,
+          confidence: bestPartialConfidence,
+          timedOut: true,
+          duration: getElapsedTime(),
+          timeoutTier,
+          degraded: true,
+          partialValue: bestPartialResult,
+          executionPath,
+          attempts,
+          timing,
+          confidenceScores,
+          completedTiers,
+          failedTiers,
+          tierTimeouts: tierTimeoutsList.length > 0 ? tierTimeoutsList : undefined,
+          partialResults: Object.keys(partialResults).length > 0 ? partialResults : undefined,
+          tierErrors: Object.keys(tierErrors).length > 0 ? buildTierErrorMessages() : undefined,
+        }
+      }
+
+      // Return timedOut result
+      return {
+        value: undefined as unknown,
+        tier: undefined,
+        timedOut: true,
+        duration: getElapsedTime(),
+        timeoutTier,
+        executionPath,
+        attempts,
+        timing,
+        confidenceScores,
+        completedTiers,
+        failedTiers,
+        tierTimeouts: tierTimeoutsList.length > 0 ? tierTimeoutsList : undefined,
+        partialResults: Object.keys(partialResults).length > 0 ? partialResults : undefined,
+        tierErrors: Object.keys(tierErrors).length > 0 ? buildTierErrorMessages() : undefined,
+      }
+    }
+
     // Helper to build a degraded result
     const buildDegradedResult = (): CascadeResult => {
-      // Determine what value to return in degraded mode
-      let degradedValue: unknown = undefined
-      let degradedTier: 'code' | 'generative' | 'agentic' | 'human' = 'code'
+      // Record failure in task-level circuit breaker
+      if (this.cascadeTaskCircuitBreaker) {
+        this.cascadeTaskCircuitBreaker.recordFailure(task)
+      }
 
-      // Priority: fallbackValue > partialResult from best tier > undefined
-      if (gracefulDegradation?.fallbackValue !== undefined) {
+      let degradedValue: unknown = undefined
+
+      if (fallbackValue !== undefined) {
+        degradedValue = fallbackValue
+      } else if (gracefulDegradation?.fallbackValue !== undefined) {
         degradedValue = gracefulDegradation.fallbackValue
       } else if (bestPartialResult !== undefined) {
         degradedValue = bestPartialResult
-        degradedTier = bestPartialTier as 'code' | 'generative' | 'agentic' | 'human'
       }
 
       return {
         value: degradedValue,
-        tier: degradedTier,
+        tier: bestPartialTier as 'code' | 'generative' | 'agentic' | 'human' | undefined,
         confidence: bestPartialConfidence,
         executionPath,
         attempts,
         timing,
         confidenceScores,
         timedOut: anyTimedOut,
+        duration: getElapsedTime(),
         degraded: true,
         completedTiers,
         failedTiers,
         partialResult: bestPartialResult,
-        tierErrors: buildTierErrorMessages(),
-        circuitStates: circuitBreaker?.getAllStates(),
+        partialResults: Object.keys(partialResults).length > 0 ? partialResults : undefined,
+        tierErrors: Object.keys(tierErrors).length > 0 ? buildTierErrorMessages() : undefined,
+        circuitStates: tierCircuitBreaker?.getAllStates(),
+        tierTimeouts: tierTimeoutsList.length > 0 ? tierTimeoutsList : undefined,
       }
     }
 
@@ -1076,35 +1443,21 @@ class WorkflowContextImpl {
       const tierHandler = tiers[tierName]
       if (!tierHandler) continue
 
-      // Check circuit breaker state before attempting tier
-      if (circuitBreaker && !circuitBreaker.canExecute(tierName)) {
-        // Circuit is open - skip this tier and record in errors
-        const circuitState = circuitBreaker.getState(tierName)
+      // Check if cascade timeout already exceeded before starting tier
+      if (hasExceededCascadeTimeout()) {
+        anyTimedOut = true
+        if (!timeoutTier) {
+          timeoutTier = tierName
+        }
+        return buildTimeoutResult()
+      }
+
+      // Check tier-level circuit breaker state before attempting tier
+      if (tierCircuitBreaker && !tierCircuitBreaker.canExecute(tierName)) {
+        const circuitState = tierCircuitBreaker.getState(tierName)
         tierErrors[tierName] = new Error(`Circuit breaker ${circuitState} for tier ${tierName}`)
         failedTiers.push(tierName)
         timing[tierName] = 0
-
-        // If there's a fallback configured, we can use it
-        const fallback = circuitBreaker.getFallback()
-        if (fallback !== undefined && tierName === 'human') {
-          // Only use fallback for human tier as last resort
-          return {
-            value: fallback,
-            tier: tierName,
-            confidence: 0,
-            executionPath: [...executionPath, tierName],
-            attempts: attempts + 1,
-            timing,
-            confidenceScores,
-            circuitStates: circuitBreaker.getAllStates(),
-            degraded: true,
-            completedTiers,
-            failedTiers,
-            tierErrors: buildTierErrorMessages(),
-          }
-        }
-
-        // Continue to next tier
         continue
       }
 
@@ -1113,49 +1466,62 @@ class WorkflowContextImpl {
 
       const startTime = performance.now()
 
-      // Determine timeout for this tier (per-tier takes precedence over global)
-      const tierTimeout = tierTimeouts?.[tierName] ?? timeout ?? DEFAULT_CASCADE_TIER_TIMEOUT_MS
+      // Determine timeout for this tier:
+      // Priority: per-tier specific > context tierTimeout > remaining cascade time
+      let effectiveTierTimeout: number
+      if (tierTimeouts?.[tierName] !== undefined) {
+        effectiveTierTimeout = tierTimeouts[tierName]!
+      } else if (tierTimeout !== undefined) {
+        effectiveTierTimeout = tierTimeout
+      } else {
+        effectiveTierTimeout = getRemainingCascadeTime()
+      }
+
+      // If tierTimeout is specified, also respect remaining cascade time
+      effectiveTierTimeout = Math.min(effectiveTierTimeout, getRemainingCascadeTime())
 
       try {
         // Execute with timeout tracking
         const timeoutResult = await withCascadeTimeout(
           Promise.resolve(tierHandler()),
-          tierTimeout
+          effectiveTierTimeout
         )
 
-        // Use Math.max to ensure at least 0.001ms is recorded for synchronous operations
         timing[tierName] = Math.max(timeoutResult.duration, 0.001)
 
         if (timeoutResult.timedOut) {
           anyTimedOut = true
           failedTiers.push(tierName)
+          tierTimeoutsList.push(tierName)
 
-          // Record timeout as failure in circuit breaker
-          if (circuitBreaker) {
-            circuitBreaker.recordFailure(tierName)
+          if (!timeoutTier) {
+            timeoutTier = tierName
           }
 
-          // For global timeout, throw immediately (unless graceful degradation with returnPartialOnTimeout)
-          if (timeout && !tierTimeouts) {
-            if (gracefulDegradation?.enabled && gracefulDegradation.returnPartialOnTimeout) {
-              tierErrors[tierName] = new Error(`Global timeout after ${timeout}ms`)
-              // Continue to return degraded result
-              break
-            }
-            throw new Error('Timeout')
+          if (tierCircuitBreaker) {
+            tierCircuitBreaker.recordFailure(tierName)
           }
 
-          // For per-tier timeout, record error and continue to next tier
-          tierErrors[tierName] = new Error(`Tier ${tierName} timed out after ${tierTimeout}ms`)
+          tierErrors[tierName] = new Error(`Tier ${tierName} timed out after ${effectiveTierTimeout}ms`)
+
+          // If tier timeout is set (not cascade timeout), escalate to next tier
+          if (tierTimeout !== undefined || tierTimeouts?.[tierName] !== undefined) {
+            continue
+          }
+
+          // Check if cascade timeout exceeded
+          if (hasExceededCascadeTimeout()) {
+            return buildTimeoutResult()
+          }
+
           continue
         }
 
         const result = timeoutResult.result
         completedTiers.push(tierName)
 
-        // Record success in circuit breaker
-        if (circuitBreaker) {
-          circuitBreaker.recordSuccess(tierName)
+        if (tierCircuitBreaker) {
+          tierCircuitBreaker.recordSuccess(tierName)
         }
 
         // Extract confidence and value
@@ -1170,6 +1536,9 @@ class WorkflowContextImpl {
           typeof result === 'object' && result !== null && 'value' in result
             ? (result as { value: unknown }).value
             : result
+
+        // Store partial results for tracking
+        partialResults[tierName] = result
 
         // Track best partial result (for graceful degradation)
         if (confidence > bestPartialConfidence) {
@@ -1190,34 +1559,23 @@ class WorkflowContextImpl {
         tierErrors[tierName] = error
         failedTiers.push(tierName)
 
-        // Record failure in circuit breaker
-        if (circuitBreaker) {
-          circuitBreaker.recordFailure(tierName)
+        if (tierCircuitBreaker) {
+          tierCircuitBreaker.recordFailure(tierName)
         }
 
-        // If it's a timeout error from global timeout, handle based on degradation settings
-        if (error.message === 'Timeout') {
-          if (gracefulDegradation?.enabled && gracefulDegradation.returnPartialOnTimeout) {
-            // Return degraded result instead of throwing
-            break
-          }
-          throw error
-        }
-
-        // For other errors, check if we should return partial on error
-        if (gracefulDegradation?.enabled && gracefulDegradation.returnPartialOnError && bestPartialResult !== undefined) {
-          // We have a partial result, we could continue or return it
-          // Continue to try remaining tiers for now
-        }
-        // Continue to next tier on other errors
+        // Continue to next tier on errors
       }
     }
 
     // All tiers failed or didn't meet confidence
     // Check if graceful degradation is enabled
-    if (gracefulDegradation?.enabled) {
-      // Return degraded result instead of throwing
+    if (gracefulDegradation?.enabled || this.gracefulDegradationEnabled || fallbackValue !== undefined) {
       return buildDegradedResult()
+    }
+
+    // Record failure in task-level circuit breaker
+    if (this.cascadeTaskCircuitBreaker) {
+      this.cascadeTaskCircuitBreaker.recordFailure(task)
     }
 
     throw new CascadeError(`All tiers failed for task: ${task}`, tierErrors)

@@ -21,6 +21,19 @@
 // Export core-level class and types only
 export { DOCore, type DOCoreEnv } from './DOCore'
 
+// Export query validation utilities
+export {
+  validateOperatorQuery,
+  validateWhereClause,
+  matchesOperators,
+  matchesWhere,
+  isOperatorObject,
+  QueryValidationError,
+  VALID_OPERATORS,
+  type OperatorQuery,
+  type ValidOperator,
+} from './query-validation'
+
 // Default worker handler for DOCore
 import { DOCore, type DOCoreEnv } from './DOCore'
 

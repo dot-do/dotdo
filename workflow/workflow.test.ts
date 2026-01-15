@@ -1053,16 +1053,18 @@ describe('Cascade Execution', () => {
         return { value: 'approved' }
       })
 
-      await expect(
-        $.cascade({
-          task: 'urgent-approval',
-          tiers: {
-            human: humanHandler,
-          },
-          skipAutomation: true,
-          timeout: 50,
-        })
-      ).rejects.toThrow(/timeout/i)
+      const result = await $.cascade({
+        task: 'urgent-approval',
+        tiers: {
+          human: humanHandler,
+        },
+        skipAutomation: true,
+        timeout: 50,
+      })
+
+      // Cascade returns result with timedOut flag instead of throwing
+      expect(result.timedOut).toBe(true)
+      expect(result.timeoutTier).toBe('human')
     })
   })
 

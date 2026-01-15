@@ -20,6 +20,7 @@
 
 // Import canonical types from types/index.ts
 import type { ThingData, CreateThingInput } from '../types'
+import { assertValidCreateThingInput } from '../lib/validation/thing-validation'
 
 // Re-export for backwards compatibility
 export type { ThingData, CreateThingInput }
@@ -150,9 +151,12 @@ export class InMemoryStateManager {
    *
    * @param input - Creation input with $type and optional $id
    * @returns The created thing with generated $id and $version=1
-   * @throws Never - LRU eviction handles capacity gracefully
+   * @throws ThingValidationException if input is invalid
    */
   create(input: CreateThingInput): ThingData {
+    // Validate input - throws ThingValidationException if invalid
+    assertValidCreateThingInput(input)
+
     const startTime = Date.now()
     const $id = input.$id ?? generateId(input.$type)
     const now = Date.now()

@@ -249,8 +249,9 @@ describe('Cascade timeout behavior', () => {
       }
 
       // Next call should fail fast (circuit open)
+      // Advance time but stay within reset timeout (700ms < 1000ms)
+      vi.setSystemTime(new Date('2026-01-15T12:00:00.700Z'))
       const start = Date.now()
-      vi.setSystemTime(new Date('2026-01-15T12:00:01.000Z')) // 1 second later
 
       const result = await $.cascade({
         task: 'circuit-open-task',
@@ -444,36 +445,39 @@ describe('Cascade timeout behavior', () => {
   describe('graceful degradation on timeout', () => {
     it('should return partial result on timeout if available', async () => {
       $ = createWorkflowContext({
-        cascadeTimeout: 100,
+        cascadeTimeout: 200,
         gracefulDegradation: true,
       })
 
-      const streamingHandler = vi.fn().mockImplementation(async () => {
-        // Simulate streaming that produces partial results
-        await new Promise((r) => setTimeout(r, 50))
-        // Partial result available
-        const partialResult = { partialValue: 'streaming...', progress: 0.5 }
+      // First tier returns a low-confidence result (captured as partial)
+      const codeTier = vi.fn().mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 30))
+        return { value: 'code-partial', confidence: 0.3 }
+      })
 
-        await new Promise((r) => setTimeout(r, 100)) // This will timeout
-
+      // Second tier times out before returning
+      const generativeTier = vi.fn().mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 500)) // Will timeout
         return { value: 'complete', confidence: 1.0 }
       })
 
       const cascadePromise = $.cascade({
-        task: 'streaming-task',
+        task: 'partial-result-task',
         tiers: {
-          generative: streamingHandler,
+          code: codeTier,
+          generative: generativeTier,
         },
-        skipAutomation: false,
+        confidenceThreshold: 0.8, // Code tier doesn't meet threshold
       })
 
-      await vi.advanceTimersByTimeAsync(150)
+      await vi.advanceTimersByTimeAsync(250)
 
       const result = await cascadePromise
 
       expect(result.timedOut).toBe(true)
       expect(result.degraded).toBe(true)
-      expect(result.partialValue).toBeDefined()
+      // partialValue should be the best result we got (from code tier)
+      expect(result.partialValue).toBe('code-partial')
     })
 
     it('should use fallback value on timeout when configured', async () => {

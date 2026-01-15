@@ -1,0 +1,621 @@
+---
+title: Migrating from v1 to v2
+description: Step-by-step guide for upgrading to dotdo v2
+---
+
+# Migrating from v1 to v2
+
+This guide walks you through upgrading from dotdo v1 to v2. The v2 release introduces a new class hierarchy, improved storage layer with 4-tier caching, and the WorkflowContext (`$`) DSL.
+
+## Overview
+
+v2 is a major release with breaking changes to:
+
+1. **Class Hierarchy** - New layered DO classes (DOCore, DOSemantic, DOStorage, DOWorkflow, DOFull)
+2. **Storage API** - SQLite-based storage with semantic Types (Things, Nouns, Verbs)
+3. **Event Handling** - New `$.on.Noun.verb()` pattern with wildcards
+4. **Scheduling** - Fluent DSL (`$.every.Monday.at9am()`) instead of raw CRON
+5. **RPC** - Cap'n Web RPC with promise pipelining
+
+<Callout type="warning">
+  v2 is not backward compatible with v1. Plan your migration carefully and test thoroughly.
+</Callout>
+
+## Breaking Changes
+
+### 1. Class Hierarchy
+
+v1 used a single base class. v2 introduces a progressive enhancement stack:
+
+```typescript
+// v1 - Single base class
+import { DurableObject } from 'cloudflare:workers'
+
+class MyDO extends DurableObject {
+  constructor(state, env) {
+    super(state, env)
+  }
+}
+```
+
+```typescript
+// v2 - Choose your layer based on needs
+import { DOCore } from 'dotdo/objects'      // ~5KB - Basic state, routing, alarms
+import { DOSemantic } from 'dotdo/objects'  // ~20KB - Semantic types
+import { DOStorage } from 'dotdo/objects'   // ~40KB - 4-tier storage
+import { DOWorkflow } from 'dotdo/objects'  // ~60KB - WorkflowContext ($)
+import { DOFull } from 'dotdo/objects'      // ~80KB - AI, streaming, human-in-loop
+
+class MyDO extends DOFull {
+  constructor(ctx: DurableObjectState, env: DOFullEnv) {
+    super(ctx, env)
+  }
+}
+```
+
+**Choose the smallest class that meets your needs:**
+
+| Layer | Size | Use When |
+|-------|------|----------|
+| `DOCore` | ~5KB | Basic key-value storage and HTTP routing |
+| `DOSemantic` | ~20KB | You need semantic types (Nouns, Verbs, Things) |
+| `DOStorage` | ~40KB | You need high-performance caching with dirty tracking |
+| `DOWorkflow` | ~60KB | You need event handlers, scheduling, durable execution |
+| `DOFull` | ~80KB | You need AI, streaming, or human-in-the-loop workflows |
+
+### 2. Storage API
+
+v1 used Cloudflare's raw storage API. v2 uses SQLite with semantic types:
+
+```typescript
+// v1 - Raw key-value storage
+await this.state.storage.put('user:123', { name: 'Alice', email: 'alice@example.com' })
+const user = await this.state.storage.get('user:123')
+await this.state.storage.delete('user:123')
+const users = await this.state.storage.list({ prefix: 'user:' })
+```
+
+```typescript
+// v2 - Semantic storage with Things
+const user = await this.Customer().create({
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+// Returns: { $id: 'thing_xxx', $type: 'Customer', $createdAt: '...', $updatedAt: '...', name: 'Alice', ... }
+
+// Get by ID
+const profile = await this.Customer('thing_xxx').getProfile()
+
+// Update
+await this.Customer(user.$id).update({ name: 'Alice Smith' })
+
+// Delete
+await this.Customer(user.$id).delete()
+
+// List with filtering
+const customers = await this.Customer().list({
+  where: { status: 'active' },
+  limit: 100
+})
+```
+
+**Key differences:**
+- All entities have `$id`, `$type`, `$createdAt`, `$updatedAt`, `$version`
+- CRUD operations emit events automatically (`Customer.created`, `Customer.updated`, etc.)
+- SQLite-backed with in-memory caching for performance
+
+### 3. Event Handling
+
+v1 required manual event dispatch. v2 uses the `$.on` Proxy pattern:
+
+```typescript
+// v1 - Manual event handling
+class MyDO extends DurableObject {
+  private handlers = new Map()
+
+  on(eventType, handler) {
+    const existing = this.handlers.get(eventType) || []
+    existing.push(handler)
+    this.handlers.set(eventType, existing)
+  }
+
+  emit(eventType, data) {
+    const handlers = this.handlers.get(eventType) || []
+    handlers.forEach(h => h(data))
+  }
+}
+
+// Usage
+this.on('customer-signup', handler)
+this.emit('customer-signup', { userId: '123' })
+```
+
+```typescript
+// v2 - $.on Proxy pattern with automatic unsubscribe
+class MyDO extends DOWorkflow {
+  constructor(ctx, env) {
+    super(ctx, env)
+
+    // Exact match handlers
+    this.$.on.Customer.signup(async (event) => {
+      console.log('Customer signed up:', event.data)
+    })
+
+    // Wildcard: all Customer events
+    this.$.on.Customer['*'](async (event) => {
+      console.log('Customer event:', event.type)
+    })
+
+    // Wildcard: all created events across all nouns
+    this.$.on['*'].created(async (event) => {
+      console.log('Something created:', event.subject)
+    })
+  }
+}
+
+// Fire-and-forget event dispatch
+const eventId = this.$.send('Customer.signup', { userId: '123' })
+```
+
+**Key differences:**
+- `$.on.Noun.verb()` returns an unsubscribe function
+- Wildcards (`*`) work for both nouns and verbs
+- Events have structured format: `{ id, type, subject, object, data, timestamp }`
+
+### 4. Scheduling
+
+v1 used raw CRON strings or manual alarms. v2 provides a fluent DSL:
+
+```typescript
+// v1 - Manual CRON or alarms
+await this.state.storage.setAlarm(Date.now() + 60000)
+
+// Or with a scheduler library
+scheduler.schedule('0 9 * * 1', weeklyReport)
+```
+
+```typescript
+// v2 - Fluent scheduling DSL
+class MyDO extends DOWorkflow {
+  constructor(ctx, env) {
+    super(ctx, env)
+
+    // Day-of-week schedules
+    this.$.every.Monday.at9am(this.weeklyReport.bind(this))
+    this.$.every.Friday.at('5pm')(this.endOfWeekCleanup.bind(this))
+
+    // Daily schedules
+    this.$.every.day.at('6am')(this.morningSync.bind(this))
+    this.$.every.day.at('noon')(this.lunchReminder.bind(this))
+
+    // Interval schedules
+    this.$.every.hour(this.healthCheck.bind(this))
+    this.$.every(5).minutes(this.cacheRefresh.bind(this))
+  }
+
+  async weeklyReport() {
+    // Runs every Monday at 9am
+  }
+}
+```
+
+**Key differences:**
+- Human-readable DSL compiles to CRON internally
+- Returns unsubscribe function for easy cleanup
+- Supports intervals: `every(n).minutes()`, `every(n).hours()`
+
+### 5. Durable Execution
+
+v1 had no built-in durability. v2 provides three durability levels:
+
+```typescript
+// v1 - Manual retry logic
+async function callWithRetry(fn, maxRetries = 3) {
+  let lastError
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      lastError = e
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)))
+    }
+  }
+  throw lastError
+}
+```
+
+```typescript
+// v2 - Built-in durability levels
+class MyDO extends DOWorkflow {
+  async processOrder(orderId: string) {
+    // Fire-and-forget (no waiting for handlers)
+    const eventId = this.$.send('Order.placed', { orderId })
+
+    // Single attempt with optional timeout
+    const inventory = await this.$.try(
+      () => checkInventory(orderId),
+      { timeout: 5000 }
+    )
+
+    // Durable with retries and exactly-once semantics
+    const payment = await this.$.do(
+      () => processPayment(orderId),
+      { stepId: `payment:${orderId}`, maxRetries: 5 }
+    )
+  }
+}
+```
+
+**Durability levels:**
+
+| Method | Behavior | Use Case |
+|--------|----------|----------|
+| `$.send()` | Fire-and-forget, returns event ID | Notifications, logging |
+| `$.try()` | Single attempt, fails fast | Quick operations |
+| `$.do()` | Retries with backoff, replay protection | Critical operations |
+
+### 6. Environment Types
+
+v1 used generic env types. v2 has typed environment bindings:
+
+```typescript
+// v1 - Generic or custom types
+interface Env {
+  DO: DurableObjectNamespace
+}
+```
+
+```typescript
+// v2 - Typed environment for each layer
+import type { DOCoreEnv } from 'dotdo/objects'     // For DOCore
+import type { DOStorageEnv } from 'dotdo/objects'  // For DOStorage
+import type { DOWorkflowEnv } from 'dotdo/objects' // For DOWorkflow
+import type { DOFullEnv } from 'dotdo/objects'     // For DOFull
+
+// DOFullEnv includes AI binding, pipelines, R2
+interface DOFullEnv {
+  DOFull: DurableObjectNamespace<DOFull>
+  AI?: AIBinding
+  PIPELINE?: Pipeline
+  R2?: R2Bucket
+}
+```
+
+## Migration Steps
+
+### Step 1: Update Dependencies
+
+```bash
+# Remove old dotdo
+npm uninstall dotdo
+
+# Install v2
+npm install dotdo@2
+```
+
+Update your `package.json`:
+
+```json
+{
+  "dependencies": {
+    "dotdo": "^2.0.0"
+  }
+}
+```
+
+### Step 2: Update wrangler.toml
+
+```toml
+# v1
+[[durable_objects.bindings]]
+name = "DO"
+class_name = "MyDO"
+
+# v2 - Choose your class
+[[durable_objects.bindings]]
+name = "DOFull"
+class_name = "DOFull"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DOFull"]
+```
+
+### Step 3: Update Base Class
+
+Replace your base class import and extension:
+
+```typescript
+// Before (v1)
+import { DurableObject } from 'cloudflare:workers'
+
+export class MyDO extends DurableObject {
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+  }
+}
+
+// After (v2)
+import { DOFull, type DOFullEnv } from 'dotdo/objects'
+
+export class MyDO extends DOFull {
+  constructor(ctx: DurableObjectState, env: DOFullEnv) {
+    super(ctx, env)
+  }
+}
+```
+
+### Step 4: Migrate Storage Calls
+
+Replace raw storage API with semantic types:
+
+```typescript
+// Before (v1)
+async createUser(data) {
+  const id = crypto.randomUUID()
+  await this.state.storage.put(`user:${id}`, { id, ...data })
+  return { id, ...data }
+}
+
+async getUser(id) {
+  return await this.state.storage.get(`user:${id}`)
+}
+
+async updateUser(id, updates) {
+  const existing = await this.getUser(id)
+  const updated = { ...existing, ...updates }
+  await this.state.storage.put(`user:${id}`, updated)
+  return updated
+}
+
+// After (v2)
+async createUser(data) {
+  return await this.User().create(data)
+  // Returns { $id, $type: 'User', $createdAt, $updatedAt, ...data }
+}
+
+async getUser(id) {
+  return await this.User(id).getProfile()
+}
+
+async updateUser(id, updates) {
+  return await this.User(id).update(updates)
+}
+```
+
+### Step 5: Migrate Event Handlers
+
+Replace manual event handling with `$.on`:
+
+```typescript
+// Before (v1)
+constructor(state, env) {
+  super(state, env)
+  this.handlers = new Map()
+}
+
+on(event, handler) {
+  const handlers = this.handlers.get(event) || []
+  handlers.push(handler)
+  this.handlers.set(event, handlers)
+}
+
+async handleSignup(userId) {
+  const handlers = this.handlers.get('user-signup') || []
+  for (const handler of handlers) {
+    await handler({ userId })
+  }
+}
+
+// After (v2)
+constructor(ctx, env) {
+  super(ctx, env)
+
+  // Register handlers
+  this.$.on.User.signup(async (event) => {
+    console.log('User signed up:', event.data.userId)
+  })
+}
+
+async handleSignup(userId) {
+  // Automatically dispatched when User is created
+  // Or manually: this.$.send('User.signup', { userId })
+}
+```
+
+### Step 6: Migrate Scheduling
+
+Replace CRON strings with fluent DSL:
+
+```typescript
+// Before (v1)
+// Using external scheduler or manual alarms
+cron.schedule('0 9 * * 1', () => this.weeklyReport())
+cron.schedule('*/5 * * * *', () => this.healthCheck())
+
+// After (v2)
+constructor(ctx, env) {
+  super(ctx, env)
+
+  this.$.every.Monday.at9am(this.weeklyReport.bind(this))
+  this.$.every(5).minutes(this.healthCheck.bind(this))
+}
+```
+
+### Step 7: Add Durable Execution
+
+Wrap critical operations with `$.do()`:
+
+```typescript
+// Before (v1) - Manual retry
+async processPayment(orderId) {
+  let attempts = 0
+  while (attempts < 3) {
+    try {
+      return await paymentGateway.charge(orderId)
+    } catch (e) {
+      attempts++
+      if (attempts >= 3) throw e
+      await sleep(1000 * Math.pow(2, attempts))
+    }
+  }
+}
+
+// After (v2) - Built-in durability
+async processPayment(orderId) {
+  return await this.$.do(
+    () => paymentGateway.charge(orderId),
+    { stepId: `payment:${orderId}`, maxRetries: 3 }
+  )
+}
+```
+
+### Step 8: Update Worker Entry Point
+
+The worker is a minimal passthrough to the DO:
+
+```typescript
+// v2 worker entry point
+import { DOFull, type DOFullEnv } from 'dotdo/objects'
+
+export { DOFull }
+
+export default {
+  async fetch(request: Request, env: DOFullEnv): Promise<Response> {
+    const url = new URL(request.url)
+    const hostParts = url.hostname.split('.')
+    const ns = hostParts.length > 2 ? hostParts[0] : 'default'
+
+    const id = env.DOFull.idFromName(ns)
+    const stub = env.DOFull.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+### Step 9: Test Thoroughly
+
+Run your test suite with real Miniflare instances (no mocking):
+
+```typescript
+import { env } from 'cloudflare:test'
+
+describe('Migration tests', () => {
+  it('creates users with semantic types', async () => {
+    const stub = env.DOFull.get(env.DOFull.idFromName('test'))
+
+    // Test via RPC
+    const user = await stub.User().create({ name: 'Alice', email: 'alice@example.com' })
+
+    expect(user.$id).toBeDefined()
+    expect(user.$type).toBe('User')
+    expect(user.$createdAt).toBeDefined()
+    expect(user.name).toBe('Alice')
+  })
+})
+```
+
+## Data Migration
+
+If you have existing data in v1 format, you'll need to migrate it:
+
+```typescript
+// Migration script
+async function migrateData(oldStub, newStub) {
+  // List all old entries
+  const oldData = await oldStub.state.storage.list({ prefix: 'user:' })
+
+  for (const [key, value] of oldData.entries()) {
+    // Create in new format
+    await newStub.User().create({
+      ...value,
+      // v2 will generate $id, $type, etc.
+    })
+  }
+}
+```
+
+<Callout type="info">
+  Consider running both v1 and v2 in parallel during migration. Route a percentage of traffic to v2 while monitoring for issues.
+</Callout>
+
+## Compatibility Layer
+
+For gradual migration, you can create a compatibility layer:
+
+```typescript
+// Compatibility wrapper for v1-style API
+class CompatibilityDO extends DOFull {
+  // v1-style storage methods
+  async put(key: string, value: unknown): Promise<void> {
+    const [type, id] = key.split(':')
+    if (id) {
+      await this[type]().create({ ...value as object, legacyKey: key })
+    } else {
+      await this.set(key, value)
+    }
+  }
+
+  async get(key: string): Promise<unknown> {
+    const [type, id] = key.split(':')
+    if (id) {
+      return await this[type](id).getProfile()
+    }
+    return await super.get(key)
+  }
+
+  // v1-style event handling
+  on(eventType: string, handler: Function): void {
+    const [noun, verb] = eventType.split('-')
+    this.$.on[noun][verb](handler as any)
+  }
+}
+```
+
+## Common Issues
+
+### Issue: "Cannot read property 'create' of undefined"
+
+The noun accessor doesn't exist. Ensure you're using a predefined noun (Customer, Order, Product, Payment, Invoice, User, Item) or add it to DOCore:
+
+```typescript
+// In DOCore or your subclass
+MyNoun(id?: string) {
+  if (id) return new NounInstanceAccessor(this, 'MyNoun', id)
+  return new NounAccessor(this, 'MyNoun')
+}
+```
+
+### Issue: "Event handlers not firing"
+
+Ensure you're using the correct event format (`Noun.verb`) and that handlers are registered before events are sent:
+
+```typescript
+// Register first
+this.$.on.Customer.signup(handler)
+
+// Then send
+this.$.send('Customer.signup', data)
+```
+
+### Issue: "Storage not persisting"
+
+v2 uses lazy checkpointing. Call `checkpoint()` to force persistence:
+
+```typescript
+await this.checkpoint()
+```
+
+## Next Steps
+
+After migration:
+
+1. Review the [Concepts Guide](/docs/getting-started/concepts) for v2 patterns
+2. Explore the [Storage Layer](/docs/storage) for performance tuning
+3. Learn about [Cascade Execution](/docs/workflow) for AI workflows
+4. Set up [Streaming](/docs/streaming) for real-time updates
+
+<Callout type="success">
+  Congratulations on migrating to v2! You now have access to semantic types, durable execution, and the full WorkflowContext DSL.
+</Callout>

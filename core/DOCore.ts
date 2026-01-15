@@ -26,11 +26,26 @@ import { WebSocketRpcHandler, type RpcMessage } from '../rpc/websocket-rpc'
 import { PipelineExecutor, type ExecutorPipelineStep } from '../rpc/pipeline-executor'
 import { deserializePipeline, type SerializedPipeline } from '../rpc/pipeline-serialization'
 import {
+  verifyCapabilityToken,
+  CapabilityError,
+  type CapabilityPayload,
+} from '../rpc/capability-token'
+import {
   requireAuth,
   requireAdmin,
   type HonoAuthEnv,
   type AuthContext,
 } from '../lib/auth-middleware'
+import {
+  assertValidCreateThingInput,
+  ThingValidationException,
+} from '../lib/validation/thing-validation'
+import {
+  validateWhereClause,
+  matchesWhere,
+  QueryValidationError,
+} from './query-validation'
+import { validatePath } from '../lib/validation'
 
 // ============================================================================
 // Constants
@@ -663,10 +678,17 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       })
     })
 
-    // Wildcard files route
+    // Wildcard files route - with path validation
     app.get('/files/*', (c) => {
       const path = c.req.path
       const wildcard = path.replace('/files/', '')
+
+      // Validate path to prevent path traversal attacks
+      const validation = validatePath(wildcard)
+      if (!validation.valid) {
+        return c.json({ error: validation.error }, 400)
+      }
+
       return c.json({ wildcard })
     })
 
@@ -1103,6 +1125,100 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   throwError(): never {
     throw new Error('Intentional error for testing')
+  }
+
+  // =========================================================================
+  // BROKER INTEGRATION - rpcCall() for three-party handoff
+  // =========================================================================
+
+  /**
+   * Secret for capability verification.
+   * In production, this would come from env.CAPABILITY_SECRET.
+   * When null, capability verification is skipped (development mode).
+   */
+  protected capabilitySecret: string | null = null
+
+  /**
+   * Set the capability secret for verification.
+   * Called by subclasses or via configuration.
+   * @param secret The shared secret for HMAC verification
+   */
+  protected setCapabilitySecret(secret: string): void {
+    this.capabilitySecret = secret
+  }
+
+  /**
+   * Set capability secret for testing purposes.
+   * This is a public RPC method to allow tests to configure the secret.
+   * @param secret The shared secret for HMAC verification
+   */
+  setCapabilitySecretForTest(secret: string): void {
+    this.capabilitySecret = secret
+  }
+
+  /**
+   * RPC call handler - called by BrokerDO via stub.rpcCall()
+   *
+   * This enables the three-party handoff pattern:
+   * 1. Client requests via BrokerDO
+   * 2. BrokerDO routes to appropriate worker via rpcCall()
+   * 3. Worker verifies capability and executes method
+   *
+   * @param method The method name to call on this DO instance
+   * @param args Array of arguments to pass to the method
+   * @param capability Optional capability token for authorization
+   * @returns The result of the method call
+   * @throws Error if method not found or capability verification fails
+   */
+  async rpcCall(method: string, args: unknown[], capability?: string): Promise<unknown> {
+    // 1. Verify capability if provided
+    if (capability) {
+      await this.verifyCapability(capability, method)
+    }
+
+    // 2. Find the method on this instance
+    const fn = (this as unknown as Record<string, unknown>)[method]
+    if (typeof fn !== 'function') {
+      throw new Error(`Method not found: ${method}`)
+    }
+
+    // 3. Call and return result
+    return (fn as (...args: unknown[]) => unknown).apply(this, args)
+  }
+
+  /**
+   * Verify capability token for a method call.
+   *
+   * When capabilitySecret is null (development mode), returns a permissive
+   * payload allowing all operations. When set, performs full HMAC verification
+   * and checks that the method is allowed by the capability.
+   *
+   * Override in subclasses for custom verification logic.
+   *
+   * @param token The capability token to verify
+   * @param method The method being called
+   * @returns The verified capability payload
+   * @throws CapabilityError if verification fails
+   */
+  protected async verifyCapability(token: string, method: string): Promise<CapabilityPayload> {
+    if (!this.capabilitySecret) {
+      // No secret configured = no verification (development mode)
+      return {
+        target: '*',
+        methods: ['*'],
+        scope: 'admin',
+        exp: Date.now() + 3600000,
+      }
+    }
+
+    const payload = await verifyCapabilityToken(token, this.capabilitySecret)
+
+    // Check if method is allowed
+    if (!payload.methods.includes('*') && !payload.methods.includes(method)) {
+      throw new CapabilityError(`Method not allowed: ${method}`, 'INSUFFICIENT_SCOPE')
+    }
+
+    return payload
   }
 
   // =========================================================================
@@ -1721,6 +1837,10 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   // =========================================================================
 
   private async createThing(type: string, data: Record<string, unknown>): Promise<ThingData> {
+    // Validate input
+    const inputForValidation = { $type: type, ...data }
+    assertValidCreateThingInput(inputForValidation)
+
     const now = new Date().toISOString()
     const id = (data.$id as string) ?? generateThingId()
 
@@ -1770,14 +1890,13 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     const rows = this.ctx.storage.sql.exec(sql, ...params).toArray()
     let results = rows.map((row) => JSON.parse(row.data as string) as ThingData)
 
-    // Apply where clause filter in memory
+    // Apply where clause filter in memory with operator support
     if (query?.where) {
-      results = results.filter((thing) => {
-        for (const [key, value] of Object.entries(query.where!)) {
-          if (thing[key] !== value) return false
-        }
-        return true
-      })
+      // Validate the where clause - throws QueryValidationError if invalid
+      const validatedWhere = validateWhereClause(query.where)
+
+      // Use the validated where clause with operator matching
+      results = results.filter((thing) => matchesWhere(thing, validatedWhere))
     }
 
     return results
@@ -1870,14 +1989,50 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   /**
+   * Get a thing by ID - can be overridden by subclasses like DOStorage
+   * This is the method that NounAccessors use to retrieve thing data
+   */
+  getThingById(id: string): Promise<ThingData | null> {
+    return Promise.resolve(this.getThing(id))
+  }
+
+  /**
    * Get a thing (public wrapper for RpcTarget)
+   * @deprecated Use getThingById instead
    */
   getThingPublic(id: string): ThingData | null {
     return this.getThing(id)
   }
 
   /**
+   * Update a thing - can be overridden by subclasses like DOStorage
+   * This is the method that NounAccessors use to update things
+   */
+  updateThingById(id: string, updates: Record<string, unknown>): Promise<ThingData> {
+    // Get the existing thing to find its type
+    const existing = this.getThing(id)
+    if (!existing) {
+      return Promise.reject(new Error(`Thing not found: ${id}`))
+    }
+    return this.updateThing(existing.$type, id, updates)
+  }
+
+  /**
+   * Delete a thing - can be overridden by subclasses like DOStorage
+   * This is the method that NounAccessors use to delete things
+   */
+  deleteThingById(id: string): Promise<boolean> {
+    // Get the existing thing to find its type
+    const existing = this.getThing(id)
+    if (!existing) {
+      return Promise.resolve(false)
+    }
+    return this.deleteThing(existing.$type, id)
+  }
+
+  /**
    * Update a thing (public wrapper for RpcTarget)
+   * @deprecated Use updateThingById instead
    */
   updateThingInternal(type: string, id: string, updates: Record<string, unknown>): Promise<ThingData> {
     return this.updateThing(type, id, updates)
@@ -1885,6 +2040,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
   /**
    * Delete a thing (public wrapper for RpcTarget)
+   * @deprecated Use deleteThingById instead
    */
   deleteThingInternal(type: string, id: string): Promise<boolean> {
     return this.deleteThing(type, id)
@@ -1930,11 +2086,11 @@ class NounInstanceAccessor extends RpcTarget {
   }
 
   async update(updates: Record<string, unknown>): Promise<ThingData> {
-    return this.doCore.updateThingInternal(this.noun, this.id, updates)
+    return this.doCore.updateThingById(this.id, updates)
   }
 
   async delete(): Promise<boolean> {
-    return this.doCore.deleteThingInternal(this.noun, this.id)
+    return this.doCore.deleteThingById(this.id)
   }
 
   async notify(): Promise<{ success: boolean }> {
@@ -1942,7 +2098,7 @@ class NounInstanceAccessor extends RpcTarget {
   }
 
   async getProfile(): Promise<ThingData | null> {
-    return this.doCore.getThingPublic(this.id)
+    return this.doCore.getThingById(this.id)
   }
 
   async getStatus(): Promise<{ status: string }> {
@@ -1955,7 +2111,7 @@ class NounInstanceAccessor extends RpcTarget {
    */
   async getData(): Promise<ThingData | null> {
     if (!this._thingData) {
-      this._thingData = this.doCore.getThingPublic(this.id)
+      this._thingData = await this.doCore.getThingById(this.id)
     }
     return this._thingData
   }

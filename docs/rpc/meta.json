@@ -4,6 +4,8 @@
     "index",
     "capabilities",
     "pipelining",
-    "serialization"
+    "serialization",
+    "wire-protocol",
+    "websocket"
   ]
 }
