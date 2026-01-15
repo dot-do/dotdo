@@ -1,0 +1,33 @@
+name = "dotdo-v2"
+main = "core/index.ts"
+compatibility_date = "2024-12-30"
+
+[durable_objects]
+bindings = [
+  { name = "DOCore", class_name = "DOCore" },
+  { name = "MCP", class_name = "McpServer" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DOCore"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["McpServer"]
+
+# KV namespace for OAuth session storage
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "placeholder-oauth-kv-id"
+preview_id = "placeholder-oauth-kv-preview-id"
+
+# AI binding for tool execution
+[ai]
+binding = "AI"
+
+# Environment variables (set via wrangler secret or .dev.vars)
+# WORKOS_API_KEY = "sk_..."
+# WORKOS_CLIENT_ID = "client_..."
+# OAUTH_REDIRECT_URI = "https://..."
+# JWT_SECRET = "..."
