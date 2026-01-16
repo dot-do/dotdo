@@ -143,6 +143,8 @@ describe('RpcClient Streaming Output', () => {
       url: 'wss://test.api.dotdo.dev/ws/rpc',
       timeout: 30000,
       autoReconnect: false,
+      // Disable batching for tests to avoid timing issues
+      batchWindow: 0,
     })
   })
 

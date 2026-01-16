@@ -22,24 +22,49 @@ import type { ThingData } from '../types'
 // ============================================================================
 
 /**
+ * Extended query options for listing things
+ */
+export interface ExtendedQueryOptions {
+  where?: Record<string, unknown>
+  limit?: number
+  offset?: number
+  /** Field selection - only include these fields in results */
+  select?: string[]
+  /** Field exclusion - exclude these fields from results */
+  exclude?: string[]
+  /** Sorting - single field or array for multi-field sorting */
+  orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>>
+  /** Include soft-deleted items */
+  includeDeleted?: boolean
+}
+
+/**
  * Interface for thing storage operations (implemented by ThingStore)
  */
 export interface ThingStorageInterface {
   create(type: string, data: Record<string, unknown>): Promise<ThingData>
-  list(type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }): Promise<ThingData[]>
+  list(type: string, query?: ExtendedQueryOptions): Promise<ThingData[]>
   getById(id: string): Promise<ThingData | null>
   updateById(id: string, updates: Record<string, unknown>): Promise<ThingData>
   deleteById(id: string): Promise<boolean>
+  // Batch operations
+  createMany?(type: string, items: Array<Record<string, unknown>>): Promise<ThingData[]>
+  updateMany?(type: string, filter: { where?: Record<string, unknown> }, updates: Record<string, unknown>): Promise<number>
+  deleteMany?(type: string, filter: { where?: Record<string, unknown> }): Promise<number>
+  // Upsert
+  upsert?(type: string, data: Record<string, unknown>): Promise<ThingData>
+  // Count and aggregation
+  count?(type: string, query?: { where?: Record<string, unknown> }): Promise<number>
+  findFirst?(type: string, query?: ExtendedQueryOptions): Promise<ThingData | null>
+  // Soft delete
+  softDeleteById?(id: string): Promise<ThingData>
+  restoreById?(id: string): Promise<ThingData>
 }
 
 /**
  * Query options for listing things
  */
-export interface NounQueryOptions {
-  where?: Record<string, unknown>
-  limit?: number
-  offset?: number
-}
+export interface NounQueryOptions extends ExtendedQueryOptions {}
 
 /**
  * Interface for noun instance RPC methods
@@ -50,6 +75,8 @@ export interface NounInstanceRPC {
   notify(): Promise<{ success: boolean }>
   getProfile(): Promise<ThingData | null>
   getStatus(): Promise<{ status: string }>
+  softDelete?(): Promise<ThingData>
+  restore?(): Promise<ThingData>
 }
 
 /**
@@ -58,6 +85,12 @@ export interface NounInstanceRPC {
 export type NounAccessorRPC = ((id: string) => NounInstanceRPC) & {
   create(data: Record<string, unknown>): Promise<ThingData>
   list(query?: NounQueryOptions): Promise<ThingData[]>
+  createMany?(items: Array<Record<string, unknown>>): Promise<ThingData[]>
+  updateMany?(filter: { where?: Record<string, unknown> }, updates: Record<string, unknown>): Promise<number>
+  deleteMany?(filter: { where?: Record<string, unknown> }): Promise<number>
+  upsert?(data: Record<string, unknown>): Promise<ThingData>
+  count?(query?: { where?: Record<string, unknown> }): Promise<number>
+  findFirst?(query?: NounQueryOptions): Promise<ThingData | null>
 }
 
 // ============================================================================
@@ -103,6 +136,10 @@ export class NounAccessor extends RpcTarget {
    * @param query.where - Key-value pairs to filter results (exact match)
    * @param query.limit - Maximum number of results to return (default: all)
    * @param query.offset - Number of results to skip for pagination
+   * @param query.select - Only include these fields in results
+   * @param query.exclude - Exclude these fields from results
+   * @param query.orderBy - Sort results by field(s)
+   * @param query.includeDeleted - Include soft-deleted items
    * @returns Array of things matching the query criteria
    * @throws {Error} If storage operation fails
    *
@@ -119,6 +156,125 @@ export class NounAccessor extends RpcTarget {
    */
   async list(query?: NounQueryOptions): Promise<ThingData[]> {
     return this.storage.list(this.noun, query)
+  }
+
+  /**
+   * Create multiple things at once
+   *
+   * @param items - Array of data objects to create
+   * @returns Array of created things
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * const customers = await this.Customer.createMany([
+   *   { name: 'Alice' },
+   *   { name: 'Bob' },
+   *   { name: 'Carol' }
+   * ])
+   */
+  async createMany(items: Array<Record<string, unknown>>): Promise<ThingData[]> {
+    if (!this.storage.createMany) {
+      throw new Error('createMany not implemented')
+    }
+    return this.storage.createMany(this.noun, items)
+  }
+
+  /**
+   * Update multiple things matching a filter
+   *
+   * @param filter - Query filter with where clause
+   * @param updates - Updates to apply to all matching things
+   * @returns Number of updated things
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * const count = await this.Customer.updateMany(
+   *   { where: { status: 'active' } },
+   *   { status: 'processed' }
+   * )
+   */
+  async updateMany(filter: { where?: Record<string, unknown> }, updates: Record<string, unknown>): Promise<number> {
+    if (!this.storage.updateMany) {
+      throw new Error('updateMany not implemented')
+    }
+    return this.storage.updateMany(this.noun, filter, updates)
+  }
+
+  /**
+   * Delete multiple things matching a filter
+   *
+   * @param filter - Query filter with where clause
+   * @returns Number of deleted things
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * const count = await this.Customer.deleteMany({
+   *   where: { status: 'inactive' }
+   * })
+   */
+  async deleteMany(filter: { where?: Record<string, unknown> }): Promise<number> {
+    if (!this.storage.deleteMany) {
+      throw new Error('deleteMany not implemented')
+    }
+    return this.storage.deleteMany(this.noun, filter)
+  }
+
+  /**
+   * Create or update a thing (upsert)
+   *
+   * @param data - The data to create or update (include $id for update behavior)
+   * @returns The created or updated thing
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * const customer = await this.Customer.upsert({
+   *   $id: 'customer-001',
+   *   name: 'Alice',
+   *   visits: 1
+   * })
+   */
+  async upsert(data: Record<string, unknown>): Promise<ThingData> {
+    if (!this.storage.upsert) {
+      throw new Error('upsert not implemented')
+    }
+    return this.storage.upsert(this.noun, data)
+  }
+
+  /**
+   * Count things of this noun type with optional filtering
+   *
+   * @param query - Optional query with where clause
+   * @returns Count of matching things
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * const count = await this.Customer.count()
+   * const activeCount = await this.Customer.count({ where: { status: 'active' } })
+   */
+  async count(query?: { where?: Record<string, unknown> }): Promise<number> {
+    if (!this.storage.count) {
+      throw new Error('count not implemented')
+    }
+    return this.storage.count(this.noun, query)
+  }
+
+  /**
+   * Find the first thing matching the query
+   *
+   * @param query - Query options (where, orderBy)
+   * @returns The first matching thing or null
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * const youngest = await this.Customer.findFirst({
+   *   orderBy: { age: 'asc' }
+   * })
+   */
+  async findFirst(query?: NounQueryOptions): Promise<ThingData | null> {
+    if (!this.storage.findFirst) {
+      throw new Error('findFirst not implemented')
+    }
+    return this.storage.findFirst(this.noun, query)
   }
 }
 
@@ -175,6 +331,42 @@ export class NounInstanceAccessor extends RpcTarget {
    */
   async delete(): Promise<boolean> {
     return this.storage.deleteById(this.id)
+  }
+
+  /**
+   * Soft delete this thing instance (set $deletedAt timestamp)
+   *
+   * @returns The soft-deleted thing
+   * @throws {Error} If the thing does not exist or storage operation fails
+   *
+   * @example
+   * // Soft delete a customer
+   * const deleted = await this.Customer('cust_123').softDelete()
+   * console.log(deleted.$deletedAt) // timestamp
+   */
+  async softDelete(): Promise<ThingData> {
+    if (!this.storage.softDeleteById) {
+      throw new Error('softDelete not implemented')
+    }
+    return this.storage.softDeleteById(this.id)
+  }
+
+  /**
+   * Restore a soft-deleted thing (clear $deletedAt timestamp)
+   *
+   * @returns The restored thing
+   * @throws {Error} If the thing does not exist or storage operation fails
+   *
+   * @example
+   * // Restore a soft-deleted customer
+   * const restored = await this.Customer('cust_123').restore()
+   * console.log(restored.$deletedAt) // undefined
+   */
+  async restore(): Promise<ThingData> {
+    if (!this.storage.restoreById) {
+      throw new Error('restore not implemented')
+    }
+    return this.storage.restoreById(this.id)
   }
 
   /**

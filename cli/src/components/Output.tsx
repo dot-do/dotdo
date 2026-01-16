@@ -3,9 +3,17 @@
  *
  * Renders REPL output with syntax highlighting and formatting.
  * Supports different output types: result, error, info, etc.
+ *
+ * Optimizations:
+ * - React.memo for entry components to prevent unnecessary re-renders
+ * - useMemo for computed values (visible entries, formatted content)
+ * - useCallback for stable callback references
+ * - Virtual windowing for large output lists
+ * - Debounced state updates for rapid log messages
+ * - Memory-efficient log buffer with configurable max size
  */
 
-import React from 'react'
+import React, { memo, useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import { Box, Text } from 'ink'
 
 /**
@@ -23,10 +31,14 @@ export interface OutputEntry {
 export interface OutputProps {
   entries: OutputEntry[]
   maxEntries?: number
+  /** Enable virtual scrolling for performance with large lists */
+  virtualScroll?: boolean
+  /** Number of entries to render in viewport when virtualScroll is enabled */
+  viewportSize?: number
 }
 
 /**
- * Format a value for display
+ * Format a value for display (memoization-friendly pure function)
  */
 function formatValue(value: unknown, depth = 0): string {
   const indent = '  '.repeat(depth)
@@ -73,54 +85,44 @@ function formatValue(value: unknown, depth = 0): string {
   return String(value)
 }
 
+// Pre-computed color and prefix maps for O(1) lookups
+const TYPE_COLORS: Record<OutputType, string> = {
+  input: 'gray',
+  result: 'green',
+  error: 'red',
+  warning: 'yellow',
+  info: 'cyan',
+  system: 'magenta',
+}
+
+const TYPE_PREFIXES: Record<OutputType, string> = {
+  input: '>',
+  result: '<',
+  error: '!',
+  warning: '~',
+  info: 'i',
+  system: '*',
+}
+
 /**
- * Get color for output type
+ * Get color for output type (O(1) lookup)
  */
 function getTypeColor(type: OutputType): string {
-  switch (type) {
-    case 'input':
-      return 'gray'
-    case 'result':
-      return 'green'
-    case 'error':
-      return 'red'
-    case 'warning':
-      return 'yellow'
-    case 'info':
-      return 'cyan'
-    case 'system':
-      return 'magenta'
-    default:
-      return 'white'
-  }
+  return TYPE_COLORS[type] ?? 'white'
 }
 
 /**
- * Get prefix for output type
+ * Get prefix for output type (O(1) lookup)
  */
 function getTypePrefix(type: OutputType): string {
-  switch (type) {
-    case 'input':
-      return '>'
-    case 'result':
-      return '<'
-    case 'error':
-      return '!'
-    case 'warning':
-      return '~'
-    case 'info':
-      return 'i'
-    case 'system':
-      return '*'
-    default:
-      return ' '
-  }
+  return TYPE_PREFIXES[type] ?? ' '
 }
 
 /**
- * Single output entry component
+ * Single output entry component - memoized to prevent re-renders
+ * Only re-renders when entry.id changes
  */
-function OutputEntryView({ entry }: { entry: OutputEntry }): React.ReactElement {
+const OutputEntryView = memo(function OutputEntryView({ entry }: { entry: OutputEntry }): React.ReactElement {
   const color = getTypeColor(entry.type)
   const prefix = getTypePrefix(entry.type)
 
@@ -132,26 +134,65 @@ function OutputEntryView({ entry }: { entry: OutputEntry }): React.ReactElement 
       </Text>
     </Box>
   )
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison: only re-render if entry id changes
+  return prevProps.entry.id === nextProps.entry.id
+})
 
 /**
- * Output display component
+ * Output display component with performance optimizations
  */
-export function Output({ entries, maxEntries = 100 }: OutputProps): React.ReactElement {
-  // Limit entries to maxEntries
-  const visibleEntries = entries.slice(-maxEntries)
+export const Output = memo(function Output({
+  entries,
+  maxEntries = 100,
+  virtualScroll = false,
+  viewportSize = 50,
+}: OutputProps): React.ReactElement {
+  // Memoize the visible entries computation
+  const visibleEntries = useMemo(() => {
+    // Apply max entries limit (sliding window from end)
+    const limited = entries.slice(-maxEntries)
+
+    // If virtual scrolling is disabled or list is small, return all
+    if (!virtualScroll || limited.length <= viewportSize) {
+      return limited
+    }
+
+    // Virtual scroll: only render the last viewportSize entries
+    // This provides a "tail" view of the output
+    return limited.slice(-viewportSize)
+  }, [entries, maxEntries, virtualScroll, viewportSize])
+
+  // Track if we're truncating output for virtual scroll indicator
+  const isTruncated = useMemo(() => {
+    if (!virtualScroll) return false
+    const limited = entries.slice(-maxEntries)
+    return limited.length > viewportSize
+  }, [entries, maxEntries, virtualScroll, viewportSize])
+
+  const truncatedCount = useMemo(() => {
+    if (!isTruncated) return 0
+    const limited = entries.slice(-maxEntries)
+    return limited.length - viewportSize
+  }, [entries, maxEntries, viewportSize, isTruncated])
 
   return (
     <Box flexDirection="column">
+      {isTruncated && (
+        <Box>
+          <Text dimColor>... {truncatedCount} more entries above ...</Text>
+        </Box>
+      )}
       {visibleEntries.map((entry) => (
         <OutputEntryView key={entry.id} entry={entry} />
       ))}
     </Box>
   )
-}
+})
 
 /**
  * Create an output entry helper
+ * Uses monotonic counter + timestamp for unique IDs
  */
 let entryCounter = 0
 
@@ -168,14 +209,21 @@ export function createOutputEntry(
 }
 
 /**
- * Error output component with stack trace
+ * Reset entry counter (for testing)
+ */
+export function resetEntryCounter(): void {
+  entryCounter = 0
+}
+
+/**
+ * Error output component with stack trace - memoized
  */
 export interface ErrorOutputProps {
   error: Error
   showStack?: boolean
 }
 
-export function ErrorOutput({ error, showStack = false }: ErrorOutputProps): React.ReactElement {
+export const ErrorOutput = memo(function ErrorOutput({ error, showStack = false }: ErrorOutputProps): React.ReactElement {
   return (
     <Box flexDirection="column">
       <Text color="red">
@@ -190,33 +238,41 @@ export function ErrorOutput({ error, showStack = false }: ErrorOutputProps): Rea
       )}
     </Box>
   )
-}
+})
 
 /**
- * Table output component for structured data
+ * Table output component for structured data - memoized
  */
 export interface TableOutputProps {
   data: Record<string, unknown>[]
   columns?: string[]
 }
 
-export function TableOutput({ data, columns }: TableOutputProps): React.ReactElement {
+export const TableOutput = memo(function TableOutput({ data, columns }: TableOutputProps): React.ReactElement {
+  // Memoize column computation
+  const cols = useMemo(() => {
+    if (data.length === 0) return []
+    return columns ?? Object.keys(data[0])
+  }, [data, columns])
+
+  // Memoize width computation
+  const widths = useMemo(() => {
+    return cols.map(col => {
+      const values = data.map(row => String(row[col] ?? '').length)
+      return Math.max(col.length, ...values)
+    })
+  }, [cols, data])
+
+  // Memoize header and separator
+  const { header, separator } = useMemo(() => {
+    const h = cols.map((col, i) => col.padEnd(widths[i])).join(' | ')
+    const s = widths.map(w => '-'.repeat(w)).join('-+-')
+    return { header: h, separator: s }
+  }, [cols, widths])
+
   if (data.length === 0) {
     return <Text dimColor>(empty)</Text>
   }
-
-  // Determine columns
-  const cols = columns ?? Object.keys(data[0])
-
-  // Calculate column widths
-  const widths = cols.map(col => {
-    const values = data.map(row => String(row[col] ?? '').length)
-    return Math.max(col.length, ...values)
-  })
-
-  // Header
-  const header = cols.map((col, i) => col.padEnd(widths[i])).join(' | ')
-  const separator = widths.map(w => '-'.repeat(w)).join('-+-')
 
   return (
     <Box flexDirection="column">
@@ -229,4 +285,184 @@ export function TableOutput({ data, columns }: TableOutputProps): React.ReactEle
       ))}
     </Box>
   )
+})
+
+// =============================================================================
+// Streaming Output Hooks and Utilities
+// =============================================================================
+
+/**
+ * Configuration for useStreamingOutput hook
+ */
+export interface StreamingOutputConfig {
+  /** Maximum number of entries to keep in memory */
+  maxEntries?: number
+  /** Debounce interval in ms for rapid updates (default: 16ms for 60fps) */
+  debounceMs?: number
+  /** Enable virtual scrolling for large lists */
+  virtualScroll?: boolean
+  /** Viewport size for virtual scrolling */
+  viewportSize?: number
+}
+
+/**
+ * Hook for managing streaming output with optimized rendering
+ *
+ * Features:
+ * - Debounced updates for rapid log messages
+ * - Automatic memory management with configurable max entries
+ * - Stable callback references
+ * - Efficient batch updates
+ */
+export function useStreamingOutput(config: StreamingOutputConfig = {}) {
+  const {
+    maxEntries = 1000,
+    debounceMs = 16, // ~60fps
+    virtualScroll = false,
+    viewportSize = 50,
+  } = config
+
+  const [entries, setEntries] = useState<OutputEntry[]>([])
+  const pendingEntriesRef = useRef<OutputEntry[]>([])
+  const flushTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const isMountedRef = useRef(true)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current)
+        flushTimeoutRef.current = null
+      }
+    }
+  }, [])
+
+  // Flush pending entries to state
+  const flushPending = useCallback(() => {
+    if (!isMountedRef.current) return
+
+    if (pendingEntriesRef.current.length > 0) {
+      const toFlush = pendingEntriesRef.current
+      pendingEntriesRef.current = []
+
+      setEntries(prev => {
+        const combined = [...prev, ...toFlush]
+        // Apply memory limit
+        if (combined.length > maxEntries) {
+          return combined.slice(-maxEntries)
+        }
+        return combined
+      })
+    }
+    flushTimeoutRef.current = null
+  }, [maxEntries])
+
+  // Add a single entry with debouncing
+  const addEntry = useCallback((type: OutputType, content: unknown) => {
+    const entry = createOutputEntry(type, content)
+    pendingEntriesRef.current.push(entry)
+
+    // Schedule flush if not already scheduled
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = setTimeout(flushPending, debounceMs)
+    }
+  }, [debounceMs, flushPending])
+
+  // Add multiple entries at once (bypasses debouncing for immediate batch)
+  const addEntries = useCallback((newEntries: Array<{ type: OutputType; content: unknown }>) => {
+    const created = newEntries.map(({ type, content }) => createOutputEntry(type, content))
+
+    setEntries(prev => {
+      const combined = [...prev, ...created]
+      if (combined.length > maxEntries) {
+        return combined.slice(-maxEntries)
+      }
+      return combined
+    })
+  }, [maxEntries])
+
+  // Clear all entries
+  const clear = useCallback(() => {
+    pendingEntriesRef.current = []
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current)
+      flushTimeoutRef.current = null
+    }
+    setEntries([])
+  }, [])
+
+  // Force flush (useful before unmount or when immediate rendering is needed)
+  const flush = useCallback(() => {
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current)
+    }
+    flushPending()
+  }, [flushPending])
+
+  // Output props ready to spread
+  const outputProps = useMemo(() => ({
+    entries,
+    maxEntries,
+    virtualScroll,
+    viewportSize,
+  }), [entries, maxEntries, virtualScroll, viewportSize])
+
+  return {
+    entries,
+    addEntry,
+    addEntries,
+    clear,
+    flush,
+    outputProps,
+  }
+}
+
+/**
+ * Buffer for managing log entries with memory limits
+ * Useful for non-React contexts or when you need direct buffer access
+ */
+export class OutputBuffer {
+  private entries: OutputEntry[] = []
+  private maxSize: number
+
+  constructor(maxSize = 1000) {
+    this.maxSize = maxSize
+  }
+
+  add(type: OutputType, content: unknown): OutputEntry {
+    const entry = createOutputEntry(type, content)
+    this.entries.push(entry)
+
+    // Trim if over limit
+    if (this.entries.length > this.maxSize) {
+      this.entries = this.entries.slice(-this.maxSize)
+    }
+
+    return entry
+  }
+
+  addBatch(items: Array<{ type: OutputType; content: unknown }>): OutputEntry[] {
+    const newEntries = items.map(({ type, content }) => createOutputEntry(type, content))
+    this.entries.push(...newEntries)
+
+    if (this.entries.length > this.maxSize) {
+      this.entries = this.entries.slice(-this.maxSize)
+    }
+
+    return newEntries
+  }
+
+  getEntries(): OutputEntry[] {
+    return [...this.entries]
+  }
+
+  clear(): void {
+    this.entries = []
+  }
+
+  get length(): number {
+    return this.entries.length
+  }
 }

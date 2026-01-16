@@ -463,8 +463,10 @@ export function buildSqlWhereClause(
     }
 
     // Simple equality - push to SQL
+    // Convert booleans to integers for SQLite compatibility
+    // (json_extract returns 1/0 for booleans, not true/false)
     conditions.push(`${jsonPath} = ?`)
-    params.push(condition)
+    params.push(typeof condition === 'boolean' ? (condition ? 1 : 0) : condition)
   }
 
   return {

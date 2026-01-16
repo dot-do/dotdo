@@ -116,6 +116,7 @@ describe('RpcClient cleanup on disconnect', () => {
       url: 'wss://test.api.dotdo.dev/ws/rpc',
       timeout: 5000,
       autoReconnect: false,
+      batchWindow: 0, // Disable batching to test immediate send behavior
     })
   })
 
@@ -523,6 +524,7 @@ describe('RpcClient cleanup on disconnect', () => {
         url: 'wss://test.api.dotdo.dev/ws/rpc',
         timeout: 5000,
         autoReconnect: true, // Enable auto-reconnect
+        batchWindow: 0, // Disable batching to test immediate send behavior
       })
 
       const clientAny = localClient as any

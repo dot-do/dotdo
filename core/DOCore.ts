@@ -281,10 +281,22 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   private getStorageAdapter(): ThingStorageInterface {
     return {
       create: (type: string, data: Record<string, unknown>) => this.createThingInternal(type, data),
-      list: (type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }) => this.listThingsPublic(type, query),
+      list: (type: string, query?) => this.listThingsPublic(type, query),
       getById: (id: string) => this.getThingById(id),
       updateById: (id: string, updates: Record<string, unknown>) => this.updateThingById(id, updates),
       deleteById: (id: string) => this.deleteThingById(id),
+      // Batch operations
+      createMany: (type: string, items: Array<Record<string, unknown>>) => this.createManyThings(type, items),
+      updateMany: (type: string, filter: { where?: Record<string, unknown> }, updates: Record<string, unknown>) => this.updateManyThings(type, filter, updates),
+      deleteMany: (type: string, filter: { where?: Record<string, unknown> }) => this.deleteManyThings(type, filter),
+      // Upsert
+      upsert: (type: string, data: Record<string, unknown>) => this.upsertThing(type, data),
+      // Count and aggregation
+      count: (type: string, query?: { where?: Record<string, unknown> }) => this.countThings(type, query),
+      findFirst: (type: string, query?) => this.findFirstThing(type, query),
+      // Soft delete
+      softDeleteById: (id: string) => this.softDeleteThingById(id),
+      restoreById: (id: string) => this.restoreThingById(id),
     }
   }
 
@@ -1836,10 +1848,12 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   private recordActionSuccess<T>(stepId: string, result: T): void {
+    const now = Date.now()
     const logEntry: ActionLogEntry = {
       stepId,
       status: 'completed',
       result,
+      created_at: now,
     }
 
     const existingIdx = this.actionLog.findIndex((e) => e.stepId === stepId)
@@ -1855,15 +1869,17 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       stepId,
       'completed',
       JSON.stringify(result),
-      Date.now()
+      now
     )
   }
 
   private recordActionFailure(stepId: string, error: Error): void {
+    const now = Date.now()
     const failureEntry: ActionLogEntry = {
       stepId,
       status: 'failed',
       error: { message: error.message },
+      created_at: now,
     }
 
     const existingIdx = this.actionLog.findIndex((e) => e.stepId === stepId)
@@ -1879,7 +1895,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       stepId,
       'failed',
       error.message,
-      Date.now()
+      now
     )
   }
 
@@ -1888,6 +1904,159 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   getActionLog(): ActionLogEntry[] {
     return [...this.actionLog]
+  }
+
+  /**
+   * Clear the action log (for testing only)
+   */
+  clearActionLog(): void {
+    this.actionLog = []
+    this.ctx.storage.sql.exec('DELETE FROM action_log')
+  }
+
+  // =========================================================================
+  // DURABLE EXECUTION TEST HELPERS
+  // These methods encapsulate test scenarios that use do() and try() internally
+  // since functions cannot be passed through Cloudflare Workers RPC
+  // =========================================================================
+
+  /**
+   * Test scenario: Execute action that fails until a specific attempt, then succeeds
+   * Used to test retry behavior with exponential backoff
+   */
+  async testRetryWithEventualSuccess(
+    stepId: string,
+    failUntilAttempt: number,
+    maxRetries: number = failUntilAttempt
+  ): Promise<{ attempts: number; result: string }> {
+    let attempts = 0
+
+    try {
+      const result = await this.do(
+        () => {
+          attempts++
+          if (attempts < failUntilAttempt) {
+            throw new Error('Transient failure')
+          }
+          return 'success'
+        },
+        { stepId, maxRetries }
+      )
+      return { attempts, result }
+    } catch (error) {
+      return { attempts, result: `error: ${(error as Error).message}` }
+    }
+  }
+
+  /**
+   * Test scenario: Execute action that always fails
+   * Used to test maxRetries option and error handling
+   */
+  async testRetryWithAlwaysFail(
+    stepId: string,
+    maxRetries: number
+  ): Promise<{ attempts: number; error: string }> {
+    let attempts = 0
+
+    try {
+      await this.do(
+        () => {
+          attempts++
+          throw new Error('Action always fails')
+        },
+        { stepId, maxRetries }
+      )
+      return { attempts, error: '' }
+    } catch (error) {
+      return { attempts, error: (error as Error).message }
+    }
+  }
+
+  /**
+   * Test scenario: Execute same action twice with same stepId
+   * Used to test idempotency/replay semantics
+   */
+  async testIdempotentExecution(
+    stepId: string
+  ): Promise<{ executions: number; results: unknown[] }> {
+    let executionCount = 0
+    const results: unknown[] = []
+
+    // First execution - should run
+    const result1 = await this.do(
+      () => {
+        executionCount++
+        return { value: 42, timestamp: Date.now() }
+      },
+      { stepId }
+    )
+    results.push(result1)
+
+    // Second execution with same stepId - should replay from cache
+    const result2 = await this.do(
+      () => {
+        executionCount++
+        return { value: 99, timestamp: Date.now() } // Different value to prove replay
+      },
+      { stepId }
+    )
+    results.push(result2)
+
+    return { executions: executionCount, results }
+  }
+
+  /**
+   * Test scenario: Compare $.do() vs $.try() behavior
+   * - $.do() retries on failure, persists to action log
+   * - $.try() single attempt, no persistence
+   */
+  async testDoVsTry(doStepId: string): Promise<{ doExecutions: number; tryExecutions: number }> {
+    let doExecutions = 0
+    let tryExecutions = 0
+
+    // $.do() - durable execution with retry
+    await this.do(
+      () => {
+        doExecutions++
+        return 'durable-value'
+      },
+      { stepId: doStepId }
+    )
+
+    // $.try() - single attempt, no persistence
+    // Try an action that fails - it should only try once
+    try {
+      await this.try(() => {
+        tryExecutions++
+        throw new Error('$.try fails')
+      })
+    } catch {
+      // Expected to fail
+    }
+
+    return { doExecutions, tryExecutions }
+  }
+
+  /**
+   * Test scenario: Execute action with timeout via $.try()
+   * Used to test timeout behavior
+   */
+  async testTryWithTimeout(
+    timeoutMs: number,
+    actionDurationMs: number
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.try(
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, actionDurationMs))
+          return 'completed'
+        },
+        { timeout: timeoutMs }
+      )
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
   }
 
   // =========================================================================
@@ -2068,9 +2237,22 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     return thing
   }
 
-  private async listThingsInternal(type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }): Promise<ThingData[]> {
+  private async listThingsInternal(type: string, query?: {
+    where?: Record<string, unknown>
+    limit?: number
+    offset?: number
+    select?: string[]
+    exclude?: string[]
+    orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>>
+    includeDeleted?: boolean
+  }): Promise<ThingData[]> {
     let sql = 'SELECT data FROM things WHERE type = ?'
     const params: unknown[] = [type]
+
+    // Exclude soft-deleted items by default
+    if (!query?.includeDeleted) {
+      sql += " AND (json_extract(data, '$.$deletedAt') IS NULL)"
+    }
 
     // Track if we have any in-memory-only operators that need post-filtering
     let remainingWhere: Record<string, unknown> | null = null
@@ -2092,6 +2274,23 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       remainingWhere = sqlWhere.remainingWhere
     }
 
+    // Apply ORDER BY for sorting
+    if (query?.orderBy) {
+      const orderClauses: string[] = []
+      const orderByArray = Array.isArray(query.orderBy) ? query.orderBy : [query.orderBy]
+
+      for (const orderSpec of orderByArray) {
+        for (const [field, direction] of Object.entries(orderSpec)) {
+          const dir = direction.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'
+          orderClauses.push(`json_extract(data, '$.${field}') ${dir}`)
+        }
+      }
+
+      if (orderClauses.length > 0) {
+        sql += ' ORDER BY ' + orderClauses.join(', ')
+      }
+    }
+
     // Apply LIMIT before OFFSET for proper pagination
     if (query?.limit) {
       sql += ' LIMIT ?'
@@ -2111,7 +2310,48 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       results = results.filter((thing) => matchesWhere(thing, remainingWhere!))
     }
 
+    // Apply field selection or exclusion
+    if (query?.select || query?.exclude) {
+      results = results.map((thing) => this.applyFieldSelection(thing, query.select, query.exclude))
+    }
+
     return results
+  }
+
+  /**
+   * Apply field selection (select) or exclusion (exclude) to a thing
+   */
+  private applyFieldSelection(
+    thing: ThingData,
+    select?: string[],
+    exclude?: string[]
+  ): ThingData {
+    // Always include system fields
+    const systemFields = ['$id', '$type', '$createdAt', '$updatedAt', '$version', '$deletedAt']
+
+    if (select) {
+      // Only include selected fields + system fields
+      const result: ThingData = {} as ThingData
+      for (const key of Object.keys(thing)) {
+        if (systemFields.includes(key) || select.includes(key)) {
+          result[key as keyof ThingData] = thing[key as keyof ThingData]
+        }
+      }
+      return result
+    }
+
+    if (exclude) {
+      // Exclude specified fields (but never system fields)
+      const result: ThingData = { ...thing }
+      for (const key of exclude) {
+        if (!systemFields.includes(key)) {
+          delete (result as Record<string, unknown>)[key]
+        }
+      }
+      return result
+    }
+
+    return thing
   }
 
   private getThing(id: string): ThingData | null {
@@ -2136,10 +2376,45 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       throw new Error(`Thing not found: ${id}`)
     }
 
+    // Extract special update options
+    const { $expectedVersion, $ifMatch, $inc, ...regularUpdates } = updates
+
+    // Check optimistic concurrency control - version
+    if ($expectedVersion !== undefined) {
+      if (existing.$version !== $expectedVersion) {
+        throw new Error(`Version conflict: expected version ${$expectedVersion}, but found version ${existing.$version}`)
+      }
+    }
+
+    // Check conditional update - $ifMatch
+    if ($ifMatch !== undefined) {
+      const conditions = $ifMatch as Record<string, unknown>
+      for (const [field, expected] of Object.entries(conditions)) {
+        const actual = existing[field as keyof ThingData]
+        if (actual !== expected) {
+          throw new Error(`condition failed: ${field} expected ${JSON.stringify(expected)}, but found ${JSON.stringify(actual)}`)
+        }
+      }
+    }
+
+    // Apply atomic increments
+    let finalUpdates = { ...regularUpdates }
+    if ($inc !== undefined) {
+      const increments = $inc as Record<string, number>
+      for (const [field, delta] of Object.entries(increments)) {
+        const currentValue = existing[field as keyof ThingData]
+        if (typeof currentValue === 'number') {
+          finalUpdates[field] = currentValue + delta
+        } else {
+          finalUpdates[field] = delta // If field doesn't exist or isn't a number, set to delta
+        }
+      }
+    }
+
     const now = new Date().toISOString()
     const updated: ThingData = {
       ...existing,
-      ...updates,
+      ...finalUpdates,
       $id: id,
       $type: type,
       $updatedAt: now,
@@ -2196,7 +2471,15 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   /**
    * List things (public wrapper for RpcTarget)
    */
-  listThingsPublic(type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }): Promise<ThingData[]> {
+  listThingsPublic(type: string, query?: {
+    where?: Record<string, unknown>
+    limit?: number
+    offset?: number
+    select?: string[]
+    exclude?: string[]
+    orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>>
+    includeDeleted?: boolean
+  }): Promise<ThingData[]> {
     return this.listThingsInternal(type, query)
   }
 
@@ -2259,6 +2542,166 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   deleteThingInternal(type: string, id: string): Promise<boolean> {
     emitDeprecationWarning('DOCore.deleteThingInternal', 'deleteThingById')
     return this.deleteThing(type, id)
+  }
+
+  // =========================================================================
+  // BATCH OPERATIONS
+  // =========================================================================
+
+  /**
+   * Create multiple things at once
+   */
+  async createManyThings(type: string, items: Array<Record<string, unknown>>): Promise<ThingData[]> {
+    const results: ThingData[] = []
+    for (const data of items) {
+      const thing = await this.createThing(type, data)
+      results.push(thing)
+    }
+    return results
+  }
+
+  /**
+   * Update multiple things matching a filter
+   */
+  async updateManyThings(
+    type: string,
+    filter: { where?: Record<string, unknown> },
+    updates: Record<string, unknown>
+  ): Promise<number> {
+    const things = await this.listThingsInternal(type, { where: filter.where })
+    let count = 0
+    for (const thing of things) {
+      await this.updateThing(type, thing.$id, updates)
+      count++
+    }
+    return count
+  }
+
+  /**
+   * Delete multiple things matching a filter
+   */
+  async deleteManyThings(type: string, filter: { where?: Record<string, unknown> }): Promise<number> {
+    const things = await this.listThingsInternal(type, { where: filter.where })
+    let count = 0
+    for (const thing of things) {
+      const deleted = await this.deleteThing(type, thing.$id)
+      if (deleted) count++
+    }
+    return count
+  }
+
+  // =========================================================================
+  // UPSERT OPERATION
+  // =========================================================================
+
+  /**
+   * Create or update a thing (upsert)
+   */
+  async upsertThing(type: string, data: Record<string, unknown>): Promise<ThingData> {
+    const id = data.$id as string
+    if (!id) {
+      return this.createThing(type, data)
+    }
+
+    const existing = this.getThing(id)
+    if (existing) {
+      return this.updateThing(type, id, data)
+    } else {
+      return this.createThing(type, data)
+    }
+  }
+
+  // =========================================================================
+  // COUNT AND AGGREGATION
+  // =========================================================================
+
+  /**
+   * Count things of a specific type with optional filtering
+   */
+  async countThings(type: string, query?: { where?: Record<string, unknown> }): Promise<number> {
+    let sql = "SELECT COUNT(*) as count FROM things WHERE type = ? AND (json_extract(data, '$.$deletedAt') IS NULL)"
+    const params: unknown[] = [type]
+
+    if (query?.where) {
+      const validatedWhere = validateWhereClause(query.where)
+      const sqlWhere = buildSqlWhereClause(validatedWhere)
+
+      if (sqlWhere.sql) {
+        sql += ' AND ' + sqlWhere.sql
+        params.push(...sqlWhere.params)
+      }
+
+      // If there are remaining where clauses, fall back to list and count
+      if (sqlWhere.remainingWhere && Object.keys(sqlWhere.remainingWhere).length > 0) {
+        const things = await this.listThingsInternal(type, query)
+        return things.length
+      }
+    }
+
+    const result = this.ctx.storage.sql.exec(sql, ...params).toArray()
+    return (result[0]?.count as number) ?? 0
+  }
+
+  /**
+   * Find the first thing matching the query
+   */
+  async findFirstThing(type: string, query?: { where?: Record<string, unknown>; orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>> }): Promise<ThingData | null> {
+    const results = await this.listThingsInternal(type, { ...query, limit: 1 })
+    return results.length > 0 ? results[0] : null
+  }
+
+  // =========================================================================
+  // SOFT DELETE
+  // =========================================================================
+
+  /**
+   * Soft delete a thing by ID
+   */
+  async softDeleteThingById(id: string): Promise<ThingData> {
+    const existing = this.getThing(id)
+    if (!existing) {
+      throw new Error(`Thing not found: ${id}`)
+    }
+    const now = new Date().toISOString()
+    return this.updateThing(existing.$type, id, { $deletedAt: now })
+  }
+
+  /**
+   * Restore a soft-deleted thing by ID
+   */
+  async restoreThingById(id: string): Promise<ThingData> {
+    // Need to get the thing even if it's deleted
+    const rows = this.ctx.storage.sql.exec('SELECT data FROM things WHERE id = ?', id).toArray()
+    if (rows.length === 0) {
+      throw new Error(`Thing not found: ${id}`)
+    }
+
+    const existing = JSON.parse(rows[0].data as string) as ThingData
+    const now = new Date().toISOString()
+
+    const updated: ThingData = {
+      ...existing,
+      $deletedAt: undefined, // Clear deletion timestamp
+      $updatedAt: now,
+      $version: (existing.$version ?? 0) + 1,
+    }
+
+    // Store in memory
+    this.things.set(id, updated)
+
+    // Persist to SQLite
+    this.ctx.storage.sql.exec(
+      `UPDATE things SET data = ?, updated_at = ?, version = ? WHERE id = ?`,
+      JSON.stringify(updated),
+      Date.now(),
+      updated.$version,
+      id
+    )
+
+    // Emit restored event
+    this.send(`${existing.$type}.restored`, updated)
+
+    return updated
   }
 
   // =========================================================================

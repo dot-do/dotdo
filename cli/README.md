@@ -115,10 +115,75 @@ Customer.get("c-123@2024-01-15") // Point in time
 ## Security
 
 Code executes in secure V8 isolate via `ai-evaluate`:
+- CLI sends code to DO via WebSocket RPC
+- DO executes in sandboxed V8 isolate with `$ = this`
 - Cloudflare `worker_loaders` in production
 - Miniflare sandbox in development
 - No filesystem access
 - Network controlled by capability
+- Logs stream back in real-time via correlation IDs
+
+## Promise Pipelining
+
+All property access and method calls are captured by PipelinedStub proxy. Operations batch into a single RPC call until `await`:
+
+```typescript
+// Single RPC call - all operations captured:
+const result = await Customer.get("c-123").orders.recent().first()
+
+// Operations sent as array:
+// [
+//   { path: "Customer", args: [], type: "get" },
+//   { path: "get", args: ["c-123"], type: "call" },
+//   { path: "orders", args: [], type: "get" },
+//   { path: "recent", args: [], type: "call" },
+//   { path: "first", args: [], type: "call" }
+// ]
+```
+
+The proxy accumulates operations via `createPipelineProxy()`. Method calls schedule execution with `setTimeout(0)`, cancelled if the chain continues. Final execution sends a `type: 'pipeline'` message.
+
+## Streaming Output
+
+Real-time log streaming during code evaluation:
+
+```typescript
+// Using callback
+const result = await client.evaluateWithStreaming(code, (log) => {
+  console.log(`[${log.level}] ${log.message}`)
+})
+
+// Using handle pattern
+const stream = client.evaluateStreaming(code)
+stream.onLog((log) => console.log(log.message))
+const result = await stream.result
+```
+
+- WebSocket `'log'` message type with `correlationId`
+- Logs display incrementally in REPL as they arrive
+- `evaluate:complete` event emitted with all streamed logs
+
+## History Persistence
+
+REPL history saved to `~/.dotdo/repl_history`:
+
+```typescript
+const history = new HistoryManager({
+  historyPath: '~/.dotdo/repl_history',  // default
+  maxSize: 1000,                          // default, FIFO removal
+  debounceMs: 500,                        // write batching
+})
+
+history.initialize()  // sync, or initializeAsync()
+history.add('Customer.list()')
+history.search('Customer')  // returns matching entries
+await history.shutdown()    // flush pending writes
+```
+
+- Automatic loading on startup
+- Sensitive command filtering (token, password, secret, key)
+- File permissions: 0600, directory: 0700
+- Atomic writes via temp file + rename
 
 ## Usage
 
@@ -159,15 +224,13 @@ dotdo acme --token $DOTDO_TOKEN
 - [x] Type definitions update from RPC schema
 - [x] Basic Ink REPL UI
 - [x] RPC client foundation
-
-### In Progress
-- [ ] globalThis === $ (flat namespace for Nouns)
-- [ ] `.` trigger for completions (vs Tab only)
-- [ ] ai-evaluate integration (replace Function constructor)
-- [ ] PipelinedStub integration for promise pipelining
-- [ ] Time travel `@` type definitions
-- [ ] Streaming output support
-- [ ] History persistence
+- [x] globalThis === $ (flat namespace for Nouns)
+- [x] `.` trigger for completions (vs Tab only)
+- [x] ai-evaluate integration (replace Function constructor)
+- [x] PipelinedStub integration for promise pipelining
+- [x] Time travel `@` type definitions
+- [x] Streaming output support
+- [x] History persistence
 
 ### Future
 - [ ] Multi-line editing

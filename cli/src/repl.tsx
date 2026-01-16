@@ -12,6 +12,8 @@
  * - Code is sent to DO via RPC
  * - DO runs ai-evaluate with $ = this context
  * - Results are returned and displayed
+ *
+ * @module repl
  */
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
@@ -19,12 +21,12 @@ import { Box, Text, useApp } from 'ink'
 import { Input, StatusBar } from './components/Input.js'
 import { Output, createOutputEntry, type OutputEntry } from './components/Output.js'
 import { CompletionEngine, filterCompletions, getWordAtCursor, type CompletionItem } from './completions.js'
-import { RpcClient, generateTypeDefinitions, type Schema, type EvaluateResult } from './rpc-client.js'
+import { RpcClient, generateTypeDefinitions, type Schema } from './rpc-client.js'
+import { LOG_LEVEL_TO_OUTPUT_TYPE } from './types/evaluate.js'
+import type { LogCallback } from './types/evaluate.js'
 
-/**
- * Log callback for streaming console output
- */
-export type LogCallback = (level: string, message: string) => void
+// Re-export types for backward compatibility
+export type { LogCallback, EvaluateResult as ExecuteResult } from './types/evaluate.js'
 
 // =============================================================================
 // Component Types
@@ -229,17 +231,11 @@ Keyboard shortcuts:
     try {
       const result = await rpcClient.evaluate(value)
 
-      // Forward logs to output
+      // Forward logs to output using centralized type mapping
       if (result.logs) {
-        const typeMap: Record<string, OutputEntry['type']> = {
-          log: 'info',
-          info: 'info',
-          warn: 'warning',
-          error: 'error',
-          debug: 'info',
-        }
         for (const log of result.logs) {
-          addOutput(typeMap[log.level] ?? 'info', log.message)
+          const outputType = LOG_LEVEL_TO_OUTPUT_TYPE[log.level] ?? 'info'
+          addOutput(outputType, log.message)
         }
       }
 
