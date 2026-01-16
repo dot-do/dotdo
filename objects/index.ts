@@ -40,11 +40,18 @@ export default {
       const id = env.AdminDO.idFromName('admin')
       const stub = env.AdminDO.get(id)
 
-      // If using path-based routing, strip the /admin prefix
-      if (isAdminPath && !isAdminHost) {
+      // If URL path starts with /admin/, always strip the prefix
+      // (even if host header matches, the path prefix should be stripped)
+      if (isAdminPath) {
         const newUrl = new URL(request.url)
         newUrl.pathname = url.pathname.replace('/admin', '')
-        const newRequest = new Request(newUrl.toString(), request)
+        // Clone request with new URL - must explicitly pass init to preserve body
+        const newRequest = new Request(newUrl.toString(), {
+          method: request.method,
+          headers: request.headers,
+          body: request.body,
+          redirect: request.redirect,
+        })
         return stub.fetch(newRequest)
       }
 
