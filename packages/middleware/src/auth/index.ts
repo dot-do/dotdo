@@ -16,6 +16,7 @@ import type { Context, MiddlewareHandler, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import * as jose from 'jose'
 import { registerApiKey as apiKeyRegister, getApiKeyLoader, type ApiKeyConfig } from './api-key'
+import type { SessionValidator } from './session'
 
 // Re-export from submodules
 export { jwtMiddleware, generateJWT, verifyJWT, resetJWKSCache } from './jwt'
@@ -60,13 +61,7 @@ export interface JWTPayloadInternal {
   exp?: number
 }
 
-export type SessionValidator = (token: string) => Promise<{
-  userId: string
-  email?: string
-  role?: 'admin' | 'user'
-  expiresAt?: Date
-  activeOrganizationId?: string
-} | null>
+// SessionValidator is re-exported from './session' above
 
 export interface AuthConfig {
   jwtSecret?: string

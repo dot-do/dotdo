@@ -49,10 +49,12 @@ export function clearTestEnv(key: string): void {
 }
 
 /**
- * Get environment variable from test env or process.env
+ * Get environment variable from test env.
+ * In production, API keys should be passed via config options.
+ * This function is primarily for testing purposes.
  */
 function getEnv(key: string): string | undefined {
-  return testEnv[key] ?? (typeof process !== 'undefined' ? process.env?.[key] : undefined)
+  return testEnv[key]
 }
 
 // ============================================================================
