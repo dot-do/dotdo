@@ -1,0 +1,55 @@
+{
+  "name": "@dotdo/core",
+  "version": "2.0.0",
+  "description": "Core Durable Object runtime for dotdo v2 - semantic types, workflow context, and RPC client",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./rpc": {
+      "import": "./dist/rpc/index.js",
+      "types": "./dist/rpc/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "rpc/**/*.ts",
+    "!**/*.test.ts",
+    "!__tests__"
+  ],
+  "keywords": [
+    "cloudflare",
+    "durable-objects",
+    "workers",
+    "rpc",
+    "dotdo"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo.git",
+    "directory": "core"
+  }
+}

@@ -1,27 +1,48 @@
 /**
- * Core exports for dotdo DO hierarchy
+ * @dotdo/core - Core Durable Object Runtime
  *
- * This module exports only core-level abstractions.
- * Each layer has its own barrel export to maintain proper layered architecture:
+ * This is the foundational package for the dotdo ecosystem, providing:
+ * - DOCore class - Base Durable Object with SQLite, Hono routing, WebSocket
+ * - Query validation - MongoDB-style operators for filtering
+ * - RPC client - Type-safe remote procedure calls (via @dotdo/core/rpc)
  *
- * - core/index.ts     -> DOCore (this file)
- * - semantic/index.ts -> DOSemantic
- * - storage/index.ts  -> DOStorageClass
- * - workflow/index.ts -> DOWorkflowClass
- * - objects/index.ts  -> DOFull
+ * @example
+ * ```typescript
+ * // Extend DOCore for your own Durable Object
+ * import { DOCore } from '@dotdo/core'
+ *
+ * export class CustomerDO extends DOCore {
+ *   async getOrders() {
+ *     return this.listThings('Order', { where: { customerId: this.ns } })
+ *   }
+ * }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Use the RPC client to call your DO
+ * import { createRPCClient } from '@dotdo/core/rpc'
+ *
+ * const customer = createRPCClient<CustomerDO>({ target: stub })
+ * const orders = await customer.getOrders()
+ * ```
  *
  * Class Hierarchy (one-way dependency):
  * DOCore (~5KB) <- DOSemantic <- DOStorage <- DOWorkflow <- DOFull
  *
- * NOTE: For wrangler bindings, use api/index.ts which re-exports all DO classes.
- * The core barrel intentionally exports only core-level code to prevent
- * circular dependencies and maintain clean layered architecture.
+ * @module @dotdo/core
  */
 
-// Export core-level class and types only
+// ============================================================================
+// Core DO Class
+// ============================================================================
+
 export { DOCore, type DOCoreEnv } from './DOCore'
 
-// Export query validation utilities
+// ============================================================================
+// Query Validation (MongoDB-style operators)
+// ============================================================================
+
 export {
   validateOperatorQuery,
   validateWhereClause,
@@ -34,7 +55,31 @@ export {
   type ValidOperator,
 } from './query-validation'
 
-// Default worker handler for DOCore
+// ============================================================================
+// RPC Client Re-exports (also available via @dotdo/core/rpc)
+// ============================================================================
+
+export {
+  createRPCClient,
+  pipeline,
+  RPCError,
+  RPCErrorCodes,
+  WebSocketRpcClient,
+  WebSocketRpcHandler,
+} from './rpc'
+
+export type {
+  RPCClientOptions,
+  RPCRequest,
+  RPCResponse,
+  RpcMessage,
+  WebSocketRpcOptions,
+} from './rpc'
+
+// ============================================================================
+// Default Worker Handler
+// ============================================================================
+
 import { DOCore, type DOCoreEnv } from './DOCore'
 
 export default {
