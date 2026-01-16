@@ -42,50 +42,6 @@ export interface ReplProps {
 }
 
 /**
- * Evaluate TypeScript expression in a sandboxed context
- */
-async function evaluateExpression(
-  code: string,
-  rpcClient: RpcClient | null,
-  context: Record<string, unknown>
-): Promise<unknown> {
-  // Create evaluation context
-  const outputFn = context.__output as ((type: string, content: string) => void) | undefined
-  const evalContext = {
-    ...context,
-    $: rpcClient?.createProxy() ?? {},
-    console: {
-      log: (...args: unknown[]) => outputFn?.('info', args.join(' ')),
-      error: (...args: unknown[]) => outputFn?.('error', args.join(' ')),
-      warn: (...args: unknown[]) => outputFn?.('warning', args.join(' ')),
-      info: (...args: unknown[]) => outputFn?.('info', args.join(' ')),
-    },
-  }
-
-  // Simple expression evaluation using Function constructor
-  // This is safe because we control the context
-  try {
-    // Wrap in async function for await support
-    const fn = new Function(
-      ...Object.keys(evalContext),
-      `return (async () => { return ${code} })()`
-    )
-    return await fn(...Object.values(evalContext))
-  } catch (err) {
-    // Try as statements (for assignments, etc.)
-    try {
-      const fn = new Function(
-        ...Object.keys(evalContext),
-        `return (async () => { ${code} })()`
-      )
-      return await fn(...Object.values(evalContext))
-    } catch {
-      throw err
-    }
-  }
-}
-
-/**
  * REPL Component
  */
 export function Repl({

@@ -15,6 +15,7 @@ import {
 import {
   validateWhereClause,
   matchesWhere,
+  buildSqlWhereClause,
   QueryValidationError,
 } from './query-validation'
 import { generateThingId } from './event-system'
@@ -138,6 +139,27 @@ export class ThingStore {
     let sql = 'SELECT data FROM things WHERE type = ?'
     const params: unknown[] = [type]
 
+    // Track if we have any in-memory-only operators that need post-filtering
+    let remainingWhere: Record<string, unknown> | null = null
+
+    // Build SQL WHERE clause from query operators (pushdown optimization)
+    if (query?.where) {
+      // Validate the where clause first - throws QueryValidationError if invalid
+      const validatedWhere = validateWhereClause(query.where)
+
+      // Build SQL WHERE clause for operators that can be pushed to SQLite
+      const sqlWhere = buildSqlWhereClause(validatedWhere)
+
+      if (sqlWhere.sql) {
+        sql += ' AND ' + sqlWhere.sql
+        params.push(...sqlWhere.params)
+      }
+
+      // Keep track of operators that need in-memory filtering ($regex, $exists)
+      remainingWhere = sqlWhere.remainingWhere
+    }
+
+    // Apply LIMIT before OFFSET for proper pagination
     if (query?.limit) {
       sql += ' LIMIT ?'
       params.push(query.limit)
@@ -151,13 +173,9 @@ export class ThingStore {
     const rows = this.ctx.storage.sql.exec(sql, ...params).toArray()
     let results = rows.map((row) => JSON.parse(row.data as string) as ThingData)
 
-    // Apply where clause filter in memory with operator support
-    if (query?.where) {
-      // Validate the where clause - throws QueryValidationError if invalid
-      const validatedWhere = validateWhereClause(query.where)
-
-      // Use the validated where clause with operator matching
-      results = results.filter((thing) => matchesWhere(thing, validatedWhere))
+    // Apply in-memory filtering for operators that couldn't be pushed to SQL ($regex, $exists)
+    if (remainingWhere) {
+      results = results.filter((thing) => matchesWhere(thing, remainingWhere!))
     }
 
     return results

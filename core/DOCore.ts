@@ -20,7 +20,7 @@
  * This is the foundation class that all other DO classes extend.
  */
 
-import { DurableObject, RpcTarget } from 'cloudflare:workers'
+import { DurableObject } from 'cloudflare:workers'
 import { Hono, type Context } from 'hono'
 import { WebSocketRpcHandler, type RpcMessage } from '../rpc/websocket-rpc'
 import { PipelineExecutor, type ExecutorPipelineStep } from '../rpc/pipeline-executor'
@@ -43,6 +43,7 @@ import {
 import {
   validateWhereClause,
   matchesWhere,
+  buildSqlWhereClause,
   QueryValidationError,
 } from './query-validation'
 import {
@@ -50,6 +51,7 @@ import {
   sanitizeSqlError,
   SqlSecurityError,
 } from './sql-security'
+import type { ActionLogEntry } from './durable-execution'
 import { validatePath } from '../lib/validation'
 import { emitDeprecationWarning } from '../lib/deprecation'
 import type { ThingData } from '../types'
@@ -58,6 +60,7 @@ import {
   type MigrationResult,
   type PendingMigration,
 } from '../db/migrations'
+import { LRUCache } from './lru-cache'
 
 // ============================================================================
 // Import extracted modules
@@ -73,7 +76,7 @@ import {
   type CorsEnv,
 } from './http-router'
 import { WebSocketManager, WEBSOCKET_STATUS } from './websocket-manager'
-import { STATE_KEYS } from './state-manager'
+import { STATE_KEYS, StateManager, StateAccessor } from './state-manager'
 import {
   generateEventId,
   generateThingId,
@@ -91,6 +94,13 @@ import {
   type ScheduleBuilder,
   type IntervalBuilder,
 } from './schedule-manager'
+import {
+  NounAccessor,
+  NounInstanceAccessor,
+  type ThingStorageInterface,
+  type NounInstanceRPC,
+  type NounAccessorRPC,
+} from './noun-accessors'
 
 // Re-export from extracted modules for external consumers
 export { HTTP_STATUS, VERSION_HEADER, VERSION } from './http-router'
@@ -105,10 +115,53 @@ export type { ScheduleHandler } from './schedule-manager'
 const DEFAULT_MAX_RETRIES = 3
 const MAX_BACKOFF_MS = 10000
 const EXPONENTIAL_BACKOFF_BASE = 2
+const DEFAULT_THINGS_CACHE_SIZE = 1000
 
 // ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * CrossDOStub - Type-safe interface for cross-DO RPC communication
+ *
+ * This interface defines the RPC contract for communicating between Durable Objects.
+ * It replaces unsafe double casts like `as unknown as DOCore` with a well-defined
+ * interface that documents the actual methods used in cross-DO calls.
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * const targetStub = doBinding.get(targetId) as unknown as DOCore
+ *
+ * // Use:
+ * const targetStub = doBinding.get(targetId) as CrossDOStub
+ * await targetStub.rpcCall('someMethod', [arg1, arg2])
+ * ```
+ */
+export interface CrossDOStub {
+  /**
+   * Execute an RPC call on the target DO
+   * @param method - The method name to call
+   * @param args - Arguments to pass to the method
+   * @param capability - Optional capability token for authorization
+   * @returns The result of the RPC call
+   */
+  rpcCall(method: string, args: unknown[], capability?: string): Promise<unknown>
+
+  /**
+   * Get a noun accessor for CRUD operations on the target DO
+   *
+   * The return type is `unknown` because cross-DO RPC wraps the result in
+   * Cloudflare's Stub<T> type which has special Promise-like semantics.
+   * The actual runtime behavior provides NounAccessor/NounInstanceAccessor
+   * methods but wrapped in the RPC proxy.
+   *
+   * @param noun - The noun type (e.g., 'Customer', 'Order')
+   * @param id - Optional ID for instance-level access
+   * @returns RPC-wrapped accessor (behaves like NounAccessor | NounInstanceAccessor)
+   */
+  getNounAccessor(noun: string, id?: string): unknown
+}
 
 /**
  * Environment bindings for DOCore and related DO classes
@@ -182,17 +235,6 @@ type HonoEnv = {
   Variables: Variables
 }
 
-// ============================================================================
-// Local Types (not imported from modules)
-// ============================================================================
-
-interface ActionLogEntry {
-  stepId: string
-  status: 'pending' | 'completed' | 'failed'
-  result?: unknown
-  error?: { message: string }
-}
-
 // Helper to create the on proxy structure for RPC compatibility
 // Uses the imported createOnProxy signature but needs local DOCore reference
 function createOnProxy(eventHandlers: Map<string, EventHandler[]>): OnProxy {
@@ -210,6 +252,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
   // Extracted module instances
   private wsManager = new WebSocketManager()
+  private stateManager: StateManager
 
   // WebSocket RPC handler for bidirectional callbacks
   protected rpcHandler = new WebSocketRpcHandler()
@@ -218,7 +261,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   private eventHandlers: Map<string, EventHandler[]> = new Map()
   private schedules: Map<string, ScheduleEntry> = new Map()
   private actionLog: ActionLogEntry[] = []
-  private things: Map<string, ThingData> = new Map()
+  // LRU cache for things with configurable max size (default 1000 entries)
+  // Evicted entries are still available from SQLite, this is just a hot cache
+  private things = new LRUCache<ThingData>({ maxSize: DEFAULT_THINGS_CACHE_SIZE })
 
   // =========================================================================
   // NOUN ACCESSORS
@@ -230,14 +275,29 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   // All noun methods use the shared factory: getNounAccessor()
 
   /**
+   * Get a ThingStorageInterface adapter for this DOCore instance.
+   * This adapts DOCore's methods to the interface expected by NounAccessor classes.
+   */
+  private getStorageAdapter(): ThingStorageInterface {
+    return {
+      create: (type: string, data: Record<string, unknown>) => this.createThingInternal(type, data),
+      list: (type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }) => this.listThingsPublic(type, query),
+      getById: (id: string) => this.getThingById(id),
+      updateById: (id: string, updates: Record<string, unknown>) => this.updateThingById(id, updates),
+      deleteById: (id: string) => this.deleteThingById(id),
+    }
+  }
+
+  /**
    * Generic factory for noun accessors - creates NounAccessor or NounInstanceAccessor
    * @param noun The noun type (e.g., 'Customer', 'Order')
    * @param id Optional ID for instance access
    */
   getNounAccessor(noun: string, id?: string): NounAccessor | NounInstanceAccessor {
+    const storage = this.getStorageAdapter()
     return id
-      ? new NounInstanceAccessor(this, noun, id)
-      : new NounAccessor(this, noun)
+      ? new NounInstanceAccessor(storage, noun, id)
+      : new NounAccessor(storage, noun)
   }
 
   /**
@@ -300,6 +360,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     if (!migrationResult.success) {
       console.error('[DOCore] Migration failed:', migrationResult.error)
     }
+
+    // Initialize state manager
+    this.stateManager = new StateManager(this.ctx)
 
     this.app = this.createApp()
 
@@ -1555,6 +1618,49 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     return createOnProxy(this.eventHandlers)
   }
 
+  // =========================================================================
+  // STATE ACCESSOR (RPC-compatible state access)
+  // =========================================================================
+
+  // Cached StateAccessor instance for RPC access
+  private _stateAccessor: StateAccessor | null = null
+
+  /**
+   * State accessor for RPC-compatible state operations
+   *
+   * Note: Cloudflare Workers RPC supports both getter and method patterns for
+   * returning RpcTarget objects. The getter allows property-style access:
+   *   await stub.state.get('myKey')
+   *   await stub.state.set('myKey', 'value')
+   *
+   * @returns StateAccessor instance for RPC access
+   */
+  get state(): StateAccessor {
+    if (!this._stateAccessor) {
+      this._stateAccessor = new StateAccessor(this.stateManager)
+    }
+    return this._stateAccessor
+  }
+
+  /**
+   * State accessor method for RPC-compatible state operations
+   *
+   * This method provides an alternative to the getter for cases where
+   * method call syntax is preferred:
+   *   await stub.getState().get('myKey')
+   *   await stub.getState().set('myKey', 'value')
+   *   await stub.getState().delete('myKey')
+   *   await stub.getState().list({ prefix: 'user:' })
+   *
+   * @returns StateAccessor instance for RPC access
+   */
+  getState(): StateAccessor {
+    if (!this._stateAccessor) {
+      this._stateAccessor = new StateAccessor(this.stateManager)
+    }
+    return this._stateAccessor
+  }
+
   /**
    * Direct RPC method for handler registration
    * Usage: this.registerHandler('Customer.signup', handler)
@@ -1966,6 +2072,27 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     let sql = 'SELECT data FROM things WHERE type = ?'
     const params: unknown[] = [type]
 
+    // Track if we have any in-memory-only operators that need post-filtering
+    let remainingWhere: Record<string, unknown> | null = null
+
+    // Build SQL WHERE clause from query operators (pushdown optimization)
+    if (query?.where) {
+      // Validate the where clause first - throws QueryValidationError if invalid
+      const validatedWhere = validateWhereClause(query.where)
+
+      // Build SQL WHERE clause for operators that can be pushed to SQLite
+      const sqlWhere = buildSqlWhereClause(validatedWhere)
+
+      if (sqlWhere.sql) {
+        sql += ' AND ' + sqlWhere.sql
+        params.push(...sqlWhere.params)
+      }
+
+      // Keep track of operators that need in-memory filtering ($regex, $exists)
+      remainingWhere = sqlWhere.remainingWhere
+    }
+
+    // Apply LIMIT before OFFSET for proper pagination
     if (query?.limit) {
       sql += ' LIMIT ?'
       params.push(query.limit)
@@ -1979,13 +2106,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     const rows = this.ctx.storage.sql.exec(sql, ...params).toArray()
     let results = rows.map((row) => JSON.parse(row.data as string) as ThingData)
 
-    // Apply where clause filter in memory with operator support
-    if (query?.where) {
-      // Validate the where clause - throws QueryValidationError if invalid
-      const validatedWhere = validateWhereClause(query.where)
-
-      // Use the validated where clause with operator matching
-      results = results.filter((thing) => matchesWhere(thing, validatedWhere))
+    // Apply in-memory filtering for operators that couldn't be pushed to SQL ($regex, $exists)
+    if (remainingWhere) {
+      results = results.filter((thing) => matchesWhere(thing, remainingWhere!))
     }
 
     return results
@@ -2174,7 +2297,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
     // Get a stub for the target DO by namespace
     const targetId = doBinding.idFromName(namespace)
-    const targetStub = doBinding.get(targetId) as unknown as DOCore
+    const targetStub = doBinding.get(targetId) as CrossDOStub
 
     // Use the rpcCall method which is already implemented in DOCore
     // This is the standard pattern for cross-DO RPC calls
@@ -2207,15 +2330,15 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
     // Get a stub for the target DO by namespace
     const targetId = doBinding.idFromName(namespace)
-    const targetStub = doBinding.get(targetId)
+    const targetStub = doBinding.get(targetId) as CrossDOStub
 
     // If no id provided, return the noun accessor from the target DO
     if (!id) {
-      return (targetStub as unknown as DOCore).getNounAccessor(noun)
+      return targetStub.getNounAccessor(noun)
     }
 
     // Return the noun instance accessor from the target DO
-    return (targetStub as unknown as DOCore).getNounAccessor(noun, id)
+    return targetStub.getNounAccessor(noun, id)
   }
 
   /**
@@ -2245,136 +2368,6 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     const targetId = doBinding.idFromName(namespace)
     return doBinding.get(targetId)
   }
-}
-
-// ============================================================================
-// Noun Accessor Classes (RpcTarget for nested method calls)
-// ============================================================================
-
-/**
- * NounAccessor - RpcTarget class for noun operations
- * Supports: this.Customer.create(), this.Customer.list()
- */
-class NounAccessor extends RpcTarget {
-  constructor(private doCore: DOCore, private noun: string) {
-    super()
-  }
-
-  async create(data: Record<string, unknown>): Promise<ThingData> {
-    return this.doCore.createThingInternal(this.noun, data)
-  }
-
-  async list(query?: { where?: Record<string, unknown>; limit?: number; offset?: number }): Promise<ThingData[]> {
-    return this.doCore.listThingsPublic(this.noun, query)
-  }
-}
-
-/**
- * NounInstanceAccessor - RpcTarget class for noun instance operations
- * Supports: this.Customer('id').update(), this.Customer('id').delete()
- *
- * Also supports property access for pipelining:
- * - this.Customer('id').profile.email via getProperty()
- * - Pipeline executor can traverse properties by calling getProperty()
- */
-class NounInstanceAccessor extends RpcTarget {
-  // Cached thing data for property access
-  private _thingData: ThingData | null = null
-
-  constructor(private doCore: DOCore, private noun: string, private id: string) {
-    super()
-  }
-
-  async update(updates: Record<string, unknown>): Promise<ThingData> {
-    return this.doCore.updateThingById(this.id, updates)
-  }
-
-  async delete(): Promise<boolean> {
-    return this.doCore.deleteThingById(this.id)
-  }
-
-  async notify(): Promise<{ success: boolean }> {
-    return { success: true }
-  }
-
-  async getProfile(): Promise<ThingData | null> {
-    return this.doCore.getThingById(this.id)
-  }
-
-  async getStatus(): Promise<{ status: string }> {
-    return { status: 'active' }
-  }
-
-  /**
-   * Get the full thing data for property access in pipelines
-   * This enables: Customer('id').profile.email
-   */
-  async getData(): Promise<ThingData | null> {
-    if (!this._thingData) {
-      this._thingData = await this.doCore.getThingById(this.id)
-    }
-    return this._thingData
-  }
-
-  /**
-   * Get a specific property value from the thing
-   * Used by pipeline executor for property access
-   */
-  async getProperty(name: string): Promise<unknown> {
-    const data = await this.getData()
-    if (!data) {
-      throw new Error(`Thing not found: ${this.id}`)
-    }
-    return data[name]
-  }
-
-  // Direct property accessors for common patterns
-  // These allow pipeline executor to access thing properties directly
-
-  get profile(): Promise<unknown> {
-    return this.getProperty('profile')
-  }
-
-  get email(): Promise<unknown> {
-    return this.getProperty('email')
-  }
-
-  get name(): Promise<unknown> {
-    return this.getProperty('name')
-  }
-
-  get settings(): Promise<unknown> {
-    return this.getProperty('settings')
-  }
-
-  get orders(): Promise<unknown> {
-    return this.getProperty('orders')
-  }
-
-  get data(): Promise<unknown> {
-    return this.getProperty('data')
-  }
-
-  get value(): Promise<unknown> {
-    return this.getProperty('value')
-  }
-}
-
-// ============================================================================
-// Noun Accessor Types (for backwards compatibility)
-// ============================================================================
-
-interface NounInstanceRPC {
-  update(updates: Record<string, unknown>): Promise<ThingData>
-  delete(): Promise<boolean>
-  notify(): Promise<{ success: boolean }>
-  getProfile(): Promise<ThingData | null>
-  getStatus(): Promise<{ status: string }>
-}
-
-type NounAccessorRPC = ((id: string) => NounInstanceRPC) & {
-  create(data: Record<string, unknown>): Promise<ThingData>
-  list(query?: { where?: Record<string, unknown>; limit?: number; offset?: number }): Promise<ThingData[]>
 }
 
 // ============================================================================

@@ -14,8 +14,11 @@ import {
   matchesOperators,
   matchesWhere,
   isOperatorObject,
+  buildSqlWhereClause,
   QueryValidationError,
   VALID_OPERATORS,
+  SQL_PUSHABLE_OPERATORS,
+  IN_MEMORY_ONLY_OPERATORS,
   type OperatorQuery,
 } from './query-validation'
 
@@ -487,6 +490,260 @@ describe('Error Message Quality', () => {
     } catch (error) {
       // Error should indicate the problem is with the value type
       expect((error as Error).message).toContain('status')
+    }
+  })
+})
+
+// =============================================================================
+// SQL WHERE CLAUSE BUILDER TESTS
+// =============================================================================
+
+describe('buildSqlWhereClause', () => {
+  describe('simple equality', () => {
+    it('builds SQL for simple equality', () => {
+      const result = buildSqlWhereClause({ status: 'active' })
+
+      expect(result.sql).toBe("json_extract(data, '$.status') = ?")
+      expect(result.params).toEqual(['active'])
+      expect(result.remainingWhere).toBeNull()
+    })
+
+    it('builds SQL for multiple equality conditions', () => {
+      const result = buildSqlWhereClause({
+        status: 'active',
+        category: 'electronics',
+      })
+
+      expect(result.sql).toBe(
+        "json_extract(data, '$.status') = ? AND json_extract(data, '$.category') = ?"
+      )
+      expect(result.params).toEqual(['active', 'electronics'])
+      expect(result.remainingWhere).toBeNull()
+    })
+
+    it('handles numeric values', () => {
+      const result = buildSqlWhereClause({ count: 42 })
+
+      expect(result.sql).toBe("json_extract(data, '$.count') = ?")
+      expect(result.params).toEqual([42])
+    })
+
+    it('skips null and undefined conditions', () => {
+      const result = buildSqlWhereClause({
+        status: 'active',
+        nullField: null,
+        undefinedField: undefined,
+      })
+
+      expect(result.sql).toBe("json_extract(data, '$.status') = ?")
+      expect(result.params).toEqual(['active'])
+    })
+  })
+
+  describe('comparison operators', () => {
+    it('builds SQL for $gt operator', () => {
+      const result = buildSqlWhereClause({ price: { $gt: 10 } })
+
+      expect(result.sql).toBe("json_extract(data, '$.price') > ?")
+      expect(result.params).toEqual([10])
+      expect(result.remainingWhere).toBeNull()
+    })
+
+    it('builds SQL for $lt operator', () => {
+      const result = buildSqlWhereClause({ price: { $lt: 100 } })
+
+      expect(result.sql).toBe("json_extract(data, '$.price') < ?")
+      expect(result.params).toEqual([100])
+    })
+
+    it('builds SQL for $gte operator', () => {
+      const result = buildSqlWhereClause({ quantity: { $gte: 5 } })
+
+      expect(result.sql).toBe("json_extract(data, '$.quantity') >= ?")
+      expect(result.params).toEqual([5])
+    })
+
+    it('builds SQL for $lte operator', () => {
+      const result = buildSqlWhereClause({ quantity: { $lte: 50 } })
+
+      expect(result.sql).toBe("json_extract(data, '$.quantity') <= ?")
+      expect(result.params).toEqual([50])
+    })
+
+    it('builds SQL for range query ($gte and $lte)', () => {
+      const result = buildSqlWhereClause({
+        price: { $gte: 10, $lte: 100 },
+      })
+
+      expect(result.sql).toBe(
+        "json_extract(data, '$.price') >= ? AND json_extract(data, '$.price') <= ?"
+      )
+      expect(result.params).toEqual([10, 100])
+    })
+
+    it('builds SQL for $eq operator', () => {
+      const result = buildSqlWhereClause({ status: { $eq: 'active' } })
+
+      expect(result.sql).toBe("json_extract(data, '$.status') = ?")
+      expect(result.params).toEqual(['active'])
+    })
+
+    it('builds SQL for $ne operator', () => {
+      const result = buildSqlWhereClause({ status: { $ne: 'deleted' } })
+
+      expect(result.sql).toBe("json_extract(data, '$.status') != ?")
+      expect(result.params).toEqual(['deleted'])
+    })
+  })
+
+  describe('array operators', () => {
+    it('builds SQL for $in operator', () => {
+      const result = buildSqlWhereClause({
+        status: { $in: ['active', 'pending'] },
+      })
+
+      expect(result.sql).toBe("json_extract(data, '$.status') IN (?, ?)")
+      expect(result.params).toEqual(['active', 'pending'])
+    })
+
+    it('builds SQL for $nin operator', () => {
+      const result = buildSqlWhereClause({
+        status: { $nin: ['deleted', 'archived'] },
+      })
+
+      expect(result.sql).toBe("json_extract(data, '$.status') NOT IN (?, ?)")
+      expect(result.params).toEqual(['deleted', 'archived'])
+    })
+
+    it('handles empty $in array (matches nothing)', () => {
+      const result = buildSqlWhereClause({ status: { $in: [] } })
+
+      expect(result.sql).toBe('0 = 1')
+      expect(result.params).toEqual([])
+    })
+
+    it('handles empty $nin array (matches everything - no condition)', () => {
+      const result = buildSqlWhereClause({ status: { $nin: [] } })
+
+      // Empty $nin means no exclusions, so no condition is added
+      expect(result.sql).toBe('')
+      expect(result.params).toEqual([])
+    })
+  })
+
+  describe('in-memory-only operators', () => {
+    it('does not push $regex to SQL', () => {
+      const result = buildSqlWhereClause({
+        name: { $regex: '^Widget' },
+      })
+
+      expect(result.sql).toBe('')
+      expect(result.params).toEqual([])
+      expect(result.remainingWhere).toEqual({ name: { $regex: '^Widget' } })
+    })
+
+    it('does not push $exists to SQL', () => {
+      const result = buildSqlWhereClause({
+        email: { $exists: true },
+      })
+
+      expect(result.sql).toBe('')
+      expect(result.params).toEqual([])
+      expect(result.remainingWhere).toEqual({ email: { $exists: true } })
+    })
+
+    it('separates pushable and non-pushable operators for same field', () => {
+      const result = buildSqlWhereClause({
+        price: { $gt: 10, $regex: '\\d+' }, // $regex doesn't make sense for numbers but tests the separation
+      })
+
+      expect(result.sql).toBe("json_extract(data, '$.price') > ?")
+      expect(result.params).toEqual([10])
+      expect(result.remainingWhere).toEqual({ price: { $regex: '\\d+' } })
+    })
+  })
+
+  describe('mixed queries', () => {
+    it('handles equality with operators', () => {
+      const result = buildSqlWhereClause({
+        category: 'electronics',
+        price: { $gt: 10, $lt: 100 },
+      })
+
+      expect(result.sql).toBe(
+        "json_extract(data, '$.category') = ? AND json_extract(data, '$.price') > ? AND json_extract(data, '$.price') < ?"
+      )
+      expect(result.params).toEqual(['electronics', 10, 100])
+    })
+
+    it('handles pushable and non-pushable operators', () => {
+      const result = buildSqlWhereClause({
+        category: 'electronics',
+        price: { $gt: 10 },
+        name: { $regex: '^Widget' },
+      })
+
+      expect(result.sql).toBe(
+        "json_extract(data, '$.category') = ? AND json_extract(data, '$.price') > ?"
+      )
+      expect(result.params).toEqual(['electronics', 10])
+      expect(result.remainingWhere).toEqual({ name: { $regex: '^Widget' } })
+    })
+
+    it('handles empty where clause', () => {
+      const result = buildSqlWhereClause({})
+
+      expect(result.sql).toBe('')
+      expect(result.params).toEqual([])
+      expect(result.remainingWhere).toBeNull()
+    })
+  })
+
+  describe('custom data column', () => {
+    it('uses custom column name', () => {
+      const result = buildSqlWhereClause({ status: 'active' }, 'json_data')
+
+      expect(result.sql).toBe("json_extract(json_data, '$.status') = ?")
+    })
+  })
+})
+
+// =============================================================================
+// OPERATOR CONSTANTS TESTS
+// =============================================================================
+
+describe('Operator Constants', () => {
+  it('SQL_PUSHABLE_OPERATORS contains expected operators', () => {
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$eq')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$ne')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$gt')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$lt')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$gte')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$lte')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$in')
+    expect(SQL_PUSHABLE_OPERATORS).toContain('$nin')
+  })
+
+  it('IN_MEMORY_ONLY_OPERATORS contains expected operators', () => {
+    expect(IN_MEMORY_ONLY_OPERATORS).toContain('$regex')
+    expect(IN_MEMORY_ONLY_OPERATORS).toContain('$exists')
+  })
+
+  it('SQL_PUSHABLE and IN_MEMORY_ONLY are disjoint', () => {
+    const pushable = new Set(SQL_PUSHABLE_OPERATORS)
+    const inMemory = new Set(IN_MEMORY_ONLY_OPERATORS)
+
+    for (const op of pushable) {
+      expect(inMemory.has(op)).toBe(false)
+    }
+  })
+
+  it('all VALID_OPERATORS are in either pushable or in-memory', () => {
+    const pushable = new Set(SQL_PUSHABLE_OPERATORS)
+    const inMemory = new Set(IN_MEMORY_ONLY_OPERATORS)
+
+    for (const op of VALID_OPERATORS) {
+      expect(pushable.has(op) || inMemory.has(op)).toBe(true)
     }
   })
 })

@@ -84,6 +84,18 @@ export type { CapabilityPayload, CapabilityErrorCode } from './capability-token'
 export { ShardRouter } from './shard-router'
 export type { ShardRouterOptions } from './shard-router'
 
+// Re-export test utilities (for testing only)
+export {
+  setTestBehaviors,
+  clearTestBehaviors,
+  getTestBehaviors,
+  createDefaultMockHandler,
+  createSlowMockHandler,
+  CustomerSchema,
+  TestEntitySchema,
+} from './test-utils'
+export type { MockRpcHandler, SchemaProvider, TestBehaviorConfig } from './test-utils'
+
 // Re-export from broker-metrics - Metrics collection for broker routing
 export { BrokerMetricsCollector } from './broker-metrics'
 export type {

@@ -8,6 +8,7 @@
  * - StateManager class for get/set/delete/list operations
  */
 
+import { RpcTarget } from 'cloudflare:workers'
 import {
   validateSqlQuery,
   sanitizeSqlError,
@@ -338,6 +339,101 @@ export class StateManager {
       }
     }
     return obj
+  }
+}
+
+// ============================================================================
+// State Accessor Class (RpcTarget for RPC access)
+// ============================================================================
+
+/**
+ * StateAccessor - RpcTarget class for state operations via RPC
+ *
+ * This class wraps StateManager and exposes its methods via RPC,
+ * allowing patterns like:
+ *   const stub = env.DOCore.get(id)
+ *   await stub.state.get('myKey')
+ *   await stub.state.set('myKey', 'value')
+ *   await stub.state.delete('myKey')
+ *   await stub.state.list({ prefix: 'user:' })
+ */
+export class StateAccessor extends RpcTarget {
+  constructor(private manager: StateManager) {
+    super()
+  }
+
+  /**
+   * Retrieve a value from state by key
+   * @param key The state key to retrieve
+   * @returns The stored value, or undefined if not found
+   */
+  async get(key: string): Promise<unknown> {
+    return this.manager.get(key)
+  }
+
+  /**
+   * Store a value in state
+   * @param key The state key to store under
+   * @param value The value to store (will be JSON serialized)
+   * @returns true on success
+   */
+  async set(key: string, value: unknown): Promise<boolean> {
+    return this.manager.set(key, value)
+  }
+
+  /**
+   * Remove a value from state
+   * @param key The state key to delete
+   * @returns true on success
+   */
+  async delete(key: string): Promise<boolean> {
+    return this.manager.delete(key)
+  }
+
+  /**
+   * List state entries with optional filtering and pagination
+   * @param options Filter and pagination options
+   * @returns Object mapping keys to their values
+   */
+  async list(options: ListOptions = {}): Promise<Record<string, unknown>> {
+    return this.manager.list(options)
+  }
+
+  /**
+   * Store multiple key-value pairs in state
+   * @param entries Object with keys to store
+   * @returns true on success
+   */
+  async setMany(entries: Record<string, unknown>): Promise<boolean> {
+    return this.manager.setMany(entries)
+  }
+
+  /**
+   * Delete multiple keys from state
+   * @param keys Array of keys to delete
+   * @returns true on success
+   */
+  async deleteMany(keys: string[]): Promise<boolean> {
+    return this.manager.deleteMany(keys)
+  }
+
+  /**
+   * Execute a series of state operations atomically with automatic rollback on error
+   * @param ops Array of operations to execute
+   * @returns Object indicating success or failure with optional error message
+   */
+  async transaction(ops: TransactionOp[]): Promise<TransactionResult> {
+    return this.manager.transaction(ops)
+  }
+
+  /**
+   * Execute a raw SQL query against the state storage
+   * @param sql SQL SELECT query string with ? placeholders for parameters
+   * @param params Parameter values for the query
+   * @returns Array of rows matching the query
+   */
+  async query(sql: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
+    return this.manager.query(sql, params)
   }
 }
 

@@ -16,14 +16,34 @@ import { EventEmitter } from 'events'
  */
 export interface RpcMessage {
   id: string
-  type: 'call' | 'response' | 'callback' | 'subscribe' | 'unsubscribe' | 'event' | 'error' | 'introspect'
+  type: 'call' | 'response' | 'callback' | 'subscribe' | 'unsubscribe' | 'event' | 'error' | 'introspect' | 'pipeline' | 'log'
   path?: string[]
   args?: unknown[]
   result?: unknown
-  error?: { message: string; code?: string }
+  error?: { message: string; code?: string; step?: number }
   callbackId?: string
   eventType?: string
   data?: unknown
+  /** Pipeline operations for batched RPC */
+  operations?: PipelineOperation[]
+  /** Count of operations in pipeline */
+  operationCount?: number
+  /** Partial results before error */
+  partialResults?: Array<{ step: number; value: unknown }>
+  /** Correlation ID linking log messages to their originating call */
+  correlationId?: string
+}
+
+/**
+ * Pipeline operation representing a single step in a chained call
+ */
+export interface PipelineOperation {
+  /** Property or method name */
+  path: string
+  /** Arguments (empty array for property access) */
+  args: unknown[]
+  /** Type of operation */
+  type?: 'get' | 'call'
 }
 
 /**
@@ -91,6 +111,25 @@ export interface EvaluateResult {
 }
 
 /**
+ * Log entry received during streaming
+ */
+export interface LogEntry {
+  level: string
+  message: string
+  index?: number
+}
+
+/**
+ * Streaming evaluation handle
+ */
+export interface StreamingEvaluation {
+  /** Subscribe to logs as they arrive */
+  onLog: (callback: (log: LogEntry) => void) => void
+  /** Promise for the final result */
+  result: Promise<EvaluateResult>
+}
+
+/**
  * CLI RPC Client
  *
  * Provides a WebSocket connection to dotdo DOs with:
@@ -113,6 +152,11 @@ export class RpcClient extends EventEmitter {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  /** Tracks streaming state for pending evaluations */
+  private streamingState = new Map<string, {
+    logs: LogEntry[]
+    onLog?: (log: LogEntry) => void
+  }>()
 
   constructor(options: RpcClientOptions) {
     super()
@@ -190,10 +234,11 @@ export class RpcClient extends EventEmitter {
       })
 
       this.ws.on('close', (code, reason) => {
-        this.log('WebSocket closed:', code, reason.toString())
+        const reasonStr = reason.toString()
+        this.log('WebSocket closed:', code, reasonStr)
         this.state = 'disconnected'
-        this.emit('disconnected', { code, reason: reason.toString() })
-        this.handleDisconnect()
+        this.emit('disconnected', { code, reason: reasonStr })
+        this.handleDisconnect(reasonStr)
       })
     })
   }
@@ -229,8 +274,285 @@ export class RpcClient extends EventEmitter {
    * @returns Evaluation result with success/value/error/logs
    */
   async evaluate(code: string): Promise<EvaluateResult> {
-    const result = await this.call(['evaluate'], [code])
-    return result as EvaluateResult
+    if (this.state !== 'connected' || !this.ws) {
+      throw new Error('Not connected')
+    }
+
+    const ws = this.ws
+    const id = this.generateId()
+
+    const message: RpcMessage = {
+      id,
+      type: 'call',
+      path: ['evaluate'],
+      args: [code],
+    }
+
+    // Initialize streaming state for this call (to track logs even without explicit streaming)
+    this.streamingState.set(id, { logs: [] })
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.streamingState.delete(id)
+        this.pendingCalls.delete(id)
+        reject(new Error('RPC call timeout: evaluate'))
+      }, this.options.timeout)
+
+      this.pendingCalls.set(id, {
+        resolve: (value) => {
+          const streamedLogs = this.streamingState.get(id)?.logs ?? []
+          this.streamingState.delete(id)
+
+          // Emit evaluate:complete event
+          this.emit('evaluate:complete', {
+            correlationId: id,
+            streamedLogs,
+            result: value as EvaluateResult,
+          })
+
+          resolve(value as EvaluateResult)
+        },
+        reject: (error) => {
+          this.streamingState.delete(id)
+          reject(error)
+        },
+        timeout,
+      })
+
+      this.log('Sending:', message)
+      ws.send(JSON.stringify(message))
+    })
+  }
+
+  /**
+   * Evaluate code with streaming log callback
+   *
+   * @param code - JavaScript/TypeScript code to evaluate
+   * @param onLog - Callback invoked for each log message during evaluation
+   * @returns Evaluation result with success/value/error/logs
+   */
+  async evaluateWithStreaming(
+    code: string,
+    onLog: (log: { level: string; message: string }) => void
+  ): Promise<EvaluateResult> {
+    if (this.state !== 'connected' || !this.ws) {
+      throw new Error('Not connected')
+    }
+
+    const ws = this.ws
+    const id = this.generateId()
+
+    const message: RpcMessage = {
+      id,
+      type: 'call',
+      path: ['evaluate'],
+      args: [code],
+    }
+
+    // Initialize streaming state for this call
+    this.streamingState.set(id, { logs: [], onLog })
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.streamingState.delete(id)
+        this.pendingCalls.delete(id)
+        reject(new Error('RPC call timeout: evaluate'))
+      }, this.options.timeout)
+
+      this.pendingCalls.set(id, {
+        resolve: (value) => {
+          const streamedLogs = this.streamingState.get(id)?.logs ?? []
+          this.streamingState.delete(id)
+
+          // Emit evaluate:complete event
+          this.emit('evaluate:complete', {
+            correlationId: id,
+            streamedLogs,
+            result: value as EvaluateResult,
+          })
+
+          resolve(value as EvaluateResult)
+        },
+        reject: (error) => {
+          this.streamingState.delete(id)
+          reject(error)
+        },
+        timeout,
+      })
+
+      this.log('Sending (streaming):', message)
+      ws.send(JSON.stringify(message))
+    }) as Promise<EvaluateResult>
+  }
+
+  /**
+   * Evaluate code with streaming, returning a handle for log subscription
+   *
+   * @param code - JavaScript/TypeScript code to evaluate
+   * @returns StreamingEvaluation handle with onLog subscriber and result promise
+   */
+  evaluateStreaming(code: string): StreamingEvaluation {
+    let logCallback: ((log: LogEntry) => void) | undefined
+
+    const resultPromise = new Promise<EvaluateResult>((resolve, reject) => {
+      if (this.state !== 'connected' || !this.ws) {
+        reject(new Error('Not connected'))
+        return
+      }
+
+      const ws = this.ws
+      const id = this.generateId()
+
+      const message: RpcMessage = {
+        id,
+        type: 'call',
+        path: ['evaluate'],
+        args: [code],
+      }
+
+      // Initialize streaming state - onLog will be set by caller
+      const state = {
+        logs: [] as LogEntry[],
+        get onLog() {
+          return logCallback
+        },
+      }
+      this.streamingState.set(id, state)
+
+      const timeout = setTimeout(() => {
+        this.streamingState.delete(id)
+        this.pendingCalls.delete(id)
+        reject(new Error('RPC call timeout: evaluate'))
+      }, this.options.timeout)
+
+      this.pendingCalls.set(id, {
+        resolve: (value) => {
+          const streamedLogs = this.streamingState.get(id)?.logs ?? []
+          this.streamingState.delete(id)
+
+          // Emit evaluate:complete event
+          this.emit('evaluate:complete', {
+            correlationId: id,
+            streamedLogs,
+            result: value as EvaluateResult,
+          })
+
+          resolve(value as EvaluateResult)
+        },
+        reject: (error) => {
+          this.streamingState.delete(id)
+          reject(error)
+        },
+        timeout,
+      })
+
+      this.log('Sending (streaming handle):', message)
+      ws.send(JSON.stringify(message))
+    })
+
+    return {
+      onLog: (callback: (log: LogEntry) => void) => {
+        logCallback = callback
+      },
+      result: resultPromise,
+    }
+  }
+
+  /**
+   * Evaluate code with batched log delivery for high-frequency logs
+   *
+   * @param code - JavaScript/TypeScript code to evaluate
+   * @param options - Batching options
+   * @returns Object with result promise
+   */
+  evaluateWithBatching(
+    code: string,
+    options: {
+      batchInterval: number
+      onBatch: (batch: Array<{ level: string; message: string }>) => void
+    }
+  ): { result: Promise<EvaluateResult> } {
+    if (this.state !== 'connected' || !this.ws) {
+      throw new Error('Not connected')
+    }
+
+    const ws = this.ws
+    const id = this.generateId()
+
+    const message: RpcMessage = {
+      id,
+      type: 'call',
+      path: ['evaluate'],
+      args: [code],
+    }
+
+    // Batch buffer and timer
+    let batch: Array<{ level: string; message: string }> = []
+    let batchTimer: NodeJS.Timeout | null = null
+
+    const flushBatch = () => {
+      if (batch.length > 0) {
+        options.onBatch([...batch])
+        batch = []
+      }
+    }
+
+    const startBatchTimer = () => {
+      if (!batchTimer) {
+        batchTimer = setTimeout(() => {
+          flushBatch()
+          batchTimer = null
+        }, options.batchInterval)
+      }
+    }
+
+    // Initialize streaming state with batching callback
+    this.streamingState.set(id, {
+      logs: [],
+      onLog: (log) => {
+        batch.push({ level: log.level, message: log.message })
+        startBatchTimer()
+      },
+    })
+
+    const resultPromise = new Promise<EvaluateResult>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (batchTimer) clearTimeout(batchTimer)
+        flushBatch()
+        this.streamingState.delete(id)
+        this.pendingCalls.delete(id)
+        reject(new Error('RPC call timeout: evaluate'))
+      }, this.options.timeout)
+
+      this.pendingCalls.set(id, {
+        resolve: (value) => {
+          if (batchTimer) clearTimeout(batchTimer)
+          flushBatch()
+          const streamedLogs = this.streamingState.get(id)?.logs ?? []
+          this.streamingState.delete(id)
+
+          this.emit('evaluate:complete', {
+            correlationId: id,
+            streamedLogs,
+            result: value as EvaluateResult,
+          })
+
+          resolve(value as EvaluateResult)
+        },
+        reject: (error) => {
+          if (batchTimer) clearTimeout(batchTimer)
+          flushBatch()
+          this.streamingState.delete(id)
+          reject(error)
+        },
+        timeout,
+      })
+
+      this.log('Sending (batched):', message)
+      ws.send(JSON.stringify(message))
+    })
+
+    return { result: resultPromise }
   }
 
   /**
@@ -302,12 +624,200 @@ export class RpcClient extends EventEmitter {
   }
 
   /**
-   * Create a proxy for fluent method calls
+   * Create a proxy for fluent method calls with promise pipelining
    */
   createProxy<T = Record<string, (...args: unknown[]) => Promise<unknown>>>(): T {
-    return this.createProxyAtPath([]) as T
+    return this.createPipelineProxy([], null) as T
   }
 
+  /**
+   * Create a pipeline proxy that accumulates operations until await/then
+   *
+   * When a method is called (apply), we schedule the RPC to be sent using setTimeout(0).
+   * The promise is cached so that .then() returns the same result.
+   */
+  private createPipelineProxy(
+    operations: PipelineOperation[],
+    scheduled: {
+      timerId: ReturnType<typeof setTimeout>
+      promise: Promise<unknown> | null
+      executed: boolean
+    } | null
+  ): unknown {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const client = this
+
+    const target = function () {}
+
+    // Shared mutable state for the scheduled execution
+    const executionState = scheduled
+
+    return new Proxy(target, {
+      get(_target, prop) {
+        if (typeof prop === 'symbol') return undefined
+
+        // Make the proxy thenable - this is where we actually send the RPC
+        if (prop === 'then') {
+          // If no operations, return undefined to prevent treating as promise
+          if (operations.length === 0) return undefined
+
+          return function (
+            resolve?: (value: unknown) => unknown,
+            reject?: (reason: unknown) => void
+          ) {
+            // If we have a scheduled execution, use its promise
+            if (executionState) {
+              // If the promise exists, reuse it
+              if (executionState.promise) {
+                return executionState.promise.then(resolve, reject)
+              }
+              // If not executed yet, cancel the timer and execute now
+              if (!executionState.executed) {
+                clearTimeout(executionState.timerId)
+                executionState.executed = true
+                executionState.promise = client.executePipeline(operations)
+                return executionState.promise.then(resolve, reject)
+              }
+            }
+            // No scheduled execution, execute now
+            return client.executePipeline(operations).then(resolve, reject)
+          }
+        }
+
+        // For catch/finally, also delegate to the promise
+        if (prop === 'catch' && operations.length > 0) {
+          return function (reject: (reason: unknown) => void) {
+            if (executionState) {
+              if (executionState.promise) {
+                return executionState.promise.catch(reject)
+              }
+              if (!executionState.executed) {
+                clearTimeout(executionState.timerId)
+                executionState.executed = true
+                executionState.promise = client.executePipeline(operations)
+                return executionState.promise.catch(reject)
+              }
+            }
+            return client.executePipeline(operations).catch(reject)
+          }
+        }
+
+        if (prop === 'finally' && operations.length > 0) {
+          return function (onFinally: () => void) {
+            if (executionState) {
+              if (executionState.promise) {
+                return executionState.promise.finally(onFinally)
+              }
+              if (!executionState.executed) {
+                clearTimeout(executionState.timerId)
+                executionState.executed = true
+                executionState.promise = client.executePipeline(operations)
+                return executionState.promise.finally(onFinally)
+              }
+            }
+            return client.executePipeline(operations).finally(onFinally)
+          }
+        }
+
+        // Cancel any scheduled execution - we're extending the chain
+        if (executionState && !executionState.executed) {
+          clearTimeout(executionState.timerId)
+          executionState.executed = true
+        }
+
+        // Accumulate property access operation
+        const newOperations: PipelineOperation[] = [
+          ...operations,
+          { path: prop as string, args: [], type: 'get' },
+        ]
+        return client.createPipelineProxy(newOperations, null)
+      },
+
+      apply(_target, _thisArg, args) {
+        // Cancel any scheduled execution - we're extending the chain
+        if (executionState && !executionState.executed) {
+          clearTimeout(executionState.timerId)
+          executionState.executed = true
+        }
+
+        // Get the last operation and convert it to a method call
+        if (operations.length === 0) {
+          // Called directly on root - shouldn't happen but handle it
+          return client.createPipelineProxy([{ path: '', args, type: 'call' }], null)
+        }
+
+        // Clone operations and update last one to be a call with args
+        const newOperations = operations.slice(0, -1)
+        const lastOp = operations[operations.length - 1]
+        newOperations.push({
+          path: lastOp.path,
+          args,
+          type: 'call',
+        })
+
+        // Create shared state for scheduled execution
+        const newExecutionState = {
+          timerId: undefined as unknown as ReturnType<typeof setTimeout>,
+          promise: null as Promise<unknown> | null,
+          executed: false,
+        }
+
+        // Schedule execution using setTimeout(0) - works with fake timers
+        newExecutionState.timerId = setTimeout(() => {
+          if (!newExecutionState.executed) {
+            newExecutionState.executed = true
+            newExecutionState.promise = client.executePipeline(newOperations)
+          }
+        }, 0)
+
+        // Return a new proxy that can continue chaining or be awaited
+        return client.createPipelineProxy(newOperations, newExecutionState)
+      },
+    })
+  }
+
+  /**
+   * Execute a pipeline of operations as a single RPC call
+   */
+  private async executePipeline(operations: PipelineOperation[]): Promise<unknown> {
+    if (this.state !== 'connected' || !this.ws) {
+      throw new Error('Not connected')
+    }
+
+    const ws = this.ws
+    const id = this.generateId()
+
+    // Serialize args in each operation
+    const serializedOperations = operations.map((op) => ({
+      ...op,
+      args: this.serializeArgs(op.args),
+    }))
+
+    // Also include a path array for backward compatibility / convenience
+    const path = operations.map((op) => op.path)
+
+    const message: RpcMessage = {
+      id,
+      type: 'pipeline',
+      path, // Array of path segments
+      operations: serializedOperations,
+      operationCount: operations.length,
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingCalls.delete(id)
+        reject(new Error(`RPC pipeline timeout`))
+      }, this.options.timeout)
+
+      this.pendingCalls.set(id, { resolve, reject, timeout })
+
+      this.log('Sending pipeline:', message)
+      ws.send(JSON.stringify(message))
+    })
+  }
+
+  // Legacy method for backward compatibility
   private createProxyAtPath(path: string[]): unknown {
     return new Proxy(() => {}, {
       get: (_target, prop) => {
@@ -344,6 +854,9 @@ export class RpcClient extends EventEmitter {
         case 'error':
           this.handleError(message)
           break
+        case 'log':
+          this.handleLog(message)
+          break
       }
     } catch (err) {
       this.log('Failed to parse message:', err)
@@ -358,9 +871,42 @@ export class RpcClient extends EventEmitter {
     this.pendingCalls.delete(message.id)
 
     if (message.error) {
-      pending.reject(new Error(message.error.message))
+      const error = new Error(message.error.message) as Error & {
+        pipelineStep?: number
+        partialResults?: unknown[]
+      }
+      // Add pipeline step information if present
+      if (typeof message.error.step === 'number') {
+        error.pipelineStep = message.error.step
+      }
+      // Add partial results if present
+      if (message.partialResults) {
+        error.partialResults = message.partialResults
+      }
+      pending.reject(error)
     } else {
-      pending.resolve(this.deserializeResult(message.result))
+      // Handle pipeline response format
+      const result = message.result as {
+        steps?: Array<{ step: number; value: unknown }>
+        final?: unknown
+      } | null
+
+      if (result && typeof result === 'object' && 'final' in result) {
+        // Pipeline response with steps and final result
+        let finalResult = this.deserializeResult(result.final)
+
+        // Attach pipeline metadata to the result if it's an object
+        if (finalResult && typeof finalResult === 'object') {
+          (finalResult as Record<string, unknown>).$pipeline = {
+            steps: result.steps || [],
+          }
+        }
+
+        pending.resolve(finalResult)
+      } else {
+        // Regular response
+        pending.resolve(this.deserializeResult(message.result))
+      }
     }
   }
 
@@ -383,10 +929,46 @@ export class RpcClient extends EventEmitter {
   }
 
   /**
+   * Handle streaming log message
+   */
+  private handleLog(message: RpcMessage): void {
+    const correlationId = message.correlationId
+    if (!correlationId) return
+
+    // Only emit for pending calls (ignore orphan logs)
+    if (!this.pendingCalls.has(correlationId)) return
+
+    const data = message.data as { level?: string; message?: string; index?: number } | undefined
+    const logEntry: LogEntry = {
+      level: data?.level ?? 'info',
+      message: data?.message ?? '',
+      index: data?.index,
+    }
+
+    // Track in streaming state
+    const state = this.streamingState.get(correlationId)
+    if (state) {
+      state.logs.push(logEntry)
+      // Call streaming callback if set
+      if (state.onLog) {
+        state.onLog({ level: logEntry.level, message: logEntry.message })
+      }
+    }
+
+    // Emit 'log' event for global listeners
+    this.emit('log', {
+      correlationId,
+      level: logEntry.level,
+      message: logEntry.message,
+      index: logEntry.index,
+    })
+  }
+
+  /**
    * Handle disconnection with optional reconnect
    */
-  private handleDisconnect(): void {
-    this.cleanup()
+  private handleDisconnect(reason?: string): void {
+    this.cleanup(reason)
 
     if (this.options.autoReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
@@ -404,7 +986,17 @@ export class RpcClient extends EventEmitter {
   /**
    * Clean up pending calls
    */
-  private cleanup(): void {
+  private cleanup(reason?: string): void {
+    // Emit streaming:interrupted for any calls with streaming state
+    for (const [id, state] of this.streamingState) {
+      this.emit('streaming:interrupted', {
+        correlationId: id,
+        reason: reason ?? 'Connection closed',
+        logsReceived: state.logs.length,
+      })
+    }
+    this.streamingState.clear()
+
     for (const [id, pending] of this.pendingCalls) {
       clearTimeout(pending.timeout)
       pending.reject(new Error('Connection closed'))

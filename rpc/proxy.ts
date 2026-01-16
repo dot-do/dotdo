@@ -11,7 +11,7 @@
  */
 
 import { serialize, deserialize } from './transport'
-import { DEFAULT_REQUEST_TIMEOUT, SLOW_DELAY_MS, ABORT_CHECK_INTERVAL_MS } from './constants'
+import { DEFAULT_REQUEST_TIMEOUT } from './constants'
 import { generateInterface, RPC_PROTOCOL_VERSION, RPC_MIN_VERSION } from './interface'
 import {
   Schema,
@@ -21,6 +21,7 @@ import {
   MethodDescriptor,
   PipelineStep,
 } from './shared-types'
+import { getTestBehaviors, CustomerSchema, type MockRpcHandler, type SchemaProvider } from './test-utils'
 
 // Re-export shared types for backwards compatibility
 export type { Schema, FieldSchema, MethodSchema, ParamSchema, MethodDescriptor, PipelineStep }
@@ -68,6 +69,12 @@ export interface RPCClientOptions {
   }
   /** Target class for schema generation (optional) */
   targetClass?: new (...args: unknown[]) => unknown
+  /** Custom schema provider for URL-based schema resolution (for testing) */
+  schemaProvider?: SchemaProvider
+  /** Custom mock handler for simulating RPC responses (for testing) */
+  mockHandler?: MockRpcHandler
+  /** Custom headers to include in HTTP requests */
+  headers?: Record<string, string>
 }
 
 // Stub type
@@ -125,6 +132,9 @@ interface ClientState {
   schema?: Schema
   targetClass?: new (...args: unknown[]) => unknown
   generatedSchema?: ReturnType<typeof generateInterface>
+  schemaProvider?: SchemaProvider
+  mockHandler?: MockRpcHandler
+  headers?: Record<string, string>
 }
 
 // Store client states
@@ -144,19 +154,35 @@ const clientStates = new WeakMap<object, ClientState>()
  * @param options.timeout - Request timeout in milliseconds (default: 30000ms)
  * @param options.retry - Retry configuration with maxAttempts and backoffMs
  * @returns Proxy object with method invocation and $meta introspection interface
+ * @throws {RPCError} With code 'METHOD_NOT_FOUND' if method doesn't exist on target
+ * @throws {RPCError} With code 'VALIDATION_ERROR' if arguments don't match schema
+ * @throws {RPCError} With code 'TIMEOUT' if request exceeds configured timeout
  *
  * @example
+ * // Basic client creation
  * const client = createRPCClient<CustomerDO>({
  *   target: 'https://customer.api.dotdo.dev/cust-123',
  *   timeout: 5000,
  * })
  * const orders = await client.getOrders()
+ *
+ * // Introspection via $meta
  * const schema = await client.$meta.schema()
+ * const methods = await client.$meta.methods()
+ *
+ * // With retry configuration
+ * const resilientClient = createRPCClient<CustomerDO>({
+ *   target: doStub,
+ *   retry: { maxAttempts: 3, backoffMs: 100 }
+ * })
  */
 export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: MetaInterface } {
   const targetUrl = typeof options.target === 'string'
     ? options.target
     : 'stub://local'
+
+  // Get test behaviors from global registry if not provided in options
+  const testBehaviors = getTestBehaviors()
 
   const state: ClientState = {
     target: options.target,
@@ -165,6 +191,9 @@ export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: Meta
     retry: options.retry,
     auth: options.auth,
     targetClass: options.targetClass,
+    schemaProvider: options.schemaProvider ?? testBehaviors?.schemaProvider,
+    mockHandler: options.mockHandler ?? testBehaviors?.mockHandler,
+    headers: options.headers,
   }
 
   // Create the $meta interface
@@ -280,67 +309,16 @@ async function fetchSchema(state: ClientState): Promise<Schema> {
     }
   }
 
-  // Try to infer from target URL
-  const targetUrl = state.targetUrl
-  if (targetUrl.includes('test.api.dotdo.dev') || targetUrl.includes('slow.api.dotdo.dev')) {
-    // For test URLs (including slow test URLs), return TestEntity schema
-    // This handles the contract test cases
-    return getTestEntitySchema()
+  // Try custom schema provider if available
+  if (state.schemaProvider) {
+    const customSchema = state.schemaProvider(state.targetUrl)
+    if (customSchema) {
+      return customSchema
+    }
   }
 
   // Default Customer schema for backwards compatibility
-  return {
-    name: 'Customer',
-    fields: [
-      { name: '$id', type: 'string', required: true, description: 'Unique identifier' },
-      { name: 'name', type: 'string', required: true },
-      { name: 'email', type: 'string', required: true },
-      { name: 'orders', type: 'string[]', required: false },
-    ],
-    methods: [
-      {
-        name: 'charge',
-        params: [{ name: 'amount', type: 'number', required: true }],
-        returns: 'Promise<Receipt>',
-      },
-      {
-        name: 'getOrders',
-        params: [],
-        returns: 'Promise<Order[]>',
-      },
-      {
-        name: 'notify',
-        params: [{ name: 'message', type: 'string', required: true }],
-        returns: 'Promise<void>',
-      },
-    ],
-  }
-}
-
-/**
- * Get schema for TestEntity (used in contract tests)
- */
-function getTestEntitySchema(): Schema {
-  return {
-    name: 'TestEntity',
-    fields: [
-      { name: '$id', type: 'string', required: true, description: 'Unique identifier' },
-      { name: 'name', type: 'string', required: true },
-      { name: 'value', type: 'number', required: true },
-      { name: 'tags', type: 'string[]', required: true },
-      { name: 'createdAt', type: 'Date', required: true },
-      { name: 'metadata', type: 'object', required: true },
-    ],
-    methods: [
-      { name: 'getValue', params: [], returns: 'Promise<number>' },
-      { name: 'setValue', params: [{ name: 'value', type: 'number', required: true }], returns: 'Promise<void>' },
-      { name: 'increment', params: [{ name: 'by', type: 'number', required: false }], returns: 'Promise<number>' },
-      { name: 'getTags', params: [], returns: 'Promise<string[]>' },
-      { name: 'addTag', params: [{ name: 'tag', type: 'string', required: true }], returns: 'Promise<void>' },
-      { name: 'setMetadata', params: [{ name: 'key', type: 'string', required: true }, { name: 'value', type: 'unknown', required: true }], returns: 'Promise<void>' },
-      { name: 'getMetadata', params: [{ name: 'key', type: 'string', required: true }], returns: 'Promise<unknown>' },
-    ],
-  }
+  return CustomerSchema
 }
 
 /**
@@ -417,7 +395,7 @@ async function validateAndInvokeMethod(
  * Invoke a remote method
  */
 async function invokeRemoteMethod(state: ClientState, method: string, args: unknown[]): Promise<unknown> {
-  const { timeout, retry, target, targetUrl } = state
+  const { timeout, retry, target, targetUrl, mockHandler, headers, auth } = state
 
   // Create abort controller for timeout
   const controller = new AbortController()
@@ -438,7 +416,7 @@ async function invokeRemoteMethod(state: ClientState, method: string, args: unkn
     try {
       // Race between the RPC call and the timeout
       const result = await Promise.race([
-        makeRPCCall(target, method, args, controller.signal),
+        makeRPCCall(target, method, args, controller.signal, mockHandler, headers, auth),
         timeoutPromise
       ])
       return result
@@ -474,7 +452,8 @@ async function makeRPCCall(
   target: string | DurableObjectStub,
   method: string,
   args: unknown[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  mockHandler?: MockRpcHandler
 ): Promise<unknown> {
   // Check if aborted
   if (signal.aborted) {
@@ -501,62 +480,13 @@ async function makeRPCCall(
     return text ? deserialize(text) : undefined
   }
 
-  // Check for slow URLs that should timeout - for testing purposes
-  if (typeof target === 'string' && target.includes('slow.')) {
-    // Simulate a slow operation using polling-based abort detection
-    // This approach is more reliable across different JS runtimes
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < SLOW_DELAY_MS) {
-      // Check if signal was aborted
-      if (signal.aborted) {
-        throw new RPCError('Request timeout', { code: 'TIMEOUT', method })
-      }
-      // Yield to event loop with a short wait
-      await new Promise(resolve => setTimeout(resolve, ABORT_CHECK_INTERVAL_MS))
-    }
+  // Use mock handler if provided (for testing)
+  if (mockHandler) {
+    return mockHandler(method, args)
   }
 
-  // Simulate successful responses for test URLs
-  if (method === 'getOrders') {
-    return []
-  }
-
-  if (method === 'notify') {
-    return undefined
-  }
-
-  if (method === 'charge') {
-    return {
-      id: `rcpt-${Date.now()}`,
-      amount: args[0],
-      timestamp: new Date(),
-    }
-  }
-
-  if (method === 'streamOrders') {
-    // Return an async iterable
-    return {
-      [Symbol.asyncIterator](): AsyncIterator<unknown> {
-        let i = 0
-        return {
-          async next() {
-            if (i >= 10) {
-              return { done: true, value: undefined }
-            }
-            // Yield to event loop to allow proper async iteration
-            await Promise.resolve()
-            i++
-            return {
-              done: false,
-              value: { id: `order-${i}`, customerId: 'cust-123', total: 100, items: [], createdAt: new Date() },
-            }
-          },
-        }
-      },
-    }
-  }
-
+  // For string targets without mock handler, we can't make a real RPC call
+  // In production, this would be replaced with actual HTTP/RPC transport
   return undefined
 }
 
@@ -576,6 +506,8 @@ async function makeRPCCall(
  * @template T - The target object type
  * @param target - The RPC client or local object to pipeline through
  * @returns Pipeline builder with fluent API for method chaining
+ * @throws {RPCError} When execute() is called and a pipeline step fails.
+ *   Error includes `partialResults` array with results from successful steps.
  *
  * @example
  * // Chain method calls without intermediate round-trips
@@ -584,11 +516,21 @@ async function makeRPCCall(
  *   .then('filter', (o: Order) => o.total > 100)
  *   .execute()
  *
- * // Inspect execution plan
+ * // Inspect execution plan before running
  * const plan = pipeline(customer)
  *   .then('getOrders')
  *   .then('map', (o: Order) => o.id)
  *   .plan()
+ *
+ * // Conditional branching
+ * const result = await pipeline(customer)
+ *   .then('getBalance')
+ *   .then('branch', {
+ *     condition: (bal: number) => bal > 1000,
+ *     ifTrue: (bal: number) => 'premium',
+ *     ifFalse: (bal: number) => 'standard'
+ *   })
+ *   .execute()
  */
 export function pipeline<T>(target: T): PipelineBuilder<T> {
   const steps: PipelineStep[] = []

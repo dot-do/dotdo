@@ -14,6 +14,7 @@ export { DOStorageClass } from '../storage/DOStorage'
 export { DOWorkflowClass } from '../workflow/DOWorkflow'
 export { DOFull, type DOFullEnv } from './DOFull'
 export { McpServer } from '../mcp/server'
+export { AdminDO } from '../examples/admin.example.org.ai/index'
 
 // Default worker handler
 import { DOFull, type DOFullEnv } from './DOFull'

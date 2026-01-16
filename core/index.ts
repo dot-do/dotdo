@@ -80,10 +80,14 @@ export {
   matchesOperators,
   matchesWhere,
   isOperatorObject,
+  buildSqlWhereClause,
   QueryValidationError,
   VALID_OPERATORS,
+  SQL_PUSHABLE_OPERATORS,
+  IN_MEMORY_ONLY_OPERATORS,
   type OperatorQuery,
   type ValidOperator,
+  type SqlWhereClauseResult,
 } from './query-validation'
 
 // ============================================================================

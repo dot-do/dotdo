@@ -12,7 +12,8 @@
       { "name": "DOStorage", "class_name": "DOStorageClass" },
       { "name": "DOWorkflow", "class_name": "DOWorkflowClass" },
       { "name": "DOFull", "class_name": "DOFull" },
-      { "name": "MCP", "class_name": "McpServer" }
+      { "name": "MCP", "class_name": "McpServer" },
+      { "name": "AdminDO", "class_name": "AdminDO" }
     ]
   },
 
@@ -28,6 +29,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["DOSemantic", "DOStorageClass", "DOWorkflowClass", "DOFull"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["AdminDO"]
     }
   ],
 

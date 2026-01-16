@@ -102,6 +102,24 @@ export function parseTime(time: string): { hour: number; minute: number } {
   const minute = match[2] ? parseInt(match[2], 10) : 0
   const period = match[3]?.toLowerCase()
 
+  // Validate minutes range (0-59)
+  if (minute < 0 || minute > 59) {
+    throw new Error(`Invalid time format: ${time}`)
+  }
+
+  // Validate hour based on format
+  if (period) {
+    // AM/PM format: hour must be 1-12
+    if (hour < 1 || hour > 12) {
+      throw new Error(`Invalid time format: ${time}`)
+    }
+  } else {
+    // 24-hour format: hour must be 0-23
+    if (hour < 0 || hour > 23) {
+      throw new Error(`Invalid time format: ${time}`)
+    }
+  }
+
   if (period === 'pm' && hour < 12) {
     hour += 12
   } else if (period === 'am' && hour === 12) {

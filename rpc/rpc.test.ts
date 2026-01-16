@@ -15,7 +15,7 @@
  * @see README.md for Cap'n Web RPC architecture
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest'
 import {
   generateInterface,
   createRPCClient,
@@ -24,6 +24,13 @@ import {
   serialize,
   deserialize,
 } from './index'
+import {
+  setTestBehaviors,
+  clearTestBehaviors,
+  createDefaultMockHandler,
+  createSlowMockHandler,
+  CustomerSchema,
+} from './test-utils'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -227,6 +234,22 @@ interface Receipt {
 }
 
 // Implementations imported from ./index
+
+// ============================================================================
+// TEST SETUP - Register mock behaviors for RPC testing
+// ============================================================================
+
+beforeAll(() => {
+  // Set up global test behaviors for all RPC tests
+  setTestBehaviors({
+    mockHandler: createDefaultMockHandler(),
+  })
+})
+
+afterAll(() => {
+  // Clean up test behaviors
+  clearTestBehaviors()
+})
 
 // ============================================================================
 // 1. INTERFACE GENERATION TESTS
@@ -799,14 +822,15 @@ describe('Type-safe Remote Execution', () => {
     })
 
     it('handles timeout errors', async () => {
+      // Create a client with a slow mock handler that takes longer than the timeout
       const client = createRPCClient<CustomerDO>({
-        target: 'https://slow.api.dotdo.dev/cust-123',
+        target: 'https://customer.api.dotdo.dev/cust-123',
         timeout: 100, // Very short timeout
+        mockHandler: createSlowMockHandler(500), // Handler takes 500ms, but timeout is 100ms
       })
 
-      // Without a real server, the proxy throws "Method not found"
-      // In production with a slow server, this would throw a timeout error
-      await expect(client.getOrders()).rejects.toThrow(/Method.*not found|timeout/i)
+      // The request should timeout before the mock handler completes
+      await expect(client.getOrders()).rejects.toThrow(/timeout/i)
     }, 30000)
 
     it('supports retry on transient failures', async () => {

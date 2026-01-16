@@ -344,3 +344,190 @@ export function matchesWhere(
 
   return true
 }
+
+// =============================================================================
+// SQL WHERE CLAUSE BUILDER
+// =============================================================================
+
+/**
+ * Operators that can be pushed to SQLite using json_extract().
+ * These operators have direct SQL equivalents.
+ */
+export const SQL_PUSHABLE_OPERATORS = [
+  '$eq',
+  '$ne',
+  '$gt',
+  '$lt',
+  '$gte',
+  '$lte',
+  '$in',
+  '$nin',
+] as const
+
+/**
+ * Operators that require in-memory filtering.
+ * - $regex: SQLite LIKE is not equivalent to JS regex
+ * - $exists: Requires special NULL handling that's tricky with json_extract
+ */
+export const IN_MEMORY_ONLY_OPERATORS = ['$regex', '$exists'] as const
+
+/**
+ * Result of building a SQL WHERE clause from query operators.
+ */
+export interface SqlWhereClauseResult {
+  /** SQL WHERE clause fragment (without leading WHERE keyword) */
+  sql: string
+  /** Parameter values for the SQL query (in order) */
+  params: unknown[]
+  /** Any operators that couldn't be pushed to SQL and need in-memory filtering */
+  remainingWhere: Record<string, unknown | OperatorQuery> | null
+}
+
+/**
+ * Check if an operator can be pushed to SQLite
+ */
+function isSqlPushableOperator(op: string): op is (typeof SQL_PUSHABLE_OPERATORS)[number] {
+  return (SQL_PUSHABLE_OPERATORS as readonly string[]).includes(op)
+}
+
+/**
+ * Build a SQL WHERE clause from a validated where clause.
+ * Uses json_extract() to query fields from the JSON data column.
+ *
+ * @param where - The validated where clause
+ * @param dataColumn - The name of the JSON column (default: 'data')
+ * @returns SQL WHERE clause, parameters, and any remaining filters
+ *
+ * @example
+ * ```typescript
+ * const { sql, params, remainingWhere } = buildSqlWhereClause({
+ *   status: 'active',
+ *   price: { $gt: 10, $lt: 100 },
+ *   name: { $regex: '^Widget' }, // Can't push to SQL
+ * })
+ * // sql: "json_extract(data, '$.status') = ? AND json_extract(data, '$.price') > ? AND json_extract(data, '$.price') < ?"
+ * // params: ['active', 10, 100]
+ * // remainingWhere: { name: { $regex: '^Widget' } }
+ * ```
+ */
+export function buildSqlWhereClause(
+  where: Record<string, unknown | OperatorQuery>,
+  dataColumn: string = 'data'
+): SqlWhereClauseResult {
+  const conditions: string[] = []
+  const params: unknown[] = []
+  const remainingWhere: Record<string, unknown | OperatorQuery> = {}
+
+  for (const [field, condition] of Object.entries(where)) {
+    // Skip null/undefined conditions
+    if (condition === null || condition === undefined) {
+      continue
+    }
+
+    const jsonPath = `json_extract(${dataColumn}, '$.${field}')`
+
+    // Check if this is an operator query
+    if (typeof condition === 'object' && !Array.isArray(condition)) {
+      const conditionObj = condition as Record<string, unknown>
+      const keys = Object.keys(conditionObj)
+      const hasOperators = keys.some((k) => k.startsWith('$'))
+
+      if (hasOperators) {
+        // Process each operator
+        const fieldRemainingOps: Record<string, unknown> = {}
+        let hasSqlPushable = false
+        let hasInMemoryOnly = false
+
+        for (const [op, value] of Object.entries(conditionObj)) {
+          if (isSqlPushableOperator(op)) {
+            hasSqlPushable = true
+            const sqlCondition = buildOperatorCondition(jsonPath, op, value, params)
+            if (sqlCondition) {
+              conditions.push(sqlCondition)
+            }
+          } else {
+            // Operator can't be pushed to SQL
+            hasInMemoryOnly = true
+            fieldRemainingOps[op] = value
+          }
+        }
+
+        // If there are any in-memory-only operators for this field,
+        // add them to the remaining where clause
+        if (hasInMemoryOnly) {
+          remainingWhere[field] = fieldRemainingOps
+        }
+
+        continue
+      }
+    }
+
+    // Simple equality - push to SQL
+    conditions.push(`${jsonPath} = ?`)
+    params.push(condition)
+  }
+
+  return {
+    sql: conditions.length > 0 ? conditions.join(' AND ') : '',
+    params,
+    remainingWhere: Object.keys(remainingWhere).length > 0 ? remainingWhere : null,
+  }
+}
+
+/**
+ * Build SQL condition for a single operator.
+ * Returns the condition string and adds parameters to the params array.
+ */
+function buildOperatorCondition(
+  jsonPath: string,
+  op: string,
+  value: unknown,
+  params: unknown[]
+): string | null {
+  switch (op) {
+    case '$eq':
+      params.push(value)
+      return `${jsonPath} = ?`
+
+    case '$ne':
+      params.push(value)
+      return `${jsonPath} != ?`
+
+    case '$gt':
+      params.push(value)
+      return `${jsonPath} > ?`
+
+    case '$lt':
+      params.push(value)
+      return `${jsonPath} < ?`
+
+    case '$gte':
+      params.push(value)
+      return `${jsonPath} >= ?`
+
+    case '$lte':
+      params.push(value)
+      return `${jsonPath} <= ?`
+
+    case '$in':
+      if (Array.isArray(value) && value.length > 0) {
+        const placeholders = value.map(() => '?').join(', ')
+        params.push(...value)
+        return `${jsonPath} IN (${placeholders})`
+      }
+      // Empty $in array means nothing matches
+      return '0 = 1'
+
+    case '$nin':
+      if (Array.isArray(value) && value.length > 0) {
+        const placeholders = value.map(() => '?').join(', ')
+        params.push(...value)
+        return `${jsonPath} NOT IN (${placeholders})`
+      }
+      // Empty $nin array means everything matches (no exclusions)
+      return null
+
+    default:
+      return null
+  }
+}

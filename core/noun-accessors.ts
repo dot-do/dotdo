@@ -78,13 +78,44 @@ export class NounAccessor extends RpcTarget {
 
   /**
    * Create a new thing of this noun type
+   *
+   * @param data - The data to store with the new thing (arbitrary key-value pairs)
+   * @returns The created thing with generated $id, $type, timestamps, and provided data
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * // Create a new customer
+   * const customer = await this.Customer.create({
+   *   name: 'Alice',
+   *   email: 'alice@example.com',
+   *   plan: 'premium'
+   * })
+   * console.log(customer.$id) // 'cust_abc123'
    */
   async create(data: Record<string, unknown>): Promise<ThingData> {
     return this.storage.create(this.noun, data)
   }
 
   /**
-   * List things of this noun type
+   * List things of this noun type with optional filtering and pagination
+   *
+   * @param query - Optional query parameters for filtering and pagination
+   * @param query.where - Key-value pairs to filter results (exact match)
+   * @param query.limit - Maximum number of results to return (default: all)
+   * @param query.offset - Number of results to skip for pagination
+   * @returns Array of things matching the query criteria
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * // List all customers
+   * const customers = await this.Customer.list()
+   *
+   * // List premium customers with pagination
+   * const premiumCustomers = await this.Customer.list({
+   *   where: { plan: 'premium' },
+   *   limit: 10,
+   *   offset: 0
+   * })
    */
   async list(query?: NounQueryOptions): Promise<ThingData[]> {
     return this.storage.list(this.noun, query)
@@ -112,14 +143,35 @@ export class NounInstanceAccessor extends RpcTarget {
   }
 
   /**
-   * Update this thing instance
+   * Update this thing instance with partial data
+   *
+   * @param updates - Key-value pairs to merge into the existing thing data
+   * @returns The updated thing with all fields (existing + updated)
+   * @throws {Error} If the thing does not exist or storage operation fails
+   *
+   * @example
+   * // Update a customer's plan
+   * const updated = await this.Customer('cust_123').update({
+   *   plan: 'enterprise',
+   *   updatedBy: 'admin'
+   * })
    */
   async update(updates: Record<string, unknown>): Promise<ThingData> {
     return this.storage.updateById(this.id, updates)
   }
 
   /**
-   * Delete this thing instance
+   * Delete this thing instance permanently
+   *
+   * @returns True if the thing was deleted, false if it didn't exist
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * // Delete a customer
+   * const deleted = await this.Customer('cust_123').delete()
+   * if (deleted) {
+   *   console.log('Customer removed')
+   * }
    */
   async delete(): Promise<boolean> {
     return this.storage.deleteById(this.id)
@@ -133,7 +185,17 @@ export class NounInstanceAccessor extends RpcTarget {
   }
 
   /**
-   * Get the full profile (thing data)
+   * Get the full profile (thing data) for this instance
+   *
+   * @returns The complete thing data, or null if not found
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * // Get customer profile
+   * const profile = await this.Customer('cust_123').getProfile()
+   * if (profile) {
+   *   console.log(profile.name, profile.email)
+   * }
    */
   async getProfile(): Promise<ThingData | null> {
     return this.storage.getById(this.id)
@@ -147,8 +209,16 @@ export class NounInstanceAccessor extends RpcTarget {
   }
 
   /**
-   * Get the full thing data for property access in pipelines
-   * This enables: Customer('id').profile.email
+   * Get the full thing data for property access in pipelines.
+   * Results are cached for efficiency when accessing multiple properties.
+   *
+   * @returns The complete thing data, or null if not found
+   * @throws {Error} If storage operation fails
+   *
+   * @example
+   * // Get all data for pipeline property access
+   * const data = await this.Customer('cust_123').getData()
+   * console.log(data?.email, data?.plan)
    */
   async getData(): Promise<ThingData | null> {
     if (!this._thingData) {
