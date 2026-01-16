@@ -330,7 +330,7 @@ export class DOFull extends DOWorkflowClass {
     })
 
     return {
-      tier: result.tier,
+      tier: result.tier ?? 'unknown',
       value: result.value,
       confidence: result.confidence,
     }

@@ -62,6 +62,14 @@ export type HonoAuthEnv<Bindings extends AuthEnv = AuthEnv> = {
   Variables: AuthVariables
 }
 
+/**
+ * Generic middleware handler type that works with any Hono environment
+ * that includes AuthVariables. This allows auth middleware to be used
+ * with any environment (e.g., DOCore's HonoEnv with DOCoreEnv bindings).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyEnvWithAuthVariables = { Bindings: any; Variables: AuthVariables }
+
 // ============================================================================
 // Error Response Constants
 // ============================================================================
@@ -169,7 +177,7 @@ export function hasAllPermissions(permissions: string[], required: string[]): bo
 /**
  * Build 401 Unauthorized response with proper headers
  */
-function unauthorizedResponse<E extends HonoAuthEnv>(
+function unauthorizedResponse<E extends AnyEnvWithAuthVariables>(
   c: Context<E>,
   message?: string
 ): Response {
@@ -186,7 +194,7 @@ function unauthorizedResponse<E extends HonoAuthEnv>(
 /**
  * Build 403 Forbidden response
  */
-function forbiddenResponse<E extends HonoAuthEnv>(
+function forbiddenResponse<E extends AnyEnvWithAuthVariables>(
   c: Context<E>,
   message?: string
 ): Response {
@@ -217,7 +225,7 @@ function forbiddenResponse<E extends HonoAuthEnv>(
  * })
  * ```
  */
-export const requireAuth: MiddlewareHandler<HonoAuthEnv> = async (c, next) => {
+export const requireAuth: MiddlewareHandler<AnyEnvWithAuthVariables> = async (c, next) => {
   const url = new URL(c.req.url)
 
   // Try bearer token first, then query param (for SSE)
@@ -261,7 +269,7 @@ export const requireAuth: MiddlewareHandler<HonoAuthEnv> = async (c, next) => {
  */
 export function requirePermission(
   requiredPermission: string | string[]
-): MiddlewareHandler<HonoAuthEnv> {
+): MiddlewareHandler<AnyEnvWithAuthVariables> {
   const permissions = Array.isArray(requiredPermission)
     ? requiredPermission
     : [requiredPermission]
@@ -312,7 +320,7 @@ export function requirePermission(
  * app.get('/admin/users', requireAdmin, (c) => ...)
  * ```
  */
-export const requireAdmin: MiddlewareHandler<HonoAuthEnv> = async (c, next) => {
+export const requireAdmin: MiddlewareHandler<AnyEnvWithAuthVariables> = async (c, next) => {
   const url = new URL(c.req.url)
   const token = extractBearerToken(c.req.raw) || extractQueryToken(url)
 
@@ -368,7 +376,7 @@ export const requireAdmin: MiddlewareHandler<HonoAuthEnv> = async (c, next) => {
  * })
  * ```
  */
-export const optionalAuth: MiddlewareHandler<HonoAuthEnv> = async (c, next) => {
+export const optionalAuth: MiddlewareHandler<AnyEnvWithAuthVariables> = async (c, next) => {
   const url = new URL(c.req.url)
   const token = extractBearerToken(c.req.raw) || extractQueryToken(url)
 

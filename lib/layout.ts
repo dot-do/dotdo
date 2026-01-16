@@ -7,10 +7,22 @@
  * @module lib/layout
  */
 
+import type { ReactNode } from 'react'
 import type { PageTree } from 'fumadocs-core/server'
 import type { TOCItemType } from 'fumadocs-core/toc'
 import type { NavLink } from '../components/docs/page-nav'
 import type { BreadcrumbItem } from '../components/docs/breadcrumb'
+
+/**
+ * Convert ReactNode to string for use in navigation titles.
+ * Falls back to empty string if conversion isn't possible.
+ */
+function nodeToString(node: ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (node == null) return ''
+  return ''
+}
 
 /**
  * Page navigation result with previous and next links
@@ -44,10 +56,10 @@ export function getPageNavigation(tree: PageTree.Root, currentUrl: string): Page
 
   return {
     previous: currentIndex > 0
-      ? { title: flatPages[currentIndex - 1].name, url: flatPages[currentIndex - 1].url }
+      ? { title: nodeToString(flatPages[currentIndex - 1].name), url: flatPages[currentIndex - 1].url }
       : null,
     next: currentIndex < flatPages.length - 1
-      ? { title: flatPages[currentIndex + 1].name, url: flatPages[currentIndex + 1].url }
+      ? { title: nodeToString(flatPages[currentIndex + 1].name), url: flatPages[currentIndex + 1].url }
       : null,
   }
 }
@@ -83,7 +95,7 @@ export function getBreadcrumbs(tree: PageTree.Root, currentUrl: string): Breadcr
 
     if (page) {
       breadcrumbs.push({
-        name: page.name,
+        name: nodeToString(page.name),
         href: currentPath,
       })
     } else {

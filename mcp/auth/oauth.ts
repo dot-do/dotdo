@@ -5,7 +5,7 @@
  * Implements PKCE (Proof Key for Code Exchange) for security.
  */
 
-import type { McpEnv, OAuthState } from '../types'
+import type { McpEnv, OAuthState, KVStore } from '../types'
 import {
   exchangeCodeForTokens,
   createSession,
@@ -78,7 +78,7 @@ export function generateState(): string {
  */
 export async function storeOAuthState(
   state: OAuthState,
-  kv: KVNamespace
+  kv: KVStore
 ): Promise<void> {
   const ttl = Math.floor(STATE_EXPIRATION / 1000)
   await kv.put(
@@ -93,7 +93,7 @@ export async function storeOAuthState(
  */
 export async function consumeOAuthState(
   state: string,
-  kv: KVNamespace
+  kv: KVStore
 ): Promise<OAuthState | null> {
   const key = `oauth_state:${state}`
   const data = await kv.get(key)

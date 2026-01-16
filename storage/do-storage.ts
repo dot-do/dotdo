@@ -553,7 +553,10 @@ export class DOStorage {
               if (event.type === 'thing.created') {
                 state = event.payload as ThingData
               } else if (event.type === 'thing.updated' && state) {
-                state = { ...state, ...(event.payload as Partial<ThingData>) }
+                const updatePayload = event.payload
+                if (updatePayload && typeof updatePayload === 'object' && !Array.isArray(updatePayload)) {
+                  state = Object.assign({}, state, updatePayload as Partial<ThingData>)
+                }
               } else if (event.type === 'thing.deleted') {
                 state = null
               }
@@ -585,7 +588,10 @@ export class DOStorage {
               if (event.type === 'thing.created') {
                 state = event.payload as ThingData
               } else if (event.type === 'thing.updated' && state) {
-                state = { ...state, ...(event.payload as Partial<ThingData>) }
+                const updatePayload = event.payload
+                if (updatePayload && typeof updatePayload === 'object' && !Array.isArray(updatePayload)) {
+                  state = Object.assign({}, state, updatePayload as Partial<ThingData>)
+                }
               } else if (event.type === 'thing.deleted') {
                 state = null
               }

@@ -5,7 +5,7 @@
  * Handles user profile fetching, organization membership, and permission mapping.
  */
 
-import type { McpEnv, WorkOSUser, Session } from '../types'
+import type { McpEnv, WorkOSUser, Session, KVStore } from '../types'
 import { createJwt } from './jwt'
 
 // ============================================================================
@@ -257,7 +257,7 @@ export async function createSessionJwt(
  */
 export async function storeSession(
   session: Session,
-  kv: KVNamespace
+  kv: KVStore
 ): Promise<void> {
   const ttl = Math.floor((session.expiresAt - Date.now()) / 1000)
 
@@ -280,7 +280,7 @@ export async function storeSession(
  */
 export async function getSession(
   sessionId: string,
-  kv: KVNamespace
+  kv: KVStore
 ): Promise<Session | null> {
   const data = await kv.get(`session:${sessionId}`)
   if (!data) return null
@@ -306,7 +306,7 @@ export async function getSession(
  */
 export async function getSessionByUserId(
   userId: string,
-  kv: KVNamespace
+  kv: KVStore
 ): Promise<Session | null> {
   const sessionId = await kv.get(`user_session:${userId}`)
   if (!sessionId) return null
@@ -319,7 +319,7 @@ export async function getSessionByUserId(
  */
 export async function deleteSession(
   session: Session,
-  kv: KVNamespace
+  kv: KVStore
 ): Promise<void> {
   await Promise.all([
     kv.delete(`session:${session.id}`),

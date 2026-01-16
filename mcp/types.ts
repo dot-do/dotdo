@@ -8,6 +8,21 @@
 import type { DurableObjectState, DurableObjectNamespace, KVNamespace, Ai, RateLimit } from '@cloudflare/workers-types'
 
 // ============================================================================
+// KV Store Interface
+// ============================================================================
+
+/**
+ * Minimal KV store interface for OAuth/session storage.
+ * This interface is compatible with both @cloudflare/workers-types KVNamespace
+ * and the vitest/miniflare KVNamespace, avoiding type conflicts.
+ */
+export interface KVStore {
+  get(key: string): Promise<string | null>
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
+  delete(key: string): Promise<void>
+}
+
+// ============================================================================
 // Environment Types
 // ============================================================================
 

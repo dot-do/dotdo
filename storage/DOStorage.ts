@@ -358,8 +358,10 @@ export class DOStorageClass extends DOSemantic {
   /**
    * Delete a thing by ID with RPC-compatible signature.
    * Returns the deleted thing or null if not found.
+   *
+   * Note: Named removeById to avoid conflicts with DOCore methods
    */
-  async delete(id: string): Promise<ThingData | null> {
+  async removeById(id: string): Promise<ThingData | null> {
     // First ensure we have the thing in memory
     const existing = await this.getWithFallback(id)
     if (!existing) {

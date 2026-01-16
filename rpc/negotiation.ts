@@ -99,7 +99,7 @@ export interface NegotiatedConnection {
 /**
  * RPC client with negotiation support
  */
-export interface NegotiatingRPCClient<T> {
+export interface NegotiatingRPCClient<T extends object> {
   /** Establish connection with capability negotiation */
   connect(request: CapabilityNegotiationRequest): Promise<NegotiatedConnection>
   /** Get the current connection (throws if not connected) */
@@ -461,7 +461,7 @@ class NegotiatedConnectionImpl implements NegotiatedConnection {
 /**
  * Internal negotiating client implementation
  */
-class NegotiatingRPCClientImpl<T> implements NegotiatingRPCClient<T> {
+class NegotiatingRPCClientImpl<T extends object> implements NegotiatingRPCClient<T> {
   private _target: string
   private _timeout: number
   private _connection: NegotiatedConnection | null = null
@@ -534,7 +534,7 @@ class NegotiatingRPCClientImpl<T> implements NegotiatingRPCClient<T> {
 /**
  * Create a proxy client for method calls
  */
-function createProxyClient<T>(target: string): T {
+function createProxyClient<T extends object>(target: string): T {
   return new Proxy({} as T, {
     get(_obj, prop) {
       if (typeof prop === 'symbol') {
@@ -586,6 +586,6 @@ function createProxyClient<T>(target: string): T {
  *   // Use streaming features
  * }
  */
-export function createNegotiatingClient<T>(options: NegotiatingClientOptions): NegotiatingRPCClient<T> {
+export function createNegotiatingClient<T extends object>(options: NegotiatingClientOptions): NegotiatingRPCClient<T> {
   return new NegotiatingRPCClientImpl<T>(options)
 }

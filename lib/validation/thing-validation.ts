@@ -131,7 +131,7 @@ export function validateCreateThingInput<T extends Record<string, unknown>>(
   if (result.success) {
     return {
       success: true,
-      data: result.data as T,
+      data: result.data as unknown as T,
     }
   }
 
@@ -155,7 +155,7 @@ export function validateThingData<T extends Record<string, unknown>>(
   if (result.success) {
     return {
       success: true,
-      data: result.data as T,
+      data: result.data as unknown as T,
     }
   }
 

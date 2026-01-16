@@ -21,7 +21,7 @@
  */
 
 import { DurableObject, RpcTarget } from 'cloudflare:workers'
-import { Hono, type Context, type MiddlewareHandler } from 'hono'
+import { Hono, type Context } from 'hono'
 import { WebSocketRpcHandler, type RpcMessage } from '../rpc/websocket-rpc'
 import { PipelineExecutor, type ExecutorPipelineStep } from '../rpc/pipeline-executor'
 import { deserializePipeline, type SerializedPipeline } from '../rpc/pipeline-serialization'
@@ -46,6 +46,7 @@ import {
   QueryValidationError,
 } from './query-validation'
 import { validatePath } from '../lib/validation'
+import type { ThingData } from '../types'
 
 // ============================================================================
 // Constants
@@ -246,12 +247,22 @@ function generateThingId(): string {
 /**
  * Environment bindings for DOCore and related DO classes
  */
+/**
+ * Base environment for DO classes.
+ * Each subclass env should extend this and make its own binding required.
+ * Generic parameters allow proper typing when extended.
+ */
 export interface DOCoreEnv {
   DOCore: DurableObjectNamespace<DOCore>
-  DOSemantic?: DurableObjectNamespace
-  DOStorage?: DurableObjectNamespace
-  DOWorkflow?: DurableObjectNamespace
-  DOFull?: DurableObjectNamespace
+  // These are optional at the base level - subclasses override with required
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  DOSemantic?: DurableObjectNamespace<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  DOStorage?: DurableObjectNamespace<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  DOWorkflow?: DurableObjectNamespace<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  DOFull?: DurableObjectNamespace<any>
 }
 
 /**
@@ -349,14 +360,7 @@ interface IntervalBuilder {
   seconds: (handler: Function) => () => void
 }
 
-interface ThingData {
-  $id: string
-  $type: string
-  $createdAt: string
-  $updatedAt: string
-  $version?: number
-  [key: string]: unknown
-}
+// ThingData imported from types/index.ts - canonical definition
 
 // OnProxy type for event handler registration
 type OnProxy = {
@@ -766,10 +770,10 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
     // Admin group - requires admin authentication
     // Uses standardized requireAdmin middleware from lib/auth-middleware
-    app.get('/admin/users', requireAdmin as MiddlewareHandler<HonoEnv>, (c) => c.json({ users: [] }))
+    app.get('/admin/users', requireAdmin, (c) => c.json({ users: [] }))
 
     // Protected route with auth middleware (requires any valid auth)
-    app.get('/protected/data', requireAuth as MiddlewareHandler<HonoEnv>, (c) => {
+    app.get('/protected/data', requireAuth, (c) => {
       return c.json({ data: 'protected' })
     })
 
@@ -788,7 +792,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
     // State read from DO - requires authentication
     // Internal state access should be protected
-    app.get('/api/state-read', requireAuth as MiddlewareHandler<HonoEnv>, async (c) => {
+    app.get('/api/state-read', requireAuth, async (c) => {
       const value = await this.get('ctx:value')
       return c.json({ value })
     })

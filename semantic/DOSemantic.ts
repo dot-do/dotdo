@@ -29,7 +29,11 @@ export type { Noun, NounOptions, Verb, VerbOptions, Thing, ActionResult }
 // Types
 // ============================================================================
 
-export interface DOSemanticEnv extends Omit<DOCoreEnv, 'DOSemantic'> {
+/**
+ * Environment bindings for DOSemantic.
+ * Extends DOCoreEnv with required DOSemantic binding.
+ */
+export interface DOSemanticEnv extends DOCoreEnv {
   DOSemantic: DurableObjectNamespace<DOSemantic>
 }
 

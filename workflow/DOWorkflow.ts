@@ -49,8 +49,8 @@ export class DOWorkflowClass extends DOStorageClass {
   // WorkflowContext instance
   protected $: WorkflowContext
   protected handlers: Map<string, HandlerRegistration[]> = new Map()
-  protected schedules: Map<string, ScheduleRegistration> = new Map()
-  protected actionLog: Map<string, { status: string; result?: unknown; error?: string }> = new Map()
+  protected workflowSchedules: Map<string, ScheduleRegistration> = new Map()
+  protected workflowActionLog: Map<string, { status: string; result?: unknown; error?: string }> = new Map()
 
   constructor(ctx: DurableObjectState, env: DOWorkflowEnv) {
     super(ctx, env as DOStorageEnv)
@@ -117,7 +117,7 @@ export class DOWorkflowClass extends DOStorageClass {
     // Load schedules
     const schedules = this.ctx.storage.sql.exec('SELECT * FROM schedules').toArray()
     for (const row of schedules) {
-      this.schedules.set(row.cron as string, {
+      this.workflowSchedules.set(row.cron as string, {
         cron: row.cron as string,
         day: row.day as string,
         time: row.time as string,
@@ -129,7 +129,7 @@ export class DOWorkflowClass extends DOStorageClass {
     // Load action log
     const actions = this.ctx.storage.sql.exec('SELECT * FROM action_log').toArray()
     for (const row of actions) {
-      this.actionLog.set(row.step_id as string, {
+      this.workflowActionLog.set(row.step_id as string, {
         status: row.status as string,
         result: row.result ? JSON.parse(row.result as string) : undefined,
         error: row.error as string | undefined,
@@ -172,10 +172,12 @@ export class DOWorkflowClass extends DOStorageClass {
   // =========================================================================
 
   /**
-   * Register an event handler
+   * Register an event handler for workflow persistence
    * Returns the number of handlers registered for this event
+   *
+   * Note: Named registerWorkflowHandler to avoid conflicts with DOCore.registerHandler
    */
-  registerHandler(eventKey: string, handlerId: string): number {
+  registerWorkflowHandler(eventKey: string, handlerId: string): number {
     const registration: HandlerRegistration = {
       id: `${eventKey}:${handlerId}`,
       eventKey,
@@ -232,10 +234,12 @@ export class DOWorkflowClass extends DOStorageClass {
   // =========================================================================
 
   /**
-   * Register a scheduled handler
+   * Register a scheduled handler for workflow persistence
    * Returns the CRON expression
+   *
+   * Note: Named registerWorkflowSchedule to avoid conflicts with DOCore.registerSchedule
    */
-  registerSchedule(day: string, time: string, handlerId: string): string {
+  registerWorkflowSchedule(day: string, time: string, handlerId: string): string {
     // Map day + time to CRON expression
     const dayMap: Record<string, number> = {
       Sunday: 0,
@@ -266,7 +270,7 @@ export class DOWorkflowClass extends DOStorageClass {
     }
 
     // Store in memory
-    this.schedules.set(cron, registration)
+    this.workflowSchedules.set(cron, registration)
 
     // Persist to SQLite
     this.ctx.storage.sql.exec(
@@ -286,7 +290,7 @@ export class DOWorkflowClass extends DOStorageClass {
    * Get a registered schedule
    */
   getScheduleByDay(day: string, time: string): ScheduleRegistration | undefined {
-    for (const schedule of this.schedules.values()) {
+    for (const schedule of this.workflowSchedules.values()) {
       if (schedule.day === day && schedule.time === time) {
         return schedule
       }
@@ -303,7 +307,7 @@ export class DOWorkflowClass extends DOStorageClass {
    */
   async doAction(stepId: string, actionName: string): Promise<DoActionResult> {
     // Check for existing completed action (replay semantics)
-    const existing = this.actionLog.get(stepId)
+    const existing = this.workflowActionLog.get(stepId)
     if (existing?.status === 'completed') {
       return {
         status: 'completed',
@@ -324,7 +328,7 @@ export class DOWorkflowClass extends DOStorageClass {
 
       // Record success
       const entry = { status: 'completed', result }
-      this.actionLog.set(stepId, entry)
+      this.workflowActionLog.set(stepId, entry)
       this.ctx.storage.sql.exec(
         `INSERT OR REPLACE INTO action_log (step_id, status, result, created_at)
          VALUES (?, ?, ?, ?)`,
@@ -340,7 +344,7 @@ export class DOWorkflowClass extends DOStorageClass {
 
       // Record failure
       const entry = { status: 'failed', error }
-      this.actionLog.set(stepId, entry)
+      this.workflowActionLog.set(stepId, entry)
       this.ctx.storage.sql.exec(
         `INSERT OR REPLACE INTO action_log (step_id, status, error, created_at)
          VALUES (?, ?, ?, ?)`,
@@ -362,10 +366,12 @@ export class DOWorkflowClass extends DOStorageClass {
   }
 
   /**
-   * Get the action log
+   * Get the workflow action log
+   *
+   * Note: Named getWorkflowActionLog to avoid conflicts with DOCore.getActionLog
    */
-  getActionLog(): Array<{ stepId: string; status: string; result?: unknown; error?: string }> {
-    return Array.from(this.actionLog.entries()).map(([stepId, entry]) => ({
+  getWorkflowActionLog(): Array<{ stepId: string; status: string; result?: unknown; error?: string }> {
+    return Array.from(this.workflowActionLog.entries()).map(([stepId, entry]) => ({
       stepId,
       ...entry,
     }))

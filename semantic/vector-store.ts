@@ -722,7 +722,7 @@ export class InMemoryVectorIndex implements VectorizeIndex {
           let skip = false
           for (const [key, value] of Object.entries(filter)) {
             if (key === '$type') continue // Already handled via inverted index
-            if (stored.metadata && (stored.metadata as Record<string, unknown>)[key] !== value) {
+            if (stored.metadata && (stored.metadata as unknown as Record<string, unknown>)[key] !== value) {
               skip = true
               break
             }
