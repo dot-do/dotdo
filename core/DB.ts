@@ -39,6 +39,8 @@
  */
 
 import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core'
+import type { AnySQLiteTable, SQLiteColumnBuilderBase, IndexBuilder, SQLiteColumn } from 'drizzle-orm/sqlite-core'
+import type { SQL } from 'drizzle-orm'
 import type { z } from 'zod'
 
 // =============================================================================
@@ -119,10 +121,9 @@ export interface ParsedSchema {
 
 /**
  * Drizzle schema object - collection of table definitions.
- * We use a generic Record type since actual table types are complex.
+ * Uses AnySQLiteTable to maintain type safety while allowing any table structure.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type DrizzleSchema = Record<string, any>
+export type DrizzleSchema = Record<string, AnySQLiteTable>
 
 /**
  * Result of DB() function - contains both parsed schema and Drizzle tables.
@@ -351,6 +352,31 @@ function isZodSchema(value: unknown): value is z.ZodObject<z.ZodRawShape> {
 }
 
 /**
+ * Internal Zod type definition structure for type traversal.
+ * Used to extract type information from Zod schemas without using `any`.
+ * This interface models the internal `_def` structure of Zod types.
+ */
+interface ZodTypeDef {
+  typeName?: string
+  innerType?: unknown
+}
+
+/**
+ * Get the internal definition from a Zod type-like object.
+ * Zod types have a `_def` property containing metadata about the type.
+ * Returns a typed definition object for safe property access.
+ *
+ * @param zodType - A Zod type (or type-like object with _def)
+ * @returns The internal definition structure
+ */
+function getZodDef(zodType: unknown): ZodTypeDef {
+  if (zodType && typeof zodType === 'object' && '_def' in zodType) {
+    return (zodType as { _def: ZodTypeDef })._def
+  }
+  return {}
+}
+
+/**
  * Convert a Zod schema to an EntitySchema.
  *
  * @param zodSchema - The Zod schema object
@@ -363,21 +389,23 @@ function zodToEntitySchema(zodSchema: z.ZodObject<z.ZodRawShape>): EntitySchema 
   for (const [key, zodType] of Object.entries(shape)) {
     // Extract the base Zod type and modifiers
     let type = 'string' // Default
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let current: any = zodType
+    let current: unknown = zodType
 
     // Unwrap optional
-    if (current._def?.typeName === 'ZodOptional') {
-      current = current._def.innerType
+    let def = getZodDef(current)
+    if (def.typeName === 'ZodOptional' && def.innerType) {
+      current = def.innerType
+      def = getZodDef(current)
     }
 
     // Unwrap nullable
-    if (current._def?.typeName === 'ZodNullable') {
-      current = current._def.innerType
+    if (def.typeName === 'ZodNullable' && def.innerType) {
+      current = def.innerType
+      def = getZodDef(current)
     }
 
     // Determine type from Zod type name
-    const typeName = current._def?.typeName
+    const typeName = def.typeName
     switch (typeName) {
       case 'ZodString':
         type = 'string'
@@ -529,6 +557,25 @@ function fieldToDrizzleColumn(field: ParsedField, columnName: string) {
 }
 
 /**
+ * Type for the columns record passed to sqliteTable.
+ * Uses SQLiteColumnBuilderBase to properly type the column definitions.
+ */
+type ColumnsRecord = Record<string, SQLiteColumnBuilderBase>
+
+/**
+ * Type for accessing built columns in the table callback.
+ * Drizzle's BuildColumns produces SQLiteColumn instances which can be used with index().on().
+ * We use IndexColumn (SQLiteColumn | SQL) since that's what index().on() accepts.
+ */
+type BuiltColumnsAccessor = Record<string, IndexColumn>
+
+/**
+ * Type alias for columns that can be used in index definitions.
+ * This matches Drizzle's IndexColumn type which accepts either SQLiteColumn or SQL expressions.
+ */
+type IndexColumn = SQLiteColumn | SQL
+
+/**
  * Generate Drizzle table definitions from a parsed schema.
  *
  * @param parsed - The parsed schema
@@ -539,8 +586,7 @@ function generateDrizzleTables(parsed: ParsedSchema): DrizzleSchema {
 
   parsed.entities.forEach((entity, entityName) => {
     const tableName = toSnakeCase(pluralize(entityName))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const columns: Record<string, any> = {
+    const columns: ColumnsRecord = {
       // Standard ID and metadata columns
       $id: text('$id').primaryKey(),
       $type: text('$type').notNull().default(entityName),
@@ -555,30 +601,33 @@ function generateDrizzleTables(parsed: ParsedSchema): DrizzleSchema {
     })
 
     // Create the table with indexes
+    // The sqliteTable function returns a complex generic type that we need to cast
+    // to AnySQLiteTable for storage in our DrizzleSchema record
     tables[entityName] = sqliteTable(
       tableName,
       columns,
-      (table) => {
-        const indexes = [
-          index(`${tableName}_type_idx`).on(table.$type),
+      // The callback receives built columns (SQLiteColumn instances), not builders.
+      // We cast to BuiltColumnsAccessor since column names are dynamic.
+      (table): IndexBuilder[] => {
+        const builtTable = table as unknown as BuiltColumnsAccessor
+        const indexes: IndexBuilder[] = [
+          index(`${tableName}_type_idx`).on(builtTable.$type),
         ]
 
         // Add indexes for relation fields
         entity.fields.forEach((field, fieldName) => {
           if (field.isRelation && !field.isArray) {
             const columnName = toSnakeCase(fieldName)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            if ((table as any)[fieldName]) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              indexes.push(index(`${tableName}_${columnName}_idx`).on((table as any)[fieldName]))
+            const column = builtTable[fieldName]
+            if (column) {
+              indexes.push(index(`${tableName}_${columnName}_idx`).on(column))
             }
           }
         })
 
         return indexes
       }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) as any
+    )
   })
 
   return tables

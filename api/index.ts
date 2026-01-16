@@ -651,8 +651,9 @@ app.all('/api/*', async (c) => {
 
     const response = await stub.fetch(doRequest)
 
-    // Add routing headers to response
-    addRoutingHeaders(response.headers, {
+    // Clone response with new headers (DO response headers are immutable)
+    const newHeaders = new Headers(response.headers)
+    addRoutingHeaders(newHeaders, {
       timestamp: Date.now(),
       requestId,
       pathname: url.pathname,
@@ -666,7 +667,11 @@ app.all('/api/*', async (c) => {
       routingDurationMs: 0, // Timing measured by the span
     })
 
-    return response
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders,
+    })
   } catch (error) {
     // Log routing error
     routingSpan.end({
@@ -734,8 +739,9 @@ app.all('*', async (c) => {
 
     const response = await stub.fetch(c.req.raw)
 
-    // Add routing headers to response
-    addRoutingHeaders(response.headers, {
+    // Clone response with new headers (DO response headers are immutable)
+    const newHeaders = new Headers(response.headers)
+    addRoutingHeaders(newHeaders, {
       timestamp: Date.now(),
       requestId,
       pathname: url.pathname,
@@ -749,7 +755,11 @@ app.all('*', async (c) => {
       routingDurationMs: 0, // Timing measured by the span
     })
 
-    return response
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders,
+    })
   } catch (error) {
     // Log routing error
     routingSpan.end({

@@ -1740,7 +1740,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     } | undefined
 
     if (!r2) {
-      this._logger.warn('No R2 bucket configured, starting with empty state')
+      this.logger.warn('No R2 bucket configured, starting with empty state')
       this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
       return
     }
@@ -1757,7 +1757,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       prefix = `orgs/${orgId}/tenants/${tenantId}/do/${this.ctx.id.toString()}/snapshots/`
     } else {
       // Fallback: use DO id only (for tests without JWT)
-      this._logger.warn('No JWT available, using default snapshot path')
+      this.logger.warn('No JWT available, using default snapshot path')
       prefix = `do/${this.ctx.id.toString()}/snapshots/`
     }
 
@@ -3678,7 +3678,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         }
       } else {
         // In development without JWT_SECRET, log warning but allow request
-        this._logger.warn('JWT_SECRET not configured - skipping signature verification')
+        this.logger.warn('JWT_SECRET not configured - skipping signature verification')
       }
 
       const payload = JSON.parse(atob(parts[1]!)) as {

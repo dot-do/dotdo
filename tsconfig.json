@@ -18,7 +18,8 @@
     "baseUrl": ".",
     "paths": {
       "dotdo": ["./index.ts"],
-      "dotdo/*": ["./*"]
+      "dotdo/*": ["./*"],
+      "@/*": ["./*"]
     },
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true

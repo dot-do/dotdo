@@ -28,11 +28,30 @@ import { FsModule, type FsModuleConfig } from './module.js'
 
 /**
  * Constructor type for class mixins.
- * Using `unknown[]` instead of `any[]` would break mixin patterns,
- * so `any[]` is the standard TypeScript pattern here.
+ *
+ * TypeScript requires `any[]` for mixin constructor patterns due to
+ * TS2545: "A mixin class must have a constructor with a single rest parameter of type 'any[]'".
+ * Using `unknown[]` would break mixin composition with classes that have constructor parameters.
+ * This is used internally while keeping the public API type-safe.
+ *
+ * @internal
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Constructor<T = object> = new (...args: any[]) => T
+type MixinConstructor<T = object> = new (...args: any[]) => T
+
+/**
+ * Public-facing constructor type with better type safety.
+ * Use this for type annotations where mixin compatibility is not required.
+ */
+type Constructor<T = object> = abstract new (...args: unknown[]) => T
+
+/**
+ * Interface for classes that have a static capabilities array.
+ * Used for introspection of DO capabilities.
+ */
+interface WithCapabilities {
+  capabilities?: readonly string[]
+}
 
 /**
  * Base interface for classes that have a WorkflowContext ($)
@@ -127,15 +146,19 @@ const fsCapabilityCache = new WeakMap<object, FsModule>()
  * }
  * ```
  */
-export function withFs<TBase extends Constructor<HasWorkflowContext & HasDurableObjectContext>>(
+export function withFs<TBase extends MixinConstructor<HasWorkflowContext & HasDurableObjectContext>>(
   Base: TBase,
   options: WithFsOptions = {}
 ) {
+  // Extract static capabilities from base class with proper typing
+  const baseWithCaps = Base as TBase & WithCapabilities
+  const baseCapabilities: readonly string[] = baseWithCaps.capabilities ?? []
+
   return class WithFs extends Base {
     /**
      * Static capabilities array for introspection
      */
-    static capabilities = [...((Base as any).capabilities || []), 'fs']
+    static capabilities = [...baseCapabilities, 'fs'] as const
 
     /**
      * Get the FsModule instance (lazy-loaded)
@@ -177,6 +200,7 @@ export function withFs<TBase extends Constructor<HasWorkflowContext & HasDurable
       return false
     }
 
+    // TypeScript requires `any[]` for mixin constructor spread (TS2556)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -226,18 +250,21 @@ export function withFs<TBase extends Constructor<HasWorkflowContext & HasDurable
 // ============================================================================
 
 /**
- * Check if a context has the fs capability
+ * Check if a context has the fs capability.
+ * Uses runtime property access to avoid type assertions.
  */
-export function hasFs<T extends { $: { [key: string]: unknown } }>(
+export function hasFs<T extends { $: Record<string, unknown> }>(
   obj: T
 ): obj is T & { $: WithFsContext } {
-  return obj.$ != null && typeof (obj.$ as any).fs === 'object' && (obj.$ as any).fs !== null
+  if (obj.$ == null) return false
+  const ctx = obj.$ as Record<string, unknown>
+  return typeof ctx['fs'] === 'object' && ctx['fs'] !== null
 }
 
 /**
  * Get the fs capability from a context, throwing if not available
  */
-export function getFs<T extends { $: { [key: string]: unknown } }>(obj: T): FsModule {
+export function getFs<T extends { $: Record<string, unknown> }>(obj: T): FsModule {
   if (!hasFs(obj)) {
     throw new Error("Filesystem capability is not available. Use withFs mixin to add it.")
   }

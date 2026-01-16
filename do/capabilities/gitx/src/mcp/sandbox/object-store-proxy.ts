@@ -4,6 +4,16 @@
  * Provides controlled access to the git object store within sandboxed code.
  */
 
+/**
+ * Interface for object stores that the proxy can wrap.
+ * This abstracts the actual storage implementation (R2, SQLite, etc.)
+ */
+export interface ObjectStoreLike {
+  getObject(sha: string): Promise<{ type: string; data: Uint8Array } | null>
+  putObject(type: string, data: Uint8Array): Promise<string>
+  listObjects(options?: { type?: string; limit?: number }): Promise<string[]>
+}
+
 export interface ObjectStoreAccess {
   getProxy(): ObjectStoreProxy
   getObject(sha: string): Promise<{ type: string; data: Uint8Array } | null>
@@ -12,7 +22,7 @@ export interface ObjectStoreAccess {
 }
 
 export class ObjectStoreProxy {
-  constructor(private objectStore: any) {}
+  constructor(private objectStore: ObjectStoreLike) {}
 
   async getObject(sha: string): Promise<{ type: string; data: Uint8Array } | null> {
     return this.objectStore.getObject(sha)
@@ -27,7 +37,7 @@ export class ObjectStoreProxy {
   }
 }
 
-export function createObjectStoreAccess(objectStore: any): ObjectStoreAccess {
+export function createObjectStoreAccess(objectStore: ObjectStoreLike): ObjectStoreAccess {
   const proxy = new ObjectStoreProxy(objectStore)
   return {
     getProxy: () => proxy,

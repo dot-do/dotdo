@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dotdo",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
   "main": "api/index.ts",
   "compatibility_date": "2026-01-08",
 
@@ -39,10 +40,11 @@
   // "ai": { "binding": "AI" },
 
   // Unified Events Pipeline - streams all event types to R2 Iceberg
-  "pipelines": [
-    {
-      "pipeline": "unified_events",
-      "binding": "UNIFIED_EVENTS_PIPELINE"
-    }
-  ]
+  // Temporarily disabled - pipeline needs to be created first
+  // "pipelines": [
+  //   {
+  //     "pipeline": "unified_events",
+  //     "binding": "UNIFIED_EVENTS_PIPELINE"
+  //   }
+  // ]
 }
