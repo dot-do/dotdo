@@ -16,7 +16,7 @@ export default defineWorkersConfig({
   test: {
     globals: true,
     include: ['**/*.test.ts'],
-    exclude: ['**/node_modules/**', 'node_modules', 'dist', 'app/node_modules/**', 'tests/e2e/**'],
+    exclude: ['**/node_modules/**', 'node_modules', 'dist', 'app/node_modules/**', 'tests/e2e/**', 'cli/**'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     setupFiles: ['./vitest.setup.ts'],

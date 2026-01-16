@@ -62,20 +62,30 @@ describe('RpcClient.evaluate', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    // Mock the call method
-    const callSpy = vi.spyOn(client, 'call').mockResolvedValue({
-      success: true,
-      value: 42,
-      logs: [],
-    })
+    // Track sent messages
+    const sentMessages: any[] = []
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        sentMessages.push(msg)
+        // Simulate response
+        setTimeout(() => {
+          const response = { id: msg.id, type: 'response', result: { success: true, value: 42, logs: [] } }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
     // Manually set connected state for testing
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     await client.evaluate('1 + 1')
 
-    expect(callSpy).toHaveBeenCalledWith(['evaluate'], ['1 + 1'])
+    // Verify the message was sent with correct path and args
+    expect(sentMessages).toHaveLength(1)
+    expect(sentMessages[0].path).toEqual(['evaluate'])
+    expect(sentMessages[0].args).toEqual(['1 + 1'])
   })
 })
 
@@ -98,15 +108,23 @@ describe('Evaluate result handling', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    // Mock successful evaluation
-    vi.spyOn(client, 'call').mockResolvedValue({
-      success: true,
-      value: { name: 'Alice', $id: 'cust_123' },
-      logs: [],
-    })
+    // Mock WebSocket to return successful evaluation
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        setTimeout(() => {
+          const response = {
+            id: msg.id,
+            type: 'response',
+            result: { success: true, value: { name: 'Alice', $id: 'cust_123' }, logs: [] },
+          }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     const result = await client.evaluate('$.Customer.create({ name: "Alice" })')
 
@@ -121,15 +139,23 @@ describe('Evaluate result handling', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    // Mock evaluation error
-    vi.spyOn(client, 'call').mockResolvedValue({
-      success: false,
-      error: 'ReferenceError: undefinedVar is not defined',
-      logs: [],
-    })
+    // Mock WebSocket to return error
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        setTimeout(() => {
+          const response = {
+            id: msg.id,
+            type: 'response',
+            result: { success: false, error: 'ReferenceError: undefinedVar is not defined', logs: [] },
+          }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     const result = await client.evaluate('undefinedVar.property')
 
@@ -141,19 +167,31 @@ describe('Evaluate result handling', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    // Mock evaluation with logs
-    vi.spyOn(client, 'call').mockResolvedValue({
-      success: true,
-      value: 'done',
-      logs: [
-        { level: 'log', message: 'Starting...' },
-        { level: 'info', message: 'Processing...' },
-        { level: 'log', message: 'Complete!' },
-      ],
-    })
+    // Mock WebSocket to return evaluation with logs
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        setTimeout(() => {
+          const response = {
+            id: msg.id,
+            type: 'response',
+            result: {
+              success: true,
+              value: 'done',
+              logs: [
+                { level: 'log', message: 'Starting...' },
+                { level: 'info', message: 'Processing...' },
+                { level: 'log', message: 'Complete!' },
+              ],
+            },
+          }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     const result = await client.evaluate(`
       console.log('Starting...')
@@ -179,20 +217,22 @@ describe('Evaluate error handling', () => {
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
     // Client is not connected
-    ;(client as any).state = 'disconnected'
+    ;(client as any).state = { status: 'disconnected' }
 
     await expect(client.evaluate('1 + 1')).rejects.toThrow('Not connected')
   })
 
   it('should handle RPC call errors', async () => {
     const { RpcClient } = await import('../src/rpc-client.js')
-    const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
+    const client = new RpcClient({ url: 'wss://test.api.dotdo.dev', timeout: 100 })
 
-    // Mock RPC error
-    vi.spyOn(client, 'call').mockRejectedValue(new Error('RPC call timeout'))
+    // Mock WebSocket that never responds (will timeout)
+    const mockWs = {
+      send: vi.fn(), // Never respond
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     await expect(client.evaluate('1 + 1')).rejects.toThrow('RPC call timeout')
   })
@@ -201,15 +241,23 @@ describe('Evaluate error handling', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    // Mock syntax error result
-    vi.spyOn(client, 'call').mockResolvedValue({
-      success: false,
-      error: 'SyntaxError: Unexpected token',
-      logs: [],
-    })
+    // Mock WebSocket to return syntax error
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        setTimeout(() => {
+          const response = {
+            id: msg.id,
+            type: 'response',
+            result: { success: false, error: 'SyntaxError: Unexpected token', logs: [] },
+          }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     const result = await client.evaluate('invalid syntax {{{')
 
@@ -221,15 +269,23 @@ describe('Evaluate error handling', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    // Mock timeout error result
-    vi.spyOn(client, 'call').mockResolvedValue({
-      success: false,
-      error: 'Script timeout after 5000ms',
-      logs: [],
-    })
+    // Mock WebSocket to return timeout error
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        setTimeout(() => {
+          const response = {
+            id: msg.id,
+            type: 'response',
+            result: { success: false, error: 'Script timeout after 5000ms', logs: [] },
+          }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     const result = await client.evaluate('while(true) {}')
 
@@ -259,14 +315,23 @@ describe('EvaluateResult type', () => {
     const { RpcClient } = await import('../src/rpc-client.js')
     const client = new RpcClient({ url: 'wss://test.api.dotdo.dev' })
 
-    vi.spyOn(client, 'call').mockResolvedValue({
-      success: true,
-      value: 123,
-      logs: [{ level: 'log', message: 'test' }],
-    })
+    // Mock WebSocket to return expected shape
+    const mockWs = {
+      send: vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        setTimeout(() => {
+          const response = {
+            id: msg.id,
+            type: 'response',
+            result: { success: true, value: 123, logs: [{ level: 'log', message: 'test' }] },
+          }
+          ;(client as any).handleMessage(JSON.stringify(response))
+        }, 0)
+      }),
+    }
 
-    ;(client as any).state = 'connected'
-    ;(client as any).ws = { send: vi.fn() }
+    ;(client as any).state = { status: 'connected' }
+    ;(client as any).ws = mockWs
 
     const result = await client.evaluate('123')
 

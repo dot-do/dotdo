@@ -222,7 +222,7 @@ export class RpcHandler implements RpcEnabled {
  * export { RpcEnabledDO as MyDO }
  * ```
  */
-export function withRpcMethods<T extends Constructor>(Base: T) {
+export function withRpcMethods<T extends Constructor>(Base: T): T & Constructor<RpcEnabled> {
   return class RpcEnabledDO extends Base implements RpcEnabled {
     /**
      * Generic RPC dispatcher - called by BrokerDO via stub.rpcCall()

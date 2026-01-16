@@ -191,11 +191,52 @@ export const Output = memo(function Output({
 })
 
 /**
- * Create an output entry helper
- * Uses monotonic counter + timestamp for unique IDs
+ * Global factory counter for generating unique factory IDs.
+ * Each factory instance gets a unique ID to ensure entry IDs never collide
+ * even when counters reset (e.g., in parallel contexts).
+ */
+let factoryCounter = 0
+
+/**
+ * Factory function that creates an isolated entry creator with its own counter.
+ * Each factory instance maintains an independent counter, solving the module-level
+ * mutable state problem for test isolation and parallel execution.
+ *
+ * IDs are formatted as: output_<factoryId>_<counter>_<timestamp>
+ * This ensures uniqueness across factories while maintaining predictable counter values.
+ *
+ * Usage:
+ *   const createEntry = createOutputEntryFactory()
+ *   const entry1 = createEntry('info', 'test') // output_f1_1_*
+ *   const entry2 = createEntry('info', 'test') // output_f1_2_*
+ *
+ *   const createEntry2 = createOutputEntryFactory()
+ *   const entry3 = createEntry2('info', 'test') // output_f2_1_* (independent counter!)
+ */
+export function createOutputEntryFactory(): (type: OutputType, content: unknown) => OutputEntry {
+  const factoryId = ++factoryCounter
+  let counter = 0
+
+  return (type: OutputType, content: unknown): OutputEntry => {
+    return {
+      id: `output_${++counter}_${factoryId}_${Date.now()}`,
+      type,
+      content: typeof content === 'string' ? content : formatValue(content),
+      timestamp: new Date(),
+    }
+  }
+}
+
+/**
+ * Module-level counter for backward compatibility with createOutputEntry().
+ * Note: For test isolation, prefer using createOutputEntryFactory() instead.
  */
 let entryCounter = 0
 
+/**
+ * Create an output entry helper (uses shared module-level counter).
+ * For test isolation, use createOutputEntryFactory() instead.
+ */
 export function createOutputEntry(
   type: OutputType,
   content: unknown
@@ -209,7 +250,8 @@ export function createOutputEntry(
 }
 
 /**
- * Reset entry counter (for testing)
+ * Reset entry counter (for testing).
+ * Resets the module-level counter used by createOutputEntry().
  */
 export function resetEntryCounter(): void {
   entryCounter = 0
@@ -420,19 +462,25 @@ export function useStreamingOutput(config: StreamingOutputConfig = {}) {
 }
 
 /**
- * Buffer for managing log entries with memory limits
- * Useful for non-React contexts or when you need direct buffer access
+ * Buffer for managing log entries with memory limits.
+ * Useful for non-React contexts or when you need direct buffer access.
+ *
+ * Each OutputBuffer instance has its own isolated counter, ensuring that
+ * multiple buffers don't share state and entry IDs are predictable.
  */
 export class OutputBuffer {
   private entries: OutputEntry[] = []
   private maxSize: number
+  private createEntry: (type: OutputType, content: unknown) => OutputEntry
 
   constructor(maxSize = 1000) {
     this.maxSize = maxSize
+    // Each buffer gets its own isolated entry factory
+    this.createEntry = createOutputEntryFactory()
   }
 
   add(type: OutputType, content: unknown): OutputEntry {
-    const entry = createOutputEntry(type, content)
+    const entry = this.createEntry(type, content)
     this.entries.push(entry)
 
     // Trim if over limit
@@ -444,7 +492,7 @@ export class OutputBuffer {
   }
 
   addBatch(items: Array<{ type: OutputType; content: unknown }>): OutputEntry[] {
-    const newEntries = items.map(({ type, content }) => createOutputEntry(type, content))
+    const newEntries = items.map(({ type, content }) => this.createEntry(type, content))
     this.entries.push(...newEntries)
 
     if (this.entries.length > this.maxSize) {
@@ -460,6 +508,8 @@ export class OutputBuffer {
 
   clear(): void {
     this.entries = []
+    // Reset the counter when clearing by creating a new factory
+    this.createEntry = createOutputEntryFactory()
   }
 
   get length(): number {

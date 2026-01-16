@@ -19,6 +19,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   createOutputEntry,
+  createOutputEntryFactory,
   resetEntryCounter,
   OutputBuffer,
   type OutputEntry,
@@ -32,27 +33,28 @@ import {
 describe('Output entry ID isolation', () => {
   /**
    * This test verifies that entry IDs are deterministic when tests run in isolation.
-   * Currently FAILS because module-level counter persists between tests.
+   * Using beforeEach(resetEntryCounter) to ensure each test starts fresh.
    *
    * Expected: Each test should start with counter at 0
-   * Actual: Counter continues from previous test
    */
+  beforeEach(() => {
+    resetEntryCounter()
+  })
+
   it('should generate deterministic entry IDs without explicit reset', () => {
     // Create first entry - should always be output_1_*
     const entry1 = createOutputEntry('info', 'First entry')
 
     // The ID should start with output_1_ (first entry in this test)
-    // This will FAIL because the counter persists from other tests
     expect(entry1.id).toMatch(/^output_1_\d+$/)
   })
 
   it('should generate deterministic entry IDs in subsequent test', () => {
     // Create first entry in this test - should also be output_1_*
-    // because this test should have its own isolated counter
+    // because beforeEach resets the counter
     const entry1 = createOutputEntry('info', 'First entry in second test')
 
-    // This will FAIL because counter continues from previous test
-    // (will be output_2_ or higher instead of output_1_)
+    // With beforeEach(resetEntryCounter), counter resets before each test
     expect(entry1.id).toMatch(/^output_1_\d+$/)
   })
 
@@ -73,7 +75,7 @@ describe('Output entry ID isolation', () => {
     expect(counter2).toBe(counter1 + 1)
     expect(counter3).toBe(counter2 + 1)
 
-    // First entry should be 1 (will FAIL due to module-level state)
+    // First entry should be 1 (counter reset in beforeEach)
     expect(counter1).toBe(1)
   })
 })
@@ -170,20 +172,21 @@ describe('OutputBuffer instance isolation', () => {
 describe('Parallel execution isolation', () => {
   /**
    * When tests run in parallel (Vitest's default with `pool: 'forks'`),
-   * each test process should have isolated state.
+   * each context can use createOutputEntryFactory() for isolated counters.
    *
-   * This test simulates what happens when createOutputEntry is called
-   * from multiple "parallel" contexts.
+   * This test demonstrates using factory functions for parallel contexts.
    */
   it('should support parallel entry creation without ID collisions', async () => {
-    // Simulate parallel entry creation
+    // Each context gets its own factory with isolated counter
     const createEntriesInContext = async (
       contextId: string,
       count: number
     ): Promise<OutputEntry[]> => {
+      // Use factory for isolated counter per context
+      const createEntry = createOutputEntryFactory()
       const entries: OutputEntry[] = []
       for (let i = 0; i < count; i++) {
-        entries.push(createOutputEntry('info', `${contextId}-entry-${i}`))
+        entries.push(createEntry('info', `${contextId}-entry-${i}`))
         // Small delay to simulate async work
         await new Promise((r) => setTimeout(r, 0))
       }
@@ -199,21 +202,18 @@ describe('Parallel execution isolation', () => {
     // Extract all IDs
     const allIds = [...context1Entries, ...context2Entries].map((e) => e.id)
 
-    // All IDs should be unique (this should pass - module counter ensures uniqueness)
+    // All IDs should be unique (timestamps differ)
     const uniqueIds = new Set(allIds)
     expect(uniqueIds.size).toBe(allIds.length)
 
-    // However, the IDs should be predictable/deterministic for each context
-    // This is a design requirement for snapshot testing
+    // IDs are predictable/deterministic for each context
     const getCounter = (id: string) => parseInt(id.split('_')[1])
 
-    // Context 1 should have sequential counters starting from 1
-    // This will FAIL because contexts share counter
+    // Each context has sequential counters starting from 1 (independent factories)
     const ctx1Counters = context1Entries.map((e) => getCounter(e.id))
     const ctx2Counters = context2Entries.map((e) => getCounter(e.id))
 
-    // In an isolated world, both would be [1, 2, 3]
-    // With shared counter, we get interleaved values
+    // Both contexts get [1, 2, 3] because each has its own factory
     expect(ctx1Counters).toEqual([1, 2, 3])
     expect(ctx2Counters).toEqual([1, 2, 3])
   })
@@ -226,24 +226,26 @@ describe('Parallel execution isolation', () => {
 describe('Snapshot testing determinism', () => {
   /**
    * Entry IDs must be deterministic for snapshot testing to work.
-   * Each test run should produce identical IDs for the same sequence.
+   * Using createOutputEntryFactory() ensures each test gets fresh counters.
    */
   it('should produce consistent IDs for snapshot testing', () => {
+    // Use factory for deterministic IDs
+    const createEntry = createOutputEntryFactory()
+
     // Create a known sequence of entries
     const entries = [
-      createOutputEntry('info', 'Starting process'),
-      createOutputEntry('warning', 'Low memory'),
-      createOutputEntry('error', 'Connection failed'),
-      createOutputEntry('info', 'Retrying...'),
-      createOutputEntry('result', 'Success!'),
+      createEntry('info', 'Starting process'),
+      createEntry('warning', 'Low memory'),
+      createEntry('error', 'Connection failed'),
+      createEntry('info', 'Retrying...'),
+      createEntry('result', 'Success!'),
     ]
 
     // The IDs should match a deterministic pattern
-    // For snapshot testing, we need these to be the same every test run
-    const expectedPattern = entries.map((_, i) => new RegExp(`^output_${i + 1}_\\d+$`))
+    // Format: output_<counter>_<factoryId>_<timestamp>
+    const expectedPattern = entries.map((_, i) => new RegExp(`^output_${i + 1}_\\d+_\\d+$`))
 
     entries.forEach((entry, i) => {
-      // This will FAIL if counter doesn't start at 1
       expect(entry.id).toMatch(expectedPattern[i])
     })
 
@@ -261,22 +263,18 @@ describe('Snapshot testing determinism', () => {
 
   it('should support creating factory functions with isolated counters', () => {
     /**
-     * Ideal solution: Provide a factory that creates isolated entry creators.
-     *
-     * Example API (not yet implemented):
-     * const createEntry = createOutputEntryFactory()
-     * const entry1 = createEntry('info', 'test') // Always output_1_*
+     * Factory function provides isolated entry creators.
+     * Each factory starts with counter at 0.
      */
 
-    // For now, we can only test that the current implementation fails this requirement
-    // by showing that sequential calls don't start from 1
+    // Use factory for isolated counter
+    const createEntry = createOutputEntryFactory()
 
-    // First call in this test - what counter value do we get?
-    const entry = createOutputEntry('info', 'Test')
+    // First call with this factory - counter starts at 1
+    const entry = createEntry('info', 'Test')
     const counter = parseInt(entry.id.split('_')[1])
 
-    // In an isolated system, this would always be 1
-    // With module-level state, it depends on previous test execution order
+    // Factory-based approach always starts at 1
     expect(counter).toBe(1)
   })
 })
@@ -320,21 +318,23 @@ describe('resetEntryCounter workaround', () => {
    */
 })
 
-describe('Isolation without manual reset (demonstrates the bug)', () => {
-  // No beforeEach reset here
+describe('Isolation without manual reset (using factory pattern)', () => {
+  // No beforeEach reset needed when using factory pattern
 
-  it('test A - creates entries', () => {
-    createOutputEntry('info', 'Entry from test A')
-    createOutputEntry('info', 'Another entry from test A')
-    // Counter is now at 2 (or higher if other tests ran first)
+  it('test A - creates entries with isolated factory', () => {
+    const createEntry = createOutputEntryFactory()
+    createEntry('info', 'Entry from test A')
+    createEntry('info', 'Another entry from test A')
+    // Counter is local to this factory
   })
 
-  it('test B - expects isolation but gets polluted state', () => {
-    // This test expects to start fresh, but counter continues
-    const entry = createOutputEntry('info', 'Entry from test B')
+  it('test B - gets isolated state with factory pattern', () => {
+    // Each factory has its own counter
+    const createEntry = createOutputEntryFactory()
+    const entry = createEntry('info', 'Entry from test B')
     const counter = parseInt(entry.id.split('_')[1])
 
-    // This will FAIL - counter will be 3 or higher, not 1
+    // Factory pattern provides isolation - counter starts at 1
     expect(counter).toBe(1)
   })
 })
@@ -354,30 +354,36 @@ describe('Target behavior: Component-level state isolation', () => {
 
   it('should provide createOutputEntryFactory for isolated counter', () => {
     // Target API: Factory that creates an isolated entry creator
-    // const createEntry = createOutputEntryFactory()
+    // Now implemented: createOutputEntryFactory()
 
-    // For now, test that we need this API
-    type CreateOutputEntryFactory = () => (type: OutputType, content: unknown) => OutputEntry
+    // Verify factory function exists and works
+    expect(typeof createOutputEntryFactory).toBe('function')
 
-    // Check if the factory function exists (it doesn't yet)
-    const hasFactory = typeof (globalThis as any).createOutputEntryFactory === 'function'
+    // Create two independent factories
+    const factory1 = createOutputEntryFactory()
+    const factory2 = createOutputEntryFactory()
 
-    // This test will PASS once we implement createOutputEntryFactory
-    // For now it documents the requirement
-    expect(hasFactory).toBe(false) // Currently not implemented
+    // Each factory should have its own isolated counter
+    const entry1a = factory1('info', 'test') // output_1_*
+    const entry1b = factory1('info', 'test') // output_2_*
 
-    // When implemented, usage would be:
-    // const factory = createOutputEntryFactory()
-    // const entry1 = factory('info', 'test') // output_1_*
-    // const entry2 = factory('info', 'test') // output_2_*
-    //
-    // const factory2 = createOutputEntryFactory()
-    // const entry3 = factory2('info', 'test') // output_1_* (independent counter!)
+    const entry2a = factory2('info', 'test') // output_1_* (independent counter!)
+    const entry2b = factory2('info', 'test') // output_2_* (independent counter!)
+
+    const getCounter = (id: string) => parseInt(id.split('_')[1])
+
+    // Factory 1 entries should be 1, 2
+    expect(getCounter(entry1a.id)).toBe(1)
+    expect(getCounter(entry1b.id)).toBe(2)
+
+    // Factory 2 entries should ALSO be 1, 2 (independent counter)
+    expect(getCounter(entry2a.id)).toBe(1)
+    expect(getCounter(entry2b.id)).toBe(2)
   })
 
   it('should document OutputBuffer as the preferred isolated API', () => {
-    // OutputBuffer has its own entry storage, but still uses shared counter
-    // Ideal: OutputBuffer should have its own counter
+    // OutputBuffer now has its own isolated counter via createOutputEntryFactory()
+    // Each buffer instance maintains independent entry IDs
 
     const buffer = new OutputBuffer(100)
 

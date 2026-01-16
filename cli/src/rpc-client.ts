@@ -405,7 +405,7 @@ export class RpcClient extends EventEmitter {
       args: [code],
     }
 
-    // Initialize streaming state for this call (enables event emission)
+    // Initialize streaming state for this call (enables event emission and log tracking)
     this.streamingState.set(id, { logs: [] })
 
     return new Promise((resolve, reject) => {
