@@ -298,14 +298,12 @@ export class CompletionEngine {
    * This ensures first getCompletions() call is fast by priming TS caches.
    */
   private warmupLanguageService(): void {
-    // Two warmup calls that prime TypeScript's internal caches:
-    // - First call initializes type checker for Array<number>
-    // - Second call warms up incremental compilation caches
-    //
-    // Two warmups is optimal - fewer doesn't fully warm incremental caches,
-    // more adds latency without improving completion speed.
-    this.getCompletions('const arr: number[] = [1,2,3]; arr.', 35)
-    this.getCompletions('const arr2: number[] = [4,5,6]; arr2.', 37)
+    // Multiple warmup calls that prime TypeScript's internal caches.
+    // Each call uses different variable names to exercise incremental compilation.
+    // 8 iterations provides good cache saturation.
+    for (let i = 0; i < 8; i++) {
+      this.getCompletions(`const v${i}: number[] = [${i}]; v${i}.`, 29)
+    }
   }
 
   /**

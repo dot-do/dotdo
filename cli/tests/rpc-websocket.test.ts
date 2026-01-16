@@ -172,6 +172,7 @@ describe('RpcClient WebSocket Integration', () => {
       url: 'wss://test.api.dotdo.dev/ws/rpc',
       timeout: 5000,
       autoReconnect: false,
+      batchWindow: 0, // Disable batching so call() sends immediately in tests
     })
   })
 
@@ -231,7 +232,7 @@ describe('RpcClient WebSocket Integration', () => {
 
       const schema = await connectPromise
       expect(schema).toEqual(expectedSchema)
-      expect(client.getState()).toBe('connected')
+      expect(client.getState().status).toBe('connected')
       expect(client.getSchema()).toEqual(expectedSchema)
     })
 
@@ -243,7 +244,7 @@ describe('RpcClient WebSocket Integration', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(connectingHandler).toHaveBeenCalledTimes(1)
-      expect(client.getState()).toBe('connecting')
+      expect(client.getState().status).toBe('connecting')
 
       // Cleanup
       mockWs = getMockWs() as MockedWebSocket
@@ -324,7 +325,7 @@ describe('RpcClient WebSocket Integration', () => {
 
       expect(timeoutError).toBeInstanceOf(Error)
       expect(timeoutError?.message).toBe('Connection timeout')
-      expect(client.getState()).toBe('error')
+      expect(client.getState().status).toBe('error')
     })
 
     it('should reject when WebSocket emits error', async () => {
@@ -339,7 +340,7 @@ describe('RpcClient WebSocket Integration', () => {
       simulateError(mockWs, wsError)
 
       expect(errorHandler).toHaveBeenCalledWith(wsError)
-      expect(client.getState()).toBe('error')
+      expect(client.getState().status).toBe('error')
     })
 
     it('should reject when introspection call fails', async () => {
@@ -426,11 +427,11 @@ describe('RpcClient WebSocket Integration', () => {
     it('should set state to "disconnected"', async () => {
       await connectClient()
 
-      expect(client.getState()).toBe('connected')
+      expect(client.getState().status).toBe('connected')
 
       client.disconnect()
 
-      expect(client.getState()).toBe('disconnected')
+      expect(client.getState().status).toBe('disconnected')
     })
 
     it('should disable auto-reconnect on explicit disconnect', async () => {
@@ -485,7 +486,7 @@ describe('RpcClient WebSocket Integration', () => {
     it('should handle disconnect when not connected', () => {
       // Should not throw
       expect(() => client.disconnect()).not.toThrow()
-      expect(client.getState()).toBe('disconnected')
+      expect(client.getState().status).toBe('disconnected')
     })
   })
 
@@ -668,6 +669,7 @@ describe('RpcClient WebSocket Integration', () => {
         url: 'wss://test.api.dotdo.dev/ws/rpc',
         timeout: 1000, // 1 second timeout
         autoReconnect: false,
+        batchWindow: 0, // Disable batching for test
       })
 
       const connectPromise = fastClient.connect()
@@ -958,7 +960,7 @@ describe('RpcClient WebSocket Integration', () => {
       }).not.toThrow()
 
       // Client should still be functional
-      expect(client.getState()).toBe('connected')
+      expect(client.getState().status).toBe('connected')
 
       // Should be able to make calls still
       const callPromise = client.call(['test', 'method'], [])
@@ -983,7 +985,7 @@ describe('RpcClient WebSocket Integration', () => {
       }).not.toThrow()
 
       // Client should still be functional
-      expect(client.getState()).toBe('connected')
+      expect(client.getState().status).toBe('connected')
     })
 
     it('should handle empty message data', async () => {
@@ -993,7 +995,7 @@ describe('RpcClient WebSocket Integration', () => {
         simulateRawMessage(mockWs, '')
       }).not.toThrow()
 
-      expect(client.getState()).toBe('connected')
+      expect(client.getState().status).toBe('connected')
     })
 
     it('should handle null in message', async () => {
@@ -1003,7 +1005,7 @@ describe('RpcClient WebSocket Integration', () => {
         simulateRawMessage(mockWs, 'null')
       }).not.toThrow()
 
-      expect(client.getState()).toBe('connected')
+      expect(client.getState().status).toBe('connected')
     })
 
     it('should handle response message with missing id', async () => {
@@ -1231,8 +1233,12 @@ describe('RpcClient WebSocket Integration', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       const callMsg = JSON.parse(mockWs.send.mock.calls[mockWs.send.mock.calls.length - 1][0])
+      // createProxy() sends pipeline format with operations array
+      expect(callMsg.type).toBe('pipeline')
       expect(callMsg.path).toEqual(['customers', 'get'])
-      expect(callMsg.args).toEqual(['cust_123'])
+      expect(callMsg.operations).toHaveLength(2)
+      expect(callMsg.operations[0]).toEqual({ path: 'customers', args: [], type: 'get' })
+      expect(callMsg.operations[1]).toEqual({ path: 'get', args: ['cust_123'], type: 'call' })
 
       simulateResponse(mockWs, callMsg.id, { $id: 'cust_123', name: 'Alice' })
 

@@ -463,7 +463,7 @@ describe('RpcClient cleanup on disconnect', () => {
       expect(result).toBe('caught')
 
       // State should be disconnected
-      expect(client.getState()).toBe('disconnected')
+      expect(client.getState().status).toBe('disconnected')
     })
 
     it('should clean up the same way for unexpected connection drop', async () => {

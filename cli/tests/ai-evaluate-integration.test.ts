@@ -94,7 +94,7 @@ describe('handleSubmit: RPC Integration', () => {
     }
 
     // Set up connected state
-    ;(client as any).state = 'connected'
+    ;(client as any).state = { status: 'connected' }
     ;(client as any).ws = mockWs
 
     // Start evaluate (don't await - we need to capture the message first)
@@ -150,7 +150,7 @@ async function createMessageTestClient() {
     send: vi.fn((msg: string) => sentMessages.push(msg)),
   }
 
-  ;(client as any).state = 'connected'
+  ;(client as any).state = { status: 'connected' }
   ;(client as any).ws = mockWs
 
   return {
