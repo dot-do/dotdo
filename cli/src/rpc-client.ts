@@ -77,6 +77,20 @@ export interface RpcClientOptions {
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error'
 
 /**
+ * Result from code evaluation via RPC
+ */
+export interface EvaluateResult {
+  /** Whether evaluation succeeded */
+  success: boolean
+  /** Return value on success */
+  value?: unknown
+  /** Error message on failure */
+  error?: string
+  /** Log entries captured during evaluation */
+  logs: Array<{ level: string; message: string }>
+}
+
+/**
  * CLI RPC Client
  *
  * Provides a WebSocket connection to dotdo DOs with:
@@ -203,6 +217,20 @@ export class RpcClient extends EventEmitter {
   private async introspect(): Promise<Schema> {
     const result = await this.call(['$meta', 'schema'], [])
     return result as Schema
+  }
+
+  /**
+   * Evaluate code via RPC
+   *
+   * Sends code to the DO for evaluation using ai-evaluate.
+   * The DO runs the code in a sandboxed environment with $ context.
+   *
+   * @param code - JavaScript/TypeScript code to evaluate
+   * @returns Evaluation result with success/value/error/logs
+   */
+  async evaluate(code: string): Promise<EvaluateResult> {
+    const result = await this.call(['evaluate'], [code])
+    return result as EvaluateResult
   }
 
   /**

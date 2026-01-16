@@ -3,92 +3,28 @@
  *
  * The main REPL interface that combines:
  * - TypeScript completion engine
- * - RPC client for remote execution (via ai-evaluate)
+ * - RPC client for remote execution (code sent to DO, evaluated there)
  * - Input/Output display
  * - History management
+ *
+ * Architecture:
+ * - CLI does NOT run ai-evaluate locally
+ * - Code is sent to DO via RPC
+ * - DO runs ai-evaluate with $ = this context
+ * - Results are returned and displayed
  */
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { Box, Text, useApp } from 'ink'
-import { evaluate } from 'ai-evaluate'
 import { Input, StatusBar } from './components/Input.js'
 import { Output, createOutputEntry, type OutputEntry } from './components/Output.js'
 import { CompletionEngine, filterCompletions, getWordAtCursor, type CompletionItem } from './completions.js'
-import { RpcClient, generateTypeDefinitions, type Schema } from './rpc-client.js'
-
-// =============================================================================
-// Execution Types
-// =============================================================================
-
-/**
- * Result of code execution via ai-evaluate
- */
-export interface ExecuteResult {
-  /** Whether execution succeeded */
-  success: boolean
-  /** Return value on success */
-  value?: unknown
-  /** Error message on failure */
-  error?: string
-}
+import { RpcClient, generateTypeDefinitions, type Schema, type EvaluateResult } from './rpc-client.js'
 
 /**
  * Log callback for streaming console output
  */
 export type LogCallback = (level: string, message: string) => void
-
-// =============================================================================
-// Secure Code Execution via ai-evaluate
-// =============================================================================
-
-/**
- * Execute code securely using ai-evaluate.
- *
- * This replaces the unsafe `new Function()` approach with isolated V8 execution.
- *
- * Features:
- * - Runs in isolated V8 workers (no filesystem access)
- * - Network blocked by default
- * - Memory and CPU limits enforced
- * - Timeout enforcement
- * - SDK globals ($, db, ai) available via rpcUrl
- *
- * @param code - JavaScript/TypeScript code to execute
- * @param rpcUrl - RPC endpoint URL for SDK context
- * @param onLog - Optional callback for console output
- * @returns Execution result with success/value/error
- */
-export async function executeCode(
-  code: string,
-  rpcUrl: string,
-  onLog?: LogCallback
-): Promise<ExecuteResult> {
-  try {
-    const result = await evaluate({
-      script: code,
-      sdk: { rpcUrl },
-    })
-
-    // Forward logs to callback if provided
-    if (result.logs && onLog) {
-      for (const log of result.logs) {
-        onLog(log.level, log.message)
-      }
-    }
-
-    return {
-      success: result.success,
-      value: result.value,
-      error: result.error,
-    }
-  } catch (err) {
-    // Handle unexpected errors from evaluate itself
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    }
-  }
-}
 
 // =============================================================================
 // Component Types
@@ -328,29 +264,40 @@ Keyboard shortcuts:
       }
     }
 
-    // Execute code securely via ai-evaluate
-    const onLog: LogCallback = (level, message) => {
-      // Map ai-evaluate log levels to output types
-      const typeMap: Record<string, OutputEntry['type']> = {
-        log: 'info',
-        info: 'info',
-        warn: 'warning',
-        error: 'error',
-        debug: 'info',
-      }
-      addOutput(typeMap[level] ?? 'info', message)
+    // Execute code via RPC (DO runs ai-evaluate)
+    if (!rpcClient) {
+      addOutput('error', 'Not connected to endpoint. Use .connect to reconnect.')
+      return
     }
 
-    const result = await executeCode(value, endpoint ?? '', onLog)
+    try {
+      const result = await rpcClient.evaluate(value)
 
-    if (result.success) {
-      if (result.value !== undefined) {
-        addOutput('result', result.value)
+      // Forward logs to output
+      if (result.logs) {
+        const typeMap: Record<string, OutputEntry['type']> = {
+          log: 'info',
+          info: 'info',
+          warn: 'warning',
+          error: 'error',
+          debug: 'info',
+        }
+        for (const log of result.logs) {
+          addOutput(typeMap[log.level] ?? 'info', log.message)
+        }
       }
-    } else {
-      addOutput('error', result.error ?? 'Unknown error')
+
+      if (result.success) {
+        if (result.value !== undefined) {
+          addOutput('result', result.value)
+        }
+      } else {
+        addOutput('error', result.error ?? 'Unknown error')
+      }
+    } catch (err) {
+      addOutput('error', err instanceof Error ? err.message : String(err))
     }
-  }, [endpoint, addOutput, exit])
+  }, [rpcClient, addOutput, exit])
 
   // Get diagnostics for current input
   const diagnostics = useMemo(() => {

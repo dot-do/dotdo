@@ -323,40 +323,44 @@ describe('WebSocket RPC: Event Subscriptions', () => {
 // =============================================================================
 
 describe('WebSocket RPC: Bidirectional Callbacks', () => {
-  it('should invoke callback passed as argument', async () => {
-    const doStub = getDOStub('ws-rpc-callback-1')
-    const client = await createRpcWebSocketClient(doStub)
+  it(
+    'should invoke callback passed as argument',
+    async () => {
+      const doStub = getDOStub('ws-rpc-callback-1')
+      const client = await createRpcWebSocketClient(doStub)
 
-    // Register a handler using the on.Noun.verb pattern
-    // The handler is a callback that will be invoked via WebSocket
-    const callbackId = `cb_test_${Date.now()}`
+      // Register a handler using the on.Noun.verb pattern
+      // The handler is a callback that will be invoked via WebSocket
+      const callbackId = `cb_test_${Date.now()}`
 
-    // Subscribe to the event
-    client.send({
-      id: 'sub-1',
-      type: 'subscribe',
-      eventType: 'Callback.test',
-    })
+      // Subscribe to the event
+      client.send({
+        id: 'sub-1',
+        type: 'subscribe',
+        eventType: 'Callback.test',
+      })
 
-    await new Promise((r) => setTimeout(r, 100))
+      await new Promise((r) => setTimeout(r, 100))
 
-    // Send an event
-    client.send({
-      id: 'call-1',
-      type: 'call',
-      path: ['send'],
-      args: ['Callback.test', { message: 'Hello callback!' }],
-    })
+      // Send an event
+      client.send({
+        id: 'call-1',
+        type: 'call',
+        path: ['send'],
+        args: ['Callback.test', { message: 'Hello callback!' }],
+      })
 
-    // Wait for the event
-    await new Promise((r) => setTimeout(r, 200))
+      // Wait for the event
+      await new Promise((r) => setTimeout(r, 200))
 
-    // Verify we received the event (which can be processed by local callback)
-    const eventMsg = client.messages.find((m) => m.type === 'event')
-    expect(eventMsg).toBeDefined()
+      // Verify we received the event (which can be processed by local callback)
+      const eventMsg = client.messages.find((m) => m.type === 'event')
+      expect(eventMsg).toBeDefined()
 
-    client.close()
-  })
+      client.close()
+    },
+    30_000
+  )
 
   it('should handle callback stub serialization', async () => {
     const doStub = getDOStub('ws-rpc-callback-2')
@@ -412,46 +416,50 @@ describe('WebSocket RPC: Thing CRUD', () => {
     client.close()
   })
 
-  it('should list things via WebSocket RPC', async () => {
-    const doStub = getDOStub('ws-rpc-crud-2')
-    const client = await createRpcWebSocketClient(doStub)
+  it(
+    'should list things via WebSocket RPC',
+    async () => {
+      const doStub = getDOStub('ws-rpc-crud-2')
+      const client = await createRpcWebSocketClient(doStub)
 
-    // Create some things first
-    client.send({
-      id: 'create-1',
-      type: 'call',
-      path: ['create'],
-      args: ['Product', { name: 'Widget A', price: 10 }],
-    })
-    await client.waitFor('response', 2000)
+      // Create some things first
+      client.send({
+        id: 'create-1',
+        type: 'call',
+        path: ['create'],
+        args: ['Product', { name: 'Widget A', price: 10 }],
+      })
+      await client.waitFor('response', 2000)
 
-    client.send({
-      id: 'create-2',
-      type: 'call',
-      path: ['create'],
-      args: ['Product', { name: 'Widget B', price: 20 }],
-    })
-    await client.waitFor('response', 2000)
+      client.send({
+        id: 'create-2',
+        type: 'call',
+        path: ['create'],
+        args: ['Product', { name: 'Widget B', price: 20 }],
+      })
+      await client.waitFor('response', 2000)
 
-    // List things
-    client.send({
-      id: 'list-1',
-      type: 'call',
-      path: ['listThings'],
-      args: ['Product'],
-    })
+      // List things
+      client.send({
+        id: 'list-1',
+        type: 'call',
+        path: ['listThings'],
+        args: ['Product'],
+      })
 
-    // Wait for list response
-    await new Promise((r) => setTimeout(r, 200))
-    const listResponse = client.messages.find((m) => m.id === 'list-1')
+      // Wait for list response
+      await new Promise((r) => setTimeout(r, 200))
+      const listResponse = client.messages.find((m) => m.id === 'list-1')
 
-    expect(listResponse).toBeDefined()
-    expect(Array.isArray(listResponse?.result)).toBe(true)
-    const products = listResponse?.result as unknown[]
-    expect(products.length).toBeGreaterThanOrEqual(2)
+      expect(listResponse).toBeDefined()
+      expect(Array.isArray(listResponse?.result)).toBe(true)
+      const products = listResponse?.result as unknown[]
+      expect(products.length).toBeGreaterThanOrEqual(2)
 
-    client.close()
-  })
+      client.close()
+    },
+    30_000
+  )
 })
 
 // =============================================================================

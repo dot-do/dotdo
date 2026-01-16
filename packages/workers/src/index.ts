@@ -57,6 +57,9 @@ export {
 // Proxy utilities
 export {
   createPipelinedStub,
+  createPipelinedProxy,
+  createPipelineExecutor,
+  executePipeline,
   serializePipeline,
   deserializePipeline,
   PIPELINE_SYMBOL,
@@ -64,6 +67,8 @@ export {
   type PipelinedStub,
   type PipelineStep,
   type SerializedPipeline,
+  type PipelineExecutor,
+  type ExecutablePipelineStub,
 } from './proxy/PipelinedStub'
 export type {
   PipelinedProxyOptions,

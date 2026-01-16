@@ -31,3 +31,25 @@ export {
 export { requestId } from './request-id'
 export { rateLimit } from './rate-limit'
 export type { RateLimitConfig } from './rate-limit'
+
+// MCP middleware exports
+export {
+  mcpMiddleware,
+  ToolRegistry,
+  ResourceRegistry,
+  createToolRegistry,
+  createResourceRegistry,
+} from './mcp'
+export type {
+  McpConfig,
+  McpTool,
+  McpToolResult,
+  McpContent,
+  McpResource,
+  McpResourceContent,
+  McpServerInfo,
+  ToolRegistration,
+  ResourceRegistration,
+  ToolHandler,
+  ResourceHandler,
+} from './mcp'

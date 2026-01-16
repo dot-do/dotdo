@@ -50,6 +50,10 @@
     "./rate-limit": {
       "import": "./dist/rate-limit.js",
       "types": "./dist/rate-limit.d.ts"
+    },
+    "./mcp": {
+      "import": "./dist/mcp.js",
+      "types": "./dist/mcp.d.ts"
     }
   },
   "files": [

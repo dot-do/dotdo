@@ -1,4 +1,5 @@
 name = "dotdo-v2"
+account_id = "b6641681fe423910342b9ffa1364c76d"
 # Main entry exports all DO classes for wrangler bindings
 main = "objects/index.ts"
 compatibility_date = "2024-12-30"
@@ -28,8 +29,7 @@ new_sqlite_classes = ["DOSemantic", "DOStorageClass", "DOWorkflowClass", "DOFull
 # KV namespace for OAuth session storage
 [[kv_namespaces]]
 binding = "OAUTH_KV"
-id = "placeholder-oauth-kv-id"
-preview_id = "placeholder-oauth-kv-preview-id"
+id = "5602c4ff6e3249b684e5c8eaea0b1901"
 
 # AI binding for tool execution
 [ai]
@@ -77,3 +77,21 @@ simple = { limit = 100, period = 60 }
 # [env.staging.vars]
 # ALLOWED_ORIGINS = "https://staging.example.com,https://preview.example.com"
 # ENVIRONMENT = "staging"
+
+# ============================================================================
+# R2 Storage Buckets
+# ============================================================================
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "dotdo-lake"
+
+[[r2_buckets]]
+binding = "EVENTS_ICEBERG_BUCKET"
+bucket_name = "events-iceberg"
+
+# ============================================================================
+# Pipeline Binding (L1 WAL for unified events)
+# ============================================================================
+[[pipelines]]
+pipeline = "events"
+binding = "PIPELINE"
