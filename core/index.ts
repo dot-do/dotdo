@@ -37,6 +37,27 @@
 export { DOCore, type DOCoreEnv } from './DOCore'
 
 // ============================================================================
+// Core Types - Re-exported from types/
+// ============================================================================
+
+export type {
+  ThingData,
+  Thing,
+  ScoredThing,
+  ThingId,
+  EventId,
+  RelationshipId,
+  Noun,
+  NounOptions,
+  Verb,
+  VerbOptions,
+  Action,
+  ActionResult,
+  CreateThingInput,
+  ListOptions,
+} from '../types'
+
+// ============================================================================
 // WorkflowContext ($) - Event handlers, scheduling, durable execution
 // ============================================================================
 

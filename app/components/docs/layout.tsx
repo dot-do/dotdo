@@ -83,9 +83,14 @@ export function DocsLayout({
   return (
     <FumaDocsLayout
       tree={pageTree}
+      links={navLinks.map(link => ({
+        type: 'main' as const,
+        text: link.text,
+        url: link.url,
+        external: link.external,
+      }))}
       nav={{
         title,
-        links: navLinks,
       }}
       sidebar={{
         collapsible,
@@ -95,7 +100,9 @@ export function DocsLayout({
       // - sm: Single column (sidebar hidden via SidebarTrigger)
       // - md: Sidebar 240px, content 1fr
       // - lg: Sidebar 280px, content 1fr (more breathing room)
-      className="md:grid-cols-[240px_1fr] lg:grid-cols-[280px_1fr]"
+      containerProps={{
+        className: "md:grid-cols-[240px_1fr] lg:grid-cols-[280px_1fr]",
+      }}
     >
       {children}
     </FumaDocsLayout>

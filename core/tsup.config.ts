@@ -13,8 +13,8 @@ export default defineConfig({
     'hono',
     'cloudflare:workers',
   ],
-  // Bundle the rpc dependencies from parent folder
+  // Bundle all relative imports from parent folder (rpc, workflow, lib, types, db)
   noExternal: [
-    /^\.\.\/rpc\//,
+    /^\.\.\//,
   ],
 })

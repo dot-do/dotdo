@@ -22,8 +22,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@dotdo/types": "workspace:*",
-    "@dotdo/rpc": "workspace:*",
     "hono": "^4.6.0"
   },
   "publishConfig": {

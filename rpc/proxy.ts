@@ -427,7 +427,7 @@ async function invokeRemoteMethod(state: ClientState, method: string, args: unkn
     setTimeout(() => {
       controller.abort()
       const errorMsg = `Request timeout after ${timeout}ms calling ${method}()`
-      reject(new RPCError(errorMsg, { method, target: targetUrl }))
+      reject(new RPCError(errorMsg, { code: 'TIMEOUT', method, target: targetUrl }))
     }, timeout)
   })
 
@@ -510,7 +510,7 @@ async function makeRPCCall(
     while (Date.now() - startTime < SLOW_DELAY_MS) {
       // Check if signal was aborted
       if (signal.aborted) {
-        throw new RPCError('Request timeout', { method })
+        throw new RPCError('Request timeout', { code: 'TIMEOUT', method })
       }
       // Yield to event loop with a short wait
       await new Promise(resolve => setTimeout(resolve, ABORT_CHECK_INTERVAL_MS))

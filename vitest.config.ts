@@ -16,13 +16,13 @@ export default defineWorkersConfig({
   test: {
     globals: true,
     include: ['**/*.test.ts'],
-    exclude: ['**/node_modules/**', 'node_modules', 'dist', 'app/node_modules/**'],
+    exclude: ['**/node_modules/**', 'node_modules', 'dist', 'app/node_modules/**', 'tests/e2e/**'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     setupFiles: ['./vitest.setup.ts'],
     poolOptions: {
       workers: {
-        wrangler: { configPath: './wrangler.toml' },
+        wrangler: { configPath: './wrangler.jsonc' },
         singleWorker: true,
         isolatedStorage: false,
       },

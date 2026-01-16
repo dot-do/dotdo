@@ -44,7 +44,7 @@ export interface SidebarProps {
  */
 interface SidebarItemProps {
   /** The page tree node to render */
-  node: PageTree.Root | PageTree.Folder | PageTree.Item
+  node: PageTree.Root | PageTree.Folder | PageTree.Item | PageTree.Separator | PageTree.Node
   /** Default expand level for nested items */
   defaultOpenLevel: number
   /** Current nesting level (0-indexed) */
@@ -107,8 +107,8 @@ const SidebarPageTree = memo(function SidebarPageTree({
   level = 0,
   activeUrl,
 }: SidebarItemProps): ReactNode {
-  // Handle root node (has children but no name)
-  if ('children' in node && !('name' in node)) {
+  // Handle root node (no type property, unlike Item/Folder/Separator)
+  if ('children' in node && !('type' in node)) {
     const rootNode = node as PageTree.Root
     return (
       <ul className="space-y-1" role="tree" aria-label="Page navigation">
@@ -126,10 +126,11 @@ const SidebarPageTree = memo(function SidebarPageTree({
   }
 
   // Handle folder node (has children and name)
-  if ('children' in node && 'name' in node) {
+  if ('children' in node && 'name' in node && 'type' in node && (node as PageTree.Folder).type === 'folder') {
     const folder = node as PageTree.Folder
     const isDefaultOpen = level < defaultOpenLevel
-    const folderId = `folder-${level}-${folder.name.toLowerCase().replace(/\s+/g, '-')}`
+    const folderName = typeof folder.name === 'string' ? folder.name : 'folder'
+    const folderId = `folder-${level}-${folderName.toLowerCase().replace(/\s+/g, '-')}`
 
     return (
       <li role="treeitem" aria-expanded={isDefaultOpen}>

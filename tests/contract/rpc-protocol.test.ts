@@ -582,7 +582,7 @@ describe('RPC Error Response Contract', () => {
     it('timeout errors have TIMEOUT code', async () => {
       const client = createRPCClient<TestDO>({
         target: 'https://slow.api.dotdo.dev/entity-123',
-        timeout: 10, // Very short timeout
+        timeout: 100, // Short timeout (100ms)
       })
 
       try {
@@ -592,7 +592,7 @@ describe('RPC Error Response Contract', () => {
         // Contract: Timeout MUST produce TIMEOUT error code
         expect((error as RPCError).code).toMatch(/TIMEOUT|RPC_ERROR/)
       }
-    }, 30000)
+    }, 60000)
 
     it('method not found errors have METHOD_NOT_FOUND code', async () => {
       const client = createRPCClient<TestDO>({

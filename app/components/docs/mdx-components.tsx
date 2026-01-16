@@ -22,7 +22,7 @@
  */
 
 import React, { type ReactNode, type ComponentType, type HTMLAttributes, memo } from 'react'
-import { defaultMdxComponents as fumadocsComponents } from 'fumadocs-ui/mdx'
+import fumadocsComponents from 'fumadocs-ui/mdx'
 
 /**
  * MDX component type helper

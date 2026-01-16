@@ -1,37 +1,28 @@
 /**
- * Docs catch-all route for TanStack Start
+ * Docs catch-all route for TanStack Router
  *
  * Handles all /docs/* routes by loading the corresponding MDX page
- * from the fumadocs source. Uses server functions for SSR/prerendering.
+ * from the fumadocs source. Uses loader for data loading.
  *
  * @see https://fumadocs.dev/docs/manual-installation/tanstack-start
- * @see https://tanstack.com/start/latest/docs/routing/splat-routes
+ * @see https://tanstack.com/router/latest/docs/framework/react/guide/file-based-routing
  */
 import type { ReactNode } from 'react'
 import { createFileRoute, notFound } from '@tanstack/react-router'
-import { createServerFn } from '@tanstack/start'
 import { source } from '../../lib/source'
 import { DocsLayout } from '../../components/docs/layout'
 import { DocsPage } from '../../components/docs/page'
 
 /**
- * Server function to load page data from fumadocs source.
- * Runs at build time for prerendering and on server for SSR.
+ * Page data type for documentation pages
  */
-const getPageData = createServerFn({ method: 'GET' })
-  .validator((slug: string[]) => slug)
-  .handler(async ({ data: slug }) => {
-    const page = source.getPage(slug)
-    if (!page) return null
-
-    return {
-      title: page.data.title,
-      description: page.data.description,
-      url: page.url,
-      // MDX content would be loaded here in production
-      // For now, return metadata for SSR
-    }
-  })
+interface PageData {
+  title: string
+  description?: string
+  url: string
+  toc?: unknown
+  slugs: string[]
+}
 
 /**
  * Get all pages for static prerendering.
@@ -47,7 +38,7 @@ export const getStaticPaths = () => {
 
 export const Route = createFileRoute('/docs/$')({
   component: DocsPageComponent,
-  loader: async ({ params }) => {
+  loader: async ({ params }: { params: { _splat?: string } }) => {
     const slug = params._splat?.split('/').filter(Boolean) ?? []
     const page = source.getPage(slug)
 
@@ -60,17 +51,17 @@ export const Route = createFileRoute('/docs/$')({
         title: page.data.title,
         description: page.data.description,
         url: page.url,
-        toc: page.data.toc,
+        toc: (page.data as { toc?: unknown }).toc,
         slugs: page.slugs,
-      },
+      } as PageData,
     }
   },
-  head: ({ loaderData }) => ({
+  head: ({ loaderData }: { loaderData?: { page: PageData } }) => ({
     meta: [
-      { title: `${loaderData?.page.title ?? 'Docs'} - dotdo` },
+      { title: `${loaderData?.page?.title ?? 'Docs'} - dotdo` },
       {
         name: 'description',
-        content: loaderData?.page.description ?? 'dotdo documentation',
+        content: loaderData?.page?.description ?? 'dotdo documentation',
       },
     ],
   }),
@@ -81,7 +72,8 @@ export const Route = createFileRoute('/docs/$')({
  * Renders the MDX content within DocsLayout.
  */
 function DocsPageComponent(): ReactNode {
-  const { page } = Route.useLoaderData()
+  const loaderData = Route.useLoaderData() as { page: PageData }
+  const { page } = loaderData
 
   return (
     <DocsLayout>

@@ -1,13 +1,11 @@
 /**
- * Sitemap XML Route
+ * Sitemap XML Utility
  *
  * Generates a dynamic sitemap.xml for search engine crawling.
- * This route returns XML content type with all public pages.
+ * Export the handler for use in a server route (Hono, Cloudflare Worker, etc.)
  *
- * @see https://tanstack.com/start/latest/docs/routing/api-routes
  * @see https://www.sitemaps.org/protocol.html
  */
-import { createAPIFileRoute } from '@tanstack/react-start/api'
 import { SEO_DEFAULTS } from '../../lib/seo'
 
 /**
@@ -22,13 +20,13 @@ const STATIC_PAGES = [
  * Generate ISO date string for lastmod
  */
 function getLastMod(): string {
-  return new Date().toISOString().split('T')[0]
+  return new Date().toISOString().split('T')[0] ?? ''
 }
 
 /**
  * Generate sitemap XML content
  */
-function generateSitemapXml(): string {
+export function generateSitemapXml(): string {
   const lastmod = getLastMod()
   const baseUrl = SEO_DEFAULTS.siteUrl
 
@@ -50,16 +48,22 @@ function generateSitemapXml(): string {
 </urlset>`
 }
 
-export const Route = createAPIFileRoute('/sitemap.xml')({
-  GET: async () => {
-    const xml = generateSitemapXml()
+/**
+ * Request handler for sitemap.xml
+ * Use this in your server routes (Hono, Cloudflare Worker, etc.)
+ *
+ * @example
+ * // In a Hono route
+ * app.get('/sitemap.xml', () => handleSitemapRequest())
+ */
+export async function handleSitemapRequest(): Promise<Response> {
+  const xml = generateSitemapXml()
 
-    return new Response(xml, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/xml',
-        'Cache-Control': 'public, max-age=3600, s-maxage=3600',
-      },
-    })
-  },
-})
+  return new Response(xml, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/xml',
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+    },
+  })
+}

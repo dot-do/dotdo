@@ -19,7 +19,9 @@
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "build:docs": "cd app && npm run build",
-    "deploy:docs": "wrangler deploy --config wrangler.static.jsonc"
+    "deploy:docs": "wrangler deploy --config wrangler.static.jsonc",
+    "deploy:examples": "wrangler deploy --config wrangler.examples.jsonc",
+    "test:examples": "EXAMPLES_DOMAIN=example.org.ai vitest run --config vitest.e2e.config.ts tests/e2e/examples.e2e.test.ts"
   },
   "keywords": [
     "cloudflare",
