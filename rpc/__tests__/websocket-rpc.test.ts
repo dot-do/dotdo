@@ -24,6 +24,7 @@ interface WebSocketClient {
   ws: WebSocket
   messages: RpcMessage[]
   waitFor: (type: string, timeout?: number) => Promise<RpcMessage>
+  waitForId: (id: string, timeout?: number) => Promise<RpcMessage>
   send: (msg: RpcMessage) => void
   close: () => void
 }
@@ -42,18 +43,29 @@ async function createRpcWebSocketClient(doStub: DurableObjectStub): Promise<WebS
 
   const messages: RpcMessage[] = []
   const waiters = new Map<string, { resolve: (msg: RpcMessage) => void; timeout: ReturnType<typeof setTimeout> }>()
+  const idWaiters = new Map<string, { resolve: (msg: RpcMessage) => void; timeout: ReturnType<typeof setTimeout> }>()
 
   ws.addEventListener('message', (event) => {
     try {
       const msg: RpcMessage = JSON.parse(event.data as string)
       messages.push(msg)
 
-      // Resolve any waiters
+      // Resolve any waiters by type
       const waiter = waiters.get(msg.type)
       if (waiter) {
         clearTimeout(waiter.timeout)
         waiters.delete(msg.type)
         waiter.resolve(msg)
+      }
+
+      // Resolve any waiters by ID
+      if (msg.id) {
+        const idWaiter = idWaiters.get(msg.id)
+        if (idWaiter) {
+          clearTimeout(idWaiter.timeout)
+          idWaiters.delete(msg.id)
+          idWaiter.resolve(msg)
+        }
       }
     } catch {
       // Non-JSON message - ignore as we only track parsed RPC messages in test helper
@@ -73,6 +85,18 @@ async function createRpcWebSocketClient(doStub: DurableObjectStub): Promise<WebS
           reject(new Error(`Timeout waiting for message type: ${type}`))
         }, timeout)
         waiters.set(type, { resolve, timeout: timeoutId })
+      })
+    },
+    waitForId(id: string, timeout = 5000): Promise<RpcMessage> {
+      const existing = messages.find((m) => m.id === id)
+      if (existing) return Promise.resolve(existing)
+
+      return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          idWaiters.delete(id)
+          reject(new Error(`Timeout waiting for message id: ${id}`))
+        }, timeout)
+        idWaiters.set(id, { resolve, timeout: timeoutId })
       })
     },
     send(msg: RpcMessage) {
@@ -418,50 +442,45 @@ describe('WebSocket RPC: Thing CRUD', () => {
     client.close()
   })
 
-  it(
-    'should list things via WebSocket RPC',
-    async () => {
-      const doStub = getDOStub('ws-rpc-crud-2')
-      const client = await createRpcWebSocketClient(doStub)
+  it('should list things via WebSocket RPC', async () => {
+    const doStub = getDOStub('ws-rpc-crud-2')
+    const client = await createRpcWebSocketClient(doStub)
 
-      // Create some things first
-      client.send({
-        id: 'create-1',
-        type: 'call',
-        path: ['create'],
-        args: ['Product', { name: 'Widget A', price: 10 }],
-      })
-      await client.waitFor('response', 2000)
+    // Create some things first
+    client.send({
+      id: 'create-1',
+      type: 'call',
+      path: ['create'],
+      args: ['Product', { name: 'Widget A', price: 10 }],
+    })
+    await client.waitForId('create-1', 2000)
 
-      client.send({
-        id: 'create-2',
-        type: 'call',
-        path: ['create'],
-        args: ['Product', { name: 'Widget B', price: 20 }],
-      })
-      await client.waitFor('response', 2000)
+    client.send({
+      id: 'create-2',
+      type: 'call',
+      path: ['create'],
+      args: ['Product', { name: 'Widget B', price: 20 }],
+    })
+    await client.waitForId('create-2', 2000)
 
-      // List things
-      client.send({
-        id: 'list-1',
-        type: 'call',
-        path: ['listThings'],
-        args: ['Product'],
-      })
+    // List things
+    client.send({
+      id: 'list-1',
+      type: 'call',
+      path: ['listThings'],
+      args: ['Product'],
+    })
 
-      // Wait for list response
-      await new Promise((r) => setTimeout(r, 200))
-      const listResponse = client.messages.find((m) => m.id === 'list-1')
+    // Wait for list response by ID
+    const listResponse = await client.waitForId('list-1', 2000)
 
-      expect(listResponse).toBeDefined()
-      expect(Array.isArray(listResponse?.result)).toBe(true)
-      const products = listResponse?.result as unknown[]
-      expect(products.length).toBeGreaterThanOrEqual(2)
+    expect(listResponse).toBeDefined()
+    expect(Array.isArray(listResponse?.result)).toBe(true)
+    const products = listResponse?.result as unknown[]
+    expect(products.length).toBeGreaterThanOrEqual(2)
 
-      client.close()
-    },
-    30_000
-  )
+    client.close()
+  })
 })
 
 // =============================================================================
@@ -486,39 +505,37 @@ describe('WebSocket RPC: Hibernation Support', () => {
     ws.close()
   })
 
-  it(
-    'should maintain subscriptions across multiple messages',
-    async () => {
-      const doStub = getDOStub('ws-rpc-hibernate-2')
-      const client = await createRpcWebSocketClient(doStub)
+  it('should maintain subscriptions across multiple messages', async () => {
+    const doStub = getDOStub('ws-rpc-hibernate-2')
+    const client = await createRpcWebSocketClient(doStub)
 
-      // Subscribe
+    // Subscribe
+    client.send({
+      id: 'sub-1',
+      type: 'subscribe',
+      eventType: 'Persist.event',
+    })
+
+    await new Promise((r) => setTimeout(r, 100))
+
+    // Send multiple events and wait for each response
+    for (let i = 0; i < 5; i++) {
       client.send({
-        id: 'sub-1',
-        type: 'subscribe',
-        eventType: 'Persist.event',
+        id: `persist-call-${i}`,
+        type: 'call',
+        path: ['send'],
+        args: ['Persist.event', { index: i }],
       })
+      await client.waitForId(`persist-call-${i}`, 2000)
+    }
 
-      await new Promise((r) => setTimeout(r, 100))
+    // Allow a small window for event broadcast to complete
+    await new Promise((r) => setTimeout(r, 100))
 
-      // Send multiple events
-      for (let i = 0; i < 5; i++) {
-        client.send({
-          id: `call-${i}`,
-          type: 'call',
-          path: ['send'],
-          args: ['Persist.event', { index: i }],
-        })
-      }
+    // Should receive all events
+    const events = client.messages.filter((m) => m.type === 'event')
+    expect(events.length).toBe(5)
 
-      await new Promise((r) => setTimeout(r, 500))
-
-      // Should receive all events
-      const events = client.messages.filter((m) => m.type === 'event')
-      expect(events.length).toBe(5)
-
-      client.close()
-    },
-    30_000
-  )
+    client.close()
+  })
 })
