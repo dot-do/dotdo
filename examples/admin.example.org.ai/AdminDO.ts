@@ -3,6 +3,7 @@
  *
  * This Durable Object exposes:
  * - Schema definitions via $schemas namespace for introspection
+ * - Introspection methods via $meta namespace
  * - Function CRUD operations via functions namespace
  *
  * Methods exposed via $schemas namespace:
@@ -16,6 +17,12 @@
  * - $schemas.relationships() - returns relationship schema definition
  * - $schemas.functions() - returns function schema definition
  * - $schemas.workflows() - returns workflow schema definition
+ *
+ * Methods exposed via $meta namespace:
+ * - $meta.version() - returns AdminDO version string
+ * - $meta.schema() - returns full AdminDO schema definition
+ * - $meta.methods() - returns array of available method definitions
+ * - $meta.capabilities() - returns object with capability flags
  *
  * Methods exposed via functions namespace:
  * - functions.list(options?) - returns array of function definitions
@@ -56,6 +63,55 @@ import type {
   Function as FunctionRecord,
   NewFunction,
 } from './db'
+
+// ============================================================================
+// CORS Support
+// ============================================================================
+
+/**
+ * Generate CORS headers for browser clients
+ * @param origin - The origin to allow, defaults to '*' (all origins)
+ * @returns Headers object with CORS configuration
+ */
+export function corsHeaders(origin?: string): HeadersInit {
+  return {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+  }
+}
+
+/**
+ * Create a Response with CORS headers applied
+ * @param response - The original response
+ * @param origin - Optional origin for CORS header
+ * @returns Response with CORS headers added
+ */
+function withCors(response: Response, origin?: string): Response {
+  const headers = new Headers(response.headers)
+  const cors = corsHeaders(origin)
+  for (const [key, value] of Object.entries(cors)) {
+    headers.set(key, value)
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+/**
+ * Create a preflight OPTIONS response
+ * @param origin - Optional origin for CORS header
+ * @returns 204 No Content response with CORS headers
+ */
+function preflightResponse(origin?: string): Response {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(origin),
+  })
+}
 
 // ============================================================================
 // Types
@@ -131,6 +187,40 @@ export interface ListFunctionsOptions {
   type?: FunctionType
   limit?: number
   offset?: number
+}
+
+// ============================================================================
+// Error Sanitization
+// ============================================================================
+
+/**
+ * Sanitize errors for production responses - removes stack traces and internal paths
+ */
+function sanitizeError(error: unknown): { code: string; message: string } {
+  if (error instanceof Error) {
+    // Check for known error types with code property
+    if ('code' in error) {
+      return {
+        code: (error as { code: string }).code,
+        message: error.message
+      }
+    }
+    // Zod validation errors
+    if (error.name === 'ZodError') {
+      return {
+        code: 'VALIDATION_ERROR',
+        message: error.message
+      }
+    }
+    return {
+      code: 'RPC_ERROR',
+      message: error.message
+    }
+  }
+  return {
+    code: 'UNKNOWN_ERROR',
+    message: String(error)
+  }
 }
 
 // ============================================================================
@@ -468,6 +558,78 @@ export class FunctionsAccessor {
 }
 
 // ============================================================================
+// MetaAccessor - RPC-accessible introspection API
+// ============================================================================
+
+/**
+ * MetaAccessor provides $meta API for AdminDO introspection
+ *
+ * Exposes introspection methods:
+ * - version() - Get the AdminDO version
+ * - schema() - Get the full schema definition
+ * - methods() - List all available methods
+ * - capabilities() - Get capability flags
+ */
+export class MetaAccessor {
+  /**
+   * Get the AdminDO version
+   * @returns Version string
+   */
+  version(): string {
+    return '1.0.0'
+  }
+
+  /**
+   * Get the full schema definition for AdminDO
+   * @returns Schema object with name, version, methods, and description
+   */
+  schema(): object {
+    return {
+      name: 'AdminDO',
+      version: '1.0.0',
+      methods: ['ping', '$schemas.*', '$meta.*', 'drizzle.*', 'functions.*'],
+      description: 'Admin API for mdxui integration',
+    }
+  }
+
+  /**
+   * List all available methods with descriptions
+   * @returns Array of method definitions
+   */
+  methods(): object[] {
+    return [
+      { name: 'ping', description: 'Health check' },
+      { name: '$schemas.list', description: 'List all schema names' },
+      { name: '$schemas.get', description: 'Get schema by name' },
+      { name: '$meta.version', description: 'Get AdminDO version' },
+      { name: '$meta.schema', description: 'Get full AdminDO schema' },
+      { name: '$meta.methods', description: 'List all available methods' },
+      { name: '$meta.capabilities', description: 'Get capability flags' },
+      { name: 'drizzle.nouns.*', description: 'Noun CRUD operations' },
+      { name: 'drizzle.verbs.*', description: 'Verb CRUD operations' },
+      { name: 'drizzle.actions.*', description: 'Action CRUD operations' },
+      { name: 'drizzle.relationships.*', description: 'Relationship CRUD operations' },
+      { name: 'drizzle.functions.*', description: 'Function CRUD operations (via drizzle)' },
+      { name: 'functions.*', description: 'Function CRUD operations' },
+    ]
+  }
+
+  /**
+   * Get capability flags indicating what features are available
+   * @returns Capability object
+   */
+  capabilities(): object {
+    return {
+      schemas: true,
+      meta: true,
+      drizzle: true,
+      functions: true,
+      execute: false, // not yet implemented
+    }
+  }
+}
+
+// ============================================================================
 // SchemasAccessor
 // ============================================================================
 
@@ -609,6 +771,7 @@ interface DrizzleRPC {
 export class AdminDO extends DurableObject<AdminDOEnv> {
   private app: Hono
   private schemasAccessor: SchemasAccessor
+  private metaAccessor: MetaAccessor
   private functionsAccessor: FunctionsAccessor
   private drizzleAdapter: DrizzleAdapter
 
@@ -661,6 +824,7 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
 
     // Initialize accessors
     this.schemasAccessor = new SchemasAccessor()
+    this.metaAccessor = new MetaAccessor()
     this.functionsAccessor = new FunctionsAccessor(this.ctx.storage.sql)
     this.drizzleAdapter = new DrizzleAdapter(this.ctx.storage.sql)
 
@@ -731,6 +895,24 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
    */
   get $schemas(): SchemasAccessor {
     return this.schemasAccessor
+  }
+
+  // =========================================================================
+  // $meta RPC Accessor
+  // =========================================================================
+
+  /**
+   * RPC accessor for AdminDO introspection
+   *
+   * Usage via RPC:
+   *   const stub = env.AdminDO.get(id)
+   *   const version = await stub.$meta.version()
+   *   const schema = await stub.$meta.schema()
+   *   const methods = await stub.$meta.methods()
+   *   const caps = await stub.$meta.capabilities()
+   */
+  get $meta(): MetaAccessor {
+    return this.metaAccessor
   }
 
   // =========================================================================
@@ -824,9 +1006,23 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
 
     // RPC endpoint - handles method calls dispatched to accessors
     this.app.post('/rpc', async (c) => {
+      let body: { method: string; args?: unknown[] }
       try {
-        const body = await c.req.json()
-        const { method, args = [] } = body as { method: string; args?: unknown[] }
+        body = await c.req.json()
+      } catch {
+        return c.json(
+          {
+            error: {
+              code: 'PARSE_ERROR',
+              message: 'Invalid JSON in request body',
+            },
+          },
+          400
+        )
+      }
+
+      try {
+        const { method, args = [] } = body
 
         if (!method) {
           return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Method is required' } }, 400)
@@ -851,6 +1047,14 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
           const schemaMethod = parts[1] as keyof SchemasAccessor
           if (typeof this.schemasAccessor[schemaMethod] === 'function') {
             result = (this.schemasAccessor[schemaMethod] as (...args: unknown[]) => unknown)(...args)
+          } else {
+            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
+          }
+        } else if (parts[0] === 'meta' || parts[0] === '$meta') {
+          // Handle meta.* methods
+          const metaMethod = parts[1] as keyof MetaAccessor
+          if (typeof this.metaAccessor[metaMethod] === 'function') {
+            result = (this.metaAccessor[metaMethod] as (...args: unknown[]) => unknown)(...args)
           } else {
             return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
           }
@@ -882,13 +1086,8 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
 
         return c.json({ result })
       } catch (error) {
-        const err = error as Error
         return c.json({
-          error: {
-            code: 'RPC_ERROR',
-            message: err.message,
-            stack: err.stack,
-          },
+          error: sanitizeError(error),
         }, 500)
       }
     })
@@ -907,7 +1106,7 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
       const schema = this.schemasAccessor.get(name)
 
       if (!schema) {
-        return c.json({ error: `Schema '${name}' not found` }, 404)
+        return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Schema '${name}' not found` } }, 404)
       }
 
       return c.json({ name, schema })
@@ -928,7 +1127,17 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
   // =========================================================================
 
   async fetch(request: Request): Promise<Response> {
-    return this.app.fetch(request)
+    // Extract origin from request for CORS
+    const origin = request.headers.get('Origin') || undefined
+
+    // Handle OPTIONS preflight requests
+    if (request.method === 'OPTIONS') {
+      return preflightResponse(origin)
+    }
+
+    // Process the request through Hono and apply CORS headers to response
+    const response = await this.app.fetch(request)
+    return withCors(response, origin)
   }
 
   // =========================================================================

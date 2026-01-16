@@ -72,5 +72,13 @@
       "pipeline": "events",
       "binding": "PIPELINE"
     }
+  ],
+
+  // Custom domain routes
+  "routes": [
+    {
+      "pattern": "admin.example.org.ai/*",
+      "zone_name": "example.org.ai"
+    }
   ]
 }
