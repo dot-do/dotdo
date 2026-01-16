@@ -4,18 +4,12 @@ compatibility_date = "2024-12-30"
 
 [durable_objects]
 bindings = [
-  { name = "AuthAPI", class_name = "AuthAPI" }
+  { name = "DOFull", class_name = "AuthAPI" }
 ]
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AuthAPI"]
 
-# WorkOS configuration for oauth.do
-# Set these via `wrangler secret put` or in .dev.vars
-[vars]
-# WORKOS_CLIENT_ID = "client_..."
-
-# For production, set secrets:
-# wrangler secret put WORKOS_API_KEY
+# For production, set via wrangler secret:
 # wrangler secret put WORKOS_CLIENT_ID

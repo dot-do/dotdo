@@ -5,6 +5,8 @@
   "scripts": {
     "test": "vitest",
     "test:run": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:deployed": "TEST_URL=${TEST_URL:-https://api.dotdo.dev} vitest run --config vitest.e2e.config.ts",
     "typecheck": "tsc --noEmit",
     "build:docs": "cd app && npm run build",
     "deploy:docs": "wrangler deploy --config wrangler.static.jsonc"

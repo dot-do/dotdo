@@ -1,20 +1,13 @@
 {
   "name": "simple-api-example",
   "version": "1.0.0",
-  "description": "Simple dotdo API example for E2E testing",
+  "description": "Simplest dotdo example - just export DOFull",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "hono": "^4.6.0"
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241230.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
     "wrangler": "^3.99.0"
   }
 }
