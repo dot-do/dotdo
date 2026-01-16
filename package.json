@@ -1,63 +1,12 @@
 {
-  "name": "dotdo",
+  "name": "dotdo-workspace",
   "version": "2.0.0",
-  "description": "Durable Object Framework for Cloudflare Workers - semantic types, workflow context, and storage",
+  "description": "Durable Object Framework for Cloudflare Workers - pnpm workspace root",
+  "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./index.ts",
-  "exports": {
-    ".": {
-      "types": "./index.ts",
-      "import": "./dist/index.js"
-    },
-    "./rpc": {
-      "types": "./rpc/index.ts",
-      "import": "./dist/rpc/index.js"
-    },
-    "./storage": {
-      "types": "./storage/index.ts",
-      "import": "./dist/storage/index.js"
-    },
-    "./workflow": {
-      "types": "./workflow/index.ts",
-      "import": "./dist/workflow/index.js"
-    },
-    "./ai": {
-      "types": "./ai/index.ts",
-      "import": "./dist/ai/index.js"
-    },
-    "./types": {
-      "types": "./types/index.ts",
-      "import": "./dist/types/index.js"
-    }
-  },
-  "files": [
-    "dist",
-    "index.ts",
-    "tsconfig.json",
-    "ai/*.ts",
-    "core/*.ts",
-    "core/rpc/*.ts",
-    "rpc/*.ts",
-    "storage/*.ts",
-    "streaming/*.ts",
-    "types/*.ts",
-    "workflow/*.ts",
-    "objects/*.ts",
-    "semantic/*.ts",
-    "mcp/*.ts",
-    "mcp/**/*.ts",
-    "lib/*.ts",
-    "!**/*.test.ts",
-    "!**/__tests__/**",
-    "!**/node_modules/**",
-    "README.md",
-    "LICENSE"
-  ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
-    "prepublishOnly": "npm run build",
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --config vitest.coverage.config.ts",
@@ -66,7 +15,7 @@
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",
     "test:browser:headed": "playwright test --headed",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm -r typecheck",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "build:docs": "cd app && npm run build",
@@ -91,9 +40,6 @@
   "homepage": "https://dotdo.dev",
   "bugs": {
     "url": "https://github.com/dot-do/dotdo/issues"
-  },
-  "peerDependencies": {
-    "@cloudflare/workers-types": "^4.0.0"
   },
   "dependencies": {
     "hono": "^4.6.0",

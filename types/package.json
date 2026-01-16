@@ -1,0 +1,45 @@
+{
+  "name": "@dotdo/types",
+  "version": "2.0.0",
+  "description": "Canonical type definitions for dotdo - branded IDs, Things, Events, Workflow types",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup index.ts --format esm --dts --outDir dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts",
+    "!tests"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "dotdo",
+    "types",
+    "typescript",
+    "cloudflare",
+    "durable-objects"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo.git",
+    "directory": "types"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "@dotdo/mcp",
+  "version": "2.0.0",
+  "description": "MCP Module - Model Context Protocol implementation for AI agent interaction",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup index.ts --format esm --dts --outDir dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "auth/*.ts",
+    "tools/*.ts",
+    "!*.test.ts",
+    "!tests"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "dependencies": {
+    "@dotdo/types": "workspace:*",
+    "@dotdo/rpc": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "dotdo",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agents"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo.git",
+    "directory": "mcp"
+  }
+}

@@ -1,0 +1,19 @@
+packages:
+  # Core packages (top-level directories)
+  - 'core'
+  - 'rpc'
+  - 'storage'
+  - 'workflow'
+  - 'semantic'
+  - 'types'
+  - 'ai'
+  - 'mcp'
+  - 'cli'
+  - 'streaming'
+
+  # Already in packages/
+  - 'packages/*'
+
+  # Exclude non-packages
+  - '!**/test/**'
+  - '!**/tests/**'

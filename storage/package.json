@@ -1,0 +1,52 @@
+{
+  "name": "@dotdo/storage",
+  "version": "2.0.0",
+  "description": "DOStorage 4-Layer Storage Stack - L0 InMemory, L1 WAL, L2 SQLite, L3 Iceberg",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup index.ts --format esm --dts --outDir dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "dependencies": {
+    "@dotdo/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "dotdo",
+    "storage",
+    "sqlite",
+    "iceberg",
+    "cloudflare",
+    "durable-objects"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo.git",
+    "directory": "storage"
+  }
+}

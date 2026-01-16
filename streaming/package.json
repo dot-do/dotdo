@@ -1,0 +1,50 @@
+{
+  "name": "@dotdo/streaming",
+  "version": "2.0.0",
+  "description": "Streaming Infrastructure - WebSocketHub, SSE, Backpressure, RateLimiter, Pub/Sub",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup index.ts --format esm --dts --outDir dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "dotdo",
+    "streaming",
+    "websocket",
+    "sse",
+    "backpressure",
+    "rate-limit",
+    "pub-sub"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo.git",
+    "directory": "streaming"
+  }
+}
