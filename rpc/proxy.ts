@@ -237,6 +237,68 @@ export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: Meta
     },
   }
 
+  /**
+   * Create a nested proxy that builds up method paths for RPC calls.
+   * Supports patterns like: client.functions.list() -> "functions.list"
+   *                        client.drizzle.nouns.list() -> "drizzle.nouns.list"
+   */
+  function createNestedProxy(path: string[] = []): unknown {
+    return new Proxy(() => {}, {
+      get(_target, prop) {
+        // Handle Symbol properties (used by assertion libraries, etc.)
+        if (typeof prop === 'symbol') {
+          return undefined
+        }
+
+        const propName = prop as string
+
+        // Build the new path
+        const newPath = [...path, propName]
+
+        // Return another proxy that can either be called or have properties accessed
+        return createNestedProxy(newPath)
+      },
+
+      apply(_target, _thisArg, args) {
+        // When called as a function, make the RPC call with the full path
+        const methodName = path.join('.')
+
+        // Handle streaming methods specially
+        if (methodName.startsWith('stream') || path[path.length - 1]?.startsWith('stream')) {
+          return {
+            [Symbol.asyncIterator](): AsyncIterator<unknown> {
+              let iteratorPromise: Promise<AsyncIterator<unknown>> | null = null
+              let iterator: AsyncIterator<unknown> | null = null
+
+              return {
+                async next() {
+                  if (!iterator) {
+                    if (!iteratorPromise) {
+                      iteratorPromise = invokeRemoteMethod(state, methodName, args as unknown[]).then(result => {
+                        const iterable = result as AsyncIterable<unknown>
+                        return iterable[Symbol.asyncIterator]()
+                      })
+                    }
+                    iterator = await iteratorPromise
+                  }
+                  return iterator.next()
+                },
+              }
+            },
+          }
+        }
+
+        // For HTTP/URL targets, skip schema validation and just make the call
+        if (typeof state.target === 'string') {
+          return invokeRemoteMethod(state, methodName, args as unknown[])
+        }
+
+        // For stub targets, validate and invoke
+        return validateAndInvokeMethod(state, methodName, args as unknown[], targetUrl)
+      },
+    })
+  }
+
   // Create proxy for method invocation
   const proxy = new Proxy({} as T & { $meta: MetaInterface }, {
     get(_target, prop) {
@@ -251,36 +313,8 @@ export function createRPCClient<T>(options: RPCClientOptions): T & { $meta: Meta
 
       const methodName = prop as string
 
-      // Handle streaming methods specially - return async iterable directly
-      if (methodName.startsWith('stream')) {
-        return (...args: unknown[]) => {
-          // Return an async iterable that wraps the RPC call
-          return {
-            [Symbol.asyncIterator](): AsyncIterator<unknown> {
-              let iteratorPromise: Promise<AsyncIterator<unknown>> | null = null
-              let iterator: AsyncIterator<unknown> | null = null
-
-              return {
-                async next() {
-                  if (!iterator) {
-                    if (!iteratorPromise) {
-                      iteratorPromise = invokeRemoteMethod(state, methodName, args).then(result => {
-                        const iterable = result as AsyncIterable<unknown>
-                        return iterable[Symbol.asyncIterator]()
-                      })
-                    }
-                    iterator = await iteratorPromise
-                  }
-                  return iterator.next()
-                },
-              }
-            },
-          }
-        }
-      }
-
-      // Return a function that validates and makes RPC calls
-      return (...args: unknown[]) => validateAndInvokeMethod(state, methodName, args, targetUrl)
+      // Return a nested proxy for path building
+      return createNestedProxy([methodName])
     },
   })
 
@@ -453,7 +487,9 @@ async function makeRPCCall(
   method: string,
   args: unknown[],
   signal: AbortSignal,
-  mockHandler?: MockRpcHandler
+  mockHandler?: MockRpcHandler,
+  headers?: Record<string, string>,
+  auth?: string
 ): Promise<unknown> {
   // Check if aborted
   if (signal.aborted) {
@@ -485,9 +521,51 @@ async function makeRPCCall(
     return mockHandler(method, args)
   }
 
-  // For string targets without mock handler, we can't make a real RPC call
-  // In production, this would be replaced with actual HTTP/RPC transport
-  return undefined
+  // For string URL targets, make HTTP RPC call
+  const url = new URL('/rpc', target)
+  const requestHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...headers,
+  }
+  if (auth) {
+    requestHeaders['Authorization'] = `Bearer ${auth}`
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: requestHeaders,
+    body: serialize({ method, args }) as string,
+    signal,
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new RPCError(
+      `RPC call failed: ${response.status} ${response.statusText}${text ? `: ${text}` : ''}`,
+      { method, target, code: response.status === 404 ? 'METHOD_NOT_FOUND' : 'RPC_ERROR' }
+    )
+  }
+
+  const text = await response.text()
+  if (!text) return undefined
+
+  const result = deserialize(text)
+
+  // Check for RPC error response
+  if (result && typeof result === 'object' && 'error' in result) {
+    const errorResponse = result as { error: { code?: string; message: string } }
+    throw new RPCError(
+      errorResponse.error.message,
+      { method, target, code: (errorResponse.error.code as RPCErrorCode) ?? 'RPC_ERROR' }
+    )
+  }
+
+  // Extract result from response envelope if present
+  if (result && typeof result === 'object' && 'result' in result) {
+    return (result as { result: unknown }).result
+  }
+
+  return result
 }
 
 /**

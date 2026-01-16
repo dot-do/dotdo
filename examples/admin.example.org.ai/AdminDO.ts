@@ -822,6 +822,77 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
       return c.json({ status: 'healthy', service: 'AdminDO' })
     })
 
+    // RPC endpoint - handles method calls dispatched to accessors
+    this.app.post('/rpc', async (c) => {
+      try {
+        const body = await c.req.json()
+        const { method, args = [] } = body as { method: string; args?: unknown[] }
+
+        if (!method) {
+          return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Method is required' } }, 400)
+        }
+
+        // Parse method path (e.g., "functions.list", "schemas.nouns", "drizzle.nouns.list")
+        const parts = method.split('.')
+
+        // Route to appropriate accessor
+        let result: unknown
+
+        if (parts[0] === 'functions' && parts.length === 2) {
+          // Handle functions.* methods
+          const fnMethod = parts[1] as keyof FunctionsAccessor
+          if (typeof this.functionsAccessor[fnMethod] === 'function') {
+            result = await (this.functionsAccessor[fnMethod] as (...args: unknown[]) => Promise<unknown>)(...args)
+          } else {
+            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
+          }
+        } else if (parts[0] === 'schemas' || parts[0] === '$schemas') {
+          // Handle schemas.* methods
+          const schemaMethod = parts[1] as keyof SchemasAccessor
+          if (typeof this.schemasAccessor[schemaMethod] === 'function') {
+            result = (this.schemasAccessor[schemaMethod] as (...args: unknown[]) => unknown)(...args)
+          } else {
+            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
+          }
+        } else if (parts[0] === 'drizzle' && parts.length === 3) {
+          // Handle drizzle.<table>.<method> calls
+          const tableName = parts[1] as keyof DrizzleRPC
+          const tableMethod = parts[2]
+
+          const drizzleTable = this.drizzle[tableName]
+          if (!drizzleTable) {
+            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Table '${tableName}' not found` } }, 404)
+          }
+
+          const methodFn = (drizzleTable as Record<string, unknown>)[tableMethod]
+          if (typeof methodFn === 'function') {
+            result = methodFn(...args)
+          } else {
+            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
+          }
+        } else {
+          // Handle top-level methods
+          const topMethod = parts[0] as keyof AdminDO
+          if (typeof (this as unknown as Record<string, unknown>)[topMethod] === 'function') {
+            result = await ((this as unknown as Record<string, (...args: unknown[]) => unknown>)[topMethod] as (...args: unknown[]) => unknown)(...args)
+          } else {
+            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
+          }
+        }
+
+        return c.json({ result })
+      } catch (error) {
+        const err = error as Error
+        return c.json({
+          error: {
+            code: 'RPC_ERROR',
+            message: err.message,
+            stack: err.stack,
+          },
+        }, 500)
+      }
+    })
+
     // List all schemas
     this.app.get('/schemas', (c) => {
       return c.json({
