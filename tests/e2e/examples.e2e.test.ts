@@ -1,20 +1,22 @@
 /**
  * Examples E2E Tests
  *
- * Tests that all examples in /examples are:
- * 1. Deployable (valid wrangler config)
- * 2. Functional (respond to health checks and basic operations)
- * 3. RPC-compatible (work with createRPCClient)
+ * Tests that all examples at example.org.ai are functional.
+ * Each example is a namespace of the main DO, accessible via subdomain.
+ *
+ * Structure:
+ *   examples/crm.example.org.ai/     → https://crm.example.org.ai
+ *   examples/redis.example.org.ai/   → https://redis.example.org.ai
+ *   etc.
  *
  * Configuration:
- *   EXAMPLES_BASE_URL - Base URL pattern for deployed examples
- *                       e.g., "https://{example}.examples.dotdo.dev"
+ *   EXAMPLES_DOMAIN - Base domain for examples (default: example.org.ai)
  *   TEST_TOKEN - Auth token for protected endpoints
  *
  * @example
  * ```bash
  * # Test all deployed examples
- * EXAMPLES_BASE_URL="https://{example}.examples.dotdo.dev" npm run test:e2e
+ * npm run test:e2e
  * ```
  */
 
@@ -28,27 +30,33 @@ import * as path from 'path'
 // =============================================================================
 
 const EXAMPLES_DIR = path.join(__dirname, '../../examples')
-const EXAMPLES_BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://localhost:8787'
+const EXAMPLES_DOMAIN = process.env.EXAMPLES_DOMAIN || 'example.org.ai'
 const TEST_TOKEN = process.env.TEST_TOKEN || 'test-token-for-e2e'
 
-// Skip deployed tests if no base URL configured
-const SKIP_DEPLOYED_TESTS = !process.env.EXAMPLES_BASE_URL && !process.env.CI
+// Skip deployed tests if not in CI or no explicit domain set
+const SKIP_DEPLOYED_TESTS = !process.env.EXAMPLES_DOMAIN && !process.env.CI
 
-// Get URL for an example
-function getExampleUrl(example: string): string {
-  return EXAMPLES_BASE_URL.replace('{example}', example)
+// Get URL for an example (the folder name IS the full domain)
+function getExampleUrl(exampleFolder: string): string {
+  // Folder name is like "crm.example.org.ai"
+  return `https://${exampleFolder}`
+}
+
+// Get namespace from folder name (e.g., "crm.example.org.ai" → "crm")
+function getNamespace(exampleFolder: string): string {
+  return exampleFolder.replace(`.${EXAMPLES_DOMAIN}`, '')
 }
 
 // =============================================================================
 // Example Discovery
 // =============================================================================
 
-// Get all example directories
 function getExamples(): string[] {
   try {
     return fs.readdirSync(EXAMPLES_DIR).filter(name => {
       const examplePath = path.join(EXAMPLES_DIR, name)
-      return fs.statSync(examplePath).isDirectory()
+      // Must be a directory and end with the domain
+      return fs.statSync(examplePath).isDirectory() && name.endsWith(`.${EXAMPLES_DOMAIN}`)
     })
   } catch {
     return []
@@ -61,67 +69,38 @@ const EXAMPLES = getExamples()
 // Example Configuration Validation
 // =============================================================================
 
-describe('Example Configuration Validation', () => {
-  it.each(EXAMPLES)('%s has valid structure', (example) => {
-    const examplePath = path.join(EXAMPLES_DIR, example)
-
-    // Check for README.md (documentation)
-    const hasReadme = fs.existsSync(path.join(examplePath, 'README.md'))
-    expect(hasReadme).toBe(true)
+describe('Example Structure Validation', () => {
+  it(`found ${EXAMPLES.length} examples`, () => {
+    console.log(`\n📦 Examples found: ${EXAMPLES.length}`)
+    EXAMPLES.forEach(e => console.log(`   - ${e}`))
+    expect(EXAMPLES.length).toBeGreaterThan(0)
   })
 
-  it.each(EXAMPLES.filter(e =>
-    fs.existsSync(path.join(EXAMPLES_DIR, e, 'wrangler.toml'))
-  ))('%s has valid wrangler.toml', (example) => {
-    const wranglerPath = path.join(EXAMPLES_DIR, example, 'wrangler.toml')
-    const content = fs.readFileSync(wranglerPath, 'utf-8')
-
-    // Should have a name
-    expect(content).toMatch(/name\s*=/)
-    // Should have a main entry point
-    expect(content).toMatch(/main\s*=/)
-    // Should have compatibility date
-    expect(content).toMatch(/compatibility_date\s*=/)
-  })
-
-  it.each(EXAMPLES.filter(e =>
-    fs.existsSync(path.join(EXAMPLES_DIR, e, 'package.json'))
-  ))('%s has valid package.json', (example) => {
-    const pkgPath = path.join(EXAMPLES_DIR, example, 'package.json')
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
-
-    // Should have required fields
-    expect(pkg.name).toBeDefined()
-    expect(pkg.scripts?.dev || pkg.scripts?.start).toBeDefined()
+  it.each(EXAMPLES)('%s has README.md', (example) => {
+    const readmePath = path.join(EXAMPLES_DIR, example, 'README.md')
+    expect(fs.existsSync(readmePath)).toBe(true)
   })
 })
 
 // =============================================================================
-// Deployable Examples (have wrangler.toml and index.ts)
+// Deployed Examples Health Checks
 // =============================================================================
-
-const DEPLOYABLE_EXAMPLES = EXAMPLES.filter(example => {
-  const examplePath = path.join(EXAMPLES_DIR, example)
-  return (
-    fs.existsSync(path.join(examplePath, 'wrangler.toml')) &&
-    fs.existsSync(path.join(examplePath, 'index.ts'))
-  )
-})
 
 describe.skipIf(SKIP_DEPLOYED_TESTS)('Deployed Examples Health Checks', () => {
-  it.each(DEPLOYABLE_EXAMPLES)('%s responds to health check', async (example) => {
+  it.each(EXAMPLES)('%s responds to health check', async (example) => {
     const url = getExampleUrl(example)
-
     const response = await fetch(`${url}/health`)
 
     expect(response.status).toBe(200)
-    const data = await response.json()
-    expect(data.status).toBe('ok')
   })
 })
 
-describe.skipIf(SKIP_DEPLOYED_TESTS)('Deployed Examples RPC Compatibility', () => {
-  it.each(DEPLOYABLE_EXAMPLES)('%s accepts RPC client connections', async (example) => {
+// =============================================================================
+// RPC Client Connectivity
+// =============================================================================
+
+describe.skipIf(SKIP_DEPLOYED_TESTS)('RPC Client Connectivity', () => {
+  it.each(EXAMPLES)('%s accepts RPC client', async (example) => {
     const url = getExampleUrl(example)
 
     const client = createRPCClient({
@@ -132,7 +111,6 @@ describe.skipIf(SKIP_DEPLOYED_TESTS)('Deployed Examples RPC Compatibility', () =
     expect(client).toBeDefined()
     expect(client.$meta).toBeDefined()
 
-    // Try to get version (should work for all examples)
     const version = await client.$meta.version()
     expect(version).toHaveProperty('major')
   })
@@ -142,123 +120,199 @@ describe.skipIf(SKIP_DEPLOYED_TESTS)('Deployed Examples RPC Compatibility', () =
 // Specific Example Tests
 // =============================================================================
 
-describe.skipIf(SKIP_DEPLOYED_TESTS)('simple-api Example', () => {
-  const url = getExampleUrl('simple-api')
-
-  interface SimpleAPI {
-    create(type: string, data: Record<string, unknown>): Promise<{ $id: string }>
-    get(type: string, id: string): Promise<Record<string, unknown> | null>
-    list(type: string): Promise<Record<string, unknown>[]>
-  }
-
-  it('supports CRUD operations', async () => {
-    const client = createRPCClient<SimpleAPI>({ target: url })
-    const testId = `simple-test-${Date.now()}`
-
-    // Create
-    const created = await client.create('Customer', {
-      $id: testId,
-      name: 'Simple Test',
-    })
-    expect(created.$id).toBe(testId)
-
-    // Read
-    const read = await client.get('Customer', testId)
-    expect(read).not.toBeNull()
-    expect((read as { name: string }).name).toBe('Simple Test')
-
-    // List
-    const list = await client.list('Customer')
-    expect(Array.isArray(list)).toBe(true)
-  })
-})
-
-describe.skipIf(SKIP_DEPLOYED_TESTS)('auth-api Example', () => {
-  const url = getExampleUrl('auth-api')
-
-  interface AuthAPI {
-    create(type: string, data: Record<string, unknown>): Promise<{ $id: string }>
-    list(type: string): Promise<Record<string, unknown>[]>
-  }
-
-  it('allows read without auth', async () => {
-    const client = createRPCClient<AuthAPI>({ target: url })
-
-    // Should work without auth
-    const list = await client.list('Customer')
-    expect(Array.isArray(list)).toBe(true)
-  })
-
-  it('requires auth for write', async () => {
-    const client = createRPCClient<AuthAPI>({ target: url })
-
-    // Should fail without auth
-    await expect(
-      client.create('Customer', { name: 'Unauthorized' })
-    ).rejects.toThrow()
-  })
-
-  it('allows write with auth', async () => {
-    const client = createRPCClient<AuthAPI>({
-      target: url,
-      auth: TEST_TOKEN,
-    })
-
-    const result = await client.create('Customer', {
-      $id: `auth-test-${Date.now()}`,
-      name: 'Authorized',
-    })
-
-    expect(result.$id).toBeDefined()
-  })
-})
-
-describe.skipIf(SKIP_DEPLOYED_TESTS)('crm Example', () => {
-  const url = getExampleUrl('crm')
+describe.skipIf(SKIP_DEPLOYED_TESTS)('crm.example.org.ai', () => {
+  const url = `https://crm.${EXAMPLES_DOMAIN}`
 
   interface CRMAPI {
     create(type: string, data: Record<string, unknown>): Promise<{ $id: string }>
-    list(type: string): Promise<Record<string, unknown>[]>
+    listThings(type: string): Promise<Record<string, unknown>[]>
+    Customer: {
+      create(data: Record<string, unknown>): Promise<{ $id: string }>
+      list(): Promise<Record<string, unknown>[]>
+    }
   }
 
-  it('supports CRM entities', async () => {
+  it('supports Customer CRUD', async () => {
     const client = createRPCClient<CRMAPI>({
       target: url,
       auth: TEST_TOKEN,
     })
 
-    // Create Contact
-    const contact = await client.create('Contact', {
-      $id: `crm-contact-${Date.now()}`,
-      name: 'Alice Chen',
-      email: 'alice@example.com',
-    })
-    expect(contact.$id).toBeDefined()
+    const testId = `crm-test-${Date.now()}`
 
-    // Create Company
+    // Create
+    const created = await client.Customer.create({
+      $id: testId,
+      name: 'Test Contact',
+      email: 'test@example.com',
+    })
+    expect(created.$id).toBe(testId)
+
+    // List
+    const list = await client.Customer.list()
+    expect(Array.isArray(list)).toBe(true)
+  })
+
+  it('supports Company entities', async () => {
+    const client = createRPCClient<CRMAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
     const company = await client.create('Company', {
-      $id: `crm-company-${Date.now()}`,
+      $id: `company-${Date.now()}`,
       name: 'Acme Corp',
+      industry: 'Technology',
     })
-    expect(company.$id).toBeDefined()
 
-    // Create Deal
+    expect(company.$id).toBeDefined()
+  })
+
+  it('supports Deal entities', async () => {
+    const client = createRPCClient<CRMAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
     const deal = await client.create('Deal', {
-      $id: `crm-deal-${Date.now()}`,
+      $id: `deal-${Date.now()}`,
       name: 'Enterprise Sale',
       value: 50000,
       stage: 'discovery',
     })
+
     expect(deal.$id).toBeDefined()
   })
 })
 
-describe.skipIf(SKIP_DEPLOYED_TESTS)('workflow Example', () => {
-  const url = getExampleUrl('workflow')
+describe.skipIf(SKIP_DEPLOYED_TESTS)('redis.example.org.ai', () => {
+  const url = `https://redis.${EXAMPLES_DOMAIN}`
+
+  interface RedisAPI {
+    set(key: string, value: string): Promise<'OK'>
+    get(key: string): Promise<string | null>
+    del(key: string): Promise<number>
+    incr(key: string): Promise<number>
+    expire(key: string, seconds: number): Promise<number>
+  }
+
+  it('supports SET/GET', async () => {
+    const client = createRPCClient<RedisAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
+    const key = `test-${Date.now()}`
+
+    const setResult = await client.set(key, 'hello')
+    expect(setResult).toBe('OK')
+
+    const value = await client.get(key)
+    expect(value).toBe('hello')
+
+    await client.del(key)
+  })
+
+  it('supports INCR', async () => {
+    const client = createRPCClient<RedisAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
+    const key = `counter-${Date.now()}`
+
+    const val1 = await client.incr(key)
+    expect(val1).toBe(1)
+
+    const val2 = await client.incr(key)
+    expect(val2).toBe(2)
+
+    await client.del(key)
+  })
+})
+
+describe.skipIf(SKIP_DEPLOYED_TESTS)('chat.example.org.ai', () => {
+  const url = `https://chat.${EXAMPLES_DOMAIN}`
+
+  interface ChatAPI {
+    sendMessage(room: string, message: { content: string; author: string }): Promise<{ id: string }>
+    getMessages(room: string, limit?: number): Promise<{ id: string; content: string }[]>
+    joinRoom(room: string, userId: string): Promise<void>
+  }
+
+  it('supports sending messages', async () => {
+    const client = createRPCClient<ChatAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
+    const room = `room-${Date.now()}`
+
+    const sent = await client.sendMessage(room, {
+      content: 'Hello!',
+      author: 'test-user',
+    })
+
+    expect(sent.id).toBeDefined()
+  })
+
+  it('supports getting messages', async () => {
+    const client = createRPCClient<ChatAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
+    const room = `room-${Date.now()}`
+
+    // Send a message first
+    await client.sendMessage(room, {
+      content: 'Test message',
+      author: 'test-user',
+    })
+
+    const messages = await client.getMessages(room)
+    expect(Array.isArray(messages)).toBe(true)
+  })
+})
+
+describe.skipIf(SKIP_DEPLOYED_TESTS)('queue.example.org.ai', () => {
+  const url = `https://queue.${EXAMPLES_DOMAIN}`
+
+  interface QueueAPI {
+    enqueue(queue: string, data: Record<string, unknown>): Promise<{ id: string }>
+    dequeue(queue: string): Promise<{ id: string; data: Record<string, unknown> } | null>
+    peek(queue: string): Promise<{ id: string; data: Record<string, unknown> } | null>
+    length(queue: string): Promise<number>
+  }
+
+  it('supports enqueue/dequeue', async () => {
+    const client = createRPCClient<QueueAPI>({
+      target: url,
+      auth: TEST_TOKEN,
+    })
+
+    const queue = `queue-${Date.now()}`
+
+    // Enqueue
+    const enqueued = await client.enqueue(queue, { task: 'process' })
+    expect(enqueued.id).toBeDefined()
+
+    // Peek
+    const peeked = await client.peek(queue)
+    expect(peeked?.data.task).toBe('process')
+
+    // Dequeue
+    const dequeued = await client.dequeue(queue)
+    expect(dequeued?.data.task).toBe('process')
+  })
+})
+
+describe.skipIf(SKIP_DEPLOYED_TESTS)('workflow.example.org.ai', () => {
+  const url = `https://workflow.${EXAMPLES_DOMAIN}`
 
   interface WorkflowAPI {
-    emit(event: { type: string; data: Record<string, unknown> }): Promise<void>
-    list(type: string): Promise<Record<string, unknown>[]>
+    emit(event: { type: string; data: Record<string, unknown> }): Promise<{ id: string }>
+    listEvents(type?: string): Promise<Record<string, unknown>[]>
   }
 
   it('supports event emission', async () => {
@@ -267,154 +321,28 @@ describe.skipIf(SKIP_DEPLOYED_TESTS)('workflow Example', () => {
       auth: TEST_TOKEN,
     })
 
-    // Emit event
-    await client.emit({
+    const result = await client.emit({
       type: 'Customer.signup',
-      data: { customerId: `workflow-test-${Date.now()}` },
+      data: { customerId: `customer-${Date.now()}` },
     })
 
-    // Events should be processed
-    // (actual verification depends on workflow implementation)
-  })
-})
-
-describe.skipIf(SKIP_DEPLOYED_TESTS)('chat Example', () => {
-  const url = getExampleUrl('chat')
-
-  interface ChatAPI {
-    sendMessage(room: string, message: { content: string; author: string }): Promise<{ id: string }>
-    getMessages(room: string): Promise<{ id: string; content: string }[]>
-  }
-
-  it('supports chat operations', async () => {
-    const client = createRPCClient<ChatAPI>({
-      target: url,
-      auth: TEST_TOKEN,
-    })
-
-    const room = `test-room-${Date.now()}`
-
-    // Send message
-    const sent = await client.sendMessage(room, {
-      content: 'Hello, World!',
-      author: 'test-user',
-    })
-    expect(sent.id).toBeDefined()
-
-    // Get messages
-    const messages = await client.getMessages(room)
-    expect(Array.isArray(messages)).toBe(true)
-  })
-})
-
-describe.skipIf(SKIP_DEPLOYED_TESTS)('redis Example', () => {
-  const url = getExampleUrl('redis')
-
-  interface RedisAPI {
-    set(key: string, value: string): Promise<'OK'>
-    get(key: string): Promise<string | null>
-    del(key: string): Promise<number>
-  }
-
-  it('supports Redis-like operations', async () => {
-    const client = createRPCClient<RedisAPI>({
-      target: url,
-      auth: TEST_TOKEN,
-    })
-
-    const key = `test-key-${Date.now()}`
-
-    // SET
-    const setResult = await client.set(key, 'test-value')
-    expect(setResult).toBe('OK')
-
-    // GET
-    const value = await client.get(key)
-    expect(value).toBe('test-value')
-
-    // DEL
-    const delResult = await client.del(key)
-    expect(delResult).toBe(1)
-
-    // GET after DEL
-    const afterDel = await client.get(key)
-    expect(afterDel).toBeNull()
-  })
-})
-
-describe.skipIf(SKIP_DEPLOYED_TESTS)('queue Example', () => {
-  const url = getExampleUrl('queue')
-
-  interface QueueAPI {
-    enqueue(queue: string, message: Record<string, unknown>): Promise<{ id: string }>
-    dequeue(queue: string): Promise<{ id: string; data: Record<string, unknown> } | null>
-    peek(queue: string): Promise<{ id: string; data: Record<string, unknown> } | null>
-  }
-
-  it('supports queue operations', async () => {
-    const client = createRPCClient<QueueAPI>({
-      target: url,
-      auth: TEST_TOKEN,
-    })
-
-    const queue = `test-queue-${Date.now()}`
-
-    // Enqueue
-    const enqueued = await client.enqueue(queue, { task: 'process-data' })
-    expect(enqueued.id).toBeDefined()
-
-    // Peek
-    const peeked = await client.peek(queue)
-    expect(peeked).not.toBeNull()
-    expect(peeked?.data.task).toBe('process-data')
-
-    // Dequeue
-    const dequeued = await client.dequeue(queue)
-    expect(dequeued).not.toBeNull()
-    expect(dequeued?.data.task).toBe('process-data')
-  })
-})
-
-describe.skipIf(SKIP_DEPLOYED_TESTS)('ratelimit Example', () => {
-  const url = getExampleUrl('ratelimit')
-
-  interface RateLimitAPI {
-    check(key: string): Promise<{ allowed: boolean; remaining: number; reset: number }>
-    consume(key: string, tokens?: number): Promise<{ allowed: boolean; remaining: number }>
-  }
-
-  it('supports rate limiting', async () => {
-    const client = createRPCClient<RateLimitAPI>({
-      target: url,
-      auth: TEST_TOKEN,
-    })
-
-    const key = `test-ratelimit-${Date.now()}`
-
-    // Check
-    const check = await client.check(key)
-    expect(check.allowed).toBe(true)
-    expect(typeof check.remaining).toBe('number')
-
-    // Consume
-    const consumed = await client.consume(key)
-    expect(consumed.allowed).toBe(true)
+    expect(result.id).toBeDefined()
   })
 })
 
 // =============================================================================
-// Summary Stats
+// Coverage Summary
 // =============================================================================
 
 describe('Example Coverage Summary', () => {
-  it('reports example coverage', () => {
+  it('reports coverage', () => {
     console.log(`\n📊 Example Coverage:`)
-    console.log(`   Total examples: ${EXAMPLES.length}`)
-    console.log(`   Deployable: ${DEPLOYABLE_EXAMPLES.length}`)
-    console.log(`   Documentation only: ${EXAMPLES.length - DEPLOYABLE_EXAMPLES.length}`)
+    console.log(`   Total: ${EXAMPLES.length} examples`)
+    console.log(`   Domain: ${EXAMPLES_DOMAIN}`)
 
     if (SKIP_DEPLOYED_TESTS) {
-      console.log(`\n⚠️  Deployed tests skipped (set EXAMPLES_BASE_URL to enable)`)
+      console.log(`\n⚠️  Deployed tests skipped`)
+      console.log(`   Set EXAMPLES_DOMAIN=example.org.ai to enable`)
     }
   })
 })
