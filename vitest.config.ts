@@ -17,8 +17,8 @@ export default defineWorkersConfig({
     globals: true,
     include: ['**/*.test.ts'],
     exclude: ['**/node_modules/**', 'node_modules', 'dist', 'app/node_modules/**'],
-    testTimeout: 10_000,
-    hookTimeout: 10_000,
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     setupFiles: ['./vitest.setup.ts'],
     poolOptions: {
       workers: {

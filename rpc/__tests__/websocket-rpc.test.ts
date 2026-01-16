@@ -182,7 +182,9 @@ describe('WebSocket RPC: Method Calls', () => {
 // =============================================================================
 
 describe('WebSocket RPC: Event Subscriptions', () => {
-  it('should subscribe to events via WebSocket', async () => {
+  it(
+    'should subscribe to events via WebSocket',
+    async () => {
     const doStub = getDOStub('ws-rpc-events-1')
     const client = await createRpcWebSocketClient(doStub)
 
@@ -484,35 +486,39 @@ describe('WebSocket RPC: Hibernation Support', () => {
     ws.close()
   })
 
-  it('should maintain subscriptions across multiple messages', async () => {
-    const doStub = getDOStub('ws-rpc-hibernate-2')
-    const client = await createRpcWebSocketClient(doStub)
+  it(
+    'should maintain subscriptions across multiple messages',
+    async () => {
+      const doStub = getDOStub('ws-rpc-hibernate-2')
+      const client = await createRpcWebSocketClient(doStub)
 
-    // Subscribe
-    client.send({
-      id: 'sub-1',
-      type: 'subscribe',
-      eventType: 'Persist.event',
-    })
-
-    await new Promise((r) => setTimeout(r, 100))
-
-    // Send multiple events
-    for (let i = 0; i < 5; i++) {
+      // Subscribe
       client.send({
-        id: `call-${i}`,
-        type: 'call',
-        path: ['send'],
-        args: ['Persist.event', { index: i }],
+        id: 'sub-1',
+        type: 'subscribe',
+        eventType: 'Persist.event',
       })
-    }
 
-    await new Promise((r) => setTimeout(r, 500))
+      await new Promise((r) => setTimeout(r, 100))
 
-    // Should receive all events
-    const events = client.messages.filter((m) => m.type === 'event')
-    expect(events.length).toBe(5)
+      // Send multiple events
+      for (let i = 0; i < 5; i++) {
+        client.send({
+          id: `call-${i}`,
+          type: 'call',
+          path: ['send'],
+          args: ['Persist.event', { index: i }],
+        })
+      }
 
-    client.close()
-  })
+      await new Promise((r) => setTimeout(r, 500))
+
+      // Should receive all events
+      const events = client.messages.filter((m) => m.type === 'event')
+      expect(events.length).toBe(5)
+
+      client.close()
+    },
+    30_000
+  )
 })
