@@ -50,6 +50,11 @@ export interface WebSocketRpcOptions {
   debug?: boolean
 }
 
+/**
+ * EventSubscriptionHandler - Typed handler for WebSocket event subscriptions
+ */
+export type EventSubscriptionHandler = (data: unknown) => void
+
 // =============================================================================
 // Utilities
 // =============================================================================
@@ -83,13 +88,13 @@ export function isCallbackStub(value: unknown): value is CallbackStub {
  */
 export class WebSocketRpcClient {
   private ws: WebSocket | null = null
-  private callbacks = new Map<string, Function>()
+  private callbacks = new Map<string, (...args: unknown[]) => unknown>()
   private pendingCalls = new Map<string, {
     resolve: (result: unknown) => void
     reject: (error: Error) => void
     timeout: ReturnType<typeof setTimeout>
   }>()
-  private eventSubscriptions = new Map<string, Set<Function>>()
+  private eventSubscriptions = new Map<string, Set<EventSubscriptionHandler>>()
   private options: Required<WebSocketRpcOptions>
   private connectionPromise: Promise<void> | null = null
 
@@ -121,29 +126,37 @@ export class WebSocketRpcClient {
       throw new Error(`WebSocket upgrade failed: ${response.status}`)
     }
 
-    this.ws = response.webSocket!
+    const webSocket = response.webSocket
+    if (!webSocket) {
+      throw new Error('WebSocket upgrade succeeded but no WebSocket returned')
+    }
+
+    this.ws = webSocket
     this.ws.accept()
+
+    // Capture ws reference for event listeners to avoid non-null assertions
+    const ws = this.ws
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('WebSocket connection timeout'))
       }, this.options.timeout)
 
-      this.ws!.addEventListener('open', () => {
+      ws.addEventListener('open', () => {
         clearTimeout(timeout)
         resolve()
       })
 
-      this.ws!.addEventListener('message', (event) => {
+      ws.addEventListener('message', (event) => {
         this.handleMessage(event.data as string)
       })
 
-      this.ws!.addEventListener('error', (err) => {
+      ws.addEventListener('error', (err) => {
         clearTimeout(timeout)
         reject(err)
       })
 
-      this.ws!.addEventListener('close', () => {
+      ws.addEventListener('close', () => {
         this.cleanup()
       })
     })
@@ -234,6 +247,9 @@ export class WebSocketRpcClient {
       throw new Error('WebSocket not connected')
     }
 
+    // Capture ws reference after null check to avoid non-null assertion
+    const ws = this.ws
+
     const messageId = generateMessageId()
     const serializedArgs = this.serializeArgs(args)
 
@@ -256,21 +272,24 @@ export class WebSocketRpcClient {
         console.log('[WebSocketRpcClient] Sending:', message)
       }
 
-      this.ws!.send(JSON.stringify(message))
+      ws.send(JSON.stringify(message))
     })
   }
 
   /**
    * Subscribe to events from the DO
    */
-  subscribe(eventType: string, handler: Function): () => void {
+  subscribe(eventType: string, handler: EventSubscriptionHandler): () => void {
     // Register handler locally
-    let handlers = this.eventSubscriptions.get(eventType)
-    if (!handlers) {
-      handlers = new Set()
-      this.eventSubscriptions.set(eventType, handlers)
+    let existingHandlers = this.eventSubscriptions.get(eventType)
+    if (!existingHandlers) {
+      existingHandlers = new Set()
+      this.eventSubscriptions.set(eventType, existingHandlers)
     }
-    handlers.add(handler)
+    existingHandlers.add(handler)
+
+    // Capture reference for closure to avoid non-null assertion
+    const handlers = existingHandlers
 
     // Send subscription message to DO
     const message: RpcMessage = {
@@ -282,8 +301,8 @@ export class WebSocketRpcClient {
 
     // Return unsubscribe function
     return () => {
-      handlers!.delete(handler)
-      if (handlers!.size === 0) {
+      handlers.delete(handler)
+      if (handlers.size === 0) {
         this.eventSubscriptions.delete(eventType)
         // Send unsubscribe message
         const unsubMsg: RpcMessage = {
@@ -307,7 +326,7 @@ export class WebSocketRpcClient {
     if (typeof value === 'function') {
       // Register callback and return stub
       const callbackId = generateCallbackId()
-      this.callbacks.set(callbackId, value as Function)
+      this.callbacks.set(callbackId, value as (...args: unknown[]) => unknown)
       return { __rpc_callback_id: callbackId } as CallbackStub
     }
 
@@ -435,8 +454,10 @@ function createRpcProxy(client: WebSocketRpcClient, path: string[]): unknown {
  * Extend your DO with this to handle incoming RPC calls over WebSocket.
  */
 export class WebSocketRpcHandler {
-  private wsCallbacks = new Map<string, Function>()
+  private wsCallbacks = new Map<string, (...args: unknown[]) => unknown>()
   private wsSubscriptions = new Map<WebSocket, Set<string>>()
+  // Track which callbacks belong to which WebSocket for cleanup on disconnect
+  private wsCallbackIds = new Map<WebSocket, Set<string>>()
   private debug = false
 
   /**
@@ -686,7 +707,16 @@ export class WebSocketRpcHandler {
     if (typeof value === 'function') {
       // Register callback and return stub
       const callbackId = generateCallbackId()
-      this.wsCallbacks.set(callbackId, value)
+      this.wsCallbacks.set(callbackId, value as (...args: unknown[]) => unknown)
+
+      // Track callback ownership for cleanup on WebSocket close
+      let callbackIds = this.wsCallbackIds.get(ws)
+      if (!callbackIds) {
+        callbackIds = new Set()
+        this.wsCallbackIds.set(ws, callbackIds)
+      }
+      callbackIds.add(callbackId)
+
       return { __rpc_callback_id: callbackId } as CallbackStub
     }
 
@@ -710,9 +740,20 @@ export class WebSocketRpcHandler {
 
   /**
    * Clean up when WebSocket closes
+   * Removes subscriptions and any registered callbacks for this WebSocket
    */
   cleanupWebSocketRpc(ws: WebSocket): void {
+    // Clean up subscriptions
     this.wsSubscriptions.delete(ws)
+
+    // Clean up callbacks associated with this WebSocket
+    const callbackIds = this.wsCallbackIds.get(ws)
+    if (callbackIds) {
+      for (const callbackId of callbackIds) {
+        this.wsCallbacks.delete(callbackId)
+      }
+      this.wsCallbackIds.delete(ws)
+    }
   }
 
   /**

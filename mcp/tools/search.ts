@@ -310,8 +310,9 @@ async function keywordSearch(
       highlights: row.highlight ? [row.highlight] : undefined,
       source: 'keyword' as const,
     }))
-  } catch {
+  } catch (err) {
     // FTS table may not exist - fall back to LIKE search
+    console.warn('[Search] FTS search failed, falling back to LIKE:', (err as Error).message)
     return fallbackKeywordSearch(query, env, filters, limit, offset)
   }
 }
@@ -768,8 +769,9 @@ export async function indexDocument(
       `,
         id
       )
-    } catch {
-      // FTS tables may not exist - that's okay
+    } catch (err) {
+      // FTS tables may not exist - this is expected if FTS not initialized
+      console.warn('[Search] FTS index update failed:', (err as Error).message)
     }
   }
 }
@@ -782,8 +784,9 @@ export async function removeFromIndex(id: string, env: SearchEnv): Promise<void>
   if (env.sql) {
     try {
       env.sql.exec('DELETE FROM things WHERE id = ?', id)
-    } catch {
-      // Ignore if table doesn't exist
+    } catch (err) {
+      // Table may not exist during early initialization
+      console.warn('[Search] Index removal failed:', (err as Error).message)
     }
   }
 

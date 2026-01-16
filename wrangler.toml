@@ -48,3 +48,32 @@ simple = { limit = 100, period = 60 }
 # WORKOS_CLIENT_ID = "client_..."
 # OAUTH_REDIRECT_URI = "https://..."
 # JWT_SECRET = "..."
+
+# ============================================================================
+# CORS Configuration
+# ============================================================================
+# CORS origins can be configured via the ALLOWED_ORIGINS environment variable.
+# If not set, sensible defaults are used based on the ENVIRONMENT setting.
+#
+# Development defaults (when ENVIRONMENT != 'production'):
+#   - http://localhost:3000
+#   - http://localhost:5173
+#   - http://localhost:8787
+#   - http://127.0.0.1:3000
+#   - http://127.0.0.1:5173
+#   - http://127.0.0.1:8787
+#
+# Production defaults (when ENVIRONMENT = 'production'):
+#   - https://dotdo.dev
+#   - https://api.dotdo.dev
+#   - https://app.dotdo.dev
+#
+# Example configuration:
+# [vars]
+# ALLOWED_ORIGINS = "https://app.example.com,https://api.example.com"
+# ENVIRONMENT = "production"
+#
+# For staging environments:
+# [env.staging.vars]
+# ALLOWED_ORIGINS = "https://staging.example.com,https://preview.example.com"
+# ENVIRONMENT = "staging"

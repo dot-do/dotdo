@@ -354,7 +354,13 @@ declare const Account: typeof $.Account;
             const fs = require('fs')
             const content = fs.readFileSync(libPath, 'utf8')
             return ts.ScriptSnapshot.fromString(content)
-          } catch {
+          } catch (err) {
+            // TypeScript lib file not found - this is expected during initial setup
+            console.debug(
+              '[completions] TypeScript lib file not found:',
+              'error:', err instanceof Error ? err.message : String(err),
+              'fileName:', fileName
+            )
             return undefined
           }
         }

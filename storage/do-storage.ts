@@ -11,7 +11,7 @@
 import { InMemoryStateManager, type ThingData, type CreateThingInput, type TierMetadata } from './in-memory-state-manager'
 import { PipelineEmitter } from './pipeline-emitter'
 import { LazyCheckpointer, type DirtyTracker, type L0DataProvider } from './lazy-checkpointer'
-import { IcebergWriter, type IcebergEvent } from './iceberg-writer'
+import { IcebergWriter, type IcebergEvent, type IcebergWriterConfig } from './iceberg-writer'
 
 // ============================================================================
 // Tier Policy Types
@@ -136,15 +136,19 @@ interface StorageEnv {
   sql?: SqlStorage
 }
 
-interface R2Bucket {
-  put(key: string, data: ArrayBuffer | string): Promise<unknown>
-  get(key: string): Promise<R2ObjectBody | null>
-  list(options?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>
-}
-
-interface R2ObjectBody {
+interface R2Object {
   key: string
   size: number
+}
+
+interface R2Bucket {
+  put(key: string, data: ArrayBuffer | string | ReadableStream | Blob): Promise<R2Object | null>
+  get(key: string): Promise<R2ObjectBody | null>
+  list(options?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>
+  delete(key: string): Promise<void>
+}
+
+interface R2ObjectBody extends R2Object {
   arrayBuffer(): Promise<ArrayBuffer>
   text(): Promise<string>
   json(): Promise<unknown>
@@ -295,8 +299,10 @@ export class DOStorage {
 
     // Initialize L3: Iceberg (if R2 available)
     if (this.env.R2) {
+      // Type assertion needed: local R2Bucket has mock-specific 'events' property
+      // that IcebergWriter's R2Bucket interface doesn't have
       this.iceberg = new IcebergWriter({
-        bucket: this.env.R2 as any,
+        bucket: this.env.R2 as unknown as IcebergWriterConfig['bucket'],
         namespace: this.namespace,
         tableName: 'events',
       })
@@ -323,9 +329,10 @@ export class DOStorage {
       // Simple probe - list with empty prefix
       await this.env.R2.list({ prefix: '__health__' })
       this.healthStatus.r2 = 'ok'
-    } catch {
+    } catch (err) {
       this.healthStatus.r2 = 'degraded'
       this.emitDegradation('r2', 'degraded', 'R2 health probe failed')
+      console.warn('[DOStorage] R2 health probe failed:', (err as Error).message)
     }
   }
 
@@ -347,13 +354,14 @@ export class DOStorage {
       await Promise.race([probePromise, timeoutPromise])
       this.healthStatus.pipeline = 'ok'
       this.recordSuccess('pipeline')
-    } catch {
+    } catch (err) {
       // Pipeline is failing or slow - open circuit breaker immediately
       this.healthStatus.pipeline = 'degraded'
       this.circuitBreakerState.pipeline.open = true
       this.circuitBreakerState.pipeline.failures = this.CIRCUIT_BREAKER_THRESHOLD
       this.circuitBreakerState.pipeline.lastFailure = Date.now()
       this.emitDegradation('pipeline', 'degraded', 'Pipeline health probe failed')
+      console.warn('[DOStorage] Pipeline health probe failed:', (err as Error).message)
     }
   }
 
@@ -404,9 +412,10 @@ export class DOStorage {
           await this.pipeline.flush()
           // Success - close circuit breaker
           this.recordSuccess('pipeline')
-        } catch {
+        } catch (err) {
           // Still failing - keep circuit open
           this.recordFailure('pipeline')
+          console.warn('[DOStorage] Pipeline flush failed during recovery:', (err as Error).message)
         }
       }
 
@@ -510,9 +519,10 @@ export class DOStorage {
       })
       await this.env.R2.put(key, data)
       this.recordSuccess('r2')
-    } catch {
+    } catch (err) {
       // Non-critical - data is still in SQLite
       this.recordFailure('r2')
+      console.warn(`[DOStorage] R2 sync failed for ${thing.$id}:`, (err as Error).message)
     }
   }
 
@@ -545,8 +555,8 @@ export class DOStorage {
       try {
         // Support mock format with events property
         const r2Result = await this.env.R2.get(`things/${id}`)
-        if (r2Result && (r2Result as any).events) {
-          const events = (r2Result as any).events as IcebergEvent[]
+        if (r2Result && r2Result.events) {
+          const events = r2Result.events
           let state: ThingData | null = null
           for (const event of events) {
             if (event.entityId === id) {
@@ -736,9 +746,9 @@ export class DOStorage {
       return { promoted: 0, cleaned: 0 }
     }
 
-    const l2PromotionThreshold = (this.config as any).l2PromotionThreshold ?? DEFAULT_L2_PROMOTION_THRESHOLD
-    const l2MaxEntries = (this.config as any).l2MaxEntries ?? DEFAULT_L2_MAX_ENTRIES
-    const l3AgeThresholdMs = (this.config as any).l3AgeThresholdMs ?? DEFAULT_L3_AGE_THRESHOLD_MS
+    const l2PromotionThreshold = this.config.l2PromotionThreshold ?? DEFAULT_L2_PROMOTION_THRESHOLD
+    const l2MaxEntries = this.config.l2MaxEntries ?? DEFAULT_L2_MAX_ENTRIES
+    const l3AgeThresholdMs = this.config.l3AgeThresholdMs ?? DEFAULT_L3_AGE_THRESHOLD_MS
 
     let promoted = 0
     let cleaned = 0
@@ -760,8 +770,12 @@ export class DOStorage {
         const thing = JSON.parse(row.data) as ThingData
 
         // Check age-based promotion
-        const createdAt = (thing as any).$createdAt ?? (thing as any).createdAt ?? 0
-        const age = Date.now() - (typeof createdAt === 'number' ? createdAt : 0)
+        // ThingData.$createdAt is ISO string, createdAt may be legacy number format
+        const createdAtValue = thing.$createdAt ?? thing.createdAt ?? 0
+        const createdAtMs = typeof createdAtValue === 'string'
+          ? new Date(createdAtValue).getTime()
+          : (typeof createdAtValue === 'number' ? createdAtValue : 0)
+        const age = Date.now() - createdAtMs
 
         // Determine if this entry should be promoted:
         // 1. Age-based: promote if older than l3AgeThresholdMs
@@ -924,9 +938,10 @@ export class DOStorage {
         const closePromise = this.pipeline.close()
         const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, CLOSE_TIMEOUT_MS))
         await Promise.race([closePromise, timeoutPromise])
-      } catch {
+      } catch (err) {
         // Swallow close errors - pipeline failures during close are non-critical
         // Data is already persisted to local SQLite
+        console.warn('[DOStorage] Pipeline close failed:', (err as Error).message)
       }
     }
 
@@ -942,9 +957,10 @@ export class DOStorage {
         const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, CLOSE_TIMEOUT_MS))
         await Promise.race([flushPromise, timeoutPromise])
         await this.iceberg.close()
-      } catch {
+      } catch (err) {
         // Swallow R2/Iceberg errors during close - data should be in local SQLite
         this.emitDegradation('r2', 'degraded', 'R2 unavailable during close')
+        console.warn('[DOStorage] Iceberg/R2 close failed:', (err as Error).message)
       }
     }
   }
@@ -988,8 +1004,9 @@ export class DOStorage {
         if (rows.length > 0) {
           tiers.push('L2')
         }
-      } catch {
-        // Ignore
+      } catch (err) {
+        // L2 query failed - entry may not exist in this tier
+        console.warn(`[DOStorage] L2 tier lookup failed for ${id}:`, (err as Error).message)
       }
     }
 
@@ -1044,8 +1061,9 @@ export class DOStorage {
     for (const callback of this.degradationCallbacks) {
       try {
         callback(event)
-      } catch {
-        // Ignore callback errors
+      } catch (err) {
+        // Degradation callback error - log but continue notifying others
+        console.warn('[DOStorage] Degradation callback error:', (err as Error).message)
       }
     }
   }
@@ -1115,10 +1133,11 @@ export class DOStorage {
       try {
         await this.env.R2.put(key, data)
         this.recordSuccess('r2')
-      } catch {
+      } catch (err) {
         // Re-buffer if still failing
         this.r2WriteBuffer.push({ key, data })
         this.recordFailure('r2')
+        console.warn(`[DOStorage] R2 buffer sync failed for ${key}:`, (err as Error).message)
       }
     }
   }

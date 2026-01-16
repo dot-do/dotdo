@@ -359,8 +359,10 @@ export class DOFull extends DOWorkflowClass {
       try {
         ws.send(JSON.stringify(message))
         sent++
-      } catch {
+      } catch (err) {
         failed++
+        // WebSocket broadcast error - socket may be closed or in invalid state
+        console.warn('[DOFull] WebSocket broadcast error:', (err as Error).message)
       }
     }
 
@@ -505,8 +507,9 @@ export class DOFull extends DOWorkflowClass {
           type: 'heartbeat',
           timestamp: Date.now(),
         }))
-      } catch {
-        // WebSocket may be closed
+      } catch (err) {
+        // WebSocket may be closed - expected during connection lifecycle
+        console.warn('[DOFull] Heartbeat send failed:', (err as Error).message)
       }
     }
   }
@@ -604,8 +607,9 @@ export class DOFull extends DOWorkflowClass {
                       payload: broadcastMessage,
                       timestamp: Date.now(),
                     }))
-                  } catch {
-                    // WebSocket may be closed
+                  } catch (err) {
+                    // WebSocket may be closed - expected during room broadcast
+                    console.warn('[DOFull] Room broadcast send failed:', (err as Error).message)
                   }
                 }
               }
@@ -726,8 +730,9 @@ export class DOFull extends DOWorkflowClass {
           }
         }
       }
-    } catch {
-      // Invalid message format
+    } catch (err) {
+      // Invalid message format - log for debugging then notify client
+      console.warn('[DOFull] WebSocket message parse error:', (err as Error).message)
       ws.send(JSON.stringify({
         type: 'error',
         payload: { message: 'Invalid message format' },

@@ -333,11 +333,13 @@ describe('L0: InMemoryStateManager', () => {
       expect(evicted[0].name).toBe('Second')
     })
 
-    it('should not evict dirty entries', () => {
+    it('should evict dirty entries as last resort under memory pressure', () => {
       const evicted: Thing[] = []
+      const memoryPressureCalled = { value: false }
       const smallManager = new InMemoryStateManager({
         maxEntries: 2,
         onEvict: (entries) => evicted.push(...entries),
+        onMemoryPressure: () => { memoryPressureCalled.value = true },
       })
 
       // All dirty by default
@@ -345,8 +347,12 @@ describe('L0: InMemoryStateManager', () => {
       smallManager.create({ $type: 'Item', name: 'Second' })
       smallManager.create({ $type: 'Item', name: 'Third' })
 
-      // Dirty entries cannot be evicted
-      expect(evicted.length).toBe(0)
+      // When over capacity with only dirty entries:
+      // 1. onMemoryPressure callback is called
+      // 2. Dirty entries are evicted as last resort (LRU order)
+      expect(memoryPressureCalled.value).toBe(true)
+      expect(evicted.length).toBe(1)
+      expect(evicted[0].name).toBe('First') // LRU dirty entry
     })
 
     it('should call onEvict callback with evicted entries', () => {

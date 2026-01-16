@@ -1,0 +1,64 @@
+{
+  "name": "@dotdo/workers",
+  "version": "0.1.0",
+  "description": "Durable Object utilities for Cloudflare Workers - DOBase, WorkflowContext, evaluate, and PipelinedStub",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./do": {
+      "import": "./dist/do/index.js",
+      "types": "./dist/do/index.d.ts"
+    },
+    "./proxy": {
+      "import": "./dist/proxy/index.js",
+      "types": "./dist/proxy/index.d.ts"
+    },
+    "./storage": {
+      "import": "./dist/storage/index.js",
+      "types": "./dist/storage/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "ai-evaluate": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "files": [
+    "dist",
+    "src/**/*.ts",
+    "!**/*.test.ts",
+    "!tests"
+  ],
+  "keywords": [
+    "cloudflare",
+    "durable-objects",
+    "workers",
+    "workflow",
+    "dotdo"
+  ],
+  "author": "dotdo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo.git",
+    "directory": "packages/workers"
+  }
+}

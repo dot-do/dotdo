@@ -97,7 +97,18 @@ function estimateSize(obj: unknown): number {
 export class InMemoryStateManager {
   private store: Map<string, CacheEntry> = new Map()
   private dirtySet: Set<string> = new Set()
-  private accessOrder: string[] = [] // For LRU tracking
+  /**
+   * LRU tracking using Map insertion order.
+   * Keys are stored with a dummy value (true). The iteration order of Map
+   * preserves insertion order, so the first key is the LRU entry.
+   *
+   * To "touch" an entry (move to most recently used):
+   *   lruOrder.delete(id)
+   *   lruOrder.set(id, true)
+   *
+   * This is O(1) for both operations, unlike array indexOf + splice which is O(n).
+   */
+  private lruOrder: Map<string, true> = new Map()
   private totalBytes: number = 0
   private options: Required<Omit<InMemoryStateManagerOptions, 'telemetry'>> & { telemetry?: TelemetryEmitter }
 
@@ -151,10 +162,10 @@ export class InMemoryStateManager {
    *
    * @param input - Creation input with $type and optional $id
    * @returns The created thing with generated $id and $version=1
-   * @throws ThingValidationException if input is invalid
+   * @throws ThingValidationError if input is invalid
    */
   create(input: CreateThingInput): ThingData {
-    // Validate input - throws ThingValidationException if invalid
+    // Validate input - throws ThingValidationError if invalid
     assertValidCreateThingInput(input)
 
     const startTime = Date.now()
@@ -398,7 +409,7 @@ export class InMemoryStateManager {
   clear(): void {
     this.store.clear()
     this.dirtySet.clear()
-    this.accessOrder = []
+    this.lruOrder.clear()
     this.totalBytes = 0
   }
 
@@ -462,21 +473,22 @@ export class InMemoryStateManager {
   }
 
   /**
-   * Update LRU access order
+   * Update LRU access order - O(1) using Map insertion order.
+   *
+   * By deleting and re-inserting, the key moves to the "end" of iteration order,
+   * making it the most recently used. The first key in iteration order is the LRU.
    */
   private updateAccessOrder(id: string): void {
-    this.removeFromAccessOrder(id)
-    this.accessOrder.push(id)
+    // Delete and re-insert to move to end (most recently used)
+    this.lruOrder.delete(id)
+    this.lruOrder.set(id, true)
   }
 
   /**
-   * Remove from access order
+   * Remove from access order - O(1) using Map.delete()
    */
   private removeFromAccessOrder(id: string): void {
-    const index = this.accessOrder.indexOf(id)
-    if (index !== -1) {
-      this.accessOrder.splice(index, 1)
-    }
+    this.lruOrder.delete(id)
   }
 
   /**
@@ -579,11 +591,14 @@ export class InMemoryStateManager {
   }
 
   /**
-   * Evict the least recently used CLEAN entry
+   * Evict the least recently used CLEAN entry - O(1) to O(n) depending on dirty ratio.
+   *
+   * Uses Map iteration order where first key is LRU. Typically O(1) when there are
+   * clean entries at the front of the LRU order.
    */
   private evictLRUClean(): ThingData | null {
-    // Find oldest clean entry
-    for (const id of this.accessOrder) {
+    // Iterate from oldest (first key in Map) to newest
+    for (const id of this.lruOrder.keys()) {
       if (!this.dirtySet.has(id)) {
         const entry = this.store.get(id)
         if (entry) {
@@ -598,11 +613,14 @@ export class InMemoryStateManager {
   }
 
   /**
-   * Evict the least recently used DIRTY entry (last resort)
+   * Evict the least recently used DIRTY entry (last resort) - O(1) to O(n).
+   *
+   * Uses Map iteration order where first key is LRU. Typically O(1) when there are
+   * dirty entries at the front of the LRU order.
    */
   private evictLRUDirty(): ThingData | null {
-    // Find oldest dirty entry
-    for (const id of this.accessOrder) {
+    // Iterate from oldest (first key in Map) to newest
+    for (const id of this.lruOrder.keys()) {
       if (this.dirtySet.has(id)) {
         const entry = this.store.get(id)
         if (entry) {

@@ -9,7 +9,7 @@
  * - Broadcast functionality
  */
 
-import type { Context } from 'hono'
+import type { Context, Env } from 'hono'
 
 // ============================================================================
 // WebSocket Status Constants
@@ -48,7 +48,7 @@ export class WebSocketManager {
   /**
    * Check if a request is a valid WebSocket upgrade request
    */
-  isWebSocketUpgradeRequest<HonoEnv>(c: Context<HonoEnv>): boolean {
+  isWebSocketUpgradeRequest<E extends Env>(c: Context<E>): boolean {
     return c.req.header('Upgrade') === 'websocket'
   }
 
@@ -114,20 +114,28 @@ export class WebSocketManager {
    * @param message The message to broadcast (will be JSON-stringified)
    * @returns Number of WebSockets the message was sent to
    */
-  broadcast(ctx: DurableObjectState, tag: string, message: unknown): { sent: number } {
+  broadcast(ctx: DurableObjectState, tag: string, message: unknown): { sent: number; failed: number } {
     let sent = 0
+    let failed = 0
     const sockets = ctx.getWebSockets(tag)
 
     for (const ws of sockets) {
       try {
         ws.send(JSON.stringify(message))
         sent++
-      } catch {
-        // Socket may be closed, skip it
+      } catch (err) {
+        failed++
+        // Log failed send attempts for debugging - socket may be closed
+        console.warn(
+          '[WebSocketManager] Broadcast send failed:',
+          'error:', err instanceof Error ? err.message : String(err),
+          'tag:', tag,
+          'readyState:', ws.readyState
+        )
       }
     }
 
-    return { sent }
+    return { sent, failed }
   }
 
   /**
@@ -146,13 +154,3 @@ export class WebSocketManager {
   }
 }
 
-// ============================================================================
-// Type Declarations for Cloudflare
-// ============================================================================
-
-declare global {
-  interface DurableObjectState {
-    getWebSockets(tag?: string): WebSocket[]
-    acceptWebSocket(ws: WebSocket, tags?: string[]): void
-  }
-}

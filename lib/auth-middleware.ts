@@ -67,8 +67,7 @@ export type HonoAuthEnv<Bindings extends AuthEnv = AuthEnv> = {
  * that includes AuthVariables. This allows auth middleware to be used
  * with any environment (e.g., DOCore's HonoEnv with DOCoreEnv bindings).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyEnvWithAuthVariables = { Bindings: any; Variables: AuthVariables }
+type AnyEnvWithAuthVariables = { Bindings: Record<string, unknown>; Variables: AuthVariables }
 
 // ============================================================================
 // Error Response Constants
@@ -138,7 +137,9 @@ export function decodeJwtPayload(token: string): JwtPayload | null {
       org_id: payload.org_id,
       permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
     }
-  } catch {
+  } catch (err) {
+    // JWT decode failed - may indicate tampering or malformed token
+    console.warn('[Auth] JWT decode failed:', (err as Error).message)
     return null
   }
 }

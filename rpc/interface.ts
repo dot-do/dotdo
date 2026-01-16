@@ -46,6 +46,12 @@ export interface InterfaceGeneratorOptions {
 }
 
 /**
+ * AnyFunction - Callable function type for runtime introspection
+ * Used when we need to call fn.toString() or check fn.constructor.name
+ */
+type AnyFunction = (...args: unknown[]) => unknown
+
+/**
  * Well-known parameter mappings (method name -> expected params)
  * Since JavaScript doesn't preserve parameter names at runtime,
  * we use conventions based on method names
@@ -198,7 +204,7 @@ function extractMethods(
 
     if (isPrivate && !includePrivate) continue
 
-    const fn = descriptor.value as Function
+    const fn = descriptor.value as AnyFunction
 
     // Determine if async
     const isAsync = fn.constructor.name === 'AsyncFunction' ||
@@ -231,7 +237,7 @@ function extractMethods(
 /**
  * Infer parameters from a function
  */
-function inferParams(fn: Function): ParamSchema[] {
+function inferParams(fn: AnyFunction): ParamSchema[] {
   const params: ParamSchema[] = []
 
   // Get parameter names from function source

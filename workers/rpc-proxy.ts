@@ -88,6 +88,7 @@ export function createRPCProxy(config: RPCProxyConfig): RPCProxy {
     try {
       body = await request.json()
     } catch {
+      // Request body is not valid JSON - return 400 error
       return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },

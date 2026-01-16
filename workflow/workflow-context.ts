@@ -25,6 +25,8 @@ import type {
   CascadeCircuitBreakerConfig,
   CascadeCircuitBreakerContextConfig,
   GracefulDegradationOptions,
+  CircuitBreakerPersistenceState,
+  CircuitBreakerPersistenceCallbacks,
 } from '../types'
 
 // Re-export types for backwards compatibility
@@ -40,6 +42,8 @@ export type {
   CascadeCircuitBreakerConfig,
   CascadeCircuitBreakerContextConfig,
   GracefulDegradationOptions,
+  CircuitBreakerPersistenceState,
+  CircuitBreakerPersistenceCallbacks,
 }
 
 // ============================================================================
@@ -121,6 +125,7 @@ type CascadeCircuitState = 'closed' | 'open' | 'half-open'
 interface CascadeTierCircuitState {
   state: CascadeCircuitState
   failures: number
+  successes: number
   lastFailure: number | null
   lastSuccess: number | null
   openedAt: number | null
@@ -133,17 +138,86 @@ interface CascadeTierCircuitState {
  * - Opens circuit after consecutive failures
  * - Allows probe requests in half-open state
  * - Resets to closed on successful probe
+ * - Persists state to durable storage for cold start recovery
  */
 class CascadeTierCircuitBreaker {
   private circuits: Map<CascadeTierName, CascadeTierCircuitState> = new Map()
   private failureThreshold: number
   private resetTimeout: number
   private fallback?: unknown
+  private persistence?: CircuitBreakerPersistenceCallbacks
 
-  constructor(config?: CascadeCircuitBreakerConfig) {
+  constructor(config?: CascadeCircuitBreakerConfig, persistence?: CircuitBreakerPersistenceCallbacks) {
     this.failureThreshold = config?.failureThreshold ?? DEFAULT_CASCADE_FAILURE_THRESHOLD
     this.resetTimeout = config?.resetTimeout ?? DEFAULT_CASCADE_RESET_TIMEOUT_MS
     this.fallback = config?.fallback
+    this.persistence = persistence
+
+    // Load persisted state on construction
+    if (persistence) {
+      this.loadPersistedState()
+    }
+  }
+
+  /**
+   * Load circuit breaker state from persistence
+   */
+  private loadPersistedState(): void {
+    if (!this.persistence) return
+
+    try {
+      const states = this.persistence.load()
+      for (const persisted of states) {
+        // Convert persisted state format to internal format
+        // Note: half_open in persistence becomes half-open internally
+        const internalState: CascadeCircuitState =
+          persisted.state === 'half_open' ? 'half-open' : persisted.state
+
+        const circuit: CascadeTierCircuitState = {
+          state: internalState,
+          failures: persisted.failure_count,
+          successes: persisted.success_count,
+          lastFailure: persisted.last_failure_at,
+          lastSuccess: null, // Not persisted, will be set on next success
+          openedAt: persisted.opened_at,
+        }
+
+        this.circuits.set(persisted.tier as CascadeTierName, circuit)
+      }
+    } catch (err) {
+      // Log but don't fail - start with fresh state
+      console.warn('[CascadeTierCircuitBreaker] Failed to load persisted state:', (err as Error).message)
+    }
+  }
+
+  /**
+   * Persist circuit state for a tier
+   */
+  private persistState(tier: CascadeTierName): void {
+    if (!this.persistence) return
+
+    const circuit = this.circuits.get(tier)
+    if (!circuit) return
+
+    try {
+      // Convert internal state format to persistence format
+      // Note: half-open internally becomes half_open in persistence
+      const persistedState: 'closed' | 'open' | 'half_open' =
+        circuit.state === 'half-open' ? 'half_open' : circuit.state
+
+      this.persistence.save({
+        tier,
+        state: persistedState,
+        failure_count: circuit.failures,
+        success_count: circuit.successes,
+        last_failure_at: circuit.lastFailure,
+        opened_at: circuit.openedAt,
+        updated_at: Date.now(),
+      })
+    } catch (err) {
+      // Log but don't fail - state may be lost on cold start
+      console.warn('[CascadeTierCircuitBreaker] Failed to persist state:', (err as Error).message)
+    }
   }
 
   /**
@@ -154,6 +228,7 @@ class CascadeTierCircuitBreaker {
       this.circuits.set(tier, {
         state: 'closed',
         failures: 0,
+        successes: 0,
         lastFailure: null,
         lastSuccess: null,
         openedAt: null,
@@ -204,12 +279,16 @@ class CascadeTierCircuitBreaker {
   recordSuccess(tier: CascadeTierName): void {
     const circuit = this.getCircuitState(tier)
     circuit.failures = 0
+    circuit.successes++
     circuit.lastSuccess = Date.now()
 
     if (circuit.state === 'half-open') {
       circuit.state = 'closed'
       circuit.openedAt = null
     }
+
+    // Persist state change
+    this.persistState(tier)
   }
 
   /**
@@ -218,12 +297,15 @@ class CascadeTierCircuitBreaker {
   recordFailure(tier: CascadeTierName): void {
     const circuit = this.getCircuitState(tier)
     circuit.failures++
+    circuit.successes = 0
     circuit.lastFailure = Date.now()
 
     if (circuit.state === 'half-open') {
       // Failed probe - back to open
       circuit.state = 'open'
       circuit.openedAt = Date.now()
+      // Persist state change
+      this.persistState(tier)
       return
     }
 
@@ -231,6 +313,9 @@ class CascadeTierCircuitBreaker {
       circuit.state = 'open'
       circuit.openedAt = Date.now()
     }
+
+    // Persist state change
+    this.persistState(tier)
   }
 
   /**
@@ -248,6 +333,8 @@ class CascadeTierCircuitBreaker {
       const elapsed = Date.now() - circuit.openedAt
       if (elapsed >= this.resetTimeout) {
         circuit.state = 'half-open'
+        // Persist state transition
+        this.persistState(tier)
       }
     }
   }
@@ -259,10 +346,13 @@ class CascadeTierCircuitBreaker {
     this.circuits.set(tier, {
       state: 'closed',
       failures: 0,
+      successes: 0,
       lastFailure: null,
       lastSuccess: null,
       openedAt: null,
     })
+    // Persist reset state
+    this.persistState(tier)
   }
 
   /**
@@ -270,6 +360,14 @@ class CascadeTierCircuitBreaker {
    */
   resetAll(): void {
     this.circuits.clear()
+    // Clear persisted state
+    if (this.persistence) {
+      try {
+        this.persistence.clear()
+      } catch (err) {
+        console.warn('[CascadeTierCircuitBreaker] Failed to clear persisted state:', (err as Error).message)
+      }
+    }
   }
 }
 
@@ -615,6 +713,9 @@ class WorkflowContextImpl {
   private gracefulDegradationEnabled: boolean
   private concurrencyLimiter?: CascadeConcurrencyLimiter
 
+  // Circuit breaker persistence
+  private circuitBreakerPersistence?: CircuitBreakerPersistenceCallbacks
+
   constructor(options?: CreateContextOptions) {
     this.stubResolver = options?.stubResolver
     this.rpcTimeout = options?.rpcTimeout ?? DEFAULT_RPC_TIMEOUT_MS
@@ -625,6 +726,9 @@ class WorkflowContextImpl {
     this.tierTimeout = options?.tierTimeout
     this.cascadeCircuitBreakerConfig = options?.cascadeCircuitBreaker
     this.gracefulDegradationEnabled = options?.gracefulDegradation ?? false
+
+    // Store persistence callbacks for circuit breakers
+    this.circuitBreakerPersistence = options?.circuitBreakerPersistence
 
     // Initialize cascade circuit breaker if configured
     if (this.cascadeCircuitBreakerConfig) {
@@ -645,7 +749,8 @@ class WorkflowContextImpl {
    */
   getCascadeCircuitBreaker(taskId: string, config?: CascadeCircuitBreakerConfig): CascadeTierCircuitBreaker {
     if (!this.cascadeCircuitBreakers.has(taskId)) {
-      this.cascadeCircuitBreakers.set(taskId, new CascadeTierCircuitBreaker(config))
+      // Pass persistence callbacks when creating circuit breaker
+      this.cascadeCircuitBreakers.set(taskId, new CascadeTierCircuitBreaker(config, this.circuitBreakerPersistence))
     }
     return this.cascadeCircuitBreakers.get(taskId)!
   }
@@ -909,8 +1014,9 @@ class WorkflowContextImpl {
     for (const callback of this.errorCallbacks) {
       try {
         callback(errorInfo)
-      } catch {
-        // Swallow callback errors to prevent cascade
+      } catch (err) {
+        // Swallow callback errors to prevent cascade - log for debugging
+        console.warn('[WorkflowContext] Error callback failed:', (err as Error).message)
       }
     }
   }

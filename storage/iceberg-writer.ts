@@ -376,7 +376,13 @@ export class IcebergWriter {
           let data: ArrayBuffer | string
           try {
             data = await r2Object.text()
-          } catch {
+          } catch (err) {
+            // Text read failed - try arrayBuffer (binary format)
+            console.debug(
+              '[IcebergWriter] R2 text() read failed, falling back to arrayBuffer:',
+              'error:', err instanceof Error ? err.message : String(err),
+              'key:', obj.key
+            )
             data = await r2Object.arrayBuffer()
           }
           const events = decodeParquet(data)

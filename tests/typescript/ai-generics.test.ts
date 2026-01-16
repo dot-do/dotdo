@@ -207,14 +207,23 @@ describe('TemplateValue Type Constraints', () => {
   it('should accept valid template values', () => {
     const ai = createAI()
 
-    // All of these should be valid TemplateValues
-    ai`string: ${'hello'}`
-    ai`number: ${42}`
-    ai`boolean: ${true}`
-    ai`null: ${null}`
-    ai`undefined: ${undefined}`
-    ai`array: ${['a', 'b']}`
-    ai`nested: ${ai`inner`}`
+    // All of these should be valid TemplateValues - verify they compile and return AIPromise
+    const strResult = ai`string: ${'hello'}`
+    const numResult = ai`number: ${42}`
+    const boolResult = ai`boolean: ${true}`
+    const nullResult = ai`null: ${null}`
+    const undefinedResult = ai`undefined: ${undefined}`
+    const arrayResult = ai`array: ${['a', 'b']}`
+    const nestedResult = ai`nested: ${ai`inner`}`
+
+    // Verify all return AIPromise<string>
+    expectTypeOf(strResult).toMatchTypeOf<AIPromise<string>>()
+    expectTypeOf(numResult).toMatchTypeOf<AIPromise<string>>()
+    expectTypeOf(boolResult).toMatchTypeOf<AIPromise<string>>()
+    expectTypeOf(nullResult).toMatchTypeOf<AIPromise<string>>()
+    expectTypeOf(undefinedResult).toMatchTypeOf<AIPromise<string>>()
+    expectTypeOf(arrayResult).toMatchTypeOf<AIPromise<string>>()
+    expectTypeOf(nestedResult).toMatchTypeOf<AIPromise<string>>()
   })
 
   it('FAILS: TemplateValue should accept objects with toJSON', () => {

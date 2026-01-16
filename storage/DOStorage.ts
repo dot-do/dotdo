@@ -34,6 +34,48 @@ interface RecoveryResult {
   eventsReplayed?: number
 }
 
+/** Event structure for L1 Pipeline */
+interface PipelineEvent {
+  type: string
+  entityId: string
+  payload: unknown
+  ts: number
+  idempotencyKey: string
+  _meta: {
+    namespace: string
+    emittedAt: number
+  }
+}
+
+/** Configuration for L1 Pipeline emitter */
+interface L1Config {
+  /** Interval in ms between batch flushes (default: 100) */
+  flushIntervalMs: number
+  /** Max events before triggering flush (default: 100) */
+  batchSize: number
+  /** Max retries on failure (default: 3) */
+  maxRetries: number
+  /** Delay between retries in ms (default: 100) */
+  retryDelayMs: number
+}
+
+/** Default L1 configuration */
+const DEFAULT_L1_CONFIG: L1Config = {
+  flushIntervalMs: 100,
+  batchSize: 100,
+  maxRetries: 3,
+  retryDelayMs: 100,
+}
+
+/**
+ * Generates a unique idempotency key for event deduplication
+ */
+function generateIdempotencyKey(): string {
+  const random = Math.random().toString(36).substring(2, 15)
+  const timestamp = Date.now().toString(36)
+  return `${timestamp}-${random}`
+}
+
 // ============================================================================
 // DOStorage Class
 // ============================================================================
@@ -41,15 +83,19 @@ interface RecoveryResult {
 export class DOStorageClass extends DOSemantic {
   // L0: In-memory state manager
   protected memoryManager: InMemoryStateManager
-  protected pendingEvents: Array<{
-    type: string
-    entityId: string
-    payload: unknown
-    ts: number
-  }> = []
+
+  // L1: Pipeline event queue and state
+  protected pendingEvents: PipelineEvent[] = []
+  protected l1Config: L1Config = DEFAULT_L1_CONFIG
+  protected flushTimer: ReturnType<typeof setTimeout> | null = null
+  protected flushInProgress: Promise<void> | null = null
+  protected namespace: string
 
   constructor(ctx: DurableObjectState, env: DOStorageEnv) {
     super(ctx, env as DOSemanticEnv)
+
+    // Extract namespace from ctx for event metadata
+    this.namespace = ctx.id.toString()
 
     // Initialize L0: InMemory state manager
     this.memoryManager = new InMemoryStateManager({
@@ -75,6 +121,179 @@ export class DOStorageClass extends DOSemantic {
     this.ctx.storage.sql.exec(`
       CREATE INDEX IF NOT EXISTS idx_l2_things_type ON l2_things(type)
     `)
+
+    // Start L1 flush timer if Pipeline binding available
+    if ((env as DOStorageEnv).PIPELINE && this.l1Config.flushIntervalMs > 0) {
+      this.scheduleFlush()
+    }
+  }
+
+  // =========================================================================
+  // L1: PIPELINE EVENT EMISSION
+  // =========================================================================
+
+  /**
+   * Queue an event for L1 Pipeline emission
+   */
+  protected queueEvent(type: string, entityId: string, payload: unknown): void {
+    const event: PipelineEvent = {
+      type,
+      entityId,
+      payload,
+      ts: Date.now(),
+      idempotencyKey: generateIdempotencyKey(),
+      _meta: {
+        namespace: this.namespace,
+        emittedAt: Date.now(),
+      },
+    }
+
+    this.pendingEvents.push(event)
+
+    // Check if batch size threshold reached
+    if (this.pendingEvents.length >= this.l1Config.batchSize) {
+      this.triggerFlush()
+    }
+  }
+
+  /**
+   * Schedule periodic flush timer
+   */
+  protected scheduleFlush(): void {
+    if (this.flushTimer) return
+
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null
+      this.triggerFlush()
+      // Reschedule if we still have the Pipeline binding
+      const env = this.env as DOStorageEnv
+      if (env.PIPELINE && this.l1Config.flushIntervalMs > 0) {
+        this.scheduleFlush()
+      }
+    }, this.l1Config.flushIntervalMs)
+  }
+
+  /**
+   * Trigger a non-blocking flush of pending events
+   */
+  protected triggerFlush(): void {
+    if (this.pendingEvents.length === 0) return
+
+    // Fire-and-forget: don't await, but track for hibernation
+    const flushOp = this.flushPipeline().catch((err) => {
+      console.error('[DOStorage] Pipeline flush failed:', (err as Error).message)
+    })
+
+    // Track the flush promise so we can await it during hibernation
+    this.flushInProgress = flushOp.finally(() => {
+      this.flushInProgress = null
+    })
+  }
+
+  /**
+   * Flush pending events to Pipeline with retry logic
+   * This method can throw if all retries fail - events are preserved for next attempt
+   */
+  async flushPipeline(): Promise<void> {
+    const env = this.env as DOStorageEnv
+    if (!env.PIPELINE || this.pendingEvents.length === 0) {
+      return
+    }
+
+    // Snapshot events to send (don't clear yet - wait for success)
+    const batch = [...this.pendingEvents]
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < this.l1Config.maxRetries; attempt++) {
+      try {
+        await env.PIPELINE.send(batch)
+
+        // Success - clear sent events from queue
+        // Only remove the specific events we sent (new ones may have been added)
+        const sentIds = new Set(batch.map((e) => e.idempotencyKey))
+        this.pendingEvents = this.pendingEvents.filter(
+          (e) => !sentIds.has(e.idempotencyKey)
+        )
+
+        return // Success
+      } catch (error) {
+        lastError = error as Error
+        console.warn(
+          `[DOStorage] Pipeline send attempt ${attempt + 1}/${this.l1Config.maxRetries} failed:`,
+          lastError.message
+        )
+
+        // Wait before retry (except on last attempt)
+        if (attempt < this.l1Config.maxRetries - 1) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.l1Config.retryDelayMs * (attempt + 1))
+          )
+        }
+      }
+    }
+
+    // All retries failed - events remain in pendingEvents for next attempt
+    // Log but don't throw to avoid blocking operations
+    console.error(
+      '[DOStorage] Pipeline flush failed after all retries. Events preserved for next attempt:',
+      lastError?.message
+    )
+  }
+
+  /**
+   * Force immediate flush of all pending events (blocking)
+   * Use before hibernation or when durability guarantee is needed
+   */
+  async forceFlush(): Promise<{ flushed: number; failed: number }> {
+    const env = this.env as DOStorageEnv
+    if (!env.PIPELINE) {
+      return { flushed: 0, failed: 0 }
+    }
+
+    // Wait for any in-progress flush to complete
+    if (this.flushInProgress) {
+      await this.flushInProgress
+    }
+
+    if (this.pendingEvents.length === 0) {
+      return { flushed: 0, failed: 0 }
+    }
+
+    const initialCount = this.pendingEvents.length
+
+    try {
+      await this.flushPipeline()
+      const flushed = initialCount - this.pendingEvents.length
+      return { flushed, failed: this.pendingEvents.length }
+    } catch (error) {
+      console.error('[DOStorage] Force flush failed:', (error as Error).message)
+      return { flushed: 0, failed: initialCount }
+    }
+  }
+
+  /**
+   * Get count of pending events waiting to be sent
+   */
+  getPendingEventCount(): number {
+    return this.pendingEvents.length
+  }
+
+  /**
+   * Configure L1 Pipeline settings
+   */
+  configureL1(config: Partial<L1Config>): void {
+    this.l1Config = { ...this.l1Config, ...config }
+
+    // Restart timer with new interval if needed
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
+
+    const env = this.env as DOStorageEnv
+    if (env.PIPELINE && this.l1Config.flushIntervalMs > 0) {
+      this.scheduleFlush()
+    }
   }
 
   // =========================================================================
@@ -88,12 +307,7 @@ export class DOStorageClass extends DOSemantic {
     const thing = this.memoryManager.create(input)
 
     // Queue event for L1 pipeline
-    this.pendingEvents.push({
-      type: 'thing.created',
-      entityId: thing.$id,
-      payload: thing,
-      ts: Date.now(),
-    })
+    this.queueEvent('thing.created', thing.$id, thing)
 
     return thing
   }
@@ -112,15 +326,13 @@ export class DOStorageClass extends DOSemantic {
     try {
       const updated = this.memoryManager.update(id, updates)
 
-      this.pendingEvents.push({
-        type: 'thing.updated',
-        entityId: id,
-        payload: updates,
-        ts: Date.now(),
-      })
+      // Queue event for L1 pipeline
+      this.queueEvent('thing.updated', id, updates)
 
       return updated
-    } catch {
+    } catch (err) {
+      // Update failed - log for debugging and return null
+      console.warn(`[DOStorage] Memory update failed for ${id}:`, (err as Error).message)
       return null
     }
   }
@@ -132,12 +344,8 @@ export class DOStorageClass extends DOSemantic {
     const deleted = this.memoryManager.delete(id)
 
     if (deleted) {
-      this.pendingEvents.push({
-        type: 'thing.deleted',
-        entityId: id,
-        payload: {},
-        ts: Date.now(),
-      })
+      // Queue event for L1 pipeline
+      this.queueEvent('thing.deleted', id, { $id: id })
     }
 
     return deleted
@@ -271,6 +479,20 @@ export class DOStorageClass extends DOSemantic {
    * Called before DO hibernation - flush all dirty state
    */
   async beforeHibernation(): Promise<void> {
+    // Stop the flush timer
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
+
+    // Force flush all pending events to Pipeline (blocking)
+    const flushResult = await this.forceFlush()
+    if (flushResult.failed > 0) {
+      console.warn(
+        `[DOStorage] ${flushResult.failed} events could not be flushed to Pipeline before hibernation`
+      )
+    }
+
     // Checkpoint all dirty entries to SQLite
     await this.checkpoint()
 
@@ -328,8 +550,17 @@ export class DOStorageClass extends DOSemantic {
    * This enables NounInstanceAccessor to delete things stored in DOStorage
    */
   override async deleteThingById(id: string): Promise<boolean> {
-    const deleted = await this.delete(id)
+    const deleted = await this.removeById(id)
     return deleted !== null
+  }
+
+  /**
+   * Delete a thing by ID and return it
+   * Use this when you need the deleted thing returned.
+   * Returns the deleted thing or null if not found.
+   */
+  async deleteThing(id: string): Promise<ThingData | null> {
+    return this.removeById(id)
   }
 
   /**

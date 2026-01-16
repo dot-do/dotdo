@@ -44,6 +44,7 @@ export type CapabilityErrorCode =
   | 'INVALID_SIGNATURE'
   | 'WRONG_TARGET'
   | 'INSUFFICIENT_SCOPE'
+  | 'SECRET_REQUIRED'  // No capability secret configured to verify tokens
 
 /**
  * Custom error class for capability token failures
@@ -234,7 +235,9 @@ export async function verifyCapabilityToken(
   let signatureBuffer: ArrayBuffer
   try {
     signatureBuffer = base64UrlToArrayBuffer(encodedSignature)
-  } catch {
+  } catch (err) {
+    // Signature decode failed - may indicate tampering
+    console.warn('[RPC/Token] Malformed signature in capability token:', (err as Error).message)
     throw new CapabilityError(
       'Invalid token format: malformed signature',
       'INVALID_SIGNATURE'
@@ -253,7 +256,9 @@ export async function verifyCapabilityToken(
   let payload: CapabilityPayload
   try {
     payload = decodePayload(encodedPayload)
-  } catch {
+  } catch (err) {
+    // Payload decode failed after signature verified - may indicate corruption
+    console.warn('[RPC/Token] Malformed payload in capability token:', (err as Error).message)
     throw new CapabilityError(
       'Invalid token format: malformed payload',
       'INVALID_SIGNATURE'

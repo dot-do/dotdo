@@ -203,9 +203,9 @@ export class PipelineEmitter {
       try {
         await this.config.deadLetterQueue.send(batch)
         return // DLQ succeeded, don't throw
-      } catch {
-        // DLQ also failed - events are lost, throw the original error
-        console.error('Failed to send to dead letter queue', lastError)
+      } catch (dlqErr) {
+        // DLQ also failed - events are lost, log critical failure
+        console.error('[PipelineEmitter] DLQ send failed - events lost:', (dlqErr as Error).message, 'Original error:', lastError)
       }
     }
 

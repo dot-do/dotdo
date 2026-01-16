@@ -540,8 +540,10 @@ export class LazyCheckpointer {
       if (rows.length > 0) {
         return { data: JSON.parse(rows[0].data) }
       }
-    } catch {
-      // Ignore
+    } catch (err) {
+      // SQL query failed - entry may not exist in L2 tier
+      // This is non-critical as L0 is authoritative
+      console.warn(`[LazyCheckpointer] L2 lookup failed for ${id}:`, (err as Error).message)
     }
     return undefined
   }
@@ -609,7 +611,9 @@ export class LazyCheckpointer {
         consistent: l0Checksum === l2Checksum,
         verifiedAt: Date.now(),
       }
-    } catch {
+    } catch (err) {
+      // Cross-tier verification failed - entry may be inconsistent
+      console.warn(`[LazyCheckpointer] Cross-tier verification failed for ${id}:`, (err as Error).message)
       return undefined
     }
   }
@@ -638,8 +642,9 @@ export class LazyCheckpointer {
               dataJson
             )
             repaired.push({ id, source: 'L0' })
-          } catch {
-            // Skip entries that fail to repair
+          } catch (err) {
+            // Skip entries that fail to repair - log for debugging
+            console.warn(`[LazyCheckpointer] Failed to repair entry ${id}:`, (err as Error).message)
           }
         }
       }
@@ -665,8 +670,9 @@ export class LazyCheckpointer {
       const result = this.sql.exec('SELECT COUNT(*) as count FROM things')
       const rows = result.toArray() as Array<{ count: number }>
       l2EntryCount = rows[0]?.count ?? 0
-    } catch {
-      // Ignore
+    } catch (err) {
+      // Table may not exist during initialization - non-critical for health check
+      console.warn('[LazyCheckpointer] Failed to count L2 entries:', (err as Error).message)
     }
 
     // Calculate average checkpoint latency

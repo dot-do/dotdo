@@ -38,14 +38,20 @@ import {
 } from '../lib/auth-middleware'
 import {
   assertValidCreateThingInput,
-  ThingValidationException,
+  ThingValidationError,
 } from '../lib/validation/thing-validation'
 import {
   validateWhereClause,
   matchesWhere,
   QueryValidationError,
 } from './query-validation'
+import {
+  validateSqlQuery,
+  sanitizeSqlError,
+  SqlSecurityError,
+} from './sql-security'
 import { validatePath } from '../lib/validation'
+import { emitDeprecationWarning } from '../lib/deprecation'
 import type { ThingData } from '../types'
 
 // ============================================================================
@@ -58,6 +64,8 @@ import {
   VERSION,
   getCorsPolicy,
   buildCorsHeaders,
+  getAllowedOrigins,
+  type CorsEnv,
 } from './http-router'
 import { WebSocketManager, WEBSOCKET_STATUS } from './websocket-manager'
 import { STATE_KEYS } from './state-manager'
@@ -104,8 +112,20 @@ const EXPONENTIAL_BACKOFF_BASE = 2
  * Base environment for DO classes.
  * Each subclass env should extend this and make its own binding required.
  * Generic parameters allow proper typing when extended.
+ *
+ * Extends CorsEnv for CORS configuration via environment variables:
+ * - ALLOWED_ORIGINS: Comma-separated list of allowed origins
+ * - ENVIRONMENT: 'production' | 'staging' | 'development'
+ *
+ * @example
+ * ```toml
+ * # wrangler.toml
+ * [vars]
+ * ALLOWED_ORIGINS = "https://app.example.com,https://api.example.com"
+ * ENVIRONMENT = "production"
+ * ```
  */
-export interface DOCoreEnv {
+export interface DOCoreEnv extends CorsEnv {
   DOCore: DurableObjectNamespace<DOCore>
   // These are optional at the base level - subclasses override with required
   // Using DOCore as base type since all DO classes extend DOCore
@@ -341,7 +361,11 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   protected createApp(): Hono<HonoEnv> {
     const app = new Hono<HonoEnv>()
 
-    // Secure CORS middleware - validates origins against explicit allowlist
+    // Get allowed origins from environment configuration
+    // This enables runtime configuration via ALLOWED_ORIGINS env var
+    const allowedOrigins = getAllowedOrigins(this.env)
+
+    // Secure CORS middleware - validates origins against environment-configured allowlist
     // and applies route-specific policies (public, protected, admin)
     app.use('*', async (c, next) => {
       const origin = c.req.header('Origin')
@@ -351,7 +375,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       // Handle preflight OPTIONS requests
       if (c.req.method === 'OPTIONS') {
         const requestedHeaders = c.req.header('Access-Control-Request-Headers')
-        const corsHeaders = buildCorsHeaders(origin, policy, requestedHeaders)
+        const corsHeaders = buildCorsHeaders(origin, allowedOrigins, policy, requestedHeaders)
 
         // Return 204 with appropriate CORS headers (or lack thereof for invalid origins)
         return new Response(null, {
@@ -364,7 +388,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       await next()
 
       // Add CORS headers to the response
-      const corsHeaders = buildCorsHeaders(origin, policy)
+      const corsHeaders = buildCorsHeaders(origin, allowedOrigins, policy)
       for (const [key, value] of corsHeaders.entries()) {
         c.res.headers.set(key, value)
       }
@@ -919,26 +943,30 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   /**
    * Verify capability token for a method call.
    *
-   * When capabilitySecret is null (development mode), returns a permissive
-   * payload allowing all operations. When set, performs full HMAC verification
-   * and checks that the method is allowed by the capability.
+   * SECURITY: When a token is provided, it MUST be verified. If no secret is
+   * configured, verification fails because we cannot validate the token's
+   * authenticity. This prevents attackers from bypassing security by simply
+   * providing any token when the secret is not configured.
+   *
+   * Development mode: Call rpcCall() WITHOUT a capability token - the check
+   * at line 910 (if capability) will skip verification entirely.
    *
    * Override in subclasses for custom verification logic.
    *
    * @param token The capability token to verify
    * @param method The method being called
    * @returns The verified capability payload
-   * @throws CapabilityError if verification fails
+   * @throws CapabilityError if verification fails or secret is not configured
    */
   protected async verifyCapability(token: string, method: string): Promise<CapabilityPayload> {
+    // SECURITY FIX (do-zy3f): When a token is provided, we MUST verify it.
+    // If no secret is configured, we cannot verify - this is an error.
+    // The old code returned wildcard admin access here, which was a critical security bug.
     if (!this.capabilitySecret) {
-      // No secret configured = no verification (development mode)
-      return {
-        target: '*',
-        methods: ['*'],
-        scope: 'admin',
-        exp: Date.now() + 3600000,
-      }
+      throw new CapabilityError(
+        'Capability secret is required to verify tokens. Configure CAPABILITY_SECRET or call setCapabilitySecret().',
+        'SECRET_REQUIRED'
+      )
     }
 
     const payload = await verifyCapabilityToken(token, this.capabilitySecret)
@@ -1000,18 +1028,44 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   // =========================================================================
-  // RAW SQL QUERY
+  // RAW SQL QUERY (Protected - Read-Only)
   // =========================================================================
 
   /**
    * Execute a raw SQL query against the state storage
-   * @param sql SQL query string with ? placeholders for parameters
+   *
+   * SECURITY: This method is protected by SQL validation:
+   * - Only SELECT queries are allowed (read-only)
+   * - Multi-statement injection is blocked
+   * - SQL comments are blocked
+   * - Administrative commands (PRAGMA, VACUUM, etc.) are blocked
+   * - Error messages are sanitized to prevent SQL structure leakage
+   *
+   * @param sql SQL SELECT query string with ? placeholders for parameters
    * @param params Parameter values for the query
    * @returns Array of rows matching the query
+   * @throws SqlSecurityError if the query violates security policies
    */
   async query(sql: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
-    const results = this.ctx.storage.sql.exec(sql, ...params).toArray()
-    return results.map((row) => this.parseQueryRow(row))
+    // Validate the SQL query for security
+    try {
+      validateSqlQuery(sql)
+    } catch (error) {
+      // Re-throw security errors as-is
+      if (error instanceof SqlSecurityError) {
+        throw error
+      }
+      throw sanitizeSqlError(error)
+    }
+
+    // Execute the validated query
+    try {
+      const results = this.ctx.storage.sql.exec(sql, ...params).toArray()
+      return results.map((row) => this.parseQueryRow(row))
+    } catch (error) {
+      // Sanitize any SQL errors to prevent information leakage
+      throw sanitizeSqlError(error)
+    }
   }
 
   /**
@@ -1024,6 +1078,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
         try {
           obj[key] = JSON.parse(value)
         } catch {
+          // Value is not valid JSON - use raw string value
           obj[key] = value
         }
       } else {
@@ -1034,7 +1089,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   // =========================================================================
-  // WEBSOCKET SUPPORT
+  // WEBSOCKET SUPPORT - Delegated to WebSocketManager
   // =========================================================================
 
   /**
@@ -1042,36 +1097,24 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * Note: WebSocket objects cannot be passed via RPC, so we use the last connected WebSocket's tags
    */
   async getWebSocketTags(_ws?: WebSocket): Promise<string[]> {
-    return this.lastWebSocketTags
+    return this.wsManager.getWebSocketTags(_ws)
   }
 
   /**
    * Broadcast a message to all WebSockets with the specified tag
    * @param tag The tag to filter WebSocket recipients
    * @param message The message to broadcast (will be JSON-stringified)
-   * @returns Number of WebSockets the message was sent to
+   * @returns Object with sent count and failed count
    */
-  async broadcast(tag: string, message: unknown): Promise<{ sent: number }> {
-    let sent = 0
-    const sockets = this.ctx.getWebSockets(tag)
-
-    for (const ws of sockets) {
-      try {
-        ws.send(JSON.stringify(message))
-        sent++
-      } catch {
-        // Socket may be closed, skip it
-      }
-    }
-
-    return { sent }
+  async broadcast(tag: string, message: unknown): Promise<{ sent: number; failed: number }> {
+    return this.wsManager.broadcast(this.ctx, tag, message)
   }
 
   /**
    * Check if the last connected WebSocket supports hibernation
    */
   async isWebSocketHibernatable(_ws?: WebSocket): Promise<boolean> {
-    return this.lastWebSocketHibernatable
+    return this.wsManager.isWebSocketHibernatable(_ws)
   }
 
   // =========================================================================
@@ -1083,7 +1126,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     // Check if this is an RPC WebSocket (has 'rpc' tag)
-    const tags = this.websocketTags.get(ws) ?? []
+    const tags = this.wsManager.getTagsForWebSocket(ws)
     const isRpcWebSocket = tags.includes('rpc') || tags.includes('events')
 
     if (isRpcWebSocket) {
@@ -1113,8 +1156,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * Clean up WebSocket tracking when connection closes or errors
    */
   private cleanupWebSocket(ws: WebSocket): void {
-    this.websocketTags.delete(ws)
-    this.hibernatableWebSockets.delete(ws)
+    this.wsManager.cleanupWebSocket(ws)
     // Also clean up RPC subscriptions
     this.rpcHandler.cleanupWebSocketRpc(ws)
   }
@@ -1193,7 +1235,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * For RPC compatibility, this returns an object with callable methods for each Noun.verb combination
    */
   get on(): OnProxy {
-    return createOnProxy(this, this.eventHandlers)
+    return createOnProxy(this.eventHandlers)
   }
 
   /**
@@ -1731,6 +1773,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * @deprecated Use getThingById instead
    */
   getThingPublic(id: string): ThingData | null {
+    emitDeprecationWarning('DOCore.getThingPublic', 'getThingById')
     return this.getThing(id)
   }
 
@@ -1765,6 +1808,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * @deprecated Use updateThingById instead
    */
   updateThingInternal(type: string, id: string, updates: Record<string, unknown>): Promise<ThingData> {
+    emitDeprecationWarning('DOCore.updateThingInternal', 'updateThingById')
     return this.updateThing(type, id, updates)
   }
 

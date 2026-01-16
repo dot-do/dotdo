@@ -124,8 +124,13 @@ export function createReplicaRouter(config: ReplicationConfig): ReplicaRouter {
         roundRobinCounter++
         return { target: 'replica', replicaIndex }
       }
-    } catch {
-      // Continue with intent detection if URL parsing fails
+    } catch (err) {
+      // URL header parsing failed - continue with intent-based routing
+      console.debug(
+        '[replication] URL/header parsing failed, falling back to intent-based routing:',
+        'error:', err instanceof Error ? err.message : String(err),
+        'url:', request.url.substring(0, 100)
+      )
     }
 
     // Priority 2: Detect request intent

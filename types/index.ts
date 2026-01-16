@@ -8,6 +8,101 @@
  */
 
 // ============================================================================
+// Branded ID Types - Type-safe ID discrimination
+// ============================================================================
+
+/**
+ * Brand utility type for creating nominal/branded types.
+ * Branded types prevent accidentally mixing up different ID types that are
+ * all strings at runtime but represent different domain concepts.
+ *
+ * @example
+ * type ThingId = Brand<string, 'ThingId'>
+ * type EventId = Brand<string, 'EventId'>
+ *
+ * const thingId: ThingId = createThingId()
+ * const eventId: EventId = thingId // Type error!
+ */
+type Brand<T, B> = T & { readonly __brand: B }
+
+/**
+ * ThingId - Branded type for Thing identifiers
+ * Used for entities stored in the Things table
+ */
+export type ThingId = Brand<string, 'ThingId'>
+
+/**
+ * EventId - Branded type for Event identifiers
+ * Used for workflow events emitted via $.send()
+ */
+export type EventId = Brand<string, 'EventId'>
+
+/**
+ * RelationshipId - Branded type for Relationship identifiers
+ * Used for edges between Things in the graph
+ */
+export type RelationshipId = Brand<string, 'RelationshipId'>
+
+/**
+ * CallbackId - Branded type for RPC callback identifiers
+ * Used for WebSocket RPC callback tracking
+ */
+export type CallbackId = Brand<string, 'CallbackId'>
+
+/**
+ * BrokerMessageId - Branded type for Broker message identifiers
+ * Used for cross-DO RPC message correlation
+ */
+export type BrokerMessageId = Brand<string, 'BrokerMessageId'>
+
+// ============================================================================
+// ID Generation Functions
+// ============================================================================
+
+/** Counter for unique ID generation within a session */
+let idCounter = 0
+
+/**
+ * Create a new ThingId
+ * Format: thing_<timestamp>_<random>
+ */
+export function createThingId(): ThingId {
+  return `thing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` as ThingId
+}
+
+/**
+ * Create a new EventId
+ * Format: evt_<timestamp>_<random>
+ */
+export function createEventId(): EventId {
+  return `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` as EventId
+}
+
+/**
+ * Create a new RelationshipId
+ * Format: rel_<timestamp>_<random>
+ */
+export function createRelationshipId(): RelationshipId {
+  return `rel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` as RelationshipId
+}
+
+/**
+ * Create a new CallbackId
+ * Format: cb_<counter>_<random>
+ */
+export function createCallbackId(): CallbackId {
+  return `cb_${++idCounter}_${Math.random().toString(36).substr(2, 6)}` as CallbackId
+}
+
+/**
+ * Create a new BrokerMessageId
+ * Format: brk_<timestamp>_<counter>_<random>
+ */
+export function createBrokerMessageId(): BrokerMessageId {
+  return `brk_${Date.now()}_${++idCounter}_${Math.random().toString(36).substring(2, 8)}` as BrokerMessageId
+}
+
+// ============================================================================
 // Thing Types - Core Entity Types
 // ============================================================================
 
@@ -256,13 +351,19 @@ export type VerbRegistry = Map<string, Verb>
 // ============================================================================
 
 /**
+ * ScheduleHandler - Typed handler for scheduled tasks
+ * Returns void or Promise<void> to enforce proper async handling
+ */
+export type ScheduleHandler = () => void | Promise<void>
+
+/**
  * TimeBuilder - Builder for time-based scheduling
  */
 export interface TimeBuilder {
-  at9am: (handler: Function) => () => void
-  at5pm: (handler: Function) => () => void
-  at6am: (handler: Function) => () => void
-  at: (time: string) => (handler: Function) => () => void
+  at9am: (handler: ScheduleHandler) => () => void
+  at5pm: (handler: ScheduleHandler) => () => void
+  at6am: (handler: ScheduleHandler) => () => void
+  at: (time: string) => (handler: ScheduleHandler) => () => void
 }
 
 /**
@@ -277,17 +378,17 @@ export interface ScheduleBuilder {
   Saturday: TimeBuilder
   Sunday: TimeBuilder
   day: TimeBuilder
-  hour: (handler: Function) => () => void
-  minute: (handler: Function) => () => void
+  hour: (handler: ScheduleHandler) => () => void
+  minute: (handler: ScheduleHandler) => () => void
 }
 
 /**
  * IntervalBuilder - Builder for interval-based scheduling
  */
 export interface IntervalBuilder {
-  minutes: (handler: Function) => () => void
-  hours: (handler: Function) => () => void
-  seconds: (handler: Function) => () => void
+  minutes: (handler: ScheduleHandler) => () => void
+  hours: (handler: ScheduleHandler) => () => void
+  seconds: (handler: ScheduleHandler) => () => void
 }
 
 // ============================================================================
@@ -457,6 +558,38 @@ export interface CascadeCircuitBreakerContextConfig {
 }
 
 /**
+ * CircuitBreakerPersistenceState - State persisted for circuit breaker
+ */
+export interface CircuitBreakerPersistenceState {
+  /** Tier name: code, generative, agentic, human */
+  tier: string
+  /** Circuit state: open, closed, half_open */
+  state: 'closed' | 'open' | 'half_open'
+  /** Number of consecutive failures */
+  failure_count: number
+  /** Number of successes since last failure */
+  success_count: number
+  /** Timestamp of last failure (ms since epoch) */
+  last_failure_at: number | null
+  /** Timestamp when circuit opened (ms since epoch) */
+  opened_at: number | null
+  /** Timestamp of last state change (ms since epoch) */
+  updated_at: number
+}
+
+/**
+ * CircuitBreakerPersistenceCallbacks - Callbacks for persisting circuit breaker state
+ */
+export interface CircuitBreakerPersistenceCallbacks {
+  /** Save circuit breaker state for a tier */
+  save: (state: CircuitBreakerPersistenceState) => void
+  /** Load circuit breaker states for all tiers */
+  load: () => CircuitBreakerPersistenceState[]
+  /** Clear all circuit breaker state (for reset) */
+  clear: () => void
+}
+
+/**
  * CreateContextOptions - Options for creating workflow context
  */
 export interface CreateContextOptions {
@@ -475,4 +608,6 @@ export interface CreateContextOptions {
   maxConcurrentCascades?: number
   /** Maximum queued cascade requests when at capacity */
   maxQueuedCascades?: number
+  /** Callbacks for persisting circuit breaker state to durable storage */
+  circuitBreakerPersistence?: CircuitBreakerPersistenceCallbacks
 }

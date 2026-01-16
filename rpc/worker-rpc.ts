@@ -58,6 +58,8 @@ export class RpcError extends Error {
 
 /**
  * Type for class constructor (minimal interface for testability)
+ * Note: TypeScript mixin pattern requires any[] for constructor arguments
+ * See: https://www.typescriptlang.org/docs/handbook/mixins.html
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Constructor<T = object> = new (...args: any[]) => T

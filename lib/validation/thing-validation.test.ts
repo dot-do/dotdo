@@ -12,7 +12,8 @@ import {
   validateThingData,
   validateType,
   assertValidCreateThingInput,
-  ThingValidationException,
+  ThingValidationError,
+  ThingValidationException, // Deprecated alias - testing backward compat
   isValidCreateThingInput,
   isValidType,
   createThingInputSchema,
@@ -260,10 +261,10 @@ describe('assertValidCreateThingInput', () => {
     }).not.toThrow()
   })
 
-  it('should throw ThingValidationException for invalid input', () => {
+  it('should throw ThingValidationError for invalid input', () => {
     expect(() => {
       assertValidCreateThingInput({ name: 'Alice' })
-    }).toThrow(ThingValidationException)
+    }).toThrow(ThingValidationError)
   })
 
   it('should throw with helpful error messages', () => {
@@ -271,8 +272,8 @@ describe('assertValidCreateThingInput', () => {
       assertValidCreateThingInput({ name: 'Alice' })
       expect.fail('Should have thrown')
     } catch (e) {
-      expect(e).toBeInstanceOf(ThingValidationException)
-      const error = e as ThingValidationException
+      expect(e).toBeInstanceOf(ThingValidationError)
+      const error = e as ThingValidationError
       expect(error.errors.length).toBeGreaterThan(0)
       expect(error.message).toContain('$type')
     }
@@ -280,19 +281,19 @@ describe('assertValidCreateThingInput', () => {
 })
 
 // ============================================================================
-// ThingValidationException Tests
+// ThingValidationError Tests
 // ============================================================================
 
-describe('ThingValidationException', () => {
-  it('should have name ThingValidationException', () => {
-    const error = new ThingValidationException([
+describe('ThingValidationError', () => {
+  it('should have name ThingValidationError', () => {
+    const error = new ThingValidationError([
       { field: '$type', message: '$type is required', code: 'invalid_type' },
     ])
-    expect(error.name).toBe('ThingValidationException')
+    expect(error.name).toBe('ThingValidationError')
   })
 
   it('should include all error messages', () => {
-    const error = new ThingValidationException([
+    const error = new ThingValidationError([
       { field: '$type', message: '$type is required', code: 'invalid_type' },
       { field: '$id', message: '$id cannot be empty', code: 'too_small' },
     ])
@@ -301,7 +302,7 @@ describe('ThingValidationException', () => {
   })
 
   it('should provide getMessages() for user-friendly errors', () => {
-    const error = new ThingValidationException([
+    const error = new ThingValidationError([
       { field: '$type', message: '$type is required', code: 'invalid_type' },
     ])
     const messages = error.getMessages()
@@ -310,12 +311,21 @@ describe('ThingValidationException', () => {
   })
 
   it('should provide PascalCase guidance in error messages', () => {
-    const error = new ThingValidationException([
+    const error = new ThingValidationError([
       { field: '$type', message: 'PascalCase validation failed', code: 'invalid_string' },
     ])
     const messages = error.getMessages()
     expect(messages[0]).toContain('PascalCase')
     expect(messages[0]).toContain('Customer')
+  })
+
+  it('should support deprecated ThingValidationException alias', () => {
+    // ThingValidationException is a deprecated alias for backward compatibility
+    const error = new ThingValidationException([
+      { field: '$type', message: '$type is required', code: 'invalid_type' },
+    ])
+    expect(error).toBeInstanceOf(ThingValidationError)
+    expect(error.name).toBe('ThingValidationError')
   })
 })
 
@@ -375,7 +385,7 @@ describe('Integration with InMemoryStateManager', () => {
     // Should throw for lowercase type
     expect(() => {
       manager.create({ $type: 'customer', name: 'Alice' })
-    }).toThrow(ThingValidationException)
+    }).toThrow(ThingValidationError)
   })
 
   it('should accept valid input when creating via InMemoryStateManager', async () => {

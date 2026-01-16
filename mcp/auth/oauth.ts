@@ -11,7 +11,11 @@ import {
   createSession,
   createSessionJwt,
   storeSession,
+  getSession,
+  getSessionByUserId,
+  deleteSession,
 } from './authkit'
+import { extractBearerToken, decodeJwt } from './jwt'
 
 // ============================================================================
 // Constants
@@ -311,22 +315,68 @@ export async function handleAuthorizeRequest(
 
 /**
  * Handle logout request
+ *
+ * Security: Properly invalidates the session by deleting from KV storage.
+ * This ensures the session cannot be reused after logout.
+ *
+ * Note: The JWT will remain cryptographically valid until expiry, but
+ * any server-side session validation will fail after logout.
  */
 export async function handleLogoutRequest(
   request: Request,
   env: McpEnv
 ): Promise<Response> {
-  // For logout, we could invalidate the session in KV
-  // The JWT will remain valid until expiry, but the session check will fail
+  try {
+    // Extract JWT token from Authorization header
+    const token = extractBearerToken(request)
 
-  return new Response(
-    JSON.stringify({
-      success: true,
-      message: 'Logged out successfully',
-    }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
+    if (token) {
+      // Decode JWT to get user ID (we need this to find the session)
+      const payload = decodeJwt(token)
+
+      if (payload?.sub) {
+        // Find and delete the session by user ID
+        const session = await getSessionByUserId(payload.sub, env.OAUTH_KV)
+
+        if (session) {
+          // Delete both session and user_session index from KV
+          await deleteSession(session, env.OAUTH_KV)
+          console.log(
+            '[oauth] Session invalidated for user:',
+            payload.sub,
+            'sessionId:', session.id
+          )
+        }
+      }
     }
-  )
+
+    // Always return success - logout is idempotent
+    // Even if no session was found, the logout operation is considered successful
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: 'Logged out successfully',
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    )
+  } catch (err) {
+    // Log error but still return success - logout should be idempotent
+    // and should never fail from the client's perspective
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error('[oauth] Logout error (non-fatal):', errMsg)
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: 'Logged out successfully',
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    )
+  }
 }

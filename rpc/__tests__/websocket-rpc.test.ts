@@ -55,7 +55,9 @@ async function createRpcWebSocketClient(doStub: DurableObjectStub): Promise<WebS
         waiters.delete(msg.type)
         waiter.resolve(msg)
       }
-    } catch {}
+    } catch {
+      // Non-JSON message - ignore as we only track parsed RPC messages in test helper
+    }
   })
 
   return {

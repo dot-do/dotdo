@@ -317,8 +317,9 @@ function simulateExecution(
             .replace(/(\w+):/g, '"$1":')
           const event = JSON.parse(eventStr)
           return await context.$.send(event)
-        } catch {
-          // Return a generic result if parsing fails
+        } catch (err) {
+          // Return a generic result if parsing fails - log for debugging
+          console.warn('[MCP/do] Event parsing failed, using generic event:', (err as Error).message)
           return await context.$.send({ type: 'event', data: {} })
         }
       }
@@ -355,7 +356,8 @@ function simulateExecution(
                   }
                 }
                 return insertResult
-              } catch {
+              } catch (err) {
+                console.warn('[MCP/do] DB operation parsing failed:', (err as Error).message)
                 return { insertedId: crypto.randomUUID() }
               }
             }
@@ -417,7 +419,7 @@ function simulateExecution(
           return parseInt(expr.trim(), 10)
         }
       } catch {
-        // Ignore parse errors
+        // Parse errors expected for non-arithmetic expressions - intentionally silent
       }
     }
 
@@ -461,6 +463,7 @@ function simulateExecution(
       try {
         return JSON.parse(expr.replace(/'/g, '"'))
       } catch {
+        // JSON parse failure for object/array literal - return undefined as fallback
         return undefined
       }
     }
@@ -527,6 +530,7 @@ async function executeModule(
       try {
         exports[name] = JSON.parse(valueExpr)
       } catch {
+        // Not valid JSON - use raw string value as export
         exports[name] = valueExpr
       }
     }
@@ -609,6 +613,7 @@ async function executeTests(
           try {
             actual = JSON.parse(actualExpr.replace(/'/g, '"'))
           } catch {
+            // Not valid JSON - use raw expression for comparison
             actual = actualExpr
           }
         } else if (actualExpr.includes('(')) {
@@ -642,6 +647,7 @@ async function executeTests(
           try {
             expected = JSON.parse(expectedExpr.replace(/'/g, '"'))
           } catch {
+            // Not valid JSON - use raw expression for comparison
             expected = expectedExpr
           }
         } else if (expectedExpr === '') {

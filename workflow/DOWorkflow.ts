@@ -10,7 +10,7 @@
  */
 
 import { DOStorageClass, type DOStorageEnv } from '../storage/DOStorage'
-import { createWorkflowContext, type WorkflowContext, type CascadeOptions, type CascadeResult } from './workflow-context'
+import { createWorkflowContext, type WorkflowContext, type CascadeOptions, type CascadeResult, type CircuitBreakerPersistenceState } from './workflow-context'
 
 // ============================================================================
 // Types
@@ -88,12 +88,6 @@ export class DOWorkflowClass extends DOStorageClass {
   constructor(ctx: DurableObjectState, env: DOWorkflowEnv) {
     super(ctx, env as DOStorageEnv)
 
-    // Initialize WorkflowContext with stub resolver
-    this.$ = createWorkflowContext({
-      stubResolver: (noun: string, id: string) => this.resolveStub(noun, id),
-      rpcTimeout: 30000,
-    })
-
     // Initialize workflow tables
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS event_handlers (
@@ -124,8 +118,80 @@ export class DOWorkflowClass extends DOStorageClass {
       )
     `)
 
+    // Initialize circuit breaker state table for cold start recovery
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+        tier TEXT PRIMARY KEY,
+        state TEXT NOT NULL CHECK(state IN ('closed', 'open', 'half_open')),
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        last_failure_at INTEGER,
+        opened_at INTEGER,
+        updated_at INTEGER NOT NULL
+      )
+    `)
+
+    // Initialize WorkflowContext with stub resolver and circuit breaker persistence
+    this.$ = createWorkflowContext({
+      stubResolver: (noun: string, id: string) => this.resolveStub(noun, id),
+      rpcTimeout: 30000,
+      circuitBreakerPersistence: {
+        save: (state: CircuitBreakerPersistenceState) => this.saveCircuitBreakerState(state),
+        load: () => this.loadCircuitBreakerState(),
+        clear: () => this.clearCircuitBreakerState(),
+      },
+    })
+
     // Load existing data
     this.loadWorkflowData()
+  }
+
+  // =========================================================================
+  // CIRCUIT BREAKER PERSISTENCE
+  // =========================================================================
+
+  /**
+   * Save circuit breaker state to SQLite
+   */
+  private saveCircuitBreakerState(state: CircuitBreakerPersistenceState): void {
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO circuit_breaker_state
+       (tier, state, failure_count, success_count, last_failure_at, opened_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      state.tier,
+      state.state,
+      state.failure_count,
+      state.success_count,
+      state.last_failure_at,
+      state.opened_at,
+      state.updated_at
+    )
+  }
+
+  /**
+   * Load circuit breaker state from SQLite
+   */
+  private loadCircuitBreakerState(): CircuitBreakerPersistenceState[] {
+    const rows = this.ctx.storage.sql
+      .exec('SELECT tier, state, failure_count, success_count, last_failure_at, opened_at, updated_at FROM circuit_breaker_state')
+      .toArray()
+
+    return rows.map((row) => ({
+      tier: row.tier as string,
+      state: row.state as 'closed' | 'open' | 'half_open',
+      failure_count: row.failure_count as number,
+      success_count: row.success_count as number,
+      last_failure_at: row.last_failure_at as number | null,
+      opened_at: row.opened_at as number | null,
+      updated_at: row.updated_at as number,
+    }))
+  }
+
+  /**
+   * Clear all circuit breaker state from SQLite
+   */
+  private clearCircuitBreakerState(): void {
+    this.ctx.storage.sql.exec('DELETE FROM circuit_breaker_state')
   }
 
   private loadWorkflowData(): void {

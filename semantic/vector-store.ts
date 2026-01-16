@@ -686,7 +686,13 @@ export class InMemoryVectorIndex implements VectorizeIndex {
       if (cursor) {
         try {
           offset = parseInt(Buffer.from(cursor, 'base64').toString('utf8'), 10)
-        } catch {
+        } catch (err) {
+          // Invalid cursor format - start from beginning
+          console.warn(
+            '[VectorStore] Invalid cursor format, starting from beginning:',
+            'error:', err instanceof Error ? err.message : String(err),
+            'cursorPreview:', cursor.substring(0, 20)
+          )
           offset = 0
         }
       }
@@ -1115,8 +1121,14 @@ export class VectorStore {
       if (match.metadata?.data) {
         try {
           thing = JSON.parse(match.metadata.data) as Thing
-        } catch {
-          // Fallback: create minimal thing
+        } catch (err) {
+          // JSON parse failed - fallback to minimal thing from metadata
+          console.warn(
+            '[VectorStore] Thing JSON parse failed, using minimal metadata:',
+            'error:', err instanceof Error ? err.message : String(err),
+            '$id:', match.metadata.$id,
+            '$type:', match.metadata.$type
+          )
           thing = {
             $id: match.metadata.$id,
             $type: match.metadata.$type,
@@ -1207,7 +1219,14 @@ export class VectorStore {
       if (match.metadata?.data) {
         try {
           thing = JSON.parse(match.metadata.data) as Thing
-        } catch {
+        } catch (err) {
+          // JSON parse failed - fallback to minimal thing from metadata
+          console.warn(
+            '[VectorStore] Thing JSON parse failed in query, using minimal metadata:',
+            'error:', err instanceof Error ? err.message : String(err),
+            '$id:', match.metadata.$id,
+            '$type:', match.metadata.$type
+          )
           thing = {
             $id: match.metadata.$id,
             $type: match.metadata.$type,
@@ -1274,7 +1293,14 @@ export class VectorStore {
         if (match.metadata?.data) {
           try {
             thing = JSON.parse(match.metadata.data) as Thing
-          } catch {
+          } catch (err) {
+            // JSON parse failed - fallback to minimal thing from metadata
+            console.warn(
+              '[VectorStore] Thing JSON parse failed in stream, using minimal metadata:',
+              'error:', err instanceof Error ? err.message : String(err),
+              '$id:', match.metadata.$id,
+              '$type:', match.metadata.$type
+            )
             thing = {
               $id: match.metadata.$id,
               $type: match.metadata.$type,

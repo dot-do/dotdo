@@ -235,12 +235,3 @@ export class EventSystem {
   }
 }
 
-// ============================================================================
-// Type Declarations for Cloudflare
-// ============================================================================
-
-declare global {
-  interface DurableObjectState {
-    getWebSockets(tag?: string): WebSocket[]
-  }
-}

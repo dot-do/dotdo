@@ -1049,8 +1049,9 @@ export function createAI<TConfig extends AIConfig = AIConfig>(config?: TConfig):
                 result = await fallbackProvider.execute(prompt, options)
                 trackCost(cost)
                 return result
-              } catch {
-                // Continue to next fallback
+              } catch (fallbackErr) {
+                // Fallback failed - continue to next fallback provider
+                console.warn(`[AI] Fallback provider ${fallbackName} failed:`, (fallbackErr as Error).message)
               }
             }
           }
@@ -1220,8 +1221,13 @@ export function createAI<TConfig extends AIConfig = AIConfig>(config?: TConfig):
         const result = await executeWithProvider(prompt, { mode: 'list' })
         try {
           return JSON.parse(result)
-        } catch {
-          // Fallback: parse as comma-separated if JSON parsing fails
+        } catch (err) {
+          // LLM returned non-JSON list - parse as comma-separated fallback
+          console.debug(
+            '[ai] List JSON parse failed, using comma-separated fallback:',
+            'error:', err instanceof Error ? err.message : String(err),
+            'resultPreview:', result.substring(0, 50)
+          )
           return result.split(',').map(s => s.trim()).filter(s => s.length > 0)
         }
       } catch (error) {

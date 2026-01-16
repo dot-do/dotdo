@@ -189,8 +189,9 @@ export class ProtectedPipelineService {
       const events = [...this.eventBuffer]
       this.eventBuffer = []
       await this.pipeline.send(events)
-    } catch {
-      // If flush fails, events are lost (circuit will be open again)
+    } catch (err) {
+      // Flush failed - events are lost, circuit breaker will reopen
+      console.error('[ProtectedPipeline] Buffer flush failed - events lost:', (err as Error).message)
     }
   }
 }

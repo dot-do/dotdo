@@ -1118,6 +1118,424 @@ describe('Cascade Execution', () => {
 })
 
 // ============================================================================
+// 6. CIRCUIT BREAKER INTEGRATION
+// ============================================================================
+
+describe('Circuit Breaker Integration', () => {
+  let $: WorkflowContext
+
+  describe('$.do with circuit breaker', () => {
+    beforeEach(() => {
+      $ = createWorkflowContext({
+        circuitBreaker: {
+          failureThreshold: 3,
+          resetTimeout: 100, // 100ms for testing
+        },
+      })
+    })
+
+    it('opens circuit after consecutive failures', async () => {
+      const failingAction = vi.fn().mockRejectedValue(new Error('Service unavailable'))
+
+      // Fail 3 times to open the circuit
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          $.do(failingAction, { stepId: `fail-${i}`, maxRetries: 1, circuitBreakerId: 'test-service' })
+        ).rejects.toThrow('Service unavailable')
+      }
+
+      // Circuit should now be open
+      await expect(
+        $.do(failingAction, { stepId: 'fail-after-open', maxRetries: 1, circuitBreakerId: 'test-service' })
+      ).rejects.toThrow('Circuit is open')
+    })
+
+    it('resets circuit after timeout', async () => {
+      const failingAction = vi.fn().mockRejectedValue(new Error('Service unavailable'))
+      const successAction = vi.fn().mockResolvedValue('success')
+
+      // Fail 3 times to open circuit
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          $.do(failingAction, { stepId: `fail-${i}`, maxRetries: 1, circuitBreakerId: 'reset-test' })
+        ).rejects.toThrow()
+      }
+
+      // Wait for reset timeout
+      await new Promise(r => setTimeout(r, 150))
+
+      // Circuit should be half-open, allowing a probe
+      const result = await $.do(successAction, { stepId: 'probe', maxRetries: 1, circuitBreakerId: 'reset-test' })
+      expect(result).toBe('success')
+    })
+
+    it('executes without circuit breaker when not configured', async () => {
+      // Create context without circuit breaker
+      const $noCb = createWorkflowContext()
+      const action = vi.fn().mockResolvedValue('done')
+
+      const result = await $noCb.do(action, { stepId: 'no-cb' })
+      expect(result).toBe('done')
+    })
+  })
+})
+
+// ============================================================================
+// 7. CASCADE ADVANCED FEATURES
+// ============================================================================
+
+describe('Cascade Advanced Features', () => {
+  let $: WorkflowContext
+
+  describe('cascade timeouts', () => {
+    beforeEach(() => {
+      $ = createWorkflowContext({
+        cascadeTimeout: 200, // 200ms cascade timeout
+      })
+    })
+
+    it('respects overall cascade timeout', async () => {
+      const slowHandler = vi.fn().mockImplementation(async () => {
+        await new Promise(r => setTimeout(r, 500))
+        return { value: 'slow', confidence: 0.9 }
+      })
+
+      const result = await $.cascade({
+        task: 'slow-task',
+        tiers: {
+          code: slowHandler,
+        },
+        confidenceThreshold: 0.8,
+        gracefulDegradation: { enabled: true }, // Enable graceful degradation to return result instead of throwing
+      })
+
+      expect(result.timedOut).toBe(true)
+    })
+
+    it('supports per-tier timeouts', async () => {
+      $ = createWorkflowContext({
+        tierTimeout: 50, // 50ms per tier
+      })
+
+      const slowCode = vi.fn().mockImplementation(async () => {
+        await new Promise(r => setTimeout(r, 100))
+        return { value: 'slow', confidence: 0.9 }
+      })
+      const fastGen = vi.fn().mockResolvedValue({ value: 'fast', confidence: 0.95 })
+
+      const result = await $.cascade({
+        task: 'tier-timeout-task',
+        tiers: {
+          code: slowCode,
+          generative: fastGen,
+        },
+        confidenceThreshold: 0.8,
+      })
+
+      // Code tier should timeout, escalate to generative
+      expect(result.tier).toBe('generative')
+      expect(result.value).toBe('fast')
+    })
+
+    it('includes tierTimeouts in result when tiers timeout', async () => {
+      $ = createWorkflowContext()
+
+      const slowHandler = vi.fn().mockImplementation(async () => {
+        await new Promise(r => setTimeout(r, 200))
+        return { value: 'slow', confidence: 0.9 }
+      })
+      const fastHandler = vi.fn().mockResolvedValue({ value: 'fast', confidence: 0.95 })
+
+      const result = await $.cascade({
+        task: 'tier-timeout-tracking',
+        tiers: {
+          code: slowHandler,
+          generative: fastHandler,
+        },
+        tierTimeouts: {
+          code: 50, // 50ms timeout for code tier
+        },
+        confidenceThreshold: 0.8,
+      })
+
+      expect(result.tierTimeouts).toContain('code')
+    })
+  })
+
+  describe('cascade circuit breaker', () => {
+    beforeEach(() => {
+      $ = createWorkflowContext()
+    })
+
+    it('uses tier-level circuit breaker when configured', async () => {
+      const failingHandler = vi.fn().mockRejectedValue(new Error('Tier failed'))
+      const fallbackHandler = vi.fn().mockResolvedValue({ value: 'fallback', confidence: 0.9 })
+
+      // First cascade - should fail code tier
+      try {
+        await $.cascade({
+          task: 'circuit-breaker-task',
+          tiers: {
+            code: failingHandler,
+          },
+          circuitBreaker: {
+            failureThreshold: 2,
+            resetTimeout: 1000,
+          },
+        })
+      } catch (e) {
+        // Expected to fail
+      }
+
+      // After repeated failures, circuit should open for code tier
+      try {
+        await $.cascade({
+          task: 'circuit-breaker-task',
+          tiers: {
+            code: failingHandler,
+          },
+          circuitBreaker: {
+            failureThreshold: 2,
+            resetTimeout: 1000,
+          },
+        })
+      } catch (e) {
+        // Expected
+      }
+
+      // Circuit should now report states
+      const result = await $.cascade({
+        task: 'circuit-breaker-task',
+        tiers: {
+          code: failingHandler,
+          generative: fallbackHandler,
+        },
+        circuitBreaker: {
+          failureThreshold: 2,
+          resetTimeout: 1000,
+        },
+        confidenceThreshold: 0.8,
+      })
+
+      expect(result.circuitStates).toBeDefined()
+    })
+  })
+
+  describe('graceful degradation', () => {
+    beforeEach(() => {
+      $ = createWorkflowContext({
+        gracefulDegradation: true,
+      })
+    })
+
+    it('returns partial result when all tiers fail', async () => {
+      const partialHandler = vi.fn().mockResolvedValue({ value: 'partial', confidence: 0.3 })
+      const failingHandler = vi.fn().mockRejectedValue(new Error('Failed'))
+
+      const result = await $.cascade({
+        task: 'degraded-task',
+        tiers: {
+          code: partialHandler,
+          generative: failingHandler,
+        },
+        confidenceThreshold: 0.8,
+        gracefulDegradation: { enabled: true },
+      })
+
+      expect(result.degraded).toBe(true)
+      expect(result.value).toBe('partial')
+    })
+
+    it('uses fallback value when provided', async () => {
+      const failingHandler = vi.fn().mockRejectedValue(new Error('Failed'))
+
+      const result = await $.cascade({
+        task: 'fallback-task',
+        tiers: {
+          code: failingHandler,
+        },
+        fallbackValue: 'default-value',
+      })
+
+      expect(result.value).toBe('default-value')
+      expect(result.usedFallback || result.degraded).toBe(true)
+    })
+  })
+
+  describe('cascade concurrency limiting', () => {
+    it('limits concurrent cascade executions', async () => {
+      $ = createWorkflowContext({
+        maxConcurrentCascades: 2,
+        maxQueuedCascades: 1,
+      })
+
+      const slowHandler = vi.fn().mockImplementation(async () => {
+        await new Promise(r => setTimeout(r, 100))
+        return { value: 'done', confidence: 0.9 }
+      })
+
+      // Start 2 cascades (at limit)
+      const cascade1 = $.cascade({ task: 'concurrent-1', tiers: { code: slowHandler } })
+      const cascade2 = $.cascade({ task: 'concurrent-2', tiers: { code: slowHandler } })
+
+      // Third goes to queue
+      const cascade3 = $.cascade({ task: 'concurrent-3', tiers: { code: slowHandler } })
+
+      // Fourth should fail (queue full)
+      await expect(
+        $.cascade({ task: 'concurrent-4', tiers: { code: slowHandler } })
+      ).rejects.toThrow('Cascade queue is full')
+
+      // Wait for all to complete
+      await Promise.all([cascade1, cascade2, cascade3])
+    })
+  })
+})
+
+// ============================================================================
+// 8. TIME PARSING EDGE CASES
+// ============================================================================
+
+describe('Time Parsing Edge Cases', () => {
+  let $: WorkflowContext
+
+  beforeEach(() => {
+    $ = createWorkflowContext()
+  })
+
+  it('parses 12-hour format with AM correctly', () => {
+    const handler = vi.fn()
+
+    $.every.day.at('11:30am')(handler)
+
+    const schedule = $.getSchedule('30 11 * * *')
+    expect(schedule).toBeDefined()
+  })
+
+  it('parses 12-hour format with PM correctly', () => {
+    const handler = vi.fn()
+
+    $.every.day.at('3:45pm')(handler)
+
+    const schedule = $.getSchedule('45 15 * * *')
+    expect(schedule).toBeDefined()
+  })
+
+  it('parses 12am as midnight (hour 0)', () => {
+    const handler = vi.fn()
+
+    $.every.day.at('12am')(handler)
+
+    // 12am should be hour 0
+    const schedule = $.getSchedule('0 0 * * *')
+    expect(schedule).toBeDefined()
+  })
+
+  it('parses 12pm as noon (hour 12)', () => {
+    const handler = vi.fn()
+
+    $.every.day.at('12pm')(handler)
+
+    const schedule = $.getSchedule('0 12 * * *')
+    expect(schedule).toBeDefined()
+  })
+
+  it('handles all days of week', () => {
+    const handler = vi.fn()
+
+    $.every.Tuesday.at9am(handler)
+    expect($.getSchedule('0 9 * * 2')).toBeDefined()
+
+    $.every.Wednesday.at9am(handler)
+    expect($.getSchedule('0 9 * * 3')).toBeDefined()
+
+    $.every.Thursday.at9am(handler)
+    expect($.getSchedule('0 9 * * 4')).toBeDefined()
+
+    $.every.Saturday.at9am(handler)
+    expect($.getSchedule('0 9 * * 6')).toBeDefined()
+
+    $.every.Sunday.at9am(handler)
+    expect($.getSchedule('0 9 * * 0')).toBeDefined()
+  })
+})
+
+// ============================================================================
+// 9. CONTEXT-LEVEL CIRCUIT BREAKER FOR CASCADE
+// ============================================================================
+
+describe('Context-level Cascade Circuit Breaker', () => {
+  it('opens circuit at context level after repeated failures', async () => {
+    const $ = createWorkflowContext({
+      cascadeCircuitBreaker: {
+        threshold: 2,
+        resetTimeout: 100,
+      },
+    })
+
+    const failingHandler = vi.fn().mockRejectedValue(new Error('Always fails'))
+
+    // Fail twice to open circuit
+    for (let i = 0; i < 2; i++) {
+      try {
+        await $.cascade({
+          task: 'same-task',
+          tiers: { code: failingHandler },
+        })
+      } catch (e) {
+        // Expected
+      }
+    }
+
+    // Circuit should be open - cascade returns immediately with circuitOpen flag
+    const result = await $.cascade({
+      task: 'same-task',
+      tiers: { code: vi.fn().mockResolvedValue({ value: 'ok', confidence: 0.9 }) },
+    })
+
+    expect(result.circuitOpen).toBe(true)
+  })
+
+  it('supports per-task-type circuit breakers', async () => {
+    const $ = createWorkflowContext({
+      cascadeCircuitBreaker: {
+        threshold: 2,
+        resetTimeout: 100,
+        perTaskType: true,
+      },
+    })
+
+    const failingHandler = vi.fn().mockRejectedValue(new Error('Fails'))
+    const successHandler = vi.fn().mockResolvedValue({ value: 'ok', confidence: 0.9 })
+
+    // Fail task type "email.send" twice
+    for (let i = 0; i < 2; i++) {
+      try {
+        await $.cascade({
+          task: 'email.send',
+          tiers: { code: failingHandler },
+        })
+      } catch (e) {}
+    }
+
+    // "email.send" circuit should be open
+    const emailResult = await $.cascade({
+      task: 'email.send',
+      tiers: { code: successHandler },
+    })
+    expect(emailResult.circuitOpen).toBe(true)
+
+    // But "sms.send" should still work
+    const smsResult = await $.cascade({
+      task: 'sms.send',
+      tiers: { code: successHandler },
+    })
+    expect(smsResult.circuitOpen).not.toBe(true)
+    expect(smsResult.value).toBe('ok')
+  })
+})
+
+// ============================================================================
 // HELPER TYPES (for test clarity - implementation will provide real types)
 // ============================================================================
 

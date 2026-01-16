@@ -1505,7 +1505,9 @@ export class NotificationDispatcher {
       if (config.channelConfig.beforeSend) {
         try {
           config.channelConfig.beforeSend()
-        } catch {
+        } catch (err) {
+          // beforeSend hook failed - treat as delivery failure
+          console.warn('[Human] beforeSend hook failed:', (err as Error).message)
           return false
         }
       }

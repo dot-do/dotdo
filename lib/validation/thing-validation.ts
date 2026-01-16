@@ -92,7 +92,7 @@ export const thingDataSchema = z
 /**
  * Detailed validation error with field path and message
  */
-export interface ThingValidationError {
+export interface ValidationErrorDetail {
   field: string
   message: string
   code: string
@@ -104,7 +104,7 @@ export interface ThingValidationError {
 export interface ThingValidationResult<T> {
   success: boolean
   data?: T
-  errors?: ThingValidationError[]
+  errors?: ValidationErrorDetail[]
 }
 
 // ============================================================================
@@ -179,15 +179,15 @@ export function validateType(type: unknown): true | string {
 
 /**
  * Assert that Thing creation input is valid
- * Throws ThingValidationException if invalid
+ * Throws ThingValidationError if invalid
  *
  * @param input - The input to validate
- * @throws ThingValidationException if validation fails
+ * @throws ThingValidationError if validation fails
  */
 export function assertValidCreateThingInput(input: unknown): asserts input is Record<string, unknown> & { $type: string } {
   const result = validateCreateThingInput(input)
   if (!result.success) {
-    throw new ThingValidationException(result.errors ?? [])
+    throw new ThingValidationError(result.errors ?? [])
   }
 }
 
@@ -196,9 +196,9 @@ export function assertValidCreateThingInput(input: unknown): asserts input is Re
 // ============================================================================
 
 /**
- * Format Zod errors into ThingValidationError array
+ * Format Zod errors into ValidationErrorDetail array
  */
-function formatZodErrors(error: z.ZodError): ThingValidationError[] {
+function formatZodErrors(error: z.ZodError): ValidationErrorDetail[] {
   return error.errors.map((e) => ({
     field: e.path.join('.') || 'root',
     message: e.message,
@@ -207,19 +207,19 @@ function formatZodErrors(error: z.ZodError): ThingValidationError[] {
 }
 
 // ============================================================================
-// Custom Exception
+// Custom Error
 // ============================================================================
 
 /**
- * Exception thrown when Thing validation fails
+ * Error thrown when Thing validation fails
  */
-export class ThingValidationException extends Error {
-  public readonly errors: ThingValidationError[]
+export class ThingValidationError extends Error {
+  public readonly errors: ValidationErrorDetail[]
 
-  constructor(errors: ThingValidationError[]) {
+  constructor(errors: ValidationErrorDetail[]) {
     const messages = errors.map((e) => `${e.field}: ${e.message}`).join('; ')
     super(`Thing validation failed: ${messages}`)
-    this.name = 'ThingValidationException'
+    this.name = 'ThingValidationError'
     this.errors = errors
   }
 
@@ -259,3 +259,10 @@ export function isValidCreateThingInput(input: unknown): input is Record<string,
 export function isValidType(type: unknown): type is string {
   return validateType(type) === true
 }
+
+// ============================================================================
+// Backward Compatibility Aliases
+// ============================================================================
+
+/** @deprecated Use ThingValidationError instead */
+export const ThingValidationException = ThingValidationError

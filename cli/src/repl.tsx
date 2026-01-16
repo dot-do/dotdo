@@ -328,16 +328,29 @@ Keyboard shortcuts:
       }
     }
 
-    // Evaluate the expression
-    try {
-      const result = await evaluateExpression(value, rpcClient, evalContext)
-      if (result !== undefined) {
-        addOutput('result', result)
+    // Execute code securely via ai-evaluate
+    const onLog: LogCallback = (level, message) => {
+      // Map ai-evaluate log levels to output types
+      const typeMap: Record<string, OutputEntry['type']> = {
+        log: 'info',
+        info: 'info',
+        warn: 'warning',
+        error: 'error',
+        debug: 'info',
       }
-    } catch (err) {
-      addOutput('error', err instanceof Error ? err.message : String(err))
+      addOutput(typeMap[level] ?? 'info', message)
     }
-  }, [rpcClient, schema, evalContext, addOutput, exit])
+
+    const result = await executeCode(value, endpoint ?? '', onLog)
+
+    if (result.success) {
+      if (result.value !== undefined) {
+        addOutput('result', result.value)
+      }
+    } else {
+      addOutput('error', result.error ?? 'Unknown error')
+    }
+  }, [endpoint, addOutput, exit])
 
   // Get diagnostics for current input
   const diagnostics = useMemo(() => {

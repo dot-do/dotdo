@@ -613,8 +613,10 @@ export class BrokerDO<E extends BrokerEnv = BrokerEnv> {
       try {
         ws.send(messageStr)
         sent++
-      } catch {
+      } catch (err) {
         failed++
+        // WebSocket send failed - socket may be closed or in invalid state
+        console.warn('[RPC/Broker] Broadcast send failed:', (err as Error).message)
       }
     }
 

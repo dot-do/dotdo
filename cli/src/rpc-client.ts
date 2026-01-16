@@ -213,6 +213,9 @@ export class RpcClient extends EventEmitter {
       throw new Error('Not connected')
     }
 
+    // Capture ws reference after null check to avoid non-null assertion
+    const ws = this.ws
+
     const id = this.generateId()
     const serializedArgs = this.serializeArgs(args)
 
@@ -232,7 +235,7 @@ export class RpcClient extends EventEmitter {
       this.pendingCalls.set(id, { resolve, reject, timeout })
 
       this.log('Sending:', message)
-      this.ws!.send(JSON.stringify(message))
+      ws.send(JSON.stringify(message))
     })
   }
 

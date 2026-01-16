@@ -8,6 +8,12 @@
  * - StateManager class for get/set/delete/list operations
  */
 
+import {
+  validateSqlQuery,
+  sanitizeSqlError,
+  SqlSecurityError,
+} from './sql-security'
+
 // ============================================================================
 // State Keys Constants
 // ============================================================================
@@ -280,13 +286,39 @@ export class StateManager {
 
   /**
    * Execute a raw SQL query against the state storage
-   * @param sql SQL query string with ? placeholders for parameters
+   *
+   * SECURITY: This method is protected by SQL validation:
+   * - Only SELECT queries are allowed (read-only)
+   * - Multi-statement injection is blocked
+   * - SQL comments are blocked
+   * - Administrative commands (PRAGMA, VACUUM, etc.) are blocked
+   * - Error messages are sanitized to prevent SQL structure leakage
+   *
+   * @param sql SQL SELECT query string with ? placeholders for parameters
    * @param params Parameter values for the query
    * @returns Array of rows matching the query
+   * @throws SqlSecurityError if the query violates security policies
    */
   async query(sql: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
-    const results = this.ctx.storage.sql.exec(sql, ...params).toArray()
-    return results.map((row) => this.parseQueryRow(row))
+    // Validate the SQL query for security
+    try {
+      validateSqlQuery(sql)
+    } catch (error) {
+      // Re-throw security errors as-is
+      if (error instanceof SqlSecurityError) {
+        throw error
+      }
+      throw sanitizeSqlError(error)
+    }
+
+    // Execute the validated query
+    try {
+      const results = this.ctx.storage.sql.exec(sql, ...params).toArray()
+      return results.map((row) => this.parseQueryRow(row))
+    } catch (error) {
+      // Sanitize any SQL errors to prevent information leakage
+      throw sanitizeSqlError(error)
+    }
   }
 
   /**
@@ -309,19 +341,3 @@ export class StateManager {
   }
 }
 
-// ============================================================================
-// Type Declarations for Cloudflare
-// ============================================================================
-
-declare global {
-  interface DurableObjectState {
-    storage: {
-      sql: {
-        exec(sql: string, ...params: unknown[]): { toArray(): Array<Record<string, unknown>> }
-      }
-      setAlarm(time: number): Promise<void>
-      getAlarm(): Promise<number | null>
-      deleteAlarm(): Promise<void>
-    }
-  }
-}

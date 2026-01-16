@@ -74,20 +74,22 @@ interface TryOptions {
   timeout?: number
 }
 
+type ScheduleHandler = () => void | Promise<void>
+
 interface TimeBuilder {
-  at9am: (handler: Function) => () => void
-  at: (time: string) => (handler: Function) => () => void
+  at9am: (handler: ScheduleHandler) => () => void
+  at: (time: string) => (handler: ScheduleHandler) => () => void
 }
 
 interface ScheduleBuilder {
   Monday: TimeBuilder
   day: TimeBuilder
-  hour: (handler: Function) => () => void
+  hour: (handler: ScheduleHandler) => () => void
 }
 
 interface IntervalBuilder {
-  minutes: (handler: Function) => () => void
-  hours: (handler: Function) => () => void
+  minutes: (handler: ScheduleHandler) => () => void
+  hours: (handler: ScheduleHandler) => () => void
 }
 
 // =============================================================================

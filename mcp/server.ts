@@ -658,8 +658,14 @@ export class McpServer extends DurableObject<McpEnv> {
             return `user:${payload.sub}`
           }
         }
-      } catch {
-        // If decode fails, fall back to token hash
+      } catch (err) {
+        // JWT decode failed - this is expected for non-JWT auth tokens
+        // Log at debug level since this is a common case for non-JWT tokens
+        console.debug(
+          '[MCP] Rate limit key extraction - non-JWT token format:',
+          'error:', err instanceof Error ? err.message : String(err),
+          'tokenLength:', authHeader.length
+        )
       }
       // Fallback: use token hash
       const tokenHash = authHeader.slice(-16)
@@ -721,7 +727,9 @@ export class McpServer extends DurableObject<McpEnv> {
     const heartbeat = setInterval(async () => {
       try {
         await this.sendSseMessage(writer, { type: 'ping' })
-      } catch {
+      } catch (err) {
+        // SSE connection lost - clean up resources
+        console.warn(`[MCP] SSE heartbeat failed for ${connectionId}:`, (err as Error).message)
         clearInterval(heartbeat)
         this.sseConnections.delete(connectionId)
         this.rateLimiter.releaseSseConnection(clientId)
@@ -889,8 +897,9 @@ export class McpServer extends DurableObject<McpEnv> {
       try {
         await this.sendSseMessage(writer, message)
         sent++
-      } catch {
-        // Connection closed, remove it
+      } catch (err) {
+        // Connection closed - expected during SSE lifecycle, clean up
+        console.warn(`[MCP] SSE broadcast failed for ${id}:`, (err as Error).message)
         this.sseConnections.delete(id)
       }
     }

@@ -231,6 +231,7 @@ export function validateUrl(url: string, options: UrlValidationOptions = {}): Va
   try {
     parsed = new URL(url)
   } catch {
+    // URL constructor threw - input is not a valid URL format
     return { valid: false, error: 'Invalid URL format' }
   }
 
@@ -312,6 +313,7 @@ export function sanitizeUrl(url: string): string {
   try {
     parsed = new URL(url)
   } catch {
+    // Invalid URL - return empty string for sanitized output
     return ''
   }
 

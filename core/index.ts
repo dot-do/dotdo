@@ -66,6 +66,18 @@ export {
 } from './query-validation'
 
 // ============================================================================
+// SQL Security (Raw Query Protection)
+// ============================================================================
+
+export {
+  validateSqlQuery,
+  sanitizeSqlError,
+  isSafeQuery,
+  SqlSecurityError,
+  type SqlSecurityErrorCode,
+} from './sql-security'
+
+// ============================================================================
 // RPC Client - Type-safe remote calls with promise pipelining
 // ============================================================================
 

@@ -238,19 +238,3 @@ export class ScheduleManager {
   }
 }
 
-// ============================================================================
-// Type Declarations for Cloudflare
-// ============================================================================
-
-declare global {
-  interface DurableObjectState {
-    storage: {
-      sql: {
-        exec(sql: string, ...params: unknown[]): { toArray(): Array<Record<string, unknown>> }
-      }
-      setAlarm(time: number): Promise<void>
-      getAlarm(): Promise<number | null>
-      deleteAlarm(): Promise<void>
-    }
-  }
-}

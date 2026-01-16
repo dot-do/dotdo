@@ -176,6 +176,7 @@ export function parseUrl(url: string): ParsedUrl {
       externalUrl: url,
     }
   } catch {
+    // URL constructor threw - this is a validation check, not an error to log
     throw new Error(`Invalid URL format: ${url}`)
   }
 }
@@ -230,8 +231,9 @@ async function getCachedResponse(
         cached: true,
       }
     }
-  } catch {
+  } catch (err) {
     // Cache miss or error - proceed without cache
+    console.warn('[MCP/fetch] Cache read failed:', (err as Error).message)
   }
   return null
 }
@@ -251,8 +253,9 @@ async function cacheResponse(
     await env.CACHE.put(cacheKey, JSON.stringify({ ...result, cached: false }), {
       expirationTtl: config.ttl,
     })
-  } catch {
-    // Cache write failure - non-fatal
+  } catch (err) {
+    // Cache write failure - non-fatal but log for monitoring
+    console.warn('[MCP/fetch] Cache write failed:', (err as Error).message)
   }
 }
 

@@ -10,6 +10,10 @@ export default defineConfig({
     isolate: true,
   },
   resolve: {
+    alias: {
+      // Ensure React is resolved correctly for ink-testing-library
+      react: 'react',
+    },
     extensions: ['.ts', '.tsx', '.js', '.jsx'],
   },
 })

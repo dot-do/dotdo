@@ -128,11 +128,12 @@ export const StorageTier = {
    */
   isStorageTier(obj: unknown): obj is StorageTierContract {
     if (!obj || typeof obj !== 'object') return false
+    const record = obj as Record<string, unknown>
     return (
-      typeof (obj as any).get === 'function' &&
-      typeof (obj as any).put === 'function' &&
-      typeof (obj as any).delete === 'function' &&
-      typeof (obj as any).list === 'function'
+      typeof record.get === 'function' &&
+      typeof record.put === 'function' &&
+      typeof record.delete === 'function' &&
+      typeof record.list === 'function'
     )
   },
 
