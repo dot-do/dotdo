@@ -11,6 +11,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { env } from 'cloudflare:test'
+import { createTestDO } from './utils'
 
 // ============================================================================
 // 1. DOCore Tests - Base class with state, alarms, routing
@@ -18,8 +19,7 @@ import { env } from 'cloudflare:test'
 
 describe('DOCore - Base class', () => {
   function getCore(name = 'test') {
-    const id = env.DOCore.idFromName(name)
-    return env.DOCore.get(id)
+    return createTestDO(env.DOCore, name)
   }
 
   describe('state management', () => {

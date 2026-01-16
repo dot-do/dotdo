@@ -23,71 +23,17 @@
 
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { env } from 'cloudflare:test'
-import * as jose from 'jose'
+import {
+  createTestJwt,
+  createExpiredJwt,
+  createInvalidSignatureJwt,
+} from '../utils'
 
 // ============================================================================
 // Test Setup
 // ============================================================================
 
 const TEST_JWT_SECRET = 'test-jwt-secret-for-security-tests-minimum-32-chars'
-
-/**
- * Create a valid JWT for testing
- */
-async function createTestJwt(options: {
-  sub?: string
-  permissions?: string[]
-  expiresIn?: string
-} = {}): Promise<string> {
-  const secretKey = new TextEncoder().encode(TEST_JWT_SECRET)
-
-  const jwt = await new jose.SignJWT({
-    sub: options.sub || 'test-user-123',
-    permissions: options.permissions || ['capabilities:read'],
-  })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(options.expiresIn || '1h')
-    .sign(secretKey)
-
-  return jwt
-}
-
-/**
- * Create an expired JWT for testing
- */
-async function createExpiredJwt(): Promise<string> {
-  const secretKey = new TextEncoder().encode(TEST_JWT_SECRET)
-
-  // Create a token that expired 1 hour ago
-  const jwt = await new jose.SignJWT({
-    sub: 'test-user-123',
-    permissions: ['capabilities:read'],
-  })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt(Math.floor(Date.now() / 1000) - 7200) // 2 hours ago
-    .setExpirationTime(Math.floor(Date.now() / 1000) - 3600) // 1 hour ago
-    .sign(secretKey)
-
-  return jwt
-}
-
-/**
- * Create a JWT with invalid signature
- */
-function createInvalidSignatureJwt(): string {
-  // Valid JWT structure but tampered signature
-  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
-  const payload = btoa(JSON.stringify({
-    sub: 'test-user-123',
-    permissions: ['capabilities:read'],
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 3600,
-  }))
-  const invalidSignature = 'invalid-signature-that-will-not-verify'
-
-  return `${header}.${payload}.${invalidSignature}`
-}
 
 /**
  * Check if MCP binding is available in test environment

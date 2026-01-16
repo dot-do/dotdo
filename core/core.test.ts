@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { env, SELF } from 'cloudflare:test'
+import { createTestDO, createSimpleTestJwt } from '../tests/utils'
 
 /**
  * DOCore Test Suite - TDD RED Phase
@@ -19,31 +20,7 @@ import { env, SELF } from 'cloudflare:test'
 
 // Helper to get a fresh DOCore instance
 function getCore(name = 'test') {
-  const id = env.DOCore.idFromName(name)
-  return env.DOCore.get(id)
-}
-
-/**
- * Create a valid JWT token for testing
- * This creates a properly formatted JWT with the structure our middleware expects
- */
-function createTestJwt(options: { sub?: string; permissions?: string[] } = {}): string {
-  const header = { alg: 'HS256', typ: 'JWT' }
-  const now = Math.floor(Date.now() / 1000)
-  const payload = {
-    sub: options.sub ?? 'test-user',
-    iat: now,
-    exp: now + 3600, // 1 hour from now
-    permissions: options.permissions ?? [],
-  }
-
-  const base64Header = btoa(JSON.stringify(header)).replace(/=/g, '')
-  const base64Payload = btoa(JSON.stringify(payload)).replace(/=/g, '')
-  // For testing purposes, we don't need a valid signature since our middleware
-  // only decodes the payload (signature verification would require the secret)
-  const signature = 'test-signature'
-
-  return `${base64Header}.${base64Payload}.${signature}`
+  return createTestDO(env.DOCore, name)
 }
 
 // =============================================================================
@@ -664,7 +641,7 @@ describe('Hono Integration', () => {
       const core = getCore('hono-test-4')
 
       // Routes under /admin/* group now require admin authentication
-      const adminToken = createTestJwt({
+      const adminToken = createSimpleTestJwt({
         sub: 'admin-user',
         permissions: ['admin:users:read'],
       })
@@ -690,7 +667,7 @@ describe('Hono Integration', () => {
       const core = getCore('middleware-test-2')
 
       // Use a properly formatted JWT token
-      const token = createTestJwt({ sub: 'test-user', permissions: ['read'] })
+      const token = createSimpleTestJwt({ sub: 'test-user', permissions: ['read'] })
 
       const response = await core.fetch('https://test.local/protected/data', {
         headers: { Authorization: `Bearer ${token}` },
@@ -752,7 +729,7 @@ describe('Hono Integration', () => {
       await core.set('ctx:value', 'from-state')
 
       // The /api/state-read endpoint now requires authentication
-      const token = createTestJwt({ sub: 'test-user', permissions: ['state:read'] })
+      const token = createSimpleTestJwt({ sub: 'test-user', permissions: ['state:read'] })
 
       const response = await core.fetch('https://test.local/api/state-read', {
         headers: { Authorization: `Bearer ${token}` },

@@ -297,7 +297,9 @@ describe('ScheduleManager', () => {
       // Access the every builder via the DO's $ context
       const unsubscribe = await stub.registerSchedule('0 9 * * *', handler)
 
-      expect(unsubscribe).toBeInstanceOf(Function)
+      // Unsubscribe returns a callable RPC stub - verify it's callable
+      // Note: In RPC, functions are returned as RPC stubs that can be called
+      expect(typeof unsubscribe).toBe('function')
 
       // Verify registration
       const schedule = await stub.getScheduleByCron('0 9 * * *')

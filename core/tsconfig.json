@@ -13,6 +13,6 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["*.ts", "rpc/**/*.ts"],
+  "include": ["*.ts", "rpc/**/*.ts", "modules/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "__tests__"]
 }

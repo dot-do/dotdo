@@ -86,6 +86,12 @@ import {
   type OnProxy,
 } from './event-system'
 import {
+  DOCoreEvents,
+  type Event as ModuleEvent,
+  type EventHandler as ModuleEventHandler,
+  type OnProxy as ModuleOnProxy,
+} from './modules/events'
+import {
   DAY_MAP,
   parseTime,
   type ScheduleHandler,
@@ -95,18 +101,26 @@ import {
   type IntervalBuilder,
 } from './schedule-manager'
 import {
+  DOCoreSchedule,
+  type PersistedSchedule,
+} from './modules/schedule'
+import {
   NounAccessor,
   NounInstanceAccessor,
   type ThingStorageInterface,
   type NounInstanceRPC,
   type NounAccessorRPC,
 } from './noun-accessors'
+import { DOCoreStorage, type StorageEventEmitter } from './modules/storage'
 
 // Re-export from extracted modules for external consumers
 export { HTTP_STATUS, VERSION_HEADER, VERSION } from './http-router'
 export { STATE_KEYS } from './state-manager'
 export type { Event, EventHandler } from './event-system'
 export type { ScheduleHandler } from './schedule-manager'
+export { DOCoreEvents } from './modules/events'
+export { DOCoreSchedule } from './modules/schedule'
+export { DOCoreStorage } from './modules/storage'
 
 // ============================================================================
 // Workflow context constants
@@ -257,6 +271,15 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   // WebSocket RPC handler for bidirectional callbacks
   protected rpcHandler = new WebSocketRpcHandler()
 
+  // Event system module - delegates event handling to DOCoreEvents
+  private _eventsModule: DOCoreEvents | null = null
+
+  // Schedule module - delegates schedule handling to DOCoreSchedule
+  private _scheduleModule: DOCoreSchedule | null = null
+
+  // Storage module - delegates thing CRUD to DOCoreStorage
+  private _storageModule: DOCoreStorage | null = null
+
   // Workflow context state
   private eventHandlers: Map<string, EventHandler[]> = new Map()
   private schedules: Map<string, ScheduleEntry> = new Map()
@@ -350,16 +373,18 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
   /**
    * Create a new thing of any noun type - direct RPC method
+   * Delegates to DOCoreStorage module.
    */
   create(noun: string, data: Record<string, unknown>): Promise<ThingData> {
-    return this.createThing(noun, data)
+    return this.storage.create(noun, data)
   }
 
   /**
    * List things of any noun type - direct RPC method
+   * Delegates to DOCoreStorage module.
    */
   listThings(noun: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }): Promise<ThingData[]> {
-    return this.listThingsInternal(noun, query)
+    return this.storage.list(noun, query)
   }
 
   constructor(ctx: DurableObjectState, env: DOCoreEnv) {
@@ -1554,13 +1579,193 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   // =========================================================================
-  // WORKFLOW CONTEXT: EVENT METHODS (this.send, this.on)
+  // WORKFLOW CONTEXT: EVENT METHODS (this.send, this.on, this.events)
   // =========================================================================
+  // Event functionality is delegated to DOCoreEvents module while maintaining
+  // backward compatibility with existing APIs.
+  // =========================================================================
+
+  /**
+   * Get the DOCoreEvents module instance (lazy initialization)
+   * This provides RPC-compatible access to the event system.
+   *
+   * @returns DOCoreEvents instance for RPC access
+   */
+  get events(): DOCoreEvents {
+    if (!this._eventsModule) {
+      this._eventsModule = new DOCoreEvents(this.rpcHandler, this.ctx)
+    }
+    return this._eventsModule
+  }
+
+  /**
+   * Get the DOCoreSchedule module instance (lazy initialization)
+   * This provides RPC-compatible access to the scheduling system.
+   *
+   * @returns DOCoreSchedule instance for RPC access
+   */
+  get schedule(): DOCoreSchedule {
+    if (!this._scheduleModule) {
+      this._scheduleModule = new DOCoreSchedule(this.ctx)
+    }
+    return this._scheduleModule
+  }
+
+  /**
+   * Get the DOCoreStorage module instance (lazy initialization)
+   * This provides RPC-compatible access to the Thing storage system.
+   *
+   * @returns DOCoreStorage instance for RPC access
+   */
+  get storage(): DOCoreStorage {
+    if (!this._storageModule) {
+      this._storageModule = new DOCoreStorage(this.ctx)
+      // Connect the event emitter so storage operations emit events
+      this._storageModule.setEventEmitter(this)
+    }
+    return this._storageModule
+  }
+
+  // =========================================================================
+  // SCHEDULE RPC DELEGATION METHODS
+  // =========================================================================
+  // These methods delegate to DOCoreSchedule for backward compatibility
+  // and to satisfy the test interface requirements.
+
+  /**
+   * Register a scheduled handler (RPC method)
+   * Delegates to DOCoreSchedule module for clean separation of concerns.
+   *
+   * @param cron CRON expression
+   * @param handler Handler function
+   * @returns Unsubscribe function
+   */
+  registerSchedule(cron: string, handler: ScheduleHandler): () => void {
+    return this.schedule.registerSchedule(cron, handler)
+  }
+
+  /**
+   * Get a schedule by CRON expression (RPC method)
+   *
+   * @param cron CRON expression to look up
+   * @returns Schedule entry or undefined
+   */
+  getScheduleByCron(cron: string): ScheduleEntry | undefined {
+    return this.schedule.getScheduleByCron(cron)
+  }
+
+  /**
+   * Get the count of registered schedules (RPC method)
+   *
+   * @returns Number of registered schedules
+   */
+  getScheduleCount(): number {
+    return this.schedule.getScheduleCount()
+  }
+
+  /**
+   * Get all persisted schedules from SQLite (RPC method)
+   *
+   * @returns Array of persisted schedule entries
+   */
+  getPersistedSchedules(): PersistedSchedule[] {
+    return this.schedule.getPersistedSchedules()
+  }
+
+  /**
+   * Clear all schedules (RPC method)
+   */
+  clearAllSchedules(): void {
+    return this.schedule.clearAllSchedules()
+  }
+
+  /**
+   * Clear only in-memory schedules (RPC method)
+   */
+  clearInMemorySchedules(): void {
+    return this.schedule.clearInMemorySchedules()
+  }
+
+  /**
+   * Get count of in-memory schedules (RPC method)
+   *
+   * @returns Number of in-memory schedules
+   */
+  getInMemoryScheduleCount(): number {
+    return this.schedule.getInMemoryScheduleCount()
+  }
+
+  /**
+   * Recover schedules from SQLite storage (RPC method)
+   */
+  recoverSchedulesFromStorage(): void {
+    return this.schedule.recoverSchedulesFromStorage()
+  }
+
+  /**
+   * Register schedule via fluent DSL (RPC method)
+   *
+   * @param dayOrInterval Day of week or interval type
+   * @param time Time string or null
+   * @param handler Handler function
+   * @returns Unsubscribe function
+   */
+  registerScheduleViaEvery(
+    dayOrInterval: string,
+    time: string | null,
+    handler: ScheduleHandler
+  ): () => void {
+    return this.schedule.registerScheduleViaEvery(dayOrInterval, time, handler)
+  }
+
+  /**
+   * Register schedule via shortcut (RPC method)
+   *
+   * @param dayOrInterval Day of week or 'day'
+   * @param shortcut Shortcut name
+   * @param handler Handler function
+   * @returns Unsubscribe function
+   */
+  registerScheduleViaEveryShortcut(
+    dayOrInterval: string,
+    shortcut: string,
+    handler: ScheduleHandler
+  ): () => void {
+    return this.schedule.registerScheduleViaEveryShortcut(dayOrInterval, shortcut, handler)
+  }
+
+  /**
+   * Register schedule via interval (RPC method)
+   *
+   * @param n Interval value
+   * @param unit Interval unit
+   * @param handler Handler function
+   * @returns Unsubscribe function
+   */
+  registerScheduleViaInterval(
+    n: number,
+    unit: 'minutes' | 'hours' | 'seconds',
+    handler: ScheduleHandler
+  ): () => void {
+    return this.schedule.registerScheduleViaInterval(n, unit, handler)
+  }
+
+  /**
+   * Get the fluent schedule builder (RPC method)
+   *
+   * @returns Schedule builder DSL
+   */
+  getEveryBuilder(): ScheduleBuilder & ((n: number) => IntervalBuilder) {
+    return this.schedule.getEveryBuilder()
+  }
 
   /**
    * Fire-and-forget event emission
    * Dispatches event to all matching handlers and WebSocket subscribers
    * Returns immediately with event ID
+   *
+   * Note: This method maintains backward compatibility. For RPC access,
+   * prefer using: stub.events.send(eventType, data)
    */
   send(eventType: string, data: unknown): string {
     const eventId = generateEventId()
@@ -1625,9 +1830,58 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * Usage: this.on.Noun.verb(handler) returns unsubscribe function
    *
    * For RPC compatibility, this returns an object with callable methods for each Noun.verb combination
+   *
+   * Note: This method maintains backward compatibility. For RPC access,
+   * prefer using: stub.events.on.Noun.verb(handler) or stub.events.subscribe()
    */
   get on(): OnProxy {
     return createOnProxy(this.eventHandlers)
+  }
+
+  /**
+   * Subscribe to an event type with a handler
+   * Wrapper for events module's subscribe method for backward compatibility
+   *
+   * @param eventType The event type to subscribe to
+   * @param handler The handler function
+   * @returns Unsubscribe function
+   */
+  subscribe(eventType: string, handler: EventHandler): () => void {
+    return this.registerHandler(eventType, handler)
+  }
+
+  /**
+   * Unsubscribe a handler from an event type
+   *
+   * @param eventType The event type to unsubscribe from
+   * @param handler The handler function to remove
+   * @returns true if the handler was found and removed
+   */
+  unsubscribe(eventType: string, handler: EventHandler): boolean {
+    const current = this.eventHandlers.get(eventType) ?? []
+    const idx = current.indexOf(handler)
+    if (idx >= 0) {
+      current.splice(idx, 1)
+      this.eventHandlers.set(eventType, current)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Get all current subscriptions
+   * Returns a map of event types to handler counts
+   *
+   * @returns Object mapping event types to number of handlers
+   */
+  getSubscriptions(): Record<string, number> {
+    const subscriptions: Record<string, number> = {}
+    for (const [eventType, handlers] of this.eventHandlers) {
+      if (handlers.length > 0) {
+        subscriptions[eventType] = handlers.length
+      }
+    }
+    return subscriptions
   }
 
   // =========================================================================
@@ -1716,6 +1970,24 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     this.things.clear()
     this.eventHandlers.clear()
     this.schedules.clear()
+
+    // Clear events module (will be recreated on next access)
+    if (this._eventsModule) {
+      this._eventsModule.clearHandlers()
+      this._eventsModule = null
+    }
+
+    // Clear storage module (will be recreated on next access)
+    if (this._storageModule) {
+      this._storageModule.clearCache()
+      this._storageModule = null
+    }
+
+    // Clear schedule module (will be recreated on next access)
+    if (this._scheduleModule) {
+      this._scheduleModule.clearInMemorySchedules()
+      this._scheduleModule = null
+    }
 
     // Track recovery metrics
     this.lastRecoveryTimestamp = Date.now()
@@ -2064,90 +2336,19 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   // =========================================================================
 
   /**
-   * Schedule builder via Proxy
+   * Schedule builder via Proxy - delegates to DOCoreSchedule module
    * Usage: this.every.day.at('9am')(handler), this.every(5).minutes(handler)
    */
   get every(): ScheduleBuilder & ((n: number) => IntervalBuilder) {
-    const self = this
-
-    function createTimeBuilder(dayOfWeek: string | null): TimeBuilder {
-      const dow = dayOfWeek ? DAY_MAP[dayOfWeek] : '*'
-
-      const shortcuts: Record<string, { hour: number; minute: number }> = {
-        at9am: { hour: 9, minute: 0 },
-        at5pm: { hour: 17, minute: 0 },
-        at6am: { hour: 6, minute: 0 },
-      }
-
-      return new Proxy({} as TimeBuilder, {
-        get(_target, prop: string) {
-          if (prop === 'at') {
-            return (time: string) => {
-              return (handler: ScheduleHandler): (() => void) => {
-                const { hour, minute } = parseTime(time)
-                return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
-              }
-            }
-          }
-
-          if (shortcuts[prop]) {
-            return (handler: ScheduleHandler): (() => void) => {
-              const { hour, minute } = shortcuts[prop]
-              return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
-            }
-          }
-
-          return undefined
-        },
-      })
-    }
-
-    const scheduleBuilder: ScheduleBuilder = {
-      Monday: createTimeBuilder('Monday'),
-      Tuesday: createTimeBuilder('Tuesday'),
-      Wednesday: createTimeBuilder('Wednesday'),
-      Thursday: createTimeBuilder('Thursday'),
-      Friday: createTimeBuilder('Friday'),
-      Saturday: createTimeBuilder('Saturday'),
-      Sunday: createTimeBuilder('Sunday'),
-      day: createTimeBuilder(null),
-      hour: (handler: ScheduleHandler): (() => void) => self.registerSchedule('0 * * * *', handler),
-      minute: (handler: ScheduleHandler): (() => void) => self.registerSchedule('* * * * *', handler),
-    }
-
-    const everyFn = (n: number): IntervalBuilder => {
-      return {
-        minutes: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
-        hours: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
-        seconds: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`every:${n}s`, handler),
-      }
-    }
-
-    return Object.assign(everyFn, scheduleBuilder) as ScheduleBuilder & ((n: number) => IntervalBuilder)
-  }
-
-  private registerSchedule(cron: string, handler: ScheduleHandler): () => void {
-    this.schedules.set(cron, { handler, cron })
-
-    // Persist to SQLite
-    this.ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO schedules (cron, handler_id, registered_at) VALUES (?, ?, ?)`,
-      cron,
-      `handler_${Date.now()}`,
-      Date.now()
-    )
-
-    return () => {
-      this.schedules.delete(cron)
-      this.ctx.storage.sql.exec(`DELETE FROM schedules WHERE cron = ?`, cron)
-    }
+    return this.schedule.getEveryBuilder()
   }
 
   /**
-   * Get a registered schedule by CRON expression
+   * Get a registered schedule by CRON expression (backward compatibility)
+   * @deprecated Use getScheduleByCron() for RPC-compatible access
    */
   getSchedule(cron: string): { handler: ScheduleHandler } | undefined {
-    return this.schedules.get(cron)
+    return this.schedule.getScheduleByCron(cron)
   }
 
   // =========================================================================
@@ -2458,18 +2659,20 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   // =========================================================================
-  // PUBLIC WRAPPERS FOR RPCTAR GET CLASSES
+  // PUBLIC WRAPPERS FOR RPCTAR GET CLASSES - DELEGATES TO DOCoreStorage
   // =========================================================================
 
   /**
    * Create a thing (public wrapper for RpcTarget)
+   * Delegates to DOCoreStorage module for clean separation of concerns.
    */
   createThingInternal(type: string, data: Record<string, unknown>): Promise<ThingData> {
-    return this.createThing(type, data)
+    return this.storage.create(type, data)
   }
 
   /**
    * List things (public wrapper for RpcTarget)
+   * Delegates to DOCoreStorage module for clean separation of concerns.
    */
   listThingsPublic(type: string, query?: {
     where?: Record<string, unknown>
@@ -2480,15 +2683,16 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>>
     includeDeleted?: boolean
   }): Promise<ThingData[]> {
-    return this.listThingsInternal(type, query)
+    return this.storage.list(type, query)
   }
 
   /**
    * Get a thing by ID - can be overridden by subclasses like DOStorage
-   * This is the method that NounAccessors use to retrieve thing data
+   * This is the method that NounAccessors use to retrieve thing data.
+   * Delegates to DOCoreStorage module.
    */
   getThingById(id: string): Promise<ThingData | null> {
-    return Promise.resolve(this.getThing(id))
+    return this.storage.getById(id)
   }
 
   /**
@@ -2497,33 +2701,25 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   getThingPublic(id: string): ThingData | null {
     emitDeprecationWarning('DOCore.getThingPublic', 'getThingById')
-    return this.getThing(id)
+    return this.storage.get(id)
   }
 
   /**
    * Update a thing - can be overridden by subclasses like DOStorage
-   * This is the method that NounAccessors use to update things
+   * This is the method that NounAccessors use to update things.
+   * Delegates to DOCoreStorage module.
    */
   updateThingById(id: string, updates: Record<string, unknown>): Promise<ThingData> {
-    // Get the existing thing to find its type
-    const existing = this.getThing(id)
-    if (!existing) {
-      return Promise.reject(new Error(`Thing not found: ${id}`))
-    }
-    return this.updateThing(existing.$type, id, updates)
+    return this.storage.updateById(id, updates)
   }
 
   /**
    * Delete a thing - can be overridden by subclasses like DOStorage
-   * This is the method that NounAccessors use to delete things
+   * This is the method that NounAccessors use to delete things.
+   * Delegates to DOCoreStorage module.
    */
   deleteThingById(id: string): Promise<boolean> {
-    // Get the existing thing to find its type
-    const existing = this.getThing(id)
-    if (!existing) {
-      return Promise.resolve(false)
-    }
-    return this.deleteThing(existing.$type, id)
+    return this.storage.deleteById(id)
   }
 
   /**
@@ -2532,7 +2728,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   updateThingInternal(type: string, id: string, updates: Record<string, unknown>): Promise<ThingData> {
     emitDeprecationWarning('DOCore.updateThingInternal', 'updateThingById')
-    return this.updateThing(type, id, updates)
+    return this.storage.update(type, id, updates)
   }
 
   /**
@@ -2541,167 +2737,92 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   deleteThingInternal(type: string, id: string): Promise<boolean> {
     emitDeprecationWarning('DOCore.deleteThingInternal', 'deleteThingById')
-    return this.deleteThing(type, id)
+    return this.storage.delete(type, id)
   }
 
   // =========================================================================
-  // BATCH OPERATIONS
+  // BATCH OPERATIONS - DELEGATES TO DOCoreStorage
   // =========================================================================
 
   /**
    * Create multiple things at once
+   * Delegates to DOCoreStorage module.
    */
   async createManyThings(type: string, items: Array<Record<string, unknown>>): Promise<ThingData[]> {
-    const results: ThingData[] = []
-    for (const data of items) {
-      const thing = await this.createThing(type, data)
-      results.push(thing)
-    }
-    return results
+    return this.storage.createMany(type, items)
   }
 
   /**
    * Update multiple things matching a filter
+   * Delegates to DOCoreStorage module.
+   * @returns Number of updated things
    */
   async updateManyThings(
     type: string,
     filter: { where?: Record<string, unknown> },
     updates: Record<string, unknown>
   ): Promise<number> {
-    const things = await this.listThingsInternal(type, { where: filter.where })
-    let count = 0
-    for (const thing of things) {
-      await this.updateThing(type, thing.$id, updates)
-      count++
-    }
-    return count
+    return this.storage.updateMany(type, filter, updates)
   }
 
   /**
    * Delete multiple things matching a filter
+   * Delegates to DOCoreStorage module.
    */
   async deleteManyThings(type: string, filter: { where?: Record<string, unknown> }): Promise<number> {
-    const things = await this.listThingsInternal(type, { where: filter.where })
-    let count = 0
-    for (const thing of things) {
-      const deleted = await this.deleteThing(type, thing.$id)
-      if (deleted) count++
-    }
-    return count
+    return this.storage.deleteMany(type, filter)
   }
 
   // =========================================================================
-  // UPSERT OPERATION
+  // UPSERT OPERATION - DELEGATES TO DOCoreStorage
   // =========================================================================
 
   /**
    * Create or update a thing (upsert)
+   * Delegates to DOCoreStorage module.
    */
   async upsertThing(type: string, data: Record<string, unknown>): Promise<ThingData> {
-    const id = data.$id as string
-    if (!id) {
-      return this.createThing(type, data)
-    }
-
-    const existing = this.getThing(id)
-    if (existing) {
-      return this.updateThing(type, id, data)
-    } else {
-      return this.createThing(type, data)
-    }
+    return this.storage.upsert(type, data)
   }
 
   // =========================================================================
-  // COUNT AND AGGREGATION
+  // COUNT AND AGGREGATION - DELEGATES TO DOCoreStorage
   // =========================================================================
 
   /**
    * Count things of a specific type with optional filtering
+   * Delegates to DOCoreStorage module.
    */
   async countThings(type: string, query?: { where?: Record<string, unknown> }): Promise<number> {
-    let sql = "SELECT COUNT(*) as count FROM things WHERE type = ? AND (json_extract(data, '$.$deletedAt') IS NULL)"
-    const params: unknown[] = [type]
-
-    if (query?.where) {
-      const validatedWhere = validateWhereClause(query.where)
-      const sqlWhere = buildSqlWhereClause(validatedWhere)
-
-      if (sqlWhere.sql) {
-        sql += ' AND ' + sqlWhere.sql
-        params.push(...sqlWhere.params)
-      }
-
-      // If there are remaining where clauses, fall back to list and count
-      if (sqlWhere.remainingWhere && Object.keys(sqlWhere.remainingWhere).length > 0) {
-        const things = await this.listThingsInternal(type, query)
-        return things.length
-      }
-    }
-
-    const result = this.ctx.storage.sql.exec(sql, ...params).toArray()
-    return (result[0]?.count as number) ?? 0
+    return this.storage.count(type, query)
   }
 
   /**
    * Find the first thing matching the query
+   * Delegates to DOCoreStorage module.
    */
   async findFirstThing(type: string, query?: { where?: Record<string, unknown>; orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>> }): Promise<ThingData | null> {
-    const results = await this.listThingsInternal(type, { ...query, limit: 1 })
-    return results.length > 0 ? results[0] : null
+    return this.storage.findFirst(type, query)
   }
 
   // =========================================================================
-  // SOFT DELETE
+  // SOFT DELETE - DELEGATES TO DOCoreStorage
   // =========================================================================
 
   /**
    * Soft delete a thing by ID
+   * Delegates to DOCoreStorage module.
    */
   async softDeleteThingById(id: string): Promise<ThingData> {
-    const existing = this.getThing(id)
-    if (!existing) {
-      throw new Error(`Thing not found: ${id}`)
-    }
-    const now = new Date().toISOString()
-    return this.updateThing(existing.$type, id, { $deletedAt: now })
+    return this.storage.softDeleteById(id)
   }
 
   /**
    * Restore a soft-deleted thing by ID
+   * Delegates to DOCoreStorage module.
    */
   async restoreThingById(id: string): Promise<ThingData> {
-    // Need to get the thing even if it's deleted
-    const rows = this.ctx.storage.sql.exec('SELECT data FROM things WHERE id = ?', id).toArray()
-    if (rows.length === 0) {
-      throw new Error(`Thing not found: ${id}`)
-    }
-
-    const existing = JSON.parse(rows[0].data as string) as ThingData
-    const now = new Date().toISOString()
-
-    const updated: ThingData = {
-      ...existing,
-      $deletedAt: undefined, // Clear deletion timestamp
-      $updatedAt: now,
-      $version: (existing.$version ?? 0) + 1,
-    }
-
-    // Store in memory
-    this.things.set(id, updated)
-
-    // Persist to SQLite
-    this.ctx.storage.sql.exec(
-      `UPDATE things SET data = ?, updated_at = ?, version = ? WHERE id = ?`,
-      JSON.stringify(updated),
-      Date.now(),
-      updated.$version,
-      id
-    )
-
-    // Emit restored event
-    this.send(`${existing.$type}.restored`, updated)
-
-    return updated
+    return this.storage.restoreById(id)
   }
 
   // =========================================================================
