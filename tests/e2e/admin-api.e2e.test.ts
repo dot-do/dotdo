@@ -21,8 +21,12 @@ import { createRPCClient, RPCError } from '../../rpc/index'
  * Admin endpoint URL
  * In production, this would resolve to admin.example.org.ai
  * For local development, uses TEST_URL or localhost
+ *
+ * Uses /admin path prefix for routing when not using subdomain routing
  */
-const ADMIN_URL = process.env.ADMIN_URL || process.env.TEST_URL || 'http://localhost:8787'
+const BASE_URL = process.env.ADMIN_URL || process.env.TEST_URL || 'http://localhost:8787'
+// Add /admin path prefix for path-based routing (works with Node.js fetch which can't override Host header)
+const ADMIN_URL = BASE_URL.endsWith('/admin') ? BASE_URL : `${BASE_URL}/admin`
 
 // Skip deployed tests if no TEST_URL configured
 const SKIP_DEPLOYED_TESTS = !process.env.TEST_URL && !process.env.CI
@@ -151,10 +155,8 @@ describe('$.functions API via RPC', () => {
     // Create RPC client targeting admin.example.org.ai endpoint
     client = createRPCClient<AdminDOAPI>({
       target: ADMIN_URL,
-      headers: {
-        // Admin endpoints expect Host header for routing
-        Host: 'admin.example.org.ai',
-      },
+      // No custom headers needed - path-based routing via /admin prefix
+      // (Node.js fetch can't override Host header for security reasons)
     })
   })
 

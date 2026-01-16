@@ -392,13 +392,14 @@ describe('Promise Pipelining - RED Phase', () => {
       expect(callMsg.type).toBe('pipeline')
       expect(callMsg.operations).toBeInstanceOf(Array)
 
-      // Operations should capture each method call with its arguments
+      // Operations should capture each step with its arguments
+      // Property access has type: 'get', method calls have type: 'call'
       expect(callMsg.operations).toEqual([
-        { path: 'Customer', args: [] },
-        { path: 'get', args: ['c-123'] },
-        { path: 'orders', args: [] },
-        { path: 'filter', args: ['active'] },
-        { path: 'limit', args: [10] },
+        { path: 'Customer', args: [], type: 'get' },
+        { path: 'get', args: ['c-123'], type: 'call' },
+        { path: 'orders', args: [], type: 'get' },
+        { path: 'filter', args: ['active'], type: 'call' },
+        { path: 'limit', args: [10], type: 'call' },
       ])
 
       simulateResponse(mockWs, callMsg.id, [])
@@ -527,7 +528,8 @@ describe('Promise Pipelining - RED Phase', () => {
       )
 
       const result = await resultPromise
-      expect(result).toEqual({ items: [{ id: 'ord-1' }, { id: 'ord-2' }] })
+      // Result includes pipeline metadata, use toMatchObject to check core data
+      expect(result).toMatchObject({ items: [{ id: 'ord-1' }, { id: 'ord-2' }] })
     })
 
     it('should make intermediate results available through pipeline metadata', async () => {
@@ -617,7 +619,13 @@ describe('Promise Pipelining - RED Phase', () => {
         step: 0, // Error occurred at step 0 (Customer.get)
       })
 
-      await expect(resultPromise).rejects.toThrow('Customer not found')
+      // Use try/catch instead of expect().rejects for custom thenables
+      try {
+        await resultPromise
+        expect.fail('Should have thrown')
+      } catch (err) {
+        expect((err as Error).message).toBe('Customer not found')
+      }
     })
 
     it('should include step information in pipeline error', async () => {
@@ -679,7 +687,13 @@ describe('Promise Pipelining - RED Phase', () => {
         step: 0,
       })
 
-      await expect(resultPromise).rejects.toThrow('Failed to start transaction')
+      // Use try/catch instead of expect().rejects for custom thenables
+      try {
+        await resultPromise
+        expect.fail('Should have thrown')
+      } catch (err) {
+        expect((err as Error).message).toBe('Failed to start transaction')
+      }
     })
 
     it('should support partial results before error', async () => {

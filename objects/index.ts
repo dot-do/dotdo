@@ -30,10 +30,24 @@ export default {
     // Check for Host header routing (e.g., admin.example.org.ai)
     const hostHeader = request.headers.get('Host') ?? url.hostname
 
-    // Route to AdminDO if Host header indicates admin endpoint
-    if (hostHeader.startsWith('admin.') || hostHeader.includes('admin.example.org.ai')) {
+    // Route to AdminDO if:
+    // 1. Host header indicates admin endpoint
+    // 2. URL path starts with /admin/ (path-based routing for e2e tests)
+    const isAdminHost = hostHeader.startsWith('admin.') || hostHeader.includes('admin.example.org.ai')
+    const isAdminPath = url.pathname.startsWith('/admin/')
+
+    if (isAdminHost || isAdminPath) {
       const id = env.AdminDO.idFromName('admin')
       const stub = env.AdminDO.get(id)
+
+      // If using path-based routing, strip the /admin prefix
+      if (isAdminPath && !isAdminHost) {
+        const newUrl = new URL(request.url)
+        newUrl.pathname = url.pathname.replace('/admin', '')
+        const newRequest = new Request(newUrl.toString(), request)
+        return stub.fetch(newRequest)
+      }
+
       return stub.fetch(request)
     }
 

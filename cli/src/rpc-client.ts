@@ -730,6 +730,8 @@ export class RpcClient extends EventEmitter {
           ...operations,
           { path: prop as string, args: [], type: 'get' },
         ]
+        // Property access alone doesn't schedule execution - only method calls do
+        // This ensures proxy.a.b.c doesn't trigger RPC, but proxy.a.b.c() does
         return client.createPipelineProxy(newOperations, null)
       },
 

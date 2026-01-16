@@ -522,7 +522,12 @@ async function makeRPCCall(
   }
 
   // For string URL targets, make HTTP RPC call
-  const url = new URL('/rpc', target)
+  // Handle base URL paths - append /rpc to the path, not replace it
+  const baseUrl = new URL(target)
+  const rpcPath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname + 'rpc' : baseUrl.pathname + '/rpc'
+  const url = new URL(rpcPath, baseUrl.origin)
+  url.search = baseUrl.search
+
   const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     ...headers,
