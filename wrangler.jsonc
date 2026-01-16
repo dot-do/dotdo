@@ -74,11 +74,14 @@
     }
   ],
 
+  // Enable workers.dev subdomain
+  "workers_dev": true,
+
   // Custom domain routes
   "routes": [
     {
-      "pattern": "admin.example.org.ai/*",
-      "zone_name": "example.org.ai"
+      "pattern": "admin.example.com.ai/*",
+      "zone_name": "example.com.ai"
     }
   ]
 }

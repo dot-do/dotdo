@@ -33,7 +33,7 @@ export default {
     // Route to AdminDO if:
     // 1. Host header indicates admin endpoint
     // 2. URL path starts with /admin/ (path-based routing for e2e tests)
-    const isAdminHost = hostHeader.startsWith('admin.') || hostHeader.includes('admin.example.org.ai')
+    const isAdminHost = hostHeader.startsWith('admin.') || hostHeader.includes('admin.example.com.ai')
     const isAdminPath = url.pathname.startsWith('/admin/')
 
     if (isAdminHost || isAdminPath) {
