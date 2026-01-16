@@ -999,6 +999,41 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
   // =========================================================================
 
   private registerRoutes(): void {
+    // Root index - API discovery
+    this.app.get('/', (c) => {
+      const baseUrl = new URL(c.req.url).origin
+      return c.json({
+        name: 'AdminDO',
+        version: '1.0.0',
+        description: 'Admin API for mdxui integration',
+        links: {
+          self: baseUrl,
+          health: `${baseUrl}/health`,
+          rpc: `${baseUrl}/rpc`,
+          schemas: `${baseUrl}/schemas`,
+          nouns: `${baseUrl}/nouns`,
+          verbs: `${baseUrl}/verbs`,
+          actions: `${baseUrl}/actions`,
+          functions: `${baseUrl}/functions`,
+        },
+        endpoints: {
+          rpc: {
+            method: 'POST',
+            path: '/rpc',
+            description: 'RPC endpoint for method calls',
+            example: { method: 'schemas.list', args: [] },
+          },
+          rest: {
+            schemas: { GET: '/schemas', description: 'List all schema names' },
+            nouns: { GET: '/nouns', POST: '/nouns', description: 'CRUD operations' },
+            verbs: { GET: '/verbs', POST: '/verbs', description: 'CRUD operations' },
+            actions: { GET: '/actions', POST: '/actions', description: 'CRUD operations' },
+            functions: { GET: '/functions', POST: '/functions', description: 'CRUD operations' },
+          },
+        },
+      })
+    })
+
     // Health check
     this.app.get('/health', (c) => {
       return c.json({ status: 'healthy', service: 'AdminDO' })
@@ -1119,6 +1154,108 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
         all[name] = zodToJson(SCHEMAS[name], `${name} schema`)
       }
       return c.json(all)
+    })
+
+    // =========================================================================
+    // REST Endpoints for Collections
+    // =========================================================================
+
+    // Nouns REST
+    this.app.get('/nouns', async (c) => {
+      const result = await this.drizzleAdapter.nouns.list()
+      return c.json({ data: result, count: result.length })
+    })
+    this.app.get('/nouns/:id', async (c) => {
+      const result = await this.drizzleAdapter.nouns.get(c.req.param('id'))
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Noun not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.post('/nouns', async (c) => {
+      const body = await c.req.json()
+      const result = await this.drizzleAdapter.nouns.create(body)
+      return c.json({ data: result }, 201)
+    })
+    this.app.put('/nouns/:id', async (c) => {
+      const body = await c.req.json()
+      const result = await this.drizzleAdapter.nouns.update(c.req.param('id'), body)
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Noun not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.delete('/nouns/:id', async (c) => {
+      const result = await this.drizzleAdapter.nouns.delete(c.req.param('id'))
+      return c.json({ deleted: result })
+    })
+
+    // Verbs REST
+    this.app.get('/verbs', async (c) => {
+      const result = await this.drizzleAdapter.verbs.list()
+      return c.json({ data: result, count: result.length })
+    })
+    this.app.get('/verbs/:id', async (c) => {
+      const result = await this.drizzleAdapter.verbs.get(c.req.param('id'))
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Verb not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.post('/verbs', async (c) => {
+      const body = await c.req.json()
+      const result = await this.drizzleAdapter.verbs.create(body)
+      return c.json({ data: result }, 201)
+    })
+    this.app.put('/verbs/:id', async (c) => {
+      const body = await c.req.json()
+      const result = await this.drizzleAdapter.verbs.update(c.req.param('id'), body)
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Verb not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.delete('/verbs/:id', async (c) => {
+      const result = await this.drizzleAdapter.verbs.delete(c.req.param('id'))
+      return c.json({ deleted: result })
+    })
+
+    // Actions REST
+    this.app.get('/actions', async (c) => {
+      const result = await this.drizzleAdapter.actions.list()
+      return c.json({ data: result, count: result.length })
+    })
+    this.app.get('/actions/:id', async (c) => {
+      const result = await this.drizzleAdapter.actions.get(c.req.param('id'))
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Action not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.post('/actions', async (c) => {
+      const body = await c.req.json()
+      const result = await this.drizzleAdapter.actions.create(body)
+      return c.json({ data: result }, 201)
+    })
+    this.app.delete('/actions/:id', async (c) => {
+      const result = await this.drizzleAdapter.actions.delete(c.req.param('id'))
+      return c.json({ deleted: result })
+    })
+
+    // Functions REST
+    this.app.get('/functions', async (c) => {
+      const result = await this.functionsAccessor.list()
+      return c.json({ data: result, count: result.length })
+    })
+    this.app.get('/functions/:id', async (c) => {
+      const result = await this.functionsAccessor.get(c.req.param('id'))
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Function not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.post('/functions', async (c) => {
+      const body = await c.req.json()
+      const result = await this.functionsAccessor.create(body)
+      return c.json({ data: result }, 201)
+    })
+    this.app.put('/functions/:id', async (c) => {
+      const body = await c.req.json()
+      const result = await this.functionsAccessor.update(c.req.param('id'), body)
+      if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Function not found' } }, 404)
+      return c.json({ data: result })
+    })
+    this.app.delete('/functions/:id', async (c) => {
+      const result = await this.functionsAccessor.delete(c.req.param('id'))
+      return c.json({ deleted: result })
     })
   }
 
