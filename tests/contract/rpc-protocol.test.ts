@@ -590,7 +590,7 @@ describe('RPC Error Response Contract', () => {
         expect.fail('Should have thrown')
       } catch (error) {
         // Contract: Timeout MUST produce TIMEOUT error code
-        expect((error as RPCError).code).toMatch(/TIMEOUT|RPC_ERROR/)
+        expect((error as RPCError).code).toBe('TIMEOUT')
       }
     }, 60000)
 
