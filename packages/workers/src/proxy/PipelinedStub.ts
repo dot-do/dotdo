@@ -249,7 +249,7 @@ export async function executePipeline(
 /**
  * Create an executable callable stub that sends to an executor on await
  */
-function createExecutableCallableStub<T = unknown>(
+function createExecutableCallableStub<T extends object = object>(
   target: string[],
   pipeline: PipelineStep[],
   executor: PipelineExecutor,
@@ -375,7 +375,7 @@ function createExecutableCallableStub<T = unknown>(
  * // DO resolves entire chain in one call
  * ```
  */
-export function createPipelinedProxy<T = unknown>(
+export function createPipelinedProxy<T extends object = object>(
   target: string[],
   executor: PipelineExecutor
 ): T {
