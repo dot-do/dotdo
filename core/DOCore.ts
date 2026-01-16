@@ -49,196 +49,49 @@ import { validatePath } from '../lib/validation'
 import type { ThingData } from '../types'
 
 // ============================================================================
-// Constants
+// Import extracted modules
 // ============================================================================
 
-const HTTP_STATUS = {
-  OK: 200,
-  CREATED: 201,
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  NOT_FOUND: 404,
-  METHOD_NOT_ALLOWED: 405,
-  UPGRADE_REQUIRED: 426,
-  INTERNAL_SERVER_ERROR: 500,
-} as const
+import {
+  HTTP_STATUS,
+  VERSION_HEADER,
+  VERSION,
+  getCorsPolicy,
+  buildCorsHeaders,
+} from './http-router'
+import { WebSocketManager, WEBSOCKET_STATUS } from './websocket-manager'
+import { STATE_KEYS } from './state-manager'
+import {
+  generateEventId,
+  generateThingId,
+  createOnProxy as createOnProxyFromEventSystem,
+  type Event,
+  type EventHandler,
+  type OnProxy,
+} from './event-system'
+import {
+  DAY_MAP,
+  parseTime,
+  type ScheduleHandler,
+  type ScheduleEntry,
+  type TimeBuilder,
+  type ScheduleBuilder,
+  type IntervalBuilder,
+} from './schedule-manager'
+
+// Re-export from extracted modules for external consumers
+export { HTTP_STATUS, VERSION_HEADER, VERSION } from './http-router'
+export { STATE_KEYS } from './state-manager'
+export type { Event, EventHandler } from './event-system'
+export type { ScheduleHandler } from './schedule-manager'
 
 // ============================================================================
-// SECURE CORS CONFIGURATION
-// ============================================================================
-
-/** Explicit allowlist of trusted origins - SECURITY: Never use wildcards */
-const ALLOWED_ORIGINS = [
-  'https://dotdo.dev',
-  'https://api.dotdo.dev',
-  'http://localhost:3000',
-  'http://localhost:5173',
-] as const
-
-/** Route-specific CORS policies for different security levels */
-const CORS_POLICIES = {
-  /** Public routes - read-only methods, no credentials */
-  public: {
-    allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
-    allowedHeaders: ['Content-Type'],
-    allowCredentials: false,
-  },
-  /** Protected routes - standard CRUD, strict origin validation */
-  protected: {
-    allowedMethods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    allowCredentials: true,
-  },
-  /** Admin routes - no CORS (same-origin only) */
-  admin: {
-    allowedMethods: [] as string[],
-    allowedHeaders: [] as string[],
-    allowCredentials: false,
-  },
-} as const
-
-type CorsPolicyType = keyof typeof CORS_POLICIES
-
-/** Determine the CORS policy type based on the request path */
-function getCorsPolicy(pathname: string): CorsPolicyType {
-  if (pathname.startsWith('/admin')) {
-    return 'admin'
-  }
-  if (pathname.startsWith('/protected')) {
-    return 'protected'
-  }
-  return 'protected'
-}
-
-/** Validate if an origin is in the allowed list */
-function validateOrigin(origin: string | null | undefined): string | null {
-  if (!origin) return null
-  if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) {
-    return origin
-  }
-  return null
-}
-
-/** Build CORS headers for a response based on policy and origin validation */
-function buildCorsHeaders(
-  origin: string | null | undefined,
-  policy: CorsPolicyType,
-  requestedHeaders?: string | null | undefined
-): Headers {
-  const headers = new Headers()
-  const policyConfig = CORS_POLICIES[policy]
-
-  // Always set Vary: Origin for cache safety
-  headers.set('Vary', 'Origin')
-
-  // Admin routes - no CORS headers at all
-  if (policy === 'admin') {
-    return headers
-  }
-
-  // Validate origin against allowlist
-  const validatedOrigin = validateOrigin(origin)
-  if (!validatedOrigin) {
-    return headers
-  }
-
-  // Set the validated origin (never wildcard)
-  headers.set('Access-Control-Allow-Origin', validatedOrigin)
-
-  // Set allowed methods
-  if (policyConfig.allowedMethods.length > 0) {
-    headers.set('Access-Control-Allow-Methods', policyConfig.allowedMethods.join(','))
-  }
-
-  // Set allowed headers - filter to only policy-approved headers
-  if (policyConfig.allowedHeaders.length > 0) {
-    if (requestedHeaders) {
-      const requested = requestedHeaders.split(',').map((h) => h.trim())
-      const allowed = requested.filter((h) =>
-        policyConfig.allowedHeaders.some((ah) => ah.toLowerCase() === h.toLowerCase())
-      )
-      if (allowed.length > 0) {
-        headers.set('Access-Control-Allow-Headers', allowed.join(','))
-      }
-    } else {
-      headers.set('Access-Control-Allow-Headers', policyConfig.allowedHeaders.join(','))
-    }
-  }
-
-  // Set credentials header only if policy allows it
-  if (policyConfig.allowCredentials) {
-    headers.set('Access-Control-Allow-Credentials', 'true')
-  }
-
-  // Set max age for preflight caching
-  headers.set('Access-Control-Max-Age', '86400')
-
-  return headers
-}
-
-const VERSION_HEADER = 'X-DO-Version'
-const VERSION = '1.0.0'
-
-const WEBSOCKET_STATUS = {
-  NORMAL_CLOSURE: 1000,
-  GOING_AWAY: 1001,
-} as const
-
-const STATE_KEYS = {
-  LIFECYCLE_START: '_lifecycle:onStart',
-  LIFECYCLE_START_COUNT: '_lifecycle:onStartCount',
-  LIFECYCLE_HIBERNATE: '_lifecycle:onHibernate',
-  LIFECYCLE_WAKE: '_lifecycle:onWake',
-  LIFECYCLE_WAKE_COUNT: '_lifecycle:wakeCount',
-  INITIALIZED: '_initialized',
-  ALARM_TRIGGERED: '_alarm_triggered',
-  CONNECTIONS_RESTORED: '_connections:restored',
-} as const
-
 // Workflow context constants
+// ============================================================================
+
 const DEFAULT_MAX_RETRIES = 3
 const MAX_BACKOFF_MS = 10000
 const EXPONENTIAL_BACKOFF_BASE = 2
-
-const DAY_MAP: Record<string, number> = {
-  Sunday: 0,
-  Monday: 1,
-  Tuesday: 2,
-  Wednesday: 3,
-  Thursday: 4,
-  Friday: 5,
-  Saturday: 6,
-}
-
-function parseTime(time: string): { hour: number; minute: number } {
-  if (time === 'noon') return { hour: 12, minute: 0 }
-  if (time === 'midnight') return { hour: 0, minute: 0 }
-
-  const match = time.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/i)
-  if (!match) {
-    throw new Error(`Invalid time format: ${time}`)
-  }
-
-  let hour = parseInt(match[1], 10)
-  const minute = match[2] ? parseInt(match[2], 10) : 0
-  const period = match[3]?.toLowerCase()
-
-  if (period === 'pm' && hour < 12) {
-    hour += 12
-  } else if (period === 'am' && hour === 12) {
-    hour = 0
-  }
-
-  return { hour, minute }
-}
-
-function generateEventId(): string {
-  return `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-}
-
-function generateThingId(): string {
-  return `thing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-}
 
 // ============================================================================
 // Types
@@ -255,14 +108,11 @@ function generateThingId(): string {
 export interface DOCoreEnv {
   DOCore: DurableObjectNamespace<DOCore>
   // These are optional at the base level - subclasses override with required
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  DOSemantic?: DurableObjectNamespace<any>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  DOStorage?: DurableObjectNamespace<any>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  DOWorkflow?: DurableObjectNamespace<any>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  DOFull?: DurableObjectNamespace<any>
+  // Using DOCore as base type since all DO classes extend DOCore
+  DOSemantic?: DurableObjectNamespace<DOCore>
+  DOStorage?: DurableObjectNamespace<DOCore>
+  DOWorkflow?: DurableObjectNamespace<DOCore>
+  DOFull?: DurableObjectNamespace<DOCore>
 }
 
 /**
@@ -308,24 +158,8 @@ type HonoEnv = {
 }
 
 // ============================================================================
-// Workflow Context Types
+// Local Types (not imported from modules)
 // ============================================================================
-
-export interface Event {
-  id: string
-  type: string
-  subject: string
-  object: string
-  data: unknown
-  timestamp: Date
-}
-
-type EventHandler = (event: Event) => void | Promise<void>
-
-interface ScheduleEntry {
-  handler: Function
-  cron: string
-}
 
 interface ActionLogEntry {
   stepId: string
@@ -334,71 +168,10 @@ interface ActionLogEntry {
   error?: { message: string }
 }
 
-interface TimeBuilder {
-  at9am: (handler: Function) => () => void
-  at5pm: (handler: Function) => () => void
-  at6am: (handler: Function) => () => void
-  at: (time: string) => (handler: Function) => () => void
-}
-
-interface ScheduleBuilder {
-  Monday: TimeBuilder
-  Tuesday: TimeBuilder
-  Wednesday: TimeBuilder
-  Thursday: TimeBuilder
-  Friday: TimeBuilder
-  Saturday: TimeBuilder
-  Sunday: TimeBuilder
-  day: TimeBuilder
-  hour: (handler: Function) => () => void
-  minute: (handler: Function) => () => void
-}
-
-interface IntervalBuilder {
-  minutes: (handler: Function) => () => void
-  hours: (handler: Function) => () => void
-  seconds: (handler: Function) => () => void
-}
-
-// ThingData imported from types/index.ts - canonical definition
-
-// OnProxy type for event handler registration
-type OnProxy = {
-  [noun: string]: {
-    [verb: string]: (handler: EventHandler) => () => void
-  }
-}
-
 // Helper to create the on proxy structure for RPC compatibility
-function createOnProxy(doInstance: DOCore, eventHandlers: Map<string, EventHandler[]>): OnProxy {
-  // Create an actual object structure instead of a Proxy for RPC compatibility
-  // This uses a Proxy internally but returns actual callable functions
-  return new Proxy({} as OnProxy, {
-    get(_target, noun: string) {
-      if (typeof noun !== 'string') return undefined
-      return new Proxy({} as Record<string, (handler: EventHandler) => () => void>, {
-        get(_t, verb: string) {
-          if (typeof verb !== 'string') return undefined
-          return (handler: EventHandler): (() => void) => {
-            const key = `${noun}.${verb}`
-            const handlers = eventHandlers.get(key) ?? []
-            handlers.push(handler)
-            eventHandlers.set(key, handlers)
-
-            // Return unsubscribe function
-            return () => {
-              const current = eventHandlers.get(key) ?? []
-              const idx = current.indexOf(handler)
-              if (idx >= 0) {
-                current.splice(idx, 1)
-                eventHandlers.set(key, current)
-              }
-            }
-          }
-        },
-      })
-    },
-  })
+// Uses the imported createOnProxy signature but needs local DOCore reference
+function createOnProxy(eventHandlers: Map<string, EventHandler[]>): OnProxy {
+  return createOnProxyFromEventSystem(eventHandlers)
 }
 
 // ============================================================================
@@ -409,10 +182,9 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   protected app: Hono<HonoEnv>
   protected started = false
   private wakeCount = 0
-  private websocketTags = new Map<WebSocket, string[]>()
-  private hibernatableWebSockets = new Set<WebSocket>()
-  private lastWebSocketTags: string[] = []
-  private lastWebSocketHibernatable = false
+
+  // Extracted module instances
+  private wsManager = new WebSocketManager()
 
   // WebSocket RPC handler for bidirectional callbacks
   protected rpcHandler = new WebSocketRpcHandler()
@@ -423,63 +195,35 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   private actionLog: ActionLogEntry[] = []
   private things: Map<string, ThingData> = new Map()
 
-  // Noun accessors - exposed as methods that return RpcTarget instances
+  // =========================================================================
+  // NOUN ACCESSORS
+  // =========================================================================
   // Supports BOTH patterns via optional id parameter:
   // - Noun() -> NounAccessor with create(), list()
   // - Noun('id') -> NounInstanceAccessor with update(), delete(), etc.
   //
-  // Using methods with optional id parameter to support both patterns
-
-  Customer(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Customer', id)
-    return new NounAccessor(this, 'Customer')
-  }
-
-  Order(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Order', id)
-    return new NounAccessor(this, 'Order')
-  }
-
-  Product(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Product', id)
-    return new NounAccessor(this, 'Product')
-  }
-
-  Payment(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Payment', id)
-    return new NounAccessor(this, 'Payment')
-  }
-
-  Invoice(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Invoice', id)
-    return new NounAccessor(this, 'Invoice')
-  }
-
-  User(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'User', id)
-    return new NounAccessor(this, 'User')
-  }
-
-  Item(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Item', id)
-    return new NounAccessor(this, 'Item')
-  }
-
-  Temp(id?: string): NounAccessor | NounInstanceAccessor {
-    if (id) return new NounInstanceAccessor(this, 'Temp', id)
-    return new NounAccessor(this, 'Temp')
-  }
+  // All noun methods use the shared factory: getNounAccessor()
 
   /**
-   * Get a noun accessor for pipeline execution
-   * Supports dynamic noun resolution for any noun type
+   * Generic factory for noun accessors - creates NounAccessor or NounInstanceAccessor
+   * @param noun The noun type (e.g., 'Customer', 'Order')
+   * @param id Optional ID for instance access
    */
-  getNounAccessor(noun: string, id: string): NounAccessor | NounInstanceAccessor {
-    if (id) {
-      return new NounInstanceAccessor(this, noun, id)
-    }
-    return new NounAccessor(this, noun)
+  getNounAccessor(noun: string, id?: string): NounAccessor | NounInstanceAccessor {
+    return id
+      ? new NounInstanceAccessor(this, noun, id)
+      : new NounAccessor(this, noun)
   }
+
+  // Standard noun accessor methods - use factory pattern
+  Customer(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Customer', id) }
+  Order(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Order', id) }
+  Product(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Product', id) }
+  Payment(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Payment', id) }
+  Invoice(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Invoice', id) }
+  User(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('User', id) }
+  Item(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Item', id) }
+  Temp(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Temp', id) }
 
   /**
    * Create a new thing of any noun type - direct RPC method
@@ -847,39 +591,21 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   // =========================================================================
-  // WEBSOCKET HELPERS
+  // WEBSOCKET HELPERS - Delegated to WebSocketManager
   // =========================================================================
 
   /**
    * Check if a request is a valid WebSocket upgrade request
    */
   private isWebSocketUpgradeRequest(c: Context<HonoEnv>): boolean {
-    return c.req.header('Upgrade') === 'websocket'
+    return this.wsManager.isWebSocketUpgradeRequest(c)
   }
 
   /**
    * Handle WebSocket upgrade and connection setup
    */
   private handleWebSocketUpgrade(c: Context<HonoEnv>, tags: string[], hibernatable: boolean): Response {
-    const [client, server] = Object.values(new WebSocketPair())
-
-    // Accept WebSocket with optional hibernation support
-    if (hibernatable) {
-      this.ctx.acceptWebSocket(server, ['hibernatable'])
-      this.hibernatableWebSockets.add(server)
-    } else {
-      this.ctx.acceptWebSocket(server)
-    }
-
-    // Track WebSocket metadata
-    this.websocketTags.set(server, tags)
-    this.lastWebSocketTags = tags
-    this.lastWebSocketHibernatable = hibernatable
-
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    })
+    return this.wsManager.handleWebSocketUpgrade(this.ctx, tags, hibernatable)
   }
 
   // =========================================================================
@@ -1723,7 +1449,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
         get(_target, prop: string) {
           if (prop === 'at') {
             return (time: string) => {
-              return (handler: Function): (() => void) => {
+              return (handler: ScheduleHandler): (() => void) => {
                 const { hour, minute } = parseTime(time)
                 return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
               }
@@ -1731,7 +1457,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
           }
 
           if (shortcuts[prop]) {
-            return (handler: Function): (() => void) => {
+            return (handler: ScheduleHandler): (() => void) => {
               const { hour, minute } = shortcuts[prop]
               return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
             }
@@ -1751,22 +1477,22 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       Saturday: createTimeBuilder('Saturday'),
       Sunday: createTimeBuilder('Sunday'),
       day: createTimeBuilder(null),
-      hour: (handler: Function): (() => void) => self.registerSchedule('0 * * * *', handler),
-      minute: (handler: Function): (() => void) => self.registerSchedule('* * * * *', handler),
+      hour: (handler: ScheduleHandler): (() => void) => self.registerSchedule('0 * * * *', handler),
+      minute: (handler: ScheduleHandler): (() => void) => self.registerSchedule('* * * * *', handler),
     }
 
     const everyFn = (n: number): IntervalBuilder => {
       return {
-        minutes: (handler: Function): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
-        hours: (handler: Function): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
-        seconds: (handler: Function): (() => void) => self.registerSchedule(`every:${n}s`, handler),
+        minutes: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
+        hours: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
+        seconds: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`every:${n}s`, handler),
       }
     }
 
     return Object.assign(everyFn, scheduleBuilder) as ScheduleBuilder & ((n: number) => IntervalBuilder)
   }
 
-  private registerSchedule(cron: string, handler: Function): () => void {
+  private registerSchedule(cron: string, handler: ScheduleHandler): () => void {
     this.schedules.set(cron, { handler, cron })
 
     // Persist to SQLite
@@ -1786,7 +1512,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   /**
    * Get a registered schedule by CRON expression
    */
-  getSchedule(cron: string): { handler: Function } | undefined {
+  getSchedule(cron: string): { handler: ScheduleHandler } | undefined {
     return this.schedules.get(cron)
   }
 

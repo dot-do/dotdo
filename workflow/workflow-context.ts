@@ -276,12 +276,12 @@ class CascadeTierCircuitBreaker {
 // EventHandler imported from ../types
 
 interface ScheduleEntry {
-  handler: Function
+  handler: ScheduleHandler
   cron: string
 }
 
 interface OneTimeScheduleEntry {
-  handler: Function
+  handler: ScheduleHandler
   date: string
 }
 
@@ -716,13 +716,13 @@ class WorkflowContextImpl {
     )
   }
 
-  getRegisteredHandlers(eventKey: string): Function[] {
+  getRegisteredHandlers(eventKey: string): EventHandler[] {
     return this.handlers.get(eventKey) ?? []
   }
 
-  matchHandlers(eventKey: string): Function[] {
+  matchHandlers(eventKey: string): EventHandler[] {
     const [noun, verb] = eventKey.split('.')
-    const matched: Function[] = []
+    const matched: EventHandler[] = []
 
     // Exact match
     const exactHandlers = this.handlers.get(eventKey) ?? []
@@ -796,7 +796,7 @@ class WorkflowContextImpl {
           get: (_target, prop: string) => {
             if (prop === 'at') {
               return (time: string) => {
-                return (handler: Function): (() => void) => {
+                return (handler: ScheduleHandler): (() => void) => {
                   const { hour, minute } = parseTime(time)
                   return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
                 }
@@ -804,7 +804,7 @@ class WorkflowContextImpl {
             }
 
             if (shortcuts[prop]) {
-              return (handler: Function): (() => void) => {
+              return (handler: ScheduleHandler): (() => void) => {
                 const { hour, minute } = shortcuts[prop]
                 return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
               }
@@ -825,16 +825,16 @@ class WorkflowContextImpl {
       Saturday: createTimeBuilder('Saturday'),
       Sunday: createTimeBuilder('Sunday'),
       day: createTimeBuilder(null),
-      hour: (handler: Function): (() => void) => self.registerSchedule('0 * * * *', handler),
-      minute: (handler: Function): (() => void) => self.registerSchedule('* * * * *', handler),
+      hour: (handler: ScheduleHandler): (() => void) => self.registerSchedule('0 * * * *', handler),
+      minute: (handler: ScheduleHandler): (() => void) => self.registerSchedule('* * * * *', handler),
     }
 
     // Make it callable for $.every(n)
     const everyFn = (n: number): IntervalBuilder => {
       return {
-        minutes: (handler: Function): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
-        hours: (handler: Function): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
-        seconds: (handler: Function): (() => void) => self.registerSchedule(`every:${n}s`, handler),
+        minutes: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
+        hours: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
+        seconds: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`every:${n}s`, handler),
       }
     }
 
@@ -845,16 +845,16 @@ class WorkflowContextImpl {
   /**
    * Helper to register a schedule and return unsubscribe function
    */
-  private registerSchedule(cron: string, handler: Function): () => void {
+  private registerSchedule(cron: string, handler: ScheduleHandler): () => void {
     this.schedules.set(cron, { handler, cron })
     return () => {
       this.schedules.delete(cron)
     }
   }
 
-  at(date: string | Date): (handler: Function) => () => void {
+  at(date: string | Date): (handler: ScheduleHandler) => () => void {
     const self = this
-    return (handler: Function): (() => void) => {
+    return (handler: ScheduleHandler): (() => void) => {
       const isoDate = date instanceof Date ? date.toISOString() : date
       self.oneTimeSchedules.set(isoDate, { handler, date: isoDate })
       return () => {
@@ -863,11 +863,11 @@ class WorkflowContextImpl {
     }
   }
 
-  getSchedule(cron: string): { handler: Function } | undefined {
+  getSchedule(cron: string): { handler: ScheduleHandler } | undefined {
     return this.schedules.get(cron)
   }
 
-  getOneTimeSchedule(date: string): { handler: Function } | undefined {
+  getOneTimeSchedule(date: string): { handler: ScheduleHandler } | undefined {
     return this.oneTimeSchedules.get(date)
   }
 
@@ -1586,11 +1586,16 @@ class WorkflowContextImpl {
 // TYPE DEFINITIONS FOR DSL
 // ============================================================================
 
+/**
+ * ScheduleHandler - Typed handler for scheduled tasks
+ */
+type ScheduleHandler = () => void | Promise<void>
+
 interface TimeBuilder {
-  at9am: (handler: Function) => () => void
-  at5pm: (handler: Function) => () => void
-  at6am: (handler: Function) => () => void
-  at: (time: string) => (handler: Function) => () => void
+  at9am: (handler: ScheduleHandler) => () => void
+  at5pm: (handler: ScheduleHandler) => () => void
+  at6am: (handler: ScheduleHandler) => () => void
+  at: (time: string) => (handler: ScheduleHandler) => () => void
 }
 
 interface ScheduleBuilder {
@@ -1602,14 +1607,14 @@ interface ScheduleBuilder {
   Saturday: TimeBuilder
   Sunday: TimeBuilder
   day: TimeBuilder
-  hour: (handler: Function) => () => void
-  minute: (handler: Function) => () => void
+  hour: (handler: ScheduleHandler) => () => void
+  minute: (handler: ScheduleHandler) => () => void
 }
 
 interface IntervalBuilder {
-  minutes: (handler: Function) => () => void
-  hours: (handler: Function) => () => void
-  seconds: (handler: Function) => () => void
+  minutes: (handler: ScheduleHandler) => () => void
+  hours: (handler: ScheduleHandler) => () => void
+  seconds: (handler: ScheduleHandler) => () => void
 }
 
 // ============================================================================
@@ -1619,15 +1624,15 @@ interface IntervalBuilder {
 export interface WorkflowContext {
   // Event handlers
   on: Record<string, Record<string, (handler: EventHandler) => () => void>>
-  getRegisteredHandlers(eventKey: string): Function[]
-  matchHandlers(eventKey: string): Function[]
+  getRegisteredHandlers(eventKey: string): EventHandler[]
+  matchHandlers(eventKey: string): EventHandler[]
   dispatch(eventKey: string, data: unknown): Promise<void>
 
   // Scheduling
   every: ScheduleBuilder & ((n: number) => IntervalBuilder)
-  at(date: string | Date): (handler: Function) => () => void
-  getSchedule(cron: string): { handler: Function } | undefined
-  getOneTimeSchedule(date: string): { handler: Function } | undefined
+  at(date: string | Date): (handler: ScheduleHandler) => () => void
+  getSchedule(cron: string): { handler: ScheduleHandler } | undefined
+  getOneTimeSchedule(date: string): { handler: ScheduleHandler } | undefined
 
   // Execution
   send(event: string, data: unknown): string

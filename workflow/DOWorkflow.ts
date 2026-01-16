@@ -23,8 +23,24 @@ export interface DOWorkflowEnv extends DOStorageEnv {
 interface HandlerRegistration {
   id: string
   eventKey: string
+  handlerId: string
   registered: Date
+  /** Flag indicating handler needs re-registration after cold start */
+  needsReregistration: boolean
 }
+
+/**
+ * Handler factory function type - called on cold start to recreate handlers
+ * @param eventKey - The event key (e.g., "Customer.signup")
+ * @param handlerId - The unique handler ID
+ * @returns The handler function or null if handler should be removed
+ */
+export type HandlerFactory = (eventKey: string, handlerId: string) => EventHandler | null
+
+/**
+ * Event handler function type
+ */
+type EventHandler = (event: unknown) => void | Promise<void>
 
 interface ScheduleRegistration {
   cron: string
@@ -51,6 +67,23 @@ export class DOWorkflowClass extends DOStorageClass {
   protected handlers: Map<string, HandlerRegistration[]> = new Map()
   protected workflowSchedules: Map<string, ScheduleRegistration> = new Map()
   protected workflowActionLog: Map<string, { status: string; result?: unknown; error?: string }> = new Map()
+
+  /**
+   * Registry of handler factories for re-creating handlers on cold start.
+   * Key is the handler ID, value is the factory function.
+   */
+  private handlerFactories: Map<string, HandlerFactory> = new Map()
+
+  /**
+   * Map of active handler functions (recreated from factories on cold start)
+   * Key is the registration ID (eventKey:handlerId)
+   */
+  private activeHandlers: Map<string, EventHandler> = new Map()
+
+  /**
+   * Flag indicating if cold start recovery has been performed
+   */
+  private coldStartRecovered = false
 
   constructor(ctx: DurableObjectState, env: DOWorkflowEnv) {
     super(ctx, env as DOStorageEnv)
@@ -96,17 +129,20 @@ export class DOWorkflowClass extends DOStorageClass {
   }
 
   private loadWorkflowData(): void {
-    // Load handlers
+    // Load handlers - mark all as needing re-registration (cold start)
     const handlers = this.ctx.storage.sql
       .exec('SELECT * FROM event_handlers')
       .toArray()
 
     for (const row of handlers) {
       const eventKey = row.event_key as string
+      const handlerId = row.handler_id as string
       const registration: HandlerRegistration = {
         id: row.id as string,
         eventKey,
+        handlerId,
         registered: new Date(row.registered_at as number),
+        needsReregistration: true, // Mark for re-registration on cold start
       }
 
       const existing = this.handlers.get(eventKey) ?? []
@@ -172,16 +208,117 @@ export class DOWorkflowClass extends DOStorageClass {
   // =========================================================================
 
   /**
+   * Register a handler factory for recreating handlers on cold start.
+   * Call this method once during your subclass initialization to register
+   * a factory that can recreate handlers by their ID.
+   *
+   * @param factoryId - Unique ID for this factory (e.g., "my-workflow")
+   * @param factory - Function that returns a handler given eventKey and handlerId
+   *
+   * @example
+   * ```typescript
+   * class MyWorkflow extends DOWorkflowClass {
+   *   constructor(ctx, env) {
+   *     super(ctx, env)
+   *     this.registerHandlerFactory('my-workflow', (eventKey, handlerId) => {
+   *       if (handlerId === 'send-welcome-email') {
+   *         return (event) => this.sendWelcomeEmail(event)
+   *       }
+   *       return null
+   *     })
+   *     // Trigger re-registration of persisted handlers
+   *     this.recoverHandlers()
+   *   }
+   * }
+   * ```
+   */
+  registerHandlerFactory(factoryId: string, factory: HandlerFactory): void {
+    this.handlerFactories.set(factoryId, factory)
+  }
+
+  /**
+   * Remove a handler factory
+   */
+  unregisterHandlerFactory(factoryId: string): void {
+    this.handlerFactories.delete(factoryId)
+  }
+
+  /**
+   * Recover handlers after cold start by calling registered factories.
+   * This should be called by subclasses after registering their handler factories.
+   *
+   * @returns Number of handlers successfully recovered
+   */
+  recoverHandlers(): number {
+    if (this.coldStartRecovered) {
+      return 0 // Already recovered
+    }
+
+    let recoveredCount = 0
+
+    // Iterate through all registered handler metadata
+    for (const [eventKey, registrations] of this.handlers) {
+      for (const registration of registrations) {
+        if (!registration.needsReregistration) {
+          continue // Already active
+        }
+
+        // Try each factory to find one that can create this handler
+        for (const factory of this.handlerFactories.values()) {
+          const handler = factory(eventKey, registration.handlerId)
+          if (handler) {
+            // Found a factory that can create this handler
+            this.activateHandler(registration, handler)
+            recoveredCount++
+            break // Don't try other factories
+          }
+        }
+      }
+    }
+
+    this.coldStartRecovered = true
+    return recoveredCount
+  }
+
+  /**
+   * Activate a handler by registering it with the WorkflowContext
+   */
+  private activateHandler(registration: HandlerRegistration, handler: EventHandler): void {
+    const [noun, verb] = registration.eventKey.split('.')
+
+    // Register with WorkflowContext
+    this.$.on[noun][verb](handler)
+
+    // Store active handler reference
+    this.activeHandlers.set(registration.id, handler)
+
+    // Mark as no longer needing re-registration
+    registration.needsReregistration = false
+  }
+
+  /**
    * Register an event handler for workflow persistence
    * Returns the number of handlers registered for this event
    *
    * Note: Named registerWorkflowHandler to avoid conflicts with DOCore.registerHandler
+   *
+   * @param eventKey - Event key (e.g., "Customer.signup")
+   * @param handlerId - Unique ID for this handler (used for recovery)
+   * @param handler - Optional handler function. If not provided, handler must be
+   *                  recovered via a registered factory on cold start.
    */
-  registerWorkflowHandler(eventKey: string, handlerId: string): number {
+  registerWorkflowHandler(
+    eventKey: string,
+    handlerId: string,
+    handler?: EventHandler
+  ): number {
+    const registrationId = `${eventKey}:${handlerId}`
     const registration: HandlerRegistration = {
-      id: `${eventKey}:${handlerId}`,
+      id: registrationId,
       eventKey,
+      handlerId,
       registered: new Date(),
+      needsReregistration: !handler, // Needs re-registration if no handler provided
     }
 
     // Store in memory
@@ -199,12 +336,64 @@ export class DOWorkflowClass extends DOStorageClass {
       Date.now()
     )
 
-    // Also register with WorkflowContext
-    this.$.on[eventKey.split('.')[0]][eventKey.split('.')[1]](() => {
-      // Handler registered
-    })
+    // If handler provided, activate it immediately
+    if (handler) {
+      this.activateHandler(registration, handler)
+    }
 
     return existing.length
+  }
+
+  /**
+   * Unregister an event handler and remove from persistence
+   */
+  unregisterWorkflowHandler(eventKey: string, handlerId: string): boolean {
+    const registrationId = `${eventKey}:${handlerId}`
+
+    // Remove from memory
+    const registrations = this.handlers.get(eventKey)
+    if (registrations) {
+      const idx = registrations.findIndex((r) => r.id === registrationId)
+      if (idx >= 0) {
+        registrations.splice(idx, 1)
+        if (registrations.length === 0) {
+          this.handlers.delete(eventKey)
+        }
+      }
+    }
+
+    // Remove active handler
+    this.activeHandlers.delete(registrationId)
+
+    // Remove from SQLite
+    this.ctx.storage.sql.exec(
+      'DELETE FROM event_handlers WHERE id = ?',
+      registrationId
+    )
+
+    return true
+  }
+
+  /**
+   * Get handlers that need re-registration (for debugging/monitoring)
+   */
+  getPendingHandlers(): HandlerRegistration[] {
+    const pending: HandlerRegistration[] = []
+    for (const registrations of this.handlers.values()) {
+      for (const registration of registrations) {
+        if (registration.needsReregistration) {
+          pending.push(registration)
+        }
+      }
+    }
+    return pending
+  }
+
+  /**
+   * Check if cold start recovery has been performed
+   */
+  isColdStartRecovered(): boolean {
+    return this.coldStartRecovered
   }
 
   /**
@@ -214,6 +403,15 @@ export class DOWorkflowClass extends DOStorageClass {
     const handlers = this.handlers.get(eventKey)
     if (!handlers || handlers.length === 0) {
       return false
+    }
+
+    // Check for handlers that haven't been re-registered
+    const pendingHandlers = handlers.filter((h) => h.needsReregistration)
+    if (pendingHandlers.length > 0) {
+      console.warn(
+        `[DOWorkflow] ${pendingHandlers.length} handler(s) for ${eventKey} need re-registration. ` +
+        `Call recoverHandlers() after registering handler factories.`
+      )
     }
 
     // Dispatch via WorkflowContext

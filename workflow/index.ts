@@ -8,7 +8,12 @@
  */
 
 // Export DOWorkflow class and types
-export { DOWorkflowClass, DOWorkflowClass as DOWorkflow, type DOWorkflowEnv } from './DOWorkflow'
+export {
+  DOWorkflowClass,
+  DOWorkflowClass as DOWorkflow,
+  type DOWorkflowEnv,
+  type HandlerFactory,
+} from './DOWorkflow'
 
 // Export WorkflowContext types
 export {

@@ -1123,22 +1123,25 @@ describe('Cascade Execution', () => {
 
 // Minimal type stubs for tests - real implementation will be comprehensive
 declare module './workflow-context' {
+  type EventHandler = (event: any) => void | Promise<void>
+  type ScheduleHandler = () => void | Promise<void>
+
   export interface WorkflowContext {
     // Event handlers
     on: {
       [noun: string]: {
-        [verb: string]: (handler: (event: any) => void | Promise<void>) => () => void
+        [verb: string]: (handler: EventHandler) => () => void
       }
     }
-    getRegisteredHandlers(eventKey: string): Function[]
-    matchHandlers(eventKey: string): Function[]
+    getRegisteredHandlers(eventKey: string): EventHandler[]
+    matchHandlers(eventKey: string): EventHandler[]
     dispatch(eventKey: string, data: unknown): Promise<void>
 
     // Scheduling
     every: ScheduleBuilder & ((n: number) => IntervalBuilder)
-    at(date: string | Date): (handler: () => void) => () => void
-    getSchedule(cron: string): { handler: Function } | undefined
-    getOneTimeSchedule(date: string): { handler: Function } | undefined
+    at(date: string | Date): (handler: ScheduleHandler) => () => void
+    getSchedule(cron: string): { handler: ScheduleHandler } | undefined
+    getOneTimeSchedule(date: string): { handler: ScheduleHandler } | undefined
 
     // Execution
     send(event: string, data: unknown): string
@@ -1185,13 +1188,15 @@ declare module './workflow-context' {
     [method: string]: (...args: unknown[]) => Promise<any> & { [key: string]: any }
   }
 
-  interface CascadeOptions {
+  type CascadeTierHandler<T = unknown> = () => T | Promise<T> | { value: T; confidence: number } | Promise<{ value: T; confidence: number }>
+
+  interface CascadeOptions<T = unknown> {
     task: string
     tiers: {
-      code?: Function
-      generative?: Function
-      agentic?: Function
-      human?: Function
+      code?: CascadeTierHandler<T>
+      generative?: CascadeTierHandler<T>
+      agentic?: CascadeTierHandler<T>
+      human?: CascadeTierHandler<T>
     }
     confidenceThreshold?: number
     skipAutomation?: boolean
