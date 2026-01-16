@@ -16,6 +16,17 @@ import { createWorkflowContext, type WorkflowContext, type CascadeOptions, type 
 // Types
 // ============================================================================
 
+/**
+ * DOWorkflowEnv extends DOStorageEnv with workflow-specific bindings.
+ *
+ * Note: The interface extension causes strict type conflicts with DurableObjectNamespace<T>
+ * because TypeScript checks that DurableObjectStub<DOWorkflowClass> is assignable to
+ * DurableObjectStub<DOStorageClass>, which fails due to RPC type inference.
+ *
+ * This is a known limitation of Cloudflare's DO type system when using inheritance.
+ * The workaround uses @ts-expect-error to suppress the expected extension error.
+ */
+// @ts-expect-error - Intentional: DOWorkflowClass extends DOStorageClass, but TS can't verify DurableObjectNamespace covariance
 export interface DOWorkflowEnv extends DOStorageEnv {
   DOWorkflow: DurableObjectNamespace<DOWorkflowClass>
 }
@@ -86,7 +97,7 @@ export class DOWorkflowClass extends DOStorageClass {
   private coldStartRecovered = false
 
   constructor(ctx: DurableObjectState, env: DOWorkflowEnv) {
-    super(ctx, env as DOStorageEnv)
+    super(ctx, env as unknown as DOStorageEnv)
 
     // Initialize workflow tables
     this.ctx.storage.sql.exec(`

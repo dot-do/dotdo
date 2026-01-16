@@ -5,6 +5,14 @@
  * - Schema definitions via $schemas namespace for introspection
  * - Introspection methods via $meta namespace
  * - Function CRUD operations via functions namespace
+ * - WebSocket hibernation support for RPC connections (via / or /rpc endpoints)
+ *
+ * WebSocket Protocol:
+ * - Connect to / or /rpc with Upgrade: websocket header
+ * - Receive: {"type": "connected", "clientId": "uuid", "timestamp": 123}
+ * - Send: {"type": "call", "id": "uuid", "method": "functions.list", "args": []}
+ * - Receive: {"type": "return", "id": "uuid", "value": [...]}
+ * - Or error: {"type": "error", "id": "uuid", "error": "...", "code": "..."}
  *
  * Methods exposed via $schemas namespace:
  * - $schemas.list() - returns array of all schema names
@@ -63,6 +71,10 @@ import type {
   Function as FunctionRecord,
   NewFunction,
 } from './db'
+import type {
+  ReturnMessage,
+  ErrorMessage,
+} from '../../rpc/broker-protocol'
 
 // ============================================================================
 // CORS Support
@@ -187,6 +199,51 @@ export interface ListFunctionsOptions {
   type?: FunctionType
   limit?: number
   offset?: number
+}
+
+// ============================================================================
+// WebSocket RPC Types (local to AdminDO, no target routing)
+// ============================================================================
+
+/**
+ * Local RPC call message (no target - AdminDO handles it locally)
+ * Compatible with broker-protocol but without target field
+ */
+export interface LocalCallMessage {
+  /** Unique message ID for request/response correlation */
+  id: string
+  /** Message type discriminator */
+  type: 'call'
+  /** Method name to invoke (e.g., "functions.list", "schemas.get") */
+  method: string
+  /** Arguments to pass to the method */
+  args: unknown[]
+}
+
+/**
+ * Type guard for LocalCallMessage
+ */
+function isLocalCallMessage(msg: unknown): msg is LocalCallMessage {
+  if (typeof msg !== 'object' || msg === null) {
+    return false
+  }
+  const m = msg as Record<string, unknown>
+  return (
+    m.type === 'call' &&
+    typeof m.id === 'string' &&
+    typeof m.method === 'string' &&
+    Array.isArray(m.args)
+  )
+}
+
+/**
+ * In-flight request tracking entry for hibernation recovery
+ */
+interface InFlightRequest {
+  clientId: string
+  method: string
+  args: string // JSON-serialized
+  startedAt: number
 }
 
 // ============================================================================
@@ -822,6 +879,20 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
       CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name)
     `)
 
+    // Initialize in-flight requests table for WebSocket hibernation recovery
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS rpc_in_flight (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        method TEXT NOT NULL,
+        args TEXT NOT NULL,
+        started_at INTEGER NOT NULL
+      )
+    `)
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rpc_in_flight_client ON rpc_in_flight(client_id)
+    `)
+
     // Initialize accessors
     this.schemasAccessor = new SchemasAccessor()
     this.metaAccessor = new MetaAccessor()
@@ -1039,8 +1110,8 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
       return c.json({ status: 'healthy', service: 'AdminDO' })
     })
 
-    // RPC endpoint - handles method calls dispatched to accessors
-    this.app.post('/rpc', async (c) => {
+    // RPC handler function - shared by /rpc and / endpoints
+    const rpcHandler = async (c: import('hono').Context): Promise<Response> => {
       let body: { method: string; args?: unknown[] }
       try {
         body = await c.req.json()
@@ -1063,69 +1134,22 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
           return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Method is required' } }, 400)
         }
 
-        // Parse method path (e.g., "functions.list", "schemas.nouns", "drizzle.nouns.list")
-        const parts = method.split('.')
-
-        // Route to appropriate accessor
-        let result: unknown
-
-        if (parts[0] === 'functions' && parts.length === 2) {
-          // Handle functions.* methods
-          const fnMethod = parts[1] as keyof FunctionsAccessor
-          if (typeof this.functionsAccessor[fnMethod] === 'function') {
-            result = await (this.functionsAccessor[fnMethod] as (...args: unknown[]) => Promise<unknown>)(...args)
-          } else {
-            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
-          }
-        } else if (parts[0] === 'schemas' || parts[0] === '$schemas') {
-          // Handle schemas.* methods
-          const schemaMethod = parts[1] as keyof SchemasAccessor
-          if (typeof this.schemasAccessor[schemaMethod] === 'function') {
-            result = (this.schemasAccessor[schemaMethod] as (...args: unknown[]) => unknown)(...args)
-          } else {
-            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
-          }
-        } else if (parts[0] === 'meta' || parts[0] === '$meta') {
-          // Handle meta.* methods
-          const metaMethod = parts[1] as keyof MetaAccessor
-          if (typeof this.metaAccessor[metaMethod] === 'function') {
-            result = (this.metaAccessor[metaMethod] as (...args: unknown[]) => unknown)(...args)
-          } else {
-            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
-          }
-        } else if (parts[0] === 'drizzle' && parts.length === 3) {
-          // Handle drizzle.<table>.<method> calls
-          const tableName = parts[1] as keyof DrizzleRPC
-          const tableMethod = parts[2]
-
-          const drizzleTable = this.drizzle[tableName]
-          if (!drizzleTable) {
-            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Table '${tableName}' not found` } }, 404)
-          }
-
-          const methodFn = (drizzleTable as Record<string, unknown>)[tableMethod]
-          if (typeof methodFn === 'function') {
-            result = methodFn(...args)
-          } else {
-            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
-          }
-        } else {
-          // Handle top-level methods
-          const topMethod = parts[0] as keyof AdminDO
-          if (typeof (this as unknown as Record<string, unknown>)[topMethod] === 'function') {
-            result = await ((this as unknown as Record<string, (...args: unknown[]) => unknown>)[topMethod] as (...args: unknown[]) => unknown)(...args)
-          } else {
-            return c.json({ error: { code: 'METHOD_NOT_FOUND', message: `Method '${method}' not found` } }, 404)
-          }
-        }
-
+        const result = await this.executeMethod(method, args)
         return c.json({ result })
       } catch (error) {
-        return c.json({
-          error: sanitizeError(error),
-        }, 500)
+        // Check if it's a method not found error
+        if (error instanceof Error && error.message.includes('not found')) {
+          return c.json({ error: sanitizeError(error) }, 404)
+        }
+        return c.json({ error: sanitizeError(error) }, 500)
       }
-    })
+    }
+
+    // RPC endpoint - handles method calls via dynamic reflection
+    this.app.post('/rpc', rpcHandler)
+
+    // POST / as an alias for /rpc
+    this.app.post('/', rpcHandler)
 
     // List all schemas
     this.app.get('/schemas', (c) => {
@@ -1272,9 +1296,200 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
       return preflightResponse(origin)
     }
 
+    // Check for WebSocket upgrade on / or /rpc
+    const url = new URL(request.url)
+    const upgradeHeader = request.headers.get('Upgrade')
+
+    if (upgradeHeader === 'websocket' && (url.pathname === '/' || url.pathname === '/rpc')) {
+      return this.handleWebSocketUpgrade()
+    }
+
     // Process the request through Hono and apply CORS headers to response
     const response = await this.app.fetch(request)
     return withCors(response, origin)
+  }
+
+  /**
+   * Handle WebSocket upgrade request for RPC connections
+   * Uses Cloudflare's hibernatable WebSocket API for cost efficiency
+   */
+  private handleWebSocketUpgrade(): Response {
+    // Create WebSocket pair
+    const [client, server] = Object.values(new WebSocketPair())
+
+    // Generate client ID for tracking
+    const clientId = crypto.randomUUID()
+
+    // Accept the WebSocket with hibernation support and tag with client ID
+    this.ctx.acceptWebSocket(server, [`client:${clientId}`])
+
+    // Send connected acknowledgment
+    server.send(
+      JSON.stringify({
+        type: 'connected',
+        clientId,
+        timestamp: Date.now(),
+      })
+    )
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    })
+  }
+
+  // =========================================================================
+  // WebSocket Hibernation Handlers (called by Cloudflare runtime)
+  // =========================================================================
+
+  /**
+   * Handle incoming WebSocket messages.
+   * Called by Cloudflare runtime for hibernatable WebSockets.
+   */
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    // Parse the message
+    let parsed: unknown
+    try {
+      const messageStr = typeof message === 'string' ? message : new TextDecoder().decode(message)
+      parsed = JSON.parse(messageStr)
+    } catch {
+      this.sendWsError(ws, {
+        id: 'parse_error',
+        error: 'Failed to parse message as JSON',
+        code: 'PARSE_ERROR',
+      })
+      return
+    }
+
+    // Route based on message type
+    if (isLocalCallMessage(parsed)) {
+      await this.handleWsCallMessage(ws, parsed)
+    } else {
+      // Unknown message type
+      const msg = parsed as { id?: string; type?: string }
+      this.sendWsError(ws, {
+        id: msg.id ?? 'unknown',
+        error: `Unknown or invalid message type: ${msg.type}`,
+        code: 'INVALID_MESSAGE_TYPE',
+      })
+    }
+  }
+
+  /**
+   * Handle WebSocket close event.
+   * Called when a client disconnects.
+   */
+  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+    // Get client ID from WebSocket tags
+    const clientId = this.getClientIdFromWebSocket(ws)
+    if (clientId) {
+      // Clean up any in-flight requests for this client
+      this.ctx.storage.sql.exec(
+        'DELETE FROM rpc_in_flight WHERE client_id = ?',
+        clientId
+      )
+    }
+    // Cleanup is handled automatically by Cloudflare runtime
+  }
+
+  /**
+   * Handle WebSocket error event.
+   */
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    // Log error but don't crash
+    console.error('[AdminDO] WebSocket error:', error)
+  }
+
+  // =========================================================================
+  // WebSocket Helper Methods
+  // =========================================================================
+
+  /**
+   * Handle a single RPC call message from WebSocket
+   */
+  private async handleWsCallMessage(ws: WebSocket, call: LocalCallMessage): Promise<void> {
+    // Get client ID from WebSocket tags for hibernation tracking
+    const clientId = this.getClientIdFromWebSocket(ws)
+
+    // Persist in-flight request before processing
+    if (clientId) {
+      this.persistInFlight(call.id, clientId, call.method, call.args)
+    }
+
+    try {
+      // Use the existing executeMethod for RPC routing
+      const result = await this.executeMethod(call.method, call.args)
+      const response: ReturnMessage = {
+        id: call.id,
+        type: 'return',
+        value: result,
+      }
+      ws.send(JSON.stringify(response))
+    } catch (err) {
+      const error = sanitizeError(err)
+      const response: ErrorMessage = {
+        id: call.id,
+        type: 'error',
+        error: error.message,
+        code: error.code,
+      }
+      ws.send(JSON.stringify(response))
+    } finally {
+      // Always clear in-flight request after response
+      this.clearInFlight(call.id)
+    }
+  }
+
+  /**
+   * Get the client ID from a WebSocket's tags
+   */
+  private getClientIdFromWebSocket(ws: WebSocket): string | undefined {
+    const tags = this.ctx.getTags(ws)
+    const clientTag = tags.find((t) => t.startsWith('client:'))
+    return clientTag
+  }
+
+  /**
+   * Persist an in-flight request to SQLite before processing
+   */
+  private persistInFlight(id: string, clientId: string, method: string, args: unknown[]): void {
+    const startedAt = Date.now()
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO rpc_in_flight (id, client_id, method, args, started_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      id,
+      clientId,
+      method,
+      JSON.stringify(args),
+      startedAt
+    )
+  }
+
+  /**
+   * Clear an in-flight request from SQLite after response
+   */
+  private clearInFlight(id: string): void {
+    this.ctx.storage.sql.exec('DELETE FROM rpc_in_flight WHERE id = ?', id)
+  }
+
+  /**
+   * Send an error message to a WebSocket client
+   */
+  private sendWsError(ws: WebSocket, error: { id: string; error: string; code: string }): void {
+    const errorMsg: ErrorMessage = {
+      id: error.id,
+      type: 'error',
+      error: error.error,
+      code: error.code,
+    }
+    ws.send(JSON.stringify(errorMsg))
+  }
+
+  /**
+   * Get all connected WebSocket clients
+   */
+  protected getConnectedClients(tag?: string): WebSocket[] {
+    return this.ctx.getWebSockets(tag)
   }
 
   // =========================================================================
@@ -1311,5 +1526,149 @@ export class AdminDO extends DurableObject<AdminDOEnv> {
    */
   ping(): string {
     return 'pong'
+  }
+
+  // =========================================================================
+  // Dynamic Method Resolution
+  // =========================================================================
+
+  /**
+   * Execute a method by its dot-separated path
+   *
+   * Supports:
+   * - Top-level methods: "ping", "listSchemas", "getSchema", etc.
+   * - Accessor methods: "functions.list", "$schemas.get", "$meta.version", etc.
+   * - Nested accessors: "drizzle.nouns.list", "drizzle.verbs.count", etc.
+   *
+   * @param method - Dot-separated method path (e.g., "functions.list", "drizzle.nouns.get")
+   * @param args - Arguments to pass to the method
+   * @returns The result of the method call
+   * @throws Error if method is not found
+   */
+  async executeMethod(method: string, args: unknown[]): Promise<unknown> {
+    const parts = method.split('.')
+
+    // Navigate through the object to find the target
+    let target: unknown = this
+    for (let i = 0; i < parts.length - 1; i++) {
+      const prop = parts[i]
+
+      // Try the property directly, then with $ prefix for accessors like $schemas, $meta
+      let value = (target as Record<string, unknown>)[prop]
+      if (value === undefined && !prop.startsWith('$')) {
+        // Try with $ prefix (e.g., "schemas" -> "$schemas", "meta" -> "$meta")
+        value = (target as Record<string, unknown>)[`$${prop}`]
+      }
+
+      if (value === undefined) {
+        throw new Error(`Property '${parts.slice(0, i + 1).join('.')}' not found`)
+      }
+
+      target = value
+    }
+
+    // Get the final method
+    const methodName = parts[parts.length - 1]
+    const fn = (target as Record<string, unknown>)[methodName]
+
+    if (typeof fn !== 'function') {
+      throw new Error(`Method '${method}' not found`)
+    }
+
+    // Call the method with proper binding
+    const result = (fn as (...args: unknown[]) => unknown).apply(target, args)
+
+    // Handle both sync and async methods
+    return result instanceof Promise ? await result : result
+  }
+
+  /**
+   * List all available methods for introspection
+   *
+   * Returns a structured list of all callable methods on this DO,
+   * organized by namespace.
+   *
+   * @returns Array of method definitions with name and type
+   */
+  listAvailableMethods(): { namespace: string; methods: string[] }[] {
+    const result: { namespace: string; methods: string[] }[] = []
+
+    // Top-level methods on AdminDO
+    const topLevelMethods: string[] = []
+    const prototype = Object.getPrototypeOf(this)
+    const ownProps = Object.getOwnPropertyNames(prototype)
+    for (const prop of ownProps) {
+      // Skip constructor, private methods, and accessors
+      if (prop === 'constructor' || prop.startsWith('_') || prop === 'fetch') continue
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, prop)
+      if (descriptor && typeof descriptor.value === 'function') {
+        topLevelMethods.push(prop)
+      }
+    }
+    if (topLevelMethods.length > 0) {
+      result.push({ namespace: '', methods: topLevelMethods.sort() })
+    }
+
+    // $schemas accessor methods
+    result.push({
+      namespace: '$schemas',
+      methods: this.getMethodsFromObject(this.$schemas),
+    })
+
+    // $meta accessor methods
+    result.push({
+      namespace: '$meta',
+      methods: this.getMethodsFromObject(this.$meta),
+    })
+
+    // functions accessor methods
+    result.push({
+      namespace: 'functions',
+      methods: this.getMethodsFromObject(this.functions),
+    })
+
+    // drizzle accessor (nested structure)
+    const drizzleNamespaces = ['nouns', 'verbs', 'actions', 'relationships', 'functions'] as const
+    for (const table of drizzleNamespaces) {
+      const accessor = this.drizzle[table]
+      result.push({
+        namespace: `drizzle.${table}`,
+        methods: this.getMethodsFromObject(accessor),
+      })
+    }
+
+    return result
+  }
+
+  /**
+   * Helper to extract method names from an object
+   */
+  private getMethodsFromObject(obj: unknown): string[] {
+    if (!obj || typeof obj !== 'object') return []
+
+    const methods: string[] = []
+
+    // Check own properties
+    for (const key of Object.keys(obj)) {
+      if (typeof (obj as Record<string, unknown>)[key] === 'function') {
+        methods.push(key)
+      }
+    }
+
+    // Check prototype methods
+    const prototype = Object.getPrototypeOf(obj)
+    if (prototype && prototype !== Object.prototype) {
+      for (const key of Object.getOwnPropertyNames(prototype)) {
+        if (key === 'constructor') continue
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (descriptor && typeof descriptor.value === 'function') {
+          if (!methods.includes(key)) {
+            methods.push(key)
+          }
+        }
+      }
+    }
+
+    return methods.filter(m => !m.startsWith('_')).sort()
   }
 }
