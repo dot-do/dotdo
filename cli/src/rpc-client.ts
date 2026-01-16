@@ -274,54 +274,10 @@ export class RpcClient extends EventEmitter {
    * @returns Evaluation result with success/value/error/logs
    */
   async evaluate(code: string): Promise<EvaluateResult> {
-    if (this.state !== 'connected' || !this.ws) {
-      throw new Error('Not connected')
-    }
-
-    const ws = this.ws
-    const id = this.generateId()
-
-    const message: RpcMessage = {
-      id,
-      type: 'call',
-      path: ['evaluate'],
-      args: [code],
-    }
-
-    // Initialize streaming state for this call (to track logs even without explicit streaming)
-    this.streamingState.set(id, { logs: [] })
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.streamingState.delete(id)
-        this.pendingCalls.delete(id)
-        reject(new Error('RPC call timeout: evaluate'))
-      }, this.options.timeout)
-
-      this.pendingCalls.set(id, {
-        resolve: (value) => {
-          const streamedLogs = this.streamingState.get(id)?.logs ?? []
-          this.streamingState.delete(id)
-
-          // Emit evaluate:complete event
-          this.emit('evaluate:complete', {
-            correlationId: id,
-            streamedLogs,
-            result: value as EvaluateResult,
-          })
-
-          resolve(value as EvaluateResult)
-        },
-        reject: (error) => {
-          this.streamingState.delete(id)
-          reject(error)
-        },
-        timeout,
-      })
-
-      this.log('Sending:', message)
-      ws.send(JSON.stringify(message))
-    })
+    // Use the standard call method for RPC
+    // This ensures consistent behavior and allows proper mocking in tests
+    const result = (await this.call(['evaluate'], [code])) as EvaluateResult
+    return result
   }
 
   /**
