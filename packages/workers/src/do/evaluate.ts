@@ -52,8 +52,45 @@ export interface EvaluateResult<T = unknown> {
  * ```
  */
 export async function evaluate<T = unknown>(
-  _code: string,
-  _options: EvaluateOptions
+  code: string,
+  options: EvaluateOptions
 ): Promise<EvaluateResult<T>> {
-  throw new Error('evaluate not implemented yet')
+  const { context, globals = {}, timeout } = options
+
+  const startTime = performance.now()
+
+  // Build the function arguments
+  const argNames = ['$', ...Object.keys(globals)]
+  const argValues = [context, ...Object.values(globals)]
+
+  // Wrap code in async function
+  const wrappedCode = `
+    return (async function() {
+      ${code}
+    })()
+  `
+
+  // Create the function
+  const fn = new Function(...argNames, wrappedCode)
+
+  // Execute with optional timeout
+  let value: T
+  if (timeout) {
+    const result = await Promise.race([
+      fn(...argValues) as Promise<T>,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Evaluation timeout')), timeout)
+      ),
+    ])
+    value = result
+  } else {
+    value = await fn(...argValues)
+  }
+
+  const duration = performance.now() - startTime
+
+  return {
+    value,
+    duration,
+  }
 }

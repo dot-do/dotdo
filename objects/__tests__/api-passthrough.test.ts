@@ -779,10 +779,11 @@ describe('[RED] CORS Headers', () => {
    */
 
   it('should return CORS headers on preflight OPTIONS request', async () => {
+    // Use a valid development origin from the allowed list
     const request = createRequest('cors-test.api.dotdo.dev', '/api/data', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'http://localhost:3000',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Content-Type, Authorization',
       },
@@ -799,9 +800,10 @@ describe('[RED] CORS Headers', () => {
   })
 
   it('should return Access-Control-Allow-Origin on normal requests', async () => {
+    // Use a valid development origin from the allowed list
     const request = createRequest('cors-normal.api.dotdo.dev', '/api/health', {
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'http://localhost:3000',
       },
     })
 
@@ -813,10 +815,11 @@ describe('[RED] CORS Headers', () => {
   })
 
   it('should allow credentials in CORS responses', async () => {
+    // Use a valid development origin from the allowed list
     const request = createRequest('cors-credentials.api.dotdo.dev', '/api/auth', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'http://localhost:3000',
         'Access-Control-Request-Method': 'POST',
       },
     })

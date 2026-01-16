@@ -1,0 +1,59 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "./objects/index.ts",
+    "./rpc/index.ts",
+    "./types/index.ts",
+    "./workflow/index.ts",
+    "./storage/index.ts",
+    "./ai/index.ts",
+    "./semantic/index.ts",
+    "./streaming/index.ts"
+  ],
+  "out": "docs/api",
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/tests/**",
+    "**/examples/**",
+    "**/app/**",
+    "**/cli/**"
+  ],
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "readme": "README.md",
+  "name": "dotdo API Documentation",
+  "includeVersion": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/dot-do/dotdo",
+    "Documentation": "https://dotdo.dev/docs"
+  },
+  "categorizeByGroup": true,
+  "categoryOrder": [
+    "Core",
+    "RPC",
+    "Types",
+    "Workflow",
+    "Storage",
+    "AI",
+    "Semantic",
+    "Streaming",
+    "*"
+  ],
+  "sort": [
+    "source-order",
+    "alphabetical"
+  ],
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": false
+  },
+  "plugin": [],
+  "skipErrorChecking": true
+}

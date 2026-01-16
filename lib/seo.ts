@@ -32,6 +32,8 @@
  * @module lib/seo
  */
 
+import { emitDeprecationWarning } from './deprecation'
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -332,6 +334,7 @@ export function truncateText(
  * @deprecated Use truncateText instead
  */
 function truncateDescription(description: string, maxLength = 160): string {
+  emitDeprecationWarning('truncateDescription', 'truncateText')
   return truncateText(description, maxLength)
 }
 

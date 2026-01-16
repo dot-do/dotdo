@@ -210,10 +210,11 @@ describe('errorHandler integration', () => {
   let app: Hono
 
   beforeEach(async () => {
-    const { errorHandler, BadRequestError, NotFoundError } = await import('../src/error/index')
+    const { onErrorHandler, BadRequestError, NotFoundError } = await import('../src/error/index')
 
     app = new Hono()
-    app.use('*', errorHandler)
+    // In Hono, errors are handled via app.onError(), not middleware
+    app.onError(onErrorHandler)
 
     app.get('/error/bad-request', () => {
       throw new BadRequestError('Invalid input')

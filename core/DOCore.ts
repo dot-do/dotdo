@@ -53,6 +53,11 @@ import {
 import { validatePath } from '../lib/validation'
 import { emitDeprecationWarning } from '../lib/deprecation'
 import type { ThingData } from '../types'
+import {
+  MigrationRunner,
+  type MigrationResult,
+  type PendingMigration,
+} from '../db/migrations'
 
 // ============================================================================
 // Import extracted modules
@@ -235,6 +240,32 @@ export class DOCore extends DurableObject<DOCoreEnv> {
       : new NounAccessor(this, noun)
   }
 
+  /**
+   * Dynamic noun accessor - ergonomic alias for getNounAccessor()
+   *
+   * This is the preferred method for accessing arbitrary noun types via RPC.
+   * It works with any PascalCase noun name without requiring code changes.
+   *
+   * @example
+   * ```typescript
+   * // Create a new thing
+   * const vehicle = await doInstance.noun('Vehicle').create({ make: 'Tesla' })
+   *
+   * // Access an existing thing by ID
+   * const updated = await doInstance.noun('Vehicle', vehicle.$id).update({ color: 'red' })
+   *
+   * // List all things of a type
+   * const vehicles = await doInstance.noun('Vehicle').list()
+   * ```
+   *
+   * @param nounType The noun type (e.g., 'Customer', 'Vehicle', 'BlogPost')
+   * @param id Optional ID for instance access
+   * @returns NounAccessor (if no id) or NounInstanceAccessor (if id provided)
+   */
+  noun(nounType: string, id?: string): NounAccessor | NounInstanceAccessor {
+    return this.getNounAccessor(nounType, id)
+  }
+
   // Standard noun accessor methods - use factory pattern
   Customer(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Customer', id) }
   Order(id?: string): NounAccessor | NounInstanceAccessor { return this.getNounAccessor('Order', id) }
@@ -262,49 +293,13 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   constructor(ctx: DurableObjectState, env: DOCoreEnv) {
     super(ctx, env)
 
-    // Initialize SQLite table synchronously
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS state (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )
-    `)
-
-    // Initialize things table
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS things (
-        id TEXT PRIMARY KEY,
-        type TEXT,
-        data TEXT,
-        created_at INTEGER,
-        updated_at INTEGER,
-        version INTEGER DEFAULT 1
-      )
-    `)
-
-    this.ctx.storage.sql.exec(`
-      CREATE INDEX IF NOT EXISTS idx_things_type ON things(type)
-    `)
-
-    // Initialize schedules table
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS schedules (
-        cron TEXT PRIMARY KEY,
-        handler_id TEXT,
-        registered_at INTEGER
-      )
-    `)
-
-    // Initialize action_log table
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS action_log (
-        step_id TEXT PRIMARY KEY,
-        status TEXT,
-        result TEXT,
-        error TEXT,
-        created_at INTEGER
-      )
-    `)
+    // Run schema migrations (versioned, idempotent)
+    // This replaces inline CREATE TABLE statements with tracked migrations
+    const runner = new MigrationRunner(this.ctx.storage.sql)
+    const migrationResult = runner.migrate()
+    if (!migrationResult.success) {
+      console.error('[DOCore] Migration failed:', migrationResult.error)
+    }
 
     this.app = this.createApp()
 
@@ -853,6 +848,296 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   // RPC METHODS
   // =========================================================================
 
+  // =========================================================================
+  // EVALUATE RPC HANDLER
+  // =========================================================================
+
+  /**
+   * Options for the evaluate RPC call
+   */
+  private static DEFAULT_TIMEOUT = 5000
+
+  /**
+   * Result structure returned from evaluate RPC handler
+   */
+  private formatError(error: unknown): { message: string; name?: string; stack?: string } {
+    if (error instanceof Error) {
+      // Sanitize stack to remove internal paths
+      let stack = error.stack
+      if (stack) {
+        stack = stack.split('\n')
+          .filter(line => !line.includes('node_modules'))
+          .join('\n')
+      }
+      return {
+        message: error.message,
+        name: error.name,
+        stack,
+      }
+    }
+    if (typeof error === 'string') {
+      return { message: error }
+    }
+    if (typeof error === 'number') {
+      return { message: String(error) }
+    }
+    if (error && typeof error === 'object') {
+      return { message: JSON.stringify(error) }
+    }
+    return { message: String(error) }
+  }
+
+  /**
+   * Evaluate code in a sandboxed environment with the DO instance as workflow context ($)
+   *
+   * Architecture:
+   * - CLI sends code string via RPC
+   * - DO runs code with $ = this (DO instance)
+   * - Results include { success, value, error, logs, duration }
+   *
+   * Key invariants:
+   * 1. $ === this inside the sandbox (DO instance is the context)
+   * 2. Flat namespace: globalThis.Customer === $.Customer
+   * 3. Logs are captured and returned in result
+   * 4. Errors are properly formatted and returned
+   * 5. Timeouts are enforced (configurable)
+   *
+   * @param code The code to evaluate
+   * @param options Evaluation options (timeout, captureLogs)
+   * @returns EvaluateResult with success, value, error, logs, duration
+   */
+  async evaluate(
+    code: string,
+    options?: { timeout?: number; captureLogs?: boolean }
+  ): Promise<{
+    success: boolean
+    value?: unknown
+    error?: { message: string; name?: string; stack?: string }
+    logs: string[]
+    duration: number
+  }> {
+    const start = Date.now()
+    const timeout = options?.timeout ?? DOCore.DEFAULT_TIMEOUT
+    const captureLogs = options?.captureLogs !== false
+    const logs: string[] = []
+
+    // Create console interceptors for log capture
+    const createConsoleInterceptor = () => {
+      return {
+        log: (...args: unknown[]) => {
+          if (captureLogs) {
+            logs.push(args.map(arg =>
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' '))
+          }
+        },
+        warn: (...args: unknown[]) => {
+          if (captureLogs) {
+            logs.push('[WARN] ' + args.map(arg =>
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' '))
+          }
+        },
+        error: (...args: unknown[]) => {
+          if (captureLogs) {
+            logs.push('[ERROR] ' + args.map(arg =>
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' '))
+          }
+        },
+        info: (...args: unknown[]) => {
+          if (captureLogs) {
+            logs.push(args.map(arg =>
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' '))
+          }
+        },
+        debug: (...args: unknown[]) => {
+          if (captureLogs) {
+            logs.push(args.map(arg =>
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' '))
+          }
+        },
+      }
+    }
+
+    // Create noun accessor factory for flat namespace
+    const createNounFactory = (noun: string) => {
+      return (id?: string) => this.getNounAccessor(noun, id)
+    }
+
+    try {
+      // Build the sandbox globals
+      const sandboxConsole = createConsoleInterceptor()
+      const $ = this
+
+      // Create flat namespace globals
+      const Customer = createNounFactory('Customer')
+      const Order = createNounFactory('Order')
+      const Product = createNounFactory('Product')
+      const Payment = createNounFactory('Payment')
+      const Invoice = createNounFactory('Invoice')
+      const User = createNounFactory('User')
+      const Item = createNounFactory('Item')
+
+      // Bind send and other context methods
+      const send = this.send.bind(this)
+      const on = this.on
+      const every = this.every
+
+      // Handle empty or whitespace-only code
+      const trimmedCode = code.trim()
+      if (!trimmedCode) {
+        return {
+          success: true,
+          value: undefined,
+          logs,
+          duration: Date.now() - start,
+        }
+      }
+
+      // Wrap code in an async function for execution
+      // The code is expected to use 'return' statements for values
+      const wrappedCode = `
+        return (async () => {
+          ${trimmedCode}
+        })()
+      `
+
+      // Create the function with sandbox globals
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const fn = new Function(
+        'console',
+        '$',
+        'Customer',
+        'Order',
+        'Product',
+        'Payment',
+        'Invoice',
+        'User',
+        'Item',
+        'send',
+        'on',
+        'every',
+        'globalThis',
+        wrappedCode
+      )
+
+      // Create a sandboxed globalThis with our globals
+      const sandboxGlobalThis = {
+        $,
+        Customer,
+        Order,
+        Product,
+        Payment,
+        Invoice,
+        User,
+        Item,
+        send,
+        on,
+        every,
+        console: sandboxConsole,
+        // Block dangerous globals
+        process: undefined,
+        require: undefined,
+        // Allow basic JS globals
+        Promise,
+        Array,
+        Object,
+        String,
+        Number,
+        Boolean,
+        Date,
+        Math,
+        JSON,
+        Map,
+        Set,
+        RegExp,
+        Error,
+        TypeError,
+        ReferenceError,
+        SyntaxError,
+        setTimeout,
+        clearTimeout,
+        setInterval,
+        clearInterval,
+      }
+
+      // Execute with timeout
+      const executeWithTimeout = async (): Promise<unknown> => {
+        return new Promise((resolve, reject) => {
+          let timeoutId: ReturnType<typeof setTimeout> | undefined
+          let settled = false
+
+          const settle = (fn: () => void) => {
+            if (!settled) {
+              settled = true
+              if (timeoutId) clearTimeout(timeoutId)
+              fn()
+            }
+          }
+
+          // Set timeout
+          timeoutId = setTimeout(() => {
+            settle(() => reject(new Error('Execution timeout exceeded')))
+          }, timeout)
+
+          // Execute the code
+          try {
+            const result = fn(
+              sandboxConsole,
+              $,
+              Customer,
+              Order,
+              Product,
+              Payment,
+              Invoice,
+              User,
+              Item,
+              send,
+              on,
+              every,
+              sandboxGlobalThis
+            )
+
+            // Handle promise results
+            if (result && typeof result.then === 'function') {
+              result.then(
+                (value: unknown) => settle(() => resolve(value)),
+                (error: unknown) => settle(() => reject(error))
+              )
+            } else {
+              settle(() => resolve(result))
+            }
+          } catch (error) {
+            settle(() => reject(error))
+          }
+        })
+      }
+
+      const value = await executeWithTimeout()
+
+      return {
+        success: true,
+        value,
+        logs,
+        duration: Date.now() - start,
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: this.formatError(error),
+        logs,
+        duration: Date.now() - start,
+      }
+    }
+  }
+
+  // =========================================================================
+  // RPC METHODS
+  // =========================================================================
+
   /**
    * Simple RPC ping method to verify the DO is responsive
    */
@@ -879,6 +1164,38 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   throwError(): never {
     throw new Error('Intentional error for testing')
+  }
+
+  // =========================================================================
+  // SCHEMA MIGRATION METHODS (RPC)
+  // =========================================================================
+
+  /**
+   * Get the current schema migration version
+   * @returns The current version number (0 if no migrations applied)
+   */
+  getMigrationVersion(): number {
+    const runner = new MigrationRunner(this.ctx.storage.sql)
+    return runner.getCurrentVersion()
+  }
+
+  /**
+   * Get list of migrations that haven't been applied yet
+   * @returns Array of pending migration info
+   */
+  getPendingMigrations(): PendingMigration[] {
+    const runner = new MigrationRunner(this.ctx.storage.sql)
+    return runner.getPendingMigrations()
+  }
+
+  /**
+   * Run all pending schema migrations (or up to target version)
+   * @param targetVersion Optional maximum version to migrate to
+   * @returns Migration result with details
+   */
+  runMigrations(targetVersion?: number): MigrationResult {
+    const runner = new MigrationRunner(this.ctx.storage.sql)
+    return runner.migrate(targetVersion)
   }
 
   // =========================================================================
@@ -1817,7 +2134,116 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    * @deprecated Use deleteThingById instead
    */
   deleteThingInternal(type: string, id: string): Promise<boolean> {
+    emitDeprecationWarning('DOCore.deleteThingInternal', 'deleteThingById')
     return this.deleteThing(type, id)
+  }
+
+  // =========================================================================
+  // CROSS-DO RPC METHODS
+  // =========================================================================
+
+  /**
+   * Make a remote RPC call to another DO instance.
+   *
+   * This enables cross-DO communication by:
+   * 1. Getting a stub for the target DO by namespace
+   * 2. Calling the specified method with arguments
+   * 3. Returning the result
+   *
+   * @param namespace - The namespace (idFromName) of the target DO
+   * @param method - The method name to call on the target DO
+   * @param args - Arguments to pass to the method
+   * @returns The result of the remote method call
+   *
+   * @example
+   * ```typescript
+   * // From source DO, call ping() on target DO
+   * const result = await this.remoteCall('target-namespace', 'ping', [])
+   * // result === 'pong'
+   *
+   * // Get a value from another DO
+   * const value = await this.remoteCall('other-do', 'get', ['my-key'])
+   * ```
+   */
+  async remoteCall(namespace: string, method: string, args: unknown[]): Promise<unknown> {
+    // Get the DOCore namespace binding from environment
+    const doBinding = this.env.DOCore
+    if (!doBinding) {
+      throw new Error('DOCore binding not available in environment')
+    }
+
+    // Get a stub for the target DO by namespace
+    const targetId = doBinding.idFromName(namespace)
+    const targetStub = doBinding.get(targetId) as unknown as DOCore
+
+    // Use the rpcCall method which is already implemented in DOCore
+    // This is the standard pattern for cross-DO RPC calls
+    return targetStub.rpcCall(method, args)
+  }
+
+  /**
+   * Get a remote stub for another DO instance.
+   *
+   * This provides a more ergonomic API for cross-DO calls by returning
+   * a proxy that can be used like a local object.
+   *
+   * @param noun - The noun type (e.g., 'Customer', 'Order')
+   * @param namespace - The namespace of the target DO
+   * @param id - Optional ID for instance-level access
+   * @returns A proxy that forwards calls to the remote DO
+   *
+   * @example
+   * ```typescript
+   * // Get a remote customer stub
+   * const customer = await this.remote('Customer', 'other-namespace', 'cust-123')
+   * ```
+   */
+  async remote(noun: string, namespace: string, id?: string): Promise<unknown> {
+    // Get the DOCore namespace binding from environment
+    const doBinding = this.env.DOCore
+    if (!doBinding) {
+      throw new Error('DOCore binding not available in environment')
+    }
+
+    // Get a stub for the target DO by namespace
+    const targetId = doBinding.idFromName(namespace)
+    const targetStub = doBinding.get(targetId)
+
+    // If no id provided, return the noun accessor from the target DO
+    if (!id) {
+      return (targetStub as unknown as DOCore).getNounAccessor(noun)
+    }
+
+    // Return the noun instance accessor from the target DO
+    return (targetStub as unknown as DOCore).getNounAccessor(noun, id)
+  }
+
+  /**
+   * Get a remote DO stub by namespace.
+   *
+   * This is the lowest-level cross-DO method. It returns the raw stub
+   * for the target DO, allowing any RPC method to be called.
+   *
+   * @param namespace - The namespace (idFromName) of the target DO
+   * @returns The DurableObjectStub for the target DO
+   *
+   * @example
+   * ```typescript
+   * // Get a raw stub for another DO
+   * const targetStub = this.getRemoteStub('other-namespace')
+   *
+   * // Call any method on it
+   * const result = await targetStub.ping()
+   * ```
+   */
+  getRemoteStub(namespace: string): DurableObjectStub {
+    const doBinding = this.env.DOCore
+    if (!doBinding) {
+      throw new Error('DOCore binding not available in environment')
+    }
+
+    const targetId = doBinding.idFromName(namespace)
+    return doBinding.get(targetId)
   }
 }
 

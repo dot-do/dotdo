@@ -78,6 +78,83 @@ export {
 } from './sql-security'
 
 // ============================================================================
+// Extracted Modules - Focused implementations
+// ============================================================================
+
+// Event System - Event types, handlers, and registration
+export {
+  generateEventId,
+  generateThingId,
+  createOnProxy,
+  EventSystem,
+  type Event as DurableEvent,
+  type EventHandler,
+  type OnProxy,
+} from './event-system'
+
+// Schedule Manager - CRON DSL and scheduling
+export {
+  parseTime,
+  ScheduleManager,
+  DAY_MAP,
+  type ScheduleHandler,
+  type ScheduleEntry,
+  type TimeBuilder,
+  type ScheduleBuilder,
+  type IntervalBuilder,
+} from './schedule-manager'
+
+// State Manager - Key-value state operations
+export {
+  StateManager,
+  STATE_KEYS,
+  type ListOptions as StateListOptions,
+  type TransactionOp,
+  type TransactionResult,
+} from './state-manager'
+
+// WebSocket Manager - WebSocket handling and broadcast
+export {
+  WebSocketManager,
+  WEBSOCKET_STATUS,
+  type WebSocketManagerState,
+} from './websocket-manager'
+
+// HTTP Router - CORS and HTTP utilities
+export {
+  HTTP_STATUS,
+  VERSION_HEADER,
+  VERSION,
+  type HttpStatusCode,
+} from './http-router'
+
+// Storage Operations - Thing CRUD
+export {
+  ThingStore,
+  type EventEmitter,
+  type ThingQueryOptions,
+} from './storage-ops'
+
+// Durable Execution - Retry logic and action logging
+export {
+  DurableExecution,
+  type ActionLogEntry,
+  type DurableExecutionOptions,
+  type TryExecutionOptions,
+} from './durable-execution'
+
+// Noun Accessors - RPC-compatible accessors
+export {
+  NounAccessor,
+  NounInstanceAccessor,
+  createNounAccessor,
+  type ThingStorageInterface,
+  type NounQueryOptions,
+  type NounInstanceRPC,
+  type NounAccessorRPC,
+} from './noun-accessors'
+
+// ============================================================================
 // RPC Client - Type-safe remote calls with promise pipelining
 // ============================================================================
 

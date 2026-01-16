@@ -1,3 +1,15 @@
+/**
+ * Vitest Configuration for Cloudflare Workers Pool
+ *
+ * This config runs tests in the Cloudflare Workers runtime via miniflare.
+ * For coverage reporting, use vitest.coverage.config.ts instead.
+ *
+ * Usage:
+ *   npm test          - Watch mode
+ *   npm run test:run  - Single run
+ *   npm run test:coverage - Coverage (uses separate config)
+ */
+
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
@@ -15,5 +27,7 @@ export default defineWorkersConfig({
         isolatedStorage: false,
       },
     },
+    // Note: Coverage runs via vitest.coverage.config.ts which uses Node.js
+    // because the Workers runtime doesn't support node:inspector
   },
 })

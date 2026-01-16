@@ -92,6 +92,8 @@ export class DOStorageClass extends DOSemantic {
   protected namespace: string
 
   constructor(ctx: DurableObjectState, env: DOStorageEnv) {
+    // DOSemantic -> DOCore.constructor runs migrations which create all required tables
+    // including l2_things table for L2 storage layer
     super(ctx, env as DOSemanticEnv)
 
     // Extract namespace from ctx for event metadata
@@ -106,21 +108,6 @@ export class DOStorageClass extends DOSemantic {
         console.log(`Evicted ${entries.length} entries from L0 cache`)
       },
     })
-
-    // Initialize storage tables for L2
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS l2_things (
-        id TEXT PRIMARY KEY,
-        type TEXT,
-        version INTEGER DEFAULT 1,
-        data TEXT,
-        updated_at INTEGER
-      )
-    `)
-
-    this.ctx.storage.sql.exec(`
-      CREATE INDEX IF NOT EXISTS idx_l2_things_type ON l2_things(type)
-    `)
 
     // Start L1 flush timer if Pipeline binding available
     if ((env as DOStorageEnv).PIPELINE && this.l1Config.flushIntervalMs > 0) {

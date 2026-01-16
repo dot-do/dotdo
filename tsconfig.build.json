@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationDir": "./dist",
+    "emitDeclarationOnly": true,
+    "outDir": "./dist",
+    "skipLibCheck": true,
+    "noEmit": false
+  },
+  "include": [
+    "index.ts",
+    "ai/index.ts",
+    "rpc/index.ts",
+    "storage/index.ts",
+    "types/index.ts",
+    "workflow/index.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/__tests__/**",
+    "app",
+    "cli",
+    "tests",
+    "examples"
+  ]
+}

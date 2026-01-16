@@ -107,10 +107,17 @@ describe('LRU Performance Tests', () => {
 
       console.log(`Small cache eviction (${SMALL_SIZE}): ${smallTime.toFixed(2)}ms for ${EVICTIONS} evictions`)
       console.log(`Large cache eviction (${LARGE_SIZE}): ${largeTime.toFixed(2)}ms for ${EVICTIONS} evictions`)
-      console.log(`Ratio: ${(largeTime / smallTime).toFixed(2)}x`)
 
-      // O(1) eviction should have ratio < 5x, O(n) would have ratio > 20x
-      expect(largeTime / smallTime).toBeLessThan(10)
+      // Avoid division by zero - if smallTime is 0, both must be very fast (O(1))
+      if (smallTime === 0) {
+        // Both times are sub-millisecond - this is O(1) behavior
+        // Large cache should also complete quickly (< 50ms for 500 evictions)
+        expect(largeTime).toBeLessThan(50)
+      } else {
+        console.log(`Ratio: ${(largeTime / smallTime).toFixed(2)}x`)
+        // O(1) eviction should have ratio < 5x, O(n) would have ratio > 20x
+        expect(largeTime / smallTime).toBeLessThan(10)
+      }
     })
 
     /**

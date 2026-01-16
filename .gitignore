@@ -145,6 +145,8 @@ vite.config.ts.timestamp-*
 /blob-report/
 /playwright/.cache/
 /.playwright/
+/playwright-report/
+/test-results/
 
 # Test output directories
 /tests/.output/
@@ -163,6 +165,7 @@ vite.config.ts.timestamp-*
 # Generated files
 worker-configuration.d.ts
 sandbox/
+docs/api/
 
 # Parade database
 .parade/*.db

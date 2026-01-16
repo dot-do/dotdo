@@ -16,7 +16,7 @@ export { workosAuthKit } from './workos/index'
 export type { WorkOSAuthKitConfig } from './workos/index'
 
 // Error handling exports
-export { errorHandler, notFoundHandler } from './error/index'
+export { errorHandler, onErrorHandler, notFoundHandler } from './error/index'
 export {
   BadRequestError,
   UnauthorizedError,

@@ -50,6 +50,63 @@ export interface UnifiedStoreStats {
 }
 
 /**
+ * In-memory unified store implementation
+ */
+class InMemoryUnifiedStore implements StorageTier {
+  private store = new Map<string, ThingData>()
+  private dirtyKeys = new Set<string>()
+  private lastCheckpoint = Date.now()
+
+  constructor(
+    _state: unknown,
+    _env: unknown,
+    private config: UnifiedStoreConfig
+  ) {}
+
+  get(id: string): ThingData | null {
+    return this.store.get(id) ?? null
+  }
+
+  put(id: string, data: ThingData): void {
+    this.store.set(id, data)
+    this.dirtyKeys.add(id)
+  }
+
+  delete(id: string): boolean {
+    const existed = this.store.has(id)
+    this.store.delete(id)
+    this.dirtyKeys.delete(id)
+    return existed
+  }
+
+  list(options?: { prefix?: string; limit?: number }): ThingData[] {
+    const result: ThingData[] = []
+    let count = 0
+
+    for (const [key, value] of this.store.entries()) {
+      if (options?.prefix && !key.startsWith(options.prefix)) {
+        continue
+      }
+      if (options?.limit && count >= options.limit) {
+        break
+      }
+      result.push(value)
+      count++
+    }
+
+    return result
+  }
+
+  getStats(): UnifiedStoreStats {
+    return {
+      inMemoryCount: this.store.size,
+      dirtyCount: this.dirtyKeys.size,
+      lastCheckpoint: this.lastCheckpoint,
+    }
+  }
+}
+
+/**
  * Create a unified store
  *
  * @param state - DO state object
@@ -58,9 +115,9 @@ export interface UnifiedStoreStats {
  * @returns UnifiedStore instance
  */
 export function createUnifiedStore(
-  _state: unknown,
-  _env: unknown,
-  _config: UnifiedStoreConfig
+  state: unknown,
+  env: unknown,
+  config: UnifiedStoreConfig
 ): StorageTier & { getStats(): UnifiedStoreStats } {
-  throw new Error('createUnifiedStore not implemented yet')
+  return new InMemoryUnifiedStore(state, env, config)
 }

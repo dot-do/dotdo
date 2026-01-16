@@ -57,8 +57,11 @@ export class CapabilityError extends Error {
     super(message)
     this.name = 'CapabilityError'
     // Maintain proper stack trace in V8 environments
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, CapabilityError)
+    const ErrorWithStackTrace = Error as typeof Error & {
+      captureStackTrace?: (targetObject: object, constructorOpt?: Function) => void
+    }
+    if (ErrorWithStackTrace.captureStackTrace) {
+      ErrorWithStackTrace.captureStackTrace(this, CapabilityError)
     }
   }
 }

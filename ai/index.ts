@@ -1421,9 +1421,10 @@ export function createAI<TConfig extends AIConfig = AIConfig>(config?: TConfig):
   }
 
   // Providers registry
+  // Note: process.env is not available in Workers runtime, so we only check provider config
   const providersRegistry: Record<string, { configured: boolean }> = {
-    openai: { configured: !!providers.openai?.apiKey || !!process.env?.OPENAI_API_KEY || true },
-    anthropic: { configured: !!providers.anthropic?.apiKey || !!process.env?.ANTHROPIC_API_KEY || true },
+    openai: { configured: !!providers.openai?.apiKey || true },
+    anthropic: { configured: !!providers.anthropic?.apiKey || true },
   }
 
   // Assemble the AI object

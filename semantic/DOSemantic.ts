@@ -167,48 +167,10 @@ export class DOSemantic extends DOCore {
 
   constructor(ctx: DurableObjectState, env: DOSemanticEnv) {
     // Cast through unknown because DOSemanticEnv omits DOSemantic from DOCoreEnv
+    // DOCore.constructor runs migrations which create all required tables
     super(ctx, env as unknown as DOCoreEnv)
 
-    // Initialize semantic tables
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS nouns (
-        name TEXT PRIMARY KEY,
-        singular TEXT,
-        plural TEXT
-      )
-    `)
-
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS verbs (
-        name TEXT PRIMARY KEY,
-        base TEXT,
-        past TEXT,
-        present TEXT,
-        gerund TEXT
-      )
-    `)
-
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS things (
-        id TEXT PRIMARY KEY,
-        type TEXT,
-        version INTEGER DEFAULT 1,
-        data TEXT
-      )
-    `)
-
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS edges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        from_id TEXT,
-        from_type TEXT,
-        to_id TEXT,
-        to_type TEXT,
-        verb TEXT
-      )
-    `)
-
-    // Load existing data
+    // Load existing data from migrated tables
     this.loadSemanticData()
   }
 

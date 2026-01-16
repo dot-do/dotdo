@@ -1,0 +1,72 @@
+# =============================================================================
+# Test Suite with Coverage Reporting
+# =============================================================================
+#
+# Runs tests with coverage metrics collected.
+# Coverage reports are uploaded as artifacts for tracking.
+#
+# Coverage thresholds (defined in vitest.coverage.config.ts):
+# Currently set to 0% (tracking mode) - increase as coverage improves
+# - statements: 0% (baseline ~5%)
+# - branches: 0% (baseline ~40%)
+# - functions: 0% (baseline ~38%)
+# - lines: 0% (baseline ~5%)
+
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Cancel in-progress runs on new pushes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+        env:
+          CI: true
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-reports
+          path: coverage/
+          retention-days: 7
+
+      # Optional: Upload to Codecov
+      # - name: Upload to Codecov
+      #   uses: codecov/codecov-action@v4
+      #   with:
+      #     files: ./coverage/lcov.info
+      #     fail_ci_if_error: false
