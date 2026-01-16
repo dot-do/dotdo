@@ -863,18 +863,26 @@ describe('Promise Pipelining - RED Phase', () => {
   // Additional Edge Cases
   // ==========================================================================
   describe('Edge cases', () => {
-    it('should handle empty pipeline (direct property access that returns value)', async () => {
+    it('should handle property-only access when awaited', async () => {
       mockWs = await connectClient(client)
+      const initialCallCount = mockWs.send.mock.calls.length
 
       const proxy = client.createProxy<{
         version: Promise<string>
       }>()
 
-      const resultPromise = proxy.version
+      // Property access alone doesn't schedule RPC - only on await
+      const resultProxy = proxy.version
+      await vi.advanceTimersByTimeAsync(0)
+
+      // No RPC sent yet (property access doesn't schedule)
+      expect(mockWs.send.mock.calls.length).toBe(initialCallCount)
+
+      // Start the await - this triggers .then() which sends the RPC
+      const resultPromise = Promise.resolve().then(() => resultProxy)
       await vi.advanceTimersByTimeAsync(0)
 
       const callMsg = JSON.parse(mockWs.send.mock.calls[mockWs.send.mock.calls.length - 1][0])
-
       expect(callMsg.type).toBe('pipeline')
       expect(callMsg.operations).toEqual([{ path: 'version', args: [], type: 'get' }])
 
@@ -927,6 +935,7 @@ describe('Promise Pipelining - RED Phase', () => {
 
     it('should handle array indexing in pipeline', async () => {
       mockWs = await connectClient(client)
+      const initialCallCount = mockWs.send.mock.calls.length
 
       const proxy = client.createProxy<{
         items: {
@@ -936,8 +945,15 @@ describe('Promise Pipelining - RED Phase', () => {
         }
       }>()
 
-      // Accessing array index in chain
-      const resultPromise = (proxy.items as Record<number, { name: Promise<string> }>)[0].name
+      // Accessing array index in chain - property access doesn't trigger RPC
+      const resultProxy = (proxy.items as Record<number, { name: Promise<string> }>)[0].name
+      await vi.advanceTimersByTimeAsync(0)
+
+      // No RPC sent yet
+      expect(mockWs.send.mock.calls.length).toBe(initialCallCount)
+
+      // Start the await
+      const resultPromise = Promise.resolve().then(() => resultProxy)
       await vi.advanceTimersByTimeAsync(0)
 
       const callMsg = JSON.parse(mockWs.send.mock.calls[mockWs.send.mock.calls.length - 1][0])
