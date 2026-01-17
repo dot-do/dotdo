@@ -29,6 +29,8 @@ export interface ActionLogEntry {
   status: 'pending' | 'completed' | 'failed'
   result?: unknown
   error?: { message: string }
+  /** Timestamp when the entry was created (milliseconds since epoch) */
+  created_at?: number
 }
 
 /**

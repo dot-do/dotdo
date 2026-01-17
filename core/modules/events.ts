@@ -14,37 +14,10 @@
 
 import { RpcTarget } from 'cloudflare:workers'
 import type { WebSocketRpcHandler } from '../../rpc/websocket-rpc'
+import type { IEvents, Event, EventHandler, OnProxy, Unsubscribe } from '../types/modules'
 
-// ============================================================================
-// Types
-// ============================================================================
-
-/**
- * Event structure for workflow context events
- */
-export interface Event {
-  id: string
-  type: string
-  subject: string
-  object: string
-  data: unknown
-  timestamp: Date
-}
-
-/**
- * Handler function for events
- */
-export type EventHandler = (event: Event) => void | Promise<void>
-
-/**
- * OnProxy type for event handler registration
- * Supports: $.on.Customer.signup(handler), $.on['*'].created(handler)
- */
-export type OnProxy = {
-  [noun: string]: {
-    [verb: string]: (handler: EventHandler) => () => void
-  }
-}
+// Re-export types from modules.ts for backward compatibility
+export type { Event, EventHandler, OnProxy, Unsubscribe } from '../types/modules'
 
 // ============================================================================
 // ID Generation Utilities
@@ -118,6 +91,8 @@ export function createOnProxy(eventHandlers: Map<string, EventHandler[]>): OnPro
  * - Wildcard matching for event types
  * - WebSocket broadcast integration
  *
+ * Implements: IEvents interface for type-safe delegation from DOCore
+ *
  * @example
  * ```typescript
  * const events = new DOCoreEvents()
@@ -136,7 +111,7 @@ export function createOnProxy(eventHandlers: Map<string, EventHandler[]>): OnPro
  * events.unsubscribe('Order.created', handler)
  * ```
  */
-export class DOCoreEvents extends RpcTarget {
+export class DOCoreEvents extends RpcTarget implements IEvents {
   private eventHandlers: Map<string, EventHandler[]> = new Map()
 
   // Optional references for WebSocket broadcasting
@@ -394,5 +369,38 @@ export class DOCoreEvents extends RpcTarget {
       count += handlers.length
     }
     return count
+  }
+
+  // =========================================================================
+  // IEvents Interface Methods
+  // =========================================================================
+
+  /**
+   * Get the OnProxy object for ergonomic handler registration
+   * Implements IEvents.getOnProxy() method
+   *
+   * @returns OnProxy object for chained handler registration
+   */
+  getOnProxy(): OnProxy {
+    return this.on
+  }
+
+  /**
+   * Get all handlers for a specific event pattern
+   * Implements IEvents.getHandlers() method
+   *
+   * @param pattern Event pattern to query
+   * @returns Array of handlers matching the pattern
+   */
+  getHandlers(pattern: string): EventHandler[] {
+    return this.eventHandlers.get(pattern) ?? []
+  }
+
+  /**
+   * Clear all event handlers
+   * Implements IEvents.clearAllHandlers() method
+   */
+  clearAllHandlers(): void {
+    this.clearHandlers()
   }
 }

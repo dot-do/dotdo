@@ -106,14 +106,69 @@ export class RPCError extends Error {
   method?: string
   target?: string
   partialResults?: unknown[]
+  /** Error cause for chaining */
+  readonly cause?: Error
 
-  constructor(message: string, options?: { code?: RPCErrorCode; method?: string; target?: string; partialResults?: unknown[] }) {
+  constructor(message: string, options?: { code?: RPCErrorCode; method?: string; target?: string; partialResults?: unknown[]; cause?: Error }) {
     super(message)
     this.name = 'RPCError'
     this.code = options?.code ?? 'RPC_ERROR'
     this.method = options?.method
     this.target = options?.target
     this.partialResults = options?.partialResults
+    this.cause = options?.cause
+
+    // Maintain proper stack trace in V8 environments
+    const ErrorWithStackTrace = Error as typeof Error & {
+      captureStackTrace?: (targetObject: object, constructorOpt?: Function) => void
+    }
+    if (ErrorWithStackTrace.captureStackTrace) {
+      ErrorWithStackTrace.captureStackTrace(this, RPCError)
+    }
+  }
+
+  /**
+   * Get structured context about this error
+   */
+  get context(): Record<string, unknown> {
+    const ctx: Record<string, unknown> = {}
+    if (this.method !== undefined) {
+      ctx.method = this.method
+    }
+    if (this.target !== undefined) {
+      ctx.target = this.target
+    }
+    if (this.partialResults !== undefined) {
+      ctx.partialResults = this.partialResults
+    }
+    return ctx
+  }
+
+  /**
+   * Serialize error to JSON
+   */
+  toJSON(): { name: string; message: string; code: string; context?: Record<string, unknown>; stack?: string } {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      context: this.context,
+      stack: this.stack,
+    }
+  }
+
+  /**
+   * Return a sanitized version of this error safe for client responses
+   * Removes stack traces
+   */
+  toClientError(): { name: string; message: string; code: string; context?: Record<string, unknown> } {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      context: this.context,
+      // No stack trace for client
+    }
   }
 }
 

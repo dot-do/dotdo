@@ -38,7 +38,9 @@ export const RPC_ERROR_CODES = {
 export type RpcErrorCode = (typeof RPC_ERROR_CODES)[keyof typeof RPC_ERROR_CODES]
 
 /**
- * RPC-specific error class with error code
+ * RPC-specific error class with error code.
+ * Now uses standard error codes and can be imported from lib/errors.
+ * @deprecated Use DotdoError from lib/errors with appropriate error codes
  */
 export class RpcError extends Error {
   readonly code: RpcErrorCode

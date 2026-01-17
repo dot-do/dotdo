@@ -20,6 +20,7 @@ export default defineConfig({
       'tests/fumadocs.test.ts',
       'tests/seo.test.ts',
       'tests/layout.test.ts',
+      'tests/examples.test.ts',
       'cli/tests/**/*.test.ts',
     ],
     exclude: ['node_modules', 'dist'],

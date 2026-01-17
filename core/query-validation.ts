@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import { DotdoError, ERROR_CODES } from '../lib/errors'
 
 // =============================================================================
 // OPERATOR SCHEMAS
@@ -96,16 +97,33 @@ export type OperatorQuery = z.infer<typeof operatorSchema>
 // =============================================================================
 
 /**
- * Custom error class for query validation failures
+ * Standard error code for query validation errors
+ * @deprecated Use ERROR_CODES.QUERY_VALIDATION_ERROR from lib/errors instead
  */
-export class QueryValidationError extends Error {
+export const QUERY_VALIDATION_ERROR_CODE = 'QUERY_VALIDATION_ERROR' as const
+
+/**
+ * Custom error class for query validation failures.
+ * Now extends DotdoError for standardized error handling.
+ */
+export class QueryValidationError extends DotdoError {
   constructor(
     message: string,
     public field: string,
     public operator?: string,
-    public details?: unknown
+    public details?: unknown,
+    options?: { cause?: Error }
   ) {
-    super(message)
+    // Build context from field, operator, and details
+    const context: Record<string, unknown> = { field }
+    if (operator !== undefined) {
+      context.operator = operator
+    }
+    if (details !== undefined) {
+      context.details = details
+    }
+
+    super(message, ERROR_CODES.QUERY_VALIDATION_ERROR, context, options)
     this.name = 'QueryValidationError'
   }
 }

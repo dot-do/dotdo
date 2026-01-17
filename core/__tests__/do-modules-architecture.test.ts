@@ -300,9 +300,11 @@ describe('DOCoreSchedule Module Interface', () => {
 
       const handler = vi.fn()
       // Use the RPC-compatible method instead of direct Proxy access
-      const unsubscribe = await doInstance.registerScheduleViaEvery('day', '9am', handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('day', '9am', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 9 * * *')
     })
 
     it('should expose $.every.hour schedule builder', async () => {
@@ -310,9 +312,11 @@ describe('DOCoreSchedule Module Interface', () => {
 
       const handler = vi.fn()
       // Use the RPC-compatible method instead of direct Proxy access
-      const unsubscribe = await doInstance.registerScheduleViaEvery('hour', null, handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('hour', null, handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 * * * *')
     })
 
     it('should expose $.every.minute schedule builder', async () => {
@@ -320,36 +324,44 @@ describe('DOCoreSchedule Module Interface', () => {
 
       const handler = vi.fn()
       // Use the RPC-compatible method instead of direct Proxy access
-      const unsubscribe = await doInstance.registerScheduleViaEvery('minute', null, handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('minute', null, handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('* * * * *')
     })
 
     it('should expose $.every[N].minutes for intervals', async () => {
       const doInstance = getDO('schedule-interval-test')
 
       const handler = vi.fn()
-      const unsubscribe = await doInstance.registerScheduleViaInterval(5, 'minutes', handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaInterval(5, 'minutes', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('*/5 * * * *')
     })
 
     it('should expose $.every[N].hours for interval hours', async () => {
       const doInstance = getDO('schedule-interval-hours-test')
 
       const handler = vi.fn()
-      const unsubscribe = await doInstance.registerScheduleViaInterval(2, 'hours', handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaInterval(2, 'hours', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 */2 * * *')
     })
 
     it('should expose $.every[N].seconds for interval seconds', async () => {
       const doInstance = getDO('schedule-interval-seconds-test')
 
       const handler = vi.fn()
-      const unsubscribe = await doInstance.registerScheduleViaInterval(30, 'seconds', handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaInterval(30, 'seconds', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('every:30s')
     })
 
     it('should expose day-specific scheduling ($.every.Monday.at)', async () => {
@@ -357,9 +369,11 @@ describe('DOCoreSchedule Module Interface', () => {
 
       const handler = vi.fn()
       // Use the RPC-compatible method instead of direct Proxy access
-      const unsubscribe = await doInstance.registerScheduleViaEvery('Monday', '10am', handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('Monday', '10am', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 10 * * 1')
     })
 
     it('should support all weekdays', async () => {
@@ -370,8 +384,9 @@ describe('DOCoreSchedule Module Interface', () => {
 
       for (const day of days) {
         // Use the RPC-compatible method instead of direct Proxy access
-        const unsubscribe = await doInstance.registerScheduleViaEvery(day, '10am', handler)
-        expect(typeof unsubscribe).toBe('function')
+        // Returns CRON string for unsubscription via deleteScheduleByCron()
+        const cron = await doInstance.registerScheduleViaEvery(day, '10am', handler)
+        expect(typeof cron).toBe('string')
       }
     })
   })
@@ -398,7 +413,9 @@ describe('DOCoreSchedule Module Interface', () => {
 
       const schedule = await doInstance.getSchedule('0 * * * *')
       expect(schedule).toBeDefined()
-      expect(schedule?.handler).toBeDefined()
+      // Note: handler functions are not serializable over RPC
+      // Check handler_id instead, which is the RPC-safe identifier
+      expect(schedule?.handler_id).toBeDefined()
     })
 
     it('should allow unsubscribing from schedules', async () => {
@@ -406,15 +423,20 @@ describe('DOCoreSchedule Module Interface', () => {
 
       const handler = vi.fn()
       // Use the RPC-compatible method instead of direct Proxy access
-      const unsubscribe = await doInstance.registerScheduleViaEvery('day', '5pm', handler)
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('day', '5pm', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 17 * * *')
 
-      // After unsubscribe, schedule should be removed
-      unsubscribe()
+      // After unsubscribe via deleteScheduleByCron, schedule should be removed
+      // Use RPC-compatible delegation method
+      const deleted = await doInstance.deleteScheduleByCron(cron)
+      expect(deleted).toBe(true)
 
-      const schedule = await doInstance.getSchedule('0 17 * * *')
-      expect(schedule).toBeUndefined()
+      const retrievedSchedule = await doInstance.getSchedule('0 17 * * *')
+      // getSchedule (deprecated) returns undefined when not found
+      expect(retrievedSchedule).toBeUndefined()
     })
   })
 
@@ -520,7 +542,8 @@ describe('DOCoreEvents Module Interface', () => {
       const doInstance = getDO('events-dispatch-test')
 
       const handler = vi.fn()
-      await doInstance.on.Customer.signup(handler)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Customer.signup', handler)
 
       await new Promise((resolve) => setTimeout(resolve, 10)) // Small delay for async dispatch
       await doInstance.send('Customer.signup', { customerId: 'cust-123' })
@@ -534,7 +557,9 @@ describe('DOCoreEvents Module Interface', () => {
       const doInstance = getDO('events-on-test')
 
       const handler = vi.fn()
-      const unsubscribe = await doInstance.on.Customer.signup(handler)
+      // Use RPC-compatible registerHandler method
+      // Note: The OnProxy pattern (on.Noun.verb) works locally but not over RPC
+      const unsubscribe = await doInstance.registerHandler('Customer.signup', handler)
 
       expect(typeof unsubscribe).toBe('function')
     })
@@ -545,8 +570,9 @@ describe('DOCoreEvents Module Interface', () => {
       const handler1 = vi.fn()
       const handler2 = vi.fn()
 
-      await doInstance.on.Payment.processed(handler1)
-      await doInstance.on.Payment.processed(handler2)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Payment.processed', handler1)
+      await doInstance.registerHandler('Payment.processed', handler2)
 
       expect(await doInstance.getHandlerCount('Payment.processed')).toBeGreaterThanOrEqual(2)
     })
@@ -555,7 +581,8 @@ describe('DOCoreEvents Module Interface', () => {
       const doInstance = getDO('events-unsubscribe-test')
 
       const handler = vi.fn()
-      const unsubscribe = await doInstance.on.Order.created(handler)
+      // Use RPC-compatible registerHandler method
+      const unsubscribe = await doInstance.registerHandler('Order.created', handler)
 
       expect(typeof unsubscribe).toBe('function')
 
@@ -571,14 +598,9 @@ describe('DOCoreEvents Module Interface', () => {
       const handler = vi.fn()
       const customNoun = 'CustomEntity'
 
-      // Dynamic handler registration should work for any noun
-      const onProxy = doInstance.on as Record<string, Record<string, Function>>
-      const nounProxy = onProxy[customNoun]
-
-      if (nounProxy) {
-        await nounProxy.someEvent(handler)
-        expect(await doInstance.getHandlerCount(`${customNoun}.someEvent`)).toBeGreaterThanOrEqual(1)
-      }
+      // Use RPC-compatible registerHandler method for dynamic noun registration
+      await doInstance.registerHandler(`${customNoun}.someEvent`, handler)
+      expect(await doInstance.getHandlerCount(`${customNoun}.someEvent`)).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -588,13 +610,10 @@ describe('DOCoreEvents Module Interface', () => {
 
       const handler = vi.fn()
 
-      // Register for all created events
-      const onProxy = doInstance.on as Record<string, Record<string, Function>>
-      if (onProxy['*']?.created) {
-        await onProxy['*'].created(handler)
+      // Use RPC-compatible registerHandler method for wildcard patterns
+      await doInstance.registerHandler('*.created', handler)
 
-        expect(await doInstance.getHandlerCount('*.created')).toBeGreaterThanOrEqual(1)
-      }
+      expect(await doInstance.getHandlerCount('*.created')).toBeGreaterThanOrEqual(1)
     })
 
     it('should support Noun.* wildcard pattern', async () => {
@@ -602,13 +621,10 @@ describe('DOCoreEvents Module Interface', () => {
 
       const handler = vi.fn()
 
-      // Register for all Customer events
-      const onProxy = doInstance.on as Record<string, Record<string, Function>>
-      if (onProxy.Customer?.['*']) {
-        await onProxy.Customer['*'](handler)
+      // Use RPC-compatible registerHandler method for wildcard patterns
+      await doInstance.registerHandler('Customer.*', handler)
 
-        expect(await doInstance.getHandlerCount('Customer.*')).toBeGreaterThanOrEqual(1)
-      }
+      expect(await doInstance.getHandlerCount('Customer.*')).toBeGreaterThanOrEqual(1)
     })
 
     it('should support *.* global wildcard pattern', async () => {
@@ -616,20 +632,18 @@ describe('DOCoreEvents Module Interface', () => {
 
       const handler = vi.fn()
 
-      // Register for all events
-      const onProxy = doInstance.on as Record<string, Record<string, Function>>
-      if (onProxy['*']?.['*']) {
-        await onProxy['*']['*'](handler)
+      // Use RPC-compatible registerHandler method for global wildcard pattern
+      await doInstance.registerHandler('*.*', handler)
 
-        expect(await doInstance.getHandlerCount('*.*')).toBeGreaterThanOrEqual(1)
-      }
+      expect(await doInstance.getHandlerCount('*.*')).toBeGreaterThanOrEqual(1)
     })
 
     it('should match handlers for exact event type', async () => {
       const doInstance = getDO('events-exact-match-test')
 
       const handler = vi.fn()
-      await doInstance.on.Invoice.paid(handler)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Invoice.paid', handler)
 
       const count = await doInstance.getHandlerCount('Invoice.paid')
       expect(count).toBeGreaterThanOrEqual(1)
@@ -645,8 +659,9 @@ describe('DOCoreEvents Module Interface', () => {
       }
       const goodHandler = vi.fn()
 
-      await doInstance.on.Item.created(badHandler)
-      await doInstance.on.Item.created(goodHandler)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Item.created', badHandler)
+      await doInstance.registerHandler('Item.created', goodHandler)
 
       // Emitting should not throw despite badHandler error
       expect(() => {
@@ -663,9 +678,10 @@ describe('DOCoreEvents Module Interface', () => {
       })
       const handler3 = vi.fn()
 
-      await doInstance.on.Task.updated(handler1)
-      await doInstance.on.Task.updated(handler2)
-      await doInstance.on.Task.updated(handler3)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Task.updated', handler1)
+      await doInstance.registerHandler('Task.updated', handler2)
+      await doInstance.registerHandler('Task.updated', handler3)
 
       doInstance.send('Task.updated', { taskId: 'task-1' })
 
@@ -692,8 +708,9 @@ describe('DOCoreEvents Module Interface', () => {
       const handler1 = vi.fn()
       const handler2 = vi.fn()
 
-      await doInstance.on.Status.changed(handler1)
-      await doInstance.on.Status.changed(handler2)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Status.changed', handler1)
+      await doInstance.registerHandler('Status.changed', handler2)
 
       const count = await doInstance.getHandlerCount('Status.changed')
       expect(count).toBe(2)
@@ -704,7 +721,8 @@ describe('DOCoreEvents Module Interface', () => {
 
       const handler = vi.fn()
       const beforeRegister = Date.now()
-      await doInstance.on.Event.occurred(handler)
+      // Use RPC-compatible registerHandler method
+      await doInstance.registerHandler('Event.occurred', handler)
       const afterRegister = Date.now()
 
       // Handler should have been registered between before and after
@@ -907,16 +925,18 @@ describe('DOCore Coordination Module', () => {
       // Emit an event (Events)
       const eventId = await doInstance.send('Document.created', thing)
 
-      // Register a handler (Events)
+      // Register a handler (Events) - use RPC-compatible method
       const handler = vi.fn()
-      await doInstance.on.Document.created(handler)
+      await doInstance.registerHandler('Document.created', handler)
 
-      // Register a schedule (Schedule)
-      const unsubscribe = await doInstance.every.hour(handler)
+      // Register a schedule (Schedule) - use RPC-compatible method
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('hour', null, handler)
 
       expect(thing).toBeDefined()
       expect(eventId).toBeDefined()
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 * * * *')
     })
 
     it('should provide unified interface for all module features', async () => {
@@ -947,7 +967,8 @@ describe('DOCore Coordination Module', () => {
       // Create and schedule
       const created = await doInstance.create('Persistent', { data: 'save me' })
       const handler = vi.fn()
-      await doInstance.every.day.at('noon')(handler)
+      // Use RPC-compatible method instead of every.day.at('noon')
+      await doInstance.registerScheduleViaEvery('day', 'noon', handler)
 
       // State should be persisted to SQLite (tested via recovery)
       expect(created).toBeDefined()
@@ -975,7 +996,8 @@ describe('DOCore Coordination Module', () => {
       const doInstance = getDO('crossmodule-create-test')
 
       const handler = vi.fn()
-      await doInstance.on.User.created(handler)
+      // Use RPC-compatible method instead of on.User.created
+      await doInstance.registerHandler('User.created', handler)
 
       await doInstance.create('User', { name: 'Charlie' })
 
@@ -989,7 +1011,8 @@ describe('DOCore Coordination Module', () => {
       const thing = await doInstance.create('Record', { status: 'active' })
 
       const handler = vi.fn()
-      await doInstance.on.Record.updated(handler)
+      // Use RPC-compatible method instead of on.Record.updated
+      await doInstance.registerHandler('Record.updated', handler)
 
       await doInstance.updateThingById(thing.$id, { status: 'inactive' })
 
@@ -1003,7 +1026,8 @@ describe('DOCore Coordination Module', () => {
       const thing = await doInstance.create('Ephemeral', { temporary: true })
 
       const handler = vi.fn()
-      await doInstance.on.Ephemeral.deleted(handler)
+      // Use RPC-compatible method instead of on.Ephemeral.deleted
+      await doInstance.registerHandler('Ephemeral.deleted', handler)
 
       await doInstance.deleteThingById(thing.$id)
 
@@ -1015,10 +1039,13 @@ describe('DOCore Coordination Module', () => {
       const doInstance = getDO('crossmodule-schedule-test')
 
       const handler = vi.fn()
-      const unsubscribe = await doInstance.every.minute(handler)
+      // Use RPC-compatible method instead of every.minute
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('minute', null, handler)
 
       // Schedule should be registered and ready to fire
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('* * * * *')
     })
   })
 
@@ -1027,7 +1054,8 @@ describe('DOCore Coordination Module', () => {
       const doInstance = getDO('multimodule-atomic-test')
 
       const eventHandler = vi.fn()
-      await doInstance.on.Item.created(eventHandler)
+      // Use RPC-compatible method instead of on.Item.created
+      await doInstance.registerHandler('Item.created', eventHandler)
 
       const thing = await doInstance.create('Item', { name: 'Atomic' })
 
@@ -1040,7 +1068,8 @@ describe('DOCore Coordination Module', () => {
       const doInstance = getDO('multimodule-schedule-event-test')
 
       const scheduleHandler = vi.fn()
-      await doInstance.every.hour(scheduleHandler)
+      // Use RPC-compatible method instead of every.hour
+      await doInstance.registerScheduleViaEvery('hour', null, scheduleHandler)
 
       // Schedule should be registered
       const schedule = await doInstance.getSchedule('0 * * * *')
@@ -1072,9 +1101,12 @@ describe('Module Boundaries and Separation', () => {
 
       // Schedules should not depend on things being created
       const handler = vi.fn()
-      const unsubscribe = await doInstance.every.day.at('3pm')(handler)
+      // Use RPC-compatible method instead of every.day.at('3pm')
+      // Returns CRON string for unsubscription via deleteScheduleByCron()
+      const cron = await doInstance.registerScheduleViaEvery('day', '3pm', handler)
 
-      expect(typeof unsubscribe).toBe('function')
+      expect(typeof cron).toBe('string')
+      expect(cron).toBe('0 15 * * *')
     })
   })
 
@@ -1119,13 +1151,17 @@ describe('Module Interface Completeness', () => {
       const handler = vi.fn()
 
       // All patterns should work - use RPC-compatible methods
+      // Returns CRON strings for unsubscription via deleteScheduleByCron()
       const daily = await doInstance.registerScheduleViaEvery('day', '9am', handler)
       const hourly = await doInstance.registerScheduleViaEvery('hour', null, handler)
       const interval = await doInstance.registerScheduleViaInterval(5, 'minutes', handler)
 
-      expect(typeof daily).toBe('function')
-      expect(typeof hourly).toBe('function')
-      expect(typeof interval).toBe('function')
+      expect(typeof daily).toBe('string')
+      expect(typeof hourly).toBe('string')
+      expect(typeof interval).toBe('string')
+      expect(daily).toBe('0 9 * * *')
+      expect(hourly).toBe('0 * * * *')
+      expect(interval).toBe('*/5 * * * *')
     })
   })
 
@@ -1137,7 +1173,8 @@ describe('Module Interface Completeness', () => {
 
       // Send, on, and handler registration should all work
       const eventId = await doInstance.send('Complete.event', { data: 'test' })
-      const unsubscribe = await doInstance.on.Complete.event(handler)
+      // Use RPC-compatible method instead of on.Complete.event
+      const unsubscribe = await doInstance.registerHandler('Complete.event', handler)
       const count = await doInstance.getHandlerCount('Complete.event')
 
       expect(eventId).toBeDefined()

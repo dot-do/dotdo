@@ -8,23 +8,88 @@
  * @module core/sql-security
  */
 
+import { DotdoError, ERROR_CODES, type ErrorCode } from '../lib/errors'
+
 // =============================================================================
 // ERROR CLASSES
 // =============================================================================
 
 /**
- * Error thrown when a SQL query violates security policies
+ * Error thrown when a SQL query violates security policies.
+ * Now extends DotdoError for standardized error handling.
  */
-export class SqlSecurityError extends Error {
+export class SqlSecurityError extends DotdoError {
   constructor(
     message: string,
-    public readonly code: SqlSecurityErrorCode,
-    public readonly query?: string
+    public readonly sqlCode: SqlSecurityErrorCode,
+    public readonly query?: string,
+    options?: { cause?: Error }
   ) {
+    // Map SQL security codes to standard error codes
+    const errorCode = mapSqlSecurityCodeToErrorCode(sqlCode)
+
     // Use a generic message that doesn't leak SQL structure
-    super(message)
+    const context: Record<string, unknown> = {}
+    if (query !== undefined) {
+      // Sanitize query before including in context
+      context.query = sanitizeSqlQueryString(query)
+    }
+
+    super(message, errorCode, context, options)
     this.name = 'SqlSecurityError'
   }
+
+  /**
+   * Return a sanitized version of this error safe for client responses
+   * Removes sensitive data like SQL queries and stack traces
+   */
+  override toClientError(): { name: string; message: string; code: ErrorCode } {
+    // Sanitize the message to remove any sensitive data like passwords
+    let sanitizedMessage = this.message
+    // Remove common sensitive patterns
+    sanitizedMessage = sanitizedMessage.replace(/password\s*=\s*['"]?[^'"]+['"]?/gi, 'password=***')
+    sanitizedMessage = sanitizedMessage.replace(/secret\s*=\s*['"]?[^'"]+['"]?/gi, 'secret=***')
+    sanitizedMessage = sanitizedMessage.replace(/token\s*=\s*['"]?[^'"]+['"]?/gi, 'token=***')
+    sanitizedMessage = sanitizedMessage.replace(/api_?key\s*=\s*['"]?[^'"]+['"]?/gi, 'api_key=***')
+
+    return {
+      name: this.name,
+      message: sanitizedMessage,
+      code: this.code,
+      // Note: no context (which contains query), no stack
+    }
+  }
+}
+
+/**
+ * Map SQL security error codes to standard error codes
+ */
+function mapSqlSecurityCodeToErrorCode(sqlCode: SqlSecurityErrorCode): ErrorCode {
+  const codeMap: Record<SqlSecurityErrorCode, ErrorCode> = {
+    WRITE_OPERATION_FORBIDDEN: ERROR_CODES.WRITE_OPERATION_FORBIDDEN,
+    MULTI_STATEMENT_FORBIDDEN: ERROR_CODES.MULTI_STATEMENT_FORBIDDEN,
+    COMMENT_FORBIDDEN: ERROR_CODES.COMMENT_FORBIDDEN,
+    PRAGMA_FORBIDDEN: ERROR_CODES.PRAGMA_FORBIDDEN,
+    EMPTY_QUERY: ERROR_CODES.EMPTY_QUERY,
+    INVALID_QUERY: ERROR_CODES.INVALID_QUERY,
+    COMMAND_FORBIDDEN: ERROR_CODES.COMMAND_FORBIDDEN,
+  }
+  return codeMap[sqlCode]
+}
+
+/**
+ * Sanitize a SQL query string to remove sensitive data
+ */
+function sanitizeSqlQueryString(query: string): string {
+  let sanitized = query
+  // Remove common sensitive patterns from query
+  sanitized = sanitized.replace(/password\s*=\s*['"]?[^'";\s]+['"]?/gi, 'password=***')
+  sanitized = sanitized.replace(/\$secretvalue/gi, '$***')
+  sanitized = sanitized.replace(/\$secret[a-z0-9_]*/gi, '$***')
+  sanitized = sanitized.replace(/secret\s*=\s*['"]?[^'";\s]+['"]?/gi, 'secret=***')
+  sanitized = sanitized.replace(/token\s*=\s*['"]?[^'";\s]+['"]?/gi, 'token=***')
+  sanitized = sanitized.replace(/api_?key\s*=\s*['"]?[^'";\s]+['"]?/gi, 'api_key=***')
+  return sanitized
 }
 
 export type SqlSecurityErrorCode =

@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "description": "Durable Object utilities for Cloudflare Workers - DOBase, WorkflowContext, evaluate, and PipelinedStub",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -60,5 +61,8 @@
     "type": "git",
     "url": "https://github.com/dot-do/dotdo.git",
     "directory": "packages/workers"
+  },
+  "bugs": {
+    "url": "https://github.com/dot-do/dotdo/issues"
   }
 }

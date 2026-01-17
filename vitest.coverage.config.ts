@@ -7,11 +7,15 @@
  *
  * Usage: npm run test:coverage
  *
- * Coverage thresholds:
- * - statements: 50%
- * - branches: 40%
- * - functions: 50%
- * - lines: 50%
+ * Coverage thresholds (baseline 2026-01-16):
+ * - statements: 10%
+ * - branches: 2%
+ * - functions: 2%
+ * - lines: 10%
+ *
+ * These thresholds are set slightly below current coverage (~12% statements,
+ * ~3.5% branches/functions) to prevent regression while allowing for variance.
+ * Increase these values as coverage improves.
  */
 
 import { defineConfig } from 'vitest/config'
@@ -58,14 +62,14 @@ export default defineConfig({
         // Cloudflare-specific files that won't run in Node
         '.wrangler/**',
       ],
-      // Initial thresholds - adjust as coverage improves
-      // Current baseline: ~5% lines, ~38% functions
-      // Goal: Increase gradually as tests are added
+      // Coverage thresholds - baseline measured 2026-01-16
+      // Current coverage: ~12% statements, ~3.5% branches, ~3.5% functions, ~12% lines
+      // Setting thresholds slightly below to prevent regression while allowing variance
       thresholds: {
-        statements: 0,
-        branches: 0,
-        functions: 0,
-        lines: 0,
+        statements: 10,
+        branches: 2,
+        functions: 2,
+        lines: 10,
       },
     },
   },

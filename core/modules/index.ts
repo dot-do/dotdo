@@ -3,35 +3,50 @@
  *
  * This file exports all extracted modules from DOCore.
  * Each module follows the RpcTarget pattern for cross-DO communication.
+ *
+ * Re-exports module implementations and their interfaces from types/modules.ts
  */
 
-// Events module
+// Module Implementations
 export {
   DOCoreEvents,
-  type Event,
-  type EventHandler,
-  type OnProxy,
+  createOnProxy,
   generateEventId,
   generateThingId,
-  createOnProxy,
 } from './events'
 
-// Schedule module
 export {
   DOCoreSchedule,
   type PersistedSchedule,
-  type ScheduleHandler,
-  type ScheduleEntry,
-  type TimeBuilder,
-  type ScheduleBuilder,
-  type IntervalBuilder,
   DAY_MAP,
   parseTime,
 } from './schedule'
 
-// Storage module
 export {
   DOCoreStorage,
   type StorageEventEmitter,
   type ThingQueryOptions,
 } from './storage'
+
+// Type Interfaces (primary exports from types/modules.ts)
+export type {
+  IStorage,
+  ISchedule,
+  IEvents,
+  Event,
+  EventHandler,
+  OnProxy,
+  Unsubscribe,
+  QueryOperator,
+  ScheduleHandler,
+  ScheduleEntry,
+  PersistedScheduleEntry,
+  IntervalBuilder,
+  TimeBuilder,
+  ScheduleBuilder,
+  StorageQueryOptions,
+  BulkFilterOptions,
+  StorageModuleOptions,
+  ScheduleModuleOptions,
+  EventsModuleOptions,
+} from '../types/modules'

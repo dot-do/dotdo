@@ -286,7 +286,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   private actionLog: ActionLogEntry[] = []
   // LRU cache for things with configurable max size (default 1000 entries)
   // Evicted entries are still available from SQLite, this is just a hot cache
-  private things = new LRUCache<ThingData>({ maxSize: DEFAULT_THINGS_CACHE_SIZE })
+  private thingsCache = new LRUCache<ThingData>({ maxSize: DEFAULT_THINGS_CACHE_SIZE })
 
   // =========================================================================
   // NOUN ACCESSORS
@@ -1638,19 +1638,18 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    *
    * @param cron CRON expression
    * @param handler Handler function
-   * @returns Unsubscribe function
    */
-  registerSchedule(cron: string, handler: ScheduleHandler): () => void {
-    return this.schedule.registerSchedule(cron, handler)
+  registerSchedule(cron: string, handler: ScheduleHandler): void {
+    this.schedule.registerSchedule(cron, handler)
   }
 
   /**
    * Get a schedule by CRON expression (RPC method)
    *
    * @param cron CRON expression to look up
-   * @returns Schedule entry or undefined
+   * @returns Persisted schedule entry or null if not found
    */
-  getScheduleByCron(cron: string): ScheduleEntry | undefined {
+  async getScheduleByCron(cron: string): Promise<PersistedSchedule | null> {
     return this.schedule.getScheduleByCron(cron)
   }
 
@@ -1673,9 +1672,19 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   }
 
   /**
+   * Delete a schedule by CRON expression (RPC method)
+   *
+   * @param cron CRON expression to delete
+   * @returns Promise resolving to true if deleted, false if not found
+   */
+  deleteScheduleByCron(cron: string): Promise<boolean> {
+    return this.schedule.deleteScheduleByCron(cron)
+  }
+
+  /**
    * Clear all schedules (RPC method)
    */
-  clearAllSchedules(): void {
+  clearAllSchedules(): Promise<void> {
     return this.schedule.clearAllSchedules()
   }
 
@@ -1705,48 +1714,57 @@ export class DOCore extends DurableObject<DOCoreEnv> {
   /**
    * Register schedule via fluent DSL (RPC method)
    *
+   * Note: Returns CRON string for unsubscription via deleteScheduleByCron()
+   * Functions cannot be serialized over RPC.
+   *
    * @param dayOrInterval Day of week or interval type
    * @param time Time string or null
    * @param handler Handler function
-   * @returns Unsubscribe function
+   * @returns CRON expression (for unsubscription via deleteScheduleByCron)
    */
   registerScheduleViaEvery(
     dayOrInterval: string,
     time: string | null,
     handler: ScheduleHandler
-  ): () => void {
+  ): string {
     return this.schedule.registerScheduleViaEvery(dayOrInterval, time, handler)
   }
 
   /**
    * Register schedule via shortcut (RPC method)
    *
+   * Note: Returns CRON string for unsubscription via deleteScheduleByCron()
+   * Functions cannot be serialized over RPC.
+   *
    * @param dayOrInterval Day of week or 'day'
    * @param shortcut Shortcut name
    * @param handler Handler function
-   * @returns Unsubscribe function
+   * @returns CRON expression (for unsubscription via deleteScheduleByCron)
    */
   registerScheduleViaEveryShortcut(
     dayOrInterval: string,
     shortcut: string,
     handler: ScheduleHandler
-  ): () => void {
+  ): string {
     return this.schedule.registerScheduleViaEveryShortcut(dayOrInterval, shortcut, handler)
   }
 
   /**
    * Register schedule via interval (RPC method)
    *
+   * Note: Returns CRON string for unsubscription via deleteScheduleByCron()
+   * Functions cannot be serialized over RPC.
+   *
    * @param n Interval value
    * @param unit Interval unit
    * @param handler Handler function
-   * @returns Unsubscribe function
+   * @returns CRON expression (for unsubscription via deleteScheduleByCron)
    */
   registerScheduleViaInterval(
     n: number,
     unit: 'minutes' | 'hours' | 'seconds',
     handler: ScheduleHandler
-  ): () => void {
+  ): string {
     return this.schedule.registerScheduleViaInterval(n, unit, handler)
   }
 
@@ -1967,7 +1985,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
    */
   clearMemoryCache(): void {
     // Clear in-memory caches
-    this.things.clear()
+    this.thingsCache.clear()
     this.eventHandlers.clear()
     this.schedules.clear()
 
@@ -2345,10 +2363,11 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
   /**
    * Get a registered schedule by CRON expression (backward compatibility)
+   * Returns the in-memory schedule entry with handler (not RPC-compatible).
    * @deprecated Use getScheduleByCron() for RPC-compatible access
    */
-  getSchedule(cron: string): { handler: ScheduleHandler } | undefined {
-    return this.schedule.getScheduleByCron(cron)
+  getSchedule(cron: string): { handler: ScheduleHandler; cron: string } | undefined {
+    return this.schedule.getScheduleInternal(cron)
   }
 
   // =========================================================================
@@ -2419,7 +2438,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     }
 
     // Store in memory
-    this.things.set(id, thing)
+    this.thingsCache.set(id, thing)
 
     // Persist to SQLite
     this.ctx.storage.sql.exec(
@@ -2557,14 +2576,14 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
   private getThing(id: string): ThingData | null {
     // Check memory first
-    const fromMemory = this.things.get(id)
+    const fromMemory = this.thingsCache.get(id)
     if (fromMemory) return fromMemory
 
     // Check SQLite
     const rows = this.ctx.storage.sql.exec('SELECT data FROM things WHERE id = ?', id).toArray()
     if (rows.length > 0) {
       const thing = JSON.parse(rows[0].data as string) as ThingData
-      this.things.set(id, thing)
+      this.thingsCache.set(id, thing)
       return thing
     }
 
@@ -2623,7 +2642,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     }
 
     // Store in memory
-    this.things.set(id, updated)
+    this.thingsCache.set(id, updated)
 
     // Persist to SQLite
     this.ctx.storage.sql.exec(
@@ -2647,7 +2666,7 @@ export class DOCore extends DurableObject<DOCoreEnv> {
     }
 
     // Remove from memory
-    this.things.delete(id)
+    this.thingsCache.delete(id)
 
     // Remove from SQLite
     this.ctx.storage.sql.exec('DELETE FROM things WHERE id = ?', id)
@@ -2931,6 +2950,370 @@ export class DOCore extends DurableObject<DOCoreEnv> {
 
     const targetId = doBinding.idFromName(namespace)
     return doBinding.get(targetId)
+  }
+
+  // =========================================================================
+  // CIRCUIT BREAKER SUPPORT
+  // =========================================================================
+  // Circuit breakers provide resilience by failing fast when downstream
+  // services are unhealthy. State is persisted to SQLite and survives DO eviction.
+  //
+  // State machine:
+  // - CLOSED: Normal operation, tracking failures
+  // - OPEN: Failing fast after threshold exceeded
+  // - HALF_OPEN: Allowing probe calls after reset timeout
+  // =========================================================================
+
+  /**
+   * Circuit breaker state type
+   */
+  private static readonly CIRCUIT_STATE_PREFIX = 'circuit:'
+
+  /**
+   * Persisted circuit breaker state stored in SQLite
+   */
+  private parseCircuitState(stored: unknown): {
+    id: string
+    state: 'closed' | 'open' | 'half_open'
+    failure_count: number
+    success_count: number
+    opened_at: number | null
+    last_failure_at: number | null
+    updated_at: number
+    failure_threshold: number
+    reset_timeout_ms: number
+  } | null {
+    if (!stored || typeof stored !== 'object') return null
+
+    const obj = stored as Record<string, unknown>
+
+    // Validate required fields
+    if (typeof obj.id !== 'string') return null
+    if (!['closed', 'open', 'half_open'].includes(obj.state as string)) {
+      // Invalid state - recover to closed
+      obj.state = 'closed'
+    }
+
+    // Sanitize numeric fields
+    const failure_count = typeof obj.failure_count === 'number' && !Number.isNaN(obj.failure_count)
+      ? obj.failure_count
+      : 0
+    const success_count = typeof obj.success_count === 'number' && !Number.isNaN(obj.success_count)
+      ? obj.success_count
+      : 0
+    const opened_at = typeof obj.opened_at === 'number' && !Number.isNaN(obj.opened_at)
+      ? obj.opened_at
+      : null
+    const last_failure_at = typeof obj.last_failure_at === 'number' && !Number.isNaN(obj.last_failure_at)
+      ? obj.last_failure_at
+      : null
+    const updated_at = typeof obj.updated_at === 'number' && !Number.isNaN(obj.updated_at)
+      ? obj.updated_at
+      : Date.now()
+    const failure_threshold = typeof obj.failure_threshold === 'number' && !Number.isNaN(obj.failure_threshold)
+      ? obj.failure_threshold
+      : 5
+    const reset_timeout_ms = typeof obj.reset_timeout_ms === 'number' && !Number.isNaN(obj.reset_timeout_ms)
+      ? obj.reset_timeout_ms
+      : 30000
+
+    return {
+      id: obj.id as string,
+      state: obj.state as 'closed' | 'open' | 'half_open',
+      failure_count,
+      success_count,
+      opened_at,
+      last_failure_at,
+      updated_at,
+      failure_threshold,
+      reset_timeout_ms,
+    }
+  }
+
+  /**
+   * Create a circuit breaker with the given configuration
+   *
+   * @param id - Unique identifier for this circuit breaker (e.g., 'payment-api')
+   * @param config - Circuit breaker configuration
+   * @returns Success indicator
+   */
+  async createCircuitBreaker(
+    id: string,
+    config: { failureThreshold: number; resetTimeout: number; persist?: boolean }
+  ): Promise<{ success: boolean }> {
+    const now = Date.now()
+    const state = {
+      id,
+      state: 'closed' as const,
+      failure_count: 0,
+      success_count: 0,
+      opened_at: null,
+      last_failure_at: null,
+      updated_at: now,
+      failure_threshold: config.failureThreshold,
+      reset_timeout_ms: config.resetTimeout,
+    }
+
+    await this.set(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`, state)
+    return { success: true }
+  }
+
+  /**
+   * Get the current state of a circuit breaker
+   *
+   * @param id - Circuit breaker identifier
+   * @returns The circuit state or null if not found
+   */
+  async getCircuitBreakerState(id: string): Promise<{
+    id: string
+    state: 'closed' | 'open' | 'half_open'
+    failure_count: number
+    success_count: number
+    opened_at: number | null
+    last_failure_at: number | null
+    updated_at: number
+    failure_threshold: number
+    reset_timeout_ms: number
+  } | null> {
+    const stored = await this.get(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`)
+    if (!stored) return null
+
+    const parsed = this.parseCircuitState(stored)
+    if (!parsed) return null
+
+    // Check if circuit should transition to half-open based on timeout
+    if (parsed.state === 'open' && parsed.opened_at !== null) {
+      const elapsed = Date.now() - parsed.opened_at
+      if (elapsed >= parsed.reset_timeout_ms) {
+        // Transition to half-open
+        parsed.state = 'half_open'
+        parsed.updated_at = Date.now()
+        await this.set(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`, parsed)
+      }
+    }
+
+    return parsed
+  }
+
+  /**
+   * Record a failure for a circuit breaker
+   * Opens the circuit if failure threshold is reached
+   *
+   * @param id - Circuit breaker identifier
+   * @returns Updated state and failure count
+   */
+  async recordCircuitFailure(id: string): Promise<{ state: string; failure_count: number }> {
+    const current = await this.getCircuitBreakerState(id)
+    if (!current) {
+      throw new Error(`Circuit breaker not found: ${id}`)
+    }
+
+    const now = Date.now()
+    current.failure_count++
+    current.last_failure_at = now
+    current.updated_at = now
+
+    // If in half-open state, a failure immediately reopens the circuit
+    if (current.state === 'half_open') {
+      current.state = 'open'
+      current.opened_at = now
+    }
+    // Check if we should open the circuit
+    else if (current.state === 'closed' && current.failure_count >= current.failure_threshold) {
+      current.state = 'open'
+      current.opened_at = now
+    }
+
+    await this.set(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`, current)
+    return { state: current.state, failure_count: current.failure_count }
+  }
+
+  /**
+   * Record a success for a circuit breaker
+   * Closes the circuit if in half-open state
+   *
+   * @param id - Circuit breaker identifier
+   * @returns Updated state and success count
+   */
+  async recordCircuitSuccess(id: string): Promise<{ state: string; success_count: number }> {
+    const current = await this.getCircuitBreakerState(id)
+    if (!current) {
+      throw new Error(`Circuit breaker not found: ${id}`)
+    }
+
+    const now = Date.now()
+    current.success_count++
+    current.updated_at = now
+
+    // In half-open state, a success closes the circuit
+    if (current.state === 'half_open') {
+      current.state = 'closed'
+      current.failure_count = 0
+      current.opened_at = null
+    }
+    // In closed state, a success resets consecutive failure count
+    else if (current.state === 'closed') {
+      current.failure_count = 0
+    }
+
+    await this.set(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`, current)
+    return { state: current.state, success_count: current.success_count }
+  }
+
+  /**
+   * Reset a circuit breaker to closed state
+   *
+   * @param id - Circuit breaker identifier
+   * @returns Success indicator
+   */
+  async resetCircuitBreaker(id: string): Promise<{ success: boolean }> {
+    const current = await this.getCircuitBreakerState(id)
+    if (!current) {
+      throw new Error(`Circuit breaker not found: ${id}`)
+    }
+
+    current.state = 'closed'
+    current.failure_count = 0
+    current.opened_at = null
+    current.updated_at = Date.now()
+
+    await this.set(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`, current)
+    return { success: true }
+  }
+
+  /**
+   * Set circuit breaker state directly (for testing)
+   *
+   * @param id - Circuit breaker identifier
+   * @param updates - Partial state to update
+   */
+  async setCircuitBreakerState(
+    id: string,
+    updates: Partial<{
+      state: 'closed' | 'open' | 'half_open'
+      failure_count: number
+      success_count: number
+      opened_at: number | null
+      last_failure_at: number | null
+    }>
+  ): Promise<void> {
+    const current = await this.get(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`)
+    if (!current) {
+      throw new Error(`Circuit breaker not found: ${id}`)
+    }
+
+    const existing = this.parseCircuitState(current)
+    if (!existing) {
+      throw new Error(`Invalid circuit breaker state: ${id}`)
+    }
+
+    const updated = {
+      ...existing,
+      ...updates,
+      updated_at: Date.now(),
+    }
+
+    await this.set(`${DOCore.CIRCUIT_STATE_PREFIX}${id}`, updated)
+  }
+
+  /**
+   * Get all circuit breakers
+   *
+   * @returns Array of all circuit breaker states
+   */
+  async getAllCircuitBreakers(): Promise<Array<{
+    id: string
+    state: 'closed' | 'open' | 'half_open'
+    failure_count: number
+    success_count: number
+    opened_at: number | null
+    last_failure_at: number | null
+    updated_at: number
+    failure_threshold: number
+    reset_timeout_ms: number
+  }>> {
+    const entries = await this.list({ prefix: DOCore.CIRCUIT_STATE_PREFIX })
+    const result: Array<{
+      id: string
+      state: 'closed' | 'open' | 'half_open'
+      failure_count: number
+      success_count: number
+      opened_at: number | null
+      last_failure_at: number | null
+      updated_at: number
+      failure_threshold: number
+      reset_timeout_ms: number
+    }> = []
+
+    for (const value of Object.values(entries)) {
+      const parsed = this.parseCircuitState(value)
+      if (parsed) {
+        result.push(parsed)
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Clear all circuit breakers
+   */
+  async clearAllCircuitBreakers(): Promise<void> {
+    const entries = await this.list({ prefix: DOCore.CIRCUIT_STATE_PREFIX })
+    await this.deleteMany(Object.keys(entries))
+  }
+
+  // =========================================================================
+  // THINGS RPC ACCESSOR
+  // =========================================================================
+  // Provides direct RPC access to thing storage operations.
+  // This is an alternative to the storage module accessor.
+  // =========================================================================
+
+  /**
+   * Get a things accessor for RPC access
+   * Provides create, get, list, update, delete methods for things
+   */
+  get things(): {
+    create: (data: { $type: string; $id?: string; [key: string]: unknown }) => Promise<ThingData>
+    get: (id: string) => Promise<ThingData>
+    list: (type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }) => Promise<ThingData[]>
+    update: (id: string, updates: Record<string, unknown>) => Promise<ThingData>
+    delete: (id: string) => Promise<boolean>
+  } {
+    return {
+      create: async (data: { $type: string; $id?: string; [key: string]: unknown }) => {
+        const { $type, ...rest } = data
+        return this.storage.create($type, rest)
+      },
+      get: async (id: string) => {
+        const thing = await this.getThingById(id)
+        if (!thing) {
+          const error = new Error(`Thing not found: ${id}`) as Error & { code: string; context: Record<string, unknown>; correlationId?: string }
+          error.code = 'NOT_FOUND'
+          error.context = { id }
+          error.correlationId = crypto.randomUUID()
+          throw error
+        }
+        return thing
+      },
+      list: async (type: string, query?: { where?: Record<string, unknown>; limit?: number; offset?: number }) => {
+        return this.storage.list(type, query)
+      },
+      update: async (id: string, updates: Record<string, unknown>) => {
+        const thing = await this.updateThingById(id, updates)
+        if (!thing) {
+          const error = new Error(`Thing not found: ${id}`) as Error & { code: string; context: Record<string, unknown> }
+          error.code = 'NOT_FOUND'
+          error.context = { id }
+          throw error
+        }
+        return thing
+      },
+      delete: async (id: string) => {
+        return this.deleteThingById(id)
+      },
+    }
   }
 }
 

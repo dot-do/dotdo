@@ -24,6 +24,7 @@ import {
 import { generateThingId } from '../event-system'
 import { LRUCache } from '../lru-cache'
 import type { ThingData } from '../../types'
+import type { IStorage, StorageQueryOptions, BulkFilterOptions } from '../types/modules'
 
 // ============================================================================
 // Constants
@@ -44,16 +45,9 @@ export interface StorageEventEmitter {
 
 /**
  * Extended query options for listing things
+ * @deprecated Use StorageQueryOptions from types/modules.ts instead
  */
-export interface ThingQueryOptions {
-  where?: Record<string, unknown>
-  limit?: number
-  offset?: number
-  select?: string[]
-  exclude?: string[]
-  orderBy?: Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>>
-  includeDeleted?: boolean
-}
+export interface ThingQueryOptions extends StorageQueryOptions {}
 
 // ============================================================================
 // DOCoreStorage Class
@@ -69,6 +63,8 @@ export interface ThingQueryOptions {
  * - Batch operations for efficient bulk updates
  * - Soft delete support
  *
+ * Implements: IStorage interface for type-safe delegation from DOCore
+ *
  * @example
  * ```typescript
  * const storage = new DOCoreStorage(ctx)
@@ -81,7 +77,7 @@ export interface ThingQueryOptions {
  * const active = await storage.list('Customer', { where: { status: 'active' } })
  * ```
  */
-export class DOCoreStorage extends RpcTarget {
+export class DOCoreStorage extends RpcTarget implements IStorage {
   // LRU cache for things with configurable max size (default 1000 entries)
   // Evicted entries are still available from SQLite, this is just a hot cache
   private things: LRUCache<ThingData>

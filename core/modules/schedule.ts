@@ -22,26 +22,39 @@ import { RpcTarget } from 'cloudflare:workers'
 import {
   DAY_MAP,
   parseTime,
-  type ScheduleHandler,
-  type ScheduleEntry,
+  type ScheduleHandler as ScheduleManagerHandler,
+  type ScheduleEntry as ScheduleManagerEntry,
   type TimeBuilder,
   type ScheduleBuilder,
   type IntervalBuilder,
 } from '../schedule-manager'
+import type { ISchedule, ScheduleEntry, PersistedScheduleEntry, ScheduleHandler } from '../types/modules'
 
-// Re-export types for convenience
+// Re-export types for convenience (including from modules.ts for consistency)
 export type { ScheduleHandler, ScheduleEntry, TimeBuilder, ScheduleBuilder, IntervalBuilder }
 export { DAY_MAP, parseTime }
 
 // ============================================================================
-// Persisted Schedule Type
+// Internal Types
 // ============================================================================
 
 /**
  * Persisted schedule entry from SQLite
+ * @internal Use ScheduleEntry from modules.ts for public API
  */
 export interface PersistedSchedule {
   cron: string
+  handler_id: string
+  registered_at: number
+}
+
+/**
+ * Internal schedule entry combining metadata with actual handler
+ * @internal Not part of public ISchedule interface
+ */
+interface InternalScheduleEntry {
+  cron: string
+  handler: ScheduleManagerHandler
   handler_id: string
   registered_at: number
 }
@@ -57,6 +70,8 @@ export interface PersistedSchedule {
  * functionality. It maintains both in-memory state (for fast access)
  * and SQLite persistence (for recovery after eviction).
  *
+ * Implements: ISchedule interface for type-safe delegation from DOCore
+ *
  * @example
  * ```typescript
  * // Via DOCore (internal)
@@ -66,9 +81,9 @@ export interface PersistedSchedule {
  * await doStub.schedule.registerSchedule('0 9 * * *', handler)
  * ```
  */
-export class DOCoreSchedule extends RpcTarget {
+export class DOCoreSchedule extends RpcTarget implements ISchedule {
   /** In-memory schedule registry for fast access */
-  private schedules: Map<string, ScheduleEntry> = new Map()
+  private schedules: Map<string, InternalScheduleEntry> = new Map()
 
   constructor(private ctx: DurableObjectState) {
     super()
@@ -83,39 +98,85 @@ export class DOCoreSchedule extends RpcTarget {
    *
    * @param cron CRON expression or special interval string
    * @param handler Function to call when scheduled
-   * @returns Unsubscribe function
+   * @returns void (implements ISchedule)
    *
    * @example
-   * const unsub = this.schedule.registerSchedule('0 9 * * *', async () => {
+   * this.schedule.registerSchedule('0 9 * * *', async () => {
    *   console.log('Good morning!')
    * })
-   * // Later: unsub() to remove the schedule
    */
-  registerSchedule(cron: string, handler: ScheduleHandler): () => void {
-    this.schedules.set(cron, { handler, cron })
+  registerSchedule(cron: string, handler: ScheduleHandler): void {
+    const now = Date.now()
+    const handlerId = `handler_${now}`
+
+    this.schedules.set(cron, {
+      cron,
+      handler: handler as ScheduleManagerHandler,
+      handler_id: handlerId,
+      registered_at: now,
+    })
 
     // Persist to SQLite
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO schedules (cron, handler_id, registered_at) VALUES (?, ?, ?)`,
       cron,
-      `handler_${Date.now()}`,
-      Date.now()
+      handlerId,
+      now
     )
-
-    return () => {
-      this.schedules.delete(cron)
-      this.ctx.storage.sql.exec(`DELETE FROM schedules WHERE cron = ?`, cron)
-    }
   }
 
   /**
    * Get a registered schedule by CRON expression
    *
    * @param cron The CRON expression to look up
-   * @returns The schedule entry or undefined if not found
+   * @returns Promise resolving to the persisted schedule entry or null if not found
    */
-  getScheduleByCron(cron: string): ScheduleEntry | undefined {
-    return this.schedules.get(cron)
+  async getScheduleByCron(cron: string): Promise<PersistedScheduleEntry | null> {
+    const internal = this.schedules.get(cron)
+    if (!internal) return null
+    // Return public interface (without handler function - can't serialize functions)
+    return {
+      cron: internal.cron,
+      handler_id: internal.handler_id,
+      registered_at: internal.registered_at,
+    }
+  }
+
+  /**
+   * Get all registered schedules (metadata only)
+   *
+   * @returns Promise resolving to array of persisted schedule entries
+   */
+  async getAllSchedules(): Promise<PersistedScheduleEntry[]> {
+    return Array.from(this.schedules.values()).map(internal => ({
+      cron: internal.cron,
+      handler_id: internal.handler_id,
+      registered_at: internal.registered_at,
+    }))
+  }
+
+  /**
+   * Delete a schedule by CRON expression
+   *
+   * @param cron The CRON expression to delete
+   * @returns Promise resolving to true if deleted, false if not found
+   */
+  async deleteScheduleByCron(cron: string): Promise<boolean> {
+    const existed = this.schedules.delete(cron)
+    if (existed) {
+      this.ctx.storage.sql.exec(`DELETE FROM schedules WHERE cron = ?`, cron)
+    }
+    return existed
+  }
+
+  /**
+   * Clear all schedules
+   *
+   * @returns Promise that resolves when complete
+   */
+  async clearAllSchedules(): Promise<void> {
+    this.schedules.clear()
+    this.ctx.storage.sql.exec(`DELETE FROM schedules`)
   }
 
   /**
@@ -125,6 +186,21 @@ export class DOCoreSchedule extends RpcTarget {
    */
   getScheduleCount(): number {
     return this.schedules.size
+  }
+
+  /**
+   * Get a schedule with its handler (not RPC-compatible, for local use only)
+   *
+   * @param cron The CRON expression to look up
+   * @returns Schedule entry with handler and cron, or undefined if not found
+   */
+  getScheduleInternal(cron: string): ScheduleEntry | undefined {
+    const internal = this.schedules.get(cron)
+    if (!internal) return undefined
+    return {
+      handler: internal.handler,
+      cron: internal.cron,
+    }
   }
 
   /**
@@ -143,13 +219,6 @@ export class DOCoreSchedule extends RpcTarget {
     }))
   }
 
-  /**
-   * Clear all schedules (both in-memory and SQLite)
-   */
-  clearAllSchedules(): void {
-    this.schedules.clear()
-    this.ctx.storage.sql.exec(`DELETE FROM schedules`)
-  }
 
   /**
    * Clear only in-memory schedules (for eviction simulation)
@@ -179,11 +248,18 @@ export class DOCoreSchedule extends RpcTarget {
 
     for (const row of rows) {
       const cron = row.cron as string
+      const handlerId = row.handler_id as string
+      const registeredAt = row.registered_at as number
       // Create a placeholder handler since functions cannot be persisted
-      const placeholderHandler: ScheduleHandler = () => {
+      const placeholderHandler: ScheduleManagerHandler = () => {
         console.warn(`Recovered schedule ${cron} has no handler - re-register to restore functionality`)
       }
-      this.schedules.set(cron, { handler: placeholderHandler, cron })
+      this.schedules.set(cron, {
+        handler: placeholderHandler,
+        cron,
+        handler_id: handlerId,
+        registered_at: registeredAt,
+      })
     }
   }
 
@@ -194,22 +270,29 @@ export class DOCoreSchedule extends RpcTarget {
   /**
    * Register schedule via fluent DSL (every.day.at(), every.Monday.at(), etc.)
    *
+   * Note: RPC-compatible. Returns CRON string for unsubscription via removeSchedule().
+   * Functions cannot be serialized over RPC, so we return the CRON expression instead.
+   *
    * @param dayOrInterval Day of week ('Monday', 'day', 'hour', 'minute')
    * @param time Time string or null for hour/minute intervals
    * @param handler Handler function
-   * @returns Unsubscribe function
+   * @returns The CRON expression used to register the schedule (for unsubscription)
    */
   registerScheduleViaEvery(
     dayOrInterval: string,
     time: string | null,
     handler: ScheduleHandler
-  ): () => void {
+  ): string {
     // Handle hour/minute intervals
     if (dayOrInterval === 'hour') {
-      return this.registerSchedule('0 * * * *', handler)
+      const cron = '0 * * * *'
+      this.registerSchedule(cron, handler)
+      return cron
     }
     if (dayOrInterval === 'minute') {
-      return this.registerSchedule('* * * * *', handler)
+      const cron = '* * * * *'
+      this.registerSchedule(cron, handler)
+      return cron
     }
 
     // Parse the time
@@ -224,22 +307,26 @@ export class DOCoreSchedule extends RpcTarget {
       throw new Error(`Invalid day: ${dayOrInterval}`)
     }
 
-    return this.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
+    const cron = `${minute} ${hour} * * ${dow}`
+    this.registerSchedule(cron, handler)
+    return cron
   }
 
   /**
    * Register schedule via shortcut methods (at9am, at5pm, at6am)
    *
+   * Note: RPC-compatible. Returns CRON string for unsubscription via deleteScheduleByCron().
+   *
    * @param dayOrInterval Day of week or 'day'
    * @param shortcut Shortcut name ('at9am', 'at5pm', 'at6am')
    * @param handler Handler function
-   * @returns Unsubscribe function
+   * @returns The CRON expression used to register the schedule (for unsubscription)
    */
   registerScheduleViaEveryShortcut(
     dayOrInterval: string,
     shortcut: string,
     handler: ScheduleHandler
-  ): () => void {
+  ): string {
     const shortcuts: Record<string, { hour: number; minute: number }> = {
       at9am: { hour: 9, minute: 0 },
       at5pm: { hour: 17, minute: 0 },
@@ -256,33 +343,43 @@ export class DOCoreSchedule extends RpcTarget {
       throw new Error(`Invalid day: ${dayOrInterval}`)
     }
 
-    return this.registerSchedule(`${timeSpec.minute} ${timeSpec.hour} * * ${dow}`, handler)
+    const cron = `${timeSpec.minute} ${timeSpec.hour} * * ${dow}`
+    this.registerSchedule(cron, handler)
+    return cron
   }
 
   /**
    * Register schedule via interval DSL (every(n).minutes(), every(n).hours(), every(n).seconds())
    *
+   * Note: RPC-compatible. Returns CRON string for unsubscription via deleteScheduleByCron().
+   *
    * @param n Interval value
    * @param unit Interval unit ('minutes', 'hours', 'seconds')
    * @param handler Handler function
-   * @returns Unsubscribe function
+   * @returns The CRON expression used to register the schedule (for unsubscription)
    */
   registerScheduleViaInterval(
     n: number,
     unit: 'minutes' | 'hours' | 'seconds',
     handler: ScheduleHandler
-  ): () => void {
+  ): string {
+    let cron: string
     switch (unit) {
       case 'minutes':
-        return this.registerSchedule(`*/${n} * * * *`, handler)
+        cron = `*/${n} * * * *`
+        break
       case 'hours':
-        return this.registerSchedule(`0 */${n} * * *`, handler)
+        cron = `0 */${n} * * *`
+        break
       case 'seconds':
         // Seconds scheduling uses special format since CRON doesn't support seconds
-        return this.registerSchedule(`every:${n}s`, handler)
+        cron = `every:${n}s`
+        break
       default:
         throw new Error(`Invalid unit: ${unit}`)
     }
+    this.registerSchedule(cron, handler)
+    return cron
   }
 
   // =========================================================================
@@ -318,7 +415,9 @@ export class DOCoreSchedule extends RpcTarget {
             return (time: string) => {
               return (handler: ScheduleHandler): (() => void) => {
                 const { hour, minute } = parseTime(time)
-                return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
+                self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
+                // Return a no-op unsubscribe function (schedule is persistent)
+                return () => {}
               }
             }
           }
@@ -326,7 +425,9 @@ export class DOCoreSchedule extends RpcTarget {
           if (shortcuts[prop]) {
             return (handler: ScheduleHandler): (() => void) => {
               const { hour, minute } = shortcuts[prop]
-              return self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
+              self.registerSchedule(`${minute} ${hour} * * ${dow}`, handler)
+              // Return a no-op unsubscribe function (schedule is persistent)
+              return () => {}
             }
           }
 
@@ -344,15 +445,30 @@ export class DOCoreSchedule extends RpcTarget {
       Saturday: createTimeBuilder('Saturday'),
       Sunday: createTimeBuilder('Sunday'),
       day: createTimeBuilder(null),
-      hour: (handler: ScheduleHandler): (() => void) => self.registerSchedule('0 * * * *', handler),
-      minute: (handler: ScheduleHandler): (() => void) => self.registerSchedule('* * * * *', handler),
+      hour: (handler: ScheduleHandler): (() => void) => {
+        self.registerSchedule('0 * * * *', handler)
+        return () => {} // No-op unsubscribe
+      },
+      minute: (handler: ScheduleHandler): (() => void) => {
+        self.registerSchedule('* * * * *', handler)
+        return () => {} // No-op unsubscribe
+      },
     }
 
     const everyFn = (n: number): IntervalBuilder => {
       return {
-        minutes: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`*/${n} * * * *`, handler),
-        hours: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`0 */${n} * * *`, handler),
-        seconds: (handler: ScheduleHandler): (() => void) => self.registerSchedule(`every:${n}s`, handler),
+        minutes: (handler: ScheduleHandler): (() => void) => {
+          self.registerSchedule(`*/${n} * * * *`, handler)
+          return () => {} // No-op unsubscribe
+        },
+        hours: (handler: ScheduleHandler): (() => void) => {
+          self.registerSchedule(`0 */${n} * * *`, handler)
+          return () => {} // No-op unsubscribe
+        },
+        seconds: (handler: ScheduleHandler): (() => void) => {
+          self.registerSchedule(`every:${n}s`, handler)
+          return () => {} // No-op unsubscribe
+        },
       }
     }
 
@@ -396,16 +512,11 @@ export class DOCoreSchedule extends RpcTarget {
   }
 
   /**
-   * Remove a schedule by CRON expression
+   * List all registered CRON expressions (non-ISchedule method for testing)
    *
-   * @param cron The CRON expression to remove
-   * @returns True if the schedule was removed, false if it didn't exist
+   * @returns Array of CRON expressions
    */
-  removeSchedule(cron: string): boolean {
-    const existed = this.schedules.delete(cron)
-    if (existed) {
-      this.ctx.storage.sql.exec(`DELETE FROM schedules WHERE cron = ?`, cron)
-    }
-    return existed
+  listRegisteredCrons(): string[] {
+    return Array.from(this.schedules.keys())
   }
 }

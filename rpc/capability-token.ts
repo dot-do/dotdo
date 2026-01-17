@@ -14,6 +14,8 @@
  * for distributed scenarios where capabilities must be transferred as opaque tokens.
  */
 
+import { DotdoError, ERROR_CODES, type ErrorCode } from '../lib/errors'
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -38,6 +40,7 @@ export interface CapabilityPayload {
 
 /**
  * Error codes for capability token failures
+ * @deprecated Use ERROR_CODES from lib/errors instead
  */
 export type CapabilityErrorCode =
   | 'EXPIRED'
@@ -47,23 +50,35 @@ export type CapabilityErrorCode =
   | 'SECRET_REQUIRED'  // No capability secret configured to verify tokens
 
 /**
- * Custom error class for capability token failures
+ * Custom error class for capability token failures.
+ * Now extends DotdoError for standardized error handling.
  */
-export class CapabilityError extends Error {
+export class CapabilityError extends DotdoError {
   constructor(
     message: string,
-    public readonly code: CapabilityErrorCode
+    public readonly capabilityCode: CapabilityErrorCode,
+    options?: { cause?: Error; context?: Record<string, unknown> }
   ) {
-    super(message)
+    // Map capability error codes to standard error codes
+    const errorCode = mapCapabilityCodeToErrorCode(capabilityCode)
+
+    super(message, errorCode, options?.context, { cause: options?.cause })
     this.name = 'CapabilityError'
-    // Maintain proper stack trace in V8 environments
-    const ErrorWithStackTrace = Error as typeof Error & {
-      captureStackTrace?: (targetObject: object, constructorOpt?: Function) => void
-    }
-    if (ErrorWithStackTrace.captureStackTrace) {
-      ErrorWithStackTrace.captureStackTrace(this, CapabilityError)
-    }
   }
+}
+
+/**
+ * Map capability error codes to standard error codes
+ */
+function mapCapabilityCodeToErrorCode(capabilityCode: CapabilityErrorCode): ErrorCode {
+  const codeMap: Record<CapabilityErrorCode, ErrorCode> = {
+    EXPIRED: ERROR_CODES.CAPABILITY_EXPIRED,
+    INVALID_SIGNATURE: ERROR_CODES.INVALID_SIGNATURE,
+    WRONG_TARGET: ERROR_CODES.WRONG_TARGET,
+    INSUFFICIENT_SCOPE: ERROR_CODES.INSUFFICIENT_SCOPE,
+    SECRET_REQUIRED: ERROR_CODES.SECRET_REQUIRED,
+  }
+  return codeMap[capabilityCode]
 }
 
 // =============================================================================
