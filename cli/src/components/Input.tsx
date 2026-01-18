@@ -85,7 +85,7 @@ export function Input({
   const applyCompletion = useCallback((completion: CompletionItem) => {
     // Find the word start
     let wordStart = cursorPosition
-    while (wordStart > 0 && /[\w$]/.test(value[wordStart - 1])) {
+    while (wordStart > 0 && /[\w$]/.test(value[wordStart - 1] ?? '')) {
       wordStart--
     }
 
@@ -129,8 +129,9 @@ export function Input({
 
     // Tab to complete
     if (key.tab) {
-      if (showCompletions && completions.length > 0) {
-        applyCompletion(completions[selectedCompletion])
+      const selectedItem = completions[selectedCompletion]
+      if (showCompletions && completions.length > 0 && selectedItem) {
+        applyCompletion(selectedItem)
       } else if (completions.length > 0) {
         onToggleCompletions(true)
       }
@@ -139,8 +140,9 @@ export function Input({
 
     // Enter to submit or select completion
     if (key.return) {
-      if (showCompletions && completions.length > 0) {
-        applyCompletion(completions[selectedCompletion])
+      const selectedItem = completions[selectedCompletion]
+      if (showCompletions && completions.length > 0 && selectedItem) {
+        applyCompletion(selectedItem)
       } else if (multiline && key.shift) {
         // Shift+Enter for newline in multiline mode
         const newValue = value.slice(0, cursorPosition) + '\n' + value.slice(cursorPosition)
@@ -161,8 +163,10 @@ export function Input({
         setHistoryIndex(newIndex)
         if (newIndex >= 0) {
           const historyValue = history[history.length - 1 - newIndex]
-          onChange(historyValue)
-          setCursorPosition(historyValue.length)
+          if (historyValue !== undefined) {
+            onChange(historyValue)
+            setCursorPosition(historyValue.length)
+          }
         }
       }
       return
@@ -175,8 +179,10 @@ export function Input({
         const newIndex = historyIndex - 1
         setHistoryIndex(newIndex)
         const historyValue = history[history.length - 1 - newIndex]
-        onChange(historyValue)
-        setCursorPosition(historyValue.length)
+        if (historyValue !== undefined) {
+          onChange(historyValue)
+          setCursorPosition(historyValue.length)
+        }
       } else if (historyIndex === 0) {
         setHistoryIndex(-1)
         onChange('')
@@ -233,11 +239,11 @@ export function Input({
     if (input === 'w' && key.ctrl) {
       let wordStart = cursorPosition
       // Skip spaces
-      while (wordStart > 0 && /\s/.test(value[wordStart - 1])) {
+      while (wordStart > 0 && /\s/.test(value[wordStart - 1] ?? '')) {
         wordStart--
       }
       // Find word start
-      while (wordStart > 0 && !/\s/.test(value[wordStart - 1])) {
+      while (wordStart > 0 && !/\s/.test(value[wordStart - 1] ?? '')) {
         wordStart--
       }
       const newValue = value.slice(0, wordStart) + value.slice(cursorPosition)

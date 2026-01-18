@@ -482,8 +482,10 @@ export class KeybindingHandler {
       context.setHistoryIndex(newIndex)
       if (context.history[newIndex]) {
         const historyValue = context.history[context.history.length - 1 - newIndex]
-        context.onChange(historyValue)
-        context.setCursorPosition(historyValue.length)
+        if (historyValue !== undefined) {
+          context.onChange(historyValue)
+          context.setCursorPosition(historyValue.length)
+        }
       }
     }
     return true
@@ -501,8 +503,10 @@ export class KeybindingHandler {
         const newIndex = context.historyIndex - 1
         context.setHistoryIndex(newIndex)
         const historyValue = context.history[context.history.length - 1 - newIndex]
-        context.onChange(historyValue)
-        context.setCursorPosition(historyValue.length)
+        if (historyValue !== undefined) {
+          context.onChange(historyValue)
+          context.setCursorPosition(historyValue.length)
+        }
       } else if (context.historyIndex === 0) {
         context.setHistoryIndex(-1)
         context.onChange('')

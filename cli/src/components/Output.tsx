@@ -293,8 +293,9 @@ export interface TableOutputProps {
 export const TableOutput = memo(function TableOutput({ data, columns }: TableOutputProps): React.ReactElement {
   // Memoize column computation
   const cols = useMemo(() => {
-    if (data.length === 0) return []
-    return columns ?? Object.keys(data[0])
+    const firstRow = data[0]
+    if (data.length === 0 || !firstRow) return []
+    return columns ?? Object.keys(firstRow)
   }, [data, columns])
 
   // Memoize width computation
@@ -307,7 +308,7 @@ export const TableOutput = memo(function TableOutput({ data, columns }: TableOut
 
   // Memoize header and separator
   const { header, separator } = useMemo(() => {
-    const h = cols.map((col, i) => col.padEnd(widths[i])).join(' | ')
+    const h = cols.map((col, i) => col.padEnd(widths[i] ?? 0)).join(' | ')
     const s = widths.map(w => '-'.repeat(w)).join('-+-')
     return { header: h, separator: s }
   }, [cols, widths])
@@ -322,7 +323,7 @@ export const TableOutput = memo(function TableOutput({ data, columns }: TableOut
       <Text dimColor>{separator}</Text>
       {data.map((row, rowIndex) => (
         <Text key={rowIndex}>
-          {cols.map((col, i) => String(row[col] ?? '').padEnd(widths[i])).join(' | ')}
+          {cols.map((col, i) => String(row[col] ?? '').padEnd(widths[i] ?? 0)).join(' | ')}
         </Text>
       ))}
     </Box>

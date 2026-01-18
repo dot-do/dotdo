@@ -767,7 +767,9 @@ export class RpcClient extends EventEmitter {
     // If only one request, send normally
     if (queue.length === 1) {
       const req = queue[0]
-      this.sendImmediately(req.id, req.message, req.resolve, req.reject, req.requestKey)
+      if (req) {
+        this.sendImmediately(req.id, req.message, req.resolve, req.reject, req.requestKey)
+      }
       return
     }
 
@@ -1096,6 +1098,7 @@ export class RpcClient extends EventEmitter {
         // Clone operations and update last one to be a call with args
         const newOperations = operations.slice(0, -1)
         const lastOp = operations[operations.length - 1]
+        if (!lastOp) throw new Error('No operations to apply')
         newOperations.push({
           path: lastOp.path,
           args,

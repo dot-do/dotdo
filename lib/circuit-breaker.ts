@@ -10,6 +10,13 @@
  * - Supporting timeout protection and bulkhead pattern
  */
 
+import {
+  DotdoError,
+  ERROR_CODES,
+  createCircuitBreakerError,
+  createTimeoutError,
+} from './errors'
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -98,10 +105,18 @@ export class CircuitBreaker {
   constructor(config: CircuitBreakerConfig) {
     // Validate config
     if (config.failureThreshold < 0) {
-      throw new Error('failureThreshold must be non-negative')
+      throw new DotdoError(
+        'failureThreshold must be non-negative',
+        ERROR_CODES.VALIDATION_ERROR,
+        { field: 'failureThreshold', value: config.failureThreshold }
+      )
     }
     if (config.resetTimeout < 0) {
-      throw new Error('resetTimeout must be non-negative')
+      throw new DotdoError(
+        'resetTimeout must be non-negative',
+        ERROR_CODES.VALIDATION_ERROR,
+        { field: 'resetTimeout', value: config.resetTimeout }
+      )
     }
 
     this.config = {
@@ -126,7 +141,11 @@ export class CircuitBreaker {
       if (this.concurrentCalls >= this.config.maxConcurrent) {
         // Check queue limits
         if (this.config.maxQueued !== undefined && this.queuedCalls.length >= this.config.maxQueued) {
-          throw new Error('Circuit breaker queue full')
+          throw new DotdoError(
+            'Circuit breaker queue full',
+            ERROR_CODES.QUEUE_FULL,
+            { maxQueued: this.config.maxQueued, currentQueued: this.queuedCalls.length }
+          )
         }
 
         // Queue this call
@@ -149,13 +168,13 @@ export class CircuitBreaker {
 
     // Handle open state - fail fast
     if (this._state === 'open') {
-      throw new Error('Circuit is open')
+      throw createCircuitBreakerError('open')
     }
 
     // Handle half-open state - limit concurrent calls
     if (this._state === 'half-open') {
       if (this.halfOpenCallsInProgress >= (this.config.halfOpenMaxCalls ?? 1)) {
-        throw new Error('Circuit is open')
+        throw createCircuitBreakerError('half-open')
       }
       this.halfOpenCallsInProgress++
     }
@@ -176,7 +195,7 @@ export class CircuitBreaker {
           result = await Promise.race([
             fn(abortController.signal),
             new Promise<T>((_, reject) => {
-              const timeoutReject = () => reject(new Error('Timeout'))
+              const timeoutReject = () => reject(createTimeoutError('circuit breaker operation', this.config.timeout!))
               setTimeout(timeoutReject, this.config.timeout!)
             }),
           ])

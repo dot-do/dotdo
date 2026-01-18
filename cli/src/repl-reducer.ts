@@ -253,19 +253,21 @@ export function replReducer(state: ReplState, action: ReplAction): ReplState {
       // Starting navigation from current input
       if (state.historyIndex === -1) {
         const newIndex = state.history.length - 1
+        const historyValue = state.history[newIndex]
         return {
           ...state,
           historyIndex: newIndex,
-          inputValue: state.history[newIndex],
+          inputValue: historyValue ?? '',
         }
       }
 
       // Navigate backwards
       const newIndex = state.historyIndex - 1
+      const historyValue = state.history[newIndex]
       return {
         ...state,
         historyIndex: newIndex,
-        inputValue: state.history[newIndex],
+        inputValue: historyValue ?? '',
       }
     }
 
@@ -286,10 +288,11 @@ export function replReducer(state: ReplState, action: ReplAction): ReplState {
 
       // Navigate forwards
       const newIndex = state.historyIndex + 1
+      const nextHistoryValue = state.history[newIndex]
       return {
         ...state,
         historyIndex: newIndex,
-        inputValue: state.history[newIndex],
+        inputValue: nextHistoryValue ?? '',
       }
     }
 
@@ -324,11 +327,11 @@ export function replReducer(state: ReplState, action: ReplAction): ReplState {
     }
 
     case 'UNDO': {
-      if (state.undoStack.length === 0) {
+      const previousState = state.undoStack[state.undoStack.length - 1]
+      if (!previousState) {
         return state
       }
 
-      const previousState = state.undoStack[state.undoStack.length - 1]
       const newUndoStack = state.undoStack.slice(0, -1)
 
       return {
@@ -339,11 +342,11 @@ export function replReducer(state: ReplState, action: ReplAction): ReplState {
     }
 
     case 'REDO': {
-      if (state.redoStack.length === 0) {
+      const nextState = state.redoStack[state.redoStack.length - 1]
+      if (!nextState) {
         return state
       }
 
-      const nextState = state.redoStack[state.redoStack.length - 1]
       const newRedoStack = state.redoStack.slice(0, -1)
 
       return {

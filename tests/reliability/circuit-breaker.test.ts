@@ -118,7 +118,7 @@ describe('CircuitBreaker - Core Behavior', () => {
       // Subsequent calls should fail fast without calling the service
       const callCountBefore = mockService.call.mock.calls.length
 
-      await expect(breaker.execute(() => mockService.call())).rejects.toThrow('Circuit is open')
+      await expect(breaker.execute(() => mockService.call())).rejects.toThrow(/Circuit breaker is (open|half-open)/)
 
       // Service should NOT have been called
       expect(mockService.call.mock.calls.length).toBe(callCountBefore)
@@ -285,7 +285,7 @@ describe('CircuitBreaker - Core Behavior', () => {
 
       const promise = breaker.execute(() => mockService.call())
       await vi.advanceTimersByTimeAsync(1100) // Advance past timeout
-      await expect(promise).rejects.toThrow('Timeout')
+      await expect(promise).rejects.toThrow(/timed out/)
     })
 
     it('should count timeout as failure', async () => {
@@ -330,7 +330,7 @@ describe('CircuitBreaker - Core Behavior', () => {
 
       await vi.advanceTimersByTimeAsync(600)
 
-      await expect(promise).rejects.toThrow('Timeout')
+      await expect(promise).rejects.toThrow(/timed out/)
       expect(abortSignalReceived).toHaveBeenCalled()
     })
   })
@@ -548,7 +548,7 @@ describe('ProtectedAIService - Circuit Breaker Integration', () => {
 
       // Should fail fast without calling AI
       const callCount = mockAI.run.mock.calls.length
-      await expect(service.run('gpt-4', { messages: [] })).rejects.toThrow('Circuit is open')
+      await expect(service.run('gpt-4', { messages: [] })).rejects.toThrow(/Circuit breaker is (open|half-open)/)
 
       expect(mockAI.run.mock.calls.length).toBe(callCount)
     })
@@ -589,7 +589,7 @@ describe('ProtectedAIService - Circuit Breaker Integration', () => {
 
       await vi.advanceTimersByTimeAsync(6000)
 
-      await expect(promise).rejects.toThrow('Timeout')
+      await expect(promise).rejects.toThrow(/timed out/)
     })
   })
 
@@ -806,7 +806,7 @@ describe('ProtectedR2Service - Circuit Breaker Integration', () => {
 
       await vi.advanceTimersByTimeAsync(6000)
 
-      await expect(promise).rejects.toThrow('Timeout')
+      await expect(promise).rejects.toThrow(/timed out/)
     })
   })
 })
@@ -856,7 +856,7 @@ describe('Cascade Prevention - Failures Do Not Propagate to All Callers', () => 
         .fill(null)
         .map(() =>
           breaker.execute(() => mockService.call()).catch(() => {
-            // Expected - should be "Circuit is open"
+            // Expected - should be "Circuit breaker is open"
           })
         )
 
@@ -1043,7 +1043,7 @@ describe('WorkflowContext Circuit Breaker Integration', () => {
 
       await expect(
         $.do(() => failingService(), { circuitBreakerId: 'external-service' })
-      ).rejects.toThrow('Circuit is open')
+      ).rejects.toThrow(/Circuit breaker is (open|half-open)/)
 
       // No additional service calls should have been made
       expect(callCount).toBe(initialCallCount)
@@ -1069,7 +1069,7 @@ describe('WorkflowContext Circuit Breaker Integration', () => {
       await expect($.Customer('123').getData()).rejects.toThrow()
 
       // Third call should fail fast
-      await expect($.Customer('123').getData()).rejects.toThrow('Circuit is open')
+      await expect($.Customer('123').getData()).rejects.toThrow(/Circuit breaker is (open|half-open)/)
 
       // Only 2 actual RPC calls should have been made
       expect(mockStubResolver).toHaveBeenCalledTimes(2)

@@ -22,6 +22,7 @@ export default defineConfig({
       'tests/layout.test.ts',
       'tests/examples.test.ts',
       'cli/tests/**/*.test.ts',
+      'packages/__tests__/**/*.test.ts',
     ],
     exclude: ['node_modules', 'dist'],
     testTimeout: 10_000,

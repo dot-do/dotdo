@@ -150,8 +150,8 @@ export function createEvaluateError(
   // Parse line/column from common error formats
   const lineMatch = message.match(/line (\d+)/i)
   const columnMatch = message.match(/column (\d+)/i)
-  if (lineMatch) evalError.line = parseInt(lineMatch[1], 10)
-  if (columnMatch) evalError.column = parseInt(columnMatch[1], 10)
+  if (lineMatch?.[1]) evalError.line = parseInt(lineMatch[1], 10)
+  if (columnMatch?.[1]) evalError.column = parseInt(columnMatch[1], 10)
 
   return evalError
 }

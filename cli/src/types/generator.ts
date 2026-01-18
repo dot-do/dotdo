@@ -185,7 +185,7 @@ function mapSchemaTypeToTS(schemaType: string, strict: boolean): string {
 
   // Handle generic types
   const genericMatch = schemaType.match(/^(\w+)<(.+)>$/)
-  if (genericMatch) {
+  if (genericMatch?.[1] && genericMatch[2]) {
     const [, container, inner] = genericMatch
     return `${container}<${mapSchemaTypeToTS(inner, strict)}>`
   }

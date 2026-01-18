@@ -36,6 +36,7 @@ function parseArgs(args: string[]): {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
+    if (!arg) continue
 
     switch (arg) {
       case '-h':

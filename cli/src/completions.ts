@@ -556,7 +556,7 @@ declare const Account: typeof $.Account;
       /declare\s+interface\s+DotdoContext\s*\{([^}]+)\}/
     )
 
-    if (contextExtensionMatch) {
+    if (contextExtensionMatch?.[1]) {
       const contextBody = contextExtensionMatch[1]
       // Match "NounName: NounMethods" patterns (capitalized names)
       const nounPattern = /(\w+):\s*(\w+Methods)/g
@@ -564,7 +564,7 @@ declare const Account: typeof $.Account;
       while ((match = nounPattern.exec(contextBody)) !== null) {
         const [, nounName, methodsType] = match
         // Only include if it starts with uppercase (is a Noun)
-        if (/^[A-Z]/.test(nounName)) {
+        if (nounName && methodsType && /^[A-Z]/.test(nounName)) {
           declarations.push(`/** ${nounName} entity methods */`)
           declarations.push(`declare const ${nounName}: ${methodsType};`)
         }
@@ -885,12 +885,12 @@ export function getWordAtCursor(content: string, position: number): { word: stri
   let end = position
 
   // Move start back to find word beginning
-  while (start > 0 && /[\w$]/.test(content[start - 1])) {
+  while (start > 0 && /[\w$]/.test(content[start - 1] ?? '')) {
     start--
   }
 
   // Move end forward to find word end
-  while (end < content.length && /[\w$]/.test(content[end])) {
+  while (end < content.length && /[\w$]/.test(content[end] ?? '')) {
     end++
   }
 
@@ -937,7 +937,7 @@ function isNumberLiteral(content: string, position: number): boolean {
   if (dotIndex < 0 || content[dotIndex] !== '.') return false
 
   // Check if character before dot is a digit
-  const charBeforeDot = dotIndex > 0 ? content[dotIndex - 1] : ''
+  const charBeforeDot = dotIndex > 0 ? (content[dotIndex - 1] ?? '') : ''
   return /\d/.test(charBeforeDot)
 }
 
