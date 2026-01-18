@@ -23,6 +23,8 @@ import {
   pipeline,
   serialize,
   deserialize,
+  serializeCapability,
+  deserializeCapability,
 } from './index'
 import {
   setTestBehaviors,
@@ -1152,20 +1154,26 @@ describe('RPC Integration', () => {
     const iface = generateInterface(CustomerDO)
     expect(iface).toBeDefined()
 
-    // Create RPC client
+    // Create RPC client - pass mockHandler directly to avoid Workers module isolation issues
     const client = createRPCClient<CustomerDO>({
       target: 'https://customer.api.dotdo.dev/cust-123',
+      mockHandler: createDefaultMockHandler(),
     })
 
     // Introspect
     const schema = await client.$meta.schema()
     expect(schema.name).toBe('Customer')
 
-    // Create capability
+    // First verify direct RPC call works
+    const directReceipt = await client.charge(50.0) as Receipt
+    expect(directReceipt.amount).toBe(50.0)
+
+    // Now test through capability
     const cap = createCapability(client, ['charge'])
 
     // Invoke through capability
     const receipt = await cap.invoke('charge', 50.0)
+    expect(receipt).toBeDefined()
 
     // Serialize result
     const serialized = serialize(receipt)
@@ -1193,14 +1201,15 @@ describe('RPC Integration', () => {
   it('cross-DO RPC with capability delegation', async () => {
     const customer = createRPCClient<CustomerDO>({
       target: 'https://customer.api.dotdo.dev/cust-123',
+      mockHandler: createDefaultMockHandler(),
     })
 
     // Create attenuated capability
     const notifyCap = createCapability(customer).attenuate(['notify'])
 
-    // Delegate to another service (simulated)
-    const serializedCap = serialize(notifyCap)
-    const delegatedCap = deserialize<Capability<CustomerDO>>(serializedCap as string)
+    // Delegate to another service (simulated) - use capability-specific serialization
+    const serializedCap = serializeCapability(notifyCap)
+    const delegatedCap = deserializeCapability<CustomerDO>(serializedCap)
 
     // Should only be able to call notify
     await expect(delegatedCap.invoke('notify', 'Hello!')).resolves.not.toThrow()

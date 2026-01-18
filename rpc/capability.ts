@@ -196,7 +196,9 @@ class CapabilityImpl<T> implements Capability<T> {
       throw new Error(`'${methodName}' is not a function`)
     }
 
-    return fn.apply(this.target, args) as Promise<T[K]>
+    // Use Reflect.apply instead of fn.apply for better Proxy compatibility
+    // (Workers runtime has issues with fn.apply on Proxy objects)
+    return Reflect.apply(fn as (...a: unknown[]) => Promise<T[K]>, this.target, args)
   }
 
   attenuate(methods: string[]): Capability<T> {
