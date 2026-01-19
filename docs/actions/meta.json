@@ -1,6 +1,0 @@
-{
-  "root": true,
-  "title": "Actions",
-  "description": "Reusable action definitions and execution patterns",
-  "pages": ["index", "lifecycle"]
-}

@@ -1,5 +1,0 @@
-{
-  "title": "Testing",
-  "description": "Part of Guides - Testing Durable Objects, agents, and integrations",
-  "pages": ["index", "unit-tests", "integration-tests", "agent-tests"]
-}

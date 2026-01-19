@@ -1,6 +1,0 @@
-{
-  "root": true,
-  "title": "Getting Started",
-  "description": "Begin building your 1-Person Unicorn with dotdo",
-  "pages": ["index", "installation", "api-keys", "quickstart"]
-}

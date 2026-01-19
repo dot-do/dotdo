@@ -1,6 +1,0 @@
-{
-  "root": true,
-  "title": "CLI Reference",
-  "description": "Command-line interface documentation",
-  "pages": ["index", "getting-started", "start", "init", "dev", "deploy", "generate", "config", "surfaces"]
-}
