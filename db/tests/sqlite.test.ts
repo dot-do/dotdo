@@ -181,64 +181,48 @@ function createMockSqlStorage(): MockSqlStorage {
                     }
                   }
                 } else if (lowerSql.includes('where 1=1')) {
-                  // "WHERE 1=1" with AND conditions - apply all filters
-                  const hasSubject = sql.includes('AND subject = ?')
-                  const hasPredicate = sql.includes('AND predicate = ?')
-                  const hasObject = sql.includes('AND object = ?')
-                  const hasType = sql.includes('AND type = ?')
-                  const hasSource = sql.includes('AND source = ?')
-                  const hasCorrelation = sql.includes('AND correlation_id = ?')
-                  const hasSince = sql.includes('AND timestamp >= ?')
-                  const hasUntil = sql.includes('AND timestamp <= ?')
+                  // "WHERE 1=1" with AND conditions - apply filters in order they appear in SQL
+                  let valueIndex = 0
 
-                  rows = rows.filter((r: any) => {
-                    let valueIndex = 0
-                    let matches = true
+                  if (sql.includes('AND type = ?')) {
+                    const typeValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.type === typeValue)
+                  }
 
-                    if (hasType && boundValues[valueIndex] !== undefined) {
-                      matches = matches && r.type === boundValues[valueIndex]
-                      valueIndex++
-                    }
+                  if (sql.includes('AND source = ?')) {
+                    const sourceValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.source === sourceValue)
+                  }
 
-                    if (hasSource && boundValues[valueIndex] !== undefined) {
-                      matches = matches && r.source === boundValues[valueIndex]
-                      valueIndex++
-                    }
+                  if (sql.includes('AND correlation_id = ?')) {
+                    const corrValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.correlation_id === corrValue)
+                  }
 
-                    if (hasCorrelation && boundValues[valueIndex] !== undefined) {
-                      matches = matches && r.correlation_id === boundValues[valueIndex]
-                      valueIndex++
-                    }
+                  if (sql.includes('AND timestamp >= ?')) {
+                    const sinceValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
+                  }
 
-                    if (hasSince && boundValues[valueIndex] !== undefined) {
-                      const sinceValue = boundValues[valueIndex]
-                      matches = matches && typeof r.timestamp === 'number' && r.timestamp >= sinceValue
-                      valueIndex++
-                    }
+                  if (sql.includes('AND timestamp <= ?')) {
+                    const untilValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
+                  }
 
-                    if (hasUntil && boundValues[valueIndex] !== undefined) {
-                      const untilValue = boundValues[valueIndex]
-                      matches = matches && typeof r.timestamp === 'number' && r.timestamp <= untilValue
-                      valueIndex++
-                    }
+                  if (sql.includes('AND subject = ?')) {
+                    const subjectValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.subject === subjectValue)
+                  }
 
-                    if (hasSubject && boundValues[valueIndex] !== undefined) {
-                      matches = matches && r.subject === boundValues[valueIndex]
-                      valueIndex++
-                    }
+                  if (sql.includes('AND predicate = ?')) {
+                    const predicateValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.predicate === predicateValue)
+                  }
 
-                    if (hasPredicate && boundValues[valueIndex] !== undefined) {
-                      matches = matches && r.predicate === boundValues[valueIndex]
-                      valueIndex++
-                    }
-
-                    if (hasObject && boundValues[valueIndex] !== undefined) {
-                      matches = matches && r.object === boundValues[valueIndex]
-                      valueIndex++
-                    }
-
-                    return matches
-                  })
+                  if (sql.includes('AND object = ?')) {
+                    const objectValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.object === objectValue)
+                  }
                 }
 
                 // Handle ORDER BY
