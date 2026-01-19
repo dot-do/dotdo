@@ -1,0 +1,29 @@
+{
+  "name": "@dotdo/rpc",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./client": "./client.ts",
+    "./server": "./server.ts",
+    "./pipeline": "./pipeline.ts",
+    "./batch": "./batch.ts",
+    "./errors": "./errors.ts",
+    "./cross-do": "./cross-do.ts"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "capnweb": "^0.4.0",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

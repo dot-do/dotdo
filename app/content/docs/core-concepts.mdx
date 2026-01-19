@@ -1,0 +1,118 @@
+---
+title: Core Concepts
+description: Understanding dotdo's architecture and design patterns
+---
+
+# Core Concepts
+
+Learn the fundamental concepts behind dotdo.
+
+## Durable Objects
+
+Durable Objects are the foundation of dotdo. Each DO instance has:
+
+- **Persistent Storage**: SQLite-backed storage for Things, Relationships, Events
+- **Single-threaded Execution**: No race conditions within a single DO
+- **Global Uniqueness**: Each DO ID maps to exactly one instance worldwide
+
+## WorkflowContext ($)
+
+The `$` context provides a fluent API for workflow orchestration:
+
+### Durability Levels
+
+```typescript
+// Fire-and-forget
+$.send(event)
+
+// Single attempt
+$.try(action)
+
+// Durable with retries
+$.do(action)
+```
+
+### Event Handlers
+
+```typescript
+// Specific event
+$.on.Customer.signup(handler)
+
+// Wildcards
+$.on.*.created(handler)
+$.on.Payment.*(handler)
+```
+
+### Scheduling
+
+```typescript
+// Fluent DSL → CRON
+$.every.Monday.at9am(handler)
+$.every.day.at('6pm')(handler)
+$.every.hour(handler)
+```
+
+## Storage Architecture
+
+dotdo uses a unified storage pattern:
+
+```
+Write Path:
+  Client → PipelineEmitter → Pipeline (WAL) → ACK
+                ↓
+         InMemoryState
+                ↓
+         LazyCheckpointer → SQLite (batched)
+
+Read Path:
+  Client → InMemoryState (O(1)) → Response
+```
+
+### Key Benefits
+
+- **95% Cost Reduction**: Batched SQLite writes
+- **Zero Data Loss**: Pipeline-as-WAL guarantees durability
+- **Fast Reads**: In-memory state for O(1) access
+
+## Cross-DO RPC
+
+Communicate between DOs using Cap'n Web RPC:
+
+```typescript
+// Call another DO
+await $.Customer(customerId).notify()
+
+// Chain operations
+const result = await $.Order(orderId)
+  .process()
+  .then(order => $.Payment(order.paymentId).charge())
+```
+
+## AI Integration
+
+Built-in AI primitives for LLM operations:
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Multi-provider routing
+const response = await ai`
+  Generate a customer email for ${customer.name}
+`
+
+// Structured outputs
+const schema = z.object({
+  subject: z.string(),
+  body: z.string(),
+})
+
+const email = await ai(schema)`
+  Generate a customer email for ${customer.name}
+`
+```
+
+## Next Steps
+
+- [API Reference](/docs/api-reference)
+- [Examples](/docs/examples)
+- [Best Practices](/docs/best-practices)

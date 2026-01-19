@@ -1,0 +1,21 @@
+{
+  "name": "@dotdo/auth",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "jose": "^6.0.0",
+    "id.org.ai": "file:../primitives/packages/id.org.ai"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

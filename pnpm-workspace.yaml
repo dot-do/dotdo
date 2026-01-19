@@ -1,0 +1,10 @@
+packages:
+  - rpc
+  - mcp
+  - auth
+  - db
+  - ai
+  - do
+  - api
+  - app
+  - dotdo

@@ -1,0 +1,56 @@
+---
+title: Introduction
+description: Welcome to dotdo documentation
+---
+
+# Welcome to dotdo
+
+dotdo is a Business-as-Code platform built on Cloudflare Workers and Durable Objects.
+
+## What is dotdo?
+
+dotdo is the **runtime/framework layer** - think of it like Node.js for Cloudflare Workers.
+
+| | **dotdo** | **workers.do** |
+|---|---|---|
+| **Role** | Runtime/Framework | Platform/Product |
+| **Analogy** | Node.js | Heroku |
+| **Users** | Infrastructure developers | Startup founders, teams |
+
+## Key Features
+
+- **DO Class**: SQLite storage with Things, Relationships, Events, Actions
+- **Minimal Hono Worker**: Passthrough to Durable Objects
+- **Cap'n Web RPC**: Transport layers for cross-DO communication
+- **WorkflowContext ($)**: Event system and workflow DSL
+- **Extended Primitives**: fsx, gitx, bashx, npmx, pyx capabilities
+- **AI Module**: Template literals and LLM routing
+
+## Getting Started
+
+To get started with dotdo, check out the following sections:
+
+- [Installation](/docs/installation)
+- [Core Concepts](/docs/core-concepts)
+- [API Reference](/docs/api-reference)
+
+## Architecture
+
+The worker is a minimal passthrough to the DO:
+
+```typescript
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+    const hostParts = url.hostname.split('.')
+    const ns = hostParts.length > 2 ? hostParts[0] : 'default'
+
+    const id = env.DO.idFromName(ns)
+    const stub = env.DO.get(id)
+
+    return stub.fetch(request)
+  }
+}
+```
+
+Namespace derived from hostname: `tenant.api.dotdo.dev` → `DO('tenant')`

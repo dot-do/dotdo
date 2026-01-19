@@ -1,0 +1,32 @@
+{
+  "name": "@dotdo/app",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vinxi dev",
+    "build": "vinxi build",
+    "build:static": "vinxi build --preset=cloudflare-pages-static",
+    "start": "vinxi start",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.95.0",
+    "@tanstack/start": "^1.95.0",
+    "fumadocs-core": "^16.4.7",
+    "fumadocs-mdx": "^14.2.6",
+    "fumadocs-ui": "^16.4.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vinxi": "^0.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

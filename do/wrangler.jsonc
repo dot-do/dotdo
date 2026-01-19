@@ -1,0 +1,10 @@
+{
+  "name": "dotdo-do",
+  "main": "index.ts",
+  "compatibility_date": "2025-01-15",
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  }
+}

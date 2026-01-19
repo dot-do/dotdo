@@ -1,0 +1,576 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  RPCError,
+  RPCErrorCode,
+  retryWithBackoff,
+  CircuitBreaker,
+  CircuitState,
+  withTimeout,
+  isRetryableError,
+  serializeError,
+  deserializeError,
+} from '../errors'
+
+describe('RPCError', () => {
+  it('should create an error with code, message, and details', () => {
+    const error = new RPCError(
+      RPCErrorCode.INTERNAL_ERROR,
+      'Something went wrong',
+      { context: 'test' }
+    )
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toBeInstanceOf(RPCError)
+    expect(error.code).toBe(RPCErrorCode.INTERNAL_ERROR)
+    expect(error.message).toBe('Something went wrong')
+    expect(error.details).toEqual({ context: 'test' })
+    expect(error.name).toBe('RPCError')
+  })
+
+  it('should work without details', () => {
+    const error = new RPCError(RPCErrorCode.NOT_FOUND, 'Resource not found')
+
+    expect(error.code).toBe(RPCErrorCode.NOT_FOUND)
+    expect(error.message).toBe('Resource not found')
+    expect(error.details).toBeUndefined()
+  })
+
+  it('should be serializable to JSON', () => {
+    const error = new RPCError(
+      RPCErrorCode.TIMEOUT,
+      'Request timed out',
+      { timeout: 5000 }
+    )
+
+    const json = JSON.stringify(error)
+    const parsed = JSON.parse(json)
+
+    expect(parsed.code).toBe(RPCErrorCode.TIMEOUT)
+    expect(parsed.message).toBe('Request timed out')
+    expect(parsed.details).toEqual({ timeout: 5000 })
+  })
+})
+
+describe('RPCErrorCode', () => {
+  it('should define standard error codes', () => {
+    expect(RPCErrorCode.INTERNAL_ERROR).toBe('INTERNAL_ERROR')
+    expect(RPCErrorCode.NOT_FOUND).toBe('NOT_FOUND')
+    expect(RPCErrorCode.INVALID_PARAMS).toBe('INVALID_PARAMS')
+    expect(RPCErrorCode.TIMEOUT).toBe('TIMEOUT')
+    expect(RPCErrorCode.NETWORK_ERROR).toBe('NETWORK_ERROR')
+    expect(RPCErrorCode.RATE_LIMIT).toBe('RATE_LIMIT')
+    expect(RPCErrorCode.CIRCUIT_OPEN).toBe('CIRCUIT_OPEN')
+  })
+})
+
+describe('isRetryableError', () => {
+  it('should identify retryable network errors', () => {
+    const networkError = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
+    expect(isRetryableError(networkError)).toBe(true)
+  })
+
+  it('should identify retryable timeout errors', () => {
+    const timeoutError = new RPCError(RPCErrorCode.TIMEOUT, 'Timed out')
+    expect(isRetryableError(timeoutError)).toBe(true)
+  })
+
+  it('should identify retryable rate limit errors', () => {
+    const rateLimitError = new RPCError(RPCErrorCode.RATE_LIMIT, 'Rate limited')
+    expect(isRetryableError(rateLimitError)).toBe(true)
+  })
+
+  it('should not retry NOT_FOUND errors', () => {
+    const notFoundError = new RPCError(RPCErrorCode.NOT_FOUND, 'Not found')
+    expect(isRetryableError(notFoundError)).toBe(false)
+  })
+
+  it('should not retry INVALID_PARAMS errors', () => {
+    const invalidError = new RPCError(RPCErrorCode.INVALID_PARAMS, 'Invalid params')
+    expect(isRetryableError(invalidError)).toBe(false)
+  })
+
+  it('should not retry CIRCUIT_OPEN errors', () => {
+    const circuitError = new RPCError(RPCErrorCode.CIRCUIT_OPEN, 'Circuit open')
+    expect(isRetryableError(circuitError)).toBe(false)
+  })
+
+  it('should handle non-RPCError instances', () => {
+    const genericError = new Error('Generic error')
+    expect(isRetryableError(genericError)).toBe(false)
+  })
+})
+
+describe('retryWithBackoff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('should succeed on first attempt', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    const result = await retryWithBackoff(fn, {
+      maxRetries: 3,
+      initialDelay: 100,
+    })
+
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('should retry on retryable errors', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed'))
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.TIMEOUT, 'Timeout'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 3,
+      initialDelay: 100,
+      maxDelay: 1000,
+    })
+
+    // Advance timers for retries
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(3)
+  })
+
+  it('should use exponential backoff', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail 1'))
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail 2'))
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail 3'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 5,
+      initialDelay: 100,
+      backoffFactor: 2,
+      maxDelay: 10000,
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(4)
+  })
+
+  it('should respect maxDelay cap', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 2,
+      initialDelay: 1000,
+      backoffFactor: 10, // Would be 10000 without cap
+      maxDelay: 2000, // Cap at 2000
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+  })
+
+  it('should throw after max retries exceeded', async () => {
+    const error = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 3,
+      initialDelay: 100,
+    })
+
+    await vi.runAllTimersAsync()
+
+    await expect(promise).rejects.toThrow('Network failed')
+    expect(fn).toHaveBeenCalledTimes(4) // Initial + 3 retries
+  })
+
+  it('should not retry non-retryable errors', async () => {
+    const error = new RPCError(RPCErrorCode.NOT_FOUND, 'Not found')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    await expect(
+      retryWithBackoff(fn, {
+        maxRetries: 3,
+        initialDelay: 100,
+      })
+    ).rejects.toThrow('Not found')
+
+    expect(fn).toHaveBeenCalledTimes(1) // No retries
+  })
+
+  it('should add jitter to delays', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 2,
+      initialDelay: 100,
+      jitter: true,
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('should use default options when not provided', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn)
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+  })
+})
+
+describe('CircuitBreaker', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('should start in closed state', () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    expect(breaker.getState()).toBe(CircuitState.CLOSED)
+  })
+
+  it('should allow requests in closed state', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const fn = vi.fn().mockResolvedValue('success')
+    const result = await breaker.execute(fn)
+
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(breaker.getState()).toBe(CircuitState.CLOSED)
+  })
+
+  it('should open circuit after threshold failures', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    // Trigger 3 failures
+    for (let i = 0; i < 3; i++) {
+      await expect(breaker.execute(fn)).rejects.toThrow()
+    }
+
+    expect(breaker.getState()).toBe(CircuitState.OPEN)
+    expect(fn).toHaveBeenCalledTimes(3)
+  })
+
+  it('should reject requests immediately when open', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 2,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    // Trigger failures to open circuit
+    await expect(breaker.execute(fn)).rejects.toThrow()
+    await expect(breaker.execute(fn)).rejects.toThrow()
+
+    expect(breaker.getState()).toBe(CircuitState.OPEN)
+
+    // Next request should fail immediately without calling fn
+    await expect(breaker.execute(fn)).rejects.toThrow('Circuit breaker is open')
+    expect(fn).toHaveBeenCalledTimes(2) // Not called on 3rd attempt
+  })
+
+  it('should transition to half-open after timeout', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 2,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const successFn = vi.fn().mockResolvedValue('success')
+
+    // Open the circuit
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    expect(breaker.getState()).toBe(CircuitState.OPEN)
+
+    // Advance time past timeout
+    await vi.advanceTimersByTimeAsync(5000)
+
+    // Execute a request to trigger state transition check
+    await breaker.execute(successFn)
+    expect(breaker.getState()).toBe(CircuitState.HALF_OPEN)
+  })
+
+  it('should close circuit after successful requests in half-open', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 2,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const successFn = vi.fn().mockResolvedValue('success')
+
+    // Open the circuit
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+
+    // Wait for half-open and trigger transition with first success
+    await vi.advanceTimersByTimeAsync(5000)
+    await breaker.execute(successFn)
+    expect(breaker.getState()).toBe(CircuitState.HALF_OPEN)
+
+    // Second success should close
+    await breaker.execute(successFn)
+    expect(breaker.getState()).toBe(CircuitState.CLOSED)
+  })
+
+  it('should reopen circuit on failure in half-open', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 2,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const successFn = vi.fn().mockResolvedValue('success')
+
+    // Open the circuit
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+
+    // Wait for half-open and trigger transition with a success first
+    await vi.advanceTimersByTimeAsync(5000)
+    await breaker.execute(successFn)
+    expect(breaker.getState()).toBe(CircuitState.HALF_OPEN)
+
+    // Fail in half-open - should reopen
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    expect(breaker.getState()).toBe(CircuitState.OPEN)
+  })
+
+  it('should track consecutive failures separately from total failures', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const failFn = vi.fn().mockRejectedValue(error)
+    const successFn = vi.fn().mockResolvedValue('success')
+
+    // Fail, succeed, fail twice - should not open (not consecutive)
+    await expect(breaker.execute(failFn)).rejects.toThrow()
+    await breaker.execute(successFn)
+    await expect(breaker.execute(failFn)).rejects.toThrow()
+    await expect(breaker.execute(failFn)).rejects.toThrow()
+
+    expect(breaker.getState()).toBe(CircuitState.CLOSED)
+
+    // One more consecutive failure should open
+    await expect(breaker.execute(failFn)).rejects.toThrow()
+    expect(breaker.getState()).toBe(CircuitState.OPEN)
+  })
+
+  it('should provide metrics', () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const metrics = breaker.getMetrics()
+
+    expect(metrics).toHaveProperty('state')
+    expect(metrics).toHaveProperty('totalRequests')
+    expect(metrics).toHaveProperty('successfulRequests')
+    expect(metrics).toHaveProperty('failedRequests')
+    expect(metrics).toHaveProperty('consecutiveFailures')
+    expect(metrics).toHaveProperty('lastFailureTime')
+  })
+})
+
+describe('withTimeout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('should resolve if function completes before timeout', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    const promise = withTimeout(fn(), 5000)
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toBe('success')
+  })
+
+  it('should reject with timeout error if function takes too long', async () => {
+    const fn = vi.fn().mockImplementation(() => new Promise(() => {})) // Never resolves
+
+    const promise = withTimeout(fn(), 1000)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await expect(promise).rejects.toThrow('Request timed out after 1000ms')
+  })
+
+  it('should reject with original error if function fails before timeout', async () => {
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    const promise = withTimeout(fn(), 5000)
+    await vi.runAllTimersAsync()
+
+    await expect(promise).rejects.toThrow('Failed')
+  })
+
+  it('should include timeout duration in error details', async () => {
+    const fn = vi.fn().mockImplementation(() => new Promise(() => {}))
+
+    const promise = withTimeout(fn(), 2000)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    try {
+      await promise
+      expect.fail('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(RPCError)
+      if (error instanceof RPCError) {
+        expect(error.code).toBe(RPCErrorCode.TIMEOUT)
+        expect(error.details).toEqual({ timeout: 2000 })
+      }
+    }
+  })
+})
+
+describe('Error Serialization', () => {
+  it('should serialize RPCError to plain object', () => {
+    const error = new RPCError(
+      RPCErrorCode.INTERNAL_ERROR,
+      'Something went wrong',
+      { context: 'test', userId: 123 }
+    )
+
+    const serialized = serializeError(error)
+
+    expect(serialized.name).toBe('RPCError')
+    expect(serialized.code).toBe(RPCErrorCode.INTERNAL_ERROR)
+    expect(serialized.message).toBe('Something went wrong')
+    expect(serialized.details).toEqual({ context: 'test', userId: 123 })
+    expect(serialized.stack).toBeDefined()
+  })
+
+  it('should serialize generic Error to plain object', () => {
+    const error = new Error('Generic error')
+
+    const serialized = serializeError(error)
+
+    expect(serialized.name).toBe('Error')
+    expect(serialized.message).toBe('Generic error')
+    expect(serialized.stack).toBeDefined()
+  })
+
+  it('should handle errors with stack traces', () => {
+    const error = new Error('With stack')
+    error.stack = 'Error: With stack\n    at test.ts:123'
+
+    const serialized = serializeError(error)
+
+    expect(serialized.name).toBe('Error')
+    expect(serialized.message).toBe('With stack')
+    expect(serialized.stack).toBe('Error: With stack\n    at test.ts:123')
+  })
+
+  it('should deserialize plain object to RPCError', () => {
+    const serialized = {
+      name: 'RPCError',
+      code: RPCErrorCode.TIMEOUT,
+      message: 'Request timed out',
+      details: { timeout: 5000 },
+    }
+
+    const error = deserializeError(serialized)
+
+    expect(error).toBeInstanceOf(RPCError)
+    expect(error.code).toBe(RPCErrorCode.TIMEOUT)
+    expect(error.message).toBe('Request timed out')
+    expect(error.details).toEqual({ timeout: 5000 })
+  })
+
+  it('should deserialize plain object to generic Error', () => {
+    const serialized = {
+      name: 'Error',
+      message: 'Generic error',
+      stack: 'Error: Generic error\n    at test.ts:456',
+    }
+
+    const error = deserializeError(serialized)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(RPCError)
+    expect(error.message).toBe('Generic error')
+    expect(error.stack).toBe('Error: Generic error\n    at test.ts:456')
+  })
+
+  it('should round-trip serialize and deserialize RPCError', () => {
+    const original = new RPCError(
+      RPCErrorCode.RATE_LIMIT,
+      'Too many requests',
+      { limit: 100, window: '1m' }
+    )
+
+    const serialized = serializeError(original)
+    const deserialized = deserializeError(serialized)
+
+    expect(deserialized).toBeInstanceOf(RPCError)
+    expect(deserialized.code).toBe(original.code)
+    expect(deserialized.message).toBe(original.message)
+    expect(deserialized.details).toEqual(original.details)
+  })
+
+  it('should handle missing optional fields in deserialization', () => {
+    const serialized = {
+      name: 'RPCError',
+      code: RPCErrorCode.NOT_FOUND,
+      message: 'Not found',
+    }
+
+    const error = deserializeError(serialized)
+
+    expect(error).toBeInstanceOf(RPCError)
+    expect(error.code).toBe(RPCErrorCode.NOT_FOUND)
+    expect(error.message).toBe('Not found')
+    expect(error.details).toBeUndefined()
+  })
+})

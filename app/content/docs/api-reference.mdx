@@ -1,0 +1,207 @@
+---
+title: API Reference
+description: Complete API documentation for dotdo
+---
+
+# API Reference
+
+Complete reference for dotdo's APIs.
+
+## DO Class
+
+The main Durable Object class.
+
+### Constructor
+
+```typescript
+class DO extends DOBase {
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+  }
+}
+```
+
+### Methods
+
+#### things.create()
+
+Create a new Thing in storage.
+
+```typescript
+const thing = await stub.things.create({
+  $type: 'Customer',
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+```
+
+**Parameters:**
+- `data` - Object with `$type` and properties
+
+**Returns:** Created Thing with `$id`
+
+#### things.get()
+
+Retrieve a Thing by ID.
+
+```typescript
+const customer = await stub.things.get(customerId)
+```
+
+**Parameters:**
+- `id` - Thing ID
+
+**Returns:** Thing object or null
+
+#### things.update()
+
+Update a Thing's properties.
+
+```typescript
+await stub.things.update(customerId, {
+  email: 'newemail@example.com'
+})
+```
+
+**Parameters:**
+- `id` - Thing ID
+- `data` - Partial properties to update
+
+**Returns:** Updated Thing
+
+#### things.delete()
+
+Delete a Thing.
+
+```typescript
+await stub.things.delete(customerId)
+```
+
+**Parameters:**
+- `id` - Thing ID
+
+**Returns:** void
+
+## WorkflowContext ($)
+
+The workflow orchestration API.
+
+### $.send()
+
+Fire-and-forget event emission.
+
+```typescript
+$.send({
+  $type: 'CustomerSignup',
+  customerId,
+  timestamp: Date.now()
+})
+```
+
+### $.try()
+
+Single-attempt action execution.
+
+```typescript
+const result = await $.try(async () => {
+  return await sendEmail(customer.email)
+})
+```
+
+### $.do()
+
+Durable action with automatic retries.
+
+```typescript
+await $.do(async () => {
+  await chargePayment(paymentId)
+  await sendReceipt(customer.email)
+})
+```
+
+### $.on()
+
+Register event handlers.
+
+```typescript
+// Specific event
+$.on.Customer.signup(async (event) => {
+  await sendWelcomeEmail(event.customerId)
+})
+
+// Wildcards
+$.on.*.created(async (event) => {
+  console.log(`Created: ${event.$type}`)
+})
+```
+
+### $.every()
+
+Schedule recurring tasks.
+
+```typescript
+// Fluent scheduling
+$.every.Monday.at9am(async () => {
+  await generateWeeklyReport()
+})
+
+// Time-based
+$.every.hour(async () => {
+  await cleanupExpiredSessions()
+})
+
+// Custom CRON
+$.every('0 0 * * *')(async () => {
+  await dailyBackup()
+})
+```
+
+## RPC
+
+Cross-DO communication.
+
+```typescript
+// Get DO stub
+const customerDO = $.Customer(customerId)
+
+// Call methods
+await customerDO.notify()
+const profile = await customerDO.getProfile()
+
+// Chain operations
+const result = await $.Order(orderId)
+  .process()
+  .then(order => $.Payment(order.paymentId).charge())
+```
+
+## AI Module
+
+LLM integration and routing.
+
+```typescript
+import { ai } from 'dotdo/ai'
+
+// Template literal API
+const response = await ai`
+  Summarize this customer feedback: ${feedback}
+`
+
+// Structured outputs with Zod
+import { z } from 'zod'
+
+const schema = z.object({
+  sentiment: z.enum(['positive', 'negative', 'neutral']),
+  summary: z.string(),
+  topics: z.array(z.string())
+})
+
+const analysis = await ai(schema)`
+  Analyze this feedback: ${feedback}
+`
+```
+
+## Next Steps
+
+- [Examples](/docs/examples)
+- [Best Practices](/docs/best-practices)
+- [Testing Guide](/docs/testing)

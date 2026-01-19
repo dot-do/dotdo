@@ -1,0 +1,21 @@
+{
+  "name": "@dotdo/do",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dotdo/db": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

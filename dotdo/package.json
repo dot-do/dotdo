@@ -1,0 +1,40 @@
+{
+  "name": "dotdo",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "bin": {
+    "dotdo": "./cli.ts"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./do": "./do.ts",
+    "./db": "./db.ts",
+    "./ai": "./ai.ts",
+    "./auth": "./auth.ts",
+    "./rpc": "./rpc.ts",
+    "./mcp": "./mcp.ts",
+    "./api": "./api.ts"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dotdo/ai": "workspace:*",
+    "@dotdo/api": "workspace:*",
+    "@dotdo/auth": "workspace:*",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/do": "workspace:*",
+    "@dotdo/mcp": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
+    "commander": "^13.0.0",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

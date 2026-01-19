@@ -1,0 +1,345 @@
+import { describe, it, expect, vi } from 'vitest'
+import { createAIPromise, type AIPromise, type AIMeta } from '../promise'
+
+describe('AIPromise', () => {
+  it('should create a promise with $meta', () => {
+    const promise = createAIPromise(async () => 'result', { model: 'test' })
+
+    expect(promise.$meta).toBeDefined()
+    expect(promise.$meta.model).toBe('test')
+  })
+
+  it('should resolve to the executor result', async () => {
+    const promise = createAIPromise(async () => 'hello')
+    const result = await promise
+
+    expect(result).toBe('hello')
+  })
+
+  it('should allow chaining with .with()', () => {
+    const p1 = createAIPromise(async () => 'result', { model: 'a' })
+    const p2 = p1.with({ model: 'b', temperature: 0.5 })
+
+    expect(p2.$meta.model).toBe('b')
+    expect(p2.$meta.temperature).toBe(0.5)
+  })
+
+  it('should support async iteration via stream()', async () => {
+    const promise = createAIPromise(async () => 'streamed result')
+    const chunks: string[] = []
+
+    for await (const chunk of promise.stream()) {
+      chunks.push(chunk)
+    }
+
+    // Should have chunks, when joined should equal original
+    expect(chunks.length).toBeGreaterThan(0)
+    expect(chunks.join('')).toBe('streamed result')
+  })
+
+  it('should preserve original meta when using .with()', () => {
+    const p1 = createAIPromise(async () => 'result', { model: 'a', temperature: 0.3 })
+    const p2 = p1.with({ model: 'b' })
+
+    expect(p2.$meta.model).toBe('b')
+    expect(p2.$meta.temperature).toBe(0.3)
+  })
+
+  it('should update meta during execution', async () => {
+    const promise = createAIPromise(async (meta) => {
+      meta.tokens = { input: 10, output: 20 }
+      meta.duration = 100
+      return 'result'
+    })
+
+    await promise
+
+    expect(promise.$meta.tokens).toEqual({ input: 10, output: 20 })
+    expect(promise.$meta.duration).toBe(100)
+  })
+
+  describe('.json<T>() for structured output', () => {
+    it('should parse JSON string response', async () => {
+      const promise = createAIPromise<string>(async () => '{"name":"Alice","age":30}')
+      const parsed = await promise.json<{ name: string; age: number }>()
+
+      expect(parsed.name).toBe('Alice')
+      expect(parsed.age).toBe(30)
+    })
+
+    it('should handle already-parsed objects', async () => {
+      const promise = createAIPromise<{ name: string }>(async () => ({ name: 'Bob' }))
+      const result = await promise.json<{ name: string }>()
+
+      expect(result.name).toBe('Bob')
+    })
+
+    it('should preserve $meta in json result', async () => {
+      const promise = createAIPromise<string>(
+        async (meta) => {
+          meta.model = 'test-model'
+          meta.tokens = { input: 5, output: 10 }
+          return '{"value":"test"}'
+        }
+      )
+
+      const result = await promise.json<{ value: string }>()
+
+      expect(result.value).toBe('test')
+      expect(promise.$meta.model).toBe('test-model')
+      expect(promise.$meta.tokens).toEqual({ input: 5, output: 10 })
+    })
+  })
+
+  describe('.pipe(fn) for transformations', () => {
+    it('should transform the result', async () => {
+      const promise = createAIPromise(async () => 'hello')
+      const piped = promise.pipe((s) => s.toUpperCase())
+
+      expect(await piped).toBe('HELLO')
+    })
+
+    it('should chain multiple pipes', async () => {
+      const promise = createAIPromise(async () => '42')
+      const piped = promise
+        .pipe((s) => parseInt(s))
+        .pipe((n) => n * 2)
+
+      expect(await piped).toBe(84)
+    })
+
+    it('should preserve $meta through pipe', async () => {
+      const promise = createAIPromise(
+        async (meta) => {
+          meta.model = 'test'
+          meta.tokens = { input: 10, output: 20 }
+          return 'result'
+        }
+      )
+
+      const piped = promise.pipe((s) => s.toUpperCase())
+      await piped
+
+      expect(piped.$meta.model).toBe('test')
+      expect(piped.$meta.tokens).toEqual({ input: 10, output: 20 })
+    })
+
+    it('should allow async transformations', async () => {
+      const promise = createAIPromise(async () => '5')
+      const piped = promise.pipe(async (s) => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        return parseInt(s) * 10
+      })
+
+      expect(await piped).toBe(50)
+    })
+  })
+
+  describe('streaming with .stream()', () => {
+    it('should stream chunks incrementally', async () => {
+      const chunks = ['chunk1', 'chunk2', 'chunk3']
+      const promise = createAIPromise(async () => chunks.join(''))
+
+      // Override the stream method for this test
+      const streamable = promise as AIPromise<string> & {
+        streamChunks?: string[]
+      }
+      streamable.streamChunks = chunks
+
+      const received: string[] = []
+      for await (const chunk of promise.stream()) {
+        received.push(chunk)
+      }
+
+      // For now, we expect at least the full result
+      expect(received.length).toBeGreaterThan(0)
+    })
+
+    it('should allow consuming stream multiple times', async () => {
+      const promise = createAIPromise(async () => 'test result')
+
+      const firstRun: string[] = []
+      for await (const chunk of promise.stream()) {
+        firstRun.push(chunk)
+      }
+
+      const secondRun: string[] = []
+      for await (const chunk of promise.stream()) {
+        secondRun.push(chunk)
+      }
+
+      expect(firstRun).toEqual(secondRun)
+    })
+
+    it('should support stream transformations', async () => {
+      const promise = createAIPromise(async () => 'hello world')
+
+      const uppercased = await promise.stream()
+        .map(chunk => chunk.toUpperCase())
+        .collect()
+
+      expect(uppercased.join('')).toBe('HELLO WORLD')
+    })
+
+    it('should support stream filtering', async () => {
+      const promise = createAIPromise(async () => 'a1b2c3')
+
+      const onlyLetters = await promise.stream()
+        .filter(chunk => /[a-z]/i.test(chunk))
+        .collect()
+
+      // Should have filtered chunks
+      expect(onlyLetters.length).toBeGreaterThan(0)
+    })
+
+    it('should support collecting stream to string', async () => {
+      const promise = createAIPromise(async () => 'test result')
+
+      const result = await promise.stream().join('')
+
+      expect(result).toBe('test result')
+    })
+
+    it('should support stream.collect() for array', async () => {
+      const promise = createAIPromise(async () => 'chunks')
+
+      const chunks = await promise.stream().collect()
+
+      expect(Array.isArray(chunks)).toBe(true)
+      expect(chunks.join('')).toBe('chunks')
+    })
+
+    it('should support stream.forEach() for side effects', async () => {
+      const promise = createAIPromise(async () => 'test')
+      const sideEffects: string[] = []
+
+      await promise.stream().forEach(chunk => {
+        sideEffects.push(chunk)
+      })
+
+      expect(sideEffects.join('')).toBe('test')
+    })
+  })
+
+  describe('cost tracking', () => {
+    it('should track cost in $meta', async () => {
+      const promise = createAIPromise(async (meta) => {
+        meta.cost = 0.0015
+        return 'result'
+      })
+
+      await promise
+
+      expect(promise.$meta.cost).toBe(0.0015)
+    })
+
+    it('should allow updating cost after resolution', async () => {
+      const promise = createAIPromise(async (meta) => {
+        meta.tokens = { input: 100, output: 200 }
+        // Cost calculation: (input * $0.003 + output * $0.015) / 1000
+        meta.cost = (100 * 0.003 + 200 * 0.015) / 1000
+        return 'result'
+      })
+
+      await promise
+
+      expect(promise.$meta.cost).toBeGreaterThan(0)
+    })
+  })
+
+  describe('Promise interface compatibility', () => {
+    it('should work with Promise.all', async () => {
+      const p1 = createAIPromise(async () => 'a')
+      const p2 = createAIPromise(async () => 'b')
+      const p3 = createAIPromise(async () => 'c')
+
+      const results = await Promise.all([p1, p2, p3])
+
+      expect(results).toEqual(['a', 'b', 'c'])
+    })
+
+    it('should work with Promise.race', async () => {
+      const p1 = createAIPromise(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        return 'slow'
+      })
+      const p2 = createAIPromise(async () => 'fast')
+
+      const result = await Promise.race([p1, p2])
+
+      expect(result).toBe('fast')
+    })
+
+    it('should work with .then()', async () => {
+      const promise = createAIPromise(async () => 'hello')
+      const result = await promise.then(s => s.toUpperCase())
+
+      expect(result).toBe('HELLO')
+    })
+
+    it('should work with .catch()', async () => {
+      const promise = createAIPromise(async () => {
+        throw new Error('test error')
+      })
+
+      const result = await promise.catch(err => `caught: ${err.message}`)
+
+      expect(result).toBe('caught: test error')
+    })
+
+    it('should work with .finally()', async () => {
+      const cleanup = vi.fn()
+      const promise = createAIPromise(async () => 'result')
+
+      await promise.finally(cleanup)
+
+      expect(cleanup).toHaveBeenCalled()
+    })
+  })
+
+  describe('complex chaining scenarios', () => {
+    it('should chain .with() and .pipe()', async () => {
+      const promise = createAIPromise(async () => 'test', { model: 'a' })
+      const result = await promise
+        .with({ model: 'b', temperature: 0.7 })
+        .pipe(s => s.toUpperCase())
+
+      expect(result).toBe('TEST')
+      expect(promise.with({ model: 'b' }).$meta.model).toBe('b')
+    })
+
+    it('should chain .json() and .pipe()', async () => {
+      const promise = createAIPromise(async () => '{"count":5}')
+      const result = await promise
+        .json<{ count: number }>()
+        .then(obj => obj.count * 2)
+
+      expect(result).toBe(10)
+    })
+  })
+
+  describe('error handling', () => {
+    it('should propagate errors through pipe', async () => {
+      const promise = createAIPromise(async () => {
+        throw new Error('executor error')
+      })
+
+      await expect(promise.pipe(s => s.toUpperCase())).rejects.toThrow('executor error')
+    })
+
+    it('should handle errors in pipe transformations', async () => {
+      const promise = createAIPromise(async () => 'test')
+      const piped = promise.pipe(() => {
+        throw new Error('pipe error')
+      })
+
+      await expect(piped).rejects.toThrow('pipe error')
+    })
+
+    it('should handle JSON parse errors gracefully', async () => {
+      const promise = createAIPromise(async () => 'not valid json')
+
+      await expect(promise.json()).rejects.toThrow()
+    })
+  })
+})

@@ -1,0 +1,439 @@
+// Multi-provider routing for @dotdo/ai
+// Implements intelligent routing across LLM providers with fallback, cost optimization, and load balancing
+
+export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+export type Capability = 'fast' | 'smart' | 'cheap'
+export type LoadBalancingStrategy = 'round-robin' | 'random' | 'least-loaded'
+
+export interface ProviderConfig {
+  provider: Provider
+  apiKey?: string
+  model?: string
+}
+
+export interface ModelInfo {
+  provider: Provider
+  model: string
+  costPer1kTokens: number
+  maxTokens: number
+  speed: 'fast' | 'medium' | 'slow'
+}
+
+export interface RouterConfig {
+  providers?: ProviderConfig[]
+  fallback?: Provider[]
+  maxCostPerRequest?: number
+  maxRetries?: number
+  loadBalancing?: LoadBalancingStrategy
+}
+
+export interface ExecuteOptions {
+  model?: string
+  provider?: Provider
+  temperature?: number
+  maxTokens?: number
+}
+
+export interface ExecuteResult {
+  result: string
+  provider?: Provider
+  retries?: number
+  cost?: number
+}
+
+interface ProviderHealth {
+  healthy: boolean
+  lastCheck: number
+  consecutiveFailures: number
+}
+
+// Provider registry with model mappings
+export const providers = {
+  openai: 'openai' as const,
+  anthropic: 'anthropic' as const,
+  google: 'google' as const,
+  cloudflare: 'cloudflare' as const,
+}
+
+// Model catalog with cost and capability info
+const MODEL_CATALOG: Record<string, ModelInfo> = {
+  // OpenAI models
+  'gpt-4': {
+    provider: 'openai',
+    model: 'gpt-4',
+    costPer1kTokens: 0.03,
+    maxTokens: 8192,
+    speed: 'medium'
+  },
+  'gpt-4-turbo': {
+    provider: 'openai',
+    model: 'gpt-4-turbo',
+    costPer1kTokens: 0.01,
+    maxTokens: 128000,
+    speed: 'fast'
+  },
+  'gpt-3.5-turbo': {
+    provider: 'openai',
+    model: 'gpt-3.5-turbo',
+    costPer1kTokens: 0.001,
+    maxTokens: 4096,
+    speed: 'fast'
+  },
+
+  // Anthropic models
+  'claude-3-opus': {
+    provider: 'anthropic',
+    model: 'claude-3-opus',
+    costPer1kTokens: 0.015,
+    maxTokens: 200000,
+    speed: 'medium'
+  },
+  'claude-3-sonnet': {
+    provider: 'anthropic',
+    model: 'claude-3-sonnet',
+    costPer1kTokens: 0.003,
+    maxTokens: 200000,
+    speed: 'fast'
+  },
+  'claude-3-haiku': {
+    provider: 'anthropic',
+    model: 'claude-3-haiku',
+    costPer1kTokens: 0.00025,
+    maxTokens: 200000,
+    speed: 'fast'
+  },
+
+  // Google models
+  'gemini-pro': {
+    provider: 'google',
+    model: 'gemini-pro',
+    costPer1kTokens: 0.00025,
+    maxTokens: 32000,
+    speed: 'fast'
+  },
+  'gemini-ultra': {
+    provider: 'google',
+    model: 'gemini-ultra',
+    costPer1kTokens: 0.01,
+    maxTokens: 32000,
+    speed: 'medium'
+  },
+
+  // Cloudflare Workers AI
+  '@cf/meta/llama-2-7b-chat-int8': {
+    provider: 'cloudflare',
+    model: '@cf/meta/llama-2-7b-chat-int8',
+    costPer1kTokens: 0.0001,
+    maxTokens: 4096,
+    speed: 'fast'
+  }
+}
+
+// Capability-based model selection
+const CAPABILITY_MODELS: Record<Capability, string> = {
+  fast: 'claude-3-haiku',
+  smart: 'claude-3-opus',
+  cheap: 'gemini-pro'
+}
+
+export class Router {
+  private config: RouterConfig
+  private providerConfigs: Map<Provider, ProviderConfig>
+  private currentProviderIndex: number = 0
+  private healthStatus: Map<Provider, ProviderHealth>
+  private executor?: (prompt: string, options: ExecuteOptions) => Promise<ExecuteResult>
+  private delayCallback?: (delay: number) => void
+
+  constructor(config: RouterConfig = {}) {
+    this.config = {
+      maxRetries: 3,
+      loadBalancing: 'round-robin',
+      ...config
+    }
+
+    this.providerConfigs = new Map()
+    this.healthStatus = new Map()
+
+    // Initialize provider configs
+    if (config.providers) {
+      config.providers.forEach(pc => {
+        this.providerConfigs.set(pc.provider, pc)
+        this.healthStatus.set(pc.provider, {
+          healthy: true,
+          lastCheck: Date.now(),
+          consecutiveFailures: 0
+        })
+      })
+    } else {
+      // Initialize default providers
+      Object.values(providers).forEach(provider => {
+        this.healthStatus.set(provider, {
+          healthy: true,
+          lastCheck: Date.now(),
+          consecutiveFailures: 0
+        })
+      })
+    }
+  }
+
+  /**
+   * Resolve provider from model name
+   */
+  resolve(model: string): Provider {
+    const modelInfo = MODEL_CATALOG[model]
+    if (!modelInfo) {
+      throw new Error(`Unknown model: ${model}`)
+    }
+    return modelInfo.provider
+  }
+
+  /**
+   * Select model by capability (fast, smart, cheap)
+   */
+  selectByCapability(capability: Capability): ModelInfo {
+    const modelName = CAPABILITY_MODELS[capability]
+    const modelInfo = MODEL_CATALOG[modelName]
+    if (!modelInfo) {
+      throw new Error(`No model found for capability: ${capability}`)
+    }
+    return modelInfo
+  }
+
+  /**
+   * Select optimal model based on task and constraints
+   */
+  selectModel(options: { task: string; tokens: number }): ModelInfo {
+    const { tokens } = options
+    const maxCost = this.config.maxCostPerRequest
+
+    // Filter models that meet cost constraints
+    const eligibleModels = Object.values(MODEL_CATALOG).filter(model => {
+      if (!maxCost) return true
+
+      const estimatedCost = (tokens / 1000) * model.costPer1kTokens
+      return estimatedCost <= maxCost
+    })
+
+    if (eligibleModels.length === 0) {
+      throw new Error('No model meets cost constraints')
+    }
+
+    // Sort by cost (cheapest first)
+    eligibleModels.sort((a, b) => a.costPer1kTokens - b.costPer1kTokens)
+
+    return eligibleModels[0]
+  }
+
+  /**
+   * Execute prompt with automatic fallback and retry
+   */
+  async execute(prompt: string, options: ExecuteOptions = {}): Promise<ExecuteResult> {
+    // If load balancing is configured and no specific provider requested, use load balancing
+    // In this mode, we only try the selected provider (no fallback chain)
+    if (this.config.loadBalancing && !options.provider && this.providerConfigs.size > 0) {
+      const provider = this._selectProviderForLoadBalancing()
+      const maxRetries = this.config.maxRetries || 3
+      let totalRetries = 0
+
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          const result = await this._executeWithProvider(prompt, {
+            ...options,
+            provider
+          })
+
+          this._markHealthy(provider)
+
+          return {
+            ...result,
+            provider,
+            retries: totalRetries > 0 ? totalRetries : undefined
+          }
+        } catch (error) {
+          totalRetries++
+
+          if (this._isRateLimitError(error as Error)) {
+            if (totalRetries >= maxRetries) {
+              throw new Error('Max retries exceeded')
+            }
+
+            const delay = Math.pow(2, attempt) * 1000
+            if (this.delayCallback) {
+              this.delayCallback(delay)
+            }
+            await this._sleep(delay)
+            continue
+          }
+
+          throw error
+        }
+      }
+    }
+
+    // Fallback chain mode
+    const fallbackChain = this.config.fallback || ['anthropic', 'openai', 'google']
+    const maxRetries = this.config.maxRetries || 3
+
+    let lastError: Error | null = null
+    let totalRetries = 0
+
+    // Try each provider in fallback chain
+    for (const provider of fallbackChain) {
+      // Skip unhealthy providers
+      const health = this.healthStatus.get(provider)
+      if (health && !health.healthy) {
+        continue
+      }
+
+      // Try with retries for rate limits
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          const result = await this._executeWithProvider(prompt, {
+            ...options,
+            provider
+          })
+
+          // Mark provider as healthy
+          this._markHealthy(provider)
+
+          return {
+            ...result,
+            provider,
+            retries: totalRetries > 0 ? totalRetries : undefined
+          }
+        } catch (error) {
+          lastError = error as Error
+          totalRetries++
+
+          // Check if it's a rate limit error
+          if (this._isRateLimitError(error as Error)) {
+            // Check if we've exceeded max retries across all providers
+            if (totalRetries >= maxRetries) {
+              throw new Error('Max retries exceeded')
+            }
+
+            // Exponential backoff
+            const delay = Math.pow(2, attempt) * 1000
+            if (this.delayCallback) {
+              this.delayCallback(delay)
+            }
+            await this._sleep(delay)
+            continue
+          }
+
+          // Other errors, try next provider
+          this._markUnhealthy(provider)
+          break
+        }
+      }
+    }
+
+    throw new Error(`All providers failed: ${lastError?.message}`)
+  }
+
+  /**
+   * Get list of configured providers
+   */
+  getProviders(): ProviderConfig[] {
+    return Array.from(this.providerConfigs.values())
+  }
+
+  /**
+   * Get health status of all providers
+   */
+  getHealth(): Record<Provider, ProviderHealth | undefined> {
+    const health: Record<string, ProviderHealth | undefined> = {}
+    Object.values(providers).forEach(provider => {
+      health[provider] = this.healthStatus.get(provider)
+    })
+    return health as Record<Provider, ProviderHealth | undefined>
+  }
+
+  // Internal methods
+
+  private async _executeWithProvider(
+    prompt: string,
+    options: ExecuteOptions
+  ): Promise<ExecuteResult> {
+    if (this.executor) {
+      return this.executor(prompt, options)
+    }
+
+    // Default implementation (placeholder)
+    // Real implementation would call actual provider APIs
+    return {
+      result: `Response from ${options.provider}: ${prompt}`,
+      provider: options.provider
+    }
+  }
+
+  private _selectProviderForLoadBalancing(): Provider {
+    const healthyProviders = Array.from(this.providerConfigs.keys()).filter(provider => {
+      const health = this.healthStatus.get(provider)
+      return !health || health.healthy
+    })
+
+    if (healthyProviders.length === 0) {
+      throw new Error('No healthy providers available')
+    }
+
+    switch (this.config.loadBalancing) {
+      case 'round-robin':
+        const provider = healthyProviders[this.currentProviderIndex % healthyProviders.length]
+        this.currentProviderIndex++
+        return provider
+
+      case 'random':
+        return healthyProviders[Math.floor(Math.random() * healthyProviders.length)]
+
+      case 'least-loaded':
+        // TODO: Implement least-loaded strategy
+        return healthyProviders[0]
+
+      default:
+        return healthyProviders[0]
+    }
+  }
+
+  private _isRateLimitError(error: Error): boolean {
+    return error.message.includes('Rate limit') || error.message.includes('rate limit')
+  }
+
+  private _markHealthy(provider: Provider): void {
+    this.healthStatus.set(provider, {
+      healthy: true,
+      lastCheck: Date.now(),
+      consecutiveFailures: 0
+    })
+  }
+
+  _markUnhealthy(provider: Provider): void {
+    const current = this.healthStatus.get(provider)
+    this.healthStatus.set(provider, {
+      healthy: false,
+      lastCheck: Date.now(),
+      consecutiveFailures: (current?.consecutiveFailures || 0) + 1
+    })
+  }
+
+  private async _sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  // Test helper methods (prefixed with _ to indicate internal/test use)
+
+  _setExecutor(executor: (prompt: string, options: ExecuteOptions) => Promise<ExecuteResult>): void {
+    this.executor = executor
+  }
+
+  _onDelay(callback: (delay: number) => void): void {
+    this.delayCallback = callback
+  }
+}
+
+/**
+ * Configure global providers (legacy API from providers.ts)
+ */
+export function configureProviders(configs: ProviderConfig[]): Router {
+  return new Router({ providers: configs })
+}
