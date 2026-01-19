@@ -261,9 +261,25 @@ export interface GenerateTextResult {
 export async function generateText(
   options: GenerateTextOptions
 ): Promise<GenerateTextResult> {
-  const { generateText: aiGenerateText } = await import('ai')
-
   const model = await resolveModel(options.model)
+
+  // Check if we're using the mock (ai-providers not available)
+  if ((model as any).provider === 'mock') {
+    // Use mock response directly
+    const mockResult = await (model as any).doGenerate({})
+    return {
+      text: mockResult.text,
+      usage: {
+        promptTokens: mockResult.usage.promptTokens,
+        completionTokens: mockResult.usage.completionTokens,
+        totalTokens: mockResult.usage.promptTokens + mockResult.usage.completionTokens,
+      },
+      finishReason: mockResult.finishReason,
+    }
+  }
+
+  // Use real AI SDK for actual models
+  const { generateText: aiGenerateText } = await import('ai')
 
   const result = await aiGenerateText({
     ...options,
@@ -330,9 +346,24 @@ export interface GenerateObjectResult<T = unknown> {
 export async function generateObject<T>(
   options: GenerateObjectOptions<T>
 ): Promise<GenerateObjectResult<T>> {
-  const { generateObject: aiGenerateObject } = await import('ai')
-
   const model = await resolveModel(options.model)
+
+  // Check if we're using the mock (ai-providers not available)
+  if ((model as any).provider === 'mock') {
+    // Return mock object response
+    return {
+      object: {} as T,
+      usage: {
+        promptTokens: 10,
+        completionTokens: 20,
+        totalTokens: 30,
+      },
+      finishReason: 'stop',
+    }
+  }
+
+  // Use real AI SDK for actual models
+  const { generateObject: aiGenerateObject } = await import('ai')
 
   const result = await aiGenerateObject({
     ...options,
@@ -434,30 +465,24 @@ export async function embedText(
   const modelName = options?.model || 'text-embedding-3-small'
 
   // Try to get embedding model from ai-providers
-  let model: EmbeddingModel
+  let model: EmbeddingModel | null = null
   try {
     const aiProviders = await import('ai-providers')
     model = aiProviders.embeddingModel(modelName)
   } catch (e) {
-    // Fallback: create a mock embedding model for testing
-    model = {
-      modelId: modelName,
-      provider: 'mock',
-      specificationVersion: 'v1',
-      maxEmbeddingsPerCall: 2048,
-      supportsParallelCalls: true,
-      async doEmbed(options: any) {
-        const values = options.values
-        // Mock embeddings: create random vectors
-        return {
-          embeddings: values.map(() =>
-            Array.from({ length: 1536 }, () => Math.random())
-          ),
-        }
-      },
-    } as unknown as EmbeddingModel
+    // Will use mock implementation below
+    model = null
   }
 
+  // If ai-providers is not available, return mock embeddings
+  if (model === null) {
+    if (typeof text === 'string') {
+      return Array.from({ length: 1536 }, () => Math.random())
+    }
+    return text.map(() => Array.from({ length: 1536 }, () => Math.random()))
+  }
+
+  // Use real AI SDK with the model
   const { embed } = await import('ai')
 
   if (typeof text === 'string') {
