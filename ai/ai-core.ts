@@ -185,29 +185,26 @@ async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageM
   } catch (e) {
     // Fallback: create a mock LanguageModel for testing
     // In production, ai-providers should be available
-    const { createLanguageModel } = await import('ai')
-    return createLanguageModel({
-      languageModel: {
-        provider: 'mock',
-        modelId: resolvedModel,
-        specificationVersion: 'v1',
-        async doGenerate(options: any) {
-          return {
-            text: `Mock response for model: ${resolvedModel}`,
-            finishReason: 'stop',
-            usage: { promptTokens: 10, completionTokens: 20 },
-          }
-        },
-        async doStream(options: any) {
-          return {
-            stream: (async function* () {
-              yield { type: 'text-delta' as const, textDelta: 'Mock response' }
-              yield { type: 'finish' as const, finishReason: 'stop', usage: { promptTokens: 10, completionTokens: 20 } }
-            })(),
-          }
-        },
-      }
-    })
+    return {
+      provider: 'mock',
+      modelId: resolvedModel,
+      specificationVersion: 'v1',
+      async doGenerate(options: any) {
+        return {
+          text: `Mock response for model: ${resolvedModel}`,
+          finishReason: 'stop' as const,
+          usage: { promptTokens: 10, completionTokens: 20 },
+        }
+      },
+      async doStream(options: any) {
+        return {
+          stream: (async function* () {
+            yield { type: 'text-delta' as const, textDelta: 'Mock response' }
+            yield { type: 'finish' as const, finishReason: 'stop' as const, usage: { promptTokens: 10, completionTokens: 20 } }
+          })(),
+        }
+      },
+    } as unknown as LanguageModel
   }
 }
 
@@ -443,23 +440,22 @@ export async function embedText(
     model = aiProviders.embeddingModel(modelName)
   } catch (e) {
     // Fallback: create a mock embedding model for testing
-    const { createEmbeddingModel } = await import('ai')
-    model = createEmbeddingModel({
-      embeddingModel: {
-        modelId: modelName,
-        provider: 'mock',
-        specificationVersion: 'v1',
-        async doEmbed(options: any) {
-          const values = options.values
-          // Mock embeddings: create random vectors
-          return {
-            embeddings: values.map(() =>
-              Array.from({ length: 1536 }, () => Math.random())
-            ),
-          }
-        },
-      }
-    })
+    model = {
+      modelId: modelName,
+      provider: 'mock',
+      specificationVersion: 'v1',
+      maxEmbeddingsPerCall: 2048,
+      supportsParallelCalls: true,
+      async doEmbed(options: any) {
+        const values = options.values
+        // Mock embeddings: create random vectors
+        return {
+          embeddings: values.map(() =>
+            Array.from({ length: 1536 }, () => Math.random())
+          ),
+        }
+      },
+    } as unknown as EmbeddingModel
   }
 
   const { embed } = await import('ai')
