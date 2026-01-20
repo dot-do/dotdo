@@ -306,8 +306,11 @@ describe('invokeHandlers - Error Handling', () => {
 
       handlers.set('Test.event', [h1, h2])
 
-      // Should not throw
-      await expect(invokeHandlers('Test.event', { data: 'test' }, handlers)).resolves.toBeUndefined()
+      // Should not throw, returns result object
+      const result = await invokeHandlers('Test.event', { data: 'test' }, handlers)
+      expect(result).toBeDefined()
+      expect(result.failed.length).toBe(1)
+      expect(result.succeeded.length).toBe(1)
 
       // Second handler should still be called
       expect(h2).toHaveBeenCalled()
@@ -322,8 +325,11 @@ describe('invokeHandlers - Error Handling', () => {
 
       handlers.set('Test.event', [h1, h2])
 
-      // Should not throw
-      await expect(invokeHandlers('Test.event', { data: 'test' }, handlers)).resolves.toBeUndefined()
+      // Should not throw, returns result object
+      const result = await invokeHandlers('Test.event', { data: 'test' }, handlers)
+      expect(result).toBeDefined()
+      expect(result.failed.length).toBe(1)
+      expect(result.succeeded.length).toBe(1)
 
       // Second handler should still be called
       expect(h2).toHaveBeenCalled()
@@ -533,7 +539,10 @@ describe('invokeHandlers - Error Handling', () => {
 
       handlers.set('Test.event', [h1, h2, h3])
 
-      await expect(invokeHandlers('Test.event', {}, handlers)).resolves.toBeUndefined()
+      const result = await invokeHandlers('Test.event', {}, handlers)
+      expect(result).toBeDefined()
+      expect(result.failed.length).toBe(2)
+      expect(result.succeeded.length).toBe(1)
       expect(h3).toHaveBeenCalled()
     })
 
@@ -548,13 +557,19 @@ describe('invokeHandlers - Error Handling', () => {
 
       handlers.set('Test.event', [h1, h2, h3])
 
-      await expect(invokeHandlers('Test.event', {}, handlers)).resolves.toBeUndefined()
+      const result = await invokeHandlers('Test.event', {}, handlers)
+      expect(result).toBeDefined()
+      expect(result.failed.length).toBe(2)
+      expect(result.succeeded.length).toBe(1)
       expect(h3).toHaveBeenCalled()
     })
 
     it('should handle empty handlers gracefully', async () => {
-      // No handlers registered
-      await expect(invokeHandlers('Unknown.event', {}, handlers)).resolves.toBeUndefined()
+      // No handlers registered - returns empty result
+      const result = await invokeHandlers('Unknown.event', {}, handlers)
+      expect(result).toBeDefined()
+      expect(result.succeeded).toEqual([])
+      expect(result.failed).toEqual([])
     })
 
     it('should handle handlers that return rejected promises', async () => {
@@ -563,7 +578,10 @@ describe('invokeHandlers - Error Handling', () => {
 
       handlers.set('Test.event', [h1, h2])
 
-      await expect(invokeHandlers('Test.event', {}, handlers)).resolves.toBeUndefined()
+      const result = await invokeHandlers('Test.event', {}, handlers)
+      expect(result).toBeDefined()
+      expect(result.failed.length).toBe(1)
+      expect(result.succeeded.length).toBe(1)
       expect(h2).toHaveBeenCalled()
     })
   })
