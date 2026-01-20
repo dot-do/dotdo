@@ -1,7 +1,14 @@
 // @dotdo/do - THE Durable Object for Digital Objects
 // DO = Durable Object = Digital Object
 
-export { DO, type DOEnv, type DOOptions } from './DO'
+export {
+  DO,
+  MissingSecretsError,
+  type DOEnv,
+  type DOOptions,
+  type SecretValidationConfig,
+  type SecretValidationResult,
+} from './DO'
 
 // Composable mixins for building DOs (do-6epx)
 export {
@@ -128,8 +135,24 @@ export {
   WebSocketManager,
   type WebSocketMessage,
   type WebSocketHandler,
-  type BroadcastResult
+  type BroadcastResult,
+  type ConnectionMetadata,
+  type ConnectionHandler,
 } from './websocket'
+
+// WebSocket Hibernation support (do-etru.4)
+// Provides 95%+ cost reduction on idle WebSocket connections
+// by allowing Cloudflare to evict DOs while maintaining connections
+export {
+  HibernationManager,
+  estimateHibernationSavings,
+  isHibernationError,
+  createHibernationPayload,
+  DEFAULT_HIBERNATION_CONFIG,
+  type HibernationAttachment,
+  type HibernationState,
+  type HibernationConfig,
+} from './hibernation'
 
 // Workflow module - standalone WorkflowContext DSL (do-b3pv)
 // Re-export additional utilities from the workflow module

@@ -4,6 +4,7 @@ import { cors } from 'hono/cors'
 import type { WorkflowContext } from './context'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
+import { HibernationManager, type HibernationConfig, type HibernationAttachment, type HibernationState } from './hibernation'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
 import { IntegrationRegistry } from '../integrations'
 import { RPCError, NotFoundError, InternalError } from '../rpc/errors'
@@ -13,10 +14,78 @@ const logger = createLogger('[DO]')
 
 export interface DOEnv {
   [key: string]: unknown
+  // Common secret environment variables
+  JWT_SECRET?: string
+  JWKS_URL?: string
+  DO_INTERNAL_SECRET?: string
+}
+
+/**
+ * Configuration for secret validation on DO startup
+ * Allows customizing which secrets are required for a given deployment
+ */
+export interface SecretValidationConfig {
+  /**
+   * Require JWT_SECRET or JWKS_URL for authentication
+   * @default false
+   */
+  requireAuth?: boolean
+
+  /**
+   * Require DO_INTERNAL_SECRET for DO-to-DO HMAC signing
+   * @default false
+   */
+  requireInternalSecret?: boolean
+
+  /**
+   * Custom required environment variables
+   * Specify key names that must be present and non-empty
+   */
+  requiredEnvVars?: string[]
+
+  /**
+   * Skip all validation (useful for testing)
+   * @default false
+   */
+  skipValidation?: boolean
+}
+
+/**
+ * Result of secret validation
+ */
+export interface SecretValidationResult {
+  valid: boolean
+  missing: string[]
+  warnings: string[]
+}
+
+/**
+ * Error thrown when required secrets are missing on DO startup
+ */
+export class MissingSecretsError extends Error {
+  public readonly missingSecrets: string[]
+
+  constructor(missingSecrets: string[]) {
+    const message = `Missing required secrets: ${missingSecrets.join(', ')}. ` +
+      `Configure these in your wrangler.toml [vars] or as Cloudflare secrets.`
+    super(message)
+    this.name = 'MissingSecretsError'
+    this.missingSecrets = missingSecrets
+  }
 }
 
 export interface DOOptions {
   cors?: boolean
+  /**
+   * Secret validation configuration
+   * When provided, validates required secrets are present on startup
+   */
+  secretValidation?: SecretValidationConfig
+  /**
+   * Hibernation configuration for WebSocket connections
+   * Enables cost-effective real-time connections with 95%+ savings on idle
+   */
+  hibernation?: HibernationConfig
 }
 
 export class DO implements DurableObject {
@@ -27,15 +96,37 @@ export class DO implements DurableObject {
   private routesInitialized = false
   private entityManager: EntityManager
   private websocketManager: WebSocketManager
+  private hibernationManager: HibernationManager
   private _integrations: IntegrationRegistry
 
   constructor(state: DurableObjectState, env: DOEnv, options: DOOptions = {}) {
     this.state = state
     this.env = env
+
+    // Validate required secrets on startup (do-pj71)
+    if (options.secretValidation) {
+      this.validateRequiredSecrets(env, options.secretValidation)
+    }
+
     this.app = new Hono()
-    this.entityManager = new EntityManager()
+    // Pass SQL storage to EntityManager for persistence (do-4s3f)
+    // state.storage.sql is the SQLite storage on Durable Objects
+    const sql = (state.storage as any).sql
+    this.entityManager = new EntityManager({ sql })
     this.websocketManager = new WebSocketManager()
+    this.hibernationManager = new HibernationManager(state, options.hibernation)
     this._integrations = new IntegrationRegistry()
+
+    // Initialize EntityManager and restore hibernation state within blockConcurrencyWhile
+    // to ensure state is ready before any requests are processed
+    state.blockConcurrencyWhile(async () => {
+      // Initialize entity manager if SQL storage is available
+      if (sql) {
+        await this.entityManager.ensureInitialized()
+      }
+      // Restore WebSocket connections after hibernation wake-up
+      await this.hibernationManager.restoreFromHibernation()
+    })
 
     // Setup middleware
     if (options.cors !== false) {
@@ -46,9 +137,132 @@ export class DO implements DurableObject {
     this.setupRoutes()
   }
 
+  /**
+   * Validate that required secrets are present in the environment
+   * Throws MissingSecretsError if any required secrets are missing
+   *
+   * @param env - The environment object containing secrets
+   * @param config - Validation configuration specifying which secrets are required
+   * @throws MissingSecretsError if required secrets are missing
+   */
+  protected validateRequiredSecrets(env: DOEnv, config: SecretValidationConfig): SecretValidationResult {
+    if (config.skipValidation) {
+      return { valid: true, missing: [], warnings: [] }
+    }
+
+    const missing: string[] = []
+    const warnings: string[] = []
+
+    // Check auth secrets (JWT_SECRET or JWKS_URL)
+    if (config.requireAuth) {
+      const hasJwtSecret = typeof env.JWT_SECRET === 'string' && env.JWT_SECRET.length > 0
+      const hasJwksUrl = typeof env.JWKS_URL === 'string' && env.JWKS_URL.length > 0
+
+      if (!hasJwtSecret && !hasJwksUrl) {
+        missing.push('JWT_SECRET or JWKS_URL')
+      }
+
+      // Warn about weak JWT secrets
+      if (hasJwtSecret && typeof env.JWT_SECRET === 'string' && env.JWT_SECRET.length < 32) {
+        warnings.push('JWT_SECRET should be at least 32 characters for security')
+      }
+    }
+
+    // Check DO internal secret for DO-to-DO authentication
+    if (config.requireInternalSecret) {
+      const hasInternalSecret = typeof env.DO_INTERNAL_SECRET === 'string' && env.DO_INTERNAL_SECRET.length > 0
+
+      if (!hasInternalSecret) {
+        missing.push('DO_INTERNAL_SECRET')
+      } else if (typeof env.DO_INTERNAL_SECRET === 'string' && env.DO_INTERNAL_SECRET.length < 32) {
+        warnings.push('DO_INTERNAL_SECRET should be at least 32 characters for security')
+      }
+    }
+
+    // Check custom required environment variables
+    if (config.requiredEnvVars && config.requiredEnvVars.length > 0) {
+      for (const varName of config.requiredEnvVars) {
+        const value = env[varName]
+        if (value === undefined || value === null || value === '') {
+          missing.push(varName)
+        }
+      }
+    }
+
+    // Log warnings
+    for (const warning of warnings) {
+      logger.warn(`Secret validation warning: ${warning}`)
+    }
+
+    // Throw if any required secrets are missing
+    if (missing.length > 0) {
+      logger.error(`Missing required secrets: ${missing.join(', ')}`)
+      throw new MissingSecretsError(missing)
+    }
+
+    return { valid: true, missing: [], warnings }
+  }
+
+  /**
+   * Static helper to validate secrets without instantiating a DO
+   * Useful for checking configuration in tests or worker initialization
+   */
+  static validateSecrets(env: DOEnv, config: SecretValidationConfig): SecretValidationResult {
+    if (config.skipValidation) {
+      return { valid: true, missing: [], warnings: [] }
+    }
+
+    const missing: string[] = []
+    const warnings: string[] = []
+
+    if (config.requireAuth) {
+      const hasJwtSecret = typeof env.JWT_SECRET === 'string' && env.JWT_SECRET.length > 0
+      const hasJwksUrl = typeof env.JWKS_URL === 'string' && env.JWKS_URL.length > 0
+
+      if (!hasJwtSecret && !hasJwksUrl) {
+        missing.push('JWT_SECRET or JWKS_URL')
+      }
+
+      if (hasJwtSecret && typeof env.JWT_SECRET === 'string' && env.JWT_SECRET.length < 32) {
+        warnings.push('JWT_SECRET should be at least 32 characters for security')
+      }
+    }
+
+    if (config.requireInternalSecret) {
+      const hasInternalSecret = typeof env.DO_INTERNAL_SECRET === 'string' && env.DO_INTERNAL_SECRET.length > 0
+
+      if (!hasInternalSecret) {
+        missing.push('DO_INTERNAL_SECRET')
+      } else if (typeof env.DO_INTERNAL_SECRET === 'string' && env.DO_INTERNAL_SECRET.length < 32) {
+        warnings.push('DO_INTERNAL_SECRET should be at least 32 characters for security')
+      }
+    }
+
+    if (config.requiredEnvVars && config.requiredEnvVars.length > 0) {
+      for (const varName of config.requiredEnvVars) {
+        const value = env[varName]
+        if (value === undefined || value === null || value === '') {
+          missing.push(varName)
+        }
+      }
+    }
+
+    return {
+      valid: missing.length === 0,
+      missing,
+      warnings,
+    }
+  }
+
   // WebSocket manager accessor
   get ws(): WebSocketManager {
     return this.websocketManager
+  }
+
+  // Hibernation manager accessor for WebSocket hibernation support
+  // Provides 95%+ cost reduction on idle WebSocket connections
+  get hibernation(): HibernationManager {
+    return this.hibernationManager
   }
 
   // Integration registry accessor

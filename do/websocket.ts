@@ -179,7 +179,12 @@ export class WebSocketManager {
       try {
         await handler(ws, connectionId, metadata)
       } catch (err) {
-        logger.error(' Connect handler error:', err)
+        logger.error(
+          'Connect handler error:',
+          'connectionId:', connectionId,
+          'clientId:', metadata.clientId ?? 'none',
+          'error:', err instanceof Error ? err.message : String(err)
+        )
       }
     }
   }
@@ -192,7 +197,12 @@ export class WebSocketManager {
       try {
         await handler(ws, connectionId, metadata)
       } catch (err) {
-        logger.error(' Disconnect handler error:', err)
+        logger.error(
+          'Disconnect handler error:',
+          'connectionId:', connectionId,
+          'clientId:', metadata.clientId ?? 'none',
+          'error:', err instanceof Error ? err.message : String(err)
+        )
       }
     }
   }
@@ -309,11 +319,13 @@ export class WebSocketManager {
         sent++
       } catch (err) {
         failed++
+        const connId = this.getConnectionId(ws)
         logger.warn(
           'Broadcast send failed:',
-          'error:', err instanceof Error ? err.message : String(err),
+          'connectionId:', connId ?? 'unknown',
           'tag:', tag,
-          'readyState:', ws.readyState
+          'readyState:', ws.readyState,
+          'error:', err instanceof Error ? err.message : String(err)
         )
       }
     }
@@ -399,7 +411,13 @@ export class WebSocketManager {
         try {
           await handler(ws, message)
         } catch (err) {
-          logger.error(' Handler error:', err)
+          const connId = this.getConnectionId(ws)
+          logger.error(
+            'Binary message handler error:',
+            'connectionId:', connId ?? 'unknown',
+            'messageSize:', message.byteLength,
+            'error:', err instanceof Error ? err.message : String(err)
+          )
         }
       }
       return
@@ -410,14 +428,25 @@ export class WebSocketManager {
     try {
       msg = JSON.parse(message)
     } catch (err) {
+      const connId = this.getConnectionId(ws)
+      logger.warn(
+        'Invalid JSON message received:',
+        'connectionId:', connId ?? 'unknown',
+        'messagePreview:', message.substring(0, 100),
+        'error:', err instanceof Error ? err.message : String(err)
+      )
       // Send error back to client
       try {
         ws.send(JSON.stringify({
           type: 'error',
           error: 'Invalid JSON message',
         }))
-      } catch {
-        // Ignore send errors
+      } catch (sendErr) {
+        logger.warn(
+          'Failed to send error response:',
+          'connectionId:', connId ?? 'unknown',
+          'error:', sendErr instanceof Error ? sendErr.message : String(sendErr)
+        )
       }
       return
     }
@@ -436,7 +465,13 @@ export class WebSocketManager {
       try {
         await handler(ws, msg.data)
       } catch (err) {
-        logger.error(' Handler error:', err)
+        const connId = this.getConnectionId(ws)
+        logger.error(
+          'Message handler error:',
+          'connectionId:', connId ?? 'unknown',
+          'messageType:', msg.type,
+          'error:', err instanceof Error ? err.message : String(err)
+        )
       }
     }
   }
@@ -448,7 +483,13 @@ export class WebSocketManager {
     try {
       ws.send(JSON.stringify({ type: 'ping' }))
     } catch (err) {
-      logger.warn(' Ping send failed:', err)
+      const connId = this.getConnectionId(ws)
+      logger.warn(
+        'Ping send failed:',
+        'connectionId:', connId ?? 'unknown',
+        'readyState:', ws.readyState,
+        'error:', err instanceof Error ? err.message : String(err)
+      )
     }
   }
 
@@ -489,7 +530,13 @@ export class WebSocketManager {
         try {
           ws.close(1000, 'Connection timeout')
         } catch (err) {
-          logger.warn(' Error closing stale connection:', err)
+          logger.warn(
+            'Error closing stale connection:',
+            'connectionId:', metadata.connectionId,
+            'clientId:', metadata.clientId ?? 'none',
+            'staleFor:', now - metadata.lastActivityAt, 'ms',
+            'error:', err instanceof Error ? err.message : String(err)
+          )
         }
         this.cleanupWebSocket(ws)
       }
@@ -507,10 +554,16 @@ export class WebSocketManager {
       const sockets = ctx.getWebSockets()
       for (const ws of sockets) {
         if (this.isStale(ws, timeout)) {
+          const connId = this.getConnectionId(ws)
           try {
             ws.close(1000, 'Connection timeout')
-          } catch {
-            // Ignore errors
+          } catch (err) {
+            logger.warn(
+              'Error closing stale connection in heartbeat:',
+              'connectionId:', connId ?? 'unknown',
+              'readyState:', ws.readyState,
+              'error:', err instanceof Error ? err.message : String(err)
+            )
           }
           this.cleanupWebSocket(ws)
         } else {
@@ -549,10 +602,12 @@ export class WebSocketManager {
       ws.send(JSON.stringify(message))
       return true
     } catch (err) {
+      const connId = this.getConnectionId(ws)
       logger.warn(
         'Send failed:',
-        'error:', err instanceof Error ? err.message : String(err),
-        'readyState:', ws.readyState
+        'connectionId:', connId ?? 'unknown',
+        'readyState:', ws.readyState,
+        'error:', err instanceof Error ? err.message : String(err)
       )
       return false
     }
@@ -565,10 +620,18 @@ export class WebSocketManager {
    * @param reason The close reason
    */
   closeConnection(ws: WebSocket, code: number = 1000, reason?: string): void {
+    const connId = this.getConnectionId(ws)
     try {
       ws.close(code, reason)
     } catch (err) {
-      logger.warn(' Error closing connection:', err)
+      logger.warn(
+        'Error closing connection:',
+        'connectionId:', connId ?? 'unknown',
+        'code:', code,
+        'reason:', reason ?? 'none',
+        'readyState:', ws.readyState,
+        'error:', err instanceof Error ? err.message : String(err)
+      )
     }
     this.cleanupWebSocket(ws)
   }
@@ -590,10 +653,12 @@ export class WebSocketManager {
         sent++
       } catch (err) {
         failed++
+        const connId = this.getConnectionId(ws)
         logger.warn(
-          'Broadcast send failed:',
-          'error:', err instanceof Error ? err.message : String(err),
-          'readyState:', ws.readyState
+          'Broadcast (all) send failed:',
+          'connectionId:', connId ?? 'unknown',
+          'readyState:', ws.readyState,
+          'error:', err instanceof Error ? err.message : String(err)
         )
       }
     }
