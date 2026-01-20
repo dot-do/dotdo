@@ -55,7 +55,7 @@ export interface HibernationAttachment {
   connectionId: string
 
   /** Client identifier for reconnection tracking */
-  clientId?: string
+  clientId?: string | undefined
 
   /** Connection timestamp */
   connectedAt: number
@@ -67,10 +67,10 @@ export interface HibernationAttachment {
   tags: string[]
 
   /** Protocol version for compatibility */
-  protocolVersion?: number
+  protocolVersion?: number | undefined
 
   /** Application-specific metadata (keep small) */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> | undefined
 }
 
 /**

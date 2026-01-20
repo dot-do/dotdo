@@ -402,8 +402,20 @@ export function createShardRouter(config?: Partial<ShardRouterConfig>): ShardRou
  * })
  * ```
  */
+/**
+ * Hono Context interface for shard middleware
+ */
+interface HonoShardContext {
+  req: {
+    url: string
+    headers: Headers
+    param: (name: string) => string | undefined
+  }
+  set: (key: string, value: unknown) => void
+}
+
 export function shardMiddleware(router: ShardRouter) {
-  return async (c: any, next: () => Promise<void>) => {
+  return async (c: HonoShardContext, next: () => Promise<void>) => {
     const url = new URL(c.req.url)
     const hostParts = url.hostname.split('.')
     const namespace = hostParts.length > 2 ? hostParts[0] : 'default'
@@ -607,7 +619,7 @@ export class LoadMetricsStore {
 export interface LoadBalanceTelemetryEvent {
   type: 'load_balance_decision'
   namespace: string
-  entityType?: string
+  entityType?: string | undefined
   selectedShard: number
   selectedDoName: string
   loadSnapshot: Record<string, number>

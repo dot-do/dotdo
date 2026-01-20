@@ -27,27 +27,27 @@ export interface FireAndForgetError {
   /** Operation type (e.g., 'event.handler', 'workflow.send') */
   operation: string
   /** Event type if applicable (e.g., 'Order.placed') */
-  eventType?: string
+  eventType?: string | undefined
   /** Handler index if multiple handlers for same event */
-  handlerIndex?: number
+  handlerIndex?: number | undefined
   /** Error message */
   message: string
   /** Error stack trace if available */
-  stack?: string
+  stack?: string | undefined
   /** Error name/type (e.g., 'NetworkError', 'ValidationError') */
   errorType: string
   /** Whether the error is retriable */
   retriable: boolean
   /** Additional context data */
-  context?: Record<string, unknown>
+  context?: Record<string, unknown> | undefined
   /** Timestamp when error occurred */
   timestamp: number
   /** Number of attempts made before final failure */
-  attempts?: number
+  attempts?: number | undefined
   /** Whether error was recovered (retried successfully) */
   recovered: boolean
   /** Recovery timestamp if recovered */
-  recoveredAt?: number
+  recoveredAt?: number | undefined
 }
 
 /**
@@ -624,7 +624,7 @@ export interface RetryQueueItem {
   /** Event payload to pass to handlers */
   payload: unknown
   /** Handler function to retry */
-  handlerFn?: () => Promise<void>
+  handlerFn?: (() => Promise<void>) | undefined
   /** Number of attempts so far */
   attempts: number
   /** Maximum retry attempts allowed */
@@ -638,7 +638,7 @@ export interface RetryQueueItem {
   /** Status of this retry item */
   status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'abandoned'
   /** Last error message if failed */
-  lastError?: string
+  lastError?: string | undefined
 }
 
 /**

@@ -3,6 +3,18 @@ import { createThingsStore, type ThingsStore } from '../../db/things'
 import { createSearchTool } from '../search'
 import type { MCPTool } from '../server'
 
+interface SearchResult {
+  results: Array<{
+    $id: string
+    $type: string
+    name?: string
+    age?: number
+    [key: string]: unknown
+  }>
+  total: number
+  hasMore: boolean
+}
+
 describe('Search Tool', () => {
   let store: ThingsStore
   let searchTool: MCPTool
@@ -39,50 +51,50 @@ describe('Search Tool', () => {
 
   describe('search by type only', () => {
     it('should search for all Things of a type', async () => {
-      const result = await searchTool.execute({ $type: 'User' })
+      const result = (await searchTool.execute({ $type: 'User' })) as SearchResult
       expect(result).toHaveProperty('results')
       expect(result.results).toHaveLength(3)
-      expect(result.results.every((r: any) => r.$type === 'User')).toBe(true)
+      expect(result.results.every((r) => r.$type === 'User')).toBe(true)
     })
 
     it('should search for Orders', async () => {
-      const result = await searchTool.execute({ $type: 'Order' })
+      const result = (await searchTool.execute({ $type: 'Order' })) as SearchResult
       expect(result.results).toHaveLength(2)
-      expect(result.results.every((r: any) => r.$type === 'Order')).toBe(true)
+      expect(result.results.every((r) => r.$type === 'Order')).toBe(true)
     })
 
     it('should return empty array for non-existent type', async () => {
-      const result = await searchTool.execute({ $type: 'NonExistent' })
+      const result = (await searchTool.execute({ $type: 'NonExistent' })) as SearchResult
       expect(result.results).toHaveLength(0)
     })
   })
 
   describe('search by field values', () => {
     it('should search by single field', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         where: { role: 'admin' }
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Alice Smith')
+      expect(result.results[0]!.name).toBe('Alice Smith')
     })
 
     it('should search by multiple fields', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         where: { role: 'user', age: 25 }
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Bob Jones')
+      expect(result.results[0]!.name).toBe('Bob Jones')
     })
 
     it('should return empty when no matches', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         where: { role: 'superadmin' }
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(0)
     })
@@ -90,40 +102,40 @@ describe('Search Tool', () => {
 
   describe('full-text search', () => {
     it('should search across all text fields with query parameter', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         query: 'alice'
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Alice Smith')
+      expect(result.results[0]!.name).toBe('Alice Smith')
     })
 
     it('should be case-insensitive', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         query: 'ALICE'
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Alice Smith')
+      expect(result.results[0]!.name).toBe('Alice Smith')
     })
 
     it('should search in any string field', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         query: 'bob@example.com'
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Bob Jones')
+      expect(result.results[0]!.name).toBe('Bob Jones')
     })
 
     it('should work with partial matches', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         query: 'example.com'
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(3)
     })
@@ -131,10 +143,10 @@ describe('Search Tool', () => {
 
   describe('pagination', () => {
     it('should respect limit parameter', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         limit: 2
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(2)
       expect(result.total).toBe(3)
@@ -142,21 +154,21 @@ describe('Search Tool', () => {
     })
 
     it('should respect offset parameter', async () => {
-      const page1 = await searchTool.execute({
+      const page1 = (await searchTool.execute({
         $type: 'User',
         limit: 2,
         offset: 0
-      })
+      })) as SearchResult
 
-      const page2 = await searchTool.execute({
+      const page2 = (await searchTool.execute({
         $type: 'User',
         limit: 2,
         offset: 2
-      })
+      })) as SearchResult
 
       expect(page1.results).toHaveLength(2)
       expect(page2.results).toHaveLength(1)
-      expect(page1.results[0].$id).not.toBe(page2.results[0].$id)
+      expect(page1.results[0]!.$id).not.toBe(page2.results[0]!.$id)
     })
 
     it('should default to limit of 20', async () => {
@@ -165,68 +177,68 @@ describe('Search Tool', () => {
         await store.create({ $type: 'Item', index: i })
       }
 
-      const result = await searchTool.execute({ $type: 'Item' })
+      const result = (await searchTool.execute({ $type: 'Item' })) as SearchResult
       expect(result.results).toHaveLength(20)
       expect(result.total).toBe(25)
       expect(result.hasMore).toBe(true)
     })
 
     it('should calculate hasMore correctly', async () => {
-      const result1 = await searchTool.execute({ $type: 'User', limit: 2 })
+      const result1 = (await searchTool.execute({ $type: 'User', limit: 2 })) as SearchResult
       expect(result1.hasMore).toBe(true)
 
-      const result2 = await searchTool.execute({ $type: 'User', limit: 10 })
+      const result2 = (await searchTool.execute({ $type: 'User', limit: 10 })) as SearchResult
       expect(result2.hasMore).toBe(false)
     })
   })
 
   describe('sorting', () => {
     it('should sort by field ascending', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         orderBy: 'age',
         order: 'asc'
-      })
+      })) as SearchResult
 
-      expect(result.results[0].age).toBe(25)
-      expect(result.results[2].age).toBe(35)
+      expect(result.results[0]!.age).toBe(25)
+      expect(result.results[2]!.age).toBe(35)
     })
 
     it('should sort by field descending', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         orderBy: 'age',
         order: 'desc'
-      })
+      })) as SearchResult
 
-      expect(result.results[0].age).toBe(35)
-      expect(result.results[2].age).toBe(25)
+      expect(result.results[0]!.age).toBe(35)
+      expect(result.results[2]!.age).toBe(25)
     })
 
     it('should default to descending order', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         orderBy: 'age'
-      })
+      })) as SearchResult
 
-      expect(result.results[0].age).toBe(35)
+      expect(result.results[0]!.age).toBe(35)
     })
   })
 
   describe('combined filters', () => {
     it('should combine type, where, and query', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         where: { role: 'user' },
         query: 'bob'
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Bob Jones')
+      expect(result.results[0]!.name).toBe('Bob Jones')
     })
 
     it('should combine all parameters', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         where: { role: 'user' },
         query: 'example.com',
@@ -234,20 +246,20 @@ describe('Search Tool', () => {
         order: 'asc',
         limit: 1,
         offset: 0
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].name).toBe('Bob Jones')
+      expect(result.results[0]!.name).toBe('Bob Jones')
       expect(result.total).toBe(2)
     })
   })
 
   describe('field selection', () => {
     it('should select specific fields', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         select: ['name', 'email']
-      })
+      })) as SearchResult
 
       expect(result.results[0]).toHaveProperty('$id')
       expect(result.results[0]).toHaveProperty('$type')
@@ -258,10 +270,10 @@ describe('Search Tool', () => {
     })
 
     it('should always include $id and $type', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         $type: 'User',
         select: ['name']
-      })
+      })) as SearchResult
 
       expect(result.results[0]).toHaveProperty('$id')
       expect(result.results[0]).toHaveProperty('$type')
@@ -270,20 +282,20 @@ describe('Search Tool', () => {
 
   describe('search without type', () => {
     it('should search across all types with query', async () => {
-      const result = await searchTool.execute({
+      const result = (await searchTool.execute({
         query: 'example.com'
-      })
+      })) as SearchResult
 
       expect(result.results).toHaveLength(3)
-      expect(result.results.every((r: any) => r.$type === 'User')).toBe(true)
+      expect(result.results.every((r) => r.$type === 'User')).toBe(true)
     })
 
     it('should return all Things when no filters', async () => {
-      const result = await searchTool.execute({})
+      const result = (await searchTool.execute({})) as SearchResult
 
       expect(result.results.length).toBeGreaterThan(0)
       // Should include Users, Orders, and Products
-      const types = new Set(result.results.map((r: any) => r.$type))
+      const types = new Set(result.results.map((r) => r.$type))
       expect(types.size).toBeGreaterThan(1)
     })
   })

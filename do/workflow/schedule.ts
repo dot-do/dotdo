@@ -175,9 +175,37 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * })
  * ```
  */
+/**
+ * Schedule builder type returned by createEveryProxy.
+ * Uses Proxy for fluent DSL so returns a callable object with dynamic properties.
+ */
+export interface ScheduleBuilder {
+  /** Called with number for interval patterns: $.every(5).minutes(handler) */
+  (value: number): IntervalBuilder
+  /** Called with time string: $.every.day.at('6pm')(handler) */
+  (time: string): (handler: ScheduleHandler) => void
+  /** Called with handler directly: $.every.hour(handler) */
+  (handler: ScheduleHandler): void
+  /** Access day of week for scheduling: $.every.Monday */
+  [day: string]: ScheduleBuilder
+  /** Access time patterns: $.every.day.at9am(handler) */
+  at: (time: string) => (handler: ScheduleHandler) => void
+}
+
+/**
+ * Interval builder type for $.every(5).minutes patterns
+ */
+export interface IntervalBuilder {
+  seconds: (handler: ScheduleHandler) => void
+  minutes: (handler: ScheduleHandler) => void
+  hours: (handler: ScheduleHandler) => void
+  days: (handler: ScheduleHandler) => void
+  weeks: (handler: ScheduleHandler) => void
+}
+
 export function createEveryProxy(
   schedules: Map<string, ScheduleRegistration>
-): any {
+): ScheduleBuilder {
   /**
    * Builder state for chaining
    */
@@ -188,10 +216,11 @@ export function createEveryProxy(
   }
 
   /**
-   * Create a chainable proxy builder
+   * Create a chainable proxy builder.
+   * Returns ScheduleBuilder which is a complex callable+indexable object via Proxy.
    */
-  function createBuilder(state: BuilderState): any {
-    const builder = function(arg?: any) {
+  function createBuilder(state: BuilderState): ScheduleBuilder {
+    const builder = function(arg?: number | string | ScheduleHandler) {
       // If called with a number: $.every(5).minutes(handler)
       if (typeof arg === 'number') {
         return createIntervalProxy(arg, state)
@@ -303,7 +332,7 @@ export function createEveryProxy(
   /**
    * Create a proxy for interval patterns: $.every(5).minutes(handler)
    */
-  function createIntervalProxy(value: number, _state: BuilderState): any {
+  function createIntervalProxy(value: number, _state: BuilderState): IntervalBuilder {
     return new Proxy({}, {
       get(_target, prop: string) {
         // Map plural forms to interval types

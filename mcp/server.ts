@@ -17,7 +17,7 @@ export interface MCPTool {
 }
 
 export interface MCPServer {
-  tools: MCPTool[]
+  readonly tools: readonly MCPTool[]
   registry?: ToolRegistry
   addTool(tool: MCPTool): void
   fetch: (request: Request) => Promise<Response>
@@ -25,7 +25,7 @@ export interface MCPServer {
 
 export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
   const { name = 'dotdo-mcp', version = '0.0.1', registry } = options
-  const tools: MCPTool[] = []
+  const toolsArray: MCPTool[] = []
   const app = new Hono()
 
   // MCP Protocol endpoints
@@ -47,7 +47,7 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
   // List tools
   app.get('/mcp/tools', async (c) => {
     return c.json({
-      tools: tools.map(t => ({
+      tools: toolsArray.map(t => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema
@@ -62,7 +62,7 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
       arguments?: unknown
     }>()
 
-    const tool = tools.find(t => t.name === toolName)
+    const tool = toolsArray.find(t => t.name === toolName)
     if (!tool) {
       return c.json({
         isError: true,
@@ -84,13 +84,16 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
   })
 
   // Health check
-  app.get('/', (c) => c.json({ name, version, tools: tools.length }))
+  app.get('/', (c) => c.json({ name, version, tools: toolsArray.length }))
 
   return {
-    tools,
+    get tools(): readonly MCPTool[] {
+      // Return a defensive copy to prevent direct mutations
+      return Object.freeze([...toolsArray])
+    },
     registry,
     addTool(tool: MCPTool) {
-      tools.push(tool)
+      toolsArray.push(tool)
       // Also register in registry if provided
       if (registry) {
         registry.register(tool)

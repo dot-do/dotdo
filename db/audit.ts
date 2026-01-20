@@ -40,13 +40,13 @@ export interface AuditLog {
   /** Type of resource affected (e.g., Customer, Order) */
   resource: string
   /** Specific resource ID (optional) */
-  resourceId?: string
+  resourceId?: string | undefined
   /** Log level for filtering and alerting */
   level: AuditLogLevel
   /** Additional context about the action - uses StorableData for JSON-safe values */
-  details?: StorableData
+  details?: StorableData | undefined
   /** Correlation ID for tracing related operations */
-  correlationId?: string
+  correlationId?: string | undefined
 }
 
 /**

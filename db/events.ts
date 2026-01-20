@@ -135,11 +135,11 @@ export interface DurabilityConfig {
 }
 
 export interface EventQueryOptions {
-  type?: string
-  source?: string
-  correlationId?: string
-  since?: number
-  until?: number
+  type?: string | undefined
+  source?: string | undefined
+  correlationId?: string | undefined
+  since?: number | undefined
+  until?: number | undefined
   limit?: number
   offset?: number
 }

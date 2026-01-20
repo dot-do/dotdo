@@ -8,7 +8,7 @@ import type { JsonValue } from './types'
  */
 export interface CursorPaginationOptions {
   /** Opaque cursor from previous response */
-  cursor?: string
+  cursor?: string | undefined
   /** Maximum number of items to return (default: 100) */
   limit?: number
   /** Direction of pagination (default: 'forward') */
@@ -22,9 +22,9 @@ export interface CursorPaginatedResult<T> {
   /** The items in this page */
   items: T[]
   /** Cursor to fetch the next page (if available) */
-  nextCursor?: string
+  nextCursor?: string | undefined
   /** Cursor to fetch the previous page (if available) */
-  prevCursor?: string
+  prevCursor?: string | undefined
   /** Whether there are more items available */
   hasMore: boolean
 }

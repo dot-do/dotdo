@@ -264,7 +264,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
         }
 
         // Send as a special pipeline message
-        const response = await this.transport.send<T>({
+        const response = await this.transport.send<PipelineResponse<T>>({
           method: '__pipeline__',
           args: [pipelineRequest],
           correlationId,
@@ -274,15 +274,25 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
           throw deserializeError(response.error)
         }
 
-        return response.result as T
+        // Properly cast after narrowing the type
+        if (response.result === undefined) {
+          throw new Error('Pipeline response missing result field')
+        }
+
+        return response.result
       }
 
       // No pipeline steps, just a regular call
-      const response = await this.transport.send<T>(message)
+      const response = await this.transport.send<RPCResponse>(message)
       if (response.error) {
         throw deserializeError(response.error)
       }
-      return response.result as T
+      // Properly type-cast after narrowing
+      const typedResponse = response as { result: T }
+      if (typedResponse.result === undefined) {
+        throw new Error('RPC response missing result field')
+      }
+      return typedResponse.result
     }
 
     // Fallback to fetch-based pipeline
@@ -308,12 +318,23 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
       throw new Error(errorBody.message ?? `Pipeline error: ${response.status}`)
     }
 
-    const result = await response.json() as PipelineResponse<T>
-    if (result.error) {
-      throw new Error(`Pipeline step ${result.error.stepIndex} failed: ${result.error.message}`)
+    const result = (await response.json()) as unknown
+
+    // Validate and type the response
+    if (!result || typeof result !== 'object') {
+      throw new Error('Pipeline response is not a valid object')
+    }
+    const typedResponse = result as PipelineResponse<T>
+
+    if (typedResponse.error) {
+      throw new Error(`Pipeline step ${typedResponse.error.stepIndex} failed: ${typedResponse.error.message}`)
     }
 
-    return result.result as T
+    if (typedResponse.result === undefined) {
+      throw new Error('Pipeline response missing result field')
+    }
+
+    return typedResponse.result
   }
 }
 

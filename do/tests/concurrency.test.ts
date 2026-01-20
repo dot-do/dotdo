@@ -465,14 +465,14 @@ describe('Concurrent DO Stress Tests', () => {
 
     const responses = await Promise.all(operations)
 
-    const successful = responses.filter(r => r.status === 200)
-    const failed = responses.filter(r => r.status !== 200)
+    const successful = responses.filter((r: Response) => r.status === 200)
+    const failed = responses.filter((r: Response) => r.status !== 200)
 
     expect(successful.length).toBe(40) // 50 - 10 failures
     expect(failed.length).toBe(10) // Every 5th fails
 
     // Consume all response bodies
-    await Promise.all(responses.map(r => r.text()))
+    await Promise.all(responses.map((r: Response) => r.text()))
   })
 
   it('should handle concurrent requests from multiple callers', async () => {
@@ -513,11 +513,11 @@ describe('Concurrent DO Stress Tests', () => {
 
     const responses = await Promise.all(requests)
     const infos = await Promise.all(
-      responses.map(r => r.json() as Promise<{ id: string }>)
+      responses.map((r: Response) => r.json() as Promise<{ id: string }>)
     )
 
     // All requests should see the same DO ID
-    const doIds = infos.map(info => info.id)
+    const doIds = infos.map((info: { id: string }) => info.id)
     expect(new Set(doIds).size).toBe(1)
   })
 })

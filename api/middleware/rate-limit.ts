@@ -757,7 +757,9 @@ export class RateLimiter {
   private handleStorageError(): RateLimitResult {
     const allowed = this.config.failOpen
     const now = Date.now()
-    const resetAt = Math.ceil((now + 60000) / 1000)
+    const defaultTierConfig = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
+    const windowMs = defaultTierConfig.windowMs
+    const resetAt = Math.ceil((now + windowMs) / 1000)
 
     const result: RateLimitResult = {
       allowed,
@@ -765,6 +767,7 @@ export class RateLimiter {
       remaining: allowed ? 100 : 0,
       limit: 100,
       resetAt,
+      windowMs,
       headers: this.buildHeaders(100, allowed ? 100 : 0, resetAt),
       key: 'unknown',
       tier: this.config.defaultTier,

@@ -14,7 +14,7 @@ import {
   configureQueryLimits,
   type QueryOptions,
 } from '../query'
-import { ValidationError } from '../../rpc/errors'
+import { DbValidationError } from '../errors'
 
 describe('SQL Injection Prevention (do-2a0j)', () => {
   let store: ThingsStore
@@ -38,49 +38,49 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
       it('should reject field names with SQL injection attempts', () => {
         expect(() => {
           query(store).type('User').where("name'; DROP TABLE things; --", 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names with semicolons', () => {
         expect(() => {
           query(store).type('User').where('name;', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names with quotes', () => {
         expect(() => {
           query(store).type('User').where("name'", 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names with double quotes', () => {
         expect(() => {
           query(store).type('User').where('name"', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names with parentheses', () => {
         expect(() => {
           query(store).type('User').where('name()', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names with dashes', () => {
         expect(() => {
           query(store).type('User').where('name--', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names with spaces', () => {
         expect(() => {
           query(store).type('User').where('name OR 1=1', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject field names starting with numbers', () => {
         expect(() => {
           query(store).type('User').where('1name', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should accept valid field names with underscores', () => {
@@ -107,7 +107,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
             name: 'Alice',
             "role'; DROP TABLE things; --": 'admin'
           })
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
     })
 
@@ -115,13 +115,13 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
       it('should reject SQL injection in field names', () => {
         expect(() => {
           query(store).type('User').whereOp("1=1; --", '=', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject UNION injection in field names', () => {
         expect(() => {
           query(store).type('User').whereOp("name UNION SELECT * FROM sqlite_master", '=', 'test')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
     })
 
@@ -129,13 +129,13 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
       it('should reject SQL injection in order field', () => {
         expect(() => {
           query(store).type('User').orderBy("name; DROP TABLE things; --")
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should reject injection with ORDER BY manipulation', () => {
         expect(() => {
           query(store).type('User').orderBy("name DESC, (SELECT password FROM users)")
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
     })
 
@@ -143,13 +143,13 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
       it('should reject SQL injection in select fields', () => {
         expect(() => {
           query(store).type('User').select("name, (SELECT password FROM users) as pwd")
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
 
       it('should validate all select fields', () => {
         expect(() => {
           query(store).type('User').select('name', 'role; --', 'email')
-        }).toThrow(ValidationError)
+        }).toThrow(DbValidationError)
       })
     })
   })
@@ -162,7 +162,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         ]
       }
 
-      expect(() => buildWhereClause(options)).toThrow(ValidationError)
+      expect(() => buildWhereClause(options)).toThrow(DbValidationError)
     })
 
     it('should reject field names with semicolons', () => {
@@ -172,7 +172,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         ]
       }
 
-      expect(() => buildWhereClause(options)).toThrow(ValidationError)
+      expect(() => buildWhereClause(options)).toThrow(DbValidationError)
     })
 
     it('should reject field names with parentheses', () => {
@@ -182,7 +182,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         ]
       }
 
-      expect(() => buildWhereClause(options)).toThrow(ValidationError)
+      expect(() => buildWhereClause(options)).toThrow(DbValidationError)
     })
 
     it('should reject field names with spaces (OR 1=1 attack)', () => {
@@ -192,7 +192,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         ]
       }
 
-      expect(() => buildWhereClause(options)).toThrow(ValidationError)
+      expect(() => buildWhereClause(options)).toThrow(DbValidationError)
     })
 
     it('should reject field names with UNION keyword', () => {
@@ -202,7 +202,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         ]
       }
 
-      expect(() => buildWhereClause(options)).toThrow(ValidationError)
+      expect(() => buildWhereClause(options)).toThrow(DbValidationError)
     })
 
     it('should accept valid field names in whereConditions', () => {
@@ -225,7 +225,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         ]
       }
 
-      expect(() => buildWhereClause(options)).toThrow(ValidationError)
+      expect(() => buildWhereClause(options)).toThrow(DbValidationError)
     })
   })
 
@@ -235,7 +235,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         orderBy: "name; DROP TABLE things; --"
       }
 
-      expect(() => buildOrderByClause(options)).toThrow(ValidationError)
+      expect(() => buildOrderByClause(options)).toThrow(DbValidationError)
     })
 
     it('should reject subquery injection in orderBy', () => {
@@ -243,7 +243,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         orderBy: "name, (SELECT password FROM users)"
       }
 
-      expect(() => buildOrderByClause(options)).toThrow(ValidationError)
+      expect(() => buildOrderByClause(options)).toThrow(DbValidationError)
     })
 
     it('should reject comment injection in orderBy', () => {
@@ -251,7 +251,7 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
         orderBy: "name --"
       }
 
-      expect(() => buildOrderByClause(options)).toThrow(ValidationError)
+      expect(() => buildOrderByClause(options)).toThrow(DbValidationError)
     })
 
     it('should accept valid orderBy field names', () => {
@@ -332,25 +332,25 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
     it('should reject empty field names', () => {
       expect(() => {
         query(store).type('User').where('', 'value')
-      }).toThrow(ValidationError)
+      }).toThrow(DbValidationError)
     })
 
     it('should reject field names with only special characters', () => {
       expect(() => {
         query(store).type('User').where('---', 'value')
-      }).toThrow(ValidationError)
+      }).toThrow(DbValidationError)
     })
 
     it('should reject field names with backticks', () => {
       expect(() => {
         query(store).type('User').where('`name`', 'value')
-      }).toThrow(ValidationError)
+      }).toThrow(DbValidationError)
     })
 
     it('should reject field names with brackets', () => {
       expect(() => {
         query(store).type('User').where('[name]', 'value')
-      }).toThrow(ValidationError)
+      }).toThrow(DbValidationError)
     })
   })
 })

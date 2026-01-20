@@ -311,10 +311,10 @@ export class DO implements DurableObject {
 
         // Navigate to method
         const parts = method.split('.')
-        let current: any = this
+        let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
         for (let i = 0; i < parts.length - 1; i++) {
-          current = current[parts[i]]
+          current = current[parts[i]] as Record<string, unknown>
           if (!current) {
             const error = new NotFoundError(`Method not found: ${method}`)
             return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
@@ -366,10 +366,10 @@ export class DO implements DurableObject {
             try {
               // Navigate to method
               const parts = call.method.split('.')
-              let current: any = this
+              let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
               for (let i = 0; i < parts.length - 1; i++) {
-                current = current[parts[i]]
+                current = current[parts[i]] as Record<string, unknown>
                 if (!current) {
                   return {
                     id: callId,

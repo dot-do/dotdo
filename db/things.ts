@@ -59,7 +59,7 @@ export interface BulkUpdateItem<T extends StorableData = StorableData> {
  * Options for listing things with offset-based pagination
  */
 export interface ThingListOptions {
-  type?: string
+  type?: string | undefined
   limit?: number
   offset?: number
 }

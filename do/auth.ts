@@ -74,7 +74,7 @@ export interface CallerInfo {
   /** Full auth payload (for user requests) */
   auth?: AuthPayload
   /** Source DO ID (for DO-to-DO calls) */
-  sourceDoId?: string
+  sourceDoId?: string | undefined
   /** Whether this is a trusted internal call */
   trusted: boolean
 }

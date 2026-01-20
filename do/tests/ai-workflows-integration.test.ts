@@ -442,21 +442,28 @@ describe('ai-workflows Integration with @dotdo/do', () => {
 
   describe('WorkflowContext API compatibility', () => {
     it('should have send() method matching ai-workflows $.send()', () => {
+      // ai-workflows: $.send(event: string, data: T) => string
+      // @dotdo/do: $.send(event: { type: string; payload?: unknown }) => void
+      // Note: different signatures but same purpose
       expect(typeof $.send).toBe('function')
     })
 
     it('should have try() method matching ai-workflows $.try()', async () => {
+      // ai-workflows: $.try(event: string, data: TInput) => Promise<TResult>
+      // @dotdo/do: $.try(action: () => Promise<T>) => Promise<T>
       expect(typeof $.try).toBe('function')
 
-      // $.try executes without retries
+      // @dotdo/do $.try executes action without retries
       const result = await $.try(async () => 'success')
       expect(result).toBe('success')
     })
 
     it('should have do() method matching ai-workflows $.do()', async () => {
+      // ai-workflows: $.do(event: string, data: TInput) => Promise<TResult>
+      // @dotdo/do: $.do(action: () => Promise<T>, options?) => Promise<T>
       expect(typeof $.do).toBe('function')
 
-      // $.do executes with retries
+      // @dotdo/do $.do executes with retries
       let attempts = 0
       const result = await $.do(
         async () => {
@@ -470,75 +477,98 @@ describe('ai-workflows Integration with @dotdo/do', () => {
       expect(attempts).toBe(2)
     })
 
-    it('should provide state management like ai-workflows $.state', () => {
-      // ai-workflows has $.state for context state
-      // @dotdo/do may have different state management
-
-      // Create ai-workflows context for comparison
-      const aiContext = createTestContext()
-
-      // ai-workflows supports $.state.key = value
-      aiContext.state.userId = '123'
-      expect(aiContext.state.userId).toBe('123')
-
-      // ai-workflows also has $.set() and $.get()
-      aiContext.set('key', 'value')
-      expect(aiContext.get('key')).toBe('value')
+    it('should have on property matching ai-workflows $.on', () => {
+      // ai-workflows: $.on is OnProxy
+      // @dotdo/do: $.on is OnProxy
+      expect($.on).toBeDefined()
+      expect(typeof $.on.Customer.created).toBe('function')
     })
 
-    it('should provide log functionality like ai-workflows $.log()', () => {
-      // ai-workflows has $.log(message, data?)
-      const aiContext = createTestContext()
+    it('should have every property matching ai-workflows $.every', () => {
+      // ai-workflows: $.every is EveryProxy (callable and property accessible)
+      // @dotdo/do: $.every is EveryProxy-like
+      expect($.every).toBeDefined()
+      expect(typeof $.every.hour).toBe('function')
+    })
 
-      expect(typeof aiContext.log).toBe('function')
+    it('should expose internal state for debugging like ai-workflows getState()', () => {
+      // ai-workflows has $.getState() for workflow state
+      // @dotdo/do exposes _handlers, _schedules, _events for internal access
 
-      // Should not throw
-      aiContext.log('Test message', { data: 'value' })
+      expect($._handlers).toBeInstanceOf(Map)
+      expect($._schedules).toBeInstanceOf(Map)
+      expect($._events).toBeDefined()
     })
   })
 
-  describe('Workflow definition compatibility', () => {
-    it('should support Workflow() pattern from ai-workflows', async () => {
-      const events: unknown[] = []
+  describe('Durability level compatibility', () => {
+    it('should provide fire-and-forget via $.send() like ai-workflows', () => {
+      // ai-workflows: $.send() is durable, returns eventId
+      // @dotdo/do: $.send() is fire-and-forget
+      const handler = vi.fn()
+      $.on.Test.event(handler)
 
-      // Create workflow using ai-workflows Workflow()
-      const workflow = Workflow(($wf) => {
-        $wf.on.Customer.created(async (customer, ctx) => {
-          events.push(customer)
-          ctx.log('Customer created', customer)
-        })
-
-        $wf.on.Order.placed(async (order) => {
-          events.push(order)
-        })
-      })
-
-      // Start the workflow
-      await workflow.start()
-
-      // Send events
-      await workflow.send('Customer.created', { name: 'Alice' })
-      await workflow.send('Order.placed', { orderId: '123' })
-
-      await new Promise((r) => setTimeout(r, 100))
-
-      expect(events).toHaveLength(2)
-
-      // Stop the workflow
-      await workflow.stop()
+      // Should not throw, executes asynchronously
+      expect(() => $.send({ type: 'Test.event', payload: { test: true } })).not.toThrow()
     })
 
-    it('should expose workflow definition with events and schedules like ai-workflows', () => {
-      const workflow = Workflow(($wf) => {
-        $wf.on.User.signup(() => {})
-        $wf.on.User.login(() => {})
-      })
+    it('should provide single-attempt via $.try() like ai-workflows', async () => {
+      // ai-workflows: $.try() - non-durable, waits for result
+      // @dotdo/do: $.try() - single attempt, no retries
 
-      // ai-workflows exposes .definition with events array
-      expect(workflow.definition).toBeDefined()
-      expect(workflow.definition.events).toHaveLength(2)
+      // Should propagate errors immediately
+      await expect($.try(async () => {
+        throw new Error('Immediate failure')
+      })).rejects.toThrow('Immediate failure')
+    })
 
-      workflow.dispose()
+    it('should provide durable execution via $.do() like ai-workflows', async () => {
+      // ai-workflows: $.do() - durable with retries
+      // @dotdo/do: $.do() - durable with configurable retries
+
+      // Should fail after max retries
+      await expect($.do(
+        async () => {
+          throw new Error('Always fails')
+        },
+        { retries: 2 }
+      )).rejects.toThrow('Always fails')
+    })
+
+    it('should support timeout option in $.do() like ai-workflows', async () => {
+      // ai-workflows $.do() likely has timeout support
+      // @dotdo/do $.do() supports timeout option
+
+      await expect($.do(
+        async () => {
+          await new Promise((r) => setTimeout(r, 1000))
+          return 'done'
+        },
+        { timeout: 50, retries: 0 }
+      )).rejects.toThrow()
+    })
+
+    it('should support backoff strategies in $.do() like ai-workflows', async () => {
+      // Test exponential and linear backoff options
+      let attempts = 0
+      const timestamps: number[] = []
+
+      await expect($.do(
+        async () => {
+          timestamps.push(Date.now())
+          attempts++
+          throw new Error('fail')
+        },
+        { retries: 2, backoff: 'exponential' }
+      )).rejects.toThrow()
+
+      expect(attempts).toBe(3) // Initial + 2 retries
+
+      // Verify exponential backoff delays
+      if (timestamps.length >= 2) {
+        const gap1 = timestamps[1] - timestamps[0]
+        expect(gap1).toBeGreaterThanOrEqual(90) // ~100ms with tolerance
+      }
     })
   })
 

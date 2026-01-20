@@ -175,6 +175,18 @@ export interface OrgAiPermissions {
 }
 
 /**
+ * SSO telemetry event
+ */
+export interface SSOTelemetryEvent {
+  $type: string
+  provider: string
+  redirectUri: string
+  state: string
+  usePKCE: boolean
+  timestamp: string
+}
+
+/**
  * SSO flow initiation options
  */
 export interface SSOFlowOptions {
@@ -189,7 +201,7 @@ export interface SSOFlowOptions {
   /** Use PKCE for enhanced security */
   usePKCE?: boolean
   /** Event handler for telemetry */
-  onEvent?: (event: any) => void
+  onEvent?: (event: SSOTelemetryEvent) => void
 }
 
 /**
@@ -498,27 +510,52 @@ function extractIdFromUri(uri: string, expectedType: string): string | null {
 }
 
 /**
+ * Raw user response shape from various org.ai API formats
+ * @internal
+ */
+interface RawUserResponse {
+  $id?: string
+  id?: string
+  email?: string
+  primaryEmail?: string
+  emails?: Array<{ value?: string }>
+  name?: string
+  displayName?: string
+  fullName?: string
+  firstName?: string
+  lastName?: string
+  profile?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  createdAt?: string
+  created?: string
+  updatedAt?: string
+  updated?: string
+}
+
+/**
  * Normalize user response from org.ai API to standard User type
  * @internal
  */
-function normalizeUserResponse(data: any, originalId: string): User | null {
+function normalizeUserResponse(data: unknown, originalId: string): User | null {
   if (!data || typeof data !== 'object') return null
 
+  const userData = data as RawUserResponse
+
   // Try to extract required fields from various API response formats
-  const email = data.email || data.primaryEmail || data.emails?.[0]?.value
-  const name = data.name || data.displayName || data.fullName ||
-    (data.firstName && data.lastName ? `${data.firstName} ${data.lastName}` : undefined)
+  const email = userData.email || userData.primaryEmail || userData.emails?.[0]?.value
+  const name = userData.name || userData.displayName || userData.fullName ||
+    (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : undefined)
 
   if (!email || !name) return null
 
   return {
-    $id: data.$id || data.id || originalId,
+    $id: userData.$id || userData.id || originalId,
     $type: 'https://schema.org.ai/User',
     email,
     name,
-    profile: data.profile || data.metadata,
-    createdAt: data.createdAt || data.created || new Date().toISOString(),
-    updatedAt: data.updatedAt || data.updated || new Date().toISOString(),
+    profile: userData.profile || userData.metadata,
+    createdAt: userData.createdAt || userData.created || new Date().toISOString(),
+    updatedAt: userData.updatedAt || userData.updated || new Date().toISOString(),
   }
 }
 
@@ -646,31 +683,57 @@ export async function checkOrganizationMembership(
 }
 
 /**
+ * Raw membership response shape from various org.ai API formats
+ * @internal
+ */
+interface RawMembershipResponse {
+  isMember?: boolean
+  member?: boolean
+  active?: boolean
+  role?: string
+  memberRole?: string
+  permission?: string
+  joinedAt?: string
+  createdAt?: string
+  memberSince?: string
+  organizationName?: string
+  orgName?: string
+  organization?: {
+    $id?: string
+    id?: string
+    name?: string
+    displayName?: string
+  }
+}
+
+/**
  * Normalize membership response from org.ai API to standard OrganizationMembership type
  * @internal
  */
-function normalizeMembershipResponse(data: any, orgId: string): OrganizationMembership {
+function normalizeMembershipResponse(data: unknown, orgId: string): OrganizationMembership {
   if (!data || typeof data !== 'object') {
     return { isMember: false }
   }
 
+  const memberData = data as RawMembershipResponse
+
   // Handle various API response formats
-  const isMember = data.isMember ?? data.member ?? data.active ?? true
-  const role = data.role || data.memberRole || data.permission || 'member'
-  const joinedAt = data.joinedAt || data.createdAt || data.memberSince
+  const isMember = memberData.isMember ?? memberData.member ?? memberData.active ?? true
+  const role = memberData.role || memberData.memberRole || memberData.permission || 'member'
+  const joinedAt = memberData.joinedAt || memberData.createdAt || memberData.memberSince
 
   return {
     isMember,
     role,
     joinedAt,
-    organization: data.organization ? {
-      $id: data.organization.$id || data.organization.id || orgId,
-      name: data.organization.name || data.organization.displayName,
+    organization: memberData.organization ? {
+      $id: memberData.organization.$id || memberData.organization.id || orgId,
+      name: memberData.organization.name || memberData.organization.displayName,
       role,
       joinedAt,
     } : {
       $id: orgId,
-      name: data.organizationName || data.orgName,
+      name: memberData.organizationName || memberData.orgName,
       role,
       joinedAt,
     },
@@ -832,6 +895,18 @@ function isSessionExpired(session: Session): boolean {
 }
 
 /**
+ * Raw organization shape from session metadata
+ * @internal
+ */
+interface RawSessionOrganization {
+  $id?: string
+  id?: string
+  name?: string
+  role?: string
+  joinedAt?: string
+}
+
+/**
  * Extract organizations from session metadata
  */
 function extractOrganizations(session: Session): OrgAiOrganization[] {
@@ -839,9 +914,9 @@ function extractOrganizations(session: Session): OrgAiOrganization[] {
     return []
   }
 
-  const orgs = session.metadata.organizations as any[]
+  const orgs = session.metadata.organizations as RawSessionOrganization[]
   return orgs.map(org => ({
-    $id: org.$id || org.id,
+    $id: org.$id || org.id || '',
     name: org.name,
     role: org.role || 'member',
     joinedAt: org.joinedAt

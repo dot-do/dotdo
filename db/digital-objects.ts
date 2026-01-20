@@ -24,7 +24,7 @@ export interface DigitalObjectsThingsStore extends ThingsStore {
  * Validation options that match @dotdo/db convention
  */
 export interface ValidationOptions {
-  validate?: boolean
+  validate?: boolean | undefined
 }
 
 /**

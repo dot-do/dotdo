@@ -28,8 +28,10 @@ interface Env {
 
 interface AuthUser {
   id: string
-  email: string
-  name: string
+  email?: string | undefined
+  name?: string | undefined
+  roles?: string[] | undefined
+  scopes?: string[] | undefined
 }
 
 declare module 'hono' {
@@ -257,6 +259,9 @@ protected_.use('/*', async (c, next) => {
 // Get current user
 protected_.get('/me', async (c) => {
   const user = c.get('user')
+  if (!user.email) {
+    return c.json({ error: 'User email not found' }, 400)
+  }
   const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email))
 
   const response = await stub.fetch(new Request('http://internal/profile'))
@@ -271,6 +276,9 @@ protected_.get('/me', async (c) => {
 // Update current user
 protected_.patch('/me', async (c) => {
   const user = c.get('user')
+  if (!user.email) {
+    return c.json({ error: 'User email not found' }, 400)
+  }
   const body = await c.req.json<{ name?: string; password?: string }>()
 
   const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email))
