@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { Miniflare } from 'miniflare'
+import { generateTestId } from '../../test-utils'
 
 // ============================================================================
 // DO SCRIPT FOR TESTING SQLiteAdapter
@@ -170,9 +171,7 @@ export default {
 // TEST HELPERS
 // ============================================================================
 
-function generateTestId(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
+// generateTestId imported from test-utils
 
 // ============================================================================
 // TEST SUITE

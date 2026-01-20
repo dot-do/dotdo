@@ -25,6 +25,7 @@ import { Miniflare } from 'miniflare'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
+import { generateTestId } from '../../test-utils'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -294,9 +295,7 @@ async function getEntityDOStub(mf: Miniflare, name: string = 'default') {
   return ns.get(id)
 }
 
-function generateTestId(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
+// generateTestId imported from test-utils
 
 // ============================================================================
 // TEST SUITES - Entity Persistence Across DO Restarts

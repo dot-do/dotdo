@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { env } from 'cloudflare:test'
 import type { RateLimitCheckParams, RateLimitCheckResult } from '../middleware/RateLimiterDO'
+import { generateTestId } from '../../test-utils'
 
 // ============================================================================
 // TYPE DECLARATIONS
@@ -37,12 +38,7 @@ declare module 'cloudflare:test' {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Generate a unique test identifier to isolate test data
- */
-function generateTestId(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
+// generateTestId imported from test-utils
 
 /**
  * Get a RateLimiterDO stub by name
