@@ -10,6 +10,11 @@ import {
   serializeError,
   isRPCError,
 } from './errors'
+import {
+  validateArgs,
+  getMethodSchema,
+  type MethodSchemaRegistry,
+} from './validation'
 
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
@@ -18,13 +23,16 @@ export interface RPCServerOptions {
   target: object
   /** Optional whitelist of allowed method names or glob patterns */
   whitelist?: string[]
+  /** Optional schema registry for argument validation */
+  schemas?: MethodSchemaRegistry
 }
 
 /**
- * Extended Hono app with updateWhitelist method
+ * Extended Hono app with updateWhitelist and updateSchemas methods
  */
 export interface RPCServerApp extends ReturnType<typeof createHonoApp> {
   updateWhitelist(whitelist: string[]): void
+  updateSchemas(schemas: MethodSchemaRegistry): void
 }
 
 function createHonoApp() {
@@ -184,11 +192,17 @@ function createMethodNotAllowedError(): AuthorizationError {
 export function createServer(options: RPCServerOptions): RPCServerApp {
   const { target } = options
   let currentWhitelist: string[] | undefined = options.whitelist
+  let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
 
   // Add updateWhitelist method to the app
   app.updateWhitelist = (newWhitelist: string[]) => {
     currentWhitelist = newWhitelist
+  }
+
+  // Add updateSchemas method to the app
+  app.updateSchemas = (newSchemas: MethodSchemaRegistry) => {
+    currentSchemas = newSchemas
   }
 
   // RPC endpoint
@@ -274,6 +288,15 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         }
         const error = NotFoundError.forResource('Method', method)
         return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+      }
+
+      // Validate arguments if schema is defined for this method
+      if (currentSchemas) {
+        const methodSchema = getMethodSchema(currentSchemas, method)
+        if (methodSchema) {
+          // validateArgs throws ValidationError if validation fails
+          validateArgs(args, methodSchema)
+        }
       }
 
       // fn is now known to be a function, cast to callable type for apply()
