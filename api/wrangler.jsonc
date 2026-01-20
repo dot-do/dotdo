@@ -6,8 +6,7 @@
   // Durable Object bindings for API tests
   "durable_objects": {
     "bindings": [
-      { "name": "DO", "class_name": "DO" },
-      { "name": "RATE_LIMITER", "class_name": "RateLimiterDO" }
+      { "name": "DO", "class_name": "DO" }
     ]
   },
 
@@ -16,10 +15,6 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["DO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["RateLimiterDO"]
     }
   ]
 }
