@@ -173,6 +173,8 @@ export class ApiKeyManager {
   private store?: ApiKeyStore
   private initialized = false
   private initPromise?: Promise<void>
+  /** Maps API key ID (key_xxx) to storage $id for updates */
+  private keyIdToStoreId: Map<string, string> = new Map()
 
   /** The $type used for storing API keys in ThingsStore */
   static readonly API_KEY_TYPE = 'ApiKey'
@@ -201,6 +203,8 @@ export class ApiKeyManager {
         const apiKey = this.deserializeApiKey(item)
         this.keys.set(apiKey.id, apiKey)
         this.keyHashes.set(apiKey.hashedKey, apiKey.id)
+        // Track the mapping from our key ID to store's $id for updates
+        this.keyIdToStoreId.set(apiKey.id, item.$id)
       }
 
       this.initialized = true
@@ -297,7 +301,9 @@ export class ApiKeyManager {
 
     // Persist to storage if available
     if (this.store) {
-      await this.store.create(this.serializeApiKey(apiKey) as { $type: string })
+      const stored = await this.store.create(this.serializeApiKey(apiKey) as { $type: string })
+      // Track the mapping from our key ID to store's $id for updates
+      this.keyIdToStoreId.set(apiKey.id, stored.$id)
     }
 
     return { key, apiKey }
@@ -307,6 +313,8 @@ export class ApiKeyManager {
    * Validate an API key
    */
   async validate(key: string): Promise<ApiKeyValidationResult> {
+    await this.ensureInitialized()
+
     // Check format
     if (!key || !key.includes('_')) {
       return {
@@ -355,6 +363,14 @@ export class ApiKeyManager {
     apiKey.lastUsedAt = new Date()
     this.keys.set(id, apiKey)
 
+    // Persist lastUsedAt to storage if available
+    if (this.store) {
+      const storeId = this.keyIdToStoreId.get(apiKey.id)
+      if (storeId) {
+        await this.store.update(storeId, { lastUsedAt: apiKey.lastUsedAt.getTime() })
+      }
+    }
+
     return {
       valid: true,
       apiKey
@@ -365,6 +381,7 @@ export class ApiKeyManager {
    * Get an API key by ID
    */
   async get(id: string): Promise<ApiKey | undefined> {
+    await this.ensureInitialized()
     return this.keys.get(id)
   }
 
@@ -372,6 +389,7 @@ export class ApiKeyManager {
    * List all API keys
    */
   async list(options: ApiKeyListOptions = {}): Promise<ApiKey[]> {
+    await this.ensureInitialized()
     const { active } = options
     const keys = Array.from(this.keys.values())
 
@@ -386,12 +404,24 @@ export class ApiKeyManager {
    * Revoke an API key
    */
   async revoke(id: string): Promise<void> {
+    await this.ensureInitialized()
     const apiKey = this.keys.get(id)
 
     if (apiKey) {
       apiKey.active = false
       apiKey.revokedAt = new Date()
       this.keys.set(id, apiKey)
+
+      // Persist to storage if available
+      if (this.store) {
+        const storeId = this.keyIdToStoreId.get(id)
+        if (storeId) {
+          await this.store.update(storeId, {
+            active: false,
+            revokedAt: apiKey.revokedAt.getTime()
+          })
+        }
+      }
     }
   }
 
@@ -423,8 +453,11 @@ export class ApiKeyManager {
 
   /**
    * Check rate limit for an API key
+   * Note: Rate limits are kept in-memory only for performance.
+   * They reset on DO restart, which is acceptable behavior.
    */
   async checkRateLimit(id: string): Promise<boolean> {
+    await this.ensureInitialized()
     const apiKey = this.keys.get(id)
 
     if (!apiKey || !apiKey.rateLimit) {

@@ -170,7 +170,26 @@ export async function verifyTokenSignature(
 }
 
 /**
- * Check token expiration and determine if refresh is needed
+ * Check token expiration and determine if refresh is needed.
+ *
+ * Examines the token's exp (expiration) claim and determines if the token
+ * has expired, how long until expiration, and whether refresh is recommended.
+ *
+ * @param payload - The decoded token payload
+ * @param options - Check options
+ * @param options.refreshThreshold - Seconds before expiration to suggest refresh (default: 300 = 5 minutes)
+ * @returns Object with expiration status and timing
+ *
+ * @example
+ * ```typescript
+ * const expCheck = checkTokenExpiration(payload, { refreshThreshold: 300 })
+ *
+ * if (expCheck.expired) {
+ *   console.log('Token is expired')
+ * } else if (expCheck.shouldRefresh) {
+ *   console.log(`Token expires in ${expCheck.expiresIn} seconds - refresh recommended`)
+ * }
+ * ```
  */
 export function checkTokenExpiration(
   payload: TokenPayload,
@@ -198,7 +217,8 @@ export function checkTokenExpiration(
 }
 
 /**
- * Convert token payload to AuthUser
+ * Convert token payload to AuthUser context object.
+ * @internal
  */
 function payloadToAuthUser(payload: TokenPayload): AuthUser {
   return {
@@ -210,7 +230,8 @@ function payloadToAuthUser(payload: TokenPayload): AuthUser {
 }
 
 /**
- * Check if a token has been revoked
+ * Check if a token has been revoked using the provided store or checker.
+ * @internal
  */
 async function isTokenRevoked(
   jti: string | undefined,
@@ -231,7 +252,39 @@ async function isTokenRevoked(
 }
 
 /**
- * Hono middleware for JWT token validation
+ * Hono middleware for JWT token validation and authentication.
+ *
+ * This middleware validates JWT tokens from either the Authorization header
+ * or cookies, verifies signatures and claims, checks expiration and revocation,
+ * and sets the authenticated user in the request context.
+ *
+ * **Security:** Fails closed - invalid/missing tokens result in 401 responses.
+ *
+ * @param options - Validation configuration options
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * import { Hono } from 'hono'
+ * import { validateToken } from '@dotdo/auth'
+ *
+ * const app = new Hono()
+ *
+ * // Protect all routes with token validation
+ * app.use('/*', validateToken({
+ *   secret: process.env.JWT_SECRET,
+ *   issuer: 'https://auth.example.com',
+ *   audience: 'my-api',
+ *   skipPaths: ['/health', '/status'],
+ *   refreshThreshold: 300  // 5 minutes before expiration
+ * }))
+ *
+ * app.get('/api/me', (c) => {
+ *   const user = c.get('user')
+ *   const token = c.get('token')
+ *   return c.json({ userId: user.id, email: user.email })
+ * })
+ * ```
  */
 export function validateToken(options: TokenValidationOptions): MiddlewareHandler {
   const {

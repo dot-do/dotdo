@@ -932,7 +932,7 @@ export interface HandleHTTPErrorOptions {
  * try {
  *   const response = await fetch(url)
  *   if (!response.ok) {
- *     throw await handleHTTPError(response.json(), {
+ *     await handleHTTPError(response.json(), {
  *       status: response.status,
  *       correlationId,
  *       fallbackMessage: `RPC error: ${response.status}`
@@ -951,6 +951,37 @@ export async function handleHTTPError(
 
   try {
     const errorBody = await jsonPromise as SerializedError & { correlationId?: string }
+    // Check if it's a structured error (has both code and message)
+    if (errorBody && typeof errorBody === 'object' && 'code' in errorBody && 'message' in errorBody) {
+      throw deserializeError(errorBody)
+    }
+  } catch (e) {
+    // If it's already an RPCError from deserialization, re-throw it
+    if (isRPCError(e)) {
+      throw e
+    }
+    // If JSON parsing failed or structure doesn't match, continue to fallback
+  }
+
+  // Fallback to generic error with status code and correlation ID
+  const message = correlationId ? `${fallbackMessage} [${correlationId}]` : fallbackMessage
+  throw new Error(message)
+}
+
+/**
+ * Internal helper to handle HTTP error responses in a Response object context.
+ * This version works directly with Response objects instead of promises.
+ *
+ * @internal
+ */
+export async function handleResponseError(
+  response: Response,
+  options: HandleHTTPErrorOptions
+): Promise<never> {
+  const { status, correlationId, fallbackMessage = `HTTP error: ${status}` } = options
+
+  try {
+    const errorBody = await response.json() as SerializedError & { correlationId?: string }
     // Check if it's a structured error (has both code and message)
     if (errorBody && typeof errorBody === 'object' && 'code' in errorBody && 'message' in errorBody) {
       throw deserializeError(errorBody)
