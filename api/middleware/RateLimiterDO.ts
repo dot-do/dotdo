@@ -53,18 +53,20 @@ export interface RateLimitCheckResult {
 
 /**
  * Sliding window entry stored in SQLite
+ * Note: SQL columns use snake_case (timestamp_ms), TypeScript uses camelCase
  */
 interface SlidingWindowEntry {
   key: string
-  timestamp_ms: number
+  timestampMs: number
 }
 
 /**
  * Fixed window entry stored in SQLite
+ * Note: SQL columns use snake_case (window_start_ms), TypeScript uses camelCase
  */
 interface FixedWindowEntry {
   key: string
-  window_start_ms: number
+  windowStartMs: number
   count: number
 }
 
@@ -284,10 +286,17 @@ export class RateLimiterDO implements DurableObject {
     }
 
     // Get current window state
-    const windowResult = this.sql.exec(
+    const rawResult = this.sql.exec(
       `SELECT window_start_ms, count FROM fixed_window WHERE key = ?`,
       key
-    ).toArray() as unknown as Array<FixedWindowEntry>
+    ).toArray() as Array<{ window_start_ms: number; count: number }>
+
+    // Transform SQL column names (snake_case) to TypeScript property names (camelCase)
+    const windowResult: FixedWindowEntry[] = rawResult.map((row) => ({
+      key,
+      windowStartMs: row.window_start_ms,
+      count: row.count,
+    }))
 
     let windowStart = now
     let currentCount = 0
@@ -295,7 +304,7 @@ export class RateLimiterDO implements DurableObject {
     if (windowResult.length > 0) {
       const entry = windowResult[0]!
       // Check if window has expired
-      if (now >= entry.window_start_ms + windowMs) {
+      if (now >= entry.windowStartMs + windowMs) {
         // Start new window
         this.sql.exec(
           `UPDATE fixed_window SET window_start_ms = ?, count = 0 WHERE key = ?`,
@@ -305,7 +314,7 @@ export class RateLimiterDO implements DurableObject {
         windowStart = now
         currentCount = 0
       } else {
-        windowStart = entry.window_start_ms
+        windowStart = entry.windowStartMs
         currentCount = entry.count
       }
     } else {

@@ -31,7 +31,7 @@ import {
   type SqlStorage,
   defaultAuditConfig,
   maskSensitiveFields
-} from '../db'
+} from '@dotdo/db'
 
 /**
  * Options for EntityManager

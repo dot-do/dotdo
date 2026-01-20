@@ -15,8 +15,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dotdo/auth": "workspace:*",
     "@dotdo/db": "workspace:*",
+    "@dotdo/integrations": "workspace:*",
     "@dotdo/rpc": "workspace:*",
+    "@dotdo/utils": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {

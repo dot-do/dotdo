@@ -13,8 +13,8 @@
  * @module do/fire-and-forget-errors
  */
 
-import type { SqlStorage } from '../db/sqlite'
-import { createLogger } from '../utils/logger'
+import type { SqlStorage } from '@dotdo/db'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[FireAndForget]')
 

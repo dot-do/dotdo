@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
-import { authMiddleware } from '../auth/middleware'
-import { getErrorMessage } from '../rpc/errors'
+import { authMiddleware } from '@dotdo/auth'
+import { getErrorMessage } from '@dotdo/rpc'
 
 export interface CORSOptions {
   /**

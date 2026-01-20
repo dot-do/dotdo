@@ -55,7 +55,7 @@ import {
   DO_SIGNATURE_HEADER,
   DO_TIMESTAMP_HEADER,
   DO_NONCE_HEADER
-} from '../auth'
+} from '@dotdo/auth'
 import type { Constructor } from './storage'
 
 // =============================================================================

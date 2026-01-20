@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@dotdo/auth": "workspace:*",
+    "@dotdo/db": "workspace:*",
     "@dotdo/do": "workspace:*",
     "@dotdo/rpc": "workspace:*",
     "hono": "^4.7.0"

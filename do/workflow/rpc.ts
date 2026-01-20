@@ -15,8 +15,8 @@
  * @module do/workflow/rpc
  */
 
-import { createDOStub } from '../../rpc/client'
-import { NotFoundError } from '../../rpc/errors'
+import { createDOStub } from '@dotdo/rpc'
+import { NotFoundError } from '@dotdo/rpc'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls

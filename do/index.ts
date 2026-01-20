@@ -121,7 +121,7 @@ export type {
   AuditContext,
   AuditLogLevel,
   AuditAction
-} from '../db'
+} from '@dotdo/db'
 
 // WebSocket management - standalone reusable module (do-rljr.1)
 export {
@@ -280,7 +280,7 @@ export {
   type RegisteredIntegration,
   type ListIntegrationsOptions,
   type IntegrationSummary,
-} from '../integrations'
+} from '@dotdo/integrations'
 
 // Example integrations
 export {
@@ -291,7 +291,7 @@ export {
   type StripePaymentIntent,
   type StripeSubscription,
   type StripeMethods,
-} from '../integrations/stripe'
+} from '@dotdo/integrations/stripe'
 
 export {
   SendGridIntegration,
@@ -304,7 +304,7 @@ export {
   type SendGridContact,
   type EmailStats,
   type SendGridMethods,
-} from '../integrations/sendgrid'
+} from '@dotdo/integrations/sendgrid'
 
 // Extended primitives with AI assistance (fsx, gitx, bashx)
 export {

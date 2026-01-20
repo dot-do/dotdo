@@ -54,7 +54,7 @@
  * ```
  */
 
-import type { EventsStore, Event } from '../db'
+import type { EventsStore, Event, EventId, ThingId, CorrelationId } from '@dotdo/db'
 import type { EventHandler } from './on'
 import type { ScheduleRegistration, ScheduleHandler } from './schedule'
 import type { FireAndForgetErrorStore } from './fire-and-forget-errors'
@@ -202,13 +202,15 @@ export type EventPayloadType<
 
 /**
  * Full event object passed to handlers, including metadata.
+ * Uses branded types for type safety - see do-eoxd
  */
 export interface TypedEvent<T = unknown> {
-  $id: string
+  $id: EventId
   $timestamp: number
   type: string
   payload: T
-  source: string
+  source: ThingId | string
+  correlationId?: CorrelationId | string
 }
 
 /**
@@ -664,4 +666,4 @@ export interface CreateTypedContextOptions {
 // Re-export related types that users commonly need
 export type { EventHandler } from './on'
 export type { ScheduleRegistration, ScheduleHandler, ScheduleInterval } from './schedule'
-export type { Event } from '../db'
+export type { Event } from '@dotdo/db'

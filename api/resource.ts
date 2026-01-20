@@ -1,7 +1,7 @@
 // Resource definition DSL - see do-7rf.7.4
 import { z } from 'zod'
 import type { Context } from 'hono'
-import type { JsonValue, StorableData } from '../db'
+import type { JsonValue, StorableData } from '@dotdo/db'
 
 // Field Types
 export type FieldType =

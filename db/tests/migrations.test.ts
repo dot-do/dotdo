@@ -32,7 +32,7 @@ interface RollbackResult {
 interface AppliedMigration {
   version: number
   name: string
-  applied_at: number
+  appliedAt: number
 }
 
 // ============================================================================
@@ -189,7 +189,13 @@ export class MigrationTestDO {
         const result = this.sql.exec(
           'SELECT version, name, applied_at FROM _migrations ORDER BY version ASC'
         )
-        return Response.json({ migrations: result.toArray() })
+        // Transform SQL column names (snake_case) to TypeScript property names (camelCase)
+        const migrations = result.toArray().map(row => ({
+          version: row.version,
+          name: row.name,
+          appliedAt: row.applied_at
+        }))
+        return Response.json({ migrations })
       }
 
       // GET CURRENT VERSION

@@ -27,9 +27,9 @@
  */
 
 import { Hono } from 'hono'
-import { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
-import { logRPCError } from '../../rpc/logging'
-import { CORRELATION_ID_HEADER, generateCorrelationId } from '../../rpc/client'
+import { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'
+import { logRPCError } from '@dotdo/rpc'
+import { CORRELATION_ID_HEADER, generateCorrelationId } from '@dotdo/rpc'
 import {
   createDOAccessor,
   createDORPCProxy,
@@ -38,7 +38,7 @@ import {
   type CrossDORPCConfig
 } from '../workflow/rpc'
 import type { Constructor } from './storage'
-import { createLogger } from '../../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[WithRPC]')
 
@@ -336,4 +336,4 @@ export {
   type CrossDORPCConfig
 }
 
-export { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+export { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'

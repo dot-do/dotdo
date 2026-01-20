@@ -10,20 +10,114 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type EventsStore, type Event } from '../../db'
+import { createEventsStore, type EventsStore, type Event } from '@dotdo/db'
 import { createEveryProxy, type ScheduleRegistration } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type OnProxy, type EventHandler, type RetryOptions } from './events'
 import { createDORPCProxy, type DOStubProxy } from './rpc'
-import { RPCError, TimeoutError, InternalError, ValidationError } from '../../rpc/errors'
+import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
   type FireAndForgetErrorStore,
   createInMemoryErrorStore,
   extractErrorInfo,
 } from '../fire-and-forget-errors'
-import { IntegrationRegistry, type Integration, type IntegrationConfig } from '../../integrations'
-import { createLogger } from '../../utils/logger'
+import { IntegrationRegistry, type Integration, type IntegrationConfig } from '@dotdo/integrations'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[WorkflowContext]')
+
+// =============================================================================
+// PRIMITIVE CAPABILITY INTERFACES (do-5ljl)
+// =============================================================================
+
+/**
+ * FsCapability interface for $.fs operations.
+ * Matches the FsModule API from gitx.do.
+ */
+export interface FsCapability {
+  readonly name: 'fs'
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  readFile(path: string, options?: { encoding?: string }): Promise<string | Uint8Array>
+  writeFile(path: string, data: string | Uint8Array): Promise<void>
+  exists(path: string): Promise<boolean>
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  readdir(path: string): Promise<string[]>
+  stat(path: string): Promise<{
+    isFile(): boolean
+    isDirectory(): boolean
+    isSymbolicLink(): boolean
+    size: number
+    mode: number
+    mtime: Date
+    atime: Date
+    ctime: Date
+    birthtime: Date
+  }>
+  unlink(path: string): Promise<void>
+  rmdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>
+}
+
+/**
+ * GitCapability interface for $.git operations.
+ * Matches the GitModule API from gitx.do.
+ */
+export interface GitCapability {
+  readonly name: 'git'
+  readonly binding: {
+    repo: string
+    branch: string
+    path?: string
+    commit?: string
+    lastSync?: Date
+  }
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  sync(): Promise<{ success: boolean; objectsFetched: number; filesWritten: number; commit?: string; error?: string }>
+  push(): Promise<{ success: boolean; objectsPushed: number; commit?: string; error?: string }>
+  status(): Promise<{ branch: string; head?: string; staged: string[]; unstaged: string[]; clean: boolean }>
+  add(files: string | string[]): Promise<void>
+  commit(message: string): Promise<string | { hash: string }>
+  diff(ref?: string): Promise<string>
+  log(options?: { limit?: number }): Promise<Array<{ hash: string; message: string }>>
+  pull(remote?: string, branch?: string): Promise<void>
+}
+
+/**
+ * BashCapability interface for $.bash operations.
+ * Matches the BashModule API from bashx.do.
+ */
+export interface BashCapability {
+  readonly name: 'bash'
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  exec(command: string, args?: string[], options?: {
+    timeout?: number
+    cwd?: string
+    env?: Record<string, string>
+    confirm?: boolean
+    dryRun?: boolean
+  }): Promise<{
+    command: string
+    stdout: string
+    stderr: string
+    exitCode: number
+    blocked?: boolean
+    blockReason?: string
+  }>
+  run(script: string, options?: { timeout?: number; cwd?: string }): Promise<{
+    command: string
+    stdout: string
+    stderr: string
+    exitCode: number
+  }>
+  parse(input: string): unknown
+  analyze(input: string): {
+    classification: { type: string; impact: string; reversible: boolean; reason?: string }
+    intent: { commands: string[]; reads: string[]; writes: string[]; deletes: string[]; network: boolean; elevated: boolean }
+  }
+  isDangerous(input: string): { dangerous: boolean; reason?: string }
+}
 
 /**
  * WorkflowContext interface defining the $ API.
@@ -47,6 +141,14 @@ export interface WorkflowContext {
 
   // Integration registry for third-party services
   integrations: IntegrationRegistry
+
+  // Primitives (optional, wired via CreateContextOptions) (do-5ljl)
+  /** File system operations (from fsx/gitx) */
+  fs?: FsCapability
+  /** Git operations (from gitx) */
+  git?: GitCapability
+  /** Bash/shell execution (from bashx) */
+  bash?: BashCapability
 
   // Internal state (prefixed with _ to indicate private)
   _events: EventsStore
@@ -105,6 +207,12 @@ export interface CreateContextOptions {
   integrationRegistry?: IntegrationRegistry
   /** Initial integration configurations to auto-initialize */
   integrationConfigs?: Record<string, IntegrationConfig>
+  /** File system capability instance (from fsx/gitx) for $.fs (do-5ljl) */
+  fs?: FsCapability
+  /** Git capability instance (from gitx) for $.git (do-5ljl) */
+  git?: GitCapability
+  /** Bash capability instance (from bashx) for $.bash (do-5ljl) */
+  bash?: BashCapability
 }
 
 /**

@@ -1,7 +1,7 @@
 // Secure sandbox environment for code execution with $ context injection
 import { evaluate } from '../primitives/packages/ai-evaluate/src/node.js'
-import type { WorkflowContext } from '../do/context.js'
-import { getErrorMessage } from '../rpc/errors.js'
+import type { WorkflowContext } from '@dotdo/do'
+import { getErrorMessage } from '@dotdo/rpc'
 
 export interface SandboxPermissions {
   allowSend?: boolean

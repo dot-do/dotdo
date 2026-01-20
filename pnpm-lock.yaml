@@ -70,6 +70,9 @@ importers:
       '@dotdo/auth':
         specifier: workspace:*
         version: link:../auth
+      '@dotdo/db':
+        specifier: workspace:*
+        version: link:../db
       '@dotdo/do':
         specifier: workspace:*
         version: link:../do
@@ -167,12 +170,21 @@ importers:
 
   do:
     dependencies:
+      '@dotdo/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@dotdo/db':
         specifier: workspace:*
         version: link:../db
+      '@dotdo/integrations':
+        specifier: workspace:*
+        version: link:../integrations
       '@dotdo/rpc':
         specifier: workspace:*
         version: link:../rpc
+      '@dotdo/utils':
+        specifier: workspace:*
+        version: link:../utils
       hono:
         specifier: ^4.7.0
         version: 4.11.4
@@ -215,8 +227,13 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  integrations: {}
+
   mcp:
     dependencies:
+      '@dotdo/db':
+        specifier: workspace:*
+        version: link:../db
       '@dotdo/do':
         specifier: workspace:*
         version: link:../do
@@ -227,6 +244,9 @@ importers:
         specifier: ^4.7.0
         version: 4.11.4
     devDependencies:
+      '@dotdo/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -239,6 +259,18 @@ importers:
       hono:
         specifier: ^4.7.0
         version: 4.11.4
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  test-utils:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  utils:
     devDependencies:
       typescript:
         specifier: ^5.7.0

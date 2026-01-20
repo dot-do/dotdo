@@ -11,7 +11,7 @@
  */
 
 import type { ScheduleRegistration, ScheduleInterval } from './schedule'
-import { createLogger } from '../../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[Alarm]')
 

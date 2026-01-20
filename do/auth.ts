@@ -13,11 +13,11 @@
 
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import type { AuthUser } from '../auth/middleware'
-import { extractToken, verifyTokenSignature } from '../auth/token'
-import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
-import { validateSecret, isSecretConfigured } from '../auth/validation'
-import { createLogger } from '../utils/logger'
+import type { AuthUser } from '@dotdo/auth'
+import { extractToken, verifyTokenSignature } from '@dotdo/auth'
+import { verifyTokenWithJwks, type JwksClient } from '@dotdo/auth'
+import { validateSecret, isSecretConfigured } from '@dotdo/auth'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[DOAuth]')
 

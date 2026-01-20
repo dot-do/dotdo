@@ -1,8 +1,8 @@
 // Search tool - MCP tool that searches Things in a DO
 // Implements do-7rf.2.2
 
-import type { ThingsStore, Thing } from '../db/things'
-import { query } from '../db/query'
+import type { ThingsStore, Thing } from '@dotdo/db'
+import { query } from '@dotdo/db'
 import type { MCPTool } from './server'
 
 export interface SearchParams {

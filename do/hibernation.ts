@@ -34,7 +34,7 @@
  * @see https://developers.cloudflare.com/durable-objects/api/websockets/
  */
 
-import { createLogger } from '../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[Hibernation]')
 

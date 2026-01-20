@@ -24,6 +24,7 @@ export default defineConfig({
       'tests/storage-persistence.test.ts',
       'tests/miniflare-integration.test.ts',
       'tests/entities-audit.test.ts',  // EntityManager audit logging tests (do-grp5.8)
+      'tests/dlq-persistence.test.ts',  // DLQ persistence tests (do-f9xs)
     ],
 
     // Standard exclusions

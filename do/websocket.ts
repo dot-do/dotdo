@@ -11,7 +11,7 @@
  * - Reconnection handling with connection IDs
  */
 
-import { createLogger } from '../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[WebSocketManager]')
 

@@ -31,7 +31,7 @@ import type {
   AuditContext,
   QueryBuilder,
   StorableData
-} from '../../db'
+} from '@dotdo/db'
 
 // =============================================================================
 // Types

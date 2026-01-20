@@ -1,7 +1,7 @@
 // MCP Server - Model Context Protocol implementation
 import { Hono } from 'hono'
 import { ToolRegistry } from './discovery'
-import { getErrorMessage } from '../rpc/errors'
+import { getErrorMessage } from '@dotdo/rpc'
 
 export interface MCPServerOptions {
   name?: string

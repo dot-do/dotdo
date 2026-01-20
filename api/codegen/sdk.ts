@@ -1,6 +1,6 @@
 // SDK code generation from resource definitions
 import type { ResourceDefinition } from '../resource'
-import type { StorableData } from '../../db'
+import type { StorableData } from '@dotdo/db'
 
 export interface SDKGeneratorOptions {
   output?: 'string' | 'file'

@@ -19,11 +19,13 @@ export interface Migration {
 
 /**
  * State of a migration that has been applied
+ * Note: SQL column is 'applied_at', TypeScript uses camelCase 'appliedAt'
  */
 export interface MigrationState {
   version: number
   name: string
-  applied_at: number
+  /** Timestamp when the migration was applied (Unix epoch ms) */
+  appliedAt: number
 }
 
 /**
@@ -114,7 +116,12 @@ export class MigrationRunner {
       .bind()
       .all()
 
-    return result.results as MigrationState[]
+    // Transform SQL column names (snake_case) to TypeScript property names (camelCase)
+    return result.results.map((row) => ({
+      version: row.version as number,
+      name: row.name as string,
+      appliedAt: row.applied_at as number,
+    }))
   }
 
   /**
