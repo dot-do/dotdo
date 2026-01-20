@@ -5,6 +5,9 @@
  * Verifies that AI template literals, generateText, and other AI functions
  * can be safely executed in sandboxed environments.
  *
+ * Note: ai-evaluate exports module functions as top-level variables (destructured),
+ * so tests reference them directly by name (e.g., `greet()` not `module.greet()`).
+ *
  * @module ai/tests/ai-evaluate-integration.test
  * @issue do-zr1u.10
  */
@@ -27,7 +30,8 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const greeting = await module.greet('World')
+          // Exported functions are available as top-level variables
+          const greeting = await greet('World')
           return greeting
         `,
       })
@@ -63,7 +67,7 @@ describe('AI-Evaluate Integration', () => {
         `,
         script: `
           const chunks = []
-          for await (const chunk of module.streamResponse('test')) {
+          for await (const chunk of streamResponse('test')) {
             chunks.push(chunk)
           }
           return chunks.join('')
@@ -88,7 +92,7 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const result = await module.createAIPromise('hello')
+          const result = await createAIPromise('hello')
           return {
             text: result.text,
             usage: result.usage
@@ -234,21 +238,21 @@ describe('AI-Evaluate Integration', () => {
         tests: `
           describe('tokenize', () => {
             it('should split text into tokens', () => {
-              expect(module.tokenize('hello world')).toEqual(['hello', 'world'])
+              expect(tokenize('hello world')).toEqual(['hello', 'world'])
             })
 
             it('should handle multiple spaces', () => {
-              expect(module.tokenize('hello   world')).toEqual(['hello', 'world'])
+              expect(tokenize('hello   world')).toEqual(['hello', 'world'])
             })
           })
 
           describe('countTokens', () => {
             it('should count tokens correctly', () => {
-              expect(module.countTokens('hello world')).toBe(2)
+              expect(countTokens('hello world')).toBe(2)
             })
 
             it('should return 0 for empty string', () => {
-              expect(module.countTokens('')).toBe(0)
+              expect(countTokens('')).toBe(0)
             })
           })
         `,
@@ -271,7 +275,7 @@ describe('AI-Evaluate Integration', () => {
         tests: `
           describe('generateResponse', () => {
             it('should return expected response', () => {
-              expect(module.generateResponse()).toBe('correct response')
+              expect(generateResponse()).toBe('correct response')
             })
           })
         `,
@@ -293,7 +297,7 @@ describe('AI-Evaluate Integration', () => {
         tests: `
           describe('fetchAIResponse', () => {
             it('should handle async AI calls', async () => {
-              const response = await module.fetchAIResponse('hello')
+              const response = await fetchAIResponse('hello')
               expect(response).toContain('Response to: hello')
             })
           })
@@ -394,7 +398,7 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const prompt = module.buildPrompt(['Hello ', ', how are you?'], 'Alice')
+          const prompt = buildPrompt(['Hello ', ', how are you?'], 'Alice')
           return prompt
         `,
       })
@@ -419,7 +423,7 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const result = await module.generateStructured(
+          const result = await generateStructured(
             { name: 'string', email: 'string', age: 'number' },
             'Create a test user'
           )
@@ -444,7 +448,7 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const embedding = await module.embedText('Hello world')
+          const embedding = await embedText('Hello world')
           return {
             isArray: Array.isArray(embedding),
             length: embedding.length
@@ -477,7 +481,7 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const conv = module.createConversation()
+          const conv = createConversation()
           conv.addMessage('user', 'Hello')
           conv.addMessage('assistant', 'Hi there!')
           conv.addMessage('user', 'How are you?')
@@ -515,15 +519,15 @@ describe('AI-Evaluate Integration', () => {
             }
           }
 
-          export async function runWithTools(prompt, tools) {
+          export async function runWithTools(prompt, toolsArg) {
             // Simulate tool calling
             const toolCall = { name: 'calculator', args: { a: 5, b: 3, op: 'add' } }
-            const toolResult = tools[toolCall.name].execute(toolCall.args)
+            const toolResult = toolsArg[toolCall.name].execute(toolCall.args)
             return { toolCall, result: toolResult }
           }
         `,
         script: `
-          const result = await module.runWithTools('What is 5 + 3?', module.tools)
+          const result = await runWithTools('What is 5 + 3?', tools)
           return result
         `,
       })
@@ -539,7 +543,8 @@ describe('AI-Evaluate Integration', () => {
     it('should handle rate limit errors', async () => {
       const result = await evaluate({
         module: `
-          export async function callAI(prompt, { retries = 3, delay = 100 } = {}) {
+          export async function callAI(prompt, options = {}) {
+            const { retries = 3, delay = 100 } = options
             let lastError
             for (let i = 0; i < retries; i++) {
               try {
@@ -554,7 +559,7 @@ describe('AI-Evaluate Integration', () => {
           }
         `,
         script: `
-          const result = await module.callAI('test', { retries: 3, delay: 10 })
+          const result = await callAI('test', { retries: 3, delay: 10 })
           return result
         `,
       })
@@ -589,7 +594,7 @@ describe('AI-Evaluate Integration', () => {
         `,
         script: `
           try {
-            await module.callWithTimeout(
+            await callWithTimeout(
               async () => {
                 await new Promise(r => setTimeout(r, 1000))
                 return 'done'
