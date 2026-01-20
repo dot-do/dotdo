@@ -50,6 +50,14 @@ const defaultExcludes = [
 ]
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Map primitives workspace packages to source for integration testing
+      '@org.ai/core': new URL('./primitives/packages/ai-core/src/index.ts', import.meta.url).pathname,
+      'ai-providers': new URL('./primitives/packages/ai-providers/src/index.ts', import.meta.url).pathname,
+      'language-models': new URL('./primitives/packages/language-models/src/index.ts', import.meta.url).pathname,
+    },
+  },
   test: {
     globals: true,
 

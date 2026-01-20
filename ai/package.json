@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "ai-evaluate": "file:../primitives/packages/ai-evaluate",
+    "ai-tests": "file:../primitives/packages/ai-tests",
     "typescript": "^5.7.0"
   }
 }
