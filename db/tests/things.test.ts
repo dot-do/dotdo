@@ -201,4 +201,183 @@ describe('Things Store', () => {
       expect(results).toHaveLength(100)
     })
   })
+
+  describe('bulkCreate', () => {
+    it('should create multiple things at once', async () => {
+      const things = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+        { $type: 'Order', total: 100 }
+      ])
+
+      expect(things).toHaveLength(3)
+      expect(things[0].$type).toBe('Customer')
+      expect(things[0].name).toBe('Alice')
+      expect(things[1].$type).toBe('Customer')
+      expect(things[1].name).toBe('Bob')
+      expect(things[2].$type).toBe('Order')
+      expect(things[2].total).toBe(100)
+
+      // All should have unique IDs
+      const ids = things.map(t => t.$id)
+      expect(new Set(ids).size).toBe(3)
+    })
+
+    it('should return empty array for empty input', async () => {
+      const things = await store.bulkCreate([])
+      expect(things).toEqual([])
+    })
+
+    it('should fail atomically if any item is invalid', async () => {
+      // Count before
+      const beforeCount = (await store.list()).length
+
+      await expect(store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { name: 'No Type' } as any, // Missing $type
+        { $type: 'Customer', name: 'Bob' }
+      ])).rejects.toThrow('$type is required')
+
+      // Count after - should be unchanged (atomic rollback)
+      const afterCount = (await store.list()).length
+      expect(afterCount).toBe(beforeCount)
+    })
+
+    it('should preserve all custom properties', async () => {
+      const things = await store.bulkCreate([
+        { $type: 'Order', total: 100, items: ['a', 'b'], metadata: { source: 'web' } },
+        { $type: 'Order', total: 200, items: ['c'], metadata: { source: 'api' } }
+      ])
+
+      expect(things[0].items).toEqual(['a', 'b'])
+      expect(things[0].metadata).toEqual({ source: 'web' })
+      expect(things[1].items).toEqual(['c'])
+      expect(things[1].metadata).toEqual({ source: 'api' })
+    })
+  })
+
+  describe('bulkUpdate', () => {
+    it('should update multiple things at once', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice', status: 'active' },
+        { $type: 'Customer', name: 'Bob', status: 'active' },
+        { $type: 'Customer', name: 'Charlie', status: 'active' }
+      ])
+
+      await new Promise(resolve => setTimeout(resolve, 1))
+
+      const updated = await store.bulkUpdate([
+        { id: created[0].$id, data: { status: 'inactive' } },
+        { id: created[1].$id, data: { name: 'Robert', status: 'pending' } }
+      ])
+
+      expect(updated).toHaveLength(2)
+      expect(updated[0].status).toBe('inactive')
+      expect(updated[0].name).toBe('Alice') // Unchanged
+      expect(updated[1].status).toBe('pending')
+      expect(updated[1].name).toBe('Robert')
+
+      // Charlie should be unchanged
+      const charlie = await store.get(created[2].$id)
+      expect(charlie?.status).toBe('active')
+    })
+
+    it('should return empty array for empty input', async () => {
+      const updated = await store.bulkUpdate([])
+      expect(updated).toEqual([])
+    })
+
+    it('should fail atomically if any item does not exist', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice', status: 'active' },
+        { $type: 'Customer', name: 'Bob', status: 'active' }
+      ])
+
+      await expect(store.bulkUpdate([
+        { id: created[0].$id, data: { status: 'inactive' } },
+        { id: 'non-existent', data: { status: 'inactive' } }
+      ])).rejects.toThrow('Thing not found')
+
+      // Alice should be unchanged (atomic rollback)
+      const alice = await store.get(created[0].$id)
+      expect(alice?.status).toBe('active')
+    })
+
+    it('should not allow changing $id, $type, or $createdAt', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' }
+      ])
+
+      const updated = await store.bulkUpdate([
+        { id: created[0].$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as any }
+      ])
+
+      expect(updated[0].$id).toBe(created[0].$id)
+      expect(updated[0].$type).toBe('Customer')
+      expect(updated[0].$createdAt).toBe(created[0].$createdAt)
+    })
+
+    it('should update $updatedAt for all modified things', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' }
+      ])
+
+      await new Promise(resolve => setTimeout(resolve, 1))
+
+      const updated = await store.bulkUpdate([
+        { id: created[0].$id, data: { name: 'Alice Updated' } },
+        { id: created[1].$id, data: { name: 'Bob Updated' } }
+      ])
+
+      expect(updated[0].$updatedAt).toBeGreaterThan(created[0].$updatedAt)
+      expect(updated[1].$updatedAt).toBeGreaterThan(created[1].$updatedAt)
+    })
+  })
+
+  describe('bulkDelete', () => {
+    it('should delete multiple things at once', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+        { $type: 'Customer', name: 'Charlie' }
+      ])
+
+      await store.bulkDelete([created[0].$id, created[1].$id])
+
+      expect(await store.get(created[0].$id)).toBeNull()
+      expect(await store.get(created[1].$id)).toBeNull()
+      expect(await store.get(created[2].$id)).not.toBeNull() // Charlie still exists
+    })
+
+    it('should return empty for empty input', async () => {
+      await store.bulkDelete([])
+      // No error should be thrown
+    })
+
+    it('should fail atomically if any item does not exist', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' }
+      ])
+
+      await expect(store.bulkDelete([
+        created[0].$id,
+        'non-existent'
+      ])).rejects.toThrow('Thing not found')
+
+      // Alice should still exist (atomic rollback)
+      expect(await store.get(created[0].$id)).not.toBeNull()
+    })
+
+    it('should handle deleting a single item', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' }
+      ])
+
+      await store.bulkDelete([created[0].$id])
+
+      expect(await store.get(created[0].$id)).toBeNull()
+    })
+  })
 })
