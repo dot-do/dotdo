@@ -84,6 +84,36 @@ export type FieldDef =
   | ObjectFieldDef
 
 // ============================================================================
+// Index Definitions (do-rljr.6)
+// ============================================================================
+
+/**
+ * Index definition for creating database indexes on entity fields
+ */
+export interface IndexDefinition {
+  /** Name of the index (will be prefixed with idx_ and table name) */
+  name: string
+  /** Fields to include in the index (supports composite indexes) */
+  fields: string[]
+  /** Whether the index enforces uniqueness */
+  unique?: boolean
+}
+
+/**
+ * Common index patterns for quick setup
+ */
+export const CommonIndexes = {
+  /** Index on $type field for filtering by entity type */
+  TYPE: { name: 'type', fields: ['$type'], unique: false } as IndexDefinition,
+  /** Index on $createdAt for temporal queries (descending) */
+  CREATED_AT: { name: 'created_at', fields: ['$createdAt'], unique: false } as IndexDefinition,
+  /** Index on $updatedAt for finding recently modified entities */
+  UPDATED_AT: { name: 'updated_at', fields: ['$updatedAt'], unique: false } as IndexDefinition,
+  /** Composite index on $type and $createdAt for type-filtered temporal queries */
+  TYPE_CREATED: { name: 'type_created', fields: ['$type', '$createdAt'], unique: false } as IndexDefinition,
+} as const
+
+// ============================================================================
 // Schema Definition
 // ============================================================================
 
@@ -94,6 +124,8 @@ export interface SchemaDef<T extends string = string> {
   $type: T
   fields: Record<string, FieldDef>
   strict?: boolean  // If true, reject unknown fields
+  /** Index definitions for this entity type (do-rljr.6) */
+  indexes?: IndexDefinition[]
 }
 
 /**
@@ -120,19 +152,27 @@ export interface Schema<T extends StorableData = StorableData> {
   readonly $type: string
   readonly fields: Record<string, FieldDef>
   readonly strict: boolean
+  /** Index definitions for this entity type (do-rljr.6) */
+  readonly indexes: IndexDefinition[]
 
   /**
    * Validate data against the schema
+   * Accepts Record<string, unknown> since input may contain non-JSON values before validation
+   * After validation passes, data is guaranteed to be StorableData (JSON-safe)
    */
   validate(data: Record<string, unknown>): ValidationResult
 
   /**
    * Validate and throw if invalid
+   * Accepts Record<string, unknown> since input may contain non-JSON values before validation
+   * Returns T (extends StorableData) guaranteeing JSON-safe values
    */
   parse(data: Record<string, unknown>): T
 
   /**
    * Validate without throwing, return typed result
+   * Accepts Record<string, unknown> since input may contain non-JSON values before validation
+   * On success, returns T (extends StorableData) guaranteeing JSON-safe values
    */
   safeParse(data: Record<string, unknown>): { success: true; data: T } | { success: false; errors: ValidationError[] }
 }
@@ -401,12 +441,13 @@ function validateField(
  * ```
  */
 export function defineSchema<S extends SchemaDef>(def: S): Schema<InferSchema<S>> {
-  const { $type, fields, strict = false } = def
+  const { $type, fields, strict = false, indexes = [] } = def
 
   return {
     $type,
     fields,
     strict,
+    indexes,
 
     validate(data: Record<string, unknown>): ValidationResult {
       const errors: ValidationError[] = []
@@ -657,5 +698,176 @@ export function createValidatedStore(
     async bulkDelete(ids) {
       return store.bulkDelete(ids)
     }
+  }
+}
+
+// ============================================================================
+// Index SQL Generation (do-rljr.6)
+// ============================================================================
+
+/**
+ * Maps schema field names to SQLite column names
+ * System fields ($id, $type, etc.) map to column names
+ * Custom fields are accessed via json_extract
+ */
+function mapFieldToSqlColumn(field: string): string {
+  switch (field) {
+    case '$id':
+      return 'id'
+    case '$type':
+      return 'type'
+    case '$createdAt':
+      return 'created_at'
+    case '$updatedAt':
+      return 'updated_at'
+    default:
+      // Custom fields are stored in JSON 'data' column
+      return `json_extract(data, '$.${field}')`
+  }
+}
+
+/**
+ * Generate a CREATE INDEX SQL statement for a given index definition
+ *
+ * @param tableName - The name of the table to create the index on
+ * @param index - The index definition
+ * @returns SQL CREATE INDEX statement
+ *
+ * @example
+ * ```typescript
+ * // Simple index
+ * generateIndexSql('things', { name: 'email', fields: ['email'] })
+ * // => 'CREATE INDEX IF NOT EXISTS idx_things_email ON things(json_extract(data, '$.email'))'
+ *
+ * // Composite unique index
+ * generateIndexSql('things', { name: 'tenant_email', fields: ['tenantId', 'email'], unique: true })
+ * // => 'CREATE UNIQUE INDEX IF NOT EXISTS idx_things_tenant_email ON things(json_extract(data, '$.tenantId'), json_extract(data, '$.email'))'
+ *
+ * // System field index
+ * generateIndexSql('things', { name: 'type', fields: ['$type'] })
+ * // => 'CREATE INDEX IF NOT EXISTS idx_things_type ON things(type)'
+ * ```
+ */
+export function generateIndexSql(tableName: string, index: IndexDefinition): string {
+  const indexType = index.unique ? 'UNIQUE INDEX' : 'INDEX'
+  const indexName = `idx_${tableName}_${index.name}`
+
+  // Map fields to SQL column expressions
+  const columns = index.fields.map(mapFieldToSqlColumn).join(', ')
+
+  return `CREATE ${indexType} IF NOT EXISTS ${indexName} ON ${tableName}(${columns})`
+}
+
+/**
+ * Generate DROP INDEX SQL statement
+ *
+ * @param tableName - The name of the table the index is on
+ * @param index - The index definition
+ * @returns SQL DROP INDEX statement
+ */
+export function generateDropIndexSql(tableName: string, index: IndexDefinition): string {
+  const indexName = `idx_${tableName}_${index.name}`
+  return `DROP INDEX IF EXISTS ${indexName}`
+}
+
+/**
+ * Generate CREATE INDEX statements for all indexes in a schema
+ *
+ * @param schema - The schema containing index definitions
+ * @param tableName - The table name (defaults to 'things')
+ * @returns Array of SQL CREATE INDEX statements
+ *
+ * @example
+ * ```typescript
+ * const CustomerSchema = defineSchema({
+ *   $type: 'Customer',
+ *   fields: {
+ *     email: { type: 'string', format: 'email' },
+ *     status: { type: 'string', enum: ['active', 'inactive'] }
+ *   },
+ *   indexes: [
+ *     { name: 'email', fields: ['email'], unique: true },
+ *     { name: 'status', fields: ['status'] }
+ *   ]
+ * })
+ *
+ * generateSchemaIndexesSql(CustomerSchema)
+ * // => [
+ * //   'CREATE UNIQUE INDEX IF NOT EXISTS idx_things_email ON things(json_extract(data, '$.email'))',
+ * //   'CREATE INDEX IF NOT EXISTS idx_things_status ON things(json_extract(data, '$.status'))'
+ * // ]
+ * ```
+ */
+export function generateSchemaIndexesSql(schema: Schema, tableName: string = 'things'): string[] {
+  return schema.indexes.map(index => generateIndexSql(tableName, index))
+}
+
+/**
+ * Generate DROP INDEX statements for all indexes in a schema
+ *
+ * @param schema - The schema containing index definitions
+ * @param tableName - The table name (defaults to 'things')
+ * @returns Array of SQL DROP INDEX statements
+ */
+export function generateSchemaDropIndexesSql(schema: Schema, tableName: string = 'things'): string[] {
+  return schema.indexes.map(index => generateDropIndexSql(tableName, index))
+}
+
+/**
+ * Create a migration for schema indexes
+ * This generates both up (CREATE INDEX) and down (DROP INDEX) SQL
+ *
+ * @param schema - The schema containing index definitions
+ * @param version - The migration version number
+ * @param tableName - The table name (defaults to 'things')
+ * @returns Migration object for use with MigrationRunner
+ *
+ * @example
+ * ```typescript
+ * const CustomerSchema = defineSchema({
+ *   $type: 'Customer',
+ *   fields: { email: { type: 'string' } },
+ *   indexes: [{ name: 'email', fields: ['email'], unique: true }]
+ * })
+ *
+ * const migration = createIndexMigration(CustomerSchema, 10)
+ * // Use with MigrationRunner:
+ * // await migrationRunner.runMigrations([...coreMigrations, migration])
+ * ```
+ */
+export function createIndexMigration(
+  schema: Schema,
+  version: number,
+  tableName: string = 'things'
+): { version: number; name: string; up: string; down: string } {
+  const upStatements = generateSchemaIndexesSql(schema, tableName)
+  const downStatements = generateSchemaDropIndexesSql(schema, tableName)
+
+  return {
+    version,
+    name: `create_${schema.$type.toLowerCase()}_indexes`,
+    up: upStatements.join(';\n'),
+    down: downStatements.join(';\n')
+  }
+}
+
+/**
+ * Helper to create an index definition
+ *
+ * @example
+ * ```typescript
+ * const emailIndex = createIndex('email', ['email'], { unique: true })
+ * const compositeIndex = createIndex('tenant_user', ['tenantId', 'userId'])
+ * ```
+ */
+export function createIndex(
+  name: string,
+  fields: string[],
+  options: { unique?: boolean } = {}
+): IndexDefinition {
+  return {
+    name,
+    fields,
+    unique: options.unique
   }
 }
