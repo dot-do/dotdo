@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createContext, type WorkflowContext } from '../context'
 
 // Mock DurableObjectState
@@ -198,6 +198,149 @@ describe('WorkflowContext ($)', () => {
       expect($.every.Monday).toBeDefined()
       expect($.every.day).toBeDefined()
       expect($.every.hour).toBeDefined()
+    })
+  })
+
+  describe('send() error handling', () => {
+    let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('should not throw when handler throws synchronously', async () => {
+      const failingHandler = vi.fn(() => {
+        throw new Error('Sync handler error')
+      })
+      const successHandler = vi.fn()
+
+      $.on.test.event(failingHandler)
+      $.on.test.event(successHandler)
+
+      // This should not throw
+      $.send({ type: 'test.event', payload: { data: 'test' } })
+
+      // Wait for async processing
+      await new Promise(r => setTimeout(r, 100))
+
+      // Second handler should still have been called
+      expect(successHandler).toHaveBeenCalled()
+      // Error should be logged
+      expect(consoleErrorSpy).toHaveBeenCalled()
+    })
+
+    it('should not throw when handler rejects asynchronously', async () => {
+      const failingHandler = vi.fn(async () => {
+        throw new Error('Async handler error')
+      })
+      const successHandler = vi.fn()
+
+      $.on.test.event(failingHandler)
+      $.on.test.event(successHandler)
+
+      // This should not throw
+      $.send({ type: 'test.event', payload: { data: 'test' } })
+
+      // Wait for async processing
+      await new Promise(r => setTimeout(r, 100))
+
+      // Second handler should still have been called
+      expect(successHandler).toHaveBeenCalled()
+      // Error should be logged
+      expect(consoleErrorSpy).toHaveBeenCalled()
+    })
+
+    it('should continue working after handler errors', async () => {
+      const failingHandler = vi.fn(() => {
+        throw new Error('Handler error')
+      })
+
+      $.on.test.event(failingHandler)
+
+      // First send (will have error)
+      $.send({ type: 'test.event', payload: { call: 1 } })
+      await new Promise(r => setTimeout(r, 50))
+
+      // Second send should still work
+      $.send({ type: 'test.event', payload: { call: 2 } })
+      await new Promise(r => setTimeout(r, 50))
+
+      // Handler should have been called twice
+      expect(failingHandler).toHaveBeenCalledTimes(2)
+    })
+
+    it('should log errors from failing handlers', async () => {
+      const error = new Error('Test error for logging')
+      const failingHandler = vi.fn(() => {
+        throw error
+      })
+
+      $.on.test.event(failingHandler)
+
+      $.send({ type: 'test.event', payload: {} })
+
+      await new Promise(r => setTimeout(r, 100))
+
+      expect(consoleErrorSpy).toHaveBeenCalled()
+    })
+
+    it('should handle errors in wildcard handlers without affecting other handlers', async () => {
+      const failingWildcard = vi.fn(() => {
+        throw new Error('Wildcard error')
+      })
+      const exactHandler = vi.fn()
+
+      $.on['*']['*'](failingWildcard)
+      $.on.test.event(exactHandler)
+
+      $.send({ type: 'test.event', payload: {} })
+
+      await new Promise(r => setTimeout(r, 100))
+
+      // Both handlers should have been called
+      expect(failingWildcard).toHaveBeenCalled()
+      expect(exactHandler).toHaveBeenCalled()
+    })
+
+    it('should handle multiple failing handlers', async () => {
+      const handler1 = vi.fn(() => {
+        throw new Error('Error 1')
+      })
+      const handler2 = vi.fn(() => {
+        throw new Error('Error 2')
+      })
+      const handler3 = vi.fn()
+
+      $.on.test.event(handler1)
+      $.on.test.event(handler2)
+      $.on.test.event(handler3)
+
+      $.send({ type: 'test.event', payload: {} })
+
+      await new Promise(r => setTimeout(r, 100))
+
+      // All handlers should have been called
+      expect(handler1).toHaveBeenCalled()
+      expect(handler2).toHaveBeenCalled()
+      expect(handler3).toHaveBeenCalled()
+    })
+
+    it('should handle returned promise rejections', async () => {
+      const handler = vi.fn(() => Promise.reject(new Error('Rejected promise')))
+      const successHandler = vi.fn()
+
+      $.on.test.event(handler)
+      $.on.test.event(successHandler)
+
+      $.send({ type: 'test.event', payload: {} })
+
+      await new Promise(r => setTimeout(r, 100))
+
+      expect(successHandler).toHaveBeenCalled()
     })
   })
 })

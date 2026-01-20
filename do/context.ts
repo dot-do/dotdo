@@ -5,6 +5,21 @@ import { createEveryProxy, type ScheduleRegistration } from './schedule'
 import { createOnProxy, matchHandlers, type OnProxy, type EventHandler } from './on'
 import { createDOStub } from '../rpc/client'
 
+/**
+ * A proxy type representing a DO stub that intercepts method calls
+ * and forwards them via RPC. Methods can have any arguments and return
+ * Promise<unknown> since the actual return type depends on the remote DO.
+ */
+export type DOStubProxy = {
+  [method: string]: (...args: unknown[]) => Promise<unknown>
+}
+
+/**
+ * Function type for creating DO stubs from an ID.
+ * Used by the index signature for dynamic DO access like $.Customer(id)
+ */
+export type DOStubFactory = (id: string | DurableObjectId) => DOStubProxy
+
 export interface WorkflowContext {
   // Durability levels
   send(event: { type: string; payload?: unknown }): void  // Fire-and-forget
@@ -19,14 +34,14 @@ export interface WorkflowContext {
 
   // Cross-DO RPC (Proxy-based - see do-7rf.6.6)
   // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
-  [doName: string]: any
+  [doName: string]: DOStubFactory | unknown
 
   // Internal
   _events: EventsStore
   _handlers: Map<string, EventHandler[]>
   _schedules: Map<string, ScheduleRegistration>
-  _stubCache: Map<string, any>
-  _env: any
+  _stubCache: Map<string, DOStubProxy>
+  _env: unknown
 }
 
 export type $ = WorkflowContext
@@ -53,7 +68,7 @@ export function createContext(
   const events = createEventsStore()
   const handlers = new Map<string, EventHandler[]>()
   const schedules = new Map<string, ScheduleRegistration>()
-  const stubCache = new Map<string, any>()
+  const stubCache = new Map<string, DOStubProxy>()
 
   const context: WorkflowContext = {
     // Fire-and-forget event emission
@@ -69,16 +84,21 @@ export function createContext(
             const result = h(emitted)
             // Only call catch if it's a Promise
             if (result && typeof result.catch === 'function') {
-              result.catch(console.error)
+              result.catch((err: unknown) => {
+                console.error(`[send] Error in async handler for "${event.type}":`, err)
+              })
             }
           } catch (err) {
-            console.error(err)
+            console.error(`[send] Error in sync handler for "${event.type}":`, err)
           }
         }
 
         // Use matchHandlers for pattern matching (exact + all wildcard patterns)
         const matched = matchHandlers(event.type, handlers)
         matched.forEach(safeCall)
+      }).catch((err: unknown) => {
+        // Catch any errors from emit() or matchHandlers()
+        console.error(`[send] Error emitting event "${event.type}":`, err)
       })
     },
 
@@ -156,7 +176,7 @@ export function createContext(
         }
 
         // Get DO namespace binding from env
-        const envObj = env as Record<string, any>
+        const envObj = env as Record<string, unknown>
         const binding = envObj?.[prop] as DurableObjectNamespace | undefined
 
         if (!binding) {
@@ -164,7 +184,7 @@ export function createContext(
         }
 
         // Create and cache the stub
-        const stub = createDOStub<any>(binding, id)
+        const stub = createDOStub<DOStubProxy>(binding, id)
         stubCache.set(cacheKey, stub)
 
         return stub

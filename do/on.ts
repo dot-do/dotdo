@@ -252,11 +252,11 @@ export async function invokeHandlers(
 
   // Invoke all matched handlers
   await Promise.allSettled(
-    matched.map(async (handler) => {
+    matched.map(async (handler, index) => {
       try {
         await handler(event)
       } catch (error) {
-        console.error(`Error in handler for ${eventType}:`, error)
+        console.error(`[invokeHandlers] Error in handler ${index + 1}/${matched.length} for "${eventType}":`, error)
       }
     })
   )

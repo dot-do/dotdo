@@ -345,7 +345,8 @@ describe('SQLite Adapter', () => {
 
   beforeEach(() => {
     sql = createMockSqlStorage()
-    adapter = new SQLiteAdapter(sql as any)
+    // Use legacy init mode for existing tests since mock doesn't support migrations
+    adapter = new SQLiteAdapter(sql as any, { useLegacyInit: true })
   })
 
   describe('initialization', () => {
@@ -417,7 +418,8 @@ describe('SQLite ThingsStore', () => {
 
   beforeEach(async () => {
     sql = createMockSqlStorage()
-    const adapter = new SQLiteAdapter(sql as any)
+    // Use legacy init mode for existing tests since mock doesn't support migrations
+    const adapter = new SQLiteAdapter(sql as any, { useLegacyInit: true })
     await adapter.initialize()
     store = createSQLiteThingsStore(adapter)
   })
@@ -593,7 +595,8 @@ describe('SQLite EventsStore', () => {
 
   beforeEach(async () => {
     sql = createMockSqlStorage()
-    const adapter = new SQLiteAdapter(sql as any)
+    // Use legacy init mode for existing tests since mock doesn't support migrations
+    const adapter = new SQLiteAdapter(sql as any, { useLegacyInit: true })
     await adapter.initialize()
     store = createSQLiteEventsStore(adapter)
   })
@@ -733,7 +736,8 @@ describe('SQLite RelationshipsStore', () => {
 
   beforeEach(async () => {
     sql = createMockSqlStorage()
-    const adapter = new SQLiteAdapter(sql as any)
+    // Use legacy init mode for existing tests since mock doesn't support migrations
+    const adapter = new SQLiteAdapter(sql as any, { useLegacyInit: true })
     await adapter.initialize()
     store = createSQLiteRelationshipsStore(adapter)
   })
