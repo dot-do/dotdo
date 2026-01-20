@@ -359,7 +359,11 @@ function getMiniflareConfig() {
     modules: true,
     script: TRANSACTION_DO_SCRIPT,
     durableObjects: {
-      TX_DO: 'TransactionDO',
+      TX_DO: {
+        className: 'TransactionDO',
+        // Enable SQLite for this DO class - required for state.storage.sql
+        useSQLite: true,
+      },
     },
     durableObjectsPersist: false, // In-memory for fast tests
   }
