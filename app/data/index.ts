@@ -1,6 +1,10 @@
 // Data Layer - Dual-Mode (REST/TanStack DB) Data Client
 // Provides abstraction for data fetching with REST and real-time WebSocket sync
 
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('[DataClient]')
+
 export type DataMode = 'rest' | 'tanstack-db'
 
 export interface DataClientOptions {
@@ -21,7 +25,7 @@ export interface DataClientOptions {
 export interface Thing {
   $id: string
   $type: string
-  [key: string]: any
+  [key: string]: unknown
 }
 
 export interface UpdateMessage {
@@ -42,13 +46,13 @@ export interface DataClient {
   get(resource: string, id: string): Promise<Thing>
 
   /** List items in a resource */
-  list(resource: string, query?: Record<string, any>): Promise<Thing[]>
+  list(resource: string, query?: Record<string, unknown>): Promise<Thing[]>
 
   /** Create a new item */
-  create(resource: string, data: Record<string, any>): Promise<Thing>
+  create(resource: string, data: Record<string, unknown>): Promise<Thing>
 
   /** Update an existing item */
-  update(resource: string, id: string, data: Record<string, any>): Promise<Thing>
+  update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing>
 
   /** Delete an item */
   delete(resource: string, id: string): Promise<void>
@@ -139,11 +143,15 @@ class RESTClient implements DataClient {
     return data
   }
 
-  async list(resource: string, query?: Record<string, any>): Promise<Thing[]> {
+  async list(resource: string, query?: Record<string, unknown>): Promise<Thing[]> {
     let url = `${this.baseUrl}/${resource}`
 
     if (query) {
-      const params = new URLSearchParams(query)
+      const params = new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(query).map(([k, v]) => [k, String(v)])
+        )
+      )
       url += `?${params.toString()}`
     }
 
@@ -151,7 +159,7 @@ class RESTClient implements DataClient {
     return response.json()
   }
 
-  async create(resource: string, data: Record<string, any>): Promise<Thing> {
+  async create(resource: string, data: Record<string, unknown>): Promise<Thing> {
     if (this.optimistic) {
       const optimisticId = `optimistic-${++this.optimisticCounter}`
       const optimisticResult: Thing = {
@@ -183,7 +191,7 @@ class RESTClient implements DataClient {
             this.cacheStore.set(cacheKey, realResult)
           }
         } catch (error) {
-          console.error('Optimistic create failed:', error)
+          logger.error('Optimistic create failed:', error)
         }
       }, 0)
 
@@ -205,7 +213,7 @@ class RESTClient implements DataClient {
     return result
   }
 
-  async update(resource: string, id: string, data: Record<string, any>): Promise<Thing> {
+  async update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing> {
     const url = `${this.baseUrl}/${resource}/${id}`
     const response = await this.fetchWithTimeout(url, {
       method: 'PUT',
@@ -312,17 +320,17 @@ class TanStackDBClient implements DataClient {
     this.ws.onopen = () => {
       this.connected = true
       this.reconnectAttempts = 0
-      console.log('WebSocket connected')
+      logger.info('WebSocket connected')
     }
 
     this.ws.onclose = () => {
       this.connected = false
-      console.log('WebSocket disconnected')
+      logger.info('WebSocket disconnected')
       this.attemptReconnect()
     }
 
     this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
+      logger.error('WebSocket error:', error)
       this.connected = false
     }
 
@@ -331,14 +339,14 @@ class TanStackDBClient implements DataClient {
         const message = JSON.parse(event.data)
         this.handleMessage(message)
       } catch (error) {
-        console.error('Failed to parse WebSocket message:', error)
+        logger.error('Failed to parse WebSocket message:', error)
       }
     }
   }
 
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached, giving up')
+      logger.error('Max reconnection attempts reached, giving up')
       return
     }
 
@@ -346,7 +354,7 @@ class TanStackDBClient implements DataClient {
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)
 
     setTimeout(() => {
-      console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`)
+      logger.info(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`)
       this.connect()
     }, delay)
   }
@@ -369,7 +377,7 @@ class TanStackDBClient implements DataClient {
   private async sendRequest(message: any): Promise<any> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       // Fallback to REST
-      console.warn('WebSocket not connected, falling back to REST')
+      logger.warn('WebSocket not connected, falling back to REST')
       return this.fallbackToREST(message)
     }
 
@@ -414,15 +422,15 @@ class TanStackDBClient implements DataClient {
     return this.sendRequest({ type: 'get', resource, id })
   }
 
-  async list(resource: string, query?: Record<string, any>): Promise<Thing[]> {
+  async list(resource: string, query?: Record<string, unknown>): Promise<Thing[]> {
     return this.sendRequest({ type: 'list', resource, data: query })
   }
 
-  async create(resource: string, data: Record<string, any>): Promise<Thing> {
+  async create(resource: string, data: Record<string, unknown>): Promise<Thing> {
     return this.sendRequest({ type: 'create', resource, data })
   }
 
-  async update(resource: string, id: string, data: Record<string, any>): Promise<Thing> {
+  async update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing> {
     return this.sendRequest({ type: 'update', resource, id, data })
   }
 
@@ -486,15 +494,15 @@ class DualModeClient implements DataClient {
     return this.currentClient.get(resource, id)
   }
 
-  async list(resource: string, query?: Record<string, any>): Promise<Thing[]> {
+  async list(resource: string, query?: Record<string, unknown>): Promise<Thing[]> {
     return this.currentClient.list(resource, query)
   }
 
-  async create(resource: string, data: Record<string, any>): Promise<Thing> {
+  async create(resource: string, data: Record<string, unknown>): Promise<Thing> {
     return this.currentClient.create(resource, data)
   }
 
-  async update(resource: string, id: string, data: Record<string, any>): Promise<Thing> {
+  async update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing> {
     return this.currentClient.update(resource, id, data)
   }
 

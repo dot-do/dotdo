@@ -22,7 +22,7 @@ export interface QueryOptions {
 /**
  * Mutation options for TanStack Query
  */
-export interface MutationOptions<T = any> {
+export interface MutationOptions<T = unknown> {
   /** Callback on success */
   onSuccess?: (data: T) => void
   /** Callback on error */
@@ -37,7 +37,7 @@ export interface MutationOptions<T = any> {
 export const queryKeys = {
   all: (resource: string) => [resource] as const,
   lists: (resource: string) => [resource, 'list'] as const,
-  list: (resource: string, filters?: Record<string, any>) =>
+  list: (resource: string, filters?: Record<string, unknown>) =>
     [resource, 'list', filters] as const,
   details: (resource: string) => [resource, 'detail'] as const,
   detail: (resource: string, id: string) => [resource, 'detail', id] as const,
@@ -61,7 +61,7 @@ export function createQueryFunctions(client: DataClient) {
     /**
      * Query function for listing items
      */
-    useListQuery: (resource: string, filters?: Record<string, any>, options?: QueryOptions) => ({
+    useListQuery: (resource: string, filters?: Record<string, unknown>, options?: QueryOptions) => ({
       queryKey: queryKeys.list(resource, filters),
       queryFn: () => client.list(resource, filters),
       ...options,
@@ -71,7 +71,7 @@ export function createQueryFunctions(client: DataClient) {
      * Mutation function for creating items
      */
     useCreateMutation: (resource: string, options?: MutationOptions<Thing>) => ({
-      mutationFn: (data: Record<string, any>) => client.create(resource, data),
+      mutationFn: (data: Record<string, unknown>) => client.create(resource, data),
       onSuccess: (data: Thing) => {
         // Invalidate and refetch queries
         if (options?.onSuccess) {
@@ -90,7 +90,7 @@ export function createQueryFunctions(client: DataClient) {
       id: string,
       options?: MutationOptions<Thing>
     ) => ({
-      mutationFn: (data: Record<string, any>) => client.update(resource, id, data),
+      mutationFn: (data: Record<string, unknown>) => client.update(resource, id, data),
       onSuccess: (data: Thing) => {
         // Invalidate cache
         client.invalidateCache(resource, id)
@@ -127,15 +127,15 @@ export function createQueryClientConfig(client: DataClient) {
   return {
     defaultOptions: {
       queries: {
-        queryFn: async ({ queryKey }: { queryKey: readonly any[] }) => {
+        queryFn: async ({ queryKey }: { queryKey: readonly unknown[] }) => {
           const [resource, type, ...params] = queryKey
 
           if (type === 'detail' && params[0]) {
-            return client.get(resource, params[0] as string)
+            return client.get(resource as string, params[0] as string)
           }
 
           if (type === 'list') {
-            return client.list(resource, params[0] as Record<string, any> | undefined)
+            return client.list(resource as string, params[0] as Record<string, unknown> | undefined)
           }
 
           throw new Error(`Invalid query key: ${queryKey}`)
@@ -155,7 +155,7 @@ export function createQueryClientConfig(client: DataClient) {
  */
 export function subscribeToUpdates(
   client: DataClient,
-  invalidateQuery: (queryKey: readonly any[]) => void
+  invalidateQuery: (queryKey: readonly unknown[]) => void
 ) {
   return client.onUpdate((update) => {
     const { resource, id } = update
@@ -175,9 +175,9 @@ export function subscribeToUpdates(
  * Updates cache immediately and rolls back on error
  */
 export function optimisticUpdate<T>(
-  queryKey: readonly any[],
+  queryKey: readonly unknown[],
   updateFn: (old: T) => T,
-  setQueryData: (queryKey: readonly any[], updater: (old: T) => T) => void,
+  setQueryData: (queryKey: readonly unknown[], updater: (old: T) => T) => void,
   onError?: (error: Error, rollback: () => void) => void
 ) {
   // Store previous value

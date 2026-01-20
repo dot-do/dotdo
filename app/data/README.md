@@ -157,9 +157,9 @@ function CustomerForm() {
 #### Methods
 
 - `get(resource: string, id: string): Promise<Thing>`
-- `list(resource: string, query?: Record<string, any>): Promise<Thing[]>`
-- `create(resource: string, data: Record<string, any>): Promise<Thing>`
-- `update(resource: string, id: string, data: Record<string, any>): Promise<Thing>`
+- `list(resource: string, query?: Record<string, unknown>): Promise<Thing[]>`
+- `create(resource: string, data: Record<string, unknown>): Promise<Thing>`
+- `update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing>`
 - `delete(resource: string, id: string): Promise<void>`
 - `onUpdate(listener: UpdateListener): () => void` - Returns unsubscribe function
 - `getMode(): DataMode` - Returns current mode ('rest' or 'tanstack-db')
