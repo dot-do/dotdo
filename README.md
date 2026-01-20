@@ -6,22 +6,31 @@
 [![npm version](https://badge.fury.io/js/dotdo.svg)](https://www.npmjs.com/package/dotdo)
 
 ```typescript
-import { DO } from 'dotdo'
+import { DO, createContext, ai } from 'dotdo'
 
 export class MyApp extends DO {
-  constructor(state, env) {
+  private $ = createContext(this.state, this.env)
+
+  constructor(state: DurableObjectState, env: Env) {
     super(state, env)
 
     // Event-driven architecture with $ context
     this.$.on.Customer.signup(async (event) => {
-      // Full POSIX filesystem on SQLite
-      await this.$.fs.write('customers/profile.json', event.data)
+      // Store data in built-in entity store
+      await this.things.create({
+        $type: 'CustomerProfile',
+        customerId: event.payload.id,
+        ...event.payload
+      })
 
-      // Git operations without shelling out
-      await this.$.git.commit('feat: new customer signup')
+      // AI with template literals
+      const welcome = await ai`Write a welcome message for ${event.payload.name}`
 
-      // Cross-DO RPC with promise pipelining
-      await this.$.Email('welcome').send(event.email)
+      // Cross-DO RPC
+      await this.$.Email('welcome').send({
+        to: event.payload.email,
+        body: welcome
+      })
     })
   }
 }
@@ -100,20 +109,27 @@ npm install
 
 ```typescript
 import { DO } from 'dotdo'
+import { Hono } from 'hono'
 
 export class MyApp extends DO {
-  async fetch(request: Request) {
-    const url = new URL(request.url)
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+  }
 
-    // Create a Thing (entity in the graph)
-    const user = await this.$.things.create({
-      $type: 'User',
-      name: 'Alice',
-      email: 'alice@example.com'
+  // Add custom routes
+  protected routes(app: Hono) {
+    app.get('/users', async (c) => {
+      const users = await this.things.list({ $type: 'User' })
+      return c.json(users)
     })
 
-    return new Response(JSON.stringify(user), {
-      headers: { 'Content-Type': 'application/json' }
+    app.post('/users', async (c) => {
+      const data = await c.req.json()
+      const user = await this.things.create({
+        $type: 'User',
+        ...data
+      })
+      return c.json(user)
     })
   }
 }
@@ -179,28 +195,40 @@ import { createClient } from '@dotdo/rpc'
 
 #### `@dotdo/do`
 
-THE Durable Object class with the `$` workflow context.
+THE Durable Object class with built-in entity stores and WorkflowContext.
 
 ```typescript
 import { DO } from '@dotdo/do'
+import { createContext } from '@dotdo/do'
 
 export class MyDO extends DO {
-  constructor(state, env) {
+  private $: WorkflowContext
+
+  constructor(state: DurableObjectState, env: Env) {
     super(state, env)
+    this.$ = createContext(state, env)
 
-    // Three durability levels
-    this.$.send(event)     // Fire-and-forget
-    this.$.try(action)     // Single attempt
-    this.$.do(action)      // Durable with retries
+    // Event handlers (infinite Noun.verb combinations via Proxy)
+    this.$.on.Customer.signup(async (event) => {
+      await sendWelcomeEmail(event.payload.email)
+    })
 
-    // Event handlers (infinite Noun.verb combinations)
-    this.$.on.Customer.signup(handler)
-    this.$.on.Payment.failed(handler)
-    this.$.on.*.created(handler)
+    this.$.on.Order.placed(async (event) => {
+      await processOrder(event.payload.orderId)
+    })
 
-    // Scheduling (fluent DSL → CRON)
-    this.$.every.monday.at('9am')(handler)
-    this.$.every.hour(handler)
+    // Scheduling (fluent DSL)
+    this.$.every.Monday.at('9am')(async () => {
+      await generateWeeklyReport()
+    })
+  }
+
+  protected routes(app: Hono) {
+    app.get('/customers', async (c) => {
+      // Direct access to entity stores
+      const customers = await this.things.list({ $type: 'Customer' })
+      return c.json(customers)
+    })
   }
 }
 ```
@@ -298,76 +326,202 @@ app.use('/api/*', auth({
 AI routing and template literals for multi-provider LLM access.
 
 ```typescript
-import { ai } from '@dotdo/ai'
+import { ai, configureAI } from '@dotdo/ai'
 
-const response = await ai`
-  You are a helpful assistant.
-  User: ${userMessage}
-`
+// Configure global defaults (optional)
+configureAI({
+  defaultModel: 'claude-sonnet-4',
+  defaultTemperature: 0.7,
+  systemPrompt: 'You are a helpful assistant.',
+})
+
+// Basic usage - just await the template literal
+const summary = await ai`Summarize this text: ${document}`
+
+// Override model and options per-call
+const poem = await ai`Write a poem about ${topic}`.with({
+  model: 'claude-opus-4',
+  temperature: 0.9,
+})
+
+// Streaming responses
+for await (const chunk of ai`Write a story about ${character}`.stream()) {
+  process.stdout.write(chunk)
+}
+
+// Access metadata after resolution
+const promise = ai`Explain ${concept}`
+const result = await promise
+console.log(promise.$meta.tokens)   // { input: 15, output: 150 }
+console.log(promise.$meta.cost)     // 0.00045
+console.log(promise.$meta.duration) // 1234 (ms)
 ```
 
 **Features:**
-- Multi-provider routing (OpenAI, Anthropic, Gemini, etc.)
-- Template literal API
+- Multi-provider routing (Anthropic, OpenAI, Google, etc.)
+- Elegant template literal API
+- Streaming support
+- Token counting and cost tracking
 - Automatic retry and fallback
 
 #### `@dotdo/api`
 
-Self-describing Hono API layer with automatic OpenAPI generation.
+Self-describing HATEOAS API layer with automatic OpenAPI, SDK, and MCP generation.
 
 ```typescript
-import { createAPI } from '@dotdo/api'
+import { defineResource, generateLinks, withLinks, generateOpenAPI, generateMCPTools } from '@dotdo/api'
 
-const api = createAPI({
-  routes: {
-    'GET /users': async (c) => { /* ... */ },
-    'POST /users': async (c) => { /* ... */ }
-  }
+// Define a resource once
+defineResource('customers', {
+  fields: {
+    name: { type: 'string', required: true },
+    email: { type: 'string', required: true },
+  },
+  actions: ['activate', 'deactivate'],
+  relations: {
+    orders: { resource: 'orders', type: 'hasMany' },
+  },
 })
+
+// Responses include navigable HATEOAS links
+const customer = await this.things.get(id)
+const response = withLinks(customer, generateLinks('customers', id, baseUrl, {
+  actions: ['activate', 'deactivate'],
+  relations: { orders: { resource: 'orders', type: 'hasMany' } },
+}))
+
+// Returns:
+// {
+//   data: { $id: 'cust-123', name: 'Alice', email: 'alice@example.com' },
+//   _links: {
+//     self: { href: '/customers/cust-123', method: 'GET' },
+//     update: { href: '/customers/cust-123', method: 'PUT' },
+//     orders: { href: '/customers/cust-123/orders', method: 'GET' },
+//     activate: { href: '/customers/cust-123/activate', method: 'POST' },
+//   }
+// }
+
+// Auto-generate artifacts from resource definitions
+const openApiSpec = generateOpenAPI(resources)   // OpenAPI 3.0 spec
+const mcpTools = generateMCPTools(resources)      // MCP tools for AI agents
 ```
 
 ---
 
 ## Key Concepts
 
-### The `$` Context
+### The `$` Context (WorkflowContext)
 
-Every Durable Object has a workflow context (`$`) that handles execution, events, and scheduling:
+The `$` context provides a fluent API for events, scheduling, and cross-DO RPC:
 
 ```typescript
-// Event handlers via two-level proxy
-$.on.Customer.signup(handler)      // No class definitions needed
-$.on.Payment.failed(handler)       // Any Noun.verb combination
-$.on.*.created(handler)            // Wildcards supported
+import { createContext, createTypedContext } from '@dotdo/do'
+
+const $ = createContext(state, env)
+
+// Event handlers via two-level proxy (infinite Noun.verb combinations)
+$.on.Customer.signup(async (event) => {
+  console.log('New customer:', event.payload.email)
+  await sendWelcomeEmail(event.payload.email)
+})
+
+$.on.Order.placed(async (event) => {
+  await processOrder(event.payload.orderId)
+})
+
+// Durability levels
+$.send(event)              // Fire-and-forget (no guarantees)
+await $.try(riskyAction)   // Single attempt (throws on failure)
+await $.do(criticalAction) // Durable with retries (guaranteed)
 
 // Scheduling via fluent DSL
-$.every.monday.at('9am')(handler)  // Parses to CRON
-$.every.hour(handler)              // No CRON syntax required
+$.every.Monday.at('9am')(async () => {
+  await generateWeeklyReport()
+})
 
-// Cross-DO RPC with circuit breakers
-await $.Customer(id).notify()      // Automatic retry
-await $.Order(id).fulfill()        // Stub caching + LRU
+$.every.day.at('6pm')(async () => {
+  await cleanupOldRecords()
+})
+
+$.every.hour(async () => {
+  await syncExternalData()
+})
+
+// Cross-DO RPC
+const profile = await $.Customer('user-123').getProfile()
+await $.Order('order-456').ship()
+```
+
+#### Type-Safe Context
+
+For full TypeScript support, use `createTypedContext`:
+
+```typescript
+// Define your DO interfaces and event schemas
+interface DOBindings {
+  Customer: { getProfile(): Promise<Profile>; notify(msg: string): Promise<void> }
+  Order: { ship(): Promise<Status>; getItems(): Promise<string[]> }
+}
+
+interface EventSchemas {
+  'Customer.signup': { customerId: string; email: string }
+  'Order.placed': { orderId: string; total: number }
+}
+
+// Create typed context
+const $ = createTypedContext<DOBindings, EventSchemas>(state, env)
+
+// Full type inference!
+const profile = await $.Customer('user-123').getProfile()  // Returns Promise<Profile>
+
+$.on.Customer.signup((event) => {
+  // event.payload is typed as { customerId: string; email: string }
+  console.log(event.payload.email)
+})
 ```
 
 ### Graph-Based State
 
-dotdo uses a graph model—Things connected by Relationships:
+The DO class provides built-in entity stores directly on the instance:
 
 ```typescript
-// Create entities
-const customer = await $.things.create({ $type: 'Customer', name: 'Alice' })
-const order = await $.things.create({ $type: 'Order', total: 150 })
+class MyDO extends DO {
+  async example() {
+    // Things - typed entities with $type and $id
+    const customer = await this.things.create({
+      $type: 'Customer',
+      name: 'Alice',
+      email: 'alice@example.com'
+    })
 
-// Connect them
-await $.relationships.create({
-  from: customer.$id,
-  to: order.$id,
-  type: 'placed'
-})
+    const order = await this.things.create({
+      $type: 'Order',
+      total: 150,
+      status: 'pending'
+    })
 
-// Traverse the graph
-const orders = await $.things.related(customer.$id, 'placed')
-```
+    // Relationships - connect entities
+    await this.relationships.create({
+      from: customer.$id,
+      to: order.$id,
+      type: 'placed'
+    })
+
+    // Events - immutable event log
+    await this.events.append({
+      type: 'Order.placed',
+      payload: { orderId: order.$id, customerId: customer.$id }
+    })
+
+    // Query builder for complex queries
+    const results = await this.query()
+      .from('Customer')
+      .where('status', '=', 'active')
+      .orderBy('createdAt', 'desc')
+      .limit(10)
+      .execute()
+  }
+}
 
 **Why graphs?**
 
