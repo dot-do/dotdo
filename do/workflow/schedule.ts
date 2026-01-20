@@ -176,23 +176,6 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * ```
  */
 /**
- * Schedule builder type returned by createEveryProxy.
- * Uses Proxy for fluent DSL so returns a callable object with dynamic properties.
- */
-export interface ScheduleBuilder {
-  /** Called with number for interval patterns: $.every(5).minutes(handler) */
-  (value: number): IntervalBuilder
-  /** Called with time string: $.every.day.at('6pm')(handler) */
-  (time: string): (handler: ScheduleHandler) => void
-  /** Called with handler directly: $.every.hour(handler) */
-  (handler: ScheduleHandler): void
-  /** Access day of week for scheduling: $.every.Monday */
-  [day: string]: ScheduleBuilder
-  /** Access time patterns: $.every.day.at9am(handler) */
-  at: (time: string) => (handler: ScheduleHandler) => void
-}
-
-/**
  * Interval builder type for $.every(5).minutes patterns
  */
 export interface IntervalBuilder {
@@ -202,6 +185,14 @@ export interface IntervalBuilder {
   days: (handler: ScheduleHandler) => void
   weeks: (handler: ScheduleHandler) => void
 }
+
+/**
+ * Schedule builder type returned by createEveryProxy.
+ * Uses Proxy for fluent DSL so returns a callable object with dynamic properties.
+ * The actual implementation uses Proxy to enable dynamic property access.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ScheduleBuilder = ((arg?: number | string | ScheduleHandler) => any) & Record<string, any>
 
 export function createEveryProxy(
   schedules: Map<string, ScheduleRegistration>

@@ -14,7 +14,7 @@ import { createContext, type WorkflowContext } from './context'
 import { createSQLiteErrorStore, createSQLiteRetryQueue, createEnhancedErrorStore } from './fire-and-forget-errors'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
-import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '@dotdo/db'
+import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder, SqlStorage } from '@dotdo/db'
 import { IntegrationRegistry } from '@dotdo/integrations'
 import { RPCError, NotFoundError, InternalError, serializeUnknownError } from '@dotdo/rpc'
 import type { BatchRPCCall, BatchRPCResult, BatchRPCResponse } from '@dotdo/rpc'
@@ -130,7 +130,7 @@ export class DO implements DurableObject {
     // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
     // This provides the fluent API: $.send(), $.try(), $.do(), $.on.*, $.every.*
     // Use SQLite-backed error store and retry queue for persistence across DO restarts (do-f9xs)
-    const sql = state.storage.sql
+    const sql = state.storage.sql as SqlStorage
     const errorStore = createSQLiteErrorStore(sql)
     const retryQueue = createSQLiteRetryQueue(sql, errorStore)
     const enhancedErrorStore = createEnhancedErrorStore(errorStore, retryQueue)
@@ -314,14 +314,15 @@ export class DO implements DurableObject {
         let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
         for (let i = 0; i < parts.length - 1; i++) {
-          current = current[parts[i]] as Record<string, unknown>
+          const part = parts[i]!
+          current = current[part] as Record<string, unknown>
           if (!current) {
             const error = new NotFoundError(`Method not found: ${method}`)
             return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
         }
 
-        const fn = current[parts[parts.length - 1]]
+        const fn = current[parts[parts.length - 1]!]
         if (typeof fn !== 'function') {
           const error = new NotFoundError(`Method not found: ${method}`)
           return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
@@ -369,7 +370,8 @@ export class DO implements DurableObject {
               let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
               for (let i = 0; i < parts.length - 1; i++) {
-                current = current[parts[i]] as Record<string, unknown>
+                const part = parts[i]!
+                current = current[part] as Record<string, unknown>
                 if (!current) {
                   return {
                     id: callId,
@@ -378,7 +380,7 @@ export class DO implements DurableObject {
                 }
               }
 
-              const fn = current[parts[parts.length - 1]]
+              const fn = current[parts[parts.length - 1]!]
               if (typeof fn !== 'function') {
                 return {
                   id: callId,

@@ -364,7 +364,7 @@ export class ShardRouter {
     ): Promise<Response> => {
       const url = new URL(request.url)
       const hostParts = url.hostname.split('.')
-      const namespace = hostParts.length > 2 ? hostParts[0] : 'default'
+      const namespace = hostParts.length > 2 && hostParts[0] ? hostParts[0] : 'default'
 
       const ctx: ShardContext = {
         namespace,
@@ -418,7 +418,7 @@ export function shardMiddleware(router: ShardRouter) {
   return async (c: HonoShardContext, next: () => Promise<void>) => {
     const url = new URL(c.req.url)
     const hostParts = url.hostname.split('.')
-    const namespace = hostParts.length > 2 ? hostParts[0] : 'default'
+    const namespace = hostParts.length > 2 && hostParts[0] ? hostParts[0] : 'default'
 
     const ctx: ShardContext = {
       namespace,
@@ -767,7 +767,7 @@ export class LoadBalancedRouter extends ShardRouter {
       const rrIndex =
         (this.roundRobinCounter.get(rrKey) ?? 0) % equalLoadIndices.length
       this.roundRobinCounter.set(rrKey, rrIndex + 1)
-      minIndex = equalLoadIndices[rrIndex]
+      minIndex = equalLoadIndices[rrIndex] ?? minIndex
     }
 
     return {

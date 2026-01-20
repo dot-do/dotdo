@@ -161,7 +161,8 @@ export function WithRPC<TBase extends Constructor>(
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
-    constructor(...args: unknown[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
       super(...args)
       this._stubCache = new Map()
     }
@@ -282,14 +283,15 @@ export function WithRPC<TBase extends Constructor>(
           let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
           for (let i = 0; i < parts.length - 1; i++) {
-            current = current[parts[i]] as Record<string, unknown>
+            const part = parts[i]!
+            current = current[part] as Record<string, unknown>
             if (!current) {
               const error = new NotFoundError(`Method not found: ${method}`)
               return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
             }
           }
 
-          const fn = current[parts[parts.length - 1]]
+          const fn = current[parts[parts.length - 1]!]
           if (typeof fn !== 'function') {
             const error = new NotFoundError(`Method not found: ${method}`)
             return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)

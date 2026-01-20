@@ -165,7 +165,8 @@ export function WithAuth<TBase extends Constructor>(
   return class AuthMixin extends Base implements HasAuth {
     private _authGuard: DOAuthGuard
 
-    constructor(...args: unknown[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
       super(...args)
       this._authGuard = createDOAuthGuard(guardConfig)
     }

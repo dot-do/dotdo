@@ -915,12 +915,15 @@ function extractOrganizations(session: Session): OrgAiOrganization[] {
   }
 
   const orgs = session.metadata.organizations as RawSessionOrganization[]
-  return orgs.map(org => ({
-    $id: org.$id || org.id || '',
-    name: org.name,
-    role: org.role || 'member',
-    joinedAt: org.joinedAt
-  }))
+  return orgs.map(org => {
+    const result: OrgAiOrganization = {
+      $id: org.$id || org.id || '',
+      role: org.role || 'member',
+    }
+    if (org.name) result.name = org.name
+    if (org.joinedAt) result.joinedAt = org.joinedAt
+    return result
+  })
 }
 
 /**

@@ -68,7 +68,7 @@ export class EntityManager {
   constructor(options: EntityManagerOptions = {}) {
     if (options.state?.storage?.sql) {
       // Use SQLite stores for persistent storage (do-8m4e)
-      this._sqliteAdapter = new SQLiteAdapter(options.state.storage.sql as SqlStorage)
+      this._sqliteAdapter = new SQLiteAdapter(options.state.storage.sql as unknown as SqlStorage)
       this._things = createSQLiteThingsStore(this._sqliteAdapter)
       this._events = createSQLiteEventsStore(this._sqliteAdapter)
       this._relationships = createSQLiteRelationshipsStore(this._sqliteAdapter)
@@ -168,7 +168,7 @@ export class EntityManager {
 
     // Mask sensitive fields in details
     const maskedDetails = details
-      ? maskSensitiveFields(details, this._auditConfig.maskFields)
+      ? maskSensitiveFields(details as StorableData, this._auditConfig.maskFields)
       : undefined
 
     await this._auditLogs.log({
@@ -497,8 +497,12 @@ export class EntityManager {
 /**
  * Constructor type for mixin pattern.
  */
+/**
+ * Constructor type for mixin pattern.
+ * TypeScript mixins require any[] for the constructor rest parameter.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type EntityMixinConstructor = new (...args: unknown[]) => object
+type EntityMixinConstructor = new (...args: any[]) => object
 
 /**
  * Mixin to add entity management to DO classes
@@ -507,7 +511,8 @@ export function withEntities<T extends EntityMixinConstructor>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 
-    constructor(...args: unknown[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
       super(...args)
       this.entityManager = new EntityManager()
     }
