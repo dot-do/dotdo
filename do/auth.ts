@@ -987,9 +987,20 @@ export async function addDOSourceHeaders(
 export async function addDOSourceHeadersAsync(
   headers: Headers,
   sourceDoId: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<Headers> {
-  return addDOSourceHeaders(headers, sourceDoId, targetPath)
+  return addDOSourceHeaders(headers, sourceDoId, targetPath, nonce)
+}
+
+/**
+ * Options for creating DO-to-DO request headers
+ */
+export interface CreateDOToDoHeadersOptions {
+  /** Optional nonce for idempotency/replay protection */
+  nonce?: string
+  /** Optional correlation ID for request tracing */
+  correlationId?: string
 }
 
 /**
@@ -1004,13 +1015,33 @@ export async function addDOSourceHeadersAsync(
  *   body: JSON.stringify({ ... }),
  * })
  * ```
+ *
+ * @example
+ * ```typescript
+ * // With nonce for idempotency
+ * const headers = await createDOToDoHeaders('source-do-123', '/rpc', {
+ *   nonce: crypto.randomUUID(),
+ *   correlationId: 'corr-123'
+ * })
+ * ```
  */
 export async function createDOToDoHeaders(
   sourceDoId: string,
   targetPath?: string,
-  correlationId?: string
+  correlationIdOrOptions?: string | CreateDOToDoHeadersOptions
 ): Promise<Headers> {
   const timestamp = Date.now().toString()
+
+  // Handle backwards compatibility: third param can be string (correlationId) or options object
+  let correlationId: string | undefined
+  let nonce: string | undefined
+
+  if (typeof correlationIdOrOptions === 'string') {
+    correlationId = correlationIdOrOptions
+  } else if (correlationIdOrOptions) {
+    correlationId = correlationIdOrOptions.correlationId
+    nonce = correlationIdOrOptions.nonce
+  }
 
   const headers = new Headers({
     'Content-Type': 'application/json',
@@ -1019,8 +1050,12 @@ export async function createDOToDoHeaders(
     [DO_TIMESTAMP_HEADER]: timestamp,
   })
 
+  if (nonce) {
+    headers.set(DO_NONCE_HEADER, nonce)
+  }
+
   try {
-    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath, nonce)
     headers.set(DO_SIGNATURE_HEADER, signature)
   } catch (error) {
     logger.warn(' Failed to sign DO-to-DO request:', error)
