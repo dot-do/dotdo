@@ -2,6 +2,7 @@
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { jwtVerify } from 'jose'
+import { validateSecretPresent } from './validation'
 
 export interface AuthOptions {
   issuer?: string
@@ -28,9 +29,7 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
   const { skipPaths = [], secret, issuer, audience } = options
 
   // Require secret for JWT validation
-  if (!secret) {
-    throw new Error('authMiddleware requires a secret for JWT validation')
-  }
+  validateSecretPresent(secret, 'secret', 'JWT validation in authMiddleware')
 
   // Convert string secret to Uint8Array if needed
   const secretKey = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret

@@ -16,6 +16,7 @@ import { HTTPException } from 'hono/http-exception'
 import type { AuthUser } from '../auth/middleware'
 import { extractToken, verifyTokenSignature } from '../auth/token'
 import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
+import { validateSecret, isSecretConfigured } from '../auth/validation'
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('[DOAuth]')
@@ -106,6 +107,19 @@ export interface DOAuthGuard {
 }
 
 /**
+ * Token revocation checker function type for DO auth
+ * Used to integrate with token validation
+ */
+export type DOTokenRevocationChecker = (jti: string) => Promise<boolean>
+
+/**
+ * Token revocation store interface for DO auth
+ */
+export interface DOTokenRevocationStore {
+  isTokenRevoked(jti: string): Promise<boolean>
+}
+
+/**
  * Configuration for DO auth guards
  */
 export interface DOAuthGuardConfig {
@@ -125,6 +139,10 @@ export interface DOAuthGuardConfig {
   trustDoToDo?: boolean
   /** Custom trust verification function */
   customTrustCheck?: (request: Request, callerInfo: CallerInfo) => Promise<boolean>
+  /** Token revocation store for checking if tokens have been revoked */
+  revocationStore?: DOTokenRevocationStore
+  /** Custom revocation checker function (alternative to revocationStore) */
+  revocationChecker?: DOTokenRevocationChecker
 }
 
 // ============================================================================
@@ -209,9 +227,7 @@ let doInternalSecret: string | null = null
  * ```
  */
 export function setDOInternalSecret(secret: string): void {
-  if (!secret || secret.length < 32) {
-    throw new Error('DO_INTERNAL_SECRET must be at least 32 characters')
-  }
+  validateSecret(secret, 32, 'DO_INTERNAL_SECRET', 'DO-to-DO HMAC signing')
   doInternalSecret = secret
 }
 
@@ -295,7 +311,7 @@ async function verifyHmacSignature(
  * - Rejects timestamps more than SIGNATURE_MAX_FUTURE_MS (30 seconds) in the future
  */
 export async function verifyDOSignature(request: Request): Promise<boolean> {
-  if (!doInternalSecret) {
+  if (!isSecretConfigured(doInternalSecret)) {
     logger.warn(' DO_INTERNAL_SECRET not configured - DO-to-DO verification disabled')
     return false
   }
@@ -528,7 +544,26 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
     trustedWorkers = [],
     trustDoToDo = true,
     customTrustCheck,
+    revocationStore,
+    revocationChecker,
   } = config
+
+  /**
+   * Check if a token has been revoked
+   */
+  async function isTokenRevoked(jti: string | undefined): Promise<boolean> {
+    if (!jti) return false
+
+    if (revocationChecker) {
+      return revocationChecker(jti)
+    }
+
+    if (revocationStore) {
+      return revocationStore.isTokenRevoked(jti)
+    }
+
+    return false
+  }
 
   return {
     async canAccess(request: Request, _doId: string): Promise<boolean> {
@@ -606,37 +641,44 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
 
     async validateToken(token: string): Promise<AuthPayload | null> {
       try {
+        let payload: AuthPayload | null = null
+
         // Try JWKS validation first if client is available
         if (jwksClient) {
-          const payload = await verifyTokenWithJwks(token, jwksClient, {
+          payload = (await verifyTokenWithJwks(token, jwksClient, {
             issuer: issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined,
             audience: audience ? (Array.isArray(audience) ? audience : [audience]) : undefined,
-          })
-          return payload as AuthPayload
-        }
-
-        // Fall back to symmetric secret validation
-        if (secret) {
+          })) as AuthPayload
+        } else if (secret) {
+          // Fall back to symmetric secret validation
           const firstIssuer = Array.isArray(issuer) ? issuer[0] : issuer
           const firstAudience = Array.isArray(audience) ? audience[0] : audience
-          const payload = await verifyTokenSignature(token, {
+          payload = (await verifyTokenSignature(token, {
             secret: typeof secret === 'string' ? secret : secret,
             ...(firstIssuer && { issuer: firstIssuer }),
             ...(firstAudience && { audience: firstAudience }),
-          })
-          return payload as AuthPayload
+          })) as AuthPayload
+        } else {
+          // No validation configured - decode without verification (NOT RECOMMENDED)
+          logger.warn('No secret or JWKS client configured - tokens will not be verified')
+          const parts = token.split('.')
+          const payloadPart = parts[1]
+          if (parts.length === 3 && payloadPart) {
+            payload = JSON.parse(atob(payloadPart)) as AuthPayload
+          }
         }
 
-        // No validation configured - decode without verification (NOT RECOMMENDED)
-        logger.warn('No secret or JWKS client configured - tokens will not be verified')
-        const parts = token.split('.')
-        const payloadPart = parts[1]
-        if (parts.length === 3 && payloadPart) {
-          const payload = JSON.parse(atob(payloadPart))
-          return payload as AuthPayload
+        if (!payload) {
+          return null
         }
 
-        return null
+        // Check if token has been revoked (requires jti claim)
+        if (await isTokenRevoked(payload.jti)) {
+          logger.warn('Token has been revoked:', payload.jti)
+          return null
+        }
+
+        return payload
       } catch (error) {
         logger.error(' Token validation failed:', error)
         return null
@@ -910,7 +952,7 @@ async function signDORequest(
   targetPath?: string,
   nonce?: string
 ): Promise<string> {
-  if (!doInternalSecret) {
+  if (!isSecretConfigured(doInternalSecret)) {
     throw new Error('DO_INTERNAL_SECRET not configured - call setDOInternalSecret() first')
   }
 

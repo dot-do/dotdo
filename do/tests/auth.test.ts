@@ -879,7 +879,7 @@ describe('HMAC Signing Security (do-rrb9)', () => {
     })
 
     it('should reject empty secrets', () => {
-      expect(() => setDOInternalSecret('')).toThrow('at least 32 characters')
+      expect(() => setDOInternalSecret('')).toThrow('DO_INTERNAL_SECRET is required')
     })
   })
 
