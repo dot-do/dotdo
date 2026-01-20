@@ -381,10 +381,21 @@ export interface SerializeErrorOptions {
 }
 
 /**
- * Registry of error constructors for deserialization
+ * Type for error subclass constructors in the registry
+ * All RPCError subclasses use (message, details?, options?) signature
  */
-const ERROR_REGISTRY: Record<string, new (message: string, details?: Record<string, unknown>) => RPCError> = {
-  RPCError: RPCError as any,
+type RPCErrorSubclassConstructor = new (
+  message: string,
+  details?: Record<string, unknown>,
+  options?: RPCErrorOptions
+) => RPCError
+
+/**
+ * Registry of error constructors for deserialization
+ * Note: RPCError itself is not in this registry because it has a different constructor signature
+ * (requires error code as first parameter). It's handled as a fallback in deserializeError.
+ */
+const ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
   NotFoundError,
   ValidationError,
   AuthenticationError,

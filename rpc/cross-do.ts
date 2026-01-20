@@ -6,12 +6,18 @@ import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }
 
+// DO auth headers (from do/auth.ts)
+const DO_SOURCE_HEADER = 'X-DO-Source'
+const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
+
 /**
  * Options for cross-DO RPC calls
  */
 export interface CrossDORPCOptions {
   /** Optional correlation ID to use for request tracing */
   correlationId?: string
+  /** Source DO ID for trust chain (do-nuwe) */
+  sourceDoId?: string
 }
 
 /**
@@ -133,6 +139,7 @@ export function createCrossDOClient<T extends object>(
   })()
 
   const baseCorrelationId = options?.correlationId
+  const sourceDoId = options?.sourceDoId
 
   return new Proxy({} as T, {
     get(_, prop: string | symbol) {
@@ -153,6 +160,12 @@ export function createCrossDOClient<T extends object>(
           const headers = new Headers(init?.headers)
           headers.set(CORRELATION_ID_HEADER, correlationId)
 
+          // Add DO source headers for trust chain (do-nuwe)
+          if (sourceDoId) {
+            headers.set(DO_SOURCE_HEADER, 'true')
+            headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
+          }
+
           const response = await stub.fetch(url, { ...init, headers })
           if (!response.ok) {
             const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
@@ -167,12 +180,20 @@ export function createCrossDOClient<T extends object>(
         // Generate a correlation ID for each request, or use the provided base correlation ID
         const correlationId = baseCorrelationId || generateCorrelationId()
 
+        // Build headers with DO source info for trust chain (do-nuwe)
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          [CORRELATION_ID_HEADER]: correlationId,
+        }
+
+        if (sourceDoId) {
+          headers[DO_SOURCE_HEADER] = 'true'
+          headers[DO_SOURCE_ID_HEADER] = sourceDoId
+        }
+
         const response = await stub.fetch('https://do/rpc', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [CORRELATION_ID_HEADER]: correlationId,
-          },
+          headers,
           body: JSON.stringify({ method: prop, args }),
         })
 
@@ -193,6 +214,8 @@ export function createCrossDOClient<T extends object>(
 export interface CrossDOContextOptions {
   /** Optional correlation ID to propagate through all DO-to-DO calls */
   correlationId?: string
+  /** Source DO ID for trust chain (do-nuwe) - identifies the calling DO */
+  sourceDoId?: string
 }
 
 /**
@@ -225,11 +248,13 @@ export class CrossDOContext {
   private cache: CrossDOStubCache
   private env: Record<string, DurableObjectNamespace>
   private correlationId?: string
+  private sourceDoId?: string
 
   constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env
     this.cache = new CrossDOStubCache()
     this.correlationId = options?.correlationId
+    this.sourceDoId = options?.sourceDoId
 
     // Return proxy for namespace access
     return new Proxy(this, {
@@ -240,7 +265,7 @@ export class CrossDOContext {
 
         // Pass through internal properties
         if (namespace in target) {
-          return (target as any)[namespace]
+          return (target as Record<string, unknown>)[namespace]
         }
 
         // Return namespace accessor
@@ -261,6 +286,7 @@ export class CrossDOContext {
 
     const cache = this.cache
     const contextCorrelationId = this.correlationId
+    const contextSourceDoId = this.sourceDoId
 
     // Return a function that creates typed DO clients
     return <T extends object>(id?: string | DurableObjectId) => {
@@ -270,32 +296,42 @@ export class CrossDOContext {
           broadcast: async <K extends keyof T>(
             ids: string[],
             method: K,
-            ...args: T[K] extends (...args: infer A) => any ? A : never[]
-          ): Promise<Awaited<ReturnType<T[K] extends (...args: any[]) => infer R ? () => R : never>>[]> => {
+            ...args: T[K] extends (...args: infer A) => unknown ? A : never[]
+          ): Promise<Awaited<ReturnType<T[K] extends (...args: unknown[]) => infer R ? () => R : never>>[]> => {
             // Use context correlation ID or generate a shared one for the broadcast
             const correlationId = contextCorrelationId || generateCorrelationId()
-            const options: CrossDORPCOptions = { correlationId }
+            const options: CrossDORPCOptions = {
+              correlationId,
+              sourceDoId: contextSourceDoId,
+            }
 
             const promises = ids.map(async (doId) => {
               const client = createCrossDOClient<T>(binding, doId, cache, options)
-              const fn = client[method as string]
-              if (typeof fn !== 'function') {
+              // Access the method using keyof T - client is typed as T
+              const methodFn = client[method]
+              if (typeof methodFn !== 'function') {
                 throw new Error(`Method ${String(method)} is not a function`)
               }
-              return (fn as Function).apply(client, args)
+              // Cast to callable function type for proper invocation
+              return (methodFn as (...args: unknown[]) => Promise<unknown>)(...args)
             })
 
-            return Promise.all(promises)
+            // Cast Promise.all result to match the declared return type
+            return Promise.all(promises) as Promise<Awaited<ReturnType<T[K] extends (...args: unknown[]) => infer R ? () => R : never>>[]>
           }
         }
       }
 
-      // Create options with correlation ID if available
-      const options: CrossDORPCOptions | undefined = contextCorrelationId
-        ? { correlationId: contextCorrelationId }
-        : undefined
+      // Create options with correlation ID and source DO ID if available
+      const options: CrossDORPCOptions = {}
+      if (contextCorrelationId) {
+        options.correlationId = contextCorrelationId
+      }
+      if (contextSourceDoId) {
+        options.sourceDoId = contextSourceDoId
+      }
 
-      return createCrossDOClient<T>(binding, id, cache, options)
+      return createCrossDOClient<T>(binding, id, cache, Object.keys(options).length > 0 ? options : undefined)
     }
   }
 
@@ -326,7 +362,7 @@ export type DOContext<T extends Record<string, DurableObjectNamespace>> = {
       broadcast: <M extends keyof D>(
         ids: string[],
         method: M,
-        ...args: D[M] extends (...args: infer A) => any ? A : never[]
-      ) => Promise<Awaited<ReturnType<D[M] extends (...args: any[]) => infer R ? () => R : never>>[]>
+        ...args: D[M] extends (...args: infer A) => unknown ? A : never[]
+      ) => Promise<Awaited<ReturnType<D[M] extends (...args: unknown[]) => infer R ? () => R : never>>[]>
     }
 }

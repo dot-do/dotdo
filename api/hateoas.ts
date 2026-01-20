@@ -105,12 +105,12 @@ export function generateCollectionLinks(
 
   // Pagination links
   if (page > 1) {
-    links.prev = {
+    links['prev'] = {
       href: `${base}?page=${page - 1}&limit=${limit}`,
       rel: 'prev',
       method: 'GET'
     }
-    links.first = {
+    links['first'] = {
       href: `${base}?page=1&limit=${limit}`,
       rel: 'first',
       method: 'GET'
@@ -118,12 +118,12 @@ export function generateCollectionLinks(
   }
 
   if (total && page * limit < total) {
-    links.next = {
+    links['next'] = {
       href: `${base}?page=${page + 1}&limit=${limit}`,
       rel: 'next',
       method: 'GET'
     }
-    links.last = {
+    links['last'] = {
       href: `${base}?page=${Math.ceil(total / limit)}&limit=${limit}`,
       rel: 'last',
       method: 'GET'

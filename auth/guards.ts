@@ -1,12 +1,14 @@
 // Permission guards - composable auth checks
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+// Import AuthUser type and ensure ContextVariableMap augmentation is loaded
 import type { AuthUser } from './middleware'
+import './middleware' // Side-effect import for module augmentation
 
 // Require authentication (user must be set)
 export function requireAuth(): MiddlewareHandler {
   return async (c, next) => {
-    const user = c.get('user') as AuthUser | undefined
+    const user = c.var.user
     if (!user) {
       throw new HTTPException(401, { message: 'Authentication required' })
     }
@@ -17,7 +19,7 @@ export function requireAuth(): MiddlewareHandler {
 // Require specific role(s)
 export function requireRole(...roles: string[]): MiddlewareHandler {
   return async (c, next) => {
-    const user = c.get('user') as AuthUser | undefined
+    const user = c.var.user
     if (!user) {
       throw new HTTPException(401, { message: 'Authentication required' })
     }
@@ -36,7 +38,7 @@ export function requireRole(...roles: string[]): MiddlewareHandler {
 // Require specific scope(s)
 export function requireScope(...scopes: string[]): MiddlewareHandler {
   return async (c, next) => {
-    const user = c.get('user') as AuthUser | undefined
+    const user = c.var.user
     if (!user) {
       throw new HTTPException(401, { message: 'Authentication required' })
     }
@@ -71,7 +73,7 @@ export function requireOwner(
   getResourceOwnerId: (c: Context) => string | Promise<string>
 ): MiddlewareHandler {
   return async (c, next) => {
-    const user = c.get('user') as AuthUser | undefined
+    const user = c.var.user
     if (!user) {
       throw new HTTPException(401, { message: 'Authentication required' })
     }

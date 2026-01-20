@@ -1,40 +1,112 @@
 // Entity Management - Integration of db stores into DO class
-// See do-7rf.6.5
+// See do-7rf.6.5 and do-xebw (audit logging)
 
 import {
   createThingsStore,
   createEventsStore,
   createRelationshipsStore,
   createQuery,
+  createAuditLogStore,
   type ThingsStore,
   type EventsStore,
   type RelationshipsStore,
+  type AuditLogStore,
+  type AuditContext,
+  type AuditLogConfig,
   type Thing,
   type Event,
   type Relationship,
-  type QueryBuilder
+  type QueryBuilder,
+  defaultAuditConfig,
+  maskSensitiveFields
 } from '../db'
 
 /**
+ * Options for EntityManager
+ */
+export interface EntityManagerOptions {
+  /** Audit logging configuration */
+  auditConfig?: Partial<AuditLogConfig>
+}
+
+/**
  * Entity Manager wraps the base stores and adds event emission on entity changes
+ * Also provides audit logging for all CRUD operations (do-xebw)
  */
 export class EntityManager {
   private _things: ThingsStore
   private _events: EventsStore
   private _relationships: RelationshipsStore
+  private _auditLogs: AuditLogStore
+  private _auditConfig: AuditLogConfig
+  private _auditContext: AuditContext
 
-  constructor() {
+  constructor(options: EntityManagerOptions = {}) {
     this._things = createThingsStore()
     this._events = createEventsStore()
     this._relationships = createRelationshipsStore()
+    this._auditLogs = createAuditLogStore()
+    this._auditConfig = { ...defaultAuditConfig, ...options.auditConfig }
+    this._auditContext = { actor: 'system' }
   }
 
   /**
-   * Things store with event emission
+   * Set the audit context for subsequent operations
+   * Call this at the start of request handling
+   */
+  setAuditContext(context: AuditContext): void {
+    this._auditContext = context
+  }
+
+  /**
+   * Get the current audit context
+   */
+  getAuditContext(): AuditContext {
+    return this._auditContext
+  }
+
+  /**
+   * Direct access to audit logs store
+   */
+  get auditLogs(): AuditLogStore {
+    return this._auditLogs
+  }
+
+  /**
+   * Helper to log audit entries if enabled
+   */
+  private async logAudit(
+    action: string,
+    resource: string,
+    resourceId?: string,
+    details?: Record<string, unknown>,
+    level: 'info' | 'warn' | 'error' | 'security' = 'info'
+  ): Promise<void> {
+    if (!this._auditConfig.enabled) return
+
+    // Mask sensitive fields in details
+    const maskedDetails = details
+      ? maskSensitiveFields(details, this._auditConfig.maskFields)
+      : undefined
+
+    await this._auditLogs.log({
+      actor: this._auditContext.actor,
+      action,
+      resource,
+      resourceId,
+      level,
+      details: maskedDetails,
+      correlationId: this._auditContext.correlationId
+    })
+  }
+
+  /**
+   * Things store with event emission and audit logging
    */
   get things(): ThingsStore {
     const baseStore = this._things
     const eventsStore = this._events
+    const logAudit = this.logAudit.bind(this)
 
     return {
       async create(data: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>): Promise<Thing> {
@@ -46,6 +118,9 @@ export class EntityManager {
           payload: thing,
           source: thing.$id
         })
+
+        // Audit log
+        await logAudit('create', thing.$type, thing.$id, { name: (thing as any).name })
 
         return thing
       },
@@ -64,6 +139,9 @@ export class EntityManager {
           source: thing.$id
         })
 
+        // Audit log
+        await logAudit('update', thing.$type, thing.$id, { fields: Object.keys(data) })
+
         return thing
       },
 
@@ -78,6 +156,9 @@ export class EntityManager {
             payload: { $id: id, $type: thing.$type },
             source: id
           })
+
+          // Audit log
+          await logAudit('delete', thing.$type, id)
         }
       },
 
@@ -95,11 +176,12 @@ export class EntityManager {
   }
 
   /**
-   * Relationships store with event emission
+   * Relationships store with event emission and audit logging
    */
   get relationships(): RelationshipsStore {
     const baseStore = this._relationships
     const eventsStore = this._events
+    const logAudit = this.logAudit.bind(this)
 
     return {
       async add(rel: Omit<Relationship, '$createdAt'>): Promise<Relationship> {
@@ -110,6 +192,13 @@ export class EntityManager {
           type: 'Relationship.added',
           payload: relationship,
           source: relationship.subject
+        })
+
+        // Audit log
+        await logAudit('create', 'Relationship', undefined, {
+          subject: rel.subject,
+          predicate: rel.predicate,
+          object: rel.object
         })
 
         return relationship
@@ -123,6 +212,13 @@ export class EntityManager {
           type: 'Relationship.removed',
           payload: rel,
           source: rel.subject
+        })
+
+        // Audit log
+        await logAudit('delete', 'Relationship', undefined, {
+          subject: rel.subject,
+          predicate: rel.predicate,
+          object: rel.object
         })
       },
 
@@ -170,6 +266,18 @@ export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
 
     get relationships(): RelationshipsStore {
       return this.entityManager.relationships
+    }
+
+    get auditLogs(): AuditLogStore {
+      return this.entityManager.auditLogs
+    }
+
+    setAuditContext(context: AuditContext): void {
+      this.entityManager.setAuditContext(context)
+    }
+
+    getAuditContext(): AuditContext {
+      return this.entityManager.getAuditContext()
     }
 
     query(): QueryBuilder {

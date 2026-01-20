@@ -1,0 +1,24 @@
+{
+  "name": "realtime-chat",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object bindings
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_ROOM_DO",
+        "class_name": "ChatRoomDO"
+      }
+    ]
+  },
+
+  // Migrations for Durable Object classes
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChatRoomDO"]
+    }
+  ]
+}

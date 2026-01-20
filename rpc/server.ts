@@ -6,6 +6,7 @@ import {
   NotFoundError,
   ValidationError,
   InternalError,
+  AuthorizationError,
   serializeError,
   isRPCError,
 } from './errors'
@@ -15,6 +16,19 @@ export { CORRELATION_ID_HEADER }
 
 export interface RPCServerOptions {
   target: object
+  /** Optional whitelist of allowed method names or glob patterns */
+  whitelist?: string[]
+}
+
+/**
+ * Extended Hono app with updateWhitelist method
+ */
+export interface RPCServerApp extends ReturnType<typeof createHonoApp> {
+  updateWhitelist(whitelist: string[]): void
+}
+
+function createHonoApp() {
+  return new Hono()
 }
 
 export interface RPCRequest {
@@ -114,9 +128,68 @@ export function validateMethodPath(method: unknown): { valid: true; parts: strin
   return { valid: true, parts }
 }
 
-export function createServer(options: RPCServerOptions) {
+/**
+ * Convert a glob pattern to a regular expression
+ * Supports:
+ * - * matches any characters (zero or more)
+ * - Exact string matching
+ * - Case-sensitive matching
+ */
+function globToRegex(pattern: string): RegExp {
+  // Escape regex special characters except *
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  // Convert * to regex equivalent
+  const regexPattern = escaped.replace(/\*/g, '.*')
+  return new RegExp(`^${regexPattern}$`)
+}
+
+/**
+ * Check if a method name matches any pattern in the whitelist
+ * Case-sensitive matching
+ */
+function matchesWhitelist(methodPath: string, whitelist: string[]): boolean {
+  for (const pattern of whitelist) {
+    if (pattern === methodPath) {
+      // Exact match
+      return true
+    }
+    if (pattern.includes('*')) {
+      // Glob pattern match
+      const regex = globToRegex(pattern)
+      if (regex.test(methodPath)) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * Check if any part of the method path starts with underscore (private method convention)
+ * This includes checking all segments of nested paths like "users._internal"
+ */
+function hasPrivateSegment(methodPath: string): boolean {
+  const parts = methodPath.split('.')
+  return parts.some(part => part.startsWith('_'))
+}
+
+/**
+ * Create an authorization error for method not allowed
+ * Returns a generic message that doesn't reveal whether the method exists
+ */
+function createMethodNotAllowedError(): AuthorizationError {
+  return new AuthorizationError('Method not allowed')
+}
+
+export function createServer(options: RPCServerOptions): RPCServerApp {
   const { target } = options
-  const app = new Hono()
+  let currentWhitelist: string[] | undefined = options.whitelist
+  const app = new Hono() as RPCServerApp
+
+  // Add updateWhitelist method to the app
+  app.updateWhitelist = (newWhitelist: string[]) => {
+    currentWhitelist = newWhitelist
+  }
 
   // RPC endpoint
   app.post('/rpc', async (c) => {
@@ -140,37 +213,71 @@ export function createServer(options: RPCServerOptions) {
 
       const { parts } = validation
 
+      // Check for private methods (underscore prefix) - always blocked regardless of whitelist
+      // This must return the same error as whitelist rejection to avoid method enumeration
+      if (hasPrivateSegment(method)) {
+        const error = createMethodNotAllowedError()
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+      }
+
+      // Check whitelist if specified
+      // When whitelist is undefined, allow all methods (backward compatibility)
+      // When whitelist is an empty array, block all methods
+      if (currentWhitelist !== undefined) {
+        if (!matchesWhitelist(method, currentWhitelist)) {
+          // Return generic error - don't reveal whether method exists
+          const error = createMethodNotAllowedError()
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        }
+      }
+
       // Navigate nested paths (e.g., "users.create")
-      let current: any = target
+      // Using Record<string, unknown> to maintain type safety while allowing dynamic property access
+      let current: Record<string, unknown> = target as Record<string, unknown>
 
       for (let i = 0; i < parts.length - 1; i++) {
         // Only access own properties to prevent prototype chain traversal
         if (!Object.prototype.hasOwnProperty.call(current, parts[i])) {
+          // Return same error as whitelist rejection to prevent method enumeration
+          if (currentWhitelist !== undefined) {
+            const error = createMethodNotAllowedError()
+            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          }
           const error = NotFoundError.forResource('Method', method)
           return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
         }
-        current = current[parts[i]]
-        if (!current || typeof current !== 'object') {
+        const next = current[parts[i]]
+        if (!next || typeof next !== 'object') {
+          // Return same error as whitelist rejection to prevent method enumeration
+          if (currentWhitelist !== undefined) {
+            const error = createMethodNotAllowedError()
+            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          }
           const error = NotFoundError.forResource('Method', method)
           return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
         }
+        current = next as Record<string, unknown>
       }
 
       const methodName = parts[parts.length - 1]
 
-      // Only access own properties for the final method
-      if (!Object.prototype.hasOwnProperty.call(current, methodName)) {
-        const error = NotFoundError.forResource('Method', method)
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
-      }
-
-      const fn = current[methodName]
+      // For the final method, we need to check both own properties AND prototype methods
+      // (class instances have methods on the prototype). The forbidden names check above
+      // already blocks dangerous prototype properties like 'constructor', '__proto__', etc.
+      // Use 'in' operator to find methods on object or its prototype chain
+      const fn = (current as Record<string, unknown>)[methodName]
       if (typeof fn !== 'function') {
+        // Return same error as whitelist rejection to prevent method enumeration
+        if (currentWhitelist !== undefined) {
+          const error = createMethodNotAllowedError()
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        }
         const error = NotFoundError.forResource('Method', method)
         return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
       }
 
-      const result = await fn.apply(current, args)
+      // fn is now known to be a function, cast to callable type for apply()
+      const result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
       return c.json(result)
     } catch (error) {
       // If it's already an RPCError, serialize it with its proper status code

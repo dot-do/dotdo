@@ -344,4 +344,37 @@ export const coreMigrations: Migration[] = [
       DROP TABLE IF EXISTS relationships;
     `,
   }),
+  // Audit logging (do-xebw)
+  createMigration({
+    version: 4,
+    name: 'create_audit_logs_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY,
+        timestamp INTEGER NOT NULL,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        resource_id TEXT,
+        level TEXT NOT NULL,
+        details TEXT,
+        correlation_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_level ON audit_logs(level);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_correlation_id ON audit_logs(correlation_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_audit_logs_correlation_id;
+      DROP INDEX IF EXISTS idx_audit_logs_level;
+      DROP INDEX IF EXISTS idx_audit_logs_resource;
+      DROP INDEX IF EXISTS idx_audit_logs_action;
+      DROP INDEX IF EXISTS idx_audit_logs_actor;
+      DROP INDEX IF EXISTS idx_audit_logs_timestamp;
+      DROP TABLE IF EXISTS audit_logs;
+    `,
+  }),
 ]

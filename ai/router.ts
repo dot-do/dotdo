@@ -221,7 +221,11 @@ export class Router {
     // Sort by cost (cheapest first)
     eligibleModels.sort((a, b) => a.costPer1kTokens - b.costPer1kTokens)
 
-    return eligibleModels[0]
+    const cheapestModel = eligibleModels[0]
+    if (!cheapestModel) {
+      throw new Error('No model meets cost constraints')
+    }
+    return cheapestModel
   }
 
   /**
@@ -244,11 +248,14 @@ export class Router {
 
           this._markHealthy(provider)
 
-          return {
+          const executeResult: ExecuteResult = {
             ...result,
-            provider,
-            retries: totalRetries > 0 ? totalRetries : undefined
+            provider
           }
+          if (totalRetries > 0) {
+            executeResult.retries = totalRetries
+          }
+          return executeResult
         } catch (error) {
           totalRetries++
 
@@ -296,11 +303,14 @@ export class Router {
           // Mark provider as healthy
           this._markHealthy(provider)
 
-          return {
+          const executeResult: ExecuteResult = {
             ...result,
-            provider,
-            retries: totalRetries > 0 ? totalRetries : undefined
+            provider
           }
+          if (totalRetries > 0) {
+            executeResult.retries = totalRetries
+          }
+          return executeResult
         } catch (error) {
           lastError = error as Error
           totalRetries++
@@ -377,22 +387,31 @@ export class Router {
       throw new Error('No healthy providers available')
     }
 
+    let selectedProvider: Provider | undefined
+
     switch (this.config.loadBalancing) {
       case 'round-robin':
-        const provider = healthyProviders[this.currentProviderIndex % healthyProviders.length]
+        selectedProvider = healthyProviders[this.currentProviderIndex % healthyProviders.length]
         this.currentProviderIndex++
-        return provider
+        break
 
       case 'random':
-        return healthyProviders[Math.floor(Math.random() * healthyProviders.length)]
+        selectedProvider = healthyProviders[Math.floor(Math.random() * healthyProviders.length)]
+        break
 
       case 'least-loaded':
         // TODO: Implement least-loaded strategy
-        return healthyProviders[0]
+        selectedProvider = healthyProviders[0]
+        break
 
       default:
-        return healthyProviders[0]
+        selectedProvider = healthyProviders[0]
     }
+
+    if (!selectedProvider) {
+      throw new Error('No healthy providers available')
+    }
+    return selectedProvider
   }
 
   private _isRateLimitError(error: Error): boolean {

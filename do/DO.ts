@@ -4,7 +4,7 @@ import { cors } from 'hono/cors'
 import type { WorkflowContext } from './context'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
-import type { ThingsStore, EventsStore, RelationshipsStore, QueryBuilder } from '../db'
+import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
 
 export interface DOEnv {
   [key: string]: unknown
@@ -55,6 +55,26 @@ export class DO implements DurableObject {
 
   get relationships(): RelationshipsStore {
     return this.entityManager.relationships
+  }
+
+  // Audit logging accessors (do-xebw)
+  get auditLogs(): AuditLogStore {
+    return this.entityManager.auditLogs
+  }
+
+  /**
+   * Set the audit context for tracking who performed actions
+   * Call this at the start of request handling
+   */
+  setAuditContext(context: AuditContext): void {
+    this.entityManager.setAuditContext(context)
+  }
+
+  /**
+   * Get the current audit context
+   */
+  getAuditContext(): AuditContext {
+    return this.entityManager.getAuditContext()
   }
 
   query(): QueryBuilder {

@@ -1,6 +1,6 @@
 # @dotdo/mcp
 
-Model Context Protocol (MCP) server implementation for dotdo with three core tools.
+Model Context Protocol (MCP) server implementation for dotdo with core tools.
 
 ## Overview
 
@@ -10,7 +10,8 @@ This package provides an MCP server that enables AI assistants (like ChatGPT, Cl
 
 1. **search** - Query Things in the Digital Object store
 2. **fetch** - Fetch a single Thing by $id with enrichments (relationships, events)
-3. **do** - Execute code in a secure sandbox with $ context
+3. **do** - Execute code in a basic sandbox
+4. **sandbox** - Execute code in a secure sandbox with full $ context (send, try, do, on, every)
 
 ## Usage
 
@@ -200,14 +201,162 @@ npx tsx mcp/examples/search-example.ts
 - `POST /mcp/tools/call` - Execute a tool
 - `GET /` - Health check
 
+### Sandbox Tool
+
+Execute code in a secure sandbox with full $ WorkflowContext support.
+
+```typescript
+import { createMCPServer, createSandboxTool } from '@dotdo/mcp'
+import { createContext } from '@dotdo/do/context'
+
+// Create $ context
+const context = createContext(state, env)
+
+// Create MCP server
+const server = createMCPServer({ name: 'my-mcp', version: '1.0.0' })
+
+// Add sandbox tool
+const sandboxTool = createSandboxTool({ context })
+server.addTool(sandboxTool)
+
+// Execute code with $ context
+const request = new Request('http://localhost/mcp/tools/call', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: 'sandbox',
+    arguments: {
+      code: `
+        $.send({ type: 'User.created', payload: { id: 1 } })
+        await $.try(async () => 'single attempt')
+        await $.do(async () => 'with retries')
+        return 'workflow complete'
+      `,
+      timeout: 5000,
+      permissions: {
+        allowSend: true,
+        allowTry: true,
+        allowDo: true,
+        allowOn: true,
+        allowEvery: true
+      },
+      audit: true
+    }
+  })
+})
+
+const response = await server.fetch(request)
+```
+
+#### Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `code` | string | JavaScript/TypeScript code to execute | (required) |
+| `timeout` | number | Timeout in milliseconds (max: 30000) | 5000 |
+| `permissions` | object | Permission flags for $ context operations | all enabled |
+| `resourceLimits` | object | Resource limits (maxCodeSize, maxOutputSize) | defaults |
+| `audit` | boolean | Enable audit logging | false |
+
+#### Permissions
+
+Control what $ context operations are allowed:
+
+```typescript
+{
+  allowSend: boolean   // $.send() - fire-and-forget events
+  allowTry: boolean    // $.try() - single attempt operations
+  allowDo: boolean     // $.do() - durable operations with retries
+  allowOn: boolean     // $.on - event handlers
+  allowEvery: boolean  // $.every - scheduling DSL
+}
+```
+
+#### Response
+
+```typescript
+interface SandboxResult {
+  success: boolean
+  value?: unknown           // Return value from code
+  error?: string            // Error message if failed
+  duration: number          // Execution time in ms
+  logs?: Array<{ level: string; message: string; args: unknown[] }>
+  resourceUsage?: {
+    executionTime: number
+    codeSize: number
+    timedOut: boolean
+    outputTruncated: boolean
+  }
+  auditLog?: unknown[]      // $ operations log (if audit: true)
+}
+```
+
+#### Examples
+
+```typescript
+// Basic execution
+await sandboxTool.execute({ code: 'return 1 + 1' })
+
+// With $ context operations
+await sandboxTool.execute({
+  code: `
+    $.send({ type: 'Order.placed', payload: { orderId: 'ord-123' } })
+    return 'order event sent'
+  `
+})
+
+// Read-only mode (no event emission)
+await sandboxTool.execute({
+  code: 'return $.send ? "has send" : "no send"',
+  permissions: { allowSend: false }
+})
+
+// With audit logging
+await sandboxTool.execute({
+  code: `
+    $.send({ type: 'Audit.test' })
+    return 'logged'
+  `,
+  audit: true
+})
+// Result includes auditLog array with operation details
+```
+
+## Tool Discovery
+
+Tools can be registered dynamically and discovered via the ToolRegistry:
+
+```typescript
+import { ToolRegistry, ToolCategory, createSandboxTool } from '@dotdo/mcp'
+
+const registry = new ToolRegistry()
+
+// Register with category and capabilities
+const sandboxTool = createSandboxTool({ context })
+registry.register(sandboxTool, ToolCategory.COMPUTE, ['sandbox', 'isolation', 'workflow'])
+
+// Discover tools
+registry.list()                              // All tools
+registry.listByCategory(ToolCategory.DATA)   // Data tools only
+registry.listByCapability('sandbox')         // Tools with sandbox capability
+
+// Tool metadata (for MCP protocol)
+registry.listMetadata()                      // Tool definitions without execute
+
+// Events
+registry.on('tool:registered', (name) => console.log(`Tool registered: ${name}`))
+registry.on('tool:unregistered', (name) => console.log(`Tool removed: ${name}`))
+```
+
 ## Status
 
 See beads issues do-7rf.2.* for implementation progress.
 
 - [x] do-7rf.2.2 - search tool implementation
 - [x] do-7rf.2.3 - fetch tool implementation
-- [ ] do-7rf.2.4 - do tool implementation
-- [ ] do-7rf.2.5 - do tool security sandbox
+- [x] do-7rf.2.4 - do tool implementation
+- [x] do-7rf.2.5 - sandbox tool with security
+- [x] do-7rf.2.6 - tool discovery and registration
 
 ## Related
 

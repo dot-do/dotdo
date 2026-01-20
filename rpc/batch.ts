@@ -12,7 +12,8 @@ export interface BatchMapOptions<T, R> {
   onProgress?: (done: number, total: number) => void
 
   // Transform function applied to each result
-  transform?: (result: R) => any
+  // Returns unknown to allow type-safe transformation with explicit typing at call sites
+  transform?: (result: R) => unknown
 
   // Error handling strategy
   onError?: 'fail' | 'continue' | 'retry'
@@ -62,11 +63,13 @@ export function createBatchMapPromise<T, R>(
     // Process a single item with retry logic
     const processItem = async (item: T, index: number, attemptsLeft = retries + 1): Promise<void> => {
       try {
-        let result = await fn(item, index)
+        let result: R = await fn(item, index)
 
         // Apply transform if provided
+        // The transform function can change the type, but this is type-erased at runtime
+        // Callers using transform should ensure type compatibility
         if (transform) {
-          result = await transform(result)
+          result = (await transform(result)) as R
         }
 
         results[index] = result

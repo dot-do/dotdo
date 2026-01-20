@@ -1,0 +1,29 @@
+{
+  "name": "auth-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object bindings
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "USER_DO",
+        "class_name": "UserDO"
+      }
+    ]
+  },
+
+  // Migrations for Durable Object classes
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["UserDO"]
+    }
+  ],
+
+  // Environment variables (set via wrangler secret for production)
+  "vars": {
+    "JWT_SECRET": "your-development-secret-key-change-in-production"
+  }
+}

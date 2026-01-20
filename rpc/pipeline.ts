@@ -11,8 +11,8 @@ export interface PipelinePromise<T> extends Promise<T> {
   // Call a method on the result
   call<K extends keyof T>(
     method: K,
-    ...args: T[K] extends (...args: infer A) => any ? A : never[]
-  ): PipelinePromise<T[K] extends (...args: any[]) => infer R ? Awaited<R> : never>
+    ...args: T[K] extends (...args: infer A) => unknown ? A : never[]
+  ): PipelinePromise<T[K] extends (...args: unknown[]) => infer R ? Awaited<R> : never>
 }
 
 export function createPipeline<T>(promise: Promise<T>): PipelinePromise<T> {
@@ -39,7 +39,8 @@ export function createPipeline<T>(promise: Promise<T>): PipelinePromise<T> {
         if (typeof fn !== 'function') {
           throw new Error(`${String(method)} is not a function`)
         }
-        return (fn as Function).apply(result, args)
+        // Cast to callable function type for proper invocation
+        return (fn as (...callArgs: unknown[]) => unknown).apply(result, args)
       }))
     },
     enumerable: true
@@ -51,11 +52,14 @@ export function createPipeline<T>(promise: Promise<T>): PipelinePromise<T> {
 // Enhance client with pipeline support
 export function withPipeline<T extends object>(client: T): T {
   return new Proxy(client, {
-    get(target, prop: string) {
-      const value = (target as any)[prop]
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+      const value = (target as Record<string, unknown>)[prop]
       if (typeof value === 'function') {
         return (...args: unknown[]) => {
-          const promise = value.apply(target, args)
+          const promise = (value as (...callArgs: unknown[]) => Promise<unknown>).apply(target, args)
           return createPipeline(promise)
         }
       }

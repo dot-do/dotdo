@@ -1,0 +1,24 @@
+{
+  "name": "todo-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object bindings
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TODO_DO",
+        "class_name": "TodoDO"
+      }
+    ]
+  },
+
+  // Migrations for Durable Object classes
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TodoDO"]
+    }
+  ]
+}

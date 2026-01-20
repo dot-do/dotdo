@@ -272,7 +272,7 @@ export function createEveryProxy(
     return new Proxy({}, {
       get(_target, prop: string) {
         // Map plural forms to interval types
-        const intervalMap: Record<string, string> = {
+        const intervalMap: Record<string, ScheduleInterval['type']> = {
           seconds: 'second',
           minutes: 'minute',
           hours: 'hour',
@@ -287,7 +287,7 @@ export function createEveryProxy(
           return (handler: ScheduleHandler) => {
             const id = `schedule-${schedules.size}`
             schedules.set(id, {
-              interval: { type: intervalType as any, value, natural },
+              interval: { type: intervalType, value, natural },
               handler,
               source: handler.toString(),
             })

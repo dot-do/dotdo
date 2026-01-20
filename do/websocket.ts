@@ -71,18 +71,12 @@ export class WebSocketManager {
     // Initialize pong time
     this.lastPongTimes.set(server, Date.now())
 
-    // In Cloudflare Workers, Response supports status 101 and webSocket property
-    // Note: In test environment, we mock Response to support these
-    try {
-      return new Response(null, {
-        status: 101,
-        webSocket: client,
-      } as any)
-    } catch {
-      // Fallback for test environments that don't support WebSocket responses
-      const response = { status: 101, webSocket: client } as any
-      return response
-    }
+    // Cloudflare Workers ResponseInit supports status 101 and webSocket property
+    // See: @cloudflare/workers-types ResponseInit interface
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    })
   }
 
   /**

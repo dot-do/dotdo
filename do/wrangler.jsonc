@@ -6,5 +6,11 @@
     "bindings": [
       { "name": "DO", "class_name": "DO" }
     ]
-  }
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["DO"]
+    }
+  ]
 }

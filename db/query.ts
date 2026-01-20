@@ -1,7 +1,9 @@
 // Query Interface - fluent QueryBuilder for Things
 // Implements SQL WHERE clause generation to prevent client-side filtering (do-5k2l)
+// Implements JOIN support for relationship traversal (do-zt9t)
 
 import type { Thing, ThingsStore } from './things'
+import type { RelationshipsStore } from './relationships'
 
 // Supported SQL operators for WHERE clauses
 export type WhereOperator =
@@ -24,6 +26,40 @@ export interface WhereCondition {
   value: unknown
 }
 
+/**
+ * Join type enum
+ */
+export const JoinType = {
+  INNER: 'inner',
+  LEFT: 'left',
+  RIGHT: 'right',
+  FULL: 'full',
+} as const
+
+export type JoinTypeValue = (typeof JoinType)[keyof typeof JoinType]
+
+/**
+ * Join options for controlling joined entity behavior
+ */
+export interface JoinOptions {
+  limit?: number
+  select?: string[]
+}
+
+/**
+ * Join specification for relationship traversal
+ */
+export interface JoinSpec {
+  predicate: string
+  targetType: string
+  conditions?: Record<string, unknown>
+  fromJoin?: string  // For chaining joins from previous join result
+  alias?: string
+  options?: JoinOptions
+  joinType: JoinTypeValue
+  direction: 'forward' | 'inverse'  // forward = subject->object, inverse = object->subject
+}
+
 export interface QueryOptions {
   type?: string
   where?: Record<string, unknown>
@@ -33,6 +69,14 @@ export interface QueryOptions {
   limit?: number
   offset?: number
   select?: string[]
+  joins?: JoinSpec[]
+}
+
+/**
+ * Extended Thing type with joined data
+ */
+export interface ThingWithJoins extends Thing {
+  _joined?: Record<string, Thing[]>
 }
 
 export interface QueryBuilder {
@@ -45,9 +89,21 @@ export interface QueryBuilder {
   offset(n: number): QueryBuilder
   select(...fields: string[]): QueryBuilder
 
+  // JOIN methods for relationship traversal (forward direction: subject -> object)
+  join(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
+  leftJoin(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
+  rightJoin(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
+  fullJoin(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
+
+  // JOIN methods for inverse relationship traversal (object -> subject)
+  joinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
+  leftJoinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
+  rightJoinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
+  fullJoinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
+
   // Execute
-  execute(): Promise<Thing[]>
-  first(): Promise<Thing | null>
+  execute(): Promise<ThingWithJoins[]>
+  first(): Promise<ThingWithJoins | null>
   count(): Promise<number>
 
   // For SQL stores - get the generated query info
@@ -113,9 +169,172 @@ function matchesCondition(thing: Thing, condition: WhereCondition): boolean {
   }
 }
 
+/**
+ * Create a query builder without JOIN support (backwards compatible)
+ */
 export function createQuery(store: ThingsStore): QueryBuilder {
+  return createQueryWithJoins(store, undefined)
+}
+
+/**
+ * Create a query builder with full JOIN support
+ * @param store - The things store to query
+ * @param relationshipsStore - Optional relationships store for JOIN operations
+ */
+export function createQueryWithJoins(
+  store: ThingsStore,
+  relationshipsStore: RelationshipsStore | undefined
+): QueryBuilder {
   const options: QueryOptions = {
-    whereConditions: []
+    whereConditions: [],
+    joins: []
+  }
+
+  /**
+   * Helper to add a join specification
+   */
+  function addJoin(
+    predicate: string,
+    targetType: string,
+    joinType: JoinTypeValue,
+    direction: 'forward' | 'inverse',
+    conditions?: Record<string, unknown>,
+    fromJoin?: string,
+    alias?: string,
+    joinOptions?: JoinOptions
+  ): void {
+    options.joins!.push({
+      predicate,
+      targetType,
+      conditions,
+      fromJoin,
+      alias,
+      options: joinOptions,
+      joinType,
+      direction
+    })
+  }
+
+  /**
+   * Check if a thing matches the given conditions
+   */
+  function matchesJoinConditions(thing: Thing, conditions?: Record<string, unknown>): boolean {
+    if (!conditions) return true
+    for (const [field, value] of Object.entries(conditions)) {
+      if (thing[field] !== value) return false
+    }
+    return true
+  }
+
+  /**
+   * Apply projection to a thing based on select options
+   */
+  function applyProjection(thing: Thing, selectFields?: string[]): Thing {
+    if (!selectFields || selectFields.length === 0) return thing
+    const fields = ['$id', '$type', ...selectFields]
+    const projected: Record<string, unknown> = {}
+    for (const field of fields) {
+      if (field in thing) {
+        projected[field] = thing[field]
+      }
+    }
+    return projected as Thing
+  }
+
+  /**
+   * Execute joins for a single source thing
+   */
+  async function executeJoinsForThing(
+    sourceThing: ThingWithJoins,
+    joins: JoinSpec[],
+    processedJoins: Map<string, ThingWithJoins[]>
+  ): Promise<void> {
+    if (!relationshipsStore) return
+
+    for (const join of joins) {
+      const { predicate, targetType, conditions, fromJoin, alias, options: joinOptions, direction } = join
+      const joinKey = alias || (direction === 'forward' ? predicate : `${predicate}By`)
+
+      let sourceIds: string[]
+
+      if (fromJoin) {
+        // Chain from a previous join result
+        const previousJoinedThings = sourceThing._joined?.[fromJoin] || []
+        sourceIds = previousJoinedThings.map(t => t.$id)
+      } else {
+        sourceIds = [sourceThing.$id]
+      }
+
+      const joinedThings: Thing[] = []
+
+      for (const sourceId of sourceIds) {
+        let relatedIds: string[]
+
+        if (direction === 'forward') {
+          // subject -> object: find things where source is subject
+          relatedIds = await relationshipsStore.getRelated(sourceId, predicate)
+        } else {
+          // object -> subject: find things where source is object
+          relatedIds = await relationshipsStore.getRelatedTo(sourceId, predicate)
+        }
+
+        // Fetch the related things
+        for (const relatedId of relatedIds) {
+          const relatedThing = await store.get(relatedId)
+          if (!relatedThing) continue
+
+          // Check target type
+          if (relatedThing.$type !== targetType) continue
+
+          // Check conditions
+          if (!matchesJoinConditions(relatedThing, conditions)) continue
+
+          // Apply projection from join options
+          const projected = joinOptions?.select
+            ? applyProjection(relatedThing, joinOptions.select)
+            : relatedThing
+
+          joinedThings.push(projected)
+
+          // Apply limit if specified
+          if (joinOptions?.limit && joinedThings.length >= joinOptions.limit) {
+            break
+          }
+        }
+
+        // Apply limit across all source IDs
+        if (joinOptions?.limit && joinedThings.length >= joinOptions.limit) {
+          break
+        }
+      }
+
+      // Initialize _joined if needed
+      if (!sourceThing._joined) {
+        sourceThing._joined = {}
+      }
+
+      sourceThing._joined[joinKey] = joinedThings
+
+      // For chained joins, we need to process nested joins on the joined things
+      if (fromJoin) {
+        const previousJoinedThings = sourceThing._joined[fromJoin] || []
+        for (const prevThing of previousJoinedThings) {
+          const prevThingWithJoins = prevThing as ThingWithJoins
+          if (!prevThingWithJoins._joined) {
+            prevThingWithJoins._joined = {}
+          }
+          // Find things that belong to this previous thing
+          const thingsForPrev = joinedThings.filter(jt => {
+            // For forward joins from previous: the previous thing's ID should be the subject
+            // For inverse joins from previous: the previous thing's ID should be the object
+            return true // All joined things are associated with the source chain
+          })
+          prevThingWithJoins._joined[joinKey] = thingsForPrev
+        }
+      }
+
+      processedJoins.set(joinKey, joinedThings as ThingWithJoins[])
+    }
   }
 
   const builder: QueryBuilder = {
@@ -128,19 +347,16 @@ export function createQuery(store: ThingsStore): QueryBuilder {
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
         options.where = { ...options.where, [fieldOrConditions]: value }
-        // Also add as a whereCondition with '=' operator for unified handling
         options.whereConditions!.push({
           field: fieldOrConditions,
           operator: '=',
           value
         })
       } else {
-        // Validate all field names in the object
         for (const field of Object.keys(fieldOrConditions)) {
           validateFieldName(field)
         }
         options.where = { ...options.where, ...fieldOrConditions }
-        // Add each as a whereCondition
         for (const [field, val] of Object.entries(fieldOrConditions)) {
           options.whereConditions!.push({
             field,
@@ -183,83 +399,243 @@ export function createQuery(store: ThingsStore): QueryBuilder {
       return builder
     },
 
+    // Forward JOIN methods (subject -> object)
+    join(predicate, targetType, conditions, fromJoin, alias, joinOptions) {
+      addJoin(predicate, targetType, JoinType.INNER, 'forward', conditions, fromJoin, alias, joinOptions)
+      return builder
+    },
+
+    leftJoin(predicate, targetType, conditions, fromJoin, alias, joinOptions) {
+      addJoin(predicate, targetType, JoinType.LEFT, 'forward', conditions, fromJoin, alias, joinOptions)
+      return builder
+    },
+
+    rightJoin(predicate, targetType, conditions, fromJoin, alias, joinOptions) {
+      addJoin(predicate, targetType, JoinType.RIGHT, 'forward', conditions, fromJoin, alias, joinOptions)
+      return builder
+    },
+
+    fullJoin(predicate, targetType, conditions, fromJoin, alias, joinOptions) {
+      addJoin(predicate, targetType, JoinType.FULL, 'forward', conditions, fromJoin, alias, joinOptions)
+      return builder
+    },
+
+    // Inverse JOIN methods (object -> subject)
+    joinFrom(predicate, sourceType, conditions, alias, joinOptions) {
+      addJoin(predicate, sourceType, JoinType.INNER, 'inverse', conditions, undefined, alias, joinOptions)
+      return builder
+    },
+
+    leftJoinFrom(predicate, sourceType, conditions, alias, joinOptions) {
+      addJoin(predicate, sourceType, JoinType.LEFT, 'inverse', conditions, undefined, alias, joinOptions)
+      return builder
+    },
+
+    rightJoinFrom(predicate, sourceType, conditions, alias, joinOptions) {
+      addJoin(predicate, sourceType, JoinType.RIGHT, 'inverse', conditions, undefined, alias, joinOptions)
+      return builder
+    },
+
+    fullJoinFrom(predicate, sourceType, conditions, alias, joinOptions) {
+      addJoin(predicate, sourceType, JoinType.FULL, 'inverse', conditions, undefined, alias, joinOptions)
+      return builder
+    },
+
     getQueryInfo() {
       return { options }
     },
 
-    async execute(): Promise<Thing[]> {
+    async execute(): Promise<ThingWithJoins[]> {
       // Check if the store supports SQL-native queries
-      // The SQLite store will implement queryWithConditions
       const sqlStore = store as ThingsStore & {
         queryWithConditions?: (options: QueryOptions) => Promise<Thing[]>
       }
 
+      let results: Thing[]
+
       if (sqlStore.queryWithConditions) {
-        // Use SQL-native filtering - much more efficient!
-        return sqlStore.queryWithConditions(options)
-      }
-
-      // Fallback: In-memory filtering (for non-SQL stores or testing)
-      // Get all things of the type
-      let results = await store.list({
-        type: options.type,
-        limit: 1000 // Get more for filtering
-      })
-
-      // Apply whereConditions (unified filter handling)
-      if (options.whereConditions && options.whereConditions.length > 0) {
-        results = results.filter(thing => {
-          return options.whereConditions!.every(condition =>
-            matchesCondition(thing, condition)
-          )
+        results = await sqlStore.queryWithConditions(options)
+      } else {
+        // Fallback: In-memory filtering
+        results = await store.list({
+          type: options.type,
+          limit: 1000
         })
+
+        // Apply whereConditions
+        if (options.whereConditions && options.whereConditions.length > 0) {
+          results = results.filter(thing => {
+            return options.whereConditions!.every(condition =>
+              matchesCondition(thing, condition)
+            )
+          })
+        }
+
+        // Apply ordering
+        if (options.orderBy) {
+          const field = options.orderBy
+          const multiplier = options.order === 'asc' ? 1 : -1
+          results.sort((a, b) => {
+            const aVal = a[field] as string | number | boolean | null | undefined
+            const bVal = b[field] as string | number | boolean | null | undefined
+            if (aVal == null && bVal == null) return 0
+            if (aVal == null) return 1 * multiplier
+            if (bVal == null) return -1 * multiplier
+            if (aVal < bVal) return -1 * multiplier
+            if (aVal > bVal) return 1 * multiplier
+            return 0
+          })
+        }
+
+        // Apply pagination
+        const offset = options.offset || 0
+        const limit = options.limit || 100
+        results = results.slice(offset, offset + limit)
+
+        // Apply projection
+        if (options.select && options.select.length > 0) {
+          const fields = ['$id', '$type', ...options.select]
+          results = results.map(thing => {
+            const projected: Record<string, unknown> = {}
+            for (const field of fields) {
+              if (field in thing) {
+                projected[field] = thing[field]
+              }
+            }
+            return projected as Thing
+          })
+        }
       }
 
-      // Apply ordering
-      if (options.orderBy) {
-        const field = options.orderBy
-        const multiplier = options.order === 'asc' ? 1 : -1
-        results.sort((a, b) => {
-          const aVal = a[field] as string | number | boolean | null | undefined
-          const bVal = b[field] as string | number | boolean | null | undefined
-          if (aVal == null && bVal == null) return 0
-          if (aVal == null) return 1 * multiplier
-          if (bVal == null) return -1 * multiplier
-          if (aVal < bVal) return -1 * multiplier
-          if (aVal > bVal) return 1 * multiplier
-          return 0
-        })
-      }
+      // Handle JOINs if we have a relationships store and joins are specified
+      if (relationshipsStore && options.joins && options.joins.length > 0) {
+        const resultsWithJoins: ThingWithJoins[] = results.map(r => ({ ...r }))
 
-      // Apply pagination
-      const offset = options.offset || 0
-      const limit = options.limit || 100
-      results = results.slice(offset, offset + limit)
+        // Separate joins by type for different handling
+        const innerJoins = options.joins.filter(j => j.joinType === JoinType.INNER)
+        const leftJoins = options.joins.filter(j => j.joinType === JoinType.LEFT)
+        const rightJoins = options.joins.filter(j => j.joinType === JoinType.RIGHT)
+        const fullJoins = options.joins.filter(j => j.joinType === JoinType.FULL)
 
-      // Apply projection
-      if (options.select && options.select.length > 0) {
-        const fields = ['$id', '$type', ...options.select]
-        results = results.map(thing => {
-          const projected: Record<string, unknown> = {}
-          for (const field of fields) {
-            if (field in thing) {
-              projected[field] = thing[field]
+        // Process LEFT JOINs: include all source entities
+        for (const thing of resultsWithJoins) {
+          const processedJoins = new Map<string, ThingWithJoins[]>()
+
+          // Execute LEFT joins first (they preserve all source entities)
+          await executeJoinsForThing(thing, leftJoins, processedJoins)
+
+          // Execute FULL joins (preserve all on both sides)
+          await executeJoinsForThing(thing, fullJoins, processedJoins)
+
+          // Execute INNER joins
+          await executeJoinsForThing(thing, innerJoins, processedJoins)
+
+          // Execute RIGHT joins
+          await executeJoinsForThing(thing, rightJoins, processedJoins)
+        }
+
+        // Filter results based on INNER JOIN requirements
+        let finalResults = resultsWithJoins
+        if (innerJoins.length > 0) {
+          finalResults = resultsWithJoins.filter(thing => {
+            // For INNER JOINs, thing must have at least one match for each join
+            for (const join of innerJoins) {
+              const joinKey = join.alias || (join.direction === 'forward' ? join.predicate : `${join.predicate}By`)
+              const joinedThings = thing._joined?.[joinKey] || []
+              if (joinedThings.length === 0) {
+                return false
+              }
+            }
+            return true
+          })
+        }
+
+        // Handle RIGHT JOINs: include unmatched target entities
+        if (rightJoins.length > 0) {
+          for (const rightJoin of rightJoins) {
+            // Find all target entities that weren't matched
+            const targetThings = await store.list({ type: rightJoin.targetType, limit: 1000 })
+            const matchedTargetIds = new Set<string>()
+
+            // Collect all matched target IDs from the current results
+            for (const thing of finalResults) {
+              const joinKey = rightJoin.alias || (rightJoin.direction === 'forward' ? rightJoin.predicate : `${rightJoin.predicate}By`)
+              const joined = thing._joined?.[joinKey] || []
+              for (const jt of joined) {
+                matchedTargetIds.add(jt.$id)
+              }
+            }
+
+            // Add unmatched targets with null source
+            for (const targetThing of targetThings) {
+              if (!matchedTargetIds.has(targetThing.$id)) {
+                if (matchesJoinConditions(targetThing, rightJoin.conditions)) {
+                  // Create a "null" source entry with the unmatched target
+                  const joinKey = rightJoin.alias || (rightJoin.direction === 'forward' ? rightJoin.predicate : `${rightJoin.predicate}By`)
+                  const nullEntry: ThingWithJoins = {
+                    $id: '',
+                    $type: options.type || '',
+                    $createdAt: 0,
+                    $updatedAt: 0,
+                    _joined: {
+                      [joinKey]: [targetThing]
+                    }
+                  }
+                  finalResults.push(nullEntry)
+                }
+              }
             }
           }
-          return projected as Thing
-        })
+        }
+
+        // Handle FULL OUTER JOINs: include unmatched on both sides
+        if (fullJoins.length > 0) {
+          for (const fullJoin of fullJoins) {
+            const targetThings = await store.list({ type: fullJoin.targetType, limit: 1000 })
+            const matchedTargetIds = new Set<string>()
+
+            // Collect all matched target IDs
+            for (const thing of finalResults) {
+              const joinKey = fullJoin.alias || (fullJoin.direction === 'forward' ? fullJoin.predicate : `${fullJoin.predicate}By`)
+              const joined = thing._joined?.[joinKey] || []
+              for (const jt of joined) {
+                matchedTargetIds.add(jt.$id)
+              }
+            }
+
+            // Add unmatched targets
+            for (const targetThing of targetThings) {
+              if (!matchedTargetIds.has(targetThing.$id)) {
+                if (matchesJoinConditions(targetThing, fullJoin.conditions)) {
+                  const joinKey = fullJoin.alias || (fullJoin.direction === 'forward' ? fullJoin.predicate : `${fullJoin.predicate}By`)
+                  const nullEntry: ThingWithJoins = {
+                    $id: '',
+                    $type: options.type || '',
+                    $createdAt: 0,
+                    $updatedAt: 0,
+                    _joined: {
+                      [joinKey]: [targetThing]
+                    }
+                  }
+                  finalResults.push(nullEntry)
+                }
+              }
+            }
+          }
+        }
+
+        return finalResults
       }
 
       return results
     },
 
-    async first(): Promise<Thing | null> {
+    async first(): Promise<ThingWithJoins | null> {
       const results = await builder.limit(1).execute()
       return results[0] || null
     },
 
     async count(): Promise<number> {
-      // Check if the store supports SQL-native count
       const sqlStore = store as ThingsStore & {
         countWithConditions?: (options: QueryOptions) => Promise<number>
       }
@@ -268,7 +644,6 @@ export function createQuery(store: ThingsStore): QueryBuilder {
         return sqlStore.countWithConditions(options)
       }
 
-      // Fallback: For accurate count, we need to execute without limit
       const originalLimit = options.limit
       options.limit = 10000
       const results = await builder.execute()
@@ -280,9 +655,11 @@ export function createQuery(store: ThingsStore): QueryBuilder {
   return builder
 }
 
-// Convenience function
-export function query(store: ThingsStore): QueryBuilder {
-  return createQuery(store)
+// Convenience function overloads
+export function query(store: ThingsStore): QueryBuilder
+export function query(store: ThingsStore, relationships: RelationshipsStore): QueryBuilder
+export function query(store: ThingsStore, relationships?: RelationshipsStore): QueryBuilder {
+  return createQueryWithJoins(store, relationships)
 }
 
 // ============================================================

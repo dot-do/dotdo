@@ -8,7 +8,11 @@
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "turbo typecheck",
-    "lint": "turbo lint"
+    "lint": "turbo lint",
+    "benchmark": "vitest run --config tests/benchmarks/vitest.config.ts",
+    "benchmark:compare": "npx tsx tests/benchmarks/cli.ts compare",
+    "benchmark:update": "npx tsx tests/benchmarks/cli.ts update",
+    "benchmark:report": "npx tsx tests/benchmarks/cli.ts report"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",
