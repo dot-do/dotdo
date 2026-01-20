@@ -509,6 +509,36 @@ npx vitest --project=do           # DO tests (miniflare)
 
 **Never mock stores or DO state**—use real miniflare instances.
 
+### Benchmarks
+
+Performance regression tests are run in CI to prevent performance degradation:
+
+```bash
+npm run benchmark                # Run all benchmarks
+npm run benchmark:compare        # Compare with baseline
+npm run benchmark:compare -- --ci  # Fail on critical regressions
+npm run benchmark:update         # Update baseline with current results
+npm run benchmark:report         # Generate detailed report
+```
+
+**Benchmark suites:**
+- `rpc-latency.bench.ts` - RPC call latency (simple, complex args, concurrent, large responses)
+- `storage.bench.ts` - Storage operations (read, write, batch, large values, list)
+- `do-instantiation.bench.ts` - DO instantiation time (base, subclass, with routes)
+- `websocket.bench.ts` - WebSocket throughput (serialization, broadcast, connection tracking)
+
+**CI Integration:**
+- Benchmarks run automatically on every PR to main
+- Results are compared against the stored baseline
+- Critical regressions (>10-20% depending on benchmark) fail the CI build
+- Baseline is auto-updated when changes merge to main
+
+**Custom thresholds:**
+```bash
+# Set custom regression threshold for a specific benchmark
+npx tsx tests/benchmarks/cli.ts threshold rpc-call-latency 15
+```
+
 ---
 
 ## Examples
