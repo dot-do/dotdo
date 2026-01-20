@@ -1,11 +1,11 @@
 // RPC Client - connects to Workers/DOs
 // Implements typed proxy for remote method invocation via fetch-based RPC
 // Supports pluggable transports for different communication backends
+// Includes Cap'n Proto-style promise pipelining for efficient RPC chaining
 
 import { SerializedError, deserializeError, isRPCError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
-import { FetchTransport } from './transport/fetch'
-import { StubTransport } from './transport/stub'
+import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 
 /**
  * Generate a unique correlation ID for request tracing
@@ -450,6 +450,270 @@ export function createSecureDOStub<T extends object>(
             }
           }
           // Fallback to generic error
+          throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+        }
+
+        return response.json()
+      }
+    }
+  })
+}
+
+// ============================================================================
+// Promise Pipelining Support
+// ============================================================================
+
+/**
+ * Options for creating a client with pipelining support
+ */
+export interface PipelineClientOptions {
+  /** Base URL of the RPC endpoint */
+  url: string
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number
+  /** Optional correlation ID to use for all requests */
+  correlationId?: string
+}
+
+/**
+ * Client with pipeline support - allows chaining RPC calls in a single round trip
+ */
+export type ClientWithPipeline<T extends object> = T & {
+  /**
+   * Start a pipeline from a method call
+   * Enables Cap'n Proto-style promise pipelining where chained calls are batched
+   *
+   * @example
+   * ```typescript
+   * // Instead of 2 round trips:
+   * const user = await client.getUser('123')
+   * const profile = await user.getProfile()
+   *
+   * // Use 1 round trip with pipelining:
+   * const profile = await client.pipeline('getUser', '123').call('getProfile')
+   * ```
+   */
+  pipeline<K extends keyof T>(
+    method: K,
+    ...args: T[K] extends (...a: infer A) => unknown ? A : never[]
+  ): PipelineBuilder<T[K] extends (...a: unknown[]) => infer R ? Awaited<R> : never>
+}
+
+/**
+ * Creates a typed proxy client with Cap'n Proto-style promise pipelining.
+ *
+ * This client extends the standard RPC client with a `pipeline()` method
+ * that enables chaining multiple RPC calls into a single network round trip.
+ *
+ * @example
+ * ```typescript
+ * interface UserAPI {
+ *   getUser(id: string): Promise<User>
+ * }
+ *
+ * interface User {
+ *   getProfile(): Promise<Profile>
+ *   getOrders(): Promise<Order[]>
+ * }
+ *
+ * const client = createClientWithPipeline<UserAPI>({ url: 'https://api.example.com' })
+ *
+ * // Traditional approach (2 round trips):
+ * const user = await client.getUser('123')
+ * // user is a plain object, no methods
+ *
+ * // With pipelining (1 round trip):
+ * const profile = await client.pipeline('getUser', '123')
+ *   .call('getProfile')
+ *
+ * // Chain multiple operations:
+ * const avatarUrl = await client.pipeline('getUser', '123')
+ *   .call('getProfile')
+ *   .get('avatar')
+ *   .get('url')
+ * ```
+ *
+ * @param options - Configuration options
+ * @returns A typed proxy with pipeline support
+ */
+export function createClientWithPipeline<T extends object>(
+  options: PipelineClientOptions
+): ClientWithPipeline<T> {
+  const { url, timeout = 30000, correlationId } = options
+
+  return new Proxy({} as ClientWithPipeline<T>, {
+    get(_, prop: string | symbol) {
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+
+      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+        return undefined
+      }
+
+      // Special pipeline method
+      if (prop === 'pipeline') {
+        return <K extends keyof T>(method: K, ...args: unknown[]) => {
+          const options: { correlationId?: string; timeout?: number } = { timeout }
+          if (correlationId) {
+            options.correlationId = correlationId
+          }
+          return new PipelineBuilder(
+            url,
+            String(method),
+            args,
+            options
+          )
+        }
+      }
+
+      // Regular method - create method invoker
+      return createMethodInvoker(url, timeout, [prop], correlationId)
+    }
+  })
+}
+
+/**
+ * Options for creating a DO stub with pipeline support
+ */
+export interface DOStubWithPipelineOptions extends DOStubOptions {
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number
+}
+
+/**
+ * DO stub with pipeline support
+ */
+export type DOStubWithPipeline<T extends object> = T & {
+  /**
+   * Start a pipeline from a method call on the Durable Object
+   */
+  pipeline<K extends keyof T>(
+    method: K,
+    ...args: T[K] extends (...a: infer A) => unknown ? A : never[]
+  ): PipelineBuilder<T[K] extends (...a: unknown[]) => infer R ? Awaited<R> : never>
+}
+
+/**
+ * Creates a typed proxy for a Durable Object stub with pipeline support.
+ *
+ * This enables Cap'n Proto-style promise pipelining for DO-to-DO calls,
+ * reducing latency by batching chained operations into single requests.
+ *
+ * @example
+ * ```typescript
+ * interface CustomerDO {
+ *   getAccount(): Promise<Account>
+ * }
+ *
+ * interface Account {
+ *   getBalance(): Promise<number>
+ *   getTransactions(): Promise<Transaction[]>
+ * }
+ *
+ * const customer = createDOStubWithPipeline<CustomerDO>(env.CUSTOMER, 'cust-123')
+ *
+ * // With pipelining (1 round trip):
+ * const balance = await customer.pipeline('getAccount').call('getBalance')
+ * ```
+ *
+ * @param binding - The DurableObjectNamespace binding
+ * @param id - Either a string name or a DurableObjectId
+ * @param options - Optional configuration
+ * @returns A typed proxy with pipeline support
+ */
+export function createDOStubWithPipeline<T extends object>(
+  binding: DurableObjectNamespace,
+  id: string | DurableObjectId,
+  options?: DOStubWithPipelineOptions
+): DOStubWithPipeline<T> {
+  const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
+  const stub = binding.get(doId)
+  const baseCorrelationId = options?.correlationId
+  const timeout = options?.timeout ?? 30000
+
+  // Create a transport-like interface for the DO stub
+  const doTransport: Transport = {
+    async send<R>(message: RPCMessage): Promise<RPCResponse<R>> {
+      const correlationId = message.correlationId || generateCorrelationId()
+
+      const response = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [CORRELATION_ID_HEADER]: correlationId,
+        },
+        body: JSON.stringify({ method: message.method, args: message.args }),
+      })
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({})) as SerializedError
+        return {
+          error: errorBody.code ? errorBody : {
+            code: 'INTERNAL_ERROR',
+            message: `DO RPC error: ${response.status}`,
+            type: 'InternalError',
+          },
+          correlationId,
+        }
+      }
+
+      const result = await response.json()
+      return { result: result as R, correlationId }
+    }
+  }
+
+  return new Proxy({} as DOStubWithPipeline<T>, {
+    get(_, prop: string | symbol) {
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+
+      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+        return undefined
+      }
+
+      // Special pipeline method
+      if (prop === 'pipeline') {
+        return <K extends keyof T>(method: K, ...args: unknown[]) => {
+          const options: { correlationId?: string; timeout?: number } = { timeout }
+          if (baseCorrelationId) {
+            options.correlationId = baseCorrelationId
+          }
+          return new PipelineBuilder(
+            doTransport,
+            String(method),
+            args,
+            options
+          )
+        }
+      }
+
+      // Regular method
+      return async (...args: unknown[]) => {
+        const correlationId = baseCorrelationId || generateCorrelationId()
+
+        const response = await stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          },
+          body: JSON.stringify({ method: prop, args }),
+        })
+
+        if (!response.ok) {
+          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+          try {
+            const errorBody = await response.json() as SerializedError & { correlationId?: string }
+            if (errorBody.code && errorBody.message) {
+              throw deserializeError(errorBody)
+            }
+          } catch (e) {
+            if (isRPCError(e)) {
+              throw e
+            }
+          }
           throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
         }
 

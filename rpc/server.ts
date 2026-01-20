@@ -1,8 +1,8 @@
 // RPC Server - exposes methods via HTTP/RPC
+// Includes Cap'n Proto-style promise pipelining support
 import { Hono } from 'hono'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
 import {
-  RPCError,
   NotFoundError,
   ValidationError,
   InternalError,
@@ -13,8 +13,14 @@ import {
 import {
   validateArgs,
   getMethodSchema,
+  isValidRPCMethod,
   type MethodSchemaRegistry,
 } from './validation'
+import {
+  executePipeline,
+  type PipelineRequest,
+  type PipelineExecutorOptions,
+} from './pipeline'
 
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
@@ -25,6 +31,10 @@ export interface RPCServerOptions {
   whitelist?: string[]
   /** Optional schema registry for argument validation */
   schemas?: MethodSchemaRegistry
+  /** Options for pipeline execution */
+  pipeline?: PipelineExecutorOptions
+  /** Enable pipeline support (default: true) */
+  enablePipeline?: boolean
 }
 
 /**
@@ -190,7 +200,7 @@ function createMethodNotAllowedError(): AuthorizationError {
 }
 
 export function createServer(options: RPCServerOptions): RPCServerApp {
-  const { target } = options
+  const { target, enablePipeline = true, pipeline: pipelineOptions } = options
   let currentWhitelist: string[] | undefined = options.whitelist
   let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
@@ -203,6 +213,66 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   // Add updateSchemas method to the app
   app.updateSchemas = (newSchemas: MethodSchemaRegistry) => {
     currentSchemas = newSchemas
+  }
+
+  // Pipeline endpoint for Cap'n Proto-style promise pipelining
+  if (enablePipeline) {
+    app.post('/rpc/pipeline', async (c) => {
+      const incomingCorrelationId = c.req.header(CORRELATION_ID_HEADER)
+      const correlationId = incomingCorrelationId || generateCorrelationId()
+      c.header(CORRELATION_ID_HEADER, correlationId)
+
+      try {
+        const request = await c.req.json<PipelineRequest>()
+
+        // Validate initial method path
+        const validation = validateMethodPath(request.method)
+        if (!validation.valid) {
+          const error = new ValidationError(validation.error, { method: request.method })
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        }
+
+        // Check for private methods in initial call
+        if (hasPrivateSegment(request.method)) {
+          const error = createMethodNotAllowedError()
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        }
+
+        // Check whitelist for initial method
+        if (currentWhitelist !== undefined) {
+          if (!matchesWhitelist(request.method, currentWhitelist)) {
+            const error = createMethodNotAllowedError()
+            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          }
+        }
+
+        // Execute the pipeline
+        const response = await executePipeline(target, { ...request, correlationId }, pipelineOptions)
+
+        if (response.error) {
+          const error = new InternalError(
+            `Pipeline step ${response.error.stepIndex} failed: ${response.error.message}`,
+            { stepIndex: response.error.stepIndex, code: response.error.code }
+          )
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId, ...response.error }, error.httpStatus)
+        }
+
+        return c.json(response)
+      } catch (error) {
+        if (isRPCError(error)) {
+          return c.json(
+            { ...serializeError(error, { includeStack: false }), correlationId },
+            error.httpStatus
+          )
+        }
+
+        const wrappedError = InternalError.wrap(error)
+        return c.json(
+          { ...serializeError(wrappedError, { includeStack: false }), correlationId },
+          wrappedError.httpStatus
+        )
+      }
+    })
   }
 
   // RPC endpoint
