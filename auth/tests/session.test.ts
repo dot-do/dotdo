@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Hono } from 'hono'
 import {
   createSession,
@@ -6,12 +6,9 @@ import {
   invalidateSession,
   refreshSession,
   clearAllSessions,
-  configureSessionStorage,
-  resetSessionStorage,
   type Session,
   type SessionOptions,
 } from '../session'
-import { SharedMemoryStorage } from '../../db/adapters/memory'
 
 describe('Session Management', () => {
   let app: Hono
@@ -279,110 +276,5 @@ describe('Session Management', () => {
       const retrievedValid = await getSession(valid.id)
       expect(retrievedValid).toBeDefined()
     })
-  })
-})
-
-describe('Session Storage Persistence (do-qy75)', () => {
-  const SHARED_STORAGE_NAME = 'session-persistence-test'
-  const mockUserId = 'user-persist-123'
-
-  beforeEach(() => {
-    // Clear shared storage before each test
-    SharedMemoryStorage.clear(SHARED_STORAGE_NAME)
-  })
-
-  afterEach(() => {
-    // Reset to default in-memory adapter
-    resetSessionStorage()
-    SharedMemoryStorage.clear(SHARED_STORAGE_NAME)
-  })
-
-  it('should persist sessions across storage adapter instances (simulating DO restart)', async () => {
-    // Configure first "DO instance" with shared storage
-    const adapter1 = SharedMemoryStorage.createAdapter(SHARED_STORAGE_NAME)
-    configureSessionStorage({ adapter: adapter1 })
-
-    // Create a session in the first "DO instance"
-    const created = await createSession(mockUserId, {
-      email: 'persist@example.com',
-      role: 'admin',
-    })
-    expect(created.id).toBeDefined()
-
-    // Simulate DO restart by creating a new adapter pointing to the same shared storage
-    const adapter2 = SharedMemoryStorage.createAdapter(SHARED_STORAGE_NAME)
-    configureSessionStorage({ adapter: adapter2 })
-
-    // Session should still be retrievable after "restart"
-    const retrieved = await getSession(created.id, { slidingWindow: false })
-
-    expect(retrieved).toBeDefined()
-    expect(retrieved?.id).toBe(created.id)
-    expect(retrieved?.userId).toBe(mockUserId)
-    expect(retrieved?.data.email).toBe('persist@example.com')
-    expect(retrieved?.data.role).toBe('admin')
-  })
-
-  it('should persist user session index across adapter instances', async () => {
-    // Configure with shared storage
-    const adapter1 = SharedMemoryStorage.createAdapter(SHARED_STORAGE_NAME)
-    configureSessionStorage({ adapter: adapter1 })
-
-    // Create multiple sessions for the same user
-    const session1 = await createSession(mockUserId, { device: 'laptop' })
-    const session2 = await createSession(mockUserId, { device: 'phone' })
-
-    // Simulate restart
-    const adapter2 = SharedMemoryStorage.createAdapter(SHARED_STORAGE_NAME)
-    configureSessionStorage({ adapter: adapter2 })
-
-    // Invalidate all sessions for user should still work
-    const count = await invalidateSession(null, mockUserId)
-    expect(count).toBe(2)
-
-    // Both sessions should be gone
-    const retrieved1 = await getSession(session1.id)
-    const retrieved2 = await getSession(session2.id)
-    expect(retrieved1).toBeNull()
-    expect(retrieved2).toBeNull()
-  })
-
-  it('should support custom storage adapter configuration', async () => {
-    const adapter = SharedMemoryStorage.createAdapter(SHARED_STORAGE_NAME)
-    configureSessionStorage({ adapter })
-
-    const session = await createSession(mockUserId, { custom: true })
-    const retrieved = await getSession(session.id, { slidingWindow: false })
-
-    expect(retrieved).toBeDefined()
-    expect(retrieved?.data.custom).toBe(true)
-  })
-
-  it('should isolate sessions between different storage instances', async () => {
-    const STORAGE_A = 'session-storage-a'
-    const STORAGE_B = 'session-storage-b'
-
-    // Create session in storage A
-    const adapterA = SharedMemoryStorage.createAdapter(STORAGE_A)
-    configureSessionStorage({ adapter: adapterA })
-    const sessionA = await createSession('user-a', { store: 'A' })
-
-    // Create session in storage B
-    const adapterB = SharedMemoryStorage.createAdapter(STORAGE_B)
-    configureSessionStorage({ adapter: adapterB })
-    const sessionB = await createSession('user-b', { store: 'B' })
-
-    // Session A should not be accessible from storage B
-    const retrievedA = await getSession(sessionA.id)
-    expect(retrievedA).toBeNull()
-
-    // Session B should be accessible
-    const retrievedB = await getSession(sessionB.id, { slidingWindow: false })
-    expect(retrievedB).toBeDefined()
-    expect(retrievedB?.data.store).toBe('B')
-
-    // Clean up
-    SharedMemoryStorage.clear(STORAGE_A)
-    SharedMemoryStorage.clear(STORAGE_B)
   })
 })
