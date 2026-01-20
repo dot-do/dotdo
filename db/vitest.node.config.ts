@@ -22,6 +22,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     // Include tests that use Miniflare directly (Node environment tests)
+    // or pure-Node tests that don't need workers pool
     include: [
       'tests/sqlite-adapter.test.ts',
       'tests/sqlite-things.test.ts',
@@ -29,6 +30,7 @@ export default defineConfig({
       'tests/sqlite-relationships.test.ts',
       'tests/migrations.test.ts',
       'tests/transactions.test.ts',
+      'tests/bulk-atomicity.test.ts',
     ],
 
     // Standard exclusions
