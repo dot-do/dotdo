@@ -113,29 +113,37 @@ class StreamImpl<T> implements Stream<T> {
     this.cache = []
     this.consumed = true
 
+    // Set up abort listener with proper cleanup
+    // Use { once: true } to auto-cleanup if abort fires, and track for manual cleanup
+    let abortListenerAttached = false
+    const abortListener = () => {
+      // Listener fired - no need to manually remove since { once: true }
+      abortListenerAttached = false
+    }
+
+    if (this.options.signal) {
+      this.options.signal.addEventListener('abort', abortListener, { once: true })
+      abortListenerAttached = true
+    }
+
     try {
-      // Set up abort listener
-      const abortListener = () => {
-        // Abort will be checked in the loop
-      }
-      this.options.signal?.addEventListener('abort', abortListener)
-
-      try {
-        for await (const chunk of this.source) {
-          // Check for cancellation
-          if (this.options.signal?.aborted) {
-            throw new DOMException('Stream aborted', 'AbortError')
-          }
-
-          this.cache.push(chunk)
-          yield chunk
+      for await (const chunk of this.source) {
+        // Check for cancellation
+        if (this.options.signal?.aborted) {
+          throw new DOMException('Stream aborted', 'AbortError')
         }
-      } finally {
-        this.options.signal?.removeEventListener('abort', abortListener)
+
+        this.cache.push(chunk)
+        yield chunk
       }
     } catch (error) {
       this.error = error
       throw error
+    } finally {
+      // Only remove if listener is still attached (abort didn't fire)
+      if (abortListenerAttached && this.options.signal) {
+        this.options.signal.removeEventListener('abort', abortListener)
+      }
     }
   }
 
