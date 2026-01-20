@@ -17,7 +17,9 @@
     "benchmark": "vitest run --config tests/benchmarks/vitest.config.ts",
     "benchmark:compare": "npx tsx tests/benchmarks/cli.ts compare",
     "benchmark:update": "npx tsx tests/benchmarks/cli.ts update",
-    "benchmark:report": "npx tsx tests/benchmarks/cli.ts report"
+    "benchmark:report": "npx tsx tests/benchmarks/cli.ts report",
+    "submodule:init": "./scripts/submodule-init.sh",
+    "submodule:update": "./scripts/submodule-update.sh"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",

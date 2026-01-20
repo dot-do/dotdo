@@ -314,6 +314,66 @@ AI routing uses template literals: `` await ai`Summarize: ${text}` ``
 
 Full TypeScript support across all packages with strict type checking.
 
+## Git Submodules
+
+The `primitives/` directory is a **git submodule** pointing to [primitives.org.ai](https://primitives.org.ai).
+
+### Initial Setup
+
+After cloning the repo, initialize submodules:
+
+```bash
+npm run submodule:init
+# or
+./scripts/submodule-init.sh
+# or manually
+git submodule update --init --recursive
+```
+
+### Updating Submodules
+
+To pull the latest changes from the submodule's remote:
+
+```bash
+npm run submodule:update
+# or
+./scripts/submodule-update.sh
+# or manually
+git submodule update --remote --merge
+```
+
+### Working with Submodules
+
+**Key points:**
+
+1. **Submodule is a separate repo** - Changes to `primitives/` must be committed in the primitives repo first
+2. **dotdo tracks a commit** - The parent repo (dotdo) tracks a specific commit of the submodule
+3. **Updating the reference** - After updating the submodule, commit the new reference:
+   ```bash
+   git add primitives
+   git commit -m "chore: update primitives submodule"
+   ```
+
+**Making changes to primitives:**
+
+```bash
+cd primitives
+git checkout main
+git pull
+# make changes
+git add -A && git commit -m "your changes"
+git push
+cd ..
+git add primitives
+git commit -m "chore: update primitives submodule"
+```
+
+**Checking submodule status:**
+
+```bash
+git submodule status
+```
+
 ## Related Repos
 
 - **primitives** (submodule at `/primitives`) - [primitives.org.ai](https://primitives.org.ai) - AI primitives packages
