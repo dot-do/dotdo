@@ -50,6 +50,13 @@ export default defineConfig({
   test: {
     globals: true,
 
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    // Vitest can consume ~100GB RAM without these limits
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+
     // Include Node-based tests that don't need Workers runtime
     include: [
       'auth/tests/**/*.test.ts',

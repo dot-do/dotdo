@@ -6,6 +6,12 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
 
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+
     // Coverage configuration
     coverage: {
       provider: 'v8',

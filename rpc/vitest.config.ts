@@ -1,29 +1,30 @@
 /**
- * Vitest Configuration for Database Tests
+ * Vitest Configuration for RPC Integration Tests with Miniflare
  *
  * This configuration uses @cloudflare/vitest-pool-workers to run tests
- * inside the Cloudflare Workers runtime with real SQLite storage.
+ * inside the Cloudflare Workers runtime with real Durable Objects.
  *
  * IMPORTANT: Tests using this config get access to:
- * - Real SQLite via state.storage.sql
  * - Real DurableObjectState with actual storage
- * - Real concurrency handling
+ * - Real SQLite via state.storage.sql
+ * - Real DO-to-DO communication via env bindings
+ * - Real concurrency handling (blockConcurrencyWhile)
  *
  * Usage:
- *   npx vitest --config db/vitest.config.ts           # Run all DB tests
- *   npx vitest --config db/vitest.config.ts run       # Run once
- *   npx vitest run db/tests/sqlite.test.ts            # Run specific file
+ *   npx vitest --config rpc/vitest.config.ts        # Watch mode
+ *   npx vitest --config rpc/vitest.config.ts run    # Run once
+ *   npx vitest run rpc/tests/miniflare-integration.test.ts  # Run specific file
  *
- * @module db/vitest.config
+ * @module rpc/vitest.config
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
-    // Include ALL db tests
+    // Only include miniflare integration tests
     include: [
-      'tests/**/*.test.ts',
+      'tests/miniflare-integration.test.ts',
     ],
 
     // Exclude only non-test files
@@ -47,14 +48,19 @@ export default defineWorkersConfig({
         },
 
         // Use single worker mode to avoid isolated storage issues with SQLite
+        // See: https://developers.cloudflare.com/workers/testing/vitest-integration/known-issues/#isolated-storage
         singleWorker: true,
 
-        // Disable isolated storage for SQLite WAL compatibility
+        // Disable isolated storage to work around SQLite WAL issues
+        // This is a known limitation when DOs use state.storage.sql
         isolatedStorage: false,
 
         // Additional miniflare configuration
         miniflare: {
-          durableObjectsPersist: false, // In-memory for tests (faster)
+          // Enable DO SQL storage - in-memory for tests (faster)
+          durableObjectsPersist: false,
+
+          // Add any additional bindings needed for tests
           bindings: {
             TEST_MODE: 'true',
           },
@@ -62,7 +68,7 @@ export default defineWorkersConfig({
       },
     },
 
-    // Test timeouts (SQLite operations can be slower)
+    // Test timeouts (RPC operations can be slower)
     testTimeout: 30000,
     hookTimeout: 30000,
 
@@ -70,8 +76,8 @@ export default defineWorkersConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['src/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**'],
+      include: ['*.ts'],
+      exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**', 'vitest.config.ts'],
       thresholds: {
         statements: 65,
         branches: 60,

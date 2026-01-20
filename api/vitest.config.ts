@@ -31,6 +31,13 @@ export default defineWorkersConfig({
       '**/node_modules/**',
     ],
 
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    // Workers pool with miniflare is memory-intensive
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+
     // Pool worker options
     poolOptions: {
       workers: {

@@ -7,6 +7,12 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     testTimeout: 30000,
 
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+
     // Coverage configuration
     coverage: {
       provider: 'v8',

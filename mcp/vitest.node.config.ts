@@ -30,5 +30,11 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 30000,
     hookTimeout: 30000,
+
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
   },
 })

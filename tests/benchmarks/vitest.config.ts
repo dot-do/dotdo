@@ -13,6 +13,13 @@ export default defineConfig({
     include: ['tests/benchmarks/*.bench.ts'],
     exclude: ['**/node_modules/**'],
     setupFiles: ['tests/benchmarks/setup.ts'],
+
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+
     // Benchmarks should run sequentially
     sequence: {
       shuffle: false,
