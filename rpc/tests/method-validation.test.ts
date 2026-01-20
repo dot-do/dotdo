@@ -1,6 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createServer } from '../server'
 
+/**
+ * Helper to check structured error response format
+ */
+function expectValidationError(json: any, messagePattern: string | RegExp) {
+  expect(json.type).toBe('ValidationError')
+  expect(json.code).toBe('VALIDATION_ERROR')
+  if (typeof messagePattern === 'string') {
+    expect(json.message).toContain(messagePattern)
+  } else {
+    expect(json.message).toMatch(messagePattern)
+  }
+}
+
 describe('RPC Method Path Validation', () => {
   const testTarget = {
     greet: (name: string) => `Hello, ${name}!`,
@@ -99,7 +112,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with only dots', async () => {
@@ -111,7 +124,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method starting with dot', async () => {
@@ -123,7 +136,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method ending with dot', async () => {
@@ -135,7 +148,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with consecutive dots', async () => {
@@ -147,7 +160,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject non-string method', async () => {
@@ -159,7 +172,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject missing method field', async () => {
@@ -171,7 +184,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
   })
 
@@ -185,7 +198,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject __proto__ in nested path', async () => {
@@ -197,7 +210,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject constructor access', async () => {
@@ -209,7 +222,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject constructor in nested path', async () => {
@@ -221,7 +234,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject prototype access', async () => {
@@ -233,7 +246,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject __defineGetter__ access', async () => {
@@ -245,7 +258,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject __defineSetter__ access', async () => {
@@ -257,7 +270,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject __lookupGetter__ access', async () => {
@@ -269,7 +282,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject __lookupSetter__ access', async () => {
@@ -281,7 +294,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
   })
 
@@ -295,7 +308,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with backslashes', async () => {
@@ -307,7 +320,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with brackets', async () => {
@@ -319,7 +332,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with parentheses', async () => {
@@ -331,7 +344,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with semicolons', async () => {
@@ -343,7 +356,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with spaces', async () => {
@@ -355,7 +368,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with null bytes', async () => {
@@ -367,7 +380,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should reject method with unicode control characters', async () => {
@@ -379,7 +392,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
   })
 
@@ -394,7 +407,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
 
     it('should accept reasonable length method paths', async () => {
@@ -418,7 +431,7 @@ describe('RPC Method Path Validation', () => {
 
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toContain('Invalid method path')
+      expectValidationError(json, 'Invalid method path')
     })
   })
 })

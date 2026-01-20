@@ -1,6 +1,14 @@
 // RPC Server - exposes methods via HTTP/RPC
 import { Hono } from 'hono'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import {
+  RPCError,
+  NotFoundError,
+  ValidationError,
+  InternalError,
+  serializeError,
+  isRPCError,
+} from './errors'
 
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
@@ -126,7 +134,8 @@ export function createServer(options: RPCServerOptions) {
       // Validate method path before processing
       const validation = validateMethodPath(method)
       if (!validation.valid) {
-        return c.json({ error: validation.error, correlationId }, 400)
+        const error = new ValidationError(validation.error, { method })
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
       }
 
       const { parts } = validation
@@ -137,11 +146,13 @@ export function createServer(options: RPCServerOptions) {
       for (let i = 0; i < parts.length - 1; i++) {
         // Only access own properties to prevent prototype chain traversal
         if (!Object.prototype.hasOwnProperty.call(current, parts[i])) {
-          return c.json({ error: `Method not found: ${method}`, correlationId }, 404)
+          const error = NotFoundError.forResource('Method', method)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
         }
         current = current[parts[i]]
         if (!current || typeof current !== 'object') {
-          return c.json({ error: `Method not found: ${method}`, correlationId }, 404)
+          const error = NotFoundError.forResource('Method', method)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
         }
       }
 
@@ -149,19 +160,33 @@ export function createServer(options: RPCServerOptions) {
 
       // Only access own properties for the final method
       if (!Object.prototype.hasOwnProperty.call(current, methodName)) {
-        return c.json({ error: `Method not found: ${method}`, correlationId }, 404)
+        const error = NotFoundError.forResource('Method', method)
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
       }
 
       const fn = current[methodName]
       if (typeof fn !== 'function') {
-        return c.json({ error: `Method not found: ${method}`, correlationId }, 404)
+        const error = NotFoundError.forResource('Method', method)
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
       }
 
       const result = await fn.apply(current, args)
       return c.json(result)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      return c.json({ error: message, correlationId }, 500)
+      // If it's already an RPCError, serialize it with its proper status code
+      if (isRPCError(error)) {
+        return c.json(
+          { ...serializeError(error, { includeStack: false }), correlationId },
+          error.httpStatus
+        )
+      }
+
+      // Wrap unknown errors in InternalError
+      const wrappedError = InternalError.wrap(error)
+      return c.json(
+        { ...serializeError(wrappedError, { includeStack: false }), correlationId },
+        wrappedError.httpStatus
+      )
     }
   })
 

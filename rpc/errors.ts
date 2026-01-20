@@ -1,42 +1,333 @@
-// Error Handling and Retries for @dotdo/rpc
-// Provides robust error handling with retry logic, circuit breaker, and timeout support
+// Structured Error Types for @dotdo/rpc
+// Provides a hierarchy of typed RPC errors with serialization support
 
 /**
- * Standard RPC error codes
+ * Standard RPC error codes with semantic meaning
  */
 export enum RPCErrorCode {
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  // Client errors (4xx)
   NOT_FOUND = 'NOT_FOUND',
-  INVALID_PARAMS = 'INVALID_PARAMS',
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  AUTHENTICATION_ERROR = 'AUTHENTICATION_ERROR',
+  AUTHORIZATION_ERROR = 'AUTHORIZATION_ERROR',
+  CONFLICT = 'CONFLICT',
+  RATE_LIMIT = 'RATE_LIMIT',
+  INVALID_PARAMS = 'INVALID_PARAMS', // Alias for VALIDATION_ERROR (backward compat)
+
+  // Server errors (5xx)
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
   TIMEOUT = 'TIMEOUT',
   NETWORK_ERROR = 'NETWORK_ERROR',
-  RATE_LIMIT = 'RATE_LIMIT',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
   CIRCUIT_OPEN = 'CIRCUIT_OPEN',
 }
 
 /**
- * RPC Error class with code, message, and optional details
+ * Mapping from error codes to HTTP status codes
+ */
+const ERROR_CODE_TO_HTTP_STATUS: Record<RPCErrorCode, number> = {
+  [RPCErrorCode.NOT_FOUND]: 404,
+  [RPCErrorCode.VALIDATION_ERROR]: 400,
+  [RPCErrorCode.AUTHENTICATION_ERROR]: 401,
+  [RPCErrorCode.AUTHORIZATION_ERROR]: 403,
+  [RPCErrorCode.CONFLICT]: 409,
+  [RPCErrorCode.RATE_LIMIT]: 429,
+  [RPCErrorCode.INVALID_PARAMS]: 400,
+  [RPCErrorCode.INTERNAL_ERROR]: 500,
+  [RPCErrorCode.TIMEOUT]: 504,
+  [RPCErrorCode.NETWORK_ERROR]: 503,
+  [RPCErrorCode.SERVICE_UNAVAILABLE]: 503,
+  [RPCErrorCode.CIRCUIT_OPEN]: 503,
+}
+
+/**
+ * Options for creating an RPC error
+ */
+export interface RPCErrorOptions {
+  cause?: Error
+}
+
+/**
+ * Base RPC Error class with code, message, details, and HTTP status
  */
 export class RPCError extends Error {
+  public readonly httpStatus: number
+
   constructor(
-    public code: RPCErrorCode,
+    public readonly code: RPCErrorCode,
     message: string,
-    public details?: Record<string, unknown>
+    public readonly details?: Record<string, unknown>,
+    options?: RPCErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = 'RPCError'
-    Object.setPrototypeOf(this, RPCError.prototype)
+    this.httpStatus = ERROR_CODE_TO_HTTP_STATUS[code] ?? 500
+    Object.setPrototypeOf(this, new.target.prototype)
   }
 
-  toJSON() {
+  toJSON(): SerializedError {
     return {
-      name: this.name,
+      type: this.constructor.name,
       code: this.code,
       message: this.message,
       details: this.details,
-      stack: this.stack,
+      httpStatus: this.httpStatus,
     }
   }
+}
+
+// ============================================================================
+// Specific Error Types
+// ============================================================================
+
+/**
+ * Resource not found error (404)
+ */
+export class NotFoundError extends RPCError {
+  constructor(message = 'Resource not found', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.NOT_FOUND, message, details, options)
+    this.name = 'NotFoundError'
+  }
+
+  /**
+   * Create a NotFoundError for a specific resource type and ID
+   */
+  static forResource(resourceType: string, resourceId: string): NotFoundError {
+    return new NotFoundError(
+      `${resourceType} with id ${resourceId} not found`,
+      { resourceType, resourceId }
+    )
+  }
+}
+
+/**
+ * Validation error for invalid input (400)
+ */
+export class ValidationError extends RPCError {
+  constructor(message = 'Validation failed', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.VALIDATION_ERROR, message, details, options)
+    this.name = 'ValidationError'
+  }
+
+  /**
+   * Create a ValidationError with multiple field errors
+   */
+  static withErrors(errors: Array<{ field: string; message: string }>): ValidationError {
+    const messages = errors.map((e) => `${e.field}: ${e.message}`).join(', ')
+    return new ValidationError(`Validation failed: ${messages}`, { errors })
+  }
+
+  /**
+   * Create a ValidationError for a single field
+   */
+  static forField(field: string, constraint: string, value?: unknown): ValidationError {
+    return new ValidationError(
+      `Validation failed: ${field} ${constraint}`,
+      { field, constraint, value }
+    )
+  }
+}
+
+/**
+ * Authentication error (401)
+ */
+export class AuthenticationError extends RPCError {
+  constructor(message = 'Authentication required', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.AUTHENTICATION_ERROR, message, details, options)
+    this.name = 'AuthenticationError'
+  }
+
+  static tokenExpired(): AuthenticationError {
+    return new AuthenticationError('Authentication token has expired', { reason: 'token_expired' })
+  }
+
+  static invalidCredentials(): AuthenticationError {
+    return new AuthenticationError('Invalid credentials', { reason: 'invalid_credentials' })
+  }
+
+  static missingToken(): AuthenticationError {
+    return new AuthenticationError('Authentication token is required', { reason: 'missing_token' })
+  }
+}
+
+/**
+ * Authorization error (403)
+ */
+export class AuthorizationError extends RPCError {
+  constructor(message = 'Access denied', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.AUTHORIZATION_ERROR, message, details, options)
+    this.name = 'AuthorizationError'
+  }
+
+  static insufficientPermissions(action: string, resource: string, requiredRoles?: string[]): AuthorizationError {
+    return new AuthorizationError(
+      `Insufficient permissions to ${action} ${resource}`,
+      { action, resource, requiredRoles }
+    )
+  }
+}
+
+/**
+ * Conflict error for resource conflicts (409)
+ */
+export class ConflictError extends RPCError {
+  constructor(message = 'Resource conflict', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.CONFLICT, message, details, options)
+    this.name = 'ConflictError'
+  }
+
+  static resourceExists(resourceType: string, conflictField: string, conflictValue: unknown): ConflictError {
+    return new ConflictError(
+      `${resourceType} with ${conflictField} "${conflictValue}" already exists`,
+      { resourceType, conflictField, conflictValue }
+    )
+  }
+
+  static versionMismatch(
+    resourceType: string,
+    resourceId: string,
+    expectedVersion: number,
+    actualVersion: number
+  ): ConflictError {
+    return new ConflictError(
+      `Version mismatch for ${resourceType} ${resourceId}: expected ${expectedVersion}, got ${actualVersion}`,
+      { resourceType, resourceId, expectedVersion, actualVersion }
+    )
+  }
+}
+
+/**
+ * Rate limit exceeded error (429)
+ */
+export class RateLimitError extends RPCError {
+  constructor(message = 'Rate limit exceeded', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.RATE_LIMIT, message, details, options)
+    this.name = 'RateLimitError'
+  }
+
+  static exceeded(info: { limit: number; window: string; retryAfter?: number }): RateLimitError {
+    const retryMsg = info.retryAfter ? ` Retry after ${info.retryAfter}s.` : ''
+    return new RateLimitError(
+      `Rate limit of ${info.limit} requests per ${info.window} exceeded.${retryMsg}`,
+      info
+    )
+  }
+}
+
+/**
+ * Timeout error (504)
+ */
+export class TimeoutError extends RPCError {
+  constructor(message = 'Request timed out', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.TIMEOUT, message, details, options)
+    this.name = 'TimeoutError'
+  }
+
+  static afterMs(timeout: number): TimeoutError {
+    return new TimeoutError(`Request timed out after ${timeout}ms`, { timeout })
+  }
+}
+
+/**
+ * Network error (503)
+ */
+export class NetworkError extends RPCError {
+  constructor(message = 'Network error', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.NETWORK_ERROR, message, details, options)
+    this.name = 'NetworkError'
+  }
+
+  static connectionRefused(host: string, port: number): NetworkError {
+    return new NetworkError(`Connection refused to ${host}:${port}`, {
+      host,
+      port,
+      reason: 'connection_refused',
+    })
+  }
+
+  static dnsResolutionFailed(host: string): NetworkError {
+    return new NetworkError(`DNS resolution failed for ${host}`, {
+      host,
+      reason: 'dns_resolution_failed',
+    })
+  }
+}
+
+/**
+ * Internal server error (500)
+ */
+export class InternalError extends RPCError {
+  constructor(message = 'Internal error', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.INTERNAL_ERROR, message, details, options)
+    this.name = 'InternalError'
+  }
+
+  static wrap(error: unknown): InternalError {
+    if (error instanceof Error) {
+      return new InternalError(`Internal error: ${error.message}`, undefined, { cause: error })
+    }
+    return new InternalError(`Internal error: ${String(error)}`)
+  }
+}
+
+/**
+ * Service unavailable error (503)
+ */
+export class ServiceUnavailableError extends RPCError {
+  constructor(
+    message = 'Service temporarily unavailable',
+    details?: Record<string, unknown>,
+    options?: RPCErrorOptions
+  ) {
+    super(RPCErrorCode.SERVICE_UNAVAILABLE, message, details, options)
+    this.name = 'ServiceUnavailableError'
+  }
+
+  static maintenance(estimatedRecovery?: string): ServiceUnavailableError {
+    return new ServiceUnavailableError('Service is under maintenance', {
+      reason: 'maintenance',
+      estimatedRecovery,
+    })
+  }
+}
+
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+/**
+ * Check if a value is an RPCError
+ */
+export function isRPCError(error: unknown): error is RPCError {
+  return error instanceof RPCError
+}
+
+/**
+ * Check if an error is a NotFoundError
+ */
+export function isNotFoundError(error: unknown): error is NotFoundError {
+  return error instanceof NotFoundError
+}
+
+/**
+ * Check if an error is a ValidationError
+ */
+export function isValidationError(error: unknown): error is ValidationError {
+  return error instanceof ValidationError
+}
+
+/**
+ * Check if an error is an AuthenticationError
+ */
+export function isAuthenticationError(error: unknown): error is AuthenticationError {
+  return error instanceof AuthenticationError
+}
+
+/**
+ * Check if an error is an AuthorizationError
+ */
+export function isAuthorizationError(error: unknown): error is AuthorizationError {
+  return error instanceof AuthorizationError
 }
 
 /**
@@ -47,15 +338,134 @@ export function isRetryableError(error: unknown): boolean {
     return false
   }
 
-  // These error types are retryable
-  const retryableCodes = [
+  const retryableCodes: RPCErrorCode[] = [
     RPCErrorCode.NETWORK_ERROR,
     RPCErrorCode.TIMEOUT,
     RPCErrorCode.RATE_LIMIT,
+    RPCErrorCode.SERVICE_UNAVAILABLE,
   ]
 
   return retryableCodes.includes(error.code)
 }
+
+// ============================================================================
+// Serialization
+// ============================================================================
+
+/**
+ * Serialized error format for transmission across boundaries
+ */
+export interface SerializedError {
+  /** Error type name (e.g., 'NotFoundError') */
+  type: string
+  /** Error name (alias for type, for backward compatibility) */
+  name?: string
+  /** Error code for programmatic handling */
+  code: RPCErrorCode | string
+  /** Human-readable error message */
+  message: string
+  /** Additional error details */
+  details?: Record<string, unknown>
+  /** HTTP status code */
+  httpStatus?: number
+  /** Stack trace (optional) */
+  stack?: string
+}
+
+/**
+ * Options for error serialization
+ */
+export interface SerializeErrorOptions {
+  /** Include stack trace in serialized output (default: true) */
+  includeStack?: boolean
+}
+
+/**
+ * Registry of error constructors for deserialization
+ */
+const ERROR_REGISTRY: Record<string, new (message: string, details?: Record<string, unknown>) => RPCError> = {
+  RPCError: RPCError as any,
+  NotFoundError,
+  ValidationError,
+  AuthenticationError,
+  AuthorizationError,
+  ConflictError,
+  RateLimitError,
+  TimeoutError,
+  NetworkError,
+  InternalError,
+  ServiceUnavailableError,
+}
+
+/**
+ * Serialize an error for transmission across boundaries
+ */
+export function serializeError(error: Error | RPCError, options: SerializeErrorOptions = {}): SerializedError {
+  const { includeStack = true } = options
+
+  const serialized: SerializedError = {
+    type: error.name,
+    name: error.name, // Backward compatibility
+    code: error instanceof RPCError ? error.code : RPCErrorCode.INTERNAL_ERROR,
+    message: error.message,
+  }
+
+  if (error instanceof RPCError) {
+    serialized.details = error.details
+    serialized.httpStatus = error.httpStatus
+  }
+
+  if (includeStack && error.stack) {
+    serialized.stack = error.stack
+  }
+
+  return serialized
+}
+
+/**
+ * Deserialize an error received from across boundaries
+ */
+export function deserializeError(serialized: SerializedError): Error | RPCError {
+  // Support both 'type' and 'name' fields for backward compatibility
+  const errorType = serialized.type ?? serialized.name ?? 'Error'
+
+  // Handle generic Error (not an RPCError)
+  if (errorType === 'Error' && !serialized.code) {
+    const error = new Error(serialized.message)
+    error.name = 'Error'
+    if (serialized.stack) {
+      error.stack = serialized.stack
+    }
+    return error
+  }
+
+  const ErrorClass = ERROR_REGISTRY[errorType]
+
+  if (ErrorClass && errorType !== 'RPCError') {
+    const error = new ErrorClass(serialized.message, serialized.details)
+    if (serialized.stack) {
+      error.stack = serialized.stack
+    }
+    return error
+  }
+
+  // Fallback to base RPCError
+  const error = new RPCError(
+    (serialized.code as RPCErrorCode) ?? RPCErrorCode.INTERNAL_ERROR,
+    serialized.message,
+    serialized.details
+  )
+
+  if (serialized.stack) {
+    error.stack = serialized.stack
+  }
+
+  return error
+}
+
+// ============================================================================
+// Retry and Circuit Breaker (preserved from original)
+// ============================================================================
 
 /**
  * Options for retry with backoff
@@ -76,10 +486,7 @@ export interface RetryOptions {
 /**
  * Retry a function with exponential backoff
  */
-export async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {}
-): Promise<T> {
+export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const {
     maxRetries = 3,
     initialDelay = 1000,
@@ -112,7 +519,7 @@ export async function retryWithBackoff<T>(
       }
 
       // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, delay))
+      await new Promise((resolve) => setTimeout(resolve, delay))
     }
   }
 
@@ -196,15 +603,11 @@ export class CircuitBreaker {
     // Reject immediately if circuit is open
     if (this.state === CircuitState.OPEN) {
       this.failedRequests++
-      throw new RPCError(
-        RPCErrorCode.CIRCUIT_OPEN,
-        'Circuit breaker is open',
-        {
-          state: this.state,
-          failures: this.consecutiveFailures,
-          lastFailureTime: this.lastFailureTime,
-        }
-      )
+      throw new ServiceUnavailableError('Circuit breaker is open', {
+        state: this.state,
+        failures: this.consecutiveFailures,
+        lastFailureTime: this.lastFailureTime,
+      })
     }
 
     try {
@@ -306,21 +709,12 @@ export class CircuitBreaker {
 /**
  * Wrap a promise with a timeout
  */
-export async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number
-): Promise<T> {
+export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timeoutHandle: ReturnType<typeof setTimeout>
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
-      reject(
-        new RPCError(
-          RPCErrorCode.TIMEOUT,
-          `Request timed out after ${timeoutMs}ms`,
-          { timeout: timeoutMs }
-        )
-      )
+      reject(TimeoutError.afterMs(timeoutMs))
     }, timeoutMs)
   })
 
@@ -329,53 +723,4 @@ export async function withTimeout<T>(
   } finally {
     clearTimeout(timeoutHandle!)
   }
-}
-
-/**
- * Serialized error format for transmission across boundaries
- */
-export interface SerializedError {
-  name: string
-  message: string
-  code?: RPCErrorCode
-  details?: Record<string, unknown>
-  stack?: string
-}
-
-/**
- * Serialize an error for transmission across boundaries
- */
-export function serializeError(error: Error | RPCError): SerializedError {
-  const serialized: SerializedError = {
-    name: error.name,
-    message: error.message,
-    stack: error.stack,
-  }
-
-  if (error instanceof RPCError) {
-    serialized.code = error.code
-    serialized.details = error.details
-  }
-
-  return serialized
-}
-
-/**
- * Deserialize an error received from across boundaries
- */
-export function deserializeError(serialized: SerializedError): Error | RPCError {
-  if (serialized.name === 'RPCError' && serialized.code) {
-    const error = new RPCError(serialized.code, serialized.message, serialized.details)
-    if (serialized.stack) {
-      error.stack = serialized.stack
-    }
-    return error
-  }
-
-  const error = new Error(serialized.message)
-  error.name = serialized.name
-  if (serialized.stack) {
-    error.stack = serialized.stack
-  }
-  return error
 }

@@ -1,6 +1,8 @@
 // RPC Client - connects to Workers/DOs
 // Implements typed proxy for remote method invocation via fetch-based RPC
 
+import { SerializedError, deserializeError, isRPCError } from './errors'
+
 /**
  * Generate a unique correlation ID for request tracing
  * Uses crypto.randomUUID() when available, otherwise falls back to a timestamp-based ID
@@ -54,6 +56,19 @@ function createMethodInvoker(
 
     if (!response.ok) {
       const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+      // Try to parse the structured error response
+      try {
+        const errorBody = await response.json() as SerializedError & { correlationId?: string }
+        if (errorBody.code && errorBody.message) {
+          throw deserializeError(errorBody)
+        }
+      } catch (e) {
+        // If it's already an RPCError from deserialization, re-throw it
+        if (isRPCError(e)) {
+          throw e
+        }
+      }
+      // Fallback to generic error
       throw new Error(`RPC error: ${response.status} [${responseCorrelationId}]`)
     }
 
@@ -203,6 +218,19 @@ export function createDOStub<T extends object>(
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+          // Try to parse the structured error response
+          try {
+            const errorBody = await response.json() as SerializedError & { correlationId?: string }
+            if (errorBody.code && errorBody.message) {
+              throw deserializeError(errorBody)
+            }
+          } catch (e) {
+            // If it's already an RPCError from deserialization, re-throw it
+            if (isRPCError(e)) {
+              throw e
+            }
+          }
+          // Fallback to generic error
           throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
         }
 

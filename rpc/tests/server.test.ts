@@ -81,7 +81,10 @@ describe('RPC Server', () => {
 
     expect(res.status).toBe(500)
     const json = await res.json()
-    expect(json.error).toBe('Test error')
+    // Server now returns structured error with message field
+    expect(json.message).toContain('Test error')
+    expect(json.type).toBe('InternalError')
+    expect(json.code).toBe('INTERNAL_ERROR')
   })
 
   it('should respond to health check', async () => {
