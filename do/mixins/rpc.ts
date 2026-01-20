@@ -28,6 +28,8 @@
 
 import { Hono } from 'hono'
 import { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+import { logRPCError } from '../../rpc/logging'
+import { CORRELATION_ID_HEADER, generateCorrelationId } from '../../rpc/client'
 import {
   createDOAccessor,
   createDORPCProxy,
@@ -240,7 +242,7 @@ export function WithRPC<TBase extends Constructor>(
     }
 
     /**
-     * Setup RPC routes on a Hono app.
+     * Setup RPC routes on a Hono app with enhanced error logging (do-grp5.5).
      * Call this in your routes() method or constructor.
      *
      * @param app - The Hono app to add routes to
@@ -258,8 +260,18 @@ export function WithRPC<TBase extends Constructor>(
      */
     protected setupRPCRoutes(app: Hono): void {
       app.post(rpcPath, async (c) => {
+        // Extract or generate correlation ID for request tracing
+        const incomingCorrelationId = c.req.header(CORRELATION_ID_HEADER)
+        const correlationId = incomingCorrelationId || generateCorrelationId()
+        c.header(CORRELATION_ID_HEADER, correlationId)
+
+        let method = ''
+        let args: unknown[] = []
+
         try {
-          const { method, args } = await c.req.json<RPCRequest>()
+          const body = await c.req.json<RPCRequest>()
+          method = body.method
+          args = body.args
 
           if (debug) {
             logger.debug(`Calling ${method} with args:`, args)
@@ -273,14 +285,14 @@ export function WithRPC<TBase extends Constructor>(
             current = current[parts[i]]
             if (!current) {
               const error = new NotFoundError(`Method not found: ${method}`)
-              return c.json(error.toJSON(), error.httpStatus)
+              return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
             }
           }
 
           const fn = current[parts[parts.length - 1]]
           if (typeof fn !== 'function') {
             const error = new NotFoundError(`Method not found: ${method}`)
-            return c.json(error.toJSON(), error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
           }
 
           const result = await fn.apply(current, args)
@@ -291,19 +303,21 @@ export function WithRPC<TBase extends Constructor>(
 
           return c.json(result)
         } catch (error) {
+          // Log RPC error with full context (sanitized args, correlation ID, timestamp, stack)
+          logRPCError(error, method || 'unknown', args, correlationId)
+
           if (debug) {
             logger.debug('Error:', error)
           }
 
           // Re-throw RPCErrors with proper formatting
           if (error instanceof RPCError) {
-            return c.json(error.toJSON(), error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
           }
 
           // Wrap unknown errors in InternalError
           const wrappedError = InternalError.wrap(error)
-          logger.error('RPC error:', error)
-          return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
+          return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus)
         }
       })
     }

@@ -8,6 +8,8 @@ import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, Audit
 import { IntegrationRegistry } from '../integrations'
 import { RPCError, NotFoundError, InternalError, serializeUnknownError } from '../rpc/errors'
 import type { BatchRPCCall, BatchRPCResult, BatchRPCResponse } from '../rpc/batch-rpc'
+import { logRPCError } from '../rpc/logging'
+import { CORRELATION_ID_HEADER, generateCorrelationId } from '../rpc/client'
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('[DO]')
@@ -113,10 +115,20 @@ export class DO implements DurableObject {
       id: this.state.id.toString(),
     }))
 
-    // RPC endpoint
+    // RPC endpoint with enhanced error logging (do-grp5.5)
     this.app.post('/rpc', async (c) => {
+      // Extract or generate correlation ID for request tracing
+      const incomingCorrelationId = c.req.header(CORRELATION_ID_HEADER)
+      const correlationId = incomingCorrelationId || generateCorrelationId()
+      c.header(CORRELATION_ID_HEADER, correlationId)
+
+      let method = ''
+      let args: unknown[] = []
+
       try {
-        const { method, args } = await c.req.json<{ method: string; args: unknown[] }>()
+        const body = await c.req.json<{ method: string; args: unknown[] }>()
+        method = body.method
+        args = body.args
 
         // Navigate to method
         const parts = method.split('.')
@@ -126,40 +138,45 @@ export class DO implements DurableObject {
           current = current[parts[i]]
           if (!current) {
             const error = new NotFoundError(`Method not found: ${method}`)
-            return c.json(error.toJSON(), error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
           }
         }
 
         const fn = current[parts[parts.length - 1]]
         if (typeof fn !== 'function') {
           const error = new NotFoundError(`Method not found: ${method}`)
-          return c.json(error.toJSON(), error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
         }
 
         const result = await fn.apply(current, args)
         return c.json(result)
       } catch (error) {
+        // Log RPC error with full context (sanitized args, correlation ID, timestamp, stack)
+        logRPCError(error, method || 'unknown', args, correlationId)
+
         // Re-throw RPCErrors with proper formatting
         if (error instanceof RPCError) {
-          return c.json(error.toJSON(), error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
         }
         // Wrap unknown errors in InternalError
         const wrappedError = InternalError.wrap(error)
-        logger.error('RPC error:', error)
-        return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
+        return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus)
       }
     })
 
     // Batch RPC endpoint - execute multiple calls in parallel (do-rljr.7)
     this.app.post('/rpc/batch', async (c) => {
-      const correlationId = c.req.header('X-Correlation-ID')
+      // Extract or generate correlation ID for request tracing
+      const incomingCorrelationId = c.req.header(CORRELATION_ID_HEADER)
+      const correlationId = incomingCorrelationId || generateCorrelationId()
+      c.header(CORRELATION_ID_HEADER, correlationId)
 
       try {
         const { calls } = await c.req.json<{ calls: BatchRPCCall[] }>()
 
         if (!Array.isArray(calls)) {
           const error = new NotFoundError('Invalid batch request: calls must be an array')
-          return c.json(error.toJSON(), error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
         }
 
         // Execute all calls in parallel
@@ -193,6 +210,8 @@ export class DO implements DurableObject {
               const result = await fn.apply(current, call.args ?? [])
               return { id: callId, result }
             } catch (error) {
+              // Log individual call errors with context
+              logRPCError(error, call.method, call.args ?? [], correlationId)
               // Serialize the error
               return {
                 id: callId,
@@ -204,18 +223,20 @@ export class DO implements DurableObject {
 
         const response: BatchRPCResponse = {
           results,
-          correlationId: correlationId ?? undefined,
+          correlationId,
         }
 
         return c.json(response)
       } catch (error) {
+        // Log batch RPC error with context
+        logRPCError(error, 'batch', [], correlationId)
+
         // Handle request-level errors (e.g., invalid JSON)
         if (error instanceof RPCError) {
-          return c.json(error.toJSON(), error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
         }
         const wrappedError = InternalError.wrap(error)
-        logger.error('Batch RPC error:', error)
-        return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
+        return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus)
       }
     })
 
