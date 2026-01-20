@@ -23,8 +23,9 @@ import { isRetryableError, ValidationError } from '../rpc/errors'
 
 /**
  * Event handler function type
+ * @template T - The type of the event payload (defaults to unknown for backward compatibility)
  */
-export type EventHandler = (event: unknown) => Promise<void> | void
+export type EventHandler<T = unknown> = (event: T) => Promise<void> | void
 
 /**
  * Proxy for event handlers on a specific noun
