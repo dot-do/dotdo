@@ -2,12 +2,15 @@
 // Generic types added per do-jqrj
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
+// Cursor-based pagination added per do-rljr.8
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { EventId, ThingId, CorrelationId } from './branded-types'
 import { generateEventId } from './id'
 import { createLogger } from '../utils/logger'
+import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
+import { applyCursorPagination } from './pagination'
 
 const logger = createLogger('[Events]')
 
@@ -128,6 +131,27 @@ export interface DurabilityConfig {
   timeout?: number
 }
 
+export interface EventQueryOptions {
+  type?: string
+  source?: string
+  correlationId?: string
+  since?: number
+  until?: number
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Query options for cursor-based pagination
+ */
+export interface EventCursorQueryOptions extends CursorPaginationOptions {
+  type?: string
+  source?: string
+  correlationId?: string
+  since?: number
+  until?: number
+}
+
 /**
  * EventsStore interface with generic type parameter
  * P defaults to JsonValue for backward compatibility
@@ -136,6 +160,7 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
   emit(event: EventInput<P>): Promise<Event<P>>
   get(id: string): Promise<Event<P> | null>
   query(options?: EventQueryOptions): Promise<Event<P>[]>
+  queryWithCursor(options?: EventCursorQueryOptions): Promise<CursorPaginatedResult<Event<P>>>
   subscribe(handler: (event: Event<P>) => void): () => void
 
   // Retention policy methods
@@ -167,16 +192,6 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
   // Durability configuration
   setDurabilityConfig(config: Record<string, DurabilityConfig>): void
   getDurabilityConfig(eventType: string): DurabilityConfig
-}
-
-export interface EventQueryOptions {
-  type?: string
-  source?: string
-  correlationId?: string
-  since?: number
-  until?: number
-  limit?: number
-  offset?: number
 }
 
 // ID generation moved to ./id.ts (do-e3my)
@@ -261,6 +276,39 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       events.sort((a, b) => b.$timestamp - a.$timestamp)
 
       return events.slice(offset, offset + limit)
+    },
+
+    async queryWithCursor(options = {}) {
+      const { type, source, correlationId, since, until, cursor, limit = 100, direction = 'forward' } = options
+
+      const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
+      let events = Array.from(result.entries.values()).filter((e): e is Event<P> => e !== undefined)
+
+      // Apply filters
+      events = events.filter(e => {
+        if (type && e.type !== type) return false
+        if (source && e.source !== source) return false
+        if (correlationId && e.correlationId !== correlationId) return false
+        if (since && e.$timestamp < since) return false
+        if (until && e.$timestamp > until) return false
+        return true
+      })
+
+      // Sort by timestamp descending, then by ID descending for stable ordering
+      events.sort((a, b) => {
+        const timeDiff = b.$timestamp - a.$timestamp
+        if (timeDiff !== 0) return timeDiff
+        return b.$id.localeCompare(a.$id)
+      })
+
+      return applyCursorPagination(
+        events,
+        { cursor, limit, direction },
+        '$timestamp',
+        'desc',
+        (event) => event.$id,
+        (event) => event.$timestamp
+      )
     },
 
     subscribe(handler) {
@@ -505,6 +553,35 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
       results.sort((a, b) => b.$timestamp - a.$timestamp)
 
       return results.slice(offset, offset + limit)
+    },
+
+    async queryWithCursor(options = {}) {
+      const { type, source, correlationId, since, until, cursor, limit = 100, direction = 'forward' } = options
+
+      let results = events.filter(e => {
+        if (type && e.type !== type) return false
+        if (source && e.source !== source) return false
+        if (correlationId && e.correlationId !== correlationId) return false
+        if (since && e.$timestamp < since) return false
+        if (until && e.$timestamp > until) return false
+        return true
+      })
+
+      // Sort by timestamp descending, then by ID descending for stable ordering
+      results.sort((a, b) => {
+        const timeDiff = b.$timestamp - a.$timestamp
+        if (timeDiff !== 0) return timeDiff
+        return b.$id.localeCompare(a.$id)
+      })
+
+      return applyCursorPagination(
+        results,
+        { cursor, limit, direction },
+        '$timestamp',
+        'desc',
+        (event) => event.$id,
+        (event) => event.$timestamp
+      )
     },
 
     subscribe(handler) {

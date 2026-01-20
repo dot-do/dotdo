@@ -2,12 +2,17 @@
 // Generic types added per do-jqrj
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
+// Cursor-based pagination added per do-rljr.8
+// ValidationError support added per do-grp5.7
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
 import { toThingId } from './branded-types'
 import { generateId } from './id'
+import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
+import { applyCursorPagination } from './pagination'
+import { ValidationError, NotFoundError } from '../rpc/errors'
 
 /**
  * Base Thing interface with system fields
@@ -49,6 +54,22 @@ export interface BulkUpdateItem<T extends StorableData = StorableData> {
 }
 
 /**
+ * Options for listing things with offset-based pagination
+ */
+export interface ThingListOptions {
+  type?: string
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Options for listing things with cursor-based pagination
+ */
+export interface ThingCursorListOptions extends CursorPaginationOptions {
+  type?: string
+}
+
+/**
  * ThingsStore interface with generic type parameter
  * T defaults to StorableData for backward compatibility
  */
@@ -57,7 +78,8 @@ export interface ThingsStore<T extends StorableData = StorableData> {
   get(id: string): Promise<Thing<T> | null>
   update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
   delete(id: string): Promise<void>
-  list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing<T>[]>
+  list(options?: ThingListOptions): Promise<Thing<T>[]>
+  listWithCursor(options?: ThingCursorListOptions): Promise<CursorPaginatedResult<Thing<T>>>
   bulkCreate<D extends Partial<T> & { $type: string }>(things: D[]): Promise<(Thing<T> & D)[]>
   bulkUpdate(items: BulkUpdateItem<T>[]): Promise<Thing<T>[]>
   bulkDelete(ids: string[]): Promise<void>
@@ -80,7 +102,15 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
   return {
     async create(data) {
       if (!data.$type) {
-        throw new Error('$type is required')
+        throw ValidationError.forField('$type', 'is required', undefined)
+      }
+
+      if (typeof data.$type !== 'string') {
+        throw ValidationError.forField('$type', 'must be a string', typeof data.$type)
+      }
+
+      if (data.$type.trim() === '') {
+        throw ValidationError.forField('$type', 'cannot be empty', data.$type)
       }
 
       const now = Date.now()
@@ -105,7 +135,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     async update(id, data) {
       const existing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       if (!existing) {
-        throw new Error(`Thing not found: ${id}`)
+        throw NotFoundError.forResource('Thing', id)
       }
 
       const updated: Thing<T> = {
@@ -124,7 +154,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     async delete(id) {
       const exists = await adapter.has(`${THINGS_PREFIX}${id}`)
       if (!exists) {
-        throw new Error(`Thing not found: ${id}`)
+        throw NotFoundError.forResource('Thing', id)
       }
       await adapter.delete(`${THINGS_PREFIX}${id}`)
     },
@@ -145,15 +175,49 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       return items.slice(offset, offset + limit)
     },
 
+    async listWithCursor(options = {}) {
+      const { type, cursor, limit = 100, direction = 'forward' } = options
+
+      const result = await adapter.list<Thing<T>>({ prefix: THINGS_PREFIX, includeValues: true })
+      let items = Array.from(result.entries.values()).filter((t): t is Thing<T> => t !== undefined)
+
+      if (type) {
+        items = items.filter(t => t.$type === type)
+      }
+
+      // Sort by createdAt descending, then by ID descending for stable ordering
+      items.sort((a, b) => {
+        const timeDiff = b.$createdAt - a.$createdAt
+        if (timeDiff !== 0) return timeDiff
+        return b.$id.localeCompare(a.$id)
+      })
+
+      return applyCursorPagination(
+        items,
+        { cursor, limit, direction },
+        '$createdAt',
+        'desc',
+        (item) => item.$id,
+        (item) => item.$createdAt
+      )
+    },
+
     async bulkCreate(items) {
       if (items.length === 0) {
         return []
       }
 
       // Validate all items first
-      for (const data of items) {
+      for (let i = 0; i < items.length; i++) {
+        const data = items[i]
         if (!data.$type) {
-          throw new Error('$type is required')
+          throw ValidationError.forField(`items[${i}].$type`, 'is required', undefined)
+        }
+        if (typeof data.$type !== 'string') {
+          throw ValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
+        }
+        if (data.$type.trim() === '') {
+          throw ValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
         }
       }
 
@@ -189,7 +253,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       // Validate all items exist
       for (const { id } of items) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw NotFoundError.forResource('Thing', String(id))
         }
       }
 
@@ -226,7 +290,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 
       for (const id of ids) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw NotFoundError.forResource('Thing', id)
         }
       }
 
@@ -243,7 +307,15 @@ export function createThingsStore(): ThingsStore {
   return {
     async create(data) {
       if (!data.$type) {
-        throw new Error('$type is required')
+        throw ValidationError.forField('$type', 'is required', undefined)
+      }
+
+      if (typeof data.$type !== 'string') {
+        throw ValidationError.forField('$type', 'must be a string', typeof data.$type)
+      }
+
+      if (data.$type.trim() === '') {
+        throw ValidationError.forField('$type', 'cannot be empty', data.$type)
       }
 
       const now = Date.now()
@@ -267,7 +339,7 @@ export function createThingsStore(): ThingsStore {
       const thingId = toThingId(id)
       const existing = things.get(thingId)
       if (!existing) {
-        throw new Error(`Thing not found: ${id}`)
+        throw NotFoundError.forResource('Thing', id)
       }
 
       const updated: Thing = {
@@ -286,7 +358,7 @@ export function createThingsStore(): ThingsStore {
     async delete(id) {
       const thingId = toThingId(id)
       if (!things.has(thingId)) {
-        throw new Error(`Thing not found: ${id}`)
+        throw NotFoundError.forResource('Thing', id)
       }
       things.delete(thingId)
     },
@@ -306,15 +378,48 @@ export function createThingsStore(): ThingsStore {
       return results.slice(offset, offset + limit)
     },
 
+    async listWithCursor(options = {}) {
+      const { type, cursor, limit = 100, direction = 'forward' } = options
+
+      let results = Array.from(things.values())
+
+      if (type) {
+        results = results.filter(t => t.$type === type)
+      }
+
+      // Sort by createdAt descending, then by ID descending for stable ordering
+      results.sort((a, b) => {
+        const timeDiff = b.$createdAt - a.$createdAt
+        if (timeDiff !== 0) return timeDiff
+        return b.$id.localeCompare(a.$id)
+      })
+
+      return applyCursorPagination(
+        results,
+        { cursor, limit, direction },
+        '$createdAt',
+        'desc',
+        (item) => item.$id,
+        (item) => item.$createdAt
+      )
+    },
+
     async bulkCreate(items) {
       if (items.length === 0) {
         return []
       }
 
       // Validate all items first (atomic: fail before any changes)
-      for (const data of items) {
+      for (let i = 0; i < items.length; i++) {
+        const data = items[i]
         if (!data.$type) {
-          throw new Error('$type is required')
+          throw ValidationError.forField(`items[${i}].$type`, 'is required', undefined)
+        }
+        if (typeof data.$type !== 'string') {
+          throw ValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
+        }
+        if (data.$type.trim() === '') {
+          throw ValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
         }
       }
 
@@ -345,7 +450,7 @@ export function createThingsStore(): ThingsStore {
       for (const { id } of items) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw NotFoundError.forResource('Thing', String(id))
         }
       }
 
@@ -380,7 +485,7 @@ export function createThingsStore(): ThingsStore {
       for (const id of ids) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw NotFoundError.forResource('Thing', id)
         }
       }
 
