@@ -65,7 +65,9 @@ export interface AIGenerateResult {
   }
 }
 
-export type SimpleSchema = Record<string, string | string[] | SimpleSchema>
+export interface SimpleSchema {
+  [key: string]: string | string[] | SimpleSchema
+}
 
 // ============================================================================
 // Provider Configuration
