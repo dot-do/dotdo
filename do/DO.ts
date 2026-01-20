@@ -11,9 +11,21 @@ import { createLogger } from '../utils/logger'
 
 const logger = createLogger('[DO]')
 
+/**
+ * Base environment interface for DO instances.
+ * For dynamic access to custom environment variables, use DOEnvWithDynamic.
+ */
 export interface DOEnv {
-  [key: string]: unknown
+  // Common secret environment variables
+  JWT_SECRET?: string
+  JWKS_URL?: string
+  DO_INTERNAL_SECRET?: string
 }
+
+/**
+ * DOEnv with dynamic property access for custom environment variables.
+ */
+export type DOEnvWithDynamic = DOEnv & Record<string, unknown>
 
 export interface DOOptions {
   cors?: boolean

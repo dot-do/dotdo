@@ -20,6 +20,7 @@ import {
   type RelationshipInput,
   type QueryBuilder,
   type StorableData,
+  type BulkUpdateItem,
   defaultAuditConfig,
   maskSensitiveFields
 } from '../db'
@@ -105,6 +106,7 @@ export class EntityManager {
 
   /**
    * Things store with event emission and audit logging
+   * Includes bulk operations with audit logging (do-grp5.8)
    */
   get things(): ThingsStore {
     const baseStore = this._things
@@ -112,7 +114,7 @@ export class EntityManager {
     const logAudit = this.logAudit.bind(this)
 
     return {
-      async create(data: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>): Promise<Thing> {
+      async create(data) {
         const thing = await baseStore.create(data)
 
         // Emit Thing.created event
@@ -122,8 +124,11 @@ export class EntityManager {
           source: thing.$id
         })
 
-        // Audit log
-        await logAudit('create', thing.$type, thing.$id, { name: (thing as any).name })
+        // Audit log - safely access name if it exists
+        const auditDetails: StorableData | undefined = 'name' in thing
+          ? { name: String((thing as Record<string, unknown>)['name']) }
+          : undefined
+        await logAudit('create', thing.$type, thing.$id, auditDetails)
 
         return thing
       },
@@ -132,7 +137,7 @@ export class EntityManager {
         return baseStore.get(id)
       },
 
-      async update(id: string, data: Partial<Omit<Thing, '$id' | '$type'>>): Promise<Thing> {
+      async update(id, data) {
         const thing = await baseStore.update(id, data)
 
         // Emit Thing.updated event
@@ -167,6 +172,80 @@ export class EntityManager {
 
       async list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]> {
         return baseStore.list(options)
+      },
+
+      async bulkCreate(items) {
+        const things = await baseStore.bulkCreate(items)
+
+        // Emit Thing.created events for each created thing
+        for (const thing of things) {
+          await eventsStore.emit({
+            type: 'Thing.created',
+            payload: thing,
+            source: thing.$id
+          })
+        }
+
+        // Audit log for bulk create
+        await logAudit('bulk_create', 'Thing', undefined, {
+          count: things.length,
+          types: [...new Set(things.map(t => t.$type))],
+          ids: things.map(t => t.$id)
+        })
+
+        return things
+      },
+
+      async bulkUpdate(items: BulkUpdateItem[]): Promise<Thing[]> {
+        const things = await baseStore.bulkUpdate(items)
+
+        // Emit Thing.updated events for each updated thing
+        for (const thing of things) {
+          await eventsStore.emit({
+            type: 'Thing.updated',
+            payload: thing,
+            source: thing.$id
+          })
+        }
+
+        // Audit log for bulk update
+        await logAudit('bulk_update', 'Thing', undefined, {
+          count: things.length,
+          ids: items.map(i => String(i.id)),
+          fields: [...new Set(items.flatMap(i => Object.keys(i.data)))]
+        })
+
+        return things
+      },
+
+      async bulkDelete(ids: string[]): Promise<void> {
+        // Get things before deletion for event emission and audit
+        const thingsMap = new Map<string, Thing>()
+        for (const id of ids) {
+          const thing = await baseStore.get(id)
+          if (thing) {
+            thingsMap.set(id, thing)
+          }
+        }
+
+        await baseStore.bulkDelete(ids)
+
+        // Emit Thing.deleted events for each deleted thing
+        for (const [id, thing] of thingsMap) {
+          await eventsStore.emit({
+            type: 'Thing.deleted',
+            payload: { $id: id, $type: thing.$type },
+            source: id
+          })
+        }
+
+        // Audit log for bulk delete
+        const types = [...new Set([...thingsMap.values()].map(t => t.$type))]
+        await logAudit('bulk_delete', 'Thing', undefined, {
+          count: ids.length,
+          ids,
+          types
+        })
       }
     }
   }

@@ -30,7 +30,9 @@ const logger = createLogger('[DOAuth]')
 export type CallerType = 'worker' | 'user' | 'do' | 'unknown'
 
 /**
- * Authentication payload returned from token validation
+ * Authentication payload returned from token validation.
+ * Contains standard JWT claims. For tokens with additional custom claims,
+ * use AuthPayloadWithClaims.
  */
 export interface AuthPayload {
   /** Subject (user ID or service ID) */
@@ -49,9 +51,16 @@ export interface AuthPayload {
   exp?: number
   /** Issued at timestamp */
   iat?: number
-  /** Additional claims */
-  [key: string]: unknown
+  /** JWT ID */
+  jti?: string
+  /** Not before timestamp */
+  nbf?: number
 }
+
+/**
+ * AuthPayload with additional dynamic claims.
+ */
+export type AuthPayloadWithClaims = AuthPayload & Record<string, unknown>
 
 /**
  * Caller information extracted from request
@@ -165,9 +174,19 @@ export const DO_SIGNATURE_HEADER = 'X-DO-Signature'
 export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp'
 
 /**
+ * Header containing nonce for replay protection and idempotency
+ */
+export const DO_NONCE_HEADER = 'X-DO-Nonce'
+
+/**
  * Maximum age of a signature in milliseconds (5 minutes)
  */
 const SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000
+
+/**
+ * Maximum future timestamp drift allowed in milliseconds (30 seconds)
+ */
+const SIGNATURE_MAX_FUTURE_MS = 30 * 1000
 
 // ============================================================================
 // HMAC Signing for DO-to-DO Authentication
@@ -219,7 +238,8 @@ async function generateHmacSignature(
   secret: string,
   sourceDoId: string,
   timestamp: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<string> {
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
@@ -230,8 +250,8 @@ async function generateHmacSignature(
     ['sign']
   )
 
-  // Message format: sourceDoId|timestamp|targetPath
-  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  // Message format: sourceDoId|timestamp|nonce|targetPath
+  const message = `${sourceDoId}|${timestamp}|${nonce || ''}|${targetPath || ''}`
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
 
   // Convert to base64
@@ -240,16 +260,18 @@ async function generateHmacSignature(
 
 /**
  * Verify HMAC-SHA256 signature for DO-to-DO request
+ * Uses constant-time comparison to prevent timing attacks
  */
 async function verifyHmacSignature(
   secret: string,
   sourceDoId: string,
   timestamp: string,
   signature: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<boolean> {
   try {
-    const expectedSignature = await generateHmacSignature(secret, sourceDoId, timestamp, targetPath)
+    const expectedSignature = await generateHmacSignature(secret, sourceDoId, timestamp, targetPath, nonce)
     // Constant-time comparison to prevent timing attacks
     if (signature.length !== expectedSignature.length) {
       return false
@@ -267,6 +289,10 @@ async function verifyHmacSignature(
 /**
  * Verify DO-to-DO request signature
  * Returns true if the request has a valid signature, false otherwise
+ *
+ * Timestamp validation:
+ * - Rejects timestamps older than SIGNATURE_MAX_AGE_MS (5 minutes)
+ * - Rejects timestamps more than SIGNATURE_MAX_FUTURE_MS (30 seconds) in the future
  */
 export async function verifyDOSignature(request: Request): Promise<boolean> {
   if (!doInternalSecret) {
@@ -277,6 +303,7 @@ export async function verifyDOSignature(request: Request): Promise<boolean> {
   const signature = request.headers.get(DO_SIGNATURE_HEADER)
   const timestamp = request.headers.get(DO_TIMESTAMP_HEADER)
   const sourceDoId = request.headers.get(DO_SOURCE_ID_HEADER)
+  const nonce = request.headers.get(DO_NONCE_HEADER)
 
   if (!signature || !timestamp || !sourceDoId) {
     return false
@@ -289,7 +316,25 @@ export async function verifyDOSignature(request: Request): Promise<boolean> {
   }
 
   const now = Date.now()
-  if (Math.abs(now - timestampMs) > SIGNATURE_MAX_AGE_MS) {
+  const age = now - timestampMs
+
+  // Reject timestamps too far in the past (replay attack prevention)
+  if (age > SIGNATURE_MAX_AGE_MS) {
+    logger.warn('DO-to-DO request rejected: timestamp too old', {
+      age: `${Math.round(age / 1000)}s`,
+      maxAge: `${SIGNATURE_MAX_AGE_MS / 1000}s`,
+      sourceDoId,
+    })
+    return false
+  }
+
+  // Reject timestamps too far in the future (clock manipulation prevention)
+  if (age < -SIGNATURE_MAX_FUTURE_MS) {
+    logger.warn('DO-to-DO request rejected: timestamp in future', {
+      futureBy: `${Math.round(-age / 1000)}s`,
+      maxFuture: `${SIGNATURE_MAX_FUTURE_MS / 1000}s`,
+      sourceDoId,
+    })
     return false
   }
 
@@ -297,7 +342,15 @@ export async function verifyDOSignature(request: Request): Promise<boolean> {
   const url = new URL(request.url)
   const targetPath = url.pathname
 
-  return verifyHmacSignature(doInternalSecret, sourceDoId, timestamp, signature, targetPath)
+  return verifyHmacSignature(doInternalSecret, sourceDoId, timestamp, signature, targetPath, nonce || undefined)
+}
+
+/**
+ * Extract the nonce from a DO-to-DO request
+ * Can be used by the receiver for idempotency checking
+ */
+export function extractDONonce(request: Request): string | null {
+  return request.headers.get(DO_NONCE_HEADER)
 }
 
 // ============================================================================
@@ -854,7 +907,8 @@ export function requireDOSource(...allowedDOs: string[]): MiddlewareHandler {
 async function signDORequest(
   sourceDoId: string,
   timestamp: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<string> {
   if (!doInternalSecret) {
     throw new Error('DO_INTERNAL_SECRET not configured - call setDOInternalSecret() first')
@@ -869,7 +923,8 @@ async function signDORequest(
     ['sign']
   )
 
-  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  // Message format must match generateHmacSignature: sourceDoId|timestamp|nonce|targetPath
+  const message = `${sourceDoId}|${timestamp}|${nonce || ''}|${targetPath || ''}`
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
 
   return btoa(String.fromCharCode(...new Uint8Array(signature)))
@@ -892,7 +947,8 @@ async function signDORequest(
 export async function addDOSourceHeaders(
   headers: Headers,
   sourceDoId: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<Headers> {
   const timestamp = Date.now().toString()
 
@@ -900,8 +956,12 @@ export async function addDOSourceHeaders(
   headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
   headers.set(DO_TIMESTAMP_HEADER, timestamp)
 
+  if (nonce) {
+    headers.set(DO_NONCE_HEADER, nonce)
+  }
+
   try {
-    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath, nonce)
     headers.set(DO_SIGNATURE_HEADER, signature)
   } catch (error) {
     logger.warn(' Failed to sign DO-to-DO request:', error)

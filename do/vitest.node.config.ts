@@ -18,11 +18,12 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // Include only the persistence tests that use Miniflare directly
+    // Include tests that don't need Workers pool (Node environment tests)
     include: [
       'tests/persistence.test.ts',
       'tests/storage-persistence.test.ts',
       'tests/miniflare-integration.test.ts',
+      'tests/entities-audit.test.ts',  // EntityManager audit logging tests (do-grp5.8)
     ],
 
     // Standard exclusions
