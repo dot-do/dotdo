@@ -21,7 +21,10 @@
 export * from './template'
 
 // dotdo AIPromise wrapper with $meta tracking
-export * from './promise'
+// Explicitly export AIPromise types for clarity
+// (Also re-exported from ai-functions when primitives build is fixed)
+export type { AIPromise, AIMeta } from "./promise"
+export { createAIPromise } from "./promise"
 
 // Stream utilities for dotdo
 export * from './stream'

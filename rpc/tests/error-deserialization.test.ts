@@ -1,11 +1,12 @@
 /**
  * Tests for RPC error deserialization type preservation
  *
- * Issue: do-lmpc - Errors lose type information across RPC boundaries
- *
  * When errors are serialized on the server and deserialized on the client,
- * the type information should be preserved. This test demonstrates the
- * current bug where errors become untyped or lose their specific subclass.
+ * the type information should be preserved for all built-in error types.
+ *
+ * IMPORTANT: Built-in error types (NotFoundError, ValidationError, etc.) are
+ * fully preserved across RPC boundaries. Custom error subclasses cannot be
+ * reconstructed without a registration mechanism.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'

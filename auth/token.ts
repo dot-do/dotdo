@@ -41,7 +41,27 @@ export interface ExpirationCheckOptions {
 }
 
 /**
- * Extract Bearer token from Authorization header or cookies
+ * Extract Bearer token from Authorization header or cookies.
+ *
+ * Attempts to extract a JWT token from either the Authorization header
+ * (Bearer scheme) or a cookie. Checks the Authorization header first,
+ * then falls back to cookies.
+ *
+ * @param request - The HTTP request object
+ * @param options - Extraction options
+ * @param options.cookieName - Name of the cookie containing the token (default: 'auth_token')
+ * @returns The token string, or null if not found
+ *
+ * @example
+ * ```typescript
+ * // From Authorization header
+ * // Authorization: Bearer eyJhbGc...
+ * const token = extractToken(request)
+ *
+ * // From cookie
+ * // Cookie: auth_token=eyJhbGc...
+ * const token = extractToken(request, { cookieName: 'auth_token' })
+ * ```
  */
 export function extractToken(request: Request, options: TokenExtractionOptions = {}): string | null {
   const { cookieName = 'auth_token' } = options
@@ -71,7 +91,8 @@ export function extractToken(request: Request, options: TokenExtractionOptions =
 }
 
 /**
- * Parse cookies from Cookie header
+ * Parse cookies from Cookie header string into a key-value map.
+ * @internal
  */
 function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {}
@@ -92,7 +113,32 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 /**
- * Verify JWT signature and validate claims
+ * Verify JWT signature and validate claims.
+ *
+ * Validates a JWT token's cryptographic signature using HMAC or asymmetric
+ * keys and optionally validates issuer and audience claims.
+ *
+ * @param token - The JWT token string to verify
+ * @param options - Verification options
+ * @param options.secret - HMAC secret (string or Uint8Array) for verification
+ * @param options.issuer - Expected issuer claim (optional)
+ * @param options.audience - Expected audience claim (optional)
+ * @returns The decoded token payload
+ * @throws Error if signature is invalid, token is malformed, or claims don't match
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   const payload = await verifyTokenSignature(token, {
+ *     secret: process.env.JWT_SECRET,
+ *     issuer: 'https://auth.example.com',
+ *     audience: 'my-app'
+ *   })
+ *   console.log('Token valid, user ID:', payload.sub)
+ * } catch (error) {
+ *   console.error('Invalid token:', error.message)
+ * }
+ * ```
  */
 export async function verifyTokenSignature(
   token: string,

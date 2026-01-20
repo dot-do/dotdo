@@ -137,9 +137,17 @@ export interface ApiKeyManagerOptions {
  * Keys are stored with SHA-256 hashing for security - the raw key
  * is only returned once during creation and cannot be retrieved later.
  *
+ * Supports optional persistence via a ThingsStore for SQLite-backed storage
+ * in Durable Object contexts. When no store is provided, falls back to
+ * in-memory storage.
+ *
  * @example
  * ```typescript
+ * // In-memory storage (default)
  * const manager = new ApiKeyManager()
+ *
+ * // With SQLite persistence (in DO context)
+ * const manager = new ApiKeyManager({ store: this.things })
  *
  * // Create a key
  * const { key, apiKey } = await manager.create({
@@ -162,11 +170,107 @@ export class ApiKeyManager {
   private keys: Map<string, ApiKey> = new Map()
   private keyHashes: Map<string, string> = new Map() // hashedKey -> id
   private rateLimits: Map<string, RateLimitWindow> = new Map() // id -> window
+  private store?: ApiKeyStore
+  private initialized = false
+  private initPromise?: Promise<void>
+
+  /** The $type used for storing API keys in ThingsStore */
+  static readonly API_KEY_TYPE = 'ApiKey'
+
+  constructor(options: ApiKeyManagerOptions = {}) {
+    this.store = options.store
+
+    // If we have a store, load existing keys on first operation
+    if (this.store) {
+      this.initPromise = this.loadFromStore()
+    } else {
+      this.initialized = true
+    }
+  }
+
+  /**
+   * Load API keys from persistent store into memory cache
+   */
+  private async loadFromStore(): Promise<void> {
+    if (this.initialized || !this.store) return
+
+    try {
+      const stored = await this.store.list({ type: ApiKeyManager.API_KEY_TYPE })
+
+      for (const item of stored) {
+        const apiKey = this.deserializeApiKey(item)
+        this.keys.set(apiKey.id, apiKey)
+        this.keyHashes.set(apiKey.hashedKey, apiKey.id)
+      }
+
+      this.initialized = true
+    } catch (error) {
+      // Log but don't throw - allows fallback to in-memory
+      console.error('[ApiKeyManager] Failed to load from store:', error)
+      this.initialized = true
+    }
+  }
+
+  /**
+   * Ensure storage is initialized before operations
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise
+    }
+  }
+
+  /**
+   * Serialize an ApiKey for storage (converts Date to timestamps)
+   */
+  private serializeApiKey(apiKey: ApiKey): Record<string, unknown> {
+    return {
+      $type: ApiKeyManager.API_KEY_TYPE,
+      keyId: apiKey.id,
+      name: apiKey.name,
+      hashedKey: apiKey.hashedKey,
+      prefix: apiKey.prefix,
+      scopes: JSON.stringify(apiKey.scopes),
+      active: apiKey.active,
+      createdAt: apiKey.createdAt.getTime(),
+      expiresAt: apiKey.expiresAt?.getTime(),
+      revokedAt: apiKey.revokedAt?.getTime(),
+      lastUsedAt: apiKey.lastUsedAt?.getTime(),
+      metadata: apiKey.metadata ? JSON.stringify(apiKey.metadata) : undefined,
+      rateLimitMaxRequests: apiKey.rateLimit?.maxRequests,
+      rateLimitWindowMs: apiKey.rateLimit?.windowMs
+    }
+  }
+
+  /**
+   * Deserialize an ApiKey from storage (converts timestamps to Date)
+   */
+  private deserializeApiKey(stored: Record<string, unknown>): ApiKey {
+    return {
+      id: stored.keyId as string,
+      name: stored.name as string,
+      hashedKey: stored.hashedKey as string,
+      prefix: stored.prefix as string,
+      scopes: JSON.parse(stored.scopes as string) as string[],
+      active: stored.active as boolean,
+      createdAt: new Date(stored.createdAt as number),
+      expiresAt: stored.expiresAt ? new Date(stored.expiresAt as number) : undefined,
+      revokedAt: stored.revokedAt ? new Date(stored.revokedAt as number) : undefined,
+      lastUsedAt: stored.lastUsedAt ? new Date(stored.lastUsedAt as number) : undefined,
+      metadata: stored.metadata ? JSON.parse(stored.metadata as string) : undefined,
+      rateLimit: stored.rateLimitMaxRequests !== undefined ? {
+        maxRequests: stored.rateLimitMaxRequests as number,
+        windowMs: stored.rateLimitWindowMs as number
+      } : undefined
+    }
+  }
 
   /**
    * Create a new API key
    */
   async create(options: ApiKeyCreateOptions): Promise<{ key: string; apiKey: ApiKey }> {
+    await this.ensureInitialized()
+
     const { name, prefix = 'dotdo', scopes = ['*'], expiresAt, metadata, rateLimit } = options
 
     // Generate key
@@ -187,9 +291,14 @@ export class ApiKeyManager {
       rateLimit
     }
 
-    // Store
+    // Store in memory cache
     this.keys.set(apiKey.id, apiKey)
     this.keyHashes.set(hashedKey, apiKey.id)
+
+    // Persist to storage if available
+    if (this.store) {
+      await this.store.create(this.serializeApiKey(apiKey) as { $type: string })
+    }
 
     return { key, apiKey }
   }
