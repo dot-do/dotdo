@@ -13,6 +13,7 @@
   "dependencies": {
     "@dotdo/auth": "workspace:*",
     "@dotdo/do": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {
