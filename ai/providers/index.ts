@@ -430,6 +430,16 @@ export function resetConfig(): void {
   providerCache.clear()
 }
 
+/**
+ * Get current configuration for testing/debugging.
+ * WARNING: Exposes internal state - use only for testing!
+ *
+ * @internal
+ */
+export function _getConfigForTesting(): ProviderConfig {
+  return { ...globalConfig }
+}
+
 // ============================================================================
 // Re-exports for compatibility
 // ============================================================================
