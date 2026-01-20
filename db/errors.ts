@@ -4,6 +4,9 @@
  * Simple error types for the database layer.
  * These are intentionally decoupled from @dotdo/rpc to keep db as a pure storage layer
  * with no RPC dependencies.
+ *
+ * Note: Named with Db prefix to avoid conflict with ValidationError interfaces
+ * in schema.ts and schemas.ts which represent validation result data structures.
  */
 
 /**
@@ -22,26 +25,29 @@ export class DatabaseError extends Error {
 
 /**
  * Validation error for invalid input (e.g., missing required fields)
+ *
+ * Named DbValidationError to avoid conflict with ValidationError interfaces
+ * in schema.ts and schemas.ts.
  */
-export class ValidationError extends DatabaseError {
+export class DbValidationError extends DatabaseError {
   constructor(message = 'Validation failed', details?: Record<string, unknown>) {
     super(message, details)
-    this.name = 'ValidationError'
+    this.name = 'DbValidationError'
   }
 
   /**
-   * Create a ValidationError with multiple field errors
+   * Create a DbValidationError with multiple field errors
    */
-  static withErrors(errors: Array<{ field: string; message: string }>): ValidationError {
+  static withErrors(errors: Array<{ field: string; message: string }>): DbValidationError {
     const messages = errors.map((e) => `${e.field}: ${e.message}`).join(', ')
-    return new ValidationError(`Validation failed: ${messages}`, { errors })
+    return new DbValidationError(`Validation failed: ${messages}`, { errors })
   }
 
   /**
-   * Create a ValidationError for a single field
+   * Create a DbValidationError for a single field
    */
-  static forField(field: string, constraint: string, value?: unknown): ValidationError {
-    return new ValidationError(
+  static forField(field: string, constraint: string, value?: unknown): DbValidationError {
+    return new DbValidationError(
       `Validation failed: ${field} ${constraint}`,
       { field, constraint, value }
     )
@@ -50,18 +56,20 @@ export class ValidationError extends DatabaseError {
 
 /**
  * Resource not found error
+ *
+ * Named DbNotFoundError for consistency with DbValidationError.
  */
-export class NotFoundError extends DatabaseError {
+export class DbNotFoundError extends DatabaseError {
   constructor(message = 'Resource not found', details?: Record<string, unknown>) {
     super(message, details)
-    this.name = 'NotFoundError'
+    this.name = 'DbNotFoundError'
   }
 
   /**
-   * Create a NotFoundError for a specific resource type and ID
+   * Create a DbNotFoundError for a specific resource type and ID
    */
-  static forResource(resourceType: string, resourceId: string): NotFoundError {
-    return new NotFoundError(
+  static forResource(resourceType: string, resourceId: string): DbNotFoundError {
+    return new DbNotFoundError(
       `${resourceType} with id ${resourceId} not found`,
       { resourceType, resourceId }
     )

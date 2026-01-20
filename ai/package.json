@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@org.ai/core": "file:../primitives/packages/ai-core",
     "ai-functions": "file:../primitives/packages/ai-functions",
     "@ai-sdk/anthropic": "^3.0.16",
     "@ai-sdk/google": "^3.0.10",

@@ -162,8 +162,8 @@ describe('Router', () => {
       await router.execute('test prompt')
 
       // Should have exponential delays
-      expect(delays.length).toBeGreaterThan(0)
-      expect(delays[1]).toBeGreaterThan(delays[0])
+      expect(delays.length).toBeGreaterThan(1)
+      expect(delays[1]!).toBeGreaterThan(delays[0]!)
     })
 
     it('should give up after max retries', async () => {

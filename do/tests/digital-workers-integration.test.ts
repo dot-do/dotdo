@@ -19,6 +19,9 @@ import {
   createContext,
   type WorkflowContext,
 } from '../workflow/context'
+
+// Import from digital-workers package (primitives submodule)
+// Using relative paths matching the existing test patterns
 import type {
   Worker,
   Team,
@@ -36,11 +39,21 @@ import type {
   ApprovalResult,
   DecideResult,
   DoResult,
+} from '../../primitives/packages/digital-workers/src/types.js'
+
+import type {
   CapabilityTier,
-} from 'digital-workers'
+} from '../../primitives/packages/digital-workers/src/capability-tiers.js'
+
 import {
   Role,
   Team as TeamFactory,
+  WorkerVerbs,
+  registerWorkerActions,
+  withWorkers,
+} from '../../primitives/packages/digital-workers/src/index.js'
+
+import {
   CAPABILITY_TIERS,
   TIER_ORDER,
   compareTiers,
@@ -55,10 +68,7 @@ import {
   validateTierEscalation,
   createCapabilityProfile,
   TierRegistry,
-  WorkerVerbs,
-  registerWorkerActions,
-  withWorkers,
-} from 'digital-workers'
+} from '../../primitives/packages/digital-workers/src/capability-tiers.js'
 
 // Mock DurableObjectState for testing
 const createMockState = () => ({

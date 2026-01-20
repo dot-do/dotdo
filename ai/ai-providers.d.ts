@@ -12,6 +12,7 @@ declare module 'ai-providers' {
 
   /**
    * Get an embedding model by ID or alias
+   * Note: EmbeddingModel in ai SDK v6+ is no longer generic
    */
-  export function embeddingModel(id: string): Promise<EmbeddingModel<string>>
+  export function embeddingModel(id: string): Promise<EmbeddingModel>
 }

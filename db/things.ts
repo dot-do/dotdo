@@ -14,7 +14,7 @@ import { toThingId } from './branded-types'
 import { generateId } from './id'
 import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
 import { applyCursorPagination } from './pagination'
-import { ValidationError, NotFoundError } from './errors'
+import { DbValidationError, DbNotFoundError } from './errors'
 
 /**
  * Base Thing interface with system fields
@@ -220,15 +220,15 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
   return {
     async create(data) {
       if (!data.$type) {
-        throw ValidationError.forField('$type', 'is required', undefined)
+        throw DbValidationError.forField('$type', 'is required', undefined)
       }
 
       if (typeof data.$type !== 'string') {
-        throw ValidationError.forField('$type', 'must be a string', typeof data.$type)
+        throw DbValidationError.forField('$type', 'must be a string', typeof data.$type)
       }
 
       if (data.$type.trim() === '') {
-        throw ValidationError.forField('$type', 'cannot be empty', data.$type)
+        throw DbValidationError.forField('$type', 'cannot be empty', data.$type)
       }
 
       const now = Date.now()
@@ -270,7 +270,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     async update(id, data) {
       const existing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       if (!existing) {
-        throw NotFoundError.forResource('Thing', id)
+        throw DbNotFoundError.forResource('Thing', id)
       }
 
       const updated: Thing<T> = {
@@ -289,7 +289,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     async delete(id) {
       const exists = await adapter.has(`${THINGS_PREFIX}${id}`)
       if (!exists) {
-        throw NotFoundError.forResource('Thing', id)
+        throw DbNotFoundError.forResource('Thing', id)
       }
       await adapter.delete(`${THINGS_PREFIX}${id}`)
     },
@@ -345,13 +345,13 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       // Validate all items first
       for (const [i, data] of items.entries()) {
         if (!data.$type) {
-          throw ValidationError.forField(`items[${i}].$type`, 'is required', undefined)
+          throw DbValidationError.forField(`items[${i}].$type`, 'is required', undefined)
         }
         if (typeof data.$type !== 'string') {
-          throw ValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
+          throw DbValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
         }
         if (data.$type.trim() === '') {
-          throw ValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
+          throw DbValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
         }
       }
 
@@ -387,7 +387,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       // Validate all items exist
       for (const { id } of items) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw NotFoundError.forResource('Thing', String(id))
+          throw DbNotFoundError.forResource('Thing', String(id))
         }
       }
 
@@ -424,7 +424,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 
       for (const id of ids) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw NotFoundError.forResource('Thing', id)
+          throw DbNotFoundError.forResource('Thing', id)
         }
       }
 
@@ -459,15 +459,15 @@ export function createThingsStore(): ThingsStore {
   return {
     async create(data) {
       if (!data.$type) {
-        throw ValidationError.forField('$type', 'is required', undefined)
+        throw DbValidationError.forField('$type', 'is required', undefined)
       }
 
       if (typeof data.$type !== 'string') {
-        throw ValidationError.forField('$type', 'must be a string', typeof data.$type)
+        throw DbValidationError.forField('$type', 'must be a string', typeof data.$type)
       }
 
       if (data.$type.trim() === '') {
-        throw ValidationError.forField('$type', 'cannot be empty', data.$type)
+        throw DbValidationError.forField('$type', 'cannot be empty', data.$type)
       }
 
       const now = Date.now()
@@ -503,7 +503,7 @@ export function createThingsStore(): ThingsStore {
       const thingId = toThingId(id)
       const existing = things.get(thingId)
       if (!existing) {
-        throw NotFoundError.forResource('Thing', id)
+        throw DbNotFoundError.forResource('Thing', id)
       }
 
       const updated: Thing = {
@@ -522,7 +522,7 @@ export function createThingsStore(): ThingsStore {
     async delete(id) {
       const thingId = toThingId(id)
       if (!things.has(thingId)) {
-        throw NotFoundError.forResource('Thing', id)
+        throw DbNotFoundError.forResource('Thing', id)
       }
       things.delete(thingId)
     },
@@ -576,13 +576,13 @@ export function createThingsStore(): ThingsStore {
       // Validate all items first (atomic: fail before any changes)
       for (const [i, data] of items.entries()) {
         if (!data.$type) {
-          throw ValidationError.forField(`items[${i}].$type`, 'is required', undefined)
+          throw DbValidationError.forField(`items[${i}].$type`, 'is required', undefined)
         }
         if (typeof data.$type !== 'string') {
-          throw ValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
+          throw DbValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
         }
         if (data.$type.trim() === '') {
-          throw ValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
+          throw DbValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
         }
       }
 
@@ -613,7 +613,7 @@ export function createThingsStore(): ThingsStore {
       for (const { id } of items) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw NotFoundError.forResource('Thing', String(id))
+          throw DbNotFoundError.forResource('Thing', String(id))
         }
       }
 
@@ -648,7 +648,7 @@ export function createThingsStore(): ThingsStore {
       for (const id of ids) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw NotFoundError.forResource('Thing', id)
+          throw DbNotFoundError.forResource('Thing', id)
         }
       }
 

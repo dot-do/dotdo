@@ -165,7 +165,7 @@ export function WithAuth<TBase extends Constructor>(
   return class AuthMixin extends Base implements HasAuth {
     private _authGuard: DOAuthGuard
 
-    constructor(...args: any[]) {
+    constructor(...args: unknown[]) {
       super(...args)
       this._authGuard = createDOAuthGuard(guardConfig)
     }
@@ -276,7 +276,7 @@ export function WithAuth<TBase extends Constructor>(
      */
     async canAccess(request: Request): Promise<boolean> {
       // Get DO ID from instance if available
-      const doId = (this as any).state?.id?.toString() ?? 'unknown'
+      const doId = (this as unknown as { state?: { id?: { toString(): string } } }).state?.id?.toString() ?? 'unknown'
       return this._authGuard.canAccess(request, doId)
     }
 

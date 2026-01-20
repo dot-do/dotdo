@@ -115,6 +115,8 @@ export interface RateLimitResult {
   limit: number
   /** When the window resets (Unix timestamp in seconds) */
   resetAt: number
+  /** Window duration in milliseconds */
+  windowMs: number
   /** Rate limit headers to apply */
   headers: Record<string, string>
   /** Error details if rate limited */
@@ -312,6 +314,7 @@ export class RateLimiter {
         remaining: 0,
         limit: tierConfig.requestsPerWindow,
         resetAt: windowResetsAt,
+        windowMs: tierConfig.windowMs,
         headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
@@ -333,6 +336,7 @@ export class RateLimiter {
       remaining,
       limit: tierConfig.requestsPerWindow,
       resetAt: windowResetsAt,
+      windowMs: tierConfig.windowMs,
       headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
       key,
       tier: tierName,
@@ -387,6 +391,7 @@ export class RateLimiter {
         remaining: 0,
         limit: tierConfig.requestsPerWindow,
         resetAt: windowResetsAt,
+        windowMs: tierConfig.windowMs,
         headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
@@ -413,6 +418,7 @@ export class RateLimiter {
       remaining,
       limit: tierConfig.requestsPerWindow,
       resetAt: windowResetsAt,
+      windowMs: tierConfig.windowMs,
       headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
       key,
       tier: tierName,
@@ -457,6 +463,7 @@ export class RateLimiter {
         remaining: 0,
         limit: tierConfig.requestsPerWindow,
         resetAt: windowResetsAt,
+        windowMs: tierConfig.windowMs,
         headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
@@ -478,6 +485,7 @@ export class RateLimiter {
       remaining,
       limit: tierConfig.requestsPerWindow,
       resetAt: windowResetsAt,
+      windowMs: tierConfig.windowMs,
       headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
       key,
       tier: tierName,
@@ -543,6 +551,7 @@ export class RateLimiter {
         remaining: 0,
         limit: tierConfig.requestsPerWindow,
         resetAt: windowResetsAt,
+        windowMs: tierConfig.windowMs,
         headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
@@ -568,6 +577,7 @@ export class RateLimiter {
       remaining,
       limit: tierConfig.requestsPerWindow,
       resetAt: windowResetsAt,
+      windowMs: tierConfig.windowMs,
       headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
       key,
       tier: tierName,
@@ -932,7 +942,7 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
     if (!result.allowed) {
       const errorDetails: { limit: number; window: string; retryAfter?: number } = {
         limit: result.limit,
-        window: `${Math.round(60000 / 1000)}s`, // Assumes 60s window, could be configurable
+        window: `${Math.round(result.windowMs / 1000)}s`,
       }
       if (result.retryAfter !== undefined) {
         errorDetails.retryAfter = result.retryAfter

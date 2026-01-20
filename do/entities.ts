@@ -117,10 +117,30 @@ export class EntityManager {
   }
 
   /**
-   * Direct access to audit logs store
+   * Audit logs store with initialization guarantee
    */
   get auditLogs(): AuditLogStore {
-    return this._auditLogs
+    const baseStore = this._auditLogs
+    const ensureInit = () => this.ensureInitialized()
+
+    return {
+      async log(entry) {
+        await ensureInit()
+        return baseStore.log(entry)
+      },
+      async get(id: string) {
+        await ensureInit()
+        return baseStore.get(id)
+      },
+      async query(options?) {
+        await ensureInit()
+        return baseStore.query(options)
+      },
+      async count(options?) {
+        await ensureInit()
+        return baseStore.count(options)
+      }
+    }
   }
 
   /**
@@ -134,6 +154,9 @@ export class EntityManager {
     level: 'info' | 'warn' | 'error' | 'security' = 'info'
   ): Promise<void> {
     if (!this._auditConfig.enabled) return
+
+    // Ensure initialization before logging
+    await this.ensureInitialized()
 
     // Mask sensitive fields in details
     const maskedDetails = details
@@ -159,9 +182,11 @@ export class EntityManager {
     const baseStore = this._things
     const eventsStore = this._events
     const logAudit = this.logAudit.bind(this)
+    const ensureInit = () => this.ensureInitialized()
 
     return {
       async create(data) {
+        await ensureInit()
         const thing = await baseStore.create(data)
 
         // Emit Thing.created event
@@ -181,14 +206,17 @@ export class EntityManager {
       },
 
       async get(id: string): Promise<Thing | null> {
+        await ensureInit()
         return baseStore.get(id)
       },
 
       async getMany(ids: string[]): Promise<Map<string, Thing>> {
+        await ensureInit()
         return baseStore.getMany(ids)
       },
 
       async update(id, data) {
+        await ensureInit()
         const thing = await baseStore.update(id, data)
 
         // Emit Thing.updated event
@@ -205,6 +233,7 @@ export class EntityManager {
       },
 
       async delete(id: string): Promise<void> {
+        await ensureInit()
         const thing = await baseStore.get(id)
         await baseStore.delete(id)
 
@@ -222,14 +251,17 @@ export class EntityManager {
       },
 
       async list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]> {
+        await ensureInit()
         return baseStore.list(options)
       },
 
       async listWithCursor(options) {
+        await ensureInit()
         return baseStore.listWithCursor(options)
       },
 
       async bulkCreate(items) {
+        await ensureInit()
         const things = await baseStore.bulkCreate(items)
 
         // Emit Thing.created events for each created thing
@@ -252,6 +284,7 @@ export class EntityManager {
       },
 
       async bulkUpdate(items: BulkUpdateItem[]): Promise<Thing[]> {
+        await ensureInit()
         const things = await baseStore.bulkUpdate(items)
 
         // Emit Thing.updated events for each updated thing
@@ -274,6 +307,7 @@ export class EntityManager {
       },
 
       async bulkDelete(ids: string[]): Promise<void> {
+        await ensureInit()
         // Get things before deletion for event emission and audit
         const thingsMap = new Map<string, Thing>()
         for (const id of ids) {
@@ -319,9 +353,11 @@ export class EntityManager {
     const baseStore = this._relationships
     const eventsStore = this._events
     const logAudit = this.logAudit.bind(this)
+    const ensureInit = () => this.ensureInitialized()
 
     return {
       async add(rel: RelationshipInput): Promise<Relationship> {
+        await ensureInit()
         const relationship = await baseStore.add(rel)
 
         // Emit Relationship.added event
@@ -342,6 +378,7 @@ export class EntityManager {
       },
 
       async remove(rel: Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>): Promise<void> {
+        await ensureInit()
         await baseStore.remove(rel)
 
         // Emit Relationship.removed event
@@ -360,18 +397,22 @@ export class EntityManager {
       },
 
       async find(query: RelationshipQuery): Promise<Relationship[]> {
+        await ensureInit()
         return baseStore.find(query)
       },
 
       async findWithCursor(options) {
+        await ensureInit()
         return baseStore.findWithCursor(options)
       },
 
       async getRelated(subjectId: string, predicate: string): Promise<string[]> {
+        await ensureInit()
         return baseStore.getRelated(subjectId, predicate)
       },
 
       async getRelatedTo(objectId: string, predicate: string): Promise<string[]> {
+        await ensureInit()
         return baseStore.getRelatedTo(objectId, predicate)
       }
     }
@@ -386,9 +427,15 @@ export class EntityManager {
 }
 
 /**
+ * Constructor type for mixin pattern.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EntityMixinConstructor = new (...args: unknown[]) => object
+
+/**
  * Mixin to add entity management to DO classes
  */
-export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
+export function withEntities<T extends EntityMixinConstructor>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 

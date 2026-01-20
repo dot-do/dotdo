@@ -79,8 +79,8 @@ describe('Concurrent DO Access', () => {
       }
 
       // All requests should see consistent DO ID
-      const infos = await Promise.all(responses.map(r => r.json() as Promise<{ id: string; keys: number }>))
-      const ids = infos.map(info => info.id)
+      const infos = await Promise.all(responses.map((r: Response) => r.json() as Promise<{ id: string; keys: number }>))
+      const ids = infos.map((info: { id: string; keys: number }) => info.id)
       expect(new Set(ids).size).toBe(1)
     })
 
@@ -173,7 +173,7 @@ describe('Concurrent RPC Calls', () => {
         expect(response.status).toBe(200)
       }
 
-      const results = await Promise.all(responses.map(r => r.json() as Promise<{ status: string }>))
+      const results = await Promise.all(responses.map((r: Response) => r.json() as Promise<{ status: string }>))
       for (const result of results) {
         expect(result.status).toBe('ok')
       }
@@ -442,13 +442,13 @@ describe('Concurrent DO Stress Tests', () => {
     const responses = await Promise.all(operations)
 
     // All should succeed
-    const statuses = responses.map(r => r.status)
-    const successCount = statuses.filter(s => s === 200).length
+    const statuses = responses.map((r: Response) => r.status)
+    const successCount = statuses.filter((s: number) => s === 200).length
 
     expect(successCount).toBe(100)
 
     // Consume all response bodies
-    await Promise.all(responses.map(r => r.text()))
+    await Promise.all(responses.map((r: Response) => r.text()))
   })
 
   it('should recover from partial failures in batch operations', async () => {

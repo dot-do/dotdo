@@ -1,3 +1,5 @@
+import type { Context, Next } from 'hono'
+
 /**
  * @dotdo/auth - API Key Authentication
  *
@@ -475,7 +477,7 @@ export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
 } = {}) {
   const { header = 'X-API-Key', requireScopes = [] } = options
 
-  return async (c: any, next: any) => {
+  return async (c: Context, next: Next) => {
     const key = c.req.header(header)
 
     if (!key) {

@@ -195,8 +195,8 @@ describe('Resource Definition DSL', () => {
 
       interface CustomerData {
         name: string
-        createdAt?: string
-        updatedAt?: string
+        createdAt: string | null
+        updatedAt: string | null
       }
 
       const Customer = defineResource<CustomerData>('Customer')

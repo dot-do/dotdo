@@ -169,12 +169,15 @@ export class SQLiteAdapter {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    // SQLite in Cloudflare Workers doesn't expose explicit transaction API
-    // but each SqlStorage instance is already transactional within a DO
-    // All operations are atomic within a single DO request
+    // Use explicit SQLite transactions for atomicity (do-6dc7.5)
+    // BEGIN starts a transaction, COMMIT finalizes it, ROLLBACK undoes it
+    this.sql.exec('BEGIN')
     try {
-      return await fn()
+      const result = await fn()
+      this.sql.exec('COMMIT')
+      return result
     } catch (error) {
+      this.sql.exec('ROLLBACK')
       throw error
     }
   }
@@ -384,70 +387,85 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
     },
 
     // bulkCreate implementation for SQLite (do-8m4e)
+    // Made atomic with explicit transaction (do-6dc7.5)
     async bulkCreate(items: Array<{ $type: string } & Record<string, unknown>>) {
       if (items.length === 0) {
         return []
       }
 
-      const now = Date.now()
-      const created: Thing[] = []
-
+      // Validate all items first (before transaction)
       for (const data of items) {
         if (!data.$type) {
           throw new Error('$type is required')
         }
-
-        const id = generateId()
-        const { $type, ...customData } = data
-
-        const thing: Thing = {
-          $id: id,
-          $type,
-          $createdAt: now,
-          $updatedAt: now,
-          ...customData
-        }
-
-        const dataJson = JSON.stringify(customData)
-
-        await sql
-          .prepare(
-            'INSERT INTO things (id, type, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-          )
-          .bind(id, $type, dataJson, now, now)
-          .run()
-
-        created.push(thing)
       }
 
-      return created
+      const now = Date.now()
+      const created: Thing[] = []
+
+      // Wrap in transaction for atomicity - either all succeed or all rollback
+      return adapter.transaction(async () => {
+        for (const data of items) {
+          const id = generateId()
+          const { $type, ...customData } = data
+
+          const thing: Thing = {
+            $id: id,
+            $type,
+            $createdAt: now,
+            $updatedAt: now,
+            ...customData
+          }
+
+          const dataJson = JSON.stringify(customData)
+
+          await sql
+            .prepare(
+              'INSERT INTO things (id, type, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+            )
+            .bind(id, $type, dataJson, now, now)
+            .run()
+
+          created.push(thing)
+        }
+
+        return created
+      })
     },
 
     // bulkUpdate implementation for SQLite (do-8m4e)
+    // Made atomic with explicit transaction (do-6dc7.5)
     async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>) {
       if (items.length === 0) {
         return []
       }
 
-      const updated: Thing[] = []
+      // Wrap in transaction for atomicity - either all succeed or all rollback
+      return adapter.transaction(async () => {
+        const updated: Thing[] = []
 
-      for (const { id, data } of items) {
-        const thing = await this.update(String(id), data)
-        updated.push(thing)
-      }
+        for (const { id, data } of items) {
+          const thing = await this.update(String(id), data)
+          updated.push(thing)
+        }
 
-      return updated
+        return updated
+      })
     },
 
     // bulkDelete implementation for SQLite (do-8m4e)
+    // Made atomic with explicit transaction (do-6dc7.5)
     async bulkDelete(ids: string[]): Promise<void> {
       if (ids.length === 0) {
         return
       }
 
-      for (const id of ids) {
-        await this.delete(id)
-      }
+      // Wrap in transaction for atomicity - either all succeed or all rollback
+      await adapter.transaction(async () => {
+        for (const id of ids) {
+          await this.delete(id)
+        }
+      })
     },
 
     /**

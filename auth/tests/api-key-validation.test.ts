@@ -187,7 +187,6 @@ describe('API Key Validation in Middleware', () => {
 
     it('should throw error if manager is not provided', () => {
       expect(() => {
-        // @ts-expect-error - testing runtime validation
         apiKeyMiddleware({})
       }).toThrow('ApiKeyManager is required')
     })

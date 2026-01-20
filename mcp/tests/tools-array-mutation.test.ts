@@ -32,7 +32,7 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       // Using addTool correctly registers in both places
       server.addTool(createTestTool('proper-tool'))
       expect(server.tools.length).toBe(1)
-      expect(registry.findByName('proper-tool')).toBeDefined()
+      expect(registry.get('proper-tool')).toBeDefined()
 
       // BUG: Direct push bypasses registry!
       // This is the problematic pattern we want to prevent
@@ -44,7 +44,7 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
 
       // This is the BUG - registry is out of sync
       // After fix, this should not be possible (array should be read-only or protected)
-      const sneakyInRegistry = registry.findByName('sneaky-tool')
+      const sneakyInRegistry = registry.get('sneaky-tool')
 
       // Currently FAILS because direct push doesn't update registry
       // After fix, the push itself should throw or be prevented
@@ -179,7 +179,7 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
 
       // Verify both have the tool
       expect(server.tools.find(t => t.name === 'synced-tool')).toBeDefined()
-      expect(registry.findByName('synced-tool')).toBeDefined()
+      expect(registry.get('synced-tool')).toBeDefined()
 
       // Now directly manipulate array
       server.tools.length = 0 // Clear array directly
@@ -187,7 +187,7 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       // BUG: Registry is now out of sync with tools array!
       // Registry still has the tool, but tools array is empty
       expect(server.tools.length).toBe(0)
-      expect(registry.findByName('synced-tool')).toBeUndefined() // RED: Still defined in registry
+      expect(registry.get('synced-tool')).toBeUndefined() // RED: Still defined in registry
     })
 
     it('should prevent array clearing without registry update', () => {
@@ -206,8 +206,8 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       // b) Also update registry (array is a proxy)
       // c) Return a copy (defensive copy pattern)
 
-      expect(registry.findByName('tool-to-clear')).toBeUndefined() // RED: Still defined
-      expect(registry.findByName('another-tool')).toBeUndefined() // RED: Still defined
+      expect(registry.get('tool-to-clear')).toBeUndefined() // RED: Still defined
+      expect(registry.get('another-tool')).toBeUndefined() // RED: Still defined
     })
   })
 
@@ -268,7 +268,7 @@ describe('Array mutation detection', () => {
 
     // Verify: both synchronized
     expect(server.tools.length).toBe(1)
-    expect(registry.listAll().length).toBe(1)
+    expect(registry.list().length).toBe(1)
 
     // Step 2: Add tool improperly (direct push)
     server.tools.push({
@@ -280,13 +280,13 @@ describe('Array mutation detection', () => {
 
     // BUG: Tools array has 2, registry has 1
     expect(server.tools.length).toBe(2)
-    expect(registry.listAll().length).toBe(1) // Still 1! Desync!
+    expect(registry.list().length).toBe(1) // Still 1! Desync!
 
     // The 'improper' tool is in the array
     expect(server.tools.find(t => t.name === 'improper')).toBeDefined()
 
     // But NOT in the registry
-    expect(registry.findByName('improper')).toBeUndefined()
+    expect(registry.get('improper')).toBeUndefined()
 
     // This is the race condition - if code relies on registry for some operations
     // and raw array for others, behavior becomes inconsistent

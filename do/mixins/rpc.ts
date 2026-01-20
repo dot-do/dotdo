@@ -161,7 +161,7 @@ export function WithRPC<TBase extends Constructor>(
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
-    constructor(...args: any[]) {
+    constructor(...args: unknown[]) {
       super(...args)
       this._stubCache = new Map()
     }
@@ -201,7 +201,7 @@ export function WithRPC<TBase extends Constructor>(
      */
     getDOStub(bindingName: string, id: string | DurableObjectId): DOStubProxy {
       // Get env from instance if available
-      const env = (this as any).env ?? (this as any)._env
+      const env = (this as unknown as { env?: unknown; _env?: unknown }).env ?? (this as unknown as { _env?: unknown })._env
       if (!env) {
         throw new Error('Environment not available for RPC. Ensure env is passed to constructor.')
       }
@@ -279,10 +279,10 @@ export function WithRPC<TBase extends Constructor>(
 
           // Navigate to method using dot notation
           const parts = method.split('.')
-          let current: any = this
+          let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
           for (let i = 0; i < parts.length - 1; i++) {
-            current = current[parts[i]]
+            current = current[parts[i]] as Record<string, unknown>
             if (!current) {
               const error = new NotFoundError(`Method not found: ${method}`)
               return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)

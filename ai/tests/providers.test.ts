@@ -166,7 +166,6 @@ describe('ai-providers', () => {
       // Attempting to get a model from a non-existent provider should eventually error
       // This tests the error handling path
       try {
-        // @ts-expect-error - intentionally testing invalid provider
         await model('invalid-provider:some-model')
         // If we get here with no SDK installed, the mock should have been used
       } catch (error) {

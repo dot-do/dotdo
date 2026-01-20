@@ -38,9 +38,11 @@ import type {
 // =============================================================================
 
 /**
- * Constructor type for mixin pattern
+ * Constructor type for mixin pattern.
+ * Using unknown[] would break TypeScript mixin patterns, so any[] is the standard approach.
  */
-export type Constructor<T = object> = new (...args: any[]) => T
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Constructor<T = object> = new (...args: unknown[]) => T
 
 /**
  * Interface for classes that have storage capabilities
@@ -121,7 +123,7 @@ export function WithStorage<TBase extends Constructor>(
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
-    constructor(...args: any[]) {
+    constructor(...args: unknown[]) {
       super(...args)
       this._entityManager = new EntityManager(options.entityManagerOptions)
     }
@@ -286,4 +288,5 @@ export function WithStorage<TBase extends Constructor>(
  * type MyDOInstance = MixinInstance<typeof WithStorage<typeof BaseDO>>
  * ```
  */
-export type MixinInstance<T> = T extends new (...args: any[]) => infer R ? R : never
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type MixinInstance<T> = T extends new (...args: unknown[]) => infer R ? R : never

@@ -15,7 +15,7 @@ export interface TokenRevocation {
   /** When the token would have expired (for cleanup) */
   expiresAt: number
   /** Optional reason for revocation */
-  reason?: string
+  reason?: string | undefined
 }
 
 /**

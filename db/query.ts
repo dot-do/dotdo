@@ -6,7 +6,7 @@
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
-import { ValidationError } from './errors'
+import { DbValidationError } from './errors'
 import { toThingId } from './branded-types'
 
 // ============================================================
@@ -83,7 +83,7 @@ export function getQueryLimits(): Required<Omit<QueryLimitsConfig, 'onWarning'>>
 /**
  * Error thrown when query limits are violated in strict mode (do-grp5.6)
  */
-export class QueryLimitError extends ValidationError {
+export class QueryLimitError extends DbValidationError {
   constructor(
     message: string,
     public readonly operation: string,
@@ -351,7 +351,7 @@ const VALID_FIELD_NAME = /^[$a-zA-Z_][a-zA-Z0-9_$]*$/
  */
 export function validateFieldName(field: string): void {
   if (!VALID_FIELD_NAME.test(field)) {
-    throw ValidationError.forField(
+    throw DbValidationError.forField(
       field,
       'must be alphanumeric (with underscores) and start with a letter, underscore, or $',
       field

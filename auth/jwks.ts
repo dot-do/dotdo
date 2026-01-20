@@ -35,11 +35,11 @@ export interface JwksClientOptions {
  */
 export interface JwksVerifyOptions {
   /** Expected issuer(s) */
-  issuer?: string | string[]
+  issuer?: string | string[] | undefined
   /** Expected audience(s) */
-  audience?: string | string[]
+  audience?: string | string[] | undefined
   /** Algorithms to allow (default: RS256, RS384, RS512, ES256, ES384, ES512) */
-  algorithms?: string[]
+  algorithms?: string[] | undefined
 }
 
 /**

@@ -536,7 +536,7 @@ describe('OpenAPI Generation', () => {
       expect(res.status).toBe(200)
       expect(res.headers.get('content-type')).toContain('application/json')
 
-      const spec = await res.json()
+      const spec = (await res.json()) as { openapi: string; info: { title: string } }
       expect(spec.openapi).toBe('3.0.3')
       expect(spec.info.title).toBe('Test API')
     })

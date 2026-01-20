@@ -415,7 +415,7 @@ describe('AI <-> DO Integration', () => {
 
       const handler3 = vi.fn(async () => {
         // This one succeeds
-        return await ai`Success handler`
+        await ai`Success handler`
       })
 
       $.on.Multi.process(handler1)

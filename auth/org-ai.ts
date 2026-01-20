@@ -203,11 +203,11 @@ export interface SSOFlowResult {
   /** State parameter for validation */
   state: string
   /** PKCE code verifier (if usePKCE is true) */
-  codeVerifier?: string
+  codeVerifier?: string | undefined
   /** PKCE code challenge (if usePKCE is true) */
-  codeChallenge?: string
+  codeChallenge?: string | undefined
   /** PKCE code challenge method */
-  codeChallengeMethod?: 'S256' | 'plain'
+  codeChallengeMethod?: 'S256' | 'plain' | undefined
 }
 
 /**
@@ -913,8 +913,8 @@ function buildAuthUrl(
     redirectUri: string
     state: string
     scopes: string[]
-    codeChallenge?: string
-    codeChallengeMethod?: 'S256' | 'plain'
+    codeChallenge?: string | undefined
+    codeChallengeMethod?: 'S256' | 'plain' | undefined
   }
 ): string {
   // Provider base URLs

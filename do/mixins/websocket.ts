@@ -142,7 +142,7 @@ export function WithWebSocket<TBase extends Constructor>(
     private _websocketManager: WebSocketManager
     private _heartbeatIntervalId: number | null = null
 
-    constructor(...args: any[]) {
+    constructor(...args: unknown[]) {
       super(...args)
       this._websocketManager = new WebSocketManager()
     }

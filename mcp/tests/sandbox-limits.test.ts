@@ -269,7 +269,6 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
       // Note: There's no allowNetwork option in the current interface
       const sandbox = createSandbox({
         context: mockContext,
-        // @ts-expect-error - allowNetwork doesn't exist in the interface yet
         allowNetwork: true
       })
 

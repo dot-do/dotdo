@@ -27,7 +27,7 @@ export interface TokenValidationOptions {
 }
 
 export interface TokenExtractionOptions {
-  cookieName?: string
+  cookieName?: string | undefined
 }
 
 export interface ExpirationCheckResult {

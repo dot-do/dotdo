@@ -6,8 +6,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 /**
  * NOTE: @org.ai/core is imported from primitives/packages/ai-core
- * which is mapped via workspace dependencies
+ * Using direct file path import since npm scoped packages with dots are non-standard
  */
+
+// Import path for ai-core - using TypeScript source directly
+const AI_CORE_PATH = '../primitives/packages/ai-core/src/index.js'
 
 // ============================================================================
 // Import Tests - Verify all exports are available
@@ -275,7 +278,7 @@ describe('AIPromise', () => {
     const items: string[] = []
 
     // forEach should work (though it resolves the promise)
-    await promise.forEach((item) => {
+    await promise.forEach((item: string) => {
       items.push(item)
     })
 
