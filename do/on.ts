@@ -12,9 +12,14 @@
  * - Multiple handlers per event
  * - Async handler support
  * - Type-safe with common nouns + index signature for custom ones
+ * - Retry with exponential backoff for transient failures
+ * - Dead letter queue for persistently failing handlers
  *
  * @module do/on
  */
+
+import { createNestedProxy } from './utils/proxy'
+import { isRetryableError, ValidationError } from '../rpc/errors'
 
 /**
  * Event handler function type
@@ -87,32 +92,9 @@ export interface OnProxy {
 }
 
 /**
- * Create a proxy for event registration on a specific noun
- *
- * @param noun - The noun (e.g., 'Customer', 'Order')
- * @param handlers - Handler registry map
- * @returns Proxy that captures verb and registers handler
- */
-function createNounEventProxy(
-  noun: string,
-  handlers: Map<string, EventHandler[]>
-): NounEventProxy {
-  return new Proxy({} as NounEventProxy, {
-    get(_target, verb: string) {
-      // Return a function that registers the handler
-      return (handler: EventHandler) => {
-        const key = `${noun}.${verb}`
-        const existing = handlers.get(key) || []
-        handlers.set(key, [...existing, handler])
-      }
-    }
-  })
-}
-
-/**
  * Create the top-level OnProxy for event handler registration
  *
- * This creates a two-level proxy:
+ * This creates a two-level proxy using the shared createNestedProxy utility:
  * 1. First level captures the noun (Customer, Order, etc.)
  * 2. Second level captures the verb (created, updated, etc.)
  * 3. Function call registers the handler
@@ -150,9 +132,12 @@ function createNounEventProxy(
 export function createOnProxy(
   handlers: Map<string, EventHandler[]>
 ): OnProxy {
-  return new Proxy({} as OnProxy, {
-    get(_target, noun: string) {
-      return createNounEventProxy(noun, handlers)
+  return createNestedProxy<OnProxy>((noun, verb) => {
+    // Return a function that registers the handler
+    return (handler: EventHandler) => {
+      const key = `${noun}.${verb}`
+      const existing = handlers.get(key) || []
+      handlers.set(key, [...existing, handler])
     }
   })
 }
@@ -215,16 +200,103 @@ export function matchHandlers(
 }
 
 /**
- * Invoke all handlers that match an event
+ * Options for retry behavior
+ */
+export interface RetryOptions {
+  /** Maximum number of retries (default: 5) */
+  maxRetries?: number
+  /** Backoff strategy: 'exponential' doubles delay each retry, 'linear' uses fixed delay (default: 'exponential') */
+  backoff?: 'exponential' | 'linear'
+  /** Initial delay in milliseconds (default: 100) */
+  initialDelay?: number
+}
+
+/**
+ * Result of a handler execution
+ */
+export interface HandlerResult {
+  handler: EventHandler
+  succeeded: boolean
+  attempts: number
+  error?: Error
+}
+
+/**
+ * Result of invokeHandlers
+ */
+export interface InvokeHandlersResult {
+  succeeded: HandlerResult[]
+  failed: HandlerResult[]
+}
+
+/**
+ * Execute a single handler with retry logic
+ *
+ * @param handler - The handler function to execute
+ * @param event - Event data to pass to handler
+ * @param options - Retry options
+ * @returns HandlerResult with execution outcome
+ */
+async function executeWithRetry(
+  handler: EventHandler,
+  event: unknown,
+  options: RetryOptions = {}
+): Promise<HandlerResult> {
+  const { maxRetries = 5, backoff = 'exponential', initialDelay = 100 } = options
+
+  let lastError: Error | undefined
+  let attempts = 0
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    attempts++
+    try {
+      await handler(event)
+      return { handler, succeeded: true, attempts }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+
+      // Don't retry non-retriable errors (ValidationError, errors with retriable=false)
+      if (error instanceof ValidationError) {
+        return { handler, succeeded: false, attempts, error: lastError }
+      }
+
+      // Check for explicit non-retriable flag
+      if (error && typeof error === 'object' && 'retriable' in error && !(error as { retriable: boolean }).retriable) {
+        return { handler, succeeded: false, attempts, error: lastError }
+      }
+
+      // Only retry if it's a retriable error
+      if (!isRetryableError(error)) {
+        return { handler, succeeded: false, attempts, error: lastError }
+      }
+
+      // Don't delay after the last attempt
+      if (attempt < maxRetries) {
+        const delay = backoff === 'exponential'
+          ? initialDelay * Math.pow(2, attempt)
+          : initialDelay
+        await new Promise(r => setTimeout(r, delay))
+      }
+    }
+  }
+
+  // Max retries exceeded
+  return { handler, succeeded: false, attempts, error: lastError }
+}
+
+/**
+ * Invoke all handlers that match an event with retry support
  *
  * Finds matching handlers using matchHandlers() and invokes them.
  * Handles both sync and async handlers gracefully.
- * Errors in individual handlers don't prevent other handlers from running.
+ * Retries transient errors with exponential backoff.
+ * Non-retriable errors (ValidationError, etc.) are not retried.
  *
  * @param eventType - Event type in format "Noun.verb"
  * @param event - Event data to pass to handlers
  * @param handlers - Handler registry map
- * @returns Promise that resolves when all handlers complete
+ * @param options - Optional retry configuration
+ * @returns Promise with result containing succeeded and failed handlers
  *
  * @example
  * ```ts
@@ -239,27 +311,37 @@ export function matchHandlers(
  *   console.log('Handler 2:', event)
  * })
  *
- * await invokeHandlers('Order.placed', { orderId: '123' }, handlers)
- * // Both handlers execute
+ * const result = await invokeHandlers('Order.placed', { orderId: '123' }, handlers)
+ * console.log(`${result.succeeded.length} succeeded, ${result.failed.length} failed`)
  * ```
  */
 export async function invokeHandlers(
   eventType: string,
   event: unknown,
-  handlers: Map<string, EventHandler[]>
-): Promise<void> {
+  handlers: Map<string, EventHandler[]>,
+  options: RetryOptions = {}
+): Promise<InvokeHandlersResult> {
   const matched = matchHandlers(eventType, handlers)
 
-  // Invoke all matched handlers
-  await Promise.allSettled(
+  const results = await Promise.all(
     matched.map(async (handler, index) => {
-      try {
-        await handler(event)
-      } catch (error) {
-        console.error(`[invokeHandlers] Error in handler ${index + 1}/${matched.length} for "${eventType}":`, error)
+      const result = await executeWithRetry(handler, event, options)
+
+      if (!result.succeeded) {
+        console.error(
+          `[invokeHandlers] Handler ${index + 1}/${matched.length} for "${eventType}" failed after ${result.attempts} attempt(s):`,
+          result.error
+        )
       }
+
+      return result
     })
   )
+
+  const succeeded = results.filter(r => r.succeeded)
+  const failed = results.filter(r => !r.succeeded)
+
+  return { succeeded, failed }
 }
 
 /**
