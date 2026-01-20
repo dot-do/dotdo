@@ -345,7 +345,8 @@ export class ApiKeyAuth {
    */
   static extractPrefix(key: string): string | undefined {
     const parts = key.split('_')
-    return parts.length > 1 ? parts[0] : undefined
+    const prefix = parts[0]
+    return parts.length > 1 && prefix ? prefix : undefined
   }
 
   /**
@@ -362,7 +363,13 @@ export class ApiKeyAuth {
       return false
     }
 
-    const [prefix, secret] = parts
+    const prefix = parts[0]
+    const secret = parts[1]
+
+    // Both parts must exist
+    if (!prefix || !secret) {
+      return false
+    }
 
     // Prefix should be alphabetic
     if (!/^[a-z]+$/i.test(prefix)) {

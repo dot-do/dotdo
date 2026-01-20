@@ -1,19 +1,22 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["@cloudflare/workers-types"]
+    "baseUrl": ".",
+    "paths": {
+      "@dotdo/do": ["./do/index.ts"],
+      "@dotdo/db": ["./db/index.ts"],
+      "@dotdo/rpc": ["./rpc/index.ts"],
+      "@dotdo/api": ["./api/index.ts"],
+      "@dotdo/auth": ["./auth/index.ts"],
+      "@dotdo/mcp": ["./mcp/index.ts"],
+      "@dotdo/ai": ["./ai/index.ts"],
+      "@dotdo/app": ["./app/index.ts"],
+      "@dotdo/testing": ["./testing/index.ts"],
+      "@dotdo/fsx": ["./fsx/index.ts"],
+      "@dotdo/test-utils": ["./test-utils/index.ts"],
+      "dotdo": ["./dotdo/index.ts"]
+    }
   }
 }

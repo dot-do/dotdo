@@ -447,7 +447,12 @@ function getMiniflareConfig(persistDir: string) {
     modules: true,
     script: PERSISTENCE_DO_SCRIPT,
     durableObjects: {
-      PERSISTENCE_DO: 'PersistenceDO',
+      PERSISTENCE_DO: {
+        className: 'PersistenceDO',
+        // Enable SQLite for this DO class - required for state.storage.sql
+        // Note: the option is useSQLite (capital SQL), not useSqlite
+        useSQLite: true,
+      },
     },
     // Enable persistence to a directory - this is critical for restart tests
     durableObjectsPersist: persistDir,

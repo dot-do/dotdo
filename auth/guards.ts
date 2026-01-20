@@ -1,9 +1,8 @@
 // Permission guards - composable auth checks
-import type { MiddlewareHandler, Context } from 'hono'
+import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-// Import AuthUser type and ensure ContextVariableMap augmentation is loaded
-import type { AuthUser } from './middleware'
-import './middleware' // Side-effect import for module augmentation
+// Side-effect import for module augmentation
+import './middleware'
 
 // Require authentication (user must be set)
 export function requireAuth(): MiddlewareHandler {
@@ -125,8 +124,9 @@ export function requireAny(...guards: MiddlewareHandler[]): MiddlewareHandler {
     }
 
     // All guards failed - throw the first error to preserve the original status code
-    if (errors.length > 0 && errors[0] instanceof HTTPException) {
-      throw errors[0]
+    const firstError = errors[0]
+    if (firstError instanceof HTTPException) {
+      throw firstError
     }
 
     // All guards failed

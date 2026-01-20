@@ -4,7 +4,13 @@ import { createServer } from '../server'
 /**
  * Helper to check structured error response format
  */
-function expectValidationError(json: any, messagePattern: string | RegExp) {
+interface ValidationErrorResponse {
+  type: string
+  code: string
+  message: string
+}
+
+function expectValidationError(json: ValidationErrorResponse, messagePattern: string | RegExp) {
   expect(json.type).toBe('ValidationError')
   expect(json.code).toBe('VALIDATION_ERROR')
   if (typeof messagePattern === 'string') {

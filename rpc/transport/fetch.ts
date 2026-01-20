@@ -2,7 +2,7 @@
 // Used for client-to-worker communication over HTTP
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
-import { deserializeError, isSerializedError, type SerializedError } from '../errors'
+import { isSerializedError, type SerializedError } from '../errors'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 
 /**

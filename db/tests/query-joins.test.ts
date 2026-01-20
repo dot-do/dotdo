@@ -43,8 +43,8 @@ describe('Query Builder - JOIN Operations', () => {
     await relationships.add({ subject: order2.$id, predicate: 'contains', object: product2.$id })
 
     // Store references for tests (via store's internal state)
-    ;(store as any)._testData = { alice, bob, charlie, order1, order2, order3, product1, product2 }
-    ;(relationships as any)._testStore = store
+    ;(store as unknown as { _testData: Record<string, unknown> })._testData = { alice, bob, charlie, order1, order2, order3, product1, product2 }
+    ;(relationships as unknown as { _testStore: ThingsStore })._testStore = store
   })
 
   describe('INNER JOIN', () => {
@@ -373,16 +373,16 @@ describe('Query Builder - JOIN Operations', () => {
 
       // Alice's orders should have nested product joins
       const aliceOrders = alice!._joined?.placed || []
-      const orderWithProducts = aliceOrders.find((o: any) => o._joined?.contains?.length > 0)
+      const orderWithProducts = aliceOrders.find((o: { _joined?: { contains?: unknown[] } }) => o._joined?.contains?.length && o._joined.contains.length > 0)
       expect(orderWithProducts).toBeDefined()
     })
 
     it('should support multiple independent joins', async () => {
       // Create another relationship type for testing
       await relationships.add({
-        subject: (store as any)._testData.alice.$id,
+        subject: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.alice.$id,
         predicate: 'manages',
-        object: (store as any)._testData.bob.$id
+        object: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.bob.$id
       })
 
       const results = await query(store, relationships)
@@ -422,7 +422,7 @@ describe('Query Builder - JOIN Operations', () => {
       // Create additional test data
       const highValuePending = await store.create({ $type: 'Order', total: 500, status: 'pending' })
       await relationships.add({
-        subject: (store as any)._testData.alice.$id,
+        subject: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.alice.$id,
         predicate: 'placed',
         object: highValuePending.$id
       })
@@ -469,9 +469,9 @@ describe('Query Builder - JOIN Operations', () => {
     it('should handle self-referential joins', async () => {
       // User manages User
       await relationships.add({
-        subject: (store as any)._testData.alice.$id,
+        subject: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.alice.$id,
         predicate: 'manages',
-        object: (store as any)._testData.bob.$id
+        object: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.bob.$id
       })
 
       const results = await query(store, relationships)
@@ -487,14 +487,14 @@ describe('Query Builder - JOIN Operations', () => {
     it('should handle cyclic relationships without infinite loops', async () => {
       // Create a cycle: Alice -> Bob -> Alice
       await relationships.add({
-        subject: (store as any)._testData.alice.$id,
+        subject: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.alice.$id,
         predicate: 'follows',
-        object: (store as any)._testData.bob.$id
+        object: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.bob.$id
       })
       await relationships.add({
-        subject: (store as any)._testData.bob.$id,
+        subject: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.bob.$id,
         predicate: 'follows',
-        object: (store as any)._testData.alice.$id
+        object: (store as unknown as { _testData: Record<string, { $id: string }> })._testData.alice.$id
       })
 
       const results = await query(store, relationships)

@@ -336,7 +336,7 @@ function generateDeleteCommand(resource: ResourceDefinition<any>): CLICommand {
 function generateActionCommand(
   resource: ResourceDefinition<any>,
   actionName: string,
-  actionDef: any
+  _actionDef: any
 ): CLICommand {
   return {
     name: actionName,

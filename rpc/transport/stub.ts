@@ -77,7 +77,6 @@ function isDurableObjectId(id: unknown): id is DurableObjectId {
 export class StubTransport implements Transport {
   private readonly stub: DurableObjectStub
   private readonly baseUrl: string
-  private readonly timeout: number
   private readonly baseCorrelationId?: string
   private readonly headers: Record<string, string>
   private readonly sourceDoId?: string
@@ -85,7 +84,6 @@ export class StubTransport implements Transport {
   constructor(options: StubTransportOptions) {
     this.stub = options.stub
     this.baseUrl = options.baseUrl ?? 'https://do'
-    this.timeout = options.timeout ?? 30000
     if (options.correlationId !== undefined) {
       this.baseCorrelationId = options.correlationId
     }

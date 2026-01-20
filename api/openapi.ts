@@ -411,7 +411,10 @@ export function generateOpenAPI(options: GenerateOpenAPIOptions): OpenAPISpec {
 
   // Also generate paths from operation configs that might not be in routes yet
   for (const [operationKey, config] of Object.entries(operations)) {
-    const [method, path] = operationKey.split(' ')
+    const parts = operationKey.split(' ')
+    const method = parts[0]
+    const path = parts[1]
+    if (!method || !path) continue
     const openAPIPath = generator.honoPathToOpenAPI(path)
     const methodLower = method.toLowerCase() as keyof PathItemObject
 

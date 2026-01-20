@@ -36,6 +36,9 @@ import {
   type CrossDORPCConfig
 } from '../workflow/rpc'
 import type { Constructor } from './storage'
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('[WithRPC]')
 
 // =============================================================================
 // Types
@@ -259,7 +262,7 @@ export function WithRPC<TBase extends Constructor>(
           const { method, args } = await c.req.json<RPCRequest>()
 
           if (debug) {
-            console.log(`[RPC] Calling ${method} with args:`, args)
+            logger.debug(`Calling ${method} with args:`, args)
           }
 
           // Navigate to method using dot notation
@@ -283,13 +286,13 @@ export function WithRPC<TBase extends Constructor>(
           const result = await fn.apply(current, args)
 
           if (debug) {
-            console.log(`[RPC] ${method} returned:`, result)
+            logger.debug(`${method} returned:`, result)
           }
 
           return c.json(result)
         } catch (error) {
           if (debug) {
-            console.error('[RPC] Error:', error)
+            logger.debug('Error:', error)
           }
 
           // Re-throw RPCErrors with proper formatting
@@ -299,7 +302,7 @@ export function WithRPC<TBase extends Constructor>(
 
           // Wrap unknown errors in InternalError
           const wrappedError = InternalError.wrap(error)
-          console.error('[WithRPC] RPC error:', error)
+          logger.error('RPC error:', error)
           return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
         }
       })

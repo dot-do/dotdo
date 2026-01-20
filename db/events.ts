@@ -7,6 +7,9 @@ import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { EventId, ThingId, CorrelationId } from './branded-types'
 import { generateEventId } from './id'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[Events]')
 
 /**
  * Base Event interface with system fields
@@ -226,7 +229,7 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
         try {
           handler(event)
         } catch (e) {
-          console.error('Event subscriber error:', e)
+          logger.error('Event subscriber error:', e)
         }
       })
 
@@ -475,7 +478,7 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
         try {
           handler(event)
         } catch (e) {
-          console.error('Event subscriber error:', e)
+          logger.error('Event subscriber error:', e)
         }
       })
 

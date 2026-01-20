@@ -33,7 +33,7 @@ export function createMockSqlStorage(): MockSqlStorage {
   tables.set('relationships', state.relationships)
 
   return {
-    exec(sql: string): MockSqlResult {
+    exec(_sql: string): MockSqlResult {
       // Simple exec handler for CREATE TABLE
       return { results: [] }
     },

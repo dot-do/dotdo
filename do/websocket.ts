@@ -11,6 +11,10 @@
  * - Reconnection handling with connection IDs
  */
 
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[WebSocketManager]')
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -96,12 +100,13 @@ export class WebSocketManager {
     clientId?: string
   ): Response {
     const pair = new WebSocketPair()
-    // WebSocketPair is a typed object with [0] and [1] properties
-    // Use direct property access to get proper typing
-    const client: WebSocket = pair[0]
-    const server: WebSocket = pair[1]
+    // WebSocketPair is a tuple-like object with [0] and [1] properties
+    // These are guaranteed to exist by the WebSocketPair API
+    const client = pair[0] as WebSocket
+    const server = pair[1] as WebSocket
 
     // Handle reconnection - clean up old connection for same client
+    // IMPORTANT: We capture reconnectCount BEFORE cleanup to preserve the count
     let reconnectCount = 0
     if (clientId) {
       const existingWs = this.clientConnections.get(clientId)
@@ -110,7 +115,11 @@ export class WebSocketManager {
         if (existingMetadata) {
           reconnectCount = existingMetadata.reconnectCount + 1
         }
-        // Clean up old connection
+        // Remove from clientConnections FIRST to prevent race condition
+        // where cleanup might re-delete the new connection's clientId entry
+        this.clientConnections.delete(clientId)
+        // Clean up old connection state (this won't touch clientConnections
+        // since we already removed it above)
         this.cleanupWebSocket(existingWs)
         try {
           existingWs.close(1000, 'Reconnected from another connection')
@@ -140,7 +149,8 @@ export class WebSocketManager {
       clientId,
     }
 
-    // Store connection metadata
+    // Store connection metadata BEFORE updating clientConnections
+    // to ensure the connection is fully registered
     this.connections.set(server, metadata)
     this.lastConnectionId = connectionId
 
@@ -150,7 +160,8 @@ export class WebSocketManager {
     }
 
     // Notify connect handlers asynchronously
-    this.notifyConnectHandlers(server, connectionId, metadata)
+    // Clone metadata to prevent handlers from mutating internal state
+    this.notifyConnectHandlers(server, connectionId, { ...metadata })
 
     // Cloudflare Workers ResponseInit supports status 101 and webSocket property
     // See: @cloudflare/workers-types ResponseInit interface
@@ -168,7 +179,7 @@ export class WebSocketManager {
       try {
         await handler(ws, connectionId, metadata)
       } catch (err) {
-        console.error('[WebSocketManager] Connect handler error:', err)
+        logger.error(' Connect handler error:', err)
       }
     }
   }
@@ -181,7 +192,7 @@ export class WebSocketManager {
       try {
         await handler(ws, connectionId, metadata)
       } catch (err) {
-        console.error('[WebSocketManager] Disconnect handler error:', err)
+        logger.error(' Disconnect handler error:', err)
       }
     }
   }
@@ -298,8 +309,8 @@ export class WebSocketManager {
         sent++
       } catch (err) {
         failed++
-        console.warn(
-          '[WebSocketManager] Broadcast send failed:',
+        logger.warn(
+          'Broadcast send failed:',
           'error:', err instanceof Error ? err.message : String(err),
           'tag:', tag,
           'readyState:', ws.readyState
@@ -313,11 +324,17 @@ export class WebSocketManager {
   /**
    * Clean up WebSocket tracking when connection closes or errors
    * Notifies disconnect handlers and removes all connection state
+   *
+   * Note: This method is idempotent - calling it multiple times for the same
+   * WebSocket is safe and will only trigger cleanup once.
    */
   cleanupWebSocket(ws: WebSocket): void {
     const metadata = this.connections.get(ws)
 
     if (metadata) {
+      // Remove connection metadata FIRST to prevent re-entrant cleanup
+      this.connections.delete(ws)
+
       // Clean up client ID tracking
       if (metadata.clientId) {
         const currentWs = this.clientConnections.get(metadata.clientId)
@@ -327,11 +344,10 @@ export class WebSocketManager {
         }
       }
 
-      // Notify disconnect handlers
-      this.notifyDisconnectHandlers(ws, metadata.connectionId, metadata)
-
-      // Remove connection metadata
-      this.connections.delete(ws)
+      // Notify disconnect handlers (fire-and-forget, but errors are logged)
+      // We do this AFTER removing from connections to prevent race conditions
+      // where a handler might try to access the now-invalid connection
+      this.notifyDisconnectHandlers(ws, metadata.connectionId, { ...metadata })
     }
   }
 
@@ -383,7 +399,7 @@ export class WebSocketManager {
         try {
           await handler(ws, message)
         } catch (err) {
-          console.error('[WebSocketManager] Handler error:', err)
+          logger.error(' Handler error:', err)
         }
       }
       return
@@ -420,7 +436,7 @@ export class WebSocketManager {
       try {
         await handler(ws, msg.data)
       } catch (err) {
-        console.error('[WebSocketManager] Handler error:', err)
+        logger.error(' Handler error:', err)
       }
     }
   }
@@ -432,7 +448,7 @@ export class WebSocketManager {
     try {
       ws.send(JSON.stringify({ type: 'ping' }))
     } catch (err) {
-      console.warn('[WebSocketManager] Ping send failed:', err)
+      logger.warn(' Ping send failed:', err)
     }
   }
 
@@ -473,7 +489,7 @@ export class WebSocketManager {
         try {
           ws.close(1000, 'Connection timeout')
         } catch (err) {
-          console.warn('[WebSocketManager] Error closing stale connection:', err)
+          logger.warn(' Error closing stale connection:', err)
         }
         this.cleanupWebSocket(ws)
       }
@@ -533,8 +549,8 @@ export class WebSocketManager {
       ws.send(JSON.stringify(message))
       return true
     } catch (err) {
-      console.warn(
-        '[WebSocketManager] Send failed:',
+      logger.warn(
+        'Send failed:',
         'error:', err instanceof Error ? err.message : String(err),
         'readyState:', ws.readyState
       )
@@ -552,7 +568,7 @@ export class WebSocketManager {
     try {
       ws.close(code, reason)
     } catch (err) {
-      console.warn('[WebSocketManager] Error closing connection:', err)
+      logger.warn(' Error closing connection:', err)
     }
     this.cleanupWebSocket(ws)
   }
@@ -574,8 +590,8 @@ export class WebSocketManager {
         sent++
       } catch (err) {
         failed++
-        console.warn(
-          '[WebSocketManager] Broadcast send failed:',
+        logger.warn(
+          'Broadcast send failed:',
           'error:', err instanceof Error ? err.message : String(err),
           'readyState:', ws.readyState
         )
@@ -590,10 +606,12 @@ export class WebSocketManager {
    * Useful for debugging and monitoring
    */
   getAllConnections(): Array<{ ws: WebSocket; metadata: ConnectionMetadata }> {
-    return Array.from(this.connections.entries()).map(([ws, metadata]) => ({
-      ws,
-      metadata: { ...metadata }, // Clone to prevent mutation
-    }))
+    return Array.from(this.connections.entries()).map(
+      (entry: [WebSocket, ConnectionMetadata]) => ({
+        ws: entry[0],
+        metadata: { ...entry[1] }, // Clone to prevent mutation
+      })
+    )
   }
 
   /**

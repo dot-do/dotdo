@@ -3,7 +3,7 @@
 
 import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { jwtVerify, importJWK, decodeProtectedHeader, type JWK, type JWTPayload } from 'jose'
+import { jwtVerify, importJWK, decodeProtectedHeader, type JWK } from 'jose'
 import { extractToken, checkTokenExpiration, type TokenPayload } from './token'
 import type { AuthUser } from './middleware'
 

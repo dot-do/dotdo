@@ -1,7 +1,7 @@
 // Auth middleware for Hono
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { jwtVerify, type JWTPayload } from 'jose'
+import { jwtVerify } from 'jose'
 
 export interface AuthOptions {
   issuer?: string

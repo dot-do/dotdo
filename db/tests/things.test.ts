@@ -20,7 +20,8 @@ describe('Things Store', () => {
     })
 
     it('should require $type', async () => {
-      await expect(store.create({ name: 'Alice' } as any)).rejects.toThrow('$type is required')
+      // Intentionally passing invalid input to test runtime validation
+      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow('$type is required')
     })
 
     it('should generate unique IDs for each thing', async () => {
@@ -78,21 +79,24 @@ describe('Things Store', () => {
 
     it('should not allow changing $id', async () => {
       const created = await store.create({ $type: 'Customer', name: 'Alice' })
-      const updated = await store.update(created.$id, { $id: 'new-id' } as any)
+      // Intentionally passing invalid update to test that $id is protected
+      const updated = await store.update(created.$id, { $id: 'new-id' } as unknown as Partial<Thing>)
 
       expect(updated.$id).toBe(created.$id)
     })
 
     it('should not allow changing $type', async () => {
       const created = await store.create({ $type: 'Customer', name: 'Alice' })
-      const updated = await store.update(created.$id, { $type: 'Order' } as any)
+      // Intentionally passing invalid update to test that $type is protected
+      const updated = await store.update(created.$id, { $type: 'Order' } as unknown as Partial<Thing>)
 
       expect(updated.$type).toBe('Customer')
     })
 
     it('should not allow changing $createdAt', async () => {
       const created = await store.create({ $type: 'Customer', name: 'Alice' })
-      const updated = await store.update(created.$id, { $createdAt: 0 } as any)
+      // Intentionally passing invalid update to test that $createdAt is protected
+      const updated = await store.update(created.$id, { $createdAt: 0 } as unknown as Partial<Thing>)
 
       expect(updated.$createdAt).toBe(created.$createdAt)
     })
@@ -234,7 +238,8 @@ describe('Things Store', () => {
 
       await expect(store.bulkCreate([
         { $type: 'Customer', name: 'Alice' },
-        { name: 'No Type' } as any, // Missing $type
+        // Intentionally passing invalid input to test atomic rollback
+        { name: 'No Type' } as unknown as { $type: string }, // Missing $type
         { $type: 'Customer', name: 'Bob' }
       ])).rejects.toThrow('$type is required')
 
@@ -308,8 +313,9 @@ describe('Things Store', () => {
         { $type: 'Customer', name: 'Alice' }
       ])
 
+      // Intentionally passing invalid updates to test that system fields are protected
       const updated = await store.bulkUpdate([
-        { id: created[0].$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as any }
+        { id: created[0].$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as unknown as Partial<Thing> }
       ])
 
       expect(updated[0].$id).toBe(created[0].$id)

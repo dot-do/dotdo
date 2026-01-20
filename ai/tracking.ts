@@ -2,6 +2,7 @@
 // Supports multi-provider usage tracking, budget limits, and reporting
 
 import type { AIMeta } from './promise'
+import { countTokens as countTokensTiktoken, estimateCost as estimateCostTiktoken } from './tokens'
 
 export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
 
@@ -77,17 +78,31 @@ const PRICING: Record<Provider, Record<string, ModelConfig>> = {
 }
 
 /**
- * Estimate token count from text.
- * Uses a simple heuristic: ~1 token per 4 characters.
- * For production, consider using tiktoken or similar.
+ * Count tokens in text using tiktoken for accurate BPE tokenization.
+ *
+ * @param text - The text to count tokens for
+ * @param model - Optional model name for model-specific encoding
+ * @returns The number of tokens
+ *
+ * @example
+ * ```ts
+ * const tokens = countTokens('Hello, world!')
+ * const tokens2 = countTokens('Hello, world!', 'gpt-4o')
+ * ```
  */
-export function countTokens(text: string): number {
-  if (!text) return 0
+export function countTokens(text: string, model?: string): number {
+  return countTokensTiktoken(text, model)
+}
 
-  // Simple estimation: ~1 token per 4 characters
-  // This is a rough approximation and varies by model
-  const charCount = text.length
-  return Math.ceil(charCount / 4)
+/**
+ * Estimate cost based on token count and model.
+ * Wrapper around tokens.estimateCost for convenience.
+ */
+export function estimateCost(
+  tokens: number | { input: number; output: number },
+  model: string,
+): number {
+  return estimateCostTiktoken(tokens, model)
 }
 
 /**

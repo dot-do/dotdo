@@ -39,6 +39,9 @@ import {
   type ConnectionHandler
 } from '../websocket'
 import type { Constructor } from './storage'
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('[WithWebSocket]')
 
 // =============================================================================
 // Types
@@ -211,7 +214,7 @@ export function WithWebSocket<TBase extends Constructor>(
      */
     async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
       const errorMessage = error instanceof Error ? error.message : 'Unknown WebSocket error'
-      console.error('[WithWebSocket] WebSocket error:', errorMessage, error)
+      logger.error('WebSocket error:', errorMessage, error)
       this._websocketManager.cleanupWebSocket(ws)
     }
 

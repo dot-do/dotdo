@@ -192,7 +192,7 @@ export interface RPCCallOptions {
  * await client.$call('getProfile', [], { timeout: 5000 })
  * ```
  */
-export interface RPCClientWithOptions<T> extends RPCClient<T> {
+export type RPCClientWithOptions<T> = RPCClient<T> & {
   /**
    * Make an RPC call with custom options
    * @param method - The method name to call

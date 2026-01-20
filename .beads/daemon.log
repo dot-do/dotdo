@@ -5396,3 +5396,601 @@ time=2026-01-20T07:44:59.417-06:00 level=INFO msg="   Consider running 'bd sync'
 time=2026-01-20T07:45:00.294-06:00 level=INFO msg="Pulled from remote"
 time=2026-01-20T07:45:00.443-06:00 level=INFO msg="Imported from JSONL"
 time=2026-01-20T07:45:00.452-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:45:07.129-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:45:07.180-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:45:07.180-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:07.197-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:08.200-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:45:08.200-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:08.203-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T07:45:18.496-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:19.870-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:45:19.871-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:19.872-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T07:45:22.699-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:23.703-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:45:23.703-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:23.705-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T07:45:36.770-06:00 level=INFO msg="Mutation detected: %s %s" status=do-gg4d
+time=2026-01-20T07:45:37.272-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:45:37.272-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:45:37.585-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T07:45:37.585-06:00 level=INFO msg="Export complete"
+time=2026-01-20T07:45:37.586-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:45:37.636-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:45:37.636-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:38.639-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:45:38.640-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:38.641-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:38.688-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:38.688-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:45:38.688-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:45:39.421-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:40.548-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:45:40.552-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:40.569-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:45:40.982-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:45:40.983-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:45:40.983-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:45:41.898-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:45:42.064-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:45:42.078-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:45:48.699-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:45:48.860-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:45:48.867-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:46:00.532-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:01.560-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:46:01.591-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:01.614-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:01.647-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:02.285-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:02.296-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:46:02.296-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:46:02.633-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:46:02.641-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:02.660-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:02.998-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:03.004-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:46:03.004-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:46:24.017-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:24.713-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:25.058-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:46:25.115-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:25.267-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:25.580-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:25.584-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:46:25.584-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:46:25.769-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:46:25.797-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:25.833-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:26.098-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:26.099-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:46:26.099-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:46:28.144-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:46:28.484-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:46:28.530-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:46:46.366-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:46.949-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:47.429-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:46:47.446-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:47.501-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:47.558-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:47.559-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:46:47.559-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:46:47.964-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:46:47.966-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:47.967-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:46:48.037-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:46:48.037-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:46:48.037-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:46:48.260-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:46:48.565-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:46:48.571-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:46:49.536-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:46:49.751-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:46:49.759-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:47:08.181-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:09.208-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:47:09.293-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:47:09.379-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:09.434-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:47:09.543-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:09.545-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:47:09.545-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:47:10.419-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:47:10.421-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:47:10.424-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:47:10.700-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:10.700-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:47:10.700-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:47:15.837-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:47:16.341-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:47:16.352-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:47:25.953-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: signal: killed\nFrom https://github.com/dot-do/dotdo\n * branch              v3         -> FETCH_HEAD\n" !BADKEY=30s
+time=2026-01-20T07:47:25.964-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: signal: killed\nFrom https://github.com/dot-do/dotdo\n * branch              v3         -> FETCH_HEAD\n" !BADKEY=1m0s
+time=2026-01-20T07:47:31.049-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:31.553-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:32.563-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:47:32.579-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:47:42.858-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: signal: killed\nfatal: unable to access 'https://github.com/dot-do/dotdo.git/': Failed to connect to github.com port 443 after 75021 ms: Couldn't connect to server\n" !BADKEY=2m0s
+time=2026-01-20T07:47:51.964-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:47:53.098-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:47:53.099-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:12.250-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:13.339-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:13.339-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:17.542-06:00 level=INFO msg="Mutation detected: %s %s" status=do-5aoo
+time=2026-01-20T07:48:18.007-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: signal: killed\nFrom https://github.com/dot-do/dotdo\n * branch              v3         -> FETCH_HEAD\n" !BADKEY=5m0s
+time=2026-01-20T07:48:18.043-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:48:18.043-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:48:18.044-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T07:48:31.500-06:00 level=INFO msg="Mutation detected: %s %s" status=do-zhbw
+time=2026-01-20T07:48:31.758-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:48:31.809-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:48:31.809-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:31.839-06:00 level=INFO msg="Git ref change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.git/refs/heads/v3.lock
+time=2026-01-20T07:48:31.851-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:32.002-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:48:32.002-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:48:32.004-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T07:48:32.443-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:32.856-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:32.856-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:33.585-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:33.586-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:37.109-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:37.260-06:00 level=INFO msg="Mutation detected: %s %s" status=do-1jng
+time=2026-01-20T07:48:37.761-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:48:37.761-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:48:37.842-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T07:48:37.842-06:00 level=INFO msg="Export complete"
+time=2026-01-20T07:48:37.843-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:48:37.894-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:48:37.894-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:38.112-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:38.113-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:38.897-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:38.897-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:44.363-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:48:44.414-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:48:44.415-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:44.908-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:48:44.958-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:48:44.958-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:45.422-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:45.422-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:45.504-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:48:45.555-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:48:45.555-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:45.555-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:45.959-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:45.960-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:46.557-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:46.557-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:52.789-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:54.005-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:54.005-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:48:56.391-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:48:56.471-06:00 level=INFO msg="Mutation detected: %s %s" status=do-t8lx
+time=2026-01-20T07:48:56.973-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:48:56.973-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:48:56.975-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T07:48:57.393-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:48:57.394-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:49:06.030-06:00 level=INFO msg="Mutation detected: %s %s" status=do-3r9e
+time=2026-01-20T07:49:06.531-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:49:06.531-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:49:06.533-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T07:49:10.850-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:49:10.900-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:49:10.901-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:49:11.903-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:49:11.903-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:49:13.224-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:49:14.396-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:49:14.396-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:49:24.930-06:00 level=INFO msg="Mutation detected: %s %s" status=do-ol77
+time=2026-01-20T07:49:25.431-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:49:25.431-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:49:25.432-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T07:49:33.581-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:49:34.762-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:49:34.762-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:49:55.327-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:49:56.099-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:49:56.357-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:49:56.365-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:49:57.104-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:49:57.111-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:50:17.114-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:50:18.395-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:50:18.400-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:50:18.615-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:50:18.666-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:50:18.666-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:50:19.676-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:50:19.687-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:50:32.539-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:50:32.595-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:50:32.595-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:50:32.615-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:50:32.665-06:00 level=INFO msg="Git ref change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.git/refs/heads/v3.lock
+time=2026-01-20T07:50:33.784-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:50:33.793-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:50:37.750-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:50:38.755-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:50:38.763-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:50:38.828-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:50:39.832-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:50:39.832-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:50:59.437-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:51:00.937-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:51:00.942-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:51:20.906-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:51:21.608-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:51:21.908-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:51:21.959-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:51:22.619-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:51:22.622-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:51:42.403-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:51:43.279-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:51:43.432-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:51:43.437-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:51:44.284-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:51:44.291-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:04.423-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:05.426-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:05.442-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:05.469-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:06.472-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:06.474-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:11.170-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:11.670-06:00 level=INFO msg="Mutation detected: %s %s" status=do-golm
+time=2026-01-20T07:52:12.172-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:12.174-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:52:12.174-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:52:12.174-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:12.267-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T07:52:12.267-06:00 level=INFO msg="Export complete"
+time=2026-01-20T07:52:12.268-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:52:12.319-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:52:12.319-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:13.319-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:13.321-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:19.194-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:52:19.245-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:52:19.245-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:20.246-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:20.248-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:25.220-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:52:25.273-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:52:25.273-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:26.274-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:26.293-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:27.525-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:52:27.576-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:52:27.576-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:28.039-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:28.811-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:29.043-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:29.053-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:29.925-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:29.944-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:30.422-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:31.431-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:31.437-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:52.066-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:52.943-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:52:53.083-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:53.113-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:52:53.951-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:52:53.952-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:53:03.528-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:04.532-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:04.622-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:53:11.623-06:00 level=INFO msg="Mutation detected: %s %s" status=do-inhz
+time=2026-01-20T07:53:12.128-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:53:12.128-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:53:12.156-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T07:53:13.415-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:14.608-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:14.608-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:53:18.810-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:53:18.861-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:53:18.862-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:19.867-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:19.868-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:19.871-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:19.910-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:20.395-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:53:20.553-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:53:20.561-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:53:20.911-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:20.911-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:20.913-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:21.375-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T07:53:21.520-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T07:53:21.529-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T07:53:45.185-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:53:45.235-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:53:45.235-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:46.237-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:46.238-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:46.238-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T07:53:46.908-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:47.124-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:53:47.175-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:53:47.176-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:48.176-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:48.177-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:48.177-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T07:53:53.863-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:53:54.954-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:53:54.955-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:53:54.956-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T07:54:04.027-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:04.038-06:00 level=INFO msg="Mutation detected: %s %s" status=do-5w8b
+time=2026-01-20T07:54:04.539-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:54:04.539-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:54:04.612-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T07:54:04.612-06:00 level=INFO msg="Export complete"
+time=2026-01-20T07:54:04.612-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:54:04.663-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:54:04.663-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:05.029-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:54:05.029-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:54:05.030-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:54:05.047-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:05.047-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:54:05.047-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:54:05.666-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:54:05.666-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:54:05.667-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:54:05.682-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:05.682-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:54:05.682-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:54:14.103-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:15.193-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:54:15.193-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:54:15.194-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:54:15.209-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:15.209-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:54:15.209-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:54:34.287-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:35.147-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: exit status 1\nfatal: unable to access 'https://github.com/dot-do/dotdo.git/': Could not resolve host: github.com\n" !BADKEY=30s
+time=2026-01-20T07:54:35.371-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:54:35.371-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:54:35.767-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: exit status 1\nfatal: unable to access 'https://github.com/dot-do/dotdo.git/': Could not resolve host: github.com\n" !BADKEY=1m0s
+time=2026-01-20T07:54:45.293-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: exit status 1\nfatal: unable to access 'https://github.com/dot-do/dotdo.git/': Could not resolve host: github.com\n" !BADKEY=2m0s
+time=2026-01-20T07:54:54.483-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:54:55.608-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:54:55.608-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:55:14.716-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:55:15.809-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:55:15.809-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:55:34.916-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:55:36.009-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:55:36.009-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:55:55.130-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:55:56.217-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:55:56.217-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:56:12.587-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:56:12.638-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:56:12.638-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:13.640-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:56:13.641-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:56:15.255-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:16.334-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:56:16.334-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:56:35.461-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:36.603-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:56:36.603-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:56:40.531-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:40.539-06:00 level=INFO msg="Mutation detected: %s %s" status=do-laux
+time=2026-01-20T07:56:41.040-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T07:56:41.040-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T07:56:41.101-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T07:56:41.101-06:00 level=INFO msg="Export complete"
+time=2026-01-20T07:56:41.101-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T07:56:41.152-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T07:56:41.152-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:41.532-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:56:41.533-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:56:42.154-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:56:42.154-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:56:55.873-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:57.027-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:56:57.028-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T07:56:57.029-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T07:56:57.049-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:56:57.049-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T07:56:57.049-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T07:56:57.173-06:00 level=INFO msg="Pull failed: %v (backoff: %v)" !BADKEY="git pull failed: exit status 1\nfatal: unable to access 'https://github.com/dot-do/dotdo.git/': Could not resolve host: github.com\n" !BADKEY=5m0s
+time=2026-01-20T07:57:16.135-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:57:17.225-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:57:17.226-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:57:36.335-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:57:37.436-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:57:37.436-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:57:56.547-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:57:57.640-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:57:57.641-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:58:16.869-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:58:17.994-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:58:17.994-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:58:37.246-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:58:38.359-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:58:38.359-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:58:57.546-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:58:58.689-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:58:58.689-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:59:17.905-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:59:18.996-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:59:18.996-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:59:38.098-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:59:39.185-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:59:39.186-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T07:59:58.294-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T07:59:59.378-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T07:59:59.378-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T08:00:18.477-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:00:19.581-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:00:19.582-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T08:00:38.681-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:00:39.762-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:00:39.762-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T08:00:58.856-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:00:59.943-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:00:59.943-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T08:01:19.034-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:01:20.122-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:01:20.122-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T08:01:39.291-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:01:40.401-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:01:40.402-06:00 level=INFO msg="Skipping %s: in backoff period" !BADKEY=auto-import
+time=2026-01-20T08:01:59.505-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:02:00.595-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:02:00.596-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:02:00.596-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:02:00.612-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:02:00.612-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:02:00.612-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:02:19.735-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:02:20.992-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:02:20.993-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:02:20.994-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:02:21.015-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:02:21.015-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:02:21.015-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:02:22.531-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:02:22.640-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:02:22.648-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:02:36.001-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:02:36.112-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:02:36.117-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:02:40.086-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:02:41.171-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:02:41.171-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:02:41.172-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:02:41.185-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:02:41.185-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:02:41.185-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:02:41.576-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:02:41.681-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:02:41.687-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:03:00.313-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:01.436-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:01.436-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:01.437-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:01.458-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:01.458-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:03:01.458-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:03:02.090-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:03:02.203-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:03:02.209-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:03:19.616-06:00 level=INFO msg="Mutation detected: %s %s" status=do-cbmt
+time=2026-01-20T08:03:20.117-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T08:03:20.117-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T08:03:20.119-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T08:03:20.631-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:21.753-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:21.754-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:21.754-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:21.774-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:21.774-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:03:21.774-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:03:22.205-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:03:22.325-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:03:22.333-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:03:31.008-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T08:03:31.060-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T08:03:31.060-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:31.431-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T08:03:31.481-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T08:03:31.482-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:31.687-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T08:03:31.739-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T08:03:31.739-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:32.741-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:32.742-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:32.743-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:32.756-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:32.760-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:32.760-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:03:32.760-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:03:33.302-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:03:33.413-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:03:33.419-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:03:33.759-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:33.759-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:33.760-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:33.775-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:33.775-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:03:33.775-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:03:34.158-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:03:34.269-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:03:34.276-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:03:40.852-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:41.939-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:41.939-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:41.940-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:41.957-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:41.957-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:03:41.957-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:03:45.014-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:46.019-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:46.019-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:46.020-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:46.034-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:46.034-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:03:46.034-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:03:48.390-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:03:48.499-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:03:48.505-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:03:58.762-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T08:03:58.814-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T08:03:58.814-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:03:59.818-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:03:59.818-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:03:59.819-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T08:04:00.976-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:04:01.486-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:04:01.593-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:04:01.601-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:04:02.477-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:04:02.478-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:04:02.478-06:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-01-20T08:04:26.022-06:00 level=INFO msg="Mutation detected: %s %s" status=do-3r9e
+time=2026-01-20T08:04:26.024-06:00 level=INFO msg="Mutation detected: %s %s" status=do-cbmt
+time=2026-01-20T08:04:26.026-06:00 level=INFO msg="Mutation detected: %s %s" status=do-laux
+time=2026-01-20T08:04:26.028-06:00 level=INFO msg="Mutation detected: %s %s" status=do-1jng
+time=2026-01-20T08:04:26.030-06:00 level=INFO msg="Mutation detected: %s %s" status=do-5aoo
+time=2026-01-20T08:04:26.032-06:00 level=INFO msg="Mutation detected: %s %s" status=do-golm
+time=2026-01-20T08:04:26.034-06:00 level=INFO msg="Mutation detected: %s %s" status=do-5w8b
+time=2026-01-20T08:04:26.036-06:00 level=INFO msg="Mutation detected: %s %s" status=do-ol77
+time=2026-01-20T08:04:26.038-06:00 level=INFO msg="Mutation detected: %s %s" status=do-zhbw
+time=2026-01-20T08:04:26.040-06:00 level=INFO msg="Mutation detected: %s %s" status=do-t8lx
+time=2026-01-20T08:04:26.042-06:00 level=INFO msg="Mutation detected: %s %s" status=do-inhz
+time=2026-01-20T08:04:26.543-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T08:04:26.543-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T08:04:26.598-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T08:04:26.598-06:00 level=INFO msg="Export complete"
+time=2026-01-20T08:04:26.598-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T08:04:26.649-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T08:04:26.649-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:04:27.650-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:04:27.651-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:04:27.652-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:04:27.668-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:04:27.668-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:04:27.668-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T08:04:28.058-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T08:04:28.172-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T08:04:28.180-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T08:04:41.375-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:04:42.451-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T08:04:42.451-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T08:04:42.452-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T08:04:42.464-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T08:04:42.464-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T08:04:42.464-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."

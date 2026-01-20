@@ -8,6 +8,9 @@
  */
 
 import type { WorkflowContext } from '../context.js'
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('[fsx]')
 
 // ============================================================================
 // AI PROMISE TYPES (inline to avoid cross-package imports)
@@ -329,7 +332,7 @@ export class FSX {
     return this.$.do(async () => {
       // Implementation would use R2, KV, or another storage API
       // This is a placeholder for the interface
-      console.log(`[fsx.write] ${path} (${size} bytes)`)
+      logger.debug(`write: ${path} (${size} bytes)`)
     })
   }
 
@@ -367,7 +370,7 @@ export class FSX {
     })
 
     return this.$.do(async () => {
-      console.log(`[fsx.delete] ${path}`)
+      logger.debug(`delete: ${path}`)
     })
   }
 
@@ -384,7 +387,7 @@ export class FSX {
    * }
    * ```
    */
-  async exists(path: string): Promise<boolean> {
+  async exists(_path: string): Promise<boolean> {
     return this.$.try(async () => {
       // Implementation would check actual filesystem
       return false
@@ -466,7 +469,7 @@ export class FSX {
     })
 
     return this.$.do(async () => {
-      console.log(`[fsx.copy] ${source} -> ${destination}`)
+      logger.debug(`copy: ${source} -> ${destination}`)
     })
   }
 
@@ -489,7 +492,7 @@ export class FSX {
     })
 
     return this.$.do(async () => {
-      console.log(`[fsx.move] ${source} -> ${destination}`)
+      logger.debug(`move: ${source} -> ${destination}`)
     })
   }
 
@@ -511,7 +514,7 @@ export class FSX {
     })
 
     return this.$.do(async () => {
-      console.log(`[fsx.mkdir] ${path}`)
+      logger.debug(`mkdir: ${path}`)
     })
   }
 

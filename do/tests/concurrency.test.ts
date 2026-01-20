@@ -42,7 +42,7 @@ class MockWebSocket {
 }
 
 // Mock WebSocketPair globally
-;(globalThis as any).WebSocketPair = class WebSocketPair {
+;(globalThis as unknown as { WebSocketPair: new () => { 0: MockWebSocket; 1: MockWebSocket } }).WebSocketPair = class WebSocketPair {
   constructor() {
     return {
       0: new MockWebSocket(),
@@ -183,7 +183,7 @@ describe('Concurrent DO Access', () => {
     it('should handle concurrent RPC requests to same DO', async () => {
       // Add a test method that tracks calls
       const callOrder: number[] = []
-      ;(doInstance as any).trackCall = async (id: number) => {
+      ;(doInstance as unknown as { trackCall: (id: number) => Promise<{ id: number; timestamp: number }> }).trackCall = async (id: number) => {
         callOrder.push(id)
         await delay(Math.random() * 10) // Random delay to mix up execution
         return { id, timestamp: Date.now() }
@@ -212,7 +212,7 @@ describe('Concurrent DO Access', () => {
     it('should maintain data consistency under concurrent load', async () => {
       // Track value modifications
       let counter = 0
-      ;(doInstance as any).increment = async () => {
+      ;(doInstance as unknown as { increment: () => Promise<number> }).increment = async () => {
         const current = counter
         await delay(1) // Simulate async work
         counter = current + 1
@@ -240,13 +240,13 @@ describe('Concurrent DO Access', () => {
     it('should handle mixed read/write operations concurrently', async () => {
       let data: Record<string, number> = {}
 
-      ;(doInstance as any).write = async (key: string, value: number) => {
+      ;(doInstance as unknown as { write: (key: string, value: number) => Promise<{ key: string; value: number }> }).write = async (key: string, value: number) => {
         await delay(Math.random() * 5)
         data[key] = value
         return { key, value }
       }
 
-      ;(doInstance as any).read = async (key: string) => {
+      ;(doInstance as unknown as { read: (key: string) => Promise<number | null> }).read = async (key: string) => {
         await delay(Math.random() * 5)
         return data[key] ?? null
       }
@@ -283,7 +283,7 @@ describe('Concurrent DO Access', () => {
       // This test documents that guarantee
       const executionOrder: string[] = []
 
-      ;(doInstance as any).recordExecution = async (id: string) => {
+      ;(doInstance as unknown as { recordExecution: (id: string) => Promise<string> }).recordExecution = async (id: string) => {
         executionOrder.push(`start:${id}`)
         await delay(5) // Simulate some work
         executionOrder.push(`end:${id}`)
@@ -326,15 +326,15 @@ describe('Concurrent RPC Calls', () => {
 
   describe('Parallel RPC method invocations', () => {
     it('should handle parallel calls to different methods', async () => {
-      ;(doInstance as any).methodA = async (x: number) => {
+      ;(doInstance as unknown as { methodA: (x: number) => Promise<{ method: string; result: number }> }).methodA = async (x: number) => {
         await delay(10)
         return { method: 'A', result: x * 2 }
       }
-      ;(doInstance as any).methodB = async (x: number) => {
+      ;(doInstance as unknown as { methodB: (x: number) => Promise<{ method: string; result: number }> }).methodB = async (x: number) => {
         await delay(5)
         return { method: 'B', result: x + 10 }
       }
-      ;(doInstance as any).methodC = async (x: number) => {
+      ;(doInstance as unknown as { methodC: (x: number) => Promise<{ method: string; result: number }> }).methodC = async (x: number) => {
         return { method: 'C', result: x * x }
       }
 
@@ -365,7 +365,7 @@ describe('Concurrent RPC Calls', () => {
     })
 
     it('should maintain response ordering with Promise.all', async () => {
-      ;(doInstance as any).echo = async (value: number) => {
+      ;(doInstance as unknown as { echo: (value: number) => Promise<number> }).echo = async (value: number) => {
         // Random delay to scramble completion order
         await delay(Math.random() * 20)
         return value
@@ -388,7 +388,7 @@ describe('Concurrent RPC Calls', () => {
     })
 
     it('should isolate errors between concurrent calls', async () => {
-      ;(doInstance as any).mayFail = async (shouldFail: boolean) => {
+      ;(doInstance as unknown as { mayFail: (shouldFail: boolean) => Promise<{ success: boolean }> }).mayFail = async (shouldFail: boolean) => {
         await delay(5)
         if (shouldFail) {
           throw new Error('Intentional failure')
@@ -429,11 +429,11 @@ describe('Concurrent RPC Calls', () => {
     })
 
     it('should handle Promise.race for fastest response', async () => {
-      ;(doInstance as any).slowMethod = async () => {
+      ;(doInstance as unknown as { slowMethod: () => Promise<{ speed: string }> }).slowMethod = async () => {
         await delay(100)
         return { speed: 'slow' }
       }
-      ;(doInstance as any).fastMethod = async () => {
+      ;(doInstance as unknown as { fastMethod: () => Promise<{ speed: string }> }).fastMethod = async () => {
         await delay(5)
         return { speed: 'fast' }
       }
@@ -461,7 +461,7 @@ describe('Concurrent RPC Calls', () => {
     it('should not let one failing call affect others', async () => {
       let successCount = 0
 
-      ;(doInstance as any).process = async (id: number, shouldFail: boolean) => {
+      ;(doInstance as unknown as { process: (id: number, shouldFail: boolean) => Promise<{ id: number; processed: boolean }> }).process = async (id: number, shouldFail: boolean) => {
         await delay(Math.random() * 10)
         if (shouldFail) {
           throw new Error(`Failed for id ${id}`)
@@ -702,7 +702,7 @@ describe('WebSocket Race Conditions', () => {
       // All upgrades should succeed
       upgrades.forEach((response, i) => {
         expect(response.status).toBe(101)
-        expect((response as any).webSocket).toBeDefined()
+        expect((response as unknown as { webSocket: WebSocket }).webSocket).toBeDefined()
       })
     })
 
@@ -852,7 +852,7 @@ describe('WebSocket Race Conditions', () => {
     it('should handle concurrent message processing', async () => {
       const processOrder: number[] = []
 
-      manager.on('concurrent', async (ws, data: any) => {
+      manager.on('concurrent', async (ws, data: { id: number }) => {
         const id = data.id
         processOrder.push(id)
         await delay(Math.random() * 10)
@@ -879,7 +879,7 @@ describe('WebSocket Race Conditions', () => {
     it('should isolate errors between concurrent message handlers', async () => {
       let successCount = 0
 
-      manager.on('mixed', async (ws, data: any) => {
+      manager.on('mixed', async (ws, data: { fail: boolean }) => {
         if (data.fail) {
           throw new Error('Handler error')
         }
@@ -926,7 +926,7 @@ describe('Alarm Race Conditions', () => {
       let requestInProgress = false
       let alarmFiredDuringRequest = false
 
-      ;(doInstance as any).longRunningMethod = async () => {
+      ;(doInstance as unknown as { longRunningMethod: () => Promise<{ completed: boolean }> }).longRunningMethod = async () => {
         requestInProgress = true
         await delay(50) // Simulate long-running operation
         requestInProgress = false
@@ -961,7 +961,7 @@ describe('Alarm Race Conditions', () => {
     it('should handle alarm and fetch competing for state', async () => {
       let state = { value: 0 }
 
-      ;(doInstance as any).incrementFromFetch = async () => {
+      ;(doInstance as unknown as { incrementFromFetch: () => Promise<number> }).incrementFromFetch = async () => {
         const current = state.value
         await delay(5)
         state.value = current + 10
@@ -1072,11 +1072,11 @@ describe('Combined Stress Tests', () => {
 
   it('should handle high load with mixed operations', async () => {
     // Setup methods
-    ;(doInstance as any).read = async (key: string) => {
+    ;(doInstance as unknown as { read: (key: string) => Promise<{ key: string; operation: string }> }).read = async (key: string) => {
       await delay(Math.random() * 5)
       return { key, operation: 'read' }
     }
-    ;(doInstance as any).write = async (key: string, value: any) => {
+    ;(doInstance as unknown as { write: (key: string, value: unknown) => Promise<{ key: string; value: unknown; operation: string }> }).write = async (key: string, value: unknown) => {
       await delay(Math.random() * 5)
       return { key, value, operation: 'write' }
     }
@@ -1112,7 +1112,7 @@ describe('Combined Stress Tests', () => {
 
     // Setup RPC method
     let sharedCounter = 0
-    ;(doInstance as any).increment = async () => {
+    ;(doInstance as unknown as { increment: () => Promise<number> }).increment = async () => {
       sharedCounter++
       return sharedCounter
     }
@@ -1155,7 +1155,7 @@ describe('Combined Stress Tests', () => {
     let processedCount = 0
     let failedCount = 0
 
-    ;(doInstance as any).process = async (id: number, shouldFail: boolean) => {
+    ;(doInstance as unknown as { process: (id: number, shouldFail: boolean) => Promise<{ id: number; processed: boolean }> }).process = async (id: number, shouldFail: boolean) => {
       await delay(Math.random() * 10)
       if (shouldFail) {
         failedCount++

@@ -764,7 +764,6 @@ export class CircuitBreaker {
   private totalRequests = 0
   private successfulRequests = 0
   private failedRequests = 0
-  private resetTimer: ReturnType<typeof setTimeout> | null = null
 
   private readonly failureThreshold: number
   private readonly successThreshold: number
@@ -841,24 +840,11 @@ export class CircuitBreaker {
     if (this.state === CircuitState.HALF_OPEN) {
       // Any failure in half-open reopens the circuit
       this.state = CircuitState.OPEN
-      this.scheduleReset()
     } else if (this.state === CircuitState.CLOSED) {
       if (this.consecutiveFailures >= this.failureThreshold) {
         this.state = CircuitState.OPEN
-        this.scheduleReset()
       }
     }
-  }
-
-  /**
-   * Schedule automatic transition to half-open state
-   */
-  private scheduleReset(): void {
-    if (this.resetTimer) {
-      clearTimeout(this.resetTimer)
-    }
-    // Note: Timer will be checked on next execute() call
-    // We don't actively schedule here to avoid timer issues in tests
   }
 
   /**
@@ -891,10 +877,6 @@ export class CircuitBreaker {
     this.successCount = 0
     this.consecutiveFailures = 0
     this.lastFailureTime = null
-    if (this.resetTimer) {
-      clearTimeout(this.resetTimer)
-      this.resetTimer = null
-    }
   }
 }
 

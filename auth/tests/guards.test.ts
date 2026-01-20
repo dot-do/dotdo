@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Hono } from 'hono'
+import { Hono, type Context, type Next } from 'hono'
 import { requireAuth, requireRole, requireScope, requireOwner, requireAll, requireAny } from '../guards'
 
+// User type for testing
+interface TestUser {
+  id: string
+  roles?: string[]
+  scopes?: string[]
+}
+
 // Helper to set user on context
-const setUser = (user: any) => async (c: any, next: any) => {
+const setUser = (user: TestUser) => async (c: Context, next: Next) => {
   c.set('user', user)
   return next()
 }

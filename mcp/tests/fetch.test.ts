@@ -1,8 +1,75 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createFetchTool } from '../tools/fetch'
+import { createFetchTool, isFetchParams } from '../tools/fetch'
 import { createThingsStore } from '../../db/things'
 import { createRelationshipsStore } from '../../db/relationships'
 import { createEventsStore } from '../../db/events'
+
+describe('isFetchParams type guard', () => {
+  it('should return true for valid params with $id only', () => {
+    expect(isFetchParams({ $id: 'test-id' })).toBe(true)
+  })
+
+  it('should return true for valid params with $id and empty include', () => {
+    expect(isFetchParams({ $id: 'test-id', include: [] })).toBe(true)
+  })
+
+  it('should return true for valid params with relationships include', () => {
+    expect(isFetchParams({ $id: 'test-id', include: ['relationships'] })).toBe(true)
+  })
+
+  it('should return true for valid params with events include', () => {
+    expect(isFetchParams({ $id: 'test-id', include: ['events'] })).toBe(true)
+  })
+
+  it('should return true for valid params with both includes', () => {
+    expect(isFetchParams({ $id: 'test-id', include: ['relationships', 'events'] })).toBe(true)
+  })
+
+  it('should return false for null', () => {
+    expect(isFetchParams(null)).toBe(false)
+  })
+
+  it('should return false for undefined', () => {
+    expect(isFetchParams(undefined)).toBe(false)
+  })
+
+  it('should return false for non-object types', () => {
+    expect(isFetchParams('string')).toBe(false)
+    expect(isFetchParams(123)).toBe(false)
+    expect(isFetchParams(true)).toBe(false)
+  })
+
+  it('should return false for missing $id', () => {
+    expect(isFetchParams({})).toBe(false)
+    expect(isFetchParams({ include: ['events'] })).toBe(false)
+  })
+
+  it('should return false for non-string $id', () => {
+    expect(isFetchParams({ $id: 123 })).toBe(false)
+    expect(isFetchParams({ $id: null })).toBe(false)
+    expect(isFetchParams({ $id: undefined })).toBe(false)
+    expect(isFetchParams({ $id: {} })).toBe(false)
+  })
+
+  it('should return false for empty string $id', () => {
+    expect(isFetchParams({ $id: '' })).toBe(false)
+  })
+
+  it('should return false for invalid include type', () => {
+    expect(isFetchParams({ $id: 'test-id', include: 'relationships' })).toBe(false)
+    expect(isFetchParams({ $id: 'test-id', include: 123 })).toBe(false)
+  })
+
+  it('should return false for invalid include values', () => {
+    expect(isFetchParams({ $id: 'test-id', include: ['invalid'] })).toBe(false)
+    expect(isFetchParams({ $id: 'test-id', include: ['relationships', 'invalid'] })).toBe(false)
+    expect(isFetchParams({ $id: 'test-id', include: [123] })).toBe(false)
+  })
+
+  it('should allow extra properties (non-strict)', () => {
+    expect(isFetchParams({ $id: 'test-id', extra: 'property' })).toBe(true)
+  })
+})
 
 describe('Fetch Tool', () => {
   let things: ReturnType<typeof createThingsStore>

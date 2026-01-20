@@ -1,7 +1,6 @@
 // SDK code generation from resource definitions
 import type { ResourceDefinition } from '../resource'
 import type { StorableData } from '../../db'
-import type { ZodType, ZodObject, ZodTypeAny } from 'zod'
 
 export interface SDKGeneratorOptions {
   output?: 'string' | 'file'

@@ -270,6 +270,143 @@ describe('Admin Interface', () => {
       expect(health.metrics.entityCount).toBe(1)
       expect(health.metrics.eventCount).toBe(1)
     })
+
+    it('should return degraded status when one store fails', async () => {
+      // Create a failing things store
+      const failingThings = {
+        ...things,
+        list: () => Promise.reject(new Error('Store unavailable'))
+      }
+
+      const degradedAdmin = new AdminDO({
+        things: failingThings,
+        events,
+        relationships
+      })
+
+      const health = await degradedAdmin.healthCheck()
+
+      expect(health.status).toBe('degraded')
+      expect(health.stores.things).toBe(false)
+      expect(health.stores.events).toBe(true)
+      expect(health.stores.relationships).toBe(true)
+      expect(health.metrics.entityCount).toBe(0) // Failed store returns 0
+    })
+
+    it('should return degraded status when two stores fail', async () => {
+      const failingThings = {
+        ...things,
+        list: () => Promise.reject(new Error('Store unavailable'))
+      }
+      const failingEvents = {
+        ...events,
+        query: () => Promise.reject(new Error('Store unavailable'))
+      }
+
+      const degradedAdmin = new AdminDO({
+        things: failingThings,
+        events: failingEvents,
+        relationships
+      })
+
+      const health = await degradedAdmin.healthCheck()
+
+      expect(health.status).toBe('degraded')
+      expect(health.stores.things).toBe(false)
+      expect(health.stores.events).toBe(false)
+      expect(health.stores.relationships).toBe(true)
+      expect(health.metrics.entityCount).toBe(0)
+      expect(health.metrics.eventCount).toBe(0)
+    })
+
+    it('should return unhealthy status when all stores fail', async () => {
+      const failingThings = {
+        ...things,
+        list: () => Promise.reject(new Error('Store unavailable'))
+      }
+      const failingEvents = {
+        ...events,
+        query: () => Promise.reject(new Error('Store unavailable'))
+      }
+      const failingRelationships = {
+        ...relationships,
+        find: () => Promise.reject(new Error('Store unavailable'))
+      }
+
+      const unhealthyAdmin = new AdminDO({
+        things: failingThings,
+        events: failingEvents,
+        relationships: failingRelationships
+      })
+
+      const health = await unhealthyAdmin.healthCheck()
+
+      expect(health.status).toBe('unhealthy')
+      expect(health.stores.things).toBe(false)
+      expect(health.stores.events).toBe(false)
+      expect(health.stores.relationships).toBe(false)
+      expect(health.metrics.entityCount).toBe(0)
+      expect(health.metrics.eventCount).toBe(0)
+      expect(health.metrics.relationshipCount).toBe(0)
+    })
+
+    it('should batch queries efficiently (N+1 fix)', async () => {
+      // Create stores with call tracking
+      let thingsCallCount = 0
+      let eventsCallCount = 0
+      let relationshipsCallCount = 0
+
+      const trackedThings = {
+        ...things,
+        list: async (options?: { type?: string; limit?: number; offset?: number }) => {
+          thingsCallCount++
+          return things.list(options)
+        }
+      }
+      const trackedEvents = {
+        ...events,
+        query: async (options?: Parameters<typeof events.query>[0]) => {
+          eventsCallCount++
+          return events.query(options)
+        }
+      }
+      const trackedRelationships = {
+        ...relationships,
+        find: async (query?: Parameters<typeof relationships.find>[0]) => {
+          relationshipsCallCount++
+          return relationships.find(query)
+        }
+      }
+
+      const trackedAdmin = new AdminDO({
+        things: trackedThings,
+        events: trackedEvents,
+        relationships: trackedRelationships
+      })
+
+      // Add some data
+      await things.create({ $type: 'Customer', name: 'Alice' })
+      await events.emit({ type: 'test.event', payload: {} })
+      await relationships.add({ subject: 'a', predicate: 'owns', object: 'b' })
+
+      // Reset counters after setup
+      thingsCallCount = 0
+      eventsCallCount = 0
+      relationshipsCallCount = 0
+
+      // Run health check
+      const health = await trackedAdmin.healthCheck()
+
+      // Verify only 1 call per store (not 2 like before the fix)
+      expect(thingsCallCount).toBe(1)
+      expect(eventsCallCount).toBe(1)
+      expect(relationshipsCallCount).toBe(1)
+
+      // Verify metrics are still correct
+      expect(health.metrics.entityCount).toBe(1)
+      expect(health.metrics.eventCount).toBe(1)
+      expect(health.metrics.relationshipCount).toBe(1)
+    })
   })
 
   describe('getEntity', () => {

@@ -55,7 +55,7 @@ export function generateLinks(
 
   // Add relation links
   if (config?.relations) {
-    for (const [name, rel] of Object.entries(config.relations)) {
+    for (const [name, _rel] of Object.entries(config.relations)) {
       links[name] = {
         href: `${base}/${id}/${name}`,
         rel: name,

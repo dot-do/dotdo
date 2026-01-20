@@ -3,6 +3,43 @@
 
 import { ValidationError } from './errors'
 
+// ============================================================================
+// RPC Method Validation
+// ============================================================================
+
+/**
+ * Type guard that validates an RPC method name.
+ *
+ * A valid RPC method name:
+ * - Must be a string
+ * - Must be non-empty
+ * - Must start with a letter (a-z, A-Z)
+ * - Can only contain alphanumeric characters and dots (for namespacing)
+ * - Must not start with underscore (private method convention)
+ *
+ * @param method - The value to check
+ * @returns True if method is a valid RPC method name string
+ *
+ * @example
+ * ```typescript
+ * isValidRPCMethod('users.create')  // true
+ * isValidRPCMethod('getProfile')    // true
+ * isValidRPCMethod('v2.api.list')   // true
+ *
+ * isValidRPCMethod('')              // false - empty
+ * isValidRPCMethod('_private')      // false - starts with underscore
+ * isValidRPCMethod('123method')     // false - starts with number
+ * isValidRPCMethod('has space')     // false - contains space
+ * isValidRPCMethod(null)            // false - not a string
+ * ```
+ */
+export function isValidRPCMethod(method: unknown): method is string {
+  return typeof method === 'string' &&
+         method.length > 0 &&
+         !method.startsWith('_') &&
+         /^[a-zA-Z][a-zA-Z0-9.]*$/.test(method)
+}
+
 /**
  * Supported primitive types for validation
  */

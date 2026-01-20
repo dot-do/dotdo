@@ -356,7 +356,7 @@ function generateRoutes(
 
   if (relations) {
     routes.relations = {}
-    for (const [relationName, relationDef] of Object.entries(relations)) {
+    for (const [relationName, _relationDef] of Object.entries(relations)) {
       routes.relations[relationName] = {
         method: 'GET',
         path: `${basePath}/:id/${relationName}`,

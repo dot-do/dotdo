@@ -69,41 +69,6 @@ function loggingMiddleware(): MiddlewareHandler {
   }
 }
 
-// Error handling middleware
-function errorHandlerMiddleware(): MiddlewareHandler {
-  return async (c, next) => {
-    try {
-      await next()
-    } catch (error) {
-      const requestId = c.get('requestId')
-
-      // Handle HTTPException from Hono
-      if (error instanceof HTTPException) {
-        const status = error.status
-        return c.json(
-          {
-            error: error.message,
-            status,
-            requestId
-          },
-          status
-        )
-      }
-
-      // Handle all other errors as 500
-      console.error('Unhandled error:', error)
-      return c.json(
-        {
-          error: getErrorMessage(error),
-          status: 500,
-          requestId
-        },
-        500
-      )
-    }
-  }
-}
-
 export function createAPI(options?: APIOptions) {
   const { basePath = '', auth } = options || {}
 

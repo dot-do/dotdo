@@ -428,6 +428,65 @@ describe('CircuitBreaker', () => {
     expect(metrics).toHaveProperty('consecutiveFailures')
     expect(metrics).toHaveProperty('lastFailureTime')
   })
+
+  it('should reset all state when reset() is called', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 2,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+
+    // Open the circuit
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    expect(breaker.getState()).toBe(CircuitState.OPEN)
+
+    // Verify metrics show failures
+    let metrics = breaker.getMetrics()
+    expect(metrics.consecutiveFailures).toBe(2)
+    expect(metrics.failedRequests).toBe(2)
+    expect(metrics.lastFailureTime).not.toBeNull()
+
+    // Reset the circuit breaker
+    breaker.reset()
+
+    // Verify state is reset
+    expect(breaker.getState()).toBe(CircuitState.CLOSED)
+    metrics = breaker.getMetrics()
+    expect(metrics.consecutiveFailures).toBe(0)
+    expect(metrics.lastFailureTime).toBeNull()
+
+    // Verify circuit now allows requests
+    const successFn = vi.fn().mockResolvedValue('success')
+    const result = await breaker.execute(successFn)
+    expect(result).toBe('success')
+  })
+
+  it('should update metrics correctly after failures and successes', async () => {
+    const breaker = new CircuitBreaker({
+      failureThreshold: 5,
+      successThreshold: 2,
+      timeout: 5000,
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
+    const successFn = vi.fn().mockResolvedValue('success')
+
+    // Execute some requests
+    await breaker.execute(successFn)
+    await breaker.execute(successFn)
+    await expect(breaker.execute(() => Promise.reject(error))).rejects.toThrow()
+    await breaker.execute(successFn)
+
+    const metrics = breaker.getMetrics()
+    expect(metrics.totalRequests).toBe(4)
+    expect(metrics.successfulRequests).toBe(3)
+    expect(metrics.failedRequests).toBe(1)
+    expect(metrics.consecutiveFailures).toBe(0) // Reset after success
+    expect(metrics.state).toBe(CircuitState.CLOSED)
+  })
 })
 
 describe('withTimeout', () => {

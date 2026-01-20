@@ -1,5 +1,5 @@
 // Example: Using BatchMapPromise for efficient RPC batching
-import { createBatchMapPromise, batchMap } from '../batch'
+import { createBatchMapPromise } from '../batch'
 
 // Example 1: Basic batch mapping
 async function basicExample() {
@@ -95,7 +95,7 @@ async function errorHandlingExample() {
   const results = await createBatchMapPromise(items, unreliableOperation, {
     retries: 3,
     onError: 'continue', // Continue even if some items fail after retries
-    onItemError: (index, item, error) => {
+    onItemError: (_index, item, error) => {
       console.error(`Item ${item} failed after retries:`, error.message)
     }
   })
@@ -147,7 +147,7 @@ async function rpcClientExample() {
 }
 
 // Run examples
-async function runExamples() {
+export async function runExamples() {
   console.log('\n=== Basic Example ===')
   await basicExample()
 

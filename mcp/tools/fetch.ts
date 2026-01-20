@@ -9,6 +9,38 @@ export interface FetchParams {
   include?: ('relationships' | 'events')[]
 }
 
+/**
+ * Type guard for FetchParams
+ * Validates that the value is a valid FetchParams object
+ */
+export function isFetchParams(value: unknown): value is FetchParams {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const obj = value as Record<string, unknown>
+
+  // $id is required and must be a non-empty string
+  if (typeof obj.$id !== 'string' || obj.$id.length === 0) {
+    return false
+  }
+
+  // include is optional, but if present must be an array of valid values
+  if (obj.include !== undefined) {
+    if (!Array.isArray(obj.include)) {
+      return false
+    }
+    const validIncludes = ['relationships', 'events']
+    for (const item of obj.include) {
+      if (typeof item !== 'string' || !validIncludes.includes(item)) {
+        return false
+      }
+    }
+  }
+
+  return true
+}
+
 export interface FetchToolDeps {
   things: ThingsStore
   relationships: RelationshipsStore
@@ -65,17 +97,12 @@ export function createFetchTool(deps: FetchToolDeps): MCPTool {
       required: ['$id']
     },
     execute: async (params: unknown): Promise<EnrichedThing> => {
-      // Validate params
-      if (!params || typeof params !== 'object') {
-        throw new Error('Invalid parameters: expected object')
+      // Validate params using type guard
+      if (!isFetchParams(params)) {
+        throw new Error('Invalid parameters: expected object with valid $id string')
       }
 
-      const { $id, include = [] } = params as FetchParams
-
-      // Validate $id
-      if (!$id || typeof $id !== 'string') {
-        throw new Error('Invalid $id: expected non-empty string')
-      }
+      const { $id, include = [] } = params
 
       // Fetch the Thing
       const thing = await things.get($id)

@@ -14,6 +14,9 @@ import { HTTPException } from 'hono/http-exception'
 import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
 import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
 import type { AuthUser } from './middleware'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[OrgAI]')
 
 // === Configuration ===
 
@@ -413,7 +416,7 @@ export async function lookupUserByOrgAiId(
   // Extract user ID from full URI if needed
   const userIdPart = extractIdFromUri(userId, 'users')
   if (!userIdPart) {
-    console.error('Invalid user ID format:', userId)
+    logger.error('Invalid user ID format:', userId)
     return null
   }
 
@@ -445,7 +448,7 @@ export async function lookupUserByOrgAiId(
     }
 
     if (!response.ok) {
-      console.error(`org.ai user lookup failed: ${response.status} ${response.statusText}`)
+      logger.error(`org.ai user lookup failed: ${response.status} ${response.statusText}`)
       // Don't cache errors - allow retry
       return null
     }
@@ -460,7 +463,7 @@ export async function lookupUserByOrgAiId(
         setCacheEntry(userCache, userId, normalizedUser)
         return normalizedUser
       }
-      console.error('Invalid user data from org.ai:', data)
+      logger.error('Invalid user data from org.ai:', data)
       return null
     }
 
@@ -469,9 +472,9 @@ export async function lookupUserByOrgAiId(
     return data
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      console.error('org.ai user lookup timed out for:', userId)
+      logger.error('org.ai user lookup timed out for:', userId)
     } else {
-      console.error('org.ai user lookup error:', error)
+      logger.error('org.ai user lookup error:', error)
     }
     return null
   }
@@ -618,7 +621,7 @@ export async function checkOrganizationMembership(
     }
 
     if (!response.ok) {
-      console.error(`org.ai membership lookup failed: ${response.status} ${response.statusText}`)
+      logger.error(`org.ai membership lookup failed: ${response.status} ${response.statusText}`)
       // Don't cache errors - allow retry
       return options?.includeRole ? { isMember: false } : false
     }
@@ -631,9 +634,9 @@ export async function checkOrganizationMembership(
     return options?.includeRole ? membership : membership.isMember
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      console.error('org.ai membership lookup timed out')
+      logger.error('org.ai membership lookup timed out')
     } else {
-      console.error('org.ai membership lookup error:', error)
+      logger.error('org.ai membership lookup error:', error)
     }
   }
 

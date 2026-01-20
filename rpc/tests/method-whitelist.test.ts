@@ -16,7 +16,17 @@ import { createServer } from '../server'
  * Method access denied should return 403 Forbidden with a generic message
  * that doesn't reveal whether the method exists (security best practice)
  */
-function expectMethodNotAllowed(json: any) {
+interface AuthorizationErrorResponse {
+  type: string
+  code: string
+  message: string
+  details?: {
+    method?: string
+    exists?: boolean
+  }
+}
+
+function expectMethodNotAllowed(json: AuthorizationErrorResponse) {
   expect(json.type).toBe('AuthorizationError')
   expect(json.code).toBe('AUTHORIZATION_ERROR')
   // Message should be generic - not reveal if method exists or not

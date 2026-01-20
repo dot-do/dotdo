@@ -346,6 +346,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
   /**
    * Execute joins for a single source thing
+   * Enforces bounded limits on joined results (do-bgr1)
    */
   async function executeJoinsForThing(
     sourceThing: ThingWithJoins,
@@ -357,6 +358,13 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     for (const join of joins) {
       const { predicate, targetType, conditions, fromJoin, alias, options: joinOptions, direction } = join
       const joinKey = alias || (direction === 'forward' ? predicate : `${predicate}By`)
+
+      // Calculate effective join limit with bounded default (do-bgr1)
+      const effectiveJoinLimit = clampAndWarnLimit(
+        joinOptions?.limit,
+        `join-${joinKey}`,
+        getQueryLimits().defaultJoinLimit
+      )
 
       let sourceIds: string[]
 
@@ -399,14 +407,14 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
           joinedThings.push(projected)
 
-          // Apply limit if specified
-          if (joinOptions?.limit && joinedThings.length >= joinOptions.limit) {
+          // Apply bounded limit (do-bgr1)
+          if (joinedThings.length >= effectiveJoinLimit) {
             break
           }
         }
 
-        // Apply limit across all source IDs
-        if (joinOptions?.limit && joinedThings.length >= joinOptions.limit) {
+        // Apply bounded limit across all source IDs (do-bgr1)
+        if (joinedThings.length >= effectiveJoinLimit) {
           break
         }
       }
@@ -427,7 +435,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
             prevThingWithJoins._joined = {}
           }
           // Find things that belong to this previous thing
-          const thingsForPrev = joinedThings.filter(jt => {
+          const thingsForPrev = joinedThings.filter(_jt => {
             // For forward joins from previous: the previous thing's ID should be the subject
             // For inverse joins from previous: the previous thing's ID should be the object
             return true // All joined things are associated with the source chain
@@ -751,7 +759,53 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
     async first(): Promise<ThingWithJoins | null> {
       const results = await builder.limit(1).execute()
-      return results[0] || null
+      return results[0] ?? null
+    },
+
+    async executePaginated(paginatedOptions: PaginatedExecuteOptions = {}): Promise<PaginatedQueryResult> {
+      const limits = getQueryLimits()
+      const requestedLimit = paginatedOptions.limit ?? limits.defaultLimit
+      const effectiveLimit = clampAndWarnLimit(requestedLimit, 'executePaginated', limits.defaultLimit)
+
+      // Decode cursor to get offset
+      let offset = 0
+      if (paginatedOptions.cursor) {
+        try {
+          const decoded = JSON.parse(atob(paginatedOptions.cursor))
+          offset = decoded.offset ?? 0
+        } catch {
+          // Invalid cursor, start from beginning
+          offset = 0
+        }
+      }
+
+      // Save original options and set pagination
+      const originalLimit = options.limit
+      const originalOffset = options.offset
+      options.limit = effectiveLimit + 1 // Fetch one extra to check for more
+      options.offset = offset
+
+      const results = await builder.execute()
+
+      // Restore original options
+      options.limit = originalLimit
+      options.offset = originalOffset
+
+      // Check if there are more results
+      const hasMore = results.length > effectiveLimit
+      const finalResults = hasMore ? results.slice(0, effectiveLimit) : results
+
+      // Generate next cursor if there are more results
+      let nextCursor: string | undefined
+      if (hasMore) {
+        nextCursor = btoa(JSON.stringify({ offset: offset + effectiveLimit }))
+      }
+
+      return {
+        results: finalResults,
+        cursor: nextCursor,
+        hasMore
+      }
     },
 
     async count(): Promise<number> {
@@ -942,13 +996,16 @@ export function buildOrderByClause<T extends StorableData = StorableData>(option
 }
 
 /**
- * Builds pagination clause
+ * Builds pagination clause with bounded limits (do-bgr1)
  */
 export function buildPaginationClause<T extends StorableData = StorableData>(options: QueryOptions<T>): {
   clause: string
   params: JsonValue[]
 } {
-  const limit = options.limit || 100
+  const limits = getQueryLimits()
+  const requestedLimit = options.limit ?? limits.defaultLimit
+  // Clamp to max limit to prevent unbounded queries
+  const limit = Math.min(requestedLimit, limits.maxLimit)
   const offset = options.offset || 0
   return {
     clause: 'LIMIT ? OFFSET ?',

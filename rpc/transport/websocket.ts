@@ -2,7 +2,7 @@
 // Used for long-lived connections with push capabilities
 
 import { generateCorrelationId } from '../client'
-import { TimeoutError, isSerializedError, type SerializedError } from '../errors'
+import { type SerializedError } from '../errors'
 import type {
   Transport,
   TransportOptions,
@@ -155,7 +155,7 @@ export class WebSocketTransport implements Transport {
         resolve()
       }
 
-      const onError = (event: Event) => {
+      const onError = (_event: Event) => {
         cleanup()
         this.state = 'DISCONNECTED' as TransportState
         this.connectPromise = null
@@ -199,7 +199,7 @@ export class WebSocketTransport implements Transport {
     this.connectPromise = null
 
     // Reject all pending requests
-    for (const [id, request] of this.pendingRequests) {
+    for (const [_id, request] of this.pendingRequests) {
       clearTimeout(request.timeout)
       request.reject(new Error('WebSocket disconnected'))
     }
@@ -366,7 +366,7 @@ export class WebSocketTransport implements Transport {
     }
 
     // Reject all pending requests
-    for (const [id, request] of this.pendingRequests) {
+    for (const [_id, request] of this.pendingRequests) {
       clearTimeout(request.timeout)
       request.reject(new Error('Transport closed'))
     }

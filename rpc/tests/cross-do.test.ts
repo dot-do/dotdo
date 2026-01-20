@@ -44,7 +44,7 @@ class OrderDO {
   }
 
   // Cross-DO call example
-  async getCustomerBalance(env: any): Promise<number> {
+  async getCustomerBalance(env: { DO: DurableObjectNamespace }): Promise<number> {
     const customer = createCrossDOClient<CustomerDO>(env.DO, this.customerId)
     return customer.getBalance()
   }

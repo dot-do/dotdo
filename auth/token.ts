@@ -49,8 +49,10 @@ export function extractToken(
   if (authHeader) {
     const trimmed = authHeader.trim()
     const parts = trimmed.split(/\s+/) // Split on any whitespace
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      return parts[1].trim()
+    const scheme = parts[0]
+    const token = parts[1]
+    if (parts.length === 2 && scheme === 'Bearer' && token) {
+      return token.trim()
     }
     return null
   }

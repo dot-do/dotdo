@@ -283,56 +283,53 @@ export class AdminDO {
 
   /**
    * Health check for DO state
+   *
+   * Optimized to avoid N+1 queries by:
+   * - Batching all three store queries in parallel with Promise.allSettled
+   * - Using the same query results for both availability checking AND metrics
+   * - Deriving store status from query success/failure
    */
   async healthCheck(): Promise<HealthCheck> {
-    let status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy'
+    // Batch all store queries in parallel - this replaces 6 separate queries with 3
+    const [thingsResult, eventsResult, relationshipsResult] = await Promise.allSettled([
+      this.stores.things.list({}),
+      this.stores.events.query({}),
+      this.stores.relationships.find({})
+    ])
 
-    // Test store availability
+    // Derive store availability from query results
     const storeStatus = {
-      things: true,
-      events: true,
-      relationships: true
+      things: thingsResult.status === 'fulfilled',
+      events: eventsResult.status === 'fulfilled',
+      relationships: relationshipsResult.status === 'fulfilled'
     }
 
-    try {
-      await this.stores.things.list({ limit: 1 })
-    } catch {
-      storeStatus.things = false
-      status = 'degraded'
-    }
+    // Determine overall health status
+    const availableCount = [storeStatus.things, storeStatus.events, storeStatus.relationships]
+      .filter(Boolean).length
 
-    try {
-      await this.stores.events.query({ limit: 1 })
-    } catch {
-      storeStatus.events = false
-      status = 'degraded'
-    }
-
-    try {
-      await this.stores.relationships.find({})
-    } catch {
-      storeStatus.relationships = false
-      status = 'degraded'
-    }
-
-    // If all stores are down, status is unhealthy
-    if (!storeStatus.things && !storeStatus.events && !storeStatus.relationships) {
+    let status: 'healthy' | 'degraded' | 'unhealthy'
+    if (availableCount === 3) {
+      status = 'healthy'
+    } else if (availableCount === 0) {
       status = 'unhealthy'
+    } else {
+      status = 'degraded'
     }
 
-    // Get basic metrics
-    const entities = await this.stores.things.list({})
-    const events = await this.stores.events.query({})
-    const relationships = await this.stores.relationships.find({})
+    // Extract counts from the same query results (no additional queries needed)
+    const entityCount = thingsResult.status === 'fulfilled' ? thingsResult.value.length : 0
+    const eventCount = eventsResult.status === 'fulfilled' ? eventsResult.value.length : 0
+    const relationshipCount = relationshipsResult.status === 'fulfilled' ? relationshipsResult.value.length : 0
 
     return {
       status,
       timestamp: Date.now(),
       stores: storeStatus,
       metrics: {
-        entityCount: entities.length,
-        eventCount: events.length,
-        relationshipCount: relationships.length
+        entityCount,
+        eventCount,
+        relationshipCount
       }
     }
   }

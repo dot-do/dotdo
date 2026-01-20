@@ -1,10 +1,14 @@
 // SQLite persistence layer for @dotdo/db
 // Compatible with Cloudflare Durable Objects SqlStorage API
 
+import { createLogger } from '../utils/logger'
 import type { Thing, ThingsStore } from './things'
+
+const logger = createLogger('[SQLite]')
 import type {
   Event,
   EventsStore,
+  EventInput,
   EventQueryOptions,
   RetentionPolicy,
   DLQEntry,
@@ -13,7 +17,7 @@ import type {
   RetryMetrics,
   DurabilityConfig
 } from './events'
-import type { Relationship, RelationshipsStore } from './relationships'
+import type { Relationship, RelationshipsStore, BaseRelationship, RelationshipInput } from './relationships'
 import {
   type QueryOptions,
   buildWhereClause,
@@ -21,6 +25,7 @@ import {
   buildPaginationClause
 } from './query'
 import { MigrationRunner, coreMigrations, type Migration } from './migrations'
+import { generateId, generateEventId } from './id'
 
 // SqlStorage interface from Cloudflare Workers
 export interface SqlStorage {
@@ -34,15 +39,7 @@ export interface SqlStorage {
   }
 }
 
-// Generate unique ID (same as in-memory implementation)
-function generateId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-// Generate event ID
-function generateEventId(): string {
-  return `evt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-}
+// ID generation moved to ./id.ts (do-y5ko)
 
 /**
  * Options for SQLiteAdapter initialization
@@ -149,9 +146,11 @@ export class SQLiteAdapter {
 
       if (result.errors.length > 0) {
         const error = result.errors[0]
-        throw new Error(
-          `Migration failed: ${error.name} (version ${error.version}): ${error.error}`
-        )
+        if (error) {
+          throw new Error(
+            `Migration failed: ${error.name} (version ${error.version}): ${error.error}`
+          )
+        }
       }
     }
 
@@ -464,7 +463,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         try {
           handler(event)
         } catch (e) {
-          console.error('Event subscriber error:', e)
+          logger.error('Event subscriber error:', e)
         }
       })
 
@@ -584,7 +583,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       return (result?.count as number) ?? 0
     },
 
-    async cleanup(options) {
+    async cleanup(_options) {
       if (!retentionPolicy) {
         return { deleted: 0 }
       }

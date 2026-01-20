@@ -366,13 +366,14 @@ describe('Error Serialization', () => {
   })
 
   it('should handle unknown error types gracefully', () => {
-    const serialized = {
+    // Intentionally passing an unknown error type to test graceful handling
+    const serialized: { type: string; code: string; message: string } = {
       type: 'UnknownErrorType',
       code: 'UNKNOWN_CODE',
       message: 'Some error',
     }
 
-    const error = deserializeError(serialized as any)
+    const error = deserializeError(serialized as Parameters<typeof deserializeError>[0])
 
     expect(error).toBeInstanceOf(RPCError)
     expect(error.message).toBe('Some error')

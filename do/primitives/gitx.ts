@@ -9,6 +9,9 @@
  */
 
 import type { WorkflowContext } from '../context.js'
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('[gitx]')
 
 // ============================================================================
 // AI PROMISE TYPES (inline to avoid cross-package imports)
@@ -411,7 +414,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.add] ${pathList.join(', ')}`)
+      logger.debug(`add: ${pathList.join(', ')}`)
     })
   }
 
@@ -434,7 +437,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.unstage] ${pathList.join(', ')}`)
+      logger.debug(`unstage: ${pathList.join(', ')}`)
     })
   }
 
@@ -494,7 +497,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.push] ${remote} ${branch ?? ''}`)
+      logger.debug(`push: ${remote} ${branch ?? ''}`)
     })
   }
 
@@ -522,7 +525,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.pull] ${remote} ${branch ?? ''}`)
+      logger.debug(`pull: ${remote} ${branch ?? ''}`)
     })
   }
 
@@ -548,7 +551,7 @@ export class GitX {
     })
 
     return this.$.try(async () => {
-      console.log(`[gitx.fetch] ${remote}`)
+      logger.debug(`fetch: ${remote}`)
     })
   }
 
@@ -621,7 +624,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.checkout] ${target}`)
+      logger.debug(`checkout: ${target}`)
     })
   }
 
@@ -644,7 +647,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.merge] ${branch}`)
+      logger.debug(`merge: ${branch}`)
     })
   }
 
@@ -723,7 +726,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log(`[gitx.stash] ${message ?? 'WIP'}`)
+      logger.debug(`stash: ${message ?? 'WIP'}`)
     })
   }
 
@@ -742,7 +745,7 @@ export class GitX {
     })
 
     return this.$.do(async () => {
-      console.log('[gitx.stashPop]')
+      logger.debug('stashPop')
     })
   }
 
@@ -773,8 +776,8 @@ export class GitX {
     return createAIPromise(async (meta) => {
       meta.model = options?.model ?? 'default'
 
-      // Get the staged diff
-      const diff = await this.diff({ staged: true })
+      // Get the staged diff for AI analysis
+      await this.diff({ staged: true })
 
       // AI would analyze the diff and generate a message
       return {
@@ -815,10 +818,12 @@ export class GitX {
     return createAIPromise(async (meta) => {
       meta.model = options?.model ?? 'default'
 
-      // Get diff to review
-      const diff = ref
-        ? await this.diff({ from: 'main', to: ref })
-        : await this.diff({ staged: true })
+      // Get diff for AI review
+      if (ref) {
+        await this.diff({ from: 'main', to: ref })
+      } else {
+        await this.diff({ staged: true })
+      }
 
       // AI would analyze the code changes
       return {
@@ -900,7 +905,7 @@ export class GitX {
       const logOptions: Parameters<typeof this.log>[0] = {}
       if (options?.from !== undefined) logOptions.from = options.from
       if (options?.to !== undefined) logOptions.to = options.to
-      const commits = await this.log(logOptions)
+      await this.log(logOptions)
 
       // AI would generate a formatted changelog
       return '# Changelog\n\n## Changes\n\n- Feature 1\n- Feature 2'
@@ -999,7 +1004,7 @@ export const gitx = {
   /**
    * Get status of a repository
    */
-  status: async (repoPath: string = '.'): Promise<RepoStatus> => {
+  status: async (_repoPath: string = '.'): Promise<RepoStatus> => {
     return {
       branch: 'main',
       files: [],

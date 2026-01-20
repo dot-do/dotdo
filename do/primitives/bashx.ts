@@ -9,6 +9,9 @@
  */
 
 import type { WorkflowContext } from '../context.js'
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('[bashx]')
 
 // ============================================================================
 // AI PROMISE TYPES (inline to avoid cross-package imports)
@@ -289,7 +292,7 @@ export class BashX {
       try {
         // In a real implementation, this would use child_process or a similar API
         // For Cloudflare Workers, this would need to use a subprocess API or external service
-        console.log(`[bashx.exec] ${cmd}`)
+        logger.debug(`exec: ${cmd}`)
 
         // Placeholder implementation
         const duration = Date.now() - startTime
@@ -877,7 +880,7 @@ export const bashx = {
   /**
    * Execute a command (standalone)
    */
-  exec: async (command: string, options?: ExecOptions): Promise<ExecResult> => {
+  exec: async (_command: string, _options?: ExecOptions): Promise<ExecResult> => {
     const startTime = Date.now()
     try {
       // Placeholder - real implementation would use subprocess

@@ -14,11 +14,12 @@ import {
   type AuditContext,
   type AuditLogConfig,
   type Thing,
-  type Event,
   type Relationship,
+  type BaseRelationship,
+  type RelationshipQuery,
+  type RelationshipInput,
   type QueryBuilder,
   type StorableData,
-  type JsonValue,
   defaultAuditConfig,
   maskSensitiveFields
 } from '../db'
@@ -186,7 +187,7 @@ export class EntityManager {
     const logAudit = this.logAudit.bind(this)
 
     return {
-      async add(rel: Omit<Relationship, '$createdAt'>): Promise<Relationship> {
+      async add(rel: RelationshipInput): Promise<Relationship> {
         const relationship = await baseStore.add(rel)
 
         // Emit Relationship.added event
@@ -206,7 +207,7 @@ export class EntityManager {
         return relationship
       },
 
-      async remove(rel: Pick<Relationship, 'subject' | 'predicate' | 'object'>): Promise<void> {
+      async remove(rel: Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>): Promise<void> {
         await baseStore.remove(rel)
 
         // Emit Relationship.removed event
@@ -224,7 +225,7 @@ export class EntityManager {
         })
       },
 
-      async find(query: Partial<Pick<Relationship, 'subject' | 'predicate' | 'object'>>): Promise<Relationship[]> {
+      async find(query: RelationshipQuery): Promise<Relationship[]> {
         return baseStore.find(query)
       },
 

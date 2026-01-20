@@ -43,7 +43,7 @@ export function createBatchMapPromise<T, R>(
 ): BatchMapPromise<R> {
   const {
     concurrency = Infinity,
-    batchSize,
+    batchSize: _batchSize,
     onProgress,
     transform,
     onError = 'fail',

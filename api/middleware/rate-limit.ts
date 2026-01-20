@@ -17,7 +17,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
-import { RPCError, RPCErrorCode, RateLimitError, ValidationError, InternalError } from '../../rpc/errors'
+import { RateLimitError, ValidationError } from '../../rpc/errors'
 
 // ============================================================================
 // TYPES
@@ -202,13 +202,14 @@ export class RateLimiter {
     const cutoff = now - tierConfig.windowMs
     state.requests = state.requests.filter((ts) => ts > cutoff)
 
-    const windowResetsAt = state.requests.length > 0
-      ? Math.ceil((state.requests[0] + tierConfig.windowMs) / 1000)
+    const firstRequest = state.requests[0]
+    const windowResetsAt = firstRequest !== undefined
+      ? Math.ceil((firstRequest + tierConfig.windowMs) / 1000)
       : Math.ceil((now + tierConfig.windowMs) / 1000)
 
     // Check if over limit
     if (state.requests.length >= tierConfig.requestsPerWindow) {
-      const oldestRequestTime = state.requests[0]
+      const oldestRequestTime = state.requests[0] ?? now
       const retryAfterMs = oldestRequestTime + tierConfig.windowMs - now
       const retryAfterSec = Math.ceil(retryAfterMs / 1000)
 
@@ -338,7 +339,7 @@ export class RateLimiter {
 
     // For subdomains like "acme-corp.api.dotdo.dev"
     if (hostParts.length >= 4) {
-      return hostParts[0]
+      return hostParts[0] ?? 'default'
     }
 
     return 'default'
@@ -378,7 +379,8 @@ export class RateLimiter {
     // X-Forwarded-For (take first IP in chain)
     const forwardedFor = request.headers.get('X-Forwarded-For')
     if (forwardedFor) {
-      return forwardedFor.split(',')[0].trim()
+      const firstIP = forwardedFor.split(',')[0]
+      return firstIP?.trim() ?? 'unknown'
     }
 
     return 'unknown'
@@ -387,7 +389,7 @@ export class RateLimiter {
   /**
    * Get the tier name for a given key
    */
-  private getTierForKey(key: string, context?: { tier?: string }): string {
+  private getTierForKey(_key: string, context?: { tier?: string }): string {
     // Explicit tier in context takes precedence
     if (context?.tier && this.config.tiers[context.tier]) {
       return context.tier
@@ -400,15 +402,25 @@ export class RateLimiter {
    */
   private getEffectiveTierConfig(tierName: string, context?: { tenantId?: string; userId?: string }): RateLimitTier {
     const baseTier = this.config.tiers[tierName] ?? this.config.tiers[this.config.defaultTier]
+    if (!baseTier) {
+      // This should not happen if constructor validation passed, but satisfy type checker
+      return DEFAULT_TIERS['free']!
+    }
 
     // Apply tenant overrides
-    if (context?.tenantId && this.config.tenantOverrides[context.tenantId]) {
-      return { ...baseTier, ...this.config.tenantOverrides[context.tenantId] }
+    if (context?.tenantId) {
+      const tenantOverride = this.config.tenantOverrides[context.tenantId]
+      if (tenantOverride) {
+        return { ...baseTier, name: tenantOverride.name ?? baseTier.name, requestsPerWindow: tenantOverride.requestsPerWindow ?? baseTier.requestsPerWindow, windowMs: tenantOverride.windowMs ?? baseTier.windowMs, burstCapacity: tenantOverride.burstCapacity ?? baseTier.burstCapacity }
+      }
     }
 
     // Apply user overrides
-    if (context?.userId && this.config.userOverrides[context.userId]) {
-      return { ...baseTier, ...this.config.userOverrides[context.userId] }
+    if (context?.userId) {
+      const userOverride = this.config.userOverrides[context.userId]
+      if (userOverride) {
+        return { ...baseTier, name: userOverride.name ?? baseTier.name, requestsPerWindow: userOverride.requestsPerWindow ?? baseTier.requestsPerWindow, windowMs: userOverride.windowMs ?? baseTier.windowMs, burstCapacity: userOverride.burstCapacity ?? baseTier.burstCapacity }
+      }
     }
 
     return baseTier
@@ -471,7 +483,7 @@ export class RateLimiter {
   async getState(key: string): Promise<{ requests: number; windowMs: number; limit: number } | null> {
     const slidingState = this.slidingWindows.get(key)
     if (slidingState) {
-      const tierConfig = this.config.tiers[this.config.defaultTier]
+      const tierConfig = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
       return {
         requests: slidingState.requests.length,
         windowMs: tierConfig.windowMs,
@@ -481,7 +493,7 @@ export class RateLimiter {
 
     const fixedState = this.fixedWindows.get(key)
     if (fixedState) {
-      const tierConfig = this.config.tiers[this.config.defaultTier]
+      const tierConfig = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
       return {
         requests: fixedState.count,
         windowMs: tierConfig.windowMs,

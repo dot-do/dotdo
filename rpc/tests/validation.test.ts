@@ -5,6 +5,7 @@ import {
   defineMethodSchema,
   createSchemaRegistry,
   getMethodSchema,
+  isValidRPCMethod,
   ArgSchemas,
   type ArgSchema,
   type MethodSchema,
@@ -13,6 +14,78 @@ import { ValidationError } from '../errors'
 import { createServer } from '../server'
 
 describe('RPC Input Validation', () => {
+  describe('isValidRPCMethod', () => {
+    it('should accept valid simple method names', () => {
+      expect(isValidRPCMethod('greet')).toBe(true)
+      expect(isValidRPCMethod('getUser')).toBe(true)
+      expect(isValidRPCMethod('createOrder')).toBe(true)
+    })
+
+    it('should accept valid nested method names with dots', () => {
+      expect(isValidRPCMethod('users.create')).toBe(true)
+      expect(isValidRPCMethod('users.admin.promote')).toBe(true)
+      expect(isValidRPCMethod('v2.api.list')).toBe(true)
+    })
+
+    it('should accept method names with numbers', () => {
+      expect(isValidRPCMethod('v2')).toBe(true)
+      expect(isValidRPCMethod('getUser2')).toBe(true)
+      expect(isValidRPCMethod('api.v3.users')).toBe(true)
+    })
+
+    it('should reject empty string', () => {
+      expect(isValidRPCMethod('')).toBe(false)
+    })
+
+    it('should reject non-string values', () => {
+      expect(isValidRPCMethod(null)).toBe(false)
+      expect(isValidRPCMethod(undefined)).toBe(false)
+      expect(isValidRPCMethod(123)).toBe(false)
+      expect(isValidRPCMethod({})).toBe(false)
+      expect(isValidRPCMethod([])).toBe(false)
+      expect(isValidRPCMethod(true)).toBe(false)
+    })
+
+    it('should reject method names starting with underscore', () => {
+      expect(isValidRPCMethod('_private')).toBe(false)
+      expect(isValidRPCMethod('_internalMethod')).toBe(false)
+    })
+
+    it('should reject method names starting with numbers', () => {
+      expect(isValidRPCMethod('123method')).toBe(false)
+      expect(isValidRPCMethod('2users')).toBe(false)
+    })
+
+    it('should reject method names with spaces', () => {
+      expect(isValidRPCMethod('has space')).toBe(false)
+      expect(isValidRPCMethod('get user')).toBe(false)
+    })
+
+    it('should reject method names with special characters', () => {
+      expect(isValidRPCMethod('user$name')).toBe(false)
+      expect(isValidRPCMethod('get-user')).toBe(false)
+      expect(isValidRPCMethod('user/name')).toBe(false)
+      expect(isValidRPCMethod('user\\name')).toBe(false)
+      expect(isValidRPCMethod('user[0]')).toBe(false)
+      expect(isValidRPCMethod('user()')).toBe(false)
+    })
+
+    it('should reject method names with underscores (except at start)', () => {
+      // Note: the regex ^[a-zA-Z][a-zA-Z0-9.]*$ does not allow underscores
+      expect(isValidRPCMethod('get_user')).toBe(false)
+      expect(isValidRPCMethod('user_service')).toBe(false)
+    })
+
+    it('should work as a type guard narrowing unknown to string', () => {
+      const method: unknown = 'users.create'
+      if (isValidRPCMethod(method)) {
+        // TypeScript should now know method is a string
+        const uppercased: string = method.toUpperCase()
+        expect(uppercased).toBe('USERS.CREATE')
+      }
+    })
+  })
+
   describe('validateArgs', () => {
     it('should pass validation for correct arguments', () => {
       const schema = defineMethodSchema([

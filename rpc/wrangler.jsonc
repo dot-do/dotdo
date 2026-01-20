@@ -1,5 +1,22 @@
 {
   "name": "dotdo-rpc",
-  "main": "index.ts",
-  "compatibility_date": "2025-01-15"
+  "main": "tests/test-dos.ts",
+  "compatibility_date": "2025-01-15",
+
+  // Durable Object bindings for tests
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "TestDO" },
+      { "name": "TARGET_DO", "class_name": "TargetDO" },
+      { "name": "SOURCE_DO", "class_name": "SourceDO" }
+    ]
+  },
+
+  // Migrations for DO classes with SQL storage
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TestDO", "TargetDO", "SourceDO"]
+    }
+  ]
 }

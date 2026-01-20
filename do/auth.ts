@@ -14,8 +14,11 @@
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { AuthUser } from '../auth/middleware'
-import { extractToken, verifyTokenSignature, type TokenPayload } from '../auth/token'
+import { extractToken, verifyTokenSignature } from '../auth/token'
 import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[DOAuth]')
 
 // ============================================================================
 // Types
@@ -267,7 +270,7 @@ async function verifyHmacSignature(
  */
 export async function verifyDOSignature(request: Request): Promise<boolean> {
   if (!doInternalSecret) {
-    console.warn('[DOAuth] DO_INTERNAL_SECRET not configured - DO-to-DO verification disabled')
+    logger.warn(' DO_INTERNAL_SECRET not configured - DO-to-DO verification disabled')
     return false
   }
 
@@ -407,8 +410,8 @@ export async function extractCallerInfoWithVerification(request: Request): Promi
     } else {
       // Signature invalid or missing - treat as untrusted/unknown
       // This prevents header spoofing attacks
-      console.warn(
-        '[DOAuth] DO-to-DO request with invalid or missing signature from:',
+      logger.warn(
+        'DO-to-DO request with invalid or missing signature from:',
         request.headers.get(DO_SOURCE_ID_HEADER)
       )
       return {
@@ -431,7 +434,7 @@ export async function extractCallerInfoWithVerification(request: Request): Promi
 
   // X-Worker-Name without cf-worker is NOT trusted (can be spoofed)
   if (request.headers.get(WORKER_NAME_HEADER)) {
-    console.warn('[DOAuth] X-Worker-Name header present without cf-worker - treating as untrusted')
+    logger.warn(' X-Worker-Name header present without cf-worker - treating as untrusted')
     return {
       type: 'unknown',
       id: null,
@@ -475,7 +478,7 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
   } = config
 
   return {
-    async canAccess(request: Request, doId: string): Promise<boolean> {
+    async canAccess(request: Request, _doId: string): Promise<boolean> {
       // Use secure verification that validates HMAC signatures for DO-to-DO calls
       const callerInfo = await extractCallerInfoWithVerification(request)
 
@@ -561,25 +564,28 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
 
         // Fall back to symmetric secret validation
         if (secret) {
+          const firstIssuer = Array.isArray(issuer) ? issuer[0] : issuer
+          const firstAudience = Array.isArray(audience) ? audience[0] : audience
           const payload = await verifyTokenSignature(token, {
             secret: typeof secret === 'string' ? secret : secret,
-            issuer: Array.isArray(issuer) ? issuer[0] : issuer,
-            audience: Array.isArray(audience) ? audience[0] : audience,
+            ...(firstIssuer && { issuer: firstIssuer }),
+            ...(firstAudience && { audience: firstAudience }),
           })
           return payload as AuthPayload
         }
 
         // No validation configured - decode without verification (NOT RECOMMENDED)
-        console.warn('[DOAuthGuard] No secret or JWKS client configured - tokens will not be verified')
+        logger.warn('No secret or JWKS client configured - tokens will not be verified')
         const parts = token.split('.')
-        if (parts.length === 3) {
-          const payload = JSON.parse(atob(parts[1]))
+        const payloadPart = parts[1]
+        if (parts.length === 3 && payloadPart) {
+          const payload = JSON.parse(atob(payloadPart))
           return payload as AuthPayload
         }
 
         return null
       } catch (error) {
-        console.error('[DOAuthGuard] Token validation failed:', error)
+        logger.error(' Token validation failed:', error)
         return null
       }
     },
@@ -898,7 +904,7 @@ export async function addDOSourceHeaders(
     const signature = await signDORequest(sourceDoId, timestamp, targetPath)
     headers.set(DO_SIGNATURE_HEADER, signature)
   } catch (error) {
-    console.warn('[DOAuth] Failed to sign DO-to-DO request:', error)
+    logger.warn(' Failed to sign DO-to-DO request:', error)
     // Still set the headers without signature for backwards compatibility
     // but the receiver will reject it if DO_INTERNAL_SECRET is configured
   }
@@ -957,7 +963,7 @@ export async function createDOToDoHeaders(
     const signature = await signDORequest(sourceDoId, timestamp, targetPath)
     headers.set(DO_SIGNATURE_HEADER, signature)
   } catch (error) {
-    console.warn('[DOAuth] Failed to sign DO-to-DO request:', error)
+    logger.warn(' Failed to sign DO-to-DO request:', error)
   }
 
   if (correlationId) {
