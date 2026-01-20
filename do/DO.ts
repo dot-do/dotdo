@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { WorkflowContext } from './context'
 import { EntityManager } from './entities'
+import { WebSocketManager } from './websocket'
 import type { ThingsStore, EventsStore, RelationshipsStore, QueryBuilder } from '../db'
 
 export interface DOEnv {
@@ -20,12 +21,14 @@ export class DO implements DurableObject {
   protected $!: WorkflowContext
   private routesInitialized = false
   private entityManager: EntityManager
+  private websocketManager: WebSocketManager
 
   constructor(state: DurableObjectState, env: DOEnv, options: DOOptions = {}) {
     this.state = state
     this.env = env
     this.app = new Hono()
     this.entityManager = new EntityManager()
+    this.websocketManager = new WebSocketManager()
 
     // Setup middleware
     if (options.cors !== false) {
@@ -34,6 +37,11 @@ export class DO implements DurableObject {
 
     // Setup default routes
     this.setupRoutes()
+  }
+
+  // WebSocket manager accessor
+  get ws(): WebSocketManager {
+    return this.websocketManager
   }
 
   // Entity store accessors
@@ -118,12 +126,30 @@ export class DO implements DurableObject {
     // Override in subclass or use $ scheduling
   }
 
-  // WebSocket handler
+  // WebSocket handlers - Override in subclass for custom behavior
+
+  /**
+   * Handle incoming WebSocket message
+   * By default, routes to WebSocketManager handlers
+   */
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
-    // Override in subclass
+    await this.websocketManager.handleMessage(ws, message)
   }
 
+  /**
+   * Handle WebSocket close event
+   * By default, cleans up WebSocket tracking
+   */
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-    // Override in subclass
+    this.websocketManager.cleanupWebSocket(ws)
+  }
+
+  /**
+   * Handle WebSocket error event
+   * Override in subclass for custom error handling
+   */
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    console.error('[DO] WebSocket error:', error)
+    this.websocketManager.cleanupWebSocket(ws)
   }
 }

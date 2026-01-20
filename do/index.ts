@@ -6,6 +6,14 @@ export { createContext, type WorkflowContext } from './context'
 export type { $ } from './context'
 export { EntityManager, withEntities } from './entities'
 
+// WebSocket management
+export {
+  WebSocketManager,
+  type WebSocketMessage,
+  type WebSocketHandler,
+  type BroadcastResult
+} from './websocket'
+
 // Event handler system ($.on.Noun.verb)
 export {
   createOnProxy,

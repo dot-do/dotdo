@@ -305,4 +305,78 @@ export class WebSocketManager {
   stopHeartbeat(intervalId: number): void {
     clearInterval(intervalId)
   }
+
+  /**
+   * Get the number of active connections
+   * @param ctx The Durable Object state
+   * @param tag Optional tag to filter connections
+   * @returns Number of active connections
+   */
+  getConnectionCount(ctx: DurableObjectState, tag?: string): number {
+    const sockets = tag ? ctx.getWebSockets(tag) : ctx.getWebSockets()
+    return sockets.length
+  }
+
+  /**
+   * Send a message to a specific WebSocket
+   * @param ws The WebSocket to send to
+   * @param message The message to send (will be JSON-stringified)
+   * @returns true if sent successfully, false otherwise
+   */
+  send(ws: WebSocket, message: unknown): boolean {
+    try {
+      ws.send(JSON.stringify(message))
+      return true
+    } catch (err) {
+      console.warn(
+        '[WebSocketManager] Send failed:',
+        'error:', err instanceof Error ? err.message : String(err),
+        'readyState:', ws.readyState
+      )
+      return false
+    }
+  }
+
+  /**
+   * Close a specific WebSocket connection
+   * @param ws The WebSocket to close
+   * @param code The close code (default: 1000)
+   * @param reason The close reason
+   */
+  closeConnection(ws: WebSocket, code: number = 1000, reason?: string): void {
+    try {
+      ws.close(code, reason)
+    } catch (err) {
+      console.warn('[WebSocketManager] Error closing connection:', err)
+    }
+    this.cleanupWebSocket(ws)
+  }
+
+  /**
+   * Broadcast a message to all connected WebSockets regardless of tag
+   * @param ctx The Durable Object state
+   * @param message The message to broadcast (will be JSON-stringified)
+   * @returns Number of WebSockets the message was sent to
+   */
+  broadcastAll(ctx: DurableObjectState, message: unknown): BroadcastResult {
+    let sent = 0
+    let failed = 0
+    const sockets = ctx.getWebSockets()
+
+    for (const ws of sockets) {
+      try {
+        ws.send(JSON.stringify(message))
+        sent++
+      } catch (err) {
+        failed++
+        console.warn(
+          '[WebSocketManager] Broadcast send failed:',
+          'error:', err instanceof Error ? err.message : String(err),
+          'readyState:', ws.readyState
+        )
+      }
+    }
+
+    return { sent, failed }
+  }
 }

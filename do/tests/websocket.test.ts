@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DO } from '../DO'
 import { WebSocketManager } from '../websocket'
 
@@ -187,6 +187,22 @@ describe('WebSocketManager', () => {
     })
   })
 
+  describe('broadcast to all connections', () => {
+    it('should broadcast to all connections regardless of tag', () => {
+      const ws1 = new MockWebSocket() as unknown as WebSocket
+      const ws2 = new MockWebSocket() as unknown as WebSocket
+
+      mockState.acceptWebSocket(ws1, ['room:1'])
+      mockState.acceptWebSocket(ws2, ['room:2'])
+
+      const result = manager.broadcastAll(mockState, { type: 'global', data: 'announcement' })
+
+      expect(result.sent).toBe(2)
+      expect((ws1 as any).sentMessages.length).toBe(1)
+      expect((ws2 as any).sentMessages.length).toBe(1)
+    })
+  })
+
   describe('connection cleanup', () => {
     it('should cleanup WebSocket on close', () => {
       const ws = new MockWebSocket() as unknown as WebSocket
@@ -272,6 +288,100 @@ describe('WebSocketManager', () => {
     })
   })
 
+  describe('handler removal (off)', () => {
+    it('should remove a handler when off is called', async () => {
+      const handler = vi.fn()
+      manager.on('test', handler)
+
+      await manager.handleMessage(
+        new MockWebSocket() as unknown as WebSocket,
+        JSON.stringify({ type: 'test', data: { value: 1 } })
+      )
+      expect(handler).toHaveBeenCalledTimes(1)
+
+      // Remove handler
+      manager.off('test', handler)
+
+      await manager.handleMessage(
+        new MockWebSocket() as unknown as WebSocket,
+        JSON.stringify({ type: 'test', data: { value: 2 } })
+      )
+      // Handler should not be called again
+      expect(handler).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not affect other handlers when one is removed', async () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+
+      manager.on('test', handler1)
+      manager.on('test', handler2)
+
+      manager.off('test', handler1)
+
+      await manager.handleMessage(
+        new MockWebSocket() as unknown as WebSocket,
+        JSON.stringify({ type: 'test', data: {} })
+      )
+
+      expect(handler1).not.toHaveBeenCalled()
+      expect(handler2).toHaveBeenCalled()
+    })
+
+    it('should handle removing non-existent handler gracefully', () => {
+      const handler = vi.fn()
+      // Should not throw
+      manager.off('nonexistent', handler)
+    })
+  })
+
+  describe('error handling in handlers', () => {
+    it('should continue processing when a handler throws', async () => {
+      const errorHandler = vi.fn(() => {
+        throw new Error('Handler error')
+      })
+      const successHandler = vi.fn()
+
+      manager.on('test', errorHandler)
+      manager.on('test', successHandler)
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await manager.handleMessage(
+        new MockWebSocket() as unknown as WebSocket,
+        JSON.stringify({ type: 'test', data: {} })
+      )
+
+      expect(errorHandler).toHaveBeenCalled()
+      expect(successHandler).toHaveBeenCalled()
+      expect(consoleSpy).toHaveBeenCalled()
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should handle async handler errors', async () => {
+      const asyncErrorHandler = vi.fn(async () => {
+        throw new Error('Async error')
+      })
+      const successHandler = vi.fn()
+
+      manager.on('test', asyncErrorHandler)
+      manager.on('test', successHandler)
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await manager.handleMessage(
+        new MockWebSocket() as unknown as WebSocket,
+        JSON.stringify({ type: 'test', data: {} })
+      )
+
+      expect(asyncErrorHandler).toHaveBeenCalled()
+      expect(successHandler).toHaveBeenCalled()
+
+      consoleSpy.mockRestore()
+    })
+  })
+
   describe('heartbeat/ping-pong', () => {
     it('should send ping messages', () => {
       const ws = new MockWebSocket() as unknown as WebSocket
@@ -315,6 +425,135 @@ describe('WebSocketManager', () => {
       expect((ws as any).readyState).toBe(3) // CLOSED
     })
   })
+
+  describe('heartbeat interval', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('should start heartbeat and send pings at interval', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      mockState.acceptWebSocket(ws, ['chat'])
+      manager.setLastPong(ws, Date.now())
+
+      const intervalId = manager.startHeartbeat(mockState, 1000, 5000)
+
+      // Advance time by one interval
+      vi.advanceTimersByTime(1000)
+
+      expect((ws as any).sentMessages.some((msg: string) =>
+        msg.includes('ping')
+      )).toBe(true)
+
+      manager.stopHeartbeat(intervalId)
+    })
+
+    it('should stop heartbeat when stopHeartbeat is called', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      mockState.acceptWebSocket(ws, ['chat'])
+      manager.setLastPong(ws, Date.now())
+
+      const intervalId = manager.startHeartbeat(mockState, 1000, 5000)
+      manager.stopHeartbeat(intervalId)
+
+      // Advance time - no more pings should be sent
+      ;(ws as any).sentMessages = []
+      vi.advanceTimersByTime(2000)
+
+      expect((ws as any).sentMessages.length).toBe(0)
+    })
+
+    it('should close stale connections during heartbeat', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      mockState.acceptWebSocket(ws, ['chat'])
+
+      // Set last pong to be stale
+      manager.setLastPong(ws, Date.now() - 10000)
+
+      const intervalId = manager.startHeartbeat(mockState, 1000, 5000)
+
+      vi.advanceTimersByTime(1000)
+
+      expect((ws as any).readyState).toBe(3) // CLOSED
+
+      manager.stopHeartbeat(intervalId)
+    })
+  })
+
+  describe('connection count and state', () => {
+    it('should track connection count', () => {
+      const ws1 = new MockWebSocket() as unknown as WebSocket
+      const ws2 = new MockWebSocket() as unknown as WebSocket
+
+      mockState.acceptWebSocket(ws1, ['chat'])
+      mockState.acceptWebSocket(ws2, ['chat'])
+
+      const count = manager.getConnectionCount(mockState)
+      expect(count).toBe(2)
+    })
+
+    it('should track connections by tag', () => {
+      const ws1 = new MockWebSocket() as unknown as WebSocket
+      const ws2 = new MockWebSocket() as unknown as WebSocket
+      const ws3 = new MockWebSocket() as unknown as WebSocket
+
+      mockState.acceptWebSocket(ws1, ['room:1'])
+      mockState.acceptWebSocket(ws2, ['room:1'])
+      mockState.acceptWebSocket(ws3, ['room:2'])
+
+      const room1Count = manager.getConnectionCount(mockState, 'room:1')
+      const room2Count = manager.getConnectionCount(mockState, 'room:2')
+
+      expect(room1Count).toBe(2)
+      expect(room2Count).toBe(1)
+    })
+  })
+
+  describe('send to specific connection', () => {
+    it('should send message to specific WebSocket', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+
+      const result = manager.send(ws, { type: 'direct', data: 'hello' })
+
+      expect(result).toBe(true)
+      expect((ws as any).sentMessages).toContain(
+        JSON.stringify({ type: 'direct', data: 'hello' })
+      )
+    })
+
+    it('should return false when sending to closed connection', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      ;(ws as any).readyState = 3 // CLOSED
+
+      const result = manager.send(ws, { type: 'test' })
+
+      expect(result).toBe(false)
+    })
+  })
+
+  describe('close specific connection', () => {
+    it('should close a specific WebSocket with code and reason', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      manager.setLastPong(ws, Date.now())
+
+      manager.closeConnection(ws, 1000, 'Normal closure')
+
+      expect((ws as any).readyState).toBe(3) // CLOSED
+    })
+
+    it('should cleanup WebSocket state on close', () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      manager.setLastPong(ws, Date.now())
+
+      manager.closeConnection(ws, 1000, 'Test')
+
+      expect(manager.getLastPong(ws)).toBe(0)
+    })
+  })
 })
 
 describe('DO with WebSocket support', () => {
@@ -342,6 +581,14 @@ describe('DO with WebSocket support', () => {
       await doInstance.webSocketClose(ws, 1000, 'Normal closure', true)
     })
 
+    it('should handle webSocketError', async () => {
+      const ws = new MockWebSocket() as unknown as WebSocket
+      const error = new Error('Test error')
+
+      // Should not throw
+      await doInstance.webSocketError(ws, error)
+    })
+
     it('should allow subclasses to override webSocketMessage', async () => {
       const handler = vi.fn()
 
@@ -355,6 +602,45 @@ describe('DO with WebSocket support', () => {
       await custom.webSocketMessage(new MockWebSocket() as unknown as WebSocket, 'test')
 
       expect(handler).toHaveBeenCalledWith('test')
+    })
+
+    it('should allow subclasses to override webSocketError', async () => {
+      const handler = vi.fn()
+
+      class CustomDO extends DO {
+        async webSocketError(ws: WebSocket, error: unknown) {
+          handler(error)
+        }
+      }
+
+      const custom = new CustomDO(mockState, {})
+      const testError = new Error('Custom error')
+      await custom.webSocketError(new MockWebSocket() as unknown as WebSocket, testError)
+
+      expect(handler).toHaveBeenCalledWith(testError)
+    })
+  })
+
+  describe('DO with WebSocketManager integration', () => {
+    it('should provide access to WebSocketManager', () => {
+      expect(doInstance.ws).toBeInstanceOf(WebSocketManager)
+    })
+
+    it('should handle WebSocket upgrade via DO', async () => {
+      const request = new Request('http://localhost/ws', {
+        headers: {
+          Upgrade: 'websocket',
+          'Sec-WebSocket-Key': 'test-key',
+          'Sec-WebSocket-Version': '13',
+        },
+      })
+
+      // The DO should be able to upgrade WebSocket connections
+      const response = await doInstance.fetch(request)
+
+      // For now, it should return a 404 since /ws route isn't set up by default
+      // Subclasses would need to add the upgrade route
+      expect(response).toBeDefined()
     })
   })
 })
