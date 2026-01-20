@@ -15,6 +15,7 @@ import {
   isCircuitOpenError,
   RetryWithCircuitBreaker,
 } from '../errors'
+import { expectRPCError, expectRPCErrorType } from '../../test-utils'
 
 describe('RPCError', () => {
   it('should create an error with code, message, and details', () => {
@@ -24,9 +25,7 @@ describe('RPCError', () => {
       { context: 'test' }
     )
 
-    expect(error).toBeInstanceOf(Error)
-    expect(error).toBeInstanceOf(RPCError)
-    expect(error.code).toBe(RPCErrorCode.INTERNAL_ERROR)
+    expectRPCError(error, 'INTERNAL_ERROR')
     expect(error.message).toBe('Something went wrong')
     expect(error.details).toEqual({ context: 'test' })
     expect(error.name).toBe('RPCError')
@@ -35,7 +34,7 @@ describe('RPCError', () => {
   it('should work without details', () => {
     const error = new RPCError(RPCErrorCode.NOT_FOUND, 'Resource not found')
 
-    expect(error.code).toBe(RPCErrorCode.NOT_FOUND)
+    expectRPCError(error, 'NOT_FOUND')
     expect(error.message).toBe('Resource not found')
     expect(error.details).toBeUndefined()
   })

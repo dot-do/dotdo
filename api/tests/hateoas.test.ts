@@ -5,6 +5,7 @@ import {
   withLinks,
   withCollectionLinks
 } from '../hateoas'
+import { expectValidLink } from '../../test-utils'
 
 describe('HATEOAS Link Generation', () => {
   const baseUrl = 'https://api.example.com'
@@ -13,11 +14,12 @@ describe('HATEOAS Link Generation', () => {
     it('should generate standard CRUD links', () => {
       const links = generateLinks('users', '123', baseUrl)
 
+      expectValidLink(links.self, 'self', 'GET')
       expect(links.self.href).toBe('https://api.example.com/users/123')
-      expect(links.self.method).toBe('GET')
+      expectValidLink(links.update, 'update', 'PUT')
       expect(links.update.href).toBe('https://api.example.com/users/123')
-      expect(links.update.method).toBe('PUT')
-      expect(links.delete.method).toBe('DELETE')
+      expectValidLink(links.delete, 'delete', 'DELETE')
+      expectValidLink(links.collection, 'collection', 'GET')
       expect(links.collection.href).toBe('https://api.example.com/users')
     })
 

@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DO } from '../DO'
 import type { Thing } from '../../db'
+import {
+  expectValidEntity,
+  expectValidEvent,
+  expectValidRelationship,
+  expectValidEntityList
+} from '../../test-utils'
 
 // Mock DurableObjectState
 function createMockState(): DurableObjectState {
@@ -61,8 +67,8 @@ describe('Entity Management (do-7rf.6.5)', () => {
       const response = await doInstance.fetch(request)
       expect(response.status).toBe(200)
 
-      const thing = await response.json() as Thing
-      expect(thing.$id).toBeDefined()
+      const thing = await response.json()
+      expectValidEntity(thing)
       expect(thing.$type).toBe('Customer')
       expect(thing.name).toBe('Alice')
     })
@@ -228,7 +234,7 @@ describe('Entity Management (do-7rf.6.5)', () => {
       expect(response.status).toBe(200)
 
       const event = await response.json()
-      expect(event.$id).toBeDefined()
+      expectValidEvent(event)
       expect(event.type).toBe('Customer.created')
       expect(event.payload).toEqual({ name: 'Alice' })
     })
@@ -293,6 +299,7 @@ describe('Entity Management (do-7rf.6.5)', () => {
       expect(response.status).toBe(200)
 
       const rel = await response.json()
+      expectValidRelationship(rel)
       expect(rel.subject).toBe('user-1')
       expect(rel.predicate).toBe('owns')
       expect(rel.object).toBe('order-1')
