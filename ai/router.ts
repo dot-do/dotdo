@@ -1,5 +1,11 @@
-// Multi-provider routing for @dotdo/ai
-// Implements intelligent routing across LLM providers with fallback, cost optimization, and load balancing
+/**
+ * @dotdo/ai - Multi-Provider Router
+ *
+ * Implements intelligent routing across LLM providers (OpenAI, Anthropic, Google, Cloudflare)
+ * with support for automatic fallback, cost optimization, load balancing, and health tracking.
+ *
+ * @module @dotdo/ai/router
+ */
 
 import type { Provider, Capability, LoadBalancingStrategy } from './types'
 
@@ -330,6 +336,44 @@ const CAPABILITY_MODELS: Record<Capability, string> = {
   cheap: 'gemini-2.0-flash',
 }
 
+/**
+ * Multi-provider AI router with intelligent routing, fallback, and load balancing.
+ *
+ * The Router handles provider selection, health tracking, automatic retries with
+ * exponential backoff, and cost-based model selection.
+ *
+ * @example
+ * ```typescript
+ * import { Router } from '@dotdo/ai'
+ *
+ * // Create router with custom providers
+ * const router = new Router({
+ *   providers: [
+ *     { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
+ *     { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
+ *   ],
+ *   fallback: ['anthropic', 'openai'],
+ *   maxRetries: 3,
+ *   loadBalancing: 'round-robin'
+ * })
+ *
+ * // Execute with automatic fallback
+ * const result = await router.execute('Explain quantum computing', {
+ *   model: 'claude-sonnet-4-20250514'
+ * })
+ *
+ * // Select by capability
+ * const fastModel = router.selectByCapability('fast')
+ * const smartModel = router.selectByCapability('smart')
+ * const cheapModel = router.selectByCapability('cheap')
+ *
+ * // Select optimal model for task with cost constraints
+ * const model = router.selectModel({
+ *   task: 'summarization',
+ *   tokens: 5000
+ * })
+ * ```
+ */
 export class Router {
   private config: RouterConfig
   private providerConfigs: Map<Provider, ProviderConfig>
@@ -648,7 +692,25 @@ export class Router {
 }
 
 /**
- * Configure global providers (legacy API from providers.ts)
+ * Configure global providers and create a new Router instance.
+ *
+ * This is a convenience function for quick setup. For more control,
+ * create a Router instance directly with new Router(config).
+ *
+ * @param configs - Array of provider configurations with API keys
+ * @returns A configured Router instance
+ *
+ * @example
+ * ```typescript
+ * import { configureProviders } from '@dotdo/ai'
+ *
+ * const router = configureProviders([
+ *   { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
+ *   { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
+ * ])
+ *
+ * const result = await router.execute('Hello, world!')
+ * ```
  */
 export function configureProviders(configs: ProviderConfig[]): Router {
   return new Router({ providers: configs })
