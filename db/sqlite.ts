@@ -2,7 +2,17 @@
 // Compatible with Cloudflare Durable Objects SqlStorage API
 
 import type { Thing, ThingsStore } from './things'
-import type { Event, EventsStore, EventQueryOptions } from './events'
+import type {
+  Event,
+  EventsStore,
+  EventQueryOptions,
+  RetentionPolicy,
+  DLQEntry,
+  ValidationFailure,
+  EventRetryStatus,
+  RetryMetrics,
+  DurabilityConfig
+} from './events'
 import type { Relationship, RelationshipsStore } from './relationships'
 import {
   type QueryOptions,
@@ -399,6 +409,28 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
   const sql = adapter.getSql()
   const subscribers = new Set<(event: Event) => void>()
 
+  // Retention policy state
+  let retentionPolicy: RetentionPolicy | undefined
+
+  // Dead letter queue storage (in-memory, could be moved to SQLite table)
+  const deadLetterQueue: DLQEntry[] = []
+
+  // Validation failure storage
+  const validationFailures: ValidationFailure[] = []
+
+  // Event retry status tracking
+  const eventRetryStatus = new Map<string, EventRetryStatus>()
+
+  // Retry metrics per event type
+  const retryMetricsData = new Map<
+    string,
+    { totalEvents: number; totalRetries: number; successes: number }
+  >()
+
+  // Durability configuration
+  let durabilityConfig: Record<string, DurabilityConfig> = {}
+  const defaultDurabilityConfig: DurabilityConfig = { retries: 3, backoff: 'exponential' }
+
   return {
     async emit(data) {
       const event: Event = {
@@ -521,6 +553,223 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     subscribe(handler: (event: Event) => void) {
       subscribers.add(handler)
       return () => subscribers.delete(handler)
+    },
+
+    // Retention policy methods
+    async setRetentionPolicy(policy) {
+      // Validate policy parameters
+      if (policy.maxEvents !== undefined && policy.maxEvents <= 0) {
+        throw new Error('maxEvents must be positive')
+      }
+      if (policy.maxAgeDays !== undefined && policy.maxAgeDays <= 0) {
+        throw new Error('maxAgeDays must be positive')
+      }
+      retentionPolicy = policy
+    },
+
+    async getRetentionPolicy() {
+      return retentionPolicy
+    },
+
+    async count(filter) {
+      let query = 'SELECT COUNT(*) as count FROM events'
+      const params: unknown[] = []
+
+      if (filter?.type) {
+        query += ' WHERE type = ?'
+        params.push(filter.type)
+      }
+
+      const result = await sql.prepare(query).bind(...params).first()
+      return (result?.count as number) ?? 0
+    },
+
+    async cleanup(options) {
+      if (!retentionPolicy) {
+        return { deleted: 0 }
+      }
+
+      let deleted = 0
+
+      // Delete by age first
+      if (retentionPolicy.maxAgeDays) {
+        const cutoff = Date.now() - retentionPolicy.maxAgeDays * 24 * 60 * 60 * 1000
+        const result = await sql
+          .prepare('DELETE FROM events WHERE timestamp < ?')
+          .bind(cutoff)
+          .run()
+        deleted += result.meta?.changes ?? 0
+      }
+
+      // Delete by count (keep the newest events)
+      if (retentionPolicy.maxEvents) {
+        const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').first()
+        const total = (countResult?.count as number) ?? 0
+
+        if (total > retentionPolicy.maxEvents) {
+          const toDelete = total - retentionPolicy.maxEvents
+          // Delete oldest events (those not in the top maxEvents by timestamp)
+          const result = await sql
+            .prepare(
+              `DELETE FROM events WHERE id IN (
+                SELECT id FROM events ORDER BY timestamp ASC LIMIT ?
+              )`
+            )
+            .bind(toDelete)
+            .run()
+          deleted += result.meta?.changes ?? 0
+        }
+      }
+
+      return { deleted }
+    },
+
+    async getStorageUsage() {
+      // Get count
+      const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').first()
+      const eventCount = (countResult?.count as number) ?? 0
+
+      // Estimate bytes - get average payload size from sample
+      const sampleResult = await sql
+        .prepare('SELECT AVG(LENGTH(payload)) as avg_size FROM events')
+        .first()
+      const avgPayloadSize = (sampleResult?.avg_size as number) ?? 100
+
+      // Estimate total bytes: count * (avg payload + overhead for other fields)
+      const overhead = 200 // Estimate for id, type, timestamp, source, correlation_id
+      const bytesUsed = eventCount * (avgPayloadSize + overhead)
+
+      return {
+        eventCount,
+        bytesUsed
+      }
+    },
+
+    // Dead letter queue methods (stub implementations for SQLite - can be extended)
+    addToDeadLetterQueue(entry) {
+      deadLetterQueue.push({
+        ...entry,
+        timestamp: Date.now()
+      })
+    },
+
+    getDeadLetterQueue() {
+      return [...deadLetterQueue]
+    },
+
+    queryDeadLetterQueue(options) {
+      let results = [...deadLetterQueue]
+
+      if (options?.type) {
+        results = results.filter((entry) => entry.event.type === options.type)
+      }
+
+      if (options?.since) {
+        results = results.filter((entry) => entry.timestamp >= options.since!)
+      }
+
+      if (options?.limit) {
+        results = results.slice(0, options.limit)
+      }
+
+      return results
+    },
+
+    removeFromDeadLetterQueue(eventId) {
+      const index = deadLetterQueue.findIndex((entry) => entry.event.$id === eventId)
+      if (index >= 0) {
+        deadLetterQueue.splice(index, 1)
+        return true
+      }
+      return false
+    },
+
+    async replayDeadLetterQueue(options) {
+      const toReplay = this.queryDeadLetterQueue(options)
+      const replayedEvents: Event[] = []
+
+      for (const entry of toReplay) {
+        const newEvent = await this.emit({
+          type: entry.event.type,
+          payload: entry.event.payload,
+          source: 'dlq-replay',
+          correlationId: entry.event.$id
+        })
+        replayedEvents.push(newEvent)
+        this.removeFromDeadLetterQueue(entry.event.$id)
+      }
+
+      return replayedEvents
+    },
+
+    // Validation failure tracking
+    addValidationFailure(failure) {
+      validationFailures.push({
+        ...failure,
+        timestamp: Date.now()
+      })
+    },
+
+    queryValidationFailures(options) {
+      if (!options?.type) {
+        return [...validationFailures]
+      }
+      return validationFailures.filter((f) => f.type === options.type)
+    },
+
+    // Retry status tracking
+    setEventRetryStatus(eventId, status) {
+      eventRetryStatus.set(eventId, status)
+    },
+
+    getEventRetryStatus(eventId) {
+      return eventRetryStatus.get(eventId)
+    },
+
+    // Retry metrics
+    recordRetryAttempt(eventType, succeeded, retryCount) {
+      const existing = retryMetricsData.get(eventType) || {
+        totalEvents: 0,
+        totalRetries: 0,
+        successes: 0
+      }
+
+      existing.totalEvents++
+      existing.totalRetries += retryCount
+      if (succeeded) {
+        existing.successes++
+      }
+
+      retryMetricsData.set(eventType, existing)
+    },
+
+    getRetryMetrics() {
+      const result: Record<string, RetryMetrics> = {}
+
+      for (const [eventType, data] of retryMetricsData) {
+        result[eventType] = {
+          totalEvents: data.totalEvents,
+          totalRetries: data.totalRetries,
+          successRate: data.totalEvents > 0 ? data.successes / data.totalEvents : 0
+        }
+      }
+
+      return result
+    },
+
+    // Durability configuration
+    setDurabilityConfig(config) {
+      durabilityConfig = config
+    },
+
+    getDurabilityConfig(eventType) {
+      if (durabilityConfig[eventType]) {
+        return durabilityConfig[eventType]
+      }
+      if (durabilityConfig['*']) {
+        return durabilityConfig['*']
+      }
+      return defaultDurabilityConfig
     }
   }
 }
