@@ -4,6 +4,8 @@
 
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
+import type { JsonValue, StorableData } from './types'
+import { ValidationError } from '../rpc/errors'
 
 // Supported SQL operators for WHERE clauses
 export type WhereOperator =
@@ -23,7 +25,7 @@ export type WhereOperator =
 export interface WhereCondition {
   field: string
   operator: WhereOperator
-  value: unknown
+  value: JsonValue | JsonValue[]
 }
 
 /**
@@ -49,10 +51,10 @@ export interface JoinOptions {
 /**
  * Join specification for relationship traversal
  */
-export interface JoinSpec {
+export interface JoinSpec<T extends StorableData = StorableData> {
   predicate: string
   targetType: string
-  conditions?: Record<string, unknown>
+  conditions?: Partial<T>
   fromJoin?: string  // For chaining joins from previous join result
   alias?: string
   options?: JoinOptions
@@ -60,9 +62,9 @@ export interface JoinSpec {
   direction: 'forward' | 'inverse'  // forward = subject->object, inverse = object->subject
 }
 
-export interface QueryOptions {
+export interface QueryOptions<T extends StorableData = StorableData> {
   type?: string
-  where?: Record<string, unknown>
+  where?: Partial<T>
   whereConditions?: WhereCondition[]
   orderBy?: string
   order?: 'asc' | 'desc'
@@ -79,27 +81,27 @@ export interface ThingWithJoins extends Thing {
   _joined?: Record<string, Thing[]>
 }
 
-export interface QueryBuilder {
-  type(type: string): QueryBuilder
-  where(field: string, value: unknown): QueryBuilder
-  where(conditions: Record<string, unknown>): QueryBuilder
-  whereOp(field: string, operator: WhereOperator, value: unknown): QueryBuilder
-  orderBy(field: string, order?: 'asc' | 'desc'): QueryBuilder
-  limit(n: number): QueryBuilder
-  offset(n: number): QueryBuilder
-  select(...fields: string[]): QueryBuilder
+export interface QueryBuilder<T extends StorableData = StorableData> {
+  type(type: string): QueryBuilder<T>
+  where(field: string, value: JsonValue): QueryBuilder<T>
+  where<C extends Partial<T>>(conditions: C): QueryBuilder<T>
+  whereOp(field: string, operator: WhereOperator, value: JsonValue | JsonValue[]): QueryBuilder<T>
+  orderBy(field: string, order?: 'asc' | 'desc'): QueryBuilder<T>
+  limit(n: number): QueryBuilder<T>
+  offset(n: number): QueryBuilder<T>
+  select(...fields: string[]): QueryBuilder<T>
 
   // JOIN methods for relationship traversal (forward direction: subject -> object)
-  join(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
-  leftJoin(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
-  rightJoin(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
-  fullJoin(predicate: string, targetType: string, conditions?: Record<string, unknown>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder
+  join<C extends StorableData = StorableData>(predicate: string, targetType: string, conditions?: Partial<C>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder<T>
+  leftJoin<C extends StorableData = StorableData>(predicate: string, targetType: string, conditions?: Partial<C>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder<T>
+  rightJoin<C extends StorableData = StorableData>(predicate: string, targetType: string, conditions?: Partial<C>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder<T>
+  fullJoin<C extends StorableData = StorableData>(predicate: string, targetType: string, conditions?: Partial<C>, fromJoin?: string, alias?: string, options?: JoinOptions): QueryBuilder<T>
 
   // JOIN methods for inverse relationship traversal (object -> subject)
-  joinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
-  leftJoinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
-  rightJoinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
-  fullJoinFrom(predicate: string, sourceType: string, conditions?: Record<string, unknown>, alias?: string, options?: JoinOptions): QueryBuilder
+  joinFrom<C extends StorableData = StorableData>(predicate: string, sourceType: string, conditions?: Partial<C>, alias?: string, options?: JoinOptions): QueryBuilder<T>
+  leftJoinFrom<C extends StorableData = StorableData>(predicate: string, sourceType: string, conditions?: Partial<C>, alias?: string, options?: JoinOptions): QueryBuilder<T>
+  rightJoinFrom<C extends StorableData = StorableData>(predicate: string, sourceType: string, conditions?: Partial<C>, alias?: string, options?: JoinOptions): QueryBuilder<T>
+  fullJoinFrom<C extends StorableData = StorableData>(predicate: string, sourceType: string, conditions?: Partial<C>, alias?: string, options?: JoinOptions): QueryBuilder<T>
 
   // Execute
   execute(): Promise<ThingWithJoins[]>
@@ -107,7 +109,7 @@ export interface QueryBuilder {
   count(): Promise<number>
 
   // For SQL stores - get the generated query info
-  getQueryInfo(): { options: QueryOptions }
+  getQueryInfo(): { options: QueryOptions<T> }
 }
 
 // Regex for validating field names (alphanumeric + underscore + $ prefix for system fields)
@@ -115,11 +117,15 @@ const VALID_FIELD_NAME = /^[$a-zA-Z_][a-zA-Z0-9_$]*$/
 
 /**
  * Validates a field name to prevent SQL injection
- * Throws an error if the field name is invalid
+ * Throws a ValidationError if the field name is invalid
  */
 function validateFieldName(field: string): void {
   if (!VALID_FIELD_NAME.test(field)) {
-    throw new Error(`Invalid field name: "${field}". Field names must be alphanumeric (with underscores) and start with a letter, underscore, or $.`)
+    throw ValidationError.forField(
+      field,
+      'must be alphanumeric (with underscores) and start with a letter, underscore, or $',
+      field
+    )
   }
 }
 
@@ -172,8 +178,8 @@ function matchesCondition(thing: Thing, condition: WhereCondition): boolean {
 /**
  * Create a query builder without JOIN support (backwards compatible)
  */
-export function createQuery(store: ThingsStore): QueryBuilder {
-  return createQueryWithJoins(store, undefined)
+export function createQuery<T extends StorableData = StorableData>(store: ThingsStore): QueryBuilder<T> {
+  return createQueryWithJoins<T>(store, undefined)
 }
 
 /**
@@ -181,11 +187,11 @@ export function createQuery(store: ThingsStore): QueryBuilder {
  * @param store - The things store to query
  * @param relationshipsStore - Optional relationships store for JOIN operations
  */
-export function createQueryWithJoins(
+export function createQueryWithJoins<T extends StorableData = StorableData>(
   store: ThingsStore,
   relationshipsStore: RelationshipsStore | undefined
-): QueryBuilder {
-  const options: QueryOptions = {
+): QueryBuilder<T> {
+  const options: QueryOptions<T> = {
     whereConditions: [],
     joins: []
   }
@@ -193,12 +199,12 @@ export function createQueryWithJoins(
   /**
    * Helper to add a join specification
    */
-  function addJoin(
+  function addJoin<C extends StorableData = StorableData>(
     predicate: string,
     targetType: string,
     joinType: JoinTypeValue,
     direction: 'forward' | 'inverse',
-    conditions?: Record<string, unknown>,
+    conditions?: Partial<C>,
     fromJoin?: string,
     alias?: string,
     joinOptions?: JoinOptions
@@ -218,7 +224,7 @@ export function createQueryWithJoins(
   /**
    * Check if a thing matches the given conditions
    */
-  function matchesJoinConditions(thing: Thing, conditions?: Record<string, unknown>): boolean {
+  function matchesJoinConditions<C extends StorableData>(thing: Thing, conditions?: Partial<C>): boolean {
     if (!conditions) return true
     for (const [field, value] of Object.entries(conditions)) {
       if (thing[field] !== value) return false
@@ -232,10 +238,10 @@ export function createQueryWithJoins(
   function applyProjection(thing: Thing, selectFields?: string[]): Thing {
     if (!selectFields || selectFields.length === 0) return thing
     const fields = ['$id', '$type', ...selectFields]
-    const projected: Record<string, unknown> = {}
+    const projected: Record<string, JsonValue> = {}
     for (const field of fields) {
       if (field in thing) {
-        projected[field] = thing[field]
+        projected[field] = thing[field] as JsonValue
       }
     }
     return projected as Thing
@@ -337,20 +343,20 @@ export function createQueryWithJoins(
     }
   }
 
-  const builder: QueryBuilder = {
+  const builder: QueryBuilder<StorableData> = {
     type(type: string) {
       options.type = type
       return builder
     },
 
-    where(fieldOrConditions: string | Record<string, unknown>, value?: unknown) {
+    where(fieldOrConditions: string | StorableData, value?: JsonValue) {
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
         options.where = { ...options.where, [fieldOrConditions]: value }
         options.whereConditions!.push({
           field: fieldOrConditions,
           operator: '=',
-          value
+          value: value ?? null
         })
       } else {
         for (const field of Object.keys(fieldOrConditions)) {
@@ -368,7 +374,7 @@ export function createQueryWithJoins(
       return builder
     },
 
-    whereOp(field: string, operator: WhereOperator, value: unknown) {
+    whereOp(field: string, operator: WhereOperator, value: JsonValue | JsonValue[]) {
       validateFieldName(field)
       options.whereConditions!.push({ field, operator, value })
       return builder
@@ -496,10 +502,10 @@ export function createQueryWithJoins(
         if (options.select && options.select.length > 0) {
           const fields = ['$id', '$type', ...options.select]
           results = results.map(thing => {
-            const projected: Record<string, unknown> = {}
+            const projected: Record<string, JsonValue> = {}
             for (const field of fields) {
               if (field in thing) {
-                projected[field] = thing[field]
+                projected[field] = thing[field] as JsonValue
               }
             }
             return projected as Thing
@@ -652,14 +658,14 @@ export function createQueryWithJoins(
     }
   }
 
-  return builder
+  return builder as QueryBuilder<T>
 }
 
 // Convenience function overloads
-export function query(store: ThingsStore): QueryBuilder
-export function query(store: ThingsStore, relationships: RelationshipsStore): QueryBuilder
-export function query(store: ThingsStore, relationships?: RelationshipsStore): QueryBuilder {
-  return createQueryWithJoins(store, relationships)
+export function query<T extends StorableData = StorableData>(store: ThingsStore): QueryBuilder<T>
+export function query<T extends StorableData = StorableData>(store: ThingsStore, relationships: RelationshipsStore): QueryBuilder<T>
+export function query<T extends StorableData = StorableData>(store: ThingsStore, relationships?: RelationshipsStore): QueryBuilder<T> {
+  return createQueryWithJoins<T>(store, relationships)
 }
 
 // ============================================================
@@ -669,18 +675,18 @@ export function query(store: ThingsStore, relationships?: RelationshipsStore): Q
 
 /**
  * Builds SQL WHERE clause and parameters from QueryOptions
- * Returns { clause: string, params: unknown[] }
+ * Returns { clause: string, params: JsonValue[] }
  *
  * IMPORTANT: This uses parameterized queries to prevent SQL injection.
  * Field names are validated with VALID_FIELD_NAME regex.
  * Values are bound as parameters, never interpolated into SQL.
  */
-export function buildWhereClause(options: QueryOptions): {
+export function buildWhereClause<T extends StorableData = StorableData>(options: QueryOptions<T>): {
   clause: string
-  params: unknown[]
+  params: JsonValue[]
 } {
   const clauses: string[] = []
-  const params: unknown[] = []
+  const params: JsonValue[] = []
 
   // Handle type filter
   if (options.type) {
@@ -803,7 +809,7 @@ function isJsonField(field: string): boolean {
 /**
  * Builds the ORDER BY clause
  */
-export function buildOrderByClause(options: QueryOptions): string {
+export function buildOrderByClause<T extends StorableData = StorableData>(options: QueryOptions<T>): string {
   if (!options.orderBy) {
     return 'ORDER BY created_at DESC'
   }
@@ -819,9 +825,9 @@ export function buildOrderByClause(options: QueryOptions): string {
 /**
  * Builds pagination clause
  */
-export function buildPaginationClause(options: QueryOptions): {
+export function buildPaginationClause<T extends StorableData = StorableData>(options: QueryOptions<T>): {
   clause: string
-  params: unknown[]
+  params: JsonValue[]
 } {
   const limit = options.limit || 100
   const offset = options.offset || 0

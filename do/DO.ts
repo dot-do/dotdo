@@ -5,6 +5,7 @@ import type { WorkflowContext } from './context'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
+import { RPCError, RPCErrorCode, NotFoundError, InternalError } from '../rpc/errors'
 
 export interface DOEnv {
   [key: string]: unknown
@@ -100,20 +101,28 @@ export class DO implements DurableObject {
         for (let i = 0; i < parts.length - 1; i++) {
           current = current[parts[i]]
           if (!current) {
-            return c.json({ error: `Method not found: ${method}` }, 404)
+            const error = new NotFoundError(`Method not found: ${method}`)
+            return c.json(error.toJSON(), error.httpStatus)
           }
         }
 
         const fn = current[parts[parts.length - 1]]
         if (typeof fn !== 'function') {
-          return c.json({ error: `Method not found: ${method}` }, 404)
+          const error = new NotFoundError(`Method not found: ${method}`)
+          return c.json(error.toJSON(), error.httpStatus)
         }
 
         const result = await fn.apply(current, args)
         return c.json(result)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        return c.json({ error: message }, 500)
+        // Re-throw RPCErrors with proper formatting
+        if (error instanceof RPCError) {
+          return c.json(error.toJSON(), error.httpStatus)
+        }
+        // Wrap unknown errors in InternalError
+        const wrappedError = InternalError.wrap(error)
+        console.error('[DO] RPC error:', error)
+        return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
       }
     })
 
@@ -169,7 +178,9 @@ export class DO implements DurableObject {
    * Override in subclass for custom error handling
    */
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    console.error('[DO] WebSocket error:', error)
+    // Log with context - no silent catches
+    const errorMessage = error instanceof Error ? error.message : 'Unknown WebSocket error'
+    console.error('[DO] WebSocket error:', errorMessage, error)
     this.websocketManager.cleanupWebSocket(ws)
   }
 }

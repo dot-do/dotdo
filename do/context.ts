@@ -1,9 +1,10 @@
 // $ WorkflowContext - same interface everywhere via RPC
 
-import { createEventsStore, type EventsStore } from '../db'
+import { createEventsStore, type EventsStore, type Event } from '../db'
 import { createEveryProxy, type ScheduleRegistration } from './schedule'
-import { createOnProxy, matchHandlers, type OnProxy, type EventHandler } from './on'
+import { createOnProxy, matchHandlers, invokeHandlers, type OnProxy, type EventHandler, type RetryOptions } from './on'
 import { createDOStub } from '../rpc/client'
+import { RPCError, RPCErrorCode, NotFoundError, TimeoutError, InternalError, ValidationError, isRetryableError } from '../rpc/errors'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls
@@ -71,33 +72,99 @@ export function createContext(
   const stubCache = new Map<string, DOStubProxy>()
 
   const context: WorkflowContext = {
-    // Fire-and-forget event emission
+    // Fire-and-forget event emission with retry support
     send(event) {
       events.emit({
         type: event.type,
         payload: event.payload,
         source: 'workflow'
-      }).then(emitted => {
-        // Helper to safely call handler (handles sync and async)
-        const safeCall = (h: EventHandler) => {
-          try {
-            const result = h(emitted)
-            // Only call catch if it's a Promise
-            if (result && typeof result.catch === 'function') {
-              result.catch((err: unknown) => {
-                console.error(`[send] Error in async handler for "${event.type}":`, err)
-              })
-            }
-          } catch (err) {
-            console.error(`[send] Error in sync handler for "${event.type}":`, err)
+      }).then(async (emitted) => {
+        // Get durability config for this event type (supports per-type configuration)
+        const config = events.getDurabilityConfig(event.type)
+        const retryOptions: RetryOptions = {
+          maxRetries: config.retries ?? 5,
+          backoff: config.backoff ?? 'exponential',
+          initialDelay: 100
+        }
+
+        // Use invokeHandlers which includes retry logic
+        const result = await invokeHandlers(event.type, emitted, handlers, retryOptions)
+
+        // Handle failed handlers - add to DLQ and track validation failures
+        for (const failure of result.failed) {
+          if (failure.error instanceof ValidationError) {
+            // Track validation failures separately
+            events.addValidationFailure({
+              type: event.type,
+              payload: event.payload,
+              error: `ValidationError: ${failure.error.message}`,
+              details: failure.error.details
+            })
+          } else {
+            // Add to dead letter queue for potential replay
+            events.addToDeadLetterQueue({
+              event: emitted,
+              attempts: failure.attempts,
+              lastError: failure.error?.message || 'Unknown error'
+            })
           }
         }
 
-        // Use matchHandlers for pattern matching (exact + all wildcard patterns)
-        const matched = matchHandlers(event.type, handlers)
-        matched.forEach(safeCall)
+        // Calculate total attempts (max across all handlers)
+        const totalAttempts = Math.max(
+          ...result.succeeded.map(h => h.attempts),
+          ...result.failed.map(h => h.attempts),
+          1
+        )
+
+        // Track event retry status using event payload's id or the emitted $id
+        const eventId = (event.payload as any)?.id || emitted.$id
+        events.setEventRetryStatus(eventId, {
+          attempts: totalAttempts,
+          succeeded: result.failed.length === 0,
+          lastAttempt: Date.now()
+        })
+
+        // Record retry metrics
+        const totalRetries = result.succeeded.reduce((sum, h) => sum + (h.attempts - 1), 0) +
+                            result.failed.reduce((sum, h) => sum + (h.attempts - 1), 0)
+
+        if (result.succeeded.length > 0 || result.failed.length > 0) {
+          events.recordRetryAttempt(
+            event.type,
+            result.failed.length === 0, // Overall success if no failures
+            totalRetries
+          )
+        }
+
+        // Emit recovery event if handlers succeeded after retries
+        for (const success of result.succeeded) {
+          if (success.attempts > 1) {
+            // Handler recovered after retries - emit System.recovered event
+            // Use matchHandlers + direct invocation to ensure recovery handlers are called
+            // Note: Recovery event has originalEvent and attempts at top level for easy access
+            const recoveryEvent = {
+              $id: `recovery-${emitted.$id}`,
+              type: 'System.recovered',
+              originalEvent: { type: event.type },
+              attempts: success.attempts,
+              $timestamp: Date.now(),
+              source: 'system'
+            }
+
+            // Invoke handlers directly for recovery event (no retries for recovery events)
+            const recoveryHandlers = matchHandlers('System.recovered', handlers)
+            for (const handler of recoveryHandlers) {
+              try {
+                await handler(recoveryEvent)
+              } catch (err) {
+                console.error('[send] Error in recovery handler:', err)
+              }
+            }
+          }
+        }
       }).catch((err: unknown) => {
-        // Catch any errors from emit() or matchHandlers()
+        // Catch any errors from emit() itself
         console.error(`[send] Error emitting event "${event.type}":`, err)
       })
     },
@@ -111,7 +178,7 @@ export function createContext(
     async do<T>(action: () => Promise<T>, options: DoOptions = {}): Promise<T> {
       const { retries = 3, backoff = 'exponential', timeout = 30000 } = options
 
-      let lastError: Error | undefined
+      let lastError: RPCError | undefined
 
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
@@ -119,12 +186,20 @@ export function createContext(
           const result = await Promise.race([
             action(),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Timeout')), timeout)
+              setTimeout(() => reject(TimeoutError.afterMs(timeout)), timeout)
             )
           ])
           return result
         } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error))
+          // Preserve RPCErrors, wrap others
+          if (error instanceof RPCError) {
+            lastError = error
+          } else {
+            lastError = InternalError.wrap(error)
+          }
+
+          // Log retry attempt (no silent catches)
+          console.warn(`[$.do] Attempt ${attempt + 1}/${retries + 1} failed:`, lastError.message)
 
           if (attempt < retries) {
             // Wait before retry
@@ -180,7 +255,10 @@ export function createContext(
         const binding = envObj?.[prop] as DurableObjectNamespace | undefined
 
         if (!binding) {
-          throw new Error(`Durable Object binding "${prop}" not found in environment`)
+          throw new NotFoundError(
+            `Durable Object binding "${prop}" not found in environment`,
+            { binding: prop }
+          )
         }
 
         // Create and cache the stub

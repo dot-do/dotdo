@@ -495,10 +495,10 @@ describe('Proper 429 Responses', () => {
     res = await app.fetch(createMockRequest({ tenantId: 'acme', path: '/api/test' }))
     expect(res.status).toBe(429)
 
-    const body = await res.json() as { error: string; code: string; retryAfter: number }
-    expect(body.error).toMatch(/too many requests/i)
-    expect(body.code).toBe('RATE_LIMIT_EXCEEDED')
-    expect(body.retryAfter).toBeGreaterThan(0)
+    const body = await res.json() as { message: string; code: string; details?: { retryAfter?: number } }
+    expect(body.message).toMatch(/rate limit/i)
+    expect(body.code).toBe('RATE_LIMIT')
+    expect(body.details?.retryAfter).toBeGreaterThan(0)
   })
 
   it('should include Retry-After header in 429 response', async () => {
@@ -917,7 +917,7 @@ describe('Error Handling', () => {
         },
         defaultTier: 'unknown',
       })
-    }).toThrow(/default tier/)
+    }).toThrow(/Validation failed.*defaultTier/)
   })
 
   it('should fail open on storage errors by default', async () => {

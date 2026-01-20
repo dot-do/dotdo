@@ -17,6 +17,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
+import { RPCError, RPCErrorCode, RateLimitError, ValidationError, InternalError } from '../../rpc/errors'
 
 // ============================================================================
 // TYPES
@@ -152,7 +153,11 @@ export class RateLimiter {
 
     // Validate tiers
     if (!this.config.tiers[this.config.defaultTier]) {
-      throw new Error(`Invalid config: default tier '${this.config.defaultTier}' not found in tiers`)
+      throw ValidationError.forField(
+        'defaultTier',
+        `must reference an existing tier (got '${this.config.defaultTier}')`,
+        this.config.defaultTier
+      )
     }
   }
 
@@ -549,16 +554,14 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
       c.header(key, value)
     }
 
-    // If rate limited, return 429 response
+    // If rate limited, return 429 response with standard RPCError format
     if (!result.allowed) {
-      return c.json(
-        {
-          error: result.error?.message ?? 'Too many requests',
-          code: result.error?.code ?? 'RATE_LIMIT_EXCEEDED',
-          retryAfter: result.retryAfter,
-        },
-        429
-      )
+      const rateLimitError = RateLimitError.exceeded({
+        limit: result.limit,
+        window: `${Math.round(60000 / 1000)}s`, // Assumes 60s window, could be configurable
+        retryAfter: result.retryAfter,
+      })
+      return c.json(rateLimitError.toJSON(), rateLimitError.httpStatus)
     }
 
     // Store rate limit info in context for downstream use

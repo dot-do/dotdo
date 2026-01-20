@@ -348,7 +348,7 @@ describe('Query Interface', () => {
         query(store)
           .type('User')
           .whereOp('name; DROP TABLE things', '=', 'test')
-      }).toThrow(/Invalid field name/)
+      }).toThrow(/Validation failed/)
     })
   })
 })
