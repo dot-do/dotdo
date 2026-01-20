@@ -917,3 +917,283 @@ describe('@dotdo/rpc + ai-functions Integration', () => {
     })
   })
 })
+
+// ============================================================================
+// TDD Failing Tests - These test future features that need implementation
+// These use it.skip() to mark them as pending until implementation is ready
+// ============================================================================
+
+describe('@dotdo/rpc + ai-functions Integration (TDD Pending Tests)', () => {
+  describe('9. AI Function Pipeline Support (TDD)', () => {
+    /**
+     * TDD Test: RPC should support pipelining AI function calls
+     *
+     * This test verifies that multiple AI functions can be chained
+     * in a single RPC pipeline call, reducing round trips.
+     *
+     * Expected workflow:
+     * 1. Client calls pipeline with sequence of AI functions
+     * 2. Server executes them in order, passing results
+     * 3. Final result returned in single response
+     */
+    it.skip('should support AI function pipelines via RPC (not yet implemented)', async () => {
+      const aiService = {
+        ai: {
+          summarize: async (text: string) => `Summary: ${text.slice(0, 50)}`,
+          translate: async (text: string, lang: string) => `[${lang}] ${text}`,
+          format: async (text: string, style: string) => `<${style}>${text}</${style}>`,
+        },
+      }
+
+      const server = createServer({ target: aiService })
+
+      // Pipeline: summarize -> translate -> format
+      const pipelineRequest = new Request('https://test/rpc/pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'ai.summarize',
+          args: ['This is a long document that needs to be summarized, translated, and formatted.'],
+          chain: [
+            { method: 'ai.translate', args: ['$result', 'es'] },
+            { method: 'ai.format', args: ['$result', 'bold'] },
+          ],
+        }),
+      })
+
+      const response = await server.fetch(pipelineRequest)
+      expect(response.ok).toBe(true)
+      const result = (await response.json()) as { result: string; steps: number }
+      expect(result.result).toContain('[es]')
+      expect(result.result).toContain('<bold>')
+      expect(result.steps).toBe(3)
+    })
+
+    /**
+     * TDD Test: RPC should support streaming AI function responses
+     *
+     * This test verifies that AI functions that produce streaming output
+     * (like text generation) can stream results over RPC.
+     */
+    it.skip('should support streaming AI function responses (not yet implemented)', async () => {
+      const streamingService = {
+        ai: {
+          generateStream: async function* (prompt: string) {
+            const words = prompt.split(' ')
+            for (const word of words) {
+              yield word + ' '
+              await new Promise((r) => setTimeout(r, 10))
+            }
+          },
+        },
+      }
+
+      const server = createServer({ target: streamingService })
+
+      const request = new Request('https://test/rpc/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'ai.generateStream',
+          args: ['Hello world from streaming'],
+          streaming: true,
+        }),
+      })
+
+      const response = await server.fetch(request)
+      expect(response.ok).toBe(true)
+      expect(response.headers.get('Content-Type')).toContain('text/event-stream')
+
+      // In real implementation, would read SSE events
+      const body = await response.text()
+      expect(body).toContain('Hello')
+    })
+  })
+
+  describe('10. AI Function Tool Orchestration via RPC (TDD)', () => {
+    /**
+     * TDD Test: RPC should support registering AI function tools
+     *
+     * This test verifies that AI functions can be registered as tools
+     * that are available for agentic AI calls.
+     */
+    it.skip('should support registering AI functions as tools via RPC (not yet implemented)', async () => {
+      const toolService = {
+        tools: {
+          register: async (tool: { name: string; description: string; schema: unknown }) => ({
+            registered: true,
+            toolId: `tool_${tool.name}`,
+          }),
+          list: async () => ['summarize', 'translate', 'search'],
+          invoke: async (toolName: string, args: unknown) => ({
+            result: `Invoked ${toolName} with ${JSON.stringify(args)}`,
+          }),
+        },
+      }
+
+      const server = createServer({ target: toolService })
+
+      // Register a new tool
+      const registerRequest = new Request('https://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'tools.register',
+          args: [
+            {
+              name: 'customAnalyze',
+              description: 'Analyzes text for sentiment',
+              schema: {
+                type: 'object',
+                properties: { text: { type: 'string' } },
+              },
+            },
+          ],
+        }),
+      })
+
+      const registerResponse = await server.fetch(registerRequest)
+      expect(registerResponse.ok).toBe(true)
+      const registerResult = (await registerResponse.json()) as { registered: boolean; toolId: string }
+      expect(registerResult.registered).toBe(true)
+      expect(registerResult.toolId).toBe('tool_customAnalyze')
+    })
+  })
+
+  describe('11. AI Function Caching via RPC (TDD)', () => {
+    /**
+     * TDD Test: RPC should support caching AI function responses
+     *
+     * This test verifies that identical AI function calls can be cached
+     * to avoid redundant LLM calls.
+     */
+    it.skip('should support caching AI function responses via RPC (not yet implemented)', async () => {
+      let callCount = 0
+      const cachedService = {
+        ai: {
+          summarize: async (text: string) => {
+            callCount++
+            return { summary: `Summary #${callCount}: ${text.slice(0, 20)}`, cached: false }
+          },
+        },
+      }
+
+      const server = createServer({
+        target: cachedService,
+        // Future feature: cache configuration
+        // cache: {
+        //   enabled: true,
+        //   ttl: 60000, // 1 minute
+        //   methods: ['ai.summarize']
+        // }
+      })
+
+      // First call - should execute
+      const request1 = new Request('https://test/rpc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Cache-Control': 'cache', // Future header for cache control
+        },
+        body: JSON.stringify({
+          method: 'ai.summarize',
+          args: ['Same text for caching test'],
+        }),
+      })
+
+      await server.fetch(request1)
+
+      // Second identical call - should return cached
+      const request2 = new Request('https://test/rpc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Cache-Control': 'cache',
+        },
+        body: JSON.stringify({
+          method: 'ai.summarize',
+          args: ['Same text for caching test'],
+        }),
+      })
+
+      const response2 = await server.fetch(request2)
+      const result2 = (await response2.json()) as { summary: string; cached: boolean }
+
+      // With caching, callCount should still be 1
+      expect(callCount).toBe(1)
+      expect(result2.cached).toBe(true) // This would fail until caching is implemented
+    })
+  })
+
+  describe('12. AI Function Rate Limiting via RPC (TDD)', () => {
+    /**
+     * TDD Test: RPC should support rate limiting AI function calls
+     *
+     * This test verifies that AI function calls can be rate limited
+     * to prevent abuse and manage costs.
+     */
+    it.skip('should support rate limiting AI function calls via RPC (not yet implemented)', async () => {
+      const rateLimitedService = {
+        ai: {
+          generate: async (prompt: string) => ({ text: `Generated: ${prompt}` }),
+        },
+      }
+
+      const server = createServer({
+        target: rateLimitedService,
+        // Future feature: rate limiting configuration
+        // rateLimit: {
+        //   'ai.*': {
+        //     maxRequests: 3,
+        //     windowMs: 1000, // 3 requests per second
+        //   }
+        // }
+      })
+
+      // Make 4 rapid calls - 4th should be rate limited
+      const makeCall = () =>
+        server.fetch(
+          new Request('https://test/rpc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              method: 'ai.generate',
+              args: ['test'],
+            }),
+          })
+        )
+
+      const results = await Promise.all([makeCall(), makeCall(), makeCall(), makeCall()])
+
+      // First 3 should succeed
+      expect(results[0]!.ok).toBe(true)
+      expect(results[1]!.ok).toBe(true)
+      expect(results[2]!.ok).toBe(true)
+
+      // 4th should be rate limited (429 Too Many Requests)
+      expect(results[3]!.status).toBe(429)
+    })
+  })
+
+  describe('13. Cross-DO AI Function Invocation (TDD)', () => {
+    /**
+     * TDD Test: AI functions should be invocable across Durable Objects
+     *
+     * This test verifies that one DO can call AI functions exposed
+     * by another DO via RPC.
+     */
+    it.skip('should support cross-DO AI function invocation (requires miniflare)', async () => {
+      // This test would require miniflare integration
+      // It verifies that DO A can call AI functions on DO B via RPC
+
+      // Example: Customer DO calling AI functions on Analytics DO
+      // const analyticsStub = env.ANALYTICS_DO.get(env.ANALYTICS_DO.idFromName('analytics'))
+      // const result = await analyticsStub.fetch('https://do/rpc', {
+      //   method: 'POST',
+      //   body: JSON.stringify({ method: 'ai.summarizeCustomerData', args: [customerId] })
+      // })
+
+      expect(true).toBe(true) // Placeholder - would require real DO setup
+    })
+  })
+})
