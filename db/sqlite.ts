@@ -4,6 +4,13 @@
 import type { Thing, ThingsStore } from './things'
 import type { Event, EventsStore, EventQueryOptions } from './events'
 import type { Relationship, RelationshipsStore } from './relationships'
+import {
+  type QueryOptions,
+  buildWhereClause,
+  buildOrderByClause,
+  buildPaginationClause
+} from './query'
+import { MigrationRunner, coreMigrations, type Migration } from './migrations'
 
 // SqlStorage interface from Cloudflare Workers
 export interface SqlStorage {
@@ -28,60 +35,124 @@ function generateEventId(): string {
 }
 
 /**
+ * Options for SQLiteAdapter initialization
+ */
+export interface SQLiteAdapterOptions {
+  /**
+   * Custom migrations to run in addition to core migrations.
+   * These will be sorted by version and run in order.
+   */
+  migrations?: Migration[]
+
+  /**
+   * If true, skips running migrations during initialize().
+   * Useful for testing or when you want to manage migrations manually.
+   * @default false
+   */
+  skipMigrations?: boolean
+
+  /**
+   * If true, uses legacy inline schema creation instead of migrations.
+   * This maintains backward compatibility with existing code.
+   * @default false
+   * @deprecated Use migrations instead
+   */
+  useLegacyInit?: boolean
+}
+
+/**
  * SQLiteAdapter - Manages schema and transactions
+ *
+ * Supports automatic schema migrations on initialization.
+ * By default, runs core migrations for things, events, and relationships tables.
  */
 export class SQLiteAdapter {
   private sql: SqlStorage
   private initialized = false
+  private migrationRunner: MigrationRunner
+  private options: SQLiteAdapterOptions
 
-  constructor(sql: SqlStorage) {
+  constructor(sql: SqlStorage, options: SQLiteAdapterOptions = {}) {
     this.sql = sql
+    this.options = options
+    this.migrationRunner = new MigrationRunner(sql)
   }
 
+  /**
+   * Initialize the adapter by running pending migrations.
+   *
+   * This method is idempotent - safe to call multiple times.
+   * Only pending migrations will be applied.
+   */
   async initialize(): Promise<void> {
     if (this.initialized) return
 
-    // Create all tables with indexes
-    this.sql.exec(`
-      -- Things table
-      CREATE TABLE IF NOT EXISTS things (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        data TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_things_type ON things(type);
-      CREATE INDEX IF NOT EXISTS idx_things_created_at ON things(created_at DESC);
+    if (this.options.useLegacyInit) {
+      // Legacy mode: create tables directly (deprecated)
+      this.sql.exec(`
+        -- Things table
+        CREATE TABLE IF NOT EXISTS things (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          data TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_things_type ON things(type);
+        CREATE INDEX IF NOT EXISTS idx_things_created_at ON things(created_at DESC);
 
-      -- Events table (immutable log)
-      CREATE TABLE IF NOT EXISTS events (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        source TEXT,
-        correlation_id TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
-      CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
-      CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id);
-      CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC);
+        -- Events table (immutable log)
+        CREATE TABLE IF NOT EXISTS events (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          source TEXT,
+          correlation_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+        CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
+        CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id);
+        CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC);
 
-      -- Relationships table (subject-predicate-object triples)
-      CREATE TABLE IF NOT EXISTS relationships (
-        subject TEXT NOT NULL,
-        predicate TEXT NOT NULL,
-        object TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY (subject, predicate, object)
-      );
-      CREATE INDEX IF NOT EXISTS idx_relationships_subject ON relationships(subject);
-      CREATE INDEX IF NOT EXISTS idx_relationships_predicate ON relationships(predicate);
-      CREATE INDEX IF NOT EXISTS idx_relationships_object ON relationships(object);
-    `)
+        -- Relationships table (subject-predicate-object triples)
+        CREATE TABLE IF NOT EXISTS relationships (
+          subject TEXT NOT NULL,
+          predicate TEXT NOT NULL,
+          object TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (subject, predicate, object)
+        );
+        CREATE INDEX IF NOT EXISTS idx_relationships_subject ON relationships(subject);
+        CREATE INDEX IF NOT EXISTS idx_relationships_predicate ON relationships(predicate);
+        CREATE INDEX IF NOT EXISTS idx_relationships_object ON relationships(object);
+      `)
+    } else if (!this.options.skipMigrations) {
+      // Migration mode: run migrations
+      await this.migrationRunner.initialize()
+
+      // Combine core migrations with any custom migrations
+      const allMigrations = [...coreMigrations, ...(this.options.migrations || [])]
+
+      // Run all pending migrations
+      const result = await this.migrationRunner.runMigrations(allMigrations)
+
+      if (result.errors.length > 0) {
+        const error = result.errors[0]
+        throw new Error(
+          `Migration failed: ${error.name} (version ${error.version}): ${error.error}`
+        )
+      }
+    }
 
     this.initialized = true
+  }
+
+  /**
+   * Get the migration runner for manual migration management
+   */
+  getMigrationRunner(): MigrationRunner {
+    return this.migrationRunner
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
@@ -101,9 +172,26 @@ export class SQLiteAdapter {
 }
 
 /**
- * SQLite-backed ThingsStore
+ * Extended ThingsStore interface with SQL-native query support
+ * This avoids fetching 1000 items into memory for client-side filtering (do-5k2l)
  */
-export function createSQLiteThingsStore(adapter: SQLiteAdapter): ThingsStore {
+export interface SQLiteThingsStore extends ThingsStore {
+  /**
+   * Execute a query with SQL WHERE clause conditions
+   * This uses parameterized queries for SQL injection prevention
+   */
+  queryWithConditions(options: QueryOptions): Promise<Thing[]>
+
+  /**
+   * Count results with SQL WHERE clause conditions
+   */
+  countWithConditions(options: QueryOptions): Promise<number>
+}
+
+/**
+ * SQLite-backed ThingsStore with SQL-native query support
+ */
+export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsStore {
   const sql = adapter.getSql()
 
   return {
@@ -231,6 +319,75 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): ThingsStore {
           ...customData
         }
       })
+    },
+
+    /**
+     * Execute query with SQL WHERE clause conditions (do-5k2l)
+     * This is the key method that fixes the performance issue by pushing
+     * filtering to the database instead of fetching 1000 items into memory.
+     */
+    async queryWithConditions(options: QueryOptions): Promise<Thing[]> {
+      // Build the SQL query with proper WHERE clauses
+      const { clause: whereClause, params: whereParams } = buildWhereClause(options)
+      const orderByClause = buildOrderByClause(options)
+      const { clause: paginationClause, params: paginationParams } = buildPaginationClause(options)
+
+      // Construct full query
+      const query = [
+        'SELECT id, type, data, created_at, updated_at FROM things',
+        whereClause,
+        orderByClause,
+        paginationClause
+      ]
+        .filter(Boolean)
+        .join(' ')
+
+      const allParams = [...whereParams, ...paginationParams]
+
+      const result = await sql.prepare(query).bind(...allParams).all()
+
+      let results = result.results.map((row) => {
+        const customData = JSON.parse(row.data as string)
+        return {
+          $id: row.id as string,
+          $type: row.type as string,
+          $createdAt: row.created_at as number,
+          $updatedAt: row.updated_at as number,
+          ...customData
+        }
+      })
+
+      // Apply projection if specified
+      if (options.select && options.select.length > 0) {
+        const fields = ['$id', '$type', ...options.select]
+        results = results.map((thing) => {
+          const projected: Record<string, unknown> = {}
+          for (const field of fields) {
+            if (field in thing) {
+              projected[field] = thing[field]
+            }
+          }
+          return projected as Thing
+        })
+      }
+
+      return results
+    },
+
+    /**
+     * Count results with SQL WHERE clause conditions (do-5k2l)
+     * Uses COUNT(*) for efficient counting without fetching data.
+     */
+    async countWithConditions(options: QueryOptions): Promise<number> {
+      const { clause: whereClause, params: whereParams } = buildWhereClause(options)
+
+      const query = ['SELECT COUNT(*) as count FROM things', whereClause]
+        .filter(Boolean)
+        .join(' ')
+
+      const result = await sql.prepare(query).bind(...whereParams).first()
+
+      return (result?.count as number) ?? 0
     }
   }
 }
