@@ -22,7 +22,8 @@ export {
   ConcurrencyLimiter,
   SandboxResourceEnforcer,
   getGlobalResourceEnforcer,
-  setGlobalResourceEnforcer
+  setGlobalResourceEnforcer,
+  createScopedResourceEnforcer
 } from './sandbox'
 export type {
   Sandbox,

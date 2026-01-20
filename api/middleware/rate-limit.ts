@@ -2,7 +2,7 @@
  * Rate Limiting Middleware for Hono
  *
  * Provides per-tenant and per-user rate limiting using sliding window algorithm.
- * State is stored in Durable Objects for distributed rate limiting.
+ * State can be persisted to SQLite for distributed rate limiting across DO restarts.
  *
  * Features:
  * - Per-tenant rate limiting
@@ -11,9 +11,12 @@
  * - Sliding window algorithm
  * - Proper rate limit headers (X-RateLimit-*)
  * - 429 Too Many Requests responses
+ * - SQLite persistence for state across DO restarts (do-svo4)
+ * - TTL cleanup for expired entries
  *
  * @module api/middleware/rate-limit
  * @issue do-vytw - Add rate limiting per-tenant/per-user
+ * @issue do-svo4 - Fix rate limiter in-memory storage
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
@@ -22,6 +25,14 @@ import { RateLimitError, ValidationError } from '../../rpc/errors'
 // ============================================================================
 // TYPES
 // ============================================================================
+
+/**
+ * SQLite storage interface for rate limiting
+ * Compatible with DurableObjectState.storage.sql
+ */
+export interface RateLimitSqlStorage {
+  exec<T = unknown>(query: string, ...params: unknown[]): { toArray(): T[] }
+}
 
 /**
  * Rate limit tier configuration
@@ -81,6 +92,13 @@ export interface RateLimitConfig {
   windowStrategy?: 'sliding' | 'fixed'
   /** Skip rate limiting for specific paths */
   skipPaths?: string[]
+  /**
+   * SQLite storage for persistent rate limiting across DO restarts.
+   * When provided, rate limit state is stored in SQLite instead of in-memory.
+   * Pass `state.storage.sql` from DurableObjectState for persistence.
+   * @issue do-svo4 - Fix rate limiter in-memory storage
+   */
+  storage?: RateLimitSqlStorage
 }
 
 /**
@@ -129,15 +147,34 @@ interface FixedWindowState {
 // ============================================================================
 
 /**
+ * Internal config type that keeps storage optional
+ */
+interface InternalRateLimitConfig {
+  keyStrategy: 'tenant' | 'user' | 'tenant+user' | 'ip'
+  defaultTier: string
+  tiers: Record<string, RateLimitTier>
+  tenantOverrides: Record<string, Partial<RateLimitTier>>
+  userOverrides: Record<string, Partial<RateLimitTier>>
+  failOpen: boolean
+  windowStrategy: 'sliding' | 'fixed'
+  skipPaths: string[]
+  storage?: RateLimitSqlStorage
+}
+
+/**
  * Rate Limiter using sliding window algorithm
  *
  * Tracks request timestamps per key and enforces limits based on tier configuration.
+ * Supports both in-memory storage (default) and SQLite persistence for DO restarts.
+ *
+ * @issue do-svo4 - Added SQLite storage support for persistence
  */
 export class RateLimiter {
-  private readonly config: Required<RateLimitConfig>
+  private readonly config: InternalRateLimitConfig
   private readonly slidingWindows: Map<string, SlidingWindowState> = new Map()
   private readonly fixedWindows: Map<string, FixedWindowState> = new Map()
   private simulateStorageFailure = false
+  private initialized = false
 
   constructor(config: RateLimitConfig) {
     this.config = {
@@ -149,6 +186,7 @@ export class RateLimiter {
       failOpen: config.failOpen ?? true,
       windowStrategy: config.windowStrategy ?? 'sliding',
       skipPaths: config.skipPaths ?? [],
+      storage: config.storage,
     }
 
     // Validate tiers
@@ -158,6 +196,50 @@ export class RateLimiter {
         `must reference an existing tier (got '${this.config.defaultTier}')`,
         this.config.defaultTier
       )
+    }
+
+    // Initialize SQLite schema if storage is provided
+    if (this.config.storage) {
+      this.initializeSqliteSchema()
+    }
+  }
+
+  /**
+   * Initialize SQLite schema for persistent storage
+   * @issue do-svo4 - Fix rate limiter in-memory storage
+   */
+  private initializeSqliteSchema(): void {
+    if (!this.config.storage || this.initialized) return
+
+    try {
+      // Create sliding window table
+      this.config.storage.exec(`
+        CREATE TABLE IF NOT EXISTS rate_limit_sliding_window (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT NOT NULL,
+          timestamp_ms INTEGER NOT NULL
+        )
+      `)
+
+      // Create index for efficient queries and cleanup
+      this.config.storage.exec(`
+        CREATE INDEX IF NOT EXISTS idx_rate_limit_sliding_key_ts
+        ON rate_limit_sliding_window (key, timestamp_ms)
+      `)
+
+      // Create fixed window table
+      this.config.storage.exec(`
+        CREATE TABLE IF NOT EXISTS rate_limit_fixed_window (
+          key TEXT PRIMARY KEY,
+          window_start_ms INTEGER NOT NULL,
+          count INTEGER NOT NULL DEFAULT 0
+        )
+      `)
+
+      this.initialized = true
+    } catch (_err) {
+      // Schema might already exist, ignore
+      this.initialized = true
     }
   }
 
@@ -184,6 +266,8 @@ export class RateLimiter {
 
   /**
    * Check sliding window rate limit
+   * Uses SQLite storage if available, otherwise falls back to in-memory
+   * @issue do-svo4 - Added SQLite persistence support
    */
   private checkSlidingWindow(
     key: string,
@@ -191,6 +275,12 @@ export class RateLimiter {
     now: number,
     tierName: string
   ): RateLimitResult {
+    // Use SQLite storage if available
+    if (this.config.storage) {
+      return this.checkSlidingWindowSql(key, tierConfig, now, tierName)
+    }
+
+    // Fall back to in-memory storage
     let state = this.slidingWindows.get(key)
 
     if (!state) {
@@ -247,7 +337,89 @@ export class RateLimiter {
   }
 
   /**
+   * Check sliding window rate limit using SQLite storage
+   * @issue do-svo4 - Fix rate limiter in-memory storage
+   */
+  private checkSlidingWindowSql(
+    key: string,
+    tierConfig: RateLimitTier,
+    now: number,
+    tierName: string
+  ): RateLimitResult {
+    const storage = this.config.storage!
+    const cutoff = now - tierConfig.windowMs
+
+    // Clean up expired entries (TTL cleanup)
+    storage.exec(
+      `DELETE FROM rate_limit_sliding_window WHERE key = ? AND timestamp_ms <= ?`,
+      key,
+      cutoff
+    )
+
+    // Count current requests
+    const countResult = storage.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM rate_limit_sliding_window WHERE key = ?`,
+      key
+    ).toArray()
+
+    const currentCount = countResult[0]?.count ?? 0
+
+    // Get first request timestamp for reset calculation
+    const firstResult = storage.exec<{ first_ts: number | null }>(
+      `SELECT MIN(timestamp_ms) as first_ts FROM rate_limit_sliding_window WHERE key = ?`,
+      key
+    ).toArray()
+
+    const firstTs = firstResult[0]?.first_ts ?? now
+    const windowResetsAt = Math.ceil((firstTs + tierConfig.windowMs) / 1000)
+
+    // Check if over limit
+    if (currentCount >= tierConfig.requestsPerWindow) {
+      const retryAfterMs = firstTs + tierConfig.windowMs - now
+      const retryAfterSec = Math.ceil(retryAfterMs / 1000)
+
+      return {
+        allowed: false,
+        statusCode: 429,
+        remaining: 0,
+        limit: tierConfig.requestsPerWindow,
+        resetAt: windowResetsAt,
+        headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many requests. Please retry later.',
+        },
+        retryAfter: retryAfterSec,
+        key,
+        tier: tierName,
+      }
+    }
+
+    // Record this request
+    storage.exec(
+      `INSERT INTO rate_limit_sliding_window (key, timestamp_ms) VALUES (?, ?)`,
+      key,
+      now
+    )
+
+    const remaining = Math.max(0, tierConfig.requestsPerWindow - currentCount - 1)
+
+    return {
+      allowed: true,
+      statusCode: 200,
+      remaining,
+      limit: tierConfig.requestsPerWindow,
+      resetAt: windowResetsAt,
+      headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
+      key,
+      tier: tierName,
+    }
+  }
+
+  /**
    * Check fixed window rate limit
+   * Uses SQLite storage if available, otherwise falls back to in-memory
+   * @issue do-svo4 - Added SQLite persistence support
    */
   private checkFixedWindow(
     key: string,
@@ -255,6 +427,12 @@ export class RateLimiter {
     now: number,
     tierName: string
   ): RateLimitResult {
+    // Use SQLite storage if available
+    if (this.config.storage) {
+      return this.checkFixedWindowSql(key, tierConfig, now, tierName)
+    }
+
+    // Fall back to in-memory storage
     let state = this.fixedWindows.get(key)
 
     // Reset window if expired
@@ -290,6 +468,96 @@ export class RateLimiter {
     // Increment count
     state.count++
     const remaining = Math.max(0, tierConfig.requestsPerWindow - state.count)
+
+    return {
+      allowed: true,
+      statusCode: 200,
+      remaining,
+      limit: tierConfig.requestsPerWindow,
+      resetAt: windowResetsAt,
+      headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
+      key,
+      tier: tierName,
+    }
+  }
+
+  /**
+   * Check fixed window rate limit using SQLite storage
+   * @issue do-svo4 - Fix rate limiter in-memory storage
+   */
+  private checkFixedWindowSql(
+    key: string,
+    tierConfig: RateLimitTier,
+    now: number,
+    tierName: string
+  ): RateLimitResult {
+    const storage = this.config.storage!
+
+    // Get current window state
+    const windowResult = storage.exec<{ window_start_ms: number; count: number }>(
+      `SELECT window_start_ms, count FROM rate_limit_fixed_window WHERE key = ?`,
+      key
+    ).toArray()
+
+    let windowStart = now
+    let currentCount = 0
+
+    if (windowResult.length > 0) {
+      const entry = windowResult[0]!
+      // Check if window has expired
+      if (now >= entry.window_start_ms + tierConfig.windowMs) {
+        // Reset window (TTL cleanup)
+        storage.exec(
+          `UPDATE rate_limit_fixed_window SET window_start_ms = ?, count = 0 WHERE key = ?`,
+          now,
+          key
+        )
+        windowStart = now
+        currentCount = 0
+      } else {
+        windowStart = entry.window_start_ms
+        currentCount = entry.count
+      }
+    } else {
+      // Create new entry
+      storage.exec(
+        `INSERT INTO rate_limit_fixed_window (key, window_start_ms, count) VALUES (?, ?, 0)`,
+        key,
+        now
+      )
+    }
+
+    const windowResetsAt = Math.ceil((windowStart + tierConfig.windowMs) / 1000)
+
+    // Check if over limit
+    if (currentCount >= tierConfig.requestsPerWindow) {
+      const retryAfterMs = windowStart + tierConfig.windowMs - now
+      const retryAfterSec = Math.ceil(retryAfterMs / 1000)
+
+      return {
+        allowed: false,
+        statusCode: 429,
+        remaining: 0,
+        limit: tierConfig.requestsPerWindow,
+        resetAt: windowResetsAt,
+        headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many requests. Please retry later.',
+        },
+        retryAfter: retryAfterSec,
+        key,
+        tier: tierName,
+      }
+    }
+
+    // Increment count
+    storage.exec(
+      `UPDATE rate_limit_fixed_window SET count = count + 1 WHERE key = ?`,
+      key
+    )
+
+    const remaining = Math.max(0, tierConfig.requestsPerWindow - currentCount - 1)
 
     return {
       allowed: true,
@@ -471,19 +739,64 @@ export class RateLimiter {
 
   /**
    * Reset rate limit state for a key
+   * Uses SQLite storage if available, otherwise falls back to in-memory
+   * @issue do-svo4 - Added SQLite persistence support
    */
   async resetKey(key: string): Promise<void> {
+    if (this.config.storage) {
+      this.config.storage.exec(`DELETE FROM rate_limit_sliding_window WHERE key = ?`, key)
+      this.config.storage.exec(`DELETE FROM rate_limit_fixed_window WHERE key = ?`, key)
+    }
+
+    // Also clear in-memory cache
     this.slidingWindows.delete(key)
     this.fixedWindows.delete(key)
   }
 
   /**
    * Get current state for a key (for observability)
+   * Uses SQLite storage if available, otherwise falls back to in-memory
+   * @issue do-svo4 - Added SQLite persistence support
    */
   async getState(key: string): Promise<{ requests: number; windowMs: number; limit: number } | null> {
+    const tierConfig = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
+
+    // Use SQLite storage if available
+    if (this.config.storage) {
+      // Check sliding window
+      const slidingResult = this.config.storage.exec<{ count: number }>(
+        `SELECT COUNT(*) as count FROM rate_limit_sliding_window WHERE key = ?`,
+        key
+      ).toArray()
+
+      if (slidingResult.length > 0 && slidingResult[0]!.count > 0) {
+        return {
+          requests: slidingResult[0]!.count,
+          windowMs: tierConfig.windowMs,
+          limit: tierConfig.requestsPerWindow,
+        }
+      }
+
+      // Check fixed window
+      const fixedResult = this.config.storage.exec<{ count: number }>(
+        `SELECT count FROM rate_limit_fixed_window WHERE key = ?`,
+        key
+      ).toArray()
+
+      if (fixedResult.length > 0) {
+        return {
+          requests: fixedResult[0]!.count,
+          windowMs: tierConfig.windowMs,
+          limit: tierConfig.requestsPerWindow,
+        }
+      }
+
+      return null
+    }
+
+    // Fall back to in-memory storage
     const slidingState = this.slidingWindows.get(key)
     if (slidingState) {
-      const tierConfig = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
       return {
         requests: slidingState.requests.length,
         windowMs: tierConfig.windowMs,
@@ -493,7 +806,6 @@ export class RateLimiter {
 
     const fixedState = this.fixedWindows.get(key)
     if (fixedState) {
-      const tierConfig = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
       return {
         requests: fixedState.count,
         windowMs: tierConfig.windowMs,
@@ -502,6 +814,22 @@ export class RateLimiter {
     }
 
     return null
+  }
+
+  /**
+   * Clean up expired entries from SQLite storage.
+   * This is called automatically during rate limit checks, but can be called
+   * manually for periodic cleanup.
+   * @issue do-svo4 - Added TTL cleanup
+   */
+  async cleanupExpiredEntries(windowMs: number = 60000): Promise<void> {
+    if (!this.config.storage) return
+
+    const cutoff = Date.now() - windowMs
+    this.config.storage.exec(
+      `DELETE FROM rate_limit_sliding_window WHERE timestamp_ms <= ?`,
+      cutoff
+    )
   }
 
   /**

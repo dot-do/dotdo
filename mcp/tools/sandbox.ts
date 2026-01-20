@@ -1,6 +1,6 @@
 // sandbox tool - Execute code in a secure sandbox with $ context injection
 import type { MCPTool } from '../server'
-import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits } from '../sandbox'
+import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits, type SandboxResourceEnforcer } from '../sandbox'
 import type { WorkflowContext } from '../../do/context'
 
 export interface SandboxParams {
@@ -15,6 +15,8 @@ export interface SandboxToolDeps {
   context: WorkflowContext
   defaultPermissions?: SandboxPermissions
   defaultResourceLimits?: ResourceLimits
+  /** Optional DO-scoped enforcer. Use createScopedResourceEnforcer() to create one. */
+  enforcer?: SandboxResourceEnforcer
 }
 
 /**

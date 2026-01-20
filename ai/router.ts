@@ -17,6 +17,10 @@ export interface ModelInfo {
   costPer1kTokens: number
   maxTokens: number
   speed: 'fast' | 'medium' | 'slow'
+  /** Pricing tier for cost optimization */
+  tier?: 'budget' | 'standard' | 'premium'
+  /** Human-readable display name */
+  displayName?: string
 }
 
 export interface RouterConfig {
@@ -56,84 +60,273 @@ export const providers = {
 }
 
 // Model catalog with cost and capability info
+// Pricing as of January 2026 - costs are per 1K tokens (average of input/output)
 const MODEL_CATALOG: Record<string, ModelInfo> = {
-  // OpenAI models
-  'gpt-4': {
+  // ==========================================================================
+  // OpenAI Models
+  // ==========================================================================
+
+  // GPT-4o - Flagship multimodal model
+  'gpt-4o': {
     provider: 'openai',
-    model: 'gpt-4',
-    costPer1kTokens: 0.03,
-    maxTokens: 8192,
-    speed: 'medium'
+    model: 'gpt-4o',
+    costPer1kTokens: 0.005,
+    maxTokens: 128000,
+    speed: 'fast',
+    tier: 'standard',
+    displayName: 'GPT-4o',
   },
+  'gpt-4o-mini': {
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    costPer1kTokens: 0.00015,
+    maxTokens: 128000,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'GPT-4o Mini',
+  },
+
+  // GPT-4 Turbo - High capability
   'gpt-4-turbo': {
     provider: 'openai',
     model: 'gpt-4-turbo',
     costPer1kTokens: 0.01,
     maxTokens: 128000,
-    speed: 'fast'
+    speed: 'fast',
+    tier: 'standard',
+    displayName: 'GPT-4 Turbo',
   },
+
+  // GPT-4 - Original
+  'gpt-4': {
+    provider: 'openai',
+    model: 'gpt-4',
+    costPer1kTokens: 0.03,
+    maxTokens: 8192,
+    speed: 'medium',
+    tier: 'premium',
+    displayName: 'GPT-4',
+  },
+
+  // GPT-3.5 Turbo - Legacy fast model
   'gpt-3.5-turbo': {
     provider: 'openai',
     model: 'gpt-3.5-turbo',
-    costPer1kTokens: 0.001,
-    maxTokens: 4096,
-    speed: 'fast'
+    costPer1kTokens: 0.0005,
+    maxTokens: 16385,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'GPT-3.5 Turbo',
   },
 
-  // Anthropic models
-  'claude-3-opus': {
-    provider: 'anthropic',
-    model: 'claude-3-opus',
+  // o1 Reasoning Models
+  'o1': {
+    provider: 'openai',
+    model: 'o1',
     costPer1kTokens: 0.015,
     maxTokens: 200000,
-    speed: 'medium'
+    speed: 'slow',
+    tier: 'premium',
+    displayName: 'o1',
+  },
+  'o1-mini': {
+    provider: 'openai',
+    model: 'o1-mini',
+    costPer1kTokens: 0.003,
+    maxTokens: 128000,
+    speed: 'medium',
+    tier: 'standard',
+    displayName: 'o1-mini',
+  },
+  'o3-mini': {
+    provider: 'openai',
+    model: 'o3-mini',
+    costPer1kTokens: 0.0011,
+    maxTokens: 200000,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'o3-mini',
+  },
+
+  // ==========================================================================
+  // Anthropic Models
+  // ==========================================================================
+
+  // Claude Opus 4.5 - Most capable
+  'claude-opus-4-5-20251101': {
+    provider: 'anthropic',
+    model: 'claude-opus-4-5-20251101',
+    costPer1kTokens: 0.015,
+    maxTokens: 200000,
+    speed: 'medium',
+    tier: 'premium',
+    displayName: 'Claude Opus 4.5',
+  },
+
+  // Claude Sonnet 4 - Balanced performance
+  'claude-sonnet-4-20250514': {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    costPer1kTokens: 0.003,
+    maxTokens: 200000,
+    speed: 'fast',
+    tier: 'standard',
+    displayName: 'Claude Sonnet 4',
+  },
+
+  // Claude 3.5 Sonnet - Previous generation
+  'claude-3-5-sonnet-20241022': {
+    provider: 'anthropic',
+    model: 'claude-3-5-sonnet-20241022',
+    costPer1kTokens: 0.003,
+    maxTokens: 200000,
+    speed: 'fast',
+    tier: 'standard',
+    displayName: 'Claude 3.5 Sonnet',
+  },
+
+  // Claude 3.5 Haiku - Fast and efficient
+  'claude-3-5-haiku-20241022': {
+    provider: 'anthropic',
+    model: 'claude-3-5-haiku-20241022',
+    costPer1kTokens: 0.0008,
+    maxTokens: 200000,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'Claude 3.5 Haiku',
+  },
+
+  // Legacy Claude 3 models (still supported)
+  'claude-3-opus': {
+    provider: 'anthropic',
+    model: 'claude-3-opus-20240229',
+    costPer1kTokens: 0.015,
+    maxTokens: 200000,
+    speed: 'medium',
+    tier: 'premium',
+    displayName: 'Claude 3 Opus',
   },
   'claude-3-sonnet': {
     provider: 'anthropic',
-    model: 'claude-3-sonnet',
+    model: 'claude-3-sonnet-20240229',
     costPer1kTokens: 0.003,
     maxTokens: 200000,
-    speed: 'fast'
+    speed: 'fast',
+    tier: 'standard',
+    displayName: 'Claude 3 Sonnet',
   },
   'claude-3-haiku': {
     provider: 'anthropic',
-    model: 'claude-3-haiku',
+    model: 'claude-3-haiku-20240307',
     costPer1kTokens: 0.00025,
     maxTokens: 200000,
-    speed: 'fast'
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'Claude 3 Haiku',
   },
 
-  // Google models
+  // ==========================================================================
+  // Google Models
+  // ==========================================================================
+
+  // Gemini 2.0 Flash - Latest fast model
+  'gemini-2.0-flash': {
+    provider: 'google',
+    model: 'gemini-2.0-flash',
+    costPer1kTokens: 0.0001,
+    maxTokens: 1048576,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'Gemini 2.0 Flash',
+  },
+
+  // Gemini 2.0 Flash Thinking - Reasoning variant
+  'gemini-2.0-flash-thinking-exp': {
+    provider: 'google',
+    model: 'gemini-2.0-flash-thinking-exp',
+    costPer1kTokens: 0.0001,
+    maxTokens: 1048576,
+    speed: 'medium',
+    tier: 'budget',
+    displayName: 'Gemini 2.0 Flash Thinking',
+  },
+
+  // Gemini 1.5 Pro - High capability
+  'gemini-1.5-pro': {
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    costPer1kTokens: 0.00125,
+    maxTokens: 2097152,
+    speed: 'medium',
+    tier: 'standard',
+    displayName: 'Gemini 1.5 Pro',
+  },
+
+  // Gemini 1.5 Flash - Fast variant
+  'gemini-1.5-flash': {
+    provider: 'google',
+    model: 'gemini-1.5-flash',
+    costPer1kTokens: 0.000075,
+    maxTokens: 1048576,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'Gemini 1.5 Flash',
+  },
+
+  // Legacy Gemini Pro (aliased to 1.5)
   'gemini-pro': {
     provider: 'google',
-    model: 'gemini-pro',
-    costPer1kTokens: 0.00025,
-    maxTokens: 32000,
-    speed: 'fast'
-  },
-  'gemini-ultra': {
-    provider: 'google',
-    model: 'gemini-ultra',
-    costPer1kTokens: 0.01,
-    maxTokens: 32000,
-    speed: 'medium'
+    model: 'gemini-1.5-pro',
+    costPer1kTokens: 0.00125,
+    maxTokens: 2097152,
+    speed: 'medium',
+    tier: 'standard',
+    displayName: 'Gemini Pro',
   },
 
-  // Cloudflare Workers AI
+  // Gemini Ultra (deprecated, maps to 1.5 Pro)
+  'gemini-ultra': {
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    costPer1kTokens: 0.00125,
+    maxTokens: 2097152,
+    speed: 'medium',
+    tier: 'premium',
+    displayName: 'Gemini Ultra',
+  },
+
+  // ==========================================================================
+  // Cloudflare Workers AI Models
+  // ==========================================================================
+
+  // Llama 3.1 - Latest open source
+  '@cf/meta/llama-3.1-8b-instruct': {
+    provider: 'cloudflare',
+    model: '@cf/meta/llama-3.1-8b-instruct',
+    costPer1kTokens: 0.0001,
+    maxTokens: 128000,
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'Llama 3.1 8B',
+  },
+
+  // Legacy Llama 2 (still supported)
   '@cf/meta/llama-2-7b-chat-int8': {
     provider: 'cloudflare',
     model: '@cf/meta/llama-2-7b-chat-int8',
     costPer1kTokens: 0.0001,
     maxTokens: 4096,
-    speed: 'fast'
-  }
+    speed: 'fast',
+    tier: 'budget',
+    displayName: 'Llama 2 7B',
+  },
 }
 
-// Capability-based model selection
+// Capability-based model selection - updated for latest models
 const CAPABILITY_MODELS: Record<Capability, string> = {
-  fast: 'claude-3-haiku',
-  smart: 'claude-3-opus',
-  cheap: 'gemini-pro'
+  fast: 'claude-3-5-haiku-20241022',
+  smart: 'claude-opus-4-5-20251101',
+  cheap: 'gemini-2.0-flash',
 }
 
 export class Router {

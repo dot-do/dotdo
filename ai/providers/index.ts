@@ -79,28 +79,53 @@ export interface AIProvider {
 
 /**
  * Model alias mapping for convenience names
+ * Updated January 2026 to match current provider offerings
  */
 const MODEL_ALIASES: Record<string, { provider: ProviderId; model: string }> = {
-  // Anthropic aliases
+  // ==========================================================================
+  // Anthropic Aliases
+  // ==========================================================================
   'opus': { provider: 'anthropic', model: 'claude-opus-4-5-20251101' },
   'claude-opus-4.5': { provider: 'anthropic', model: 'claude-opus-4-5-20251101' },
+  'claude-opus-4-5': { provider: 'anthropic', model: 'claude-opus-4-5-20251101' },
+
   'sonnet': { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+  'claude-sonnet-4': { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
   'claude-sonnet-4.5': { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+
   'haiku': { provider: 'anthropic', model: 'claude-3-5-haiku-20241022' },
   'claude-3-5-haiku': { provider: 'anthropic', model: 'claude-3-5-haiku-20241022' },
+  'claude-3.5-haiku': { provider: 'anthropic', model: 'claude-3-5-haiku-20241022' },
 
-  // OpenAI aliases
+  // Legacy Claude 3.5 Sonnet
+  'claude-3.5-sonnet': { provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' },
+  'claude-3-5-sonnet': { provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' },
+
+  // ==========================================================================
+  // OpenAI Aliases
+  // ==========================================================================
   'gpt-4o': { provider: 'openai', model: 'gpt-4o' },
+  'gpt-4o-mini': { provider: 'openai', model: 'gpt-4o-mini' },
   'gpt-4': { provider: 'openai', model: 'gpt-4-turbo' },
   'gpt-4-turbo': { provider: 'openai', model: 'gpt-4-turbo' },
   'gpt-3.5': { provider: 'openai', model: 'gpt-3.5-turbo' },
   'gpt-3.5-turbo': { provider: 'openai', model: 'gpt-3.5-turbo' },
 
-  // Google aliases
-  'gemini': { provider: 'google', model: 'gemini-2.0-flash-exp' },
-  'gemini-flash': { provider: 'google', model: 'gemini-2.0-flash-exp' },
+  // o-series reasoning models
+  'o1': { provider: 'openai', model: 'o1' },
+  'o1-mini': { provider: 'openai', model: 'o1-mini' },
+  'o3-mini': { provider: 'openai', model: 'o3-mini' },
+
+  // ==========================================================================
+  // Google Aliases
+  // ==========================================================================
+  'gemini': { provider: 'google', model: 'gemini-2.0-flash' },
+  'gemini-flash': { provider: 'google', model: 'gemini-2.0-flash' },
+  'gemini-2.0-flash': { provider: 'google', model: 'gemini-2.0-flash' },
+  'gemini-2.0-flash-thinking': { provider: 'google', model: 'gemini-2.0-flash-thinking-exp' },
   'gemini-pro': { provider: 'google', model: 'gemini-1.5-pro' },
   'gemini-1.5-pro': { provider: 'google', model: 'gemini-1.5-pro' },
+  'gemini-1.5-flash': { provider: 'google', model: 'gemini-1.5-flash' },
 }
 
 /**
@@ -134,16 +159,21 @@ function getEnvConfig(): ProviderConfig {
   if (typeof process === 'undefined') return {}
 
   const env = process.env
-  return {
-    openaiApiKey: env['OPENAI_API_KEY'],
-    anthropicApiKey: env['ANTHROPIC_API_KEY'],
-    googleApiKey: env['GOOGLE_GENERATIVE_AI_API_KEY'] || env['GOOGLE_AI_API_KEY'],
-    cloudflareAccountId: env['CLOUDFLARE_ACCOUNT_ID'],
-    cloudflareApiToken: env['CLOUDFLARE_API_TOKEN'],
-    openrouterApiKey: env['OPENROUTER_API_KEY'],
-    gatewayUrl: env['AI_GATEWAY_URL'],
-    gatewayToken: env['AI_GATEWAY_TOKEN'] || env['DO_TOKEN'],
-  }
+  const config: ProviderConfig = {}
+
+  // Only set values that are defined
+  if (env['OPENAI_API_KEY']) config.openaiApiKey = env['OPENAI_API_KEY']
+  if (env['ANTHROPIC_API_KEY']) config.anthropicApiKey = env['ANTHROPIC_API_KEY']
+  const googleKey = env['GOOGLE_GENERATIVE_AI_API_KEY'] || env['GOOGLE_AI_API_KEY']
+  if (googleKey) config.googleApiKey = googleKey
+  if (env['CLOUDFLARE_ACCOUNT_ID']) config.cloudflareAccountId = env['CLOUDFLARE_ACCOUNT_ID']
+  if (env['CLOUDFLARE_API_TOKEN']) config.cloudflareApiToken = env['CLOUDFLARE_API_TOKEN']
+  if (env['OPENROUTER_API_KEY']) config.openrouterApiKey = env['OPENROUTER_API_KEY']
+  if (env['AI_GATEWAY_URL']) config.gatewayUrl = env['AI_GATEWAY_URL']
+  const gatewayToken = env['AI_GATEWAY_TOKEN'] || env['DO_TOKEN']
+  if (gatewayToken) config.gatewayToken = gatewayToken
+
+  return config
 }
 
 /**
@@ -162,14 +192,15 @@ function getMergedConfig(): ProviderConfig {
  */
 async function createOpenAIProvider(config: ProviderConfig): Promise<AIProvider> {
   const { createOpenAI } = await import('@ai-sdk/openai')
-  const provider = createOpenAI({
-    apiKey: config.openaiApiKey,
-    baseURL: config.baseUrls?.openai,
-  })
+  // Build settings object conditionally to avoid passing undefined values
+  const settings: Record<string, unknown> = {}
+  if (config.openaiApiKey) settings['apiKey'] = config.openaiApiKey
+  if (config.baseUrls?.openai) settings['baseURL'] = config.baseUrls.openai
+  const provider = createOpenAI(settings as Parameters<typeof createOpenAI>[0])
 
   return {
-    languageModel: (modelId: string) => provider(modelId),
-    textEmbeddingModel: (modelId: string) => provider.embedding(modelId),
+    languageModel: (modelId: string) => provider(modelId) as unknown as LanguageModel,
+    textEmbeddingModel: (modelId: string) => provider.embedding(modelId) as unknown as EmbeddingModel<string>,
   }
 }
 
@@ -178,13 +209,14 @@ async function createOpenAIProvider(config: ProviderConfig): Promise<AIProvider>
  */
 async function createAnthropicProvider(config: ProviderConfig): Promise<AIProvider> {
   const { createAnthropic } = await import('@ai-sdk/anthropic')
-  const provider = createAnthropic({
-    apiKey: config.anthropicApiKey,
-    baseURL: config.baseUrls?.anthropic,
-  })
+  // Build settings object conditionally to avoid passing undefined values
+  const settings: Record<string, unknown> = {}
+  if (config.anthropicApiKey) settings['apiKey'] = config.anthropicApiKey
+  if (config.baseUrls?.anthropic) settings['baseURL'] = config.baseUrls.anthropic
+  const provider = createAnthropic(settings as Parameters<typeof createAnthropic>[0])
 
   return {
-    languageModel: (modelId: string) => provider(modelId),
+    languageModel: (modelId: string) => provider(modelId) as unknown as LanguageModel,
   }
 }
 
@@ -193,14 +225,15 @@ async function createAnthropicProvider(config: ProviderConfig): Promise<AIProvid
  */
 async function createGoogleProvider(config: ProviderConfig): Promise<AIProvider> {
   const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-  const provider = createGoogleGenerativeAI({
-    apiKey: config.googleApiKey,
-    baseURL: config.baseUrls?.google,
-  })
+  // Build settings object conditionally to avoid passing undefined values
+  const settings: Record<string, unknown> = {}
+  if (config.googleApiKey) settings['apiKey'] = config.googleApiKey
+  if (config.baseUrls?.google) settings['baseURL'] = config.baseUrls.google
+  const provider = createGoogleGenerativeAI(settings as Parameters<typeof createGoogleGenerativeAI>[0])
 
   return {
-    languageModel: (modelId: string) => provider(modelId),
-    textEmbeddingModel: (modelId: string) => provider.textEmbeddingModel(modelId),
+    languageModel: (modelId: string) => provider(modelId) as unknown as LanguageModel,
+    textEmbeddingModel: (modelId: string) => provider.textEmbeddingModel(modelId) as unknown as EmbeddingModel<string>,
   }
 }
 
@@ -209,13 +242,15 @@ async function createGoogleProvider(config: ProviderConfig): Promise<AIProvider>
  */
 async function createOpenRouterProvider(config: ProviderConfig): Promise<AIProvider> {
   const { createOpenAI } = await import('@ai-sdk/openai')
-  const provider = createOpenAI({
-    apiKey: config.openrouterApiKey,
+  // Build settings object conditionally to avoid passing undefined values
+  const settings: Record<string, unknown> = {
     baseURL: config.baseUrls?.openrouter || 'https://openrouter.ai/api/v1',
-  })
+  }
+  if (config.openrouterApiKey) settings['apiKey'] = config.openrouterApiKey
+  const provider = createOpenAI(settings as Parameters<typeof createOpenAI>[0])
 
   return {
-    languageModel: (modelId: string) => provider(modelId),
+    languageModel: (modelId: string) => provider(modelId) as unknown as LanguageModel,
   }
 }
 

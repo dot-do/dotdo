@@ -85,13 +85,59 @@ export interface Sandbox {
 
 /**
  * Default resource limits
+ *
+ * These limits are carefully chosen to balance usability with security and
+ * resource protection in a multi-tenant environment.
+ *
+ * RATIONALE FOR EACH LIMIT:
+ *
+ * 1. timeout (5000ms / 5 seconds)
+ *    - WHY: Most legitimate code operations complete in <1 second. 5 seconds
+ *      provides generous headroom for complex computations while preventing
+ *      infinite loops and runaway processes from consuming worker resources.
+ *    - SECURITY: Prevents denial-of-service via CPU exhaustion.
+ *    - TRADE-OFF: Long-running analytics or ML operations may need higher limits,
+ *      but those should be handled by dedicated compute resources, not sandboxes.
+ *
+ * 2. maxCodeSize (100KB)
+ *    - WHY: 100KB is sufficient for any reasonable code snippet (roughly 3000
+ *      lines of code). Larger payloads indicate code injection attacks or
+ *      attempts to embed binary data in code.
+ *    - SECURITY: Prevents memory exhaustion during code parsing/compilation.
+ *    - TRADE-OFF: Minified libraries may exceed this; users should import
+ *      libraries from context rather than embedding them.
+ *
+ * 3. maxOutputSize (1MB)
+ *    - WHY: 1MB allows for substantial JSON responses (e.g., paginated data)
+ *      while preventing memory exhaustion from exponential string growth or
+ *      massive object serialization.
+ *    - SECURITY: Prevents memory DoS by limiting response payload size.
+ *    - TRADE-OFF: Large data exports should use streaming or pagination,
+ *      not single-response dumps.
+ *
+ * 4. memoryLimitMB (128MB)
+ *    - WHY: 128MB matches typical Cloudflare Worker memory limits and is
+ *      sufficient for most data processing tasks. Higher limits risk
+ *      impacting other tenants on the same isolate.
+ *    - SECURITY: Prevents memory exhaustion attacks (e.g., exponential
+ *      array/string growth, zip bombs).
+ *    - TRADE-OFF: Memory-intensive operations (image processing, large
+ *      dataset manipulation) should use dedicated compute.
+ *
+ * 5. allowNetwork (false by default)
+ *    - WHY: Network access introduces SSRF (Server-Side Request Forgery)
+ *      risks, data exfiltration vectors, and unpredictable latency.
+ *    - SECURITY: Prevents sandbox escape via network calls, credential
+ *      theft via internal service access, and data exfiltration.
+ *    - TRADE-OFF: Legitimate integrations should use the $ context's
+ *      controlled integration methods, not raw fetch.
  */
 export const DEFAULT_RESOURCE_LIMITS: Required<ResourceLimits> = {
   timeout: 5000,
-  maxCodeSize: 100 * 1024, // 100KB
-  maxOutputSize: 1024 * 1024, // 1MB
-  memoryLimitMB: 128,
-  allowNetwork: false
+  maxCodeSize: 100 * 1024, // 100KB - sufficient for ~3000 lines of code
+  maxOutputSize: 1024 * 1024, // 1MB - allows substantial responses, prevents memory DoS
+  memoryLimitMB: 128, // Matches typical Worker memory limits
+  allowNetwork: false // Disabled to prevent SSRF and data exfiltration
 }
 
 /**
@@ -114,17 +160,46 @@ export interface ConcurrencyLimitConfig {
 
 /**
  * Default rate limit settings
+ *
+ * RATIONALE:
+ *
+ * maxRequests (100 per minute)
+ * - WHY: 100 requests/minute (~1.67 req/sec) accommodates interactive use
+ *   and reasonable automation while preventing abuse.
+ * - SECURITY: Prevents resource exhaustion from rapid-fire requests,
+ *   limits the damage from compromised API keys.
+ * - TRADE-OFF: Bulk operations should batch work into fewer requests
+ *   rather than sending many small ones.
+ *
+ * windowMs (60000ms / 1 minute)
+ * - WHY: 1-minute sliding window provides intuitive rate limiting that
+ *   users can reason about while allowing burst patterns.
+ * - SECURITY: Short enough to limit sustained abuse, long enough to
+ *   prevent legitimate burst traffic from triggering limits.
  */
 export const DEFAULT_RATE_LIMIT: RateLimitConfig = {
-  maxRequests: 100,
-  windowMs: 60000 // 1 minute
+  maxRequests: 100, // ~1.67 req/sec - accommodates interactive use
+  windowMs: 60000 // 1 minute sliding window
 }
 
 /**
  * Default concurrency limit settings
+ *
+ * RATIONALE:
+ *
+ * maxConcurrent (5 operations per client)
+ * - WHY: 5 concurrent operations allows parallel workflows (e.g., Promise.all
+ *   with multiple $ operations) while preventing resource monopolization.
+ * - SECURITY: Prevents a single client from consuming all available isolate
+ *   resources, ensures fair sharing in multi-tenant environments.
+ * - TRADE-OFF: Highly parallel workloads may need queuing, but this forces
+ *   better resource management and prevents cascade failures.
+ *
+ * This limit is per-client (identified by clientId), so different clients
+ * can each have 5 concurrent operations without affecting each other.
  */
 export const DEFAULT_CONCURRENCY_LIMIT: ConcurrencyLimitConfig = {
-  maxConcurrent: 5
+  maxConcurrent: 5 // Per-client concurrency - allows parallel workflows
 }
 
 /**
@@ -413,10 +488,13 @@ export class SandboxResourceEnforcer {
 }
 
 // Global default enforcer instance
+// WARNING: Deprecated due to state leakage issues in Workers (do-1oer)
+// Use createScopedResourceEnforcer() instead
 let globalEnforcer: SandboxResourceEnforcer | null = null
 
 /**
  * Get or create the global resource enforcer
+ * @deprecated Use createScopedResourceEnforcer instead - global state leaks between requests
  */
 export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
   if (!globalEnforcer) {
@@ -427,9 +505,21 @@ export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
 
 /**
  * Set a custom global resource enforcer (useful for testing)
+ * @deprecated Use createScopedResourceEnforcer instead - global state leaks between requests
  */
 export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
   globalEnforcer = enforcer
+}
+
+/**
+ * Create a new request-scoped or DO-scoped resource enforcer.
+ * This is the preferred way to create enforcers in Workers to prevent state leakage.
+ */
+export function createScopedResourceEnforcer(
+  rateLimitConfig?: Partial<RateLimitConfig>,
+  concurrencyConfig?: Partial<ConcurrencyLimitConfig>
+): SandboxResourceEnforcer {
+  return new SandboxResourceEnforcer(rateLimitConfig, concurrencyConfig)
 }
 
 // Storage for captured operations (shared between sandbox instances)

@@ -324,17 +324,33 @@ export async function generateText(
   // Use real AI SDK for actual models
   const { generateText: aiGenerateText } = await import('ai')
 
-  const result = await aiGenerateText({
-    ...options,
-    model,
-  })
+  // Build options object carefully to avoid type issues with exactOptionalPropertyTypes
+  const sdkOptions: Record<string, unknown> = { model }
+  if (options.prompt !== undefined) sdkOptions['prompt'] = options.prompt
+  if (options.messages !== undefined) sdkOptions['messages'] = options.messages
+  if (options.system !== undefined) sdkOptions['system'] = options.system
+  if (options.maxTokens !== undefined) sdkOptions['maxTokens'] = options.maxTokens
+  if (options.temperature !== undefined) sdkOptions['temperature'] = options.temperature
+  if (options.topP !== undefined) sdkOptions['topP'] = options.topP
+  if (options.topK !== undefined) sdkOptions['topK'] = options.topK
+  if (options.presencePenalty !== undefined) sdkOptions['presencePenalty'] = options.presencePenalty
+  if (options.frequencyPenalty !== undefined) sdkOptions['frequencyPenalty'] = options.frequencyPenalty
+  if (options.seed !== undefined) sdkOptions['seed'] = options.seed
+  if (options.maxRetries !== undefined) sdkOptions['maxRetries'] = options.maxRetries
+  if (options.abortSignal !== undefined) sdkOptions['abortSignal'] = options.abortSignal
+  if (options.headers !== undefined) sdkOptions['headers'] = options.headers
+  if (options.tools !== undefined) sdkOptions['tools'] = options.tools
+  if (options.toolChoice !== undefined) sdkOptions['toolChoice'] = options.toolChoice
+  if (options.maxSteps !== undefined) sdkOptions['maxSteps'] = options.maxSteps
+
+  const result = await aiGenerateText(sdkOptions as Parameters<typeof aiGenerateText>[0])
 
   return {
     text: result.text,
     usage: {
-      promptTokens: result.usage?.promptTokens || 0,
-      completionTokens: result.usage?.completionTokens || 0,
-      totalTokens: result.usage?.totalTokens || 0,
+      promptTokens: result.usage?.inputTokens ?? 0,
+      completionTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
     },
     finishReason: result.finishReason,
   }
@@ -417,9 +433,9 @@ export async function generateObject<T>(
   return {
     object: result.object as T,
     usage: {
-      promptTokens: result.usage?.promptTokens || 0,
-      completionTokens: result.usage?.completionTokens || 0,
-      totalTokens: result.usage?.totalTokens || 0,
+      promptTokens: result.usage?.inputTokens ?? 0,
+      completionTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
     },
     finishReason: result.finishReason,
   }
@@ -464,18 +480,23 @@ export async function streamText(
 
   const model = await resolveModel(options.model)
 
-  const result = aiStreamText({
-    ...options,
-    model,
-  })
+  // Filter out undefined values to satisfy exactOptionalPropertyTypes
+  const filteredOptions: Record<string, unknown> = { model }
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined && key !== 'model') {
+      filteredOptions[key] = value
+    }
+  }
+
+  const result = aiStreamText(filteredOptions as Parameters<typeof aiStreamText>[0])
 
   return {
     textStream: result.textStream,
     fullStream: result.fullStream,
-    usage: result.usage.then((u: any) => ({
-      promptTokens: u?.promptTokens || 0,
-      completionTokens: u?.completionTokens || 0,
-      totalTokens: u?.totalTokens || 0,
+    usage: Promise.resolve(result.usage).then((u: any) => ({
+      promptTokens: u?.inputTokens ?? 0,
+      completionTokens: u?.outputTokens ?? 0,
+      totalTokens: u?.totalTokens ?? 0,
     })),
   }
 }
@@ -633,13 +654,16 @@ export interface CompletionOptions {
  * @deprecated Use generateText instead
  */
 export async function complete(options: CompletionOptions): Promise<string> {
-  const result = await generateText({
+  // Build options object with only defined values
+  const genOptions: GenerateTextOptions = {
     model: options.model,
     prompt: options.prompt,
-    system: options.system,
-    maxTokens: options.maxTokens,
-    temperature: options.temperature,
-  })
+  }
+  if (options.system !== undefined) genOptions.system = options.system
+  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
+  if (options.temperature !== undefined) genOptions.temperature = options.temperature
+
+  const result = await generateText(genOptions)
 
   return result.text
 }
@@ -675,12 +699,15 @@ export interface ChatOptions {
  * ```
  */
 export async function chat(options: ChatOptions): Promise<string> {
-  const result = await generateText({
+  // Build options object with only defined values
+  const genOptions: GenerateTextOptions = {
     model: options.model,
     messages: options.messages,
-    maxTokens: options.maxTokens,
-    temperature: options.temperature,
-  })
+  }
+  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
+  if (options.temperature !== undefined) genOptions.temperature = options.temperature
+
+  const result = await generateText(genOptions)
 
   return result.text
 }
