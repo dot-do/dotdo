@@ -6,7 +6,8 @@ import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
 import { IntegrationRegistry } from '../integrations'
-import { RPCError, NotFoundError, InternalError } from '../rpc/errors'
+import { RPCError, NotFoundError, InternalError, serializeUnknownError } from '../rpc/errors'
+import type { BatchRPCCall, BatchRPCResult, BatchRPCResponse } from '../rpc/batch-rpc'
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('[DO]')
@@ -145,6 +146,75 @@ export class DO implements DurableObject {
         // Wrap unknown errors in InternalError
         const wrappedError = InternalError.wrap(error)
         logger.error('RPC error:', error)
+        return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
+      }
+    })
+
+    // Batch RPC endpoint - execute multiple calls in parallel (do-rljr.7)
+    this.app.post('/rpc/batch', async (c) => {
+      const correlationId = c.req.header('X-Correlation-ID')
+
+      try {
+        const { calls } = await c.req.json<{ calls: BatchRPCCall[] }>()
+
+        if (!Array.isArray(calls)) {
+          const error = new NotFoundError('Invalid batch request: calls must be an array')
+          return c.json(error.toJSON(), error.httpStatus)
+        }
+
+        // Execute all calls in parallel
+        const results: BatchRPCResult[] = await Promise.all(
+          calls.map(async (call, index): Promise<BatchRPCResult> => {
+            const callId = call.id ?? `call-${index}`
+
+            try {
+              // Navigate to method
+              const parts = call.method.split('.')
+              let current: any = this
+
+              for (let i = 0; i < parts.length - 1; i++) {
+                current = current[parts[i]]
+                if (!current) {
+                  return {
+                    id: callId,
+                    error: new NotFoundError(`Method not found: ${call.method}`).toJSON(),
+                  }
+                }
+              }
+
+              const fn = current[parts[parts.length - 1]]
+              if (typeof fn !== 'function') {
+                return {
+                  id: callId,
+                  error: new NotFoundError(`Method not found: ${call.method}`).toJSON(),
+                }
+              }
+
+              const result = await fn.apply(current, call.args ?? [])
+              return { id: callId, result }
+            } catch (error) {
+              // Serialize the error
+              return {
+                id: callId,
+                error: serializeUnknownError(error),
+              }
+            }
+          })
+        )
+
+        const response: BatchRPCResponse = {
+          results,
+          correlationId: correlationId ?? undefined,
+        }
+
+        return c.json(response)
+      } catch (error) {
+        // Handle request-level errors (e.g., invalid JSON)
+        if (error instanceof RPCError) {
+          return c.json(error.toJSON(), error.httpStatus)
+        }
+        const wrappedError = InternalError.wrap(error)
+        logger.error('Batch RPC error:', error)
         return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
       }
     })
