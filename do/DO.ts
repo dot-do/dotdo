@@ -5,7 +5,11 @@ import type { WorkflowContext } from './context'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
-import { RPCError, RPCErrorCode, NotFoundError, InternalError } from '../rpc/errors'
+import { IntegrationRegistry } from '../integrations'
+import { RPCError, NotFoundError, InternalError } from '../rpc/errors'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[DO]')
 
 export interface DOEnv {
   [key: string]: unknown
@@ -23,6 +27,7 @@ export class DO implements DurableObject {
   private routesInitialized = false
   private entityManager: EntityManager
   private websocketManager: WebSocketManager
+  private _integrations: IntegrationRegistry
 
   constructor(state: DurableObjectState, env: DOEnv, options: DOOptions = {}) {
     this.state = state
@@ -30,6 +35,7 @@ export class DO implements DurableObject {
     this.app = new Hono()
     this.entityManager = new EntityManager()
     this.websocketManager = new WebSocketManager()
+    this._integrations = new IntegrationRegistry()
 
     // Setup middleware
     if (options.cors !== false) {
@@ -43,6 +49,11 @@ export class DO implements DurableObject {
   // WebSocket manager accessor
   get ws(): WebSocketManager {
     return this.websocketManager
+  }
+
+  // Integration registry accessor
+  get integrations(): IntegrationRegistry {
+    return this._integrations
   }
 
   // Entity store accessors
@@ -121,7 +132,7 @@ export class DO implements DurableObject {
         }
         // Wrap unknown errors in InternalError
         const wrappedError = InternalError.wrap(error)
-        console.error('[DO] RPC error:', error)
+        logger.error('RPC error:', error)
         return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
       }
     })
@@ -137,7 +148,7 @@ export class DO implements DurableObject {
   }
 
   // Subclasses can override to add routes
-  protected routes(app: Hono): void {
+  protected routes(_app: Hono): void {
     // Override in subclass
   }
 
@@ -169,7 +180,7 @@ export class DO implements DurableObject {
    * Handle WebSocket close event
    * By default, cleans up WebSocket tracking
    */
-  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     this.websocketManager.cleanupWebSocket(ws)
   }
 
@@ -180,7 +191,7 @@ export class DO implements DurableObject {
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     // Log with context - no silent catches
     const errorMessage = error instanceof Error ? error.message : 'Unknown WebSocket error'
-    console.error('[DO] WebSocket error:', errorMessage, error)
+    logger.error('WebSocket error:', errorMessage, error)
     this.websocketManager.cleanupWebSocket(ws)
   }
 }

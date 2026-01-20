@@ -246,6 +246,55 @@ export {
   addWorkerHeaders,
 } from './auth'
 
+// Third-party integration registry (do-laux)
+export {
+  IntegrationRegistry,
+  IntegrationRegistryError,
+  integrationRegistry,
+  registerIntegration,
+  getIntegration,
+  successResult,
+  errorResult,
+  type Integration,
+  type IntegrationConfig,
+  type IntegrationStatus,
+  type IntegrationMetadata,
+  type IntegrationCategory,
+  type IntegrationResult,
+  type IntegrationError,
+  type IntegrationEvent,
+  type IntegrationWebhookHandler,
+  type IntegrationFactory,
+  type RegisterIntegrationOptions,
+  type RegisteredIntegration,
+  type ListIntegrationsOptions,
+  type IntegrationSummary,
+} from '../integrations'
+
+// Example integrations
+export {
+  StripeIntegration,
+  createStripeIntegration,
+  type StripeConfig,
+  type StripeCustomer,
+  type StripePaymentIntent,
+  type StripeSubscription,
+  type StripeMethods,
+} from '../integrations/stripe'
+
+export {
+  SendGridIntegration,
+  createSendGridIntegration,
+  type SendGridConfig,
+  type EmailRecipient,
+  type EmailAttachment,
+  type SendEmailRequest,
+  type SendEmailResponse,
+  type SendGridContact,
+  type EmailStats,
+  type SendGridMethods,
+} from '../integrations/sendgrid'
+
 // Extended primitives with AI assistance (fsx, gitx, bashx)
 export {
   // File System Extended
