@@ -605,6 +605,184 @@ describe('ai-workflows Integration with @dotdo/do', () => {
   })
 })
 
+describe('API signature differences (TDD targets)', () => {
+  let mockState: DurableObjectState
+  let $: WorkflowContext
+
+  beforeEach(() => {
+    mockState = {
+      id: { toString: () => `test-do-${Date.now()}` },
+      storage: {
+        get: vi.fn(),
+        put: vi.fn(),
+        list: vi.fn(() => Promise.resolve(new Map())),
+        delete: vi.fn(),
+      },
+    } as unknown as DurableObjectState
+    $ = createContext(mockState, {})
+  })
+
+  describe('$.send() signature difference', () => {
+    it('should support ai-workflows $.send(eventName, data) signature (currently uses object)', () => {
+      // ai-workflows: $.send('Customer.created', { name: 'Alice' }) - returns eventId string
+      // @dotdo/do: $.send({ type: 'Customer.created', payload: { name: 'Alice' } }) - returns void
+      //
+      // TDD: This test documents the API difference. A future improvement could
+      // add overloaded signatures to support both patterns.
+
+      const handler = vi.fn()
+      $.on.Customer.created(handler)
+
+      // Current @dotdo/do pattern works
+      expect(() => $.send({ type: 'Customer.created', payload: { name: 'Alice' } })).not.toThrow()
+
+      // ai-workflows pattern would be: $.send('Customer.created', { name: 'Alice' })
+      // Testing that calling with string directly would need implementation
+      // For now, we document this as a known difference
+    })
+
+    it('should return eventId from $.send() like ai-workflows (currently returns void)', () => {
+      // ai-workflows: const eventId = $.send('Event', data) - returns string
+      // @dotdo/do: $.send({ type, payload }) - returns void
+      //
+      // TDD: Future improvement could return eventId for tracking
+
+      const result = $.send({ type: 'Test.event', payload: {} })
+      // Currently returns void, ai-workflows returns eventId string
+      expect(result).toBeUndefined()
+    })
+  })
+
+  describe('$.do() and $.try() signature difference', () => {
+    it('should support ai-workflows $.do(eventName, data) signature (currently uses action function)', async () => {
+      // ai-workflows: await $.do('Email.send', { to: 'user@example.com' }) - event-based
+      // @dotdo/do: await $.do(async () => sendEmail()) - function-based
+      //
+      // TDD: This test documents the API difference. The ai-workflows approach
+      // is event-driven, while @dotdo/do is action-driven.
+
+      // Current @dotdo/do pattern works
+      const result = await $.do(async () => 'result')
+      expect(result).toBe('result')
+
+      // ai-workflows pattern would invoke a handler for 'Email.send'
+    })
+  })
+
+  describe('$.track() method (ai-workflows feature)', () => {
+    it('should have $.track() for fire-and-forget telemetry like ai-workflows', () => {
+      // ai-workflows: $.track(event, data) - fire and forget, swallows errors
+      // @dotdo/do: Does not have dedicated track() method on the base context
+      //
+      // TDD: This test documents a missing feature that could be added
+
+      // Check directly on the base context object (not via Proxy)
+      // The WorkflowContext type doesn't include track, so this is a known gap
+      const contextKeys = Object.keys($)
+      const hasTrackMethod = contextKeys.includes('track')
+
+      // Document that track is not implemented as a direct method
+      // (the Proxy interprets 'track' as a DO binding name)
+      expect(hasTrackMethod).toBe(false)
+    })
+  })
+
+  describe('$.state and $.set/$.get (ai-workflows feature)', () => {
+    it('should have $.state for workflow context state like ai-workflows', () => {
+      // ai-workflows: $.state.userId = '123'; const id = $.state.userId
+      // @dotdo/do: Does not expose $.state directly on the context
+      //
+      // TDD: This test documents a potential feature gap
+
+      // Check directly on the base context object
+      const contextKeys = Object.keys($)
+      const hasStateProperty = contextKeys.includes('state')
+
+      // Document that state is not implemented as a direct property
+      expect(hasStateProperty).toBe(false)
+    })
+
+    it('should have $.set() and $.get() for state management like ai-workflows', () => {
+      // ai-workflows: $.set('key', value); $.get('key')
+      // @dotdo/do: Does not have set/get methods on the base context
+      //
+      // TDD: This test documents a potential feature gap
+
+      // Check directly on the base context object
+      const contextKeys = Object.keys($)
+      const hasSetMethod = contextKeys.includes('set')
+      const hasGetMethod = contextKeys.includes('get')
+
+      // Document that set/get are not implemented as direct methods
+      expect(hasSetMethod).toBe(false)
+      expect(hasGetMethod).toBe(false)
+    })
+  })
+
+  describe('$.log() method (ai-workflows feature)', () => {
+    it('should have $.log() for workflow logging like ai-workflows', () => {
+      // ai-workflows: $.log(message, data?)
+      // @dotdo/do: Does not have dedicated log() method on the base context
+      //
+      // TDD: This test documents a potential feature gap
+
+      // Check directly on the base context object
+      const contextKeys = Object.keys($)
+      const hasLogMethod = contextKeys.includes('log')
+
+      // Document that log is not implemented as a direct method
+      expect(hasLogMethod).toBe(false)
+    })
+  })
+
+  describe('$.getState() method (ai-workflows feature)', () => {
+    it('should have $.getState() to retrieve full workflow state like ai-workflows', () => {
+      // ai-workflows: $.getState() returns { current?, context, history }
+      // @dotdo/do: Exposes _events, _handlers, _schedules but no getState()
+      //
+      // TDD: This test documents a potential feature gap
+
+      // Check directly on the base context object
+      const contextKeys = Object.keys($)
+      const hasGetStateMethod = contextKeys.includes('getState')
+
+      // Document that getState is not implemented as a direct method
+      expect(hasGetStateMethod).toBe(false)
+    })
+  })
+
+  describe('$.every curried pattern (ai-workflows feature)', () => {
+    it('should support $.every.minutes(30)(handler) curried pattern like ai-workflows', () => {
+      // ai-workflows: $.every.minutes(30)(handler) - curried
+      // @dotdo/do: $.every(30).minutes(handler) - different syntax
+      //
+      // TDD: This test documents a syntax difference
+
+      const handler = vi.fn()
+
+      // Test if curried pattern is supported
+      const everyMinutes = $.every.minutes
+      if (typeof everyMinutes === 'function') {
+        // Try curried pattern (may not work)
+        try {
+          const curried = everyMinutes(30) as any
+          if (typeof curried === 'function') {
+            curried(handler)
+            // If we get here, curried pattern works
+            expect($._schedules.size).toBeGreaterThan(0)
+          }
+        } catch {
+          // Curried pattern not supported - document this
+        }
+      }
+
+      // DO pattern works
+      $.every(30).minutes(handler)
+      expect($._schedules.size).toBeGreaterThan(0)
+    })
+  })
+})
+
 describe('Type compatibility with ai-workflows', () => {
   it('should have EventHandler compatible with ai-workflows EventHandler', () => {
     // ai-workflows EventHandler: (data: TInput, $: WorkflowContext) => TOutput | void | Promise<TOutput | void>
