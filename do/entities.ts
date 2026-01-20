@@ -139,6 +139,14 @@ export class EntityManager {
       async count(options?) {
         await ensureInit()
         return baseStore.count(options)
+      },
+      async deleteOlderThan(timestamp: number) {
+        await ensureInit()
+        return baseStore.deleteOlderThan(timestamp)
+      },
+      async deleteAll() {
+        await ensureInit()
+        return baseStore.deleteAll()
       }
     }
   }
@@ -340,10 +348,70 @@ export class EntityManager {
   }
 
   /**
-   * Events store (direct access, no wrapping needed)
+   * Events store with initialization guarantee for async operations
+   * Synchronous methods (subscribe, DLQ, validation tracking) pass through directly
    */
   get events(): EventsStore {
-    return this._events
+    const baseStore = this._events
+    const ensureInit = () => this.ensureInitialized()
+
+    return {
+      // Async methods that need initialization
+      async emit(event) {
+        await ensureInit()
+        return baseStore.emit(event)
+      },
+      async get(id: string) {
+        await ensureInit()
+        return baseStore.get(id)
+      },
+      async query(options?) {
+        await ensureInit()
+        return baseStore.query(options)
+      },
+      async queryWithCursor(options?) {
+        await ensureInit()
+        return baseStore.queryWithCursor(options)
+      },
+      async setRetentionPolicy(policy) {
+        await ensureInit()
+        return baseStore.setRetentionPolicy(policy)
+      },
+      async getRetentionPolicy() {
+        await ensureInit()
+        return baseStore.getRetentionPolicy()
+      },
+      async count(filter?) {
+        await ensureInit()
+        return baseStore.count(filter)
+      },
+      async cleanup(options?) {
+        await ensureInit()
+        return baseStore.cleanup(options)
+      },
+      async getStorageUsage() {
+        await ensureInit()
+        return baseStore.getStorageUsage()
+      },
+      // Synchronous methods pass through directly (in-memory operations)
+      subscribe: (handler) => baseStore.subscribe(handler),
+      addToDeadLetterQueue: (entry) => baseStore.addToDeadLetterQueue(entry),
+      getDeadLetterQueue: () => baseStore.getDeadLetterQueue(),
+      queryDeadLetterQueue: (options?) => baseStore.queryDeadLetterQueue(options),
+      removeFromDeadLetterQueue: (eventId) => baseStore.removeFromDeadLetterQueue(eventId),
+      async replayDeadLetterQueue(options?) {
+        await ensureInit()
+        return baseStore.replayDeadLetterQueue(options)
+      },
+      addValidationFailure: (failure) => baseStore.addValidationFailure(failure),
+      queryValidationFailures: (options?) => baseStore.queryValidationFailures(options),
+      setEventRetryStatus: (eventId, status) => baseStore.setEventRetryStatus(eventId, status),
+      getEventRetryStatus: (eventId) => baseStore.getEventRetryStatus(eventId),
+      recordRetryAttempt: (eventType, succeeded, retryCount) => baseStore.recordRetryAttempt(eventType, succeeded, retryCount),
+      getRetryMetrics: () => baseStore.getRetryMetrics(),
+      setDurabilityConfig: (config) => baseStore.setDurabilityConfig(config),
+      getDurabilityConfig: (eventType) => baseStore.getDurabilityConfig(eventType)
+    }
   }
 
   /**
@@ -439,7 +507,7 @@ export function withEntities<T extends EntityMixinConstructor>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 
-    constructor(...args: any[]) {
+    constructor(...args: unknown[]) {
       super(...args)
       this.entityManager = new EntityManager()
     }

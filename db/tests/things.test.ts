@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createThingsStore, type Thing, type ThingsStore } from '../things'
-import { ValidationError, NotFoundError } from '../../rpc/errors'
+import { DbValidationError, DbNotFoundError } from '../errors'
 
 describe('Things Store', () => {
   let store: ThingsStore
@@ -22,17 +22,17 @@ describe('Things Store', () => {
 
     it('should require $type', async () => {
       // Intentionally passing invalid input to test runtime validation
-      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow(ValidationError)
+      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow(DbValidationError)
       await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow('$type is required')
     })
 
     it('should require $type to be a string', async () => {
-      await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow(ValidationError)
+      await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow(DbValidationError)
       await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow('must be a string')
     })
 
     it('should require $type to not be empty', async () => {
-      await expect(store.create({ $type: '' })).rejects.toThrow(ValidationError)
+      await expect(store.create({ $type: '' })).rejects.toThrow(DbValidationError)
       await expect(store.create({ $type: '   ' })).rejects.toThrow('cannot be empty')
     })
 
@@ -85,8 +85,8 @@ describe('Things Store', () => {
       expect(updated.$updatedAt).toBeGreaterThanOrEqual(created.$updatedAt)
     })
 
-    it('should throw NotFoundError for non-existent thing', async () => {
-      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow(NotFoundError)
+    it('should throw DbNotFoundError for non-existent thing', async () => {
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow(DbNotFoundError)
       await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing with id non-existent not found')
     })
 
@@ -131,8 +131,8 @@ describe('Things Store', () => {
       expect(result).toBeNull()
     })
 
-    it('should throw NotFoundError for non-existent thing', async () => {
-      await expect(store.delete('non-existent')).rejects.toThrow(NotFoundError)
+    it('should throw DbNotFoundError for non-existent thing', async () => {
+      await expect(store.delete('non-existent')).rejects.toThrow(DbNotFoundError)
       await expect(store.delete('non-existent')).rejects.toThrow('Thing with id non-existent not found')
     })
   })
@@ -255,7 +255,7 @@ describe('Things Store', () => {
         // Intentionally passing invalid input to test atomic rollback
         { name: 'No Type' } as unknown as { $type: string }, // Missing $type
         { $type: 'Customer', name: 'Bob' }
-      ])).rejects.toThrow(ValidationError)
+      ])).rejects.toThrow(DbValidationError)
 
       // Count after - should be unchanged (atomic rollback)
       const afterCount = (await store.list()).length
@@ -322,7 +322,7 @@ describe('Things Store', () => {
       await expect(store.bulkUpdate([
         { id: created[0]!.$id, data: { status: 'inactive' } },
         { id: 'non-existent', data: { status: 'inactive' } }
-      ])).rejects.toThrow(NotFoundError)
+      ])).rejects.toThrow(DbNotFoundError)
 
       // Alice should be unchanged (atomic rollback)
       const alice = await store.get(created[0]!.$id)
@@ -442,7 +442,7 @@ describe('Things Store', () => {
       await expect(store.bulkDelete([
         created[0]!.$id,
         'non-existent'
-      ])).rejects.toThrow(NotFoundError)
+      ])).rejects.toThrow(DbNotFoundError)
 
       // Alice should still exist (atomic rollback)
       expect(await store.get(created[0]!.$id)).not.toBeNull()

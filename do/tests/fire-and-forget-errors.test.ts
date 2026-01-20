@@ -113,9 +113,9 @@ describe('fire-and-forget-errors module', () => {
 
         const errors = store.query()
         expect(errors).toHaveLength(1)
-        expect(errors[0].id).toMatch(/^ffe-/)
-        expect(errors[0].timestamp).toBeGreaterThan(0)
-        expect(errors[0].recovered).toBe(false)
+        expect(errors[0]!.id).toMatch(/^ffe-/)
+        expect(errors[0]!.timestamp).toBeGreaterThan(0)
+        expect(errors[0]!.recovered).toBe(false)
       })
 
       it('should track all error fields', () => {
@@ -132,11 +132,11 @@ describe('fire-and-forget-errors module', () => {
         })
 
         const errors = store.query()
-        expect(errors[0].eventType).toBe('Customer.signup')
-        expect(errors[0].handlerIndex).toBe(2)
-        expect(errors[0].stack).toContain('Connection refused')
-        expect(errors[0].context).toEqual({ customerId: 'cust-123' })
-        expect(errors[0].attempts).toBe(3)
+        expect(errors[0]!.eventType).toBe('Customer.signup')
+        expect(errors[0]!.handlerIndex).toBe(2)
+        expect(errors[0]!.stack).toContain('Connection refused')
+        expect(errors[0]!.context).toEqual({ customerId: 'cust-123' })
+        expect(errors[0]!.attempts).toBe(3)
       })
     })
 
@@ -169,19 +169,19 @@ describe('fire-and-forget-errors module', () => {
       it('should filter by operation', () => {
         const results = store.query({ operation: 'workflow.send' })
         expect(results).toHaveLength(1)
-        expect(results[0].eventType).toBe('Customer.signup')
+        expect(results[0]!.eventType).toBe('Customer.signup')
       })
 
       it('should filter by eventType', () => {
         const results = store.query({ eventType: 'Order.placed' })
         expect(results).toHaveLength(1)
-        expect(results[0].message).toBe('Error 1')
+        expect(results[0]!.message).toBe('Error 1')
       })
 
       it('should filter by errorType', () => {
         const results = store.query({ errorType: 'ValidationError' })
         expect(results).toHaveLength(1)
-        expect(results[0].message).toBe('Error 2')
+        expect(results[0]!.message).toBe('Error 2')
       })
 
       it('should support pagination with limit and offset', () => {
@@ -195,7 +195,7 @@ describe('fire-and-forget-errors module', () => {
       it('should sort by timestamp descending', () => {
         const results = store.query()
         for (let i = 0; i < results.length - 1; i++) {
-          expect(results[i].timestamp).toBeGreaterThanOrEqual(results[i + 1].timestamp)
+          expect(results[i]!.timestamp).toBeGreaterThanOrEqual(results[i + 1]!.timestamp)
         }
       })
     })
@@ -210,7 +210,7 @@ describe('fire-and-forget-errors module', () => {
         })
 
         const errors = store.query()
-        const retrieved = store.get(errors[0].id)
+        const retrieved = store.get(errors[0]!.id)
 
         expect(retrieved).toBeDefined()
         expect(retrieved?.message).toBe('Test error')
@@ -231,11 +231,11 @@ describe('fire-and-forget-errors module', () => {
         })
 
         const errors = store.query()
-        const result = store.markRecovered(errors[0].id)
+        const result = store.markRecovered(errors[0]!.id)
 
         expect(result).toBe(true)
 
-        const updated = store.get(errors[0].id)
+        const updated = store.get(errors[0]!.id)
         expect(updated?.recovered).toBe(true)
         expect(updated?.recoveredAt).toBeGreaterThan(0)
       })
@@ -249,8 +249,8 @@ describe('fire-and-forget-errors module', () => {
         })
 
         const errors = store.query()
-        store.markRecovered(errors[0].id)
-        const result = store.markRecovered(errors[0].id) // second call
+        store.markRecovered(errors[0]!.id)
+        const result = store.markRecovered(errors[0]!.id) // second call
 
         expect(result).toBe(false)
       })
@@ -286,7 +286,7 @@ describe('fire-and-forget-errors module', () => {
 
         // Mark one as recovered
         const errors = store.query()
-        store.markRecovered(errors[0].id)
+        store.markRecovered(errors[0]!.id)
 
         const stats = store.getStats()
 
@@ -356,7 +356,7 @@ describe('fire-and-forget-errors module', () => {
         })
 
         const errors = store.query()
-        store.markRecovered(errors[0].id)
+        store.markRecovered(errors[0]!.id)
 
         const recovered = store.query({ recoveredOnly: true })
         const unresolved = store.query({ unresolvedOnly: true })
