@@ -49,3 +49,14 @@ export {
   type JSONSchemaProperty,
   type MCPServerConfig
 } from './codegen/mcp'
+
+// Rate limiting middleware
+export {
+  RateLimiter,
+  rateLimitMiddleware,
+  createRateLimiter,
+  DEFAULT_TIERS,
+  type RateLimitConfig,
+  type RateLimitTier,
+  type RateLimitResult,
+} from './middleware/rate-limit'
