@@ -1,52 +1,76 @@
-// API Key Authentication for @dotdo/auth
-// Provides key generation, validation, scoping, rate limiting, and rotation
-//
-// Usage:
-//
-// ```typescript
-// import { ApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
-//
-// // Create manager
-// const manager = new ApiKeyManager()
-//
-// // Generate a new API key
-// const { key, apiKey } = await manager.create({
-//   name: 'Production API Key',
-//   scopes: ['users:read', 'posts:*'],
-//   rateLimit: { maxRequests: 1000, windowMs: 60000 },
-//   metadata: { userId: '123', team: 'engineering' }
-// })
-//
-// // Validate key
-// const result = await manager.validate(key)
-// if (result.valid) {
-//   console.log('Valid key:', result.apiKey)
-// }
-//
-// // Use as Hono middleware
-// app.use('/api/*', createApiKeyMiddleware(manager, {
-//   requireScopes: ['api:read']
-// }))
-//
-// // Rotate key
-// const { key: newKey } = await manager.rotate(apiKey.id)
-//
-// // Revoke key
-// await manager.revoke(apiKey.id)
-// ```
+/**
+ * @dotdo/auth - API Key Authentication
+ *
+ * Provides complete API key lifecycle management including:
+ * - Key generation with cryptographic randomness
+ * - Secure storage with SHA-256 hashing
+ * - Scope-based authorization
+ * - Rate limiting per key
+ * - Key rotation and revocation
+ *
+ * @module @dotdo/auth/apikey
+ *
+ * @example
+ * ```typescript
+ * import { ApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
+ *
+ * // Create manager
+ * const manager = new ApiKeyManager()
+ *
+ * // Generate a new API key
+ * const { key, apiKey } = await manager.create({
+ *   name: 'Production API Key',
+ *   scopes: ['users:read', 'posts:*'],
+ *   rateLimit: { maxRequests: 1000, windowMs: 60000 },
+ *   metadata: { userId: '123', team: 'engineering' }
+ * })
+ *
+ * // Validate key
+ * const result = await manager.validate(key)
+ * if (result.valid) {
+ *   console.log('Valid key:', result.apiKey)
+ * }
+ *
+ * // Use as Hono middleware
+ * app.use('/api/*', createApiKeyMiddleware(manager, {
+ *   requireScopes: ['api:read']
+ * }))
+ *
+ * // Rotate key
+ * const { key: newKey } = await manager.rotate(apiKey.id)
+ *
+ * // Revoke key
+ * await manager.revoke(apiKey.id)
+ * ```
+ */
 
+/**
+ * Stored API key information (never contains the raw key).
+ */
 export interface ApiKey {
+  /** Unique identifier for this API key */
   id: string
+  /** Human-readable name for the key */
   name: string
+  /** SHA-256 hash of the raw key for validation */
   hashedKey: string
+  /** First 12 characters for identification (e.g., 'dotdo_abc123') */
   prefix: string
+  /** Authorization scopes (e.g., ['users:read', 'posts:*']) */
   scopes: string[]
+  /** Whether the key is currently active */
   active: boolean
+  /** When the key was created */
   createdAt: Date
+  /** Optional expiration date */
   expiresAt?: Date
+  /** When the key was revoked (if revoked) */
   revokedAt?: Date
+  /** Last time the key was used */
   lastUsedAt?: Date
+  /** Custom metadata attached to the key */
   metadata?: Record<string, unknown>
+  /** Optional rate limiting configuration */
   rateLimit?: {
     maxRequests: number
     windowMs: number
@@ -81,7 +105,32 @@ export interface RateLimitWindow {
 }
 
 /**
- * API Key Manager - handles key lifecycle
+ * API Key Manager - handles full API key lifecycle.
+ *
+ * Manages creation, validation, rotation, and revocation of API keys.
+ * Keys are stored with SHA-256 hashing for security - the raw key
+ * is only returned once during creation and cannot be retrieved later.
+ *
+ * @example
+ * ```typescript
+ * const manager = new ApiKeyManager()
+ *
+ * // Create a key
+ * const { key, apiKey } = await manager.create({
+ *   name: 'My API Key',
+ *   scopes: ['read', 'write'],
+ *   rateLimit: { maxRequests: 100, windowMs: 60000 }
+ * })
+ *
+ * // Save the raw key - it won't be accessible again!
+ * console.log('Save this key:', key)
+ *
+ * // Later, validate the key
+ * const result = await manager.validate(key)
+ * if (result.valid) {
+ *   console.log('Access granted with scopes:', result.apiKey.scopes)
+ * }
+ * ```
  */
 export class ApiKeyManager {
   private keys: Map<string, ApiKey> = new Map()
@@ -283,7 +332,10 @@ export class ApiKeyManager {
 }
 
 /**
- * API Key Authentication utilities
+ * API Key authentication utilities - static helper methods.
+ *
+ * Provides low-level utilities for key generation, hashing, and scope checking.
+ * For most use cases, use ApiKeyManager instead.
  */
 export class ApiKeyAuth {
   /**
@@ -386,7 +438,36 @@ export class ApiKeyAuth {
 }
 
 /**
- * Hono middleware for API key authentication
+ * Create Hono middleware for API key authentication.
+ *
+ * This middleware validates API keys using an ApiKeyManager and supports
+ * scope-based authorization and rate limiting.
+ *
+ * @param manager - The ApiKeyManager instance for key validation
+ * @param options - Middleware configuration options
+ * @param options.header - Header name for API key (default: 'X-API-Key')
+ * @param options.requireScopes - Scopes required to access the route
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * import { ApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
+ *
+ * const manager = new ApiKeyManager()
+ *
+ * // Require 'api:read' scope for this route
+ * app.use('/api/*', createApiKeyMiddleware(manager, {
+ *   requireScopes: ['api:read']
+ * }))
+ *
+ * app.get('/api/data', (c) => {
+ *   const apiKey = c.get('apiKey')
+ *   return c.json({
+ *     data: 'sensitive',
+ *     scopes: apiKey.scopes
+ *   })
+ * })
+ * ```
  */
 export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
   header?: string
