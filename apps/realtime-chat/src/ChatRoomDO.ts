@@ -157,7 +157,7 @@ export class ChatRoomDO implements DurableObject {
 
       // Create WebSocket pair
       const pair = new WebSocketPair()
-      const [client, server] = Object.values(pair)
+      const [client, server] = Object.values(pair) as [WebSocket, WebSocket]
 
       // Accept the WebSocket with hibernation support
       this.state.acceptWebSocket(server)
@@ -338,7 +338,7 @@ export class ChatRoomDO implements DurableObject {
       await this.initialize()
 
       const pair = new WebSocketPair()
-      const [client, server] = Object.values(pair)
+      const [client, server] = Object.values(pair) as [WebSocket, WebSocket]
 
       // Accept with hibernation
       this.state.acceptWebSocket(server)

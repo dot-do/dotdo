@@ -336,17 +336,20 @@ export class DashboardDO implements DurableObject {
       )
       const eventRows = [...eventsCursor]
 
-      const recentEvents: DOEvent[] = eventRows.map((e) => ({
-        id: e.id,
-        doId: e.do_id,
-        doName: e.do_name,
-        type: e.type,
-        payload: e.payload ? JSON.parse(e.payload) : undefined,
-        status: e.status as DOEvent['status'],
-        timestamp: e.timestamp,
-        duration: e.duration ?? undefined,
-        error: e.error ?? undefined,
-      }))
+      const recentEvents: DOEvent[] = eventRows.map((e) => {
+        const event: DOEvent = {
+          id: e.id,
+          doId: e.do_id,
+          doName: e.do_name,
+          type: e.type,
+          payload: e.payload ? JSON.parse(e.payload) : undefined,
+          status: e.status as DOEvent['status'],
+          timestamp: e.timestamp,
+        }
+        if (e.duration != null) event.duration = e.duration
+        if (e.error != null) event.error = e.error
+        return event
+      })
 
       return c.json({ registration, metrics, recentEvents })
     })
@@ -444,17 +447,20 @@ export class DashboardDO implements DurableObject {
       const cursor = this.sql.exec<DOEventRow>(query, ...params)
       const rows = [...cursor]
 
-      const events: DOEvent[] = rows.map((row) => ({
-        id: row.id,
-        doId: row.do_id,
-        doName: row.do_name,
-        type: row.type,
-        payload: row.payload ? JSON.parse(row.payload) : undefined,
-        status: row.status as DOEvent['status'],
-        timestamp: row.timestamp,
-        duration: row.duration ?? undefined,
-        error: row.error ?? undefined,
-      }))
+      const events: DOEvent[] = rows.map((row) => {
+        const event: DOEvent = {
+          id: row.id,
+          doId: row.do_id,
+          doName: row.do_name,
+          type: row.type,
+          payload: row.payload ? JSON.parse(row.payload) : undefined,
+          status: row.status as DOEvent['status'],
+          timestamp: row.timestamp,
+        }
+        if (row.duration != null) event.duration = row.duration
+        if (row.error != null) event.error = row.error
+        return event
+      })
 
       // Get total count with filters
       let countQuery = 'SELECT COUNT(*) as count FROM do_events WHERE 1=1'
