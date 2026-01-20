@@ -44,6 +44,9 @@ const defaultExcludes = [
   '**/primitives/**',
   '**/dist/**',
   '**/build/**',
+  // Miniflare integration tests require workers pool config
+  // Run with: npx vitest --config rpc/vitest.config.ts
+  'rpc/tests/miniflare-integration.test.ts',
 ]
 
 export default defineConfig({
