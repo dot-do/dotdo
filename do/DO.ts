@@ -568,8 +568,37 @@ export class DO implements DurableObject {
   /**
    * Schedule a one-time alarm to execute a handler after a delay
    *
+   * LIMITATION: Handlers are NOT serialized and will be lost on DO restart
+   *
+   * This method schedules a one-time alarm with the following behavior:
+   * - If the alarm fires before the DO restarts: ✓ Works normally
+   * - If the DO restarts before the alarm fires: ✗ Handler is lost silently
+   *
+   * The alarm metadata (timing) IS persisted, but the handler function IS NOT
+   * because JavaScript functions cannot be serialized to JSON.
+   *
+   * When a DO restarts:
+   * 1. The alarm metadata is restored from storage
+   * 2. The handler reference is gone (stored only in-memory)
+   * 3. When the alarm fires, executeOneTimeAlarms() finds no handler
+   * 4. The alarm is silently skipped with a warning log
+   * 5. The work never executes
+   *
+   * RECOMMENDATIONS:
+   * For critical work that must survive restarts:
+   * - Use recurring schedules ($.every.X) instead
+   * - Store work intent in persistent data (Thing, Entity, etc.)
+   * - Implement a persistent job queue pattern
+   * - Re-register handlers in DO initialization if needed
+   * - Use $.do() with explicit retry logic for important operations
+   *
+   * This is safe for:
+   * - Short-lived tasks that will complete before any likely restart
+   * - Non-critical operations (e.g., cache invalidation, metrics)
+   * - Tasks with external idempotency guarantees
+   *
    * @param delayMs - Delay in milliseconds before execution
-   * @param handler - The handler function to execute
+   * @param handler - The handler function to execute (not persisted)
    * @returns Promise that resolves when alarm is scheduled
    */
   protected async scheduleOneTimeAlarm(delayMs: number, handler: () => Promise<void>): Promise<void> {
@@ -578,14 +607,14 @@ export class DO implements DurableObject {
     const id = `one-time-${Date.now()}-${Math.random().toString(36).slice(2)}`
     const runAt = Date.now() + delayMs
 
-    // Store the alarm metadata
+    // Store the alarm metadata (PERSISTED)
     this.alarmStore.oneTimeAlarms.set(id, {
       id,
       runAt,
       handlerRef: id,
     })
 
-    // Store the handler reference (in-memory only)
+    // Store the handler reference (IN-MEMORY ONLY, not persisted)
     this.alarmStore.oneTimeHandlers.set(id, handler)
 
     // Persist and schedule

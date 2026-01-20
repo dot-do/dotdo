@@ -552,30 +552,18 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
 
 /**
  * SQLite-backed EventsStore
+ *
+ * DLQ, validation failures, retry status, and retry metrics are persisted to SQLite
+ * to survive DO hibernation and restarts (do-6dc7.6).
  */
 export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
   const sql = adapter.getSql()
   const subscribers = new Set<(event: Event) => void>()
 
-  // Retention policy state
+  // Retention policy state (kept in-memory as it's configuration, not data)
   let retentionPolicy: RetentionPolicy | undefined
 
-  // Dead letter queue storage (in-memory, could be moved to SQLite table)
-  const deadLetterQueue: DLQEntry[] = []
-
-  // Validation failure storage
-  const validationFailures: ValidationFailure[] = []
-
-  // Event retry status tracking
-  const eventRetryStatus = new Map<string, EventRetryStatus>()
-
-  // Retry metrics per event type
-  const retryMetricsData = new Map<
-    string,
-    { totalEvents: number; totalRetries: number; successes: number }
-  >()
-
-  // Durability configuration
+  // Durability configuration (kept in-memory as it's configuration, not data)
   let durabilityConfig: Record<string, DurabilityConfig> = {}
   const defaultDurabilityConfig: DurabilityConfig = { retries: 3, backoff: 'exponential' }
 
@@ -820,43 +808,116 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       }
     },
 
-    // Dead letter queue methods (stub implementations for SQLite - can be extended)
+    // Dead letter queue methods - SQLite-persisted (do-6dc7.6)
     addToDeadLetterQueue(entry) {
-      deadLetterQueue.push({
-        ...entry,
-        timestamp: Date.now()
-      })
+      const id = generateId()
+      const timestamp = Date.now()
+
+      sql
+        .prepare(
+          `INSERT INTO dead_letter_queue
+           (id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          entry.event.$id,
+          entry.event.type,
+          JSON.stringify(entry.event.payload),
+          entry.event.$timestamp,
+          entry.event.source || null,
+          entry.event.correlationId || null,
+          entry.attempts,
+          entry.lastError,
+          entry.handlerIndex ?? null,
+          timestamp
+        )
+        .run()
     },
 
     getDeadLetterQueue() {
-      return [...deadLetterQueue]
+      const result = sql
+        .prepare(
+          `SELECT id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp
+           FROM dead_letter_queue
+           ORDER BY timestamp DESC`
+        )
+        .bind()
+        .all()
+
+      return result.results.map((row) => ({
+        event: {
+          $id: row.event_id as string,
+          type: row.event_type as string,
+          payload: JSON.parse(row.event_payload as string),
+          $timestamp: row.event_timestamp as number,
+          source: (row.event_source as string) || undefined,
+          correlationId: (row.event_correlation_id as string) || undefined
+        },
+        attempts: row.attempts as number,
+        lastError: row.last_error as string,
+        handlerIndex: row.handler_index as number | undefined,
+        timestamp: row.timestamp as number
+      }))
     },
 
     queryDeadLetterQueue(options) {
-      let results = [...deadLetterQueue]
+      let query = `SELECT id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp
+                   FROM dead_letter_queue WHERE 1=1`
+      const params: unknown[] = []
 
       if (options?.type) {
-        results = results.filter((entry) => entry.event.type === options.type)
+        query += ' AND event_type = ?'
+        params.push(options.type)
       }
 
       if (options?.since) {
-        results = results.filter((entry) => entry.timestamp >= options.since!)
+        query += ' AND timestamp >= ?'
+        params.push(options.since)
       }
+
+      query += ' ORDER BY timestamp DESC'
 
       if (options?.limit) {
-        results = results.slice(0, options.limit)
+        query += ' LIMIT ?'
+        params.push(options.limit)
       }
 
-      return results
+      const result = sql.prepare(query).bind(...params).all()
+
+      return result.results.map((row) => ({
+        event: {
+          $id: row.event_id as string,
+          type: row.event_type as string,
+          payload: JSON.parse(row.event_payload as string),
+          $timestamp: row.event_timestamp as number,
+          source: (row.event_source as string) || undefined,
+          correlationId: (row.event_correlation_id as string) || undefined
+        },
+        attempts: row.attempts as number,
+        lastError: row.last_error as string,
+        handlerIndex: row.handler_index as number | undefined,
+        timestamp: row.timestamp as number
+      }))
     },
 
     removeFromDeadLetterQueue(eventId) {
-      const index = deadLetterQueue.findIndex((entry) => entry.event.$id === eventId)
-      if (index >= 0) {
-        deadLetterQueue.splice(index, 1)
-        return true
+      // Check if exists
+      const existing = sql
+        .prepare('SELECT 1 FROM dead_letter_queue WHERE event_id = ?')
+        .bind(eventId)
+        .first()
+
+      if (!existing) {
+        return false
       }
-      return false
+
+      sql
+        .prepare('DELETE FROM dead_letter_queue WHERE event_id = ?')
+        .bind(eventId)
+        .run()
+
+      return true
     },
 
     async replayDeadLetterQueue(options) {
@@ -877,62 +938,137 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       return replayedEvents
     },
 
-    // Validation failure tracking
+    // Validation failure tracking - SQLite-persisted (do-6dc7.6)
     addValidationFailure(failure) {
-      validationFailures.push({
-        ...failure,
-        timestamp: Date.now()
-      })
+      const id = generateId()
+      const timestamp = Date.now()
+
+      sql
+        .prepare(
+          `INSERT INTO validation_failures (id, type, payload, error, details, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          failure.type,
+          JSON.stringify(failure.payload),
+          failure.error,
+          failure.details ? JSON.stringify(failure.details) : null,
+          timestamp
+        )
+        .run()
     },
 
     queryValidationFailures(options) {
-      if (!options?.type) {
-        return [...validationFailures]
+      let query = `SELECT id, type, payload, error, details, timestamp FROM validation_failures`
+      const params: unknown[] = []
+
+      if (options?.type) {
+        query += ' WHERE type = ?'
+        params.push(options.type)
       }
-      return validationFailures.filter((f) => f.type === options.type)
+
+      query += ' ORDER BY timestamp DESC'
+
+      const result = sql.prepare(query).bind(...params).all()
+
+      return result.results.map((row) => ({
+        type: row.type as string,
+        payload: JSON.parse(row.payload as string),
+        error: row.error as string,
+        details: row.details ? JSON.parse(row.details as string) : undefined,
+        timestamp: row.timestamp as number
+      }))
     },
 
-    // Retry status tracking
+    // Retry status tracking - SQLite-persisted (do-6dc7.6)
     setEventRetryStatus(eventId, status) {
-      eventRetryStatus.set(eventId, status)
+      // Use UPSERT (INSERT OR REPLACE) to handle both insert and update
+      sql
+        .prepare(
+          `INSERT OR REPLACE INTO event_retry_status (event_id, attempts, succeeded, last_attempt, errors)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(
+          eventId,
+          status.attempts,
+          status.succeeded ? 1 : 0,
+          status.lastAttempt,
+          status.errors ? JSON.stringify(status.errors) : null
+        )
+        .run()
     },
 
     getEventRetryStatus(eventId) {
-      return eventRetryStatus.get(eventId)
+      const row = sql
+        .prepare('SELECT event_id, attempts, succeeded, last_attempt, errors FROM event_retry_status WHERE event_id = ?')
+        .bind(eventId)
+        .first()
+
+      if (!row) return undefined
+
+      return {
+        attempts: row.attempts as number,
+        succeeded: (row.succeeded as number) === 1,
+        lastAttempt: row.last_attempt as number,
+        errors: row.errors ? JSON.parse(row.errors as string) : undefined
+      }
     },
 
-    // Retry metrics
+    // Retry metrics - SQLite-persisted (do-6dc7.6)
     recordRetryAttempt(eventType, succeeded, retryCount) {
-      const existing = retryMetricsData.get(eventType) || {
-        totalEvents: 0,
-        totalRetries: 0,
-        successes: 0
-      }
+      // First check if entry exists
+      const existing = sql
+        .prepare('SELECT total_events, total_retries, successes FROM retry_metrics WHERE event_type = ?')
+        .bind(eventType)
+        .first()
 
-      existing.totalEvents++
-      existing.totalRetries += retryCount
-      if (succeeded) {
-        existing.successes++
+      if (existing) {
+        // Update existing entry
+        sql
+          .prepare(
+            `UPDATE retry_metrics
+             SET total_events = total_events + 1,
+                 total_retries = total_retries + ?,
+                 successes = successes + ?
+             WHERE event_type = ?`
+          )
+          .bind(retryCount, succeeded ? 1 : 0, eventType)
+          .run()
+      } else {
+        // Insert new entry
+        sql
+          .prepare(
+            `INSERT INTO retry_metrics (event_type, total_events, total_retries, successes)
+             VALUES (?, 1, ?, ?)`
+          )
+          .bind(eventType, retryCount, succeeded ? 1 : 0)
+          .run()
       }
-
-      retryMetricsData.set(eventType, existing)
     },
 
     getRetryMetrics() {
-      const result: Record<string, RetryMetrics> = {}
+      const result = sql
+        .prepare('SELECT event_type, total_events, total_retries, successes FROM retry_metrics')
+        .bind()
+        .all()
 
-      for (const [eventType, data] of retryMetricsData) {
-        result[eventType] = {
-          totalEvents: data.totalEvents,
-          totalRetries: data.totalRetries,
-          successRate: data.totalEvents > 0 ? data.successes / data.totalEvents : 0
+      const metrics: Record<string, RetryMetrics> = {}
+
+      for (const row of result.results) {
+        const totalEvents = row.total_events as number
+        const successes = row.successes as number
+        metrics[row.event_type as string] = {
+          totalEvents,
+          totalRetries: row.total_retries as number,
+          successRate: totalEvents > 0 ? successes / totalEvents : 0
         }
       }
 
-      return result
+      return metrics
     },
 
-    // Durability configuration
+    // Durability configuration (kept in-memory as it's configuration)
     setDurabilityConfig(config) {
       durabilityConfig = config
     },

@@ -229,20 +229,19 @@ export class EntityManager {
       logger.error(`Event emission failed for ${eventInput.type}:`, error)
 
       // Add to dead letter queue for programmatic observability
+      // Note: The emit() function now handles handler failures internally,
+      // so this only catches cases where emit() itself fails (e.g., storage error)
       this._events.addToDeadLetterQueue({
         event: {
-          $id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          $id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` as ReturnType<typeof import('@dotdo/db').generateEventId>,
           $timestamp: Date.now(),
           type: eventInput.type,
           payload: eventInput.payload,
           source: eventInput.source,
           correlationId: eventInput.correlationId
         },
-        lastError: errorMessage,
-        errorStack,
-        attempts: 1,
-        firstFailedAt: Date.now(),
-        lastFailedAt: Date.now()
+        lastError: errorMessage + (errorStack ? `\n${errorStack}` : ''),
+        attempts: 1
       })
 
       // Do NOT re-throw - entity operations should succeed even if event emission fails

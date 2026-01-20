@@ -201,4 +201,45 @@ export {
 // Re-export AI SDK types from ai-providers for convenience
 // Note: 'Provider' from ai-providers is re-exported as 'AISDKProvider' to avoid
 // conflict with local 'AIProvider' type from ./providers
-export type { Provider as AISDKProvider, ProviderRegistryProvider } from 'ai-providers'
+export type { Provider as AISDKProvider } from 'ai-providers'
+
+// ============================================================================
+// Export caching utilities from ai-functions (do-8wsa.5)
+// Provides content-addressable caching for embeddings and generations
+// with TTL support and LRU eviction
+// ============================================================================
+// NOTE: Exported from primitives package due to ai-functions package
+// import issues (blocked by do-8wsa.1 - ai-providers/cloudflare import resolution)
+//
+// Once do-8wsa.1 is fixed, these can be imported directly from 'ai-functions'
+
+export {
+  // Core cache storage abstraction
+  type CacheStorage,
+  type CacheEntry,
+  type CacheOptions,
+  type CacheStats,
+
+  // Memory cache implementation with TTL and LRU eviction
+  MemoryCache,
+  type MemoryCacheOptions,
+
+  // Specialized caches for different use cases
+  EmbeddingCache,
+  type EmbeddingCacheOptions,
+  type BatchEmbeddingResult,
+
+  GenerationCache,
+  type GenerationParams,
+  type GenerationCacheGetOptions,
+
+  // Cache wrapper utility for any async function
+  withCache,
+  type WithCacheOptions,
+  type CachedFunction,
+
+  // Key generation utilities for cache keys
+  hashKey,
+  createCacheKey,
+  type CacheKeyType,
+} from '../primitives/packages/ai-functions/dist/cache.js'

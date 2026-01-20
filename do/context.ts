@@ -92,6 +92,32 @@ import { createContext } from './workflow'
  *   await generateWeeklyReport()
  * })
  * ```
+ *
+ * DESIGN NOTE: Type casting is necessary here (do-6dc7.11)
+ *
+ * This function uses a single `as` cast (not double cast) to convert WorkflowContext
+ * to TypedWorkflowContext<B, E>. This is necessary because:
+ *
+ * 1. The runtime structure returned by createContext() is WorkflowContext wrapped in
+ *    a Proxy (via createDORPCProxy) that dynamically provides DO binding accessors
+ *
+ * 2. TypeScript cannot express this dynamic property access pattern without either:
+ *    - Index signatures (too loose, allows any property)
+ *    - Explicit type cast (what we use)
+ *
+ * 3. The cast is safe at runtime because:
+ *    - createContext() returns the correct proxy structure
+ *    - All properties accessed via $.Customer(id), $.on, $.every, etc. are
+ *      properly validated by the Proxy handler
+ *    - DO bindings are looked up from `env` with proper error handling
+ *
+ * 4. Alternatives considered:
+ *    - Adding `Record<string, unknown>` to WorkflowContext: Too loose, loses type info
+ *    - Using index signatures: Same problem as above
+ *    - Generating context factory per binding: Would require build-time code generation
+ *
+ * The cast is a pragmatic trade-off: we get full type safety for users (proper
+ * inference in their code) at the cost of one cast at this boundary.
  */
 export function createTypedContext<
   B extends DOBindingsConstraint = EmptyBindings,
@@ -101,7 +127,11 @@ export function createTypedContext<
   env: unknown,
   options?: CreateTypedContextOptions
 ): TypedWorkflowContext<B, E> {
-  // The underlying createContext already creates the proper proxy structure
-  // We just cast the result to the typed version for compile-time type checking
-  return createContext(state, env, options) as unknown as TypedWorkflowContext<B, E>
+  // Single cast: WorkflowContext → TypedWorkflowContext<B, E>
+  //
+  // Safe because createContext() returns WorkflowContext wrapped in a Proxy
+  // (via createDORPCProxy) that provides dynamic DO binding accessors.
+  // These accessors are type-safe at the boundary but look like generic
+  // Record<string, DOStubFactory> to TypeScript.
+  return createContext(state, env, options) as TypedWorkflowContext<B, E>
 }

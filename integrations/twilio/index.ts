@@ -11,6 +11,7 @@ import type {
   IntegrationEvent,
 } from '../types'
 import { successResult, errorResult } from '../registry'
+import { verifyTwilioSignature } from '../webhook-verify'
 
 /**
  * Twilio-specific configuration
@@ -26,6 +27,10 @@ export interface TwilioConfig extends IntegrationConfig {
   messagingServiceSid?: string
   /** Webhook URL for status callbacks */
   statusCallbackUrl?: string
+  /** Base URL for webhook signature verification (required for signature validation) */
+  webhookBaseUrl?: string
+  /** Whether to validate webhook signatures (default: true if authToken is present) */
+  validateWebhookSignature?: boolean
 }
 
 /**
