@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "ai-functions": "file:../primitives/packages/ai-functions",
     "@ai-sdk/anthropic": "^3.0.16",
     "@ai-sdk/google": "^3.0.10",
     "@ai-sdk/openai": "^3.0.13",
@@ -23,6 +24,7 @@
     "js-tiktoken": "^1.0.21"
   },
   "devDependencies": {
+    "ai-evaluate": "file:../primitives/packages/ai-evaluate",
     "typescript": "^5.7.0"
   }
 }

@@ -280,7 +280,7 @@ export interface GenerateTextResult {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string
+  finishReason?: string | undefined
   toolCalls?: Array<{
     name: string
     arguments: unknown
@@ -384,7 +384,7 @@ export interface GenerateObjectResult<T = unknown> {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string
+  finishReason?: string | undefined
 }
 
 /**
@@ -584,7 +584,7 @@ export async function embedText(
     }))
   )
 
-  return results.map(r => r.embedding)
+  return results.map((r: { embedding: number[] }) => r.embedding)
 }
 
 // ============================================================================

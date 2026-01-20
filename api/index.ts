@@ -10,6 +10,13 @@ export {
   getResource,
   getAllResources,
   clearRegistry,
+  clearGlobalRegistry,
+  // Request-scoped context for tenant isolation
+  createResourceContext,
+  runWithResourceContext,
+  getCurrentResourceContext,
+  getOrCreateResourceContext,
+  type ResourceContext,
   type ResourceDefinition,
   type ResourceFields,
   type FieldDef,

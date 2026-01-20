@@ -92,7 +92,7 @@ describe('validation', () => {
     })
 
     it('should throw MissingSecretError when key is missing', () => {
-      const env = {}
+      const env: Record<string, unknown> = {}
       expect(() => getRequiredSecret(env, 'JWT_SECRET')).toThrow(MissingSecretError)
       expect(() => getRequiredSecret(env, 'JWT_SECRET')).toThrow('JWT_SECRET is required')
     })
@@ -108,7 +108,7 @@ describe('validation', () => {
     })
 
     it('should include context in error message', () => {
-      const env = {}
+      const env: Record<string, unknown> = {}
       expect(() => getRequiredSecret(env, 'JWT_SECRET', 'authentication')).toThrow(
         'JWT_SECRET is required for authentication'
       )

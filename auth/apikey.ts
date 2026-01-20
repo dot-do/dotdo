@@ -63,30 +63,30 @@ export interface ApiKey {
   /** When the key was created */
   createdAt: Date
   /** Optional expiration date */
-  expiresAt?: Date
+  expiresAt?: Date | undefined
   /** When the key was revoked (if revoked) */
-  revokedAt?: Date
+  revokedAt?: Date | undefined
   /** Last time the key was used */
-  lastUsedAt?: Date
+  lastUsedAt?: Date | undefined
   /** Custom metadata attached to the key */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> | undefined
   /** Optional rate limiting configuration */
   rateLimit?: {
     maxRequests: number
     windowMs: number
-  }
+  } | undefined
 }
 
 export interface ApiKeyCreateOptions {
   name: string
   prefix?: string
   scopes?: string[]
-  expiresAt?: Date
-  metadata?: Record<string, unknown>
+  expiresAt?: Date | undefined
+  metadata?: Record<string, unknown> | undefined
   rateLimit?: {
     maxRequests: number
     windowMs: number
-  }
+  } | undefined
 }
 
 export interface ApiKeyValidationResult {
@@ -327,7 +327,7 @@ export class ApiKeyManager {
    * Generate a unique ID
    */
   private generateId(): string {
-    return `key_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`
+    return `key_${crypto.randomUUID()}`
   }
 }
 

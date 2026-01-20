@@ -40,3 +40,6 @@ export type {
 // Discovery exports
 export { ToolRegistry, ToolCategory, createDefaultRegistry } from './discovery'
 export type { ToolMetadata } from './discovery'
+
+// Type exports (local definitions to avoid @dotdo/do dependency)
+export type { WorkflowContext, DoOptions } from './types'

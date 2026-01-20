@@ -268,11 +268,11 @@ export function createSQLiteRevocationStore(sql: SqlStorage): TokenRevocationSto
 
       const result = await sql.prepare(query).bind(...params).all()
 
-      return result.results.map((row) => ({
+      return result.results.map((row): TokenRevocation => ({
         jti: row.jti as string,
         revokedAt: row.revoked_at as number,
         expiresAt: row.expires_at as number,
-        reason: (row.reason as string) || undefined,
+        reason: (row.reason as string | undefined) || undefined,
       }))
     },
 

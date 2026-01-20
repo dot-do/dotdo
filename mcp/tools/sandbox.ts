@@ -1,7 +1,7 @@
 // sandbox tool - Execute code in a secure sandbox with $ context injection
 import type { MCPTool } from '../server'
 import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits, type SandboxResourceEnforcer } from '../sandbox'
-import type { WorkflowContext } from '@dotdo/do'
+import type { WorkflowContext } from '../types'
 
 export interface SandboxParams {
   code: string

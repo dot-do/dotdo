@@ -3,6 +3,7 @@
 // Base for database.do managed service
 
 export * from './types'
+export * from './errors'
 export * from './branded-types'
 export * from './storage'
 export * from './adapters'

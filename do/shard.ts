@@ -236,7 +236,7 @@ export class ShardRouter {
 
     // Look for ID-like segments (not pure route names)
     for (let i = segments.length - 1; i >= 0; i--) {
-      const segment = segments[i]
+      const segment = segments[i]!
       // Skip common route names
       if (['api', 'v1', 'v2', 'rpc'].includes(segment)) continue
       // Return if it looks like an ID (has numbers, dashes, or is long)

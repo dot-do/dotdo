@@ -43,12 +43,12 @@ describe('OpenAPI Generation', () => {
       const spec = generateOpenAPI({ app })
 
       expect(spec.paths['/users']).toBeDefined()
-      expect(spec.paths['/users'].get).toBeDefined()
-      expect(spec.paths['/users'].post).toBeDefined()
+      expect(spec.paths['/users']!.get).toBeDefined()
+      expect(spec.paths['/users']!.post).toBeDefined()
       expect(spec.paths['/users/{id}']).toBeDefined()
-      expect(spec.paths['/users/{id}'].get).toBeDefined()
-      expect(spec.paths['/users/{id}'].put).toBeDefined()
-      expect(spec.paths['/users/{id}'].delete).toBeDefined()
+      expect(spec.paths['/users/{id}']!.get).toBeDefined()
+      expect(spec.paths['/users/{id}']!.put).toBeDefined()
+      expect(spec.paths['/users/{id}']!.delete).toBeDefined()
     })
 
     it('should convert Hono path params to OpenAPI format', () => {
@@ -58,12 +58,12 @@ describe('OpenAPI Generation', () => {
       const spec = generateOpenAPI({ app })
 
       expect(spec.paths['/users/{userId}/orders/{orderId}']).toBeDefined()
-      const operation = spec.paths['/users/{userId}/orders/{orderId}'].get
+      const operation = spec.paths['/users/{userId}/orders/{orderId}']!.get!
       expect(operation.parameters).toHaveLength(2)
-      expect(operation.parameters[0].name).toBe('userId')
-      expect(operation.parameters[0].in).toBe('path')
-      expect(operation.parameters[0].required).toBe(true)
-      expect(operation.parameters[1].name).toBe('orderId')
+      expect(operation.parameters![0]!.name).toBe('userId')
+      expect(operation.parameters![0]!.in).toBe('path')
+      expect(operation.parameters![0]!.required).toBe(true)
+      expect(operation.parameters![1]!.name).toBe('orderId')
     })
 
     it('should generate schema from Zod types', () => {
@@ -83,16 +83,16 @@ describe('OpenAPI Generation', () => {
         }
       })
 
-      expect(spec.components.schemas.User).toBeDefined()
-      expect(spec.components.schemas.User.type).toBe('object')
-      expect(spec.components.schemas.User.properties.id).toBeDefined()
-      expect(spec.components.schemas.User.properties.email.type).toBe('string')
-      expect(spec.components.schemas.User.properties.email.format).toBe('email')
-      expect(spec.components.schemas.User.properties.age.type).toBe('number')
-      expect(spec.components.schemas.User.properties.active.default).toBe(true)
-      expect(spec.components.schemas.User.required).toContain('id')
-      expect(spec.components.schemas.User.required).toContain('name')
-      expect(spec.components.schemas.User.required).not.toContain('age')
+      expect(spec.components!.schemas!.User).toBeDefined()
+      expect(spec.components!.schemas!.User!.type).toBe('object')
+      expect(spec.components!.schemas!.User!.properties!.id).toBeDefined()
+      expect(spec.components!.schemas!.User!.properties!.email!.type).toBe('string')
+      expect(spec.components!.schemas!.User!.properties!.email!.format).toBe('email')
+      expect(spec.components!.schemas!.User!.properties!.age!.type).toBe('number')
+      expect(spec.components!.schemas!.User!.properties!.active!.default).toBe(true)
+      expect(spec.components!.schemas!.User!.required).toContain('id')
+      expect(spec.components!.schemas!.User!.required).toContain('name')
+      expect(spec.components!.schemas!.User!.required).not.toContain('age')
     })
 
     it('should generate schemas from resource definitions', () => {
@@ -113,9 +113,9 @@ describe('OpenAPI Generation', () => {
 
       const spec = generateOpenAPI({ app, resources })
 
-      expect(spec.components.schemas.Customer).toBeDefined()
-      expect(spec.components.schemas.Customer.properties.name).toBeDefined()
-      expect(spec.components.schemas.Customer.properties.email).toBeDefined()
+      expect(spec.components!.schemas!.Customer).toBeDefined()
+      expect(spec.components!.schemas!.Customer!.properties!.name).toBeDefined()
+      expect(spec.components!.schemas!.Customer!.properties!.email).toBeDefined()
     })
 
     it('should add request body schemas for POST/PUT operations', () => {
@@ -140,12 +140,12 @@ describe('OpenAPI Generation', () => {
 
       const postOp = spec.paths['/users']?.post
       expect(postOp).toBeDefined()
-      expect(postOp.requestBody).toBeDefined()
-      expect(postOp.requestBody.content['application/json'].schema.$ref).toBe(
+      expect(postOp!.requestBody).toBeDefined()
+      expect(postOp!.requestBody!.content!['application/json']!.schema!.$ref).toBe(
         '#/components/schemas/User'
       )
-      expect(postOp.responses['201']).toBeDefined()
-      expect(postOp.responses['201'].content['application/json'].schema.$ref).toBe(
+      expect(postOp!.responses['201']).toBeDefined()
+      expect(postOp!.responses['201']!.content!['application/json']!.schema!.$ref).toBe(
         '#/components/schemas/User'
       )
     })
@@ -170,8 +170,8 @@ describe('OpenAPI Generation', () => {
       })
 
       const getOp = spec.paths['/users']?.get
-      expect(getOp.responses['200']).toBeDefined()
-      expect(getOp.responses['200'].content['application/json'].schema.$ref).toBe(
+      expect(getOp!.responses['200']).toBeDefined()
+      expect(getOp!.responses['200']!.content!['application/json']!.schema!.$ref).toBe(
         '#/components/schemas/UserList'
       )
     })
@@ -192,10 +192,10 @@ describe('OpenAPI Generation', () => {
       })
 
       const getOp = spec.paths['/users']?.get
-      expect(getOp.parameters).toHaveLength(3)
-      expect(getOp.parameters.find((p) => p.name === 'page')).toBeDefined()
-      expect(getOp.parameters.find((p) => p.name === 'limit')).toBeDefined()
-      expect(getOp.parameters.find((p) => p.name === 'search')).toBeDefined()
+      expect(getOp!.parameters).toHaveLength(3)
+      expect(getOp!.parameters!.find((p) => p.name === 'page')).toBeDefined()
+      expect(getOp!.parameters!.find((p) => p.name === 'limit')).toBeDefined()
+      expect(getOp!.parameters!.find((p) => p.name === 'search')).toBeDefined()
     })
 
     it('should include operation descriptions and summaries', () => {
@@ -212,9 +212,9 @@ describe('OpenAPI Generation', () => {
       })
 
       const getOp = spec.paths['/users']?.get
-      expect(getOp.summary).toBe('List all users')
-      expect(getOp.description).toBe('Retrieve a paginated list of all users in the system')
-      expect(getOp.tags).toContain('Users')
+      expect(getOp!.summary).toBe('List all users')
+      expect(getOp!.description).toBe('Retrieve a paginated list of all users in the system')
+      expect(getOp!.tags).toContain('Users')
     })
 
     it('should support authentication schemes', () => {
@@ -230,9 +230,9 @@ describe('OpenAPI Generation', () => {
         }
       })
 
-      expect(spec.components.securitySchemes.bearerAuth).toBeDefined()
-      expect(spec.components.securitySchemes.bearerAuth.type).toBe('http')
-      expect(spec.components.securitySchemes.bearerAuth.scheme).toBe('bearer')
+      expect(spec.components!.securitySchemes!.bearerAuth).toBeDefined()
+      expect(spec.components!.securitySchemes!.bearerAuth!.type).toBe('http')
+      expect(spec.components!.securitySchemes!.bearerAuth!.scheme).toBe('bearer')
     })
 
     it('should apply security requirements to operations', () => {
@@ -254,8 +254,8 @@ describe('OpenAPI Generation', () => {
       })
 
       const postOp = spec.paths['/users']?.post
-      expect(postOp.security).toBeDefined()
-      expect(postOp.security[0].apiKey).toBeDefined()
+      expect(postOp!.security).toBeDefined()
+      expect(postOp!.security![0]!.apiKey).toBeDefined()
     })
 
     it('should support tags and grouping', () => {
@@ -273,8 +273,8 @@ describe('OpenAPI Generation', () => {
       })
 
       expect(spec.tags).toHaveLength(2)
-      expect(spec.tags[0].name).toBe('Users')
-      expect(spec.tags[1].description).toBe('Order management operations')
+      expect(spec.tags![0]!.name).toBe('Users')
+      expect(spec.tags![1]!.description).toBe('Order management operations')
     })
 
     it('should support servers configuration', () => {
@@ -288,8 +288,8 @@ describe('OpenAPI Generation', () => {
       })
 
       expect(spec.servers).toHaveLength(2)
-      expect(spec.servers[0].url).toBe('https://api.example.com')
-      expect(spec.servers[1].description).toBe('Staging')
+      expect(spec.servers![0]!.url).toBe('https://api.example.com')
+      expect(spec.servers![1]!.description).toBe('Staging')
     })
   })
 
@@ -324,8 +324,8 @@ describe('OpenAPI Generation', () => {
       const schema = generator.zodToOpenAPI(zodSchema)
 
       expect(schema.type).toBe('object')
-      expect(schema.properties.name.type).toBe('string')
-      expect(schema.properties.age.type).toBe('number')
+      expect(schema.properties!.name!.type).toBe('string')
+      expect(schema.properties!.age!.type).toBe('number')
       expect(schema.required).toEqual(['name', 'age'])
     })
 
@@ -334,7 +334,7 @@ describe('OpenAPI Generation', () => {
       const schema = generator.zodToOpenAPI(z.array(z.string()))
 
       expect(schema.type).toBe('array')
-      expect(schema.items.type).toBe('string')
+      expect(schema.items!.type).toBe('string')
     })
 
     it('should handle Zod optional fields', () => {
@@ -404,10 +404,10 @@ describe('OpenAPI Generation', () => {
       })
       const schema = generator.zodToOpenAPI(zodSchema)
 
-      expect(schema.properties.user.type).toBe('object')
-      expect(schema.properties.user.properties.name.type).toBe('string')
-      expect(schema.properties.user.properties.address.type).toBe('object')
-      expect(schema.properties.user.properties.address.properties.street.type).toBe('string')
+      expect(schema.properties!.user!.type).toBe('object')
+      expect(schema.properties!.user!.properties!.name!.type).toBe('string')
+      expect(schema.properties!.user!.properties!.address!.type).toBe('object')
+      expect(schema.properties!.user!.properties!.address!.properties!.street!.type).toBe('string')
     })
 
     it('should extract path parameters from Hono route', () => {

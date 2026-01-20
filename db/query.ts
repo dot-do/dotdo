@@ -6,7 +6,7 @@
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
-import { ValidationError } from '@dotdo/rpc/errors'
+import { ValidationError } from './errors'
 import { toThingId } from './branded-types'
 
 // ============================================================

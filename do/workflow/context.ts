@@ -282,8 +282,7 @@ export function createContext(
     const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
 
     // Handle failed handlers - add to DLQ, track validation failures, and track in error store
-    for (let i = 0; i < result.failed.length; i++) {
-      const failure = result.failed[i]
+    for (const [i, failure] of result.failed.entries()) {
       const errorInfo = extractErrorInfo(failure.error)
 
       // Track in fire-and-forget error store

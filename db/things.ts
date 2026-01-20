@@ -14,7 +14,7 @@ import { toThingId } from './branded-types'
 import { generateId } from './id'
 import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
 import { applyCursorPagination } from './pagination'
-import { ValidationError, NotFoundError } from '@dotdo/rpc/errors'
+import { ValidationError, NotFoundError } from './errors'
 
 /**
  * Base Thing interface with system fields
@@ -343,8 +343,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       }
 
       // Validate all items first
-      for (let i = 0; i < items.length; i++) {
-        const data = items[i]
+      for (const [i, data] of items.entries()) {
         if (!data.$type) {
           throw ValidationError.forField(`items[${i}].$type`, 'is required', undefined)
         }
@@ -575,8 +574,7 @@ export function createThingsStore(): ThingsStore {
       }
 
       // Validate all items first (atomic: fail before any changes)
-      for (let i = 0; i < items.length; i++) {
-        const data = items[i]
+      for (const [i, data] of items.entries()) {
         if (!data.$type) {
           throw ValidationError.forField(`items[${i}].$type`, 'is required', undefined)
         }

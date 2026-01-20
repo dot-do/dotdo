@@ -32,11 +32,11 @@ export interface AuthUser {
   /** User ID from the JWT subject (sub) claim. */
   id: string
   /** User email from the email claim. */
-  email?: string
+  email?: string | undefined
   /** User roles from the roles claim. */
-  roles?: string[]
+  roles?: string[] | undefined
   /** OAuth scopes from the scopes claim. */
-  scopes?: string[]
+  scopes?: string[] | undefined
 }
 
 declare module 'hono' {

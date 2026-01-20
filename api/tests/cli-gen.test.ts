@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateCLI, type CLIGeneratorOptions } from '../codegen/cli'
+import { generateCLI, type CLIGeneratorOptions, type CLICommand, type CLIOption, type CLIStructure } from '../codegen/cli'
 import type { ResourceDefinition } from '../resource'
 import { z } from 'zod'
 
@@ -55,7 +55,7 @@ describe('CLI Generation', () => {
       const cli = generateCLI(resources)
 
       // Should have a command for 'customers'
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       expect(customerCommand).toBeDefined()
       expect(customerCommand?.description).toBe('Manage Customer resources')
     })
@@ -64,7 +64,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       expect(customerCommand?.subcommands).toBeDefined()
 
       const subcommandNames = customerCommand?.subcommands?.map((s) => s.name) || []
@@ -79,7 +79,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const subcommandNames = customerCommand?.subcommands?.map((s) => s.name) || []
 
       // Custom actions from resource definition
@@ -91,7 +91,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const subcommandNames = customerCommand?.subcommands?.map((s) => s.name) || []
 
       // Should have a command for accessing related orders
@@ -104,7 +104,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const createCommand = customerCommand?.subcommands?.find((s) => s.name === 'create')
 
       expect(createCommand?.options).toBeDefined()
@@ -120,7 +120,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const createCommand = customerCommand?.subcommands?.find((s) => s.name === 'create')
 
       const nameOption = createCommand?.options?.find((o) => o.name === 'name')
@@ -134,7 +134,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const createCommand = customerCommand?.subcommands?.find((s) => s.name === 'create')
 
       const nameOption = createCommand?.options?.find((o) => o.name === 'name')
@@ -148,7 +148,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const createCommand = customerCommand?.subcommands?.find((s) => s.name === 'create')
 
       const planOption = createCommand?.options?.find((o) => o.name === 'plan')
@@ -163,7 +163,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const listCommand = customerCommand?.subcommands?.find((s) => s.name === 'list')
 
       expect(listCommand?.description).toBeDefined()
@@ -174,7 +174,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const createCommand = customerCommand?.subcommands?.find((s) => s.name === 'create')
 
       const nameOption = createCommand?.options?.find((o) => o.name === 'name')
@@ -185,7 +185,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const createCommand = customerCommand?.subcommands?.find((s) => s.name === 'create')
 
       expect(createCommand?.examples).toBeDefined()
@@ -198,7 +198,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const listCommand = customerCommand?.subcommands?.find((s) => s.name === 'list')
 
       const formatOption = listCommand?.options?.find((o) => o.name === 'format')
@@ -210,7 +210,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const listCommand = customerCommand?.subcommands?.find((s) => s.name === 'list')
 
       const formatOption = listCommand?.options?.find((o) => o.name === 'format')
@@ -221,7 +221,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const listCommand = customerCommand?.subcommands?.find((s) => s.name === 'list')
 
       const formatOption = listCommand?.options?.find((o) => o.name === 'format')
@@ -232,7 +232,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const listCommand = customerCommand?.subcommands?.find((s) => s.name === 'list')
 
       const formatOption = listCommand?.options?.find((o) => o.name === 'format')
@@ -318,7 +318,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const getCommand = customerCommand?.subcommands?.find((s) => s.name === 'get')
 
       expect(getCommand?.arguments).toBeDefined()
@@ -330,7 +330,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const updateCommand = customerCommand?.subcommands?.find((s) => s.name === 'update')
 
       expect(updateCommand?.arguments).toBeDefined()
@@ -341,7 +341,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const deleteCommand = customerCommand?.subcommands?.find((s) => s.name === 'delete')
 
       expect(deleteCommand?.arguments).toBeDefined()
@@ -352,7 +352,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const upgradeCommand = customerCommand?.subcommands?.find((s) => s.name === 'upgrade')
 
       expect(upgradeCommand?.arguments).toBeDefined()
@@ -365,7 +365,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const ordersCommand = customerCommand?.subcommands?.find((s) => s.name === 'orders')
 
       expect(ordersCommand).toBeDefined()
@@ -376,7 +376,7 @@ describe('CLI Generation', () => {
       const resources = [customerResource]
       const cli = generateCLI(resources)
 
-      const customerCommand = cli.commands.find((cmd) => cmd.name === 'customers')
+      const customerCommand = cli.commands.find((cmd: CLICommand) => cmd.name === 'customers')
       const ordersCommand = customerCommand?.subcommands?.find((s) => s.name === 'orders')
 
       // Orders command should require customer ID

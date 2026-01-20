@@ -377,8 +377,8 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
 
       return {
         items: slicedItems,
-        nextCursor: hasMore && slicedItems.length > 0 ? slicedItems[slicedItems.length - 1].$id : undefined,
-        prevCursor: startIndex > 0 && slicedItems.length > 0 ? slicedItems[0].$id : undefined,
+        nextCursor: hasMore && slicedItems.length > 0 ? slicedItems[slicedItems.length - 1]!.$id : undefined,
+        prevCursor: startIndex > 0 && slicedItems.length > 0 ? slicedItems[0]!.$id : undefined,
         hasMore
       }
     },
@@ -690,8 +690,8 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       return {
         items: slicedEvents,
-        nextCursor: hasMore && slicedEvents.length > 0 ? slicedEvents[slicedEvents.length - 1].$id : undefined,
-        prevCursor: startIndex > 0 && slicedEvents.length > 0 ? slicedEvents[0].$id : undefined,
+        nextCursor: hasMore && slicedEvents.length > 0 ? slicedEvents[slicedEvents.length - 1]!.$id : undefined,
+        prevCursor: startIndex > 0 && slicedEvents.length > 0 ? slicedEvents[0]!.$id : undefined,
         hasMore
       }
     },
