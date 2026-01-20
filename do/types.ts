@@ -368,10 +368,11 @@ export interface TypedEveryProxy extends ScheduleRegisterFn {
 
 /**
  * Legacy untyped EveryProxy (backward compatible).
+ * Uses interface with index signature for recursive Proxy pattern.
+ * This is an intentional use of index signature for runtime Proxy behavior.
  */
-export type EveryProxy = {
+export interface EveryProxy {
   [key: string]: EveryProxy
-} & {
   (handler: () => Promise<void>): void
   (value: number): { [unit: string]: (handler: () => Promise<void>) => void }
 }
@@ -492,20 +493,29 @@ export type DOBindingAccessors<T extends DOBindingsConstraint> = {
 export type TypedWorkflowContext<
   B extends DOBindingsConstraint = EmptyBindings,
   E extends EventSchemasConstraint = EmptyEventSchemas
-> = TypedBaseWorkflowContext<E> & DOBindingAccessors<B> & {
-  // Allow dynamic access for bindings not in B (returns untyped proxy)
-  [key: string]: unknown
-}
+> = TypedBaseWorkflowContext<E> & DOBindingAccessors<B>
+
+/**
+ * TypedWorkflowContext with dynamic property access for unknown bindings.
+ * Use this type when you need to access DO bindings not defined in B.
+ */
+export type TypedWorkflowContextWithDynamic<
+  B extends DOBindingsConstraint = EmptyBindings,
+  E extends EventSchemasConstraint = EmptyEventSchemas
+> = TypedWorkflowContext<B, E> & Record<string, unknown>
 
 /**
  * Legacy WorkflowContext type (untyped, backward compatible).
- * Equivalent to TypedWorkflowContext<EmptyBindings, EmptyEventSchemas> with loose index signature.
+ * Cross-DO RPC is accessed dynamically via $.Customer(id), $.Worker(id), etc.
+ * using JavaScript Proxy. For dynamic access, use WorkflowContextWithDynamic.
  */
-export interface WorkflowContext extends BaseWorkflowContext {
-  // Cross-DO RPC (Proxy-based)
-  // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
-  [doName: string]: DOStubFactory | unknown
-}
+export type WorkflowContext = BaseWorkflowContext
+
+/**
+ * WorkflowContext with dynamic property access for DO RPC proxies.
+ * Use this when accessing DO bindings dynamically.
+ */
+export type WorkflowContextWithDynamic = WorkflowContext & Record<string, DOStubFactory | unknown>
 
 /**
  * Short alias for WorkflowContext (common in codebase).

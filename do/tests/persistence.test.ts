@@ -30,13 +30,21 @@ import * as os from 'os'
 // TYPE DEFINITIONS
 // ============================================================================
 
+/**
+ * Base Thing interface with known system fields.
+ * For things with custom properties, use ThingWithData.
+ */
 interface Thing {
   $id: string
   $type: string
   $createdAt: number
   $updatedAt: number
-  [key: string]: unknown
 }
+
+/**
+ * Thing with additional dynamic data properties.
+ */
+type ThingWithData = Thing & Record<string, unknown>
 
 interface Event {
   $id: string

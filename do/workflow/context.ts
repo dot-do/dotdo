@@ -26,7 +26,9 @@ import { createLogger } from '../../utils/logger'
 const logger = createLogger('[WorkflowContext]')
 
 /**
- * WorkflowContext interface defining the $ API
+ * WorkflowContext interface defining the $ API.
+ * Cross-DO RPC is accessed dynamically via $.Customer(id), $.Worker(id), etc.
+ * using JavaScript Proxy. For dynamic access, cast to WorkflowContextWithDynamic.
  */
 export interface WorkflowContext {
   // Durability levels
@@ -46,10 +48,6 @@ export interface WorkflowContext {
   // Integration registry for third-party services
   integrations: IntegrationRegistry
 
-  // Cross-DO RPC (Proxy-based)
-  // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
-  [doName: string]: DOStubFactory | unknown
-
   // Internal state (prefixed with _ to indicate private)
   _events: EventsStore
   _handlers: Map<string, EventHandler[]>
@@ -58,6 +56,12 @@ export interface WorkflowContext {
   _env: unknown
   _fireAndForgetErrors: FireAndForgetErrorStore
 }
+
+/**
+ * WorkflowContext with dynamic property access for DO RPC proxies.
+ * Use this type when you need dynamic access to DO bindings.
+ */
+export type WorkflowContextWithDynamic = WorkflowContext & Record<string, DOStubFactory | unknown>
 
 /**
  * Short alias for WorkflowContext
@@ -82,11 +86,12 @@ export interface DoOptions {
 export type DOStubFactory = (id: string | DurableObjectId) => DOStubProxy
 
 /**
- * EveryProxy type for the scheduling DSL
+ * EveryProxy interface for the scheduling DSL.
+ * Uses interface with index signature for recursive Proxy pattern.
+ * This is an intentional use of index signature for runtime Proxy behavior.
  */
-type EveryProxy = {
+interface EveryProxy {
   [key: string]: EveryProxy
-} & {
   (handler: () => Promise<void>): void
 }
 
