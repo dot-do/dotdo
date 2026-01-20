@@ -458,3 +458,379 @@ export function extractShardFromQuery(paramName: string) {
     return ctx.params?.get(paramName) || undefined
   }
 }
+
+// ============================================================================
+// Load Metrics Store (do-ftgn)
+// ============================================================================
+
+export interface LoadMetricsStoreConfig {
+  loadWeights?: Record<string, number>
+  decayFactor?: number
+  decayIntervalMs?: number
+}
+
+export interface LeastLoadedResult {
+  shardIndex: number
+  doName: string
+  load: number
+}
+
+export class LoadMetricsStore {
+  private loads: Map<string, number> = new Map()
+  private metrics: Map<string, Map<string, number>> = new Map()
+  private config: Required<LoadMetricsStoreConfig>
+  private lastDecayTime: number = Date.now()
+
+  constructor(config: LoadMetricsStoreConfig = {}) {
+    this.config = {
+      loadWeights: config.loadWeights ?? { requests: 1 },
+      decayFactor: config.decayFactor ?? 0.9,
+      decayIntervalMs: config.decayIntervalMs ?? 60000,
+    }
+  }
+
+  recordLoad(doName: string, load: number): void {
+    this.loads.set(doName, load)
+  }
+
+  recordRequest(doName: string): void {
+    const current = this.loads.get(doName) ?? 0
+    this.loads.set(doName, current + 1)
+  }
+
+  getLoad(doName: string): number {
+    return this.loads.get(doName) ?? 0
+  }
+
+  recordMetric(doName: string, metricType: string, value: number): void {
+    if (!this.metrics.has(doName)) {
+      this.metrics.set(doName, new Map())
+    }
+    this.metrics.get(doName)!.set(metricType, value)
+  }
+
+  getMetric(doName: string, metricType: string): number {
+    return this.metrics.get(doName)?.get(metricType) ?? 0
+  }
+
+  getCompositeLoad(doName: string): number {
+    const shardMetrics = this.metrics.get(doName)
+    if (!shardMetrics) return 0
+
+    let compositeLoad = 0
+    for (const [metricType, value] of shardMetrics) {
+      const weight = this.config.loadWeights[metricType] ?? 1
+      compositeLoad += value * weight
+    }
+    return compositeLoad
+  }
+
+  getShardLoads(
+    namespace: string,
+    entityType: string,
+    shardCount: number
+  ): Record<string, number> {
+    const loads: Record<string, number> = {}
+    for (let i = 0; i < shardCount; i++) {
+      const doName = `${namespace}:${entityType}:shard-${i}`
+      loads[doName] = this.getLoad(doName)
+    }
+    return loads
+  }
+
+  findLeastLoaded(
+    namespace: string,
+    entityType: string,
+    shardCount: number
+  ): LeastLoadedResult {
+    let minLoad = Infinity
+    let minIndex = 0
+    let minDoName = `${namespace}:${entityType}:shard-0`
+
+    for (let i = 0; i < shardCount; i++) {
+      const doName = `${namespace}:${entityType}:shard-${i}`
+      const load = this.getLoad(doName)
+      if (load < minLoad) {
+        minLoad = load
+        minIndex = i
+        minDoName = doName
+      }
+    }
+
+    return {
+      shardIndex: minIndex,
+      doName: minDoName,
+      load: minLoad === Infinity ? 0 : minLoad,
+    }
+  }
+
+  applyDecay(): void {
+    const now = Date.now()
+    const elapsed = now - this.lastDecayTime
+
+    if (elapsed >= this.config.decayIntervalMs) {
+      const decayMultiplier = this.config.decayFactor
+
+      for (const [doName, load] of this.loads) {
+        this.loads.set(doName, Math.floor(load * decayMultiplier))
+      }
+
+      for (const [, shardMetrics] of this.metrics) {
+        for (const [metricType, value] of shardMetrics) {
+          shardMetrics.set(metricType, Math.floor(value * decayMultiplier))
+        }
+      }
+
+      this.lastDecayTime = now
+    }
+  }
+
+  reset(): void {
+    this.loads.clear()
+    this.metrics.clear()
+    this.lastDecayTime = Date.now()
+  }
+
+  getSnapshot(): Record<string, number> {
+    const snapshot: Record<string, number> = {}
+    for (const [doName, load] of this.loads) {
+      snapshot[doName] = load
+    }
+    return snapshot
+  }
+}
+
+// ============================================================================
+// Load Balanced Router (do-ftgn)
+// ============================================================================
+
+export interface LoadBalanceTelemetryEvent {
+  type: 'load_balance_decision'
+  namespace: string
+  entityType?: string
+  selectedShard: number
+  selectedDoName: string
+  loadSnapshot: Record<string, number>
+  strategy: 'least-loaded' | 'weighted' | 'round-robin'
+  timestamp: number
+}
+
+export interface LoadBalancedShardResult extends ShardResult {
+  loadBalanced: boolean
+}
+
+export interface LoadBalancedRouterConfig extends ShardRouterConfig {
+  metricsStore?: LoadMetricsStore
+  strategy?: 'least-loaded' | 'weighted' | 'round-robin'
+  weights?: Record<string, number>
+  onTelemetry?: (event: LoadBalanceTelemetryEvent) => void
+}
+
+export class LoadBalancedRouter extends ShardRouter {
+  private metricsStore: LoadMetricsStore
+  private lbConfig: LoadBalancedRouterConfig
+  private roundRobinCounter: Map<string, number> = new Map()
+
+  constructor(config: LoadBalancedRouterConfig = {}) {
+    super(config)
+    this.lbConfig = {
+      ...config,
+      strategy: config.strategy ?? 'least-loaded',
+      weights: config.weights ?? {},
+    }
+    this.metricsStore = config.metricsStore ?? new LoadMetricsStore()
+  }
+
+  route(ctx: ShardContext): LoadBalancedShardResult {
+    const { namespace, path } = ctx
+    const separator = (this as unknown as { config: ShardRouterConfig }).config?.separator ?? ':'
+
+    if ((this as unknown as { config: ShardRouterConfig }).config?.enabled === false) {
+      return {
+        doName: namespace,
+        shardIndex: 0,
+        sharded: false,
+        loadBalanced: false,
+      }
+    }
+
+    const entityType =
+      ctx.entityType ||
+      (
+        this as unknown as { extractEntityType: (path: string) => string | undefined }
+      ).extractEntityType?.(path)
+
+    const key = this.extractKey(ctx)
+
+    if (ctx.entityId || key) {
+      const baseResult = super.route(ctx)
+      return {
+        ...baseResult,
+        loadBalanced: false,
+      }
+    }
+
+    const shardCount = this.getShardCount(entityType)
+    const { shardIndex, doName } = this.selectShard(
+      namespace,
+      entityType,
+      shardCount,
+      separator
+    )
+
+    const loadSnapshot = this.buildLoadSnapshot(
+      namespace,
+      entityType,
+      shardCount,
+      separator
+    )
+
+    if (this.lbConfig.onTelemetry) {
+      this.lbConfig.onTelemetry({
+        type: 'load_balance_decision',
+        namespace,
+        entityType,
+        selectedShard: shardIndex,
+        selectedDoName: doName,
+        loadSnapshot,
+        strategy: this.lbConfig.strategy!,
+        timestamp: Date.now(),
+      })
+    }
+
+    return {
+      doName,
+      shardIndex,
+      sharded: true,
+      loadBalanced: true,
+    }
+  }
+
+  private selectShard(
+    namespace: string,
+    entityType: string | undefined,
+    shardCount: number,
+    separator: string
+  ): { shardIndex: number; doName: string } {
+    const prefix = entityType
+      ? `${namespace}${separator}${entityType}`
+      : namespace
+
+    switch (this.lbConfig.strategy) {
+      case 'weighted':
+        return this.selectWeightedShard(prefix, shardCount, separator)
+      case 'round-robin':
+        return this.selectRoundRobinShard(prefix, shardCount, separator)
+      case 'least-loaded':
+      default:
+        return this.selectLeastLoadedShard(prefix, shardCount, separator)
+    }
+  }
+
+  private selectLeastLoadedShard(
+    prefix: string,
+    shardCount: number,
+    separator: string
+  ): { shardIndex: number; doName: string } {
+    let minLoad = Infinity
+    let minIndex = 0
+    const equalLoadIndices: number[] = []
+
+    for (let i = 0; i < shardCount; i++) {
+      const doName = `${prefix}${separator}shard-${i}`
+      const load = this.metricsStore.getLoad(doName)
+
+      if (load < minLoad) {
+        minLoad = load
+        minIndex = i
+        equalLoadIndices.length = 0
+        equalLoadIndices.push(i)
+      } else if (load === minLoad) {
+        equalLoadIndices.push(i)
+      }
+    }
+
+    if (equalLoadIndices.length > 1) {
+      const rrKey = `${prefix}:rr`
+      const rrIndex =
+        (this.roundRobinCounter.get(rrKey) ?? 0) % equalLoadIndices.length
+      this.roundRobinCounter.set(rrKey, rrIndex + 1)
+      minIndex = equalLoadIndices[rrIndex]
+    }
+
+    return {
+      shardIndex: minIndex,
+      doName: `${prefix}${separator}shard-${minIndex}`,
+    }
+  }
+
+  private selectWeightedShard(
+    prefix: string,
+    shardCount: number,
+    separator: string
+  ): { shardIndex: number; doName: string } {
+    let minEffectiveLoad = Infinity
+    let minIndex = 0
+
+    for (let i = 0; i < shardCount; i++) {
+      const doName = `${prefix}${separator}shard-${i}`
+      const load = this.metricsStore.getLoad(doName)
+      const weight = this.lbConfig.weights?.[doName] ?? 1
+      const effectiveLoad = load / weight
+
+      if (effectiveLoad < minEffectiveLoad) {
+        minEffectiveLoad = effectiveLoad
+        minIndex = i
+      }
+    }
+
+    return {
+      shardIndex: minIndex,
+      doName: `${prefix}${separator}shard-${minIndex}`,
+    }
+  }
+
+  private selectRoundRobinShard(
+    prefix: string,
+    shardCount: number,
+    separator: string
+  ): { shardIndex: number; doName: string } {
+    const rrKey = `${prefix}:rr`
+    const index = (this.roundRobinCounter.get(rrKey) ?? 0) % shardCount
+    this.roundRobinCounter.set(rrKey, index + 1)
+
+    return {
+      shardIndex: index,
+      doName: `${prefix}${separator}shard-${index}`,
+    }
+  }
+
+  private buildLoadSnapshot(
+    namespace: string,
+    entityType: string | undefined,
+    shardCount: number,
+    separator: string
+  ): Record<string, number> {
+    const prefix = entityType
+      ? `${namespace}${separator}${entityType}`
+      : namespace
+    const snapshot: Record<string, number> = {}
+
+    for (let i = 0; i < shardCount; i++) {
+      const doName = `${prefix}${separator}shard-${i}`
+      snapshot[doName] = this.metricsStore.getLoad(doName)
+    }
+
+    return snapshot
+  }
+
+  getMetricsStore(): LoadMetricsStore {
+    return this.metricsStore
+  }
+}
+
+export function createLoadBalancedRouter(
+  config?: LoadBalancedRouterConfig
+): LoadBalancedRouter {
+  return new LoadBalancedRouter(config)
+}
