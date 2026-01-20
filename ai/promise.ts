@@ -1,5 +1,4 @@
 // AIPromise wrapper
-// Extends Promise with AI-specific metadata, streaming, and composition
 
 import { createStream, type Stream } from './stream'
 
@@ -19,47 +18,14 @@ export interface AIPromise<T> extends Promise<T> {
   pipe<U>(fn: (value: T) => U | Promise<U>): AIPromise<U>
 }
 
-/**
- * Options for creating an AIPromise with streaming support
- */
-export interface AIPromiseOptions {
-  /** Initial metadata */
-  initialMeta?: AIMeta
-  /** Stream executor - returns an async iterable of chunks */
-  streamExecutor?: (meta: AIMeta) => AsyncIterable<string>
-}
-
-/**
- * Create an AIPromise that wraps a completion executor
- *
- * @param executor - Function that executes the AI call and returns a result
- * @param options - Options including initial metadata and optional stream executor
- */
 export function createAIPromise<T>(
   executor: (meta: AIMeta) => Promise<T>,
-  optionsOrMeta: AIPromiseOptions | AIMeta = {}
+  initialMeta: AIMeta = {}
 ): AIPromise<T> {
-  // Support both old signature (just AIMeta) and new signature (AIPromiseOptions)
-  const isAIPromiseOptions = (obj: object): obj is AIPromiseOptions =>
-    'initialMeta' in obj || 'streamExecutor' in obj
+  const meta: AIMeta = { ...initialMeta }
 
-  const options: AIPromiseOptions = isAIPromiseOptions(optionsOrMeta)
-    ? optionsOrMeta
-    : { initialMeta: optionsOrMeta }
-
-  const meta: AIMeta = { ...(options.initialMeta || {}) }
-
-  // Create the base promise - lazily executed
-  let basePromiseCache: Promise<T> | null = null
-  const getBasePromise = () => {
-    if (!basePromiseCache) {
-      basePromiseCache = executor(meta)
-    }
-    return basePromiseCache
-  }
-
-  // We need to create the promise immediately for proper Promise behavior
-  const basePromise = getBasePromise()
+  // Create the base promise
+  const basePromise = executor(meta)
 
   // Extend with AIPromise methods
   const aiPromise = basePromise as AIPromise<T>
@@ -70,49 +36,22 @@ export function createAIPromise<T>(
   })
 
   Object.defineProperty(aiPromise, 'with', {
-    value: (newOptions: Partial<AIMeta>) => {
-      // Create a new promise with updated meta but re-run the executor
-      const updatedMeta = { ...meta, ...newOptions }
-
-      // Build options for the new promise
-      const newPromiseOptions: AIPromiseOptions = {
-        initialMeta: updatedMeta,
-      }
-
-      // Only add streamExecutor if it exists
-      if (options.streamExecutor) {
-        newPromiseOptions.streamExecutor = (m) => {
-          Object.assign(m, updatedMeta)
-          return options.streamExecutor!(m)
-        }
-      }
-
-      return createAIPromise(
-        async (m) => {
-          // Copy updated meta
-          Object.assign(m, updatedMeta)
-          // Re-run the executor with updated meta
-          return executor(m)
-        },
-        newPromiseOptions
-      )
+    value: (options: Partial<AIMeta>) => {
+      return createAIPromise(executor, { ...meta, ...options })
     },
     enumerable: true
   })
 
   Object.defineProperty(aiPromise, 'stream', {
     value: function (): Stream<string> {
-      // Use custom stream executor if provided (real LLM streaming)
-      if (options.streamExecutor) {
-        return createStream(options.streamExecutor(meta))
-      }
-
-      // Fallback: chunk the completed result for backward compatibility
+      // Create an async generator that yields the result
+      // In a real implementation, this would stream from the LLM
       async function* generator() {
         const result = await basePromise
         const resultString = String(result)
 
         // Simulate streaming by chunking the result
+        // Real implementation would get chunks from LLM
         const chunkSize = 10
         for (let i = 0; i < resultString.length; i += chunkSize) {
           yield resultString.slice(i, i + chunkSize)
@@ -152,7 +91,7 @@ export function createAIPromise<T>(
           // Apply transformation
           return await fn(result)
         },
-        { initialMeta: { ...meta } }
+        { ...meta }
       )
     },
     enumerable: true
