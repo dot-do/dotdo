@@ -1,6 +1,7 @@
 // Digital Objects Integration for @dotdo/db
 // Adapts digital-objects provider to @dotdo/db Thing interface
 
+import type { StorableData } from './types'
 import type {
   DigitalObjectsProvider,
   Thing as DOThing,
@@ -36,7 +37,7 @@ export interface ValidationOptions {
  * - updatedAt (Date) -> $updatedAt (number)
  * - data.* -> * (flatten data fields to top level)
  */
-function mapToDbThing<T extends Record<string, unknown>>(doThing: DOThing<T>): Thing {
+function mapToDbThing<T extends StorableData>(doThing: DOThing<T>): Thing {
   return {
     $id: doThing.id,
     $type: doThing.noun,
@@ -52,7 +53,7 @@ function mapToDbThing<T extends Record<string, unknown>>(doThing: DOThing<T>): T
  * Removes metadata fields ($id, $type, $createdAt, $updatedAt)
  * to get the data payload for digital-objects
  */
-function extractData<T extends Record<string, unknown>>(dbThing: Partial<T>): Record<string, unknown> {
+function extractData<T extends StorableData>(dbThing: Partial<T>): StorableData {
   const { $id, $type, $createdAt, $updatedAt, ...data } = dbThing as any
   return data
 }
@@ -209,7 +210,7 @@ export const TypeMapping = {
         tsType = 'unknown'
         break
       case 'object':
-        tsType = 'Record<string, unknown>'
+        tsType = 'StorableData'
         break
       case 'array':
         tsType = 'unknown[]'
@@ -262,7 +263,7 @@ export const TypeMapping = {
 export async function validateSchema(
   provider: DigitalObjectsProvider,
   nounName: string,
-  data: Record<string, unknown>
+  data: StorableData
 ): Promise<{ valid: boolean; errors: Array<{ field: string; message: string }> }> {
   const noun = await provider.getNoun(nounName)
   if (!noun) {

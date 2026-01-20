@@ -27,7 +27,11 @@ import {
 import { MigrationRunner, coreMigrations, type Migration } from './migrations'
 import { generateId, generateEventId } from './id'
 
-// SqlStorage interface from Cloudflare Workers
+/**
+ * SqlStorage interface from Cloudflare Workers
+ * Uses Record<string, unknown> for SQL result rows since raw SQL queries
+ * can return any column types. Callers should cast to appropriate types.
+ */
 export interface SqlStorage {
   exec(sql: string): { results: Array<Record<string, unknown>> }
   prepare(sql: string): {

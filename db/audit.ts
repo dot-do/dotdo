@@ -1,5 +1,6 @@
 // Audit Logging - Comprehensive audit trail for security and compliance (do-xebw)
 
+import type { JsonValue, StorableData } from './types'
 import type { SqlStorage, SQLiteAdapter } from './sqlite'
 import { createMigration, type Migration } from './migrations'
 
@@ -42,8 +43,8 @@ export interface AuditLog {
   resourceId?: string
   /** Log level for filtering and alerting */
   level: AuditLogLevel
-  /** Additional context about the action */
-  details?: Record<string, unknown>
+  /** Additional context about the action - uses StorableData for JSON-safe values */
+  details?: StorableData
   /** Correlation ID for tracing related operations */
   correlationId?: string
 }
@@ -213,18 +214,19 @@ export function meetsLogLevel(level: AuditLogLevel, minLevel: AuditLogLevel): bo
 
 /**
  * Mask sensitive fields in an object
+ * Uses StorableData to ensure JSON-safe values
  */
 export function maskSensitiveFields(
-  data: Record<string, unknown>,
+  data: StorableData,
   fieldsToMask: string[]
-): Record<string, unknown> {
-  const masked: Record<string, unknown> = {}
+): StorableData {
+  const masked: StorableData = {}
 
   for (const [key, value] of Object.entries(data)) {
     if (fieldsToMask.some(field => key.toLowerCase().includes(field.toLowerCase()))) {
       masked[key] = '***REDACTED***'
     } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      masked[key] = maskSensitiveFields(value as Record<string, unknown>, fieldsToMask)
+      masked[key] = maskSensitiveFields(value as StorableData, fieldsToMask)
     } else {
       masked[key] = value
     }
